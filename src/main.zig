@@ -12,6 +12,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const normalize = @import("normalize.zig");
+const ownership = @import("ownership.zig");
 
 const Mode = enum {
     parse,
@@ -86,11 +87,11 @@ pub fn main(init: std.process.Init) !void {
         .parse => try parseAndPrint(allocator, io, source),
         .tokens => dumpTokens(source),
         .normalize => try normalizeAndPrint(allocator, io, source),
-        .check, .build, .run => {
+        .check => try checkAndReport(allocator, io, source, file_path),
+        .build, .run => {
             std.debug.print("Subcommand `{s}` not yet implemented (deferred to milestone {s}).\n", .{
                 sub,
                 switch (mode) {
-                    .check => "M2",
                     .build => "M3",
                     .run => "M4",
                     else => unreachable,
@@ -138,6 +139,32 @@ fn normalizeAndPrint(allocator: std.mem.Allocator, io: std.Io, source: []const u
     try out.write(source, w);
     try w.writeAll("\n");
     try w.flush();
+}
+
+fn checkAndReport(allocator: std.mem.Allocator, io: std.Io, source: []const u8, file_path: []const u8) !void {
+    var p = parser.Parser.init(allocator, source);
+    defer p.deinit();
+
+    const raw = p.parseProgram() catch {
+        p.printError();
+        std.process.exit(1);
+    };
+
+    var alloc = allocator;
+    var n = normalize.Normalizer.init(&alloc);
+    const ir = try n.normalize(raw);
+
+    var checker = try ownership.Checker.init(allocator, source);
+    defer checker.deinit();
+    try checker.check(ir);
+
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    const w: *std.Io.Writer = &stdout_writer.interface;
+    try checker.writeDiagnostics(file_path, w);
+    try w.flush();
+
+    if (checker.hasErrors()) std.process.exit(1);
 }
 
 fn dumpTokens(source: []const u8) void {

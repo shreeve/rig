@@ -1,0 +1,2 @@
+examples/escape.rig:7:4: error: returned borrow of `user` does not originate from a borrowed parameter
+examples/escape.rig:6:3:   note: `user` was bound locally here

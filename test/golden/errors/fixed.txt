@@ -1,0 +1,2 @@
+examples/fixed.rig:13:3: error: cannot reassign fixed binding `user`
+examples/fixed.rig:12:3:   note: `user` was bound here with `=!`

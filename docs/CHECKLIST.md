@@ -93,11 +93,65 @@ heads — they're already binding-classified.
 
 ## M2 — Ownership checker
 
-- [ ] `src/ownership.zig` implements SPEC §"Ownership Checker V1"
-- [ ] All SPEC §"V1 Test Cases" pass/fail as specified
-- [ ] Source-pointed sigil-aware diagnostics
-- [ ] Goldens in `test/golden/errors/`
+- [x] `src/ownership.zig` implements SPEC §"Ownership Checker V1"
+- [x] All 7 SPEC §"V1 Test Cases" pass/fail as specified
+- [x] Source-pointed sigil-aware diagnostics with `note:` lines
+- [x] Goldens in `test/golden/errors/` (9 examples; 5 with diagnostics)
+- [x] `bin/rig check <file.rig>` works (exit 0 clean, 1 with errors)
+- [x] Test runner extended (38/38), unit tests added (24 passing, no leaks)
 - [ ] M2 commit landed
+
+### M2 design notes
+
+**Per-scope binding tables.** A stack of scopes; each scope holds a list
+of binding indices into a flat `bindings` array. `lookup` walks parent
+scopes; `lookupCurrent` is for shadow-collision detection.
+
+**Path borrows lock the root** (V1 conservative per SPEC). `(read (member
+user name))` increments `user.read_borrows`; the root binding is what
+the checker tracks. Future precision can refine this to per-path.
+
+**Temporary vs bound borrows.** Per SPEC §"Borrow Lifetime":
+
+- Temporary borrows (`print ?user`) end at statement end. Tracked via a
+  `temp_borrows` stack pushed by `walkBorrow` and drained by `walkStmt`.
+- Bound borrows (`r = ?user`) live until `r`'s scope exits. The set/bind
+  walker detects RHS borrows, claims (removes) the corresponding entry
+  from `temp_borrows`, and records `borrow_root_index` on the binder.
+  Scope-pop releases all borrows owned by departing bindings.
+
+**RHS-first evaluation.** Per GPT-5.5: `(set x (move y))` evaluates RHS
+first (move `y`), then binds/reassigns `x`. This is correct for
+ownership-flow semantics.
+
+**Borrow-escape rule (SPEC §V1 #7).** A function whose return type is
+outer-`(optional T)` (treated as borrowed return) has each implicit-
+return statement checked: returned `(read X)` / `(write X)` must root
+in a parameter that was also typed `(optional T)`. The check runs
+inside `walkFun` BEFORE the body's scope is popped, so the parameter
+binding is still in scope.
+
+**Diagnostic format.**
+
+  `<file>:<line>:<col>: error: <message>`
+  `<file>:<line>:<col>:   note: <message>`
+
+Compatible with editor jump-to-error. Goldens are byte-diffed.
+
+**Detected violations** (with sample diagnostics):
+
+| Rule | Source                         | Diagnostic                                                              |
+|------|--------------------------------|-------------------------------------------------------------------------|
+| #1   | `send <packet; log ?packet`    | `use of \`packet\` after move` + note pointing at `<packet`             |
+| #2   | `r = ?user; rename !user`      | `cannot write-borrow \`user\` while a read borrow is live`              |
+| #3   | `w = !user; print ?user`       | `cannot read-borrow \`user\` while a write borrow is live`              |
+| #4   | `-user; print ?user`           | `use of \`user\` after drop` + note pointing at the drop                |
+| #5   | `x = 1; new x = 2`             | (no error; explicit shadow allowed)                                     |
+| #6   | `user =! foo; user = bar`      | `cannot reassign fixed binding \`user\``                                |
+| #7   | `fun bad() -> ?String { ... }` | `returned borrow of \`user\` does not originate from a borrowed parameter` |
+| bonus| `-x; -x`                       | `cannot drop \`x\` twice`                                               |
+| bonus| `-x` then read of `x`          | `cannot drop \`x\` while borrows are live`                              |
+| bonus| reference to unbound name      | `use of unbound name \`x\``                                             |
 
 ## M3 — Zig emitter
 

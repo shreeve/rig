@@ -1,0 +1,2 @@
+examples/move.rig:8:8: error: use of `packet` after move
+examples/move.rig:7:9:   note: `packet` was moved here

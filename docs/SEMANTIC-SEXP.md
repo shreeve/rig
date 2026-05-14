@@ -8,23 +8,23 @@ The IR's design rule:
 
 ## Cheat sheet — raw → normalized
 
-| Raw S-expr from parser              | Normalized                                   | Note                                        |
-|-------------------------------------|----------------------------------------------|---------------------------------------------|
-| `(= target expr)`                   | `(set target expr)`                          | "set" is neutral; M2 disambiguates bind/rebind |
-| `(+= target expr)` etc.             | `(set_op += target expr)`                    | compound assignment unified                 |
-| `(move_assign target expr)`         | `(set target (move expr))`                   | `<-` is sugar for `target = <expr`          |
-| `(fixed_bind name expr)`            | `(fixed_bind name expr)`                     | unchanged; semantic head already            |
-| `(shadow name expr)`                | `(shadow name expr)`                         | unchanged                                   |
-| `(typed_assign name type expr)`     | `(typed_set name type expr)`                 | typed binding (stmt-only)                   |
-| `(typed_fixed name type expr)`      | `(typed_fixed name type expr)`               | unchanged                                   |
-| `(. obj name)`                      | `(member obj name)`                          | cosmetic                                    |
-| `(pair name expr)`                  | `(kwarg name expr)`                          | named call args / constructor sugar         |
-| `(? T)`                             | `(optional T)`                               | optional type                               |
-| `(for x _ (read xs) body)`          | `(for_read x xs body)`                       | sigil consumed into mode                    |
-| `(for x _ (write xs) body)`         | `(for_write x xs body)`                      |                                             |
-| `(for x _ (move xs) body)`          | `(for_move x xs body)`                       |                                             |
-| `(for x _ source body)`             | `(for_none x source body)`                   |                                             |
-| `(for_ptr ...)`                     | `(for_ptr ...)`                              | unchanged (Zag-style pointer iteration)     |
+| Raw S-expr from parser          | Normalized                     | Note                                           |
+|---------------------------------|--------------------------------|------------------------------------------------|
+| `(= target expr)`               | `(set target expr)`            | "set" is neutral; M2 disambiguates bind/rebind |
+| `(+= target expr)` etc.         | `(set_op += target expr)`      | compound assignment unified                    |
+| `(move_assign target expr)`     | `(set target (move expr))`     | `<-` is sugar for `target = <expr`             |
+| `(fixed_bind name expr)`        | `(fixed_bind name expr)`       | unchanged; semantic head already               |
+| `(shadow name expr)`            | `(shadow name expr)`           | unchanged                                      |
+| `(typed_assign name type expr)` | `(typed_set name type expr)`   | typed binding (stmt-only)                      |
+| `(typed_fixed name type expr)`  | `(typed_fixed name type expr)` | unchanged                                      |
+| `(. obj name)`                  | `(member obj name)`            | cosmetic                                       |
+| `(pair name expr)`              | `(kwarg name expr)`            | named call args / constructor sugar            |
+| `(? T)`                         | `(optional T)`                 | optional type                                  |
+| `(for x _ (read xs) body)`      | `(for_read x xs body)`         | sigil consumed into mode                       |
+| `(for x _ (write xs) body)`     | `(for_write x xs body)`        |                                                |
+| `(for x _ (move xs) body)`      | `(for_move x xs body)`         |                                                |
+| `(for x _ source body)`         | `(for_none x source body)`     |                                                |
+| `(for_ptr ...)`                 | `(for_ptr ...)`                | unchanged (Zag-style pointer iteration)        |
 
 Everything else (calls, literals, control flow, types) passes through unchanged for M1; M2 and M3 may further normalize.
 
@@ -62,26 +62,26 @@ Everything else (calls, literals, control flow, types) passes through unchanged 
 ### Bindings
 
 ```
-(set target expr)                ; from `=`
-(set_op op-tag target expr)      ; from `+=`, `-=`, `*=`, `/=`
-(fixed_bind name expr)           ; from `=!`
-(shadow name expr)               ; from `new x = expr`
-(typed_set name type expr)       ; from `name : type = expr`
-(typed_fixed name type expr)     ; from `name : type =! expr`
-(drop name)                      ; statement-position `-name`
+(set target expr)            ; from `=`
+(set_op op-tag target expr)  ; from `+=`, `-=`, `*=`, `/=`
+(fixed_bind name expr)       ; from `=!`
+(shadow name expr)           ; from `new x = expr`
+(typed_set name type expr)   ; from `name : type = expr`
+(typed_fixed name type expr) ; from `name : type =! expr`
+(drop name)                  ; statement-position `-name`
 ```
 
 ### Ownership wrappers (expression position)
 
 ```
-(move expr)    ; <x   transfer ownership in
-(read expr)    ; ?x   read borrow
-(write expr)   ; !x   write borrow
-(clone expr)   ; +x   clone
-(share expr)   ; *x   shared strong
-(weak expr)    ; ~x   weak reference
-(pin expr)     ; @x   pinned address
-(raw expr)     ; %x   raw / unsafe access
+(move expr)  ; <x   transfer ownership in
+(read expr)  ; ?x   read borrow
+(write expr) ; !x   write borrow
+(clone expr) ; +x   clone
+(share expr) ; *x   shared strong
+(weak expr)  ; ~x   weak reference
+(pin expr)   ; @x   pinned address
+(raw expr)   ; %x   raw / unsafe access
 ```
 
 ### Control flow

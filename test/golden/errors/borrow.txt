@@ -1,0 +1,2 @@
+examples/borrow.rig:8:11: error: cannot write-borrow `user` while a read borrow is live
+examples/borrow.rig:7:8:   note: read borrow taken here

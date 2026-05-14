@@ -1,0 +1,3 @@
+examples/spacing.rig:23:8: error: use of unbound name `x`
+examples/spacing.rig:28:9: error: use of unbound name `x`
+examples/spacing.rig:29:9: error: use of unbound name `x`
