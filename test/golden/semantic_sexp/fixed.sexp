@@ -1,0 +1,1 @@
+(module (fun loadUser ((: id U64)) (error_union User) (block (call User (kwarg name "Steve")))) (fun refreshUser ((: id U64)) (error_union User) (block (call User (kwarg name "Steve")))) (sub main () _ (block (fixed_bind user (propagate (call loadUser 1))) (set user (propagate (call refreshUser 1))))))

@@ -11,6 +11,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+const normalize = @import("normalize.zig");
 
 const Mode = enum {
     parse,
@@ -84,11 +85,11 @@ pub fn main(init: std.process.Init) !void {
     switch (mode) {
         .parse => try parseAndPrint(allocator, io, source),
         .tokens => dumpTokens(source),
-        .normalize, .check, .build, .run => {
+        .normalize => try normalizeAndPrint(allocator, io, source),
+        .check, .build, .run => {
             std.debug.print("Subcommand `{s}` not yet implemented (deferred to milestone {s}).\n", .{
                 sub,
                 switch (mode) {
-                    .normalize => "M1",
                     .check => "M2",
                     .build => "M3",
                     .run => "M4",
@@ -114,6 +115,27 @@ fn parseAndPrint(allocator: std.mem.Allocator, io: std.Io, source: []const u8) !
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     const w: *std.Io.Writer = &stdout_writer.interface;
     try result.write(source, w);
+    try w.writeAll("\n");
+    try w.flush();
+}
+
+fn normalizeAndPrint(allocator: std.mem.Allocator, io: std.Io, source: []const u8) !void {
+    var p = parser.Parser.init(allocator, source);
+    defer p.deinit();
+
+    const raw = p.parseProgram() catch {
+        p.printError();
+        std.process.exit(1);
+    };
+
+    var alloc = allocator;
+    var n = normalize.Normalizer.init(&alloc);
+    const out = try n.normalize(raw);
+
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    const w: *std.Io.Writer = &stdout_writer.interface;
+    try out.write(source, w);
     try w.writeAll("\n");
     try w.flush();
 }

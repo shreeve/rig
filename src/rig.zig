@@ -65,11 +65,18 @@ pub const Tag = enum(u8) {
     @"return",
 
     // Bindings (Rig)
+    //
+    // The raw parser emits `=` for assignment-or-bind (M2 decides which).
+    // Normalize renames it to `set` so the M2 ownership checker sees a
+    // neutral form and isn't visually overloaded with the operator literal.
+    @"set",             // normalized `=` (set/bind, M2 disambiguates)
+    @"set_op",          // normalized compound: (set_op `+=` target expr)
     @"fixed_bind",      // x =! expr     (was Zag `const_assign`)
-    @"move_assign",     // x <- expr     (sugar for x = <expr)
+    @"move_assign",     // x <- expr     (raw; normalized to (set x (move e)))
     @"shadow",          // new x = expr  (explicit shadowing)
-    @"typed_assign",
-    @"typed_fixed",     // typed `=!`
+    @"typed_assign",    // raw: name : T = expr
+    @"typed_fixed",     // raw: name : T =! expr
+    @"typed_set",       // normalized typed_assign
     @"=",
     @"+=",
     @"-=",
@@ -89,6 +96,7 @@ pub const Tag = enum(u8) {
     @"range_pattern",
     @"enum_pattern",
     @"enum_lit",        // .strict (inferred-type enum value)
+    @"for_none",        // for x in expr  (no sigil mode)
     @"break",
     @"continue",
     @"defer",
@@ -103,12 +111,14 @@ pub const Tag = enum(u8) {
     // Calls and access
     @"addr_of",
     @"call",
-    @".",
+    @".",               // raw member access from parser
+    @"member",          // normalized `.` (cosmetic rename)
     @"deref",
     @"index",
     @"array",
     @"record",
-    @"pair",
+    @"pair",            // raw `name: expr` from parser
+    @"kwarg",           // normalized `pair` (cosmetic rename)
 
     // Operators — arithmetic
     @"+",
@@ -148,7 +158,8 @@ pub const Tag = enum(u8) {
     @"valued",
     @"default",
     @":",
-    @"?",               // optional type wrapper (type position)
+    @"?",               // raw optional type from parser (type position)
+    @"optional",        // normalized `?T` (cosmetic rename)
     @"ptr",
     @"const_ptr",
     @"sentinel_slice",

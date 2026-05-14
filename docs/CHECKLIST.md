@@ -60,10 +60,36 @@ stmt-only (not in `expr`), eliminating the `name : type =` vs
 
 ## M1 — Semantic normalizer
 
-- [ ] `docs/SEMANTIC-SEXP.md`
-- [ ] `src/normalize.zig` implements every SPEC §"Semantic IR Nodes" form
-- [ ] Goldens in `test/golden/semantic_sexp/`
+- [x] `docs/SEMANTIC-SEXP.md`
+- [x] `src/normalize.zig` implements every SPEC §"Semantic IR Nodes" form
+- [x] Goldens in `test/golden/semantic_sexp/` (9 examples, all stable)
+- [x] `bin/rig normalize <file.rig>` works
+- [x] Test runner extended; 29/29 tests passing
 - [ ] M1 commit landed
+
+### M1 design notes
+
+Per GPT-5.5 review, **`=` normalizes to `set`** (neutral term) instead of
+`assign` — M2 is the right place to decide bind-vs-rebind. Other
+cosmetic renames make the IR self-documenting:
+
+- `(. obj name)` → `(member obj name)`
+- `(pair name expr)` → `(kwarg name expr)`
+- `(? T)` → `(optional T)`
+
+The `for` rewrite consumes the source's sigil into the head Tag:
+
+  `(for u _ (read xs) body)` → `(for_read u xs body)`
+  `(for u _ (write xs) body)` → `(for_write u xs body)`
+  `(for u _ (move xs) body)` → `(for_move u xs body)`
+
+`move_assign` desugars to `(set target (move expr))` so M2 sees the
+move semantics explicitly without a special-case head.
+
+`(fixed_bind name e)` and `(shadow name e)` keep their semantic Tag
+heads — they're already binding-classified.
+
+`(propagate x)` is preserved; M3 lowers it to Zig `try x`.
 
 ## M2 — Ownership checker
 

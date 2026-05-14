@@ -1,0 +1,1 @@
+(module (fun bad () (optional String) (block (set user (call User (kwarg name "Steve"))) (read (member user name)))) (fun name ((: user (optional User))) (optional String) (block (read (member user name)))))

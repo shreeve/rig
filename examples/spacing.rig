@@ -6,21 +6,35 @@
 #   *x   share prefix     vs    a * b   multiply infix
 #   +x   clone prefix     vs    a + b   plus infix
 #   %x   raw prefix       vs    a % b   modulo infix
+#   ?x   read prefix      vs    expr?   propagate (postfix)
 #   @x   pin prefix       vs    @len(x) builtin call
-#   a?   propagate suffix vs    a ?T    optional type after colon
-#   -x   drop statement   vs    y = -x  unary negation in expression
+#   a.*  deref            vs    *x      share prefix
+#   y = -x  expr negation vs    -x      drop statement (at stmt-start)
 
 sub main()
   a = 1
   b = 2
-  c = a < x
-  d = a * b
-  e = a + b
-  f = a % b
-  g = @len(arr)
-  m = <x
-  s = *x
-  k = +x
-  r = %x
-  p = @x
-  y = -x
+  c = a < x          # infix: (< a x)
+  d = a * b          # infix: (* a b)
+  e = a + b          # infix: (+ a b)
+  f = a % b          # infix: (% a b)
+  g = @len(arr)      # builtin: (builtin len arr)
+  h = a.*            # deref: (deref a)
+  m = <x             # move: (move x)
+  s = *x             # share: (share x)
+  k = +x             # clone: (clone x)
+  r = %x             # raw: (raw x)
+  p = @x             # pin: (pin x)
+  rb = ?x            # read borrow: (read x)
+  wb = !x            # write borrow: (write x)
+  y = -x             # negation in expr position: (neg x)
+
+  # Drop is only at statement-start (per SPEC: "Drop is statement-only")
+  -y                 # drop: (drop y)
+
+  # Multi-pair constructor:
+  u = User(name: "Steve", age: 42)
+
+  # Mixed positional + named (named must come last for sanity, but parser
+  # tolerates any order in V1).
+  v = make(arena, name: "Steve")

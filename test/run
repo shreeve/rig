@@ -53,42 +53,44 @@ section_done() { local e=$1; (( e > 0 )) && printf "  %s(%ds)%s\n\n" "$C_DIM" "$
 SUITE_START=$SECONDS
 
 # -----------------------------------------------------------------------------
-# 1. Golden raw_sexp tests
+# 1. Golden Sexp tests (raw + semantic)
 # -----------------------------------------------------------------------------
 
-run_golden_sexp() {
+run_golden() {
     local rig_file=$1
+    local subcmd=$2          # parse | normalize
+    local kind=$3            # raw_sexp | semantic_sexp
     local name=$(basename "$rig_file" .rig)
-    local golden="test/golden/raw_sexp/${name}.sexp"
-    local out="$TMPDIR/${name}.sexp"
+    local golden="test/golden/${kind}/${name}.sexp"
+    local out="$TMPDIR/${kind}_${name}.sexp"
 
-    if ! $RIG parse "$rig_file" > "$out" 2>&1; then
+    if ! $RIG "$subcmd" "$rig_file" > "$out" 2>&1; then
         FAIL=$((FAIL + 1))
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  $name — parse failed: $(cat "$out")"
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  ${kind}/$name — $subcmd failed: $(cat "$out")"
         return
     fi
 
     if $UPDATE; then
         mkdir -p "$(dirname "$golden")"
         cp "$out" "$golden"
-        say_update "$name"
+        say_update "${kind}/$name"
         PASS=$((PASS + 1))
         return
     fi
 
     if [[ ! -f "$golden" ]]; then
         FAIL=$((FAIL + 1))
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  $name — no golden (run with --update)"
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  ${kind}/$name — no golden (run with --update)"
         return
     fi
 
     if diff -q "$golden" "$out" >/dev/null 2>&1; then
-        say_pass "$name"
+        say_pass "${kind}/$name"
         PASS=$((PASS + 1))
     else
         FAIL=$((FAIL + 1))
         local lines=$(diff "$golden" "$out" | grep -c '^[<>]' || true)
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  $name — $lines lines differ"
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  ${kind}/$name — $lines lines differ"
     fi
 }
 
@@ -96,7 +98,15 @@ section "Golden raw_sexp"
 SECTION_START=$SECONDS
 for f in examples/*.rig; do
     [[ -e "$f" ]] || continue
-    run_golden_sexp "$f"
+    run_golden "$f" parse raw_sexp
+done
+section_done $(( SECONDS - SECTION_START ))
+
+section "Golden semantic_sexp"
+SECTION_START=$SECONDS
+for f in examples/*.rig; do
+    [[ -e "$f" ]] || continue
+    run_golden "$f" normalize semantic_sexp
 done
 section_done $(( SECONDS - SECTION_START ))
 
