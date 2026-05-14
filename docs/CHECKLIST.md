@@ -77,11 +77,17 @@ cosmetic renames make the IR self-documenting:
 - `(pair name expr)` → `(kwarg name expr)`
 - `(? T)` → `(optional T)`
 
-The `for` rewrite consumes the source's sigil into the head Tag:
+The `for` rewrite consumes the source's sigil into a child mode Tag
+per SPEC §"Semantic IR Nodes" — `(for mode binding collection body)`:
 
-  `(for u _ (read xs) body)` → `(for_read u xs body)`
-  `(for u _ (write xs) body)` → `(for_write u xs body)`
-  `(for u _ (move xs) body)` → `(for_move u xs body)`
+  `(for u _ (read xs) body)`  → `(for read u xs body)`
+  `(for u _ (write xs) body)` → `(for write u xs body)`
+  `(for u _ (move xs) body)`  → `(for move u xs body)`
+  `(for u _ source body)`     → `(for none u source body)`
+
+Keeping a single `for` head Tag (mode as child) is more uniform than
+having `for_read` / `for_write` / `for_move` / `for_none` heads, and
+matches SPEC. Downstream passes (M2, M3) switch on one Tag.
 
 `move_assign` desugars to `(set target (move expr))` so M2 sees the
 move semantics explicitly without a special-case head.

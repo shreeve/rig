@@ -86,17 +86,18 @@ pub const Tag = enum(u8) {
     // Control flow
     @"if",
     @"while",
+    // for: (for <mode> binding source body else?)
+    //   mode is one of `read`, `write`, `move`, `none`
+    // SPEC §"Semantic IR Nodes" specifies the (for mode ...) shape.
     @"for",
-    @"for_ptr",
-    @"for_read",        // for x in ?xs
-    @"for_write",       // for x in !xs
-    @"for_move",        // for x in <xs
+    @"for_ptr",         // Zag-inherited pointer iteration, kept separate
+                        // because it has an extra binding
     @"match",
     @"arm",
     @"range_pattern",
     @"enum_pattern",
     @"enum_lit",        // .strict (inferred-type enum value)
-    @"for_none",        // for x in expr  (no sigil mode)
+    @"none",            // generic "no mode" marker (e.g., (for none ...))
     @"break",
     @"continue",
     @"defer",

@@ -371,7 +371,7 @@ pub const Emitter = struct {
             .@"return" => try self.emitReturn(items),
             .@"if" => try self.emitIf(items),
             .@"while" => try self.emitWhile(items),
-            .@"for_read", .@"for_write", .@"for_move", .@"for_none" => try self.emitFor(items),
+            .@"for" => try self.emitFor(items),
             .@"block" => try self.emitBlock(sexp),
             .@"break" => try self.w.writeAll("break;"),
             .@"continue" => try self.w.writeAll("continue;"),
@@ -485,11 +485,13 @@ pub const Emitter = struct {
     }
 
     fn emitFor(self: *Emitter, items: []const Sexp) Error!void {
-        // (for_<mode> binding source body else?)
-        if (items.len < 4) return;
-        const binding = items[1];
-        const source = items[2];
-        const body = items[3];
+        // (for <mode> binding source body else?)
+        // Mode is informational for V1 (Zig's `for` doesn't distinguish
+        // borrow modes); ownership semantics were enforced by M2.
+        if (items.len < 5) return;
+        const binding = items[2];
+        const source = items[3];
+        const body = items[4];
 
         try self.w.writeAll("for (");
         try self.emitExpr(source);

@@ -20,11 +20,11 @@ The IR's design rule:
 | `(. obj name)`                  | `(member obj name)`            | cosmetic                                       |
 | `(pair name expr)`              | `(kwarg name expr)`            | named call args / constructor sugar            |
 | `(? T)`                         | `(optional T)`                 | optional type                                  |
-| `(for x _ (read xs) body)`      | `(for_read x xs body)`         | sigil consumed into mode                       |
-| `(for x _ (write xs) body)`     | `(for_write x xs body)`        |                                                |
-| `(for x _ (move xs) body)`      | `(for_move x xs body)`         |                                                |
-| `(for x _ source body)`         | `(for_none x source body)`     |                                                |
-| `(for_ptr ...)`                 | `(for_ptr ...)`                | unchanged (Zag-style pointer iteration)        |
+| `(for x _ (read xs) body)`      | `(for read x xs body)`         | SPEC §"Semantic IR Nodes": `(for mode binding collection body)` — mode is a child Tag, not a head Tag |
+| `(for x _ (write xs) body)`     | `(for write x xs body)`        | mode is one of `read`, `write`, `move`, `none` |
+| `(for x _ (move xs) body)`      | `(for move x xs body)`         |                                                |
+| `(for x _ source body)`         | `(for none x source body)`     |                                                |
+| `(for_ptr ...)`                 | `(for_ptr ...)`                | unchanged (Zag-style pointer iteration; has an extra binding for the pointer) |
 
 Everything else (calls, literals, control flow, types) passes through unchanged for M1; M2 and M3 may further normalize.
 
@@ -90,11 +90,8 @@ Everything else (calls, literals, control flow, types) passes through unchanged 
 (if cond then else?)
 (while cond body else?)
 (while cond cont body else?)     ; `while c : cont body` form
-(for_read   binding source body else?)
-(for_write  binding source body else?)
-(for_move   binding source body else?)
-(for_none   binding source body else?)
-(for_ptr    binding ptr_binding? source body else?)
+(for     mode binding source body else?)   ; mode = read | write | move | none
+(for_ptr binding ptr_binding? source body else?)
 (match scrutinee arms...)
 (arm pattern binding? body)
 (range_pattern lo hi)
@@ -194,6 +191,6 @@ INTEGER REAL STRING_SQ STRING_DQ                ; raw parser src refs
 - `(fixed_bind x e)` lowers to `const x = e;`.
 - `(propagate e)` lowers to Zig `try e`.
 - `(try_block body (catch_block err catch_body))` lowers to a Zig block expression, possibly via `blk: { ... }` if value-yielding.
-- `(for_read x xs body)` lowers to `for (xs) |x| { ... }` (Zig's iteration over a const ref) — borrow semantics enforced by the checker, not the emitted Zig.
-- `(for_move x xs body)` lowers to a consuming iteration (Zig `for (&xs) |x| {...}` with consumption is a future concern; V1 may model this with explicit element-by-element move + `xs.deinit()`).
+- `(for read x xs body)` lowers to `for (xs) |x| { ... }` (Zig's iteration over a const ref) — borrow semantics enforced by the checker, not the emitted Zig.
+- `(for move x xs body)` lowers to a consuming iteration (Zig `for (&xs) |x| {...}` with consumption is a future concern; V1 may model this with explicit element-by-element move + `xs.deinit()`).
 - `(record T (kwarg name v) ...)` and `(call T (kwarg name v) ...)` both lower to `T{ .name = v }` Zig struct literal when the callee is a known type.

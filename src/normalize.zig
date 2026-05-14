@@ -142,14 +142,17 @@ pub const Normalizer = struct {
     // For loops
     // -------------------------------------------------------------------------
 
-    /// (for binding ptr_binding source body else?) →
-    ///   (<for_mode> binding source' body else?)
-    /// where mode = for_read | for_write | for_move | for_none and source'
-    /// is the inner of the consumed sigil wrapper (or the original source).
-    /// `for_ptr` (pointer iteration) is preserved as-is.
+    /// Per SPEC §"Semantic IR Nodes":
+    ///   (for binding _ source body else?) →
+    ///     (for <mode> binding source' body else?)
+    /// where mode is one of `read`, `write`, `move`, `none`. The source's
+    /// outer ownership wrapper (if any) is consumed into the mode position
+    /// and the inner expression becomes the iterated value.
+    ///
+    /// `for_ptr` (Zag-inherited pointer iteration, with an extra binding)
+    /// keeps its dedicated head Tag.
     fn normFor(self: *Normalizer, items: []const Sexp, is_ptr: bool) !Sexp {
         if (is_ptr) {
-            // for_ptr keeps its shape; just walk children.
             return self.walkChildren(.{ .list = items });
         }
         if (items.len < 4) return self.walkChildren(.{ .list = items });
@@ -159,20 +162,20 @@ pub const Normalizer = struct {
         const raw_source = items[3];
         const source = try self.walk(raw_source);
 
-        var mode: Tag = .for_none;
+        var mode: Tag = .@"none";
         var unwrapped_source = source;
         if (source == .list and source.list.len >= 2 and source.list[0] == .tag) {
             switch (source.list[0].tag) {
                 .@"read" => {
-                    mode = .for_read;
+                    mode = .@"read";
                     unwrapped_source = source.list[1];
                 },
                 .@"write" => {
-                    mode = .for_write;
+                    mode = .@"write";
                     unwrapped_source = source.list[1];
                 },
                 .@"move" => {
-                    mode = .for_move;
+                    mode = .@"move";
                     unwrapped_source = source.list[1];
                 },
                 else => {},
@@ -183,13 +186,14 @@ pub const Normalizer = struct {
         const has_else = items.len >= 6;
         const else_body = if (has_else) try self.walk(items[5]) else Sexp{ .nil = {} };
 
-        const out_len: usize = if (has_else) 5 else 4;
+        const out_len: usize = if (has_else) 6 else 5;
         const out = try self.arena.alloc(Sexp, out_len);
-        out[0] = .{ .tag = mode };
-        out[1] = binding;
-        out[2] = unwrapped_source;
-        out[3] = body;
-        if (has_else) out[4] = else_body;
+        out[0] = .{ .tag = .@"for" };
+        out[1] = .{ .tag = mode };
+        out[2] = binding;
+        out[3] = unwrapped_source;
+        out[4] = body;
+        if (has_else) out[5] = else_body;
         return Sexp{ .list = out };
     }
 
