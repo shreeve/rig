@@ -13,6 +13,7 @@ const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const normalize = @import("normalize.zig");
 const ownership = @import("ownership.zig");
+const emit = @import("emit.zig");
 
 const Mode = enum {
     parse,
@@ -88,17 +89,8 @@ pub fn main(init: std.process.Init) !void {
         .tokens => dumpTokens(source),
         .normalize => try normalizeAndPrint(allocator, io, source),
         .check => try checkAndReport(allocator, io, source, file_path),
-        .build, .run => {
-            std.debug.print("Subcommand `{s}` not yet implemented (deferred to milestone {s}).\n", .{
-                sub,
-                switch (mode) {
-                    .build => "M3",
-                    .run => "M4",
-                    else => unreachable,
-                },
-            });
-            std.process.exit(2);
-        },
+        .build => try buildAndEmit(allocator, io, source, file_path),
+        .run => try buildAndRun(allocator, io, source, file_path),
         .help => unreachable,
     }
 }
@@ -165,6 +157,97 @@ fn checkAndReport(allocator: std.mem.Allocator, io: std.Io, source: []const u8, 
     try w.flush();
 
     if (checker.hasErrors()) std.process.exit(1);
+}
+
+fn buildAndEmit(allocator: std.mem.Allocator, io: std.Io, source: []const u8, file_path: []const u8) !void {
+    _ = file_path;
+    var p = parser.Parser.init(allocator, source);
+    defer p.deinit();
+    const raw = p.parseProgram() catch {
+        p.printError();
+        std.process.exit(1);
+    };
+
+    var alloc = allocator;
+    var n = normalize.Normalizer.init(&alloc);
+    const ir = try n.normalize(raw);
+
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    const w: *std.Io.Writer = &stdout_writer.interface;
+
+    var em = emit.Emitter.init(allocator, source, w);
+    defer em.deinit();
+    try em.emit(ir);
+    try w.flush();
+}
+
+fn buildAndRun(allocator: std.mem.Allocator, io: std.Io, source: []const u8, file_path: []const u8) !void {
+    // Parse → normalize → emit Zig to a temp file → spawn `zig run <tmp>`.
+    var p = parser.Parser.init(allocator, source);
+    defer p.deinit();
+    const raw = p.parseProgram() catch {
+        p.printError();
+        std.process.exit(1);
+    };
+
+    var alloc = allocator;
+    var n = normalize.Normalizer.init(&alloc);
+    const ir = try n.normalize(raw);
+
+    var tmp_buf: [256]u8 = undefined;
+    const tmp_path = makeTmpPath(&tmp_buf, file_path);
+
+    {
+        const f = std.Io.Dir.cwd().createFile(io, tmp_path, .{}) catch |err| {
+            std.debug.print("error creating {s}: {}\n", .{ tmp_path, err });
+            std.process.exit(1);
+        };
+        defer f.close(io);
+
+        var file_buffer: [4096]u8 = undefined;
+        var file_writer = f.writer(io, &file_buffer);
+        const w: *std.Io.Writer = &file_writer.interface;
+
+        var em = emit.Emitter.init(allocator, source, w);
+        defer em.deinit();
+        try em.emit(ir);
+        try w.flush();
+    }
+
+    const argv = [_][]const u8{ "zig", "run", tmp_path };
+    var child = try std.process.spawn(io, .{
+        .argv = &argv,
+        .stdin = .inherit,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    });
+    const term = try child.wait(io);
+    switch (term) {
+        .exited => |code| if (code != 0) {
+            std.debug.print("note: generated Zig at {s}\n", .{tmp_path});
+            std.process.exit(code);
+        },
+        else => std.process.exit(1),
+    }
+}
+
+fn makeTmpPath(buf: []u8, rig_path: []const u8) []const u8 {
+    var start: usize = 0;
+    for (rig_path, 0..) |c, i| {
+        if (c == '/' or c == '\\') start = i + 1;
+    }
+    var base = rig_path[start..];
+    if (base.len > 4 and std.mem.eql(u8, base[base.len - 4 ..], ".rig")) {
+        base = base[0 .. base.len - 4];
+    }
+    const prefix = "/tmp/rig_";
+    const suffix = ".zig";
+    if (prefix.len + base.len + suffix.len > buf.len) return "/tmp/_rig_out.zig";
+    @memcpy(buf[0..prefix.len], prefix);
+    @memcpy(buf[prefix.len..][0..base.len], base);
+    @memcpy(buf[prefix.len + base.len ..][0..suffix.len], suffix);
+    return buf[0 .. prefix.len + base.len + suffix.len];
 }
 
 fn dumpTokens(source: []const u8) void {

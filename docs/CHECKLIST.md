@@ -155,15 +155,57 @@ Compatible with editor jump-to-error. Goldens are byte-diffed.
 
 ## M3 — Zig emitter
 
-- [ ] `src/emit.zig` targets Zig 0.16 (Juicy Main, std.Io)
-- [ ] Goldens in `test/golden/emitted_zig/`
-- [ ] `zig ast-check` clean on every emitted file
+- [x] `src/emit.zig` targets Zig 0.16 (plain `pub fn main() !void`, `std.debug.print` for V1)
+- [x] Goldens in `test/golden/emitted_zig/` (hello, shadow)
+- [x] `zig ast-check` clean on every emitted file
+- [x] Per-fn pre-scan for mutation (chooses `var` vs `const`) and fallibility (`!T` only when body has `propagate`)
+- [x] Auto-prefix `try` at call sites of fallible functions (per GPT-5.5 advice)
+- [x] Shadow renames: `new x` becomes `x_1` with `_ = x;` to silence Zig's unused-local check
+- [x] `try_block` and complex if/match-as-expression emit `@compileError(...)` for V1
+- [x] 4 new emit unit tests pass
 - [ ] M3 commit landed
 
 ## M4 — `rig` binary
 
-- [ ] `bin/rig run examples/hello.rig` prints "hello"
+- [x] `bin/rig run examples/hello.rig` spawns `zig run` on emitted Zig and prints "hello, rig"
+- [x] End-to-end test in `test/run` verifies hello output
 - [ ] M4 commit landed
+
+### M3/M4 design notes
+
+**Per-function pre-scan.** Before emitting each fn body:
+
+  1. `containsPropagate(body)` decides if the fn is fallible (`!T`).
+  2. `scanMutations(body)` collects names that are `set` more than once;
+     these get `var`, others get `const` (Zig's strict rule).
+
+**`print x` lowering.**
+
+  - String literals → `std.debug.print("{s}\n", .{x})`
+  - Other args → `std.debug.print("{any}\n", .{x})`
+  - V1 supports a single arg.
+
+**Implicit return.** `fun add(a,b) -> Int { a + b }` rewrites the last
+expression-statement to `return a + b;`. `sub` (no return) doesn't.
+
+**Constructor sugar.** `User(name: "Steve")` emits `User{ .name = "Steve" }`
+(Zig struct literal) when ANY arg is a `(kwarg ...)`, else regular call.
+
+**Auto-`try`.** A bare call to a fallible function gets `try` prefixed
+unless we're already in a `try` / `propagate` context (tracked by
+`in_try_context`). This makes `result = add(1, 2)` work even when
+`add` is `!i32`.
+
+**End-to-end pipeline.** `rig run examples/hello.rig`:
+
+  1. Parse Rig source via the Nexus-generated parser.
+  2. Normalize to semantic IR.
+  3. Emit Zig 0.16 source to `/tmp/rig_<basename>.zig`.
+  4. Spawn `zig run /tmp/rig_<basename>.zig` with inherited stdio.
+  5. Pass through exit code.
+
+`hello.rig` → `hello, rig` end to end, validated by `test/run`'s
+"End-to-end run" section.
 
 ## SPEC-aligned vs inherited-pending-review
 

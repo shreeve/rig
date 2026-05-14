@@ -88,4 +88,13 @@ pub fn build(b: *std.Build) void {
     const ownership_tests = b.addTest(.{ .root_module = ownership_test_mod });
     const run_ownership_tests = b.addRunArtifact(ownership_tests);
     test_step.dependOn(&run_ownership_tests.step);
+
+    const emit_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/emit.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const emit_tests = b.addTest(.{ .root_module = emit_test_mod });
+    const run_emit_tests = b.addRunArtifact(emit_tests);
+    test_step.dependOn(&run_emit_tests.step);
 }

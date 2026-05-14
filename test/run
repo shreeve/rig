@@ -156,6 +156,92 @@ done
 section_done $(( SECONDS - SECTION_START ))
 
 # -----------------------------------------------------------------------------
+# 1d. Golden emitted Zig (only for examples that pass the checker cleanly)
+# -----------------------------------------------------------------------------
+
+EMIT_TARGETS=(hello shadow)
+
+run_golden_emit() {
+    local name=$1
+    local rig_file="examples/${name}.rig"
+    local golden="test/golden/emitted_zig/${name}.zig"
+    local out="$TMPDIR/emit_${name}.zig"
+
+    if ! $RIG build "$rig_file" > "$out" 2>&1; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  emit/$name — build failed"
+        return
+    fi
+
+    if $UPDATE; then
+        mkdir -p "$(dirname "$golden")"
+        cp "$out" "$golden"
+        say_update "emit/$name"
+        PASS=$((PASS + 1))
+        return
+    fi
+
+    if [[ ! -f "$golden" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  emit/$name — no golden (run with --update)"
+        return
+    fi
+
+    if diff -q "$golden" "$out" >/dev/null 2>&1; then
+        say_pass "emit/$name"
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        local lines=$(diff "$golden" "$out" | grep -c '^[<>]' || true)
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  emit/$name — $lines lines differ"
+    fi
+}
+
+run_emit_compile_check() {
+    local name=$1
+    local rig_file="examples/${name}.rig"
+    local out="$TMPDIR/compile_${name}.zig"
+    $RIG build "$rig_file" > "$out" 2>&1 || true
+    if zig ast-check "$out" >/dev/null 2>&1; then
+        say_pass "emit-compiles/$name"
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  emit-compiles/$name — emitted Zig fails ast-check"
+    fi
+}
+
+section "Golden emitted_zig"
+SECTION_START=$SECONDS
+for name in "${EMIT_TARGETS[@]}"; do
+    run_golden_emit "$name"
+done
+section_done $(( SECONDS - SECTION_START ))
+
+section "Emitted Zig compiles"
+SECTION_START=$SECONDS
+for name in "${EMIT_TARGETS[@]}"; do
+    run_emit_compile_check "$name"
+done
+section_done $(( SECONDS - SECTION_START ))
+
+# -----------------------------------------------------------------------------
+# 1e. End-to-end run check
+# -----------------------------------------------------------------------------
+
+section "End-to-end run"
+SECTION_START=$SECONDS
+HELLO_OUT=$($RIG run examples/hello.rig 2>&1 || true)
+if echo "$HELLO_OUT" | grep -q "hello, rig"; then
+    say_pass "hello.rig runs and prints expected output"
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+    ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  hello.rig run — got: $HELLO_OUT"
+fi
+section_done $(( SECONDS - SECTION_START ))
+
+# -----------------------------------------------------------------------------
 # 2. Compile check — generated parser.zig is syntactically valid Zig
 # -----------------------------------------------------------------------------
 
