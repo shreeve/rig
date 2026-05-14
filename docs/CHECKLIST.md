@@ -214,6 +214,17 @@ unless we're already in a `try` / `propagate` context (tracked by
 `hello.rig` → `hello, rig` end to end, validated by `test/run`'s
 "End-to-end run" section.
 
+## IR uniformity refactors (post-V1 polish)
+
+- [x] `for_read` / `for_write` / `for_move` / `for_none` collapsed into `(for mode binding source body)` per SPEC.
+- [x] `for` mode uses `_` (nil) for "no mode" (matches existing IR convention; no `none` Tag needed).
+- [x] `typed_set` / `typed_fixed` collapsed into `set` / `fixed_bind` with a type slot. All bind forms now use uniform 4-child shape `(<head> name type-or-_ expr)`.
+- [x] `extern_var` / `extern_const` collapsed into `(extern_decl <kind> name type)`.
+
+Future candidates (not yet pursued):
+
+- decoration wrappers (`pub`/`extern`/`export`/`packed`/`callconv`) could become a uniform `(decorate <kind> child)` with `(callconv "C")` carrying its name. Low priority — current wrappers are clear.
+
 ## SPEC-aligned vs inherited-pending-review
 
 Constructs Zag provides that Rig should validate against SPEC during M1/M2:

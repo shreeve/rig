@@ -8,18 +8,20 @@ The IR's design rule:
 
 ## Cheat sheet — raw → normalized
 
-| Raw S-expr from parser          | Normalized                     | Note                                           |
-|---------------------------------|--------------------------------|------------------------------------------------|
-| `(= target expr)`               | `(set target expr)`            | "set" is neutral; M2 disambiguates bind/rebind |
-| `(+= target expr)` etc.         | `(set_op += target expr)`      | compound assignment unified                    |
-| `(move_assign target expr)`     | `(set target (move expr))`     | `<-` is sugar for `target = <expr`             |
-| `(fixed_bind name expr)`        | `(fixed_bind name expr)`       | unchanged; semantic head already               |
-| `(shadow name expr)`            | `(shadow name expr)`           | unchanged                                      |
-| `(typed_assign name type expr)` | `(typed_set name type expr)`   | typed binding (stmt-only)                      |
-| `(typed_fixed name type expr)`  | `(typed_fixed name type expr)` | unchanged                                      |
-| `(. obj name)`                  | `(member obj name)`            | cosmetic                                       |
-| `(pair name expr)`              | `(kwarg name expr)`            | named call args / constructor sugar            |
-| `(? T)`                         | `(optional T)`                 | optional type                                  |
+| Raw S-expr from parser          | Normalized                          | Note                                           |
+|---------------------------------|-------------------------------------|------------------------------------------------|
+| `(= target expr)`               | `(set target _ expr)`               | "set" is neutral; M2 disambiguates bind/rebind. 4-child shape with type slot at items[2] (`_` = no annotation) |
+| `(+= target expr)` etc.         | `(set_op += target expr)`           | compound assignment (op as child)              |
+| `(move_assign target expr)`     | `(set target _ (move expr))`        | `<-` is sugar for `target = <expr`             |
+| `(fixed_bind name expr)`        | `(fixed_bind name _ expr)`          | unified 4-child shape                          |
+| `(shadow name expr)`            | `(shadow name _ expr)`              | unified 4-child shape                          |
+| `(typed_assign name type expr)` | `(set name type expr)`              | typed `=` folds into `set` with type slot      |
+| `(typed_fixed name type expr)`  | `(fixed_bind name type expr)`       | typed `=!` folds into `fixed_bind` with type slot |
+| `(extern_var name type)`        | `(extern_decl _ name type)`         | extern variable (kind = `_` for var)           |
+| `(extern_const name type)`      | `(extern_decl fixed name type)`     | extern const (kind = `fixed`)                  |
+| `(. obj name)`                  | `(member obj name)`                 | cosmetic                                       |
+| `(pair name expr)`              | `(kwarg name expr)`                 | named call args / constructor sugar            |
+| `(? T)`                         | `(optional T)`                      | optional type                                  |
 | `(for x _ (read xs) body)`      | `(for read x xs body)`         | SPEC §"Semantic IR Nodes": `(for mode binding collection body)` — mode is at child position 1, not a head Tag |
 | `(for x _ (write xs) body)`     | `(for write x xs body)`        | mode is one of `read`, `write`, `move`, or `_` (nil) for default iteration |
 | `(for x _ (move xs) body)`      | `(for move x xs body)`         |                                                |
@@ -50,8 +52,7 @@ Everything else (calls, literals, control flow, types) passes through unchanged 
 (opaque name)
 (use name)
 (test desc body)
-(extern_var name type)
-(extern_const name type)
+(extern_decl <kind> name type)   ; kind = _ (var) | fixed (const)
 (zig string)                     ; raw Zig escape hatch (M2: unsafe)
 (labeled name stmt)
 
@@ -61,15 +62,20 @@ Everything else (calls, literals, control flow, types) passes through unchanged 
 
 ### Bindings
 
+All binding forms (except `set_op`) share a uniform 4-child shape with
+a type slot at items[2] — `_` (nil) when there's no annotation.
+
 ```
-(set target expr)            ; from `=`
-(set_op op-tag target expr)  ; from `+=`, `-=`, `*=`, `/=`
-(fixed_bind name expr)       ; from `=!`
-(shadow name expr)           ; from `new x = expr`
-(typed_set name type expr)   ; from `name : type = expr`
-(typed_fixed name type expr) ; from `name : type =! expr`
-(drop name)                  ; statement-position `-name`
+(set        name type-or-_ expr)   ; from `=`   (M2 disambiguates bind/rebind)
+(fixed_bind name type-or-_ expr)   ; from `=!`
+(shadow     name type-or-_ expr)   ; from `new x = expr`
+(set_op op-tag target expr)        ; from `+=`, `-=`, `*=`, `/=`  (no type slot)
+(drop name)                        ; statement-position `-name`
 ```
+
+The typed surface forms (`x: Int = 5`, `x: Int =! 5`) collapse into
+`set` and `fixed_bind` with the type slot populated — there's no
+separate `typed_set` / `typed_fixed` head.
 
 ### Ownership wrappers (expression position)
 

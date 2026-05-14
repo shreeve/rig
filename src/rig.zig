@@ -41,6 +41,8 @@ pub const Tag = enum(u8) {
     @"extern_const",
     @"opaque",
     @"generic_type",    // type Box(T) ...
+    @"extern_decl",     // (extern_decl <kind> name type)  — kind = _ (var) | fixed (const)
+    @"fixed",           // generic "fixed/immutable" kind marker (used in extern_decl, etc.)
     @"volatile_ptr",
     @"many_ptr",
     @"sentinel_ptr",
@@ -66,17 +68,23 @@ pub const Tag = enum(u8) {
 
     // Bindings (Rig)
     //
-    // The raw parser emits `=` for assignment-or-bind (M2 decides which).
-    // Normalize renames it to `set` so the M2 ownership checker sees a
-    // neutral form and isn't visually overloaded with the operator literal.
-    @"set",             // normalized `=` (set/bind, M2 disambiguates)
+    // Normalized binding forms ALL have a 4-child shape:
+    //   (set        name type-or-_ expr)   — `=`  (M2 disambiguates bind/rebind)
+    //   (fixed_bind name type-or-_ expr)   — `=!`
+    //   (shadow     name type-or-_ expr)   — `new x = expr`
+    //   (set_op op  target expr)           — compound `+=`, `-=`, `*=`, `/=`
+    //                                         (no type slot; type irrelevant)
+    //
+    // The type slot is `_` (nil) when there's no annotation. `typed_assign`
+    // and `typed_fixed` are RAW heads from the parser; normalize folds them
+    // into `set` / `fixed_bind` with the type slot populated.
+    @"set",             // normalized `=`
     @"set_op",          // normalized compound: (set_op `+=` target expr)
     @"fixed_bind",      // x =! expr     (was Zag `const_assign`)
-    @"move_assign",     // x <- expr     (raw; normalized to (set x (move e)))
+    @"move_assign",     // x <- expr     (raw; normalized to (set x _ (move e)))
     @"shadow",          // new x = expr  (explicit shadowing)
-    @"typed_assign",    // raw: name : T = expr
-    @"typed_fixed",     // raw: name : T =! expr
-    @"typed_set",       // normalized typed_assign
+    @"typed_assign",    // raw: name : T = expr   (folded to `set` by normalize)
+    @"typed_fixed",     // raw: name : T =! expr  (folded to `fixed_bind` by normalize)
     @"=",
     @"+=",
     @"-=",

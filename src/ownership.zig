@@ -221,9 +221,7 @@ pub const Checker = struct {
             },
             .@"block" => try self.walkBlock(items[1..]),
             .@"set" => try self.walkSet(items, false),
-            .@"typed_set" => try self.walkSet(items, false), // typed_set: name is at items[1]
             .@"fixed_bind" => try self.walkBind(items, true, false),
-            .@"typed_fixed" => try self.walkBind(items, true, false),
             .@"shadow" => try self.walkBind(items, false, true),
             .@"drop" => try self.walkDrop(items),
             .@"move" => try self.walkBorrow(items, .move_op),
@@ -378,12 +376,10 @@ pub const Checker = struct {
     }
 
     fn walkSet(self: *Checker, items: []const Sexp, _: bool) Error!void {
-        // (set target expr) or (typed_set name type expr)
-        const head = items[0].tag;
-        const expr_idx: usize = if (head == .typed_set) 3 else 2;
-        if (items.len <= expr_idx) return;
+        // (set target type-or-_ expr) — unified 4-child shape
+        if (items.len < 4) return;
         const target = items[1];
-        const expr = items[expr_idx];
+        const expr = items[3];
 
         // RHS effects first
         try self.walk(expr, false);
@@ -431,12 +427,10 @@ pub const Checker = struct {
     }
 
     fn walkBind(self: *Checker, items: []const Sexp, fixed: bool, shadow: bool) Error!void {
-        // (fixed_bind name expr) | (shadow name expr) | (typed_fixed name type expr)
-        const head = items[0].tag;
-        const expr_idx: usize = if (head == .typed_fixed) 3 else 2;
-        if (items.len <= expr_idx) return;
+        // (fixed_bind name type-or-_ expr) | (shadow name type-or-_ expr) — unified 4-child shape
+        if (items.len < 4) return;
         const target = items[1];
-        const expr = items[expr_idx];
+        const expr = items[3];
 
         try self.walk(expr, false);
 

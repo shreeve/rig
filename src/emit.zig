@@ -360,8 +360,6 @@ pub const Emitter = struct {
             .@"set" => try self.emitSet(items, false, false),
             .@"set_op" => try self.emitSetOp(items),
             .@"fixed_bind" => try self.emitSet(items, true, false),
-            .@"typed_set" => try self.emitTypedSet(items, false),
-            .@"typed_fixed" => try self.emitTypedSet(items, true),
             .@"shadow" => try self.emitSet(items, false, true),
             .@"drop" => {
                 // No-op for V1 (Zig handles cleanup at scope or via deinit).
@@ -391,16 +389,21 @@ pub const Emitter = struct {
     }
 
     fn emitSet(self: *Emitter, items: []const Sexp, fixed: bool, shadow: bool) Error!void {
-        // (set name expr) | (fixed_bind name expr) | (shadow name expr)
-        if (items.len < 3) return;
+        // Unified 4-child shape:
+        //   (set        name type-or-_ expr)
+        //   (fixed_bind name type-or-_ expr)
+        //   (shadow     name type-or-_ expr)
+        if (items.len < 4) return;
         const name = identText(self.source, items[1]) orelse return;
-        const expr = items[2];
+        const type_node = items[2];   // .nil if no annotation
+        const expr = items[3];
+        const has_type = type_node != .nil;
 
         var zig_name: []const u8 = name;
         const found = self.lookup(name);
 
         if (shadow or found == null) {
-            // Fresh declaration (new variable)
+            // Fresh declaration
             if (shadow and found != null) {
                 // Mark the shadowed binding as "used" so Zig doesn't error
                 // on the now-unreachable original.
@@ -408,36 +411,25 @@ pub const Emitter = struct {
                 zig_name = try self.freshShadow(name);
             }
             try self.declare(name, zig_name);
-            // Choose `var` only if the binding is reassigned later (Zig
-            // requires never-mutated bindings to be `const`). `=!` always
-            // emits `const`.
+            // `var` only if reassigned later (Zig requires never-mutated
+            // bindings to be `const`). `=!` always emits `const`.
             const is_mutated = self.fn_mutated.contains(name);
             const decl_kw: []const u8 = if (fixed or !is_mutated) "const" else "var";
-            try self.w.print("{s} {s} = ", .{ decl_kw, zig_name });
+            if (has_type) {
+                try self.w.print("{s} {s}: ", .{ decl_kw, zig_name });
+                try self.emitType(type_node);
+                try self.w.writeAll(" = ");
+            } else {
+                try self.w.print("{s} {s} = ", .{ decl_kw, zig_name });
+            }
             try self.emitExpr(expr);
             try self.w.writeAll(";");
         } else {
-            // Reassignment
+            // Reassignment (type annotation ignored on rebind)
             try self.w.print("{s} = ", .{found.?});
             try self.emitExpr(expr);
             try self.w.writeAll(";");
         }
-    }
-
-    fn emitTypedSet(self: *Emitter, items: []const Sexp, fixed: bool) Error!void {
-        // (typed_set name type expr) | (typed_fixed name type expr)
-        if (items.len < 4) return;
-        const name = identText(self.source, items[1]) orelse return;
-        const type_node = items[2];
-        const expr = items[3];
-
-        try self.declare(name, name);
-        const decl_kw: []const u8 = if (fixed) "const" else "var";
-        try self.w.print("{s} {s}: ", .{ decl_kw, name });
-        try self.emitType(type_node);
-        try self.w.writeAll(" = ");
-        try self.emitExpr(expr);
-        try self.w.writeAll(";");
     }
 
     fn emitSetOp(self: *Emitter, items: []const Sexp) Error!void {
@@ -997,8 +989,7 @@ fn scanMutationsRec(
 fn isExprStmt(sexp: Sexp) bool {
     if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return true;
     return switch (sexp.list[0].tag) {
-        .@"set", .@"set_op", .@"fixed_bind", .@"shadow",
-        .@"typed_set", .@"typed_fixed", .@"drop",
+        .@"set", .@"set_op", .@"fixed_bind", .@"shadow", .@"drop",
         .@"return", .@"break", .@"continue",
         .@"defer", .@"errdefer",
         .@"block",

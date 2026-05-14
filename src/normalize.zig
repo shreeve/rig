@@ -43,8 +43,12 @@ pub const Normalizer = struct {
                     .@"=" => try self.normSet(items),
                     .@"+=", .@"-=", .@"*=", .@"/=" => try self.normSetOp(items),
                     .@"move_assign" => try self.normMoveAssign(items),
-                    .@"typed_assign" => try self.normTypedSet(items),
-                    .@"typed_fixed" => try self.normTypedFixed(items),
+                    .@"fixed_bind" => try self.normBindWithType(items, .fixed_bind, null),
+                    .@"shadow" => try self.normBindWithType(items, .shadow, null),
+                    .@"typed_assign" => try self.normTyped(items, .set),
+                    .@"typed_fixed" => try self.normTyped(items, .fixed_bind),
+                    .@"extern_var" => try self.normExternDecl(items, false),
+                    .@"extern_const" => try self.normExternDecl(items, true),
                     .@"." => try self.normMember(items),
                     .@"pair" => try self.normKwarg(items),
                     .@"?" => try self.normOptional(items),
@@ -69,14 +73,50 @@ pub const Normalizer = struct {
     // Bindings
     // -------------------------------------------------------------------------
 
-    /// (= target expr) → (set target expr')
+    /// (= target expr) → (set target _ expr')
+    /// Type slot is nil ("no annotation"); see normTyped for the typed form.
     fn normSet(self: *Normalizer, items: []const Sexp) !Sexp {
-        return self.rewriteHead(items, .set);
+        return self.normBindWithType(items, .set, null);
+    }
+
+    /// Helper: given `(<head> name expr)`, emit `(<new_head> name <type> expr')`
+    /// where `type` is the supplied node OR `_` (nil) if null. Used by `set`,
+    /// `fixed_bind`, `shadow`, `typed_assign`, `typed_fixed`.
+    fn normBindWithType(
+        self: *Normalizer,
+        items: []const Sexp,
+        new_head: Tag,
+        type_node: ?Sexp,
+    ) !Sexp {
+        if (items.len < 3) return self.rewriteHead(items, new_head);
+        const target = try self.walk(items[1]);
+        const expr = try self.walk(items[2]);
+        const out = try self.arena.alloc(Sexp, 4);
+        out[0] = .{ .tag = new_head };
+        out[1] = target;
+        out[2] = if (type_node) |t| try self.walk(t) else Sexp{ .nil = {} };
+        out[3] = expr;
+        return Sexp{ .list = out };
+    }
+
+    /// Raw typed forms from the parser collapse into the regular bind heads
+    /// with the type slot populated:
+    ///   (typed_assign name type expr) → (set        name type' expr')
+    ///   (typed_fixed  name type expr) → (fixed_bind name type' expr')
+    fn normTyped(self: *Normalizer, items: []const Sexp, new_head: Tag) !Sexp {
+        if (items.len < 4) return self.rewriteHead(items, new_head);
+        const target = try self.walk(items[1]);
+        const t = try self.walk(items[2]);
+        const expr = try self.walk(items[3]);
+        const out = try self.arena.alloc(Sexp, 4);
+        out[0] = .{ .tag = new_head };
+        out[1] = target;
+        out[2] = t;
+        out[3] = expr;
+        return Sexp{ .list = out };
     }
 
     /// (+= target expr) → (set_op += target expr')
-    /// (-= ...)         → (set_op -= ...)
-    /// etc.
     fn normSetOp(self: *Normalizer, items: []const Sexp) !Sexp {
         // Build (set_op <op-tag> <target'> <expr'>)
         var out = try self.arena.alloc(Sexp, items.len + 1);
@@ -88,29 +128,34 @@ pub const Normalizer = struct {
         return Sexp{ .list = out };
     }
 
-    /// (move_assign target expr) → (set target (move expr'))
+    /// (move_assign target expr) → (set target _ (move expr'))
     fn normMoveAssign(self: *Normalizer, items: []const Sexp) !Sexp {
-        if (items.len < 3) return self.rewriteHead(items, .set);
+        if (items.len < 3) return self.normSet(items);
         const target = try self.walk(items[1]);
         const expr = try self.walk(items[2]);
         const move_pair = try self.arena.alloc(Sexp, 2);
         move_pair[0] = .{ .tag = .@"move" };
         move_pair[1] = expr;
-        const out = try self.arena.alloc(Sexp, 3);
+        const out = try self.arena.alloc(Sexp, 4);
         out[0] = .{ .tag = .set };
         out[1] = target;
-        out[2] = .{ .list = move_pair };
+        out[2] = .{ .nil = {} };
+        out[3] = .{ .list = move_pair };
         return Sexp{ .list = out };
     }
 
-    /// (typed_assign name type expr) → (typed_set name type' expr')
-    fn normTypedSet(self: *Normalizer, items: []const Sexp) !Sexp {
-        return self.rewriteHead(items, .typed_set);
-    }
-
-    /// (typed_fixed name type expr) — keep tag, walk children.
-    fn normTypedFixed(self: *Normalizer, items: []const Sexp) !Sexp {
-        return self.walkChildren(.{ .list = items });
+    /// (extern_var name type)   → (extern_decl _     name type)
+    /// (extern_const name type) → (extern_decl fixed name type)
+    fn normExternDecl(self: *Normalizer, items: []const Sexp, fixed: bool) !Sexp {
+        if (items.len < 3) return self.walkChildren(.{ .list = items });
+        const name = try self.walk(items[1]);
+        const t = try self.walk(items[2]);
+        const out = try self.arena.alloc(Sexp, 4);
+        out[0] = .{ .tag = .extern_decl };
+        out[1] = if (fixed) Sexp{ .tag = .fixed } else Sexp{ .nil = {} };
+        out[2] = name;
+        out[3] = t;
+        return Sexp{ .list = out };
     }
 
     // -------------------------------------------------------------------------
@@ -250,10 +295,11 @@ test "normalize: move_assign desugars" {
     var n = Normalizer.init(&arena);
     const out = try n.normalize(raw);
 
-    // expect (set a (move b))
+    // expect (set a _ (move b)) — unified 4-child shape with type slot at items[2]
     try std.testing.expectEqual(Tag.set, out.list[0].tag);
-    try std.testing.expect(out.list[2] == .list);
-    try std.testing.expectEqual(Tag.@"move", out.list[2].list[0].tag);
+    try std.testing.expect(out.list[2] == .nil);              // type slot
+    try std.testing.expect(out.list[3] == .list);             // (move b)
+    try std.testing.expectEqual(Tag.@"move", out.list[3].list[0].tag);
 }
 
 test "normalize: pair becomes kwarg" {
