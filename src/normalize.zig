@@ -144,14 +144,19 @@ pub const Normalizer = struct {
         return Sexp{ .list = out };
     }
 
-    /// (extern_var name type)   → (extern_decl _     name type)
-    /// (extern_const name type) → (extern_decl fixed name type)
+    /// (extern_var name type)   → (extern _     name type)
+    /// (extern_const name type) → (extern fixed name type)
+    ///
+    /// Note: this reuses the `extern` Tag (which also serves as the
+    /// decoration wrapper `(extern <child>)`). The two shapes are
+    /// distinguishable: wrapper has 2 children with a list at items[1];
+    /// standalone decl has 4 children with a tag/nil at items[1].
     fn normExternDecl(self: *Normalizer, items: []const Sexp, fixed: bool) !Sexp {
         if (items.len < 3) return self.walkChildren(.{ .list = items });
         const name = try self.walk(items[1]);
         const t = try self.walk(items[2]);
         const out = try self.arena.alloc(Sexp, 4);
-        out[0] = .{ .tag = .extern_decl };
+        out[0] = .{ .tag = .@"extern" };
         out[1] = if (fixed) Sexp{ .tag = .fixed } else Sexp{ .nil = {} };
         out[2] = name;
         out[3] = t;

@@ -219,7 +219,7 @@ unless we're already in a `try` / `propagate` context (tracked by
 - [x] `for_read` / `for_write` / `for_move` / `for_none` collapsed into `(for mode binding source body)` per SPEC.
 - [x] `for` mode uses `_` (nil) for "no mode" (matches existing IR convention; no `none` Tag needed).
 - [x] `typed_set` / `typed_fixed` collapsed into `set` / `fixed_bind` with a type slot. All bind forms now use uniform 4-child shape `(<head> name type-or-_ expr)`.
-- [x] `extern_var` / `extern_const` collapsed into `(extern_decl <kind> name type)`.
+- [x] `extern_var` / `extern_const` collapsed into `(extern <kind> name type)`. Reuses the existing `extern` Tag — the standalone decl (4-child) is shape-distinguishable from the decoration wrapper (2-child).
 
 Future candidates (not yet pursued):
 

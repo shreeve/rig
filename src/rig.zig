@@ -41,8 +41,7 @@ pub const Tag = enum(u8) {
     @"extern_const",
     @"opaque",
     @"generic_type",    // type Box(T) ...
-    @"extern_decl",     // (extern_decl <kind> name type)  — kind = _ (var) | fixed (const)
-    @"fixed",           // generic "fixed/immutable" kind marker (used in extern_decl, etc.)
+    @"fixed",           // generic "fixed/immutable" kind marker (used in extern, etc.)
     @"volatile_ptr",
     @"many_ptr",
     @"sentinel_ptr",

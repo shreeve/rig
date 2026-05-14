@@ -17,8 +17,8 @@ The IR's design rule:
 | `(shadow name expr)`            | `(shadow name _ expr)`              | unified 4-child shape                          |
 | `(typed_assign name type expr)` | `(set name type expr)`              | typed `=` folds into `set` with type slot      |
 | `(typed_fixed name type expr)`  | `(fixed_bind name type expr)`       | typed `=!` folds into `fixed_bind` with type slot |
-| `(extern_var name type)`        | `(extern_decl _ name type)`         | extern variable (kind = `_` for var)           |
-| `(extern_const name type)`      | `(extern_decl fixed name type)`     | extern const (kind = `fixed`)                  |
+| `(extern_var name type)`        | `(extern _ name type)`              | extern variable; reuses `extern` Tag (4-child shape distinguishes from the 2-child wrapper) |
+| `(extern_const name type)`      | `(extern fixed name type)`          | extern const; same Tag, kind = `fixed`         |
 | `(. obj name)`                  | `(member obj name)`                 | cosmetic                                       |
 | `(pair name expr)`              | `(kwarg name expr)`                 | named call args / constructor sugar            |
 | `(? T)`                         | `(optional T)`                      | optional type                                  |
@@ -52,7 +52,8 @@ Everything else (calls, literals, control flow, types) passes through unchanged 
 (opaque name)
 (use name)
 (test desc body)
-(extern_decl <kind> name type)   ; kind = _ (var) | fixed (const)
+(extern <kind> name type)        ; standalone decl; kind = _ (var) | fixed (const)
+                                 ; (distinct from the 2-child decoration wrapper `(extern <child>)`)
 (zig string)                     ; raw Zig escape hatch (M2: unsafe)
 (labeled name stmt)
 
