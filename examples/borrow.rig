@@ -1,0 +1,8 @@
+# SPEC §"Write While Read Borrowed" — must be rejected.
+#
+# `r = ?user` holds a read borrow; `rename !user` requires a write borrow.
+
+sub main()
+  user = User(name: "Steve")
+  r = ?user
+  rename !user

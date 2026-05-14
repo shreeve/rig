@@ -1,0 +1,8 @@
+# SPEC §"Use After Move" — must be rejected by the ownership checker.
+#
+# `<packet` moves ownership into `send`. Then `?packet` is invalid.
+
+sub main()
+  packet = make_packet()
+  send <packet
+  log ?packet

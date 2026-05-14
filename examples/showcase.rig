@@ -1,0 +1,56 @@
+# A fuller showcase touching most Rig V1 surface.
+
+use std
+
+fun add(a: Int, b: Int) -> Int
+  a + b
+
+fun loadUser(id: U64) -> !User
+  User(name: "Steve")
+
+fun loadProfile(id: U64) -> !Profile
+  Profile(name: "Steve")
+
+# Generic function: T inferred at the call site.
+fun first(T, xs: ?[]T) -> ?T
+  xs[0]
+
+# Compile-time specialization (`pre` replaces Zig's `comptime`).
+fun parse(pre mode: ParseMode, input: ?Bytes) -> Ast
+  if pre mode == .strict
+    parseStrict ?input
+  else
+    parseLoose ?input
+
+# Generic type.
+type Box(T)
+  value: T
+
+sub main()
+  total = add(1, 2)
+  print total
+
+  # Fixed (immutable) binding with `?`-propagation.
+  user =! loadUser(1)?
+
+  # Read borrow.
+  print ?user
+
+  # Move-assignment sugar: `other <- user` is `other = <user`.
+  other <- user
+
+  # Value-yielding try/catch block.
+  view = try
+    u = loadUser(1)?
+    p = loadProfile(u.id)?
+    UserView(?u, ?p)
+  catch |err|
+    log.warn "view failed"
+    UserView.empty()
+
+  # Ownership-aware iteration.
+  for u in ?users
+    print ?u
+
+  # Drop is statement-only.
+  -other

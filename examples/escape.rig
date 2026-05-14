@@ -1,0 +1,10 @@
+# SPEC §"Borrow Escape" — must be rejected.
+#
+# A returned borrow must originate from a borrowed parameter.
+
+fun bad() -> ?String
+  user = User(name: "Steve")
+  ?user.name
+
+fun name(user: ?User) -> ?String
+  ?user.name

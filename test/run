@@ -1,0 +1,176 @@
+#!/bin/bash
+# Rig test runner.
+#
+# Runs:
+#   1. Golden raw_sexp tests — parse each example, byte-diff against snapshot
+#   2. Compile checks — verify generated parser.zig compiles
+#   3. Determinism — same input, two runs, identical output
+#   4. zig build test — Zig-native unit tests in src/rig.zig
+#
+# Usage:
+#   ./test/run            run all tests
+#   ./test/run --update   regenerate goldens (review diffs before committing)
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+RIG=bin/rig
+TMPDIR=$(mktemp -d)
+trap "rm -rf $TMPDIR" EXIT
+
+UPDATE=false
+if [[ "${1:-}" == "--update" ]]; then
+    UPDATE=true
+fi
+
+if [[ ! -x "$RIG" ]]; then
+    echo "Building rig..."
+    zig build
+fi
+
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+    C_GREEN=$'\033[32m'
+    C_RED=$'\033[31m'
+    C_YELLOW=$'\033[33m'
+    C_DIM=$'\033[2m'
+    C_BOLD=$'\033[1m'
+    C_RESET=$'\033[0m'
+else
+    C_GREEN='' C_RED='' C_YELLOW='' C_DIM='' C_BOLD='' C_RESET=''
+fi
+
+PASS=0
+FAIL=0
+ERRORS=""
+
+say_pass()   { printf "  %sPASS%s  %s\n"   "$C_GREEN"  "$C_RESET" "$*"; }
+say_fail()   { printf "  %sFAIL%s  %s\n"   "$C_RED"    "$C_RESET" "$*"; }
+say_update() { printf "  %sUPDATE%s  %s\n" "$C_GREEN"  "$C_RESET" "$*"; }
+section()    { printf "%s=== %s ===%s\n\n" "$C_BOLD" "$*" "$C_RESET"; }
+section_done() { local e=$1; (( e > 0 )) && printf "  %s(%ds)%s\n\n" "$C_DIM" "$e" "$C_RESET" || printf "\n"; }
+
+SUITE_START=$SECONDS
+
+# -----------------------------------------------------------------------------
+# 1. Golden raw_sexp tests
+# -----------------------------------------------------------------------------
+
+run_golden_sexp() {
+    local rig_file=$1
+    local name=$(basename "$rig_file" .rig)
+    local golden="test/golden/raw_sexp/${name}.sexp"
+    local out="$TMPDIR/${name}.sexp"
+
+    if ! $RIG parse "$rig_file" > "$out" 2>&1; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  $name — parse failed: $(cat "$out")"
+        return
+    fi
+
+    if $UPDATE; then
+        mkdir -p "$(dirname "$golden")"
+        cp "$out" "$golden"
+        say_update "$name"
+        PASS=$((PASS + 1))
+        return
+    fi
+
+    if [[ ! -f "$golden" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  $name — no golden (run with --update)"
+        return
+    fi
+
+    if diff -q "$golden" "$out" >/dev/null 2>&1; then
+        say_pass "$name"
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        local lines=$(diff "$golden" "$out" | grep -c '^[<>]' || true)
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  $name — $lines lines differ"
+    fi
+}
+
+section "Golden raw_sexp"
+SECTION_START=$SECONDS
+for f in examples/*.rig; do
+    [[ -e "$f" ]] || continue
+    run_golden_sexp "$f"
+done
+section_done $(( SECONDS - SECTION_START ))
+
+# -----------------------------------------------------------------------------
+# 2. Compile check — generated parser.zig is syntactically valid Zig
+# -----------------------------------------------------------------------------
+
+section "Compile checks"
+SECTION_START=$SECONDS
+if zig ast-check src/parser.zig >/dev/null 2>&1; then
+    say_pass "src/parser.zig (valid zig)"
+    PASS=$((PASS + 1))
+else
+    say_fail "src/parser.zig (zig ast-check failed)"
+    FAIL=$((FAIL + 1))
+fi
+section_done $(( SECONDS - SECTION_START ))
+
+# -----------------------------------------------------------------------------
+# 3. Determinism — same input, two runs, identical output
+# -----------------------------------------------------------------------------
+
+run_determinism() {
+    local rig_file=$1
+    local name=$(basename "$rig_file" .rig)
+    local a="$TMPDIR/${name}_a.sexp"
+    local b="$TMPDIR/${name}_b.sexp"
+    $RIG parse "$rig_file" > "$a" 2>&1 || true
+    $RIG parse "$rig_file" > "$b" 2>&1 || true
+    if diff -q "$a" "$b" >/dev/null 2>&1; then
+        say_pass "$name (deterministic)"
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  $name — nondeterministic"
+    fi
+}
+
+section "Determinism"
+SECTION_START=$SECONDS
+for f in examples/*.rig; do
+    [[ -e "$f" ]] || continue
+    run_determinism "$f"
+done
+section_done $(( SECONDS - SECTION_START ))
+
+# -----------------------------------------------------------------------------
+# 4. zig build test — unit tests in src/rig.zig
+# -----------------------------------------------------------------------------
+
+section "Zig unit tests"
+SECTION_START=$SECONDS
+if zig build test 2>&1 | tee "$TMPDIR/zig_test_log" >/dev/null; then
+    say_pass "src/rig.zig (zig build test)"
+    PASS=$((PASS + 1))
+else
+    say_fail "src/rig.zig (zig build test)"
+    FAIL=$((FAIL + 1))
+    ERRORS+=$'\n'"  $(cat "$TMPDIR/zig_test_log")"
+fi
+section_done $(( SECONDS - SECTION_START ))
+
+# -----------------------------------------------------------------------------
+# Summary
+# -----------------------------------------------------------------------------
+
+SUITE_ELAPSED=$(( SECONDS - SUITE_START ))
+section "Results"
+if (( FAIL == 0 )); then
+    printf "  %s%d passed%s, %d failed  %s(total %ds)%s\n\n" \
+        "$C_GREEN" "$PASS" "$C_RESET" "$FAIL" "$C_DIM" "$SUITE_ELAPSED" "$C_RESET"
+else
+    printf "  %d passed, %s%d failed%s  %s(total %ds)%s\n" \
+        "$PASS" "$C_RED" "$FAIL" "$C_RESET" "$C_DIM" "$SUITE_ELAPSED" "$C_RESET"
+    printf "%b\n\n" "$ERRORS"
+    exit 1
+fi

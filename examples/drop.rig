@@ -1,0 +1,8 @@
+# SPEC §"Use After Drop" — must be rejected.
+#
+# `-user` ends ownership immediately. Subsequent use is invalid.
+
+sub main()
+  user = User(name: "Steve")
+  -user
+  print ?user

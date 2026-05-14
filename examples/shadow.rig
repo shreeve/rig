@@ -1,0 +1,8 @@
+# SPEC §"Explicit Shadow" — allowed.
+#
+# Implicit shadowing is illegal; `new x = ...` is the explicit form.
+
+sub main()
+  x = 1
+  new x = 2
+  print x

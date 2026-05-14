@@ -1,0 +1,26 @@
+# Spacing-sensitive sigil classification (per GPT-5.5 review).
+#
+# These pairs MUST tokenize differently:
+#
+#   <x   move prefix      vs    a < x   less-than infix
+#   *x   share prefix     vs    a * b   multiply infix
+#   +x   clone prefix     vs    a + b   plus infix
+#   %x   raw prefix       vs    a % b   modulo infix
+#   @x   pin prefix       vs    @len(x) builtin call
+#   a?   propagate suffix vs    a ?T    optional type after colon
+#   -x   drop statement   vs    y = -x  unary negation in expression
+
+sub main()
+  a = 1
+  b = 2
+  c = a < x
+  d = a * b
+  e = a + b
+  f = a % b
+  g = @len(arr)
+  m = <x
+  s = *x
+  k = +x
+  r = %x
+  p = @x
+  y = -x

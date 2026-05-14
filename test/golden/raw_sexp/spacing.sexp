@@ -1,0 +1,1 @@
+(module (sub main () _ (block (= a 1) (= b 2) (= c (< a x)) (= d (* a b)) (= e (+ a b)) (= f (% a b)) (= g (builtin len arr)) (= m (move x)) (= s (share x)) (= k (clone x)) (= r (raw x)) (= p (pin x)) (= y (neg x)))))
