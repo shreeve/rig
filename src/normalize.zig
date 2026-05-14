@@ -145,9 +145,10 @@ pub const Normalizer = struct {
     /// Per SPEC §"Semantic IR Nodes":
     ///   (for binding _ source body else?) →
     ///     (for <mode> binding source' body else?)
-    /// where mode is one of `read`, `write`, `move`, `none`. The source's
-    /// outer ownership wrapper (if any) is consumed into the mode position
-    /// and the inner expression becomes the iterated value.
+    /// where mode is one of `read`, `write`, `move`, or `_` (nil) for "no
+    /// mode" (default iteration). The source's outer ownership wrapper
+    /// (if any) is consumed into the mode position and the inner
+    /// expression becomes the iterated value.
     ///
     /// `for_ptr` (Zag-inherited pointer iteration, with an extra binding)
     /// keeps its dedicated head Tag.
@@ -162,20 +163,20 @@ pub const Normalizer = struct {
         const raw_source = items[3];
         const source = try self.walk(raw_source);
 
-        var mode: Tag = .@"none";
+        var mode: Sexp = .{ .nil = {} };
         var unwrapped_source = source;
         if (source == .list and source.list.len >= 2 and source.list[0] == .tag) {
             switch (source.list[0].tag) {
                 .@"read" => {
-                    mode = .@"read";
+                    mode = .{ .tag = .@"read" };
                     unwrapped_source = source.list[1];
                 },
                 .@"write" => {
-                    mode = .@"write";
+                    mode = .{ .tag = .@"write" };
                     unwrapped_source = source.list[1];
                 },
                 .@"move" => {
-                    mode = .@"move";
+                    mode = .{ .tag = .@"move" };
                     unwrapped_source = source.list[1];
                 },
                 else => {},
@@ -189,7 +190,7 @@ pub const Normalizer = struct {
         const out_len: usize = if (has_else) 6 else 5;
         const out = try self.arena.alloc(Sexp, out_len);
         out[0] = .{ .tag = .@"for" };
-        out[1] = .{ .tag = mode };
+        out[1] = mode;
         out[2] = binding;
         out[3] = unwrapped_source;
         out[4] = body;

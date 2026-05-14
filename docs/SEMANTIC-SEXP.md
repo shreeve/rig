@@ -20,10 +20,10 @@ The IR's design rule:
 | `(. obj name)`                  | `(member obj name)`            | cosmetic                                       |
 | `(pair name expr)`              | `(kwarg name expr)`            | named call args / constructor sugar            |
 | `(? T)`                         | `(optional T)`                 | optional type                                  |
-| `(for x _ (read xs) body)`      | `(for read x xs body)`         | SPEC §"Semantic IR Nodes": `(for mode binding collection body)` — mode is a child Tag, not a head Tag |
-| `(for x _ (write xs) body)`     | `(for write x xs body)`        | mode is one of `read`, `write`, `move`, `none` |
+| `(for x _ (read xs) body)`      | `(for read x xs body)`         | SPEC §"Semantic IR Nodes": `(for mode binding collection body)` — mode is at child position 1, not a head Tag |
+| `(for x _ (write xs) body)`     | `(for write x xs body)`        | mode is one of `read`, `write`, `move`, or `_` (nil) for default iteration |
 | `(for x _ (move xs) body)`      | `(for move x xs body)`         |                                                |
-| `(for x _ source body)`         | `(for none x source body)`     |                                                |
+| `(for x _ source body)`         | `(for _ x source body)`        | nil mode = no ownership effect on source       |
 | `(for_ptr ...)`                 | `(for_ptr ...)`                | unchanged (Zag-style pointer iteration; has an extra binding for the pointer) |
 
 Everything else (calls, literals, control flow, types) passes through unchanged for M1; M2 and M3 may further normalize.
@@ -90,7 +90,7 @@ Everything else (calls, literals, control flow, types) passes through unchanged 
 (if cond then else?)
 (while cond body else?)
 (while cond cont body else?)     ; `while c : cont body` form
-(for     mode binding source body else?)   ; mode = read | write | move | none
+(for     mode binding source body else?)   ; mode = read | write | move | _ (nil = no mode)
 (for_ptr binding ptr_binding? source body else?)
 (match scrutinee arms...)
 (arm pattern binding? body)

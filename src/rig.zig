@@ -97,7 +97,6 @@ pub const Tag = enum(u8) {
     @"range_pattern",
     @"enum_pattern",
     @"enum_lit",        // .strict (inferred-type enum value)
-    @"none",            // generic "no mode" marker (e.g., (for none ...))
     @"break",
     @"continue",
     @"defer",
