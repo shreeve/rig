@@ -40,13 +40,17 @@ pub const Normalizer = struct {
                 if (items[0] != .tag) return self.walkChildren(sexp);
 
                 return switch (items[0].tag) {
-                    .@"=" => try self.normSet(items),
-                    .@"+=", .@"-=", .@"*=", .@"/=" => try self.normSetOp(items),
-                    .@"move_assign" => try self.normMoveAssign(items),
-                    .@"fixed_bind" => try self.normBindWithType(items, .fixed_bind, null),
-                    .@"shadow" => try self.normBindWithType(items, .shadow, null),
-                    .@"typed_assign" => try self.normTyped(items, .set),
-                    .@"typed_fixed" => try self.normTyped(items, .fixed_bind),
+                    // All bindings collapse into (set <kind> name type-or-_ expr).
+                    .@"=" => try self.normBind(items, .nil, null, false),
+                    .@"+=" => try self.normBind(items, .{ .tag = .@"+=" }, null, false),
+                    .@"-=" => try self.normBind(items, .{ .tag = .@"-=" }, null, false),
+                    .@"*=" => try self.normBind(items, .{ .tag = .@"*=" }, null, false),
+                    .@"/=" => try self.normBind(items, .{ .tag = .@"/=" }, null, false),
+                    .@"fixed_bind" => try self.normBind(items, .{ .tag = .fixed }, null, false),
+                    .@"shadow" => try self.normBind(items, .{ .tag = .shadow }, null, false),
+                    .@"move_assign" => try self.normBind(items, .{ .tag = .@"move" }, null, false),
+                    .@"typed_assign" => try self.normBind(items, .nil, items[2], true),
+                    .@"typed_fixed" => try self.normBind(items, .{ .tag = .fixed }, items[2], true),
                     .@"extern_var" => try self.normExternDecl(items, false),
                     .@"extern_const" => try self.normExternDecl(items, true),
                     .@"." => try self.normMember(items),
@@ -73,74 +77,42 @@ pub const Normalizer = struct {
     // Bindings
     // -------------------------------------------------------------------------
 
-    /// (= target expr) → (set target _ expr')
-    /// Type slot is nil ("no annotation"); see normTyped for the typed form.
-    fn normSet(self: *Normalizer, items: []const Sexp) !Sexp {
-        return self.normBindWithType(items, .set, null);
-    }
-
-    /// Helper: given `(<head> name expr)`, emit `(<new_head> name <type> expr')`
-    /// where `type` is the supplied node OR `_` (nil) if null. Used by `set`,
-    /// `fixed_bind`, `shadow`, `typed_assign`, `typed_fixed`.
-    fn normBindWithType(
+    /// Universal binding normalizer. Every raw binding form folds into:
+    ///
+    ///   (set <kind> name type-or-_ expr)
+    ///
+    /// The raw forms differ only in (a) which kind tag goes at position 1,
+    /// and (b) whether a type annotation is attached (`typed` flag).
+    ///
+    ///   raw                            kind     typed?
+    ///   (= name expr)                  _        no
+    ///   (+= name expr) etc.            +=       no
+    ///   (fixed_bind name expr)         fixed    no
+    ///   (shadow name expr)             shadow   no
+    ///   (move_assign name expr)        move     no
+    ///   (typed_assign name type expr)  _        yes (items[2] is the type)
+    ///   (typed_fixed name type expr)   fixed    yes
+    fn normBind(
         self: *Normalizer,
         items: []const Sexp,
-        new_head: Tag,
-        type_node: ?Sexp,
+        kind: Sexp,
+        type_node_in: ?Sexp,
+        typed: bool,
     ) !Sexp {
-        if (items.len < 3) return self.rewriteHead(items, new_head);
-        const target = try self.walk(items[1]);
-        const expr = try self.walk(items[2]);
-        const out = try self.arena.alloc(Sexp, 4);
-        out[0] = .{ .tag = new_head };
-        out[1] = target;
-        out[2] = if (type_node) |t| try self.walk(t) else Sexp{ .nil = {} };
-        out[3] = expr;
-        return Sexp{ .list = out };
-    }
+        const min_arity: usize = if (typed) 4 else 3;
+        if (items.len < min_arity) return self.walkChildren(.{ .list = items });
 
-    /// Raw typed forms from the parser collapse into the regular bind heads
-    /// with the type slot populated:
-    ///   (typed_assign name type expr) → (set        name type' expr')
-    ///   (typed_fixed  name type expr) → (fixed_bind name type' expr')
-    fn normTyped(self: *Normalizer, items: []const Sexp, new_head: Tag) !Sexp {
-        if (items.len < 4) return self.rewriteHead(items, new_head);
         const target = try self.walk(items[1]);
-        const t = try self.walk(items[2]);
-        const expr = try self.walk(items[3]);
-        const out = try self.arena.alloc(Sexp, 4);
-        out[0] = .{ .tag = new_head };
-        out[1] = target;
-        out[2] = t;
-        out[3] = expr;
-        return Sexp{ .list = out };
-    }
+        const expr_raw = if (typed) items[3] else items[2];
+        const expr = try self.walk(expr_raw);
+        const type_node = if (type_node_in) |t| try self.walk(t) else Sexp{ .nil = {} };
 
-    /// (+= target expr) → (set_op += target expr')
-    fn normSetOp(self: *Normalizer, items: []const Sexp) !Sexp {
-        // Build (set_op <op-tag> <target'> <expr'>)
-        var out = try self.arena.alloc(Sexp, items.len + 1);
-        out[0] = .{ .tag = .set_op };
-        out[1] = items[0]; // the original op-tag (+= -= *= /=)
-        for (items[1..], 2..) |child, i| {
-            out[i] = try self.walk(child);
-        }
-        return Sexp{ .list = out };
-    }
-
-    /// (move_assign target expr) → (set target _ (move expr'))
-    fn normMoveAssign(self: *Normalizer, items: []const Sexp) !Sexp {
-        if (items.len < 3) return self.normSet(items);
-        const target = try self.walk(items[1]);
-        const expr = try self.walk(items[2]);
-        const move_pair = try self.arena.alloc(Sexp, 2);
-        move_pair[0] = .{ .tag = .@"move" };
-        move_pair[1] = expr;
-        const out = try self.arena.alloc(Sexp, 4);
+        const out = try self.arena.alloc(Sexp, 5);
         out[0] = .{ .tag = .set };
-        out[1] = target;
-        out[2] = .{ .nil = {} };
-        out[3] = .{ .list = move_pair };
+        out[1] = kind;
+        out[2] = target;
+        out[3] = type_node;
+        out[4] = expr;
         return Sexp{ .list = out };
     }
 
@@ -286,7 +258,7 @@ test "normalize: = becomes set" {
     try std.testing.expectEqual(Tag.set, out.list[0].tag);
 }
 
-test "normalize: move_assign desugars" {
+test "normalize: move_assign folds into (set move ...)" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     var arena = arena_state.allocator();
@@ -300,11 +272,11 @@ test "normalize: move_assign desugars" {
     var n = Normalizer.init(&arena);
     const out = try n.normalize(raw);
 
-    // expect (set a _ (move b)) — unified 4-child shape with type slot at items[2]
+    // expect (set move a _ b) — unified 5-child shape with kind=move
     try std.testing.expectEqual(Tag.set, out.list[0].tag);
-    try std.testing.expect(out.list[2] == .nil);              // type slot
-    try std.testing.expect(out.list[3] == .list);             // (move b)
-    try std.testing.expectEqual(Tag.@"move", out.list[3].list[0].tag);
+    try std.testing.expect(out.list[1] == .tag);
+    try std.testing.expectEqual(Tag.@"move", out.list[1].tag);  // kind
+    try std.testing.expect(out.list[3] == .nil);                // type slot
 }
 
 test "normalize: pair becomes kwarg" {

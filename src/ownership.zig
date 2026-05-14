@@ -220,9 +220,7 @@ pub const Checker = struct {
                 if (items.len >= 2) try self.walk(items[items.len - 1], true);
             },
             .@"block" => try self.walkBlock(items[1..]),
-            .@"set" => try self.walkSet(items, false),
-            .@"fixed_bind" => try self.walkBind(items, true, false),
-            .@"shadow" => try self.walkBind(items, false, true),
+            .@"set" => try self.walkSet(items),
             .@"drop" => try self.walkDrop(items),
             .@"move" => try self.walkBorrow(items, .move_op),
             .@"read" => try self.walkBorrow(items, .read_op),
@@ -375,29 +373,77 @@ pub const Checker = struct {
         });
     }
 
-    fn walkSet(self: *Checker, items: []const Sexp, _: bool) Error!void {
-        // (set target type-or-_ expr) — unified 4-child shape
-        if (items.len < 4) return;
-        const target = items[1];
-        const expr = items[3];
+    /// Universal binding walker. Handles all forms via the kind discriminator
+    /// at items[1]:
+    ///
+    ///   (set <kind> name type expr)
+    ///
+    ///   kind = _       → default `=` (bind or rebind, walked together)
+    ///   kind = fixed   → fixed bind (`=!`)
+    ///   kind = shadow  → explicit shadow (`new x = ...`)
+    ///   kind = move    → move-assign (`x <- expr`); semantics of (move expr)
+    ///   kind = +=, -=, *=, /=  → compound assignment; target must already exist
+    fn walkSet(self: *Checker, items: []const Sexp) Error!void {
+        if (items.len < 5) return;
+        const kind = items[1];
+        const target = items[2];
+        const expr = items[4];
 
-        // RHS effects first
+        // RHS effects first.
         try self.walk(expr, false);
+
+        // For `move` kind, the target receives the moved value — we must
+        // also mark the source as moved. Synthesize a (move <name>) walk.
+        if (kind == .tag and kind.tag == .@"move") {
+            const move_wrap = [_]Sexp{ .{ .tag = .@"move" }, expr };
+            try self.walkBorrow(&move_wrap, .move_op);
+        }
 
         const target_name = identName(self.source, target);
         if (target_name == null) {
-            // complex target like obj.field — check it as expression
             try self.walk(target, false);
             return;
         }
         const nm = target_name.?;
-        const target_pos: u32 = blk: {
-            if (target == .src) break :blk target.src.pos;
-            break :blk 0;
+        const target_pos: u32 = if (target == .src) target.src.pos else 0;
+
+        // Decode kind
+        const is_fixed = kind == .tag and kind.tag == .fixed;
+        const is_shadow = kind == .tag and kind.tag == .shadow;
+        const is_compound = kind == .tag and switch (kind.tag) {
+            .@"+=", .@"-=", .@"*=", .@"/=" => true,
+            else => false,
         };
 
+        if (is_shadow) {
+            // Always create fresh in current scope.
+            const idx = try self.addBinding(.{
+                .name = nm,
+                .declared_at = target_pos,
+            });
+            self.maybeRecordBoundBorrow(idx, expr);
+            return;
+        }
+
+        if (is_fixed) {
+            if (self.lookupCurrent(nm)) |bi| {
+                const b = &self.bindings.items[bi];
+                try self.err(target_pos, "binding `{s}` already exists in this scope", .{nm});
+                try self.note(b.declared_at, "previous binding here", .{});
+                return;
+            }
+            const idx = try self.addBinding(.{
+                .name = nm,
+                .fixed = true,
+                .declared_at = target_pos,
+            });
+            self.maybeRecordBoundBorrow(idx, expr);
+            return;
+        }
+
+        // Default `=`, compound `+= -= *= /=`, or `move`-assign.
         if (self.lookup(nm)) |bi| {
-            // Existing binding: rebind / reassign
+            // Existing binding: reassign.
             const b = &self.bindings.items[bi];
             if (b.fixed) {
                 try self.err(target_pos, "cannot reassign fixed binding `{s}`", .{nm});
@@ -413,46 +459,19 @@ pub const Checker = struct {
                 try self.err(target_pos, "cannot reassign `{s}` while borrows are live", .{nm});
                 return;
             }
-            // Plain reassign — value transitions back to valid (we accept the new value)
             b.state = .valid;
             self.maybeRecordBoundBorrow(bi, expr);
             return;
         }
-        // Fresh binding in current scope
+
+        // Fresh binding in current scope.
+        if (is_compound) {
+            try self.err(target_pos, "compound assignment `{s} <op>= ...` requires `{s}` to be already bound", .{ nm, nm });
+            return;
+        }
         const idx = try self.addBinding(.{
             .name = nm,
             .declared_at = target_pos,
-        });
-        self.maybeRecordBoundBorrow(idx, expr);
-    }
-
-    fn walkBind(self: *Checker, items: []const Sexp, fixed: bool, shadow: bool) Error!void {
-        // (fixed_bind name type-or-_ expr) | (shadow name type-or-_ expr) — unified 4-child shape
-        if (items.len < 4) return;
-        const target = items[1];
-        const expr = items[3];
-
-        try self.walk(expr, false);
-
-        if (target != .src) return;
-        const nm = self.source[target.src.pos..][0..target.src.len];
-
-        if (shadow) {
-            // Explicit shadow: always create in current scope, allowed.
-        } else {
-            // fixed_bind / typed_fixed: must not collide with current-scope binding
-            if (self.lookupCurrent(nm)) |bi| {
-                const b = &self.bindings.items[bi];
-                try self.err(target.src.pos, "binding `{s}` already exists in this scope", .{nm});
-                try self.note(b.declared_at, "previous binding here", .{});
-                return;
-            }
-        }
-
-        const idx = try self.addBinding(.{
-            .name = nm,
-            .fixed = fixed,
-            .declared_at = target.src.pos,
         });
         self.maybeRecordBoundBorrow(idx, expr);
     }

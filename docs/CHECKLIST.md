@@ -220,6 +220,7 @@ unless we're already in a `try` / `propagate` context (tracked by
 - [x] `for` mode uses `_` (nil) for "no mode" (matches existing IR convention; no `none` Tag needed).
 - [x] `typed_set` / `typed_fixed` collapsed into `set` / `fixed_bind` with a type slot. All bind forms now use uniform 4-child shape `(<head> name type-or-_ expr)`.
 - [x] `extern_var` / `extern_const` collapsed into `(extern <kind> name type)`. Reuses the existing `extern` Tag — the standalone decl (4-child) is shape-distinguishable from the decoration wrapper (2-child).
+- [x] All binding heads (`set`, `set_op`, `fixed_bind`, `shadow`, `move_assign`, `typed_set`, `typed_fixed`) collapsed into a single `(set <kind> name type-or-_ expr)` shape. Kind tag at items[1] is one of `_` (default `=`), `fixed`, `shadow`, `move`, `+=`, `-=`, `*=`, `/=`. M2 walkSet and M3 emitSet are now single functions with kind-dispatch.
 
 Future candidates (not yet pursued):
 

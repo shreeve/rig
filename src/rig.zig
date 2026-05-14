@@ -67,23 +67,28 @@ pub const Tag = enum(u8) {
 
     // Bindings (Rig)
     //
-    // Normalized binding forms ALL have a 4-child shape:
-    //   (set        name type-or-_ expr)   — `=`  (M2 disambiguates bind/rebind)
-    //   (fixed_bind name type-or-_ expr)   — `=!`
-    //   (shadow     name type-or-_ expr)   — `new x = expr`
-    //   (set_op op  target expr)           — compound `+=`, `-=`, `*=`, `/=`
-    //                                         (no type slot; type irrelevant)
+    // ALL normalized binding forms share a single uniform 5-child shape:
     //
-    // The type slot is `_` (nil) when there's no annotation. `typed_assign`
-    // and `typed_fixed` are RAW heads from the parser; normalize folds them
-    // into `set` / `fixed_bind` with the type slot populated.
-    @"set",             // normalized `=`
-    @"set_op",          // normalized compound: (set_op `+=` target expr)
-    @"fixed_bind",      // x =! expr     (was Zag `const_assign`)
-    @"move_assign",     // x <- expr     (raw; normalized to (set x _ (move e)))
-    @"shadow",          // new x = expr  (explicit shadowing)
-    @"typed_assign",    // raw: name : T = expr   (folded to `set` by normalize)
-    @"typed_fixed",     // raw: name : T =! expr  (folded to `fixed_bind` by normalize)
+    //   (set <kind> name type-or-_ expr)
+    //
+    // where <kind> is one of:
+    //   _       — default `=` (M2 disambiguates bind vs rebind)
+    //   fixed   — `=!` (immutable bind)
+    //   shadow  — `new x = expr` (explicit shadow)
+    //   move    — `x <- expr` (move-assign sugar)
+    //   +=, -=, *=, /=  — compound assignment (op as kind tag)
+    //
+    // The `shadow` Tag enum entry serves dual purposes: as a kind tag in
+    // the set's slot, AND as a generic "explicit shadowing" marker.
+    // `move` likewise doubles as both an ownership-wrapper Tag and a
+    // kind tag — context (position 1 of `set` vs head of an expression)
+    // disambiguates.
+    @"set",             // NORMALIZED universal binding head; see kind discriminator above
+    @"shadow",          // RAW from parser; also serves as kind tag in normalized `set`
+    @"fixed_bind",      // RAW from parser: x =! expr        (folded to `set fixed` by normalize)
+    @"typed_assign",    // RAW from parser: name : T = expr  (folded to `set _` by normalize)
+    @"typed_fixed",     // RAW from parser: name : T =! expr (folded to `set fixed` by normalize)
+    @"move_assign",     // RAW from parser: x <- expr        (folded to `set move` by normalize)
     @"=",
     @"+=",
     @"-=",

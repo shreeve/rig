@@ -357,10 +357,7 @@ pub const Emitter = struct {
         }
         const items = sexp.list;
         switch (items[0].tag) {
-            .@"set" => try self.emitSet(items, false, false),
-            .@"set_op" => try self.emitSetOp(items),
-            .@"fixed_bind" => try self.emitSet(items, true, false),
-            .@"shadow" => try self.emitSet(items, false, true),
+            .@"set" => try self.emitSet(items),
             .@"drop" => {
                 // No-op for V1 (Zig handles cleanup at scope or via deinit).
                 try self.w.writeAll("// drop ");
@@ -388,23 +385,44 @@ pub const Emitter = struct {
         }
     }
 
-    fn emitSet(self: *Emitter, items: []const Sexp, fixed: bool, shadow: bool) Error!void {
-        // Unified 4-child shape:
-        //   (set        name type-or-_ expr)
-        //   (fixed_bind name type-or-_ expr)
-        //   (shadow     name type-or-_ expr)
-        if (items.len < 4) return;
-        const name = identText(self.source, items[1]) orelse return;
-        const type_node = items[2];   // .nil if no annotation
-        const expr = items[3];
+    fn emitSet(self: *Emitter, items: []const Sexp) Error!void {
+        // Unified 5-child shape:
+        //   (set <kind> name type-or-_ expr)
+        //
+        //   kind = _       → default `=`
+        //   kind = fixed   → `=!`  (always emits `const`)
+        //   kind = shadow  → `new x = ...`  (rename to fresh Zig symbol)
+        //   kind = move    → `x <- expr`  (Zig moves are implicit at assign)
+        //   kind = +=, -=, *=, /=  → compound assignment
+        if (items.len < 5) return;
+        const kind = items[1];
+        const name = identText(self.source, items[2]) orelse return;
+        const type_node = items[3];
+        const expr = items[4];
         const has_type = type_node != .nil;
+
+        const is_fixed = kind == .tag and kind.tag == .fixed;
+        const is_shadow = kind == .tag and kind.tag == .shadow;
+        const is_compound = kind == .tag and switch (kind.tag) {
+            .@"+=", .@"-=", .@"*=", .@"/=" => true,
+            else => false,
+        };
+
+        if (is_compound) {
+            // Compound assigns `+=`, `-=`, etc. — target must already exist.
+            const zig_name = self.lookup(name) orelse name;
+            try self.w.print("{s} {s} ", .{ zig_name, @tagName(kind.tag) });
+            try self.emitExpr(expr);
+            try self.w.writeAll(";");
+            return;
+        }
 
         var zig_name: []const u8 = name;
         const found = self.lookup(name);
 
-        if (shadow or found == null) {
+        if (is_shadow or found == null) {
             // Fresh declaration
-            if (shadow and found != null) {
+            if (is_shadow and found != null) {
                 // Mark the shadowed binding as "used" so Zig doesn't error
                 // on the now-unreachable original.
                 try self.w.print("_ = {s}; ", .{found.?});
@@ -414,7 +432,7 @@ pub const Emitter = struct {
             // `var` only if reassigned later (Zig requires never-mutated
             // bindings to be `const`). `=!` always emits `const`.
             const is_mutated = self.fn_mutated.contains(name);
-            const decl_kw: []const u8 = if (fixed or !is_mutated) "const" else "var";
+            const decl_kw: []const u8 = if (is_fixed or !is_mutated) "const" else "var";
             if (has_type) {
                 try self.w.print("{s} {s}: ", .{ decl_kw, zig_name });
                 try self.emitType(type_node);
@@ -425,24 +443,11 @@ pub const Emitter = struct {
             try self.emitExpr(expr);
             try self.w.writeAll(";");
         } else {
-            // Reassignment (type annotation ignored on rebind)
+            // Reassignment (type annotation ignored on rebind).
             try self.w.print("{s} = ", .{found.?});
             try self.emitExpr(expr);
             try self.w.writeAll(";");
         }
-    }
-
-    fn emitSetOp(self: *Emitter, items: []const Sexp) Error!void {
-        // (set_op op-tag target expr) — op-tag is a .tag like .@"+="
-        if (items.len < 4) return;
-        const target = items[2];
-        const expr = items[3];
-        try self.emitExpr(target);
-        try self.w.writeAll(" ");
-        if (items[1] == .tag) try self.w.writeAll(@tagName(items[1].tag)) else try self.w.writeAll("=");
-        try self.w.writeAll(" ");
-        try self.emitExpr(expr);
-        try self.w.writeAll(";");
     }
 
     fn emitReturn(self: *Emitter, items: []const Sexp) Error!void {
@@ -968,14 +973,29 @@ fn scanMutationsRec(
         const tag = items[0].tag;
         // Don't descend into nested fn/sub/lambda
         if (tag == .@"fun" or tag == .@"sub" or tag == .@"lambda") return;
-        if ((tag == .@"set" or tag == .@"set_op") and items.len >= 2) {
-            const target = if (tag == .@"set_op" and items.len >= 3) items[2] else items[1];
-            if (target == .src) {
-                const nm = source[target.src.pos..][0..target.src.len];
-                if (seen.contains(nm)) {
-                    try out.put(allocator, nm, {});
-                } else {
-                    try seen.put(allocator, nm, {});
+        if (tag == .@"set" and items.len >= 5) {
+            // (set <kind> name type expr) — target is at items[2].
+            // Only count toward "mutated" when the kind is actually a
+            // reassignment (`_` default `=`, compound `+=` / `-=` / ..., or
+            // `move`). `fixed` and `shadow` create fresh bindings.
+            const kind = items[1];
+            const counts_as_mut = blk: {
+                if (kind == .nil) break :blk true; // default `=`
+                if (kind != .tag) break :blk false;
+                break :blk switch (kind.tag) {
+                    .@"+=", .@"-=", .@"*=", .@"/=", .@"move" => true,
+                    else => false, // fixed, shadow, etc.
+                };
+            };
+            if (counts_as_mut) {
+                const target = items[2];
+                if (target == .src) {
+                    const nm = source[target.src.pos..][0..target.src.len];
+                    if (seen.contains(nm)) {
+                        try out.put(allocator, nm, {});
+                    } else {
+                        try seen.put(allocator, nm, {});
+                    }
                 }
             }
         }
@@ -989,7 +1009,7 @@ fn scanMutationsRec(
 fn isExprStmt(sexp: Sexp) bool {
     if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return true;
     return switch (sexp.list[0].tag) {
-        .@"set", .@"set_op", .@"fixed_bind", .@"shadow", .@"drop",
+        .@"set", .@"drop",
         .@"return", .@"break", .@"continue",
         .@"defer", .@"errdefer",
         .@"block",

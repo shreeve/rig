@@ -10,13 +10,13 @@ The IR's design rule:
 
 | Raw S-expr from parser          | Normalized                          | Note                                           |
 |---------------------------------|-------------------------------------|------------------------------------------------|
-| `(= target expr)`               | `(set target _ expr)`               | "set" is neutral; M2 disambiguates bind/rebind. 4-child shape with type slot at items[2] (`_` = no annotation) |
-| `(+= target expr)` etc.         | `(set_op += target expr)`           | compound assignment (op as child)              |
-| `(move_assign target expr)`     | `(set target _ (move expr))`        | `<-` is sugar for `target = <expr`             |
-| `(fixed_bind name expr)`        | `(fixed_bind name _ expr)`          | unified 4-child shape                          |
-| `(shadow name expr)`            | `(shadow name _ expr)`              | unified 4-child shape                          |
-| `(typed_assign name type expr)` | `(set name type expr)`              | typed `=` folds into `set` with type slot      |
-| `(typed_fixed name type expr)`  | `(fixed_bind name type expr)`       | typed `=!` folds into `fixed_bind` with type slot |
+| `(= target expr)`               | `(set _      target _    expr)`     | All bindings collapse into a single `set` head with a kind discriminator at items[1]. Default `=` uses `_` (nil) for kind. |
+| `(+= target expr)` etc.         | `(set +=     target _    expr)`     | compound assignment; op tag is the kind        |
+| `(move_assign target expr)`     | `(set move   target _    expr)`     | `<-` move-assign; the `move` kind tells M2 to move source |
+| `(fixed_bind name expr)`        | `(set fixed  name   _    expr)`     | `=!` immutable bind; kind = `fixed`            |
+| `(shadow name expr)`            | `(set shadow name   _    expr)`     | `new x = expr` explicit shadow; kind = `shadow` |
+| `(typed_assign name type expr)` | `(set _      name   type expr)`     | typed `=` folds into `set` with type slot populated |
+| `(typed_fixed name type expr)`  | `(set fixed  name   type expr)`     | typed `=!` folds into `set fixed` with type slot |
 | `(extern_var name type)`        | `(extern _ name type)`              | extern variable; reuses `extern` Tag (4-child shape distinguishes from the 2-child wrapper) |
 | `(extern_const name type)`      | `(extern fixed name type)`          | extern const; same Tag, kind = `fixed`         |
 | `(. obj name)`                  | `(member obj name)`                 | cosmetic                                       |
@@ -63,20 +63,35 @@ Everything else (calls, literals, control flow, types) passes through unchanged 
 
 ### Bindings
 
-All binding forms (except `set_op`) share a uniform 4-child shape with
-a type slot at items[2] — `_` (nil) when there's no annotation.
+ALL binding forms collapse into a single uniform 5-child shape:
 
 ```
-(set        name type-or-_ expr)   ; from `=`   (M2 disambiguates bind/rebind)
-(fixed_bind name type-or-_ expr)   ; from `=!`
-(shadow     name type-or-_ expr)   ; from `new x = expr`
-(set_op op-tag target expr)        ; from `+=`, `-=`, `*=`, `/=`  (no type slot)
-(drop name)                        ; statement-position `-name`
+(set <kind> name type-or-_ expr)
 ```
 
-The typed surface forms (`x: Int = 5`, `x: Int =! 5`) collapse into
-`set` and `fixed_bind` with the type slot populated — there's no
-separate `typed_set` / `typed_fixed` head.
+where `<kind>` is one of:
+
+| kind     | source form               | meaning                              |
+|----------|---------------------------|--------------------------------------|
+| `_`      | `x = expr`                | default; M2 disambiguates bind/rebind |
+| `fixed`  | `x =! expr`               | immutable bind                       |
+| `shadow` | `new x = expr`            | explicit shadow (always fresh)       |
+| `move`   | `x <- expr`               | move-assign sugar (M2 moves source)  |
+| `+=`     | `x += expr`               | compound add-assign                  |
+| `-=`     | `x -= expr`               | compound sub-assign                  |
+| `*=`     | `x *= expr`               | compound mul-assign                  |
+| `/=`     | `x /= expr`               | compound div-assign                  |
+
+The type slot at items[3] is `_` when there's no annotation, or the
+type expression when there is. There are NO separate `set_op`,
+`fixed_bind`, `shadow`, `move_assign`, `typed_set`, `typed_fixed`
+heads in the normalized IR — all are folded into `set`.
+
+Statement-only:
+
+```
+(drop name)            ; `-name` at statement start
+```
 
 ### Ownership wrappers (expression position)
 
