@@ -1,0 +1,11 @@
+## M10: value-position match arms must unify into a single result type.
+
+enum Color
+  red
+  green
+
+sub main()
+  c: Color = .red
+  x = match c
+    .red => 1
+    .green => "no"

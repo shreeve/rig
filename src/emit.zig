@@ -746,6 +746,13 @@ pub const Emitter = struct {
 
             try self.indentSpaces();
 
+            // Track payload destructuring: `(variant_pattern X b1 b2 ...)`
+            // generates `.X => |__payload| { const b1 = __payload.field1; ... body }`.
+            // For single-payload `(variant_pattern X b1)` the capture
+            // is the bare value (matches the union(enum) unwrapping).
+            var capture_names: []const Sexp = &.{};
+            var is_variant_pattern = false;
+
             if (isDefaultPattern(pattern)) {
                 has_default = true;
                 try self.w.writeAll("else => ");
@@ -756,6 +763,26 @@ pub const Emitter = struct {
                 try self.emitExpr(pattern.list[1]);
                 try self.w.writeAll(" => ");
                 enum_variants_covered += 1;
+            } else if (pattern == .list and pattern.list.len >= 2 and
+                pattern.list[0] == .tag and pattern.list[0].tag == .@"variant_pattern")
+            {
+                is_variant_pattern = true;
+                capture_names = pattern.list[2..];
+                try self.w.writeAll(".");
+                try self.emitExpr(pattern.list[1]);
+                try self.w.writeAll(" => ");
+                if (capture_names.len == 1) {
+                    // Single-payload: `.X => |b| body` — Zig's natural
+                    // capture syntax (matches the unwrapped union arm).
+                    try self.w.writeAll("|");
+                    try self.emitExpr(capture_names[0]);
+                    try self.w.writeAll("| ");
+                } else if (capture_names.len > 1) {
+                    // Multi-payload: capture into a synthetic name and
+                    // alias each field at the start of the wrapped body.
+                    try self.w.writeAll("|__payload| ");
+                }
+                enum_variants_covered += 1;
             } else {
                 // Literal or other expression-shaped pattern — emit the
                 // pattern verbatim and let Zig validate.
@@ -763,10 +790,65 @@ pub const Emitter = struct {
                 try self.w.writeAll(" => ");
             }
 
-            // Body. Zig switch arms accept an expression; for stmt-form
-            // bodies we wrap in a block so things like `return`/`break`
-            // and side-effecting statements work uniformly.
-            try self.emitMatchArmBody(body);
+            if (is_variant_pattern and capture_names.len == 1) {
+                // Single-payload destructure. If the body actually uses
+                // the binding, just emit the body as-is. Otherwise wrap
+                // in `{ _ = b; ... }` to silence Zig's unused-capture
+                // error. Zig errors EITHER way (used → "pointless
+                // discard" if we always emit `_ =`; unused → "unused
+                // capture" if we don't), so we have to decide per-arm.
+                const b = capture_names[0];
+                if (b == .src) {
+                    const bname = self.source[b.src.pos..][0..b.src.len];
+                    if (std.mem.eql(u8, bname, "_") or isNameUsedInBody(self.source, body, bname)) {
+                        try self.emitMatchArmBody(body);
+                    } else {
+                        try self.w.writeAll("{ _ = ");
+                        try self.w.writeAll(bname);
+                        try self.w.writeAll("; ");
+                        try self.emitStmt(body);
+                        try self.w.writeAll(" }");
+                    }
+                } else {
+                    try self.emitMatchArmBody(body);
+                }
+            } else if (is_variant_pattern and capture_names.len > 1) {
+                // Multi-payload destructure: alias each binding from
+                // `__payload.fieldN` before emitting the body. Wrap in
+                // a plain block so the aliases scope to this arm only.
+                // emitStmt terminates with `;`; the trailing block
+                // close keeps Zig's switch-arm syntax happy.
+                //
+                // After each alias we also emit `_ = name;` so Zig's
+                // unused-local rule doesn't fire when the user's body
+                // happens to ignore one of the destructured fields.
+                // Same pattern shadow renames use.
+                try self.w.writeAll("{ ");
+                const payload_field_names = self.lookupVariantPayloadNames(pattern.list[1]);
+                for (capture_names, 0..) |b, i| {
+                    if (b != .src) continue;
+                    const bname = self.source[b.src.pos..][0..b.src.len];
+                    if (std.mem.eql(u8, bname, "_")) continue;
+                    const fname: []const u8 = if (payload_field_names) |names|
+                        (if (i < names.len) names[i] else "")
+                    else
+                        ""; // sema unavailable — emit nothing (Zig will fail)
+                    if (fname.len > 0) {
+                        try self.w.print("const {s} = __payload.{s}; ", .{ bname, fname });
+                        // Only silence binding when the body doesn't use it.
+                        if (!isNameUsedInBody(self.source, body, bname)) {
+                            try self.w.print("_ = {s}; ", .{bname});
+                        }
+                    }
+                }
+                try self.emitStmt(body);
+                try self.w.writeAll(" }");
+            } else {
+                // Body. Zig switch arms accept an expression; for stmt-form
+                // bodies we wrap in a block so things like `return`/`break`
+                // and side-effecting statements work uniformly.
+                try self.emitMatchArmBody(body);
+            }
             try self.w.writeAll(",\n");
         }
 
@@ -786,12 +868,9 @@ pub const Emitter = struct {
 
     /// Returns true if a `match` on `scrutinee` is exhaustive given
     /// `enum_arms_seen` enum-literal arms. Requires sema to know the
-    /// scrutinee's nominal enum and its variant count.
-    ///
-    /// Note: doesn't yet verify that DIFFERENT arm variants are covered
-    /// (a match with three arms all matching `.red` would be considered
-    /// "exhaustive" if the enum has 3 variants). M9+ adds real
-    /// exhaustiveness with duplicate detection.
+    /// scrutinee's nominal enum and its variant count. Sema's
+    /// duplicate-detection ensures arm count matches DIFFERENT
+    /// variants, so we can rely on the count check here.
     fn matchExhaustive(self: *Emitter, scrutinee: Sexp, enum_arms_seen: usize) bool {
         const sema = self.sema orelse return false;
         if (scrutinee != .src) return false;
@@ -805,6 +884,30 @@ pub const Emitter = struct {
             return enum_arms_seen >= fields.len;
         }
         return false;
+    }
+
+    /// Look up the payload field names (in declaration order) for a
+    /// variant referenced by name, scanning all sema enum symbols.
+    /// Returns null if no match is found. Used by `emitMatch` when
+    /// destructuring multi-field payload variants so we can alias
+    /// bindings to the correct Zig field names.
+    fn lookupVariantPayloadNames(self: *Emitter, variant_name_node: Sexp) ?[]const []const u8 {
+        const sema = self.sema orelse return null;
+        if (variant_name_node != .src) return null;
+        const variant_name = self.source[variant_name_node.src.pos..][0..variant_name_node.src.len];
+        for (sema.symbols.items) |sym| {
+            if (sym.kind != .nominal_type) continue;
+            const fields = sym.fields orelse continue;
+            for (fields) |v| {
+                if (!std.mem.eql(u8, v.name, variant_name)) continue;
+                const payload = v.payload orelse continue;
+                // Build a flat slice of name strings in arena memory.
+                const out = self.name_arena.allocator().alloc([]const u8, payload.len) catch return null;
+                for (payload, 0..) |f, i| out[i] = f.name;
+                return out;
+            }
+        }
+        return null;
     }
 
     /// Emit a match-arm body. For statement-shaped sexps (call, set,
@@ -960,6 +1063,10 @@ pub const Emitter = struct {
             => try self.emitInfix(items, head),
             // Block-as-expression (e.g., `if cond block else block` returning value)
             .@"block" => try self.emitBlock(.{ .list = items }),
+            // M10: value-position match. Same lowering as statement
+            // position — Zig's `switch` is also an expression, so we
+            // can use the same machinery in either context.
+            .@"match" => try self.emitMatch(items),
             else => {
                 try self.w.writeAll("@compileError(\"rig: emitter does not yet support `");
                 try self.w.writeAll(@tagName(head));
@@ -1292,6 +1399,20 @@ fn identText(source: []const u8, sexp: Sexp) ?[]const u8 {
     return switch (sexp) {
         .src => |s| source[s.pos..][0..s.len],
         else => null,
+    };
+}
+
+/// True if `body` (an IR Sexp) contains any `.src` reference whose
+/// source-text equals `name`. Used by `emitMatch` to decide whether
+/// to emit a `_ = name;` silencer for destructured payload bindings.
+fn isNameUsedInBody(source: []const u8, body: parser.Sexp, name: []const u8) bool {
+    return switch (body) {
+        .src => |s| std.mem.eql(u8, source[s.pos..][0..s.len], name),
+        .list => |items| blk: {
+            for (items) |c| if (isNameUsedInBody(source, c, name)) break :blk true;
+            break :blk false;
+        },
+        else => false,
     };
 }
 

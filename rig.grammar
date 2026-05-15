@@ -463,6 +463,8 @@ arms     = arm                              → (1)
          | arms NEWLINE                     → 1
 patatom  = atom
          | "." name                         → (enum_pattern 2)
+         | DOT_LIT name "(" L(name) ")"     → (variant_pattern 2 ...4)   # .circle(r), .triangle(a, b)
+         | DOT_LIT name "(" ")"             → (variant_pattern 2)        # .nullary()
 
 pattern  = patatom
          | patatom ".." patatom             → (range_pattern 1 3)

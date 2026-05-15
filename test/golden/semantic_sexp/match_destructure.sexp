@@ -1,0 +1,1 @@
+(module (enum Shape (variant circle ((: radius Int))) (variant triangle ((: a Int) (: b Int))) origin) (sub main () _ (block (set _ s Shape (call (enum_lit triangle) (kwarg a 3) (kwarg b 4))) (match s (arm (variant_pattern circle r) _ (call print r)) (arm (variant_pattern triangle a b) _ (call print (+ a b))) (arm (enum_lit origin) _ (call print 0))))))

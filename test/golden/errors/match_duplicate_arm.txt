@@ -1,0 +1,2 @@
+examples/match_duplicate_arm.rig:13:6: error: duplicate arm for variant `red`
+examples/match_duplicate_arm.rig:12:6:   note: first arm here

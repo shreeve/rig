@@ -1,0 +1,17 @@
+## M10: value-position match. Each arm yields a value; sema unifies
+## the arm result types and checks exhaustiveness.
+##
+## EXPECTED: clean. Lowers to Zig `const x = switch (c) { ... };`.
+
+enum Color
+  red
+  green
+  blue
+
+sub main()
+  c: Color = .red
+  x = match c
+    .red => 1
+    .green => 2
+    .blue => 3
+  print(x)

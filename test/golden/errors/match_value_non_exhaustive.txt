@@ -1,0 +1,1 @@
+examples/match_value_non_exhaustive.rig:11:13: error: value-position `match` is not exhaustive (covered 2 of 3 variants and no default arm)

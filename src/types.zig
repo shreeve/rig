@@ -796,7 +796,60 @@ const SymbolResolver = struct {
         const prev = self.current_scope;
         self.current_scope = arm_scope;
         defer self.current_scope = prev;
+
+        // M10: extract pattern bindings into the arm scope so they're
+        // visible in the body. Types start as `unknown_id` and are
+        // refined by `ExprChecker.checkMatchStmt` against the
+        // scrutinee's variant payload.
+        //
+        //   (variant_pattern circle r)        → binds `r`
+        //   (variant_pattern triangle a b)    → binds `a` and `b`
+        //   bare ident pattern (default arm)  → binds the ident
+        //   (enum_lit X) / (enum_pattern X)   → no bindings
+        const pattern = items[1];
+        try self.bindPatternNames(pattern);
+
         try self.walk(items[items.len - 1]);
+    }
+
+    fn bindPatternNames(self: *SymbolResolver, pattern: Sexp) std.mem.Allocator.Error!void {
+        switch (pattern) {
+            .src => |s| {
+                // Bare ident pattern → default arm with the ident as
+                // the catch-all binding. Avoid binding `_` (which
+                // conventionally means "ignore"); future range/literal
+                // patterns will skip this branch via their list shape.
+                const name = self.ctx.source[s.pos..][0..s.len];
+                if (std.mem.eql(u8, name, "_")) return;
+                _ = try self.addSymbol(.{
+                    .name = name,
+                    .kind = .local,
+                    .ty = self.ctx.types.unknown_id,
+                    .decl_pos = s.pos,
+                    .scope = self.current_scope,
+                });
+            },
+            .list => |items| {
+                if (items.len < 2 or items[0] != .tag) return;
+                if (items[0].tag != .@"variant_pattern") return;
+                // (variant_pattern Name binding...). items[1] is the
+                // variant name (a literal, not a binding); items[2..]
+                // are the destructured payload bindings.
+                for (items[2..]) |b| {
+                    if (b != .src) continue;
+                    const name = self.ctx.source[b.src.pos..][0..b.src.len];
+                    if (std.mem.eql(u8, name, "_")) continue;
+                    _ = try self.addSymbol(.{
+                        .name = name,
+                        .kind = .local,
+                        .ty = self.ctx.types.unknown_id,
+                        .decl_pos = b.src.pos,
+                        .scope = self.current_scope,
+                    });
+                }
+            },
+            else => {},
+        }
     }
 
     fn addSymbol(self: *SymbolResolver, sym: Symbol) std.mem.Allocator.Error!SymbolId {
@@ -1597,22 +1650,54 @@ const ExprChecker = struct {
         if (items.len > 6 and items[6] != .nil) try self.checkStmt(items[6]);
     }
 
-    /// `(match scrutinee arm...)` at statement position. M8 v1 rules:
-    ///   - Synth the scrutinee's type.
-    ///   - For each `(arm pattern binding-or-_ body)`:
-    ///     * If pattern is `(enum_lit name)` AND scrutinee is a known
-    ///       enum, validate the variant against the enum's field list
-    ///       (reusing `checkEnumLit`'s machinery).
-    ///     * Other pattern shapes are accepted silently for now —
-    ///       integer / string literal patterns work at emit time but
-    ///       sema doesn't bind them to scrutinee type yet.
-    ///     * Walk the body via `checkStmt` (statement context — arms
-    ///       don't unify in M8 v1; value-position match is M9+).
-    ///   - Each arm has its own scope per the resolver.
+    /// `(match scrutinee arm...)` at statement position.
+    /// Implementation shared with `synthMatchExpr` via `walkMatchArms`.
     fn checkMatchStmt(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
         if (items.len < 2) return;
+        _ = try self.walkMatchArms(items, .statement);
+    }
 
+    /// `(match scrutinee arm...)` at value position. Per GPT-5.5's
+    /// design pass for M5(3/n): arms must unify into a single result
+    /// type; missing default in a non-exhaustive match is an error.
+    fn synthMatchExpr(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
+        if (items.len < 2) return self.ctx.types.unknown_id;
+        return try self.walkMatchArms(items, .value) orelse self.ctx.types.unknown_id;
+    }
+
+    const MatchPosition = enum { statement, value };
+
+    /// Walk a match expression, applying the M10 rules:
+    ///
+    ///   - Synth the scrutinee's type.
+    ///   - For each `(arm pattern binding-or-_ body)`:
+    ///     * Validate pattern against scrutinee (variant exists, payload
+    ///       binding count matches the variant's payload arity).
+    ///     * Bind the pattern's captured names with the right types
+    ///       (variant payload field types, OR scrutinee type for
+    ///       default-bare-ident arms).
+    ///     * Walk the body — `checkStmt` for statement-position match,
+    ///       `synthExpr` for value-position match (with arm-result
+    ///       unification).
+    ///   - Detect duplicate arm patterns (same `.X` arm twice).
+    ///   - Track exhaustiveness: when the scrutinee's enum has known
+    ///     fields and the arms cover every variant, no diagnostic.
+    ///     Non-exhaustive without a default arm fires for value-position
+    ///     match; statement-position is permissive (emit appends
+    ///     `else => unreachable`).
+    fn walkMatchArms(self: *ExprChecker, items: []const Sexp, position: MatchPosition) std.mem.Allocator.Error!?TypeId {
         const scrutinee_ty = try self.synthExpr(items[1]);
+
+        // Track which variants the arms cover (for exhaustiveness +
+        // duplicate detection). Keys are variant names; values are
+        // source positions of the FIRST arm that covered them.
+        var covered: std.StringHashMapUnmanaged(u32) = .empty;
+        defer covered.deinit(self.ctx.allocator);
+        var has_default = false;
+
+        // For value-position match: unified result type across all arms.
+        var result_ty: TypeId = self.ctx.types.unknown_id;
+        var result_pos: u32 = 0;
 
         for (items[2..]) |arm| {
             if (arm != .list or arm.list.len < 4 or arm.list[0] != .tag or
@@ -1621,20 +1706,162 @@ const ExprChecker = struct {
                 continue;
             }
 
-            // Each arm opens its own scope (resolver did this in walkArm).
             const prev = self.enterNextScope();
             defer self.leaveScope(prev);
 
             const pattern = arm.list[1];
-            // Pattern type-check: only enum literals get verified for now.
-            if (pattern == .list and pattern.list.len >= 2 and
-                pattern.list[0] == .tag and pattern.list[0].tag == .@"enum_lit")
-            {
-                try self.checkEnumLit(pattern.list, scrutinee_ty);
-            }
+            const body = arm.list[arm.list.len - 1];
 
-            // Body is the last child (binding sits at items[2]).
-            try self.checkStmt(arm.list[arm.list.len - 1]);
+            // Pattern checking + binding-type refinement.
+            try self.checkArmPattern(pattern, scrutinee_ty, &covered, &has_default);
+
+            // Walk the body. Value position synthesizes + unifies; the
+            // statement path just walks for side effects.
+            switch (position) {
+                .statement => try self.checkStmt(body),
+                .value => {
+                    const arm_ty = try self.synthExpr(body);
+                    const arm_pos = firstSrcPos(body);
+                    if (result_ty == self.ctx.types.unknown_id) {
+                        result_ty = arm_ty;
+                        result_pos = arm_pos;
+                    } else {
+                        if (try self.unifyOrErr(result_ty, arm_ty, arm_pos)) |unified| {
+                            result_ty = unified;
+                        }
+                    }
+                },
+            }
+        }
+
+        // Value-position exhaustiveness: must have a default OR cover
+        // every variant of a known enum.
+        if (position == .value and !has_default) {
+            const expected_variants = enumVariantCount(self.ctx, scrutinee_ty);
+            if (expected_variants) |total| {
+                if (covered.count() < total) {
+                    try self.err(firstSrcPos(items[1]), "value-position `match` is not exhaustive (covered {d} of {d} variants and no default arm)", .{ covered.count(), total });
+                }
+            }
+        }
+
+        return if (position == .value) result_ty else null;
+    }
+
+    /// Validate one arm's pattern against the scrutinee's type, set the
+    /// pattern's captured-binding types, and update coverage tracking.
+    fn checkArmPattern(
+        self: *ExprChecker,
+        pattern: Sexp,
+        scrutinee_ty: TypeId,
+        covered: *std.StringHashMapUnmanaged(u32),
+        has_default: *bool,
+    ) std.mem.Allocator.Error!void {
+        switch (pattern) {
+            .src => |s| {
+                // Bare ident — catch-all default with binding.
+                has_default.* = true;
+                const name = self.ctx.source[s.pos..][0..s.len];
+                if (!std.mem.eql(u8, name, "_")) {
+                    if (self.ctx.lookup(self.current_scope, name)) |sym_id| {
+                        // Default-bind takes the scrutinee's type.
+                        self.ctx.symbols.items[sym_id].ty = scrutinee_ty;
+                    }
+                }
+            },
+            .list => |items| {
+                if (items.len < 2 or items[0] != .tag) return;
+                switch (items[0].tag) {
+                    .@"enum_lit" => {
+                        // No payload destructure; just validate the variant.
+                        try self.checkEnumLit(items, scrutinee_ty);
+                        if (identAt(self.ctx.source, items[1])) |vname| {
+                            try self.recordCovered(vname, firstSrcPos(pattern), covered);
+                        }
+                    },
+                    .@"variant_pattern" => {
+                        try self.checkVariantPattern(items, scrutinee_ty, covered);
+                    },
+                    .@"enum_pattern" => {
+                        // (enum_pattern name) — semi-deprecated alias for enum_lit.
+                        if (items.len >= 2 and identAt(self.ctx.source, items[1]) != null) {
+                            try self.recordCovered(identAt(self.ctx.source, items[1]).?, firstSrcPos(pattern), covered);
+                        }
+                    },
+                    else => {},
+                }
+            },
+            else => {},
+        }
+    }
+
+    fn recordCovered(
+        self: *ExprChecker,
+        name: []const u8,
+        pos: u32,
+        covered: *std.StringHashMapUnmanaged(u32),
+    ) std.mem.Allocator.Error!void {
+        if (covered.get(name)) |first_pos| {
+            try self.err(pos, "duplicate arm for variant `{s}`", .{name});
+            try self.note(first_pos, "first arm here", .{});
+            return;
+        }
+        try covered.put(self.ctx.allocator, name, pos);
+    }
+
+    fn checkVariantPattern(
+        self: *ExprChecker,
+        items: []const Sexp,
+        scrutinee_ty: TypeId,
+        covered: *std.StringHashMapUnmanaged(u32),
+    ) std.mem.Allocator.Error!void {
+        const variant_name = identAt(self.ctx.source, items[1]) orelse return;
+        const variant_pos: u32 = if (items[1] == .src) items[1].src.pos else 0;
+        try self.recordCovered(variant_name, variant_pos, covered);
+
+        // Look up the variant on the scrutinee enum.
+        const sty = self.ctx.types.get(scrutinee_ty);
+        if (sty != .nominal) return;
+        const enum_sym = self.ctx.symbols.items[sty.nominal];
+        const variants = enum_sym.fields orelse return;
+
+        var variant: ?Field = null;
+        for (variants) |v| {
+            if (std.mem.eql(u8, v.name, variant_name)) {
+                variant = v;
+                break;
+            }
+        }
+        const v = variant orelse {
+            try self.err(variant_pos, "no variant `{s}` on enum `{s}`", .{ variant_name, enum_sym.name });
+            if (enum_sym.decl_pos > 0) try self.note(enum_sym.decl_pos, "`{s}` declared here", .{enum_sym.name});
+            return;
+        };
+
+        // Bind each captured payload name with the matching field type.
+        const bindings = items[2..];
+        const payload = v.payload orelse {
+            if (bindings.len > 0) {
+                try self.err(variant_pos, "variant `{s}` has no payload to destructure", .{variant_name});
+            }
+            return;
+        };
+        if (bindings.len != payload.len) {
+            try self.err(variant_pos, "variant `{s}` has {d} payload field{s}, pattern destructures {d}", .{
+                variant_name,
+                payload.len,
+                if (payload.len == 1) @as([]const u8, "") else "s",
+                bindings.len,
+            });
+            return;
+        }
+        for (bindings, payload) |b, f| {
+            if (b != .src) continue;
+            const bname = self.ctx.source[b.src.pos..][0..b.src.len];
+            if (std.mem.eql(u8, bname, "_")) continue;
+            if (self.ctx.lookup(self.current_scope, bname)) |sym_id| {
+                self.ctx.symbols.items[sym_id].ty = f.ty;
+            }
         }
     }
 
@@ -1687,6 +1914,7 @@ const ExprChecker = struct {
             .@"propagate" => try self.synthPropagate(items),
             .@"try" => try self.synthPropagate(items),
             .@"if" => try self.synthIfExpr(items),
+            .@"match" => try self.synthMatchExpr(items),
             .@"ternary" => try self.synthTernary(items),
             .@"block" => try self.synthBlock(items),
             // Borrow wrappers — return borrow_read/borrow_write of the
@@ -2271,6 +2499,17 @@ fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
 
 fn typeIsVoid(ctx: *const SemContext, ty: TypeId) bool {
     return ty == ctx.types.void_id;
+}
+
+/// If `ty` resolves to a nominal enum/errors with declared variants,
+/// returns the variant count. Used by match exhaustiveness checking.
+fn enumVariantCount(ctx: *const SemContext, ty: TypeId) ?usize {
+    const t = ctx.types.get(ty);
+    if (t != .nominal) return null;
+    const sym = ctx.symbols.items[t.nominal];
+    if (sym.kind != .nominal_type) return null;
+    const fields = sym.fields orelse return null;
+    return fields.len;
 }
 
 fn isNumeric(ctx: *const SemContext, ty: TypeId) bool {
@@ -3100,6 +3339,104 @@ test "M9b: clean payload variant construction passes" {
     var ctx = try checkSource(std.testing.allocator, source);
     defer ctx.deinit();
     try std.testing.expect(!ctx.hasErrors());
+}
+
+// -----------------------------------------------------------------------------
+// M10: pattern destructuring + bindings + value-position match + exhaustiveness
+// -----------------------------------------------------------------------------
+
+test "M10: variant pattern binds payload field with the right type" {
+    // The arm body uses `r` against an Int-expecting print — if the
+    // binding's type is correctly set to Int (the payload field type),
+    // sema accepts; if it stays unknown, sema also accepts (compatible-
+    // with-anything sentinel). To prove the binding really has Int,
+    // pass it where a String is expected and watch the diagnostic fire.
+    const source =
+        \\enum Shape
+        \\  circle(radius: Int)
+        \\
+        \\fun stringify(s: String) -> String
+        \\  s
+        \\
+        \\sub main()
+        \\  s: Shape = .circle(radius: 5)
+        \\  match s
+        \\    .circle(r) => stringify(r)
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
+    var found = false;
+    for (ctx.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, "expected `String`") != null) found = true;
+    }
+    try std.testing.expect(found);
+}
+
+test "M10: duplicate match arm fires" {
+    const source =
+        \\enum Color
+        \\  red
+        \\  green
+        \\
+        \\sub main()
+        \\  c: Color = .red
+        \\  match c
+        \\    .red => print(1)
+        \\    .red => print(2)
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
+    var found = false;
+    for (ctx.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, "duplicate arm for variant `red`") != null) found = true;
+    }
+    try std.testing.expect(found);
+}
+
+test "M10: value-position match unifies arm types" {
+    const source =
+        \\enum Color
+        \\  red
+        \\  green
+        \\
+        \\sub main()
+        \\  c: Color = .red
+        \\  x = match c
+        \\    .red => 1
+        \\    .green => "no"
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
+}
+
+test "M10: value-position match requires exhaustive coverage" {
+    const source =
+        \\enum Color
+        \\  red
+        \\  green
+        \\  blue
+        \\
+        \\sub main()
+        \\  c: Color = .red
+        \\  x = match c
+        \\    .red => 1
+        \\    .green => 2
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
+    var found = false;
+    for (ctx.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, "not exhaustive") != null) found = true;
+    }
+    try std.testing.expect(found);
 }
 
 test "M9a: payload-bearing enum variant carries field metadata" {

@@ -1,0 +1,14 @@
+## M10: real exhaustiveness with duplicate-arm detection.
+##
+## The same `.red` matches twice — sema flags it.
+
+enum Color
+  red
+  green
+
+sub main()
+  c: Color = .red
+  match c
+    .red => print(1)
+    .red => print(2)
+    .green => print(3)

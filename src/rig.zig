@@ -127,6 +127,7 @@ pub const Tag = enum(u8) {
     @"arm",
     @"range_pattern",
     @"enum_pattern",
+    @"variant_pattern", // .circle(r) / .triangle(a, b) — payload destructure pattern
     @"enum_lit",        // .strict (inferred-type enum value)
     @"break",
     @"continue",

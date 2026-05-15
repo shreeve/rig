@@ -1,0 +1,13 @@
+## M10: value-position match must be exhaustive (cover every variant
+## OR include a default arm). A missing variant fires.
+
+enum Color
+  red
+  green
+  blue
+
+sub main()
+  c: Color = .red
+  x = match c
+    .red => 1
+    .green => 2

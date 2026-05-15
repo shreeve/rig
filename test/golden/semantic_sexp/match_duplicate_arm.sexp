@@ -1,0 +1,1 @@
+(module (enum Color red green) (sub main () _ (block (set _ c Color (enum_lit red)) (match c (arm (enum_lit red) _ (call print 1)) (arm (enum_lit red) _ (call print 2)) (arm (enum_lit green) _ (call print 3))))))
