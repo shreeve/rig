@@ -1,0 +1,7 @@
+## M9b: multi-field variant constructed with a missing field.
+
+enum Shape
+  triangle(a: Int, b: Int)
+
+sub main()
+  s: Shape = .triangle(a: 1)

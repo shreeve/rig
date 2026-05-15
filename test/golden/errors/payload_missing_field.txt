@@ -1,0 +1,1 @@
+examples/payload_missing_field.rig:7:15: error: variant `triangle` is missing field `b`

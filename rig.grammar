@@ -356,6 +356,7 @@ members  = member                           → (1)
          | members NEWLINE                  → 1
 member   = field
          | name "=" expr                    → (valued 1 3)
+         | name params                      → (variant 1 2)   # payload-bearing enum variant: `circle(radius: Int)`
          | fun
          | sub
 

@@ -721,7 +721,87 @@ sema level.
 - Guard patterns (`x if cond`).
 - Real exhaustiveness checking that detects DUPLICATE variant arms
   (current heuristic only counts arm count vs variant count).
-- Payload-bearing variant patterns (`(Some value)`).
+- Payload-bearing variant patterns (`(Some value)`). (M10+ — see M9.)
+
+## M9 — Payload-bearing enum variants ✅
+
+Closes the biggest stdlib precursor. Enums can now carry per-variant
+payloads (`circle(radius: Int)`), and instances can be constructed
+with kwarg or positional syntax (`.circle(radius: 5)` /
+`.triangle(3, 4)`). Lowering produces clean Zig `union(enum)`. Match
+destructuring of the payload is M10+.
+
+### M9a — Payload variant declarations + Zig `union(enum)` lowering ✅
+
+- [x] Grammar: new `member` production
+  `name params → (variant 1 2)` accepts `circle(radius: Int)` /
+  `triangle(a: Int, b: Int)` syntax inside enum bodies. Conflict
+  count unchanged at 34.
+- [x] New `Tag.variant` for the payload-variant IR head.
+- [x] Sema `Field` extended with `payload: ?[]const Field = null`.
+  - bare variant: `payload = null`
+  - `(valued n e)` variant: `payload = null` (value passes through)
+  - `(variant n params)` variant: `payload = [Field per param]`
+- [x] `TypeResolver.resolveEnumVariants` recognizes `(variant n p)`,
+  resolves each param's type via `resolveType`, and stores the
+  payload field list on the owning variant `Field`.
+- [x] `emit.emitEnum` lowers based on variant shapes:
+  - all bare → `pub const X = enum { v1, v2, };`
+  - any `(valued ...)` → `pub const X = enum(u32) { v1 = 0, ... };`
+  - any `(variant ...)` → `pub const X = union(enum) { v1: T, v2: struct { ... }, v3: void, };`
+  Single-payload variants are unwrapped to the bare type
+  (`circle: i32`); multi-payload variants get an anonymous struct
+  (`triangle: struct { a: i32, b: i32 }`).
+
+### M9b — Payload variant construction ✅
+
+- [x] `ExprChecker.checkExpr` intercepts
+  `(call (enum_lit name) args)` against an expected nominal enum.
+  Looks up the variant; for payload variants, validates args
+  against the payload field list (kwarg or positional).
+- [x] Diagnostics:
+  - `no variant 'X' on enum 'Shape'`
+  - `variant 'X' takes no payload` (bare variant called with args)
+  - `variant 'triangle' is missing field 'b'`
+  - `variant 'X' expects N payload field{s}, got M` (positional arity)
+  - `duplicate field 'X' in variant 'Y'`
+  - `no field 'X' on variant 'Y' of 'Shape'`
+  - `type mismatch: expected 'Int', got 'String'` (payload arg types)
+- [x] `emit.emitCall` detects callee `(enum_lit name)` and lowers to
+  Zig's anonymous tagged-union literal:
+  - 0 args → `.variant`
+  - single-payload kwarg → `.{ .variant = value }` (unwraps via
+    sema variant-arity lookup)
+  - multi-arg kwargs → `.{ .variant = .{ .field = arg, ... } }`
+  - positional args → `.{ .variant = .{ arg, ... } }`
+  Surrounding type context coerces the literal to the right
+  enum, matching Zig's natural construction style.
+
+### M9 — Test corpus
+
+  examples/payload_enum.rig            — clean: declaration + construction + run
+  examples/payload_wrong_type.rig      — wrong arg type at construction
+  examples/payload_missing_field.rig   — multi-field variant missing a field
+  examples/payload_bare_with_args.rig  — bare variant called with payload
+
+`payload_enum.rig` added to `EMIT_TARGETS` for end-to-end Zig
+ast-check + golden coverage. End-to-end `bin/rig run` validated.
+
+199/199 integration tests pass (was 181 at M8 close). 4 new unit
+tests in `src/types.zig`.
+
+### M9 deferred — explicitly NOT done in M9
+
+- **Match destructuring of payload variants** (`.circle => |c| use(c)`).
+  Bodies currently see the variant tag but not the payload value.
+  M10 territory — depends on pattern bindings landing first.
+- **Generic enum types** (`enum Result(T, E) { ok(value: T), err(error: E) }`).
+  Generic params aren't yet bound in scope. Required before a real
+  `Option(T)` / `Result(T, E)` stdlib seed.
+- **Mixed kwarg + positional construction** — V1 undefined; sema
+  silently accepts and synth-discards args.
+- **Optional payload fields with defaults** (`circle(radius: Int = 1)`)
+  — parsed as `(default ...)`, ignored.
 
 ## IR uniformity refactors (post-V1 polish)
 

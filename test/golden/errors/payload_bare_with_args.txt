@@ -1,0 +1,1 @@
+examples/payload_bare_with_args.rig:8:15: error: variant `origin` of enum `Shape` takes no payload

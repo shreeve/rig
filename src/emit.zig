@@ -177,26 +177,97 @@ pub const Emitter = struct {
         try self.w.writeAll("};\n");
     }
 
-    /// `(enum Name v1 v2 ...)` → Zig `const Name = enum { v1, v2, ... };`.
-    /// Variants can be bare names (`v`) or `(valued v expr)` for
-    /// explicit numeric values; the latter lower to `v = expr`.
-    /// Zig requires an explicit integer tag type when any variant
-    /// carries a value, so we default to `enum(u32)` in that case.
-    /// Payload-bearing variants (e.g., `Some(value: T)`) are deferred
-    /// to M8+ alongside match-pattern lowering.
+    /// `(enum Name v1 v2 ...)` lowers to one of three Zig forms based
+    /// on what variant shapes appear in the body:
+    ///
+    ///   - all bare           → `pub const Name = enum { v1, v2, };`
+    ///   - any `(valued)`     → `pub const Name = enum(u32) { v1 = 0, ... };`
+    ///   - any `(variant ...)` → `pub const Name = union(enum) { v1: T1, ... };`
+    ///
+    /// The union(enum) form is Zig's tagged union — exactly what we
+    /// need for payload-bearing variants. Bare variants in the same
+    /// declaration get `: void` so the union accepts them too. Bare-
+    /// variant-only enums stay as plain enums (cheaper / matches
+    /// user intent).
     fn emitEnum(self: *Emitter, items: []const Sexp) Error!void {
         if (items.len < 2) return;
         const name = identText(self.source, items[1]) orelse "AnonEnum";
 
-        // First pass: any `(valued ...)` variant?
+        // First pass: classify variant shapes.
         var has_values = false;
+        var has_payloads = false;
         for (items[2..]) |variant| {
-            if (variant == .list and variant.list.len > 0 and
-                variant.list[0] == .tag and variant.list[0].tag == .@"valued")
-            {
-                has_values = true;
-                break;
+            if (variant != .list or variant.list.len == 0 or variant.list[0] != .tag) continue;
+            switch (variant.list[0].tag) {
+                .@"valued" => has_values = true,
+                .@"variant" => has_payloads = true,
+                else => {},
             }
+        }
+
+        // Tagged union takes precedence over `(valued)` numeric tagging
+        // — Rig V1 doesn't mix them, and emit picks the one that lets
+        // every variant compile.
+        if (has_payloads) {
+            try self.w.print("pub const {s} = union(enum) {{\n", .{name});
+            for (items[2..]) |variant| {
+                switch (variant) {
+                    .src => |s| {
+                        const vname = self.source[s.pos..][0..s.len];
+                        try self.w.print("    {s}: void,\n", .{vname});
+                    },
+                    .list => |sub| {
+                        if (sub.len < 2 or sub[0] != .tag) continue;
+                        switch (sub[0].tag) {
+                            .@"variant" => {
+                                if (sub.len < 3) continue;
+                                const vname = identText(self.source, sub[1]) orelse continue;
+                                const params = sub[2];
+                                if (params != .list or params.list.len == 0) {
+                                    try self.w.print("    {s}: void,\n", .{vname});
+                                    continue;
+                                }
+                                // Single-payload variant → unwrap to the
+                                // bare type. Multi-payload → anonymous
+                                // struct.
+                                if (params.list.len == 1) {
+                                    const p = params.list[0];
+                                    if (p == .list and p.list.len >= 3 and p.list[0] == .tag and p.list[0].tag == .@":") {
+                                        try self.w.print("    {s}: ", .{vname});
+                                        try self.emitType(p.list[2]);
+                                        try self.w.writeAll(",\n");
+                                        continue;
+                                    }
+                                }
+                                try self.w.print("    {s}: struct {{ ", .{vname});
+                                var first = true;
+                                for (params.list) |p| {
+                                    if (p != .list or p.list.len < 3 or p.list[0] != .tag) continue;
+                                    if (p.list[0].tag != .@":") continue;
+                                    if (!first) try self.w.writeAll(", ");
+                                    first = false;
+                                    const fname = identText(self.source, p.list[1]) orelse continue;
+                                    try self.w.print("{s}: ", .{fname});
+                                    try self.emitType(p.list[2]);
+                                }
+                                try self.w.writeAll(" },\n");
+                            },
+                            // `(valued ...)` inside a payload-bearing
+                            // enum is uncommon but harmless — fall back
+                            // to bare `: void` (the explicit value
+                            // can't co-exist cleanly with a tagged union).
+                            else => {
+                                if (identText(self.source, sub[1])) |vname| {
+                                    try self.w.print("    {s}: void,\n", .{vname});
+                                }
+                            },
+                        }
+                    },
+                    else => {},
+                }
+            }
+            try self.w.writeAll("};\n");
+            return;
         }
 
         if (has_values) {
@@ -909,6 +980,23 @@ pub const Emitter = struct {
         }
         if (items.len < 2) return;
 
+        // M9b: payload-bearing variant construction. When the callee is
+        // `(enum_lit name)`, the call is constructing a tagged-union
+        // value. Lower to Zig's anonymous-tagged-union literal so the
+        // surrounding context (typed binding / function arg) coerces
+        // it into the right enum type:
+        //
+        //   .variant            no args  → `.variant`
+        //   .variant(x)         one arg  → `.{ .variant = x }`
+        //   .variant(a, b)      pos args → `.{ .variant = .{ a, b } }`
+        //   .variant(name: x)   kwargs   → `.{ .variant = .{ .name = x } }`
+        if (items[1] == .list and items[1].list.len >= 2 and
+            items[1].list[0] == .tag and items[1].list[0].tag == .@"enum_lit")
+        {
+            try self.emitPayloadVariantLit(items[1].list, items[2..]);
+            return;
+        }
+
         // Constructor-vs-call disambiguation. Per GPT-5.5's M5 design
         // pass (Q4): "resolved nominal > resolved function > fallback
         // heuristic". Sema knows whether `Foo` refers to a struct,
@@ -969,6 +1057,80 @@ pub const Emitter = struct {
             }
             try self.w.writeAll(")");
         }
+    }
+
+    /// Lower a payload-variant construction to Zig's anonymous tagged-
+    /// union literal. The surrounding type context (a typed binding,
+    /// fn arg, return value) coerces the literal to the correct enum
+    /// type — this matches Zig's natural construction style.
+    ///
+    /// The shape depends on the variant's payload arity, which we
+    /// consult sema for (matches what `emitEnum` produced):
+    ///
+    ///   payload count 0 → `.variant`
+    ///   payload count 1 → `.{ .variant = value }` (single arg unwraps;
+    ///                      kwarg's value is extracted)
+    ///   payload count N → `.{ .variant = .{ ...fields... } }`
+    fn emitPayloadVariantLit(self: *Emitter, callee: []const Sexp, args: []const Sexp) Error!void {
+        // No payload args → just emit `.name` (M7 path).
+        if (args.len == 0) {
+            try self.w.writeAll(".");
+            try self.emitExpr(callee[1]);
+            return;
+        }
+
+        const variant_name: ?[]const u8 = identText(self.source, callee[1]);
+        const single_payload = blk: {
+            if (variant_name == null or self.sema == null) break :blk false;
+            // Find a sema enum with this variant name AND determine
+            // its payload arity. We don't know the enclosing enum
+            // type from emit alone — scan all symbols for a matching
+            // variant. False positives are harmless (worst case we
+            // emit a more verbose form that Zig rejects).
+            for (self.sema.?.symbols.items) |sym| {
+                if (sym.kind != .nominal_type) continue;
+                const fields = sym.fields orelse continue;
+                for (fields) |v| {
+                    if (!std.mem.eql(u8, v.name, variant_name.?)) continue;
+                    const payload = v.payload orelse continue;
+                    if (payload.len == 1) break :blk true;
+                }
+            }
+            break :blk false;
+        };
+
+        try self.w.writeAll(".{ .");
+        try self.emitExpr(callee[1]);
+        try self.w.writeAll(" = ");
+
+        if (single_payload and args.len == 1) {
+            // Unwrap single-arg construction (matches the unwrapped
+            // `variant: T` form emitted by `emitEnum`).
+            const a = args[0];
+            if (a == .list and a.list.len >= 3 and a.list[0] == .tag and a.list[0].tag == .@"kwarg") {
+                try self.emitExpr(a.list[2]);
+            } else {
+                try self.emitExpr(a);
+            }
+        } else {
+            // Multi-field or non-unwrap path: anonymous struct literal.
+            try self.w.writeAll(".{ ");
+            var first = true;
+            for (args) |a| {
+                if (!first) try self.w.writeAll(", ");
+                first = false;
+                if (a == .list and a.list.len >= 3 and a.list[0] == .tag and a.list[0].tag == .@"kwarg") {
+                    try self.w.writeAll(".");
+                    try self.emitExpr(a.list[1]);
+                    try self.w.writeAll(" = ");
+                    try self.emitExpr(a.list[2]);
+                } else {
+                    try self.emitExpr(a);
+                }
+            }
+            try self.w.writeAll(" }");
+        }
+        try self.w.writeAll(" }");
     }
 
     fn emitPrint(self: *Emitter, args: []const Sexp) Error!void {

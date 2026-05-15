@@ -254,10 +254,20 @@ pub const SymbolFlags = packed struct {
 /// A field in a nominal type (struct/enum/errors). Stored on the
 /// owning Symbol's `fields` slice when the symbol is a `nominal_type`.
 /// Slice memory is owned by `SemContext.arena`.
+///
+/// For struct fields: `ty` holds the declared type; `payload` is null.
+/// For enum/errors variants:
+///   - bare `red`            → `ty = void_id`, `payload = null`
+///   - valued `ok = 0`       → `ty = void_id`, `payload = null` (value
+///                              passes through to emit verbatim)
+///   - payload `circle(r:Int)` → `ty = void_id`, `payload = [{r, Int}]`
+///                              (M9a: declared, lowers to Zig union(enum);
+///                              construction lands in M9b+).
 pub const Field = struct {
     name: []const u8, // borrowed slice into source
     ty: TypeId,
     decl_pos: u32,
+    payload: ?[]const Field = null,
 };
 
 pub const Symbol = struct {
@@ -910,12 +920,15 @@ const TypeResolver = struct {
         self.ctx.symbols.items[sym_id].fields = owned;
     }
 
-    /// Walk an `(enum Name v1 v2 ...)` or `(enum Name (valued v1 expr1) ...)`
-    /// declaration and store one `Field` per variant on the owning symbol.
-    /// Variant `ty` is set to `void_id` (no payload — M7 v1 only handles
-    /// C-style enums; payload variants come back when match lands).
-    /// Variants with an explicit value (`ok = 0`) get the same `void_id`
-    /// type — the value just propagates through to emit verbatim.
+    /// Walk an enum or errors declaration and store one `Field` per
+    /// variant. Variant shapes:
+    ///
+    ///   bare `red`               → ty=void_id, payload=null
+    ///   valued `ok = 0`          → ty=void_id, payload=null (value
+    ///                              propagates verbatim through emit)
+    ///   payload `circle(r: Int)` → ty=void_id, payload=[Field{r, Int}]
+    ///                              (M9a: declared + lowered;
+    ///                              construction in M9b+)
     fn resolveEnumVariants(self: *TypeResolver, items: []const Sexp, parent_scope: ScopeId) std.mem.Allocator.Error!void {
         if (items.len < 2) return;
         const name = identAt(self.ctx.source, items[1]) orelse return;
@@ -934,17 +947,57 @@ const TypeResolver = struct {
                     });
                 },
                 .list => |sub| {
-                    // (valued name expr) — keep the variant name; ignore
-                    // the value expression for sema (emit handles it).
-                    if (sub.len >= 2 and sub[0] == .tag and sub[0].tag == .@"valued") {
-                        const vname_node = sub[1];
-                        if (identAt(self.ctx.source, vname_node)) |vname| {
+                    if (sub.len < 2 or sub[0] != .tag) continue;
+                    switch (sub[0].tag) {
+                        // (valued name expr) — keep the variant name;
+                        // ignore the value (emit handles it verbatim).
+                        .@"valued" => {
+                            const vname_node = sub[1];
+                            if (identAt(self.ctx.source, vname_node)) |vname| {
+                                try fields.append(self.ctx.allocator, .{
+                                    .name = vname,
+                                    .ty = self.ctx.types.void_id,
+                                    .decl_pos = if (vname_node == .src) vname_node.src.pos else 0,
+                                });
+                            }
+                        },
+                        // (variant name params) — payload variant.
+                        // Resolve each param to a Field and store as
+                        // the variant's payload.
+                        .@"variant" => {
+                            if (sub.len < 3) continue;
+                            const vname_node = sub[1];
+                            const params_node = sub[2];
+                            const vname = identAt(self.ctx.source, vname_node) orelse continue;
+                            const vpos: u32 = if (vname_node == .src) vname_node.src.pos else 0;
+
+                            var payload: std.ArrayListUnmanaged(Field) = .empty;
+                            defer payload.deinit(self.ctx.allocator);
+                            if (params_node == .list) {
+                                for (params_node.list) |p| {
+                                    // Each param is `(: name type)` etc.
+                                    if (p != .list or p.list.len < 3 or p.list[0] != .tag) continue;
+                                    if (p.list[0].tag != .@":") continue;
+                                    const fname_node = p.list[1];
+                                    const ftype_node = p.list[2];
+                                    const fname = identAt(self.ctx.source, fname_node) orelse continue;
+                                    const ftype = try self.resolveType(ftype_node, parent_scope);
+                                    try payload.append(self.ctx.allocator, .{
+                                        .name = fname,
+                                        .ty = ftype,
+                                        .decl_pos = if (fname_node == .src) fname_node.src.pos else 0,
+                                    });
+                                }
+                            }
+                            const owned_payload = try self.ctx.arena.allocator().dupe(Field, payload.items);
                             try fields.append(self.ctx.allocator, .{
                                 .name = vname,
                                 .ty = self.ctx.types.void_id,
-                                .decl_pos = if (vname_node == .src) vname_node.src.pos else 0,
+                                .decl_pos = vpos,
+                                .payload = owned_payload,
                             });
-                        }
+                        },
+                        else => {},
                     }
                 },
                 else => {},
@@ -1982,6 +2035,20 @@ const ExprChecker = struct {
             return;
         }
 
+        // M9b: payload-bearing variant construction `.circle(radius: 5)`
+        // parses as `(call (enum_lit circle) (kwarg radius 5))` — same
+        // contextual typing pattern. When the expected type is a nominal
+        // enum and the call's callee is `(enum_lit name)`, validate the
+        // variant + check args against the variant's payload fields.
+        if (expr == .list and expr.list.len >= 2 and expr.list[0] == .tag and
+            expr.list[0].tag == .@"call" and expr.list[1] == .list and
+            expr.list[1].list.len >= 2 and expr.list[1].list[0] == .tag and
+            expr.list[1].list[0].tag == .@"enum_lit")
+        {
+            try self.checkPayloadVariantCall(expr.list, expected);
+            return;
+        }
+
         const actual = try self.synthExpr(expr);
         if (compatible(self.ctx, actual, expected)) return;
         const pos = firstSrcPos(expr);
@@ -1989,6 +2056,134 @@ const ExprChecker = struct {
             try formatType(self.ctx, expected),
             try formatType(self.ctx, actual),
         });
+    }
+
+    /// `(call (enum_lit name) args...)` — payload-variant construction
+    /// against an `expected` nominal enum. Errors if the variant
+    /// doesn't exist; otherwise checks args against the variant's
+    /// payload field list.
+    ///
+    /// Arg matching mirrors `checkConstructorArgs` for structs:
+    ///   - all-kwarg: each kwarg names a real payload field, types
+    ///     check, no duplicates, no missing
+    ///   - all-positional: arity must match payload field count, types
+    ///     checked positionally
+    ///   - mixed: V1-undefined, args synth-and-discarded
+    fn checkPayloadVariantCall(self: *ExprChecker, items: []const Sexp, expected: TypeId) std.mem.Allocator.Error!void {
+        const callee = items[1].list;
+        const variant_name = identAt(self.ctx.source, callee[1]) orelse return;
+        const variant_pos: u32 = if (callee[1] == .src) callee[1].src.pos else 0;
+
+        const expected_ty = self.ctx.types.get(expected);
+        if (expected_ty != .nominal) return;
+        const enum_sym = self.ctx.symbols.items[expected_ty.nominal];
+        const variants = enum_sym.fields orelse return;
+
+        // Find the variant.
+        var variant: ?Field = null;
+        for (variants) |v| {
+            if (std.mem.eql(u8, v.name, variant_name)) {
+                variant = v;
+                break;
+            }
+        }
+        const v = variant orelse {
+            try self.err(variant_pos, "no variant `{s}` on enum `{s}`", .{ variant_name, enum_sym.name });
+            if (enum_sym.decl_pos > 0) try self.note(enum_sym.decl_pos, "`{s}` declared here", .{enum_sym.name});
+            return;
+        };
+
+        const args = items[2..];
+        const payload = v.payload orelse {
+            // Bare variant called with args → mismatch.
+            if (args.len > 0) {
+                try self.err(variant_pos, "variant `{s}` of enum `{s}` takes no payload", .{ variant_name, enum_sym.name });
+            }
+            return;
+        };
+
+        // Decide arg style.
+        var has_kwarg = false;
+        var has_positional = false;
+        for (args) |a| {
+            if (a == .list and a.list.len > 0 and a.list[0] == .tag and a.list[0].tag == .@"kwarg") {
+                has_kwarg = true;
+            } else {
+                has_positional = true;
+            }
+        }
+
+        if (has_kwarg and !has_positional) {
+            try self.checkPayloadKwargs(args, payload, variant_name, enum_sym.name, variant_pos);
+        } else if (has_positional and !has_kwarg) {
+            try self.checkPayloadPositional(args, payload, variant_name, variant_pos);
+        } else {
+            // Mixed or empty — V1 doesn't define behavior; just synth.
+            for (args) |a| _ = try self.synthExpr(a);
+        }
+    }
+
+    fn checkPayloadKwargs(
+        self: *ExprChecker,
+        args: []const Sexp,
+        payload: []const Field,
+        variant_name: []const u8,
+        enum_name: []const u8,
+        variant_pos: u32,
+    ) std.mem.Allocator.Error!void {
+        var seen: std.StringHashMapUnmanaged(u32) = .empty;
+        defer seen.deinit(self.ctx.allocator);
+
+        for (args) |arg| {
+            if (arg != .list or arg.list.len < 3 or arg.list[0] != .tag or
+                arg.list[0].tag != .@"kwarg") continue;
+            const fname = identAt(self.ctx.source, arg.list[1]) orelse continue;
+            const fpos: u32 = if (arg.list[1] == .src) arg.list[1].src.pos else variant_pos;
+
+            if (seen.contains(fname)) {
+                try self.err(fpos, "duplicate field `{s}` in variant `{s}`", .{ fname, variant_name });
+                if (seen.get(fname)) |first_pos| try self.note(first_pos, "first `{s}` here", .{fname});
+                continue;
+            }
+            try seen.put(self.ctx.allocator, fname, fpos);
+
+            const field = blk: {
+                for (payload) |f| if (std.mem.eql(u8, f.name, fname)) break :blk f;
+                try self.err(fpos, "no field `{s}` on variant `{s}` of `{s}`", .{ fname, variant_name, enum_name });
+                _ = try self.synthExpr(arg.list[2]);
+                break :blk null;
+            } orelse continue;
+
+            try self.checkExpr(arg.list[2], field.ty);
+        }
+
+        for (payload) |f| {
+            if (!seen.contains(f.name)) {
+                try self.err(variant_pos, "variant `{s}` is missing field `{s}`", .{ variant_name, f.name });
+            }
+        }
+    }
+
+    fn checkPayloadPositional(
+        self: *ExprChecker,
+        args: []const Sexp,
+        payload: []const Field,
+        variant_name: []const u8,
+        variant_pos: u32,
+    ) std.mem.Allocator.Error!void {
+        if (args.len != payload.len) {
+            try self.err(variant_pos, "variant `{s}` expects {d} payload field{s}, got {d}", .{
+                variant_name,
+                payload.len,
+                if (payload.len == 1) @as([]const u8, "") else "s",
+                args.len,
+            });
+            for (args) |a| _ = try self.synthExpr(a);
+            return;
+        }
+        for (args, payload) |arg, f| {
+            try self.checkExpr(arg, f.ty);
+        }
     }
 
     /// Validate `(enum_lit name)` against an `expected` nominal enum
@@ -2849,6 +3044,87 @@ test "M8: match clean when all arm variants are valid" {
     var ctx = try checkSource(std.testing.allocator, source);
     defer ctx.deinit();
     try std.testing.expect(!ctx.hasErrors());
+}
+
+test "M9b: payload variant construction kwarg type-checks against payload" {
+    const source =
+        \\enum Shape
+        \\  circle(radius: Int)
+        \\
+        \\sub main()
+        \\  s: Shape = .circle(radius: "nope")
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
+    var found = false;
+    for (ctx.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, "expected `Int`") != null) found = true;
+    }
+    try std.testing.expect(found);
+}
+
+test "M9b: payload variant construction with missing field fires" {
+    const source =
+        \\enum Shape
+        \\  triangle(a: Int, b: Int)
+        \\
+        \\sub main()
+        \\  s: Shape = .triangle(a: 1)
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
+    var found = false;
+    for (ctx.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, "missing field `b`") != null) found = true;
+    }
+    try std.testing.expect(found);
+}
+
+test "M9b: clean payload variant construction passes" {
+    const source =
+        \\enum Shape
+        \\  circle(radius: Int)
+        \\  origin
+        \\
+        \\sub main()
+        \\  s1: Shape = .circle(radius: 5)
+        \\  s2: Shape = .origin
+        \\  print(s1)
+        \\  print(s2)
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(!ctx.hasErrors());
+}
+
+test "M9a: payload-bearing enum variant carries field metadata" {
+    const source =
+        \\enum Shape
+        \\  circle(radius: Int)
+        \\  origin
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    const id = ctx.lookup(1, "Shape").?;
+    const fields = ctx.symbols.items[id].fields.?;
+    try std.testing.expectEqual(@as(usize, 2), fields.len);
+
+    // First variant: circle with one payload field `radius: Int`.
+    try std.testing.expectEqualStrings("circle", fields[0].name);
+    const payload = fields[0].payload.?;
+    try std.testing.expectEqual(@as(usize, 1), payload.len);
+    try std.testing.expectEqualStrings("radius", payload[0].name);
+    try std.testing.expectEqual(ctx.types.int_id, payload[0].ty);
+
+    // Second variant: origin (bare, no payload).
+    try std.testing.expectEqualStrings("origin", fields[1].name);
+    try std.testing.expect(fields[1].payload == null);
 }
 
 test "M7: error set declaration populates fields" {

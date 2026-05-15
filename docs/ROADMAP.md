@@ -177,17 +177,43 @@ enum and lowers cleanly to a Zig `switch`.
   bodies so Zig's expression-position arm syntax accepts them.
 - Bare-ident catch-all arms (`other =>`) lower to Zig `else =>`.
 
-### M9+ — Beyond V1
+### M9 — Payload-bearing enum variants ✅
+Closes the biggest stdlib precursor. Enums can now carry per-variant
+payloads (`circle(radius: Int)`), and instances can be constructed
+with kwarg or positional syntax (`.circle(radius: 5)` /
+`.triangle(3, 4)`). Lowering produces clean Zig `union(enum)`.
+
+- New grammar `member → name params → (variant 1 2)` for payload-
+  variant declarations.
+- `Field.payload: ?[]const Field` carries per-variant payload field
+  list; `TypeResolver.resolveEnumVariants` populates it.
+- `emit.emitEnum` lowers to `union(enum)` when any variant has
+  payload; single-payload variants unwrap to bare types,
+  multi-payload variants get anonymous structs.
+- `ExprChecker.checkExpr` intercepts
+  `(call (enum_lit name) args)` against an expected enum; validates
+  args against the variant's payload (arity, names, types,
+  duplicates, missing fields).
+- `emit.emitCall` lowers `.variant(args)` to Zig's anonymous
+  tagged-union literal `.{ .variant = ... }` — the surrounding
+  type context coerces it.
+
+Match destructuring of the payload (`.circle => |c| use(c)`) is
+M10+ alongside pattern-binding propagation.
+
+### M10+ — Beyond V1
 Try-block lowering (still `@compileError`), value-position match
-with arm-result unification, payload-bearing enum variants
-(`Some(value: T)`), pattern bindings threaded into arm bodies,
-range/guard patterns, qualified enum access (`Color.red`), explicit
-error sets in `T!E` return types, opaque types, generic struct
-lowering (parsed in M0, typed as opaque nominals in M6), method
-syntax on structs, stdlib seed (Vec, HashMap, String, Result,
-Option), module system, LSP, async/coroutines, and the eventual
-fold of `effects.zig` into `types.zig` once expression typing is
-rich enough to express "non-fallible expected here" naturally.
+with arm-result unification, **match destructuring of payload
+variants** (`.circle => |c| use(c)`), pattern bindings threaded
+into arm bodies, range/guard patterns, qualified enum access
+(`Color.red`), explicit error sets in `T!E` return types, opaque
+types, generic struct lowering (parsed in M0, typed as opaque
+nominals in M6), generic enum types (`Option(T)` / `Result(T, E)`),
+method syntax on structs, stdlib seed (Vec, HashMap, String,
+Result, Option), module system, LSP, async/coroutines, and the
+eventual fold of `effects.zig` into `types.zig` once expression
+typing is rich enough to express "non-fallible expected here"
+naturally.
 
 ## Beyond V1 (deferred per SPEC §V2/V3)
 

@@ -1,0 +1,23 @@
+## M9: payload-bearing enum variants — declaration + construction + lowering.
+##
+## With M9a's `(variant name params)` member syntax, enums can carry
+## per-variant payload fields. M9b adds construction syntax
+## `.variant(field: value)` that validates against the variant's
+## payload field list and lowers to Zig's anonymous tagged-union literal.
+##
+## EXPECTED: clean. Compiles + runs. The payload-bearing enum lowers to
+## a Zig `union(enum) { circle: i32, triangle: struct { ... }, origin: void }`.
+
+enum Shape
+  circle(radius: Int)
+  square(side: Int)
+  triangle(a: Int, b: Int)
+  origin
+
+sub main()
+  s1: Shape = .circle(radius: 5)
+  s2: Shape = .triangle(a: 3, b: 4)
+  s3: Shape = .origin
+  print(s1)
+  print(s2)
+  print(s3)

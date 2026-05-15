@@ -1,0 +1,1 @@
+examples/payload_wrong_type.rig:7:30: error: type mismatch: expected `Int`, got `String`

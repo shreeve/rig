@@ -1,0 +1,8 @@
+## M9b: bare (no-payload) variant invoked with construction args
+## must error.
+
+enum Shape
+  origin
+
+sub main()
+  s: Shape = .origin(extra: 1)

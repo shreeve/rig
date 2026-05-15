@@ -185,6 +185,7 @@ pub const Tag = enum(u8) {
     // Type annotations and type constructors
     @"typed",
     @"valued",
+    @"variant",         // payload-bearing enum variant: `circle(radius: Int)` → (variant circle ((: radius Int)))
     @"default",
     @":",
     @"optional",        // `T?` (suffix optional; grammar emits directly)

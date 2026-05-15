@@ -1,0 +1,1 @@
+(module (enum Shape (variant circle ((: radius Int))) (variant square ((: side Int))) (variant triangle ((: a Int) (: b Int))) origin) (sub main () _ (block (set _ s1 Shape (call (enum_lit circle) (kwarg radius 5))) (set _ s2 Shape (call (enum_lit triangle) (kwarg a 3) (kwarg b 4))) (set _ s3 Shape (enum_lit origin)) (call print s1) (call print s2) (call print s3))))

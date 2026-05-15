@@ -1,0 +1,7 @@
+## M9b: payload variant construction with the wrong field type.
+
+enum Shape
+  circle(radius: Int)
+
+sub main()
+  s: Shape = .circle(radius: "nope")
