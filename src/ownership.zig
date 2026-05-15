@@ -1,6 +1,6 @@
 //! Rig Ownership Checker (M2).
 //!
-//! Walks the normalized semantic IR from `rig.Sexer` and enforces
+//! Walks the normalized semantic IR from `rig.Parser` and enforces
 //! SPEC §"Ownership Checker V1" rules:
 //!
 //!   1. Use after move           (must error)
@@ -757,38 +757,30 @@ fn lineCol(source: []const u8, pos: u32) LineCol {
 // Tests
 // =============================================================================
 
-/// Test helper. Owns its own arena for the normalizer's Sexp allocations
-/// to keep tests leak-clean. The returned Checker still holds diagnostics
-/// via `allocator`, so caller must `defer c.deinit()`.
+/// Test helper. `parser.Parser` auto-wires to `rig.Parser`, which owns
+/// its own arena for both the raw parse and the rewritten IR — so the
+/// only resource the test caller has to clean up is the parser handle
+/// itself (and the Checker, which holds diagnostics via `allocator`).
 const TestRig = struct {
-    arena: std.heap.ArenaAllocator,
     parser_obj: parser.Parser,
     checker: Checker,
 
     fn deinit(self: *TestRig) void {
         self.checker.deinit();
         self.parser_obj.deinit();
-        self.arena.deinit();
     }
 };
 
 fn checkSource(allocator: std.mem.Allocator, source: []const u8) !TestRig {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    errdefer arena.deinit();
-
     var p = parser.Parser.init(allocator, source);
     errdefer p.deinit();
-    const raw = try p.parseProgram();
-
-    var aa = arena.allocator();
-    var n = rig.Sexer.init(&aa);
-    const ir = try n.rewrite(raw);
+    const ir = try p.parseProgram();   // already rewritten by rig.Parser
 
     var c = try Checker.init(allocator, source);
     errdefer c.deinit();
     try c.check(ir);
 
-    return .{ .arena = arena, .parser_obj = p, .checker = c };
+    return .{ .parser_obj = p, .checker = c };
 }
 
 test "ownership: use after move errors" {

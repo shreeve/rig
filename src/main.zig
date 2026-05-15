@@ -95,7 +95,9 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn parseAndPrint(allocator: std.mem.Allocator, io: std.Io, source: []const u8) !void {
-    var p = parser.Parser.init(allocator, source);
+    // Debug path: print the RAW parse tree (before rig.Parser rewriting).
+    // Uses BaseParser explicitly to skip the wrapper.
+    var p = parser.BaseParser.init(allocator, source);
     defer p.deinit();
 
     const result = p.parseProgram() catch {
@@ -112,17 +114,15 @@ fn parseAndPrint(allocator: std.mem.Allocator, io: std.Io, source: []const u8) !
 }
 
 fn normalizeAndPrint(allocator: std.mem.Allocator, io: std.Io, source: []const u8) !void {
+    // `parser.Parser` auto-wires to `rig.Parser`, so `parseProgram()`
+    // returns the fully-rewritten semantic IR in one call.
     var p = parser.Parser.init(allocator, source);
     defer p.deinit();
 
-    const raw = p.parseProgram() catch {
+    const out = p.parseProgram() catch {
         p.printError();
         std.process.exit(1);
     };
-
-    var alloc = allocator;
-    var s = rig.Sexer.init(&alloc);
-    const out = try s.rewrite(raw);
 
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
@@ -136,14 +136,10 @@ fn checkAndReport(allocator: std.mem.Allocator, io: std.Io, source: []const u8, 
     var p = parser.Parser.init(allocator, source);
     defer p.deinit();
 
-    const raw = p.parseProgram() catch {
+    const ir = p.parseProgram() catch {
         p.printError();
         std.process.exit(1);
     };
-
-    var alloc = allocator;
-    var s = rig.Sexer.init(&alloc);
-    const ir = try s.rewrite(raw);
 
     var checker = try ownership.Checker.init(allocator, source);
     defer checker.deinit();
@@ -162,14 +158,10 @@ fn buildAndEmit(allocator: std.mem.Allocator, io: std.Io, source: []const u8, fi
     _ = file_path;
     var p = parser.Parser.init(allocator, source);
     defer p.deinit();
-    const raw = p.parseProgram() catch {
+    const ir = p.parseProgram() catch {
         p.printError();
         std.process.exit(1);
     };
-
-    var alloc = allocator;
-    var s = rig.Sexer.init(&alloc);
-    const ir = try s.rewrite(raw);
 
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
@@ -185,14 +177,10 @@ fn buildAndRun(allocator: std.mem.Allocator, io: std.Io, source: []const u8, fil
     // Parse → normalize → emit Zig to a temp file → spawn `zig run <tmp>`.
     var p = parser.Parser.init(allocator, source);
     defer p.deinit();
-    const raw = p.parseProgram() catch {
+    const ir = p.parseProgram() catch {
         p.printError();
         std.process.exit(1);
     };
-
-    var alloc = allocator;
-    var s = rig.Sexer.init(&alloc);
-    const ir = try s.rewrite(raw);
 
     var tmp_buf: [256]u8 = undefined;
     const tmp_path = makeTmpPath(&tmp_buf, file_path);

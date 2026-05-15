@@ -1,6 +1,6 @@
 //! Rig Zig Emitter (M3).
 //!
-//! Lowers the normalized semantic IR (from `rig.Sexer`) to Zig 0.16
+//! Lowers the normalized semantic IR (from `rig.Parser`) to Zig 0.16
 //! source. Boring lowering first; clever later.
 //!
 //! Per GPT-5.5 review:
@@ -859,15 +859,11 @@ fn isErrorUnion(t: Sexp) bool {
 // =============================================================================
 
 fn emitSourceToString(allocator: std.mem.Allocator, rig_source: []const u8) ![]u8 {
+    // `parser.Parser` auto-wires to `rig.Parser`, so parseProgram returns
+    // the fully-rewritten IR directly.
     var p = parser.Parser.init(allocator, rig_source);
     defer p.deinit();
-    const raw = try p.parseProgram();
-
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    var aa = arena.allocator();
-    var n = rig.Sexer.init(&aa);
-    const ir = try n.rewrite(raw);
+    const ir = try p.parseProgram();
 
     var out: std.Io.Writer.Allocating = .init(allocator);
     defer out.deinit();
