@@ -158,7 +158,7 @@ fn checkAndReport(allocator: std.mem.Allocator, io: std.Io, source: []const u8, 
     defer eff.deinit();
     try eff.check(ir);
 
-    var checker = try ownership.Checker.init(allocator, source);
+    var checker = try ownership.Checker.initWithSema(allocator, source, &sema);
     defer checker.deinit();
     try checker.check(ir);
 
@@ -201,7 +201,7 @@ fn parseAndCheckOrExit(
     defer eff.deinit();
     try eff.check(ir);
 
-    var checker = try ownership.Checker.init(allocator, source);
+    var checker = try ownership.Checker.initWithSema(allocator, source, &sema);
     defer checker.deinit();
     try checker.check(ir);
 

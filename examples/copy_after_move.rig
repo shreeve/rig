@@ -1,0 +1,18 @@
+## M5(5/n): Copy types can be used freely after `<` move sigil.
+##
+## SPEC: Copy values (Bool, Int, Float, String) are value types; the
+## `<` sigil on them is really a copy, so subsequent plain use is OK.
+## This contrasts with `move.rig` and `plain_after_move.rig`, which
+## use a User-typed `packet` (a Move type) and correctly error.
+##
+## EXPECTED: clean (no diagnostics). The sema-driven Copy classification
+## in M5(5/n) is what makes this acceptable; without it, the M4.5
+## conservative rule would falsely flag the bare `n` use.
+
+fun consume(n: Int) -> Int
+  n
+
+sub main()
+  n = 1
+  consume <n
+  print n

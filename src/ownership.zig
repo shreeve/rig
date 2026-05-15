@@ -21,6 +21,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+const types = @import("types.zig");
 
 const Sexp = parser.Sexp;
 const Tag = rig.Tag;
@@ -90,6 +91,13 @@ pub const Checker = struct {
     /// borrowed return for SPEC's borrow-escape rule.
     in_borrowed_fn: bool = false,
 
+    /// Optional sema context (M5(5/n)). When provided, `checkPlainUse`
+    /// classifies the binding's type as Copy or Move and skips the
+    /// move/drop/write-borrow checks for Copy types — matching SPEC's
+    /// "Copy values can be used freely after a `move`" semantics.
+    /// Without sema, the conservative M4.5 rules apply to all bindings.
+    sema: ?*const types.SemContext = null,
+
     /// Per-statement temporary borrow events. Each (binding_idx, kind)
     /// is incremented during walk and decremented at statement end.
     /// Bound borrows (RHS of `(set name (read X))`) are claimed by
@@ -107,6 +115,15 @@ pub const Checker = struct {
             .bindings = .empty,
             .parent = null,
         });
+        return c;
+    }
+
+    /// Constructor that wires the sema context. Use this from the CLI
+    /// pipeline so `checkPlainUse` can classify Copy vs Move types via
+    /// sema's symbol/type table.
+    pub fn initWithSema(allocator: std.mem.Allocator, source: []const u8, sema: *const types.SemContext) Error!Checker {
+        var c = try init(allocator, source);
+        c.sema = sema;
         return c;
     }
 
@@ -358,6 +375,18 @@ pub const Checker = struct {
     fn checkPlainUse(self: *Checker, pos: u32, name: []const u8) Error!void {
         const idx = self.lookup(name) orelse return;
         const b = &self.bindings.items[idx];
+
+        // M5(5/n): if sema can classify this binding's type as Copy
+        // (Bool, Int, Float, String, etc.), plain uses are unconditionally
+        // OK — Copy values can be freely re-used after a "move", because
+        // the move was really a copy. Only Move types (nominal user
+        // types, optional/fallible/borrow wrappers, etc.) are subject
+        // to the move/drop/write-borrow restrictions.
+        //
+        // Without sema (unit-test paths), every binding is treated as
+        // Move — preserving the conservative M4.5 rules.
+        if (self.semaBindingIsCopy(b)) return;
+
         if (b.state == .moved) {
             try self.err(pos, "use of `{s}` after move", .{name});
             try self.note(b.moved_at, "`{s}` was moved here", .{name});
@@ -373,6 +402,28 @@ pub const Checker = struct {
             try self.note(b.write_borrowed_at, "write borrow taken here", .{});
             return;
         }
+    }
+
+    /// Classify the binding's sema-side type as Copy vs Move. Returns
+    /// false if sema isn't wired or the binding can't be located.
+    ///
+    /// Copy types in M5 v1: Bool, Int (any size), Float (any size),
+    /// String, and the literal pseudo-types. Everything else (nominal
+    /// user types, optional/fallible/borrow wrappers, slice, array,
+    /// function, unknown, invalid) defaults to Move so existing
+    /// move/drop/borrow tests keep firing where they did before.
+    ///
+    /// The lookup is by `(name, declared_at)` — declared_at is unique
+    /// per binding instance so this works under shadowing. O(N) over
+    /// sema.symbols; fine for M5 v1.
+    fn semaBindingIsCopy(self: *Checker, b: *const Binding) bool {
+        const sema = self.sema orelse return false;
+        for (sema.symbols.items) |sym| {
+            if (sym.decl_pos == b.declared_at and std.mem.eql(u8, sym.name, b.name)) {
+                return isCopyType(sema, sym.ty);
+            }
+        }
+        return false;
     }
 
     fn walkBlock(self: *Checker, stmts: []const Sexp) Error!void {
@@ -1021,6 +1072,17 @@ fn isBorrowedType(t: Sexp) bool {
     if (t != .list or t.list.len < 2 or t.list[0] != .tag) return false;
     return switch (t.list[0].tag) {
         .borrow_read, .borrow_write => true,
+        else => false,
+    };
+}
+
+/// M5 v1 Copy classification: which TypeIds are safe to use freely
+/// after a move? Conservative: only primitives + literal pseudo-types.
+/// Everything else (nominals, wrappers, slices, etc.) is Move.
+fn isCopyType(sema: *const types.SemContext, ty_id: types.TypeId) bool {
+    const ty = sema.types.get(ty_id);
+    return switch (ty) {
+        .bool, .int, .float, .string, .int_literal, .float_literal => true,
         else => false,
     };
 }
