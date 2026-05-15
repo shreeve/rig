@@ -1,0 +1,1 @@
+examples/type_call_arity.rig:9:7: error: call to `add` expects 2 arguments, got 1

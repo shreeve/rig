@@ -1,0 +1,7 @@
+## M5(3/n): `if` / `while` conditions must be Bool.
+##
+## `42` is an int literal — not Bool — so the condition must error.
+
+sub main()
+  if 42
+    print "yes"

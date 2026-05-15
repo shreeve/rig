@@ -81,7 +81,7 @@ pub const ArrayType = struct { elem: TypeId, len: u64 };
 /// data (function param lists) lives in side-tables in `SemContext`.
 pub const Type = union(enum) {
     /// Sentinel for "type checking failed here" — propagates without
-    /// further error spam.
+    /// further error spam at downstream use sites.
     invalid,
     /// Used for placeholders during inference / declaration ordering.
     /// Should never escape the checker.
@@ -92,6 +92,17 @@ pub const Type = union(enum) {
     string,
     int: IntInfo,
     float: FloatInfo,
+
+    /// Pseudo-types for unconstrained numeric literals (`1`, `2.5`).
+    /// Adapt to a concrete `int`/`float` at known use sites (assignment
+    /// to declared type, call arg to typed param, return value, etc.).
+    /// Without context, default to canonical `Int` / `Float`.
+    ///
+    /// This is the M5 v1 minimum that makes `x: U8 = 0` work without
+    /// adding a general coercion lattice — only literals adapt; named
+    /// values don't widen across sized integer types.
+    int_literal,
+    float_literal,
 
     optional: TypeId,      // T?  → optional T
     fallible: TypeId,      // T!  → error_union T
@@ -130,8 +141,10 @@ pub const TypeStore = struct {
     void_id: TypeId = type_invalid,
     bool_id: TypeId = type_invalid,
     string_id: TypeId = type_invalid,
-    int_id: TypeId = type_invalid,     // unsized Int (arch default)
-    float_id: TypeId = type_invalid,   // unsized Float (arch default)
+    int_id: TypeId = type_invalid,           // unsized Int (arch default)
+    float_id: TypeId = type_invalid,         // unsized Float (arch default)
+    int_literal_id: TypeId = type_invalid,   // unconstrained int literal pseudo-type
+    float_literal_id: TypeId = type_invalid, // unconstrained float literal pseudo-type
 
     pub fn init(allocator: std.mem.Allocator) !TypeStore {
         var s: TypeStore = .{};
@@ -144,6 +157,8 @@ pub const TypeStore = struct {
         s.string_id = try s.appendType(allocator, .string);
         s.int_id = try s.appendType(allocator, .{ .int = .{ .bits = 0, .signed = true } });
         s.float_id = try s.appendType(allocator, .{ .float = .{ .bits = 0 } });
+        s.int_literal_id = try s.appendType(allocator, .int_literal);
+        s.float_literal_id = try s.appendType(allocator, .float_literal);
         return s;
     }
 
@@ -178,7 +193,9 @@ pub const TypeStore = struct {
     fn typeEqual(a: Type, b: Type) bool {
         if (@as(std.meta.Tag(Type), a) != @as(std.meta.Tag(Type), b)) return false;
         return switch (a) {
-            .invalid, .unknown, .void, .bool, .string => true,
+            .invalid, .unknown, .void, .bool, .string,
+            .int_literal, .float_literal,
+            => true,
             .int => |ai| ai.bits == b.int.bits and ai.signed == b.int.signed,
             .float => |af| af.bits == b.float.bits,
             .optional => |ao| ao == b.optional,
@@ -377,9 +394,13 @@ pub const SemContext = struct {
 ///      a declared type (param, return, alias, extern), convert the
 ///      type Sexp to a `TypeId` and write it back into the symbol's
 ///      `ty` slot. Function symbols get a `function` Type.
-///
-/// Future passes (subsequent M5 commits):
-///   3. Expression typing — synth + check.
+///   3. Expression typing — for each function body, walk statements
+///      with statement-vs-value context. Synthesize types for
+///      expressions, check declared bindings against their RHS, check
+///      return values against the function's declared return type,
+///      enforce `if` arm unification (in value position) and condition
+///      types (Bool). Numeric literals adapt to context; otherwise
+///      default to canonical `Int` / `Float`.
 ///
 /// Caller owns the returned `SemContext` and must call `deinit`.
 pub fn check(
@@ -398,6 +419,14 @@ pub fn check(
     // Pass 2: type expression resolution.
     var type_resolver: TypeResolver = .{ .ctx = &ctx };
     try type_resolver.walk(ir, module_scope);
+
+    // Pass 3: expression typing.
+    var expr_checker: ExprChecker = .{
+        .ctx = &ctx,
+        .current_scope = module_scope,
+        .current_fn_return = ctx.types.void_id,
+    };
+    try expr_checker.walkModule(ir, module_scope);
 
     return ctx;
 }
@@ -1091,6 +1120,740 @@ fn parseIntegerLiteral(source: []const u8, sexp: Sexp) ?u64 {
 }
 
 // =============================================================================
+// Expression Typing
+// =============================================================================
+//
+// Pass 3: walk function bodies with statement-vs-value context.
+//
+// Two entry points (per GPT-5.5's design pass for M5(3/n)):
+//
+//   synthExpr(expr) -> TypeId
+//     Bottom-up synthesis. Returns the type of the expression. Used in
+//     both statement and value contexts; the caller decides what to do
+//     with the result.
+//
+//   checkExpr(expr, expected) -> void
+//     Synth + compatibility-check against `expected`. Emits a
+//     diagnostic on mismatch; otherwise silent. Used at every "the
+//     value is consumed somewhere with a known expected type" site
+//     (typed binding RHS, call arg position, return value, etc.).
+//
+//   checkStmt(stmt) -> void
+//     Walks a statement-position form. `if` / `while` etc. don't
+//     require arm unification here. Calls synth/checkExpr as needed
+//     for embedded expressions.
+//
+// Compatibility rules (M5 v1):
+//
+//   same type                                ok
+//   int_literal   → integer type             ok (no range check yet)
+//   float_literal → float type               ok
+//   anything      → invalid                  ok (errors don't cascade)
+//   invalid       → anything                 ok
+//   unknown       → anything                 ok (deferred resolution)
+//   anything      → unknown                  ok (rare but harmless)
+//   T → T?                                   no  (must be wrapped)
+//   T! → T                                   no  (must be `!` propagated)
+//   ?T / !T cross-mix                        no  (exact match only)
+//   nominal A → nominal B                    only if A == B
+//
+// Errors point at use sites with a `note:` at the relevant declaration.
+
+const ExprChecker = struct {
+    ctx: *SemContext,
+    /// Innermost scope when typing an expression. Updated as we descend
+    /// into function bodies / blocks / for / catch / arm scopes — same
+    /// nesting order the symbol resolver established. We don't push
+    /// new scopes (pass 1 did that); we just advance into the existing
+    /// scope ids in lockstep via `next_scope_cursor`.
+    current_scope: ScopeId,
+
+    /// The next available scope id we'll enter when a scope-introducing
+    /// form is walked. Advances in the same order the SymbolResolver
+    /// pushed scopes during pass 1 so `current_scope` always matches
+    /// the bindings the resolver actually populated.
+    next_scope_cursor: ScopeId = 0,
+
+    /// Declared return type of the function whose body we're currently
+    /// inside. `void_id` at module scope; updated when entering a fn.
+    /// Used by `(return value)` and the implicit-return final
+    /// expression of a function with a non-void return.
+    current_fn_return: TypeId,
+
+    /// Enter the next scope in the resolver's creation order. Saves the
+    /// previous scope so the caller can restore via `leaveScope`.
+    fn enterNextScope(self: *ExprChecker) ScopeId {
+        const prev = self.current_scope;
+        self.current_scope = self.next_scope_cursor;
+        self.next_scope_cursor += 1;
+        return prev;
+    }
+
+    fn leaveScope(self: *ExprChecker, prev: ScopeId) void {
+        self.current_scope = prev;
+    }
+
+    fn err(self: *ExprChecker, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        const msg = try std.fmt.allocPrint(self.ctx.arena.allocator(), fmt, args);
+        try self.ctx.diagnostics.append(self.ctx.allocator, .{
+            .severity = .@"error",
+            .pos = pos,
+            .message = msg,
+        });
+    }
+
+    fn note(self: *ExprChecker, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        const msg = try std.fmt.allocPrint(self.ctx.arena.allocator(), fmt, args);
+        try self.ctx.diagnostics.append(self.ctx.allocator, .{
+            .severity = .note,
+            .pos = pos,
+            .message = msg,
+        });
+    }
+
+    /// Top-level walk: visit each module-level decl, advancing the
+    /// scope cursor in lockstep with the SymbolResolver pass.
+    fn walkModule(self: *ExprChecker, ir: Sexp, module_scope: ScopeId) std.mem.Allocator.Error!void {
+        if (ir != .list or ir.list.len == 0 or ir.list[0] != .tag) return;
+        if (ir.list[0].tag != .@"module") return;
+
+        // Pass 1 created the module scope first, then began creating
+        // child scopes from `module_scope + 1` onward.
+        self.current_scope = module_scope;
+        self.next_scope_cursor = module_scope + 1;
+
+        for (ir.list[1..]) |child| {
+            try self.walkDecl(child);
+        }
+    }
+
+    fn walkDecl(self: *ExprChecker, sexp: Sexp) std.mem.Allocator.Error!void {
+        if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return;
+        const items = sexp.list;
+        switch (items[0].tag) {
+            .@"pub" => {
+                if (items.len >= 2) try self.walkDecl(items[1]);
+            },
+            .@"fun", .@"sub" => try self.walkFun(items),
+            // type aliases / extern / use have no body to type-check.
+            else => {},
+        }
+    }
+
+    fn walkFun(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
+        if (items.len < 5) return;
+        const is_sub = items[0].tag == .@"sub";
+        const name_node = items[1];
+        const body = items[items.len - 1];
+
+        // Look up our declared signature to find return type.
+        const fn_return: TypeId = blk: {
+            if (identAt(self.ctx.source, name_node)) |nm| {
+                if (self.ctx.lookup(scope_invalid + 1, nm)) |fn_sym| {
+                    const fn_ty = self.ctx.types.get(self.ctx.symbols.items[fn_sym].ty);
+                    if (fn_ty == .function) break :blk fn_ty.function.returns;
+                }
+            }
+            break :blk if (is_sub) self.ctx.types.void_id else self.ctx.types.unknown_id;
+        };
+
+        // Enter the fn body scope (matches resolver's pushScope in walkFun).
+        const prev_scope = self.enterNextScope();
+        const prev_return = self.current_fn_return;
+        defer {
+            self.leaveScope(prev_scope);
+            self.current_fn_return = prev_return;
+        }
+        self.current_fn_return = fn_return;
+
+        try self.walkBody(body, fn_return, is_sub);
+    }
+
+    /// Walk a function body. The body is either a `(block stmt...)` or
+    /// a single expression. For `fun` (non-void return), the LAST
+    /// statement is checked against the return type as the implicit
+    /// return value; all others are statement-position. For `sub`, all
+    /// statements are statement-position (return values would be void).
+    ///
+    /// IMPORTANT: when the body is a `(block ...)`, the SymbolResolver
+    /// pushed a fresh scope for it (separate from the fn scope) — so
+    /// we must enter that scope here for binding lookups to resolve.
+    fn walkBody(self: *ExprChecker, body: Sexp, fn_return: TypeId, is_sub: bool) std.mem.Allocator.Error!void {
+        const is_block = body == .list and body.list.len > 0 and
+            body.list[0] == .tag and body.list[0].tag == .@"block";
+
+        const stmts: []const Sexp = if (is_block)
+            body.list[1..]
+        else if (body == .list)
+            (&[_]Sexp{body})[0..]
+        else
+            return;
+
+        // Enter the body's block scope to mirror the resolver. Single-
+        // expression bodies (no surrounding block) don't have one.
+        var prev_scope: ScopeId = self.current_scope;
+        const entered = is_block;
+        if (entered) {
+            prev_scope = self.enterNextScope();
+        }
+        defer if (entered) self.leaveScope(prev_scope);
+
+        const want_implicit_return = !is_sub and !typeIsVoid(self.ctx, fn_return);
+
+        for (stmts, 0..) |stmt, i| {
+            const is_last = i == stmts.len - 1;
+            if (is_last and want_implicit_return) {
+                // Implicit return: the last expression must be
+                // assignable to the declared return type.
+                try self.checkExpr(stmt, fn_return);
+            } else {
+                try self.checkStmt(stmt);
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Statement walker
+    // -------------------------------------------------------------------------
+
+    fn checkStmt(self: *ExprChecker, stmt: Sexp) std.mem.Allocator.Error!void {
+        if (stmt != .list or stmt.list.len == 0 or stmt.list[0] != .tag) {
+            // Bare `.src` or other leaf at statement position — synth
+            // and discard. (Drives plain-name lookup so unbound names
+            // can be diagnosed in the future, but currently noop.)
+            _ = try self.synthExpr(stmt);
+            return;
+        }
+        const items = stmt.list;
+        switch (items[0].tag) {
+            .@"set" => try self.checkSet(items),
+            .@"return" => try self.checkReturn(items),
+            .@"if" => try self.checkIfStmt(items),
+            .@"while" => try self.checkWhileStmt(items),
+            .@"for" => try self.checkForStmt(items),
+            .@"block" => {
+                // Enter the block scope created by the SymbolResolver.
+                const prev = self.enterNextScope();
+                defer self.leaveScope(prev);
+                for (items[1..]) |c| try self.checkStmt(c);
+            },
+            .@"drop" => {
+                // (drop name) — no type effects; ownership pass handles it.
+            },
+            .@"break", .@"continue" => {},
+            .@"defer", .@"errdefer" => {
+                if (items.len >= 2) try self.checkStmt(items[1]);
+            },
+            // Everything else (call, propagate, member, infix, etc.)
+            // is an expression. Synth and discard the result.
+            else => _ = try self.synthExpr(stmt),
+        }
+    }
+
+    fn checkSet(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
+        // (set <kind> name type-or-_ expr).
+        if (items.len < 5) return;
+        const target = items[2];
+        const type_node = items[3];
+        const expr = items[4];
+
+        // Find the symbol, if any. Compound assigns / move-assign reuse
+        // an existing slot — they don't introduce a new symbol but we
+        // still need to type-check against the existing one.
+        const sym_id = blk: {
+            const nm = identAt(self.ctx.source, target) orelse break :blk symbol_invalid;
+            break :blk self.ctx.lookup(self.current_scope, nm) orelse symbol_invalid;
+        };
+
+        // Resolve the explicit type annotation, if any.
+        var declared_ty: TypeId = self.ctx.types.unknown_id;
+        if (type_node != .nil) {
+            var tr: TypeResolver = .{ .ctx = self.ctx };
+            declared_ty = try tr.resolveType(type_node, self.current_scope);
+        } else if (sym_id != symbol_invalid) {
+            const existing = self.ctx.symbols.items[sym_id].ty;
+            if (existing != self.ctx.types.unknown_id) declared_ty = existing;
+        }
+
+        // Check or synth the RHS.
+        const rhs_ty = if (declared_ty == self.ctx.types.unknown_id)
+            try self.synthExpr(expr)
+        else blk: {
+            try self.checkExpr(expr, declared_ty);
+            break :blk declared_ty;
+        };
+
+        // Promote literal pseudo-types to their canonical concrete forms
+        // when stored on a symbol — downstream uses will see `Int`/`Float`,
+        // not the unconstrained pseudo-type.
+        const final_ty = self.canonicalize(rhs_ty);
+
+        if (sym_id != symbol_invalid) {
+            const sym = &self.ctx.symbols.items[sym_id];
+            if (sym.ty == self.ctx.types.unknown_id) {
+                sym.ty = final_ty;
+            }
+        }
+    }
+
+    fn checkReturn(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
+        // (return value? if?)
+        if (items.len >= 2 and items[1] != .nil) {
+            try self.checkExpr(items[1], self.current_fn_return);
+        }
+    }
+
+    fn checkIfStmt(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
+        // (if cond then else?). At statement position we check cond is
+        // Bool but DON'T unify branch arms (branches at stmt position
+        // discard their results, so mismatched arm value-types aren't
+        // a problem unless the if is used as a value).
+        if (items.len >= 2) try self.checkExpr(items[1], self.ctx.types.bool_id);
+        if (items.len >= 3) try self.checkStmt(items[2]);
+        if (items.len >= 4 and items[3] != .nil) try self.checkStmt(items[3]);
+    }
+
+    fn checkWhileStmt(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
+        // (while cond body else?) or (while cond cont body else?).
+        if (items.len >= 2) try self.checkExpr(items[1], self.ctx.types.bool_id);
+        for (items[2..]) |c| try self.checkStmt(c);
+    }
+
+    fn checkForStmt(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
+        // (for <mode> binding1 binding2-or-_ source body else?). We
+        // don't have iterator-protocol types in V1, so only walk source
+        // (synth + discard) and the body. The for itself opens a scope
+        // for the loop variable(s) — match the resolver here.
+        if (items.len < 6) return;
+        _ = try self.synthExpr(items[4]);
+        const prev = self.enterNextScope();
+        try self.checkStmt(items[5]);
+        self.leaveScope(prev);
+        if (items.len > 6 and items[6] != .nil) try self.checkStmt(items[6]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Expression synth
+    // -------------------------------------------------------------------------
+
+    fn synthExpr(self: *ExprChecker, expr: Sexp) std.mem.Allocator.Error!TypeId {
+        switch (expr) {
+            .nil => return self.ctx.types.void_id,
+            .src => |s| return self.synthLeafSrc(s.pos, self.ctx.source[s.pos..][0..s.len]),
+            .str => return self.ctx.types.string_id,
+            .tag => return self.ctx.types.unknown_id,
+            .list => |items| {
+                if (items.len == 0 or items[0] != .tag) return self.ctx.types.unknown_id;
+                return self.synthList(items);
+            },
+        }
+    }
+
+    fn synthLeafSrc(self: *ExprChecker, pos: u32, text: []const u8) std.mem.Allocator.Error!TypeId {
+        if (text.len == 0) return self.ctx.types.unknown_id;
+        // Literals (parser leaves these as raw .src slices).
+        if (text[0] == '"' or text[0] == '\'') return self.ctx.types.string_id;
+        if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) {
+            return self.ctx.types.bool_id;
+        }
+        if (std.mem.eql(u8, text, "null") or std.mem.eql(u8, text, "undefined")) {
+            return self.ctx.types.unknown_id;
+        }
+        if (isFloatLiteral(text)) return self.ctx.types.float_literal_id;
+        if (isIntLiteral(text)) return self.ctx.types.int_literal_id;
+        // Identifier — resolve via symbol table.
+        if (self.ctx.lookup(self.current_scope, text)) |sym_id| {
+            return self.ctx.symbols.items[sym_id].ty;
+        }
+        // Unresolved name: defer to ownership/effects passes for
+        // diagnostic. Returning `unknown_id` lets type checking
+        // proceed without cascading errors.
+        _ = pos;
+        return self.ctx.types.unknown_id;
+    }
+
+    fn synthList(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
+        const head = items[0].tag;
+        return switch (head) {
+            .@"call" => try self.synthCall(items),
+            .@"member" => try self.synthMember(items),
+            .@"index" => try self.synthIndex(items),
+            .@"propagate" => try self.synthPropagate(items),
+            .@"try" => try self.synthPropagate(items),
+            .@"if" => try self.synthIfExpr(items),
+            .@"ternary" => try self.synthTernary(items),
+            .@"block" => try self.synthBlock(items),
+            // Borrow wrappers — return borrow_read/borrow_write of the
+            // inner value's type. Read borrows of `T` are `?T` for sema
+            // purposes; ownership pass enforces lifetime separately.
+            .@"read" => try self.synthBorrow(items, .borrow_read),
+            .@"write" => try self.synthBorrow(items, .borrow_write),
+            .@"move" => {
+                if (items.len >= 2) return self.synthExpr(items[1]);
+                return self.ctx.types.unknown_id;
+            },
+            .@"clone", .@"share", .@"weak", .@"pin", .@"raw" => {
+                if (items.len >= 2) return self.synthExpr(items[1]);
+                return self.ctx.types.unknown_id;
+            },
+            // Arithmetic / comparison / logical infixes.
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"**" => try self.synthArith(items),
+            .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => try self.synthCompare(items),
+            .@"&&", .@"||", .@"not" => try self.synthLogical(items),
+            .@"neg" => {
+                if (items.len >= 2) return self.synthExpr(items[1]);
+                return self.ctx.types.unknown_id;
+            },
+            // Constructor sugar / record literals — see Q4. With sema we
+            // know if the callee is a nominal type; for M5(3/n) we just
+            // return `nominal(Sym)` and let downstream emit decide.
+            .@"record" => try self.synthRecord(items),
+            // Anonymous init, array literal — best-effort unknown.
+            .@"anon_init", .@"array" => self.ctx.types.unknown_id,
+            // Enum literal `.name` — context-dependent; unknown for now.
+            .@"enum_lit" => self.ctx.types.unknown_id,
+            else => self.ctx.types.unknown_id,
+        };
+    }
+
+    fn synthCall(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
+        // (call callee args...)
+        if (items.len < 2) return self.ctx.types.unknown_id;
+        const callee = items[1];
+
+        // If the callee is a known function symbol, check arg arity +
+        // types and return its declared return type.
+        if (callee == .src) {
+            const name = self.ctx.source[callee.src.pos..][0..callee.src.len];
+            if (self.ctx.lookup(self.current_scope, name)) |sym_id| {
+                const sym = self.ctx.symbols.items[sym_id];
+                const ty = self.ctx.types.get(sym.ty);
+                switch (ty) {
+                    .function => |fn_ty| {
+                        try self.checkCallArgs(items[2..], fn_ty, name, callee.src.pos);
+                        return fn_ty.returns;
+                    },
+                    .nominal => {
+                        // Constructor call (e.g., `User(name: "Steve")`).
+                        // The result is the nominal type itself. Args
+                        // are type-unchecked in M5 v1 (need struct
+                        // field metadata which we don't track yet).
+                        for (items[2..]) |arg| _ = try self.synthExpr(arg);
+                        return sym.ty;
+                    },
+                    else => {},
+                }
+            }
+        }
+
+        // Unknown callee: synth args anyway so nested type errors fire.
+        for (items[1..]) |arg| _ = try self.synthExpr(arg);
+        return self.ctx.types.unknown_id;
+    }
+
+    fn checkCallArgs(
+        self: *ExprChecker,
+        args: []const Sexp,
+        fn_ty: FunctionType,
+        callee_name: []const u8,
+        callee_pos: u32,
+    ) std.mem.Allocator.Error!void {
+        // V1: only positional args are type-checked. Skip arity/type
+        // check entirely if any arg is a `(kwarg ...)` — constructor
+        // sugar uses kwargs and we can't map them to params yet without
+        // struct field metadata.
+        for (args) |a| {
+            if (a == .list and a.list.len > 0 and a.list[0] == .tag and
+                a.list[0].tag == .@"kwarg")
+            {
+                for (args) |aa| _ = try self.synthExpr(aa);
+                return;
+            }
+        }
+
+        if (args.len != fn_ty.params.len) {
+            try self.err(callee_pos, "call to `{s}` expects {d} argument{s}, got {d}", .{
+                callee_name,
+                fn_ty.params.len,
+                if (fn_ty.params.len == 1) @as([]const u8, "") else "s",
+                args.len,
+            });
+            for (args) |a| _ = try self.synthExpr(a);
+            return;
+        }
+        for (args, fn_ty.params) |arg, param_ty| {
+            try self.checkExpr(arg, param_ty);
+        }
+    }
+
+    fn synthMember(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
+        // (member obj name) — V1 doesn't track struct fields, so any
+        // member access is unknown. Walk obj for nested type errors.
+        if (items.len >= 2) _ = try self.synthExpr(items[1]);
+        return self.ctx.types.unknown_id;
+    }
+
+    fn synthIndex(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
+        // (index expr idx) — for slice/array T, returns T; otherwise unknown.
+        if (items.len < 3) return self.ctx.types.unknown_id;
+        const obj_ty = try self.synthExpr(items[1]);
+        _ = try self.synthExpr(items[2]); // walk idx for nested errors
+        const ty = self.ctx.types.get(obj_ty);
+        return switch (ty) {
+            .slice => |s| s.elem,
+            .array => |a| a.elem,
+            .optional => |inner| inner, // unwrap T? to T (ish) for indexing
+            else => self.ctx.types.unknown_id,
+        };
+    }
+
+    fn synthPropagate(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
+        // (propagate expr) / (try expr) — unwrap one fallible layer.
+        if (items.len < 2) return self.ctx.types.unknown_id;
+        const inner = try self.synthExpr(items[1]);
+        const ty = self.ctx.types.get(inner);
+        return switch (ty) {
+            .fallible => |t| t,
+            // Effects checker fires its own diagnostic if propagation
+            // is applied to a non-fallible value; here we just let the
+            // type flow through unchanged.
+            else => inner,
+        };
+    }
+
+    fn synthIfExpr(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
+        // Value-position `if`. Per GPT-5.5: condition must be Bool, an
+        // else IS required, then-arm and else-arm types must unify.
+        if (items.len < 2) return self.ctx.types.unknown_id;
+        try self.checkExpr(items[1], self.ctx.types.bool_id);
+
+        if (items.len < 4 or items[3] == .nil) {
+            // Missing else in value position. Find a position to point at.
+            const pos = firstSrcPos(items[2]);
+            try self.err(pos, "`if` expression used as a value requires an `else` branch", .{});
+            return self.ctx.types.unknown_id;
+        }
+
+        const then_ty = if (items[2] == .nil) self.ctx.types.void_id else try self.synthExpr(items[2]);
+        const else_ty = try self.synthExpr(items[3]);
+        return (try self.unifyOrErr(then_ty, else_ty, firstSrcPos(items[2]))) orelse self.ctx.types.unknown_id;
+    }
+
+    fn synthTernary(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
+        // (ternary cond then else)
+        if (items.len < 4) return self.ctx.types.unknown_id;
+        try self.checkExpr(items[1], self.ctx.types.bool_id);
+        const then_ty = try self.synthExpr(items[2]);
+        const else_ty = try self.synthExpr(items[3]);
+        return (try self.unifyOrErr(then_ty, else_ty, firstSrcPos(items[2]))) orelse self.ctx.types.unknown_id;
+    }
+
+    fn synthBlock(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
+        // (block stmts...) — value-position block returns the type of
+        // its last expression. Walk all but the last as statements.
+        if (items.len <= 1) return self.ctx.types.void_id;
+        for (items[1 .. items.len - 1]) |s| try self.checkStmt(s);
+        return self.synthExpr(items[items.len - 1]);
+    }
+
+    fn synthBorrow(self: *ExprChecker, items: []const Sexp, comptime kind: std.meta.Tag(Type)) std.mem.Allocator.Error!TypeId {
+        if (items.len < 2) return self.ctx.types.unknown_id;
+        const inner = try self.synthExpr(items[1]);
+        if (inner == self.ctx.types.unknown_id or inner == self.ctx.types.invalid_id) return inner;
+        return switch (kind) {
+            .borrow_read => self.ctx.types.intern(self.ctx.allocator, .{ .borrow_read = inner }) catch self.ctx.types.invalid_id,
+            .borrow_write => self.ctx.types.intern(self.ctx.allocator, .{ .borrow_write = inner }) catch self.ctx.types.invalid_id,
+            else => self.ctx.types.unknown_id,
+        };
+    }
+
+    fn synthArith(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
+        // (op a b) — both args must be numeric, result is unified type.
+        if (items.len < 3) return self.ctx.types.unknown_id;
+        const a = try self.synthExpr(items[1]);
+        const b = try self.synthExpr(items[2]);
+        // Don't error on numeric mismatch yet — V1 lets users mix
+        // unsized literals freely, and we have no coercion for sized
+        // numerics. Just pick the first non-literal type if available.
+        if (isNumeric(self.ctx, a) and isNumeric(self.ctx, b)) {
+            return (try self.unifyOrErr(a, b, firstSrcPos(items[1]))) orelse self.ctx.types.unknown_id;
+        }
+        return self.ctx.types.unknown_id;
+    }
+
+    fn synthCompare(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
+        if (items.len >= 3) {
+            _ = try self.synthExpr(items[1]);
+            _ = try self.synthExpr(items[2]);
+        }
+        return self.ctx.types.bool_id;
+    }
+
+    fn synthLogical(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
+        if (items.len >= 2) try self.checkExpr(items[1], self.ctx.types.bool_id);
+        if (items.len >= 3) try self.checkExpr(items[2], self.ctx.types.bool_id);
+        return self.ctx.types.bool_id;
+    }
+
+    fn synthRecord(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
+        // (record TypeName members...) — V1 doesn't track fields.
+        if (items.len < 2) return self.ctx.types.unknown_id;
+        const name_node = items[1];
+        if (identAt(self.ctx.source, name_node)) |nm| {
+            if (self.ctx.lookup(self.current_scope, nm)) |sym_id| {
+                const sym = self.ctx.symbols.items[sym_id];
+                if (sym.kind == .nominal_type or sym.kind == .type_alias) return sym.ty;
+            }
+        }
+        return self.ctx.types.unknown_id;
+    }
+
+    // -------------------------------------------------------------------------
+    // checkExpr — synth + compatibility-check
+    // -------------------------------------------------------------------------
+
+    fn checkExpr(self: *ExprChecker, expr: Sexp, expected: TypeId) std.mem.Allocator.Error!void {
+        const actual = try self.synthExpr(expr);
+        if (compatible(self.ctx, actual, expected)) return;
+        const pos = firstSrcPos(expr);
+        try self.err(pos, "type mismatch: expected `{s}`, got `{s}`", .{
+            try formatType(self.ctx, expected),
+            try formatType(self.ctx, actual),
+        });
+    }
+
+    /// Best-effort unification: returns the unified type id, or null
+    /// after emitting a diagnostic. Literal pseudo-types adapt to
+    /// matching numeric concrete types.
+    fn unifyOrErr(self: *ExprChecker, a: TypeId, b: TypeId, pos: u32) std.mem.Allocator.Error!?TypeId {
+        if (a == b) return a;
+        if (a == self.ctx.types.unknown_id or a == self.ctx.types.invalid_id) return b;
+        if (b == self.ctx.types.unknown_id or b == self.ctx.types.invalid_id) return a;
+
+        // Literal pseudo-types adapt to concrete numeric.
+        if (compatible(self.ctx, a, b)) return b;
+        if (compatible(self.ctx, b, a)) return a;
+
+        try self.err(pos, "incompatible types `{s}` and `{s}`", .{
+            try formatType(self.ctx, a),
+            try formatType(self.ctx, b),
+        });
+        return null;
+    }
+
+    /// Promote literal pseudo-types to canonical concrete forms (used
+    /// when storing on a symbol so downstream uses see `Int`/`Float`).
+    fn canonicalize(self: *ExprChecker, ty: TypeId) TypeId {
+        if (ty == self.ctx.types.int_literal_id) return self.ctx.types.int_id;
+        if (ty == self.ctx.types.float_literal_id) return self.ctx.types.float_id;
+        return ty;
+    }
+};
+
+/// Compatibility: is `actual` acceptable where `expected` is required?
+/// See the rule table at the top of "Expression Typing".
+fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
+    if (actual == expected) return true;
+    // Sentinel propagation — unknown / invalid never produce a mismatch.
+    if (actual == ctx.types.invalid_id or expected == ctx.types.invalid_id) return true;
+    if (actual == ctx.types.unknown_id or expected == ctx.types.unknown_id) return true;
+
+    const a = ctx.types.get(actual);
+    const e = ctx.types.get(expected);
+
+    // Literal pseudo-types adapt to matching numeric concrete types.
+    if (a == .int_literal) {
+        return switch (e) {
+            .int, .int_literal => true,
+            else => false,
+        };
+    }
+    if (a == .float_literal) {
+        return switch (e) {
+            .float, .float_literal => true,
+            else => false,
+        };
+    }
+    return false;
+}
+
+fn typeIsVoid(ctx: *const SemContext, ty: TypeId) bool {
+    return ty == ctx.types.void_id;
+}
+
+fn isNumeric(ctx: *const SemContext, ty: TypeId) bool {
+    const t = ctx.types.get(ty);
+    return switch (t) {
+        .int, .float, .int_literal, .float_literal => true,
+        else => false,
+    };
+}
+
+fn isIntLiteral(text: []const u8) bool {
+    if (text.len == 0) return false;
+    const c = text[0];
+    if (c == '0' and text.len > 1 and (text[1] == 'x' or text[1] == 'b' or text[1] == 'o')) return true;
+    if (c < '0' or c > '9') return false;
+    for (text) |ch| {
+        if (ch == '.') return false;
+    }
+    return true;
+}
+
+fn isFloatLiteral(text: []const u8) bool {
+    if (text.len == 0) return false;
+    const c = text[0];
+    if (c < '0' or c > '9') return false;
+    for (text) |ch| {
+        if (ch == '.') return true;
+    }
+    return false;
+}
+
+fn firstSrcPos(sexp: Sexp) u32 {
+    return switch (sexp) {
+        .src => |s| s.pos,
+        .list => |items| blk: {
+            for (items) |c| {
+                const p = firstSrcPos(c);
+                if (p > 0) break :blk p;
+            }
+            break :blk 0;
+        },
+        else => 0,
+    };
+}
+
+/// Render a `TypeId` as a short human-readable string in the sema arena.
+/// Returned slice lives until `SemContext.deinit`.
+fn formatType(ctx: *SemContext, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
+    const a = ctx.arena.allocator();
+    const t = ctx.types.get(ty_id);
+    return switch (t) {
+        .invalid => "invalid",
+        .unknown => "unknown",
+        .void => "Void",
+        .bool => "Bool",
+        .string => "String",
+        .int => |info| if (info.bits == 0) "Int" else try std.fmt.allocPrint(a, "{c}{d}", .{
+            @as(u8, if (info.signed) 'I' else 'U'),
+            info.bits,
+        }),
+        .float => |info| if (info.bits == 0) "Float" else try std.fmt.allocPrint(a, "F{d}", .{info.bits}),
+        .int_literal => "<int literal>",
+        .float_literal => "<float literal>",
+        .optional => |inner| try std.fmt.allocPrint(a, "{s}?", .{try formatType(ctx, inner)}),
+        .fallible => |inner| try std.fmt.allocPrint(a, "{s}!", .{try formatType(ctx, inner)}),
+        .borrow_read => |inner| try std.fmt.allocPrint(a, "?{s}", .{try formatType(ctx, inner)}),
+        .borrow_write => |inner| try std.fmt.allocPrint(a, "!{s}", .{try formatType(ctx, inner)}),
+        .slice => |s| try std.fmt.allocPrint(a, "[]{s}", .{try formatType(ctx, s.elem)}),
+        .array => |arr| try std.fmt.allocPrint(a, "[{d}]{s}", .{ arr.len, try formatType(ctx, arr.elem) }),
+        .function => "fn(...)",
+        .nominal => |sym| ctx.symbols.items[sym].name,
+    };
+}
+
+// =============================================================================
 // Helpers
 // =============================================================================
 
@@ -1474,6 +2237,126 @@ test "type-resolve: type alias resolves to its target" {
     const param_ty = ctx.types.get(fn_ty.function.params[0]);
     try std.testing.expectEqual(@as(std.meta.Tag(Type), .nominal), @as(std.meta.Tag(Type), param_ty));
     try std.testing.expectEqual(alias_id, param_ty.nominal);
+}
+
+// -----------------------------------------------------------------------------
+// Expression typing tests
+// -----------------------------------------------------------------------------
+
+test "expr-typing: literal coerces to declared sized integer" {
+    const source =
+        \\sub main()
+        \\  x: U8 = 0
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(!ctx.hasErrors());
+}
+
+test "expr-typing: declared return type drives last-statement check" {
+    const source =
+        \\fun bad() -> Int
+        \\  "no"
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
+    var found = false;
+    for (ctx.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, "expected `Int`") != null) {
+            found = true;
+            break;
+        }
+    }
+    try std.testing.expect(found);
+}
+
+test "expr-typing: if-arm value mismatch fires" {
+    const source =
+        \\sub main()
+        \\  x = if true
+        \\    1
+        \\  else
+        \\    "no"
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
+}
+
+test "expr-typing: if condition must be Bool" {
+    const source =
+        \\sub main()
+        \\  if 42
+        \\    print "yes"
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
+    var found = false;
+    for (ctx.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, "expected `Bool`") != null) {
+            found = true;
+            break;
+        }
+    }
+    try std.testing.expect(found);
+}
+
+test "expr-typing: call arg arity mismatch" {
+    const source =
+        \\fun add(a: Int, b: Int) -> Int
+        \\  a + b
+        \\
+        \\sub main()
+        \\  x = add(1)
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
+    var found = false;
+    for (ctx.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, "expects 2 arguments") != null) {
+            found = true;
+            break;
+        }
+    }
+    try std.testing.expect(found);
+}
+
+test "expr-typing: matching if-arm types pass clean" {
+    const source =
+        \\sub main()
+        \\  x = if true
+        \\    1
+        \\  else
+        \\    2
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(!ctx.hasErrors());
+}
+
+test "expr-typing: untyped binding gets canonical type from RHS" {
+    // After typing, `x` should have type `Int` (the canonical form),
+    // NOT `int_literal` (the raw RHS pseudo-type).
+    const source =
+        \\sub main()
+        \\  x = 1
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(!ctx.hasErrors());
+    const last_scope: ScopeId = @intCast(ctx.scopes.items.len - 1);
+    const x_id = ctx.lookup(last_scope, "x").?;
+    try std.testing.expectEqual(ctx.types.int_id, ctx.symbols.items[x_id].ty);
 }
 
 test "type-resolve: sized integer types intern distinctly" {

@@ -1,0 +1,16 @@
+## M5(3/n): integer literals adapt to declared sized integer types.
+##
+## Without literal pseudo-types this would type-error: `Int` is unsized
+## and `U8` is sized, so a strict same-type rule rejects them. With
+## literal pseudo-types, `0` (an int_literal) is compatible with any
+## integer type at use sites.
+##
+## EXPECTED: clean (no diagnostics).
+
+sub main()
+  x: U8 = 0
+  y: I32 = -1
+  z: F64 = 3.14
+  print x
+  print y
+  print z

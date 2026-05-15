@@ -1,0 +1,10 @@
+## M5(3/n): function body's implicit return must match declared type.
+##
+## `bad` declares `-> Int` but returns a String literal.
+
+fun bad() -> Int
+  "not an int"
+
+sub main()
+  x = bad()
+  print x

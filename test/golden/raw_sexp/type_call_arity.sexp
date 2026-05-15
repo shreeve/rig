@@ -1,0 +1,1 @@
+(module (fun add ((: a Int) (: b Int)) Int (block (+ a b))) (sub main () _ (block (set _ x _ (call add 1)) (call print x))))

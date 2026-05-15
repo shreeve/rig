@@ -1,0 +1,10 @@
+## M5(3/n): value-position `if` arms must unify.
+##
+## `1` is an int literal; `"no"` is a String. Sema must reject this.
+
+sub main()
+  x = if true
+    1
+  else
+    "no"
+  print x

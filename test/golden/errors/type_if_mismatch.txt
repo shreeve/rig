@@ -1,0 +1,1 @@
+examples/type_if_mismatch.rig:7:5: error: incompatible types `<int literal>` and `String`

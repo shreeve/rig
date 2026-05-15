@@ -1,0 +1,1 @@
+examples/type_return_mismatch.rig:6:3: error: type mismatch: expected `Int`, got `String`
