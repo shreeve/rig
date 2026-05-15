@@ -1,6 +1,6 @@
 //! Rig Zig Emitter (M3).
 //!
-//! Lowers the normalized semantic IR (from `normalize.zig`) to Zig 0.16
+//! Lowers the normalized semantic IR (from `rig.Sexer`) to Zig 0.16
 //! source. Boring lowering first; clever later.
 //!
 //! Per GPT-5.5 review:
@@ -20,7 +20,6 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
-const normalize = @import("normalize.zig");
 
 const Sexp = parser.Sexp;
 const Tag = rig.Tag;
@@ -391,7 +390,7 @@ pub const Emitter = struct {
         // Unified 5-child shape: (set <kind> name type-or-_ expr).
         // BindingKind is exhaustive, so the switch below is checked by Zig.
         if (items.len < 5) return;
-        const kind = normalize.bindingKindOf(items[1]);
+        const kind = rig.bindingKindOf(items[1]);
         const name = identText(self.source, items[2]) orelse return;
         const type_node = items[3];
         const expr = items[4];
@@ -867,8 +866,8 @@ fn emitSourceToString(allocator: std.mem.Allocator, rig_source: []const u8) ![]u
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     var aa = arena.allocator();
-    var n = normalize.Normalizer.init(&aa);
-    const ir = try n.normalize(raw);
+    var n = rig.Sexer.init(&aa);
+    const ir = try n.rewrite(raw);
 
     var out: std.Io.Writer.Allocating = .init(allocator);
     defer out.deinit();
@@ -984,7 +983,7 @@ fn scanMutationsRec(
             // reassign an existing slot count toward "must be `var`".
             // Exhaustive switch on BindingKind — adding a new kind to
             // the enum forces an explicit decision here.
-            const kind = normalize.bindingKindOf(items[1]);
+            const kind = rig.bindingKindOf(items[1]);
             const counts_as_mut: bool = switch (kind) {
                 .default, .@"move", .@"+=", .@"-=", .@"*=", .@"/=" => true,
                 .fixed, .shadow => false,

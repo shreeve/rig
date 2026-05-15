@@ -11,7 +11,6 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
-const normalize = @import("normalize.zig");
 const ownership = @import("ownership.zig");
 const emit = @import("emit.zig");
 
@@ -122,8 +121,8 @@ fn normalizeAndPrint(allocator: std.mem.Allocator, io: std.Io, source: []const u
     };
 
     var alloc = allocator;
-    var n = normalize.Normalizer.init(&alloc);
-    const out = try n.normalize(raw);
+    var s = rig.Sexer.init(&alloc);
+    const out = try s.rewrite(raw);
 
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
@@ -143,8 +142,8 @@ fn checkAndReport(allocator: std.mem.Allocator, io: std.Io, source: []const u8, 
     };
 
     var alloc = allocator;
-    var n = normalize.Normalizer.init(&alloc);
-    const ir = try n.normalize(raw);
+    var s = rig.Sexer.init(&alloc);
+    const ir = try s.rewrite(raw);
 
     var checker = try ownership.Checker.init(allocator, source);
     defer checker.deinit();
@@ -169,8 +168,8 @@ fn buildAndEmit(allocator: std.mem.Allocator, io: std.Io, source: []const u8, fi
     };
 
     var alloc = allocator;
-    var n = normalize.Normalizer.init(&alloc);
-    const ir = try n.normalize(raw);
+    var s = rig.Sexer.init(&alloc);
+    const ir = try s.rewrite(raw);
 
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
@@ -192,8 +191,8 @@ fn buildAndRun(allocator: std.mem.Allocator, io: std.Io, source: []const u8, fil
     };
 
     var alloc = allocator;
-    var n = normalize.Normalizer.init(&alloc);
-    const ir = try n.normalize(raw);
+    var s = rig.Sexer.init(&alloc);
+    const ir = try s.rewrite(raw);
 
     var tmp_buf: [256]u8 = undefined;
     const tmp_path = makeTmpPath(&tmp_buf, file_path);

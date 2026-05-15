@@ -71,15 +71,6 @@ pub fn build(b: *std.Build) void {
     const run_rig_tests = b.addRunArtifact(rig_tests);
     test_step.dependOn(&run_rig_tests.step);
 
-    const normalize_test_mod = b.createModule(.{
-        .root_source_file = b.path("src/normalize.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const normalize_tests = b.addTest(.{ .root_module = normalize_test_mod });
-    const run_normalize_tests = b.addRunArtifact(normalize_tests);
-    test_step.dependOn(&run_normalize_tests.step);
-
     const ownership_test_mod = b.createModule(.{
         .root_source_file = b.path("src/ownership.zig"),
         .target = target,

@@ -1,6 +1,6 @@
 //! Rig Ownership Checker (M2).
 //!
-//! Walks the normalized semantic IR from `normalize.zig` and enforces
+//! Walks the normalized semantic IR from `rig.Sexer` and enforces
 //! SPEC §"Ownership Checker V1" rules:
 //!
 //!   1. Use after move           (must error)
@@ -21,7 +21,6 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
-const normalize = @import("normalize.zig");
 
 const Sexp = parser.Sexp;
 const Tag = rig.Tag;
@@ -381,7 +380,7 @@ pub const Checker = struct {
     /// `BindingKind` variant breaks the build until this function handles it.
     fn walkSet(self: *Checker, items: []const Sexp) Error!void {
         if (items.len < 5) return;
-        const kind = normalize.bindingKindOf(items[1]);
+        const kind = rig.bindingKindOf(items[1]);
         const target = items[2];
         const expr = items[4];
 
@@ -782,8 +781,8 @@ fn checkSource(allocator: std.mem.Allocator, source: []const u8) !TestRig {
     const raw = try p.parseProgram();
 
     var aa = arena.allocator();
-    var n = normalize.Normalizer.init(&aa);
-    const ir = try n.normalize(raw);
+    var n = rig.Sexer.init(&aa);
+    const ir = try n.rewrite(raw);
 
     var c = try Checker.init(allocator, source);
     errdefer c.deinit();
