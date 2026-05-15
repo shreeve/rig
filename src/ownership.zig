@@ -61,7 +61,7 @@ const Scope = struct {
     parent: ?usize, // index into Checker.scopes
 };
 
-pub const Error = std.mem.Allocator.Error;
+pub const Error = std.mem.Allocator.Error || rig.BindingKindError;
 
 pub const Checker = struct {
     allocator: std.mem.Allocator,
@@ -155,21 +155,33 @@ pub const Checker = struct {
         // Release any bound-borrow aliases owned by this scope.
         const scope = &self.scopes.items[self.current_scope];
         for (scope.bindings.items) |bi| {
-            const b = &self.bindings.items[bi];
-            if (b.borrow_root_index) |ri| {
-                const root = &self.bindings.items[ri];
-                switch (b.borrow_kind) {
-                    .read => if (root.read_borrows > 0) {
-                        root.read_borrows -= 1;
-                    },
-                    .write => if (root.write_borrows > 0) {
-                        root.write_borrows -= 1;
-                    },
-                    .none => {},
-                }
-            }
+            self.releaseOwnedBorrow(bi);
         }
         if (scope.parent) |p| self.current_scope = p;
+    }
+
+    /// Release the borrow that `binding_idx` holds on its root, if any.
+    /// Decrements the root's read/write counter, then clears
+    /// `borrow_root_index` and `borrow_kind` on the holder so subsequent
+    /// scope-pop / reassignment / drop don't double-release.
+    ///
+    /// Called from `popScope`, `walkDrop`, and `reassignOrBindFresh` —
+    /// any path that ends or replaces the binding's lifetime.
+    fn releaseOwnedBorrow(self: *Checker, binding_idx: usize) void {
+        const b = &self.bindings.items[binding_idx];
+        const ri = b.borrow_root_index orelse return;
+        const root = &self.bindings.items[ri];
+        switch (b.borrow_kind) {
+            .read => if (root.read_borrows > 0) {
+                root.read_borrows -= 1;
+            },
+            .write => if (root.write_borrows > 0) {
+                root.write_borrows -= 1;
+            },
+            .none => {},
+        }
+        b.borrow_root_index = null;
+        b.borrow_kind = .none;
     }
 
     /// Look up a binding by name, walking parent scopes.
@@ -177,7 +189,15 @@ pub const Checker = struct {
         var sid: ?usize = self.current_scope;
         while (sid) |s| {
             const scope = &self.scopes.items[s];
-            for (scope.bindings.items) |bi| {
+            // Reverse-order so explicit shadowing (`new x = ...`) finds
+            // the freshest binding, not the original. Insertion-order
+            // (forward) was a bug — it returned the OLD `x` after
+            // `new x` and disagreed with the emitter (which does scan
+            // reverse). Same correction applied to `lookupCurrent` below.
+            var i = scope.bindings.items.len;
+            while (i > 0) {
+                i -= 1;
+                const bi = scope.bindings.items[i];
                 const b = &self.bindings.items[bi];
                 if (std.mem.eql(u8, b.name, name)) return bi;
             }
@@ -189,7 +209,10 @@ pub const Checker = struct {
     /// Look up a binding only in the current scope (for shadow legality).
     fn lookupCurrent(self: *Checker, name: []const u8) ?usize {
         const scope = &self.scopes.items[self.current_scope];
-        for (scope.bindings.items) |bi| {
+        var i = scope.bindings.items.len;
+        while (i > 0) {
+            i -= 1;
+            const bi = scope.bindings.items[i];
             const b = &self.bindings.items[bi];
             if (std.mem.eql(u8, b.name, name)) return bi;
         }
@@ -208,6 +231,15 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn walk(self: *Checker, sexp: Sexp, is_stmt: bool) Error!void {
+        // Plain `.src` reference at expression position. Without this,
+        // moved/dropped values were happily readable via bare `print x`
+        // (the silent-bug we're paying down). Field/binding-name `.src`
+        // nodes never reach here because their parent forms (kwarg,
+        // member, set, etc.) skip them in dedicated arms below.
+        if (sexp == .src) {
+            try self.checkPlainUse(sexp.src.pos, self.source[sexp.src.pos..][0..sexp.src.len]);
+            return;
+        }
         if (sexp != .list) return;
         const items = sexp.list;
         if (items.len == 0 or items[0] != .tag) return;
@@ -265,15 +297,67 @@ pub const Checker = struct {
             },
             .@"call" => try self.walkCall(items),
             .@"member" => {
-                // (member obj name)
+                // (member obj name) — only `obj` is a value reference;
+                // `name` is a literal field selector, never a binding use.
                 if (items.len >= 2) try self.walk(items[1], false);
             },
+            .@"kwarg" => {
+                // (kwarg name value) — name is a literal field selector
+                // for keyword args / record fields. Only walk the value.
+                if (items.len >= 3) try self.walk(items[2], false);
+            },
+            // Identifier-bearing constructs whose name child is NOT a
+            // value use of a binding — skip walking children entirely
+            // so we don't trip checkPlainUse on a literal name.
+            .@"enum_lit", .@"use", .@"type", .@"generic_type",
+            .@"struct", .@"enum", .@"errors", .@"opaque",
+            => {},
+            .@"record" => {
+                // (record TypeName members...) — TypeName is a type
+                // reference, never a value binding; walk only members.
+                for (items[2..]) |child| try self.walk(child, false);
+            },
             else => {
-                // generic: walk all children as expressions
+                // Generic: walk all children as expressions. `.src` children
+                // hit the top-of-walk arm above, which runs the plain-use
+                // check.
                 for (items[1..]) |child| try self.walk(child, false);
             },
         }
         _ = is_stmt;
+    }
+
+    /// Plain (non-sigil) value-use check.
+    ///
+    /// M4.5 stance (defer Copy/Move semantics to M5 type checker):
+    ///   - if the binding has been moved → error
+    ///   - if the binding has been dropped → error
+    ///   - if a write borrow is currently live → error (write-borrow
+    ///     exclusivity is already promised by SPEC; concurrent reads of
+    ///     any kind violate it)
+    ///   - otherwise no-op (no borrow count change, no lifetime effect)
+    ///
+    /// Names that don't resolve in any visible scope (function names,
+    /// type names, builtins like `print`) are ignored — those aren't
+    /// in the binding table.
+    fn checkPlainUse(self: *Checker, pos: u32, name: []const u8) Error!void {
+        const idx = self.lookup(name) orelse return;
+        const b = &self.bindings.items[idx];
+        if (b.state == .moved) {
+            try self.err(pos, "use of `{s}` after move", .{name});
+            try self.note(b.moved_at, "`{s}` was moved here", .{name});
+            return;
+        }
+        if (b.state == .dropped) {
+            try self.err(pos, "use of `{s}` after drop", .{name});
+            try self.note(b.dropped_at, "`{s}` was dropped here", .{name});
+            return;
+        }
+        if (b.write_borrows > 0) {
+            try self.err(pos, "use of `{s}` while a write borrow is live", .{name});
+            try self.note(b.write_borrowed_at, "write borrow taken here", .{});
+            return;
+        }
     }
 
     fn walkBlock(self: *Checker, stmts: []const Sexp) Error!void {
@@ -380,7 +464,7 @@ pub const Checker = struct {
     /// `BindingKind` variant breaks the build until this function handles it.
     fn walkSet(self: *Checker, items: []const Sexp) Error!void {
         if (items.len < 5) return;
-        const kind = rig.bindingKindOf(items[1]);
+        const kind = try rig.bindingKindOf(items[1]);
         const target = items[2];
         const expr = items[4];
 
@@ -454,6 +538,10 @@ pub const Checker = struct {
                 try self.err(pos, "cannot reassign `{s}` while borrows are live", .{nm});
                 return;
             }
+            // Reassigning a binding that holds a borrow ends that borrow.
+            // Without releasing here, `r = ?user; r = something_else`
+            // would leak `user.read_borrows = 1` forever.
+            self.releaseOwnedBorrow(bi);
             b.state = .valid;
             self.maybeRecordBoundBorrow(bi, expr);
             return;
@@ -593,6 +681,10 @@ pub const Checker = struct {
             try self.err(target.src.pos, "cannot drop `{s}` while borrows are live", .{nm});
             return;
         }
+        // If `b` itself owns a borrow (`r = ?user; -r`), releasing it now
+        // unlocks the root binding for further use. Without this, dropping
+        // a borrow alias leaks the underlying read/write counter forever.
+        self.releaseOwnedBorrow(idx);
         b.state = .dropped;
         b.dropped_at = target.src.pos;
     }

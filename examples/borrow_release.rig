@@ -1,0 +1,13 @@
+## M4.5a: dropping a borrow binding must release the underlying borrow.
+##
+## After `-r`, the read borrow on `user` is gone, so `w = !user` (write
+## borrow) must be allowed. Without the fix, the checker leaves
+## `user.read_borrows` non-zero and rejects the write.
+##
+## EXPECTED: clean (no diagnostics).
+
+sub main()
+  user = User(name: "Steve")
+  r = ?user
+  -r
+  w = !user

@@ -1,0 +1,2 @@
+examples/plain_during_write.rig:9:9: error: use of `user` while a write borrow is live
+examples/plain_during_write.rig:8:8:   note: write borrow taken here

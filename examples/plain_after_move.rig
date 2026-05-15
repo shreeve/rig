@@ -1,0 +1,9 @@
+## M4.5a: plain `.src` use after move must be rejected.
+##
+## Existing `move.rig` uses `?packet` (sigil), so the old checker caught it.
+## This one uses bare `packet` after the move — checker must still fire.
+
+sub main()
+  packet = make_packet()
+  send <packet
+  log packet

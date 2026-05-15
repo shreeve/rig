@@ -26,7 +26,7 @@ const Tag = rig.Tag;
 const BindingKind = rig.BindingKind;
 const Writer = std.Io.Writer;
 
-pub const Error = std.mem.Allocator.Error || Writer.Error;
+pub const Error = std.mem.Allocator.Error || Writer.Error || rig.BindingKindError;
 
 const SymbolEntry = struct {
     rig_name: []const u8,
@@ -49,16 +49,16 @@ pub const Emitter = struct {
     /// Counter for shadow-renames: each `new x = ...` gets `x_<n>`.
     shadow_counter: u32 = 0,
 
-    /// Pre-scan results for the current function body. These are reset
-    /// at the start of each `emitFun` and consulted during emit.
+    /// Per-function pre-scan: names that are reassigned in the body,
+    /// so they need `var` instead of `const` in Zig. Reset at the
+    /// start of each `emitFun`.
     fn_mutated: std.StringHashMapUnmanaged(void) = .{},
-    fn_is_fallible: bool = false,
-    fn_callers_use_try: std.StringHashMapUnmanaged(void) = .{},
-    fn_known_fallible: std.StringHashMapUnmanaged(void) = .{},
 
-    /// Set during `emitExpr` when we're already inside a `try` or
-    /// `propagate` wrapper, so we don't double-wrap fallible calls.
-    in_try_context: bool = false,
+    /// True iff THIS function's declared return type is `(error_union T)`
+    /// — set per-function in `emitFun` from the IR, NOT from body
+    /// inspection. The effects checker (src/effects.zig) is responsible
+    /// for ensuring body-level fallibility matches the declaration.
+    fn_is_fallible: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, w: *Writer) Emitter {
         return .{
@@ -72,19 +72,9 @@ pub const Emitter = struct {
         for (self.scopes.items) |*s| s.symbols.deinit(self.allocator);
         self.scopes.deinit(self.allocator);
         self.fn_mutated.deinit(self.allocator);
-        self.fn_callers_use_try.deinit(self.allocator);
-        self.fn_known_fallible.deinit(self.allocator);
     }
 
     pub fn emit(self: *Emitter, sexp: Sexp) Error!void {
-        // First pass: scan top-level functions to learn which are fallible
-        // (so `try foo()` is added at call sites that propagate).
-        if (sexp == .list and sexp.list.len > 0 and sexp.list[0] == .tag and
-            sexp.list[0].tag == .@"module")
-        {
-            for (sexp.list[1..]) |child| try self.scanTopLevelFn(child);
-        }
-
         try self.w.writeAll("const std = @import(\"std\");\n");
         if (sexp == .list and sexp.list.len > 0 and sexp.list[0] == .tag and
             sexp.list[0].tag == .@"module")
@@ -93,25 +83,6 @@ pub const Emitter = struct {
                 try self.w.writeAll("\n");
                 try self.emitDecl(child);
             }
-        }
-    }
-
-    /// Pre-pre-scan: mark functions whose body contains `(propagate ...)`
-    /// as fallible so we know to emit `!T` for the return type AND to
-    /// thread `try` at call sites.
-    fn scanTopLevelFn(self: *Emitter, sexp: Sexp) Error!void {
-        if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return;
-        const items = sexp.list;
-        switch (items[0].tag) {
-            .@"fun", .@"sub" => {
-                if (items.len >= 5) {
-                    const name = identText(self.source, items[1]) orelse return;
-                    const body = items[4];
-                    if (containsPropagate(body)) try self.fn_known_fallible.put(self.allocator, name, {});
-                }
-            },
-            .@"pub" => if (items.len >= 2) try self.scanTopLevelFn(items[1]),
-            else => {},
         }
     }
 
@@ -127,7 +98,11 @@ pub const Emitter = struct {
             .@"sub" => try self.emitFun(items, true),
             .@"use" => try self.emitUse(items),
             .@"pub" => {
-                try self.w.writeAll("pub ");
+                // V1: Rig has no module system, so functions are public by
+                // default and `emitFun` always prefixes `pub`. The explicit
+                // `(pub child)` wrapper is therefore redundant — strip it
+                // and recurse without injecting another `pub` (the prior
+                // `try writeAll("pub ")` here produced `pub pub fn ...`).
                 if (items.len >= 2) try self.emitDecl(items[1]);
             },
             else => try self.emitUnsupported("top-level decl"),
@@ -153,21 +128,30 @@ pub const Emitter = struct {
         const returns_node: ?Sexp = if (is_sub) null else items[3];
         const body = items[4];
 
-        // Reset and run per-fn pre-scan
+        // Per-fn pre-scan: mutation analysis (var vs const) only.
+        // Fallibility comes from the IR (declared return type), not body
+        // inspection — the effects checker enforces that they agree.
         self.fn_mutated.clearRetainingCapacity();
-        self.fn_is_fallible = containsPropagate(body);
         try scanMutations(&self.fn_mutated, self.allocator, body, self.source);
+
+        // Special case: `sub main()` lowers to `pub fn main() !void` if its
+        // body propagates, matching Zig's `pub fn main() !void` idiom. The
+        // effects checker explicitly allows this for `main`.
+        const is_main_sub = is_sub and std.mem.eql(u8, name, "main");
+        const main_uses_propagate = is_main_sub and containsPropagate(body);
+        self.fn_is_fallible = main_uses_propagate or
+            (returns_node != null and isErrorUnion(returns_node.?));
 
         try self.w.print("pub fn {s}(", .{name});
         try self.emitParams(params);
         try self.w.writeAll(") ");
 
-        // Return type — only `!` when fallible (body has propagate or
-        // explicit error_union annotation).
+        // Return type — emit exactly what the IR declares (no signature
+        // inference). For `sub` we always emit `void` unless the special
+        // main-propagates case promotes to `!void`.
         if (is_sub) {
-            if (self.fn_is_fallible) try self.w.writeAll("!void ") else try self.w.writeAll("void ");
+            if (main_uses_propagate) try self.w.writeAll("!void ") else try self.w.writeAll("void ");
         } else if (returns_node) |r| {
-            if (self.fn_is_fallible and !isErrorUnion(r)) try self.w.writeAll("!");
             try self.emitType(r);
             try self.w.writeAll(" ");
         } else {
@@ -390,7 +374,7 @@ pub const Emitter = struct {
         // Unified 5-child shape: (set <kind> name type-or-_ expr).
         // BindingKind is exhaustive, so the switch below is checked by Zig.
         if (items.len < 5) return;
-        const kind = rig.bindingKindOf(items[1]);
+        const kind = try rig.bindingKindOf(items[1]);
         const name = identText(self.source, items[2]) orelse return;
         const type_node = items[3];
         const expr = items[4];
@@ -604,23 +588,13 @@ pub const Emitter = struct {
                     try self.w.writeAll(")");
                 }
             },
-            .@"propagate" => {
+            .@"propagate", .@"try" => {
+                // `expr!` and `try expr` both lower to Zig `try expr`.
+                // No `in_try_context` bookkeeping needed: the emitter is
+                // dumb here, and the effects checker has already proven
+                // that the underlying call is fallible-allowed.
                 try self.w.writeAll("try ");
-                if (items.len >= 2) {
-                    const prev = self.in_try_context;
-                    self.in_try_context = true;
-                    try self.emitExpr(items[1]);
-                    self.in_try_context = prev;
-                }
-            },
-            .@"try" => {
-                try self.w.writeAll("try ");
-                if (items.len >= 2) {
-                    const prev = self.in_try_context;
-                    self.in_try_context = true;
-                    try self.emitExpr(items[1]);
-                    self.in_try_context = prev;
-                }
+                if (items.len >= 2) try self.emitExpr(items[1]);
             },
             .@"neg" => {
                 try self.w.writeAll("-");
@@ -655,22 +629,12 @@ pub const Emitter = struct {
 
     fn emitCall(self: *Emitter, items: []const Sexp) Error!void {
         // (call fn args...)
-        // Special: print as builtin → std.debug.print
+        // Special: `print` as builtin → std.debug.print.
         if (items.len >= 2 and items[1] == .src) {
             const fn_name = self.source[items[1].src.pos..][0..items[1].src.len];
             if (std.mem.eql(u8, fn_name, "print")) {
                 try self.emitPrint(items[2..]);
                 return;
-            }
-            // If the callee is a known-fallible function, prefix `try`.
-            // (Heuristic: SPEC's `loadUser(id)?` is the explicit form;
-            // if the user wrote a bare `loadUser(id)` and loadUser is
-            // fallible, Zig demands `try`. Doing this implicitly keeps
-            // simple programs working.)
-            if (self.fn_known_fallible.contains(fn_name) and
-                !self.in_try_context)
-            {
-                try self.w.writeAll("try ");
             }
         }
         if (items.len < 2) return;
@@ -926,10 +890,38 @@ test "emit: fixed_bind always const" {
     try std.testing.expect(std.mem.indexOf(u8, out, "const user =") != null);
 }
 
-test "emit: propagate becomes try" {
+test "emit: propagate becomes try; no signature inference; no auto-try" {
+    // M4.5: emitter is dumb. It trusts the IR's declared return type
+    // and does NOT mutate signatures or auto-prefix `try` at call sites.
+    // The effects checker would reject this Rig source (foo declares `Int`
+    // but body propagates), but here we feed the emitter directly to
+    // verify it emits exactly what the IR says.
     const source =
-        \\fun foo() -> Int
+        \\fun foo() -> Int!
         \\  bar()!
+        \\
+        \\sub main()
+        \\  x = foo()!
+        \\
+    ;
+    const out = try emitSourceToString(std.testing.allocator, source);
+    defer std.testing.allocator.free(out);
+    // `bar()!` lowers to `try bar()`.
+    try std.testing.expect(std.mem.indexOf(u8, out, "try bar()") != null);
+    // foo signature should be `!i32` (declared `Int!`).
+    try std.testing.expect(std.mem.indexOf(u8, out, "pub fn foo() !i32") != null);
+    // `foo()!` lowers to `try foo()`. The emitter does NOT add `try` for
+    // the bare `foo()` form anymore.
+    try std.testing.expect(std.mem.indexOf(u8, out, "try foo()") != null);
+}
+
+test "emit: bare fallible call is NOT auto-tried" {
+    // Verifies the auto-try removal: `x = foo()` (no `!`) emits as
+    // `const x = foo()` even though foo is fallible. Zig will error on
+    // this, which is fine — the effects checker is the proper gate.
+    const source =
+        \\fun foo() -> Int!
+        \\  1
         \\
         \\sub main()
         \\  x = foo()
@@ -937,12 +929,8 @@ test "emit: propagate becomes try" {
     ;
     const out = try emitSourceToString(std.testing.allocator, source);
     defer std.testing.allocator.free(out);
-    // foo body has try bar()
-    try std.testing.expect(std.mem.indexOf(u8, out, "try bar()") != null);
-    // foo signature should be `!i32` (fallible)
-    try std.testing.expect(std.mem.indexOf(u8, out, "pub fn foo() !i32") != null);
-    // call site should auto-prefix `try foo()`
-    try std.testing.expect(std.mem.indexOf(u8, out, "try foo()") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "try foo()") == null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "= foo()") != null);
 }
 
 /// Recursively check if `sexp` (or any descendant) is a `(propagate ...)`
@@ -969,7 +957,7 @@ fn scanMutations(
     allocator: std.mem.Allocator,
     body: Sexp,
     source: []const u8,
-) std.mem.Allocator.Error!void {
+) (std.mem.Allocator.Error || rig.BindingKindError)!void {
     var seen: std.StringHashMapUnmanaged(void) = .{};
     defer seen.deinit(allocator);
     try scanMutationsRec(out, &seen, allocator, body, source);
@@ -981,7 +969,7 @@ fn scanMutationsRec(
     allocator: std.mem.Allocator,
     sexp: Sexp,
     source: []const u8,
-) std.mem.Allocator.Error!void {
+) (std.mem.Allocator.Error || rig.BindingKindError)!void {
     if (sexp != .list) return;
     const items = sexp.list;
     if (items.len == 0) return;
@@ -994,7 +982,7 @@ fn scanMutationsRec(
             // reassign an existing slot count toward "must be `var`".
             // Exhaustive switch on BindingKind — adding a new kind to
             // the enum forces an explicit decision here.
-            const kind = rig.bindingKindOf(items[1]);
+            const kind = try rig.bindingKindOf(items[1]);
             const counts_as_mut: bool = switch (kind) {
                 .default, .@"move", .@"+=", .@"-=", .@"*=", .@"/=" => true,
                 .fixed, .shadow => false,

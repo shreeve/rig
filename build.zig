@@ -88,4 +88,13 @@ pub fn build(b: *std.Build) void {
     const emit_tests = b.addTest(.{ .root_module = emit_test_mod });
     const run_emit_tests = b.addRunArtifact(emit_tests);
     test_step.dependOn(&run_emit_tests.step);
+
+    const effects_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/effects.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const effects_tests = b.addTest(.{ .root_module = effects_test_mod });
+    const run_effects_tests = b.addRunArtifact(effects_tests);
+    test_step.dependOn(&run_effects_tests.step);
 }

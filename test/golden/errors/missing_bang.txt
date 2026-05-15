@@ -1,0 +1,2 @@
+examples/missing_bang.rig:11:7: error: fallible call to `loadUser` must be wrapped with `!` (propagate) or `catch` (handle)
+examples/missing_bang.rig:7:5:   note: `loadUser` declared as fallible here

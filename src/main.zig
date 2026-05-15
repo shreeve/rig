@@ -1,16 +1,21 @@
 //! Rig Compiler — CLI Driver
 //!
 //! Subcommands:
-//!   rig parse     <file.rig>  — print raw S-expression tree (M0)
+//!   rig parse     <file.rig>  — print raw S-expression tree (BaseParser only, no rewrites)
 //!   rig tokens    <file.rig>  — dump token stream (debug)
-//!   rig normalize <file.rig>  — print semantic IR             (M1, stub for now)
-//!   rig check     <file.rig>  — run ownership/borrow checker  (M2, stub for now)
-//!   rig build     <file.rig>  — emit Zig source               (M3, stub for now)
-//!   rig run       <file.rig>  — build + zig run                (M4, stub for now)
+//!   rig normalize <file.rig>  — print fully-normalized semantic IR
+//!   rig check     <file.rig>  — run ownership / borrow / effects checks; exit 1 on errors
+//!   rig build     <file.rig>  — check + emit Zig source to stdout
+//!   rig run       <file.rig>  — check + emit Zig + spawn `zig run`
+//!
+//! `build` and `run` always run the full checker pipeline first; if any
+//! diagnostics are produced the process exits 1 BEFORE emit. Bypassing
+//! the checker is intentionally not exposed (see SPEC §"visible effects").
 
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+const effects = @import("effects.zig");
 const ownership = @import("ownership.zig");
 const emit = @import("emit.zig");
 
@@ -31,12 +36,12 @@ const usage =
     \\  rig <subcommand> <file.rig>
     \\
     \\Subcommands:
-    \\  parse      Print raw S-expression tree
+    \\  parse      Print raw S-expression tree (BaseParser only)
     \\  tokens     Dump token stream (debug)
-    \\  normalize  Print normalized semantic IR    [M1, stub]
-    \\  check      Run ownership / borrow checker  [M2, stub]
-    \\  build      Emit Zig source                 [M3, stub]
-    \\  run        Build + zig run                 [M4, stub]
+    \\  normalize  Print fully-normalized semantic IR
+    \\  check      Run ownership / borrow / effects checks
+    \\  build      check + emit Zig source to stdout
+    \\  run        check + emit Zig + zig run
     \\
     \\Options:
     \\  -h, --help  Show this message
@@ -141,6 +146,12 @@ fn checkAndReport(allocator: std.mem.Allocator, io: std.Io, source: []const u8, 
         std.process.exit(1);
     };
 
+    // Effects → Ownership. Both write to the same stdout stream so we
+    // see all diagnostics in one go.
+    var eff = try effects.Checker.init(allocator, source);
+    defer eff.deinit();
+    try eff.check(ir);
+
     var checker = try ownership.Checker.init(allocator, source);
     defer checker.deinit();
     try checker.check(ir);
@@ -148,20 +159,57 @@ fn checkAndReport(allocator: std.mem.Allocator, io: std.Io, source: []const u8, 
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     const w: *std.Io.Writer = &stdout_writer.interface;
+    try eff.writeDiagnostics(file_path, w);
     try checker.writeDiagnostics(file_path, w);
     try w.flush();
 
-    if (checker.hasErrors()) std.process.exit(1);
+    if (eff.hasErrors() or checker.hasErrors()) std.process.exit(1);
 }
 
-fn buildAndEmit(allocator: std.mem.Allocator, io: std.Io, source: []const u8, file_path: []const u8) !void {
-    _ = file_path;
+/// Parse + run the full checker pipeline (effects → ownership) and abort
+/// the process with exit 1 if any errors are emitted. Used by `build`
+/// and `run` so they never lower a program the checker rejects.
+///
+/// Diagnostics go to stderr so callers can pipe emit to stdout.
+fn parseAndCheckOrExit(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    source: []const u8,
+    file_path: []const u8,
+) !parser.Sexp {
     var p = parser.Parser.init(allocator, source);
-    defer p.deinit();
+    // NOTE: we intentionally do NOT deinit `p` here — the returned IR
+    // is allocated in its arena and must outlive this function. The
+    // caller's arena (in main) owns the parser's lifetime via the same
+    // top-level allocator.
     const ir = p.parseProgram() catch {
         p.printError();
         std.process.exit(1);
     };
+
+    var eff = try effects.Checker.init(allocator, source);
+    defer eff.deinit();
+    try eff.check(ir);
+
+    var checker = try ownership.Checker.init(allocator, source);
+    defer checker.deinit();
+    try checker.check(ir);
+
+    if (eff.hasErrors() or checker.hasErrors()) {
+        var stderr_buffer: [4096]u8 = undefined;
+        var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
+        const ew: *std.Io.Writer = &stderr_writer.interface;
+        try eff.writeDiagnostics(file_path, ew);
+        try checker.writeDiagnostics(file_path, ew);
+        try ew.flush();
+        std.process.exit(1);
+    }
+
+    return ir;
+}
+
+fn buildAndEmit(allocator: std.mem.Allocator, io: std.Io, source: []const u8, file_path: []const u8) !void {
+    const ir = try parseAndCheckOrExit(allocator, io, source, file_path);
 
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
@@ -174,13 +222,8 @@ fn buildAndEmit(allocator: std.mem.Allocator, io: std.Io, source: []const u8, fi
 }
 
 fn buildAndRun(allocator: std.mem.Allocator, io: std.Io, source: []const u8, file_path: []const u8) !void {
-    // Parse → normalize → emit Zig to a temp file → spawn `zig run <tmp>`.
-    var p = parser.Parser.init(allocator, source);
-    defer p.deinit();
-    const ir = p.parseProgram() catch {
-        p.printError();
-        std.process.exit(1);
-    };
+    // Parse → check → emit Zig to a temp file → spawn `zig run <tmp>`.
+    const ir = try parseAndCheckOrExit(allocator, io, source, file_path);
 
     var tmp_buf: [256]u8 = undefined;
     const tmp_path = makeTmpPath(&tmp_buf, file_path);

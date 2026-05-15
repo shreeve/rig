@@ -1,0 +1,8 @@
+## M4.5a: plain `.src` use after drop must be rejected.
+##
+## Existing `drop.rig` uses `?user` (sigil); this uses bare `user`.
+
+sub main()
+  user = User(name: "Steve")
+  -user
+  print user

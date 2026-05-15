@@ -1,0 +1,12 @@
+## M4.5a: a fallible call without `!` (or `catch`) must be rejected.
+##
+## `loadUser` returns `User!`. Bare assignment to `x` would silently
+## propagate (the bug we're fixing). Effects checker must require an
+## explicit `!` or `catch`.
+
+fun loadUser(id: U64) -> User!
+  User(name: "Steve")
+
+sub main()
+  x = loadUser(1)
+  print x

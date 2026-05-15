@@ -1,0 +1,9 @@
+## M4.5a: plain `.src` use during active write borrow must be rejected.
+##
+## `w = !user` opens an exclusive write borrow. Plain `print user` is a
+## read access; rejecting it preserves write-borrow exclusivity.
+
+sub main()
+  user = User(name: "Steve")
+  w = !user
+  print user

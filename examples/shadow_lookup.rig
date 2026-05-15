@@ -1,0 +1,13 @@
+## M4.5a: shadow must be looked up reverse-order in the checker.
+##
+## `x =! 1` makes the OLD `x` immutable. `new x = 2` introduces a fresh,
+## mutable `x`. `x = 3` reassigns the NEW `x` (legal). With the
+## insertion-order lookup bug, the checker finds the OLD fixed `x` and
+## rejects this with "cannot reassign fixed binding".
+##
+## EXPECTED: clean (no diagnostics).
+
+sub main()
+  x =! 1
+  new x = 2
+  x = 3
