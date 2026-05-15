@@ -24,11 +24,13 @@ The IR's design rule:
 | `(. obj name)`                  | `(member obj name)`             | cosmetic                                            |
 | `(pair name expr)`              | `(kwarg name expr)`             | named call args / constructor sugar                 |
 | `(? T)`                         | `(optional T)`                  | (legacy raw form; new syntax `T?` emits `(optional T)` directly via grammar action)            |
-| `(for x _ (read xs) body)`      | `(for read x xs body)`          | SPEC §"Semantic IR Nodes": `(for mode binding collection body)` — mode is at child position 1, not a head Tag |
-| `(for x _ (write xs) body)`     | `(for write x xs body)`         | mode is one of `read`, `write`, `move`, or `_` (nil) for default iteration |
-| `(for x _ (move xs) body)`      | `(for move x xs body)`          |                                                     |
-| `(for x _ source body)`         | `(for _ x source body)`         | nil mode = no ownership effect on source            |
-| `(for_ptr ...)`                 | `(for_ptr ...)`                 | unchanged (Zag-style pointer iteration; has an extra binding for the pointer) |
+| `(for x _ (read xs) body)`      | `(for read x _ xs body)`        | SPEC §"Semantic IR Nodes": `(for <mode> binding1 binding2-or-_ source body)` — mode at items[1], optional second binding (for `for x, i in xs`) at items[3] |
+| `(for x _ (write xs) body)`     | `(for write x _ xs body)`       | mode = `read` / `write` / `move` / `ptr` / `_` (default) |
+| `(for x _ (move xs) body)`      | `(for move x _ xs body)`        |                                                     |
+| `(for x _ source body)`         | `(for _ x _ source body)`       | nil mode = no ownership effect on source            |
+| `(for x i source body)`         | `(for _ x i source body)`       | second binding for `for x, i in xs` (value+index)   |
+| `(for_ptr x _ src body)`        | `(for ptr x _ src body)`        | `for *x in src` (Zag-style pointer iteration) folded into unified `for` head with `ptr` mode |
+| `(for_ptr x i src body)`        | `(for ptr x i src body)`        | `for *x, i in src` (pointer+index)                  |
 
 Everything else (calls, literals, control flow, types) passes through unchanged for M1; M2 and M3 may further normalize.
 
@@ -114,8 +116,10 @@ Statement-only:
 (if cond then else?)
 (while cond body else?)
 (while cond cont body else?)     ; `while c : cont body` form
-(for     mode binding source body else?)   ; mode = read | write | move | _ (nil = no mode)
-(for_ptr binding ptr_binding? source body else?)
+(for <mode> binding1 binding2-or-_ source body else?)
+                                            ; mode = read | write | move | ptr | _ (nil = default)
+                                            ; binding2 is `_` for single-binding `for x in xs`
+                                            ; or a name for `for x, i in xs` / `for *x, i in xs`
 (match scrutinee arms...)
 (arm pattern binding? body)
 (range_pattern lo hi)
@@ -217,6 +221,7 @@ INTEGER REAL STRING_SQ STRING_DQ                ; raw parser src refs
 - `(fixed_bind x e)` lowers to `const x = e;`.
 - `(propagate e)` lowers to Zig `try e`.
 - `(try_block body (catch_block err catch_body))` lowers to a Zig block expression, possibly via `blk: { ... }` if value-yielding.
-- `(for read x xs body)` lowers to `for (xs) |x| { ... }` (Zig's iteration over a const ref) — borrow semantics enforced by the checker, not the emitted Zig.
-- `(for move x xs body)` lowers to a consuming iteration (Zig `for (&xs) |x| {...}` with consumption is a future concern; V1 may model this with explicit element-by-element move + `xs.deinit()`).
+- `(for read x _ xs body)` lowers to `for (xs) |x| { ... }` (Zig's iteration over a const ref) — borrow semantics enforced by the checker, not the emitted Zig.
+- `(for move x _ xs body)` lowers to a consuming iteration (Zig `for (&xs) |x| {...}` with consumption is a future concern; V1 may model this with explicit element-by-element move + `xs.deinit()`).
+- `(for ptr x _ xs body)` could lower to `for (xs) |*x| { ... }` for pointer iteration; V1 emits plain `for (xs) |x| { ... }` and lets Zig figure out the binding shape from context.
 - `(record T (kwarg name v) ...)` and `(call T (kwarg name v) ...)` both lower to `T{ .name = v }` Zig struct literal when the callee is a known type.

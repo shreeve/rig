@@ -489,18 +489,27 @@ pub const Emitter = struct {
     }
 
     fn emitFor(self: *Emitter, items: []const Sexp) Error!void {
-        // (for <mode> binding source body else?)
+        // (for <mode> binding1 binding2-or-_ source body else?)
+        //
         // Mode is informational for V1 (Zig's `for` doesn't distinguish
         // borrow modes); ownership semantics were enforced by M2.
-        if (items.len < 5) return;
-        const binding = items[2];
-        const source = items[3];
-        const body = items[4];
+        // mode = `ptr` could lower to Zig's `for (xs) |*x| { ... }` for
+        // pointer iteration; for V1 we emit plain `for (xs) |x| { ... }`
+        // and let Zig figure out the binding shape from context.
+        if (items.len < 6) return;
+        const binding1 = items[2];
+        const binding2 = items[3];
+        const source = items[4];
+        const body = items[5];
 
         try self.w.writeAll("for (");
         try self.emitExpr(source);
         try self.w.writeAll(") |");
-        if (binding == .src) try self.w.writeAll(self.source[binding.src.pos..][0..binding.src.len]);
+        if (binding1 == .src) try self.w.writeAll(self.source[binding1.src.pos..][0..binding1.src.len]);
+        if (binding2 == .src) {
+            try self.w.writeAll(", ");
+            try self.w.writeAll(self.source[binding2.src.pos..][0..binding2.src.len]);
+        }
         try self.w.writeAll("| ");
         try self.emitBlockOrInline(body);
     }

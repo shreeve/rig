@@ -231,7 +231,7 @@ pub const Checker = struct {
             },
             .@"if" => try self.walkIf(items),
             .@"while" => try self.walkWhile(items),
-            .@"for", .@"for_ptr" => try self.walkFor(items),
+            .@"for" => try self.walkFor(items),
             .@"match" => {
                 if (items.len >= 2) try self.walk(items[1], false);
                 for (items[2..]) |arm| {
@@ -621,38 +621,38 @@ pub const Checker = struct {
     }
 
     fn walkFor(self: *Checker, items: []const Sexp) Error!void {
-        // Unified shape:
-        //   (for     <mode> binding source body else?)
-        //   (for_ptr ptr_binding binding source body else?)
+        // Unified shape (set by `Parser.normFor`):
+        //   (for <mode> binding1 binding2-or-_ source body else?)
         //
-        // For ownership purposes the body sees `binding` as a fresh local.
-        // The source's mode tag (read|write|move|none) is set by normalize;
-        // V1's ownership effect on the source is conservative (we just walk
-        // it as an expression and rely on the loop-body's borrow rules).
-        const head = items[0].tag;
-        const binding_idx: usize = if (head == .@"for_ptr") 2 else 2;
-        // for: items = [.for, mode, binding, source, body, else?]
-        // for_ptr: items = [.for_ptr, ptr_binding, binding, source, body, else?]
-        const source_idx: usize = binding_idx + 1;
-        const body_idx: usize = binding_idx + 2;
-        if (items.len <= body_idx) return;
-
-        const binding = items[binding_idx];
-        const source = items[source_idx];
-        const body = items[body_idx];
+        // For ownership purposes the body sees `binding1` (and `binding2`
+        // if present) as fresh locals. The source's mode tag is
+        // informational for V1; we conservatively just walk the source as
+        // an expression and rely on the loop-body's borrow rules.
+        if (items.len < 6) return;
+        const binding1 = items[2];
+        const binding2 = items[3];
+        const source = items[4];
+        const body = items[5];
 
         try self.walk(source, false);
         try self.pushScope();
-        if (binding == .src) {
-            const nm = self.source[binding.src.pos..][0..binding.src.len];
+        if (binding1 == .src) {
+            const nm = self.source[binding1.src.pos..][0..binding1.src.len];
             _ = try self.addBinding(.{
                 .name = nm,
-                .declared_at = binding.src.pos,
+                .declared_at = binding1.src.pos,
+            });
+        }
+        if (binding2 == .src) {
+            const nm = self.source[binding2.src.pos..][0..binding2.src.len];
+            _ = try self.addBinding(.{
+                .name = nm,
+                .declared_at = binding2.src.pos,
             });
         }
         try self.walk(body, true);
         try self.popScope();
-        if (items.len > body_idx + 1) try self.walk(items[body_idx + 1], true);
+        if (items.len > 6) try self.walk(items[6], true);
     }
 
     fn walkTryBlock(self: *Checker, items: []const Sexp) Error!void {

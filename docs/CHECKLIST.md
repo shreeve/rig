@@ -259,6 +259,7 @@ unless we're already in a `try` / `propagate` context (tracked by
 
 - [x] `for_read` / `for_write` / `for_move` / `for_none` collapsed into `(for mode binding source body)` per SPEC.
 - [x] `for` mode uses `_` (nil) for "no mode" (matches existing IR convention; no `none` Tag needed).
+- [x] `for_ptr` (Zag-inherited pointer iteration) folded into the unified `for` head with `ptr` as the mode discriminator. Shape: `(for <mode> binding1 binding2-or-_ source body else?)`. `mode` is now `read` / `write` / `move` / `ptr` / `_`. The grammar still emits raw `(for_ptr ...)`; the sexer folds it. Eliminates the only remaining `for_*` Tag in the normalized IR. The `binding2` slot is now always present (`_` when no second binding) so `for x, i in xs` and `for *x, i in xs` (value/pointer + index) have uniform shape with the single-binding cases.
 - [x] `typed_set` / `typed_fixed` collapsed into `set` / `fixed_bind` with a type slot. All bind forms now use uniform 4-child shape `(<head> name type-or-_ expr)`.
 - [x] `extern_var` / `extern_const` collapsed into `(extern <kind> name type)`. Reuses the existing `extern` Tag — the standalone decl (4-child) is shape-distinguishable from the decoration wrapper (2-child).
 - [x] All binding heads (`set`, `set_op`, `fixed_bind`, `shadow`, `move_assign`, `typed_set`, `typed_fixed`) collapsed into a single `(set <kind> name type-or-_ expr)` shape. Kind tag at items[1] is one of `_` (default `=`), `fixed`, `shadow`, `move`, `+=`, `-=`, `*=`, `/=`. M2 walkSet and M3 emitSet are now single functions with kind-dispatch.

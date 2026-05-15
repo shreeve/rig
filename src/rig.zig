@@ -1126,22 +1126,39 @@ pub const Parser = struct {
         return Sexp{ .list = out };
     }
 
-    /// Per SPEC §"Semantic IR Nodes":
-    ///   (for binding _ source body else?) →
-    ///     (for <mode> binding source' body else?)
-    /// where mode is one of `read`, `write`, `move`, or `_` (nil) for "no
-    /// mode" (default iteration).
+    /// Unify both raw `for` and `for_ptr` into a single normalized shape:
+    ///
+    ///   (for <mode> binding1 binding2-or-_ source body else?)
+    ///
+    /// `mode` is one of:
+    ///   `_`     no sigil, no `*`     — `for x in xs`
+    ///   `read`  source had `?xs`     — `for x in ?xs`  (sigil consumed)
+    ///   `write` source had `!xs`     — `for x in !xs`  (sigil consumed)
+    ///   `move`  source had `<xs`     — `for x in <xs`  (sigil consumed)
+    ///   `ptr`   raw head was `for_ptr` — `for *x in xs`
+    ///
+    /// `binding2` is `_` (nil) when there's no second binding, or a name
+    /// for `for x, i in xs` / `for *x, i in xs` (value-with-index style).
+    ///
+    /// Raw shapes from the parser:
+    ///   (for      binding1 binding2-or-_ source body else?)  — value iter
+    ///   (for_ptr  binding1 binding2-or-_ source body else?)  — ptr iter
     fn normFor(self: *Parser, items: []const Sexp, is_ptr: bool) !Sexp {
-        if (is_ptr) return self.walkChildren(.{ .list = items });
-        if (items.len < 4) return self.walkChildren(.{ .list = items });
+        if (items.len < 5) return self.walkChildren(.{ .list = items });
 
-        const binding = try self.walk(items[1]);
+        const binding1 = try self.walk(items[1]);
+        const binding2 = try self.walk(items[2]);
         const raw_source = items[3];
         const source = try self.walk(raw_source);
 
+        // Mode: `ptr` if raw was `for_ptr`; otherwise consume the source's
+        // outer ownership wrapper into the mode position (mutually exclusive
+        // with ptr — V1 doesn't combine `*` and sigil).
         var mode: Sexp = .{ .nil = {} };
         var unwrapped_source = source;
-        if (source == .list and source.list.len >= 2 and source.list[0] == .tag) {
+        if (is_ptr) {
+            mode = .{ .tag = .@"ptr" };
+        } else if (source == .list and source.list.len >= 2 and source.list[0] == .tag) {
             switch (source.list[0].tag) {
                 .@"read" => {
                     mode = .{ .tag = .@"read" };
@@ -1163,14 +1180,15 @@ pub const Parser = struct {
         const has_else = items.len >= 6;
         const else_body = if (has_else) try self.walk(items[5]) else Sexp{ .nil = {} };
 
-        const out_len: usize = if (has_else) 6 else 5;
+        const out_len: usize = if (has_else) 7 else 6;
         const out = try self.allocator().alloc(Sexp, out_len);
         out[0] = .{ .tag = .@"for" };
         out[1] = mode;
-        out[2] = binding;
-        out[3] = unwrapped_source;
-        out[4] = body;
-        if (has_else) out[5] = else_body;
+        out[2] = binding1;
+        out[3] = binding2;
+        out[4] = unwrapped_source;
+        out[5] = body;
+        if (has_else) out[6] = else_body;
         return Sexp{ .list = out };
     }
 
