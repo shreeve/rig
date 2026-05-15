@@ -788,6 +788,18 @@ pub const Emitter = struct {
                 try self.emitExpr(pattern.list[1]);
                 try self.w.writeAll(" => ");
                 enum_variants_covered += 1;
+            } else if (pattern == .list and pattern.list.len >= 3 and
+                pattern.list[0] == .tag and pattern.list[0].tag == .@"range_pattern")
+            {
+                // M13: `lo..hi => body` lowers to Zig's inclusive
+                // range syntax `lo...hi => body`. Rig V1 treats `..`
+                // as inclusive on the high end (matches `(range_pattern
+                // 1 3)` covering 1, 2, 3). M14+ may add `..<` for
+                // exclusive once SPEC settles.
+                try self.emitExpr(pattern.list[1]);
+                try self.w.writeAll("...");
+                try self.emitExpr(pattern.list[2]);
+                try self.w.writeAll(" => ");
             } else if (pattern == .list and pattern.list.len >= 2 and
                 pattern.list[0] == .tag and pattern.list[0].tag == .@"variant_pattern")
             {

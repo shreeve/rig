@@ -1851,6 +1851,18 @@ const ExprChecker = struct {
                             try self.recordCovered(identAt(self.ctx.source, items[1]).?, firstSrcPos(pattern), covered);
                         }
                     },
+                    .@"range_pattern" => {
+                        // M13: (range_pattern lo hi). Bounds must be
+                        // numeric AND assignable to the scrutinee.
+                        // Range patterns count as a coverage of an
+                        // (unbounded) span — they never satisfy
+                        // exhaustiveness for an enum-typed match,
+                        // but they're fine for integer scrutinees.
+                        if (items.len >= 3) {
+                            try self.checkExpr(items[1], scrutinee_ty);
+                            try self.checkExpr(items[2], scrutinee_ty);
+                        }
+                    },
                     else => {},
                 }
             },
@@ -3542,6 +3554,25 @@ test "M10: value-position match requires exhaustive coverage" {
 // -----------------------------------------------------------------------------
 // M11: qualified enum access tests
 // -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
+// M13: range pattern tests
+// -----------------------------------------------------------------------------
+
+test "M13: range pattern bounds are checked against scrutinee" {
+    const source =
+        \\sub main()
+        \\  x = 5
+        \\  match x
+        \\    1..3 => print(0)
+        \\    4..6 => print(1)
+        \\    other => print(2)
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(!ctx.hasErrors());
+}
 
 // -----------------------------------------------------------------------------
 // M12: struct method tests

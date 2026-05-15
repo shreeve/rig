@@ -1,0 +1,15 @@
+## M13: range patterns in match arms.
+##
+## `1..3` is an inclusive range pattern; matches 1, 2, or 3. Lowers
+## to Zig's inclusive switch range `1...3 => body`. Sema validates
+## the bounds against the scrutinee's type.
+##
+## EXPECTED: clean. With `x = 5`, the `4..6` arm matches and
+## prints `mid`.
+
+sub main()
+  x = 5
+  match x
+    1..3 => print("low")
+    4..6 => print("mid")
+    other => print("high")
