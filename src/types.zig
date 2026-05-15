@@ -369,14 +369,16 @@ pub const SemContext = struct {
 
 /// Run sema on the normalized IR. Returns a populated `SemContext`.
 ///
-/// Current passes (in order):
+/// Passes (in order):
 ///   1. Symbol resolution — collect every fun/sub/lambda, params,
 ///      type aliases, externs, use's, and locals into the symbol
-///      table with proper scope nesting. Types remain `unknown_id`
-///      until type expression resolution lands.
+///      table with proper scope nesting. Types start as `unknown_id`.
+///   2. Type expression resolution — for every declaration that has
+///      a declared type (param, return, alias, extern), convert the
+///      type Sexp to a `TypeId` and write it back into the symbol's
+///      `ty` slot. Function symbols get a `function` Type.
 ///
 /// Future passes (subsequent M5 commits):
-///   2. Type expression resolution — convert IR type Sexps to TypeIds.
 ///   3. Expression typing — synth + check.
 ///
 /// Caller owns the returned `SemContext` and must call `deinit`.
@@ -388,10 +390,15 @@ pub fn check(
     var ctx = try SemContext.init(allocator, source);
     errdefer ctx.deinit();
 
-    // Module scope is scope 1 (slot 0 reserved for invalid sentinel).
+    // Pass 1: symbol resolution.
     const module_scope = try ctx.pushScope(scope_invalid);
     var resolver: SymbolResolver = .{ .ctx = &ctx, .current_scope = module_scope };
     try resolver.walk(ir);
+
+    // Pass 2: type expression resolution.
+    var type_resolver: TypeResolver = .{ .ctx = &ctx };
+    try type_resolver.walk(ir, module_scope);
+
     return ctx;
 }
 
@@ -744,6 +751,346 @@ const SymbolResolver = struct {
 };
 
 // =============================================================================
+// Type Resolution
+// =============================================================================
+//
+// After symbol resolution, walk the IR a second time to resolve every
+// declared type Sexp into a `TypeId`. Updates `Symbol.ty` in place for
+// each function (full function type), parameter (declared type), type
+// alias (aliased type), and extern declaration (declared type).
+//
+// `resolveType(sexp, scope)` is the workhorse: walks a type Sexp and
+// returns its interned `TypeId`. Recognizes:
+//
+//   - primitive type names → pre-interned ids in TypeStore
+//     - `Int` / `Float` / `Bool` / `String` / `Void`
+//     - sized: `I8`/`I16`/`I32`/`I64`/`U8`/`U16`/`U32`/`U64`/`F32`/`F64`
+//   - nominal type names → `nominal(SymbolId)` if found in scope
+//   - `(optional T)` / `(error_union T)` → wrap recursively
+//   - `(borrow_read T)` / `(borrow_write T)` → wrap recursively
+//   - `(slice T)` → slice
+//   - `(array_type N T)` → fixed-size array (N parsed as u64)
+//   - `(fn_type params returns)` → function type
+//
+// Unknown names produce a sema diagnostic and return `invalid_id` so
+// downstream synthesis fails fast without cascading.
+
+const TypeResolver = struct {
+    ctx: *SemContext,
+
+    /// Walk top-level decls in the module scope and populate types.
+    fn walk(self: *TypeResolver, ir: Sexp, module_scope: ScopeId) std.mem.Allocator.Error!void {
+        if (ir != .list or ir.list.len == 0 or ir.list[0] != .tag) return;
+        if (ir.list[0].tag != .@"module") return;
+
+        // Walk each top-level declaration. The fn-scope cursor advances
+        // alongside the symbol resolver did — we re-use scope ordering
+        // to find each fn's body scope.
+        var scope_cursor: ScopeId = module_scope + 1;
+        for (ir.list[1..]) |child| {
+            scope_cursor = try self.resolveDecl(child, module_scope, scope_cursor);
+        }
+    }
+
+    /// Resolve a single top-level decl, advancing `scope_cursor` past
+    /// any sub-scopes the decl owns. Returns the new cursor.
+    fn resolveDecl(self: *TypeResolver, sexp: Sexp, parent_scope: ScopeId, scope_cursor: ScopeId) std.mem.Allocator.Error!ScopeId {
+        if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return scope_cursor;
+        const items = sexp.list;
+        switch (items[0].tag) {
+            .@"pub" => {
+                if (items.len >= 2) return self.resolveDecl(items[1], parent_scope, scope_cursor);
+                return scope_cursor;
+            },
+            .@"fun", .@"sub" => return self.resolveFun(items, parent_scope, scope_cursor),
+            .@"type" => {
+                try self.resolveTypeAlias(items, parent_scope);
+                return scope_cursor;
+            },
+            .@"extern" => {
+                try self.resolveExtern(items, parent_scope);
+                return scope_cursor;
+            },
+            else => return scope_cursor,
+        }
+    }
+
+    fn resolveFun(self: *TypeResolver, items: []const Sexp, parent_scope: ScopeId, scope_cursor: ScopeId) std.mem.Allocator.Error!ScopeId {
+        if (items.len < 5) return scope_cursor;
+        const is_sub = items[0].tag == .@"sub";
+        const name_node = items[1];
+        const params = items[2];
+        const returns_node: Sexp = if (is_sub) .{ .nil = {} } else items[3];
+
+        // The fn's own body scope was the next one created by symbol
+        // resolution. Use it for nominal lookups in the signature too,
+        // so generic params (when added later) resolve correctly.
+        const fn_scope = scope_cursor;
+
+        // Resolve return type.
+        const return_ty: TypeId = if (is_sub)
+            self.ctx.types.void_id
+        else if (returns_node == .nil)
+            self.ctx.types.void_id
+        else
+            try self.resolveType(returns_node, parent_scope);
+
+        // Resolve param types and write each back into its symbol's `ty`.
+        const param_count: usize = if (params == .list) params.list.len else 0;
+        var param_types: std.ArrayListUnmanaged(TypeId) = .empty;
+        defer param_types.deinit(self.ctx.allocator);
+        try param_types.ensureTotalCapacity(self.ctx.allocator, param_count);
+
+        if (params == .list) {
+            for (params.list) |p| {
+                const ptype = try self.resolveParamType(p, parent_scope);
+                param_types.appendAssumeCapacity(ptype);
+                // Find the symbol for this param in fn_scope and update.
+                const pname = paramName(self.ctx.source, p);
+                if (pname) |nm| {
+                    if (self.ctx.lookup(fn_scope, nm)) |sym_id| {
+                        self.ctx.symbols.items[sym_id].ty = ptype;
+                    }
+                }
+            }
+        }
+
+        // Build the function type and update the fn symbol.
+        const owned_params = try self.ctx.arena.allocator().dupe(TypeId, param_types.items);
+        const fn_ty = try self.ctx.types.intern(self.ctx.allocator, .{ .function = .{
+            .params = owned_params,
+            .returns = return_ty,
+            .is_sub = is_sub,
+        } });
+        if (identAt(self.ctx.source, name_node)) |nm| {
+            if (self.ctx.lookup(parent_scope, nm)) |sym_id| {
+                self.ctx.symbols.items[sym_id].ty = fn_ty;
+            }
+        }
+
+        // Skip past this fn's scopes. Counting is fragile in general,
+        // but symbol resolution opens scopes in a deterministic order,
+        // so we advance `scope_cursor` to the next module-level decl
+        // by counting scopes opened during this fn's walk.
+        return scopeAfter(self.ctx, fn_scope);
+    }
+
+    fn resolveTypeAlias(self: *TypeResolver, items: []const Sexp, parent_scope: ScopeId) std.mem.Allocator.Error!void {
+        // (type name typeexpr)
+        if (items.len < 3) return;
+        const name = identAt(self.ctx.source, items[1]) orelse return;
+        const ty = try self.resolveType(items[2], parent_scope);
+        if (self.ctx.lookup(parent_scope, name)) |sym_id| {
+            self.ctx.symbols.items[sym_id].ty = ty;
+        }
+    }
+
+    fn resolveExtern(self: *TypeResolver, items: []const Sexp, parent_scope: ScopeId) std.mem.Allocator.Error!void {
+        // (extern <kind> name type)
+        if (items.len < 4) return;
+        const name = identAt(self.ctx.source, items[2]) orelse return;
+        const ty = try self.resolveType(items[3], parent_scope);
+        if (self.ctx.lookup(parent_scope, name)) |sym_id| {
+            self.ctx.symbols.items[sym_id].ty = ty;
+        }
+    }
+
+    /// Resolve the declared type of a parameter Sexp. Returns
+    /// `unknown_id` for untyped params (`name` only) — declared params
+    /// without an explicit type are an error in V1, but we report that
+    /// from the symbol resolver, not here.
+    fn resolveParamType(self: *TypeResolver, param: Sexp, scope: ScopeId) std.mem.Allocator.Error!TypeId {
+        switch (param) {
+            .src => return self.ctx.types.unknown_id, // bare name, untyped
+            .list => |items| {
+                if (items.len == 0 or items[0] != .tag) return self.ctx.types.unknown_id;
+                switch (items[0].tag) {
+                    .@":" => if (items.len >= 3) return self.resolveType(items[2], scope),
+                    .@"pre_param" => if (items.len >= 3) return self.resolveType(items[2], scope),
+                    else => {},
+                }
+                return self.ctx.types.unknown_id;
+            },
+            else => return self.ctx.types.unknown_id,
+        }
+    }
+
+    /// The workhorse: type Sexp → `TypeId`.
+    fn resolveType(self: *TypeResolver, sexp: Sexp, scope: ScopeId) std.mem.Allocator.Error!TypeId {
+        switch (sexp) {
+            .nil => return self.ctx.types.void_id,
+            .src => |s| {
+                const name = self.ctx.source[s.pos..][0..s.len];
+                if (primitiveTypeId(self.ctx, name)) |id| return id;
+                if (sizedIntTypeId(self.ctx, name)) |id| return id;
+                if (sizedFloatTypeId(self.ctx, name)) |id| return id;
+                if (self.ctx.lookup(scope, name)) |sym_id| {
+                    const sym = self.ctx.symbols.items[sym_id];
+                    if (sym.kind == .nominal_type or sym.kind == .type_alias or
+                        sym.kind == .generic_type)
+                    {
+                        return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = sym_id });
+                    }
+                }
+                // Unknown type name. M5 v1 doesn't have a module
+                // system / forward declarations / generic-param scope
+                // yet, so undeclared names are common in idiomatic Rig
+                // (e.g., `User` in showcase.rig). Return `invalid_id`
+                // silently for now — the diagnostic will return once
+                // type-driven expression checking lands and can produce
+                // useful errors at the *use* site.
+                return self.ctx.types.invalid_id;
+            },
+            .list => |items| {
+                if (items.len == 0 or items[0] != .tag) return self.ctx.types.invalid_id;
+                switch (items[0].tag) {
+                    .@"optional" => {
+                        if (items.len < 2) return self.ctx.types.invalid_id;
+                        const inner = try self.resolveType(items[1], scope);
+                        return self.ctx.types.intern(self.ctx.allocator, .{ .optional = inner });
+                    },
+                    .@"error_union" => {
+                        if (items.len < 2) return self.ctx.types.invalid_id;
+                        const inner = try self.resolveType(items[1], scope);
+                        return self.ctx.types.intern(self.ctx.allocator, .{ .fallible = inner });
+                    },
+                    .@"borrow_read" => {
+                        if (items.len < 2) return self.ctx.types.invalid_id;
+                        const inner = try self.resolveType(items[1], scope);
+                        return self.ctx.types.intern(self.ctx.allocator, .{ .borrow_read = inner });
+                    },
+                    .@"borrow_write" => {
+                        if (items.len < 2) return self.ctx.types.invalid_id;
+                        const inner = try self.resolveType(items[1], scope);
+                        return self.ctx.types.intern(self.ctx.allocator, .{ .borrow_write = inner });
+                    },
+                    .@"slice" => {
+                        if (items.len < 2) return self.ctx.types.invalid_id;
+                        const elem = try self.resolveType(items[1], scope);
+                        return self.ctx.types.intern(self.ctx.allocator, .{ .slice = .{ .elem = elem } });
+                    },
+                    .@"array_type" => {
+                        // (array_type N T)
+                        if (items.len < 3) return self.ctx.types.invalid_id;
+                        const len = parseIntegerLiteral(self.ctx.source, items[1]) orelse 0;
+                        const elem = try self.resolveType(items[2], scope);
+                        return self.ctx.types.intern(self.ctx.allocator, .{ .array = .{
+                            .elem = elem,
+                            .len = len,
+                        } });
+                    },
+                    .@"fn_type" => {
+                        // (fn_type params returns) — params is a list of types.
+                        if (items.len < 3) return self.ctx.types.invalid_id;
+                        var ps: std.ArrayListUnmanaged(TypeId) = .empty;
+                        defer ps.deinit(self.ctx.allocator);
+                        if (items[1] == .list) {
+                            for (items[1].list) |p| {
+                                try ps.append(self.ctx.allocator, try self.resolveType(p, scope));
+                            }
+                        }
+                        const ret = try self.resolveType(items[2], scope);
+                        const owned = try self.ctx.arena.allocator().dupe(TypeId, ps.items);
+                        return self.ctx.types.intern(self.ctx.allocator, .{ .function = .{
+                            .params = owned,
+                            .returns = ret,
+                            .is_sub = false,
+                        } });
+                    },
+                    else => return self.ctx.types.invalid_id,
+                }
+            },
+            else => return self.ctx.types.invalid_id,
+        }
+    }
+
+    fn err(self: *TypeResolver, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        const msg = try std.fmt.allocPrint(self.ctx.arena.allocator(), fmt, args);
+        try self.ctx.diagnostics.append(self.ctx.allocator, .{
+            .severity = .@"error",
+            .pos = pos,
+            .message = msg,
+        });
+    }
+};
+
+fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
+    if (std.mem.eql(u8, name, "Int")) return ctx.types.int_id;
+    if (std.mem.eql(u8, name, "Float")) return ctx.types.float_id;
+    if (std.mem.eql(u8, name, "Bool")) return ctx.types.bool_id;
+    if (std.mem.eql(u8, name, "String")) return ctx.types.string_id;
+    if (std.mem.eql(u8, name, "Void")) return ctx.types.void_id;
+    return null;
+}
+
+fn sizedIntTypeId(ctx: *SemContext, name: []const u8) ?TypeId {
+    const Pair = struct { name: []const u8, bits: u8, signed: bool };
+    const pairs = [_]Pair{
+        .{ .name = "I8", .bits = 8, .signed = true },
+        .{ .name = "I16", .bits = 16, .signed = true },
+        .{ .name = "I32", .bits = 32, .signed = true },
+        .{ .name = "I64", .bits = 64, .signed = true },
+        .{ .name = "U8", .bits = 8, .signed = false },
+        .{ .name = "U16", .bits = 16, .signed = false },
+        .{ .name = "U32", .bits = 32, .signed = false },
+        .{ .name = "U64", .bits = 64, .signed = false },
+    };
+    for (pairs) |p| {
+        if (std.mem.eql(u8, name, p.name)) {
+            return ctx.types.intern(ctx.allocator, .{ .int = .{ .bits = p.bits, .signed = p.signed } }) catch null;
+        }
+    }
+    return null;
+}
+
+fn sizedFloatTypeId(ctx: *SemContext, name: []const u8) ?TypeId {
+    if (std.mem.eql(u8, name, "F32")) return ctx.types.intern(ctx.allocator, .{ .float = .{ .bits = 32 } }) catch null;
+    if (std.mem.eql(u8, name, "F64")) return ctx.types.intern(ctx.allocator, .{ .float = .{ .bits = 64 } }) catch null;
+    return null;
+}
+
+/// Find the next scope id at or above `from_scope` whose parent is the
+/// module scope (i.e., the next top-level decl's scope). Used by
+/// `resolveFun` to skip over a function's nested scopes when walking
+/// module-level decls in order.
+fn scopeAfter(ctx: *const SemContext, from_scope: ScopeId) ScopeId {
+    const total: ScopeId = @intCast(ctx.scopes.items.len);
+    var s: ScopeId = from_scope + 1;
+    while (s < total) : (s += 1) {
+        const scope = &ctx.scopes.items[s];
+        if (scope.parent) |p| {
+            // Module scope is 1; its children are top-level decl scopes.
+            if (p == 1) return s;
+        }
+    }
+    return total;
+}
+
+/// Extract the name of a parameter Sexp, regardless of shape.
+fn paramName(source: []const u8, param: Sexp) ?[]const u8 {
+    return switch (param) {
+        .src => identAt(source, param),
+        .list => |items| blk: {
+            if (items.len == 0 or items[0] != .tag) break :blk null;
+            switch (items[0].tag) {
+                .@":", .@"pre_param" => {
+                    if (items.len >= 2) break :blk identAt(source, items[1]);
+                },
+                else => {},
+            }
+            break :blk null;
+        },
+        else => null,
+    };
+}
+
+fn parseIntegerLiteral(source: []const u8, sexp: Sexp) ?u64 {
+    if (sexp != .src) return null;
+    const text = source[sexp.src.pos..][0..sexp.src.len];
+    return std.fmt.parseInt(u64, text, 0) catch null;
+}
+
+// =============================================================================
 // Helpers
 // =============================================================================
 
@@ -1001,4 +1348,150 @@ test "symbols: pub flag set on wrapped declaration" {
 
     const greet_id = ctx.lookup(1, "greet").?;
     try std.testing.expect(ctx.symbols.items[greet_id].flags.is_public);
+}
+
+// -----------------------------------------------------------------------------
+// Type expression resolution tests
+// -----------------------------------------------------------------------------
+
+test "type-resolve: fun signature populated with primitive types" {
+    const source =
+        \\fun add(a: Int, b: Int) -> Int
+        \\  a + b
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+
+    const add_id = ctx.lookup(1, "add").?;
+    const add_ty = ctx.types.get(ctx.symbols.items[add_id].ty);
+    try std.testing.expectEqual(@as(std.meta.Tag(Type), .function), @as(std.meta.Tag(Type), add_ty));
+    try std.testing.expectEqual(ctx.types.int_id, add_ty.function.returns);
+    try std.testing.expectEqual(@as(usize, 2), add_ty.function.params.len);
+    try std.testing.expectEqual(ctx.types.int_id, add_ty.function.params[0]);
+    try std.testing.expectEqual(ctx.types.int_id, add_ty.function.params[1]);
+    try std.testing.expect(!add_ty.function.is_sub);
+
+    // Param symbols also have their `ty` populated.
+    const a_id = ctx.lookup(2, "a").?;
+    try std.testing.expectEqual(ctx.types.int_id, ctx.symbols.items[a_id].ty);
+}
+
+test "type-resolve: sub return is Void" {
+    const source =
+        \\sub main()
+        \\  print 1
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+
+    const main_id = ctx.lookup(1, "main").?;
+    const main_ty = ctx.types.get(ctx.symbols.items[main_id].ty);
+    try std.testing.expect(main_ty.function.is_sub);
+    try std.testing.expectEqual(ctx.types.void_id, main_ty.function.returns);
+}
+
+test "type-resolve: T! / T? / ?T / !T wrappers" {
+    const source =
+        \\fun a() -> Int!
+        \\  1
+        \\
+        \\fun b() -> Int?
+        \\  1
+        \\
+        \\fun c(x: ?Int) -> Int
+        \\  1
+        \\
+        \\fun d(x: !Int) -> Int
+        \\  1
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+
+    const a_ret = ctx.symbols.items[ctx.lookup(1, "a").?].ty;
+    const a_ty = ctx.types.get(a_ret);
+    try std.testing.expectEqual(@as(std.meta.Tag(Type), .fallible), @as(std.meta.Tag(Type), ctx.types.get(a_ty.function.returns)));
+
+    const b_ret = ctx.symbols.items[ctx.lookup(1, "b").?].ty;
+    const b_ty = ctx.types.get(b_ret);
+    try std.testing.expectEqual(@as(std.meta.Tag(Type), .optional), @as(std.meta.Tag(Type), ctx.types.get(b_ty.function.returns)));
+
+    const c_id = ctx.lookup(1, "c").?;
+    const c_ty = ctx.types.get(ctx.symbols.items[c_id].ty);
+    try std.testing.expectEqual(@as(std.meta.Tag(Type), .borrow_read), @as(std.meta.Tag(Type), ctx.types.get(c_ty.function.params[0])));
+
+    const d_id = ctx.lookup(1, "d").?;
+    const d_ty = ctx.types.get(ctx.symbols.items[d_id].ty);
+    try std.testing.expectEqual(@as(std.meta.Tag(Type), .borrow_write), @as(std.meta.Tag(Type), ctx.types.get(d_ty.function.params[0])));
+}
+
+test "type-resolve: unknown type silently returns invalid_id (M5 v1 deferred)" {
+    // M5 v1 doesn't fire the unknown-type diagnostic at declaration
+    // resolution time — the user has no module/forward-decl mechanism
+    // yet, so undeclared nominal names are common (every example using
+    // `User`, `Profile`, etc.). The diagnostic will return when type-
+    // driven expression checking lands and can point at a USE site.
+    const source =
+        \\fun bad(x: NotAType) -> Int
+        \\  1
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+
+    try std.testing.expect(!ctx.hasErrors());
+    const bad_id = ctx.lookup(1, "bad").?;
+    const bad_ty = ctx.types.get(ctx.symbols.items[bad_id].ty);
+    // The param's type is invalid (unresolved nominal), but the function
+    // type itself was still constructed.
+    try std.testing.expectEqual(@as(std.meta.Tag(Type), .function), @as(std.meta.Tag(Type), bad_ty));
+    try std.testing.expectEqual(ctx.types.invalid_id, bad_ty.function.params[0]);
+}
+
+test "type-resolve: type alias resolves to its target" {
+    const source =
+        \\type UserId = Int
+        \\
+        \\fun lookup(id: UserId) -> UserId
+        \\  id
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+
+    try std.testing.expect(!ctx.hasErrors());
+
+    // Type alias's `ty` should be the int_id.
+    const alias_id = ctx.lookup(1, "UserId").?;
+    try std.testing.expectEqual(ctx.types.int_id, ctx.symbols.items[alias_id].ty);
+
+    // The fn's param type should be `nominal(UserId)` since user types
+    // resolve to nominal references rather than expanding the alias.
+    const fn_id = ctx.lookup(1, "lookup").?;
+    const fn_ty = ctx.types.get(ctx.symbols.items[fn_id].ty);
+    const param_ty = ctx.types.get(fn_ty.function.params[0]);
+    try std.testing.expectEqual(@as(std.meta.Tag(Type), .nominal), @as(std.meta.Tag(Type), param_ty));
+    try std.testing.expectEqual(alias_id, param_ty.nominal);
+}
+
+test "type-resolve: sized integer types intern distinctly" {
+    const source =
+        \\fun pair(a: I32, b: U64) -> I32
+        \\  a
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+
+    const pair_id = ctx.lookup(1, "pair").?;
+    const pair_ty = ctx.types.get(ctx.symbols.items[pair_id].ty);
+    const i32_ty = ctx.types.get(pair_ty.function.params[0]);
+    const u64_ty = ctx.types.get(pair_ty.function.params[1]);
+
+    try std.testing.expectEqual(@as(u8, 32), i32_ty.int.bits);
+    try std.testing.expect(i32_ty.int.signed);
+    try std.testing.expectEqual(@as(u8, 64), u64_ty.int.bits);
+    try std.testing.expect(!u64_ty.int.signed);
 }
