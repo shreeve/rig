@@ -147,14 +147,14 @@ fn checkAndReport(allocator: std.mem.Allocator, io: std.Io, source: []const u8, 
         std.process.exit(1);
     };
 
-    // Sema → Effects → Ownership. Sema produces the symbol/type context
-    // (currently used for symbol resolution; type checking lands in
-    // subsequent M5 commits). Effects + Ownership still operate
-    // independently on the IR; future commits will let them consume sema.
+    // Sema → Effects → Ownership. Sema produces the symbol/type
+    // context; effects.Checker now consumes sema directly (no
+    // duplicate signature scan). Ownership still operates
+    // independently — M5(5/n) wires it through.
     var sema = try types.check(allocator, source, ir);
     defer sema.deinit();
 
-    var eff = try effects.Checker.init(allocator, source);
+    var eff = try effects.Checker.initWithSema(allocator, source, &sema);
     defer eff.deinit();
     try eff.check(ir);
 
@@ -197,7 +197,7 @@ fn parseAndCheckOrExit(
     var sema = try types.check(allocator, source, ir);
     defer sema.deinit();
 
-    var eff = try effects.Checker.init(allocator, source);
+    var eff = try effects.Checker.initWithSema(allocator, source, &sema);
     defer eff.deinit();
     try eff.check(ir);
 

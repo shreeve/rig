@@ -1,13 +1,13 @@
 //! Rig Effects / Fallibility Checker.
 //!
-//! Pipeline slot: parse → normalize → **effects.check** → ownership.check → emit.
+//! Pipeline slot: parse → normalize → sema → **effects.check** → ownership.check → emit.
 //!
-//! Currently enforces (M4.5):
+//! Enforces:
 //!
 //!   1. A call to a function declared `-> T!` must be wrapped in
 //!      `(propagate ...)` (`expr!`) or `(catch ...)`. A bare consumed
 //!      result (assignment / argument / return value) silently leaks
-//!      a fallible past the user — the exact bug we paid down.
+//!      a fallible past the user — the exact bug we paid down in M4.5.
 //!
 //!   2. A function whose body contains `(propagate ...)` must declare
 //!      a fallible return type. Special exception for `sub main()`
@@ -15,15 +15,25 @@
 //!
 //! Errors are reported in the standard
 //! `<file>:<line>:<col>: error: <msg>` format used by the ownership
-//! checker, so the CLI can stream both diagnostic streams together.
+//! and sema checkers, so the CLI can stream all diagnostic streams
+//! together.
 //!
-//! Future M5 expansions: match-arm result unification, try-block
-//! success/catch result unification, error-set tracking, `catch`
-//! coverage. Those all need real type checking — out of scope here.
+//! ## Sema integration (M5(4/n))
+//!
+//! When a `*const types.SemContext` is supplied at construction, the
+//! checker pulls function signatures from sema's symbol table instead
+//! of doing its own scan over the IR. The local `FunSig` collection is
+//! kept as a fallback so unit tests with hand-built IR (no sema) still
+//! work without rewriting them.
+//!
+//! Future M5+: fold this whole pass into `types.synthExpr` once
+//! expression typing is rich enough to express "expected non-fallible
+//! at this position" naturally — at which point this file goes away.
 
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+const types = @import("types.zig");
 
 const Sexp = parser.Sexp;
 const Tag = rig.Tag;
@@ -47,7 +57,15 @@ pub const FunSig = struct {
 pub const Checker = struct {
     allocator: std.mem.Allocator,
     source: []const u8,
+
+    /// Optional sema context. When present, signature lookups go through
+    /// sema's symbol table (the source of truth post-M5); when absent
+    /// (unit tests), we fall back to a local IR-walk signature scan.
+    sema: ?*const types.SemContext = null,
+
+    /// Local fallback signature table (populated only when `sema == null`).
     sigs: std.StringHashMapUnmanaged(FunSig) = .empty,
+
     diagnostics: std.ArrayListUnmanaged(Diagnostic) = .empty,
 
     /// True for the immediate child of `(propagate ...)` or `(catch ...)`.
@@ -69,6 +87,14 @@ pub const Checker = struct {
         return .{ .allocator = allocator, .source = source };
     }
 
+    /// Constructor that wires the sema context. Use this from the CLI
+    /// pipeline so signature lookups consume sema's authoritative
+    /// symbol table (no duplicate IR scan, and we automatically pick
+    /// up everything sema knows — including resolved type aliases).
+    pub fn initWithSema(allocator: std.mem.Allocator, source: []const u8, sema: *const types.SemContext) Error!Checker {
+        return .{ .allocator = allocator, .source = source, .sema = sema };
+    }
+
     pub fn deinit(self: *Checker) void {
         self.sigs.deinit(self.allocator);
         for (self.diagnostics.items) |d| {
@@ -85,10 +111,39 @@ pub const Checker = struct {
     }
 
     pub fn check(self: *Checker, ir: Sexp) Error!void {
-        // Pass 1: collect signatures from top-level fun/sub decls.
-        try self.collectSignatures(ir);
+        // Pass 1: collect signatures from the IR — only when sema is
+        // not available. With sema, lookups go through its symbol
+        // table directly (see `lookupFallibility`).
+        if (self.sema == null) {
+            try self.collectSignatures(ir);
+        }
         // Pass 2: walk the IR and validate fallibility visibility.
         try self.walk(ir);
+    }
+
+    /// Look up whether a function name refers to a fallible function.
+    /// Prefers the sema context (authoritative); falls back to the
+    /// local `sigs` table for unit-test paths that don't have sema.
+    /// Returns null if the name doesn't resolve at all.
+    fn lookupFallibility(self: *const Checker, name: []const u8) ?FunSig {
+        if (self.sema) |sema| {
+            const sym_id = sema.lookup(1, name) orelse return null; // 1 = module scope
+            const sym = sema.symbols.items[sym_id];
+            const sym_ty = sema.types.get(sym.ty);
+            const is_fallible = switch (sym_ty) {
+                .function => |fn_ty| blk: {
+                    const ret = sema.types.get(fn_ty.returns);
+                    break :blk ret == .fallible;
+                },
+                else => false,
+            };
+            return .{
+                .name = name,
+                .is_fallible = is_fallible,
+                .decl_pos = sym.decl_pos,
+            };
+        }
+        return self.sigs.get(name);
     }
 
     pub fn writeDiagnostics(self: *const Checker, file_path: []const u8, w: anytype) !void {
@@ -243,7 +298,7 @@ pub const Checker = struct {
         const callee = items[1];
         if (callee == .src) {
             const fn_name = self.source[callee.src.pos..][0..callee.src.len];
-            if (self.sigs.get(fn_name)) |sig| {
+            if (self.lookupFallibility(fn_name)) |sig| {
                 if (sig.is_fallible and !self.in_handle_context) {
                     try self.err(callee.src.pos, "fallible call to `{s}` must be wrapped with `!` (propagate) or `catch` (handle)", .{fn_name});
                     if (sig.decl_pos > 0) {
@@ -372,6 +427,41 @@ test "effects: bare fallible call without `!` or `catch` is an error" {
 
     try std.testing.expect(c.hasErrors());
     try std.testing.expectEqual(@as(usize, 2), c.diagnostics.items.len); // 1 error + 1 note
+}
+
+test "effects: sema-driven signature lookup catches the same error" {
+    // M5(4/n): when constructed with a SemContext, effects looks up
+    // function fallibility via sema's symbol table instead of doing
+    // its own IR scan. End-to-end test: parse → sema → effects.
+    const source =
+        \\fun loadUser(id: U64) -> User!
+        \\  User
+        \\
+        \\sub main()
+        \\  x = loadUser(1)
+        \\
+    ;
+    const allocator = std.testing.allocator;
+    var p = parser.Parser.init(allocator, source);
+    defer p.deinit();
+    const ir = try p.parseProgram();
+
+    var sema = try types.check(allocator, source, ir);
+    defer sema.deinit();
+
+    var c = try Checker.initWithSema(allocator, source, &sema);
+    defer c.deinit();
+    try c.check(ir);
+
+    try std.testing.expect(c.hasErrors());
+    var found = false;
+    for (c.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, "fallible call to `loadUser`") != null) {
+            found = true;
+            break;
+        }
+    }
+    try std.testing.expect(found);
 }
 
 test "effects: propagate inside fallible function is fine" {
