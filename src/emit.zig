@@ -20,6 +20,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+const types = @import("types.zig");
 
 const Sexp = parser.Sexp;
 const Tag = rig.Tag;
@@ -67,6 +68,14 @@ pub const Emitter = struct {
     /// for ensuring body-level fallibility matches the declaration.
     fn_is_fallible: bool = false,
 
+    /// Optional sema context. When wired, `emitCall` consults sema's
+    /// symbol table to decide whether `Foo(...)` should lower to a
+    /// Zig struct literal (`Foo{ ... }`) or a function call (`Foo(...)`)
+    /// based on whether `Foo` resolves to a nominal type vs a function.
+    /// Without sema, falls back to the kwarg-presence heuristic that
+    /// the M3/M4 emitter shipped with.
+    sema: ?*const types.SemContext = null,
+
     pub fn init(allocator: std.mem.Allocator, source: []const u8, w: *Writer) Emitter {
         return .{
             .allocator = allocator,
@@ -74,6 +83,15 @@ pub const Emitter = struct {
             .w = w,
             .name_arena = std.heap.ArenaAllocator.init(allocator),
         };
+    }
+
+    /// Constructor that wires the sema context. Use this from the CLI
+    /// pipeline so emit decisions consult the authoritative symbol
+    /// table instead of relying on syntactic heuristics.
+    pub fn initWithSema(allocator: std.mem.Allocator, source: []const u8, w: *Writer, sema: *const types.SemContext) Emitter {
+        var e = init(allocator, source, w);
+        e.sema = sema;
+        return e;
     }
 
     pub fn deinit(self: *Emitter) void {
@@ -684,20 +702,39 @@ pub const Emitter = struct {
         }
         if (items.len < 2) return;
 
-        // Distinguish positional vs constructor-call (record):
-        // If ANY arg is a (kwarg ...), emit as `Type{ .name = value, ... }`.
-        var has_kwarg = false;
-        for (items[2..]) |arg| {
-            if (arg == .list and arg.list.len > 0 and arg.list[0] == .tag and
-                arg.list[0].tag == .@"kwarg")
-            {
-                has_kwarg = true;
-                break;
+        // Constructor-vs-call disambiguation. Per GPT-5.5's M5 design
+        // pass (Q4): "resolved nominal > resolved function > fallback
+        // heuristic". Sema knows whether `Foo` refers to a struct,
+        // type alias, or function — use that authoritative answer
+        // when available. Without sema, fall back to "any kwarg arg
+        // means struct literal", which is the M3/M4 heuristic.
+        const struct_literal: bool = blk: {
+            if (self.sema) |sema| {
+                if (items[1] == .src) {
+                    const fn_name = self.source[items[1].src.pos..][0..items[1].src.len];
+                    if (sema.lookup(1, fn_name)) |sym_id| {
+                        const sym = sema.symbols.items[sym_id];
+                        switch (sym.kind) {
+                            .nominal_type, .type_alias, .generic_type => break :blk true,
+                            .function => break :blk false,
+                            else => {}, // fall through to heuristic
+                        }
+                    }
+                }
             }
-        }
+            // Fallback heuristic.
+            for (items[2..]) |arg| {
+                if (arg == .list and arg.list.len > 0 and arg.list[0] == .tag and
+                    arg.list[0].tag == .@"kwarg")
+                {
+                    break :blk true;
+                }
+            }
+            break :blk false;
+        };
 
         try self.emitExpr(items[1]);
-        if (has_kwarg) {
+        if (struct_literal) {
             try self.w.writeAll("{ ");
             var first = true;
             for (items[2..]) |arg| {

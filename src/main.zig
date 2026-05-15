@@ -173,9 +173,20 @@ fn checkAndReport(allocator: std.mem.Allocator, io: std.Io, source: []const u8, 
     if (sema.hasErrors() or eff.hasErrors() or checker.hasErrors()) std.process.exit(1);
 }
 
-/// Parse + run the full checker pipeline (effects → ownership) and abort
-/// the process with exit 1 if any errors are emitted. Used by `build`
-/// and `run` so they never lower a program the checker rejects.
+/// Bundle returned from `parseAndCheckOrExit`. The caller owns both
+/// the IR (lives in the parser's arena, which lives as long as the
+/// caller's allocator) and the SemContext (caller MUST `sema.deinit()`).
+/// Both are needed by emit so we return them as a unit instead of
+/// forcing each call site to re-run sema.
+const CheckedProgram = struct {
+    ir: parser.Sexp,
+    sema: types.SemContext,
+};
+
+/// Parse + run the full checker pipeline (sema → effects → ownership)
+/// and abort the process with exit 1 if any errors are emitted. Used
+/// by `build` and `run` so they never lower a program the checker
+/// rejects.
 ///
 /// Diagnostics go to stderr so callers can pipe emit to stdout.
 fn parseAndCheckOrExit(
@@ -183,7 +194,7 @@ fn parseAndCheckOrExit(
     io: std.Io,
     source: []const u8,
     file_path: []const u8,
-) !parser.Sexp {
+) !CheckedProgram {
     var p = parser.Parser.init(allocator, source);
     // NOTE: we intentionally do NOT deinit `p` here — the returned IR
     // is allocated in its arena and must outlive this function. The
@@ -195,7 +206,7 @@ fn parseAndCheckOrExit(
     };
 
     var sema = try types.check(allocator, source, ir);
-    defer sema.deinit();
+    errdefer sema.deinit();
 
     var eff = try effects.Checker.initWithSema(allocator, source, &sema);
     defer eff.deinit();
@@ -216,25 +227,27 @@ fn parseAndCheckOrExit(
         std.process.exit(1);
     }
 
-    return ir;
+    return .{ .ir = ir, .sema = sema };
 }
 
 fn buildAndEmit(allocator: std.mem.Allocator, io: std.Io, source: []const u8, file_path: []const u8) !void {
-    const ir = try parseAndCheckOrExit(allocator, io, source, file_path);
+    var checked = try parseAndCheckOrExit(allocator, io, source, file_path);
+    defer checked.sema.deinit();
 
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     const w: *std.Io.Writer = &stdout_writer.interface;
 
-    var em = emit.Emitter.init(allocator, source, w);
+    var em = emit.Emitter.initWithSema(allocator, source, w, &checked.sema);
     defer em.deinit();
-    try em.emit(ir);
+    try em.emit(checked.ir);
     try w.flush();
 }
 
 fn buildAndRun(allocator: std.mem.Allocator, io: std.Io, source: []const u8, file_path: []const u8) !void {
     // Parse → check → emit Zig to a temp file → spawn `zig run <tmp>`.
-    const ir = try parseAndCheckOrExit(allocator, io, source, file_path);
+    var checked = try parseAndCheckOrExit(allocator, io, source, file_path);
+    defer checked.sema.deinit();
 
     var tmp_buf: [256]u8 = undefined;
     const tmp_path = makeTmpPath(&tmp_buf, file_path);
@@ -250,9 +263,9 @@ fn buildAndRun(allocator: std.mem.Allocator, io: std.Io, source: []const u8, fil
         var file_writer = f.writer(io, &file_buffer);
         const w: *std.Io.Writer = &file_writer.interface;
 
-        var em = emit.Emitter.init(allocator, source, w);
+        var em = emit.Emitter.initWithSema(allocator, source, w, &checked.sema);
         defer em.deinit();
-        try em.emit(ir);
+        try em.emit(checked.ir);
         try w.flush();
     }
 
