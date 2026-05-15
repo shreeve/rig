@@ -546,14 +546,40 @@ Only expressions marked with `?` may escape to `catch`.
 ## Fallible Function Return
 
 ```rig
-fun loadUser(id: U64) -> !User
+fun loadUser(id: U64) -> User!
 ```
 
 Meaning:
 
 ```text
-this function may fail
+this function returns User-or-failure
 ```
+
+The suffix `!` on a type makes it **fallible** (an error union).
+
+---
+
+## The `?` / `!` Triangle
+
+Rig keeps the meaning of `?` and `!` clean by giving each position a
+distinct role:
+
+```text
+   ?x   prefix on expression  read borrow
+   !x   prefix on expression  write borrow
+   ?T   prefix on type        read-borrowed parameter / return
+   !T   prefix on type        write-borrowed parameter / return
+   T?   suffix on type        optional T (T or null)
+   T!   suffix on type        fallible T (T or error)
+   x?   suffix on expression  propagate failure
+```
+
+So:
+- **Prefix `?` / `!`** = borrow (in either expression or type position).
+- **Suffix `?` / `!`** = type modifier (optional / fallible).
+- **Suffix `?` on expression** = propagate.
+
+The two halves never collide; each spelling has exactly one meaning.
 
 ---
 
@@ -625,11 +651,15 @@ pub fn Box(comptime T: type) type {
 ## Generic Function
 
 ```rig
-fun first(T, xs: ?[]T) -> ?T
+fun first(T, xs: ?[]T) -> T?
   xs[0]
 ```
 
 Rig hides Zig comptime syntax for generic parameters.
+
+Note the `?` / `!` triangle in action:
+- `xs: ?[]T` — prefix `?` on type → **read-borrowed slice** of T (param)
+- `-> T?`    — suffix `?` on type → **optional** T (return may be missing)
 
 ---
 

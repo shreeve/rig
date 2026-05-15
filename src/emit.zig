@@ -774,6 +774,12 @@ pub const Emitter = struct {
                         try self.w.writeAll("!");
                         try self.emitType(items[1]);
                     },
+                    .@"borrow_read", .@"borrow_write" => {
+                        // Type-position borrows (`?T` / `!T`) lower to plain
+                        // `T` in Zig — borrow semantics were enforced by M2;
+                        // Zig is loose about borrows at the type level.
+                        try self.emitType(items[1]);
+                    },
                     .@"ptr" => {
                         try self.w.writeAll("*");
                         try self.emitType(items[1]);

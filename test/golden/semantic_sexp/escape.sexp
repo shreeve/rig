@@ -1,1 +1,1 @@
-(module (fun bad () (optional String) (block (set _ user _ (call User (kwarg name "Steve"))) (read (member user name)))) (fun name ((: user (optional User))) (optional String) (block (read (member user name)))))
+(module (fun bad () (borrow_read String) (block (set _ user _ (call User (kwarg name "Steve"))) (read (member user name)))) (fun name ((: user (borrow_read User))) (borrow_read String) (block (read (member user name)))))

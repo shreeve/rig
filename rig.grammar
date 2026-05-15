@@ -118,7 +118,10 @@ tokens
     write_pfx       # !x   write borrow (also !T error union via the rewriter)
     share_pfx       # *x   share ownership (also *T pointer type via the rewriter)
     drop_stmt       # -x   drop (statement-only)
-    prop_q          # x?   propagate failure (postfix, tight)
+    prop_q          # x?   propagate failure (suffix); also T?  optional type (suffix)
+                    #      same token, parser disambiguates by non-terminal state
+    suffix_bang     # T!   fallible type / error union (suffix)
+                    #      (rewriter classifies `!` after a value/type-ender)
     kwarg_name      # name in `Type(name: value)` constructor sugar
                     # (rewriter promotes IDENT to KWARG_NAME inside parens
                     # when immediately followed by `:`)
@@ -221,7 +224,17 @@ tokens
 # IDENTIFIERS
 # ==============================================================================
 
-[a-zA-Z_][a-zA-Z0-9_]* '?'?                 → ident
+[a-zA-Z_][a-zA-Z0-9_]*                      → ident
+                                            #
+                                            # Note: Rig drops the Ruby/Zag
+                                            # predicate-name convention
+                                            # (trailing `?` in ident, e.g.,
+                                            # `valid?`) because suffix `?`
+                                            # on types means optional in
+                                            # Rig — `Bool?` would otherwise
+                                            # collide with `valid?`.
+                                            # Convention: use `is_valid` for
+                                            # boolean-returning functions.
 
 # ==============================================================================
 # FALLBACK
@@ -236,9 +249,12 @@ tokens
 @parser
 
 # Conflict budget — Rig adds sigil prefixes + propagation + new bindings
-# on top of Zag's 19. After moving share/read/write to dedicated rewriter
-# tokens, we're at 19 (parity with Zag).
-@conflicts = 20
+# on top of Zag's 19. After type-suffix `T?` / `T!` syntax was added,
+# the `type` non-terminal grew 24 expected shift/reduce conflicts
+# (12 each for PROP_Q and SUFFIX_BANG suffixes); shift-prefer correctly
+# extends the type with more suffixes (e.g., `T?!` parses as
+# `(error_union (optional T))`).
+@conflicts = 44
 
 @as ident = [keyword]
 
@@ -360,11 +376,16 @@ params   = "(" L(field) ")"                 → (...2)
 returns  = "->" type                        → 2
 
 type     = name
-         | WRITE_PFX            type        → (error_union 2)
-         | READ_PFX             type        → (? 2)
+         | type PROP_Q                      → (optional 1)     # T?  optional type (suffix binds tightest)
+                                                               #      reuses PROP_Q token (same as expr? propagate);
+                                                               #      parser disambiguates by non-terminal state
+         | type SUFFIX_BANG                 → (error_union 1)  # T!  fallible type (error union)
+         | READ_PFX             type        → (borrow_read 2)  # ?T  read-borrowed type (param/return)
+         | WRITE_PFX            type        → (borrow_write 2) # !T  write-borrowed type (param/return)
          | SHARE_PFX            type        → (ptr 2)
          | SHARE_PFX CONST      type        → (const_ptr 3)
          | SHARE_PFX VOLATILE   type        → (volatile_ptr 3)
+         | "(" type ")"                     → 2                # parens for grouping (e.g., ([]T)?)
          | "["              "]" type        → (slice 3)
          | "[" ":" atom     "]" type        → (sentinel_slice 3 5)
          | "[" INTEGER      "]" type        → (array_type 2 4)

@@ -5,14 +5,16 @@ use std
 fun add(a: Int, b: Int) -> Int
   a + b
 
-fun loadUser(id: U64) -> !User
+fun loadUser(id: U64) -> User!
   User(name: "Steve")
 
-fun loadProfile(id: U64) -> !Profile
+fun loadProfile(id: U64) -> Profile!
   Profile(name: "Steve")
 
 # Generic function: T inferred at the call site.
-fun first(T, xs: ?[]T) -> ?T
+# `xs: ?[]T` — read-borrowed slice (prefix `?` on type = borrowed param)
+# `-> T?`    — optional return (suffix `?` on type = optional)
+fun first(T, xs: ?[]T) -> T?
   xs[0]
 
 # Compile-time specialization (`pre` replaces Zig's `comptime`).

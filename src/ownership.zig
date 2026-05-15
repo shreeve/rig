@@ -71,8 +71,8 @@ pub const Checker = struct {
     current_scope: usize = 0,
     diagnostics: std.ArrayListUnmanaged(Diagnostic) = .empty,
     /// True while inside a function body whose return type starts with an
-    /// outer `(optional ...)` — treated as a borrowed return for SPEC's
-    /// borrow-escape rule.
+    /// outer `(borrow_read ...)` or `(borrow_write ...)` — explicitly a
+    /// borrowed return for SPEC's borrow-escape rule.
     in_borrowed_fn: bool = false,
 
     /// Per-statement temporary borrow events. Each (binding_idx, kind)
@@ -726,15 +726,21 @@ fn innerPos(sexp: Sexp) u32 {
 }
 
 /// Is this return type a "borrowed" return (i.e., starts with `?` per SPEC's
-/// borrow-escape example)? In V1 we treat outer `(optional T)` as borrowed
-/// because that's how SPEC writes the borrow-escape example.
+/// borrow-escape example)? Now that Rig has explicit `(borrow_read T)` and
+/// `(borrow_write T)` heads (from the prefix `?T` / `!T` syntax in type
+/// position), we no longer need to use `(optional T)` as a heuristic — we
+/// can check directly. `(optional T)` (from suffix `T?`) now correctly
+/// means "the value may be missing" with no borrowing implication.
 fn isBorrowedReturn(returns: Sexp) bool {
     return isBorrowedType(returns);
 }
 
 fn isBorrowedType(t: Sexp) bool {
     if (t != .list or t.list.len < 2 or t.list[0] != .tag) return false;
-    return t.list[0].tag == .@"optional";
+    return switch (t.list[0].tag) {
+        .borrow_read, .borrow_write => true,
+        else => false,
+    };
 }
 
 const LineCol = struct { line: u32, col: u32 };

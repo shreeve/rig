@@ -23,7 +23,7 @@ The IR's design rule:
 | `(extern_const name type)`      | `(extern fixed name type)`      | extern const; same Tag, kind = `fixed`              |
 | `(. obj name)`                  | `(member obj name)`             | cosmetic                                            |
 | `(pair name expr)`              | `(kwarg name expr)`             | named call args / constructor sugar                 |
-| `(? T)`                         | `(optional T)`                  | optional type                                       |
+| `(? T)`                         | `(optional T)`                  | (legacy raw form; new syntax `T?` emits `(optional T)` directly via grammar action)            |
 | `(for x _ (read xs) body)`      | `(for read x xs body)`          | SPEC §"Semantic IR Nodes": `(for mode binding collection body)` — mode is at child position 1, not a head Tag |
 | `(for x _ (write xs) body)`     | `(for write x xs body)`         | mode is one of `read`, `write`, `move`, or `_` (nil) for default iteration |
 | `(for x _ (move xs) body)`      | `(for move x xs body)`          |                                                     |
@@ -160,8 +160,10 @@ INTEGER REAL STRING_SQ STRING_DQ                ; raw parser src refs
 ### Types
 
 ```
-(optional T)                     ; from `?T`
-(error_union T)                  ; from `!T`
+(optional T)                     ; from `T?`  (suffix optional)
+(error_union T)                  ; from `T!`  (suffix fallible)
+(borrow_read T)                  ; from `?T`  (prefix in type position — read-borrowed param/return)
+(borrow_write T)                 ; from `!T`  (prefix in type position — write-borrowed param/return)
 (ptr T) (const_ptr T) (volatile_ptr T)
 (slice T) (sentinel_slice S T)
 (array_type N T)

@@ -2,10 +2,10 @@
 #
 # `=!` creates an immutable binding; reassigning is illegal.
 
-fun loadUser(id: U64) -> !User
+fun loadUser(id: U64) -> User!
   User(name: "Steve")
 
-fun refreshUser(id: U64) -> !User
+fun refreshUser(id: U64) -> User!
   User(name: "Steve")
 
 sub main()

@@ -194,8 +194,10 @@ pub const Tag = enum(u8) {
     @"valued",
     @"default",
     @":",
-    @"?",               // raw optional type from parser (type position)
-    @"optional",        // normalized `?T` (cosmetic rename)
+    @"?",               // raw optional type from parser (legacy; pre-suffix-syntax)
+    @"optional",        // normalized `T?` (suffix optional)
+    @"borrow_read",     // `?T` in type position — read-borrowed parameter/return
+    @"borrow_write",    // `!T` in type position — write-borrowed parameter/return
     @"ptr",
     @"const_ptr",
     @"sentinel_slice",
@@ -636,11 +638,21 @@ pub const Lexer = struct {
                 }
             }
 
-            // ! → not_sym | write_pfx
+            // ! → not_sym | write_pfx | suffix_bang
             //
-            //   isPrefixSigil  → write_pfx   (`!user`, `!T`)
-            //   else           → not_sym
+            //   tight + value-ender preceding   → suffix_bang   (T! fallible type;
+            //                                                    parser-state-dispatched
+            //                                                    so this is type-only — see
+            //                                                    grammar's `type SUFFIX_BANG`)
+            //   isPrefixSigil                   → write_pfx     (`!user`, `!T` write borrow)
+            //   else                            → not_sym
             if (tok.cat == .not_sym) {
+                if (tok.pre == 0 and isValueCat(self.last_cat)) {
+                    var sb = tok;
+                    sb.cat = .suffix_bang;
+                    self.last_cat = .suffix_bang;
+                    return sb;
+                }
                 if (self.isPrefixSigil(tok)) {
                     var wp = tok;
                     wp.cat = .write_pfx;
