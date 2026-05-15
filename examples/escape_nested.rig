@@ -1,0 +1,10 @@
+## M4.5b: nested borrow escape must be detected.
+##
+## The earlier `escape.rig` returns `?user.name` directly (top-level
+## borrow). This nests the borrow inside a constructor call:
+## `View(name: ?user)`. Without the recursive escape walker the leak
+## was silent.
+
+fun bad() -> ?String
+  user = User(name: "Steve")
+  View(name: ?user)

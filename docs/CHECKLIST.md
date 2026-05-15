@@ -49,14 +49,14 @@ Parser** (the conceptual whole), spanning both files.
 - [x] `build.zig` builds `bin/rig`
 - [x] `zig build parser` regenerates `src/parser.zig` via Nexus
 - [x] `src/rig.zig` defines `Tag`, `KeywordId`, `keywordAs`, `Lexer` (token rewriter)
-- [x] Lexer (token rewriter) classifies the 9 ownership sigils + `prop_q` + `kwarg_name` + `dot_lit`
+- [x] Lexer (token rewriter) classifies the 9 ownership sigils + `suffix_q` + `suffix_bang` + `kwarg_name` + `dot_lit`
 - [x] `rig.grammar` parses Rig V1 surface
-- [x] Conflict count = 20 (Zag baseline 19; +1 for kwarg/callarg split)
+- [x] Conflict count = 34 (after M4.5b pruned unused pointer-type forms; was 44 pre-prune)
 - [x] `src/main.zig` wires `rig parse | tokens | normalize | check | build | run`
 - [x] `examples/{hello,move,borrow,drop,fixed,shadow,escape,showcase,spacing}.rig` exist
-- [x] `test/run` passes (20/20); goldens locked in `test/golden/raw_sexp/`
-- [ ] M0 commit landed
-- [ ] GPT-5.5 fresh-review pass on grammar + goldens
+- [x] `test/run` passes; goldens locked in `test/golden/raw_sexp/`
+- [x] M0 commit landed
+- [x] GPT-5.5 fresh-review pass on grammar + goldens (full audit at M4.5)
 
 ### M0 design notes (for posterity)
 
@@ -68,14 +68,15 @@ grammar can't see in one-token lookahead:
 | `move_pfx`  | `<`    | tight prefix, expression-start context                   |
 | `clone_pfx` | `+`    | tight prefix, expression-start context                   |
 | `share_pfx` | `*`    | tight prefix, expression-start context (excl. `.*`)      |
-| `read_pfx`  | `?`    | tight prefix, expression-start context                   |
-| `write_pfx` | `!`    | tight prefix, expression-start context                   |
-| `pin_pfx`   | `@`    | tight prefix, ident-followed, NOT followed by `(`        |
-| `raw_pfx`   | `%`    | tight prefix, expression-start context                   |
-| `drop_stmt` | `-`    | tight prefix, statement-start, ident operand             |
-| `prop_q`    | `?`    | postfix, value-ender preceding, no space before          |
-| `kwarg_name`| IDENT  | inside parens, immediately followed by `:`               |
-| `dot_lit`   | `.`    | expression-start context, ident-followed                 |
+| `read_pfx`    | `?`   | tight prefix, expression-start context                   |
+| `write_pfx`   | `!`   | tight prefix, expression-start context                   |
+| `pin_pfx`     | `@`   | tight prefix, ident-followed, NOT followed by `(`        |
+| `raw_pfx`     | `%`   | tight prefix, expression-start context                   |
+| `drop_stmt`   | `-`   | tight prefix, statement-start, ident operand             |
+| `suffix_q`    | `?`   | postfix, value-ender preceding, no space before (T?)     |
+| `suffix_bang` | `!`   | postfix, value-ender preceding, no space before (T! / expr!) |
+| `kwarg_name`  | IDENT | inside parens, immediately followed by `:`               |
+| `dot_lit`     | `.`   | expression-start context, ident-followed                 |
 
 The "tight prefix" rule mirrors Zag's `classifyMinus`: no space after AND
 either expression-start context OR (value-ender preceding with space-before).
@@ -102,11 +103,11 @@ stmt-only (not in `expr`), eliminating the `name : type =` vs
 ## M1 — Parser (sexp rewriter)
 
 - [x] `docs/SEMANTIC-SEXP.md`
-- [x] `Parser` in `src/rig.zig` (the lang-specific sexp rewriter, wrapping `BaseParser`) implements every SPEC §"Semantic IR Nodes" form
-- [x] Goldens in `test/golden/semantic_sexp/` (9 examples, all stable)
-- [x] `bin/rig normalize <file.rig>` works (subcommand kept for backward compat)
-- [x] Test runner extended; 29/29 tests passing
-- [ ] M1 commit landed
+- [x] `Parser` (sexp rewriter wrapper) in `src/rig.zig` implements every SPEC §"Semantic IR Nodes" form
+- [x] Goldens in `test/golden/semantic_sexp/`
+- [x] `bin/rig normalize <file.rig>` works
+- [x] Test runner extended
+- [x] M1 commit landed
 
 ### M1 design notes
 
@@ -116,28 +117,17 @@ cosmetic renames make the IR self-documenting:
 
 - `(. obj name)` → `(member obj name)`
 - `(pair name expr)` → `(kwarg name expr)`
-- `(? T)` → `(optional T)`
 
-The `for` rewrite consumes the source's sigil into a child mode Tag
-per SPEC §"Semantic IR Nodes" — `(for mode binding collection body)`:
+After Nexus 0.10.x+ landed tag-literal-at-child-position support, ALL of
+these renames moved into the grammar actions themselves — the rewriter
+no longer touches them. `Parser.walk` shrunk from ~150 LOC to ~80 LOC,
+with one remaining inspection-requiring transform: promoting the `for`
+source's outer ownership wrapper into the for-mode slot
+(`(for iter x _ (read xs) body)` → `(for read x _ xs body)`). The mode
+slot uses an explicit `iter` tag for default value iteration (not `_`)
+both to sidestep a Nexus simple-case bug AND to make the IR cleaner.
 
-  `(for u _ (read xs) body)`  → `(for read u xs body)`
-  `(for u _ (write xs) body)` → `(for write u xs body)`
-  `(for u _ (move xs) body)`  → `(for move u xs body)`
-  `(for u _ source body)`     → `(for _ u source body)`
-
-Mode is `_` (nil) when there's no sigil — matching the existing IR
-convention for "absent slot" (e.g., `(sub main () _ block)` already
-uses `_` for the missing returns position). Single `for` head Tag,
-no `none` Tag noise, downstream passes switch on one head.
-
-`move_assign` desugars to `(set target (move expr))` so M2 sees the
-move semantics explicitly without a special-case head.
-
-`(fixed_bind name e)` and `(shadow name e)` keep their semantic Tag
-heads — they're already binding-classified.
-
-`(propagate x)` is preserved; M3 lowers it to Zig `try x`.
+`(propagate x)` is preserved as-is; M3 lowers it to Zig `try x`.
 
 ## M2 — Ownership checker
 
@@ -207,25 +197,26 @@ Compatible with editor jump-to-error. Goldens are byte-diffed.
 - [x] Goldens in `test/golden/emitted_zig/` (hello, shadow)
 - [x] `zig ast-check` clean on every emitted file
 - [x] Per-fn pre-scan for mutation (chooses `var` vs `const`) and fallibility (`!T` only when body has `propagate`)
-- [x] Auto-prefix `try` at call sites of fallible functions (per GPT-5.5 advice)
 - [x] Shadow renames: `new x` becomes `x_1` with `_ = x;` to silence Zig's unused-local check
 - [x] `try_block` and complex if/match-as-expression emit `@compileError(...)` for V1
-- [x] 4 new emit unit tests pass
-- [ ] M3 commit landed
+- [x] M3 commit landed
 
 ## M4 — `rig` binary
 
 - [x] `bin/rig run examples/hello.rig` spawns `zig run` on emitted Zig and prints "hello, rig"
 - [x] End-to-end test in `test/run` verifies hello output
-- [ ] M4 commit landed
+- [x] M4 commit landed
 
 ### M3/M4 design notes
 
 **Per-function pre-scan.** Before emitting each fn body:
 
-  1. `containsPropagate(body)` decides if the fn is fallible (`!T`).
-  2. `scanMutations(body)` collects names that are `set` more than once;
-     these get `var`, others get `const` (Zig's strict rule).
+  - `scanMutations(body)` collects names that are `set` more than once;
+    these get `var`, others get `const` (Zig's strict rule).
+
+  Note: `containsPropagate(body)` is no longer used to drive fallibility
+  inference — see M4.5a below. Fallibility now comes from the IR's
+  declared return type, gated by the effects checker.
 
 **`print x` lowering.**
 
@@ -239,21 +230,98 @@ expression-statement to `return a + b;`. `sub` (no return) doesn't.
 **Constructor sugar.** `User(name: "Steve")` emits `User{ .name = "Steve" }`
 (Zig struct literal) when ANY arg is a `(kwarg ...)`, else regular call.
 
-**Auto-`try`.** A bare call to a fallible function gets `try` prefixed
-unless we're already in a `try` / `propagate` context (tracked by
-`in_try_context`). This makes `result = add(1, 2)` work even when
-`add` is `!i32`.
-
 **End-to-end pipeline.** `rig run examples/hello.rig`:
 
   1. Parse Rig source via the Nexus-generated parser.
-  2. Normalize to semantic IR.
-  3. Emit Zig 0.16 source to `/tmp/rig_<basename>.zig`.
-  4. Spawn `zig run /tmp/rig_<basename>.zig` with inherited stdio.
-  5. Pass through exit code.
+  2. Normalize to semantic IR (BaseParser + rig.Parser rewriter).
+  3. Run effects + ownership checkers; abort on any error.
+  4. Emit Zig 0.16 source to `/tmp/rig_<basename>.zig`.
+  5. Spawn `zig run /tmp/rig_<basename>.zig` with inherited stdio.
+  6. Pass through exit code.
 
 `hello.rig` → `hello, rig` end to end, validated by `test/run`'s
 "End-to-end run" section.
+
+## M4.5 — Semantic correctness hardening
+
+GPT-5.5 audit (conversation `c_7552c1a82c518dcf`) surfaced semantic-drift
+debt: the checker missed real bugs, the emitter hid effects, and several
+docs disagreed with implementation. Paid down in two commits before
+moving to M5.
+
+### M4.5a — Critical correctness ✅
+
+- [x] **Effects checker.** New `src/effects.zig`. Pipeline slot:
+  parse → normalize → effects → ownership → emit. Errors on a fallible
+  call without `!`/`catch`. Errors on `(propagate ...)` inside a
+  function whose declared return type isn't `(error_union T)`.
+  `sub main()` is special-cased to lower to `!void` per Zig idiom.
+- [x] **Emitter is dumb.** Removed `fn_known_fallible`, auto-`try`,
+  `containsPropagate`-driven `fn_is_fallible`, and `in_try_context`.
+  Fallibility now comes from the IR's declared return type only.
+  `(propagate ...)` lowers to plain `try expr` with no bookkeeping.
+- [x] **Plain `.src` value-use checked.** `walk` runs `checkPlainUse`
+  for every `.src` reference at expression position. M4.5 stance:
+  error after move/drop and during write-borrow. Field/binding-name
+  `.src` nodes skipped via dedicated arms (`kwarg`, `member`,
+  `enum_lit`, `record`, `use`, `type`, `generic_type`, `struct`,
+  `enum`, `errors`, `opaque`).
+- [x] **Shadow lookup direction fixed.** `lookup` and `lookupCurrent`
+  scan reverse-order so `new x = ...` finds the freshest `x`,
+  matching the emitter.
+- [x] **Bound borrow release on drop/reassign.** New `releaseOwnedBorrow`
+  helper called from `popScope`, `walkDrop`, and `reassignOrBindFresh`.
+- [x] **`build`/`run` run the full checker.** Both go through a shared
+  `parseAndCheckOrExit` that runs effects + ownership and aborts at
+  exit 1 before emit if either errors. Diagnostics go to stderr so
+  emit can pipe to stdout.
+- [x] **`bindingKindOf` errors on unknown.** Returns
+  `error.InvalidBindingKind` instead of silently defaulting.
+- [x] **`pub pub fn` fixed.** The `(pub child)` decoration wrapper no
+  longer prepends `"pub "` before recursing into `emitFun` (which
+  always emits `pub` on its own).
+- [x] Negative test corpus: `plain_after_move`, `plain_after_drop`,
+  `plain_during_write`, `missing_bang`, `borrow_release`,
+  `shadow_lookup`. All have golden `errors/`, `raw_sexp/`, and
+  `semantic_sexp/` files.
+- [x] M4.5a commit landed (cfb48fb).
+
+### M4.5b — Behavioral correctness + hygiene ✅
+
+- [x] **Branch snapshot/merge for `if`.** New `snapshotBindings` /
+  `restoreBindings` / `mergeBindings`. Branches walk independently
+  from a common base; merge uses `dropped > moved > valid` for state
+  and `max()` for borrow counts. Pre-existing examples like
+  `if cond <x else print x` no longer false-fire on the else branch.
+- [x] **Recursive borrow-escape walk.** `checkBorrowEscape` now walks
+  the entire return-expression subtree, catching nested cases like
+  `View(?user)` (constructor call), `if cond ?local else ?param`
+  (branch arm), and `record T (kwarg n ?u)` (field). Dedupes per
+  root binding so a single multi-borrow expression produces one
+  diagnostic.
+- [x] **Pointer type forms pruned.** Removed `*T`, `* const T`,
+  `* volatile T`, `[*]T`, `[*:s]T` from grammar — they tokenized
+  incorrectly and weren't part of Rig V1's surface. Conflict count
+  dropped 44 → 34. Real pointer types come back via stdlib in M5+.
+- [x] **`suffix_bang` in value-end categories.** Without this,
+  chained suffixes like `foo()!.bar` and `T!?` misclassified the
+  next token as prefix context.
+- [x] **`pending_close_bar` clears on structural tokens.** Avoids
+  bleeding bar-capture context past a malformed `|...|` into a
+  later unrelated `|`.
+- [x] **Emitter `name_arena` for shadow names.** `freshShadow` now
+  allocates in a dedicated arena freed by `deinit`, fixing the
+  test-allocator leak masked by the CLI's outer arena.
+- [x] **Single-quoted strings lower to Zig double-quoted.** Emitter
+  detects `'...'` in source and emits `"..."` with proper escape
+  conversion (`\'` → `'`, `"` → `\"`).
+- [x] Negative test additions: `escape_nested`, `branch_independent`,
+  `branch_merged_move`. All goldens locked.
+- [x] **Doc refresh.** `INHERITED-FROM-ZAG.md`, `ROADMAP.md`, this
+  file, `SEMANTIC-SEXP.md` all match implementation. Stale grammar
+  comments updated (`prop_q` → `suffix_q`, `?` propagation → `!`,
+  pointer-type comments removed).
+- [x] M4.5b commit landed.
 
 ## IR uniformity refactors (post-V1 polish)
 

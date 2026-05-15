@@ -1,0 +1,13 @@
+## M4.5b: if EITHER branch moves, post-if use is invalid (merge).
+##
+## After the if, `x` may or may not have been moved depending on
+## runtime cond. Conservative merge says: dropped > moved > valid,
+## so post-if `print x` must error.
+
+sub main()
+  x = make()
+  if cond
+    send <x
+  else
+    print x
+  print x

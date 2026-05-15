@@ -1,0 +1,2 @@
+examples/branch_merged_move.rig:13:9: error: use of `x` after move
+examples/branch_merged_move.rig:10:11:   note: `x` was moved here

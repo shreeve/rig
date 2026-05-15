@@ -1,0 +1,15 @@
+## M4.5b: branches must be analyzed independently.
+##
+## Sequential walk would treat `<x` in the `then` branch as moving `x`
+## for the rest of the function — including the `else` branch, which
+## would then false-fire on `print x`. With snapshot/merge each branch
+## starts from the same pre-branch state.
+##
+## EXPECTED: clean (no diagnostics).
+
+sub main()
+  x = make()
+  if cond
+    send <x
+  else
+    print x

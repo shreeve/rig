@@ -43,6 +43,13 @@ pub const Emitter = struct {
     w: *Writer,
     indent: u32 = 0,
 
+    /// All emitter-allocated strings (currently just `freshShadow`'s
+    /// generated `x_<n>` names) live in this arena. `deinit` frees the
+    /// whole arena in one call, so we don't need per-allocation
+    /// bookkeeping. Without this, `freshShadow` allocations leaked under
+    /// the test allocator (the CLI's outer arena masked the bug).
+    name_arena: std.heap.ArenaAllocator,
+
     /// Stack of per-block scope frames. Symbol lookup walks up.
     scopes: std.ArrayListUnmanaged(ScopeFrame) = .empty,
 
@@ -65,6 +72,7 @@ pub const Emitter = struct {
             .allocator = allocator,
             .source = source,
             .w = w,
+            .name_arena = std.heap.ArenaAllocator.init(allocator),
         };
     }
 
@@ -72,6 +80,7 @@ pub const Emitter = struct {
         for (self.scopes.items) |*s| s.symbols.deinit(self.allocator);
         self.scopes.deinit(self.allocator);
         self.fn_mutated.deinit(self.allocator);
+        self.name_arena.deinit();
     }
 
     pub fn emit(self: *Emitter, sexp: Sexp) Error!void {
@@ -304,7 +313,35 @@ pub const Emitter = struct {
 
     fn freshShadow(self: *Emitter, base: []const u8) Error![]const u8 {
         self.shadow_counter += 1;
-        return try std.fmt.allocPrint(self.allocator, "{s}_{d}", .{ base, self.shadow_counter });
+        // Allocated in `name_arena` so deinit reclaims everything. The
+        // generated name is referenced by `SymbolEntry.zig_name`, which
+        // lives only as long as the Emitter, so arena lifetime is right.
+        return try std.fmt.allocPrint(self.name_arena.allocator(), "{s}_{d}", .{ base, self.shadow_counter });
+    }
+
+    /// Emit a Rig single-quoted string literal as a Zig double-quoted
+    /// string literal. `text` includes the surrounding quotes.
+    ///
+    /// Rules:
+    ///   `\'` in source → `'` in output (escape no longer needed)
+    ///   `"`  in source → `\"` in output (must escape now)
+    ///   everything else (including `\n`, `\t`, `\\`, etc.) passes through
+    fn emitSingleQuotedAsZigString(self: *Emitter, text: []const u8) Error!void {
+        try self.w.writeAll("\"");
+        const inner = text[1 .. text.len - 1];
+        var i: usize = 0;
+        while (i < inner.len) : (i += 1) {
+            const c = inner[i];
+            if (c == '\\' and i + 1 < inner.len and inner[i + 1] == '\'') {
+                try self.w.writeAll("'");
+                i += 1;
+            } else if (c == '"') {
+                try self.w.writeAll("\\\"");
+            } else {
+                try self.w.writeByte(c);
+            }
+        }
+        try self.w.writeAll("\"");
     }
 
     // -------------------------------------------------------------------------
@@ -519,9 +556,17 @@ pub const Emitter = struct {
             .nil => try self.w.writeAll("undefined"),
             .src => |s| {
                 const text = self.source[s.pos..][0..s.len];
-                // If this is a known Rig binding, emit the Zig name (handles shadow renaming).
+                // If this is a known Rig binding, emit the Zig name
+                // (handles shadow renaming).
                 if (self.lookup(text)) |zig_name| {
                     try self.w.writeAll(zig_name);
+                } else if (text.len >= 2 and text[0] == '\'' and text[text.len - 1] == '\'') {
+                    // Single-quoted Rig string → double-quoted Zig string.
+                    // Zig's `'x'` is a u8 character literal, not a string,
+                    // so passing source verbatim produces a syntax error
+                    // for anything but a single-char literal. Emit a
+                    // properly-escaped Zig string literal instead.
+                    try self.emitSingleQuotedAsZigString(text);
                 } else {
                     try self.w.writeAll(text);
                 }
@@ -753,14 +798,6 @@ pub const Emitter = struct {
                         // Zig is loose about borrows at the type level.
                         try self.emitType(items[1]);
                     },
-                    .@"ptr" => {
-                        try self.w.writeAll("*");
-                        try self.emitType(items[1]);
-                    },
-                    .@"const_ptr" => {
-                        try self.w.writeAll("*const ");
-                        try self.emitType(items[1]);
-                    },
                     .@"slice" => {
                         try self.w.writeAll("[]");
                         try self.emitType(items[1]);
@@ -770,10 +807,6 @@ pub const Emitter = struct {
                         try self.emitExpr(items[1]);
                         try self.w.writeAll("]");
                         if (items.len >= 3) try self.emitType(items[2]);
-                    },
-                    .@"many_ptr" => {
-                        try self.w.writeAll("[*]");
-                        try self.emitType(items[1]);
                     },
                     else => try self.w.writeAll("anytype"),
                 }

@@ -61,6 +61,21 @@ const Scope = struct {
     parent: ?usize, // index into Checker.scopes
 };
 
+/// Per-binding snapshot used by `walkIf`'s branch snapshot/merge. Only
+/// captures fields that branches can mutate (state, borrow counts, and
+/// the source positions that drive diagnostics for those mutations).
+/// Identity / scope membership / borrow_root_index are stable across
+/// branches, so they're not snapshotted.
+const BindingSnapshot = struct {
+    state: State,
+    moved_at: u32,
+    dropped_at: u32,
+    read_borrows: u16,
+    write_borrows: u16,
+    read_borrowed_at: u32,
+    write_borrowed_at: u32,
+};
+
 pub const Error = std.mem.Allocator.Error || rig.BindingKindError;
 
 pub const Checker = struct {
@@ -704,8 +719,123 @@ pub const Checker = struct {
     }
 
     fn walkIf(self: *Checker, items: []const Sexp) Error!void {
-        // (if cond then else?). Walk children; conservative no-merge for V1.
-        for (items[1..]) |child| try self.walk(child, false);
+        // (if cond then else?). Snapshot/merge so:
+        //   if cond
+        //     send <x
+        //   else
+        //     print ?x
+        // doesn't falsely fire the else branch on `<x` (sequential walk
+        // would have moved `x` before reaching the else). Each branch
+        // walks against a fresh copy of the binding state; afterwards we
+        // merge with conservative semantics:
+        //
+        //   - State: dropped beats moved beats valid (priority order
+        //     matches user intent — explicit `-x` is more authored than
+        //     consumed-by-move). Diagnostic positions follow the winner.
+        //   - Borrow counts: max() per kind. Only one branch executes,
+        //     so summing would over-count.
+        //
+        // Branch-local borrow bindings are released by `popScope` before
+        // we capture state, so phantom borrows don't bleed into the merge.
+        if (items.len < 2) return;
+
+        // 1. Walk condition on the current state.
+        try self.walk(items[1], false);
+
+        const have_else = items.len >= 4;
+        const then_branch = if (items.len >= 3) items[2] else return;
+
+        // 2. Snapshot before walking either branch.
+        var base_snapshot = try self.snapshotBindings();
+        defer base_snapshot.deinit(self.allocator);
+
+        // 3. Walk THEN branch in its own scope.
+        try self.pushScope();
+        try self.walk(then_branch, true);
+        try self.popScope();
+        var then_snapshot = try self.snapshotBindings();
+        defer then_snapshot.deinit(self.allocator);
+
+        // 4. Restore base, walk ELSE branch (or use base as the else snapshot).
+        self.restoreBindings(base_snapshot.items);
+        if (have_else) {
+            try self.pushScope();
+            try self.walk(items[3], true);
+            try self.popScope();
+        }
+        var else_snapshot = try self.snapshotBindings();
+        defer else_snapshot.deinit(self.allocator);
+
+        // 5. Merge then/else into the current state.
+        self.mergeBindings(then_snapshot.items, else_snapshot.items);
+    }
+
+    /// Per-binding state snapshot for branch merging. Caller owns the
+    /// returned slice and must deinit it.
+    fn snapshotBindings(self: *Checker) Error!std.ArrayListUnmanaged(BindingSnapshot) {
+        var out: std.ArrayListUnmanaged(BindingSnapshot) = .empty;
+        try out.ensureTotalCapacity(self.allocator, self.bindings.items.len);
+        for (self.bindings.items) |b| {
+            out.appendAssumeCapacity(.{
+                .state = b.state,
+                .moved_at = b.moved_at,
+                .dropped_at = b.dropped_at,
+                .read_borrows = b.read_borrows,
+                .write_borrows = b.write_borrows,
+                .read_borrowed_at = b.read_borrowed_at,
+                .write_borrowed_at = b.write_borrowed_at,
+            });
+        }
+        return out;
+    }
+
+    fn restoreBindings(self: *Checker, snap: []const BindingSnapshot) void {
+        // Snapshots cover the prefix of bindings that existed at snapshot
+        // time. New bindings created inside a branch were freed by
+        // popScope (their scope was popped) and so don't survive into
+        // the post-branch state — but they ARE still in `self.bindings`
+        // (we don't free that table). Just restore the prefix.
+        const n = @min(snap.len, self.bindings.items.len);
+        for (snap[0..n], 0..) |s, i| {
+            const b = &self.bindings.items[i];
+            b.state = s.state;
+            b.moved_at = s.moved_at;
+            b.dropped_at = s.dropped_at;
+            b.read_borrows = s.read_borrows;
+            b.write_borrows = s.write_borrows;
+            b.read_borrowed_at = s.read_borrowed_at;
+            b.write_borrowed_at = s.write_borrowed_at;
+        }
+    }
+
+    fn mergeBindings(self: *Checker, then_snap: []const BindingSnapshot, else_snap: []const BindingSnapshot) void {
+        const n = @min(@min(then_snap.len, else_snap.len), self.bindings.items.len);
+        for (0..n) |i| {
+            const b = &self.bindings.items[i];
+            const t = then_snap[i];
+            const e = else_snap[i];
+
+            // State: dropped > moved > valid.
+            const merged_state: State = if (t.state == .dropped or e.state == .dropped)
+                .dropped
+            else if (t.state == .moved or e.state == .moved)
+                .moved
+            else
+                .valid;
+            b.state = merged_state;
+            // Carry the position from the branch that produced the winning state.
+            switch (merged_state) {
+                .dropped => b.dropped_at = if (t.state == .dropped) t.dropped_at else e.dropped_at,
+                .moved => b.moved_at = if (t.state == .moved) t.moved_at else e.moved_at,
+                .valid => {},
+            }
+
+            // Borrow counts: max (only one branch actually executes).
+            b.read_borrows = @max(t.read_borrows, e.read_borrows);
+            b.write_borrows = @max(t.write_borrows, e.write_borrows);
+            b.read_borrowed_at = if (t.read_borrows >= e.read_borrows) t.read_borrowed_at else e.read_borrowed_at;
+            b.write_borrowed_at = if (t.write_borrows >= e.write_borrows) t.write_borrowed_at else e.write_borrowed_at;
+        }
     }
 
     fn walkWhile(self: *Checker, items: []const Sexp) Error!void {
@@ -752,23 +882,83 @@ pub const Checker = struct {
         if (items.len >= 3) try self.walk(items[2], true);
     }
 
-    /// SPEC borrow-escape: any `(read X)` / `(write X)` etc. in the returned
-    /// expression must root in a borrowed parameter (b.borrowed_param).
+    /// SPEC borrow-escape: any `(read X)` / `(write X)` reachable from
+    /// the return expression must root in a borrowed parameter.
+    ///
+    /// Walks the entire return-expression subtree so nested cases like
+    /// `View(?user)` (call arg), `if cond ?local else ?param` (branch
+    /// arm), and `record T (kwarg n ?user)` (constructor field) all
+    /// fire — earlier versions only inspected the top-level form, which
+    /// silently missed every nested case.
+    ///
+    /// Diagnostics dedupe per root binding so a single `View(?u, ?u, ?u)`
+    /// produces one error, not three. Recurses into all children except
+    /// nested `(fun ...)` / `(sub ...)` / `(lambda ...)` (those have
+    /// their own return-escape boundaries) and into binding-name slots
+    /// (which aren't expressions).
     fn checkBorrowEscape(self: *Checker, value: Sexp) Error!void {
-        if (value != .list or value.list.len < 2 or value.list[0] != .tag) return;
-        switch (value.list[0].tag) {
+        var seen_roots: std.StringHashMapUnmanaged(void) = .empty;
+        defer seen_roots.deinit(self.allocator);
+        try self.checkBorrowEscapeRec(value, &seen_roots);
+    }
+
+    fn checkBorrowEscapeRec(
+        self: *Checker,
+        value: Sexp,
+        seen: *std.StringHashMapUnmanaged(void),
+    ) Error!void {
+        if (value != .list) return;
+        const items = value.list;
+        if (items.len == 0) return;
+        if (items[0] != .tag) {
+            for (items) |c| try self.checkBorrowEscapeRec(c, seen);
+            return;
+        }
+        switch (items[0].tag) {
+            // Don't cross function boundaries — nested fn/sub/lambda
+            // have their own return-escape semantics handled separately.
+            .@"fun", .@"sub", .@"lambda" => return,
+
+            // Leaf: a borrow wrapper. Validate its root, then recurse
+            // into the inner (in case there's another borrow nested,
+            // e.g., `View(?(member u inner))` — pathological but cheap
+            // to handle).
             .@"read", .@"write" => {
-                const inner = value.list[1];
-                const root = rootName(self.source, inner) orelse return;
-                if (self.lookup(root)) |idx| {
-                    const b = &self.bindings.items[idx];
-                    if (!b.is_param or !b.borrowed_param) {
-                        try self.err(innerPos(inner), "returned borrow of `{s}` does not originate from a borrowed parameter", .{root});
-                        try self.note(b.declared_at, "`{s}` was bound locally here", .{root});
+                if (items.len >= 2) {
+                    const inner = items[1];
+                    if (rootName(self.source, inner)) |root| {
+                        if (!seen.contains(root)) {
+                            try seen.put(self.allocator, root, {});
+                            if (self.lookup(root)) |idx| {
+                                const b = &self.bindings.items[idx];
+                                if (!b.is_param or !b.borrowed_param) {
+                                    try self.err(innerPos(inner), "returned borrow of `{s}` does not originate from a borrowed parameter", .{root});
+                                    try self.note(b.declared_at, "`{s}` was bound locally here", .{root});
+                                }
+                            }
+                        }
                     }
+                    try self.checkBorrowEscapeRec(inner, seen);
                 }
             },
-            else => {},
+
+            // Skip name slots that aren't value expressions.
+            .@"set" => {
+                // (set kind name type-or-_ expr) — only the expr can
+                // contain returnable borrows.
+                if (items.len >= 5) try self.checkBorrowEscapeRec(items[4], seen);
+            },
+            .@"member" => {
+                // (member obj name) — obj only; name is a field selector.
+                if (items.len >= 2) try self.checkBorrowEscapeRec(items[1], seen);
+            },
+            .@"kwarg" => {
+                // (kwarg name value) — value only.
+                if (items.len >= 3) try self.checkBorrowEscapeRec(items[2], seen);
+            },
+
+            // Default: recurse into all children.
+            else => for (items[1..]) |c| try self.checkBorrowEscapeRec(c, seen),
         }
     }
 };

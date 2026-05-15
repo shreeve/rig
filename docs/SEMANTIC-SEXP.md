@@ -166,7 +166,7 @@ Statement-only:
 (try_block body catch_block?)    ; value-yielding try
 (catch_block name body)
 (catch expr name? body)          ; postfix `expr catch ...`
-(propagate expr)                 ; suffix `expr?`
+(propagate expr)                 ; suffix `expr!`
 (ternary cond then else)
 ```
 
@@ -256,4 +256,4 @@ INTEGER REAL STRING_SQ STRING_DQ                ; raw parser src refs
 - `(for read x _ xs body)` lowers to `for (xs) |x| { ... }` (Zig's iteration over a const ref) — borrow semantics enforced by the checker, not the emitted Zig.
 - `(for move x _ xs body)` lowers to a consuming iteration (Zig `for (&xs) |x| {...}` with consumption is a future concern; V1 may model this with explicit element-by-element move + `xs.deinit()`).
 - `(for ptr x _ xs body)` could lower to `for (xs) |*x| { ... }` for pointer iteration; V1 emits plain `for (xs) |x| { ... }` and lets Zig figure out the binding shape from context.
-- `(record T (kwarg name v) ...)` and `(call T (kwarg name v) ...)` both lower to `T{ .name = v }` Zig struct literal when the callee is a known type.
+- `(record T (kwarg name v) ...)` and `(call T (kwarg name v) ...)` both lower to `T{ .name = v }` Zig struct literal whenever ANY arg is a `(kwarg ...)`. M5 type checking will tighten this so `T` must actually be a struct type; for now the heuristic relies on Rig source authors only using kwargs with constructors.
