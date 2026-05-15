@@ -1442,6 +1442,7 @@ const ExprChecker = struct {
             .@"if" => try self.checkIfStmt(items),
             .@"while" => try self.checkWhileStmt(items),
             .@"for" => try self.checkForStmt(items),
+            .@"match" => try self.checkMatchStmt(items),
             .@"block" => {
                 // Enter the block scope created by the SymbolResolver.
                 const prev = self.enterNextScope();
@@ -1541,6 +1542,47 @@ const ExprChecker = struct {
         try self.checkStmt(items[5]);
         self.leaveScope(prev);
         if (items.len > 6 and items[6] != .nil) try self.checkStmt(items[6]);
+    }
+
+    /// `(match scrutinee arm...)` at statement position. M8 v1 rules:
+    ///   - Synth the scrutinee's type.
+    ///   - For each `(arm pattern binding-or-_ body)`:
+    ///     * If pattern is `(enum_lit name)` AND scrutinee is a known
+    ///       enum, validate the variant against the enum's field list
+    ///       (reusing `checkEnumLit`'s machinery).
+    ///     * Other pattern shapes are accepted silently for now —
+    ///       integer / string literal patterns work at emit time but
+    ///       sema doesn't bind them to scrutinee type yet.
+    ///     * Walk the body via `checkStmt` (statement context — arms
+    ///       don't unify in M8 v1; value-position match is M9+).
+    ///   - Each arm has its own scope per the resolver.
+    fn checkMatchStmt(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
+        if (items.len < 2) return;
+
+        const scrutinee_ty = try self.synthExpr(items[1]);
+
+        for (items[2..]) |arm| {
+            if (arm != .list or arm.list.len < 4 or arm.list[0] != .tag or
+                arm.list[0].tag != .@"arm")
+            {
+                continue;
+            }
+
+            // Each arm opens its own scope (resolver did this in walkArm).
+            const prev = self.enterNextScope();
+            defer self.leaveScope(prev);
+
+            const pattern = arm.list[1];
+            // Pattern type-check: only enum literals get verified for now.
+            if (pattern == .list and pattern.list.len >= 2 and
+                pattern.list[0] == .tag and pattern.list[0].tag == .@"enum_lit")
+            {
+                try self.checkEnumLit(pattern.list, scrutinee_ty);
+            }
+
+            // Body is the last child (binding sits at items[2]).
+            try self.checkStmt(arm.list[arm.list.len - 1]);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -2762,6 +2804,51 @@ test "M7: enum literal with unknown variant fires" {
         if (std.mem.indexOf(u8, d.message, "no variant `purple`") != null) found = true;
     }
     try std.testing.expect(found);
+}
+
+// -----------------------------------------------------------------------------
+// M8: match typing tests
+// -----------------------------------------------------------------------------
+
+test "M8: match arm `.variant` patterns are checked against scrutinee enum" {
+    const source =
+        \\enum Color
+        \\  red
+        \\  green
+        \\
+        \\sub main()
+        \\  c: Color = .red
+        \\  match c
+        \\    .red => print(c)
+        \\    .purple => print(c)
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
+    var found = false;
+    for (ctx.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, "no variant `purple`") != null) found = true;
+    }
+    try std.testing.expect(found);
+}
+
+test "M8: match clean when all arm variants are valid" {
+    const source =
+        \\enum Color
+        \\  red
+        \\  green
+        \\
+        \\sub main()
+        \\  c: Color = .red
+        \\  match c
+        \\    .red => print(c)
+        \\    .green => print(c)
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(!ctx.hasErrors());
 }
 
 test "M7: error set declaration populates fields" {

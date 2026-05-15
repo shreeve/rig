@@ -632,13 +632,96 @@ type-checking, and error-set field population.
 ### M7 deferred — explicitly NOT done in M7
 
 - Payload-bearing enum variants (`Some(value: T)`).
-- Match expression typing + lowering (still `@compileError`).
+- Match expression typing + lowering (still `@compileError`). (Closed in M8.)
 - Qualified enum access (`Color.red` rather than `.red`) —
   parses as `(member Color red)`; sema doesn't yet recognize
   type-qualified variant references.
 - Error union with explicit set (`-> User!NetworkError`) — only
   open `T!` works at the type level; the error set isn't tracked.
 - `opaque` declarations — parsed, fields stay null, no lowering.
+
+## M8 — Match expression typing & lowering ✅
+
+Closes the biggest remaining `@compileError` placeholder. `match` on
+enum scrutinees now type-checks each arm pattern against the
+scrutinee's enum, lowers cleanly to a Zig `switch`, and `bin/rig run`
+works end-to-end on match programs.
+
+### M8 — Sema match handling ✅
+
+- [x] `ExprChecker.checkMatchStmt` walks `(match scrutinee arm...)`:
+  synth scrutinee, then for each `(arm pattern binding-or-_ body)`:
+  - If pattern is `(enum_lit name)` AND scrutinee is a known enum →
+    `checkEnumLit(pattern, scrutinee_type)` (reuses M7 enum literal
+    machinery — unknown variant fires `error: no variant 'purple'
+    on enum 'Color'`).
+  - Other pattern shapes (bare ident, integer / string literal) are
+    accepted silently. Body is walked via `checkStmt`.
+  - Each arm gets its own scope (matches the resolver's M2 walkArm).
+- [x] M8 v1 is statement-position match only — value-position match
+  (with arm-result unification) is M9+ alongside payload-bearing
+  variants.
+
+### M8 — Emit lowering to Zig switch ✅
+
+- [x] `emit.emitMatch` lowers `(match scrutinee arm...)` to:
+
+  ```zig
+  switch (scrutinee) {
+      .red => { body },
+      .green => { body },
+      else => unreachable,
+  }
+  ```
+
+  Per-arm rules:
+  - `(arm (enum_lit X) _ body)` → `.X => body,`
+  - `(arm <ident> _ body)` → `else => body,` (catch-all; binding
+    name not yet threaded into the body — M9+ will fix that)
+  - Other expression-shaped patterns emit verbatim and let Zig
+    validate.
+
+- [x] **Exhaustiveness-aware else.** Zig requires either complete
+  enum coverage OR an `else` arm. Emit consults sema to count the
+  scrutinee's enum variants and only appends `else => unreachable`
+  when arms don't cover all variants. With sema knowing
+  `Color = enum { red, green, blue }`, a 3-arm match emits clean
+  exhaustive switch (no `else`); a 2-arm match gets `else =>
+  unreachable` so partial coverage still compiles (with a runtime
+  panic on the missing variant).
+
+- [x] **Body wrapping.** `emitMatchArmBody` detects statement-shaped
+  bodies (call / set / return / control-flow) and wraps them in
+  `{ stmt; }` so Zig's expression-position arm syntax accepts them.
+  Bare expression bodies emit as-is.
+
+### M8 — Test corpus
+
+  examples/match_basic.rig         — exhaustive enum match (no else)
+  examples/match_default.rig       — match with catch-all `other =>`
+  examples/match_bad_variant.rig   — `.purple` not on `Color` → error
+  examples/match_partial.rig       — non-exhaustive without default
+                                     (emit appends `else => unreachable`)
+
+`match_basic` and `match_default` added to `EMIT_TARGETS` for
+end-to-end Zig ast-check + golden coverage.
+
+181/181 integration tests pass (was 161 at M7 close). 2 new unit
+tests in `src/types.zig` cover the bad-variant + clean cases at the
+sema level.
+
+### M8 deferred — explicitly NOT done in M8
+
+- Value-position match (`x = match s ...`) with arm-result
+  unification — M5(3/n)'s `synthIfExpr` is the model; just need
+  the same shape for match.
+- Pattern-binding propagation (`other => print(other)` should make
+  `other` available with the scrutinee's type in the arm body).
+- Range patterns (`1..10`).
+- Guard patterns (`x if cond`).
+- Real exhaustiveness checking that detects DUPLICATE variant arms
+  (current heuristic only counts arm count vs variant count).
+- Payload-bearing variant patterns (`(Some value)`).
 
 ## IR uniformity refactors (post-V1 polish)
 

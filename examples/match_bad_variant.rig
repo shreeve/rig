@@ -1,0 +1,12 @@
+## M8: arm pattern naming a variant that doesn't exist on the
+## scrutinee's enum must error.
+
+enum Color
+  red
+  green
+
+sub main()
+  c: Color = .red
+  match c
+    .red => print "R"
+    .purple => print "P"

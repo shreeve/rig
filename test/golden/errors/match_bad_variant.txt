@@ -1,0 +1,2 @@
+examples/match_bad_variant.rig:12:6: error: no variant `purple` on enum `Color`
+examples/match_bad_variant.rig:4:6:   note: `Color` declared here

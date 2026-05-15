@@ -494,6 +494,7 @@ pub const Emitter = struct {
             .@"if" => try self.emitIf(items),
             .@"while" => try self.emitWhile(items),
             .@"for" => try self.emitFor(items),
+            .@"match" => try self.emitMatch(items),
             .@"block" => try self.emitBlock(sexp),
             .@"break" => try self.w.writeAll("break;"),
             .@"continue" => try self.w.writeAll("continue;"),
@@ -638,6 +639,125 @@ pub const Emitter = struct {
         }
         try self.w.writeAll("| ");
         try self.emitBlockOrInline(body);
+    }
+
+    /// `(match scrutinee arm...)` lowers to a Zig `switch` statement.
+    /// Each `(arm pattern binding-or-_ body)` becomes one prong:
+    ///
+    ///   pattern shape           Zig prong              notes
+    ///   -----------------------  ---------------------  ----------------
+    ///   (enum_lit X)            `.X => body,`          enum variant
+    ///   .src bare ident `_`     `else => body,`        catch-all
+    ///   .src bare ident name    `else => body,`        catch-all (binding ignored in M8)
+    ///   integer literal `42`    `42 => body,`          int match
+    ///   string literal `"foo"`  uses raw text          rare
+    ///
+    /// If no catch-all arm is supplied, we append `else => unreachable,`
+    /// so Zig's switch-must-be-exhaustive rule is satisfied. M9+ will
+    /// add real exhaustiveness checking + bind names from `_` arms.
+    fn emitMatch(self: *Emitter, items: []const Sexp) Error!void {
+        if (items.len < 2) return;
+        try self.w.writeAll("switch (");
+        try self.emitExpr(items[1]);
+        try self.w.writeAll(") {\n");
+        self.indent += 1;
+
+        var has_default = false;
+        var enum_variants_covered: usize = 0;
+        for (items[2..]) |arm| {
+            if (arm != .list or arm.list.len < 4 or arm.list[0] != .tag or
+                arm.list[0].tag != .@"arm")
+            {
+                continue;
+            }
+            const pattern = arm.list[1];
+            const body = arm.list[arm.list.len - 1];
+
+            try self.indentSpaces();
+
+            if (isDefaultPattern(pattern)) {
+                has_default = true;
+                try self.w.writeAll("else => ");
+            } else if (pattern == .list and pattern.list.len >= 2 and
+                pattern.list[0] == .tag and pattern.list[0].tag == .@"enum_lit")
+            {
+                try self.w.writeAll(".");
+                try self.emitExpr(pattern.list[1]);
+                try self.w.writeAll(" => ");
+                enum_variants_covered += 1;
+            } else {
+                // Literal or other expression-shaped pattern — emit the
+                // pattern verbatim and let Zig validate.
+                try self.emitExpr(pattern);
+                try self.w.writeAll(" => ");
+            }
+
+            // Body. Zig switch arms accept an expression; for stmt-form
+            // bodies we wrap in a block so things like `return`/`break`
+            // and side-effecting statements work uniformly.
+            try self.emitMatchArmBody(body);
+            try self.w.writeAll(",\n");
+        }
+
+        // Only emit `else => unreachable` if Zig actually needs it.
+        // It needs it when the switch isn't already exhaustive — i.e.,
+        // when there's no default arm AND the scrutinee isn't a sema
+        // enum whose every variant is covered by an `(enum_lit X)` arm.
+        const exhaustive = has_default or self.matchExhaustive(items[1], enum_variants_covered);
+        if (!exhaustive) {
+            try self.indentSpaces();
+            try self.w.writeAll("else => unreachable,\n");
+        }
+        self.indent -= 1;
+        try self.indentSpaces();
+        try self.w.writeAll("}");
+    }
+
+    /// Returns true if a `match` on `scrutinee` is exhaustive given
+    /// `enum_arms_seen` enum-literal arms. Requires sema to know the
+    /// scrutinee's nominal enum and its variant count.
+    ///
+    /// Note: doesn't yet verify that DIFFERENT arm variants are covered
+    /// (a match with three arms all matching `.red` would be considered
+    /// "exhaustive" if the enum has 3 variants). M9+ adds real
+    /// exhaustiveness with duplicate detection.
+    fn matchExhaustive(self: *Emitter, scrutinee: Sexp, enum_arms_seen: usize) bool {
+        const sema = self.sema orelse return false;
+        if (scrutinee != .src) return false;
+        const name = self.source[scrutinee.src.pos..][0..scrutinee.src.len];
+        for (sema.symbols.items) |sym| {
+            if (!std.mem.eql(u8, sym.name, name)) continue;
+            const ty = sema.types.get(sym.ty);
+            if (ty != .nominal) continue;
+            const enum_sym = sema.symbols.items[ty.nominal];
+            const fields = enum_sym.fields orelse return false;
+            return enum_arms_seen >= fields.len;
+        }
+        return false;
+    }
+
+    /// Emit a match-arm body. For statement-shaped sexps (call, set,
+    /// etc.) wrap in a block expression `{ stmt; }` since Zig switch
+    /// arms expect an expression position. Bare expressions emit as-is.
+    fn emitMatchArmBody(self: *Emitter, body: Sexp) Error!void {
+        if (body == .list and body.list.len > 0 and body.list[0] == .tag) {
+            const head = body.list[0].tag;
+            // Block / control-flow statements should be wrapped.
+            switch (head) {
+                .@"block" => return self.emitBlock(body),
+                .@"call", .@"set", .@"return", .@"if", .@"while",
+                .@"for", .@"match", .@"break", .@"continue",
+                .@"defer", .@"errdefer", .@"drop",
+                => {
+                    try self.w.writeAll("{ ");
+                    try self.emitStmt(body);
+                    try self.w.writeAll(" }");
+                    return;
+                },
+                else => {},
+            }
+        }
+        try self.emitExpr(body);
     }
 
     fn emitBlockOrInline(self: *Emitter, sexp: Sexp) Error!void {
@@ -1010,6 +1130,19 @@ fn identText(source: []const u8, sexp: Sexp) ?[]const u8 {
     return switch (sexp) {
         .src => |s| source[s.pos..][0..s.len],
         else => null,
+    };
+}
+
+/// True if a match-arm pattern is a catch-all: bare `_`, or any bare
+/// identifier (which acts as a "match anything and bind it" pattern).
+/// M8 v1 doesn't yet thread the binding through to the body — `else =>`
+/// is sufficient for control-flow correctness; the binding name is
+/// available in scope via the symbol resolver's arm-scope.
+fn isDefaultPattern(pattern: parser.Sexp) bool {
+    return switch (pattern) {
+        .src => true, // bare ident — `other`, `_`, etc.
+        .nil => true,
+        else => false,
     };
 }
 

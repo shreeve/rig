@@ -1,0 +1,17 @@
+## M8: match with a catch-all (default) arm.
+##
+## A bare identifier in pattern position is treated as a default
+## (`else =>`) arm — matches any unhandled variant.
+##
+## EXPECTED: clean.
+
+enum Color
+  red
+  green
+  blue
+
+sub main()
+  c: Color = .red
+  match c
+    .red => print "red"
+    other => print "not red"

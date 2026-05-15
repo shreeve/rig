@@ -162,15 +162,32 @@ declarations lower to clean Zig.
   identifier OR struct member access), emit uses `{s}` instead of
   `{any}`. `struct_basic.rig` now prints `Steve` not byte codes.
 
-### M8+ — Beyond V1
-Match / try-block lowering (currently `@compileError` placeholders),
-payload-bearing enum variants, qualified enum access (`Color.red`),
-explicit error sets in `T!E` return types, opaque types, generic
-struct lowering (parsed in M0, typed as opaque nominals in M6),
-method syntax on structs, stdlib seed (Vec, HashMap, String, Result,
-Option), module system, LSP, async/coroutines, and the eventual fold
-of `effects.zig` into `types.zig` once expression typing is rich
-enough to express "non-fallible expected here" naturally.
+### M8 — Match expression typing & lowering ✅
+Closes the biggest remaining `@compileError` placeholder. Match on
+enum scrutinees type-checks each arm pattern against the scrutinee's
+enum and lowers cleanly to a Zig `switch`.
+
+- `ExprChecker.checkMatchStmt` reuses M7's `checkEnumLit` to validate
+  `.variant` patterns against the scrutinee's enum.
+- `emit.emitMatch` lowers to `switch (scrutinee) { .X => ..., }`.
+  Consults sema to count the enum's variants — only appends
+  `else => unreachable` when arms are non-exhaustive (Zig errors on
+  redundant else).
+- Bodies are auto-wrapped in `{ ... }` for statement-shaped arm
+  bodies so Zig's expression-position arm syntax accepts them.
+- Bare-ident catch-all arms (`other =>`) lower to Zig `else =>`.
+
+### M9+ — Beyond V1
+Try-block lowering (still `@compileError`), value-position match
+with arm-result unification, payload-bearing enum variants
+(`Some(value: T)`), pattern bindings threaded into arm bodies,
+range/guard patterns, qualified enum access (`Color.red`), explicit
+error sets in `T!E` return types, opaque types, generic struct
+lowering (parsed in M0, typed as opaque nominals in M6), method
+syntax on structs, stdlib seed (Vec, HashMap, String, Result,
+Option), module system, LSP, async/coroutines, and the eventual
+fold of `effects.zig` into `types.zig` once expression typing is
+rich enough to express "non-fallible expected here" naturally.
 
 ## Beyond V1 (deferred per SPEC §V2/V3)
 
