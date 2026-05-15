@@ -201,7 +201,26 @@ with kwarg or positional syntax (`.circle(radius: 5)` /
 Match destructuring of the payload (`.circle => |c| use(c)`) is
 M10+ alongside pattern-binding propagation.
 
-### M10+ — Beyond V1
+### M15 — Module system ✅
+Multi-file projects via `use foo` (same-dir lookup). Each module
+parses + sema-checks + emits to its own `.zig` in a generated
+output directory; `bin/rig run` works end-to-end on multi-module
+projects.
+
+- New `src/modules.zig` with `ModuleGraph` + recursive `loadByPath`
+  + cycle detection via the standard tri-state walk + same-string
+  dedup for diamond imports.
+- Driver (in `main.zig`): `loadProjectOrExit` builds the graph and
+  aborts on errors before emit; `emitProjectToTmp` writes each
+  module's `.zig` to `/tmp/rig_<root>/`.
+- Sema marks `use foo` symbols as `.module`-kinded; cross-module
+  type checking deferred to M15b (currently Zig handles the
+  cross-file signature check).
+- `(use foo)` lowers to `const foo = @import("foo.zig");`
+- Test infrastructure: `test/modules/` subdirs with `expected.txt`
+  / `expected_error.txt` for output / error checks.
+
+### M16+ — Beyond V1
 Try-block lowering (still `@compileError`), value-position match
 with arm-result unification, **match destructuring of payload
 variants** (`.circle => |c| use(c)`), pattern bindings threaded

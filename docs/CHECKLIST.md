@@ -803,6 +803,115 @@ tests in `src/types.zig`.
 - **Optional payload fields with defaults** (`circle(radius: Int = 1)`)
   — parsed as `(default ...)`, ignored.
 
+## M14 — Generic types ✅
+
+`type Box(T)` declarations + `Box(Int)` type instantiation +
+`Box(value: 5)` construction. Lowers to Zig generic functions
+returning a struct type. Closes the post-M13 candidate item.
+
+- Grammar: type expression accepts `name(types) → (generic_inst ...)`.
+- Sema: `generic_type` symbols carry generic params (M5 path);
+  `generic_inst` resolves to opaque `unknown` for now (Zig handles
+  the actual type computation).
+- Emit: `(generic_type Box (T) members)` →
+  `pub fn Box(comptime T: type) type { return struct { ... }; }`.
+  `(generic_inst Box Int)` → `Box(i32)`.
+- Constructor disambiguation: `generic_type` callees emit anonymous
+  tagged literals (`.{ .value = 5 }`) so Zig coerces from the
+  contextual type.
+
+## M15 — Module system ✅
+
+Multi-file projects via `use foo` (same-dir lookup). Each module
+parses + sema-checks + emits to its own `.zig` in a generated
+output directory. `bin/rig run` works end-to-end on multi-module
+projects.
+
+### M15 — `src/modules.zig` (new)
+
+- [x] `ModuleId`, `Module`, `Import`, `LoadState`, explicit `Error`
+  type to break the recursive inferred-error-set cycle.
+- [x] `ModuleGraph.loadRoot(path)` recursively loads + parses +
+  sema-checks every reachable `.rig` file. Cycle detection via
+  the standard tri-state (visiting/done) walk; same-string dedup
+  in `by_path` map handles diamonds (the same module imported
+  through two paths returns the cached id).
+- [x] `loadByPath`: read source via `std.Io.Dir.cwd().readFileAlloc`,
+  parse, collect `(use NAME)` imports, recursively load each, then
+  run sema + effects + ownership.
+- [x] Effects + ownership diagnostics stream into the module's
+  sema diagnostics so a single `writeAllDiagnostics` covers the
+  full pipeline.
+
+### M15 — Driver in `main.zig`
+
+- [x] `loadProjectOrExit(allocator, io, file_path)` builds the
+  graph and aborts at exit 1 on any diagnostic.
+- [x] `emitProjectToTmp(allocator, io, &graph)` emits each module
+  to `/tmp/rig_<root>/<module>.zig`. Returns the root's path
+  for `zig run`.
+- [x] `buildAndEmit`: single-file projects keep emitting to stdout
+  (preserves M0-M14 behavior). Multi-file projects emit to a
+  temp dir and print the root path.
+- [x] `buildAndRun`: always emits to a temp dir; `zig run` on the
+  root.
+
+### M15 — Sema integration
+
+- [x] `walkUse` already added `.module`-kinded symbols (M5
+  groundwork). Cross-module symbol lookup (`foo.bar` typing
+  through foo's SemContext) is **deferred to M15b** — for now
+  member access on a module-kinded LHS silently types as
+  `unknown` and the lowered Zig code (`foo.bar`) is type-checked
+  by Zig itself at compile time.
+
+### M15 — Emit additions
+
+- [x] `(use foo)` lowers to `const foo = @import("foo.zig");`
+  (was `@import("foo")` — M14 broke for multi-file projects
+  because Zig's `@import` doesn't auto-add the `.zig` extension
+  for filesystem imports).
+
+### M15 — Test infrastructure (new `test/modules/`)
+
+- [x] Each subdir = one multi-file project. `expected.txt` →
+  expected stdout substring; `expected_error.txt` → expected
+  failure with the substring in the error output.
+- [x] `qualified_call/`: `use math; math.add(1, 2)` → prints `3`.
+- [x] `cycle/`: `a → b → a` → `cyclic import` diagnostic.
+- [x] `missing/`: `use nope` → `cannot read module` diagnostic.
+
+### M15 design pass with GPT-5.5
+
+Conversation `c_7552c1a82c518dcf` (M15 design pass). Key
+verdicts:
+
+- File resolution: same-directory only for v1. Path-style
+  `use std.io.File` deferred. ✓
+- Compilation: per-file Zig output (Rig drives load order +
+  cycle detection; doesn't try to do unified IR / global
+  optimization). ✓
+- Cross-module symbol references: qualified `foo.bar` only.
+  Unqualified `use foo.bar` deferred. ✓
+- Visibility: deferred; everything stays public. ✓
+- Cycles: detect ourselves (don't rely on Zig's cycle handling
+  to keep sema ordering deterministic). ✓ Pushed back on my
+  initial "let Zig handle" lean.
+
+### M15 deferred — explicitly NOT done
+
+- Cross-module type checking inside Rig sema (M15b). Currently
+  `foo.bar` types as unknown; Zig handles the actual signature
+  check at compile time. Means cross-module call arity / arg
+  type errors surface as Zig errors, not Rig.
+- Aliases (`use foo as f`).
+- Package paths (`use std.io`).
+- Unqualified imports (`use foo.bar` brings `bar` into scope).
+- Visibility enforcement (everything public).
+- Path canonicalization (`realpath` doesn't exist in Zig 0.16's
+  stdlib for portable use). Same-string dedup is enough for
+  same-dir-only imports.
+
 ## IR uniformity refactors (post-V1 polish)
 
 - [x] `for_read` / `for_write` / `for_move` / `for_none` collapsed into `(for mode binding source body)` per SPEC.

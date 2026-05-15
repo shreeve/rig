@@ -19,6 +19,7 @@ const types = @import("types.zig");
 const effects = @import("effects.zig");
 const ownership = @import("ownership.zig");
 const emit = @import("emit.zig");
+const modules = @import("modules.zig");
 
 const Mode = enum {
     parse,
@@ -94,8 +95,8 @@ pub fn main(init: std.process.Init) !void {
         .tokens => dumpTokens(source),
         .normalize => try normalizeAndPrint(allocator, io, source),
         .check => try checkAndReport(allocator, io, source, file_path),
-        .build => try buildAndEmit(allocator, io, source, file_path),
-        .run => try buildAndRun(allocator, io, source, file_path),
+        .build => try buildAndEmit(allocator, io, file_path),
+        .run => try buildAndRun(allocator, io, file_path),
         .help => unreachable,
     }
 }
@@ -230,31 +231,69 @@ fn parseAndCheckOrExit(
     return .{ .ir = ir, .sema = sema };
 }
 
-fn buildAndEmit(allocator: std.mem.Allocator, io: std.Io, source: []const u8, file_path: []const u8) !void {
-    var checked = try parseAndCheckOrExit(allocator, io, source, file_path);
-    defer checked.sema.deinit();
+/// Load + check the project rooted at `file_path` via the module
+/// graph driver. Aborts with exit 1 if any error diagnostics are
+/// produced (parse, sema, effects, ownership, cycles, missing files).
+/// Returns the loaded graph; caller must `deinit`.
+fn loadProjectOrExit(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    file_path: []const u8,
+) !modules.ModuleGraph {
+    // M15 v1: paths are kept as-given. The root file's path is used
+    // verbatim; imports are resolved as `dirname(importer) + name.rig`
+    // via `std.fs.path.resolve`. Same-dir-only imports + same-string
+    // dedup is enough for the simple case. (Zig 0.16's stdlib doesn't
+    // expose a portable `realpath` / `getcwd`; M15b can canonicalize
+    // once we settle on an OS-portable approach.)
+    var graph = modules.ModuleGraph.init(allocator, io);
+    errdefer graph.deinit();
 
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
-    const w: *std.Io.Writer = &stdout_writer.interface;
+    _ = graph.loadRoot(file_path) catch |err| {
+        std.debug.print("error: failed to load `{s}`: {}\n", .{ file_path, err });
+        std.process.exit(1);
+    };
 
-    var em = emit.Emitter.initWithSema(allocator, source, w, &checked.sema);
-    defer em.deinit();
-    try em.emit(checked.ir);
-    try w.flush();
+    if (graph.hasErrors()) {
+        var stderr_buffer: [4096]u8 = undefined;
+        var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
+        const ew: *std.Io.Writer = &stderr_writer.interface;
+        try graph.writeAllDiagnostics(ew);
+        try ew.flush();
+        std.process.exit(1);
+    }
+
+    return graph;
 }
 
-fn buildAndRun(allocator: std.mem.Allocator, io: std.Io, source: []const u8, file_path: []const u8) !void {
-    // Parse → check → emit Zig to a temp file → spawn `zig run <tmp>`.
-    var checked = try parseAndCheckOrExit(allocator, io, source, file_path);
-    defer checked.sema.deinit();
+/// Emit all modules in the graph to a temp directory. Returns the
+/// path to the ROOT module's emitted .zig (suitable for `zig run`).
+fn emitProjectToTmp(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    graph: *modules.ModuleGraph,
+) ![]const u8 {
+    // Pick a temp dir based on the root module's name.
+    const root = &graph.modules.items[1]; // module 1 is always root
+    var tmpdir_buf: [256]u8 = undefined;
+    const tmpdir = std.fmt.bufPrint(&tmpdir_buf, "/tmp/rig_{s}", .{root.name}) catch "/tmp/rig_out";
 
-    var tmp_buf: [256]u8 = undefined;
-    const tmp_path = makeTmpPath(&tmp_buf, file_path);
+    // Make the dir (best-effort; exists is fine).
+    std.Io.Dir.cwd().createDir(io, tmpdir, .default_dir) catch |e| switch (e) {
+        error.PathAlreadyExists => {},
+        else => {
+            std.debug.print("error: cannot create {s}: {}\n", .{ tmpdir, e });
+            std.process.exit(1);
+        },
+    };
 
-    {
-        const f = std.Io.Dir.cwd().createFile(io, tmp_path, .{}) catch |err| {
-            std.debug.print("error creating {s}: {}\n", .{ tmp_path, err });
+    var root_path: []const u8 = "";
+
+    for (graph.modules.items[1..]) |*m| {
+        const out_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ tmpdir, m.out_basename });
+
+        const f = std.Io.Dir.cwd().createFile(io, out_path, .{}) catch |err| {
+            std.debug.print("error creating {s}: {}\n", .{ out_path, err });
             std.process.exit(1);
         };
         defer f.close(io);
@@ -263,13 +302,55 @@ fn buildAndRun(allocator: std.mem.Allocator, io: std.Io, source: []const u8, fil
         var file_writer = f.writer(io, &file_buffer);
         const w: *std.Io.Writer = &file_writer.interface;
 
-        var em = emit.Emitter.initWithSema(allocator, source, w, &checked.sema);
+        var em = emit.Emitter.initWithSema(allocator, m.source, w, m.sema);
         defer em.deinit();
-        try em.emit(checked.ir);
+        try em.emit(m.ir);
         try w.flush();
+
+        if (m.id == 1) root_path = out_path;
     }
 
-    const argv = [_][]const u8{ "zig", "run", tmp_path };
+    return root_path;
+}
+
+fn buildAndEmit(allocator: std.mem.Allocator, io: std.Io, file_path: []const u8) !void {
+    var graph = try loadProjectOrExit(allocator, io, file_path);
+    defer graph.deinit();
+
+    // Single-file project: emit to stdout (preserves M0–M14 behavior).
+    // Multi-file project: emit all to a temp dir AND echo the root's
+    // Zig to stdout, with a note pointing at the dir.
+    const root = &graph.modules.items[1];
+    const has_imports = root.imports.items.len > 0;
+
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+    const w: *std.Io.Writer = &stdout_writer.interface;
+
+    if (!has_imports) {
+        var em = emit.Emitter.initWithSema(allocator, root.source, w, root.sema);
+        defer em.deinit();
+        try em.emit(root.ir);
+    } else {
+        // Multi-module: emit all to a tmp dir; print the root path so
+        // the user can find it. (Single-file behavior — emitting to
+        // stdout — doesn't generalize to a multi-file project.)
+        const root_path = try emitProjectToTmp(allocator, io, &graph);
+        std.debug.print("project emitted to {s}\nroot: {s}\n", .{
+            std.fs.path.dirname(root_path) orelse "/tmp",
+            root_path,
+        });
+    }
+    try w.flush();
+}
+
+fn buildAndRun(allocator: std.mem.Allocator, io: std.Io, file_path: []const u8) !void {
+    var graph = try loadProjectOrExit(allocator, io, file_path);
+    defer graph.deinit();
+
+    const root_path = try emitProjectToTmp(allocator, io, &graph);
+
+    const argv = [_][]const u8{ "zig", "run", root_path };
     var child = try std.process.spawn(io, .{
         .argv = &argv,
         .stdin = .inherit,
@@ -279,7 +360,7 @@ fn buildAndRun(allocator: std.mem.Allocator, io: std.Io, source: []const u8, fil
     const term = try child.wait(io);
     switch (term) {
         .exited => |code| if (code != 0) {
-            std.debug.print("note: generated Zig at {s}\n", .{tmp_path});
+            std.debug.print("note: project emitted to {s}\n", .{std.fs.path.dirname(root_path) orelse "/tmp"});
             std.process.exit(code);
         },
         else => std.process.exit(1),

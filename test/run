@@ -242,6 +242,63 @@ fi
 section_done $(( SECONDS - SECTION_START ))
 
 # -----------------------------------------------------------------------------
+# 1f. Multi-file module tests (M15)
+# -----------------------------------------------------------------------------
+#
+# Each subdir of test/modules/ is a self-contained multi-file project.
+# Convention: `main.rig` (or `a.rig` for cycle tests) is the entry
+# point. If `expected.txt` exists, the test runs the project and
+# compares output. If `expected_error.txt` exists, the test expects
+# `rig run` to fail and the error output to contain the file's text.
+
+run_module_project() {
+    local dir=$1
+    local name=$(basename "$dir")
+    local entry="$dir/main.rig"
+    [[ -f "$entry" ]] || entry="$dir/a.rig"
+    [[ -f "$entry" ]] || { say_fail "modules/$name (no entry main.rig or a.rig)"; FAIL=$((FAIL + 1)); return; }
+
+    local out="$TMPDIR/mod_${name}.out"
+    set +e
+    $RIG run "$entry" > "$out" 2>&1
+    local exit=$?
+    set -e
+
+    if [[ -f "$dir/expected.txt" ]]; then
+        local want=$(cat "$dir/expected.txt")
+        if [[ $exit -eq 0 ]] && grep -qF "$want" "$out"; then
+            say_pass "modules/$name"
+            PASS=$((PASS + 1))
+        else
+            FAIL=$((FAIL + 1))
+            ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  modules/$name — exit=$exit, expected output containing \"$want\":"$'\n'"$(sed 's/^/    /' "$out")"
+        fi
+    elif [[ -f "$dir/expected_error.txt" ]]; then
+        local want=$(cat "$dir/expected_error.txt")
+        if [[ $exit -ne 0 ]] && grep -qF "$want" "$out"; then
+            say_pass "modules/$name (expected error)"
+            PASS=$((PASS + 1))
+        else
+            FAIL=$((FAIL + 1))
+            ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  modules/$name — expected error containing \"$want\", got exit=$exit:"$'\n'"$(sed 's/^/    /' "$out")"
+        fi
+    else
+        say_fail "modules/$name (no expected.txt or expected_error.txt)"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+if [[ -d test/modules ]]; then
+    section "Multi-file modules"
+    SECTION_START=$SECONDS
+    for d in test/modules/*/; do
+        [[ -d "$d" ]] || continue
+        run_module_project "$d"
+    done
+    section_done $(( SECONDS - SECTION_START ))
+fi
+
+# -----------------------------------------------------------------------------
 # 2. Compile check — generated parser.zig is syntactically valid Zig
 # -----------------------------------------------------------------------------
 

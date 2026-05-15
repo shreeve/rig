@@ -353,13 +353,19 @@ pub const Emitter = struct {
     }
 
     fn emitUse(self: *Emitter, items: []const Sexp) Error!void {
-        // (use name) → const <name> = @import("<name>");
+        // (use name) → const <name> = @import("<name>.zig");
+        //
         // Skip `std` because we always inject `const std = @import("std");`
         // at the top of the emitted file.
+        //
+        // M15: explicit `.zig` extension because each Rig module
+        // emits to a sibling `.zig` file in the project's output dir.
+        // Zig's `@import` with a quoted path resolves the file
+        // relative to the importing module's location.
         if (items.len < 2) return;
         const name = identText(self.source, items[1]) orelse return;
         if (std.mem.eql(u8, name, "std")) return;
-        try self.w.print("const {s} = @import(\"{s}\");\n", .{ name, name });
+        try self.w.print("const {s} = @import(\"{s}.zig\");\n", .{ name, name });
     }
 
     fn emitFun(self: *Emitter, items: []const Sexp, is_sub: bool) Error!void {

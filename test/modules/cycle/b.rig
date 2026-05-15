@@ -1,0 +1,4 @@
+use a
+
+fun thing() -> Int
+  1
