@@ -225,6 +225,7 @@ unless we're already in a `try` / `propagate` context (tracked by
 Future candidates (not yet pursued):
 
 - decoration wrappers (`pub`/`extern`/`export`/`packed`/`callconv`) could become a uniform `(decorate <kind> child)` with `(callconv "C")` carrying its name. Low priority — current wrappers are clear.
+- For cross-cutting kind dispatches (e.g., `walkSet` / `emitSet` switching on the binding kind), introducing a purpose-specific exhaustive enum like `BindingKind { default, fixed, shadow, move_, plus_eq, minus_eq, star_eq, slash_eq }` would let Zig's compiler force every dispatch site to handle every kind (vs the current `Tag`-based switch that needs `else` because `Tag` is non-exhaustive). Worth doing when a kind dispatch site grows large enough that "did I forget a kind?" becomes a real risk.
 
 ## SPEC-aligned vs inherited-pending-review
 
