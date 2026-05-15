@@ -259,7 +259,7 @@ unless we're already in a `try` / `propagate` context (tracked by
 
 - [x] `for_read` / `for_write` / `for_move` / `for_none` collapsed into `(for mode binding source body)` per SPEC.
 - [x] `for` mode uses `_` (nil) for "no mode" (matches existing IR convention; no `none` Tag needed).
-- [x] `for_ptr` (Zag-inherited pointer iteration) folded into the unified `for` head with `ptr` as the mode discriminator. Shape: `(for <mode> binding1 binding2-or-_ source body else?)`. `mode` is now `read` / `write` / `move` / `ptr` / `_`. The grammar still emits raw `(for_ptr ...)`; the sexer folds it. Eliminates the only remaining `for_*` Tag in the normalized IR. The `binding2` slot is now always present (`_` when no second binding) so `for x, i in xs` and `for *x, i in xs` (value/pointer + index) have uniform shape with the single-binding cases.
+- [x] `for_ptr` (Zag-inherited pointer iteration) folded into the unified `for` head with `ptr` as the mode discriminator. Shape: `(for <mode> binding1 binding2-or-_ source body else?)`. `mode` is now `read` / `write` / `move` / `ptr` / `iter` (default). The grammar emits the unified shape directly; the Parser (sexp rewriter) only promotes `iter` → `read`/`write`/`move` when the source has an outer ownership wrapper. Eliminates the only remaining `for_*` Tag in the normalized IR. The `binding2` slot is now always present (`_` when no second binding) so `for x, i in xs` and `for *x, i in xs` (value/pointer + index) have uniform shape with the single-binding cases.
 - [x] `typed_set` / `typed_fixed` collapsed into `set` / `fixed_bind` with a type slot. All bind forms now use uniform 4-child shape `(<head> name type-or-_ expr)`.
 - [x] `extern_var` / `extern_const` collapsed into `(extern <kind> name type)`. Reuses the existing `extern` Tag — the standalone decl (4-child) is shape-distinguishable from the decoration wrapper (2-child).
 - [x] All binding heads (`set`, `set_op`, `fixed_bind`, `shadow`, `move_assign`, `typed_set`, `typed_fixed`) collapsed into a single `(set <kind> name type-or-_ expr)` shape. Kind tag at items[1] is one of `_` (default `=`), `fixed`, `shadow`, `move`, `+=`, `-=`, `*=`, `/=`. M2 walkSet and M3 emitSet are now single functions with kind-dispatch.
@@ -283,7 +283,7 @@ Future candidates (not yet pursued):
 
 - ✅ **DONE** — Nexus minor-version bump that emits `BaseLexer` + `Lexer` (auto-wire) for the lex stage and `BaseParser` + `Parser` (auto-wire) for the parse stage, plus top-level `parseProgram` / `parseExpr` convenience helpers. Rig is the first downstream consumer to exercise the `Parser` auto-wire end-to-end; `parser.parseProgram(allocator, source)` returns the fully-rewritten semantic IR in one call.
 
-- ✅ **DONE** — Tag literals at child positions in grammar actions. Nexus 0.10.x+ supports `→ (set move 1 _ 3)` directly: bare identifiers/operators at child positions emit as literal `Tag` Sexps. This collapses the sexer dramatically — see "Grammar emits the normalized shape directly" below.
+- ✅ **DONE** — Tag literals at child positions in grammar actions. Nexus 0.10.x+ supports `→ (set move 1 _ 3)` directly: bare identifiers/operators at child positions emit as literal `Tag` Sexps. This collapses the Parser (sexp rewriter) dramatically — see "Grammar emits the normalized shape directly" below.
 
 - ⚠️ **Open Nexus quirk (worked-around, not blocking)** — Leading `_` (nil) at the first child position immediately after the head tag `for` is silently dropped by the simple-case emit path in Nexus, but only for `(for _ ...)` specifically (the same shape works fine with `(set _ ...)`, `(foo _ ...)`, etc.). Reproducer: `(for _ 2 _ 4 5)` emits `&.{pass[1], .nil, pass[3], pass[4]}` (4 children, leading `.nil` missing) instead of the expected `&.{.nil, pass[1], .nil, pass[3], pass[4]}`. Workaround: Rig's grammar uses an explicit `iter` Tag for the default for-mode (not `_`), which sidesteps the bug AND makes the IR cleaner (every `for` has an explicit mode tag — `iter` / `read` / `write` / `move` / `ptr`). Long-term fix is in Nexus's `generateParenAction` / element-parsing path.
 
@@ -291,23 +291,23 @@ Future candidates (not yet pursued):
 
 With the Nexus tag-literal-at-child-position support, Rig's grammar emits
 the fully-normalized semantic IR shape directly via grammar actions for
-**nearly every form**. The sexer's only remaining job is **one
-inspection-requiring transform** that fundamentally can't be expressed
-declaratively: promoting the `for` source's outer ownership wrapper
-(`(read xs)` / `(write xs)` / `(move xs)`) into the for-mode slot,
-because the grammar can't peek inside a child to decide what to do.
+**nearly every form**. The Parser (sexp rewriter)'s only remaining job
+is **one inspection-requiring transform** that fundamentally can't be
+expressed declaratively: promoting the `for` source's outer ownership
+wrapper (`(read xs)` / `(write xs)` / `(move xs)`) into the for-mode
+slot, because the grammar can't peek inside a child to decide what to do.
 
-Concrete result: `bin/rig parse` (raw, BaseParser only) and
-`bin/rig normalize` (BaseParser + sexer) produce **byte-identical
-output** on `borrow.rig`, `drop.rig`, `fixed.rig`, `move.rig`, and
-`shadow.rig`. Only `showcase.rig` differs, and only on the one for-loop
-that uses `?users`.
+Concrete result: `bin/rig parse` (raw, `BaseParser` only) and
+`bin/rig normalize` (`BaseParser` + `Parser` rewriter) produce
+**byte-identical output** on `borrow.rig`, `drop.rig`, `fixed.rig`,
+`move.rig`, and `shadow.rig`. Only `showcase.rig` differs, and only on
+the one for-loop that uses `?users`.
 
-The sexer (`Parser` in `src/rig.zig`) shrunk from ~10 dispatch arms +
-3 helper functions (~150 LOC) to a single `walk` + `normFor` (~80 LOC).
-M2 (ownership) and M3 (emit) are unchanged — they were already consuming
-the normalized shape, so consolidating production into the grammar was
-purely a structural cleanup.
+The Parser sexp-rewriter (`Parser` in `src/rig.zig`) shrunk from ~10
+dispatch arms + 3 helper functions (~150 LOC) to a single `walk` +
+`normFor` (~80 LOC). M2 (ownership) and M3 (emit) are unchanged — they
+were already consuming the normalized shape, so consolidating production
+into the grammar was purely a structural cleanup.
 
 The `for`-mode slot now uses `iter` (explicit "default value iteration")
 instead of `_` (nil) for the unrewritten case, both to sidestep the

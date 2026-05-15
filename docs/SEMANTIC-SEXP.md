@@ -16,8 +16,9 @@ emits the fully-normalized IR shape directly for nearly every form** —
 the raw S-expression from `BaseParser` IS the semantic S-expression for
 all bindings, externs, cosmetic renames, and type modifiers.
 
-The sexer (`Parser` in `src/rig.zig`) is now responsible for **exactly one
-inspection-requiring transform** that can't be expressed declaratively:
+The Parser (sexp rewriter, `Parser` in `src/rig.zig`) is now responsible
+for **exactly one inspection-requiring transform** that can't be expressed
+declaratively:
 
 > Promoting the `for` source's outer ownership wrapper into the for-mode slot.
 >
@@ -54,9 +55,9 @@ and only on the one for-loop that uses `?users`.
 | `for *x in xs`           | `(for ptr  x _ xs body)`           | mode = `ptr` (Zag-style pointer iter)          |
 | `for x, i in xs`         | `(for iter x i xs body)`           | value + index                                  |
 
-## Shapes the sexer rewrites
+## Shapes the Parser (sexp rewriter) rewrites
 
-| Raw from grammar          | Normalized              | Why sexer-side                              |
+| Raw from grammar          | Normalized              | Why parser-side                             |
 |---------------------------|-------------------------|---------------------------------------------|
 | `(for iter x _ (read xs) body)`  | `(for read x _ xs body)`  | inspect source's head, promote into mode |
 | `(for iter x _ (write xs) body)` | `(for write x _ xs body)` | (same)                                   |

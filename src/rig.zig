@@ -1042,7 +1042,7 @@ pub const Parser = struct {
 
     /// The grammar emits the normalized IR shape directly for nearly
     /// everything (using the tag-literal-at-child-position feature added
-    /// in Nexus 0.10.x+). The sexer's only remaining responsibility is
+    /// in Nexus 0.10.x+). The Parser's only remaining responsibility is
     /// **inspection-requiring transforms** that can't be expressed in a
     /// declarative grammar action — currently just one: consuming the
     /// `for` source's outer ownership-wrapper (`(read xs)` etc.) into
@@ -1192,13 +1192,14 @@ test "keywordAs - non-keywords" {
 // tree, and `Parser.deinit` frees it.
 // -----------------------------------------------------------------------------
 
-// The sexer now does ONE inspection-requiring transform: consuming the
-// `for` source's outer ownership wrapper into the for's mode slot.
-// Everything else (binding renames, kind-tagging, cosmetic renames like
-// `.` → `member`, `pair` → `kwarg`) is done by the grammar directly via
-// the tag-literal-at-child-position feature in Nexus 0.10.x+.
+// The Parser (sexp rewriter) now does ONE inspection-requiring
+// transform: consuming the `for` source's outer ownership wrapper
+// into the for's mode slot. Everything else (binding renames,
+// kind-tagging, cosmetic renames like `.` → `member`, `pair` → `kwarg`)
+// is done by the grammar directly via the tag-literal-at-child-position
+// feature in Nexus 0.10.x+.
 
-test "sexer: for-sigil consumption (iter → read)" {
+test "parser: for-sigil consumption (iter → read)" {
     // Raw from grammar: (for iter x _ (read xs) body)
     // Expected after rewrite: (for read x _ xs body)
     const xs_src = Sexp{ .str = "xs" };
@@ -1227,7 +1228,7 @@ test "sexer: for-sigil consumption (iter → read)" {
     try std.testing.expect(out.list[4] == .str);                // source unwrapped to xs
 }
 
-test "sexer: for with no sigil keeps iter mode" {
+test "parser: for with no sigil keeps iter mode" {
     const x_src = Sexp{ .str = "x" };
     const xs_src = Sexp{ .str = "xs" };
     const body = Sexp{ .str = "body" };
@@ -1249,9 +1250,9 @@ test "sexer: for with no sigil keeps iter mode" {
     try std.testing.expectEqual(Tag.iter, out.list[1].tag); // mode stays iter
 }
 
-test "sexer: for ptr leaves source alone" {
+test "parser: for ptr leaves source alone" {
     // (for ptr p _ items body) — when grammar already set ptr mode,
-    // sexer should NOT inspect/unwrap the source.
+    // the Parser should NOT inspect/unwrap the source.
     const p_src = Sexp{ .str = "p" };
     const items_src = Sexp{ .str = "items" };
     const body = Sexp{ .str = "body" };
