@@ -1,0 +1,21 @@
+## M12: method declarations on structs.
+##
+## A `fun` (or `sub`) member inside a `struct` body lowers to a
+## namespaced Zig function. Sema records it on the struct symbol's
+## `fields` slice with `is_method = true`, and `Type.method(args)`
+## type-checks via the qualified-access machinery added in M11.
+##
+## Method bodies aren't yet sema-checked — they emit and run via
+## the existing `emitFun` path. Type-checking method bodies is
+## deferred until after generics + `self` semantics land.
+##
+## EXPECTED: clean. Runs and prints `hi`.
+
+struct User
+  name: String
+
+  fun greet() -> String
+    "hi"
+
+sub main()
+  print(User.greet())

@@ -268,6 +268,13 @@ pub const Field = struct {
     ty: TypeId,
     decl_pos: u32,
     payload: ?[]const Field = null,
+
+    /// M12: when true, this `Field` represents a method declared on
+    /// the owning nominal type, not a data field. `ty` is then the
+    /// method's `function` Type. Method bodies are emitted inside
+    /// the Zig struct/enum but aren't type-checked yet (M13+ when
+    /// generic params + `self` semantics land).
+    is_method: bool = false,
 };
 
 pub const Symbol = struct {
@@ -955,22 +962,78 @@ const TypeResolver = struct {
         defer fields.deinit(self.ctx.allocator);
 
         for (items[2..]) |member| {
-            // Each member is `(: name type)` or `(: name type default)`.
-            if (member != .list or member.list.len < 3 or member.list[0] != .tag) continue;
-            if (member.list[0].tag != .@":") continue;
-            const fname_node = member.list[1];
-            const ftype_node = member.list[2];
-            const fname = identAt(self.ctx.source, fname_node) orelse continue;
-            const ftype = try self.resolveType(ftype_node, parent_scope);
-            try fields.append(self.ctx.allocator, .{
-                .name = fname,
-                .ty = ftype,
-                .decl_pos = if (fname_node == .src) fname_node.src.pos else 0,
-            });
+            if (member != .list or member.list.len < 2 or member.list[0] != .tag) continue;
+            switch (member.list[0].tag) {
+                // Data field: (: name type) or (: name type default)
+                .@":" => {
+                    if (member.list.len < 3) continue;
+                    const fname_node = member.list[1];
+                    const ftype_node = member.list[2];
+                    const fname = identAt(self.ctx.source, fname_node) orelse continue;
+                    const ftype = try self.resolveType(ftype_node, parent_scope);
+                    try fields.append(self.ctx.allocator, .{
+                        .name = fname,
+                        .ty = ftype,
+                        .decl_pos = if (fname_node == .src) fname_node.src.pos else 0,
+                    });
+                },
+                // M12: method declaration. Resolve its function type
+                // and record it as a method-flagged Field on the
+                // struct symbol. Body type-checking is deferred —
+                // emit lowers the method directly inside the Zig
+                // struct so it works at runtime, but sema doesn't
+                // yet walk the body.
+                .@"fun", .@"sub" => {
+                    try self.resolveStructMethod(member.list, parent_scope, &fields);
+                },
+                else => {},
+            }
         }
 
         const owned = try self.ctx.arena.allocator().dupe(Field, fields.items);
         self.ctx.symbols.items[sym_id].fields = owned;
+    }
+
+    fn resolveStructMethod(
+        self: *TypeResolver,
+        items: []const Sexp,
+        parent_scope: ScopeId,
+        fields: *std.ArrayListUnmanaged(Field),
+    ) std.mem.Allocator.Error!void {
+        if (items.len < 5) return;
+        const is_sub = items[0].tag == .@"sub";
+        const name_node = items[1];
+        const params = items[2];
+        const returns_node: Sexp = if (is_sub) .{ .nil = {} } else items[3];
+        const mname = identAt(self.ctx.source, name_node) orelse return;
+        const mpos: u32 = if (name_node == .src) name_node.src.pos else 0;
+
+        const return_ty: TypeId = if (is_sub or returns_node == .nil)
+            self.ctx.types.void_id
+        else
+            try self.resolveType(returns_node, parent_scope);
+
+        var param_types: std.ArrayListUnmanaged(TypeId) = .empty;
+        defer param_types.deinit(self.ctx.allocator);
+        if (params == .list) {
+            for (params.list) |p| {
+                const ptype = try self.resolveParamType(p, parent_scope);
+                try param_types.append(self.ctx.allocator, ptype);
+            }
+        }
+        const owned_params = try self.ctx.arena.allocator().dupe(TypeId, param_types.items);
+        const fn_ty = try self.ctx.types.intern(self.ctx.allocator, .{ .function = .{
+            .params = owned_params,
+            .returns = return_ty,
+            .is_sub = is_sub,
+        } });
+
+        try fields.append(self.ctx.allocator, .{
+            .name = mname,
+            .ty = fn_ty,
+            .decl_pos = mpos,
+            .is_method = true,
+        });
     }
 
     /// Walk an enum or errors declaration and store one `Field` per
@@ -2118,19 +2181,26 @@ const ExprChecker = struct {
         const field_name = identAt(self.ctx.source, field_node) orelse return self.ctx.types.unknown_id;
         const pos: u32 = if (field_node == .src) field_node.src.pos else 0;
 
-        // Flavor 1: type-qualified access (e.g., `Color.red`).
+        // Flavor 1: type-qualified access (e.g., `Color.red`, `User.greet`).
         if (obj == .src) {
             const oname = self.ctx.source[obj.src.pos..][0..obj.src.len];
             if (self.ctx.lookup(self.current_scope, oname)) |sym_id| {
                 const sym = self.ctx.symbols.items[sym_id];
                 if (sym.kind == .nominal_type) {
-                    if (sym.fields) |variants| {
-                        for (variants) |v| {
-                            if (std.mem.eql(u8, v.name, field_name)) {
-                                return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = sym_id }) catch self.ctx.types.unknown_id;
+                    if (sym.fields) |members| {
+                        for (members) |m| {
+                            if (!std.mem.eql(u8, m.name, field_name)) continue;
+                            if (m.is_method) {
+                                // M12: `Type.method` — return the
+                                // method's function type so the
+                                // surrounding call can dispatch.
+                                return m.ty;
                             }
+                            // Variant — return `nominal(Type)` (the
+                            // enum instance type).
+                            return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = sym_id }) catch self.ctx.types.unknown_id;
                         }
-                        try self.err(pos, "no variant `{s}` on enum `{s}`", .{ field_name, sym.name });
+                        try self.err(pos, "no member `{s}` on type `{s}`", .{ field_name, sym.name });
                         if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
                         return self.ctx.types.unknown_id;
                     }
@@ -3472,6 +3542,49 @@ test "M10: value-position match requires exhaustive coverage" {
 // -----------------------------------------------------------------------------
 // M11: qualified enum access tests
 // -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
+// M12: struct method tests
+// -----------------------------------------------------------------------------
+
+test "M12: struct method registered as method-flagged Field" {
+    const source =
+        \\struct User
+        \\  name: String
+        \\
+        \\  fun greet() -> String
+        \\    "hi"
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    const id = ctx.lookup(1, "User").?;
+    const fields = ctx.symbols.items[id].fields.?;
+    // First member: name (data field, not method).
+    try std.testing.expectEqualStrings("name", fields[0].name);
+    try std.testing.expect(!fields[0].is_method);
+    // Second member: greet (method).
+    try std.testing.expectEqualStrings("greet", fields[1].name);
+    try std.testing.expect(fields[1].is_method);
+    const fn_ty = ctx.types.get(fields[1].ty);
+    try std.testing.expectEqual(@as(std.meta.Tag(Type), .function), @as(std.meta.Tag(Type), fn_ty));
+    try std.testing.expectEqual(ctx.types.string_id, fn_ty.function.returns);
+}
+
+test "M12: `Type.method` resolves to the method's function type" {
+    const source =
+        \\struct User
+        \\  fun greet() -> String
+        \\    "hi"
+        \\
+        \\sub main()
+        \\  print(User.greet())
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(!ctx.hasErrors());
+}
 
 test "M11: qualified `Color.red` types as the enum" {
     const source =

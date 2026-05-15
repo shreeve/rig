@@ -139,14 +139,19 @@ pub const Emitter = struct {
         }
     }
 
-    /// `(struct Name (: field type) ...)` → Zig `const Name = struct { ... };`.
-    /// M6 v1: bare struct types only (no methods, no decorations, no
-    /// generic params yet — those come back when the broader generics
-    /// story lands in M7+).
+    /// `(struct Name (: field type) ... (fun method ...) ...)` →
+    /// Zig `const Name = struct { ... };`. M12: method members
+    /// (`fun`/`sub`) emit as `pub fn` declarations inside the
+    /// struct's body so they're callable as `Name.method(args)`.
+    /// Method bodies aren't yet sema-checked but lower as-is via
+    /// the existing `emitFun` path.
     fn emitStruct(self: *Emitter, items: []const Sexp) Error!void {
         if (items.len < 2) return;
         const name = identText(self.source, items[1]) orelse "AnonStruct";
         try self.w.print("pub const {s} = struct {{\n", .{name});
+
+        // Emit data fields first (Zig allows mixed order, but data-
+        // then-methods reads more naturally).
         for (items[2..]) |member| {
             if (member != .list or member.list.len < 3 or member.list[0] != .tag) continue;
             if (member.list[0].tag != .@":") continue;
@@ -155,6 +160,26 @@ pub const Emitter = struct {
             try self.emitType(member.list[2]);
             try self.w.writeAll(",\n");
         }
+
+        // M12: method members. Each `fun`/`sub` lowers via emitFun
+        // with one extra indent level so the `pub fn ...` lines sit
+        // inside the struct body. emitFun already prefixes `pub`.
+        var any_methods = false;
+        for (items[2..]) |member| {
+            if (member != .list or member.list.len < 5 or member.list[0] != .tag) continue;
+            const head = member.list[0].tag;
+            if (head != .@"fun" and head != .@"sub") continue;
+            if (!any_methods) {
+                try self.w.writeAll("\n");
+                any_methods = true;
+            }
+            try self.w.writeAll("    ");
+            const prev_indent = self.indent;
+            self.indent += 1;
+            try self.emitFun(member.list, head == .@"sub");
+            self.indent = prev_indent;
+        }
+
         try self.w.writeAll("};\n");
     }
 
@@ -1311,6 +1336,48 @@ pub const Emitter = struct {
                                     }
                                 }
                             }
+                            return false;
+                        },
+                        // (call callee args...): if sema knows the
+                        // callee's return type is String, treat as
+                        // string-typed. Handles top-level fn calls
+                        // (`greet()`) and qualified method calls
+                        // (`User.greet()`).
+                        .@"call" => {
+                            if (items.len < 2 or self.sema == null) return false;
+                            const sema = self.sema.?;
+                            const callee = items[1];
+                            const ret_ty: ?types.TypeId = blk: {
+                                if (callee == .src) {
+                                    const cname = self.source[callee.src.pos..][0..callee.src.len];
+                                    for (sema.symbols.items) |sym| {
+                                        if (!std.mem.eql(u8, sym.name, cname)) continue;
+                                        const t = sema.types.get(sym.ty);
+                                        if (t == .function) break :blk t.function.returns;
+                                    }
+                                }
+                                if (callee == .list and callee.list.len >= 3 and
+                                    callee.list[0] == .tag and callee.list[0].tag == .@"member")
+                                {
+                                    const owner_node = callee.list[1];
+                                    const m_node = callee.list[2];
+                                    if (owner_node != .src or m_node != .src) break :blk null;
+                                    const oname = self.source[owner_node.src.pos..][0..owner_node.src.len];
+                                    const mname = self.source[m_node.src.pos..][0..m_node.src.len];
+                                    for (sema.symbols.items) |sym| {
+                                        if (!std.mem.eql(u8, sym.name, oname)) continue;
+                                        if (sym.kind != .nominal_type) continue;
+                                        const fields = sym.fields orelse continue;
+                                        for (fields) |f| {
+                                            if (!std.mem.eql(u8, f.name, mname)) continue;
+                                            const ft = sema.types.get(f.ty);
+                                            if (ft == .function) break :blk ft.function.returns;
+                                        }
+                                    }
+                                }
+                                break :blk null;
+                            };
+                            if (ret_ty) |rt| return rt == sema.types.string_id;
                             return false;
                         },
                         else => return false,
