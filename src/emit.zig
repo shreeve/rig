@@ -127,6 +127,7 @@ pub const Emitter = struct {
             .@"struct" => try self.emitStruct(items),
             .@"enum" => try self.emitEnum(items),
             .@"errors" => try self.emitErrorSet(items),
+            .@"generic_type" => try self.emitGenericType(items),
             .@"pub" => {
                 // V1: Rig has no module system, so functions are public by
                 // default and `emitFun` always prefixes `pub`. The explicit
@@ -181,6 +182,38 @@ pub const Emitter = struct {
         }
 
         try self.w.writeAll("};\n");
+    }
+
+    /// `(generic_type Name (T1 T2 ...) members...)` → Zig
+    /// `pub fn Name(comptime T1: type, comptime T2: type, ...) type { return struct { ... }; }`.
+    /// M14 v1: only struct shape (matches the `type Name(...)`
+    /// declaration syntax). Method members lower like in
+    /// `emitStruct` — `pub fn` inside the returned struct.
+    fn emitGenericType(self: *Emitter, items: []const Sexp) Error!void {
+        if (items.len < 4) return;
+        const name = identText(self.source, items[1]) orelse "AnonGeneric";
+        const params = items[2];
+
+        try self.w.print("pub fn {s}(", .{name});
+        if (params == .list) {
+            var first = true;
+            for (params.list) |p| {
+                if (p != .src) continue;
+                if (!first) try self.w.writeAll(", ");
+                first = false;
+                try self.w.print("comptime {s}: type", .{self.source[p.src.pos..][0..p.src.len]});
+            }
+        }
+        try self.w.writeAll(") type {\n    return struct {\n");
+        for (items[3..]) |member| {
+            if (member != .list or member.list.len < 3 or member.list[0] != .tag) continue;
+            if (member.list[0].tag != .@":") continue;
+            const fname = identText(self.source, member.list[1]) orelse continue;
+            try self.w.print("        {s}: ", .{fname});
+            try self.emitType(member.list[2]);
+            try self.w.writeAll(",\n");
+        }
+        try self.w.writeAll("    };\n}\n");
     }
 
     /// `(errors Name v1 v2 ...)` → Zig `const Name = error { v1, v2, ... };`.
@@ -1144,36 +1177,65 @@ pub const Emitter = struct {
         // Constructor-vs-call disambiguation. Per GPT-5.5's M5 design
         // pass (Q4): "resolved nominal > resolved function > fallback
         // heuristic". Sema knows whether `Foo` refers to a struct,
-        // type alias, or function — use that authoritative answer
-        // when available. Without sema, fall back to "any kwarg arg
-        // means struct literal", which is the M3/M4 heuristic.
-        const struct_literal: bool = blk: {
+        // type alias, generic_type, or function — use that
+        // authoritative answer when available. Without sema, fall back
+        // to "any kwarg arg means struct literal" (M3/M4 heuristic).
+        //
+        // M14: `generic_type` callees emit as ANONYMOUS struct
+        // literals (`.{ .value = 5 }`) since the named identifier is
+        // a Zig fn, not a type. The surrounding type context
+        // (typed binding LHS, fn arg, return) coerces the literal.
+        const ConstrKind = enum { regular_struct, anon_struct, regular_call };
+        const constr: ConstrKind = blk: {
             if (self.sema) |sema| {
                 if (items[1] == .src) {
                     const fn_name = self.source[items[1].src.pos..][0..items[1].src.len];
                     if (sema.lookup(1, fn_name)) |sym_id| {
                         const sym = sema.symbols.items[sym_id];
                         switch (sym.kind) {
-                            .nominal_type, .type_alias, .generic_type => break :blk true,
-                            .function => break :blk false,
-                            else => {}, // fall through to heuristic
+                            .nominal_type, .type_alias => break :blk .regular_struct,
+                            .generic_type => break :blk .anon_struct,
+                            .function => break :blk .regular_call,
+                            else => {},
                         }
                     }
                 }
             }
-            // Fallback heuristic.
             for (items[2..]) |arg| {
                 if (arg == .list and arg.list.len > 0 and arg.list[0] == .tag and
                     arg.list[0].tag == .@"kwarg")
                 {
-                    break :blk true;
+                    break :blk .regular_struct;
                 }
             }
-            break :blk false;
+            break :blk .regular_call;
         };
 
+        if (constr == .anon_struct) {
+            // M14: generic-type construction. Emit `.{ ... }` and let
+            // Zig coerce from the contextually-expected `Box(i32)`.
+            try self.w.writeAll(".{ ");
+            var first = true;
+            for (items[2..]) |arg| {
+                if (!first) try self.w.writeAll(", ");
+                first = false;
+                if (arg == .list and arg.list.len >= 3 and arg.list[0] == .tag and
+                    arg.list[0].tag == .@"kwarg")
+                {
+                    try self.w.writeAll(".");
+                    try self.emitExpr(arg.list[1]);
+                    try self.w.writeAll(" = ");
+                    try self.emitExpr(arg.list[2]);
+                } else {
+                    try self.emitExpr(arg);
+                }
+            }
+            try self.w.writeAll(" }");
+            return;
+        }
+
         try self.emitExpr(items[1]);
-        if (struct_literal) {
+        if (constr == .regular_struct) {
             try self.w.writeAll("{ ");
             var first = true;
             for (items[2..]) |arg| {
@@ -1446,6 +1508,26 @@ pub const Emitter = struct {
                         try self.emitExpr(items[1]);
                         try self.w.writeAll("]");
                         if (items.len >= 3) try self.emitType(items[2]);
+                    },
+                    // M14: `(generic_inst Name (T1 T2 ...))` lowers to
+                    // a Zig function call `Name(T1, T2, ...)` since
+                    // `(generic_type ...)` lowers to a type-returning
+                    // function. Box(Int) → Box(i32).
+                    .@"generic_inst" => {
+                        const name_node = items[1];
+                        if (name_node == .src) {
+                            try self.w.writeAll(self.source[name_node.src.pos..][0..name_node.src.len]);
+                        } else {
+                            try self.w.writeAll("anytype");
+                        }
+                        try self.w.writeAll("(");
+                        var first = true;
+                        for (items[2..]) |arg| {
+                            if (!first) try self.w.writeAll(", ");
+                            first = false;
+                            try self.emitType(arg);
+                        }
+                        try self.w.writeAll(")");
                     },
                     else => try self.w.writeAll("anytype"),
                 }

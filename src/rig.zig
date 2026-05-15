@@ -69,6 +69,7 @@ pub const Tag = enum(u8) {
     @"callconv",
     @"opaque",
     @"generic_type",    // type Box(T) ...
+    @"generic_inst",    // M14: type-position generic instantiation `Box(Int)` → (generic_inst Box (Int))
     @"fixed",           // generic "fixed/immutable" kind marker (used in extern, etc.)
     @"array_type",
     @"aligned",

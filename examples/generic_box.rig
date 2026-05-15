@@ -1,0 +1,18 @@
+## M14: generic types — `type Box(T)` declaration + `Box(Int)` type
+## instantiation + `Box(value: 5)` construction.
+##
+## Lowering strategy:
+##   - `(generic_type Box (T) members)` → `pub fn Box(comptime T: type) type { return struct { ... }; }`
+##   - `(generic_inst Box Int)` (type position) → `Box(i32)`
+##   - `Box(value: 5)` (constructor call) → `.{ .value = 5 }` —
+##      anonymous struct literal that Zig coerces from the
+##      contextually-expected `Box(i32)` (typed binding LHS).
+##
+## EXPECTED: clean, runs, prints `5`.
+
+type Box(T)
+  value: T
+
+sub main()
+  b: Box(Int) = Box(value: 5)
+  print(b.value)

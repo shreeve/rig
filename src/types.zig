@@ -3556,6 +3556,41 @@ test "M10: value-position match requires exhaustive coverage" {
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
+// M14: generic type tests
+// -----------------------------------------------------------------------------
+
+test "M14: generic type declaration + instantiation + construction" {
+    const source =
+        \\type Box(T)
+        \\  value: T
+        \\
+        \\sub main()
+        \\  b: Box(Int) = Box(value: 5)
+        \\  print(b.value)
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(!ctx.hasErrors());
+}
+
+test "M14: multi-param generic" {
+    const source =
+        \\type Pair(T, U)
+        \\  first: T
+        \\  second: U
+        \\
+        \\sub main()
+        \\  p: Pair(Int, String) = Pair(first: 1, second: "hi")
+        \\  print(p.first)
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(!ctx.hasErrors());
+}
+
+// -----------------------------------------------------------------------------
 // M13: range pattern tests
 // -----------------------------------------------------------------------------
 

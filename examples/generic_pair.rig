@@ -1,0 +1,11 @@
+## M14: generic types with multiple type parameters.
+##
+## EXPECTED: clean, runs, prints `42`.
+
+type Pair(T, U)
+  first: T
+  second: U
+
+sub main()
+  p: Pair(Int, String) = Pair(first: 42, second: "answer")
+  print(p.first)
