@@ -858,8 +858,15 @@ const TypeResolver = struct {
                 try self.resolveExtern(items, parent_scope);
                 return scope_cursor;
             },
-            .@"struct", .@"enum", .@"errors" => {
+            .@"struct" => {
                 try self.resolveStructFields(items, parent_scope);
+                return scope_cursor;
+            },
+            .@"enum", .@"errors" => {
+                // IR shapes are identical: `(enum Name v...)` /
+                // `(errors Name v...)`. Reuse the same variant
+                // resolver so error-set declarations get fields too.
+                try self.resolveEnumVariants(items, parent_scope);
                 return scope_cursor;
             },
             else => return scope_cursor,
@@ -897,6 +904,51 @@ const TypeResolver = struct {
                 .ty = ftype,
                 .decl_pos = if (fname_node == .src) fname_node.src.pos else 0,
             });
+        }
+
+        const owned = try self.ctx.arena.allocator().dupe(Field, fields.items);
+        self.ctx.symbols.items[sym_id].fields = owned;
+    }
+
+    /// Walk an `(enum Name v1 v2 ...)` or `(enum Name (valued v1 expr1) ...)`
+    /// declaration and store one `Field` per variant on the owning symbol.
+    /// Variant `ty` is set to `void_id` (no payload — M7 v1 only handles
+    /// C-style enums; payload variants come back when match lands).
+    /// Variants with an explicit value (`ok = 0`) get the same `void_id`
+    /// type — the value just propagates through to emit verbatim.
+    fn resolveEnumVariants(self: *TypeResolver, items: []const Sexp, parent_scope: ScopeId) std.mem.Allocator.Error!void {
+        if (items.len < 2) return;
+        const name = identAt(self.ctx.source, items[1]) orelse return;
+        const sym_id = self.ctx.lookup(parent_scope, name) orelse return;
+
+        var fields: std.ArrayListUnmanaged(Field) = .empty;
+        defer fields.deinit(self.ctx.allocator);
+
+        for (items[2..]) |variant| {
+            switch (variant) {
+                .src => |s| {
+                    try fields.append(self.ctx.allocator, .{
+                        .name = self.ctx.source[s.pos..][0..s.len],
+                        .ty = self.ctx.types.void_id,
+                        .decl_pos = s.pos,
+                    });
+                },
+                .list => |sub| {
+                    // (valued name expr) — keep the variant name; ignore
+                    // the value expression for sema (emit handles it).
+                    if (sub.len >= 2 and sub[0] == .tag and sub[0].tag == .@"valued") {
+                        const vname_node = sub[1];
+                        if (identAt(self.ctx.source, vname_node)) |vname| {
+                            try fields.append(self.ctx.allocator, .{
+                                .name = vname,
+                                .ty = self.ctx.types.void_id,
+                                .decl_pos = if (vname_node == .src) vname_node.src.pos else 0,
+                            });
+                        }
+                    }
+                },
+                else => {},
+            }
         }
 
         const owned = try self.ctx.arena.allocator().dupe(Field, fields.items);
@@ -1875,6 +1927,19 @@ const ExprChecker = struct {
     // -------------------------------------------------------------------------
 
     fn checkExpr(self: *ExprChecker, expr: Sexp, expected: TypeId) std.mem.Allocator.Error!void {
+        // M7: enum literal `.red` is intrinsically context-typed —
+        // synth would return `unknown` (no enum is named in the
+        // expression itself). When the expected type is a nominal
+        // enum, validate the variant against the enum's field list
+        // here instead of falling through to `synthExpr` and silently
+        // accepting unknown.
+        if (expr == .list and expr.list.len >= 2 and expr.list[0] == .tag and
+            expr.list[0].tag == .@"enum_lit")
+        {
+            try self.checkEnumLit(expr.list, expected);
+            return;
+        }
+
         const actual = try self.synthExpr(expr);
         if (compatible(self.ctx, actual, expected)) return;
         const pos = firstSrcPos(expr);
@@ -1882,6 +1947,34 @@ const ExprChecker = struct {
             try formatType(self.ctx, expected),
             try formatType(self.ctx, actual),
         });
+    }
+
+    /// Validate `(enum_lit name)` against an `expected` nominal enum
+    /// type. M7 v1 rules:
+    ///   - Expected must be `nominal(SymId)` where the symbol is a
+    ///     `nominal_type` with `fields` populated (i.e., a known enum).
+    ///     Anything else: silently accept (unknown context, deferred).
+    ///   - The variant name must appear in the enum's fields.
+    ///     Otherwise: `error: no variant 'red' on type 'Color'`.
+    fn checkEnumLit(self: *ExprChecker, items: []const Sexp, expected: TypeId) std.mem.Allocator.Error!void {
+        const variant_node = items[1];
+        const variant_name = identAt(self.ctx.source, variant_node) orelse return;
+        const variant_pos: u32 = if (variant_node == .src) variant_node.src.pos else 0;
+
+        const expected_ty = self.ctx.types.get(expected);
+        if (expected_ty != .nominal) {
+            // No useful expected type — accept silently.
+            return;
+        }
+        const sym = self.ctx.symbols.items[expected_ty.nominal];
+        const fields = sym.fields orelse return; // opaque enum: accept
+
+        for (fields) |f| {
+            if (std.mem.eql(u8, f.name, variant_name)) return; // ok
+        }
+
+        try self.err(variant_pos, "no variant `{s}` on enum `{s}`", .{ variant_name, sym.name });
+        if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
     }
 
     /// Best-effort unification: returns the unified type id, or null
@@ -2611,6 +2704,79 @@ test "M6: member access on a known struct returns the field's type" {
     var ctx2 = try checkSource(std.testing.allocator, source_bad);
     defer ctx2.deinit();
     try std.testing.expect(ctx2.hasErrors());
+}
+
+// -----------------------------------------------------------------------------
+// M7: enum / error-set typing tests
+// -----------------------------------------------------------------------------
+
+test "M7: enum variants populated as fields" {
+    const source =
+        \\enum Color
+        \\  red
+        \\  green
+        \\  blue
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    const id = ctx.lookup(1, "Color").?;
+    const fields = ctx.symbols.items[id].fields.?;
+    try std.testing.expectEqual(@as(usize, 3), fields.len);
+    try std.testing.expectEqualStrings("red", fields[0].name);
+    try std.testing.expectEqualStrings("green", fields[1].name);
+    try std.testing.expectEqualStrings("blue", fields[2].name);
+}
+
+test "M7: enum literal against expected enum is typed" {
+    const source =
+        \\enum Color
+        \\  red
+        \\  green
+        \\
+        \\sub main()
+        \\  c: Color = .red
+        \\  print(c)
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(!ctx.hasErrors());
+}
+
+test "M7: enum literal with unknown variant fires" {
+    const source =
+        \\enum Color
+        \\  red
+        \\  green
+        \\
+        \\sub main()
+        \\  c: Color = .purple
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
+    var found = false;
+    for (ctx.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, "no variant `purple`") != null) found = true;
+    }
+    try std.testing.expect(found);
+}
+
+test "M7: error set declaration populates fields" {
+    const source =
+        \\error NetworkError
+        \\  timeout
+        \\  refused
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    const id = ctx.lookup(1, "NetworkError").?;
+    const fields = ctx.symbols.items[id].fields.?;
+    try std.testing.expectEqual(@as(usize, 2), fields.len);
+    try std.testing.expectEqualStrings("timeout", fields[0].name);
 }
 
 test "expr-typing: untyped binding gets canonical type from RHS" {

@@ -125,6 +125,8 @@ pub const Emitter = struct {
             .@"sub" => try self.emitFun(items, true),
             .@"use" => try self.emitUse(items),
             .@"struct" => try self.emitStruct(items),
+            .@"enum" => try self.emitEnum(items),
+            .@"errors" => try self.emitErrorSet(items),
             .@"pub" => {
                 // V1: Rig has no module system, so functions are public by
                 // default and `emitFun` always prefixes `pub`. The explicit
@@ -152,6 +154,71 @@ pub const Emitter = struct {
             try self.w.print("    {s}: ", .{fname});
             try self.emitType(member.list[2]);
             try self.w.writeAll(",\n");
+        }
+        try self.w.writeAll("};\n");
+    }
+
+    /// `(errors Name v1 v2 ...)` → Zig `const Name = error { v1, v2, ... };`.
+    /// Same IR shape as `enum`; lowers to Zig's distinct `error` set
+    /// type so calls returning `Name` propagate naturally with `try`.
+    fn emitErrorSet(self: *Emitter, items: []const Sexp) Error!void {
+        if (items.len < 2) return;
+        const name = identText(self.source, items[1]) orelse "AnonError";
+        try self.w.print("pub const {s} = error {{\n", .{name});
+        for (items[2..]) |variant| {
+            switch (variant) {
+                .src => |s| {
+                    const vname = self.source[s.pos..][0..s.len];
+                    try self.w.print("    {s},\n", .{vname});
+                },
+                else => {},
+            }
+        }
+        try self.w.writeAll("};\n");
+    }
+
+    /// `(enum Name v1 v2 ...)` → Zig `const Name = enum { v1, v2, ... };`.
+    /// Variants can be bare names (`v`) or `(valued v expr)` for
+    /// explicit numeric values; the latter lower to `v = expr`.
+    /// Zig requires an explicit integer tag type when any variant
+    /// carries a value, so we default to `enum(u32)` in that case.
+    /// Payload-bearing variants (e.g., `Some(value: T)`) are deferred
+    /// to M8+ alongside match-pattern lowering.
+    fn emitEnum(self: *Emitter, items: []const Sexp) Error!void {
+        if (items.len < 2) return;
+        const name = identText(self.source, items[1]) orelse "AnonEnum";
+
+        // First pass: any `(valued ...)` variant?
+        var has_values = false;
+        for (items[2..]) |variant| {
+            if (variant == .list and variant.list.len > 0 and
+                variant.list[0] == .tag and variant.list[0].tag == .@"valued")
+            {
+                has_values = true;
+                break;
+            }
+        }
+
+        if (has_values) {
+            try self.w.print("pub const {s} = enum(u32) {{\n", .{name});
+        } else {
+            try self.w.print("pub const {s} = enum {{\n", .{name});
+        }
+        for (items[2..]) |variant| {
+            switch (variant) {
+                .src => |s| {
+                    const vname = self.source[s.pos..][0..s.len];
+                    try self.w.print("    {s},\n", .{vname});
+                },
+                .list => |sub| {
+                    if (sub.len < 3 or sub[0] != .tag or sub[0].tag != .@"valued") continue;
+                    const vname = identText(self.source, sub[1]) orelse continue;
+                    try self.w.print("    {s} = ", .{vname});
+                    try self.emitExpr(sub[2]);
+                    try self.w.writeAll(",\n");
+                },
+                else => {},
+            }
         }
         try self.w.writeAll("};\n");
     }
@@ -798,18 +865,65 @@ pub const Emitter = struct {
         try self.w.writeAll(" })");
     }
 
-    /// True if `sexp` looks like a string literal (peeks at the source).
+    /// True if `sexp` is a string at emit time. M7 v1 checks:
+    ///   - Raw `.src` slice quoted with `"` or `'` (string literals)
+    ///   - Sigil-wrapped string literal (`?s`, `!s`, etc.)
+    ///   - `.src` identifier whose sema-declared type is `string`
+    ///   - `(member obj name)` where the field's type is `string`
+    /// Returning true makes `print` use `{s}` instead of `{any}` so
+    /// strings render as text not byte arrays.
     fn isStringLiteral(self: *const Emitter, sexp: Sexp) bool {
         switch (sexp) {
             .src => |s| {
                 if (s.pos >= self.source.len) return false;
                 const c = self.source[s.pos];
-                return c == '"' or c == '\'';
+                if (c == '"' or c == '\'') return true;
+                // M7: also true if sema knows this name is a String binding.
+                // Emit doesn't track scope, so we scan all symbols for a
+                // name match — first hit wins. Good enough for print
+                // disambiguation (no semantic risk).
+                if (self.sema) |sema| {
+                    const name = self.source[s.pos..][0..s.len];
+                    for (sema.symbols.items) |sym| {
+                        if (std.mem.eql(u8, sym.name, name)) {
+                            return sym.ty == sema.types.string_id;
+                        }
+                    }
+                }
+                return false;
             },
             .list => |items| {
                 if (items.len >= 2 and items[0] == .tag) {
                     switch (items[0].tag) {
                         .@"read", .@"write", .@"move", .@"clone", .@"share" => return self.isStringLiteral(items[1]),
+                        // (member obj name): if obj is a known nominal
+                        // with a String field of that name, this is a
+                        // string-typed expression. Same name-scan as
+                        // the .src arm — emit doesn't track scope.
+                        .@"member" => {
+                            if (items.len < 3 or self.sema == null) return false;
+                            const sema = self.sema.?;
+                            const obj = items[1];
+                            const fname = if (items[2] == .src)
+                                self.source[items[2].src.pos..][0..items[2].src.len]
+                            else
+                                return false;
+                            if (obj != .src) return false;
+                            const oname = self.source[obj.src.pos..][0..obj.src.len];
+                            for (sema.symbols.items) |sym| {
+                                if (!std.mem.eql(u8, sym.name, oname)) continue;
+                                const ty = sema.types.get(sym.ty);
+                                if (ty != .nominal) continue;
+                                const owner = sema.symbols.items[ty.nominal];
+                                const fields = owner.fields orelse continue;
+                                for (fields) |f| {
+                                    if (std.mem.eql(u8, f.name, fname)) {
+                                        return f.ty == sema.types.string_id;
+                                    }
+                                }
+                            }
+                            return false;
+                        },
                         else => return false,
                     }
                 }

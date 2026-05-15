@@ -142,14 +142,35 @@ against the field list (names + types + arity + duplicates).
   constructor disambiguation, `bin/rig run` works end-to-end on
   struct programs.
 
-### M7+ — Beyond V1
+### M7 — Enum + error-set typing & lowering ✅
+Closes the enum half of M6's deferred list. Enum declarations
+populate per-variant fields, enum literals (`.red`) type-check
+against the contextually expected enum, and both `enum` and `error`
+declarations lower to clean Zig.
+
+- `TypeResolver.resolveEnumVariants` walks `(enum Name v...)` and
+  `(errors Name v...)` (same IR shape) and stores variants as fields.
+- `checkExpr` intercepts `(enum_lit name)` against an expected
+  nominal enum and validates the variant exists. Unknown variant →
+  `error: no variant 'purple' on enum 'Color'`.
+- `emit.emitEnum` lowers to `pub const X = enum { ... };`. When any
+  variant has an explicit value, falls back to `enum(u32)` so
+  Zig accepts the explicit tag.
+- `emit.emitErrorSet` lowers to `pub const X = error { ... };` so
+  future fallible signatures compose naturally with `try`.
+- `print` polish: when sema knows the arg's type is `String` (bare
+  identifier OR struct member access), emit uses `{s}` instead of
+  `{any}`. `struct_basic.rig` now prints `Steve` not byte codes.
+
+### M8+ — Beyond V1
 Match / try-block lowering (currently `@compileError` placeholders),
-enum + errors field metadata, generic struct lowering (parsed in M0,
-typed as opaque nominals in M6), method syntax on structs, stdlib
-seed (Vec, HashMap, String, Result, Option), module system, LSP,
-async/coroutines, and the eventual fold of `effects.zig` into
-`types.zig` once expression typing is rich enough to express
-"non-fallible expected here" naturally.
+payload-bearing enum variants, qualified enum access (`Color.red`),
+explicit error sets in `T!E` return types, opaque types, generic
+struct lowering (parsed in M0, typed as opaque nominals in M6),
+method syntax on structs, stdlib seed (Vec, HashMap, String, Result,
+Option), module system, LSP, async/coroutines, and the eventual fold
+of `effects.zig` into `types.zig` once expression typing is rich
+enough to express "non-fallible expected here" naturally.
 
 ## Beyond V1 (deferred per SPEC §V2/V3)
 

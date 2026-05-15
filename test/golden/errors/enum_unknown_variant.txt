@@ -1,0 +1,2 @@
+examples/enum_unknown_variant.rig:9:15: error: no variant `purple` on enum `Color`
+examples/enum_unknown_variant.rig:3:6:   note: `Color` declared here

@@ -1,0 +1,9 @@
+## M7: enum literal whose variant doesn't exist on the expected enum.
+
+enum Color
+  red
+  green
+  blue
+
+sub main()
+  c: Color = .purple

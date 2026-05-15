@@ -1,0 +1,15 @@
+## M7: error set declaration. Same IR shape as enum, lowers to Zig
+## `pub const X = error { ... };`. Once typed-error returns land
+## (M8+), `fun foo() -> User!NetworkError` will let `propagate` /
+## `catch` reason about specific error tags.
+##
+## EXPECTED: clean (no diagnostics).
+
+error NetworkError
+  timeout
+  refused
+  reset
+
+sub main()
+  e: NetworkError = .timeout
+  print(e)

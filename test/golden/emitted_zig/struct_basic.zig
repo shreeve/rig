@@ -7,5 +7,5 @@ pub const User = struct {
 
 pub fn main() void {
     const u = User{ .name = "Steve", .age = 30 };
-    std.debug.print("{any}\n", .{ u.name });
+    std.debug.print("{s}\n", .{ u.name });
 }

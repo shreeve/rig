@@ -547,14 +547,98 @@ sema level. 141/141 integration tests pass (was 115 at M5 close).
 
 - Enum / errors / opaque field metadata — `nominal_type` symbols of
   these kinds still have `fields = null`. They lower to `@compileError`
-  placeholders in emit. M7 territory.
+  placeholders in emit. (Closed in M7 for enum + errors.)
 - Generic struct types (`type Box(T) = struct { value: T }`) — generic
   params aren't yet bound in scope, so `T` doesn't resolve.
 - Method declarations on structs — Rig doesn't have method syntax yet.
 - Field defaults (`name: String = "anon"`) — parsed, ignored.
 - Field decoration (`pre name: T`, `pub name: T`) — parsed, ignored.
 - Match patterns on struct fields — match itself is still
-  `@compileError` until M7.
+  `@compileError` until match lowering lands.
+
+## M7 — Enum + error-set typing & lowering ✅
+
+Closes the enum / error-set half of the M6-deferred list. Enum
+declarations populate per-variant fields, enum literals (`.red`)
+type-check against the contextually expected enum, and both `enum`
+and `error` declarations lower to clean Zig — `bin/rig run` works
+end-to-end on enum programs.
+
+### M7 — Sema enum / errors variants ✅
+
+- [x] `TypeResolver.resolveEnumVariants` walks `(enum Name v...)` and
+  `(errors Name v...)` (same IR shape) and stores one `Field` per
+  variant in `Symbol.fields`. Variant `ty` is `void_id` for now —
+  M7 v1 only handles C-style enums (no payload variants).
+- [x] `(valued name expr)` variants are recognized; the value
+  expression isn't typed at the sema level (passes through to emit).
+- [x] `error NetworkError` (singular keyword, plural IR head) flows
+  through the same resolver — turned out to be a typo in my prior
+  test, not a parser bug.
+
+### M7 — ExprChecker: enum literal contextual typing ✅
+
+- [x] `checkExpr(expr, expected)` intercepts `(enum_lit name)` before
+  falling through to `synthExpr`. When `expected` is a `nominal(SymId)`
+  pointing at an enum/errors symbol with resolved fields, the variant
+  name is verified against the field list.
+- [x] Unknown variant fires:
+  `error: no variant 'purple' on enum 'Color'` + decl-site note.
+- [x] Without an expected nominal type (or for opaque/undeclared
+  enums), the literal is silently accepted — preserves M5's
+  no-spam-on-unknown policy.
+
+### M7 — Emit: enum + error lowering ✅
+
+- [x] `emit.emitEnum`: `(enum Color a b c)` → `pub const Color = enum { a, b, c };`
+- [x] `(valued)` variants forced an explicit integer tag type; emit
+  detects the presence of any `(valued ...)` variant and falls back
+  to `pub const Status = enum(u32) { ok = 0, ... };` so `zig
+  ast-check` is happy.
+- [x] `emit.emitErrorSet`: `(errors NetworkError t r)` → `pub const
+  NetworkError = error { t, r, };`. Lowers to Zig's distinct error
+  set type so future fallible signatures (`-> User!NetworkError`)
+  compose naturally with `try`.
+
+### M7 — print() polish for typed strings ✅
+
+`print(u.name)` previously emitted `std.debug.print("{any}\n", ...)`
+because emit's `isStringLiteral` only inspected raw `.src` quote
+characters. With sema available, `isStringLiteral` now also returns
+true when:
+
+  - A bare identifier resolves to a String-typed binding
+  - A `(member obj name)` resolves to a struct field whose declared
+    type is `String`
+
+Both lookups scan all `sema.symbols` by name (emit doesn't track
+scope; collisions are rare and only affect print formatting).
+`struct_basic.rig` now prints `Steve` instead of `{ 83, 116, ... }`.
+
+### M7 — Test corpus
+
+  examples/enum_basic.rig             — clean: enum + `.red` literal + print
+  examples/enum_unknown_variant.rig   — `.purple` against `Color`
+  examples/enum_valued.rig            — `enum Status { ok = 0, ... }` lowers + runs
+  examples/error_set.rig              — `error NetworkError { ... }` clean
+
+`enum_basic.rig` and `enum_valued.rig` added to `EMIT_TARGETS` for
+end-to-end Zig ast-check + emit golden coverage.
+
+161/161 integration tests pass (was 141 at M6 close). 4 new unit
+tests in `src/types.zig` cover variant collection, literal
+type-checking, and error-set field population.
+
+### M7 deferred — explicitly NOT done in M7
+
+- Payload-bearing enum variants (`Some(value: T)`).
+- Match expression typing + lowering (still `@compileError`).
+- Qualified enum access (`Color.red` rather than `.red`) —
+  parses as `(member Color red)`; sema doesn't yet recognize
+  type-qualified variant references.
+- Error union with explicit set (`-> User!NetworkError`) — only
+  open `T!` works at the type level; the error set isn't tracked.
+- `opaque` declarations — parsed, fields stay null, no lowering.
 
 ## IR uniformity refactors (post-V1 polish)
 
