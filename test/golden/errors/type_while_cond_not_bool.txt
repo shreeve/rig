@@ -1,0 +1,1 @@
+examples/type_while_cond_not_bool.rig:4:9: error: type mismatch: expected `Bool`, got `<int literal>`

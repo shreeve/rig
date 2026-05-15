@@ -1,0 +1,11 @@
+## M5(3/n): call argument type must match the parameter's declared type.
+##
+## `consume(a: Int)` declares an Int param; passing a String literal
+## must fire a type-mismatch diagnostic at the call site.
+
+fun consume(a: Int) -> Int
+  a
+
+sub main()
+  x = consume("nope")
+  print x

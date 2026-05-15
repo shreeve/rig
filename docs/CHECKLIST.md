@@ -323,6 +323,147 @@ moving to M5.
   pointer-type comments removed).
 - [x] M4.5b commit landed.
 
+## M5 — Real type checking ✅
+
+After M4.5 paid down semantic correctness debt, M5 added a real type
+checker so subsequent passes consume sema facts instead of re-walking
+the IR or relying on syntactic heuristics. Landed across 6 sub-commits,
+each with a dedicated GPT-5.5 design checkpoint (conversation
+`c_7552c1a82c518dcf`).
+
+### M5(1/n) — Foundation ✅
+
+- [x] `src/types.zig` skeleton: stable `SymbolId` / `ScopeId` / `TypeId`
+  (u32, slot 0 = invalid sentinel).
+- [x] `Type` union enum with all M5 v1 variants: `invalid`, `unknown`,
+  `void`, `bool`, `string`, `int{bits, signed}`, `float{bits}`,
+  `optional(T)`, `fallible(T)`, `borrow_read(T)`, `borrow_write(T)`,
+  `slice(T)`, `array(T, len)`, `function{params, returns, is_sub}`,
+  `nominal(SymbolId)`. (Pseudo-types `int_literal` / `float_literal`
+  added in M5(3/n).)
+- [x] `TypeStore` interner with primitives pre-interned at construction.
+- [x] `SemContext` central data structure with arena-backed allocations.
+- [x] Symbol resolution pass: walks IR, opens scopes for fn body /
+  block / for / catch / arm in lockstep with M2 ownership scope shape.
+  Binds functions, params, locals, type aliases, externs, modules.
+- [x] Pipeline wired: `parse → normalize → sema → effects → ownership → emit`.
+- [x] Commit `11599c5` landed.
+
+### M5(2/n) — Type expression resolution ✅
+
+- [x] `TypeResolver` walks each top-level decl after symbol resolution.
+- [x] Resolves declared type Sexps to `TypeId`s and writes them back
+  into each symbol's `ty` slot (params, return type, alias targets,
+  extern types).
+- [x] Functions get a complete `function` `Type` with full param +
+  return signatures.
+- [x] Recognizes primitive type names (`Int`, `Float`, `Bool`, `String`,
+  `Void`), sized variants (`I8`–`I64`, `U8`–`U64`, `F32`/`F64`),
+  composites (`(optional T)`, `(error_union T)`, `(borrow_read T)`,
+  `(borrow_write T)`, `(slice T)`, `(array_type N T)`, `(fn_type ...)`).
+- [x] Unknown nominal names silently return `invalid_id` (deferred
+  diagnostic — Rig has no module system / forward decls yet, and
+  every example uses undeclared `User`/`Profile`/`Ast`/etc. that
+  the user is conceptually forward-declaring).
+- [x] Commit `b939227` landed.
+
+### M5(3/n) — Expression typing ✅
+
+- [x] `ExprChecker` adds the actual type checker. Three entry points:
+  `synthExpr(expr) -> TypeId` (bottom-up), `checkExpr(expr, expected)`
+  (synth + compatibility check), `checkStmt(stmt)` (statement context).
+- [x] Statement-vs-value context distinction (per GPT-5.5's design
+  pass): `checkStmt` doesn't unify `if`-arm types; `synthExpr` on a
+  value-position `if` requires `else` and unifies arms exactly.
+- [x] Numeric literal pseudo-types `int_literal` / `float_literal`
+  added to TypeStore. Adapt to declared sized numeric types at use
+  sites; default to canonical `Int` / `Float` without context.
+  Avoids the `x: U8 = 0` footgun without committing to a general
+  coercion lattice.
+- [x] Function bodies: each statement walks via `checkStmt`; the LAST
+  statement of a non-Void `fun` checks against the declared return
+  type (implicit return).
+- [x] `(set ...)` bindings: declared type drives RHS check; otherwise
+  RHS is synthesized and the canonical form stored on the symbol
+  (`Int`, NOT `int_literal`).
+- [x] `(return value)`: value checked against enclosing fn's return type.
+- [x] `(if cond then else?)` value-position: cond must be Bool, else
+  required, arms must unify.
+- [x] `(while cond body else?)`: cond must be Bool.
+- [x] `(call callee args...)`: arity + arg-type checked when callee
+  resolves to a function symbol. Kwarg-bearing calls skip type
+  check (constructor sugar — needs struct-field metadata).
+- [x] Logical (`&&`, `||`, `not`) require Bool args.
+- [x] Diagnostics use a `formatType` helper that renders TypeIds as
+  human-readable strings (`Int`, `U8`, `String`, `T?`, `T!`, `?T`,
+  `[]Int`, `[3]I32`, `<int literal>`, `<float literal>`).
+- [x] `next_scope_cursor` mirrors SymbolResolver's scope creation
+  order so `current_scope` always points at the correct sema scope
+  during typing.
+- [x] 5 negative test examples (`type_if_mismatch`, `type_return_mismatch`,
+  `type_call_arity`, `type_cond_not_bool`) + 1 positive
+  (`type_literal_coerce`).
+- [x] 7 unit tests in `src/types.zig`.
+- [x] Commit `e02616c` landed.
+
+### M5(4/n) — Effects consumes SemContext ✅
+
+- [x] `effects.Checker` gains `sema: ?*const types.SemContext` field
+  and `initWithSema` constructor.
+- [x] `lookupFallibility(name)` consults sema's symbol table when
+  available; falls back to local `sigs` for unit tests using
+  hand-built IR.
+- [x] `main.zig` wires `initWithSema` in both `checkAndReport` and
+  `parseAndCheckOrExit`.
+- [x] No diagnostic-text changes — the M4.5 visibility rules apply
+  unchanged, just sourced from sema.
+- [x] New unit test exercises the sema-driven path end-to-end.
+- [x] Commit `c7f5252` landed.
+
+### M5(5/n) — Ownership consumes SemContext for Copy/Move ✅
+
+- [x] `ownership.Checker` gains `sema` field and `initWithSema`
+  constructor.
+- [x] `checkPlainUse` calls `semaBindingIsCopy(b)` first; Copy
+  primitives skip move/drop/write-borrow checks entirely.
+- [x] Position-based binding-to-symbol matching avoids parallel
+  scope-cursor tracking. O(N) per lookup — fine for V1.
+- [x] Copy classification (M5 v1): Bool, Int (any size), Float (any
+  size), String, literal pseudo-types. Everything else is Move.
+- [x] New positive test `copy_after_move.rig`: `n: Int; consume <n;
+  print n` is clean.
+- [x] Existing move/drop/borrow tests preserve their diagnostics
+  (Move types unchanged).
+- [x] Commit `46b1672` landed.
+
+### M5(6/n) — Emitter consumes SemContext for constructor disambiguation ✅
+
+- [x] `emit.Emitter` gains `sema` field and `initWithSema` constructor.
+- [x] `emitCall` uses sema-driven priority (per GPT-5.5's Q4):
+  resolved nominal → struct literal; resolved function → call;
+  unresolved → fallback to kwarg-presence heuristic.
+- [x] `parseAndCheckOrExit` now returns `CheckedProgram { ir, sema }`
+  so `buildAndEmit` and `buildAndRun` can pass sema through to
+  `Emitter.initWithSema`.
+- [x] Hello still runs end-to-end; no example output changes (current
+  examples don't declare struct types, so the fallback fires and
+  produces identical results).
+- [x] Commit `333dc14` landed.
+
+### M5 deferred — explicitly NOT done in M5
+
+- Member access (`obj.name`) still returns `unknown` — needs struct
+  field types we don't yet collect.
+- Constructor sugar `User(name: ...)` returns the nominal type but
+  arg types aren't checked against fields (same reason).
+- Generic types parsed and bound as opaque nominals; not lowered.
+- `match` and `try_block` still emit `@compileError` placeholders.
+- Emitter's `scanMutations` is still name-based (would need sema
+  to track per-symbol mutability — a sema enhancement, not a
+  consumer change).
+- Effects.zig kept as a separate pass — folding into sema awaits
+  richer expression typing (M6+).
+
 ## IR uniformity refactors (post-V1 polish)
 
 - [x] `for_read` / `for_write` / `for_move` / `for_none` collapsed into `(for mode binding source body)` per SPEC.

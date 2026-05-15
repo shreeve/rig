@@ -1,0 +1,1 @@
+examples/type_call_arg.rig:10:15: error: type mismatch: expected `Int`, got `String`

@@ -68,33 +68,68 @@ intermediate hardening milestone landed:
   tokens). Emitter `name_arena` for shadow names (no test-allocator leak).
   Single-quoted strings lower to Zig double-quoted. Doc refresh.
 
-### M5 — Real type checking 🟡
-After M4.5 the front-end and emitter are honest about what they don't
-know. M5 adds a real type checker so we can:
+### M5 — Real type checking ✅
+Landed across 6 sub-commits, each with a GPT-5.5 design checkpoint:
 
-- Symbol table (functions, params, locals, type aliases, generic decls).
-- Core types (integers, floats, bool, string, void, `T?`, `T!`, `?T`,
-  `!T`, slices/arrays).
-- Expression typing (literals, names, calls, member/index, infix,
-  if-result unification, try/propagate).
-- Fallibility rules at the type level (no body inference; signatures
-  authoritative).
-- Ownership integrates with Copy vs Move classification for plain-use.
-- Emitter consumes typed facts (no name-only mutation scan, etc.).
+- **M5(1/n):** `src/types.zig` foundation. `SemContext`, `TypeStore`
+  interner, `Symbol` / `Scope`, stable `SymbolId` / `ScopeId` /
+  `TypeId`. Symbol resolution pass populates module-scope and nested
+  scopes (fn body, block, for, catch, arm) with all declarations.
+- **M5(2/n):** Type expression resolution. Each declared type Sexp
+  (`(error_union T)`, `(optional T)`, `(borrow_read T)`, etc.) is
+  converted to a `TypeId` and written back into the symbol's `ty`
+  slot. Functions get a complete `function` Type with param + return
+  types. Unknown nominal names silently return `invalid_id` (deferred
+  diagnostic — Rig has no module system yet).
+- **M5(3/n):** Expression typing. `synthExpr` / `checkExpr` /
+  `checkStmt` walk function bodies with statement-vs-value context.
+  Literal pseudo-types (`int_literal` / `float_literal`) adapt to
+  declared sized numerics. Value-position `if` requires `else` and
+  unifies arms; statement-position arms walk independently. Calls
+  check arity + arg types against the resolved signature. Returns
+  check against the declared return type. Diagnostics with
+  `formatType` rendering (e.g., `Int`, `U8`, `String`, `User?`,
+  `[]Int`).
+- **M5(4/n):** Effects checker consumes `SemContext`. Local
+  `FunSig` collection replaced with sema-driven lookup; the same
+  M4.5 visibility rules apply via the authoritative symbol table.
+- **M5(5/n):** Ownership consumes `SemContext` for Copy/Move
+  classification. Copy primitives (`Bool`, `Int`, `Float`, `String`,
+  literal pseudo-types) skip the move/drop/write-borrow checks in
+  `checkPlainUse`; Move types still follow the conservative M4.5
+  rules. Position-based binding-to-symbol matching avoids lockstep
+  scope tracking.
+- **M5(6/n):** Emitter consumes `SemContext` for constructor
+  disambiguation. `Foo(...)` lowers to a struct literal when sema
+  resolves `Foo` to a nominal type, a function call when it
+  resolves to a function, and falls back to the kwarg-presence
+  heuristic only for unresolved names.
 
-Success criterion:
+Success criteria from the M5 design pass — all met:
 ```
-fun foo() -> Int    # body uses bar()! → type error
+fun foo() -> Int    # body uses bar()! → effects + sema both fire
 fun foo() -> Int!   # OK
-x = fallible()      # type error: unhandled fallible value
+x = fallible()      # effects fires (sema lookup confirms fallibility)
 x = fallible()!     # OK
 x = if cond 1 else 2          # types as Int
-x = if cond 1 else "no"       # type error
+x = if cond 1 else "no"       # type error: incompatible if arms
+```
+
+Pipeline post-M5:
+```
+parse → normalize → sema (symbols + types + expr typing)
+                 → effects (sema)
+                 → ownership (sema, with Copy/Move classification)
+                 → emit (sema, with constructor disambiguation)
 ```
 
 ### M6+ — Beyond V1
-Generics lowering, match/try-block lowering, stdlib (Vec, HashMap,
-String, Result, Option), module system, LSP, async/coroutines.
+Generics lowering (parsed in M0, type-checked in M5, not yet emitted),
+match/try-block lowering (currently `@compileError` placeholders),
+stdlib seed (Vec, HashMap, String, Result, Option), module system,
+LSP, async/coroutines, and the eventual fold of `effects.zig` into
+`types.zig` once expression typing is rich enough to express
+"non-fallible expected here" naturally.
 
 ## Beyond V1 (deferred per SPEC §V2/V3)
 

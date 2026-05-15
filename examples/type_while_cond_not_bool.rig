@@ -1,0 +1,5 @@
+## M5(3/n): `while` conditions must be Bool (same rule as `if`).
+
+sub main()
+  while 1
+    print "loop"

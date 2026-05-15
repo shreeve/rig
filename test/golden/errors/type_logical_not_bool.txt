@@ -1,0 +1,1 @@
+examples/type_logical_not_bool.rig:6:15: error: type mismatch: expected `Bool`, got `<int literal>`

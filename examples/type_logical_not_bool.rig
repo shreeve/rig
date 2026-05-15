@@ -1,0 +1,7 @@
+## M5(3/n): `&&` and `||` require Bool operands.
+##
+## Passing a non-Bool to a logical op must fire.
+
+sub main()
+  x = true && 1
+  print x
