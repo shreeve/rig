@@ -118,10 +118,14 @@ tokens
     write_pfx       # !x   write borrow (also !T error union via the rewriter)
     share_pfx       # *x   share ownership (also *T pointer type via the rewriter)
     drop_stmt       # -x   drop (statement-only)
-    prop_q          # x?   propagate failure (suffix); also T?  optional type (suffix)
-                    #      same token, parser disambiguates by non-terminal state
-    suffix_bang     # T!   fallible type / error union (suffix)
-                    #      (rewriter classifies `!` after a value/type-ender)
+    suffix_q        # T?  optional type (suffix on type, in type rule)
+                    # x?  RESERVED — future optional-propagation
+                    #     (rewriter classifies `?` after a value-ender;
+                    #     the `?` family is optional / null)
+    suffix_bang     # T!  fallible type / error union (suffix on type)
+                    # x!  propagate failure (suffix on expression)
+                    #     (rewriter classifies `!` after a value-ender;
+                    #     the `!` family is errors / failure)
     kwarg_name      # name in `Type(name: value)` constructor sugar
                     # (rewriter promotes IDENT to KWARG_NAME inside parens
                     # when immediately followed by `:`)
@@ -251,8 +255,8 @@ tokens
 # Conflict budget — Rig adds sigil prefixes + propagation + new bindings
 # on top of Zag's 19. After type-suffix `T?` / `T!` syntax was added,
 # the `type` non-terminal grew 24 expected shift/reduce conflicts
-# (12 each for PROP_Q and SUFFIX_BANG suffixes); shift-prefer correctly
-# extends the type with more suffixes (e.g., `T?!` parses as
+# (12 each for SUFFIX_Q and SUFFIX_BANG suffixes); shift-prefer
+# correctly extends the type with more suffixes (e.g., `T?!` parses as
 # `(error_union (optional T))`).
 @conflicts = 44
 
@@ -376,9 +380,7 @@ params   = "(" L(field) ")"                 → (...2)
 returns  = "->" type                        → 2
 
 type     = name
-         | type PROP_Q                      → (optional 1)     # T?  optional type (suffix binds tightest)
-                                                               #      reuses PROP_Q token (same as expr? propagate);
-                                                               #      parser disambiguates by non-terminal state
+         | type SUFFIX_Q                    → (optional 1)     # T?  optional type (suffix binds tightest)
          | type SUFFIX_BANG                 → (error_union 1)  # T!  fallible type (error union)
          | READ_PFX             type        → (borrow_read 2)  # ?T  read-borrowed type (param/return)
          | WRITE_PFX            type        → (borrow_write 2) # !T  write-borrowed type (param/return)
@@ -546,7 +548,9 @@ call     = call "." "*"                     → (deref 1)
          | call "[" expr "]"                → (index 1 3)
          | call L(arg)                      → (call 1 ...2)
          | call "(" args ")"                → (call 1 ...3)
-         | call PROP_Q                      → (propagate 1)   # x?  postfix propagation
+         | call SUFFIX_BANG                 → (propagate 1)   # x!  propagate failure (suffix on expression);
+                                                              #     same SUFFIX_BANG token as `T!` fallible type
+                                                              #     (parser disambiguates by non-terminal state)
          | atom
 
 args     = L(callarg)                       → (...1)

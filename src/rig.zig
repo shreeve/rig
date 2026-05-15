@@ -405,7 +405,7 @@ pub fn keywordAs(name: []const u8) ?KeywordId {
 //                                                  builtin call `@name(...)` stays `at`)
 //   -x   tight + statement-start   → drop_stmt    (else `minus_prefix` per Zag rule
 //                                                  or infix `minus`)
-//   x?   tight + value-ender prev  → prop_q       (else `question`)
+//   x?   tight + value-ender prev  → suffix_q     (else `question`)
 //
 // Ownership prefixes that ALSO need rewriter classification (because
 // the bare token is also infix or has a type-rule role that would
@@ -618,16 +618,20 @@ pub const Lexer = struct {
                 }
             }
 
-            // ? → question | prop_q | read_pfx
+            // ? → question | suffix_q | read_pfx
             //
-            //   tight + value-ender preceding   → prop_q     (postfix propagation `expr?`)
+            //   tight + value-ender preceding   → suffix_q   (T? optional suffix in type
+            //                                                 context; reserved for future
+            //                                                 optional-propagation in expr
+            //                                                 context — `?` family is
+            //                                                 optional / null)
             //   isPrefixSigil                   → read_pfx   (`?T`, `?x`, `?user`)
             //   else                            → question
             if (tok.cat == .question) {
                 if (tok.pre == 0 and isValueCat(self.last_cat)) {
                     var prop = tok;
-                    prop.cat = .prop_q;
-                    self.last_cat = .prop_q;
+                    prop.cat = .suffix_q;
+                    self.last_cat = .suffix_q;
                     return prop;
                 }
                 if (self.isPrefixSigil(tok)) {
@@ -813,7 +817,7 @@ pub const Lexer = struct {
             .ident, .integer, .real, .string_sq, .string_dq,
             .true, .false,
             .rparen, .rbracket, .rbrace,
-            .prop_q,
+            .suffix_q,
             => true,
             else => false,
         };
@@ -831,7 +835,7 @@ pub const Lexer = struct {
             .ident, .integer, .real, .string_sq, .string_dq,
             .true, .false,
             .rparen, .rbracket, .rbrace,
-            .prop_q,
+            .suffix_q,
             => true,
             else => false,
         };

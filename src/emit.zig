@@ -920,7 +920,7 @@ test "emit: fixed_bind always const" {
 test "emit: propagate becomes try" {
     const source =
         \\fun foo() -> Int
-        \\  bar()?
+        \\  bar()!
         \\
         \\sub main()
         \\  x = foo()

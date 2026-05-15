@@ -285,7 +285,7 @@ new    explicit shadow
 ## Binding
 
 ```rig
-user = loadUser(id)?
+user = loadUser(id)!
 ```
 
 Binds if new.
@@ -297,7 +297,7 @@ Assigns if existing.
 ## Fixed Binding
 
 ```rig
-user =! loadUser(id)?
+user =! loadUser(id)!
 ```
 
 Creates an immutable/fixed binding.
@@ -446,12 +446,14 @@ Failure should remain visible through result handling.
 
 # Fallibility / Error Propagation
 
-Rig uses suffix `?` for propagation.
+Rig uses suffix `!` for error propagation. The `!` family is errors;
+the `?` family is optionality / null. Each spelling has exactly one
+meaning — see "## The ?/! Triangle" above.
 
 ## Propagation
 
 ```rig
-user = loadUser(id)?
+user = loadUser(id)!
 ```
 
 Meaning:
@@ -467,7 +469,9 @@ Equivalent Zig lowering:
 const user = try loadUser(id);
 ```
 
-The `?` form is intentionally reserved for propagation only.
+The suffix `!` form is reserved for error propagation. (Suffix `?` on
+expression is reserved for future optional-propagation, e.g.,
+`firstUser()?` if `firstUser` returns `User?`.)
 
 ---
 
@@ -499,11 +503,13 @@ const user = loadUser(id) catch |err| {
 Rig intentionally separates:
 
 ```text
-expr?              propagate failure
+expr!              propagate failure
 expr catch |err|   recover locally
 ```
 
-This keeps `?` lightweight and visually obvious.
+This keeps `!` lightweight and visually obvious — and consistent with
+the `T!` (fallible type) spelling: a function returning `T!` is
+called with `f()!` to propagate.
 
 ---
 
@@ -513,8 +519,8 @@ Rig supports value-producing `try/catch` blocks.
 
 ```rig
 view = try
-  user = loadUser(id)?
-  profile = loadProfile(user.id)?
+  user = loadUser(id)!
+  profile = loadProfile(user.id)!
   UserView(?user, ?profile)
 catch |err|
   log.warn "failed to build view: {err}"
@@ -525,7 +531,7 @@ Meaning:
 
 ```text
 run the block
-any expression marked with ? may propagate into catch
+any expression marked with ! may propagate into catch
 try yields the final successful expression
 catch yields the fallback expression
 ```
@@ -539,7 +545,7 @@ This preserves:
 
 while still providing ergonomic block recovery.
 
-Only expressions marked with `?` may escape to `catch`.
+Only expressions marked with `!` may escape to `catch`.
 
 ---
 
@@ -562,7 +568,7 @@ The suffix `!` on a type makes it **fallible** (an error union).
 ## The `?` / `!` Triangle
 
 Rig keeps the meaning of `?` and `!` clean by giving each position a
-distinct role:
+distinct role, and by giving each *family* a single domain:
 
 ```text
    ?x   prefix on expression  read borrow
@@ -571,13 +577,23 @@ distinct role:
    !T   prefix on type        write-borrowed parameter / return
    T?   suffix on type        optional T (T or null)
    T!   suffix on type        fallible T (T or error)
-   x?   suffix on expression  propagate failure
+   x!   suffix on expression  propagate failure
+   x?   suffix on expression  RESERVED for future optional-propagation
+                              (Swift-style "if null, propagate null")
 ```
 
 So:
 - **Prefix `?` / `!`** = borrow (in either expression or type position).
-- **Suffix `?` / `!`** = type modifier (optional / fallible).
-- **Suffix `?` on expression** = propagate.
+- **`?` family** = optionality / null. Suffix-on-type and (future)
+  suffix-on-expression both belong to the optional/null world.
+- **`!` family** = errors / failure. Suffix-on-type (`T!` fallible)
+  and suffix-on-expression (`x!` propagate) both belong to the
+  error-handling world.
+
+The propagation symbol matches the type it operates on: a function
+returning `User!` is called with `f()!` to propagate the error; a
+function returning `User?` (someday) is called with `f()?` to
+propagate the null.
 
 The two halves never collide; each spelling has exactly one meaning.
 
@@ -598,7 +614,7 @@ else
 
 ```rig
 x = try
-  loadUser(id)?
+  loadUser(id)!
 catch |err|
   User(name: "guest")
 ```
@@ -1025,8 +1041,8 @@ Allowed.
 ## Fixed Binding Reassignment
 
 ```rig
-user =! loadUser(id)?
-user = refreshUser(id)?
+user =! loadUser(id)!
+user = refreshUser(id)!
 ```
 
 Must error.

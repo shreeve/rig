@@ -9,5 +9,5 @@ fun refreshUser(id: U64) -> User!
   User(name: "Steve")
 
 sub main()
-  user =! loadUser(1)?
-  user = refreshUser(1)?
+  user =! loadUser(1)!
+  user = refreshUser(1)!

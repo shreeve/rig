@@ -33,7 +33,7 @@ sub main()
   print total
 
   # Fixed (immutable) binding with `?`-propagation.
-  user =! loadUser(1)?
+  user =! loadUser(1)!
 
   # Read borrow.
   print ?user
@@ -43,8 +43,8 @@ sub main()
 
   # Value-yielding try/catch block.
   view = try
-    u = loadUser(1)?
-    p = loadProfile(u.id)?
+    u = loadUser(1)!
+    p = loadProfile(u.id)!
     UserView(?u, ?p)
   catch |err|
     log.warn "view failed"
