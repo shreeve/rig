@@ -15,6 +15,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+const types = @import("types.zig");
 const effects = @import("effects.zig");
 const ownership = @import("ownership.zig");
 const emit = @import("emit.zig");
@@ -146,8 +147,13 @@ fn checkAndReport(allocator: std.mem.Allocator, io: std.Io, source: []const u8, 
         std.process.exit(1);
     };
 
-    // Effects → Ownership. Both write to the same stdout stream so we
-    // see all diagnostics in one go.
+    // Sema → Effects → Ownership. Sema produces the symbol/type context
+    // (currently used for symbol resolution; type checking lands in
+    // subsequent M5 commits). Effects + Ownership still operate
+    // independently on the IR; future commits will let them consume sema.
+    var sema = try types.check(allocator, source, ir);
+    defer sema.deinit();
+
     var eff = try effects.Checker.init(allocator, source);
     defer eff.deinit();
     try eff.check(ir);
@@ -159,11 +165,12 @@ fn checkAndReport(allocator: std.mem.Allocator, io: std.Io, source: []const u8, 
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     const w: *std.Io.Writer = &stdout_writer.interface;
+    try sema.writeDiagnostics(file_path, w);
     try eff.writeDiagnostics(file_path, w);
     try checker.writeDiagnostics(file_path, w);
     try w.flush();
 
-    if (eff.hasErrors() or checker.hasErrors()) std.process.exit(1);
+    if (sema.hasErrors() or eff.hasErrors() or checker.hasErrors()) std.process.exit(1);
 }
 
 /// Parse + run the full checker pipeline (effects → ownership) and abort
@@ -187,6 +194,9 @@ fn parseAndCheckOrExit(
         std.process.exit(1);
     };
 
+    var sema = try types.check(allocator, source, ir);
+    defer sema.deinit();
+
     var eff = try effects.Checker.init(allocator, source);
     defer eff.deinit();
     try eff.check(ir);
@@ -195,10 +205,11 @@ fn parseAndCheckOrExit(
     defer checker.deinit();
     try checker.check(ir);
 
-    if (eff.hasErrors() or checker.hasErrors()) {
+    if (sema.hasErrors() or eff.hasErrors() or checker.hasErrors()) {
         var stderr_buffer: [4096]u8 = undefined;
         var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
         const ew: *std.Io.Writer = &stderr_writer.interface;
+        try sema.writeDiagnostics(file_path, ew);
         try eff.writeDiagnostics(file_path, ew);
         try checker.writeDiagnostics(file_path, ew);
         try ew.flush();

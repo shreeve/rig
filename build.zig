@@ -97,4 +97,13 @@ pub fn build(b: *std.Build) void {
     const effects_tests = b.addTest(.{ .root_module = effects_test_mod });
     const run_effects_tests = b.addRunArtifact(effects_tests);
     test_step.dependOn(&run_effects_tests.step);
+
+    const types_test_mod = b.createModule(.{
+        .root_source_file = b.path("src/types.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const types_tests = b.addTest(.{ .root_module = types_test_mod });
+    const run_types_tests = b.addRunArtifact(types_tests);
+    test_step.dependOn(&run_types_tests.step);
 }
