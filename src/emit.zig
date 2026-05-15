@@ -20,9 +20,11 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+const normalize = @import("normalize.zig");
 
 const Sexp = parser.Sexp;
 const Tag = rig.Tag;
+const BindingKind = rig.BindingKind;
 const Writer = std.Io.Writer;
 
 pub const Error = std.mem.Allocator.Error || Writer.Error;
@@ -386,42 +388,50 @@ pub const Emitter = struct {
     }
 
     fn emitSet(self: *Emitter, items: []const Sexp) Error!void {
-        // Unified 5-child shape:
-        //   (set <kind> name type-or-_ expr)
-        //
-        //   kind = _       → default `=`
-        //   kind = fixed   → `=!`  (always emits `const`)
-        //   kind = shadow  → `new x = ...`  (rename to fresh Zig symbol)
-        //   kind = move    → `x <- expr`  (Zig moves are implicit at assign)
-        //   kind = +=, -=, *=, /=  → compound assignment
+        // Unified 5-child shape: (set <kind> name type-or-_ expr).
+        // BindingKind is exhaustive, so the switch below is checked by Zig.
         if (items.len < 5) return;
-        const kind = items[1];
+        const kind = normalize.bindingKindOf(items[1]);
         const name = identText(self.source, items[2]) orelse return;
         const type_node = items[3];
         const expr = items[4];
-        const has_type = type_node != .nil;
 
-        const is_fixed = kind == .tag and kind.tag == .fixed;
-        const is_shadow = kind == .tag and kind.tag == .shadow;
-        const is_compound = kind == .tag and switch (kind.tag) {
-            .@"+=", .@"-=", .@"*=", .@"/=" => true,
-            else => false,
-        };
-
-        if (is_compound) {
-            // Compound assigns `+=`, `-=`, etc. — target must already exist.
-            const zig_name = self.lookup(name) orelse name;
-            try self.w.print("{s} {s} ", .{ zig_name, @tagName(kind.tag) });
-            try self.emitExpr(expr);
-            try self.w.writeAll(";");
-            return;
+        switch (kind) {
+            .@"+=", .@"-=", .@"*=", .@"/=" => try self.emitCompoundAssign(name, kind, expr),
+            .@"move", .default => try self.emitSetOrBind(name, type_node, expr, false, false),
+            .fixed => try self.emitSetOrBind(name, type_node, expr, true, false),
+            .shadow => try self.emitSetOrBind(name, type_node, expr, false, true),
         }
+        // Exhaustive on BindingKind — Zig enforces.
+    }
 
+    fn emitCompoundAssign(self: *Emitter, name: []const u8, kind: BindingKind, expr: Sexp) Error!void {
+        const zig_name = self.lookup(name) orelse name;
+        const op_str: []const u8 = switch (kind) {
+            .@"+=" => "+=",
+            .@"-=" => "-=",
+            .@"*=" => "*=",
+            .@"/=" => "/=",
+            else => unreachable,
+        };
+        try self.w.print("{s} {s} ", .{ zig_name, op_str });
+        try self.emitExpr(expr);
+        try self.w.writeAll(";");
+    }
+
+    fn emitSetOrBind(
+        self: *Emitter,
+        name: []const u8,
+        type_node: Sexp,
+        expr: Sexp,
+        is_fixed: bool,
+        is_shadow: bool,
+    ) Error!void {
+        const has_type = type_node != .nil;
         var zig_name: []const u8 = name;
         const found = self.lookup(name);
 
         if (is_shadow or found == null) {
-            // Fresh declaration
             if (is_shadow and found != null) {
                 // Mark the shadowed binding as "used" so Zig doesn't error
                 // on the now-unreachable original.
@@ -429,8 +439,7 @@ pub const Emitter = struct {
                 zig_name = try self.freshShadow(name);
             }
             try self.declare(name, zig_name);
-            // `var` only if reassigned later (Zig requires never-mutated
-            // bindings to be `const`). `=!` always emits `const`.
+            // `var` only if reassigned later. `=!` always emits `const`.
             const is_mutated = self.fn_mutated.contains(name);
             const decl_kw: []const u8 = if (is_fixed or !is_mutated) "const" else "var";
             if (has_type) {
@@ -443,7 +452,6 @@ pub const Emitter = struct {
             try self.emitExpr(expr);
             try self.w.writeAll(";");
         } else {
-            // Reassignment (type annotation ignored on rebind).
             try self.w.print("{s} = ", .{found.?});
             try self.emitExpr(expr);
             try self.w.writeAll(";");
@@ -851,8 +859,6 @@ fn isErrorUnion(t: Sexp) bool {
 // Tests
 // =============================================================================
 
-const normalize = @import("normalize.zig");
-
 fn emitSourceToString(allocator: std.mem.Allocator, rig_source: []const u8) ![]u8 {
     var p = parser.Parser.init(allocator, rig_source);
     defer p.deinit();
@@ -974,18 +980,14 @@ fn scanMutationsRec(
         // Don't descend into nested fn/sub/lambda
         if (tag == .@"fun" or tag == .@"sub" or tag == .@"lambda") return;
         if (tag == .@"set" and items.len >= 5) {
-            // (set <kind> name type expr) — target is at items[2].
-            // Only count toward "mutated" when the kind is actually a
-            // reassignment (`_` default `=`, compound `+=` / `-=` / ..., or
-            // `move`). `fixed` and `shadow` create fresh bindings.
-            const kind = items[1];
-            const counts_as_mut = blk: {
-                if (kind == .nil) break :blk true; // default `=`
-                if (kind != .tag) break :blk false;
-                break :blk switch (kind.tag) {
-                    .@"+=", .@"-=", .@"*=", .@"/=", .@"move" => true,
-                    else => false, // fixed, shadow, etc.
-                };
+            // (set <kind> name type expr). Only kinds that actually
+            // reassign an existing slot count toward "must be `var`".
+            // Exhaustive switch on BindingKind — adding a new kind to
+            // the enum forces an explicit decision here.
+            const kind = normalize.bindingKindOf(items[1]);
+            const counts_as_mut: bool = switch (kind) {
+                .default, .@"move", .@"+=", .@"-=", .@"*=", .@"/=" => true,
+                .fixed, .shadow => false,
             };
             if (counts_as_mut) {
                 const target = items[2];

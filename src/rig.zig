@@ -203,6 +203,32 @@ pub const Tag = enum(u8) {
 };
 
 // =============================================================================
+// BindingKind — exhaustive enum for the kind slot of `(set <kind> ...)`
+// =============================================================================
+//
+// The normalized binding shape is:
+//
+//     (set <kind> name type-or-_ expr)
+//
+// `<kind>` is one of: `_` (nil), or a Tag (`.fixed`, `.shadow`, `.@"move"`,
+// `.@"+="`, etc.). At dispatch sites we want Zig to FORCE us to handle
+// every kind — so we map the kind slot into this exhaustive enum (no
+// trailing `_,` member). `normalize.bindingKindOf(kind_slot)` is the
+// converter; consumers (M2 walkSet, M3 emitSet, scanMutations) switch on
+// this enum and the compiler refuses to build a switch missing any arm.
+
+pub const BindingKind = enum {
+    default,    // `=`            — kind slot is `_` (nil)
+    fixed,      // `=!`           — kind slot is `.fixed`
+    shadow,     // `new x = ...`  — kind slot is `.shadow`
+    @"move",    // `<-`           — kind slot is `.@"move"`
+    @"+=",      // compound add-assign
+    @"-=",      // compound sub-assign
+    @"*=",      // compound mul-assign
+    @"/=",      // compound div-assign
+};
+
+// =============================================================================
 // Keyword lookup — maps identifier text to parser symbol IDs
 // =============================================================================
 //

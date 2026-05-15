@@ -21,9 +21,11 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+const normalize = @import("normalize.zig");
 
 const Sexp = parser.Sexp;
 const Tag = rig.Tag;
+const BindingKind = rig.BindingKind;
 
 pub const Severity = enum { @"error", note };
 
@@ -373,107 +375,95 @@ pub const Checker = struct {
         });
     }
 
-    /// Universal binding walker. Handles all forms via the kind discriminator
-    /// at items[1]:
-    ///
-    ///   (set <kind> name type expr)
-    ///
-    ///   kind = _       → default `=` (bind or rebind, walked together)
-    ///   kind = fixed   → fixed bind (`=!`)
-    ///   kind = shadow  → explicit shadow (`new x = ...`)
-    ///   kind = move    → move-assign (`x <- expr`); semantics of (move expr)
-    ///   kind = +=, -=, *=, /=  → compound assignment; target must already exist
+    /// Universal binding walker. Decodes the kind slot of `(set <kind> ...)`
+    /// into the exhaustive `BindingKind` enum and dispatches via a switch
+    /// that the Zig compiler enforces to be exhaustive — adding a new
+    /// `BindingKind` variant breaks the build until this function handles it.
     fn walkSet(self: *Checker, items: []const Sexp) Error!void {
         if (items.len < 5) return;
-        const kind = items[1];
+        const kind = normalize.bindingKindOf(items[1]);
         const target = items[2];
         const expr = items[4];
 
         // RHS effects first.
         try self.walk(expr, false);
 
-        // For `move` kind, the target receives the moved value — we must
-        // also mark the source as moved. Synthesize a (move <name>) walk.
-        if (kind == .tag and kind.tag == .@"move") {
+        // For `<-` move-assign, the target receives the moved value — we
+        // must also mark the source as moved. Synthesize a (move <expr>)
+        // walk so the borrow checker observes the move on the source name.
+        if (kind == .@"move") {
             const move_wrap = [_]Sexp{ .{ .tag = .@"move" }, expr };
             try self.walkBorrow(&move_wrap, .move_op);
         }
 
-        const target_name = identName(self.source, target);
-        if (target_name == null) {
+        const target_name = identName(self.source, target) orelse {
             try self.walk(target, false);
             return;
-        }
-        const nm = target_name.?;
+        };
+        const nm = target_name;
         const target_pos: u32 = if (target == .src) target.src.pos else 0;
 
-        // Decode kind
-        const is_fixed = kind == .tag and kind.tag == .fixed;
-        const is_shadow = kind == .tag and kind.tag == .shadow;
-        const is_compound = kind == .tag and switch (kind.tag) {
-            .@"+=", .@"-=", .@"*=", .@"/=" => true,
-            else => false,
-        };
+        switch (kind) {
+            .shadow => try self.bindFreshAlways(nm, target_pos, false, expr),
+            .fixed => try self.bindFreshNoCollide(nm, target_pos, true, expr),
+            .default, .@"move" => try self.reassignOrBindFresh(nm, target_pos, expr, false),
+            .@"+=", .@"-=", .@"*=", .@"/=" => try self.reassignOrBindFresh(nm, target_pos, expr, true),
+        }
+        // No `else` — exhaustive on BindingKind. Adding a new kind to
+        // rig.BindingKind will break this build until we handle it here.
+    }
 
-        if (is_shadow) {
-            // Always create fresh in current scope.
-            const idx = try self.addBinding(.{
-                .name = nm,
-                .declared_at = target_pos,
-            });
-            self.maybeRecordBoundBorrow(idx, expr);
+    /// Always create a fresh binding in the current scope (for `shadow`).
+    fn bindFreshAlways(self: *Checker, nm: []const u8, pos: u32, fixed: bool, expr: Sexp) Error!void {
+        const idx = try self.addBinding(.{
+            .name = nm,
+            .fixed = fixed,
+            .declared_at = pos,
+        });
+        self.maybeRecordBoundBorrow(idx, expr);
+    }
+
+    /// Create a fresh binding, erroring if the name already exists in the
+    /// current (innermost) scope (for `fixed`).
+    fn bindFreshNoCollide(self: *Checker, nm: []const u8, pos: u32, fixed: bool, expr: Sexp) Error!void {
+        if (self.lookupCurrent(nm)) |bi| {
+            const b = &self.bindings.items[bi];
+            try self.err(pos, "binding `{s}` already exists in this scope", .{nm});
+            try self.note(b.declared_at, "previous binding here", .{});
             return;
         }
+        try self.bindFreshAlways(nm, pos, fixed, expr);
+    }
 
-        if (is_fixed) {
-            if (self.lookupCurrent(nm)) |bi| {
-                const b = &self.bindings.items[bi];
-                try self.err(target_pos, "binding `{s}` already exists in this scope", .{nm});
-                try self.note(b.declared_at, "previous binding here", .{});
-                return;
-            }
-            const idx = try self.addBinding(.{
-                .name = nm,
-                .fixed = true,
-                .declared_at = target_pos,
-            });
-            self.maybeRecordBoundBorrow(idx, expr);
-            return;
-        }
-
-        // Default `=`, compound `+= -= *= /=`, or `move`-assign.
+    /// If the name resolves in any visible scope, reassign it (with the
+    /// usual fixed/moved/borrow checks). Otherwise create a fresh binding
+    /// — unless `is_compound`, in which case compound-on-undefined errors.
+    fn reassignOrBindFresh(self: *Checker, nm: []const u8, pos: u32, expr: Sexp, is_compound: bool) Error!void {
         if (self.lookup(nm)) |bi| {
-            // Existing binding: reassign.
             const b = &self.bindings.items[bi];
             if (b.fixed) {
-                try self.err(target_pos, "cannot reassign fixed binding `{s}`", .{nm});
+                try self.err(pos, "cannot reassign fixed binding `{s}`", .{nm});
                 try self.note(b.declared_at, "`{s}` was bound here with `=!`", .{nm});
                 return;
             }
             if (b.state == .moved) {
-                try self.err(target_pos, "cannot reassign `{s}` (would write to moved value)", .{nm});
+                try self.err(pos, "cannot reassign `{s}` (would write to moved value)", .{nm});
                 try self.note(b.moved_at, "`{s}` was moved here", .{nm});
                 return;
             }
             if (b.read_borrows > 0 or b.write_borrows > 0) {
-                try self.err(target_pos, "cannot reassign `{s}` while borrows are live", .{nm});
+                try self.err(pos, "cannot reassign `{s}` while borrows are live", .{nm});
                 return;
             }
             b.state = .valid;
             self.maybeRecordBoundBorrow(bi, expr);
             return;
         }
-
-        // Fresh binding in current scope.
         if (is_compound) {
-            try self.err(target_pos, "compound assignment `{s} <op>= ...` requires `{s}` to be already bound", .{ nm, nm });
+            try self.err(pos, "compound assignment on undefined `{s}`", .{nm});
             return;
         }
-        const idx = try self.addBinding(.{
-            .name = nm,
-            .declared_at = target_pos,
-        });
-        self.maybeRecordBoundBorrow(idx, expr);
+        try self.bindFreshAlways(nm, pos, false, expr);
     }
 
     /// If `expr` is a borrow wrapper around a name (`(read X)` or `(write X)`),
@@ -767,8 +757,6 @@ fn lineCol(source: []const u8, pos: u32) LineCol {
 // =============================================================================
 // Tests
 // =============================================================================
-
-const normalize = @import("normalize.zig");
 
 /// Test helper. Owns its own arena for the normalizer's Sexp allocations
 /// to keep tests leak-clean. The returned Checker still holds diagnostics

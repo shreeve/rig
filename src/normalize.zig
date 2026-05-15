@@ -15,6 +15,39 @@ const rig = @import("rig.zig");
 
 const Sexp = parser.Sexp;
 const Tag = rig.Tag;
+const BindingKind = rig.BindingKind;
+
+// =============================================================================
+// IR queries (used by M2 ownership and M3 emit)
+// =============================================================================
+
+/// Decode the kind slot of a normalized binding form `(set <kind> ...)`
+/// into the exhaustive `BindingKind` enum. The kind slot is `.nil` for
+/// the default `=` form, or a `.tag` carrying one of the kind markers
+/// (`.fixed`, `.shadow`, `.@"move"`, `.@"+="`, etc.).
+///
+/// Switching on the returned `BindingKind` at consumer sites lets Zig
+/// enforce exhaustive coverage of every binding kind — adding a new
+/// kind to the enum will break every dispatch site at compile time
+/// until you handle it.
+///
+/// A kind slot we don't recognize falls through to `.default` rather
+/// than panicking; in practice the normalizer only ever emits the
+/// kinds listed above, so an unknown kind would indicate IR corruption.
+pub fn bindingKindOf(kind_slot: Sexp) BindingKind {
+    if (kind_slot == .nil) return .default;
+    if (kind_slot != .tag) return .default;
+    return switch (kind_slot.tag) {
+        .fixed => .fixed,
+        .shadow => .shadow,
+        .@"move" => .@"move",
+        .@"+=" => .@"+=",
+        .@"-=" => .@"-=",
+        .@"*=" => .@"*=",
+        .@"/=" => .@"/=",
+        else => .default,
+    };
+}
 
 pub const Normalizer = struct {
     arena: *std.mem.Allocator,

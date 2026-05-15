@@ -221,11 +221,12 @@ unless we're already in a `try` / `propagate` context (tracked by
 - [x] `typed_set` / `typed_fixed` collapsed into `set` / `fixed_bind` with a type slot. All bind forms now use uniform 4-child shape `(<head> name type-or-_ expr)`.
 - [x] `extern_var` / `extern_const` collapsed into `(extern <kind> name type)`. Reuses the existing `extern` Tag — the standalone decl (4-child) is shape-distinguishable from the decoration wrapper (2-child).
 - [x] All binding heads (`set`, `set_op`, `fixed_bind`, `shadow`, `move_assign`, `typed_set`, `typed_fixed`) collapsed into a single `(set <kind> name type-or-_ expr)` shape. Kind tag at items[1] is one of `_` (default `=`), `fixed`, `shadow`, `move`, `+=`, `-=`, `*=`, `/=`. M2 walkSet and M3 emitSet are now single functions with kind-dispatch.
+- [x] Exhaustive `BindingKind` enum (in `src/rig.zig`) replaces ad-hoc `kind == .tag and kind.tag == .fixed` checks at the three kind-dispatch sites (`walkSet`, `emitSet`, `scanMutations`). `normalize.bindingKindOf(slot)` decodes the kind slot into the exhaustive enum. Adding a new `BindingKind` variant now breaks the build at every dispatch site until handled — verified by injecting a `proof` variant and confirming Zig rejected all 3 switch sites with `switch must handle all possibilities`.
 
 Future candidates (not yet pursued):
 
 - decoration wrappers (`pub`/`extern`/`export`/`packed`/`callconv`) could become a uniform `(decorate <kind> child)` with `(callconv "C")` carrying its name. Low priority — current wrappers are clear.
-- For cross-cutting kind dispatches (e.g., `walkSet` / `emitSet` switching on the binding kind), introducing a purpose-specific exhaustive enum like `BindingKind { default, fixed, shadow, move_, plus_eq, minus_eq, star_eq, slash_eq }` would let Zig's compiler force every dispatch site to handle every kind (vs the current `Tag`-based switch that needs `else` because `Tag` is non-exhaustive). Worth doing when a kind dispatch site grows large enough that "did I forget a kind?" becomes a real risk.
+- The `BindingKind` pattern (exhaustive enum + decode helper, with consumer sites switching on the enum and Zig enforcing exhaustive coverage) generalizes. Future candidates: `ForMode { read, write, move, none }` for `(for <mode> ...)`, `ExternKind { var_, fixed }` for `(extern <kind> ...)`. Apply whenever a kind dispatch site has 3+ arms and we want compile-time exhaustiveness.
 
 ## SPEC-aligned vs inherited-pending-review
 
