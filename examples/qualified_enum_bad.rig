@@ -1,0 +1,7 @@
+## M11: qualified enum access with an unknown variant must error.
+
+enum Color
+  red
+
+sub main()
+  c: Color = Color.purple

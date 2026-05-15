@@ -1,0 +1,16 @@
+## M11: qualified enum access (`Color.red`).
+##
+## Same as `.red` but written explicitly with the enum name. Sema
+## type-checks the variant exists and lowers naturally to Zig's
+## `Color.red` syntax.
+##
+## EXPECTED: clean. Runs and prints `.red`.
+
+enum Color
+  red
+  green
+  blue
+
+sub main()
+  c: Color = Color.red
+  print(c)

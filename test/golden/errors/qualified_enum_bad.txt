@@ -1,0 +1,2 @@
+examples/qualified_enum_bad.rig:7:20: error: no variant `purple` on enum `Color`
+examples/qualified_enum_bad.rig:3:6:   note: `Color` declared here

@@ -2096,21 +2096,55 @@ const ExprChecker = struct {
     }
 
     fn synthMember(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        // (member obj name). M6: if obj's type is a nominal struct
-        // with declared fields, return the field's type; otherwise
-        // (opaque nominal, primitive, unresolved) return unknown so
-        // downstream typing keeps flowing without spurious errors.
+        // (member obj name). Two flavors:
+        //
+        //   1. Type-qualified access: obj is a `.src` whose name
+        //      resolves to a `nominal_type` symbol (typically an
+        //      enum/errors). `Color.red` is then equivalent to
+        //      `.red` in a `Color`-expecting context — return
+        //      `nominal(Color)`. Unknown variant fires.
+        //
+        //   2. Value member access: obj's TYPE is `nominal(SymId)`
+        //      (struct instance). Look up the field on the symbol;
+        //      return its declared type. Unknown field fires.
+        //
+        //   3. Anything else (opaque nominal, primitive, unresolved)
+        //      returns `unknown` silently so downstream typing keeps
+        //      flowing without spurious errors.
         if (items.len < 3) return self.ctx.types.unknown_id;
 
-        const obj_ty_id = try self.synthExpr(items[1]);
+        const obj = items[1];
         const field_node = items[2];
         const field_name = identAt(self.ctx.source, field_node) orelse return self.ctx.types.unknown_id;
+        const pos: u32 = if (field_node == .src) field_node.src.pos else 0;
 
-        // Sentinels propagate without error spam.
+        // Flavor 1: type-qualified access (e.g., `Color.red`).
+        if (obj == .src) {
+            const oname = self.ctx.source[obj.src.pos..][0..obj.src.len];
+            if (self.ctx.lookup(self.current_scope, oname)) |sym_id| {
+                const sym = self.ctx.symbols.items[sym_id];
+                if (sym.kind == .nominal_type) {
+                    if (sym.fields) |variants| {
+                        for (variants) |v| {
+                            if (std.mem.eql(u8, v.name, field_name)) {
+                                return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = sym_id }) catch self.ctx.types.unknown_id;
+                            }
+                        }
+                        try self.err(pos, "no variant `{s}` on enum `{s}`", .{ field_name, sym.name });
+                        if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
+                        return self.ctx.types.unknown_id;
+                    }
+                    // Opaque nominal — accept silently.
+                    return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = sym_id }) catch self.ctx.types.unknown_id;
+                }
+            }
+        }
+
+        // Flavor 2: value member access on a struct instance.
+        const obj_ty_id = try self.synthExpr(obj);
         if (obj_ty_id == self.ctx.types.invalid_id or obj_ty_id == self.ctx.types.unknown_id) {
             return self.ctx.types.unknown_id;
         }
-
         const obj_ty = self.ctx.types.get(obj_ty_id);
         if (obj_ty != .nominal) return self.ctx.types.unknown_id;
 
@@ -2121,12 +2155,8 @@ const ExprChecker = struct {
             if (std.mem.eql(u8, f.name, field_name)) return f.ty;
         }
 
-        // Field doesn't exist on this struct.
-        const pos: u32 = if (field_node == .src) field_node.src.pos else 0;
         try self.err(pos, "no field `{s}` on type `{s}`", .{ field_name, sym.name });
-        if (sym.decl_pos > 0) {
-            try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
-        }
+        if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
         return self.ctx.types.unknown_id;
     }
 
@@ -3437,6 +3467,40 @@ test "M10: value-position match requires exhaustive coverage" {
         if (std.mem.indexOf(u8, d.message, "not exhaustive") != null) found = true;
     }
     try std.testing.expect(found);
+}
+
+// -----------------------------------------------------------------------------
+// M11: qualified enum access tests
+// -----------------------------------------------------------------------------
+
+test "M11: qualified `Color.red` types as the enum" {
+    const source =
+        \\enum Color
+        \\  red
+        \\  green
+        \\
+        \\sub main()
+        \\  c: Color = Color.red
+        \\  print(c)
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(!ctx.hasErrors());
+}
+
+test "M11: qualified access with unknown variant fires" {
+    const source =
+        \\enum Color
+        \\  red
+        \\
+        \\sub main()
+        \\  c: Color = Color.purple
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
 }
 
 test "M9a: payload-bearing enum variant carries field metadata" {
