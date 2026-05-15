@@ -1,1 +1,1 @@
-(module (sub main () _ (block (= user (call User (pair name "Steve"))) (= r (read user)) (call rename (write user)))))
+(module (sub main () _ (block (set _ user _ (call User (kwarg name "Steve"))) (set _ r _ (read user)) (call rename (write user)))))

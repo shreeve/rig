@@ -1,1 +1,1 @@
-(module (sub main () _ (block (= x 1) (shadow x 2) (call print x))))
+(module (sub main () _ (block (set _ x _ 1) (set shadow x _ 2) (call print x))))

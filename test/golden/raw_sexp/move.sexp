@@ -1,1 +1,1 @@
-(module (sub main () _ (block (= packet (call make_packet)) (call send (move packet)) (call log (read packet)))))
+(module (sub main () _ (block (set _ packet _ (call make_packet)) (call send (move packet)) (call log (read packet)))))

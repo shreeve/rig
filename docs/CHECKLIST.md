@@ -283,6 +283,37 @@ Future candidates (not yet pursued):
 
 - ✅ **DONE** — Nexus minor-version bump that emits `BaseLexer` + `Lexer` (auto-wire) for the lex stage and `BaseParser` + `Parser` (auto-wire) for the parse stage, plus top-level `parseProgram` / `parseExpr` convenience helpers. Rig is the first downstream consumer to exercise the `Parser` auto-wire end-to-end; `parser.parseProgram(allocator, source)` returns the fully-rewritten semantic IR in one call.
 
+- ✅ **DONE** — Tag literals at child positions in grammar actions. Nexus 0.10.x+ supports `→ (set move 1 _ 3)` directly: bare identifiers/operators at child positions emit as literal `Tag` Sexps. This collapses the sexer dramatically — see "Grammar emits the normalized shape directly" below.
+
+- ⚠️ **Open Nexus quirk (worked-around, not blocking)** — Leading `_` (nil) at the first child position immediately after the head tag `for` is silently dropped by the simple-case emit path in Nexus, but only for `(for _ ...)` specifically (the same shape works fine with `(set _ ...)`, `(foo _ ...)`, etc.). Reproducer: `(for _ 2 _ 4 5)` emits `&.{pass[1], .nil, pass[3], pass[4]}` (4 children, leading `.nil` missing) instead of the expected `&.{.nil, pass[1], .nil, pass[3], pass[4]}`. Workaround: Rig's grammar uses an explicit `iter` Tag for the default for-mode (not `_`), which sidesteps the bug AND makes the IR cleaner (every `for` has an explicit mode tag — `iter` / `read` / `write` / `move` / `ptr`). Long-term fix is in Nexus's `generateParenAction` / element-parsing path.
+
+## Grammar emits the normalized shape directly
+
+With the Nexus tag-literal-at-child-position support, Rig's grammar emits
+the fully-normalized semantic IR shape directly via grammar actions for
+**nearly every form**. The sexer's only remaining job is **one
+inspection-requiring transform** that fundamentally can't be expressed
+declaratively: promoting the `for` source's outer ownership wrapper
+(`(read xs)` / `(write xs)` / `(move xs)`) into the for-mode slot,
+because the grammar can't peek inside a child to decide what to do.
+
+Concrete result: `bin/rig parse` (raw, BaseParser only) and
+`bin/rig normalize` (BaseParser + sexer) produce **byte-identical
+output** on `borrow.rig`, `drop.rig`, `fixed.rig`, `move.rig`, and
+`shadow.rig`. Only `showcase.rig` differs, and only on the one for-loop
+that uses `?users`.
+
+The sexer (`Parser` in `src/rig.zig`) shrunk from ~10 dispatch arms +
+3 helper functions (~150 LOC) to a single `walk` + `normFor` (~80 LOC).
+M2 (ownership) and M3 (emit) are unchanged — they were already consuming
+the normalized shape, so consolidating production into the grammar was
+purely a structural cleanup.
+
+The `for`-mode slot now uses `iter` (explicit "default value iteration")
+instead of `_` (nil) for the unrewritten case, both to sidestep the
+Nexus quirk noted above AND to make the IR cleaner — every `for` has an
+explicit mode tag.
+
 ## SPEC-aligned vs inherited-pending-review
 
 Constructs Zag provides that Rig should validate against SPEC during M1/M2:

@@ -8,31 +8,61 @@ The IR's design rule:
 
 > Visible effects in the source must be visible Tags in the IR. Cosmetic head-renames clean up parser noise. No type info is added at this stage; M2/M3 do that.
 
-## Cheat sheet — raw → normalized
+## Grammar emits the normalized shape directly
 
-| Raw S-expr from parser          | Normalized                      | Note                                                |
-|---------------------------------|---------------------------------|-----------------------------------------------------|
-| `(= target expr)`               | `(set _      target _    expr)` | All bindings collapse into a single `set` head with a kind discriminator at items[1]. Default `=` uses `_` (nil) for kind. |
-| `(+= target expr)` etc.         | `(set +=     target _    expr)` | compound assignment; op tag is the kind             |
-| `(move_assign target expr)`     | `(set move   target _    expr)` | `<-` move-assign; the `move` kind tells M2 to move source |
-| `(fixed_bind name expr)`        | `(set fixed  name   _    expr)` | `=!` immutable bind; kind = `fixed`                 |
-| `(shadow name expr)`            | `(set shadow name   _    expr)` | `new x = expr` explicit shadow; kind = `shadow`     |
-| `(typed_assign name type expr)` | `(set _      name   type expr)` | typed `=` folds into `set` with type slot populated |
-| `(typed_fixed name type expr)`  | `(set fixed  name   type expr)` | typed `=!` folds into `set fixed` with type slot    |
-| `(extern_var name type)`        | `(extern _ name type)`          | extern variable; reuses `extern` Tag (4-child s     hape distinguishes from the 2-child wrapper) |
-| `(extern_const name type)`      | `(extern fixed name type)`      | extern const; same Tag, kind = `fixed`              |
-| `(. obj name)`                  | `(member obj name)`             | cosmetic                                            |
-| `(pair name expr)`              | `(kwarg name expr)`             | named call args / constructor sugar                 |
-| `(? T)`                         | `(optional T)`                  | (legacy raw form; new syntax `T?` emits `(optional T)` directly via grammar action)            |
-| `(for x _ (read xs) body)`      | `(for read x _ xs body)`        | SPEC §"Semantic IR Nodes": `(for <mode> binding1 binding2-or-_ source body)` — mode at items[1], optional second binding (for `for x, i in xs`) at items[3] |
-| `(for x _ (write xs) body)`     | `(for write x _ xs body)`       | mode = `read` / `write` / `move` / `ptr` / `_` (default) |
-| `(for x _ (move xs) body)`      | `(for move x _ xs body)`        |                                                     |
-| `(for x _ source body)`         | `(for _ x _ source body)`       | nil mode = no ownership effect on source            |
-| `(for x i source body)`         | `(for _ x i source body)`       | second binding for `for x, i in xs` (value+index)   |
-| `(for_ptr x _ src body)`        | `(for ptr x _ src body)`        | `for *x in src` (Zag-style pointer iteration) folded into unified `for` head with `ptr` mode |
-| `(for_ptr x i src body)`        | `(for ptr x i src body)`        | `for *x, i in src` (pointer+index)                  |
+As of Nexus 0.10.x+, grammar actions can directly emit literal Tag values
+at child positions (e.g., `→ (set move 1 _ 3)`). This means **the grammar
+emits the fully-normalized IR shape directly for nearly every form** —
+the raw S-expression from `BaseParser` IS the semantic S-expression for
+all bindings, externs, cosmetic renames, and type modifiers.
 
-Everything else (calls, literals, control flow, types) passes through unchanged for M1; M2 and M3 may further normalize.
+The sexer (`Parser` in `src/rig.zig`) is now responsible for **exactly one
+inspection-requiring transform** that can't be expressed declaratively:
+
+> Promoting the `for` source's outer ownership wrapper into the for-mode slot.
+>
+> - `(for iter x _ (read xs) body)` → `(for read x _ xs body)`
+> - `(for iter x _ (write xs) body)` → `(for write x _ xs body)`
+> - `(for iter x _ (move xs) body)` → `(for move x _ xs body)`
+>
+> The grammar can't do this because it requires inspecting the source's head Tag.
+
+For everything else, raw == semantic. For example, with the bedrock examples,
+`bin/rig parse` (raw) and `bin/rig normalize` (semantic) produce byte-identical
+output for `borrow`, `drop`, `fixed`, `move`, `shadow`. Only `showcase` differs,
+and only on the one for-loop that uses `?users`.
+
+## Shapes the grammar emits directly
+
+| Source form              | Emitted IR (grammar action)        | Notes                                          |
+|--------------------------|-------------------------------------|------------------------------------------------|
+| `x = expr`               | `(set _      x _    expr)`         | default kind = `_`                             |
+| `x += expr` etc.         | `(set += x _ expr)`                | compound assign; op is the kind                |
+| `x <- expr`              | `(set move   x _    expr)`         | move-assign                                    |
+| `x =! expr`              | `(set fixed  x _    expr)`         | immutable bind                                 |
+| `new x = expr`           | `(set shadow x _    expr)`         | explicit shadow                                |
+| `x: T = expr`            | `(set _      x T    expr)`         | typed `=`                                      |
+| `x: T =! expr`           | `(set fixed  x T    expr)`         | typed `=!`                                     |
+| `extern x: T`            | `(extern _     x T)`               | extern var                                     |
+| `extern const x: T`      | `(extern fixed x T)`               | extern const                                   |
+| `obj.name`               | `(member obj name)`                | cosmetic (was `(. obj name)`)                  |
+| `f(name: expr)`          | `(kwarg name expr)`                | keyword arg / record sugar (was `(pair ...)`)  |
+| `T?`                     | `(optional T)`                     | suffix optional                                |
+| `T!`                     | `(error_union T)`                  | suffix fallible                                |
+| `expr!`                  | `(propagate expr)`                 | error propagation                              |
+| `for x in xs`            | `(for iter x _ xs body)`           | mode = `iter` (default)                        |
+| `for *x in xs`           | `(for ptr  x _ xs body)`           | mode = `ptr` (Zag-style pointer iter)          |
+| `for x, i in xs`         | `(for iter x i xs body)`           | value + index                                  |
+
+## Shapes the sexer rewrites
+
+| Raw from grammar          | Normalized              | Why sexer-side                              |
+|---------------------------|-------------------------|---------------------------------------------|
+| `(for iter x _ (read xs) body)`  | `(for read x _ xs body)`  | inspect source's head, promote into mode |
+| `(for iter x _ (write xs) body)` | `(for write x _ xs body)` | (same)                                   |
+| `(for iter x _ (move xs) body)`  | `(for move x _ xs body)`  | (same)                                   |
+
+That's it. Everything else passes through unchanged.
 
 ## Full IR shape
 
@@ -89,7 +119,8 @@ where `<kind>` is one of:
 The type slot at items[3] is `_` when there's no annotation, or the
 type expression when there is. There are NO separate `set_op`,
 `fixed_bind`, `shadow`, `move_assign`, `typed_set`, `typed_fixed`
-heads in the normalized IR — all are folded into `set`.
+heads in the IR — every binding form emits as `(set <kind> ...)`
+straight from the grammar.
 
 Statement-only:
 
@@ -117,7 +148,7 @@ Statement-only:
 (while cond body else?)
 (while cond cont body else?)     ; `while c : cont body` form
 (for <mode> binding1 binding2-or-_ source body else?)
-                                            ; mode = read | write | move | ptr | _ (nil = default)
+                                            ; mode = iter (default) | read | write | move | ptr
                                             ; binding2 is `_` for single-binding `for x in xs`
                                             ; or a name for `for x, i in xs` / `for *x, i in xs`
 (match scrutinee arms...)
@@ -207,9 +238,9 @@ INTEGER REAL STRING_SQ STRING_DQ                ; raw parser src refs
 
 ## Notes for M2 (ownership checker)
 
-- `set` may be either a fresh bind or a rebind — the checker decides per scope.
-- `shadow` is always a fresh binding that hides the previous one.
-- `fixed_bind` and `typed_fixed` are always fresh and immutable.
+- `(set _ x ...)` may be either a fresh bind or a rebind — the checker decides per scope.
+- `(set shadow x ...)` is always a fresh binding that hides the previous one.
+- `(set fixed x ...)` is always fresh and immutable.
 - `(move x)`, `(read x)`, `(write x)`, `(drop x)` are the primary borrow-check operations.
 - `(member obj name)` should be treated as a borrow of the path; the checker preserves field paths in diagnostics.
 - `(propagate x)` requires the enclosing function to have an `error_union` return type — this is a **semantic** check at M2 boundary or M3 emit.
@@ -217,8 +248,8 @@ INTEGER REAL STRING_SQ STRING_DQ                ; raw parser src refs
 
 ## Notes for M3 (Zig emitter)
 
-- `(set x e)` lowers to `var x = e;` (first occurrence) or `x = e;` (rebind), per M2's classification.
-- `(fixed_bind x e)` lowers to `const x = e;`.
+- `(set _ x _ e)` lowers to `var x = e;` (first occurrence) or `x = e;` (rebind), per M2's classification.
+- `(set fixed x _ e)` lowers to `const x = e;`.
 - `(propagate e)` lowers to Zig `try e`.
 - `(try_block body (catch_block err catch_body))` lowers to a Zig block expression, possibly via `blk: { ... }` if value-yielding.
 - `(for read x _ xs body)` lowers to `for (xs) |x| { ... }` (Zig's iteration over a const ref) — borrow semantics enforced by the checker, not the emitted Zig.
