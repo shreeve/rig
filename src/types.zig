@@ -251,6 +251,15 @@ pub const SymbolFlags = packed struct {
     _padding: u5 = 0,
 };
 
+/// A field in a nominal type (struct/enum/errors). Stored on the
+/// owning Symbol's `fields` slice when the symbol is a `nominal_type`.
+/// Slice memory is owned by `SemContext.arena`.
+pub const Field = struct {
+    name: []const u8, // borrowed slice into source
+    ty: TypeId,
+    decl_pos: u32,
+};
+
 pub const Symbol = struct {
     name: []const u8,            // borrowed slice into source
     kind: SymbolKind,
@@ -258,6 +267,15 @@ pub const Symbol = struct {
     decl_pos: u32,               // source pos of declaration name
     scope: ScopeId,              // owning scope
     flags: SymbolFlags = .{},
+
+    /// For `nominal_type` symbols (struct/enum/errors), the field list
+    /// declared in the body. `null` until M6 type resolution populates
+    /// it (or for non-nominal kinds). Empty slice means "explicitly no
+    /// fields" (e.g., a marker struct).
+    ///
+    /// Member access (`obj.name`) and constructor checking
+    /// (`User(name: ...)`) consult this list.
+    fields: ?[]const Field = null,
 };
 
 pub const Scope = struct {
@@ -840,8 +858,49 @@ const TypeResolver = struct {
                 try self.resolveExtern(items, parent_scope);
                 return scope_cursor;
             },
+            .@"struct", .@"enum", .@"errors" => {
+                try self.resolveStructFields(items, parent_scope);
+                return scope_cursor;
+            },
             else => return scope_cursor,
         }
+    }
+
+    /// Walk a `(struct name members...)` / `(enum ...)` / `(errors ...)`
+    /// declaration, resolving each `(: name type)` member into a `Field`
+    /// and storing the field list on the nominal symbol.
+    ///
+    /// M6 v1 scope: structs only — enums and errors get an empty field
+    /// list for now (their member shapes differ enough to deserve their
+    /// own resolver in M7+).
+    fn resolveStructFields(self: *TypeResolver, items: []const Sexp, parent_scope: ScopeId) std.mem.Allocator.Error!void {
+        if (items.len < 2) return;
+        const name = identAt(self.ctx.source, items[1]) orelse return;
+        const sym_id = self.ctx.lookup(parent_scope, name) orelse return;
+
+        // Only structs get fields populated for now.
+        if (items[0].tag != .@"struct") return;
+
+        var fields: std.ArrayListUnmanaged(Field) = .empty;
+        defer fields.deinit(self.ctx.allocator);
+
+        for (items[2..]) |member| {
+            // Each member is `(: name type)` or `(: name type default)`.
+            if (member != .list or member.list.len < 3 or member.list[0] != .tag) continue;
+            if (member.list[0].tag != .@":") continue;
+            const fname_node = member.list[1];
+            const ftype_node = member.list[2];
+            const fname = identAt(self.ctx.source, fname_node) orelse continue;
+            const ftype = try self.resolveType(ftype_node, parent_scope);
+            try fields.append(self.ctx.allocator, .{
+                .name = fname,
+                .ty = ftype,
+                .decl_pos = if (fname_node == .src) fname_node.src.pos else 0,
+            });
+        }
+
+        const owned = try self.ctx.arena.allocator().dupe(Field, fields.items);
+        self.ctx.symbols.items[sym_id].fields = owned;
     }
 
     fn resolveFun(self: *TypeResolver, items: []const Sexp, parent_scope: ScopeId, scope_cursor: ScopeId) std.mem.Allocator.Error!ScopeId {
@@ -1521,25 +1580,26 @@ const ExprChecker = struct {
         if (items.len < 2) return self.ctx.types.unknown_id;
         const callee = items[1];
 
-        // If the callee is a known function symbol, check arg arity +
-        // types and return its declared return type.
+        // If the callee is a known symbol, dispatch on its KIND (not on
+        // the symbol's `ty` slot — for nominal types the ty slot is the
+        // self-referential type which we don't pre-intern).
         if (callee == .src) {
             const name = self.ctx.source[callee.src.pos..][0..callee.src.len];
             if (self.ctx.lookup(self.current_scope, name)) |sym_id| {
                 const sym = self.ctx.symbols.items[sym_id];
-                const ty = self.ctx.types.get(sym.ty);
-                switch (ty) {
-                    .function => |fn_ty| {
-                        try self.checkCallArgs(items[2..], fn_ty, name, callee.src.pos);
-                        return fn_ty.returns;
+                switch (sym.kind) {
+                    .function => {
+                        const fn_ty = self.ctx.types.get(sym.ty);
+                        if (fn_ty == .function) {
+                            try self.checkCallArgs(items[2..], fn_ty.function, name, callee.src.pos);
+                            return fn_ty.function.returns;
+                        }
                     },
-                    .nominal => {
+                    .nominal_type, .type_alias, .generic_type => {
                         // Constructor call (e.g., `User(name: "Steve")`).
-                        // The result is the nominal type itself. Args
-                        // are type-unchecked in M5 v1 (need struct
-                        // field metadata which we don't track yet).
-                        for (items[2..]) |arg| _ = try self.synthExpr(arg);
-                        return sym.ty;
+                        // The result is an instance of the nominal type.
+                        try self.checkConstructorArgs(items[2..], sym_id, name, callee.src.pos);
+                        return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = sym_id }) catch self.ctx.types.unknown_id;
                     },
                     else => {},
                 }
@@ -1549,6 +1609,80 @@ const ExprChecker = struct {
         // Unknown callee: synth args anyway so nested type errors fire.
         for (items[1..]) |arg| _ = try self.synthExpr(arg);
         return self.ctx.types.unknown_id;
+    }
+
+    /// Constructor invocation `T(name: value, ...)` against a nominal
+    /// type's declared fields. M6 v1 rules:
+    ///   - Each kwarg must reference a real field (else: unknown-field error)
+    ///   - Each kwarg's value must be assignable to the field's type
+    ///   - Duplicate kwargs are rejected
+    ///   - Missing fields are reported (per missing field, with the
+    ///     struct's decl pos as a note)
+    ///   - Positional args inside a kwarg-bearing call are V1-disallowed
+    ///     (constructor must be all-kwarg or all-positional; mixed is
+    ///     undefined surface and we just synth-and-discard those args).
+    /// If the nominal has no resolved fields (opaque / undeclared
+    /// struct), we synth args and discard — same behavior as M5.
+    fn checkConstructorArgs(
+        self: *ExprChecker,
+        args: []const Sexp,
+        nominal_sym: SymbolId,
+        callee_name: []const u8,
+        callee_pos: u32,
+    ) std.mem.Allocator.Error!void {
+        const sym = self.ctx.symbols.items[nominal_sym];
+        const fields = sym.fields orelse {
+            // No field metadata — opaque nominal. Synth args, return.
+            for (args) |a| _ = try self.synthExpr(a);
+            return;
+        };
+
+        // Track which fields were supplied so we can report missing ones.
+        var seen: std.StringHashMapUnmanaged(u32) = .empty;
+        defer seen.deinit(self.ctx.allocator);
+
+        var has_positional = false;
+        for (args) |arg| {
+            if (arg == .list and arg.list.len >= 3 and arg.list[0] == .tag and
+                arg.list[0].tag == .@"kwarg")
+            {
+                const fname = identAt(self.ctx.source, arg.list[1]) orelse continue;
+                const fpos: u32 = if (arg.list[1] == .src) arg.list[1].src.pos else callee_pos;
+
+                // Duplicate kwarg?
+                if (seen.contains(fname)) {
+                    try self.err(fpos, "duplicate field `{s}` in constructor of `{s}`", .{ fname, callee_name });
+                    if (seen.get(fname)) |first_pos| try self.note(first_pos, "first `{s}` here", .{fname});
+                    continue;
+                }
+                try seen.put(self.ctx.allocator, fname, fpos);
+
+                // Find the field in the declared list.
+                const field = blk: {
+                    for (fields) |f| if (std.mem.eql(u8, f.name, fname)) break :blk f;
+                    try self.err(fpos, "no field `{s}` on type `{s}`", .{ fname, callee_name });
+                    if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{callee_name});
+                    _ = try self.synthExpr(arg.list[2]);
+                    break :blk null;
+                } orelse continue;
+
+                try self.checkExpr(arg.list[2], field.ty);
+            } else {
+                has_positional = true;
+                _ = try self.synthExpr(arg);
+            }
+        }
+
+        // Missing-field check (only when the call was all-kwarg —
+        // mixed/positional constructors are undefined surface in V1).
+        if (!has_positional and fields.len > 0) {
+            for (fields) |f| {
+                if (!seen.contains(f.name)) {
+                    try self.err(callee_pos, "constructor of `{s}` is missing field `{s}`", .{ callee_name, f.name });
+                    if (f.decl_pos > 0) try self.note(f.decl_pos, "field `{s}` declared here", .{f.name});
+                }
+            }
+        }
     }
 
     fn checkCallArgs(
@@ -1587,9 +1721,37 @@ const ExprChecker = struct {
     }
 
     fn synthMember(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        // (member obj name) — V1 doesn't track struct fields, so any
-        // member access is unknown. Walk obj for nested type errors.
-        if (items.len >= 2) _ = try self.synthExpr(items[1]);
+        // (member obj name). M6: if obj's type is a nominal struct
+        // with declared fields, return the field's type; otherwise
+        // (opaque nominal, primitive, unresolved) return unknown so
+        // downstream typing keeps flowing without spurious errors.
+        if (items.len < 3) return self.ctx.types.unknown_id;
+
+        const obj_ty_id = try self.synthExpr(items[1]);
+        const field_node = items[2];
+        const field_name = identAt(self.ctx.source, field_node) orelse return self.ctx.types.unknown_id;
+
+        // Sentinels propagate without error spam.
+        if (obj_ty_id == self.ctx.types.invalid_id or obj_ty_id == self.ctx.types.unknown_id) {
+            return self.ctx.types.unknown_id;
+        }
+
+        const obj_ty = self.ctx.types.get(obj_ty_id);
+        if (obj_ty != .nominal) return self.ctx.types.unknown_id;
+
+        const sym_id = obj_ty.nominal;
+        const sym = self.ctx.symbols.items[sym_id];
+        const fields = sym.fields orelse return self.ctx.types.unknown_id;
+        for (fields) |f| {
+            if (std.mem.eql(u8, f.name, field_name)) return f.ty;
+        }
+
+        // Field doesn't exist on this struct.
+        const pos: u32 = if (field_node == .src) field_node.src.pos else 0;
+        try self.err(pos, "no field `{s}` on type `{s}`", .{ field_name, sym.name });
+        if (sym.decl_pos > 0) {
+            try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
+        }
         return self.ctx.types.unknown_id;
     }
 
@@ -2341,6 +2503,114 @@ test "expr-typing: matching if-arm types pass clean" {
     var ctx = try checkSource(std.testing.allocator, source);
     defer ctx.deinit();
     try std.testing.expect(!ctx.hasErrors());
+}
+
+// -----------------------------------------------------------------------------
+// M6: struct field typing tests
+// -----------------------------------------------------------------------------
+
+test "M6: struct fields populated on the nominal symbol" {
+    const source =
+        \\struct User
+        \\  name: String
+        \\  age: Int
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+
+    const user_id = ctx.lookup(1, "User").?;
+    const fields = ctx.symbols.items[user_id].fields.?;
+    try std.testing.expectEqual(@as(usize, 2), fields.len);
+    try std.testing.expectEqualStrings("name", fields[0].name);
+    try std.testing.expectEqual(ctx.types.string_id, fields[0].ty);
+    try std.testing.expectEqualStrings("age", fields[1].name);
+    try std.testing.expectEqual(ctx.types.int_id, fields[1].ty);
+}
+
+test "M6: member access fires `no field` for unknown name" {
+    const source =
+        \\struct User
+        \\  name: String
+        \\
+        \\sub main()
+        \\  u = User(name: "Steve")
+        \\  print(u.zzz)
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
+    var found = false;
+    for (ctx.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, "no field `zzz`") != null) found = true;
+    }
+    try std.testing.expect(found);
+}
+
+test "M6: constructor fires `missing field` per absent kwarg" {
+    const source =
+        \\struct Point
+        \\  x: Int
+        \\  y: Int
+        \\
+        \\sub main()
+        \\  p = Point(x: 1)
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
+    var found = false;
+    for (ctx.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, "missing field `y`") != null) found = true;
+    }
+    try std.testing.expect(found);
+}
+
+test "M6: constructor wrong-type kwarg fires type mismatch" {
+    const source =
+        \\struct User
+        \\  name: String
+        \\
+        \\sub main()
+        \\  u = User(name: 42)
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    try std.testing.expect(ctx.hasErrors());
+}
+
+test "M6: member access on a known struct returns the field's type" {
+    const source =
+        \\struct User
+        \\  name: String
+        \\
+        \\fun greet(u: User) -> String
+        \\  u.name
+        \\
+    ;
+    var ctx = try checkSource(std.testing.allocator, source);
+    defer ctx.deinit();
+    // The function returns String. If member typing works, the implicit
+    // return `u.name` is checked against `String` and passes — no
+    // diagnostic. If it returned `unknown` we'd silently pass too
+    // (compatible-with-anything sentinel), so we also positively check
+    // by inverting the type and ensuring the diagnostic DOES fire.
+    try std.testing.expect(!ctx.hasErrors());
+
+    const source_bad =
+        \\struct User
+        \\  name: String
+        \\
+        \\fun greet(u: User) -> Int
+        \\  u.name
+        \\
+    ;
+    var ctx2 = try checkSource(std.testing.allocator, source_bad);
+    defer ctx2.deinit();
+    try std.testing.expect(ctx2.hasErrors());
 }
 
 test "expr-typing: untyped binding gets canonical type from RHS" {

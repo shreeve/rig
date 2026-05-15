@@ -123,11 +123,31 @@ parse → normalize → sema (symbols + types + expr typing)
                  → emit (sema, with constructor disambiguation)
 ```
 
-### M6+ — Beyond V1
-Generics lowering (parsed in M0, type-checked in M5, not yet emitted),
-match/try-block lowering (currently `@compileError` placeholders),
-stdlib seed (Vec, HashMap, String, Result, Option), module system,
-LSP, async/coroutines, and the eventual fold of `effects.zig` into
+### M6 — Struct field metadata + member typing ✅
+Closes the two biggest M5-deferred items: member access now resolves
+to declared field types, and constructor invocations are validated
+against the field list (names + types + arity + duplicates).
+
+- New `Field` type + `Symbol.fields` slice. `TypeResolver` populates
+  it from `(struct Name (: field type) ...)` declarations.
+- `synthMember` resolves `obj.name` via the obj's nominal type's field
+  list. Unknown fields fire a sourced diagnostic.
+- `synthCall` for nominal callees calls `checkConstructorArgs` which
+  enforces real-field names, assignability, no-duplicates, and
+  no-missing-fields. Now correctly returns `nominal(SymId)` instead
+  of `unknown_id` (an M5 oversight that broke member typing on
+  user-defined types).
+- `emit.emitStruct` lowers `(struct Name (...))` to Zig
+  `pub const Name = struct { ... };`. Combined with M5(6/n)'s
+  constructor disambiguation, `bin/rig run` works end-to-end on
+  struct programs.
+
+### M7+ — Beyond V1
+Match / try-block lowering (currently `@compileError` placeholders),
+enum + errors field metadata, generic struct lowering (parsed in M0,
+typed as opaque nominals in M6), method syntax on structs, stdlib
+seed (Vec, HashMap, String, Result, Option), module system, LSP,
+async/coroutines, and the eventual fold of `effects.zig` into
 `types.zig` once expression typing is rich enough to express
 "non-fallible expected here" naturally.
 

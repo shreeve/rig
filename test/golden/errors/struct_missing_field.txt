@@ -1,0 +1,2 @@
+examples/struct_missing_field.rig:8:7: error: constructor of `User` is missing field `age`
+examples/struct_missing_field.rig:5:3:   note: field `age` declared here

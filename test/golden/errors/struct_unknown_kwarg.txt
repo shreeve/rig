@@ -1,0 +1,4 @@
+examples/struct_unknown_kwarg.rig:8:27: error: no field `lol` on type `User`
+examples/struct_unknown_kwarg.rig:3:8:   note: `User` declared here
+examples/struct_unknown_kwarg.rig:8:7: error: constructor of `User` is missing field `age`
+examples/struct_unknown_kwarg.rig:5:3:   note: field `age` declared here

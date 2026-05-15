@@ -1,0 +1,9 @@
+## M6: accessing an undeclared field on a known struct must error.
+
+struct User
+  name: String
+  age: Int
+
+sub main()
+  u = User(name: "Steve", age: 30)
+  print(u.zzz)

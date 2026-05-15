@@ -124,6 +124,7 @@ pub const Emitter = struct {
             .@"fun" => try self.emitFun(items, false),
             .@"sub" => try self.emitFun(items, true),
             .@"use" => try self.emitUse(items),
+            .@"struct" => try self.emitStruct(items),
             .@"pub" => {
                 // V1: Rig has no module system, so functions are public by
                 // default and `emitFun` always prefixes `pub`. The explicit
@@ -134,6 +135,25 @@ pub const Emitter = struct {
             },
             else => try self.emitUnsupported("top-level decl"),
         }
+    }
+
+    /// `(struct Name (: field type) ...)` → Zig `const Name = struct { ... };`.
+    /// M6 v1: bare struct types only (no methods, no decorations, no
+    /// generic params yet — those come back when the broader generics
+    /// story lands in M7+).
+    fn emitStruct(self: *Emitter, items: []const Sexp) Error!void {
+        if (items.len < 2) return;
+        const name = identText(self.source, items[1]) orelse "AnonStruct";
+        try self.w.print("pub const {s} = struct {{\n", .{name});
+        for (items[2..]) |member| {
+            if (member != .list or member.list.len < 3 or member.list[0] != .tag) continue;
+            if (member.list[0].tag != .@":") continue;
+            const fname = identText(self.source, member.list[1]) orelse continue;
+            try self.w.print("    {s}: ", .{fname});
+            try self.emitType(member.list[2]);
+            try self.w.writeAll(",\n");
+        }
+        try self.w.writeAll("};\n");
     }
 
     fn emitUse(self: *Emitter, items: []const Sexp) Error!void {

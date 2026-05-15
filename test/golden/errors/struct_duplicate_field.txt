@@ -1,0 +1,2 @@
+examples/struct_duplicate_field.rig:8:27: error: duplicate field `name` in constructor of `User`
+examples/struct_duplicate_field.rig:8:12:   note: first `name` here

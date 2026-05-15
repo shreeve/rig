@@ -1,0 +1,8 @@
+## M6: a constructor kwarg that doesn't name a real field must error.
+
+struct User
+  name: String
+  age: Int
+
+sub main()
+  u = User(name: "Steve", lol: 30)

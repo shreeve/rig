@@ -453,9 +453,9 @@ each with a dedicated GPT-5.5 design checkpoint (conversation
 ### M5 deferred — explicitly NOT done in M5
 
 - Member access (`obj.name`) still returns `unknown` — needs struct
-  field types we don't yet collect.
+  field types we don't yet collect. (Closed in M6.)
 - Constructor sugar `User(name: ...)` returns the nominal type but
-  arg types aren't checked against fields (same reason).
+  arg types aren't checked against fields (same reason). (Closed in M6.)
 - Generic types parsed and bound as opaque nominals; not lowered.
 - `match` and `try_block` still emit `@compileError` placeholders.
 - Emitter's `scanMutations` is still name-based (would need sema
@@ -463,6 +463,98 @@ each with a dedicated GPT-5.5 design checkpoint (conversation
   consumer change).
 - Effects.zig kept as a separate pass — folding into sema awaits
   richer expression typing (M6+).
+
+## M6 — Struct field metadata + member typing ✅
+
+Closes the two biggest M5-deferred items: member access now resolves
+to declared field types, and constructor invocations are validated
+against the field list (names + types + arity + duplicates). With
+struct decls also lowered to Zig, end-to-end struct support works:
+`bin/rig run` on a struct example compiles + runs.
+
+### M6 — Field metadata in sema ✅
+
+- [x] New `Field` struct (`name: []const u8`, `ty: TypeId`, `decl_pos: u32`).
+- [x] `Symbol.fields: ?[]const Field = null` slot. `null` for non-nominal
+  kinds and for nominals before type resolution; populated for `struct`
+  declarations (enum / errors deferred to M7+).
+- [x] `TypeResolver.resolveStructFields` walks each
+  `(struct Name (: field type) ...)` member, resolves the type, and
+  appends a `Field`. Final slice is duped into `SemContext.arena` so
+  it lives as long as the context.
+
+### M6 — Member typing in ExprChecker ✅
+
+- [x] `synthMember(obj, field)` now resolves `obj`'s type. If it's a
+  nominal struct with declared fields, walk the field list and return
+  the matching field's type; otherwise (opaque nominal, primitive,
+  unresolved) return `unknown` — preserves M5's no-spam policy.
+- [x] Unknown field on a known struct fires:
+  `error: no field 'zzz' on type 'User'` plus a note pointing at
+  the struct declaration.
+- [x] `synthCall` for nominal callees calls `checkConstructorArgs`
+  (replaces the prior `unchecked, return sym.ty` path).
+- [x] `synthCall` switch was reshaped to dispatch on `sym.kind` instead
+  of inspecting `sym.ty` so the `nominal_type` / `type_alias` /
+  `generic_type` arms fire consistently. The constructor result is
+  now `intern(.nominal(sym_id))` — the previous M5 code returned the
+  symbol's `ty` slot which for nominal symbols is `unknown_id`,
+  silently breaking member access on user-defined types.
+
+### M6 — Constructor checking ✅
+
+- [x] `checkConstructorArgs(args, sym_id, name, pos)` enforces, for
+  any nominal type with resolved fields:
+  - Each kwarg references a real field (else `no field 'lol' on type 'User'`).
+  - Each kwarg's value is assignable to the field's type
+    (`type mismatch: expected 'String', got '<int literal>'` etc.).
+  - Duplicate kwargs are rejected (`duplicate field 'name' in
+    constructor of 'User'` + first-occurrence note).
+  - Missing fields are reported per-field
+    (`constructor of 'User' is missing field 'age'`).
+- [x] Opaque / undeclared nominals (no resolved fields) fall back to
+  the M5 behavior — synth args, return — so existing examples that
+  reference undeclared types (User, Profile, etc.) still pass.
+
+### M6 — Emit ✅
+
+- [x] `emit.zig` now lowers `(struct Name (: f T) ...)` to Zig:
+  ```zig
+  pub const Name = struct {
+      f: T,
+      ...
+  };
+  ```
+- [x] Combined with M5(6/n)'s constructor disambiguation, `User(...)`
+  now emits as `User{ .x = ... }` and the surrounding `pub const User
+  = struct { ... };` makes it valid Zig.
+- [x] `examples/struct_basic.rig` runs end-to-end via `bin/rig run`,
+  added to `EMIT_TARGETS` for golden coverage.
+
+### M6 — Negative test corpus
+
+  examples/struct_basic.rig             — clean: declared + constructed + accessed
+  examples/struct_unknown_field.rig     — `u.zzz`
+  examples/struct_missing_field.rig     — kwarg list missing required field
+  examples/struct_wrong_field_type.rig  — kwarg value vs field type mismatch
+  examples/struct_unknown_kwarg.rig     — kwarg name doesn't match any field
+  examples/struct_duplicate_field.rig   — same kwarg name twice
+
+5 new unit tests in `src/types.zig` cover the same scenarios at the
+sema level. 141/141 integration tests pass (was 115 at M5 close).
+
+### M6 deferred — explicitly NOT done in M6
+
+- Enum / errors / opaque field metadata — `nominal_type` symbols of
+  these kinds still have `fields = null`. They lower to `@compileError`
+  placeholders in emit. M7 territory.
+- Generic struct types (`type Box(T) = struct { value: T }`) — generic
+  params aren't yet bound in scope, so `T` doesn't resolve.
+- Method declarations on structs — Rig doesn't have method syntax yet.
+- Field defaults (`name: String = "anon"`) — parsed, ignored.
+- Field decoration (`pre name: T`, `pub name: T`) — parsed, ignored.
+- Match patterns on struct fields — match itself is still
+  `@compileError` until M7.
 
 ## IR uniformity refactors (post-V1 polish)
 

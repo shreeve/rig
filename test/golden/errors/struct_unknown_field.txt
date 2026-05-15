@@ -1,0 +1,2 @@
+examples/struct_unknown_field.rig:9:11: error: no field `zzz` on type `User`
+examples/struct_unknown_field.rig:3:8:   note: `User` declared here

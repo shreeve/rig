@@ -1,0 +1,8 @@
+## M6: each kwarg's value must be assignable to the field's declared type.
+
+struct User
+  name: String
+  age: Int
+
+sub main()
+  u = User(name: 42, age: 30)
