@@ -254,11 +254,12 @@ tokens
 
 # Conflict budget — Rig adds sigil prefixes + propagation + new bindings
 # on top of Zag's 19. After type-suffix `T?` / `T!` syntax was added,
-# the `type` non-terminal grew 24 expected shift/reduce conflicts
-# (12 each for SUFFIX_Q and SUFFIX_BANG suffixes); shift-prefer
-# correctly extends the type with more suffixes (e.g., `T?!` parses as
-# `(error_union (optional T))`).
-@conflicts = 34
+# the `type` non-terminal grew expected shift/reduce conflicts for
+# SUFFIX_Q / SUFFIX_BANG. M20d added two more type-position prefixes
+# (`SHARE_PFX type` and `"~" type`), each chaining cleanly into the
+# suffix forms (`*T?` parses as `(optional (shared T))`, etc.) — all
+# four new conflicts are shift-prefer benign.
+@conflicts = 38
 
 @as ident = [keyword]
 
@@ -389,6 +390,8 @@ type     = name
          | type SUFFIX_BANG                 → (error_union 1)  # T!  fallible type (error union)
          | READ_PFX             type        → (borrow_read 2)  # ?T  read-borrowed type (param/return)
          | WRITE_PFX            type        → (borrow_write 2) # !T  write-borrowed type (param/return)
+         | SHARE_PFX            type        → (shared 2)       # M20d: *T  shared / Rc<T>
+         | "~"                  type        → (weak 2)         # M20d: ~T  weak handle paired with *T
          | "(" type ")"                     → 2                # parens for grouping (e.g., ([]T)?)
          | "["              "]" type        → (slice 3)
          | "[" ":" atom     "]" type        → (sentinel_slice 3 5)

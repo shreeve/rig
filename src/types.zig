@@ -109,6 +109,21 @@ pub const Type = union(enum) {
     borrow_read: TypeId,   // ?T  → read-borrowed T
     borrow_write: TypeId,  // !T  → write-borrowed T
 
+    /// M20d: `*T` shared / `Rc<T>` handle. Strict structural equality
+    /// per GPT-5.5's design pass — `*User != User`, `*User != *Owner`,
+    /// `*User != ~User`. No wildcard or coercion behavior; the only way
+    /// to bridge `*T → T`-shaped APIs is the read-only auto-deref that
+    /// lands in M20d(4/5), and even then write/value receivers are
+    /// rejected (interior mutation belongs in `Cell(T)`, M20+ item #7).
+    shared: TypeId,        // *T  → shared T (Rc<T>)
+    /// M20d: `~T` weak handle paired with `*T`. Strict structural
+    /// equality. The runtime `.upgrade()` method returns
+    /// `optional(shared(T))` i.e. `*T?` (built-in optional, NOT the
+    /// user-defined `Option(*T)` — that desugar is a separate, strongly
+    /// deferred milestone). At sema-typing time `(weak x)` in expression
+    /// position requires `x: shared(T)` and types as `weak(T)`.
+    weak: TypeId,          // ~T  → weak T (Weak<T>)
+
     slice: SliceType,
     array: ArrayType,
 
@@ -223,6 +238,8 @@ pub const TypeStore = struct {
             .fallible => |af| af == b.fallible,
             .borrow_read => |abr| abr == b.borrow_read,
             .borrow_write => |abw| abw == b.borrow_write,
+            .shared => |as| as == b.shared,
+            .weak => |aw| aw == b.weak,
             .slice => |as| as.elem == b.slice.elem,
             .array => |aa| aa.elem == b.array.elem and aa.len == b.array.len,
             .function => |af| blk: {
@@ -1940,6 +1957,29 @@ const TypeResolver = struct {
                         const inner = try self.resolveType(items[1], scope);
                         return self.ctx.types.intern(self.ctx.allocator, .{ .borrow_write = inner });
                     },
+                    // M20d: `*T` and `~T` in type position. Distinct
+                    // tags from the expression-position `(share x)`
+                    // form (which keeps the M3 `share` tag) — see
+                    // src/rig.zig's Tag enum for the rationale.
+                    //
+                    // Deliberately permissive at the structural level:
+                    // we DON'T reject `**T` (shared-of-shared) or
+                    // `*?T` (shared-of-borrow) here. Those are not
+                    // useful but the rejection belongs at the usage
+                    // site where a clearer diagnostic can be produced.
+                    // M20d(5/5) adds negative tests pinning the
+                    // expression-position checks (e.g., `~T` operand
+                    // must be `shared(T)`).
+                    .@"shared" => {
+                        if (items.len < 2) return self.ctx.types.invalid_id;
+                        const inner = try self.resolveType(items[1], scope);
+                        return self.ctx.types.intern(self.ctx.allocator, .{ .shared = inner });
+                    },
+                    .@"weak" => {
+                        if (items.len < 2) return self.ctx.types.invalid_id;
+                        const inner = try self.resolveType(items[1], scope);
+                        return self.ctx.types.intern(self.ctx.allocator, .{ .weak = inner });
+                    },
                     .@"slice" => {
                         if (items.len < 2) return self.ctx.types.invalid_id;
                         const elem = try self.resolveType(items[1], scope);
@@ -2273,6 +2313,8 @@ pub fn typeEqualsAfterSubst(
     return switch (ty) {
         .borrow_read => |inner| tgt == .borrow_read and typeEqualsAfterSubst(ctx, inner, subst, tgt.borrow_read),
         .borrow_write => |inner| tgt == .borrow_write and typeEqualsAfterSubst(ctx, inner, subst, tgt.borrow_write),
+        .shared => |inner| tgt == .shared and typeEqualsAfterSubst(ctx, inner, subst, tgt.shared),
+        .weak => |inner| tgt == .weak and typeEqualsAfterSubst(ctx, inner, subst, tgt.weak),
         .optional => |inner| tgt == .optional and typeEqualsAfterSubst(ctx, inner, subst, tgt.optional),
         .fallible => |inner| tgt == .fallible and typeEqualsAfterSubst(ctx, inner, subst, tgt.fallible),
         .slice => |s| tgt == .slice and typeEqualsAfterSubst(ctx, s.elem, subst, tgt.slice.elem),
@@ -2314,6 +2356,16 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
             const new_inner = try substituteType(ctx, inner, subst);
             if (new_inner == inner) break :blk ty_id;
             break :blk try ctx.types.intern(ctx.allocator, .{ .borrow_write = new_inner });
+        },
+        .shared => |inner| blk: {
+            const new_inner = try substituteType(ctx, inner, subst);
+            if (new_inner == inner) break :blk ty_id;
+            break :blk try ctx.types.intern(ctx.allocator, .{ .shared = new_inner });
+        },
+        .weak => |inner| blk: {
+            const new_inner = try substituteType(ctx, inner, subst);
+            if (new_inner == inner) break :blk ty_id;
+            break :blk try ctx.types.intern(ctx.allocator, .{ .weak = new_inner });
         },
         .optional => |inner| blk: {
             const new_inner = try substituteType(ctx, inner, subst);
@@ -3455,7 +3507,40 @@ const ExprChecker = struct {
                 if (items.len >= 2) return self.synthExpr(items[1]);
                 return self.ctx.types.unknown_id;
             },
-            .@"clone", .@"share", .@"weak", .@"pin", .@"raw" => {
+            // M20d: `*x` (expression position) constructs a shared
+            // handle wrapping `typeOf(x)`. Per GPT-5.5: the operand is
+            // CONSUMED into the Rc; if the user wants to keep `x`, they
+            // write `*(+x)`. That consumption is enforced by the
+            // ownership pass (M2-era), not here. This commit only
+            // changes the *type* attribution from `unknown` to
+            // `shared(T)`; emit lowering lands in M20d(3/5).
+            .@"share" => {
+                if (items.len < 2) return self.ctx.types.unknown_id;
+                const inner = try self.synthExpr(items[1]);
+                if (inner == self.ctx.types.unknown_id or inner == self.ctx.types.invalid_id) return inner;
+                return self.ctx.types.intern(self.ctx.allocator, .{ .shared = inner }) catch self.ctx.types.invalid_id;
+            },
+            // M20d: `~x` (expression position) constructs a weak
+            // handle from an existing shared handle. The operand MUST
+            // be `shared(T)` — diagnose otherwise. Weak refs don't
+            // exist independently of a strong ref, per SPEC §Weak
+            // Reference.
+            .@"weak" => {
+                if (items.len < 2) return self.ctx.types.unknown_id;
+                const inner = try self.synthExpr(items[1]);
+                if (inner == self.ctx.types.unknown_id or inner == self.ctx.types.invalid_id) return inner;
+                const inner_ty = self.ctx.types.get(inner);
+                switch (inner_ty) {
+                    .shared => |t| return self.ctx.types.intern(self.ctx.allocator, .{ .weak = t }) catch self.ctx.types.invalid_id,
+                    else => {
+                        try self.err(firstSrcPos(items[1]), "`~` weak reference requires a shared handle `*T`; got `{s}`", .{
+                            try formatType(self.ctx, inner),
+                        });
+                        return self.ctx.types.invalid_id;
+                    },
+                }
+            },
+            .@"clone", .@"pin", .@"raw" => {
                 if (items.len >= 2) return self.synthExpr(items[1]);
                 return self.ctx.types.unknown_id;
             },
@@ -4527,6 +4612,8 @@ fn formatType(ctx: *SemContext, ty_id: TypeId) std.mem.Allocator.Error![]const u
         .fallible => |inner| try std.fmt.allocPrint(a, "{s}!", .{try formatType(ctx, inner)}),
         .borrow_read => |inner| try std.fmt.allocPrint(a, "?{s}", .{try formatType(ctx, inner)}),
         .borrow_write => |inner| try std.fmt.allocPrint(a, "!{s}", .{try formatType(ctx, inner)}),
+        .shared => |inner| try std.fmt.allocPrint(a, "*{s}", .{try formatType(ctx, inner)}),
+        .weak => |inner| try std.fmt.allocPrint(a, "~{s}", .{try formatType(ctx, inner)}),
         .slice => |s| try std.fmt.allocPrint(a, "[]{s}", .{try formatType(ctx, s.elem)}),
         .array => |arr| try std.fmt.allocPrint(a, "[{d}]{s}", .{ arr.len, try formatType(ctx, arr.elem) }),
         .function => "fn(...)",

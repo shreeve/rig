@@ -194,6 +194,16 @@ pub const Tag = enum(u8) {
     @"optional",        // `T?` (suffix optional; grammar emits directly)
     @"borrow_read",     // `?T` in type position — read-borrowed parameter/return
     @"borrow_write",    // `!T` in type position — write-borrowed parameter/return
+    @"shared",          // M20d: `*T` in type position — Rc<T> handle type.
+                        //   DISTINCT from expression-position `share` (M3 Tag below):
+                        //   `(shared T)`  appears under `resolveType` (type Sexp)
+                        //   `(share x)`   appears under `synthExpr`   (expression Sexp)
+                        //   GPT-5.5's M20d design pass: keep the tags separate so
+                        //   phase walkers don't have to disambiguate by context.
+                        //
+                        //   `weak` is REUSED across both positions (single Tag,
+                        //   `(weak ...)` for both type and expr) because there's
+                        //   no existing expression-vs-type collision risk for `~`.
     @"ptr",             // for-mode: `for *x in xs` (Zag-style pointer iter)
     @"iter",            // for-mode: default value iteration (no sigil, no `*`)
     @"sentinel_slice",
