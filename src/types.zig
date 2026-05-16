@@ -3199,6 +3199,31 @@ const ExprChecker = struct {
         }
     }
 
+    /// M20d.1: walk an assignment LHS chain and return true if any
+    /// segment's obj type unwraps borrows to `shared(_)`. Catches
+    /// the chained cases GPT-5.5 flagged in the post-M20d review:
+    ///
+    ///   rc.field = X            # immediate: obj=rc, type=shared(_)
+    ///   rc.inner.field = X      # chained:   obj=(member rc inner) is Inner;
+    ///                           #   recurse: obj=rc is shared(_) → reject
+    ///   rc.items[0] = X         # via index: same pattern through array slot
+    ///   (!rc).name = X          # wrapped:   obj=(write rc) is borrow_write(shared(_))
+    ///                           #   unwrapBorrows peels → shared(_) → reject
+    ///
+    /// Uses `unwrapBorrows` (NOT `unwrapReadAccess`) so the shared
+    /// layer is detected. Stops at any non-place expression (calls,
+    /// rvalues, etc. — those can't be assigned to anyway).
+    fn assignmentChainPassesThroughShared(self: *ExprChecker, lhs: Sexp) std.mem.Allocator.Error!bool {
+        if (lhs != .list or lhs.list.len < 2 or lhs.list[0] != .tag) return false;
+        const head = lhs.list[0].tag;
+        if (head != .@"member" and head != .@"index") return false;
+        const obj = lhs.list[1];
+        const obj_ty = self.synthExpr(obj) catch self.ctx.types.unknown_id;
+        const peeled = unwrapBorrows(self.ctx, obj_ty);
+        if (self.ctx.types.get(peeled) == .shared) return true;
+        return self.assignmentChainPassesThroughShared(obj);
+    }
+
     fn checkSet(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
         // (set <kind> name type-or-_ expr).
         if (items.len < 5) return;
@@ -3206,28 +3231,25 @@ const ExprChecker = struct {
         const type_node = items[3];
         const expr = items[4];
 
-        // M20d(4/5): reject field-target assignment through a shared
-        // handle. `rc.field = X` would mutate the inner T through a
-        // shared owner, breaking the aliasing model — other handles
-        // pointing at the same RcBox would observe the write without
-        // any borrow synchronization. The Cell(T) / RefCell(T) pattern
-        // (M20+ item #7) is the user-facing answer for controlled
-        // mutation through shared ownership.
-        if (target == .list and target.list.len >= 3 and target.list[0] == .tag and
-            target.list[0].tag == .@"member")
-        {
-            const obj = target.list[1];
-            const field_node = target.list[2];
-            const obj_ty = self.synthExpr(obj) catch self.ctx.types.unknown_id;
-            const peeled = unwrapBorrows(self.ctx, obj_ty);
-            const peeled_ty = self.ctx.types.get(peeled);
-            if (peeled_ty == .shared) {
-                const pos = if (field_node == .src) field_node.src.pos else firstSrcPos(target);
-                try self.err(pos, "cannot assign to field through shared handle (`*T`); other handles may exist. Use an interior-mutable type (planned `Cell(T)` in M20+ item #7) for mutation through shared ownership.", .{});
-                // Still walk RHS so cascade errors fire.
-                _ = self.synthExpr(expr) catch self.ctx.types.unknown_id;
-                return;
-            }
+        // M20d(4/5) + M20d.1: reject any assignment whose target
+        // chain passes through a shared handle. `rc.field = X` and
+        // `rc.inner.field = X` and `rc.items[0] = X` all mutate
+        // storage inside the RcBox, which other `*T` handles can
+        // observe — breaking the aliasing model. The Cell(T) /
+        // RefCell(T) pattern (M20+ item #7) is the user-facing
+        // answer for controlled mutation through shared ownership.
+        //
+        // Walks the target chain via `.member` and `.index` segments.
+        // At each segment, synth the obj and check whether its type
+        // unwraps borrows to `shared(_)`. The recursion uses
+        // `unwrapBorrows` (NOT `unwrapReadAccess`) so the shared
+        // layer is detected; if we peeled shared during the check
+        // we'd silently accept the very thing we're trying to catch.
+        if (try self.assignmentChainPassesThroughShared(target)) {
+            const pos = firstSrcPos(target);
+            try self.err(pos, "cannot assign through shared handle (`*T`); other handles may exist. Use an interior-mutable type (planned `Cell(T)` in M20+ item #7) for mutation through shared ownership.", .{});
+            _ = self.synthExpr(expr) catch self.ctx.types.unknown_id;
+            return;
         }
 
         // Find the symbol, if any. Compound assigns / move-assign reuse
@@ -3765,6 +3787,33 @@ const ExprChecker = struct {
 
         // Case 3: instance method call.
         const obj_ty_id = try self.synthExpr(obj);
+
+        // M20d.1: built-in `~T.upgrade() -> (*T)?` special case. The
+        // runtime ships the method but it's not declared on any Rig
+        // nominal — without this special-case, source-level
+        // `w.upgrade()` would error with "no method on type
+        // `weak(...)`" (lookupMethod uses unwrapReadAccess which
+        // deliberately does NOT peel weak, since weak auto-deref
+        // would be unsafe). Per GPT-5.5's M20d post-review: making
+        // upgrade first-class is required for V1 to actually be
+        // usable for weak code from Rig source.
+        //
+        // The returned type is built-in `optional(shared(T))` — NOT
+        // user-defined `Option(*T)`. The `T? → Option(T)` desugar
+        // is a separate (deferred) milestone.
+        const obj_ty = self.ctx.types.get(obj_ty_id);
+        if (obj_ty == .weak and std.mem.eql(u8, method_name, "upgrade")) {
+            if (args.len != 0) {
+                try self.err(name_pos, "`upgrade` takes no arguments; got {d}", .{args.len});
+                for (args) |a| _ = try self.synthExpr(a);
+            }
+            const inner = obj_ty.weak;
+            const shared_id = self.ctx.types.intern(self.ctx.allocator, .{ .shared = inner }) catch
+                return self.ctx.types.unknown_id;
+            return self.ctx.types.intern(self.ctx.allocator, .{ .optional = shared_id }) catch
+                self.ctx.types.unknown_id;
+        }
+
         return self.synthInstanceCall(obj, obj_ty_id, method_name, name_pos, args);
     }
 
@@ -4715,8 +4764,33 @@ fn formatType(ctx: *SemContext, ty_id: TypeId) std.mem.Allocator.Error![]const u
         .float => |info| if (info.bits == 0) "Float" else try std.fmt.allocPrint(a, "F{d}", .{info.bits}),
         .int_literal => "<int literal>",
         .float_literal => "<float literal>",
-        .optional => |inner| try std.fmt.allocPrint(a, "{s}?", .{try formatType(ctx, inner)}),
-        .fallible => |inner| try std.fmt.allocPrint(a, "{s}!", .{try formatType(ctx, inner)}),
+        // M20d.1: parenthesize prefix-type operands of optional /
+        // fallible so `optional(shared(T))` renders as `(*T)?` and
+        // not `*T?` — the latter spelling is `shared(optional(T))`
+        // per Rig's grammar precedence (suffix binds tighter than
+        // prefix). Without the parens, formatType collapses both
+        // shapes to the same string and type-mismatch diagnostics
+        // become "expected `*T?`, got `*T?`" — useless.
+        .optional => |inner| blk: {
+            const inner_ty = ctx.types.get(inner);
+            const needs_parens = inner_ty == .shared or inner_ty == .weak or
+                inner_ty == .borrow_read or inner_ty == .borrow_write;
+            const inner_str = try formatType(ctx, inner);
+            break :blk if (needs_parens)
+                try std.fmt.allocPrint(a, "({s})?", .{inner_str})
+            else
+                try std.fmt.allocPrint(a, "{s}?", .{inner_str});
+        },
+        .fallible => |inner| blk: {
+            const inner_ty = ctx.types.get(inner);
+            const needs_parens = inner_ty == .shared or inner_ty == .weak or
+                inner_ty == .borrow_read or inner_ty == .borrow_write;
+            const inner_str = try formatType(ctx, inner);
+            break :blk if (needs_parens)
+                try std.fmt.allocPrint(a, "({s})!", .{inner_str})
+            else
+                try std.fmt.allocPrint(a, "{s}!", .{inner_str});
+        },
         .borrow_read => |inner| try std.fmt.allocPrint(a, "?{s}", .{try formatType(ctx, inner)}),
         .borrow_write => |inner| try std.fmt.allocPrint(a, "!{s}", .{try formatType(ctx, inner)}),
         .shared => |inner| try std.fmt.allocPrint(a, "*{s}", .{try formatType(ctx, inner)}),

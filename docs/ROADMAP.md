@@ -977,9 +977,52 @@ closure capture).
   alias rule, `*T?` vs `(*T)?` precedence, `*expr` move semantics).
 - M20e queued below, ordered before #8 closure capture.
 
-**Final test count: 544 passed, 0 failed (was 496 at the start of
-the milestone; +48 = 7 examples × 5 golden buckets + 3 EMIT_TARGETS
-× 1 emit-compile + 10 misc).**
+**Final test count after M20d arc: 544 passed, 0 failed (was 496 at
+the start of the milestone; +48 = 7 examples × 5 golden buckets + 3
+EMIT_TARGETS × 1 emit-compile + 10 misc).**
+
+### M20d.1 — post-implementation review follow-up ✅
+Small tactical pass after GPT-5.5's post-M20d review surfaced four
+items. Tests: 544 → 556 (+12, two new EMIT_TARGETS).
+
+- **Chained field-assign rejection** (`rc.inner.field = X`): the
+  M20d(4/5) check only inspected the immediate `(member obj field)`
+  target. New recursive `assignmentChainPassesThroughShared` walks
+  `.member` / `.index` segments back to a root and rejects if ANY
+  obj's type unwraps borrows to `shared(_)`. Pinned by the existing
+  `shared_field_assign_rejected.rig` test plus hand-tested chains.
+- **`weak.upgrade()` first-class sema** (per GPT-5.5 #6 / SPEC
+  promise): `synthMemberCall` intercepts `.upgrade()` on a
+  `weak(T)` receiver and returns `optional(shared(T))` (built-in
+  optional, NOT user `Option(*T)`). Rejects non-zero arity with a
+  targeted diagnostic. New `weak_upgrade.rig` EMIT_TARGET runs the
+  full pipeline end-to-end.
+- **`formatType` disambiguation**: `optional(shared(T))` and
+  `shared(optional(T))` both used to render as `*T?`, making type-
+  mismatch diagnostics useless ("expected `*T?`, got `*T?`"). Now
+  parenthesizes when the inner is a prefix type:
+  - `*T?`   = `shared(optional(T))`
+  - `(*T)?` = `optional(shared(T))`
+- **Ownership-side scope-aware lookup**: `checkSharedHandleAlias`
+  used a flat `sema.symbols` scan that would fire on the wrong
+  binding under shadowing (two functions both with param `rc`,
+  different types). Now uses the Checker's existing scope-aware
+  `lookup` + `(name, decl_pos)` bridge to sema. New
+  `shared_alias_shadowing.rig` EMIT_TARGET pins the correct
+  behavior.
+- **Grammar comment fix** (per GPT-5.5 #7): the `rig.grammar`
+  conflict-budget comment said `*T?` parses as `(optional (shared T))`
+  but the actual parse is `(shared (optional T))`. Comment now
+  matches the SPEC and adds a pointer to SPEC §Shared Ownership
+  for the user-facing precedence rule.
+
+**Known fragility documented (not blocking)**: emit's
+`handleKindOf` still uses first-match-wins global symbol scan
+(would silently mis-bridge under cross-function shadowing).
+Failure mode is LOUD (Zig compile error like "no field 'X' on
+RcBox"), not silent. The systematic fix needs sema-side use-site
+attribution (`pos → SymbolId` table built during type-check),
+queued as substrate cleanup. Tracked in HANDOFF §3.
 
 **Deferred to M20e**:
 - Soft scope-exit warning lint (would require a new `warning`

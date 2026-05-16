@@ -10,9 +10,10 @@ once; then it's a reference.
 
 - **Project**: Rig is a systems language ("Zig-fast, Rust-safe, Ruby-readable")
   that compiles to Zig 0.16. Repo: `/Users/shreeve/Data/Code/rig`.
-- **Where we are**: Just shipped **M20d** (`*T` / `~T` real `Rc<T>` /
-  `Weak<T>` semantics). Last commit on `main` covers M20d(5/5). **544
-  tests passing, 0 failing.** Clean tree, all pushed.
+- **Where we are**: Just shipped **M20d + M20d.1** (`*T` / `~T` real
+  `Rc<T>` / `Weak<T>` semantics, plus post-review tactical fixes).
+  Last commit on `main` covers M20d.1. **556 tests passing, 0
+  failing.** Clean tree, all pushed.
 - **Next milestone**: **M20e** — automatic scope-exit drop for `*T` /
   `~T` bindings. Design pre-sketched in ROADMAP M20e entry; must land
   before M20+ item #8 (closure capture).
@@ -161,18 +162,38 @@ mutation scanning in emit. Rig's ownership pass already catches
 nulling without ownership integration would just paper over checker
 bugs. Trade-off documented in `src/runtime_zig.zig` source.
 
-### Two pre-existing gaps NOT addressed in M20d
+### M20d.1 follow-up (post-review fixes)
 
-1. **`weak.upgrade()` is not first-class in sema.** Hand-written Zig
-   `w.upgrade()` calls work via the runtime, but Rig source
-   `w.upgrade()` errors with "no method on type `(weak ...)`" because
-   `unwrapReadAccess` doesn't peel weak (intentional — auto-deref of
-   weak is unsafe). Making `.upgrade()` work via Rig source needs
-   either a synthetic `Field` on `weak(T)` symbols or a
-   `synthMemberCall` intercept that recognizes `.upgrade()` on weak
-   receivers. **Defer to M20e or M20d.1.**
-2. **`unsafe` / `%x` enforcement** (M20+ item #9). Pre-existing
-   deferral, unchanged by M20d.
+After M20d shipped, GPT-5.5's post-implementation review surfaced
+four items; all addressed in M20d.1 (see ROADMAP). Tests grew
+544 → 556.
+
+- Recursive chain check for `rc.inner.field = X`
+- `weak.upgrade()` sema first-class (returns built-in `(*T)?`)
+- `formatType` paren-disambiguation for `*T?` vs `(*T)?`
+- Ownership-side scope-aware lookup in `checkSharedHandleAlias`
+
+### Two pre-existing gaps NOT addressed in M20d/M20d.1
+
+1. **`(T)?` paren-grouping in type position**: the grammar's
+   `"(" type ")" → 2` action leaks the literal parens into the IR
+   (`(T)?` becomes `(optional (( T )))` instead of `(optional T)`),
+   so users can't currently spell `(*T)?` (the return type of
+   `WeakHandle.upgrade()`) in type annotations. Workaround: rely on
+   type inference (`m = w.upgrade()`); the type is correct in sema
+   even if not annotatable. Pre-existing Nexus grammar action
+   behavior; fix queued as a future cleanup.
+2. **Emit's `handleKindOf` global symbol scan**: same shadowing
+   fragility as the ownership-side check, but in emit. M20d.1 fixed
+   the ownership side; the emit side stays as first-match-wins with
+   a documented TODO. Failure mode is loud (Zig compile error like
+   "no field 'X' on RcBox"), not silent. The systematic fix is a
+   sema-side use-site attribution table (`pos → SymbolId` built
+   during type-check, queryable from emit + ownership). Queued as
+   substrate cleanup; would also subsume the M20a.2 two-self-methods
+   global-scan fragility.
+3. **`unsafe` / `%x` enforcement** (M20+ item #9). Pre-existing
+   deferral, unchanged.
 
 ---
 

@@ -1,0 +1,29 @@
+# M20d.1: regression test for the global-name-scan handle classifier
+# (used by the alias-footgun rule in `ownership.zig`).
+#
+# Two functions with the same parameter name `rc` but different types:
+#   - `holder` takes `rc: *Box` (shared handle)
+#   - `consumer` takes `rc: Int` (NOT a handle)
+#
+# Per GPT-5.5's M20d post-review: the current `checkSharedHandleAlias`
+# does a first-match-wins symbol scan, which could mis-classify a
+# local non-handle `rc` as shared (or vice versa). This test pins the
+# correct behavior — the alias rule fires for `holder` (where rc IS
+# shared) and does NOT fire for `consumer` (where rc is Int).
+#
+# `consumer` uses `print(rc)` which would parse as bare-rc-in-call-arg
+# — the precise pattern the alias rule guards.
+
+struct Box
+  value: Int
+
+sub holder(rc: *Box)
+  -rc
+
+sub consumer(rc: Int)
+  print(rc)
+
+sub main()
+  b = *Box(value: 1)
+  holder(<b)
+  consumer(42)

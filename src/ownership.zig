@@ -832,17 +832,30 @@ pub const Checker = struct {
     ///   - bindings whose type isn't shared/weak
     ///   - no-sema mode (unit tests)
     /// so the check only fires when we're confident about the type.
+    ///
+    /// M20d.1 (per GPT-5.5's post-M20d review): uses the Checker's
+    /// scope-aware `lookup` to find the binding in the current scope
+    /// chain, then bridges to sema via `(name, declared_at)`. The
+    /// earlier implementation did a flat `sema.symbols` scan which
+    /// fires on the wrong binding under shadowing (e.g., a parameter
+    /// named `rc` in one function with type `*Box`, another function
+    /// with `rc: Int` — the flat scan finds the `*Box` first and
+    /// mis-classifies the Int binding as shared). The shadowing
+    /// regression test `examples/shared_alias_shadowing.rig` pins
+    /// the correct behavior.
     fn checkSharedHandleAlias(self: *Checker, expr: Sexp, ctx: []const u8) Error!void {
         if (expr != .src) return;
         const sema = self.sema orelse return;
         const name = self.source[expr.src.pos..][0..expr.src.len];
 
-        // Global name scan (same M20a.2 fragility as emit's print
-        // polish; revisited when emit/ownership get scope-aware sema
-        // resolution). First-match-wins under shadowing is fine here
-        // because shared/weak bindings are rare and intentional.
+        const idx = self.lookup(name) orelse return;
+        const b = &self.bindings.items[idx];
+        // Bridge to sema via (name, declared_at) — same pattern as
+        // `semaBindingIsCopy`. Only one sema Symbol has this exact
+        // pair, so first-match here is correct under shadowing.
         for (sema.symbols.items) |sym| {
-            if (!std.mem.eql(u8, sym.name, name)) continue;
+            if (sym.decl_pos != b.declared_at) continue;
+            if (!std.mem.eql(u8, sym.name, b.name)) continue;
             const ty = sema.types.get(sym.ty);
             const kind: ?[]const u8 = switch (ty) {
                 .shared => "shared (`*T`)",

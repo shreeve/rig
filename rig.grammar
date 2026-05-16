@@ -257,8 +257,12 @@ tokens
 # the `type` non-terminal grew expected shift/reduce conflicts for
 # SUFFIX_Q / SUFFIX_BANG. M20d added two more type-position prefixes
 # (`SHARE_PFX type` and `"~" type`), each chaining cleanly into the
-# suffix forms (`*T?` parses as `(optional (shared T))`, etc.) — all
-# four new conflicts are shift-prefer benign.
+# suffix forms — all four new conflicts are shift-prefer benign.
+# Precedence: suffix binds tighter than prefix (consistent with
+# `?T?` / `!T?`), so `*User?` parses as `(shared (optional User))`
+# = "shared handle to optional User". The optional-shared shape
+# returned by `WeakHandle.upgrade()` is spelled `(*User)?` — see
+# SPEC §Shared Ownership for the user-facing precedence rule.
 @conflicts = 38
 
 @as ident = [keyword]

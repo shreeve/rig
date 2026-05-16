@@ -972,6 +972,26 @@ pub const Emitter = struct {
         return switch (expr) {
             .src => |s| blk: {
                 const name = self.source[s.pos..][0..s.len];
+                // KNOWN FRAGILITY (per GPT-5.5's M20d post-review):
+                // first-match-wins global symbol scan. Two functions
+                // with the same param name `rc` but different types
+                // (one `*Box`, one `Int`) will mis-classify the
+                // second one depending on declaration order. The
+                // mis-classification is a LOUD failure (Zig compile
+                // error like "no field 'X' on RcBox" or "method not
+                // found"), never silent runtime corruption.
+                //
+                // Workaround: rename one of the bindings, or wrap the
+                // use site in an explicit `<rc` / `+rc` (the wrapped
+                // forms take precedence over the bare-name lookup
+                // via the list arm below).
+                //
+                // The deeper fix is sema-side use-site attribution
+                // (`pos → SymbolId` table built during type-check)
+                // shared between emit and ownership. Tracked in
+                // HANDOFF §3 as a known fragility; queued as part of
+                // M20e prep (ownership.zig's own scope-aware lookup
+                // already removed this hazard from the alias rule).
                 for (sema.symbols.items) |sym| {
                     if (!std.mem.eql(u8, sym.name, name)) continue;
                     const ty = sema.types.get(sym.ty);

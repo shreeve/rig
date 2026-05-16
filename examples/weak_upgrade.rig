@@ -1,0 +1,31 @@
+# M20d.1: `w.upgrade()` first-class sema dispatch. Returns
+# `(*T)?` (optional shared handle); built-in optional, NOT user-
+# defined `Option(*T)` (that desugar is a separate deferred milestone).
+#
+# Verifies:
+#   - Sema accepts `w.upgrade()` on a weak(T) receiver. Without the
+#     M20d.1 special-case, the lookup would fail because
+#     `unwrapReadAccess` deliberately doesn't peel `weak`.
+#   - Emit lowers to plain `w.upgrade()` — the runtime method has the
+#     same name, so no rewriting needed.
+#   - The runtime increments strong if the box is still alive, returns
+#     null otherwise. This example exercises the alive path; the
+#     dropped-then-upgrade path is M20e/test follow-up (needs optional
+#     matching to actually verify the null).
+
+struct User
+  name: String
+
+sub main()
+  rc = *User(name: "x")
+  w  = ~rc
+  # `w.upgrade()` returns `(*User)?` (optional shared). The
+  # paren-suffix grammar form can't be spelled at param/return
+  # positions in V1 (pre-existing grammar limitation in the
+  # `"(" type ")"` rule — see SPEC §Shared Ownership), so we use
+  # type inference and discard via print so the test exercises the
+  # full pipeline (sema dispatch + runtime upgrade call).
+  m = w.upgrade()
+  print(m)
+  -rc
+  -w
