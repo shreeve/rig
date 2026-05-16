@@ -1786,6 +1786,100 @@ fn classifyReceiverShape(receiver_expr: Sexp) ReceiverShape {
     return .lvalue_bare;
 }
 
+/// M20b: result of resolving a data-field reference on a receiver
+/// type. Carries the matched `Field`, the (possibly substituted) field
+/// type, and the owning nominal Symbol — useful for diagnostics and
+/// for emit/codegen needs that want to know which type the field came
+/// from.
+///
+/// For plain nominals (M20b(1/5)), `ty == field.ty` always.
+/// For parameterized nominals (M20b(4/5)), `ty` is `field.ty` with
+/// the generic-param substitution applied.
+pub const ResolvedField = struct {
+    field: Field,
+    ty: TypeId,
+    nominal_sym: SymbolId,
+};
+
+/// M20b: result of resolving a method reference on a receiver type.
+/// Carries the matched `Field`, the receiver mode (so call-site
+/// dispatch doesn't have to re-derive it), the function type
+/// (possibly substituted), and the owning nominal Symbol.
+pub const ResolvedMethod = struct {
+    field: Field,
+    receiver: MethodReceiver,
+    fn_ty: FunctionType,
+    nominal_sym: SymbolId,
+};
+
+/// M20b(1/5): look up a data field by name on a receiver type. Peels
+/// borrow_read / borrow_write via `unwrapBorrows` before searching the
+/// underlying nominal's `Symbol.fields`. Methods (`is_method = true`)
+/// are intentionally skipped — use `lookupMethod` for those.
+///
+/// Returns `null` if the receiver doesn't unwrap to a nominal, the
+/// nominal has no `fields` (opaque or unresolved), or no matching
+/// non-method field exists. Callers produce their own diagnostics
+/// (with field-vs-method-collision handling, etc.).
+///
+/// M20b(4/5) will extend this to handle `parameterized_nominal` and
+/// substitute the returned `ty` against the receiver's type arguments.
+pub fn lookupDataField(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) ?ResolvedField {
+    const peeled = unwrapBorrows(ctx, receiver_ty);
+    const ty = ctx.types.get(peeled);
+    if (ty != .nominal) return null;
+    const sym_id = ty.nominal;
+    const sym = ctx.symbols.items[sym_id];
+    const fields = sym.fields orelse return null;
+    for (fields) |f| {
+        if (f.is_method) continue;
+        if (std.mem.eql(u8, f.name, name)) {
+            return .{ .field = f, .ty = f.ty, .nominal_sym = sym_id };
+        }
+    }
+    return null;
+}
+
+/// M20b(1/5): look up a method by name on a receiver type. Peels
+/// borrows; searches the underlying nominal's `Symbol.fields` for an
+/// `is_method = true` entry whose name matches. Data fields are
+/// intentionally skipped.
+///
+/// Returns `null` on no match. M20b(4/5) will substitute the returned
+/// `fn_ty` (params + return) against the receiver's type arguments
+/// for parameterized nominals.
+pub fn lookupMethod(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) ?ResolvedMethod {
+    const peeled = unwrapBorrows(ctx, receiver_ty);
+    const ty = ctx.types.get(peeled);
+    if (ty != .nominal) return null;
+    const sym_id = ty.nominal;
+    const sym = ctx.symbols.items[sym_id];
+    const fields = sym.fields orelse return null;
+    for (fields) |f| {
+        if (!f.is_method) continue;
+        if (std.mem.eql(u8, f.name, name)) {
+            const fn_ty_val = ctx.types.get(f.ty);
+            if (fn_ty_val != .function) continue;
+            return .{
+                .field = f,
+                .receiver = f.receiver,
+                .fn_ty = fn_ty_val.function,
+                .nominal_sym = sym_id,
+            };
+        }
+    }
+    return null;
+}
+
+/// M20b(1/5): check whether a method by `name` exists on the receiver's
+/// nominal (method-vs-field collision detection). Used by `synthMember`
+/// to produce a targeted "bare method reference not supported"
+/// diagnostic when the user wrote `u.greet` (no call) and `greet` is
+/// actually a method.
+pub fn hasMethodNamed(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) bool {
+    return lookupMethod(ctx, receiver_ty, name) != null;
+}
+
 /// M20a.2: peel `borrow_read` / `borrow_write` wrappers from a type
 /// to reach the underlying nominal (or whatever). Used by member
 /// lookup, instance-call dispatch, exhaustiveness checks, and the
@@ -2701,70 +2795,65 @@ const ExprChecker = struct {
         name_pos: u32,
         args: []const Sexp,
     ) std.mem.Allocator.Error!TypeId {
-        // M20a / M20a.2: peel borrow_read / borrow_write — see
-        // `unwrapBorrows` rationale.
-        const peeled = unwrapBorrows(self.ctx, receiver_ty_id);
-        const ty = self.ctx.types.get(peeled);
-
-        if (ty != .nominal) {
-            // Receiver doesn't resolve to a nominal — silent unknown
-            // (matches the existing unknown-callee policy).
-            for (args) |a| _ = try self.synthExpr(a);
-            return self.ctx.types.unknown_id;
-        }
-
-        const nominal_sym_id = ty.nominal;
-        const nominal_sym = self.ctx.symbols.items[nominal_sym_id];
-        const fields = nominal_sym.fields orelse {
+        // M20b(1/5): unified method lookup via helper. Peels borrows,
+        // matches by name + is_method, returns ResolvedMethod with
+        // receiver mode + nominal_sym pre-extracted. M20b(4/5) will
+        // extend the helper to substitute generic type params.
+        const resolved = lookupMethod(self.ctx, receiver_ty_id, method_name) orelse {
+            // Distinguish "receiver isn't nominal" (silent unknown,
+            // matches existing unknown-callee policy) from "no such
+            // method on this nominal" (diagnostic).
+            const peeled = unwrapBorrows(self.ctx, receiver_ty_id);
+            const peeled_ty = self.ctx.types.get(peeled);
+            if (peeled_ty != .nominal) {
+                for (args) |a| _ = try self.synthExpr(a);
+                return self.ctx.types.unknown_id;
+            }
+            const nom_sym = self.ctx.symbols.items[peeled_ty.nominal];
+            // Opaque nominal (no fields) also stays silent.
+            if (nom_sym.fields == null) {
+                for (args) |a| _ = try self.synthExpr(a);
+                return self.ctx.types.unknown_id;
+            }
+            try self.err(name_pos, "no method `{s}` on type `{s}`", .{ method_name, nom_sym.name });
+            if (nom_sym.decl_pos > 0) try self.note(nom_sym.decl_pos, "`{s}` declared here", .{nom_sym.name});
             for (args) |a| _ = try self.synthExpr(a);
             return self.ctx.types.unknown_id;
         };
 
-        for (fields) |f| {
-            if (!f.is_method) continue;
-            if (!std.mem.eql(u8, f.name, method_name)) continue;
-            const fn_ty_val = self.ctx.types.get(f.ty);
-            if (fn_ty_val != .function) continue;
-            const fn_ty = fn_ty_val.function;
+        const nominal_sym = self.ctx.symbols.items[resolved.nominal_sym];
 
-            // M20a.2: dispatch on the receiver metadata established at
-            // decl-time, NOT on `params.len > 0`. Otherwise associated/
-            // static methods with parameters silently dispatch as
-            // instance methods — the M20a soundness bug GPT-5.5 caught.
-            if (f.receiver == .none) {
-                try self.err(name_pos, "method `{s}` has no `self` receiver; call as `{s}.{s}(...)`", .{
-                    method_name, nominal_sym.name, method_name,
-                });
-                for (args) |a| _ = try self.synthExpr(a);
-                return fn_ty.returns;
-            }
-
-            // Validate receiver mode at the call site using the method's
-            // declared receiver mode (decl-time, authoritative) rather
-            // than re-deriving from `fn_ty.params[0]`. M20a.2 also
-            // passes the receiver expression's TYPE classification so
-            // we catch e.g. `get_ref().consume()` where the rvalue
-            // is actually a read borrow (would be silently accepted
-            // on shape alone).
-            const recv_type_kind = classifyReceiverType(self.ctx, receiver_ty_id, nominal_sym_id);
-            try self.checkReceiverMode(receiver_expr, f.receiver, recv_type_kind, method_name, name_pos);
-
-            // Check the remaining args against `params[1..]`. (Instance
-            // methods always have at least one param — `self` — by
-            // construction of f.receiver != .none.)
-            const non_self_fn = FunctionType{
-                .params = fn_ty.params[1..],
-                .returns = fn_ty.returns,
-                .is_sub = fn_ty.is_sub,
-            };
-            try self.checkCallArgs(args, non_self_fn, method_name, name_pos);
-            return fn_ty.returns;
+        // M20a.2: dispatch on the receiver metadata established at
+        // decl-time, NOT on `params.len > 0`. Otherwise associated/
+        // static methods with parameters silently dispatch as
+        // instance methods — the M20a soundness bug GPT-5.5 caught.
+        if (resolved.receiver == .none) {
+            try self.err(name_pos, "method `{s}` has no `self` receiver; call as `{s}.{s}(...)`", .{
+                method_name, nominal_sym.name, method_name,
+            });
+            for (args) |a| _ = try self.synthExpr(a);
+            return resolved.fn_ty.returns;
         }
 
-        try self.err(name_pos, "no method `{s}` on type `{s}`", .{ method_name, nominal_sym.name });
-        if (nominal_sym.decl_pos > 0) try self.note(nominal_sym.decl_pos, "`{s}` declared here", .{nominal_sym.name});
-        for (args) |a| _ = try self.synthExpr(a);
-        return self.ctx.types.unknown_id;
+        // Validate receiver mode at the call site using the method's
+        // declared receiver mode (decl-time, authoritative). M20a.2:
+        // also pass the receiver expression's TYPE classification so
+        // we catch e.g. `get_ref().consume()` where the rvalue is
+        // actually a read borrow (would be silently accepted on shape
+        // alone).
+        const recv_type_kind = classifyReceiverType(self.ctx, receiver_ty_id, resolved.nominal_sym);
+        try self.checkReceiverMode(receiver_expr, resolved.receiver, recv_type_kind, method_name, name_pos);
+
+        // Check the remaining args against `params[1..]`. (Instance
+        // methods always have at least one param — `self` — by
+        // construction of resolved.receiver != .none.)
+        const non_self_fn = FunctionType{
+            .params = resolved.fn_ty.params[1..],
+            .returns = resolved.fn_ty.returns,
+            .is_sub = resolved.fn_ty.is_sub,
+        };
+        try self.checkCallArgs(args, non_self_fn, method_name, name_pos);
+        return resolved.fn_ty.returns;
     }
 
     /// M20a receiver-mode rules (per GPT-5.5):
@@ -3037,33 +3126,31 @@ const ExprChecker = struct {
         if (obj_ty_id == self.ctx.types.invalid_id or obj_ty_id == self.ctx.types.unknown_id) {
             return self.ctx.types.unknown_id;
         }
-        // M20a / M20a.2: peel borrow_read / borrow_write so `self.name`
-        // on `self: ?User` reaches User's fields. Optional / fallible
-        // are NOT peeled — see `unwrapBorrows` rationale.
+
+        // M20b(1/5): unified data-field lookup via helper. Peels
+        // borrows and returns the (possibly substituted) field type.
+        if (lookupDataField(self.ctx, obj_ty_id, field_name)) |resolved| {
+            return resolved.ty;
+        }
+
+        // No data field by that name — was it a method? If so, give a
+        // targeted "must be called" error. Otherwise fall through to
+        // the generic "no field on type" diagnostic.
+        if (hasMethodNamed(self.ctx, obj_ty_id, field_name)) {
+            // Find the owning nominal for the diagnostic context.
+            const peeled = unwrapBorrows(self.ctx, obj_ty_id);
+            const ty = self.ctx.types.get(peeled);
+            const nom_name = if (ty == .nominal) self.ctx.symbols.items[ty.nominal].name else "(unknown)";
+            try self.err(pos, "method `{s}` on type `{s}` must be called; bare method reference not supported in V1", .{ field_name, nom_name });
+            return self.ctx.types.unknown_id;
+        }
+
+        // Locate the nominal for the no-such-field diagnostic.
         const peeled = unwrapBorrows(self.ctx, obj_ty_id);
         const ty = self.ctx.types.get(peeled);
         if (ty != .nominal) return self.ctx.types.unknown_id;
-
         const sym_id = ty.nominal;
         const sym = self.ctx.symbols.items[sym_id];
-        const fields = sym.fields orelse return self.ctx.types.unknown_id;
-        // M20a: data fields and methods are separate branches even
-        // though they share the same `fields` array. Bare method
-        // references (`user.greet` without a call) aren't supported in
-        // V1; the call form goes through `synthMemberCall` and never
-        // reaches here.
-        for (fields) |f| {
-            if (f.is_method) continue;
-            if (std.mem.eql(u8, f.name, field_name)) return f.ty;
-        }
-        // Did we find a method by this name? Give a targeted error.
-        for (fields) |f| {
-            if (f.is_method and std.mem.eql(u8, f.name, field_name)) {
-                try self.err(pos, "method `{s}` on type `{s}` must be called; bare method reference not supported in V1", .{ field_name, sym.name });
-                return self.ctx.types.unknown_id;
-            }
-        }
-
         try self.err(pos, "no field `{s}` on type `{s}`", .{ field_name, sym.name });
         if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
         return self.ctx.types.unknown_id;
