@@ -815,9 +815,30 @@ pub const Emitter = struct {
         switch (items[0].tag) {
             .@"set" => try self.emitSet(items),
             .@"drop" => {
-                // No-op for V1 (Zig handles cleanup at scope or via deinit).
-                try self.w.writeAll("// drop ");
-                if (items.len >= 2) try self.emitExpr(items[1]);
+                // M20d: explicit `-x` for shared/weak handles maps to
+                // runtime refcount ops. For non-handle types the
+                // statement remains a documenting comment (V1 has no
+                // user-defined Drop yet; M20e adds auto-drop for shared
+                // and weak only).
+                if (items.len < 2) {
+                    try self.w.writeAll("// drop");
+                    return;
+                }
+                const kind = self.handleKindOf(items[1]);
+                switch (kind) {
+                    .shared => {
+                        try self.emitExpr(items[1]);
+                        try self.w.writeAll(".dropStrong();");
+                    },
+                    .weak => {
+                        try self.emitExpr(items[1]);
+                        try self.w.writeAll(".dropWeak();");
+                    },
+                    .other => {
+                        try self.w.writeAll("// drop ");
+                        try self.emitExpr(items[1]);
+                    },
+                }
             },
             .@"return" => try self.emitReturn(items),
             .@"if" => try self.emitIf(items),
@@ -923,6 +944,57 @@ pub const Emitter = struct {
             try self.emitExpr(expr);
             try self.w.writeAll(";");
         }
+    }
+
+    /// M20d: classify whether an expression Sexp evaluates to a shared
+    /// or weak handle, for operator-emit dispatch.
+    ///
+    /// Best-effort, sema-aware. Currently handles the cases that matter
+    /// for the common shapes the M20d emit lowering sees:
+    ///   - bare name (`rc`) — global name scan over sema.symbols
+    ///   - already-classified wrappers: `(read x)` / `(write x)` /
+    ///     `(move x)` / `(clone x)` — recurse on operand (so e.g.
+    ///     `(clone (clone rc))` still sees shared)
+    ///   - `(share _)` heads — by construction `shared(_)`
+    ///   - `(weak rc)` — by sema invariant `weak(_)` (operand must be
+    ///     shared, enforced upstream)
+    /// Returns `.other` for unknown shapes; emit falls back to the
+    /// pass-through path which preserves existing non-handle behavior.
+    ///
+    /// Phase discipline note: the global name scan is the same
+    /// fragility M20a.2's `method_two_self_methods` test pinned —
+    /// first-match-wins under shadowing. Acceptable for M20d (rare
+    /// collision with shared/weak names), revisited when emit grows
+    /// real scope-aware symbol resolution.
+    const HandleKind = enum { shared, weak, other };
+    fn handleKindOf(self: *const Emitter, expr: Sexp) HandleKind {
+        const sema = self.sema orelse return .other;
+        return switch (expr) {
+            .src => |s| blk: {
+                const name = self.source[s.pos..][0..s.len];
+                for (sema.symbols.items) |sym| {
+                    if (!std.mem.eql(u8, sym.name, name)) continue;
+                    const ty = sema.types.get(sym.ty);
+                    return switch (ty) {
+                        .shared => .shared,
+                        .weak => .weak,
+                        else => .other,
+                    };
+                }
+                break :blk .other;
+            },
+            .list => |items| blk: {
+                if (items.len < 2 or items[0] != .tag) break :blk .other;
+                break :blk switch (items[0].tag) {
+                    .@"share" => .shared,
+                    .@"weak" => .weak,
+                    // Recurse through transparent wrappers.
+                    .@"read", .@"write", .@"move", .@"clone", .@"pin", .@"raw" => self.handleKindOf(items[1]),
+                    else => .other,
+                };
+            },
+            else => .other,
+        };
     }
 
     /// True iff sema has a concrete type for the binding declared at
@@ -1490,10 +1562,56 @@ pub const Emitter = struct {
     fn emitExprList(self: *Emitter, items: []const Sexp) Error!void {
         const head = items[0].tag;
         switch (head) {
-            // Ownership wrappers: emit inner (Zig handles ref/move at runtime;
-            // M2 already enforced ownership semantics).
-            .@"move", .@"read", .@"write", .@"clone", .@"share", .@"weak", .@"pin", .@"raw" => {
+            // Ownership wrappers: most lower transparently. M20d adds
+            // runtime dispatch for shared (`*T`) and weak (`~T`) handle
+            // ops; the others pass through unchanged (M2-era enforced
+            // ownership; Zig handles ref/move at runtime).
+            .@"move", .@"read", .@"write", .@"pin", .@"raw" => {
                 if (items.len >= 2) try self.emitExpr(items[1]);
+            },
+            // M20d: `(share x)` always constructs a fresh Rc box.
+            // Operator semantics: `*expr` MOVES `expr` into the new
+            // RcBox (per GPT-5.5's M20d design pass — implicit clone
+            // would silently duplicate ownership). The OOM behavior
+            // is panic (Rust-style); the runtime helper returns an
+            // error union for future recoverable-allocation APIs.
+            .@"share" => {
+                if (items.len < 2) return;
+                try self.w.writeAll("(rig.rcNew(");
+                try self.emitExpr(items[1]);
+                try self.w.writeAll(") catch @panic(\"Rig Rc allocation failed\"))");
+            },
+            // M20d: `(clone x)` dispatches on the operand's TYPE.
+            //   shared(T) → x.cloneStrong()
+            //   weak(T)   → x.cloneWeak()
+            //   else      → pass-through (Zig value copy)
+            // When the operand's type is unknown (sema couldn't infer),
+            // we conservatively pass through so existing non-shared
+            // `+x` uses keep working.
+            .@"clone" => {
+                if (items.len < 2) return;
+                const kind = self.handleKindOf(items[1]);
+                switch (kind) {
+                    .shared => {
+                        try self.emitExpr(items[1]);
+                        try self.w.writeAll(".cloneStrong()");
+                    },
+                    .weak => {
+                        try self.emitExpr(items[1]);
+                        try self.w.writeAll(".cloneWeak()");
+                    },
+                    .other => try self.emitExpr(items[1]),
+                }
+            },
+            // M20d: `(weak x)` constructs a weak handle from a shared
+            // operand. Sema already requires operand to be shared(T)
+            // (see types.zig synthList .@"weak" arm), so we can emit
+            // `.weakRef()` unconditionally — failures would have been
+            // caught upstream.
+            .@"weak" => {
+                if (items.len < 2) return;
+                try self.emitExpr(items[1]);
+                try self.w.writeAll(".weakRef()");
             },
             // Calls
             .@"call" => try self.emitCall(items),
@@ -1993,6 +2111,21 @@ pub const Emitter = struct {
                         // `T` in Zig — borrow semantics were enforced by M2;
                         // Zig is loose about borrows at the type level.
                         try self.emitType(items[1]);
+                    },
+                    // M20d: type-position `*T` and `~T` lower to the
+                    // runtime's RcBox / WeakHandle generic instantiations.
+                    // Variable bindings of shared type carry a Zig pointer
+                    // (`*rig.RcBox(T)`); weak bindings carry the struct
+                    // value (`rig.WeakHandle(T)`).
+                    .@"shared" => {
+                        try self.w.writeAll("*rig.RcBox(");
+                        try self.emitType(items[1]);
+                        try self.w.writeAll(")");
+                    },
+                    .@"weak" => {
+                        try self.w.writeAll("rig.WeakHandle(");
+                        try self.emitType(items[1]);
+                        try self.w.writeAll(")");
                     },
                     .@"slice" => {
                         try self.w.writeAll("[]");

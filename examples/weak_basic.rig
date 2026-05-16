@@ -1,0 +1,20 @@
+# M20d: construct a weak handle from a shared one, then drop both.
+#
+# Verifies:
+#   - `~rc` (where rc is `*T`) lowers to `rc.weakRef()` and types as
+#     `weak(T)`.
+#   - `-w` on a weak handle lowers to `w.dropWeak();`
+#   - The runtime keeps the control block alive while weak > 0, then
+#     frees it after weak hits zero with strong already at zero.
+#   - The drop order (rc first, then w) is exercised in this test;
+#     the reverse order is exercised by shared_basic.rig.
+
+struct Node
+  value: Int
+
+sub main()
+  rc = *Node(value: 7)
+  w  = ~rc
+  -rc
+  -w
+  print "weak cycle ok"

@@ -1,0 +1,1 @@
+(module (struct Box (: payload Int)) (sub use_rc ((: rc (shared Box))) _ (block (drop rc))) (sub main () _ (block (set _ rc _ (share (call Box (kwarg payload 42)))) (call use_rc (move rc)) (call print "moved"))))

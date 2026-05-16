@@ -1,0 +1,20 @@
+# M20d: pass a shared handle into a function via explicit move (`<rc`).
+#
+# Verifies:
+#   - `*T` in param type position emits as `*rig.RcBox(T)`
+#   - `<rc` at call-arg position is the explicit move form that the M20d
+#     alias-footgun rule REQUIRES for handle args. Bare `use_rc(rc)`
+#     would error with "would alias the handle".
+#   - The callee owns the handle and explicitly drops it; the caller
+#     does NOT also drop (ownership pass marks `rc` moved).
+
+struct Box
+  payload: Int
+
+sub use_rc(rc: *Box)
+  -rc
+
+sub main()
+  rc = *Box(payload: 42)
+  use_rc(<rc)
+  print "moved"

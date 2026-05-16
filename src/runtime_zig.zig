@@ -112,16 +112,20 @@ pub const source =
     \\        }
     \\
     \\        /// Decrement weak count. When BOTH weak and strong reach
-    \\        /// zero, free the box. Takes `*Self` so the handle's pointer
-    \\        /// is nulled — defensive against accidental double-drop (which
-    \\        /// the ownership pass should prevent, but the runtime stays
-    \\        /// honest).
-    \\        pub fn dropWeak(self: *Self) void {
+    \\        /// zero, free the box. Takes `Self` by value so weak
+    \\        /// bindings can be emitted as `const` Zig (the original
+    \\        /// design used `*Self` for defensive nulling, but Rig's
+    \\        /// ownership pass already errors on `-w; -w` — see
+    \\        /// `src/ownership.zig`'s `walkDrop`. Defensive nulling
+    \\        /// without ownership integration would just paper over
+    \\        /// bugs in the checker, and adding `var`-vs-`const` emit
+    \\        /// rules for weak bindings adds complexity for no real
+    \\        /// safety gain once the ownership invariant is upheld).
+    \\        pub fn dropWeak(self: Self) void {
     \\            if (self.ptr) |p| {
     \\                std.debug.assert(p.weak > 0);
     \\                p.weak -= 1;
     \\                if (p.weak == 0 and p.strong == 0) p.allocator.destroy(p);
-    \\                self.ptr = null;
     \\            }
     \\        }
     \\

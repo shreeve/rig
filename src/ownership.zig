@@ -557,6 +557,23 @@ pub const Checker = struct {
         const target = items[2];
         const expr = items[4];
 
+        // M20d alias-footgun rule: bare `*T` / `~T` on the RHS of an
+        // ordinary `=` would compile to `const rc2 = rc;` in Zig — a
+        // pointer copy without a refcount bump, leaving two Rig
+        // bindings owning the same RcBox. Per GPT-5.5's M20d post-(1/5)
+        // review: this is THE biggest M20d footgun after auto-drop.
+        // Require explicit `<rc` (move) or `+rc` (clone) so the
+        // ownership transfer or refcount bump is visible at the call
+        // site, matching Rig's visible-effects thesis.
+        //
+        // `<-` (move-assign, kind == .@"move") is already explicit at
+        // the assignment-operator level, so it skips this check.
+        // Compound `+=` / `-=` etc. on a handle type doesn't reach the
+        // alias scenario meaningfully (the operation itself is ill-
+        // defined for handles); leave the existing type-checker to
+        // complain there.
+        if (kind == .default or kind == .fixed or kind == .shadow) try self.checkSharedHandleAlias(expr, "binding");
+
         // RHS effects first.
         try self.walk(expr, false);
 
@@ -780,7 +797,64 @@ pub const Checker = struct {
 
     fn walkCall(self: *Checker, items: []const Sexp) Error!void {
         // (call fn args...). Walk fn, walk each arg.
+        //
+        // M20d alias-footgun rule (parallel to walkSet): bare `*T`/`~T`
+        // as a call argument would Zig-copy the pointer without a
+        // refcount bump, silently leaving the caller and callee both
+        // owning the same RcBox. Require explicit `<rc` (move into the
+        // callee) or `+rc` (clone for shared use). For each arg, the
+        // first child (items[1]) is the callee; args start at items[2].
+        if (items.len >= 3) {
+            for (items[2..]) |arg| {
+                // Skip kwarg wrappers (`(kwarg name expr)`) — the
+                // contained expr is the actual value we'd care about,
+                // and it gets checked via the inner walk.
+                if (arg == .list and arg.list.len >= 3 and arg.list[0] == .tag and
+                    arg.list[0].tag == .@"kwarg")
+                {
+                    try self.checkSharedHandleAlias(arg.list[2], "call argument");
+                } else {
+                    try self.checkSharedHandleAlias(arg, "call argument");
+                }
+            }
+        }
         for (items[1..]) |child| try self.walk(child, false);
+    }
+
+    /// M20d: diagnose the bare-shared/weak alias footgun. Fires only
+    /// when `expr` is a bare `.src` whose binding's sema-side type is
+    /// `shared(_)` or `weak(_)`. Suggests `<x` (move) or `+x` (clone) —
+    /// both forms make the ownership/refcount effect visible at the
+    /// call site, per Rig's visible-effects thesis.
+    ///
+    /// Silent on:
+    ///   - non-name expressions (already wrapped or compound)
+    ///   - bindings whose type isn't shared/weak
+    ///   - no-sema mode (unit tests)
+    /// so the check only fires when we're confident about the type.
+    fn checkSharedHandleAlias(self: *Checker, expr: Sexp, ctx: []const u8) Error!void {
+        if (expr != .src) return;
+        const sema = self.sema orelse return;
+        const name = self.source[expr.src.pos..][0..expr.src.len];
+
+        // Global name scan (same M20a.2 fragility as emit's print
+        // polish; revisited when emit/ownership get scope-aware sema
+        // resolution). First-match-wins under shadowing is fine here
+        // because shared/weak bindings are rare and intentional.
+        for (sema.symbols.items) |sym| {
+            if (!std.mem.eql(u8, sym.name, name)) continue;
+            const ty = sema.types.get(sym.ty);
+            const kind: ?[]const u8 = switch (ty) {
+                .shared => "shared (`*T`)",
+                .weak => "weak (`~T`)",
+                else => null,
+            };
+            const handle_kind = kind orelse return;
+            try self.err(expr.src.pos, "bare use of {s} handle `{s}` in {s} would alias the handle; use `<{s}` to move or `+{s}` to clone", .{
+                handle_kind, name, ctx, name, name,
+            });
+            return;
+        }
     }
 
     fn walkReturn(self: *Checker, items: []const Sexp) Error!void {

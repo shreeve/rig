@@ -1,0 +1,18 @@
+# M20d: shared (`*T`) construction, clone, and explicit drop.
+#
+# Verifies:
+#   - `*Foo(...)` lowers to `rig.rcNew(...) catch @panic(...)`
+#   - `+rc` lowers to `rc.cloneStrong()`
+#   - `-rc` lowers to `rc.dropStrong();`
+#   - V1 has NO auto-drop — every handle is explicitly dropped here.
+#   - Runtime asserts (strong > 0) verify the refcount sequence is sound.
+
+struct Counter
+  value: Int
+
+sub main()
+  rc = *Counter(value: 1)
+  rc2 = +rc
+  -rc2
+  -rc
+  print "ok"
