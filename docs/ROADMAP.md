@@ -220,7 +220,28 @@ projects.
 - Test infrastructure: `test/modules/` subdirs with `expected.txt`
   / `expected_error.txt` for output / error checks.
 
-### M16+ — Beyond V1
+### M16 — Compiler Robustness ✅
+No-panic contract: `bin/rig` MUST NEVER segfault, panic, or hit
+`unreachable` on any input — well-formed or malformed. Every input
+produces either valid Zig output or a clean Rig diagnostic.
+
+- `ModuleState` (`loading`/`loaded`/`failed`) + fail-safe slot
+  construction: every `Module` gets a valid `SemContext` BEFORE
+  parsing, so diagnostic walks are safe on failed modules. Fixes
+  the SIGSEGV that prompted the milestone (failed parse left
+  `Module.sema = undefined`, segfaulted in `writeDiagnostics`).
+- `writeDiagnostics` hardened against empty path / empty source /
+  empty messages / out-of-range pos.
+- Grep audit removed two dead `unreachable` arms (`Mode.help`,
+  `emitCompoundAssign` duplicate switch) and verified all `.?`
+  sites are guarded. No `@panic` / `catch unreachable` /
+  `orelse unreachable` anywhere.
+- `test/torture/` corpus (18 entries) + `test/run` torture
+  section enforces the contract for every bad input — exit
+  non-zero, stderr non-empty, no panic phrases. Adding a new
+  bad-input regression test = drop a `*.rig` in `test/torture/`.
+
+### M17+ — Beyond V1
 Try-block lowering (still `@compileError`), value-position match
 with arm-result unification, **match destructuring of payload
 variants** (`.circle => |c| use(c)`), pattern bindings threaded
@@ -229,7 +250,8 @@ into arm bodies, range/guard patterns, qualified enum access
 types, generic struct lowering (parsed in M0, typed as opaque
 nominals in M6), generic enum types (`Option(T)` / `Result(T, E)`),
 method syntax on structs, stdlib seed (Vec, HashMap, String,
-Result, Option), module system, LSP, async/coroutines, and the
+Result, Option), LSP, async/coroutines, real fuzzing of the
+robustness contract, module path canonicalization (M15b), and the
 eventual fold of `effects.zig` into `types.zig` once expression
 typing is rich enough to express "non-fallible expected here"
 naturally.

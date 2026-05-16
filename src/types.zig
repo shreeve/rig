@@ -372,14 +372,25 @@ pub const SemContext = struct {
         return false;
     }
 
+    /// Stream all diagnostics to `w`. Defensive against missing/empty
+    /// `file_path`, missing/empty `source`, empty messages, and pos
+    /// values beyond `source.len`. Diagnostic printing is the last
+    /// line of defense — it must never crash, even when upstream
+    /// passes left the context partially populated.
     pub fn writeDiagnostics(self: *const SemContext, file_path: []const u8, w: anytype) !void {
+        const path = if (file_path.len == 0) "<unknown>" else file_path;
         for (self.diagnostics.items) |d| {
-            const lc = lineCol(self.source, d.pos);
             const tag = switch (d.severity) {
                 .@"error" => "error",
                 .note => "  note",
             };
-            try w.print("{s}:{d}:{d}: {s}: {s}\n", .{ file_path, lc.line, lc.col, tag, d.message });
+            const msg = if (d.message.len == 0) "(no message)" else d.message;
+            if (self.source.len == 0) {
+                try w.print("{s}: {s}: {s}\n", .{ path, tag, msg });
+            } else {
+                const lc = lineCol(self.source, d.pos);
+                try w.print("{s}:{d}:{d}: {s}: {s}\n", .{ path, lc.line, lc.col, tag, msg });
+            }
         }
     }
 

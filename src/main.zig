@@ -28,7 +28,6 @@ const Mode = enum {
     check,
     build,
     run,
-    help,
 };
 
 const usage =
@@ -97,7 +96,6 @@ pub fn main(init: std.process.Init) !void {
         .check => try checkAndReport(allocator, io, source, file_path),
         .build => try buildAndEmit(allocator, io, file_path),
         .run => try buildAndRun(allocator, io, file_path),
-        .help => unreachable,
     }
 }
 
@@ -290,6 +288,12 @@ fn emitProjectToTmp(
     var root_path: []const u8 = "";
 
     for (graph.modules.items[1..]) |*m| {
+        // Defensive: only emit modules that actually loaded. Callers
+        // gate on `graph.hasErrors()` before reaching here, but skip
+        // failed modules so a regression in that gate can't crash emit.
+        if (m.state != .loaded) continue;
+        const sema = m.sema orelse continue;
+
         const out_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ tmpdir, m.out_basename });
 
         const f = std.Io.Dir.cwd().createFile(io, out_path, .{}) catch |err| {
@@ -302,7 +306,7 @@ fn emitProjectToTmp(
         var file_writer = f.writer(io, &file_buffer);
         const w: *std.Io.Writer = &file_writer.interface;
 
-        var em = emit.Emitter.initWithSema(allocator, m.source, w, m.sema);
+        var em = emit.Emitter.initWithSema(allocator, m.source, w, sema);
         defer em.deinit();
         try em.emit(m.ir);
         try w.flush();
@@ -328,7 +332,11 @@ fn buildAndEmit(allocator: std.mem.Allocator, io: std.Io, file_path: []const u8)
     const w: *std.Io.Writer = &stdout_writer.interface;
 
     if (!has_imports) {
-        var em = emit.Emitter.initWithSema(allocator, root.source, w, root.sema);
+        const sema = root.sema orelse {
+            std.debug.print("internal error: root module missing sema\n", .{});
+            std.process.exit(1);
+        };
+        var em = emit.Emitter.initWithSema(allocator, root.source, w, sema);
         defer em.deinit();
         try em.emit(root.ir);
     } else {

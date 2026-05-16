@@ -1,0 +1,14 @@
+# M16 trigger. Variant named `sub` collides with the `sub` keyword.
+# Parse fails — and used to segfault when writeAllDiagnostics
+# dereferenced an undefined sema. Now must produce a clean diagnostic.
+enum Op
+  add
+  sub
+
+fun apply(op: Op, a: Int, b: Int) -> Int
+  match op
+    .add => a + b
+    .sub => a - b
+
+sub main()
+  print(apply(.add, 3, 4))

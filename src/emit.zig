@@ -658,7 +658,10 @@ pub const Emitter = struct {
         const expr = items[4];
 
         switch (kind) {
-            .@"+=", .@"-=", .@"*=", .@"/=" => try self.emitCompoundAssign(name, kind, expr),
+            .@"+=" => try self.emitCompoundAssign(name, "+=", expr),
+            .@"-=" => try self.emitCompoundAssign(name, "-=", expr),
+            .@"*=" => try self.emitCompoundAssign(name, "*=", expr),
+            .@"/=" => try self.emitCompoundAssign(name, "/=", expr),
             .@"move", .default => try self.emitSetOrBind(name, type_node, expr, false, false),
             .fixed => try self.emitSetOrBind(name, type_node, expr, true, false),
             .shadow => try self.emitSetOrBind(name, type_node, expr, false, true),
@@ -666,15 +669,8 @@ pub const Emitter = struct {
         // Exhaustive on BindingKind — Zig enforces.
     }
 
-    fn emitCompoundAssign(self: *Emitter, name: []const u8, kind: BindingKind, expr: Sexp) Error!void {
+    fn emitCompoundAssign(self: *Emitter, name: []const u8, op_str: []const u8, expr: Sexp) Error!void {
         const zig_name = self.lookup(name) orelse name;
-        const op_str: []const u8 = switch (kind) {
-            .@"+=" => "+=",
-            .@"-=" => "-=",
-            .@"*=" => "*=",
-            .@"/=" => "/=",
-            else => unreachable,
-        };
         try self.w.print("{s} {s} ", .{ zig_name, op_str });
         try self.emitExpr(expr);
         try self.w.writeAll(";");

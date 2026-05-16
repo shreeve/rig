@@ -299,6 +299,68 @@ if [[ -d test/modules ]]; then
 fi
 
 # -----------------------------------------------------------------------------
+# 1g. Torture corpus (M16) — bad inputs must produce diagnostics, never crash
+# -----------------------------------------------------------------------------
+#
+# Universal contract for every test/torture/*.rig:
+#   1. `rig run` exits non-zero (bad input → clean rejection).
+#   2. stderr is non-empty (some kind of diagnostic).
+#   3. stderr NEVER contains panic phrases (segfault, panic, reached
+#      unreachable, index out of bounds, general protection).
+#
+# Any panic phrase = compiler robustness regression = test failure.
+
+PANIC_RE='Segmentation fault|panic:|panic at|reached unreachable|index out of bounds|general protection|GENERAL PROTECTION'
+
+run_torture() {
+    local rig_file=$1
+    local name=$(basename "$rig_file" .rig)
+    local out="$TMPDIR/torture_${name}.out"
+
+    set +e
+    timeout 10 $RIG run "$rig_file" > "$out" 2>&1
+    local exit=$?
+    set -e
+
+    if grep -qE "$PANIC_RE" "$out"; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  torture/$name — COMPILER PANIC on bad input (rc=$exit):"$'\n'"$(sed 's/^/    /' "$out" | head -8)"
+        return
+    fi
+
+    if [[ $exit -eq 124 ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  torture/$name — timed out (likely infinite loop on bad input)"
+        return
+    fi
+
+    if [[ $exit -eq 0 ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  torture/$name — bad input compiled+ran successfully (rc=0); did the language accept this?"
+        return
+    fi
+
+    if [[ ! -s "$out" ]]; then
+        FAIL=$((FAIL + 1))
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  torture/$name — exited rc=$exit but printed no diagnostic"
+        return
+    fi
+
+    say_pass "torture/$name (rc=$exit, diagnostic ok)"
+    PASS=$((PASS + 1))
+}
+
+if [[ -d test/torture ]]; then
+    section "Torture corpus (must not panic)"
+    SECTION_START=$SECONDS
+    for f in test/torture/*.rig; do
+        [[ -e "$f" ]] || continue
+        run_torture "$f"
+    done
+    section_done $(( SECONDS - SECTION_START ))
+fi
+
+# -----------------------------------------------------------------------------
 # 2. Compile check — generated parser.zig is syntactically valid Zig
 # -----------------------------------------------------------------------------
 

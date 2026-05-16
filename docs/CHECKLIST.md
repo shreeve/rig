@@ -981,3 +981,56 @@ Constructs Zag provides that Rig should validate against SPEC during M1/M2:
 - `@builtin(...)` — keep as-is; document the set Rig vendors
 - raw `zig "..."` escape — keep as ultimate hatch; normalize as `(unsafe-zig ...)`
 
+## M16 — Compiler Robustness (No-Panic Contract)
+
+Trigger: a real-world Rig program (enum with a `sub` variant + a `match`-as-fn-body) caused `bin/rig run` to **segfault** instead of producing a diagnostic. Root cause was structural — failed-parse modules left `Module.sema = undefined`, and the diagnostic writer dereferenced it. Designed with GPT-5.5 for the audit method + state invariants.
+
+### Contract
+
+> `bin/rig` MUST NEVER panic, segfault, or produce an "unreachable" stack trace on any input — well-formed or malformed. Every input produces either valid Zig output or a clean Rig diagnostic on stderr with a non-zero exit.
+
+Enforced by `test/torture/*.rig` + `test/run`'s "Torture corpus" section.
+
+### Changes
+
+- [x] **`ModuleState` enum** (`loading` / `loaded` / `failed`) added to `src/modules.zig`. Every module slot carries explicit state. Failed modules are NEVER marked `.loaded`; downstream emit/build gates on `m.state == .loaded`.
+- [x] **Module slot construction** is now fail-safe. `loadByPath` allocates a valid empty `*types.SemContext` BEFORE attempting to read or parse the file. Every failure path (read fail, parse fail, sema/effects/ownership errors) marks the module `.failed` but leaves the sema valid — diagnostic walks can iterate every module unconditionally.
+- [x] **`Module.sema`** and **`Module.p`** are now `?*…` optionals (slot-0 sentinel is the only `null` case). Eliminates the `undefined` field that triggered the original segfault.
+- [x] **`SemContext.writeDiagnostics`** hardened: tolerates empty `file_path` (prints `<unknown>`), empty `source` (omits `line:col`), empty messages (`(no message)`), and pos values beyond `source.len` (already handled by `lineCol`'s `@min`). Diagnostic printing is the last line of defense — it must never crash.
+- [x] **Grep audit** for `@panic`, `std.debug.panic`, `catch unreachable`, `orelse unreachable`, `unreachable`, `.?`, `@enumFromInt`, `@intCast`, `items[N]`:
+    - No `@panic` / `std.debug.panic` anywhere.
+    - No `catch unreachable` / `orelse unreachable` anywhere.
+    - `Mode.help` enum variant + its `unreachable` switch arm in `src/main.zig` REMOVED — the help subcommand was already handled before mode resolution, so the variant was dead and the `unreachable` was structurally redundant.
+    - Duplicate `BindingKind` switch in `emit.zig`'s `emitCompoundAssign` (with `else => unreachable`) collapsed — caller now passes the op string directly, eliminating the second switch entirely.
+    - All remaining `.?` sites verified to be guarded by an explicit `!= null` check on the same expression or the previous line.
+    - All `@intCast` sites bounded by `ArrayList.len` (no usize→u32 overflow risk in practice).
+    - No `@enumFromInt` anywhere.
+- [x] **`test/torture/` corpus** (18 entries) — every panic-inducing or panic-suspicious input, minimized:
+    - `01_match_with_keyword_variant.rig` (the original M16 trigger)
+    - `02_keyword_as_param.rig` / `03_keyword_as_field.rig` — keyword-as-identifier
+    - `04_unterminated_string.rig` / `05_unbalanced_indent.rig` — lexer/indent edges
+    - `06_empty_file.rig` / `07_only_comments.rig` — degenerate sources
+    - `08_missing_import.rig` — module driver failure path
+    - `09_malformed_match_arm.rig` / `12_empty_match.rig` / `15_match_no_scrutinee.rig` — match shape edges
+    - `10_undef_variable.rig` / `11_undef_type.rig` — sema lookup failures
+    - `13_malformed_constructor_kwarg.rig` — call shape edge
+    - `14_arg_count_mismatch.rig` — argument arity (most common real-world bug)
+    - `16_use_unicode_garbage.rig` — non-ASCII junk
+    - `17_lone_sigils.rig` — bare sigils with no operand
+    - `18_fn_no_body.rig` — incomplete function
+
+- [x] **`test/run` torture section** enforces three rules per file: stderr MUST NOT contain panic phrases (`Segmentation fault`, `panic:`, `reached unreachable`, `index out of bounds`, `general protection`); exit MUST be non-zero (bad input → clean rejection); stderr MUST be non-empty. Timeout = 10s (catches infinite loops).
+
+### Result
+
+- Original repro (`./bin/rig run /tmp/p.rig` with `enum Op { add, sub }` + match-as-fn-body): **was** SIGSEGV, **now** `error: parse error in ...` with exit 1.
+- Full suite: **278 passed, 0 failed**, of which 18 are torture-corpus tests.
+- Adding a new panic case = add one `*.rig` to `test/torture/`. The runner does the rest. Every future failure mode discovered in the wild should land here as a regression test before/with the fix.
+
+### Deferred (M17+)
+
+- **Real fuzzing.** Generate random Rig source and assert no-crash. Useful once we have a stable surface; for now the torture corpus pulls its weight.
+- **Top-level custom panic handler.** GPT-5.5's advice: don't. Loud panics catch dev bugs in tests. Once the binary stabilizes for end-users, a one-line `Rig internal compiler error — please report` wrapper is a small follow-up.
+- **Module path canonicalization** (M15b). Still deferred; same-string dedup remains adequate for the v1 module system.
+- **Items-shape audit helpers.** `requireListLenAtLeast(sexp, n, ctx) ![]Sexp` + `requireTag(items, tag, ctx) !void` would make IR walkers self-documenting and crash-proof on impossible shapes. Currently the grammar guarantees shapes via the LR parser, so this is preventive, not corrective. Add when we start accepting non-grammar IR sources (e.g., a macro system).
+
