@@ -1,0 +1,30 @@
+## M20c: generic enum `Option(T)` — declaration + construction + match.
+##
+## Maps to Zig:
+##   pub fn Option(comptime T: type) type {
+##       return union(enum) {
+##           const Self = @This();
+##           some: T,
+##           none: void,
+##       };
+##   }
+##
+## `o: Option(Int) = .some(value: 5)` works because `checkExpr`
+## intercepts `(call (enum_lit some) (kwarg value 5))` with the
+## expected `parameterized_nominal{Option, [Int]}`, then routes
+## through `lookupVariant` which substitutes the variant's payload
+## `value: T` to `value: Int` for the type check. Emit unwraps the
+## single-payload variant to `.{ .some = 5 }` (no kwarg label needed
+## because the variant is `some: i32`, not `some: struct { value: i32 }`).
+##
+## EXPECTED: clean. Runs and prints `got it`.
+
+enum Option(T)
+  some(value: T)
+  none
+
+sub main()
+  o: Option(Int) = .some(value: 5)
+  match o
+    .some => print("got it")
+    .none => print("nothing")

@@ -1,0 +1,1 @@
+examples/generic_enum_zero_params.rig:10:6: error: generic enum `Foo` must declare at least one type parameter; for a non-generic enum, drop the `()`

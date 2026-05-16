@@ -1,0 +1,1 @@
+(module (generic_enum Option (T) (variant some ((: value T))) none) (sub main () _ (block (set _ o (generic_inst Option Int) (call (enum_lit some) (kwarg value 5))) (match o (arm (enum_lit some) _ (call print "got it")) (arm (enum_lit none) _ (call print "nothing"))))))

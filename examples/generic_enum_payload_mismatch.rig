@@ -1,0 +1,17 @@
+## M20c negative: generic enum payload type mismatch.
+##
+## Per GPT-5.5 M20c design pass: payload field substitution must
+## happen against the expected `parameterized_nominal`'s args.
+## `o: Option(Int) = .some(value: "hello")` should error with the
+## substituted type — `expected `Int`, got `String`` — NOT the
+## symbolic `expected `T``.
+##
+## EXPECTED: sema error: type mismatch.
+
+enum Option(T)
+  some(value: T)
+  none
+
+sub main()
+  o: Option(Int) = .some(value: "hello")
+  print("done")

@@ -139,6 +139,7 @@ pub const Emitter = struct {
             .@"enum" => try self.emitEnum(items),
             .@"errors" => try self.emitErrorSet(items),
             .@"generic_type" => try self.emitGenericType(items),
+            .@"generic_enum" => try self.emitGenericEnum(items),
             .@"pub" => {
                 // V1: Rig has no module system, so functions are public by
                 // default and `emitFun` always prefixes `pub`. The explicit
@@ -260,6 +261,108 @@ pub const Emitter = struct {
         // M20b(5/5): method members — same machinery as `emitStruct` /
         // `emitEnum`, just indented one extra level (the inner struct
         // sits inside `return struct { ... }`).
+        try self.emitNominalMethods(items[3..], 2);
+
+        try self.w.writeAll("    };\n}\n");
+    }
+
+    /// `(generic_enum Name (T1 T2 ...) variants...)` → Zig
+    /// `pub fn Name(comptime T1: type, ...) type { return union(enum)
+    /// { const Self = @This(); /* variants */ /* methods */ }; }`.
+    /// M20c: parallel to `emitGenericType` but the inner body is a
+    /// tagged union since generic enums always have at least some
+    /// payload (otherwise the type params are unused).
+    ///
+    /// Per GPT-5.5: `Self` inside the inner body lowers to Zig
+    /// `Self` (via `const Self = @This();`), NOT to the bare type
+    /// name `Option`. Method receiver sugar (`?self` lowering to
+    /// `self: Self`) then composes naturally.
+    fn emitGenericEnum(self: *Emitter, items: []const Sexp) Error!void {
+        if (items.len < 4) return;
+        const name = identText(self.source, items[1]) orelse "AnonGenericEnum";
+        const params = items[2];
+
+        const prev_nominal = self.current_nominal_name;
+        self.current_nominal_name = "Self";
+        defer self.current_nominal_name = prev_nominal;
+
+        try self.w.print("pub fn {s}(", .{name});
+        if (params == .list) {
+            var first = true;
+            for (params.list) |p| {
+                if (p != .src) continue;
+                if (!first) try self.w.writeAll(", ");
+                first = false;
+                try self.w.print("comptime {s}: type", .{self.source[p.src.pos..][0..p.src.len]});
+            }
+        }
+        try self.w.writeAll(") type {\n    return union(enum) {\n");
+        try self.w.writeAll("        const Self = @This();\n\n");
+
+        // Variants: bare `red` → `red: void`; valued `ok = 0` →
+        // `ok: void` (the value can't co-exist with payload-bearing
+        // tagged-union form, matches the plain `emitEnum`
+        // has_payloads branch); payload `some(value: T)` →
+        // `some: T` (single-field unwrap) or `some: struct { ... }`
+        // (multi-field).
+        for (items[3..]) |variant| {
+            switch (variant) {
+                .src => |s| {
+                    const vname = self.source[s.pos..][0..s.len];
+                    try self.w.print("        {s}: void,\n", .{vname});
+                },
+                .list => |sub| {
+                    if (sub.len < 2 or sub[0] != .tag) continue;
+                    switch (sub[0].tag) {
+                        .@"variant" => {
+                            if (sub.len < 3) continue;
+                            const vname = identText(self.source, sub[1]) orelse continue;
+                            const vparams = sub[2];
+                            if (vparams != .list or vparams.list.len == 0) {
+                                try self.w.print("        {s}: void,\n", .{vname});
+                                continue;
+                            }
+                            // Single-field unwrap.
+                            if (vparams.list.len == 1) {
+                                const p = vparams.list[0];
+                                if (p == .list and p.list.len >= 3 and p.list[0] == .tag and p.list[0].tag == .@":") {
+                                    try self.w.print("        {s}: ", .{vname});
+                                    try self.emitType(p.list[2]);
+                                    try self.w.writeAll(",\n");
+                                    continue;
+                                }
+                            }
+                            // Multi-field → anonymous struct.
+                            try self.w.print("        {s}: struct {{ ", .{vname});
+                            var first = true;
+                            for (vparams.list) |p| {
+                                if (p != .list or p.list.len < 3 or p.list[0] != .tag) continue;
+                                if (p.list[0].tag != .@":") continue;
+                                if (!first) try self.w.writeAll(", ");
+                                first = false;
+                                const fname = identText(self.source, p.list[1]) orelse continue;
+                                try self.w.print("{s}: ", .{fname});
+                                try self.emitType(p.list[2]);
+                            }
+                            try self.w.writeAll(" },\n");
+                        },
+                        .@"valued" => {
+                            // Valued variant in a tagged union — falls
+                            // back to bare `: void` (value can't be
+                            // expressed in union(enum) form). Matches
+                            // emitEnum's has_payloads-with-valued path.
+                            if (identText(self.source, sub[1])) |vname| {
+                                try self.w.print("        {s}: void,\n", .{vname});
+                            }
+                        },
+                        else => {},
+                    }
+                },
+                else => {},
+            }
+        }
+
+        // Method members — indent +2 like emitGenericType.
         try self.emitNominalMethods(items[3..], 2);
 
         try self.w.writeAll("    };\n}\n");
@@ -1259,9 +1362,13 @@ pub const Emitter = struct {
         if (variant_name_node != .src) return null;
         const variant_name = self.source[variant_name_node.src.pos..][0..variant_name_node.src.len];
         for (sema.symbols.items) |sym| {
-            if (sym.kind != .nominal_type) continue;
+            // M20c: accept both plain (`nominal_type`) and generic
+            // (`generic_type`) enum symbols; filter to actual
+            // variants via `is_variant` to avoid matching methods.
+            if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
             const fields = sym.fields orelse continue;
             for (fields) |v| {
+                if (!v.is_variant) continue;
                 if (!std.mem.eql(u8, v.name, variant_name)) continue;
                 const payload = v.payload orelse continue;
                 // Build a flat slice of name strings in arena memory.
@@ -1613,10 +1720,14 @@ pub const Emitter = struct {
             // type from emit alone — scan all symbols for a matching
             // variant. False positives are harmless (worst case we
             // emit a more verbose form that Zig rejects).
+            // M20c: also accept `.generic_type` symbols (generic enums
+            // store their variants on a generic_type symbol — same
+            // structural layout via `is_variant`-flagged Fields).
             for (self.sema.?.symbols.items) |sym| {
-                if (sym.kind != .nominal_type) continue;
+                if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
                 const fields = sym.fields orelse continue;
                 for (fields) |v| {
+                    if (!v.is_variant) continue;
                     if (!std.mem.eql(u8, v.name, variant_name.?)) continue;
                     const payload = v.payload orelse continue;
                     if (payload.len == 1) break :blk true;

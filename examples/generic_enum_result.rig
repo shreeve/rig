@@ -1,0 +1,27 @@
+## M20c: two-parameter generic enum `Result(T, E)` — the canonical
+## "either-or" with both type slots used independently.
+##
+## Exercises:
+##   - multi-param `enum Name(T, U)` grammar production
+##   - `parameterized_nominal{Result, [Int, String]}` interner dedupe
+##   - substitution across two type params: `value: T` → Int,
+##     `reason: E` → String
+##   - match-arm dispatch on a parameterized enum
+##
+## EXPECTED: clean. Runs and prints `42` then `oops`.
+
+enum Result(T, E)
+  ok(value: T)
+  err(reason: E)
+
+sub main()
+  good: Result(Int, String) = .ok(value: 42)
+  bad: Result(Int, String) = .err(reason: "oops")
+
+  match good
+    .ok => print("42")
+    .err => print("nope")
+
+  match bad
+    .ok => print("nope")
+    .err => print("oops")
