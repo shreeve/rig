@@ -201,6 +201,110 @@ with kwarg or positional syntax (`.circle(radius: 5)` /
 Match destructuring of the payload (`.circle => |c| use(c)`) is
 M10+ alongside pattern-binding propagation.
 
+### M10 — Match destructuring + pattern bindings + value-position + exhaustiveness ✅
+Closes the post-M9 candidate item #1 plus all M8-deferred match
+items in one focused milestone. Match expressions are now
+feature-complete for the M5 v1 surface.
+
+- Grammar: `.circle(r)` / `.triangle(a, b)` / `.nullary()`
+  payload-destructure patterns via new `Tag.variant_pattern`.
+- Sema: `bindPatternNames` extracts every name a pattern
+  introduces and binds it (initially `unknown_id`) in the arm
+  scope; `checkArmPattern` then refines those bindings via the
+  variant's `Field.payload` field types.
+- Sema: value-position `match` via `synthMatchExpr` walks arms
+  with `unifyOrErr` to a single result type. Statement-position
+  match keeps the M8 permissive behavior.
+- Sema: real exhaustiveness via per-match `StringHashMap` of
+  covered variants — catches `duplicate arm for variant 'X'`,
+  rejects unhandled variants in value position, and tracks
+  default-arm coverage correctly.
+- Diagnostics: `no variant 'X' on enum 'Shape'`, `variant 'X'
+  has no payload to destructure`, `variant 'X' has N payload
+  field(s), pattern destructures M`, `value-position 'match'
+  is not exhaustive`.
+
+### M11 — Qualified enum access (`Color.red`) ✅
+Closes the post-M10 candidate item #2. `Color.red` type-checks
+as `nominal(Color)` (instead of silently `unknown`) and bad
+variants in qualified position now fire a sourced diagnostic.
+
+- Sema: `synthMember` distinguishes type-qualified access (obj
+  is a `.src` resolving to a `nominal_type` symbol) from value
+  member access (obj's TYPE is `nominal(SymId)`).
+- Type-qualified access returns `nominal(Color)`; unknown
+  variant fires `error: no variant 'purple' on enum 'Color'`
+  with a decl-site note.
+- Emit unchanged — `(member Color red)` already lowered to
+  Zig's `Color.red` syntax. Sema-only change.
+
+### M12 — Struct methods (namespaced) + qualified method calls ✅
+Closes the post-M11 candidate item #3. Methods declared as `fun`
+/ `sub` members of a struct are tracked by sema, lower to `pub
+fn` inside the Zig struct, and are callable via
+`Type.method(args)`.
+
+- `Field` gains `is_method: bool`. `TypeResolver.
+  resolveStructFields` recognizes `(fun ...)` / `(sub ...)`
+  members and appends their function `Type` to the struct's
+  field list via `resolveStructMethod`.
+- `synthMember` dispatches data-vs-method on type-qualified
+  access.
+- `emitStruct` does a second pass for `fun`/`sub` members and
+  emits each via `emitFun` with one extra indent — nested as
+  `pub fn` inside `pub const X = struct { ... };`.
+- `print(User.greet())` recognizes call-to-String via sema and
+  emits `{s}` formatting.
+
+**Explicitly deferred (M20 work):** instance methods with
+implicit `self` (`u.greet()` receiver-style), method body sema
+checking (requires `self` typing), methods on enums (parsed but
+not emitted), generic methods on generic types.
+
+### M13 — Range patterns in match arms ✅
+Closes one of the M10-deferred items. `1..3 => body` type-
+checks (bounds must be assignable to the scrutinee) and lowers
+to Zig's inclusive switch range `1...3 => body`.
+
+- `checkArmPattern` learns about `(range_pattern lo hi)`; each
+  bound is checked against the scrutinee's type via `checkExpr`.
+- Range patterns DON'T contribute to enum exhaustiveness
+  coverage — integer scrutinees only in V1.
+- Emit: `emitMatch` arm dispatch handles `(range_pattern lo hi)`.
+  `..` is inclusive on the high end in V1.
+
+**Deferred:** guard patterns (`x if cond => body`) need grammar
+work that risks `if` keyword conflicts.
+
+### M14 — Generic types (struct-shape) ✅
+Closes the post-M13 candidate item #1 (partial — struct-shape
+generics only via `type Name(...)`; generic enums need grammar
+work that's deferred). End-to-end `bin/rig run` works on generic
+struct programs.
+
+- Grammar: type expression gains `name "(" L(type) ")"` →
+  `(generic_inst Name T...)`. So `Box(Int)`, `Pair(Int, String)`
+  parse as type expressions. Conflict count unchanged at 34.
+- Sema: `generic_type` symbols (from M5) get no new generic-
+  param scope yet; generic params resolve silently as
+  `invalid_id` (M5 v1 deferred-diagnostic behavior). Generic
+  instances in type position resolve to opaque `unknown`; emit
+  handles substitution at the Zig template level.
+- Emit: `emitGenericType` lowers `(generic_type Name (T...)
+  members...)` to `pub fn Name(comptime T: type, ...) type {
+  return struct { ... }; }`. `emitType` lowers `(generic_inst
+  Name T1 T2 ...)` to `Name(T1, T2)`. `emitCall` learns a third
+  constructor-disambiguation arm: emit `.{ ... }` (anonymous
+  tagged literal) for `generic_type` callees, since the named
+  identifier is a Zig fn, not a type.
+
+**Explicitly deferred (M20 work):** generic enum types
+(`Option(T)` / `Result(T, E)`) — grammar conflict with bare
+`Name(...)` member declarations; generic methods on generic
+types; real generic-instance member typing (`b.value` on
+`b: Box(Int)` currently types as `unknown`, works in emit
+because Zig figures it out).
+
 ### M15 — Module system ✅
 Multi-file projects via `use foo` (same-dir lookup). Each module
 parses + sema-checks + emits to its own `.zig` in a generated
@@ -294,27 +398,95 @@ type automatically.
 - 2 new examples (`typed_counter`, `typed_accumulator`). No
   existing emit goldens changed. 352 passed, 0 failed.
 
-### M20+ — Beyond V1
-Qualified enum access in match patterns (grammar work),
-try-block lowering (still `@compileError`), expected-type
-propagation through bindings/calls/returns,
-**match destructuring of payload variants**
-(`.circle => |c| use(c)`), pattern bindings threaded into arm
-bodies, range/guard patterns, explicit error sets in `T!E`
-return types, opaque types, generic struct lowering (parsed in
-M0, typed as opaque nominals in M6), generic enum types
-(`Option(T)` / `Result(T, E)`), method syntax on structs,
-stdlib seed (Vec, HashMap, String, Result, Option), LSP,
-async/coroutines, real fuzzing of the robustness contract,
-module path canonicalization (M15b), and the eventual fold of
-`effects.zig` into `types.zig` once expression typing is rich
-enough to express "non-fallible expected here" naturally.
+### M20+ — V1 Substrate (reactivity-driven ordering)
+
+The remaining V1 substrate work is sequenced by the design note
+[`docs/REACTIVITY-DESIGN.md`](REACTIVITY-DESIGN.md), which uses
+Rip-style reactivity (`Cell` / `Memo` / `Effect`) as a
+multi-feature stress test. Each blocking item below is required
+regardless of reactivity — reactivity just exposes the seams.
+
+**Already-landed substrate** (M12 + M14 partial — completed in
+the M20+ items below):
+
+- Namespaced struct methods (`User.greet()`) — M12
+- Generic struct declaration + instantiation + construction — M14
+
+**Now-blocking (required for any non-trivial library):**
+
+1. **Instance methods + `self` semantics + receiver-style calls**
+   (completes M12). `sub Cell.set(self: ?Cell(T), value: T)` +
+   `cell.set(2)` call site + method body sema with self bound.
+   This is the load-bearing ergonomics gap.
+2. **Real generic-instance member typing** (completes M14).
+   Today `b.value` on `b: Box(Int)` types as `unknown`; needs
+   per-instance field-type substitution in sema so member access
+   resolves to the substituted type.
+3. **Generic methods on generic types** (M14-deferred). Depends
+   on items 1 + 2.
+4. **`Option(T)` / `Result(T, E)` as generic enum types**
+   (M14-deferred). Needs grammar work — `enum Name INDENT ...`
+   doesn't yet accept `params`, and adding it conflicts with
+   bare `Name(...)` member declarations. The `T?` / `T!` suffix
+   types desugar to these once they exist.
+5. **Methods on enums** (parsed but not emitted — M12). Depends
+   on item 1.
+6. `*T` / `~T` real `Rc` / `Weak` semantics (SPEC §Shared
+   Ownership, §Weak Reference — text landed; runtime
+   implementation TBD).
+7. Interior mutability — `Cell(T)` library type
+   (REACTIVITY-DESIGN D6, option A for V1). Depends on items
+   1 + 4 + 6.
+8. Closure capture mode syntax (REACTIVITY-DESIGN D7) — `|name|`
+   strong, `|~name|` weak, `|<name|` move, etc.
+
+**Soon (substrate maturity):**
+
+9. `%T` unsafe-effect lattice + `unsafe` block / fn-modifier
+   (SPEC §Unsafe / Raw — text landed; checker enforcement TBD)
+10. `pre` AST extraction for derive-style macros
+    (REACTIVITY-DESIGN D8)
+11. Explicit error sets in `T!E` return types
+12. Module path canonicalization (M15b)
+13. Guard patterns (`x if cond => body`) — M13-deferred due to
+    `if` keyword conflict risk
+14. Try-block lowering (still `@compileError`)
+15. Expected-type propagation through bindings / calls / returns
+16. Opaque types
+17. Fold of `effects.zig` into `types.zig` once expression typing
+    is rich enough to express "non-fallible expected here" naturally
+
+**Deferred to V2 or later** (per SPEC §V2/V3):
+
+18. `@T` pinning as a real `Pin<P>` discipline
+19. Scoped-context language mechanism (Reactor / Allocator / Span
+    passed implicitly; REACTIVITY-DESIGN D9)
+20. Multi-threaded shared ownership (`Arc<T>` / `Send` / `Sync`)
+21. Reactive sugar (`:=` / `~=` / `~>` — Phase C of
+    REACTIVITY-DESIGN, optional)
+22. Stdlib seed (Vec, HashMap, String) — depends on items 1–8
+23. LSP
+24. Async / coroutines
+25. Real fuzzing of the robustness contract
+
+**Validation milestone — Phase B of REACTIVITY-DESIGN.md.** Once
+items 1–8 land, build `rig-reactive` in a branch as a ~500-line
+library that exercises the substrate end-to-end. If anything in
+1–8 doesn't compose, fix the language, not the library.
 
 ## Beyond V1 (deferred per SPEC §V2/V3)
 
-Async, advanced shared ownership, allocator traits, reflection, full trait/interface system, advanced lifetime inference, richer pre-metaprogramming.
+Multi-threaded shared ownership (`Arc<T>` / `Send` / `Sync`),
+pinning (`@T`) as a real `Pin<P>` discipline, async, allocator
+traits, reflection, full trait/interface system, advanced
+lifetime inference, richer pre-metaprogramming, scoped context
+syntax for ambient parameters, effect annotations on methods.
 
-Parsed-but-lightly-enforced for V1: shared, weak, pin, unsafe/raw.
+V1 `*` and `~` are real `Rc<T>` / `Weak<T>` (single-threaded, no
+atomics) per SPEC §Shared Ownership and §Weak Reference. V1 `@T`
+parses but is not enforced; deferred to V2 per SPEC §Pin. V1 `%x`
+/ `zig "..."` / dangerous `@builtin(...)` require unsafe context
+per SPEC §Unsafe / Raw.
 
 ## Non-goals
 

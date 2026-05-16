@@ -226,9 +226,26 @@ because that remains numeric negation.
 shared = *user
 ```
 
-Shared strong ownership.
+Single-threaded reference-counted shared ownership. V1 semantics:
 
-Intended to lower to library/runtime-managed shared ownership.
+- construction increments the strong count
+- drop decrements the strong count
+- last strong drop runs `T`'s destructor synchronously, before the
+  `*T` handle itself is gone
+- NOT `Send`, NOT `Sync` (no atomics — single-threaded V1)
+- cycles leak by default; document loudly and lint where possible
+
+This is exactly `Rc<T>`. Multi-threaded shared ownership (`Arc<T>`,
+`Send` / `Sync` marker, atomic refcounting) is deferred to V2.
+
+### Drop Order
+
+When the last `*T` strong handle is dropped, the value's destructor
+runs **synchronously**, before the `*T` handle itself is gone. Any
+`~T` weak handles to the same value upgrade to `none` after this
+point. Destructors during a callback dispatch (reactive flush,
+observer notify, etc.) are allowed; re-entrant destruction is the
+calling library's policy to handle.
 
 ---
 
@@ -238,7 +255,24 @@ Intended to lower to library/runtime-managed shared ownership.
 weak = ~shared
 ```
 
-Weak shared reference.
+Single-threaded weak handle paired with `*T`. V1 semantics:
+
+- does NOT keep `T` alive
+- `upgrade()` returns `*T?` (optional shared handle)
+- after the last `*T` is dropped, all `~T.upgrade()` calls return
+  `none`
+
+Exactly `Weak<T>`. Required for cycle-free shared-graph structures
+(GUI parent/child, observer subscriber lists, reactive subscriber
+back-edges, ECS handles, graph data structures, compiler
+self-referential types).
+
+**Constraint.** `*T` and `~T` are an "all or nothing" V1
+commitment. Shipping them as parsed-but-fake is more dangerous than
+not shipping them — fake handles create false-promise APIs that
+calcify. Either both have real semantics in V1, or both are
+reserved for V2. See `docs/REACTIVITY-DESIGN.md` for the design
+discussion.
 
 ---
 
@@ -248,19 +282,55 @@ Weak shared reference.
 pinned = @user
 ```
 
-Value may no longer move while pinned.
+**Deferred to V2.** Pinning is a `Pin<P>` discipline, not a sigil;
+the substrate cost (pin projection, `Unpin` taxonomy,
+move-while-pinned errors) is too high for V1's benefit. V1 use
+cases (self-referential structs, subscribe-in-init callbacks) are
+workable via `alloc.create` returning a `*Self` with a stable heap
+address.
+
+The `@x` sigil parses but is not enforced in V1; use it sparingly
+until V2 lands the real discipline. (`@` also prefixes Zig builtin
+calls — `@sizeOf(T)` etc. — which is a separate, unrelated use of
+the symbol.)
 
 ---
 
 ## Unsafe / Raw
 
 ```rig
-ptr = %buffer.ptr
+unsafe
+  ptr = %buffer.ptr
 ```
 
-Escape hatch from ownership guarantees.
+Escape hatch from ownership guarantees. `%` intentionally looks
+visually dangerous, but the sigil alone is not enough — `%x`,
+`zig "..."`, and dangerous `@builtin(...)` calls require an
+**unsafe context**: either an `unsafe` block, or a function
+declared with the `unsafe` modifier.
 
-`%` intentionally looks visually dangerous.
+```rig
+sub raw_op() unsafe
+  ptr = %buffer.ptr
+  do_something_with(ptr)
+```
+
+Safe Rig calling unsafe Rig requires the call to be inside an
+`unsafe` block, or for the callee to wrap the unsafe operation in
+a safe Rig contract (the standard Rust bargain).
+
+**Builtin classification.** Not all `@builtin(...)` calls are
+unsafe. Pure compile-time / type operations (`@sizeOf`,
+`@alignOf`, `@typeName`, etc.) are safe; pointer manipulation
+(`@ptrCast`, `@intFromPtr`, `@ptrFromInt`, `@memcpy`, etc.) is
+unsafe. The whitelist lives in the effects / types checker.
+
+**Safety bargain.** Rig's safety guarantee applies to safe Rig
+code and to calls whose contracts are known to the Rig checker.
+Raw Zig, raw pointers, unchecked builtins, and unsafe externs are
+outside the guarantee and require explicit unsafe context. Safe
+APIs may wrap unsafe implementations only by declaring and
+upholding Rig-visible ownership / effect contracts.
 
 ---
 
@@ -1142,24 +1212,25 @@ as library/runtime features.
 
 Rig V1 should fully support:
 
-- ownership sigils
+- ownership sigils (core + shared / weak)
 - borrowing
 - moves
-- clone/drop
+- clone / drop
 - binding rules
 - generics
-- pre/comptime
+- pre / comptime
 - error propagation
 - iteration ownership
 - Zig lowering
 - ownership checking
+- single-threaded reference-counted shared ownership (`*T` as `Rc<T>`)
+- weak references (`~T` as `Weak<T>`) with `upgrade() -> *T?`
+- unsafe context (`unsafe` block / `unsafe` fn modifier; required
+  for `%x`, `zig "..."`, dangerous `@builtin(...)`)
 
-Rig V1 may parse but lightly enforce:
+Rig V1 may parse but does not enforce:
 
-- shared ownership
-- weak refs
-- pinning
-- unsafe/raw
+- pinning (`@T`) — deferred to V2 per §Pin
 
 ---
 
@@ -1167,15 +1238,22 @@ Rig V1 may parse but lightly enforce:
 
 Possible future features:
 
-- advanced shared ownership
+- multi-threaded shared ownership (`Arc<T>`, `Send` / `Sync`,
+  atomic refcounting)
+- pinning (`@T`) as a real `Pin<P>` discipline
 - async model
 - concurrency traits
-- actor/task ownership transfer
+- actor / task ownership transfer
 - allocator traits
 - reflection
-- interfaces/traits
+- interfaces / traits
 - advanced lifetime inference
 - richer compile-time metaprogramming
+- scoped context syntax (akin to Scala `given` / Koka effects) for
+  ambient reactor / allocator / tracing parameters
+- effect annotations on methods (`mutates(self)` etc.)
+- reactive sugar (`:=` / `~=` / `~>` as parser-level desugar over
+  `Cell` / `Memo` / `Effect`; see `docs/REACTIVITY-DESIGN.md`)
 
 These are intentionally deferred.
 
