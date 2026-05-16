@@ -260,21 +260,55 @@ not yet support `if`")`. Now:
   enum-variant) cover the lowering shapes; one new torture entry
   pins the missing-else diagnostic.
 
-### M18+ — Beyond V1
-Try-block lowering (still `@compileError`), value-position match
-with multi-statement arm bodies (same labeled-block recipe as
-M17's if), **match destructuring of payload variants**
+### M18 — `match`-as-Expression Multi-Statement Arms ✅
+Closes the symmetry hole between `if`-as-expression (M17) and
+`match`-as-expression. Multi-statement arm bodies in value
+position now lower to `pattern => rig_blk_N: { ...; break
+:rig_blk_N <expr>; }`. Statement-position match is unchanged.
+
+- `emitMatch` now takes a `value_position: bool` flag plumbed
+  from `emitStmt` / `emitExpr`.
+- `emitArmBody` dispatches to `emitBranchExpr` (M17 recipe) for
+  value position, falls back to the legacy void-block wrap
+  otherwise.
+- Pre-existing `scanMutations` scoping bug exposed and fixed:
+  each `(block ...)` opens its own `seen` scope so the same
+  binding name in sibling arms isn't mis-classified as
+  reassignment. Compound assigns (`+= -= *= /=`) and move-assign
+  (`<-`) are always mutations regardless of seen-state.
+- 4 new examples + 1 torture entry. 340 passed, 0 failed.
+
+### M19 — Typed Mutable Binding Emission ✅
+Closes the daily-annoyance hole that `var i = 0` failed to
+compile in Zig (`comptime_int` can't be a mutable variable).
+Emitter now consults sema's inferred type for any mutable
+binding without a source-level annotation and emits the Zig
+type automatically.
+
+- `emitSetOrBind` looks up the binding's symbol via `decl_pos`.
+- For numeric / bool / literal pseudo-types, emits the Zig
+  spelling (`int_literal` → `i32`, `float_literal` → `f32`,
+  `int{bits}` → `iN`/`uN`, etc.).
+- Falls through to bare `var x = expr;` for non-numeric inferred
+  types and parser-only mode (no sema).
+- 2 new examples (`typed_counter`, `typed_accumulator`). No
+  existing emit goldens changed. 352 passed, 0 failed.
+
+### M20+ — Beyond V1
+Qualified enum access in match patterns (grammar work),
+try-block lowering (still `@compileError`), expected-type
+propagation through bindings/calls/returns,
+**match destructuring of payload variants**
 (`.circle => |c| use(c)`), pattern bindings threaded into arm
-bodies, range/guard patterns, qualified enum access
-(`Color.red`), explicit error sets in `T!E` return types, opaque
-types, generic struct lowering (parsed in M0, typed as opaque
-nominals in M6), generic enum types (`Option(T)` / `Result(T, E)`),
-method syntax on structs, stdlib seed (Vec, HashMap, String,
-Result, Option), LSP, async/coroutines, real fuzzing of the
-robustness contract, module path canonicalization (M15b), and the
-eventual fold of `effects.zig` into `types.zig` once expression
-typing is rich enough to express "non-fallible expected here"
-naturally.
+bodies, range/guard patterns, explicit error sets in `T!E`
+return types, opaque types, generic struct lowering (parsed in
+M0, typed as opaque nominals in M6), generic enum types
+(`Option(T)` / `Result(T, E)`), method syntax on structs,
+stdlib seed (Vec, HashMap, String, Result, Option), LSP,
+async/coroutines, real fuzzing of the robustness contract,
+module path canonicalization (M15b), and the eventual fold of
+`effects.zig` into `types.zig` once expression typing is rich
+enough to express "non-fallible expected here" naturally.
 
 ## Beyond V1 (deferred per SPEC §V2/V3)
 

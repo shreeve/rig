@@ -635,7 +635,7 @@ pub const Emitter = struct {
             .@"if" => try self.emitIf(items),
             .@"while" => try self.emitWhile(items),
             .@"for" => try self.emitFor(items),
-            .@"match" => try self.emitMatch(items),
+            .@"match" => try self.emitMatch(items, false),
             .@"block" => try self.emitBlock(sexp),
             .@"break" => try self.w.writeAll("break;"),
             .@"continue" => try self.w.writeAll("continue;"),
@@ -659,7 +659,8 @@ pub const Emitter = struct {
         // BindingKind is exhaustive, so the switch below is checked by Zig.
         if (items.len < 5) return;
         const kind = try rig.bindingKindOf(items[1]);
-        const name = identText(self.source, items[2]) orelse return;
+        const name_node = items[2];
+        const name = identText(self.source, name_node) orelse return;
         const type_node = items[3];
         const expr = items[4];
 
@@ -668,9 +669,9 @@ pub const Emitter = struct {
             .@"-=" => try self.emitCompoundAssign(name, "-=", expr),
             .@"*=" => try self.emitCompoundAssign(name, "*=", expr),
             .@"/=" => try self.emitCompoundAssign(name, "/=", expr),
-            .@"move", .default => try self.emitSetOrBind(name, type_node, expr, false, false),
-            .fixed => try self.emitSetOrBind(name, type_node, expr, true, false),
-            .shadow => try self.emitSetOrBind(name, type_node, expr, false, true),
+            .@"move", .default => try self.emitSetOrBind(name, name_node, type_node, expr, false, false),
+            .fixed => try self.emitSetOrBind(name, name_node, type_node, expr, true, false),
+            .shadow => try self.emitSetOrBind(name, name_node, type_node, expr, false, true),
         }
         // Exhaustive on BindingKind — Zig enforces.
     }
@@ -685,6 +686,7 @@ pub const Emitter = struct {
     fn emitSetOrBind(
         self: *Emitter,
         name: []const u8,
+        name_node: Sexp,
         type_node: Sexp,
         expr: Sexp,
         is_fixed: bool,
@@ -709,6 +711,20 @@ pub const Emitter = struct {
                 try self.w.print("{s} {s}: ", .{ decl_kw, zig_name });
                 try self.emitType(type_node);
                 try self.w.writeAll(" = ");
+            } else if (decl_kw[0] == 'v') {
+                // M19: mutable binding with no source-level type annotation.
+                // Zig refuses `var x = 0;` because `comptime_int` isn't
+                // a runtime type. If sema inferred a concrete type for
+                // this binding, emit it as a Zig type annotation. Falls
+                // back to the bare form for non-numeric inferred types
+                // and when sema is unavailable (parser-only mode).
+                if (self.tryEmitInferredType(name_node, name)) {
+                    try self.w.print("{s} {s}: ", .{ decl_kw, zig_name });
+                    try self.emitInferredType(name_node, name);
+                    try self.w.writeAll(" = ");
+                } else {
+                    try self.w.print("{s} {s} = ", .{ decl_kw, zig_name });
+                }
             } else {
                 try self.w.print("{s} {s} = ", .{ decl_kw, zig_name });
             }
@@ -718,6 +734,65 @@ pub const Emitter = struct {
             try self.w.print("{s} = ", .{found.?});
             try self.emitExpr(expr);
             try self.w.writeAll(";");
+        }
+    }
+
+    /// True iff sema has a concrete type for the binding declared at
+    /// `name_node` whose source spelling is `name`. Used by `emitSetOrBind`
+    /// to decide whether to emit a Zig type annotation for a `var`
+    /// binding that lacked a source-level annotation.
+    ///
+    /// Lookup strategy: match by `decl_pos` (the binding name's source
+    /// position). The sema's `SymbolResolver` records this for every
+    /// local declaration site, so it uniquely identifies the symbol
+    /// even when the same name is reused in sibling scopes.
+    fn tryEmitInferredType(self: *Emitter, name_node: Sexp, name: []const u8) bool {
+        _ = name;
+        const sema = self.sema orelse return false;
+        if (name_node != .src) return false;
+        const decl_pos = name_node.src.pos;
+        for (sema.symbols.items) |sym| {
+            if (sym.decl_pos != decl_pos) continue;
+            if (sym.ty == sema.types.invalid_id or sym.ty == sema.types.unknown_id) return false;
+            const ty = sema.types.get(sym.ty);
+            return switch (ty) {
+                .int, .float, .int_literal, .float_literal, .bool => true,
+                else => false,
+            };
+        }
+        return false;
+    }
+
+    /// Emit the Zig type spelling for the inferred type of `name`'s
+    /// binding at `name_node`. Caller must have already checked
+    /// `tryEmitInferredType`. Defaults `int_literal` → `i32` and
+    /// `float_literal` → `f32` for unconstrained literals.
+    fn emitInferredType(self: *Emitter, name_node: Sexp, name: []const u8) Error!void {
+        _ = name;
+        const sema = self.sema.?;
+        const decl_pos = name_node.src.pos;
+        for (sema.symbols.items) |sym| {
+            if (sym.decl_pos != decl_pos) continue;
+            const ty = sema.types.get(sym.ty);
+            switch (ty) {
+                .int_literal => try self.w.writeAll("i32"),
+                .float_literal => try self.w.writeAll("f32"),
+                .int => |info| {
+                    if (info.bits == 0) {
+                        try self.w.writeAll("i32");
+                    } else if (info.signed) {
+                        try self.w.print("i{d}", .{info.bits});
+                    } else {
+                        try self.w.print("u{d}", .{info.bits});
+                    }
+                },
+                .float => |info| {
+                    try self.w.print("f{d}", .{if (info.bits == 0) @as(u32, 32) else info.bits});
+                },
+                .bool => try self.w.writeAll("bool"),
+                else => try self.w.writeAll("anytype"), // defensive, shouldn't reach
+            }
+            return;
         }
     }
 
@@ -799,7 +874,7 @@ pub const Emitter = struct {
         };
 
         if (stmts.len == 0) {
-            try self.w.writeAll("@compileError(\"rig: empty if-expression branch\")");
+            try self.w.writeAll("@compileError(\"rig: empty value-position branch\")");
             return;
         }
 
@@ -845,7 +920,7 @@ pub const Emitter = struct {
         } else {
             // Final stmt is something like `(set ...)` with no value.
             // The branch doesn't produce a value — emit a diagnostic.
-            try self.w.writeAll("@compileError(\"rig: if-expression branch does not produce a value\");");
+            try self.w.writeAll("@compileError(\"rig: value-position branch does not produce a value\");");
         }
         try self.w.writeAll("\n");
 
@@ -903,7 +978,15 @@ pub const Emitter = struct {
     /// If no catch-all arm is supplied, we append `else => unreachable,`
     /// so Zig's switch-must-be-exhaustive rule is satisfied. M9+ will
     /// add real exhaustiveness checking + bind names from `_` arms.
-    fn emitMatch(self: *Emitter, items: []const Sexp) Error!void {
+    /// Lower `(match scrutinee arm...)` to a Zig `switch`.
+    ///
+    /// `value_position` is `true` when the match is being used as an
+    /// expression (binding RHS, function return, argument, branch of
+    /// another expression). In that case multi-statement arm bodies
+    /// must produce a value, and the M18 labeled-block recipe
+    /// (`emitArmBodyValue`) kicks in. When `false`, arm bodies are
+    /// emitted as void-returning blocks (`emitMatchArmBody`).
+    fn emitMatch(self: *Emitter, items: []const Sexp, value_position: bool) Error!void {
         if (items.len < 2) return;
         try self.w.writeAll("switch (");
         try self.emitExpr(items[1]);
@@ -990,8 +1073,13 @@ pub const Emitter = struct {
                 if (b == .src) {
                     const bname = self.source[b.src.pos..][0..b.src.len];
                     if (std.mem.eql(u8, bname, "_") or isNameUsedInBody(self.source, body, bname)) {
-                        try self.emitMatchArmBody(body);
+                        try self.emitArmBody(body, value_position);
                     } else {
+                        // Unused capture: insert `_ = name;` discard.
+                        // Note: this path forces a void-returning wrap,
+                        // so it's incompatible with value-position match
+                        // arms. Keep the M3 behavior; revisit if a real
+                        // case appears.
                         try self.w.writeAll("{ _ = ");
                         try self.w.writeAll(bname);
                         try self.w.writeAll("; ");
@@ -999,7 +1087,7 @@ pub const Emitter = struct {
                         try self.w.writeAll(" }");
                     }
                 } else {
-                    try self.emitMatchArmBody(body);
+                    try self.emitArmBody(body, value_position);
                 }
             } else if (is_variant_pattern and capture_names.len > 1) {
                 // Multi-payload destructure: alias each binding from
@@ -1033,10 +1121,9 @@ pub const Emitter = struct {
                 try self.emitStmt(body);
                 try self.w.writeAll(" }");
             } else {
-                // Body. Zig switch arms accept an expression; for stmt-form
-                // bodies we wrap in a block so things like `return`/`break`
-                // and side-effecting statements work uniformly.
-                try self.emitMatchArmBody(body);
+                // Body. Zig switch arms accept an expression; the
+                // value/void dispatch happens inside `emitArmBody`.
+                try self.emitArmBody(body, value_position);
             }
             try self.w.writeAll(",\n");
         }
@@ -1099,9 +1186,31 @@ pub const Emitter = struct {
         return null;
     }
 
-    /// Emit a match-arm body. For statement-shaped sexps (call, set,
-    /// etc.) wrap in a block expression `{ stmt; }` since Zig switch
-    /// arms expect an expression position. Bare expressions emit as-is.
+    /// Match-arm body dispatcher.
+    ///
+    /// In **value position** (M18): multi-statement arm bodies must
+    /// produce a value, so route through `emitBranchExpr` (the M17
+    /// labeled-block recipe — `rig_blk_N: { ...; break :rig_blk_N
+    /// expr; }`). Single-expression arm bodies emit inline. Final-
+    /// terminating bodies (`return`/`break`/`continue`) emit a plain
+    /// unlabeled block.
+    ///
+    /// In **statement position** (legacy `emitMatchArmBody`): arm
+    /// bodies are void-returning. Single statements wrap in `{ stmt; }`
+    /// so things like `return`/`break`/side-effecting calls work.
+    fn emitArmBody(self: *Emitter, body: Sexp, value_position: bool) Error!void {
+        if (value_position) {
+            try self.emitBranchExpr(body);
+        } else {
+            try self.emitMatchArmBody(body);
+        }
+    }
+
+    /// Emit a match-arm body in STATEMENT position. Arm bodies are
+    /// void-returning. For statement-shaped sexps (call, set, etc.)
+    /// wrap in a block expression `{ stmt; }` since Zig switch arms
+    /// expect an expression position. Bare expressions emit as-is.
+    /// See `emitArmBody` for the value-position variant.
     fn emitMatchArmBody(self: *Emitter, body: Sexp) Error!void {
         if (body == .list and body.list.len > 0 and body.list[0] == .tag) {
             const head = body.list[0].tag;
@@ -1253,9 +1362,10 @@ pub const Emitter = struct {
             // Block-as-expression (e.g., `if cond block else block` returning value)
             .@"block" => try self.emitBlock(.{ .list = items }),
             // M10: value-position match. Same lowering as statement
-            // position — Zig's `switch` is also an expression, so we
-            // can use the same machinery in either context.
-            .@"match" => try self.emitMatch(items),
+            // position — Zig's `switch` is also an expression — but
+            // arm bodies need the value-block recipe (M18) so multi-
+            // statement arms produce a value via labeled `break`.
+            .@"match" => try self.emitMatch(items, true),
             // M17: value-position if. Branches are wrapped in labeled
             // blocks when they need them; single-expression branches
             // are emitted inline. See `emitIfExpr` / `emitBranchExpr`.
@@ -1879,27 +1989,54 @@ fn scanMutationsRec(
     if (items.len == 0) return;
     if (items[0] == .tag) {
         const tag = items[0].tag;
-        // Don't descend into nested fn/sub/lambda
+        // Don't descend into nested fn/sub/lambda — they're separate scopes
+        // analyzed by their own scanMutations call.
         if (tag == .@"fun" or tag == .@"sub" or tag == .@"lambda") return;
+
+        // Each `(block ...)` opens a new lexical scope. Use a fresh
+        // `seen` set within so a binding name reused across sibling
+        // scopes (e.g., the same `tmp` in two match arms) doesn't get
+        // misdetected as a reassignment of the first.
+        if (tag == .@"block") {
+            var inner_seen: std.StringHashMapUnmanaged(void) = .{};
+            defer inner_seen.deinit(allocator);
+            for (items[1..]) |child| {
+                try scanMutationsRec(out, &inner_seen, allocator, child, source);
+            }
+            return;
+        }
+
         if (tag == .@"set" and items.len >= 5) {
-            // (set <kind> name type expr). Only kinds that actually
-            // reassign an existing slot count toward "must be `var`".
+            // (set <kind> name type expr). Decide whether this site
+            // means "declare a new binding" or "mutate an existing one":
+            //
+            //   compound ops (`+=` `-=` `*=` `/=`)  → always mutation
+            //   move-assign (`<-`)                  → always mutation
+            //   plain `=`                           → mutation iff target was already declared in this scope
+            //   `=!` (fixed) / `new` (shadow)       → fresh binding (no mutation)
+            //
             // Exhaustive switch on BindingKind — adding a new kind to
             // the enum forces an explicit decision here.
             const kind = try rig.bindingKindOf(items[1]);
-            const counts_as_mut: bool = switch (kind) {
-                .default, .@"move", .@"+=", .@"-=", .@"*=", .@"/=" => true,
-                .fixed, .shadow => false,
-            };
-            if (counts_as_mut) {
-                const target = items[2];
-                if (target == .src) {
-                    const nm = source[target.src.pos..][0..target.src.len];
-                    if (seen.contains(nm)) {
+            const target = items[2];
+            if (target == .src) {
+                const nm = source[target.src.pos..][0..target.src.len];
+                switch (kind) {
+                    .@"+=", .@"-=", .@"*=", .@"/=", .@"move" => {
+                        // Always counts as mutation; doesn't affect `seen`.
                         try out.put(allocator, nm, {});
-                    } else {
+                    },
+                    .default => {
+                        if (seen.contains(nm)) {
+                            try out.put(allocator, nm, {});
+                        } else {
+                            try seen.put(allocator, nm, {});
+                        }
+                    },
+                    .fixed, .shadow => {
+                        // Fresh binding — record in scope, don't mutate.
                         try seen.put(allocator, nm, {});
-                    }
+                    },
                 }
             }
         }

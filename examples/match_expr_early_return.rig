@@ -1,0 +1,18 @@
+# M18: match arm whose final statement is `return`. The branch
+# type is `noreturn`, which Zig coerces to the other arms' type.
+# The emitter detects this and emits a plain unlabeled block (a
+# `rig_blk_N:` label would trigger Zig's "unused block label").
+enum Op
+  go
+  abort
+
+fun handle(op: Op, x: Int) -> Int
+  result: Int = match op
+    .go => x * 2
+    .abort
+      return -1
+  result + 1
+
+sub main()
+  print(handle(.go, 5))
+  print(handle(.abort, 5))

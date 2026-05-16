@@ -1,0 +1,15 @@
+# M18 negative case: match used as expression, but an arm body's
+# final statement isn't a value (it's an assignment). Sema/emitter
+# must reject without crashing.
+enum Op
+  a
+  b
+
+fun broken(op: Op) -> Int
+  match op
+    .a
+      x = 5
+    .b => 7
+
+sub main()
+  print(broken(.a))

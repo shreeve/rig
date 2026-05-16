@@ -1,0 +1,11 @@
+# M19: untyped mutable bindings get a Zig type annotation derived
+# from sema's inferred type. `i = 0` followed by `i += 1` would have
+# emitted `var i = 0;`, which Zig rejects (`comptime_int` can't be
+# mutable). Now emits `var i: i32 = 0;` automatically. `Int` defaults
+# to `i32` (matches the SPEC default integer width).
+sub main()
+  i = 0
+  i += 1
+  i += 1
+  i += 1
+  print(i)

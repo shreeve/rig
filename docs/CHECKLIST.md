@@ -1081,6 +1081,71 @@ Designed with GPT-5.5 — key decisions: unique block labels (no shadowing), ter
 ### Deferred (M18+)
 
 - **`try`-block lowering.** Still `@compileError`. Distinct shape (`try { ... } catch { ... }` vs `if`), and ties into the error-set work.
-- **`match` value-position arms with multi-statement bodies.** M10 made `match`-as-expression work for single-expression arms; multi-stmt arms still need the same labeled-block treatment we just gave `if`. Same recipe should apply.
+- **~~`match` value-position arms with multi-statement bodies.~~** ✅ M18.
 - **`if let`** (pattern-binding ifs). SPEC-future; deferred until optionals reach M-something.
+
+## M18 — `match`-as-Expression with Multi-Statement Arms
+
+The M17 labeled-block recipe (`rig_blk_N: { ...; break :rig_blk_N <expr>; }`) ports directly to match arms. Before M18, multi-statement arm bodies emitted as plain `{ stmt; tmp; }` and Zig rejected the trailing expression statement. After M18, value-position match arms produce a value, and statement-position match arms continue to use the void-returning wrap.
+
+Designed with GPT-5.5: plumb a `value_position: bool` flag through `emitMatch` so each call site (`emitStmt` / `emitExpr`) can pick the right arm-body recipe.
+
+### Implementation
+
+- **`emitMatch(items, value_position: bool)`** — same shape as before, but each arm body now goes through the `emitArmBody` dispatcher.
+- **`emitArmBody(body, value_position)`** — when `value_position` is true, routes through `emitBranchExpr` (the M17 labeled-block helper). Otherwise falls back to the legacy `emitMatchArmBody` (statement-position void-block wrap).
+- **Statement-position match** (e.g., `match c { .a => print("a") }` at the top level of a function body) is unchanged — single-call arms still emit inline, multi-stmt arms still wrap as `{ stmt; }`.
+- **Value-position match** (`x = match c { ... }`, `return match c { ... }`, `match` in a binding RHS, in a call arg, in an if branch) gets the M17 recipe per arm.
+
+### Pre-existing scope bug exposed
+
+`scanMutations` (the pre-pass that decides `var` vs `const` for each binding) used a single `seen` hash across all of a function's bindings. With multi-arm match bodies, the same name (e.g., `tmp`) reused in two sibling arms got mis-classified as a re-assignment of the first, forcing both to emit as `var` — and Zig then rejected them as "never mutated."
+
+Fixed by making each `(block ...)` open its own `seen` scope. Also tightened the kind-dispatch: compound assigns (`+=`, `-=`, `*=`, `/=`) and move-assign (`<-`) are ALWAYS mutations regardless of seen-state (they don't declare); plain `=` declares-or-mutates depending on seen; `=!` (fixed) and `new` (shadow) always declare.
+
+### Examples
+
+- `examples/match_expr_block.rig` — multi-stmt arm, both arms via labeled blocks.
+- `examples/match_expr_binding.rig` — match used as binding RHS.
+- `examples/match_expr_mixed.rig` — arms of mixed shape (some single-expr, some multi-stmt) — only the multi-stmt arms get labeled blocks.
+- `examples/match_expr_early_return.rig` — match arm body that `return`s; emitter elides the label since `noreturn` coerces to the other arm's type.
+- `test/torture/20_match_expr_no_value.rig` — match arm whose final statement is `(set ...)` (no value); emitter's `@compileError` safety net fires cleanly.
+
+### Result
+
+340 passed, 0 failed (up from 315 after M17). All four new examples have raw/semantic/emit/determinism goldens; emitted Zig compiles + runs.
+
+## M19 — Typed Mutable Binding Emission
+
+Closes the daily-annoyance hole that `var i = 0` failed to compile because `comptime_int` can't be a mutable Zig variable. Before M19, every counter loop / accumulator needed an explicit `i: I32 = 0` annotation to avoid the Zig diagnostic. After M19, the emitter consults sema's inferred type for any mutable binding without a source-level annotation and emits the Zig type automatically.
+
+Designed with GPT-5.5 — key refinement: don't special-case integer literals; do "use sema-inferred type for mutable locals" generally. Future-proofs for any inferred-typed mutable, not just literal RHS.
+
+### Implementation
+
+- **`emitSetOrBind`** now takes the binding's `name_node` (so we know the source position) in addition to the name string.
+- **`tryEmitInferredType`** — looks up the symbol whose `decl_pos` matches the name node's source position. Returns true iff sema gave it a concrete numeric / bool / int_literal / float_literal type. Other kinds (`unknown`, nominal types, slices, etc.) fall through to the bare `var x = expr;` form for backward compatibility.
+- **`emitInferredType`** — emits the Zig spelling. Defaults: `int_literal` → `i32`, `float_literal` → `f32`, `int{bits}` → `iN`/`uN`, `float{bits}` → `fN`, `bool` → `bool`. Matches `mapTypeName`'s primitive table.
+- **Default integer width.** `Int` lowers to `i32` (matches Rig's existing `mapTypeName` and the SPEC default). Unconstrained int literals therefore default to `i32` for mutable bindings — visible, predictable, portable.
+
+### Examples
+
+- `examples/typed_counter.rig` — `i = 0; i += 1` now compiles and runs.
+- `examples/typed_accumulator.rig` — counter + accumulator inside a `while` loop. Both `sum` and `i` get inferred `i32` annotations.
+
+### Result
+
+352 passed, 0 failed (up from 340 after M18). No existing emit goldens changed — the new emit path is gated on "no source-level type annotation AND will be `var`," so all previously-typed examples are unaffected.
+
+### Deferred (M20+)
+
+- **Expected-type propagation through bindings, calls, returns** — pick the literal's target type from context (`idx: USize = 0` → `usize`; `for i in 0..xs.len` → `usize`; `f(0)` where `f(x: I64)` → `i64`). M19 only handles the no-context case.
+- **Integer literal range checking** — once we widen/narrow across sized integer types.
+- **Shadowing-aware lookup.** M19 matches symbols by `decl_pos`; if two bindings share a position (impossible today), the first match wins. Robust enough for now.
+
+## M20 — Skipped
+
+Originally scoped as "qualified enum access (`Color.red`) regression bugfix". Investigation showed: `Color.red` already works in binding RHS and call argument positions (M11 landed fine). The remaining hole is `Color.red` as a **match pattern** — which is a grammar limitation, not a regression. Patterns currently use the `atom` non-terminal, which doesn't include member access. Adding it would require a grammar change + conflict review + sema work to resolve qualified patterns.
+
+Per GPT-5.5's guidance ("D only if localized regression — don't let it become qualified namespace overhaul"), deferred to M21+. The `.red` short form remains the supported pattern syntax.
 

@@ -1,0 +1,1 @@
+(module (enum Op go abort) (fun handle ((: op Op) (: x Int)) Int (block (set _ result Int (match op (arm (enum_lit go) _ (* x 2)) (arm (enum_lit abort) _ (block (return (neg 1)))))) (+ result 1))) (sub main () _ (block (call print (call handle (enum_lit go) 5)) (call print (call handle (enum_lit abort) 5)))))

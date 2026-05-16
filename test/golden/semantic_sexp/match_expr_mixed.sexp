@@ -1,0 +1,1 @@
+(module (enum Op zero square cube) (fun apply ((: op Op) (: x Int)) Int (block (match op (arm (enum_lit zero) _ 0) (arm (enum_lit square) _ (* x x)) (arm (enum_lit cube) _ (block (set _ sq Int (* x x)) (* sq x)))))) (sub main () _ (block (call print (call apply (enum_lit zero) 5)) (call print (call apply (enum_lit square) 5)) (call print (call apply (enum_lit cube) 3)))))

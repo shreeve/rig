@@ -1,0 +1,14 @@
+# M18: match used as the RHS of a binding. The binding's type is
+# unified across the arm bodies' types (sema enforces).
+enum Color
+  red
+  green
+  blue
+
+sub main()
+  c = Color.red
+  rank: Int = match c
+    .red => 1
+    .green => 2
+    .blue => 3
+  print(rank)

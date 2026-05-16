@@ -1,0 +1,1 @@
+(module (enum Color red green blue) (sub main () _ (block (set _ c _ (member Color red)) (set _ rank Int (match c (arm (enum_lit red) _ 1) (arm (enum_lit green) _ 2) (arm (enum_lit blue) _ 3))) (call print rank))))

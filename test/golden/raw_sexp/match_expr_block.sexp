@@ -1,0 +1,1 @@
+(module (enum Op add minus) (fun apply ((: op Op) (: a Int) (: b Int)) Int (block (match op (arm (enum_lit add) _ (block (set _ tmp _ (+ a b)) tmp)) (arm (enum_lit minus) _ (block (set _ tmp _ (- a b)) tmp))))) (sub main () _ (block (call print (call apply (enum_lit add) 3 4)) (call print (call apply (enum_lit minus) 10 3)))))
