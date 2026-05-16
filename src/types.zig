@@ -1230,6 +1230,14 @@ const TypeResolver = struct {
                 // SymbolResolver.walkGenericType.
                 return self.resolveGenericTypeFields(items, parent_scope, scope_cursor);
             },
+            .@"generic_enum" => {
+                // M20c: generic enum body resolution. Reuses
+                // `resolveEnumVariants` (which now branches on the
+                // IR head to position variants at items[3..] and
+                // set NominalContext for type_var resolution in
+                // payload field types).
+                return self.resolveEnumVariants(items, parent_scope, scope_cursor);
+            },
             else => return scope_cursor,
         }
     }
@@ -1590,11 +1598,35 @@ const TypeResolver = struct {
         const name = identAt(self.ctx.source, items[1]) orelse return scope_cursor;
         const sym_id = self.ctx.lookup(parent_scope, name) orelse return scope_cursor;
 
+        // M20c: `(generic_enum Name (params) variants...)` has its
+        // variants at items[3..] (after name and params). Plain
+        // `(enum/errors Name variants...)` has them at items[2..].
+        // Set NominalContext for the generic case so payload field
+        // types with bare `T` resolve to `type_var(T_sym)` and
+        // `Self` resolves to `parameterized_nominal(sym, [type_var(T)])`.
+        const head = items[0].tag;
+        const is_generic = head == .@"generic_enum";
+        const variants_start: usize = if (is_generic) 3 else 2;
+        if (items.len <= variants_start) {
+            // No variants — empty enum body. Still populate `.fields`
+            // with `&.{}` so downstream lookups don't mistake this
+            // for an opaque (unresolved) nominal.
+            const owned = try self.ctx.arena.allocator().dupe(Field, &.{});
+            self.ctx.symbols.items[sym_id].fields = owned;
+            return scope_cursor;
+        }
+
+        const prev_nominal = self.current_nominal;
+        if (is_generic) {
+            self.current_nominal = try makeNominalContext(self.ctx, sym_id);
+        }
+        defer self.current_nominal = prev_nominal;
+
         var fields: std.ArrayListUnmanaged(Field) = .empty;
         defer fields.deinit(self.ctx.allocator);
 
         var cursor = scope_cursor;
-        for (items[2..]) |variant| {
+        for (items[variants_start..]) |variant| {
             // M20a: enum methods (fun/sub members) get the same
             // `is_method = true` Field treatment as struct methods.
             // M20a.2: also catch sigil-prefixed sugar at member
@@ -2573,6 +2605,79 @@ pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std
     return null;
 }
 
+/// M20c: result of resolving an enum-variant reference on a receiver
+/// type. Per GPT-5.5 M20c design pass: variants are NOT fields; enum-
+/// literal / match-arm dispatch goes through this helper rather than
+/// poking through `Symbol.fields` directly.
+///
+/// `payload` is the variant's payload field list with `type_var`s
+/// substituted against the receiver's type arguments (for parameterized
+/// enums) — so a match arm on `Option(Int).some(value: ...)` sees
+/// `value: Int`, not `value: T`. For plain nominals, substitution is
+/// empty and payload comes through unchanged.
+pub const ResolvedVariant = struct {
+    field: Field,
+    payload: []const Field, // substituted; empty slice when variant has no payload
+    nominal_sym: SymbolId,
+};
+
+/// M20c: look up an enum variant by name on a receiver type. Peels
+/// borrows; handles `nominal` (plain enum) and `parameterized_nominal`
+/// (generic enum). Substitutes `type_var` in payload field types
+/// against the receiver's type args.
+///
+/// Returns `null` if the receiver isn't an enum/errors nominal or
+/// the named variant doesn't exist. Use the `nominal_sym` from the
+/// result for callee-side diagnostics.
+pub fn lookupVariant(
+    ctx: *SemContext,
+    receiver_ty: TypeId,
+    name: []const u8,
+) std.mem.Allocator.Error!?ResolvedVariant {
+    const peeled = unwrapBorrows(ctx, receiver_ty);
+    const ty = ctx.types.get(peeled);
+
+    var sym_id: SymbolId = symbol_invalid;
+    var subst: TypeSubst = TypeSubst.empty;
+    switch (ty) {
+        .nominal => |s| sym_id = s,
+        .parameterized_nominal => |pn| {
+            sym_id = pn.sym;
+            const sym = ctx.symbols.items[pn.sym];
+            const tparams = sym.type_params orelse &.{};
+            subst = .{ .params = tparams, .args = pn.args };
+        },
+        else => return null,
+    }
+
+    const sym = ctx.symbols.items[sym_id];
+    const fields = sym.fields orelse return null;
+    for (fields) |f| {
+        if (!f.is_variant) continue;
+        if (!std.mem.eql(u8, f.name, name)) continue;
+        // Substitute payload field types if any.
+        const orig_payload = f.payload orelse &.{};
+        if (orig_payload.len == 0 or subst.isEmpty()) {
+            return .{ .field = f, .payload = orig_payload, .nominal_sym = sym_id };
+        }
+        // Build a substituted payload slice in the arena.
+        const sub_payload = try ctx.arena.allocator().alloc(Field, orig_payload.len);
+        for (orig_payload, 0..) |pf, i| {
+            sub_payload[i] = .{
+                .name = pf.name,
+                .ty = try substituteType(ctx, pf.ty, subst),
+                .decl_pos = pf.decl_pos,
+                .payload = pf.payload,
+                .is_method = pf.is_method,
+                .receiver = pf.receiver,
+                .is_variant = pf.is_variant,
+            };
+        }
+        return .{ .field = f, .payload = sub_payload, .nominal_sym = sym_id };
+    }
+    return null;
+}
+
 /// M20b(1/5) / M20b(5/5): check whether a method by `name` exists on
 /// the receiver's nominal (method-vs-field collision detection). Used
 /// by `synthMember` to produce a targeted "bare method reference not
@@ -3244,34 +3349,32 @@ const ExprChecker = struct {
         const variant_pos: u32 = if (items[1] == .src) items[1].src.pos else 0;
         try self.recordCovered(variant_name, variant_pos, covered);
 
-        // Look up the variant on the scrutinee enum.
-        const sty = self.ctx.types.get(scrutinee_ty);
-        if (sty != .nominal) return;
-        const enum_sym = self.ctx.symbols.items[sty.nominal];
-        const variants = enum_sym.fields orelse return;
-
-        var variant: ?Field = null;
-        for (variants) |v| {
-            if (v.is_method) continue; // M20a: methods aren't variants
-            if (std.mem.eql(u8, v.name, variant_name)) {
-                variant = v;
-                break;
-            }
-        }
-        const v = variant orelse {
+        // M20c per GPT-5.5: route through `lookupVariant` so both
+        // `nominal(Shape)` (plain) and `parameterized_nominal(
+        // Option, [Int])` (generic) scrutinees work uniformly. The
+        // returned payload field types are already substituted, so
+        // pattern bindings on `.some(value)` against `Option(Int)`
+        // get `value: Int` rather than `value: T`.
+        const resolved = (try lookupVariant(self.ctx, scrutinee_ty, variant_name)) orelse {
+            const owner_id_opt = nominalSymOfReceiver(self.ctx, scrutinee_ty);
+            const sym_id = owner_id_opt orelse return;
+            const enum_sym = self.ctx.symbols.items[sym_id];
+            if (enum_sym.fields == null) return; // opaque
             try self.err(variant_pos, "no variant `{s}` on enum `{s}`", .{ variant_name, enum_sym.name });
             if (enum_sym.decl_pos > 0) try self.note(enum_sym.decl_pos, "`{s}` declared here", .{enum_sym.name});
             return;
         };
 
-        // Bind each captured payload name with the matching field type.
+        // Bind each captured payload name with the matching (substituted)
+        // field type.
         const bindings = items[2..];
-        const payload = v.payload orelse {
+        const payload = resolved.payload;
+        if (payload.len == 0) {
             if (bindings.len > 0) {
                 try self.err(variant_pos, "variant `{s}` has no payload to destructure", .{variant_name});
             }
             return;
-        };
+        }
         if (bindings.len != payload.len) {
             try self.err(variant_pos, "variant `{s}` has {d} payload field{s}, pattern destructures {d}", .{
                 variant_name,
@@ -4140,34 +4243,33 @@ const ExprChecker = struct {
         const variant_name = identAt(self.ctx.source, callee[1]) orelse return;
         const variant_pos: u32 = if (callee[1] == .src) callee[1].src.pos else 0;
 
-        const expected_ty = self.ctx.types.get(expected);
-        if (expected_ty != .nominal) return;
-        const enum_sym = self.ctx.symbols.items[expected_ty.nominal];
-        const variants = enum_sym.fields orelse return;
-
-        // Find the variant.
-        var variant: ?Field = null;
-        for (variants) |v| {
-            if (v.is_method) continue; // M20a: methods aren't variants
-            if (std.mem.eql(u8, v.name, variant_name)) {
-                variant = v;
-                break;
-            }
-        }
-        const v = variant orelse {
-            try self.err(variant_pos, "no variant `{s}` on enum `{s}`", .{ variant_name, enum_sym.name });
-            if (enum_sym.decl_pos > 0) try self.note(enum_sym.decl_pos, "`{s}` declared here", .{enum_sym.name});
+        // M20c per GPT-5.5: route through `lookupVariant` so both
+        // plain `nominal(Shape)` and generic `parameterized_nominal(
+        // Option, [Int])` receivers work uniformly, with payload field
+        // types already substituted (T → Int).
+        const resolved = (try lookupVariant(self.ctx, expected, variant_name)) orelse {
+            // Not a known enum context — could be no expected type, or
+            // the expected isn't an enum at all. Distinguish silent vs
+            // diagnostic via the receiver's nominal classification.
+            const owner_id_opt = nominalSymOfReceiver(self.ctx, expected);
+            const sym_id = owner_id_opt orelse return;
+            const sym = self.ctx.symbols.items[sym_id];
+            if (sym.fields == null) return; // opaque
+            try self.err(variant_pos, "no variant `{s}` on enum `{s}`", .{ variant_name, sym.name });
+            if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
             return;
         };
+        const enum_sym = self.ctx.symbols.items[resolved.nominal_sym];
 
         const args = items[2..];
-        const payload = v.payload orelse {
+        if (resolved.payload.len == 0) {
             // Bare variant called with args → mismatch.
             if (args.len > 0) {
                 try self.err(variant_pos, "variant `{s}` of enum `{s}` takes no payload", .{ variant_name, enum_sym.name });
             }
             return;
-        };
+        }
+        const payload = resolved.payload;
 
         // Decide arg style.
         var has_kwarg = false;
@@ -4265,19 +4367,18 @@ const ExprChecker = struct {
         const variant_name = identAt(self.ctx.source, variant_node) orelse return;
         const variant_pos: u32 = if (variant_node == .src) variant_node.src.pos else 0;
 
-        const expected_ty = self.ctx.types.get(expected);
-        if (expected_ty != .nominal) {
-            // No useful expected type — accept silently.
-            return;
-        }
-        const sym = self.ctx.symbols.items[expected_ty.nominal];
-        const fields = sym.fields orelse return; // opaque enum: accept
+        // M20c per GPT-5.5: route through `lookupVariant` so both
+        // `nominal(Color)` (plain) and `parameterized_nominal(Option,
+        // [Int])` (generic) receivers work uniformly.
+        if (try lookupVariant(self.ctx, expected, variant_name)) |_| return;
 
-        for (fields) |f| {
-            if (f.is_method) continue; // M20a: methods aren't variants
-            if (std.mem.eql(u8, f.name, variant_name)) return; // ok
-        }
-
+        // No match — either the expected type isn't an enum at all
+        // (accept silently — no useful context), or it is but the
+        // variant doesn't exist (diagnose).
+        const owner_id_opt = nominalSymOfReceiver(self.ctx, expected);
+        const sym_id = owner_id_opt orelse return;
+        const sym = self.ctx.symbols.items[sym_id];
+        if (sym.fields == null) return; // opaque nominal — accept silently
         try self.err(variant_pos, "no variant `{s}` on enum `{s}`", .{ variant_name, sym.name });
         if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
     }
@@ -4344,17 +4445,20 @@ fn typeIsVoid(ctx: *const SemContext, ty: TypeId) bool {
 /// If `ty` resolves to a nominal enum/errors with declared variants,
 /// returns the variant count. Used by match exhaustiveness checking.
 fn enumVariantCount(ctx: *const SemContext, ty: TypeId) ?usize {
-    const t = ctx.types.get(ty);
-    if (t != .nominal) return null;
-    const sym = ctx.symbols.items[t.nominal];
-    if (sym.kind != .nominal_type) return null;
+    // M20c per GPT-5.5: handle both `nominal` (plain enum) and
+    // `parameterized_nominal` (generic enum like `Option(Int)`) via
+    // the shared `nominalSymOfReceiver` helper.
+    const sym_id = nominalSymOfReceiver(ctx, ty) orelse return null;
+    const sym = ctx.symbols.items[sym_id];
+    if (sym.kind != .nominal_type and sym.kind != .generic_type) return null;
     const fields = sym.fields orelse return null;
     // M20a: methods (is_method=true) live in the same `fields` slice
-    // as variants but aren't variants — exclude from variant count.
+    // as variants but aren't variants. M20c: only count actual variants
+    // (is_variant=true).
     var count: usize = 0;
-    for (fields) |f| if (!f.is_method) {
-        count += 1;
-    };
+    for (fields) |f| {
+        if (f.is_variant) count += 1;
+    }
     return count;
 }
 

@@ -1229,20 +1229,21 @@ pub const Emitter = struct {
         const name = self.source[scrutinee.src.pos..][0..scrutinee.src.len];
         for (sema.symbols.items) |sym| {
             if (!std.mem.eql(u8, sym.name, name)) continue;
-            // M20a / M20a.2: peel borrow_read / borrow_write so
-            // `match self` on `self: ?Color` finds Color's variants.
-            const peeled = types.unwrapBorrows(sema, sym.ty);
-            const ty = sema.types.get(peeled);
-            if (ty != .nominal) continue;
-            const enum_sym = sema.symbols.items[ty.nominal];
+            // M20a / M20a.2 / M20c: peel borrow_read / borrow_write so
+            // `match self` on `self: ?Color` / `self: ?Option(Int)`
+            // finds the underlying enum. M20c per GPT-5.5: also
+            // handle `parameterized_nominal` via `nominalSymOfReceiver`
+            // so generic enum match-exhaustiveness works.
+            const sym_id = types.nominalSymOfReceiver(sema, sym.ty) orelse continue;
+            const enum_sym = sema.symbols.items[sym_id];
             const fields = enum_sym.fields orelse return false;
-            // M20a: methods (is_method=true) share the same `fields`
-            // slice but aren't variants — exclude them from the
-            // exhaustiveness count.
+            // M20c: count actual variants (is_variant=true) only.
+            // Data fields (struct case — unreachable here in practice)
+            // and methods don't contribute to exhaustiveness.
             var variant_count: usize = 0;
-            for (fields) |f| if (!f.is_method) {
-                variant_count += 1;
-            };
+            for (fields) |f| {
+                if (f.is_variant) variant_count += 1;
+            }
             return enum_arms_seen >= variant_count;
         }
         return false;
