@@ -1619,6 +1619,16 @@ pub const Emitter = struct {
             .@"member" => {
                 if (items.len >= 3) {
                     try self.emitExpr(items[1]);
+                    // M20d(4/5) read-only auto-deref: when the obj's
+                    // type is `shared(T)`, Zig sees a `*rig.RcBox(T)`
+                    // — field/method access on T requires bridging
+                    // through `.value`. Sema has already validated
+                    // that the access is read-only (write/value
+                    // receivers and field-target assigns are rejected
+                    // by checkReceiverMode / checkSet).
+                    if (self.handleKindOf(items[1]) == .shared) {
+                        try self.w.writeAll(".value");
+                    }
                     try self.w.writeAll(".");
                     try self.emitExpr(items[2]);
                 }

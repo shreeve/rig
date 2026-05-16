@@ -1962,17 +1962,23 @@ const TypeResolver = struct {
                     // form (which keeps the M3 `share` tag) — see
                     // src/rig.zig's Tag enum for the rationale.
                     //
-                    // Deliberately permissive at the structural level:
-                    // we DON'T reject `**T` (shared-of-shared) or
-                    // `*?T` (shared-of-borrow) here. Those are not
-                    // useful but the rejection belongs at the usage
-                    // site where a clearer diagnostic can be produced.
-                    // M20d(5/5) adds negative tests pinning the
-                    // expression-position checks (e.g., `~T` operand
-                    // must be `shared(T)`).
+                    // M20d(4/5) per GPT-5.5: reject nested shared
+                    // (`**T`) — two layers of refcount indirection
+                    // serve no V1 use case and the type would be a
+                    // surprise to read. Single `*T` is always what the
+                    // user meant. `*?T` (shared-of-borrow) and `*T?`
+                    // (shared-of-optional) are NOT rejected; both are
+                    // structurally meaningful.
                     .@"shared" => {
                         if (items.len < 2) return self.ctx.types.invalid_id;
                         const inner = try self.resolveType(items[1], scope);
+                        const inner_ty = self.ctx.types.get(inner);
+                        if (inner_ty == .shared) {
+                            // Best-effort pos: the inner tag node or the wrapper's first src.
+                            const pos = firstSrcPos(items[1]);
+                            try self.err(pos, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
+                            return self.ctx.types.invalid_id;
+                        }
                         return self.ctx.types.intern(self.ctx.allocator, .{ .shared = inner });
                     },
                     .@"weak" => {
@@ -2157,6 +2163,7 @@ pub const ReceiverTypeKind = enum {
     owned_nominal, // T (matching the enclosing nominal)
     read_borrow, // ?T (matching the enclosing nominal)
     write_borrow, // !T (matching the enclosing nominal)
+    shared, // M20d: *T (shared Rc handle to the enclosing nominal)
     other, // doesn't unwrap to the expected nominal, or unknown
 };
 
@@ -2179,6 +2186,18 @@ fn classifyReceiverType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
             const inner_ty = ctx.types.get(inner);
             if (inner_ty == .nominal and inner_ty.nominal == nominal_sym) return .write_borrow;
             if (inner_ty == .parameterized_nominal and inner_ty.parameterized_nominal.sym == nominal_sym) return .write_borrow;
+            return .other;
+        },
+        // M20d(4/5): shared(T) receiver. Match against the enclosing
+        // nominal exactly like borrow kinds so `checkReceiverMode` can
+        // reject `.write` / `.value` methods through shared. Auto-deref
+        // is already permitted by `unwrapReadAccess` in the lookup
+        // helpers; this is the safety check that turns "method found"
+        // into "method callable."
+        .shared => |inner| {
+            const inner_ty = ctx.types.get(inner);
+            if (inner_ty == .nominal and inner_ty.nominal == nominal_sym) return .shared;
+            if (inner_ty == .parameterized_nominal and inner_ty.parameterized_nominal.sym == nominal_sym) return .shared;
             return .other;
         },
         else => return .other,
@@ -2563,7 +2582,11 @@ pub const ResolvedMethod = struct {
 /// M20b(4/5) will extend this to handle `parameterized_nominal` and
 /// substitute the returned `ty` against the receiver's type arguments.
 pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedField {
-    const peeled = unwrapBorrows(ctx, receiver_ty);
+    // M20d(4/5): use `unwrapReadAccess` (peels shared too) so `rc.field`
+    // reaches the nominal's fields. Read-only access is always safe
+    // through a shared handle; field WRITE through shared is rejected
+    // separately in `checkSet` (also M20d(4/5)).
+    const peeled = unwrapReadAccess(ctx, receiver_ty);
     const ty = ctx.types.get(peeled);
 
     // Classify the receiver: plain nominal vs parameterized.
@@ -2613,7 +2636,12 @@ pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) 
 /// `fn_ty` (params + return) against the receiver's type arguments
 /// for parameterized nominals.
 pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedMethod {
-    const peeled = unwrapBorrows(ctx, receiver_ty);
+    // M20d(4/5): use `unwrapReadAccess` (peels shared too). Method
+    // lookup matches; the receiver-mode check (`checkReceiverMode`)
+    // is then responsible for rejecting `.write` / `.value` receivers
+    // when the actual receiver type is `shared`. Auto-deref reaches
+    // the declaration; the receiver-mode rule enforces safety.
+    const peeled = unwrapReadAccess(ctx, receiver_ty);
     const ty = ctx.types.get(peeled);
 
     var sym_id: SymbolId = symbol_invalid;
@@ -2737,7 +2765,8 @@ pub fn lookupVariant(
 /// non-allocating boolean existence check — does NOT call
 /// `lookupMethod` (which substitutes and may allocate).
 pub fn hasMethodNamed(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) bool {
-    const peeled = unwrapBorrows(ctx, receiver_ty);
+    // M20d(4/5): peel shared too (read-only access auto-deref).
+    const peeled = unwrapReadAccess(ctx, receiver_ty);
     const ty = ctx.types.get(peeled);
     const sym_id = switch (ty) {
         .nominal => |s| s,
@@ -2770,6 +2799,40 @@ pub fn unwrapBorrows(ctx: *const SemContext, ty_id: TypeId) TypeId {
         switch (ty) {
             .borrow_read => |inner| id = inner,
             .borrow_write => |inner| id = inner,
+            else => return id,
+        }
+    }
+}
+
+/// M20d(4/5): read-only access unwrap. Peels `borrow_read` /
+/// `borrow_write` AND `shared` — but NOT `weak`, NOT `optional`, NOT
+/// `fallible`, NOT `raw`. Used by `lookupDataField` / `lookupMethod` /
+/// `hasMethodNamed` so a `*T` receiver can reach `T`'s fields and
+/// methods for read-only access (`rc.field`, `rc.method()` where the
+/// method takes `?self`).
+///
+/// This is the cornerstone of M20d's read-only auto-deref. Per
+/// GPT-5.5's M20d design pass: deliberately separated from
+/// `unwrapBorrows` so the existing write-borrow / consume paths
+/// don't accidentally compose with `shared` (which would silently
+/// permit write-through-shared, breaking the aliasing model).
+///
+/// Critically, `checkReceiverMode` must STILL classify the receiver
+/// via `classifyReceiverType` to detect shared-typed receivers and
+/// reject `.write` / `.value` methods — auto-deref reaches the method
+/// declaration, the receiver-mode check enforces it's safe to call.
+///
+/// `weak` is NOT peeled: weak handles must be `.upgrade()`'d
+/// explicitly. Auto-deref of weak would silently dereference a
+/// potentially dangling handle.
+pub fn unwrapReadAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
+    var id = ty_id;
+    while (true) {
+        const ty = ctx.types.get(id);
+        switch (ty) {
+            .borrow_read => |inner| id = inner,
+            .borrow_write => |inner| id = inner,
+            .shared => |inner| id = inner,
             else => return id,
         }
     }
@@ -3142,6 +3205,30 @@ const ExprChecker = struct {
         const target = items[2];
         const type_node = items[3];
         const expr = items[4];
+
+        // M20d(4/5): reject field-target assignment through a shared
+        // handle. `rc.field = X` would mutate the inner T through a
+        // shared owner, breaking the aliasing model — other handles
+        // pointing at the same RcBox would observe the write without
+        // any borrow synchronization. The Cell(T) / RefCell(T) pattern
+        // (M20+ item #7) is the user-facing answer for controlled
+        // mutation through shared ownership.
+        if (target == .list and target.list.len >= 3 and target.list[0] == .tag and
+            target.list[0].tag == .@"member")
+        {
+            const obj = target.list[1];
+            const field_node = target.list[2];
+            const obj_ty = self.synthExpr(obj) catch self.ctx.types.unknown_id;
+            const peeled = unwrapBorrows(self.ctx, obj_ty);
+            const peeled_ty = self.ctx.types.get(peeled);
+            if (peeled_ty == .shared) {
+                const pos = if (field_node == .src) field_node.src.pos else firstSrcPos(target);
+                try self.err(pos, "cannot assign to field through shared handle (`*T`); other handles may exist. Use an interior-mutable type (planned `Cell(T)` in M20+ item #7) for mutation through shared ownership.", .{});
+                // Still walk RHS so cascade errors fire.
+                _ = self.synthExpr(expr) catch self.ctx.types.unknown_id;
+                return;
+            }
+        }
 
         // Find the symbol, if any. Compound assigns / move-assign reuse
         // an existing slot — they don't introduce a new symbol but we
@@ -3834,6 +3921,16 @@ const ExprChecker = struct {
                     try self.err(name_pos, "method `{s}` requires a write-borrowed receiver; cannot upgrade a read borrow to a write borrow", .{method_name});
                     return;
                 }
+                // M20d(4/5): write-receiver methods are not callable
+                // through a shared (`*T`) handle. `*T` is shared
+                // ownership — other handles may exist, so we cannot
+                // hand out unique mutable access. The user-facing
+                // pattern for mutation through `*T` is interior
+                // mutability (`Cell(T)` / `RefCell(T)`, M20+ item #7).
+                if (recv_type_kind == .shared) {
+                    try self.err(name_pos, "cannot call write-receiver method `{s}` through a shared handle (`*T`); other handles may exist. Use an interior-mutable type (planned `Cell(T)` in M20+ item #7) for mutation through shared ownership.", .{method_name});
+                    return;
+                }
                 switch (shape) {
                     .write_explicit => return, // explicit (!u)
                     .rvalue => {
@@ -3859,6 +3956,16 @@ const ExprChecker = struct {
                 switch (recv_type_kind) {
                     .read_borrow, .write_borrow => {
                         try self.err(name_pos, "method `{s}` consumes the receiver; cannot consume through a borrowed value", .{method_name});
+                        return;
+                    },
+                    // M20d(4/5): consuming the inner T through a
+                    // shared handle is impossible — other handles
+                    // would dangle. Pattern: explicitly `.upgrade()` a
+                    // weak or `+rc` clone, but for consuming inner T
+                    // you need exclusive ownership which `*T` cannot
+                    // provide. Reject cleanly.
+                    .shared => {
+                        try self.err(name_pos, "method `{s}` consumes the receiver; cannot consume the inner value through a shared handle (`*T`) — other handles may still reference it", .{method_name});
                         return;
                     },
                     else => {},
