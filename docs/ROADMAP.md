@@ -763,6 +763,104 @@ The user-facing payoff:
 - Field-target assignment + write-receiver mutation runtime test
   (separate M20+ item).
 
+### M20c — `Option(T)` / `Result(T, E)` as generic enum types ✅
+Closes the M14-deferred item #4 from the M20+ "now-blocking" list.
+Generic enum types now declare, instantiate, type-check, and emit
+end-to-end. Per GPT-5.5's design checkpoint + post-implementation
+review.
+
+Shipped as 3 self-validating sub-commits (M5-style). Tests grew
+470 → 496 (+26).
+
+#### M20c(1/3) — Grammar + symbols
+- Grammar: `ENUM name params INDENT members OUTDENT →
+  (generic_enum 2 3 ...5)` parallel to the M14 `generic_type`
+  production. Conflict count unchanged at 34 (verified via
+  `zig build parser`). New Tag `generic_enum`.
+- Symbol resolver: dispatches both `.@"generic_type"` and
+  `.@"generic_enum"` to the shared `walkGenericType` helper —
+  same pass-1 work (bind detached params, walk methods). Zero-
+  param rejection (`enum Foo()` / `type Box()`) with a diagnostic
+  pointing at the dropped `()`.
+- `Field` gains `is_variant: bool = false`. Backfilled at all
+  three variant-Field append sites in `resolveEnumVariants` (bare,
+  valued, payload). `lookupDataField` now filters BOTH `is_method`
+  and `is_variant` so enum-typed receivers can no longer match
+  variants as data fields (was a latent hazard never tested for).
+- Per GPT-5.5: `generic_errors` deferred (Zig error sets don't
+  carry payloads; `Result(T, E)` covers the use case).
+
+#### M20c(2/3) — Sema
+- `TypeResolver.resolveDecl` dispatches `.@"generic_enum"` to the
+  same `resolveEnumVariants` helper (now branches on IR head for
+  `variants_start = 3` vs `2`, and sets `current_nominal =
+  makeNominalContext(sym_id)` for generic-enum bodies so payload
+  field types with bare `T` resolve to `type_var(T_sym)`).
+- New `lookupVariant(ctx, receiver_ty, name) !?ResolvedVariant`
+  helper, parallel to `lookupDataField`/`lookupMethod`. Handles
+  both `nominal` (plain enum) and `parameterized_nominal` (generic
+  enum) receivers; substitutes payload field types via TypeSubst
+  for parameterized receivers (so `Option(Int).some` returns
+  `payload = [value: Int]`, not `[value: T]`).
+- Three callers switched from direct `Symbol.fields` walks to
+  `lookupVariant`: `checkEnumLit`, `checkPayloadVariantCall`,
+  `checkVariantPattern`. Each falls through to a
+  `nominalSymOfReceiver`-based diagnostic when the variant doesn't
+  exist; silently accepts when receiver isn't a nominal at all.
+- Match exhaustiveness for parameterized enums: `enumVariantCount`
+  (sema) and `matchExhaustive` (emit) both routed through
+  `nominalSymOfReceiver` and now count only `is_variant=true`
+  fields.
+
+#### M20c(3/3) — Emit + 5 new examples
+- New `emitGenericEnum` parallel to `emitGenericType` but emitting
+  `union(enum) { const Self = @This(); ... }` body. Variant
+  emission mirrors `emitEnum`'s `has_payloads` branch: bare → `:
+  void`; single-field payload → `name: T` (unwrap); multi-field →
+  `name: struct { ... }`. Method emission reuses
+  `emitNominalMethods(items[3..], 2)` for the two-level indent
+  (inside `return union(enum) { ... }`).
+- Per GPT-5.5: `current_nominal_name = "Self"` inside the body so
+  emit's `Self`-substitution arm is a no-op rename that pairs with
+  the `const Self = @This();` alias.
+- Two single-payload-detection sites in emit (`single_payload`
+  check in `emitPayloadVariantLit`, `lookupVariantPayloadNames`)
+  extended to accept `.generic_type` symbols + filter via
+  `is_variant`. Without this, generic enum construction emitted
+  the verbose form against a `some: T` decl, causing Zig to
+  error "type `i32` does not support struct initialization
+  syntax."
+
+#### Tests (5 new, all in `examples/generic_enum_*.rig`)
+
+  POSITIVE (in EMIT_TARGETS, run end-to-end):
+    generic_enum_option   — `Option(Int)` with match, prints `got it`
+    generic_enum_result   — `Result(Int, String)` two-param subst
+    generic_enum_method   — `Option(T)` with `is_some` method
+
+  NEGATIVE (sema-error goldens):
+    generic_enum_payload_mismatch  — substituted `Int` vs `String`
+    generic_enum_zero_params       — `enum Foo()` rejected
+
+GPT-5.5's pre-commit spot-checks all verified clean:
+- Payload mismatch fires with substituted type names
+- Missing variant fires `no variant 'missing' on enum 'Option'`
+- Variant-as-field correctly rejected (`is_variant` filter)
+- Value-position non-exhaustive match catches generic enum case
+
+#### Deferred (per GPT-5.5)
+
+- Self consistency for plain nominals (`const Self = @This();` for
+  plain structs/enums too, matching the generic-form convention) —
+  6-golden churn; deferred as a separate cleanup pass (M20c.1 if
+  desired) to keep this milestone focused.
+- `T?` / `T!` desugar to `Option(T)` / `Result(T, E)` — strongly
+  deferred per the M20c design checkpoint; would touch the
+  effects checker, the `?`/`!` triangle, the emitter, the stdlib,
+  and the optional propagation reservations. Separate milestone.
+- Generic-enum payload caching in `lookupVariant` — premature; no
+  evidence of hot path.
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note
@@ -789,11 +887,11 @@ the M20+ items below):
    `lookupMethod`'s substituted `fn_ty`; emit produces nested
    `pub fn` inside the Zig generic struct with `const Self =
    @This();`.
-4. **`Option(T)` / `Result(T, E)` as generic enum types**
-   (M14-deferred). Needs grammar work — `enum Name INDENT ...`
-   doesn't yet accept `params`, and adding it conflicts with
-   bare `Name(...)` member declarations. The `T?` / `T!` suffix
-   types desugar to these once they exist.
+4. ~~**`Option(T)` / `Result(T, E)` as generic enum types**~~
+   ✅ **Landed in M20c** above. Generic enums declare, type-check,
+   and emit as `pub fn Name(comptime T: type) type { return
+   union(enum) { ... }; }`. The `T?` / `T!` desugar to these is
+   strongly deferred per GPT-5.5's design pass.
 5. ~~**Methods on enums**~~ ✅ **Landed in M20a** (resolver +
    emitter both go through the unified `resolveNominalMethod` /
    `emitNominalMethods` paths).

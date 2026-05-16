@@ -44,9 +44,18 @@ and #3 (generic methods on generic types) landed in M20b. The
 mechanically buildable — `Cell(Int).get()`-style calls type
 correctly, generic methods substitute T at lookup time, and
 emit produces clean Zig `struct { const Self = @This(); ... }`
-patterns. Remaining V1 work: real `*T` / `~T` (item #6),
-interior mutability (item #7), `Option(T)` / `Result(T, E)`
-as generic enums (item #4), closure capture mode (item #8).
+patterns.
+
+M20c landed item #4: generic enum types. `Option(T)` /
+`Result(T, E)` are now declarable, type-check end-to-end (with
+substitution at lookup), and emit as Zig `union(enum)`. This
+unblocks library signatures like `Weak.upgrade() -> Option(*T)`
+and `Cell.try_get() -> Result(T, AccessError)` — though SPEC
+still uses `T?` / `T!` directly and the desugar to user-defined
+`Option`/`Result` is intentionally deferred.
+
+Remaining V1 work: real `*T` / `~T` (item #6), interior
+mutability (item #7), closure capture mode (item #8).
 
 ## Motivating use case
 
