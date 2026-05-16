@@ -114,6 +114,15 @@ pub const Emitter = struct {
 
     pub fn emit(self: *Emitter, sexp: Sexp) Error!void {
         try self.w.writeAll("const std = @import(\"std\");\n");
+        // M20d: every emitted module imports the Rig runtime as a
+        // sibling file (`_rig_runtime.zig`), regardless of whether
+        // it uses `*T`/`~T`. Top-level unused namespace imports are
+        // permitted by Zig, so an unused `rig` reference is harmless.
+        // The driver writes the runtime to the same dir for `run` /
+        // multi-file `build`; single-file `build` emits to stdout and
+        // the runtime file is the caller's responsibility (`bin/rig
+        // run` is the supported execution path).
+        try self.w.writeAll("const rig = @import(\"_rig_runtime.zig\");\n");
         if (sexp == .list and sexp.list.len > 0 and sexp.list[0] == .tag and
             sexp.list[0].tag == .@"module")
         {

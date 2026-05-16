@@ -1,4 +1,5 @@
 const std = @import("std");
+const rig = @import("_rig_runtime.zig");
 
 pub fn summarize(n: i32) i32 {
     return if ((n > 0)) rig_blk_0: {

@@ -1,4 +1,5 @@
 const std = @import("std");
+const rig = @import("_rig_runtime.zig");
 
 pub fn Box(comptime T: type) type {
     return struct {

@@ -1,4 +1,5 @@
 const std = @import("std");
+const rig = @import("_rig_runtime.zig");
 
 pub fn Option(comptime T: type) type {
     return union(enum) {

@@ -20,6 +20,7 @@ const effects = @import("effects.zig");
 const ownership = @import("ownership.zig");
 const emit = @import("emit.zig");
 const modules = @import("modules.zig");
+const runtime_zig = @import("runtime_zig.zig");
 
 const Mode = enum {
     parse,
@@ -284,6 +285,27 @@ fn emitProjectToTmp(
             std.process.exit(1);
         },
     };
+
+    // M20d: write the Rig runtime as a sibling file. Every emitted
+    // module's prelude includes `const rig = @import("_rig_runtime.zig");`
+    // so they all resolve relative to this directory. Per GPT-5.5's
+    // M20d design pass: keep it as a plain sibling file, no package
+    // machinery. Unconditional write — top-level unused namespace
+    // imports are fine in Zig.
+    {
+        const runtime_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ tmpdir, runtime_zig.filename });
+        const rf = std.Io.Dir.cwd().createFile(io, runtime_path, .{}) catch |err| {
+            std.debug.print("error creating {s}: {}\n", .{ runtime_path, err });
+            std.process.exit(1);
+        };
+        defer rf.close(io);
+
+        var rt_buffer: [4096]u8 = undefined;
+        var rt_writer = rf.writer(io, &rt_buffer);
+        const rw: *std.Io.Writer = &rt_writer.interface;
+        try rw.writeAll(runtime_zig.source);
+        try rw.flush();
+    }
 
     var root_path: []const u8 = "";
 

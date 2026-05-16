@@ -1,4 +1,5 @@
 const std = @import("std");
+const rig = @import("_rig_runtime.zig");
 
 pub fn classify(x: i32) i32 {
     return if ((x > 0)) 1 else if ((x < 0)) -1 else 0;

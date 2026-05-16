@@ -1,4 +1,5 @@
 const std = @import("std");
+const rig = @import("_rig_runtime.zig");
 
 pub fn safe_div(a: i32, b: i32) i32 {
     const result = if ((b == 0)) {

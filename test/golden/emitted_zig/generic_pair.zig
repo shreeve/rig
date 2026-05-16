@@ -1,4 +1,5 @@
 const std = @import("std");
+const rig = @import("_rig_runtime.zig");
 
 pub fn Pair(comptime T: type, comptime U: type) type {
     return struct {

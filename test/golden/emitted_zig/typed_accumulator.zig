@@ -1,4 +1,5 @@
 const std = @import("std");
+const rig = @import("_rig_runtime.zig");
 
 pub fn sum_to(n: i32) i32 {
     var sum: i32 = 0;
