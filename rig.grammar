@@ -343,9 +343,10 @@ typedef  = TYPE name "=" type               → (type 2 4)
 test     = TEST STRING_DQ block             → (test 2 3)
 opaq     = OPAQUE name                      → (opaque 2)
 
-enum     = ENUM   name INDENT members OUTDENT → (enum 2 ...4)
-errors   = ERROR  name INDENT members OUTDENT → (errors 2 ...4)
-struct   = STRUCT name INDENT members OUTDENT → (struct 2 ...4)
+enum     = ENUM   name INDENT members OUTDENT        → (enum 2 ...4)
+         | ENUM   name params INDENT members OUTDENT → (generic_enum 2 3 ...5)  # M20c: enum Option(T) ...
+errors   = ERROR  name INDENT members OUTDENT        → (errors 2 ...4)
+struct   = STRUCT name INDENT members OUTDENT        → (struct 2 ...4)
 
 # ==============================================================================
 # BUILDING BLOCKS — shared by declarations

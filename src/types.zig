@@ -327,6 +327,16 @@ pub const Field = struct {
     /// no `self` param). Populated alongside `is_method` by
     /// `TypeResolver.resolveNominalMethod`.
     receiver: MethodReceiver = .none,
+
+    /// M20c: when true, this `Field` represents an enum variant
+    /// (bare like `red`, valued like `ok = 0`, or payload-bearing
+    /// like `circle(r: Int)`). Variants live in the same `fields`
+    /// slice as data fields and methods, but are NOT data fields
+    /// (so `lookupDataField` must filter them out) and NOT methods
+    /// (so `lookupMethod` must filter them out). Use `lookupVariant`
+    /// for enum-literal / match-arm resolution. Per GPT-5.5 M20c
+    /// design pass.
+    is_variant: bool = false,
 };
 
 pub const Symbol = struct {
@@ -580,7 +590,14 @@ const SymbolResolver = struct {
             .@"lambda" => try self.walkLambda(items),
             .@"use" => try self.walkUse(items),
             .@"type" => try self.walkTypeAlias(items),
-            .@"generic_type" => try self.walkGenericType(items),
+            // M20b: `type Box(T)` — generic struct shape.
+            // M20c: `enum Option(T)` — generic enum shape. Same
+            // pass-1 work (bind detached params, walk methods); the
+            // struct-vs-enum distinction lives in the IR head, not
+            // in SymbolKind (both kind as `.generic_type` per
+            // GPT-5.5's M20c design pass). Pass 2 dispatches on
+            // the IR head for field/variant resolution.
+            .@"generic_type", .@"generic_enum" => try self.walkGenericType(items),
             .@"struct", .@"enum", .@"errors", .@"opaque" => try self.walkNominalType(items),
             .@"extern" => try self.walkExtern(items),
             .@"set" => try self.walkSet(items),
@@ -749,7 +766,9 @@ const SymbolResolver = struct {
     }
 
     fn walkGenericType(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        // (generic_type name (param...) member...)
+        // (generic_type name (param...) member...)         — M20b
+        // (generic_enum name (param...) member...)         — M20c
+        // Shared pass-1 work: bind detached params + walk methods.
         if (items.len < 3) return;
         const name = identAt(self.ctx.source, items[1]) orelse return;
         const decl_pos = if (items[1] == .src) items[1].src.pos else 0;
@@ -767,6 +786,28 @@ const SymbolResolver = struct {
         // these to resolve bare `T` → `type_var(T_sym)` even when the
         // generic body scope isn't lexically active.
         const params_node = items[2];
+
+        // M20c per GPT-5.5: reject zero-param generic declarations
+        // (`type Box()` / `enum Foo()`) — a generic with no type
+        // parameters is degenerate; the user almost certainly meant
+        // a plain `type Box` / `enum Foo`.
+        const empty_params = (params_node == .nil) or
+            (params_node == .list and params_node.list.len == 0);
+        if (empty_params) {
+            const kind_label = if (items[0].tag == .@"generic_enum") @as([]const u8, "enum") else "type";
+            const msg = try std.fmt.allocPrint(
+                self.ctx.arena.allocator(),
+                "generic {s} `{s}` must declare at least one type parameter; for a non-generic {s}, drop the `()`",
+                .{ kind_label, name, kind_label },
+            );
+            try self.ctx.diagnostics.append(self.ctx.allocator, .{
+                .severity = .@"error",
+                .pos = decl_pos,
+                .message = msg,
+            });
+            // Continue with empty type_params so subsequent passes
+            // don't double-fault on the half-constructed symbol.
+        }
         var param_ids: std.ArrayListUnmanaged(SymbolId) = .empty;
         defer param_ids.deinit(self.ctx.allocator);
 
@@ -1582,10 +1623,12 @@ const TypeResolver = struct {
             }
             switch (variant) {
                 .src => |s| {
+                    // M20c: mark bare-variant Fields with is_variant=true.
                     try fields.append(self.ctx.allocator, .{
                         .name = self.ctx.source[s.pos..][0..s.len],
                         .ty = self.ctx.types.void_id,
                         .decl_pos = s.pos,
+                        .is_variant = true,
                     });
                 },
                 .list => |sub| {
@@ -1600,6 +1643,7 @@ const TypeResolver = struct {
                                     .name = vname,
                                     .ty = self.ctx.types.void_id,
                                     .decl_pos = if (vname_node == .src) vname_node.src.pos else 0,
+                                    .is_variant = true,
                                 });
                             }
                         },
@@ -1637,6 +1681,7 @@ const TypeResolver = struct {
                                 .ty = self.ctx.types.void_id,
                                 .decl_pos = vpos,
                                 .payload = owned_payload,
+                                .is_variant = true,
                             });
                         },
                         else => {},
@@ -2456,7 +2501,10 @@ pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) 
     const sym = ctx.symbols.items[sym_id];
     const fields = sym.fields orelse return null;
     for (fields) |f| {
-        if (f.is_method) continue;
+        // M20a: skip methods. M20c per GPT-5.5: also skip variants
+        // (an enum's variants live in `fields` but are NOT data
+        // fields — use `lookupVariant` for those).
+        if (f.is_method or f.is_variant) continue;
         if (std.mem.eql(u8, f.name, name)) {
             // M20b(4/5): substitute the field's stored type against
             // the receiver's type arguments. For plain nominals,

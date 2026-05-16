@@ -188,6 +188,7 @@ pub const Tag = enum(u8) {
     @"typed",
     @"valued",
     @"variant",         // payload-bearing enum variant: `circle(radius: Int)` → (variant circle ((: radius Int)))
+    @"generic_enum",    // M20c: enum Option(T) → (generic_enum Option (T) members...) — generic version of `enum`
     @"default",
     @":",
     @"optional",        // `T?` (suffix optional; grammar emits directly)
