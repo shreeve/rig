@@ -20,6 +20,17 @@ D6, D7, D8, D9 remain design proposals; they land alongside the
 implementation work in their respective M20+ items per
 `docs/ROADMAP.md`.
 
+M20+ now-blocking items #1 (instance methods + `self`
+semantics + receiver-style calls) and #5 (methods on enums)
+landed in M20a per ROADMAP. The receiver-mode rules in this
+note (D6's Cell sketch + the "Why this is a substrate question"
+table) now have real syntax in the language — `cell.set(2)`
+auto-borrows `?cell`, `(!cell).set(2)` is required for write
+receivers, `(<cell).consume()` is required for consuming
+receivers. Subsequent items (generic methods, `Option(T)`, real
+`*`/`~` Rc/Weak, interior mutability, closure capture) remain
+M20+ work.
+
 ## Motivating use case
 
 In Rip (CoffeeScript-to-JS), reactivity is spelled:

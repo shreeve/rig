@@ -398,6 +398,76 @@ type automatically.
 - 2 new examples (`typed_counter`, `typed_accumulator`). No
   existing emit goldens changed. 352 passed, 0 failed.
 
+### M20a — Instance methods + `self` semantics + receiver-style calls ✅
+Closes the M12-deferred half of the method-syntax story. Methods
+declared with a `self` first param are callable as `u.method(args)`
+(instance), body-type-checked with `self` bound to the declared
+receiver type, and validated against the receiver-mode rules at
+the call site. Enum methods get the same machinery.
+
+- **`SymbolResolver.walkNominalType`** now walks `fun`/`sub`
+  members of struct/enum/errors bodies via the new `walkMethod`
+  helper, opening each method's body scope and binding its
+  params (including `self`). Methods are NOT added as
+  module-scope function symbols — they live on the nominal's
+  `Symbol.fields` slice with `is_method = true`.
+- **`TypeResolver`** gains `current_nominal: ?SymbolId` for `Self`
+  resolution. `resolveStructFields` / `resolveEnumVariants` now
+  take + return `scope_cursor`, and the shared
+  `resolveNominalMethod` (renamed from `resolveStructMethod`)
+  writes each param's resolved type back into its body-scope
+  symbol — without this, `self.name` inside a body typed as
+  `unknown.name` and collapsed silently. `resolveType` resolves
+  bare `Self` to `nominal(enclosing)`.
+- **`ExprChecker`** gains `walkNominalDecl` + `walkMethod`,
+  descending into struct/enum bodies in lockstep with the
+  resolver's scope-push order. Method bodies are now type-checked
+  against the declared return type — closes the M12 gap where
+  body type errors were silently accepted.
+- **`synthCall`** dispatches on `(call (member obj name) args)`
+  callees with three cases (per GPT-5.5's M20a design pass):
+  module-qualified (intentional `unknown` until M15b lands),
+  associated/static (`Type.method(args)` — return type
+  propagates), and instance (`value.method(args)` — receiver-mode
+  validation + `params[1..]` check).
+- **`synthMember`** unwraps one level of `borrow_read` /
+  `borrow_write` so `self.name` on `self: ?User` reaches User's
+  fields. Does NOT unwrap optional — `maybe.name` on `User?`
+  stays an error per GPT-5.5's null-deref guidance. Method
+  pseudo-fields and data fields are separate lookup branches;
+  bare method reference (`user.greet` without a call) fires a
+  targeted diagnostic.
+- **Receiver-mode rules** (per GPT-5.5, visible-effects thesis):
+  `?Self` auto-borrows from bare lvalue / rvalue; `!Self`
+  requires explicit `(!receiver)` (write borrow is dramatic
+  enough to deserve visibility); by-value `Self` requires
+  explicit `(<receiver)` for named lvalues (consumption deserves
+  visibility). Rvalues (calls / records / propagation) coerce
+  freely.
+- **Emitter** gains `current_nominal_name` for `Self` →
+  enclosing-type-name substitution in type position. New
+  `emitNominalMethods` helper unifies the method-emission pass
+  used by `emitStruct` (M12) and `emitEnum` (M20a — closes the
+  silent-drop bug where enum methods never reached emitted Zig).
+  Print polish (`{s}` for String) and `matchExhaustive` now
+  unwrap borrow types so `self.name` / `match self` work in
+  method bodies. `enumVariantCount` and several variant-lookup
+  paths filter out `is_method` fields so methods don't
+  pollute exhaustiveness counts or variant searches.
+- 8 new examples: 5 positive (`method_self_read` /
+  `method_self_write` / `method_self_consume` /
+  `method_associated_return` / `method_enum`), 3 negative
+  (`method_write_missing_bang` / `method_consume_missing_lt` /
+  `method_body_type_error`). 394 passed, 0 failed (was 352).
+
+**Out of scope (deferred):** generic methods (M20b — requires
+real generic-instance substitution machinery first); receiver-
+type validation (`fun bad(self: ?Order)` inside `struct User`
+currently silent — minor hole); explicit diagnostic for
+`maybe.name` on `User?` (today returns silent `unknown`);
+field-target assignment (`self.name = new_name` — `checkSet`
+enhancement).
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note
@@ -414,29 +484,29 @@ the M20+ items below):
 
 **Now-blocking (required for any non-trivial library):**
 
-1. **Instance methods + `self` semantics + receiver-style calls**
-   (completes M12). `sub Cell.set(self: ?Cell(T), value: T)` +
-   `cell.set(2)` call site + method body sema with self bound.
-   This is the load-bearing ergonomics gap.
+1. ~~**Instance methods + `self` semantics + receiver-style calls**~~
+   ✅ **Landed in M20a** above.
 2. **Real generic-instance member typing** (completes M14).
    Today `b.value` on `b: Box(Int)` types as `unknown`; needs
    per-instance field-type substitution in sema so member access
    resolves to the substituted type.
 3. **Generic methods on generic types** (M14-deferred). Depends
-   on items 1 + 2.
+   on item 2 and the M20a self-binding machinery (already in
+   place).
 4. **`Option(T)` / `Result(T, E)` as generic enum types**
    (M14-deferred). Needs grammar work — `enum Name INDENT ...`
    doesn't yet accept `params`, and adding it conflicts with
    bare `Name(...)` member declarations. The `T?` / `T!` suffix
    types desugar to these once they exist.
-5. **Methods on enums** (parsed but not emitted — M12). Depends
-   on item 1.
+5. ~~**Methods on enums**~~ ✅ **Landed in M20a** (resolver +
+   emitter both go through the unified `resolveNominalMethod` /
+   `emitNominalMethods` paths).
 6. `*T` / `~T` real `Rc` / `Weak` semantics (SPEC §Shared
    Ownership, §Weak Reference — text landed; runtime
    implementation TBD).
 7. Interior mutability — `Cell(T)` library type
    (REACTIVITY-DESIGN D6, option A for V1). Depends on items
-   1 + 4 + 6.
+   2 + 4 + 6.
 8. Closure capture mode syntax (REACTIVITY-DESIGN D7) — `|name|`
    strong, `|~name|` weak, `|<name|` move, etc.
 

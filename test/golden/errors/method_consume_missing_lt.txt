@@ -1,0 +1,1 @@
+examples/method_consume_missing_lt.rig:18:5: error: method `consume` consumes the receiver; use `(<receiver).consume(...)`

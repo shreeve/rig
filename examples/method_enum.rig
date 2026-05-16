@@ -1,0 +1,26 @@
+## M20a: methods on enums.
+##
+## - Enums get the same method machinery as structs: `fun`/`sub`
+##   members get an `is_method = true` Field on the nominal symbol
+##   via the unified `resolveNominalMethod` (M20a renamed from
+##   `resolveStructMethod`).
+## - Instance-method receiver rules apply identically.
+##
+## EXPECTED: clean. Runs and prints `true` then `false`.
+
+enum Color
+  red
+  green
+  blue
+
+  fun is_red(self: ?Color) -> Bool
+    match self
+      .red => true
+      .green => false
+      .blue => false
+
+sub main()
+  c1 = Color.red
+  c2 = Color.blue
+  print(c1.is_red())
+  print(c2.is_red())

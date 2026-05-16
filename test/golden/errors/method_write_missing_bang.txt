@@ -1,0 +1,1 @@
+examples/method_write_missing_bang.rig:18:5: error: method `rename` requires a write-borrowed receiver; use `(!receiver).rename(...)`

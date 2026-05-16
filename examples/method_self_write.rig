@@ -1,0 +1,23 @@
+## M20a: instance method with write receiver (!self).
+##
+## - `sub modify(self: !User, new_name: String)` declares a write-
+##   borrowed self.
+## - At the call site, `(!u).modify("Bob")` requires the EXPLICIT `!`.
+##   Per M20a (and Rig's visible-mutation thesis), write receivers
+##   are NEVER auto-borrowed — the caller must mark mutation visibly.
+## - Body reads `self.name` (allowed: a write borrow includes read).
+##   Field-target assignment (`self.name = new_name`) is a separate
+##   `checkSet` enhancement deferred past M20a.
+##
+## EXPECTED: clean. Runs and prints `Steve` then `Bob`.
+
+struct User
+  name: String
+
+  sub modify(self: !User, new_name: String)
+    print(self.name)
+    print(new_name)
+
+sub main()
+  u = User(name: "Steve")
+  (!u).modify("Bob")

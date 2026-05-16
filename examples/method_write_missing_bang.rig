@@ -1,0 +1,18 @@
+## M20a negative: write receiver without explicit `!`.
+##
+## Calling a method declared `sub rename(self: !User, ...)` requires
+## the call site to write `(!u).rename(...)`. Bare `u.rename(...)`
+## must error — write borrows are visible at the call site by design
+## (Rig's visible-mutation thesis).
+##
+## EXPECTED: sema error pointing at the method name in the call.
+
+struct User
+  name: String
+
+  sub rename(self: !User, new_name: String)
+    print(new_name)
+
+sub main()
+  u = User(name: "Steve")
+  u.rename("Bob")

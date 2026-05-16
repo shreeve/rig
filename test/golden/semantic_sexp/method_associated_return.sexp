@@ -1,0 +1,1 @@
+(module (struct User (: name String) (fun make ((: default String)) Self (block (call User (kwarg name default))))) (sub main () _ (block (set _ u User (call (member User make) "guest")) (call print (member u name)))))

@@ -1,0 +1,18 @@
+## M20a negative: method body type error.
+##
+## Before M20a, method bodies weren't sema-checked (M12 emit-only).
+## M20a's `ExprChecker.walkMethod` now type-checks the body against
+## the declared return type. A `String`-returning method whose body
+## yields `Int` must error.
+##
+## EXPECTED: sema error: `incompatible types ...` at the body.
+
+struct User
+  name: String
+
+  fun greet(self: ?User) -> String
+    42
+
+sub main()
+  u = User(name: "Steve")
+  print(u.greet())

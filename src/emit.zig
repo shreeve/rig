@@ -82,6 +82,11 @@ pub const Emitter = struct {
     /// the M3/M4 emitter shipped with.
     sema: ?*const types.SemContext = null,
 
+    /// M20a: name of the enclosing nominal when emitting a method body
+    /// (or its signature), so `Self` in type position substitutes to
+    /// the nominal's name. Null when not inside a nominal body.
+    current_nominal_name: ?[]const u8 = null,
+
     pub fn init(allocator: std.mem.Allocator, source: []const u8, w: *Writer) Emitter {
         return .{
             .allocator = allocator,
@@ -157,6 +162,12 @@ pub const Emitter = struct {
         const name = identText(self.source, items[1]) orelse "AnonStruct";
         try self.w.print("pub const {s} = struct {{\n", .{name});
 
+        // M20a: set the nominal context so `Self` in member signatures
+        // / bodies substitutes correctly via `emitType`.
+        const prev_nominal = self.current_nominal_name;
+        self.current_nominal_name = name;
+        defer self.current_nominal_name = prev_nominal;
+
         // Emit data fields first (Zig allows mixed order, but data-
         // then-methods reads more naturally).
         for (items[2..]) |member| {
@@ -168,11 +179,17 @@ pub const Emitter = struct {
             try self.w.writeAll(",\n");
         }
 
-        // M12: method members. Each `fun`/`sub` lowers via emitFun
-        // with one extra indent level so the `pub fn ...` lines sit
-        // inside the struct body. emitFun already prefixes `pub`.
+        try self.emitNominalMethods(items[2..]);
+        try self.w.writeAll("};\n");
+    }
+
+    /// M20a: emit `fun`/`sub` members of a nominal body as nested
+    /// Zig `pub fn` declarations. Factored out of `emitStruct` so
+    /// `emitEnum` and `emitErrorSet` can use the same machinery.
+    /// Caller is responsible for setting `current_nominal_name`.
+    fn emitNominalMethods(self: *Emitter, members: []const Sexp) Error!void {
         var any_methods = false;
-        for (items[2..]) |member| {
+        for (members) |member| {
             if (member != .list or member.list.len < 5 or member.list[0] != .tag) continue;
             const head = member.list[0].tag;
             if (head != .@"fun" and head != .@"sub") continue;
@@ -186,8 +203,6 @@ pub const Emitter = struct {
             try self.emitFun(member.list, head == .@"sub");
             self.indent = prev_indent;
         }
-
-        try self.w.writeAll("};\n");
     }
 
     /// `(generic_type Name (T1 T2 ...) members...)` → Zig
@@ -256,6 +271,12 @@ pub const Emitter = struct {
     fn emitEnum(self: *Emitter, items: []const Sexp) Error!void {
         if (items.len < 2) return;
         const name = identText(self.source, items[1]) orelse "AnonEnum";
+
+        // M20a: set the nominal context so `Self` in method signatures
+        // / bodies substitutes correctly via `emitType`.
+        const prev_nominal = self.current_nominal_name;
+        self.current_nominal_name = name;
+        defer self.current_nominal_name = prev_nominal;
 
         // First pass: classify variant shapes.
         var has_values = false;
@@ -330,6 +351,7 @@ pub const Emitter = struct {
                     else => {},
                 }
             }
+            try self.emitNominalMethods(items[2..]);
             try self.w.writeAll("};\n");
             return;
         }
@@ -355,6 +377,7 @@ pub const Emitter = struct {
                 else => {},
             }
         }
+        try self.emitNominalMethods(items[2..]);
         try self.w.writeAll("};\n");
     }
 
@@ -1153,11 +1176,28 @@ pub const Emitter = struct {
         const name = self.source[scrutinee.src.pos..][0..scrutinee.src.len];
         for (sema.symbols.items) |sym| {
             if (!std.mem.eql(u8, sym.name, name)) continue;
-            const ty = sema.types.get(sym.ty);
+            // M20a: method params have borrow_read/borrow_write types;
+            // unwrap one level so `match self` on `self: ?Color` finds
+            // Color's variants.
+            var ty = sema.types.get(sym.ty);
+            while (true) {
+                switch (ty) {
+                    .borrow_read => |inner| ty = sema.types.get(inner),
+                    .borrow_write => |inner| ty = sema.types.get(inner),
+                    else => break,
+                }
+            }
             if (ty != .nominal) continue;
             const enum_sym = sema.symbols.items[ty.nominal];
             const fields = enum_sym.fields orelse return false;
-            return enum_arms_seen >= fields.len;
+            // M20a: methods (is_method=true) share the same `fields`
+            // slice but aren't variants — exclude them from the
+            // exhaustiveness count.
+            var variant_count: usize = 0;
+            for (fields) |f| if (!f.is_method) {
+                variant_count += 1;
+            };
+            return enum_arms_seen >= variant_count;
         }
         return false;
     }
@@ -1633,7 +1673,17 @@ pub const Emitter = struct {
                             const oname = self.source[obj.src.pos..][0..obj.src.len];
                             for (sema.symbols.items) |sym| {
                                 if (!std.mem.eql(u8, sym.name, oname)) continue;
-                                const ty = sema.types.get(sym.ty);
+                                // M20a: method params have `borrow_read` /
+                                // `borrow_write` types; unwrap one level
+                                // to reach the nominal for field lookup.
+                                var ty = sema.types.get(sym.ty);
+                                while (true) {
+                                    switch (ty) {
+                                        .borrow_read => |inner| ty = sema.types.get(inner),
+                                        .borrow_write => |inner| ty = sema.types.get(inner),
+                                        else => break,
+                                    }
+                                }
                                 if (ty != .nominal) continue;
                                 const owner = sema.symbols.items[ty.nominal];
                                 const fields = owner.fields orelse continue;
@@ -1668,17 +1718,42 @@ pub const Emitter = struct {
                                 {
                                     const owner_node = callee.list[1];
                                     const m_node = callee.list[2];
-                                    if (owner_node != .src or m_node != .src) break :blk null;
-                                    const oname = self.source[owner_node.src.pos..][0..owner_node.src.len];
+                                    if (m_node != .src) break :blk null;
                                     const mname = self.source[m_node.src.pos..][0..m_node.src.len];
-                                    for (sema.symbols.items) |sym| {
-                                        if (!std.mem.eql(u8, sym.name, oname)) continue;
-                                        if (sym.kind != .nominal_type) continue;
-                                        const fields = sym.fields orelse continue;
-                                        for (fields) |f| {
-                                            if (!std.mem.eql(u8, f.name, mname)) continue;
-                                            const ft = sema.types.get(f.ty);
-                                            if (ft == .function) break :blk ft.function.returns;
+                                    // Two flavors:
+                                    //   - owner is a bare type name (`User.greet()`): nominal_type symbol with that name
+                                    //   - M20a: owner is a value binding (`u.greet()`): nominal_type via the binding's ty.nominal
+                                    if (owner_node == .src) {
+                                        const oname = self.source[owner_node.src.pos..][0..owner_node.src.len];
+                                        for (sema.symbols.items) |sym| {
+                                            if (!std.mem.eql(u8, sym.name, oname)) continue;
+                                            if (sym.kind == .nominal_type) {
+                                                // Namespaced: User.greet
+                                                const fields = sym.fields orelse continue;
+                                                for (fields) |f| {
+                                                    if (!std.mem.eql(u8, f.name, mname)) continue;
+                                                    const ft = sema.types.get(f.ty);
+                                                    if (ft == .function) break :blk ft.function.returns;
+                                                }
+                                            } else {
+                                                // M20a: value binding — follow its type to its nominal.
+                                                var st = sema.types.get(sym.ty);
+                                                while (true) {
+                                                    switch (st) {
+                                                        .borrow_read => |inner| st = sema.types.get(inner),
+                                                        .borrow_write => |inner| st = sema.types.get(inner),
+                                                        else => break,
+                                                    }
+                                                }
+                                                if (st != .nominal) continue;
+                                                const owner = sema.symbols.items[st.nominal];
+                                                const fields = owner.fields orelse continue;
+                                                for (fields) |f| {
+                                                    if (!std.mem.eql(u8, f.name, mname)) continue;
+                                                    const ft = sema.types.get(f.ty);
+                                                    if (ft == .function) break :blk ft.function.returns;
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1713,6 +1788,14 @@ pub const Emitter = struct {
         switch (t) {
             .src => |s| {
                 const txt = self.source[s.pos..][0..s.len];
+                // M20a: substitute `Self` to the enclosing nominal name
+                // when emitting inside a struct/enum/errors body.
+                if (std.mem.eql(u8, txt, "Self")) {
+                    if (self.current_nominal_name) |nom| {
+                        try self.w.writeAll(nom);
+                        return;
+                    }
+                }
                 try self.w.writeAll(mapTypeName(txt));
             },
             .list => |items| {

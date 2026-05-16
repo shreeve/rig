@@ -685,6 +685,43 @@ const SymbolResolver = struct {
             .decl_pos = decl_pos,
             .scope = self.current_scope,
         });
+
+        // M20a: walk methods (fun/sub members) to open their function
+        // body scopes and bind their params (including `self`). This
+        // applies to all nominal forms (struct, enum, errors) so
+        // receiver-style calls can find self-bound symbols. The methods
+        // themselves are NOT added as module-scope function symbols —
+        // they're recorded as `is_method = true` entries on the
+        // nominal's `Symbol.fields` slice by `TypeResolver`.
+        if (items.len > 2) {
+            for (items[2..]) |member| {
+                if (member != .list or member.list.len == 0 or member.list[0] != .tag) continue;
+                switch (member.list[0].tag) {
+                    .@"fun", .@"sub" => try self.walkMethod(member.list),
+                    else => {},
+                }
+            }
+        }
+    }
+
+    /// Like `walkFun` but for methods inside a nominal body: opens the
+    /// body scope and binds params without adding a module-level
+    /// function symbol. The method's signature lives in `Symbol.fields`
+    /// (with `is_method = true`) populated by `TypeResolver`.
+    fn walkMethod(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
+        if (items.len < 3) return;
+        const params = items[2];
+        const body = items[items.len - 1];
+
+        const fn_scope = try self.ctx.pushScope(self.current_scope);
+        const prev_scope = self.current_scope;
+        self.current_scope = fn_scope;
+        defer self.current_scope = prev_scope;
+
+        if (params == .list) {
+            for (params.list) |p| try self.bindParam(p);
+        }
+        try self.walk(body);
     }
 
     fn walkExtern(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
@@ -906,6 +943,11 @@ const SymbolResolver = struct {
 const TypeResolver = struct {
     ctx: *SemContext,
 
+    /// M20a: enclosing nominal symbol when resolving method signatures,
+    /// so `Self` in param/return types resolves to `nominal(enclosing)`.
+    /// Null at module scope and inside ordinary (non-method) functions.
+    current_nominal: ?SymbolId = null,
+
     /// Walk top-level decls in the module scope and populate types.
     fn walk(self: *TypeResolver, ir: Sexp, module_scope: ScopeId) std.mem.Allocator.Error!void {
         if (ir != .list or ir.list.len == 0 or ir.list[0] != .tag) return;
@@ -940,15 +982,16 @@ const TypeResolver = struct {
                 return scope_cursor;
             },
             .@"struct" => {
-                try self.resolveStructFields(items, parent_scope);
-                return scope_cursor;
+                // M20a: returns cursor advanced past method body scopes
+                // pushed by SymbolResolver.walkMethod.
+                return self.resolveStructFields(items, parent_scope, scope_cursor);
             },
             .@"enum", .@"errors" => {
                 // IR shapes are identical: `(enum Name v...)` /
                 // `(errors Name v...)`. Reuse the same variant
                 // resolver so error-set declarations get fields too.
-                try self.resolveEnumVariants(items, parent_scope);
-                return scope_cursor;
+                // M20a: returns cursor advanced past method body scopes.
+                return self.resolveEnumVariants(items, parent_scope, scope_cursor);
             },
             else => return scope_cursor,
         }
@@ -961,17 +1004,23 @@ const TypeResolver = struct {
     /// M6 v1 scope: structs only — enums and errors get an empty field
     /// list for now (their member shapes differ enough to deserve their
     /// own resolver in M7+).
-    fn resolveStructFields(self: *TypeResolver, items: []const Sexp, parent_scope: ScopeId) std.mem.Allocator.Error!void {
-        if (items.len < 2) return;
-        const name = identAt(self.ctx.source, items[1]) orelse return;
-        const sym_id = self.ctx.lookup(parent_scope, name) orelse return;
+    fn resolveStructFields(
+        self: *TypeResolver,
+        items: []const Sexp,
+        parent_scope: ScopeId,
+        scope_cursor: ScopeId,
+    ) std.mem.Allocator.Error!ScopeId {
+        if (items.len < 2) return scope_cursor;
+        const name = identAt(self.ctx.source, items[1]) orelse return scope_cursor;
+        const sym_id = self.ctx.lookup(parent_scope, name) orelse return scope_cursor;
 
         // Only structs get fields populated for now.
-        if (items[0].tag != .@"struct") return;
+        if (items[0].tag != .@"struct") return scope_cursor;
 
         var fields: std.ArrayListUnmanaged(Field) = .empty;
         defer fields.deinit(self.ctx.allocator);
 
+        var cursor = scope_cursor;
         for (items[2..]) |member| {
             if (member != .list or member.list.len < 2 or member.list[0] != .tag) continue;
             switch (member.list[0].tag) {
@@ -988,14 +1037,15 @@ const TypeResolver = struct {
                         .decl_pos = if (fname_node == .src) fname_node.src.pos else 0,
                     });
                 },
-                // M12: method declaration. Resolve its function type
-                // and record it as a method-flagged Field on the
-                // struct symbol. Body type-checking is deferred —
-                // emit lowers the method directly inside the Zig
-                // struct so it works at runtime, but sema doesn't
-                // yet walk the body.
+                // M12/M20a: method declaration. Resolve its function
+                // type and record it as a method-flagged Field on the
+                // struct symbol. M20a: write each param symbol's `ty`
+                // back so the method body's `self.name`-style accesses
+                // type correctly, and advance the cursor past the
+                // method body's scope (pushed by SymbolResolver in
+                // M20a).
                 .@"fun", .@"sub" => {
-                    try self.resolveStructMethod(member.list, parent_scope, &fields);
+                    cursor = try self.resolveNominalMethod(member.list, parent_scope, sym_id, cursor, &fields);
                 },
                 else => {},
             }
@@ -1003,21 +1053,39 @@ const TypeResolver = struct {
 
         const owned = try self.ctx.arena.allocator().dupe(Field, fields.items);
         self.ctx.symbols.items[sym_id].fields = owned;
+        return cursor;
     }
 
-    fn resolveStructMethod(
+    /// Resolve a `fun`/`sub` method member of a nominal (struct or
+    /// enum) body. Interns the function type, writes each param
+    /// symbol's `ty` back into the method body's scope (so `self.name`
+    /// inside the body types correctly), and advances the scope cursor
+    /// past the method body's scopes. Used by both `resolveStructFields`
+    /// and `resolveEnumVariants` (M20a).
+    fn resolveNominalMethod(
         self: *TypeResolver,
         items: []const Sexp,
         parent_scope: ScopeId,
+        nominal_sym: SymbolId,
+        scope_cursor: ScopeId,
         fields: *std.ArrayListUnmanaged(Field),
-    ) std.mem.Allocator.Error!void {
-        if (items.len < 5) return;
+    ) std.mem.Allocator.Error!ScopeId {
+        if (items.len < 5) return scope_cursor;
         const is_sub = items[0].tag == .@"sub";
         const name_node = items[1];
         const params = items[2];
         const returns_node: Sexp = if (is_sub) .{ .nil = {} } else items[3];
-        const mname = identAt(self.ctx.source, name_node) orelse return;
+        const mname = identAt(self.ctx.source, name_node) orelse return scope_cursor;
         const mpos: u32 = if (name_node == .src) name_node.src.pos else 0;
+
+        // Enclosing nominal is in scope for `Self` resolution.
+        const prev_nominal = self.current_nominal;
+        self.current_nominal = nominal_sym;
+        defer self.current_nominal = prev_nominal;
+
+        // The method body scope was pushed by SymbolResolver.walkMethod
+        // (M20a); it's the next cursor.
+        const fn_scope = scope_cursor;
 
         const return_ty: TypeId = if (is_sub or returns_node == .nil)
             self.ctx.types.void_id
@@ -1030,6 +1098,16 @@ const TypeResolver = struct {
             for (params.list) |p| {
                 const ptype = try self.resolveParamType(p, parent_scope);
                 try param_types.append(self.ctx.allocator, ptype);
+                // M20a: write the resolved param type back into the
+                // symbol the SymbolResolver bound in the body scope.
+                // Without this, `self` inside the body types as
+                // `unknown` and `self.name` collapses to unknown.
+                const pname = paramName(self.ctx.source, p);
+                if (pname) |nm| {
+                    if (self.ctx.lookup(fn_scope, nm)) |sym_id| {
+                        self.ctx.symbols.items[sym_id].ty = ptype;
+                    }
+                }
             }
         }
         const owned_params = try self.ctx.arena.allocator().dupe(TypeId, param_types.items);
@@ -1045,6 +1123,10 @@ const TypeResolver = struct {
             .decl_pos = mpos,
             .is_method = true,
         });
+
+        // Advance past this method's body scopes — same machinery
+        // `resolveFun` uses for top-level functions.
+        return scopeAfter(self.ctx, fn_scope);
     }
 
     /// Walk an enum or errors declaration and store one `Field` per
@@ -1056,15 +1138,32 @@ const TypeResolver = struct {
     ///   payload `circle(r: Int)` → ty=void_id, payload=[Field{r, Int}]
     ///                              (M9a: declared + lowered;
     ///                              construction in M9b+)
-    fn resolveEnumVariants(self: *TypeResolver, items: []const Sexp, parent_scope: ScopeId) std.mem.Allocator.Error!void {
-        if (items.len < 2) return;
-        const name = identAt(self.ctx.source, items[1]) orelse return;
-        const sym_id = self.ctx.lookup(parent_scope, name) orelse return;
+    fn resolveEnumVariants(
+        self: *TypeResolver,
+        items: []const Sexp,
+        parent_scope: ScopeId,
+        scope_cursor: ScopeId,
+    ) std.mem.Allocator.Error!ScopeId {
+        if (items.len < 2) return scope_cursor;
+        const name = identAt(self.ctx.source, items[1]) orelse return scope_cursor;
+        const sym_id = self.ctx.lookup(parent_scope, name) orelse return scope_cursor;
 
         var fields: std.ArrayListUnmanaged(Field) = .empty;
         defer fields.deinit(self.ctx.allocator);
 
+        var cursor = scope_cursor;
         for (items[2..]) |variant| {
+            // M20a: enum methods (fun/sub members) get the same
+            // `is_method = true` Field treatment as struct methods.
+            if (variant == .list and variant.list.len > 0 and variant.list[0] == .tag) {
+                switch (variant.list[0].tag) {
+                    .@"fun", .@"sub" => {
+                        cursor = try self.resolveNominalMethod(variant.list, parent_scope, sym_id, cursor, &fields);
+                        continue;
+                    },
+                    else => {},
+                }
+            }
             switch (variant) {
                 .src => |s| {
                     try fields.append(self.ctx.allocator, .{
@@ -1133,6 +1232,7 @@ const TypeResolver = struct {
 
         const owned = try self.ctx.arena.allocator().dupe(Field, fields.items);
         self.ctx.symbols.items[sym_id].fields = owned;
+        return cursor;
     }
 
     fn resolveFun(self: *TypeResolver, items: []const Sexp, parent_scope: ScopeId, scope_cursor: ScopeId) std.mem.Allocator.Error!ScopeId {
@@ -1244,6 +1344,14 @@ const TypeResolver = struct {
                 if (primitiveTypeId(self.ctx, name)) |id| return id;
                 if (sizedIntTypeId(self.ctx, name)) |id| return id;
                 if (sizedFloatTypeId(self.ctx, name)) |id| return id;
+                // M20a: `Self` inside a nominal-method signature
+                // resolves to the enclosing nominal type. Outside a
+                // nominal context, falls through to ordinary lookup.
+                if (self.current_nominal) |nom_id| {
+                    if (std.mem.eql(u8, name, "Self")) {
+                        return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = nom_id });
+                    }
+                }
                 if (self.ctx.lookup(scope, name)) |sym_id| {
                     const sym = self.ctx.symbols.items[sym_id];
                     if (sym.kind == .nominal_type or sym.kind == .type_alias or
@@ -1526,9 +1634,68 @@ const ExprChecker = struct {
                 if (items.len >= 2) try self.walkDecl(items[1]);
             },
             .@"fun", .@"sub" => try self.walkFun(items),
+            // M20a: descend into nominal bodies so method bodies are
+            // type-checked. Each method's body scope was pushed by the
+            // SymbolResolver (walkMethod); we must enter them in the
+            // same order to stay in lockstep with the scope cursor.
+            .@"struct", .@"enum", .@"errors" => try self.walkNominalDecl(items),
             // type aliases / extern / use have no body to type-check.
             else => {},
         }
+    }
+
+    /// M20a: walk a nominal declaration (`(struct ...)` /
+    /// `(enum ...)` / `(errors ...)`), descending into each
+    /// `fun`/`sub` member so its body is type-checked.
+    fn walkNominalDecl(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
+        if (items.len < 2) return;
+        const name = identAt(self.ctx.source, items[1]) orelse return;
+        const nominal_sym_id = self.ctx.lookup(self.current_scope, name) orelse return;
+
+        for (items[2..]) |member| {
+            if (member != .list or member.list.len == 0 or member.list[0] != .tag) continue;
+            switch (member.list[0].tag) {
+                .@"fun", .@"sub" => try self.walkMethod(member.list, nominal_sym_id),
+                else => {},
+            }
+        }
+    }
+
+    /// M20a: walk a method body. Mirrors `walkFun` but pulls the
+    /// declared return type from the nominal's `Symbol.fields` (where
+    /// `TypeResolver.resolveNominalMethod` stored the method's function
+    /// type) rather than from a top-level function symbol — methods
+    /// don't get module-scope function symbols.
+    fn walkMethod(self: *ExprChecker, items: []const Sexp, nominal_sym_id: SymbolId) std.mem.Allocator.Error!void {
+        if (items.len < 5) return;
+        const is_sub = items[0].tag == .@"sub";
+        const name_node = items[1];
+        const body = items[items.len - 1];
+
+        // Find the method's return type from the nominal's fields list.
+        const method_name = identAt(self.ctx.source, name_node) orelse return;
+        const nominal_sym = self.ctx.symbols.items[nominal_sym_id];
+        var fn_return: TypeId = if (is_sub) self.ctx.types.void_id else self.ctx.types.unknown_id;
+        if (nominal_sym.fields) |fields| {
+            for (fields) |f| {
+                if (f.is_method and std.mem.eql(u8, f.name, method_name)) {
+                    const fn_ty = self.ctx.types.get(f.ty);
+                    if (fn_ty == .function) fn_return = fn_ty.function.returns;
+                    break;
+                }
+            }
+        }
+
+        // Enter the method body scope (matches SymbolResolver.walkMethod's pushScope).
+        const prev_scope = self.enterNextScope();
+        const prev_return = self.current_fn_return;
+        defer {
+            self.leaveScope(prev_scope);
+            self.current_fn_return = prev_return;
+        }
+        self.current_fn_return = fn_return;
+
+        try self.walkBody(body, fn_return, is_sub);
     }
 
     fn walkFun(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
@@ -1913,6 +2080,7 @@ const ExprChecker = struct {
 
         var variant: ?Field = null;
         for (variants) |v| {
+            if (v.is_method) continue; // M20a: methods aren't variants
             if (std.mem.eql(u8, v.name, variant_name)) {
                 variant = v;
                 break;
@@ -2067,9 +2235,258 @@ const ExprChecker = struct {
             }
         }
 
+        // M20a: dispatch on `(call (member obj name) args)` callees.
+        // Three cases (module / nominal-type / value-receiver) per the
+        // M20a design — see docs/REACTIVITY-DESIGN.md and the M20
+        // conversation summary.
+        if (callee == .list and callee.list.len >= 3 and
+            callee.list[0] == .tag and callee.list[0].tag == .@"member")
+        {
+            return self.synthMemberCall(callee.list, items[2..]);
+        }
+
         // Unknown callee: synth args anyway so nested type errors fire.
         for (items[1..]) |arg| _ = try self.synthExpr(arg);
         return self.ctx.types.unknown_id;
+    }
+
+    /// M20a: type a `(call (member obj name) args)` form. Three cases:
+    ///
+    ///   1. `foo.bar()` where `foo` is a `use`d module.
+    ///      Cross-module signatures aren't tracked until M15b lands;
+    ///      return `unknown` deliberately (NOT a diagnostic).
+    ///   2. `Type.method(args)` (associated/static call).
+    ///      Look up `method` on `Type`'s `is_method` fields, check
+    ///      args, return the declared return type.
+    ///   3. `value.method(args)` (instance method call).
+    ///      Look up `method` on `value`'s nominal type, validate the
+    ///      receiver mode at the call site, check the remaining args
+    ///      against `params[1..]`, return the declared return type.
+    fn synthMemberCall(
+        self: *ExprChecker,
+        callee_items: []const Sexp,
+        args: []const Sexp,
+    ) std.mem.Allocator.Error!TypeId {
+        const obj = callee_items[1];
+        const name_node = callee_items[2];
+        const method_name = identAt(self.ctx.source, name_node) orelse {
+            for (args) |a| _ = try self.synthExpr(a);
+            return self.ctx.types.unknown_id;
+        };
+        const name_pos: u32 = if (name_node == .src) name_node.src.pos else 0;
+
+        // Cases 1 + 2: obj is a bare name resolving to a module or nominal type.
+        if (obj == .src) {
+            const oname = self.ctx.source[obj.src.pos..][0..obj.src.len];
+            if (self.ctx.lookup(self.current_scope, oname)) |sym_id| {
+                const sym = self.ctx.symbols.items[sym_id];
+                switch (sym.kind) {
+                    .module => {
+                        // Case 1: cross-module call. M15b deferred —
+                        // synth args silently, return unknown without
+                        // a diagnostic.
+                        for (args) |a| _ = try self.synthExpr(a);
+                        return self.ctx.types.unknown_id;
+                    },
+                    .nominal_type, .generic_type => {
+                        // Case 2: associated call. All args are
+                        // user-supplied; no receiver injection.
+                        return self.synthAssociatedCall(sym, method_name, name_pos, args);
+                    },
+                    else => {},
+                }
+            }
+        }
+
+        // Case 3: instance method call.
+        const obj_ty_id = try self.synthExpr(obj);
+        return self.synthInstanceCall(obj, obj_ty_id, method_name, name_pos, args);
+    }
+
+    /// Case 2 helper: `Type.method(args)`. The method's full param list
+    /// (including any explicit `self`) is matched against the user's
+    /// args verbatim — no receiver injection.
+    fn synthAssociatedCall(
+        self: *ExprChecker,
+        nominal_sym: Symbol,
+        method_name: []const u8,
+        name_pos: u32,
+        args: []const Sexp,
+    ) std.mem.Allocator.Error!TypeId {
+        const fields = nominal_sym.fields orelse {
+            // Opaque / unresolved nominal — synth args and return unknown.
+            for (args) |a| _ = try self.synthExpr(a);
+            return self.ctx.types.unknown_id;
+        };
+
+        for (fields) |f| {
+            if (!f.is_method) continue;
+            if (!std.mem.eql(u8, f.name, method_name)) continue;
+            const fn_ty_val = self.ctx.types.get(f.ty);
+            if (fn_ty_val != .function) continue;
+            try self.checkCallArgs(args, fn_ty_val.function, method_name, name_pos);
+            return fn_ty_val.function.returns;
+        }
+
+        try self.err(name_pos, "no method `{s}` on type `{s}`", .{ method_name, nominal_sym.name });
+        if (nominal_sym.decl_pos > 0) try self.note(nominal_sym.decl_pos, "`{s}` declared here", .{nominal_sym.name});
+        for (args) |a| _ = try self.synthExpr(a);
+        return self.ctx.types.unknown_id;
+    }
+
+    /// Case 3 helper: `value.method(args)`. Looks up the method on the
+    /// receiver's nominal type (unwrapping one level of `?T` / `!T`
+    /// borrow), validates the receiver mode at the call site per the
+    /// M20a rules (auto-`?`, explicit `!`, explicit `<`), and checks
+    /// the remaining args against `params[1..]`.
+    fn synthInstanceCall(
+        self: *ExprChecker,
+        receiver_expr: Sexp,
+        receiver_ty_id: TypeId,
+        method_name: []const u8,
+        name_pos: u32,
+        args: []const Sexp,
+    ) std.mem.Allocator.Error!TypeId {
+        // Unwrap borrow_read / borrow_write (but NOT optional —
+        // optional unwrap would silently reintroduce null-deref;
+        // per GPT-5.5 M20a design pass).
+        var ty = self.ctx.types.get(receiver_ty_id);
+        while (true) {
+            switch (ty) {
+                .borrow_read => |inner| ty = self.ctx.types.get(inner),
+                .borrow_write => |inner| ty = self.ctx.types.get(inner),
+                else => break,
+            }
+        }
+
+        if (ty != .nominal) {
+            // Receiver doesn't resolve to a nominal — silent unknown
+            // (matches the existing unknown-callee policy).
+            for (args) |a| _ = try self.synthExpr(a);
+            return self.ctx.types.unknown_id;
+        }
+
+        const nominal_sym_id = ty.nominal;
+        const nominal_sym = self.ctx.symbols.items[nominal_sym_id];
+        const fields = nominal_sym.fields orelse {
+            for (args) |a| _ = try self.synthExpr(a);
+            return self.ctx.types.unknown_id;
+        };
+
+        for (fields) |f| {
+            if (!f.is_method) continue;
+            if (!std.mem.eql(u8, f.name, method_name)) continue;
+            const fn_ty_val = self.ctx.types.get(f.ty);
+            if (fn_ty_val != .function) continue;
+            const fn_ty = fn_ty_val.function;
+
+            if (fn_ty.params.len == 0) {
+                // Method declared with no `self` — calling as instance
+                // is wrong. Diagnose and synth args.
+                try self.err(name_pos, "method `{s}` has no `self` parameter; call as `{s}.{s}(...)`", .{
+                    method_name, nominal_sym.name, method_name,
+                });
+                for (args) |a| _ = try self.synthExpr(a);
+                return fn_ty.returns;
+            }
+
+            // Validate receiver mode at the call site.
+            try self.checkReceiverMode(receiver_expr, fn_ty.params[0], method_name, name_pos);
+
+            // Check the remaining args against `params[1..]`.
+            const non_self_fn = FunctionType{
+                .params = fn_ty.params[1..],
+                .returns = fn_ty.returns,
+                .is_sub = fn_ty.is_sub,
+            };
+            try self.checkCallArgs(args, non_self_fn, method_name, name_pos);
+            return fn_ty.returns;
+        }
+
+        try self.err(name_pos, "no method `{s}` on type `{s}`", .{ method_name, nominal_sym.name });
+        if (nominal_sym.decl_pos > 0) try self.note(nominal_sym.decl_pos, "`{s}` declared here", .{nominal_sym.name});
+        for (args) |a| _ = try self.synthExpr(a);
+        return self.ctx.types.unknown_id;
+    }
+
+    /// M20a receiver-mode rules (per GPT-5.5):
+    ///
+    ///   self param  | call-site requirement
+    ///   ------------|----------------------------------------------------
+    ///   ?Self       | auto-borrow OK from bare lvalue; explicit ? OK;
+    ///               | explicit ! OK (write coerces to read); cannot move
+    ///   !Self       | require explicit (!receiver); cannot pass bare,
+    ///               | cannot pass read borrow, cannot move; rvalue OK
+    ///   Self        | require explicit (<receiver) for named lvalue;
+    ///               | rvalue (call result) OK; borrow forms rejected
+    ///
+    /// Visible-effects principle: write borrow and move are dramatic
+    /// effects and must be visible at the call site. Read borrow is
+    /// lightweight enough to auto-insert.
+    fn checkReceiverMode(
+        self: *ExprChecker,
+        receiver_expr: Sexp,
+        self_param_ty_id: TypeId,
+        method_name: []const u8,
+        name_pos: u32,
+    ) std.mem.Allocator.Error!void {
+        const self_param_ty = self.ctx.types.get(self_param_ty_id);
+
+        const ReceiverShape = enum { read_explicit, write_explicit, move_explicit, lvalue_bare, rvalue };
+        const shape: ReceiverShape = blk: {
+            if (receiver_expr == .list and receiver_expr.list.len >= 2 and
+                receiver_expr.list[0] == .tag)
+            {
+                switch (receiver_expr.list[0].tag) {
+                    .@"read" => break :blk .read_explicit,
+                    .@"write" => break :blk .write_explicit,
+                    .@"move" => break :blk .move_explicit,
+                    // Expression forms that produce a fresh value: rvalue.
+                    .@"call", .@"builtin", .@"record", .@"propagate",
+                    .@"clone", .@"share", .@"weak", .@"pin", .@"raw",
+                    => break :blk .rvalue,
+                    else => break :blk .lvalue_bare,
+                }
+            }
+            // .src (bare name) or other — lvalue.
+            break :blk .lvalue_bare;
+        };
+
+        switch (self_param_ty) {
+            .borrow_read => {
+                // ?Self — auto-borrow OK.
+                switch (shape) {
+                    .read_explicit, .lvalue_bare, .rvalue => return,
+                    // Write borrow can coerce to read access at the call site.
+                    .write_explicit => return,
+                    .move_explicit => {
+                        try self.err(name_pos, "method `{s}` takes a read borrow of receiver; cannot move", .{method_name});
+                    },
+                }
+            },
+            .borrow_write => {
+                // !Self — require explicit write borrow.
+                switch (shape) {
+                    .write_explicit, .rvalue => return,
+                    .read_explicit => try self.err(name_pos, "method `{s}` requires a write-borrowed receiver; got `?...`; use `(!receiver).{s}(...)`", .{ method_name, method_name }),
+                    .move_explicit => try self.err(name_pos, "method `{s}` requires a write-borrowed receiver; cannot move; use `(!receiver).{s}(...)`", .{ method_name, method_name }),
+                    .lvalue_bare => try self.err(name_pos, "method `{s}` requires a write-borrowed receiver; use `(!receiver).{s}(...)`", .{ method_name, method_name }),
+                }
+            },
+            .nominal => {
+                // By-value Self — require explicit move from lvalue; rvalue OK.
+                switch (shape) {
+                    .move_explicit, .rvalue => return,
+                    .read_explicit, .write_explicit => try self.err(name_pos, "method `{s}` consumes the receiver; borrow forms not allowed; use `(<receiver).{s}(...)`", .{ method_name, method_name }),
+                    .lvalue_bare => try self.err(name_pos, "method `{s}` consumes the receiver; use `(<receiver).{s}(...)`", .{ method_name, method_name }),
+                }
+            },
+            else => {
+                // Receiver type isn't ?Self / !Self / Self — skip
+                // mode check (e.g., method with no self, malformed,
+                // or generic-instance unknown). Conservative.
+            },
+        }
     }
 
     /// Constructor invocation `T(name: value, ...)` against a nominal
@@ -2118,9 +2535,14 @@ const ExprChecker = struct {
                 }
                 try seen.put(self.ctx.allocator, fname, fpos);
 
-                // Find the field in the declared list.
+                // Find the DATA field in the declared list. M20a:
+                // methods (is_method=true) share the same `fields`
+                // slice but aren't constructor-targetable, so skip them.
                 const field = blk: {
-                    for (fields) |f| if (std.mem.eql(u8, f.name, fname)) break :blk f;
+                    for (fields) |f| {
+                        if (f.is_method) continue;
+                        if (std.mem.eql(u8, f.name, fname)) break :blk f;
+                    }
                     try self.err(fpos, "no field `{s}` on type `{s}`", .{ fname, callee_name });
                     if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{callee_name});
                     _ = try self.synthExpr(arg.list[2]);
@@ -2136,8 +2558,11 @@ const ExprChecker = struct {
 
         // Missing-field check (only when the call was all-kwarg —
         // mixed/positional constructors are undefined surface in V1).
+        // M20a: skip methods (is_method=true) — they're not
+        // constructor-targetable.
         if (!has_positional and fields.len > 0) {
             for (fields) |f| {
+                if (f.is_method) continue;
                 if (!seen.contains(f.name)) {
                     try self.err(callee_pos, "constructor of `{s}` is missing field `{s}`", .{ callee_name, f.name });
                     if (f.decl_pos > 0) try self.note(f.decl_pos, "field `{s}` declared here", .{f.name});
@@ -2238,14 +2663,39 @@ const ExprChecker = struct {
         if (obj_ty_id == self.ctx.types.invalid_id or obj_ty_id == self.ctx.types.unknown_id) {
             return self.ctx.types.unknown_id;
         }
-        const obj_ty = self.ctx.types.get(obj_ty_id);
-        if (obj_ty != .nominal) return self.ctx.types.unknown_id;
+        // M20a: unwrap one level of borrow_read / borrow_write so
+        // `self.name` on `self: ?User` reaches User's fields. Do NOT
+        // unwrap optional (`User?`) — that would silently introduce
+        // null-deref; member access on optional must be an error or
+        // explicit handling via a future `?.` operator.
+        var ty = self.ctx.types.get(obj_ty_id);
+        while (true) {
+            switch (ty) {
+                .borrow_read => |inner| ty = self.ctx.types.get(inner),
+                .borrow_write => |inner| ty = self.ctx.types.get(inner),
+                else => break,
+            }
+        }
+        if (ty != .nominal) return self.ctx.types.unknown_id;
 
-        const sym_id = obj_ty.nominal;
+        const sym_id = ty.nominal;
         const sym = self.ctx.symbols.items[sym_id];
         const fields = sym.fields orelse return self.ctx.types.unknown_id;
+        // M20a: data fields and methods are separate branches even
+        // though they share the same `fields` array. Bare method
+        // references (`user.greet` without a call) aren't supported in
+        // V1; the call form goes through `synthMemberCall` and never
+        // reaches here.
         for (fields) |f| {
+            if (f.is_method) continue;
             if (std.mem.eql(u8, f.name, field_name)) return f.ty;
+        }
+        // Did we find a method by this name? Give a targeted error.
+        for (fields) |f| {
+            if (f.is_method and std.mem.eql(u8, f.name, field_name)) {
+                try self.err(pos, "method `{s}` on type `{s}` must be called; bare method reference not supported in V1", .{ field_name, sym.name });
+                return self.ctx.types.unknown_id;
+            }
         }
 
         try self.err(pos, "no field `{s}` on type `{s}`", .{ field_name, sym.name });
@@ -2433,6 +2883,7 @@ const ExprChecker = struct {
         // Find the variant.
         var variant: ?Field = null;
         for (variants) |v| {
+            if (v.is_method) continue; // M20a: methods aren't variants
             if (std.mem.eql(u8, v.name, variant_name)) {
                 variant = v;
                 break;
@@ -2558,6 +3009,7 @@ const ExprChecker = struct {
         const fields = sym.fields orelse return; // opaque enum: accept
 
         for (fields) |f| {
+            if (f.is_method) continue; // M20a: methods aren't variants
             if (std.mem.eql(u8, f.name, variant_name)) return; // ok
         }
 
@@ -2632,7 +3084,13 @@ fn enumVariantCount(ctx: *const SemContext, ty: TypeId) ?usize {
     const sym = ctx.symbols.items[t.nominal];
     if (sym.kind != .nominal_type) return null;
     const fields = sym.fields orelse return null;
-    return fields.len;
+    // M20a: methods (is_method=true) live in the same `fields` slice
+    // as variants but aren't variants — exclude from variant count.
+    var count: usize = 0;
+    for (fields) |f| if (!f.is_method) {
+        count += 1;
+    };
+    return count;
 }
 
 fn isNumeric(ctx: *const SemContext, ty: TypeId) bool {

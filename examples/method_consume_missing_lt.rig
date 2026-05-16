@@ -1,0 +1,18 @@
+## M20a negative: consuming receiver without explicit `<`.
+##
+## Calling a method declared `sub consume(self: User)` from a
+## bare lvalue requires the call site to write `(<u).consume()`.
+## Bare `u.consume()` must error — consumption (move) is dramatic
+## enough to deserve a visible marker.
+##
+## EXPECTED: sema error pointing at the method name in the call.
+
+struct User
+  name: String
+
+  sub consume(self: User)
+    print(self.name)
+
+sub main()
+  u = User(name: "Steve")
+  u.consume()

@@ -1,0 +1,19 @@
+## M20a: instance method with consuming receiver (by-value Self).
+##
+## - `sub consume(self: User)` declares a by-value receiver — the
+##   receiver value is moved into the method.
+## - At the call site, `(<u).consume()` requires the EXPLICIT `<`.
+##   Per M20a, consuming receivers (like write receivers) are NEVER
+##   auto-injected — consumption must be visible at the call site.
+##
+## EXPECTED: clean. Runs and prints `Steve`.
+
+struct User
+  name: String
+
+  sub consume(self: User)
+    print(self.name)
+
+sub main()
+  u = User(name: "Steve")
+  (<u).consume()

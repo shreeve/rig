@@ -1,0 +1,19 @@
+## M20a: instance method with read receiver (?self).
+##
+## - `fun greet(self: ?User) -> String` declares a read-borrowed self.
+## - At the call site, `u.greet()` auto-borrows ?u — per M20a receiver
+##   rules, read receivers may be auto-borrowed from a bare lvalue.
+## - Inside the body, `self.name` reaches User's `name` field via the
+##   borrow_read → nominal one-level unwrap M20a added to synthMember.
+##
+## EXPECTED: clean. Runs and prints `Steve`.
+
+struct User
+  name: String
+
+  fun greet(self: ?User) -> String
+    self.name
+
+sub main()
+  u = User(name: "Steve")
+  print(u.greet())

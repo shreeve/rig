@@ -1,0 +1,1 @@
+(module (struct User (: name String) (sub consume ((: self User)) _ (block (call print (member self name))))) (sub main () _ (block (set _ u _ (call User (kwarg name "Steve"))) (call (member u consume)))))

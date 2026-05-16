@@ -1,0 +1,1 @@
+examples/method_body_type_error.rig:14:5: error: type mismatch: expected `String`, got `<int literal>`

@@ -1,0 +1,1 @@
+(module (enum Color red green blue (fun is_red ((: self (borrow_read Color))) Bool (block (match self (arm (enum_lit red) _ true) (arm (enum_lit green) _ false) (arm (enum_lit blue) _ false))))) (sub main () _ (block (set _ c1 _ (member Color red)) (set _ c2 _ (member Color blue)) (call print (call (member c1 is_red))) (call print (call (member c2 is_red))))))

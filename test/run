@@ -159,7 +159,7 @@ section_done $(( SECONDS - SECTION_START ))
 # 1d. Golden emitted Zig (only for examples that pass the checker cleanly)
 # -----------------------------------------------------------------------------
 
-EMIT_TARGETS=(hello shadow struct_basic enum_basic enum_valued match_basic match_default payload_enum match_destructure match_value_position qualified_enum struct_method match_range generic_box generic_pair if_expr_basic if_expr_chain if_expr_block if_expr_binding if_expr_early_return if_expr_enum_variant match_expr_block match_expr_binding match_expr_mixed match_expr_early_return typed_counter typed_accumulator)
+EMIT_TARGETS=(hello shadow struct_basic enum_basic enum_valued match_basic match_default payload_enum match_destructure match_value_position qualified_enum struct_method match_range generic_box generic_pair if_expr_basic if_expr_chain if_expr_block if_expr_binding if_expr_early_return if_expr_enum_variant match_expr_block match_expr_binding match_expr_mixed match_expr_early_return typed_counter typed_accumulator method_self_read method_self_write method_self_consume method_associated_return method_enum)
 
 run_golden_emit() {
     local name=$1

@@ -1,0 +1,19 @@
+## M20a: associated/static method return-type propagation.
+##
+## - `User.make(...)` is an associated call (no `self` param). M12
+##   already emitted the namespaced Zig form. M20a tightens sema:
+##   the call now types as `User`, not `unknown`.
+## - Uses `Self` as the return-type alias, exercising the M20a
+##   Self-resolution in TypeResolver.resolveType.
+##
+## EXPECTED: clean. Runs and prints `guest`.
+
+struct User
+  name: String
+
+  fun make(default: String) -> Self
+    User(name: default)
+
+sub main()
+  u: User = User.make("guest")
+  print(u.name)
