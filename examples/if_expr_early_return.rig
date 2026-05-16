@@ -1,0 +1,14 @@
+# M17: when a value-position `if` branch terminates (return/break/
+# continue), the branch's type is `noreturn` and Zig coerces it
+# to the other branch's type. The emitter detects this and omits
+# the labeled-block label (Zig errors on "unused block label").
+fun safe_div(a: Int, b: Int) -> Int
+  result = if b == 0
+    return 0
+  else
+    a * b
+  result + 1
+
+sub main()
+  print(safe_div(10, 2))
+  print(safe_div(10, 0))

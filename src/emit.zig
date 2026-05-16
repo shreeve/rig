@@ -57,6 +57,12 @@ pub const Emitter = struct {
     /// Counter for shadow-renames: each `new x = ...` gets `x_<n>`.
     shadow_counter: u32 = 0,
 
+    /// Counter for labeled-block labels used when lowering value-position
+    /// constructs (currently `if`-as-expression). Each labeled block gets
+    /// a unique `rig_blk_<n>` label so nested expressions never shadow.
+    /// See `emitBranchExpr`.
+    block_label_counter: u32 = 0,
+
     /// Per-function pre-scan: names that are reassigned in the body,
     /// so they need `var` instead of `const` in Zig. Reset at the
     /// start of each `emitFun`.
@@ -738,6 +744,117 @@ pub const Emitter = struct {
         }
     }
 
+    /// Lower `(if cond (block ...) (block ...))` used in expression
+    /// position (RHS of a binding, function return value, argument to
+    /// a call, branch of another `if`, etc.).
+    ///
+    /// Zig's `if (c) a else b` is itself an expression, so the shape is
+    /// the same as the statement form — but each branch must produce a
+    /// value. Multi-statement branches become labeled blocks; single
+    /// expression branches are emitted inline.
+    ///
+    /// Without an else branch the result type would be `void`, which
+    /// is almost certainly not what the user wanted. We emit a
+    /// `@compileError` safety net so the generated Zig fails with a
+    /// clear message rather than silently producing wrong code. A
+    /// real Rig diagnostic should come from sema (M17b).
+    fn emitIfExpr(self: *Emitter, items: []const Sexp) Error!void {
+        if (items.len < 4) {
+            try self.w.writeAll("@compileError(\"rig: if-expression requires an else branch\")");
+            return;
+        }
+        try self.w.writeAll("if (");
+        try self.emitExpr(items[1]);
+        try self.w.writeAll(") ");
+        try self.emitBranchExpr(items[2]);
+        try self.w.writeAll(" else ");
+        try self.emitBranchExpr(items[3]);
+    }
+
+    /// Emit one branch of a value-position `if`. The branch is always
+    /// a `(block stmts...)` from the grammar, but we tolerate a bare
+    /// expression too (defensive against future IR shapes).
+    ///
+    /// Cases:
+    /// - 0 stmts → `@compileError` safety net.
+    /// - 1 stmt that's an expression → emit inline (no labeled block).
+    /// - Final stmt is terminating (`return`/`break`/`continue`) →
+    ///   labeled block, no trailing `break :label …` (the branch has
+    ///   type `noreturn` and coerces to the other branch's type).
+    /// - Final stmt is an expression → labeled block with
+    ///   `break :rig_blk_N <expr>;` as the final line.
+    /// - Otherwise (non-expression, non-terminating final stmt) →
+    ///   `@compileError` (this branch doesn't produce a value).
+    fn emitBranchExpr(self: *Emitter, branch: Sexp) Error!void {
+        // Pull out `(block stmts...)` if applicable.
+        const stmts: []const Sexp = blk: {
+            if (branch == .list and branch.list.len > 0 and branch.list[0] == .tag and
+                branch.list[0].tag == .@"block")
+            {
+                break :blk branch.list[1..];
+            }
+            // Bare-expression branch: treat as a one-element stmt list
+            // so the single-expr fast path picks it up.
+            break :blk @as([]const Sexp, &[_]Sexp{branch});
+        };
+
+        if (stmts.len == 0) {
+            try self.w.writeAll("@compileError(\"rig: empty if-expression branch\")");
+            return;
+        }
+
+        if (stmts.len == 1 and isExprStmt(stmts[0])) {
+            try self.emitExpr(stmts[0]);
+            return;
+        }
+
+        // When the final stmt is terminating (return/break/continue),
+        // the branch produces `noreturn` and we never `break :label`
+        // out of it. Emitting a label in that case triggers Zig's
+        // "unused block label" error. Detect and emit a *plain* block
+        // (no label) for the noreturn case.
+        const last = stmts[stmts.len - 1];
+        const terminating = isTerminatingStmt(last);
+        const want_label = !terminating and isExprStmt(last);
+
+        var label_id: u32 = 0;
+        if (want_label) {
+            label_id = self.block_label_counter;
+            self.block_label_counter += 1;
+            try self.w.print("rig_blk_{d}: {{\n", .{label_id});
+        } else {
+            try self.w.writeAll("{\n");
+        }
+        self.indent += 1;
+        try self.pushScope();
+
+        // All but the final statement: emit as ordinary statements.
+        for (stmts[0 .. stmts.len - 1]) |s| {
+            try self.indentSpaces();
+            try self.emitStmt(s);
+            try self.w.writeAll("\n");
+        }
+
+        try self.indentSpaces();
+        if (terminating) {
+            try self.emitStmt(last);
+        } else if (want_label) {
+            try self.w.print("break :rig_blk_{d} ", .{label_id});
+            try self.emitExpr(last);
+            try self.w.writeAll(";");
+        } else {
+            // Final stmt is something like `(set ...)` with no value.
+            // The branch doesn't produce a value — emit a diagnostic.
+            try self.w.writeAll("@compileError(\"rig: if-expression branch does not produce a value\");");
+        }
+        try self.w.writeAll("\n");
+
+        try self.popScope();
+        self.indent -= 1;
+        try self.indentSpaces();
+        try self.w.writeAll("}");
+    }
+
     fn emitWhile(self: *Emitter, items: []const Sexp) Error!void {
         if (items.len < 4) return;
         try self.w.writeAll("while (");
@@ -1139,6 +1256,10 @@ pub const Emitter = struct {
             // position — Zig's `switch` is also an expression, so we
             // can use the same machinery in either context.
             .@"match" => try self.emitMatch(items),
+            // M17: value-position if. Branches are wrapped in labeled
+            // blocks when they need them; single-expression branches
+            // are emitted inline. See `emitIfExpr` / `emitBranchExpr`.
+            .@"if" => try self.emitIfExpr(items),
             else => {
                 try self.w.writeAll("@compileError(\"rig: emitter does not yet support `");
                 try self.w.writeAll(@tagName(head));
@@ -1798,5 +1919,21 @@ fn isExprStmt(sexp: Sexp) bool {
         .@"block",
         => false,
         else => true,
+    };
+}
+
+/// True if `sexp` is a control-flow statement that never falls through
+/// to a subsequent statement (i.e., its Zig type is `noreturn`).
+///
+/// Used by `emitBranchExpr` to decide whether to append a `break :label
+/// <expr>;` after the branch's final statement. For terminating final
+/// statements, the branch produces `noreturn` and Zig coerces it to
+/// the other branch's type — no `break` needed (and would be
+/// unreachable).
+fn isTerminatingStmt(sexp: Sexp) bool {
+    if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return false;
+    return switch (sexp.list[0].tag) {
+        .@"return", .@"break", .@"continue" => true,
+        else => false,
     };
 }

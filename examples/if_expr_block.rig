@@ -1,0 +1,13 @@
+# M17: multi-statement if branch lowers to a labeled `rig_blk_N: { ... }`
+# with `break :rig_blk_N <last-expr>;` as the trailing line. The label
+# counter increments per-branch so nested labeled blocks never shadow.
+fun summarize(n: Int) -> Int
+  if n > 0
+    doubled: Int = n * 2
+    doubled + 1
+  else
+    0
+
+sub main()
+  print(summarize(10))
+  print(summarize(0))

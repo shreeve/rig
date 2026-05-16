@@ -1,0 +1,1 @@
+(module (fun safe_div ((: a Int) (: b Int)) Int (block (set _ result _ (if (== b 0) (block (return 0)) (block (* a b)))) (+ result 1))) (sub main () _ (block (call print (call safe_div 10 2)) (call print (call safe_div 10 0)))))

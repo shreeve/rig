@@ -241,11 +241,31 @@ produces either valid Zig output or a clean Rig diagnostic.
   non-zero, stderr non-empty, no panic phrases. Adding a new
   bad-input regression test = drop a `*.rig` in `test/torture/`.
 
-### M17+ — Beyond V1
+### M17 — `if`-as-Expression Lowering ✅
+Closes a major idiomatic-code hole. Before M17, any `if` used in
+expression position lowered to `@compileError("rig: emitter does
+not yet support `if`")`. Now:
+
+- Single-expression branches lower inline (`if (c) a else b`).
+- Multi-statement branches lower to labeled blocks with
+  `rig_blk_N: { ...; break :rig_blk_N <expr>; }`. Labels are
+  unique per emitter so nested if-expressions never shadow.
+- Branches that terminate (`return`/`break`/`continue`) skip the
+  label — Zig errors on "unused block label" and the `noreturn`
+  branch type coerces to the other branch's type.
+- Missing-else in value position is a sema diagnostic
+  (`ExprChecker.synthIfExpr`); the emitter has a `@compileError`
+  safety net for defense in depth.
+- 6 new examples (basic, chain, block, binding, early-return,
+  enum-variant) cover the lowering shapes; one new torture entry
+  pins the missing-else diagnostic.
+
+### M18+ — Beyond V1
 Try-block lowering (still `@compileError`), value-position match
-with arm-result unification, **match destructuring of payload
-variants** (`.circle => |c| use(c)`), pattern bindings threaded
-into arm bodies, range/guard patterns, qualified enum access
+with multi-statement arm bodies (same labeled-block recipe as
+M17's if), **match destructuring of payload variants**
+(`.circle => |c| use(c)`), pattern bindings threaded into arm
+bodies, range/guard patterns, qualified enum access
 (`Color.red`), explicit error sets in `T!E` return types, opaque
 types, generic struct lowering (parsed in M0, typed as opaque
 nominals in M6), generic enum types (`Option(T)` / `Result(T, E)`),

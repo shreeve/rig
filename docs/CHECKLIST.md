@@ -1027,10 +1027,60 @@ Enforced by `test/torture/*.rig` + `test/run`'s "Torture corpus" section.
 - Full suite: **278 passed, 0 failed**, of which 18 are torture-corpus tests.
 - Adding a new panic case = add one `*.rig` to `test/torture/`. The runner does the rest. Every future failure mode discovered in the wild should land here as a regression test before/with the fix.
 
-### Deferred (M17+)
+### Deferred (M18+)
 
 - **Real fuzzing.** Generate random Rig source and assert no-crash. Useful once we have a stable surface; for now the torture corpus pulls its weight.
 - **Top-level custom panic handler.** GPT-5.5's advice: don't. Loud panics catch dev bugs in tests. Once the binary stabilizes for end-users, a one-line `Rig internal compiler error — please report` wrapper is a small follow-up.
 - **Module path canonicalization** (M15b). Still deferred; same-string dedup remains adequate for the v1 module system.
 - **Items-shape audit helpers.** `requireListLenAtLeast(sexp, n, ctx) ![]Sexp` + `requireTag(items, tag, ctx) !void` would make IR walkers self-documenting and crash-proof on impossible shapes. Currently the grammar guarantees shapes via the LR parser, so this is preventive, not corrective. Add when we start accepting non-grammar IR sources (e.g., a macro system).
+
+## M17 — `if`-as-Expression Lowering
+
+Closes a major idiomatic-code hole. Before M17, any `if` used in expression position (function return value, RHS of a binding, argument to a call, branch of another `if`, etc.) lowered to `@compileError("rig: emitter does not yet support `if`")`. Sema already supported the type-checking side; only the emitter was missing.
+
+Designed with GPT-5.5 — key decisions: unique block labels (no shadowing), terminator detection (skip label when branch is `noreturn`), sema-owned missing-else diagnostic, single-expression fast path.
+
+### What it lowers to
+
+| Rig source | Emitted Zig |
+|------------|-------------|
+| `if c then_expr else other_expr` (single-expr branches) | `if (c) then_expr else other_expr` |
+| `if c { s1; s2; expr } else { expr2 }` (multi-stmt branch) | `if (c) rig_blk_0: { s1; s2; break :rig_blk_0 expr; } else expr2` |
+| `if c { return early } else { value }` (terminating branch) | `if (c) { return early; } else value` *(no label — Zig errors on "unused block label")* |
+| `if c { ... }` (no else, value position) | sema diagnostic: `if expression used as a value requires an else branch` |
+| `if c { x = 1 }` (final stmt has no value) | `@compileError("rig: if-expression branch does not produce a value")` |
+
+### Implementation
+
+- **`Emitter.block_label_counter: u32`** — increments per labeled block, so nested if-expressions emit `rig_blk_0`, `rig_blk_1`, … instead of shadowing.
+- **`emitIfExpr`** in `emit.zig` — same shape as the statement-form `emitIf`, but each branch goes through `emitBranchExpr` instead of `emitBlockOrInline`.
+- **`emitBranchExpr`** — unwraps the `(block …)` envelope (every if-branch is wrapped), then:
+    1. Zero statements → `@compileError` safety net.
+    2. One expression statement → inline (no labeled block, no `break`).
+    3. Final statement terminates (`return`/`break`/`continue`) → emit a plain unlabeled block; Zig coerces the `noreturn` branch type to the other branch's type.
+    4. Final statement is an expression → labeled block with `break :rig_blk_N <expr>;`.
+    5. Otherwise (final statement has no value) → `@compileError`.
+- **`isTerminatingStmt`** helper added next to `isExprStmt` in `emit.zig`.
+- Sema already had the missing-else diagnostic in `ExprChecker.synthIfExpr` (M5+).
+
+### Examples added
+
+- `examples/if_expr_basic.rig` — single-expression branches.
+- `examples/if_expr_chain.rig` — chained `else if`.
+- `examples/if_expr_block.rig` — multi-statement branch via labeled block.
+- `examples/if_expr_binding.rig` — `if` as binding RHS.
+- `examples/if_expr_early_return.rig` — `return` inside an if-expression branch (the `noreturn` coercion case).
+- `examples/if_expr_enum_variant.rig` — `if` returning enum variants, threaded into a `match`.
+- `test/torture/19_if_expr_missing_else.rig` — `if`-as-value with no `else`; sema must reject without crashing.
+
+### Result
+
+- **315 passed, 0 failed** (up from 278). All 6 new examples have raw/semantic/emit/determinism goldens. Emitted Zig compiles cleanly.
+- The motivating user pattern (`fun classify(x) -> Int { if x > 0 { 1 } else if x < 0 { -1 } else { 0 } }`) now compiles and runs.
+
+### Deferred (M18+)
+
+- **`try`-block lowering.** Still `@compileError`. Distinct shape (`try { ... } catch { ... }` vs `if`), and ties into the error-set work.
+- **`match` value-position arms with multi-statement bodies.** M10 made `match`-as-expression work for single-expression arms; multi-stmt arms still need the same labeled-block treatment we just gave `if`. Same recipe should apply.
+- **`if let`** (pattern-binding ifs). SPEC-future; deferred until optionals reach M-something.
 

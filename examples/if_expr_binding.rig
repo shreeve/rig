@@ -1,0 +1,13 @@
+# M17: if used as the RHS of a binding (`x = if cond ...`). The
+# binding's type is inferred from the unified branch type.
+sub main()
+  x = if true
+    1
+  else
+    2
+  y = if x > 0
+    100
+  else
+    -100
+  print(x)
+  print(y)

@@ -1,0 +1,26 @@
+# M17: value-position `if` returning enum variants composes with
+# match — the if produces a Sign, which then drives a switch.
+enum Sign
+  pos
+  neg
+  zero
+
+fun classify(x: Int) -> Sign
+  if x > 0
+    .pos
+  else
+    if x < 0
+      .neg
+    else
+      .zero
+
+fun to_int(s: Sign) -> Int
+  match s
+    .pos => 1
+    .neg => -1
+    .zero => 0
+
+sub main()
+  print(to_int(classify(5)))
+  print(to_int(classify(-3)))
+  print(to_int(classify(0)))

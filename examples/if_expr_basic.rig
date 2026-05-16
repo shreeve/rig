@@ -1,0 +1,11 @@
+# M17: `if` as expression — single-expression branches lower to
+# Zig's `if (cond) a else b` form directly, with no labeled block.
+fun pick(c: Bool) -> Int
+  if c
+    10
+  else
+    20
+
+sub main()
+  print(pick(true))
+  print(pick(false))

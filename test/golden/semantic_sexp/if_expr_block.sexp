@@ -1,0 +1,1 @@
+(module (fun summarize ((: n Int)) Int (block (if (> n 0) (block (set _ doubled Int (* n 2)) (+ doubled 1)) (block 0)))) (sub main () _ (block (call print (call summarize 10)) (call print (call summarize 0)))))
