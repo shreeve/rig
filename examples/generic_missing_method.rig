@@ -1,0 +1,17 @@
+## M20b(5/5) negative: missing method on a parameterized receiver.
+##
+## Before this commit, `b.missing()` on `b: Box(Int)` fell through to
+## a silent unknown or the placeholder "(unknown)" type name in the
+## diagnostic — because `synthInstanceCall`'s error path only handled
+## `.nominal`, not `.parameterized_nominal`. Per GPT-5.5 M20b
+## post-implementation review, the new `nominalSymOfReceiver` helper
+## handles both uniformly so generic receivers get clean diagnostics.
+##
+## EXPECTED: sema error: no method `missing` on type `Box`.
+
+type Box(T)
+  value: T
+
+sub main()
+  b: Box(Int) = Box(value: 5)
+  print(b.missing())

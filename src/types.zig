@@ -799,10 +799,26 @@ const SymbolResolver = struct {
                     }
                 }
             }
+            // M20b(5/5) per GPT-5.5: generic params are DETACHED —
+            // they live in `ctx.symbols` and on the generic type's
+            // `type_params` slice, but are NOT inserted into the
+            // module scope. Otherwise `T` from `type Box(T)` would
+            // collide with `T` from `type Pair(T)` AND would be
+            // resolvable by ordinary lexical lookup at module scope,
+            // both of which are wrong. NominalContext.type_params is
+            // the canonical resolution path.
+            //
+            // Track seen-this-decl names to skip duplicates (we still
+            // diagnosed them above; not adding the duplicate keeps
+            // type_params clean and avoids later confusion).
+            var added_names: std.StringHashMapUnmanaged(void) = .empty;
+            defer added_names.deinit(self.ctx.allocator);
             for (params_node.list) |p| {
                 const pname = identAt(self.ctx.source, p) orelse continue;
+                if (added_names.contains(pname)) continue;
+                try added_names.put(self.ctx.allocator, pname, {});
                 const ppos: u32 = if (p == .src) p.src.pos else 0;
-                const param_sym_id = try self.addSymbol(.{
+                const param_sym_id = try self.addDetachedSymbol(.{
                     .name = pname,
                     .kind = .generic_param,
                     .ty = self.ctx.types.unknown_id,
@@ -1067,6 +1083,20 @@ const SymbolResolver = struct {
         const id: SymbolId = @intCast(self.ctx.symbols.items.len);
         try self.ctx.symbols.append(self.ctx.allocator, sym);
         try self.ctx.scopes.items[sym.scope].symbols.append(self.ctx.allocator, id);
+        return id;
+    }
+
+    /// M20b(5/5): like `addSymbol` but does NOT insert into the lexical
+    /// scope's symbol list. Used for generic-param symbols
+    /// (`.generic_param` kind) which are referenced by `Symbol.type_params`
+    /// on the owning generic-type symbol and resolved via
+    /// `NominalContext.type_params` — never via ordinary scope lookup.
+    /// Per GPT-5.5 M20b post-implementation review: detaching prevents
+    /// `T` from `type Box(T)` polluting module scope and colliding with
+    /// `T` from `type Pair(T)`.
+    fn addDetachedSymbol(self: *SymbolResolver, sym: Symbol) std.mem.Allocator.Error!SymbolId {
+        const id: SymbolId = @intCast(self.ctx.symbols.items.len);
+        try self.ctx.symbols.append(self.ctx.allocator, sym);
         return id;
     }
 };
@@ -1783,17 +1813,23 @@ const TypeResolver = struct {
                 }
                 if (self.ctx.lookup(scope, name)) |sym_id| {
                     const sym = self.ctx.symbols.items[sym_id];
-                    if (sym.kind == .nominal_type or sym.kind == .type_alias or
-                        sym.kind == .generic_type)
-                    {
+                    if (sym.kind == .nominal_type or sym.kind == .type_alias) {
                         return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = sym_id });
                     }
-                    // M20b(3/5): generic_param symbols found via scope
-                    // lookup (rare — the NominalContext path above
-                    // usually fires first) resolve to type_var.
-                    if (sym.kind == .generic_param) {
-                        return self.ctx.types.intern(self.ctx.allocator, .{ .type_var = sym_id });
+                    // M20b(5/5) per GPT-5.5: bare `Box` (a generic_type)
+                    // in type position requires type arguments —
+                    // `x: Box` should error, only `x: Box(Int)` is
+                    // valid. Return invalid_id; the use site fires
+                    // the diagnostic.
+                    if (sym.kind == .generic_type) {
+                        try self.err(s.pos, "generic type `{s}` requires type arguments; write `{s}(T)`", .{ name, name });
+                        return self.ctx.types.invalid_id;
                     }
+                    // Generic-param symbols are detached (per M20b(5/5)
+                    // post-implementation review) — they're resolved
+                    // via NominalContext.type_params above, not via
+                    // ordinary lexical lookup. If we reach here with
+                    // a generic_param symbol, it's a code-path bug.
                 }
                 // Unknown type name. M5 v1 doesn't have a module
                 // system / forward declarations / generic-param scope
@@ -2095,6 +2131,24 @@ pub const TypeSubst = struct {
     }
 };
 
+/// M20b(5/5) per GPT-5.5: extract the underlying nominal SymbolId
+/// from a receiver type, handling both `.nominal` (plain) and
+/// `.parameterized_nominal` (generic). Peels borrows first. Returns
+/// `null` if the receiver isn't anchored to a nominal at all.
+///
+/// Used in diagnostic paths so messages like "no method `missing` on
+/// type `Box`" work uniformly for plain and generic receivers — without
+/// this, the parameterized case fell through to "(unknown)" or
+/// silent-unknown.
+pub fn nominalSymOfReceiver(ctx: *const SemContext, ty_id: TypeId) ?SymbolId {
+    const peeled = unwrapBorrows(ctx, ty_id);
+    return switch (ctx.types.get(peeled)) {
+        .nominal => |s| s,
+        .parameterized_nominal => |pn| pn.sym,
+        else => null,
+    };
+}
+
 /// M20b(2/5): walk a type and substitute generic-param references
 /// (`type_var(T_sym)`) with the corresponding TypeId from `subst`.
 /// Recurses through every Type variant that can contain a TypeId
@@ -2107,6 +2161,68 @@ pub const TypeSubst = struct {
 /// in `subst` returns `type_var(U)`) — matters for future method-local
 /// generics where outer-scope and inner-scope substitutions stage
 /// separately.
+/// M20b(5/5) per GPT-5.5: const, non-allocating comparison helper.
+/// Does `substituteType(ty_id, subst) == target` *as if* substitution
+/// had been performed — but without actually interning anything.
+/// Walks the type structure, substituting `type_var(T)` via `subst`
+/// at each leaf, comparing against the corresponding slot in `target`.
+///
+/// Used by the emitter's print polish (which lives in a `*const
+/// SemContext` context) to test "does this field's substituted type
+/// equal String?" without mutating sema's interner via `@constCast`.
+/// Phase discipline: emit must not allocate into sema.
+pub fn typeEqualsAfterSubst(
+    ctx: *const SemContext,
+    ty_id: TypeId,
+    subst: TypeSubst,
+    target: TypeId,
+) bool {
+    // Fast path: when no substitution is in play, interner structural
+    // equality is sound. Per GPT-5.5 review: NOT sound with a non-
+    // empty subst — a composite like `Box(T)` would short-circuit
+    // against `Box(T)` even though subst says T → Int.
+    if (subst.isEmpty() and ty_id == target) return true;
+
+    const ty = ctx.types.get(ty_id);
+    // Resolve any leaf type_var via subst. The recursive comparison
+    // uses `TypeSubst.empty` so substitution is simultaneous (one-
+    // pass), not transitive — matches `substituteType`'s semantics.
+    if (ty == .type_var) {
+        const resolved = subst.lookup(ty.type_var) orelse return ty_id == target;
+        return typeEqualsAfterSubst(ctx, resolved, TypeSubst.empty, target);
+    }
+    // Composite recursion: target must also be the composite form.
+    const tgt = ctx.types.get(target);
+    return switch (ty) {
+        .borrow_read => |inner| tgt == .borrow_read and typeEqualsAfterSubst(ctx, inner, subst, tgt.borrow_read),
+        .borrow_write => |inner| tgt == .borrow_write and typeEqualsAfterSubst(ctx, inner, subst, tgt.borrow_write),
+        .optional => |inner| tgt == .optional and typeEqualsAfterSubst(ctx, inner, subst, tgt.optional),
+        .fallible => |inner| tgt == .fallible and typeEqualsAfterSubst(ctx, inner, subst, tgt.fallible),
+        .slice => |s| tgt == .slice and typeEqualsAfterSubst(ctx, s.elem, subst, tgt.slice.elem),
+        .array => |arr| tgt == .array and arr.len == tgt.array.len and typeEqualsAfterSubst(ctx, arr.elem, subst, tgt.array.elem),
+        .function => |fn_ty| blk: {
+            if (tgt != .function) break :blk false;
+            if (fn_ty.is_sub != tgt.function.is_sub) break :blk false;
+            if (fn_ty.params.len != tgt.function.params.len) break :blk false;
+            if (!typeEqualsAfterSubst(ctx, fn_ty.returns, subst, tgt.function.returns)) break :blk false;
+            for (fn_ty.params, tgt.function.params) |p, tp| {
+                if (!typeEqualsAfterSubst(ctx, p, subst, tp)) break :blk false;
+            }
+            break :blk true;
+        },
+        .parameterized_nominal => |pn| blk: {
+            if (tgt != .parameterized_nominal) break :blk false;
+            if (pn.sym != tgt.parameterized_nominal.sym) break :blk false;
+            if (pn.args.len != tgt.parameterized_nominal.args.len) break :blk false;
+            for (pn.args, tgt.parameterized_nominal.args) |a, ta| {
+                if (!typeEqualsAfterSubst(ctx, a, subst, ta)) break :blk false;
+            }
+            break :blk true;
+        },
+        else => ty_id == target,
+    };
+}
+
 pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem.Allocator.Error!TypeId {
     if (subst.isEmpty()) return ty_id;
     const ty = ctx.types.get(ty_id);
@@ -2317,7 +2433,7 @@ pub const ResolvedMethod = struct {
 ///
 /// M20b(4/5) will extend this to handle `parameterized_nominal` and
 /// substitute the returned `ty` against the receiver's type arguments.
-pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) ?ResolvedField {
+pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedField {
     const peeled = unwrapBorrows(ctx, receiver_ty);
     const ty = ctx.types.get(peeled);
 
@@ -2347,7 +2463,9 @@ pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) 
             // `subst` is empty so `substituteType` returns the
             // original TypeId unchanged. For parameterized receivers,
             // `type_var(T)` → concrete arg.
-            const sub_ty = substituteType(ctx, f.ty, subst) catch f.ty;
+            // M20b(5/5) per GPT-5.5: propagate allocator errors;
+            // never silently fall back to unsubstituted f.ty.
+            const sub_ty = try substituteType(ctx, f.ty, subst);
             return .{ .field = f, .ty = sub_ty, .nominal_sym = sym_id };
         }
     }
@@ -2362,7 +2480,7 @@ pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) 
 /// Returns `null` on no match. M20b(4/5) will substitute the returned
 /// `fn_ty` (params + return) against the receiver's type arguments
 /// for parameterized nominals.
-pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) ?ResolvedMethod {
+pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedMethod {
     const peeled = unwrapBorrows(ctx, receiver_ty);
     const ty = ctx.types.get(peeled);
 
@@ -2392,7 +2510,8 @@ pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) ?Re
             // receiver's type arguments. For plain nominals subst is
             // empty (no-op). For generics, T inside the signature
             // becomes the concrete arg.
-            const sub_fn_ty_id = substituteType(ctx, f.ty, subst) catch f.ty;
+            // M20b(5/5) per GPT-5.5: propagate allocator errors.
+            const sub_fn_ty_id = try substituteType(ctx, f.ty, subst);
             const sub_fn_ty_val = ctx.types.get(sub_fn_ty_id);
             const sub_fn_ty: FunctionType = if (sub_fn_ty_val == .function) sub_fn_ty_val.function else fn_ty_val.function;
             return .{
@@ -2406,13 +2525,27 @@ pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) ?Re
     return null;
 }
 
-/// M20b(1/5): check whether a method by `name` exists on the receiver's
-/// nominal (method-vs-field collision detection). Used by `synthMember`
-/// to produce a targeted "bare method reference not supported"
-/// diagnostic when the user wrote `u.greet` (no call) and `greet` is
-/// actually a method.
-pub fn hasMethodNamed(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) bool {
-    return lookupMethod(ctx, receiver_ty, name) != null;
+/// M20b(1/5) / M20b(5/5): check whether a method by `name` exists on
+/// the receiver's nominal (method-vs-field collision detection). Used
+/// by `synthMember` to produce a targeted "bare method reference not
+/// supported" diagnostic. Per GPT-5.5: this is a non-substituting,
+/// non-allocating boolean existence check — does NOT call
+/// `lookupMethod` (which substitutes and may allocate).
+pub fn hasMethodNamed(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) bool {
+    const peeled = unwrapBorrows(ctx, receiver_ty);
+    const ty = ctx.types.get(peeled);
+    const sym_id = switch (ty) {
+        .nominal => |s| s,
+        .parameterized_nominal => |pn| pn.sym,
+        else => return false,
+    };
+    const sym = ctx.symbols.items[sym_id];
+    const fields = sym.fields orelse return false;
+    for (fields) |f| {
+        if (!f.is_method) continue;
+        if (std.mem.eql(u8, f.name, name)) return true;
+    }
+    return false;
 }
 
 /// M20a.2: peel `borrow_read` / `borrow_write` wrappers from a type
@@ -3215,11 +3348,29 @@ const ExprChecker = struct {
                             return fn_ty.function.returns;
                         }
                     },
-                    .nominal_type, .type_alias, .generic_type => {
+                    .nominal_type, .type_alias => {
                         // Constructor call (e.g., `User(name: "Steve")`).
                         // The result is an instance of the nominal type.
                         try self.checkConstructorArgs(items[2..], sym_id, name, callee.src.pos);
                         return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = sym_id }) catch self.ctx.types.unknown_id;
+                    },
+                    .generic_type => {
+                        // M20b(5/5) per GPT-5.5: unannotated generic
+                        // construction (e.g., `Box(value: 5)` with no
+                        // LHS type annotation) requires expected-type
+                        // inference, which V1 does not provide. The
+                        // `checkExpr` path (with expected type) handles
+                        // the annotated case via `checkGenericConstructorCall`;
+                        // reaching `synthCall` for a generic_type
+                        // callee means no expected was provided.
+                        //
+                        // Diagnose and synth args for cascade
+                        // suppression.
+                        try self.err(callee.src.pos, "generic constructor `{s}` requires an expected type; write `b: {s}(T) = {s}(...)`", .{
+                            name, name, name,
+                        });
+                        for (items[2..]) |arg| _ = try self.synthExpr(arg);
+                        return self.ctx.types.unknown_id;
                     },
                     else => {},
                 }
@@ -3340,19 +3491,20 @@ const ExprChecker = struct {
     ) std.mem.Allocator.Error!TypeId {
         // M20b(1/5): unified method lookup via helper. Peels borrows,
         // matches by name + is_method, returns ResolvedMethod with
-        // receiver mode + nominal_sym pre-extracted. M20b(4/5) will
-        // extend the helper to substitute generic type params.
-        const resolved = lookupMethod(self.ctx, receiver_ty_id, method_name) orelse {
-            // Distinguish "receiver isn't nominal" (silent unknown,
-            // matches existing unknown-callee policy) from "no such
-            // method on this nominal" (diagnostic).
-            const peeled = unwrapBorrows(self.ctx, receiver_ty_id);
-            const peeled_ty = self.ctx.types.get(peeled);
-            if (peeled_ty != .nominal) {
+        // receiver mode + nominal_sym pre-extracted. M20b(4/5) extends
+        // the helper to substitute generic type params.
+        const resolved = (try lookupMethod(self.ctx, receiver_ty_id, method_name)) orelse {
+            // M20b(5/5) per GPT-5.5: nominalSymOfReceiver handles both
+            // plain and parameterized nominals. Distinguish "receiver
+            // isn't nominal" (silent unknown, matches the
+            // unknown-callee policy) from "no such method on this
+            // nominal" (diagnostic).
+            const owner_id_opt = nominalSymOfReceiver(self.ctx, receiver_ty_id);
+            const nom_sym_id = owner_id_opt orelse {
                 for (args) |a| _ = try self.synthExpr(a);
                 return self.ctx.types.unknown_id;
-            }
-            const nom_sym = self.ctx.symbols.items[peeled_ty.nominal];
+            };
+            const nom_sym = self.ctx.symbols.items[nom_sym_id];
             // Opaque nominal (no fields) also stays silent.
             if (nom_sym.fields == null) {
                 for (args) |a| _ = try self.synthExpr(a);
@@ -3574,18 +3726,14 @@ const ExprChecker = struct {
                 // M20b(4/5): substitute the field's declared type
                 // against the expected-type's args (T → Int for
                 // `Box(Int)`). For plain nominals subst is empty so
-                // this is a no-op. If a field's substituted type is
-                // still a type_var (unbound — shouldn't happen with
-                // expected-type-driven generics, but possible at
-                // module-level construction without LHS annotation),
-                // skip type-check.
-                const substituted_field_ty = substituteType(self.ctx, field.ty, subst) catch field.ty;
-                const sft = self.ctx.types.get(substituted_field_ty);
-                if (sft == .type_var) {
-                    _ = try self.synthExpr(arg.list[2]);
-                    continue;
-                }
-
+                // this is a no-op. M20b(5/5) per GPT-5.5: propagate
+                // allocator errors. No `type_var` skip — `compatible`
+                // does the right thing (`type_var(T)` equals itself
+                // and nothing else), so symbolic generic-body
+                // constructor checking now correctly catches
+                // `b: Self = Box(value: "wrong type")` inside a
+                // generic body.
+                const substituted_field_ty = try substituteType(self.ctx, field.ty, subst);
                 try self.checkExpr(arg.list[2], substituted_field_ty);
             } else {
                 has_positional = true;
@@ -3703,27 +3851,26 @@ const ExprChecker = struct {
 
         // M20b(1/5): unified data-field lookup via helper. Peels
         // borrows and returns the (possibly substituted) field type.
-        if (lookupDataField(self.ctx, obj_ty_id, field_name)) |resolved| {
+        if (try lookupDataField(self.ctx, obj_ty_id, field_name)) |resolved| {
             return resolved.ty;
         }
 
         // No data field by that name — was it a method? If so, give a
         // targeted "must be called" error. Otherwise fall through to
         // the generic "no field on type" diagnostic.
+        // M20b(5/5) per GPT-5.5: nominalSymOfReceiver handles both
+        // plain and parameterized nominals uniformly.
+        const owner_id_opt = nominalSymOfReceiver(self.ctx, obj_ty_id);
         if (hasMethodNamed(self.ctx, obj_ty_id, field_name)) {
-            // Find the owning nominal for the diagnostic context.
-            const peeled = unwrapBorrows(self.ctx, obj_ty_id);
-            const ty = self.ctx.types.get(peeled);
-            const nom_name = if (ty == .nominal) self.ctx.symbols.items[ty.nominal].name else "(unknown)";
+            const nom_name = if (owner_id_opt) |id| self.ctx.symbols.items[id].name else "(unknown)";
             try self.err(pos, "method `{s}` on type `{s}` must be called; bare method reference not supported in V1", .{ field_name, nom_name });
             return self.ctx.types.unknown_id;
         }
 
-        // Locate the nominal for the no-such-field diagnostic.
-        const peeled = unwrapBorrows(self.ctx, obj_ty_id);
-        const ty = self.ctx.types.get(peeled);
-        if (ty != .nominal) return self.ctx.types.unknown_id;
-        const sym_id = ty.nominal;
+        // No-such-field diagnostic. Skip silently if the receiver
+        // didn't resolve to any nominal — sema has likely already
+        // diagnosed the upstream issue.
+        const sym_id = owner_id_opt orelse return self.ctx.types.unknown_id;
         const sym = self.ctx.symbols.items[sym_id];
         try self.err(pos, "no field `{s}` on type `{s}`", .{ field_name, sym.name });
         if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});

@@ -1,0 +1,28 @@
+## M20b(5/5): generic method on a generic type, end-to-end.
+##
+## Closes the last item of M20b. Generic types now emit their
+## `fun`/`sub` members inside the returned Zig struct (was the M14
+## latent bug — sema understood method declarations on generics but
+## emit silently dropped them, so any call would Zig-error).
+##
+## - `fun get(?self) -> T` sugar (M20a.1) lowers to `self: Self`
+##   under M20b(5/5)'s `current_nominal_name = "Self"` convention.
+## - `const Self = @This();` at the top of the generic struct gives
+##   Zig the `Self` keyword needed for the receiver type.
+## - `b.get()` (instance call on a generic receiver) goes through
+##   `lookupMethod` which substitutes T → Int via the parameterized
+##   receiver's type args, returning Int as the call result type.
+## - Receiver-mode validation (M20a.2) applies as usual: `?self`
+##   auto-borrows from bare lvalue `b`.
+##
+## EXPECTED: clean. Runs and prints `42`.
+
+type Box(T)
+  value: T
+
+  fun get(?self) -> T
+    self.value
+
+sub main()
+  b: Box(Int) = Box(value: 42)
+  print(b.get())

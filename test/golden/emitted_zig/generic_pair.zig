@@ -2,6 +2,8 @@ const std = @import("std");
 
 pub fn Pair(comptime T: type, comptime U: type) type {
     return struct {
+        const Self = @This();
+
         first: T,
         second: U,
     };

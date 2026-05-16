@@ -1,0 +1,25 @@
+## M20b(5/5) negative: symbolic generic-body constructor mismatch.
+##
+## Per GPT-5.5 post-implementation review: after removing the
+## `type_var` skip in `checkConstructorArgsSubst`, the symbolic
+## checker correctly catches type mismatches inside generic bodies
+## where the substituted field type is `type_var(T)` (because we're
+## checking symbolically, T → T).
+##
+## `b: Self = Box(value: "hello")` inside `Box(T)`'s body:
+##   - field `value` declared type `T` (stored as `type_var(T_sym)`)
+##   - Self = Box(T), so subst for THIS check is T → T (identity)
+##   - "hello" : String, expected `T` → mismatch.
+##
+## EXPECTED: sema error: type mismatch: expected `T`, got `String`.
+
+type Box(T)
+  value: T
+
+  fun bad(?self) -> Self
+    b: Self = Box(value: "hello")
+    b
+
+sub main()
+  b: Box(Int) = Box(value: 5)
+  print(b.value)

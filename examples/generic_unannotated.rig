@@ -1,0 +1,17 @@
+## M20b(5/5) negative: unannotated generic construction.
+##
+## `Box(value: 5)` without an LHS type annotation has no expected type
+## to drive `T → ?` substitution. V1 doesn't have generic inference,
+## so this must be a clean diagnostic (per GPT-5.5 M20b post-
+## implementation review). Was previously synthesized as `nominal(Box)`
+## which then mismatched against any concrete `parameterized_nominal`
+## use site.
+##
+## EXPECTED: sema error pointing at the generic constructor.
+
+type Box(T)
+  value: T
+
+sub main()
+  b = Box(value: 5)
+  print(b.value)

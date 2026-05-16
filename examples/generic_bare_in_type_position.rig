@@ -1,0 +1,14 @@
+## M20b(5/5) negative: bare generic type in type position.
+##
+## `x: Box` (without type arguments) is not a concrete type — only
+## `Box(Int)` is. Per GPT-5.5 M20b post-implementation review: the
+## type resolver must reject bare references to a generic_type symbol.
+##
+## EXPECTED: sema error: generic type `Box` requires type arguments.
+
+type Box(T)
+  value: T
+
+sub main()
+  x: Box = Box(value: 5)
+  print(x.value)

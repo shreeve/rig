@@ -1,0 +1,1 @@
+examples/generic_symbolic_body_mismatch.rig:20:26: error: type mismatch: expected `T`, got `String`

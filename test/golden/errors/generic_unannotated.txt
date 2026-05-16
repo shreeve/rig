@@ -1,0 +1,1 @@
+examples/generic_unannotated.rig:16:7: error: generic constructor `Box` requires an expected type; write `b: Box(T) = Box(...)`

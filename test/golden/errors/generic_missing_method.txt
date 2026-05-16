@@ -1,0 +1,2 @@
+examples/generic_missing_method.rig:17:11: error: no method `missing` on type `Box`
+examples/generic_missing_method.rig:12:6:   note: `Box` declared here

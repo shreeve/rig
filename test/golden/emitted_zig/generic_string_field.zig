@@ -9,6 +9,6 @@ pub fn Box(comptime T: type) type {
 }
 
 pub fn main() void {
-    const b: Box(i32) = .{ .value = 5 };
-    std.debug.print("{any}\n", .{ b.value });
+    const b: Box([]const u8) = .{ .value = "hi" };
+    std.debug.print("{s}\n", .{ b.value });
 }

@@ -2,6 +2,8 @@ const std = @import("std");
 
 pub fn Box(comptime T: type) type {
     return struct {
+        const Self = @This();
+
         value: T,
     };
 }

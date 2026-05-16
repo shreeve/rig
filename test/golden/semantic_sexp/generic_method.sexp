@@ -1,0 +1,1 @@
+(module (generic_type Box (T) (: value T) (fun get ((read self)) T (block (member self value)))) (sub main () _ (block (set _ b (generic_inst Box Int) (call Box (kwarg value 42))) (call print (call (member b get))))))

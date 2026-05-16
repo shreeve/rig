@@ -1,0 +1,17 @@
+## M20b(5/5): generic field of String type — exercises the print
+## polish extension for parameterized_nominal member access.
+##
+## Without the polish: `print(b.value)` where `b: Box(String)` would
+## emit `{any}` and print the underlying byte array (`{ 104, 105 }`).
+## With the polish (M20b(5/5)): the parameterized_nominal substitution
+## resolves the field's type to String, polish emits `{s}`, output
+## is human-readable.
+##
+## EXPECTED: clean. Runs and prints `hi`.
+
+type Box(T)
+  value: T
+
+sub main()
+  b: Box(String) = Box(value: "hi")
+  print(b.value)

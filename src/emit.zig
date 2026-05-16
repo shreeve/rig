@@ -179,7 +179,7 @@ pub const Emitter = struct {
             try self.w.writeAll(",\n");
         }
 
-        try self.emitNominalMethods(items[2..]);
+        try self.emitNominalMethods(items[2..], 1);
         try self.w.writeAll("};\n");
     }
 
@@ -187,7 +187,10 @@ pub const Emitter = struct {
     /// Zig `pub fn` declarations. Factored out of `emitStruct` so
     /// `emitEnum` and `emitErrorSet` can use the same machinery.
     /// Caller is responsible for setting `current_nominal_name`.
-    fn emitNominalMethods(self: *Emitter, members: []const Sexp) Error!void {
+    /// `indent_levels` controls how much extra indent to push for
+    /// method body emission (1 for top-level structs/enums; 2 for
+    /// generic types whose struct is nested inside `return struct {...}`).
+    fn emitNominalMethods(self: *Emitter, members: []const Sexp, indent_levels: u32) Error!void {
         var any_methods = false;
         for (members) |member| {
             if (member != .list or member.list.len < 5 or member.list[0] != .tag) continue;
@@ -197,23 +200,37 @@ pub const Emitter = struct {
                 try self.w.writeAll("\n");
                 any_methods = true;
             }
-            try self.w.writeAll("    ");
+            // Write leading spaces for the `pub fn` line itself.
+            var i: u32 = 0;
+            while (i < indent_levels) : (i += 1) try self.w.writeAll("    ");
             const prev_indent = self.indent;
-            self.indent += 1;
+            self.indent += indent_levels;
             try self.emitFun(member.list, head == .@"sub");
             self.indent = prev_indent;
         }
     }
 
     /// `(generic_type Name (T1 T2 ...) members...)` → Zig
-    /// `pub fn Name(comptime T1: type, comptime T2: type, ...) type { return struct { ... }; }`.
-    /// M14 v1: only struct shape (matches the `type Name(...)`
-    /// declaration syntax). Method members lower like in
-    /// `emitStruct` — `pub fn` inside the returned struct.
+    /// `pub fn Name(comptime T1: type, ...) type { return struct {
+    /// const Self = @This(); /* fields */ /* methods */ }; }`.
+    /// M14 v1 was struct-only with no method emission (latent bug);
+    /// M20b(5/5) closes the bug now that sema understands generic
+    /// methods (M20b(3/5) + M20b(4/5)).
+    ///
+    /// Per GPT-5.5: `Self` inside a generic body must lower to Zig
+    /// `Self` (via `const Self = @This();`), NOT to the bare type
+    /// name `Box`. We set `current_nominal_name = "Self"` for the
+    /// duration of the body, so `emitType`'s `Self`-substitution
+    /// arm emits `Self` (a no-op rename that pairs with the alias).
     fn emitGenericType(self: *Emitter, items: []const Sexp) Error!void {
         if (items.len < 4) return;
         const name = identText(self.source, items[1]) orelse "AnonGeneric";
         const params = items[2];
+
+        // M20b(5/5): Self → Zig Self inside the generic struct body.
+        const prev_nominal = self.current_nominal_name;
+        self.current_nominal_name = "Self";
+        defer self.current_nominal_name = prev_nominal;
 
         try self.w.print("pub fn {s}(", .{name});
         if (params == .list) {
@@ -226,6 +243,11 @@ pub const Emitter = struct {
             }
         }
         try self.w.writeAll(") type {\n    return struct {\n");
+
+        // M20b(5/5): `const Self = @This();` so methods can use Self
+        // and the `?self` sugar (lowers to `self: Self` per M20a.1).
+        try self.w.writeAll("        const Self = @This();\n\n");
+
         for (items[3..]) |member| {
             if (member != .list or member.list.len < 3 or member.list[0] != .tag) continue;
             if (member.list[0].tag != .@":") continue;
@@ -234,6 +256,12 @@ pub const Emitter = struct {
             try self.emitType(member.list[2]);
             try self.w.writeAll(",\n");
         }
+
+        // M20b(5/5): method members — same machinery as `emitStruct` /
+        // `emitEnum`, just indented one extra level (the inner struct
+        // sits inside `return struct { ... }`).
+        try self.emitNominalMethods(items[3..], 2);
+
         try self.w.writeAll("    };\n}\n");
     }
 
@@ -351,7 +379,7 @@ pub const Emitter = struct {
                     else => {},
                 }
             }
-            try self.emitNominalMethods(items[2..]);
+            try self.emitNominalMethods(items[2..], 1);
             try self.w.writeAll("};\n");
             return;
         }
@@ -377,7 +405,7 @@ pub const Emitter = struct {
                 else => {},
             }
         }
-        try self.emitNominalMethods(items[2..]);
+        try self.emitNominalMethods(items[2..], 1);
         try self.w.writeAll("};\n");
     }
 
@@ -1697,12 +1725,29 @@ pub const Emitter = struct {
                                 // lookup. (Helper lives in types.zig.)
                                 const peeled = types.unwrapBorrows(sema, sym.ty);
                                 const ty = sema.types.get(peeled);
-                                if (ty != .nominal) continue;
-                                const owner = sema.symbols.items[ty.nominal];
+                                // M20b(5/5) per GPT-5.5: also handle
+                                // parameterized nominals (`b: Box(String)`)
+                                // — look up on the generic's fields list
+                                // with the receiver's type args
+                                // substituting T. Comparison goes
+                                // through `typeEqualsAfterSubst` (const,
+                                // non-allocating) so emit doesn't mutate
+                                // sema's interner.
+                                var owner_sym_id: types.SymbolId = 0;
+                                var subst: types.TypeSubst = types.TypeSubst.empty;
+                                if (ty == .nominal) {
+                                    owner_sym_id = ty.nominal;
+                                } else if (ty == .parameterized_nominal) {
+                                    owner_sym_id = ty.parameterized_nominal.sym;
+                                    const owner_sym = sema.symbols.items[ty.parameterized_nominal.sym];
+                                    const tparams = owner_sym.type_params orelse &.{};
+                                    subst = .{ .params = tparams, .args = ty.parameterized_nominal.args };
+                                } else continue;
+                                const owner = sema.symbols.items[owner_sym_id];
                                 const fields = owner.fields orelse continue;
                                 for (fields) |f| {
                                     if (std.mem.eql(u8, f.name, fname)) {
-                                        return f.ty == sema.types.string_id;
+                                        return types.typeEqualsAfterSubst(sema, f.ty, subst, sema.types.string_id);
                                     }
                                 }
                             }

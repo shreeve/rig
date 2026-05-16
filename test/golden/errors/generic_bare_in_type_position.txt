@@ -1,0 +1,2 @@
+examples/generic_bare_in_type_position.rig:13:6: error: generic type `Box` requires type arguments; write `Box(T)`
+examples/generic_bare_in_type_position.rig:13:12: error: generic constructor `Box` requires an expected type; write `b: Box(T) = Box(...)`
