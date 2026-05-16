@@ -1,0 +1,1 @@
+(module (struct User (: age Int) (fun read_age ((: self (borrow_read User))) Int (block (member self age)))) (sub main () _ (block (set _ rc _ (share (call User (kwarg age 42)))) (call print (member rc age)) (call print (call (member rc read_age))) (drop rc))))

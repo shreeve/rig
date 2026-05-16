@@ -1,0 +1,10 @@
+# M20d(1/5): `~x` (weak reference) requires its operand to be a shared
+# handle (`*T`). Constructing a weak handle from a non-shared value has
+# no meaning — weak handles exist to pair with a strong (`*T`) handle.
+
+struct User
+  name: String
+
+sub main()
+  u = User(name: "x")
+  w = ~u    # error: weak reference requires a shared handle `*T`

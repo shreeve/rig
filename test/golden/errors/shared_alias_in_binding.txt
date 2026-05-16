@@ -1,0 +1,1 @@
+examples/shared_alias_in_binding.rig:10:9: error: bare use of shared (`*T`) handle `rc` in binding would alias the handle; use `<rc` to move or `+rc` to clone

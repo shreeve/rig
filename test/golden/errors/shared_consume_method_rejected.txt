@@ -1,0 +1,1 @@
+examples/shared_consume_method_rejected.rig:13:6: error: method `consume` consumes the receiver; cannot consume the inner value through a shared handle (`*T`) — other handles may still reference it

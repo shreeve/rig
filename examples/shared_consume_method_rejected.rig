@@ -1,0 +1,14 @@
+# M20d(4/5): by-value (consuming) receivers are not callable through a
+# shared (`*T`) handle. Other handles may still reference the inner
+# value, so consuming it would dangle them.
+
+struct User
+  name: String
+
+  sub consume(self: User)
+    print(self.name)
+
+sub main()
+  rc = *User(name: "x")
+  rc.consume()   # error: consume through shared handle
+  -rc

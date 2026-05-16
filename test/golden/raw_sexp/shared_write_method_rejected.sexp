@@ -1,0 +1,1 @@
+(module (struct User (: age Int) (sub set_age ((: self (borrow_write User)) (: n Int)) _ (block (set _ (member self age) _ n)))) (sub main () _ (block (set _ rc _ (share (call User (kwarg age 1)))) (call (member rc set_age) 5) (drop rc))))

@@ -1,0 +1,12 @@
+# M20d(3/5) alias-footgun rule: bare `rc2 = rc` would Zig-copy the
+# pointer without a refcount bump, leaving two Rig bindings owning the
+# same RcBox. Must use `<rc` (move) or `+rc` (clone) for visibility.
+
+struct Box
+  value: Int
+
+sub main()
+  rc = *Box(value: 1)
+  rc2 = rc       # error: bare alias of shared handle
+  -rc2
+  -rc

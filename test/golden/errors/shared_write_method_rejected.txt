@@ -1,0 +1,1 @@
+examples/shared_write_method_rejected.rig:15:6: error: cannot call write-receiver method `set_age` through a shared handle (`*T`); other handles may exist. Use an interior-mutable type (planned `Cell(T)` in M20+ item #7) for mutation through shared ownership.

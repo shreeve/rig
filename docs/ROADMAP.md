@@ -861,6 +861,170 @@ GPT-5.5's pre-commit spot-checks all verified clean:
 - Generic-enum payload caching in `lookupVariant` — premature; no
   evidence of hot path.
 
+### M20d — `*T` / `~T` real `Rc<T>` / `Weak<T>` semantics ✅
+Closes M20+ item #6 from the "now-blocking" list. `*T` is now a real
+single-threaded reference-counted handle, `~T` is its paired weak
+handle, and the M20d alias-footgun rule + read-only auto-deref rules
+keep V1 honest about what shared ownership permits.
+
+Shipped as 5 self-validating sub-commits (M5-style, per GPT-5.5's
+design checkpoint plus a post-(1/5) refinements round). Tests grew
+496 → 544 across the milestone (+48). Joint Q1 decision (Steve
+delegated to Claude + GPT-5.5): **Option A — explicit `-x` only for
+V1; auto-drop deferred to M20e** (queued below, ordered before #8
+closure capture).
+
+#### M20d(1/5) — Grammar + Type variants + sema typing
+- Grammar: `SHARE_PFX type → (shared 2)` and `"~" type → (weak 2)`.
+  Conflict count 34 → 38 (+4); all four are the expected shift-
+  prefer pattern from `*T?` / `~T?` chains.
+- New `@"shared"` Tag (distinct from expression-position `@"share"`
+  per GPT-5.5 — separate tags so phase walkers don't disambiguate
+  by context). `@"weak"` is reused across positions.
+- New `Type.shared: TypeId` and `Type.weak: TypeId` variants. Strict
+  structural equality: `*User == *User` only; `*User != User`;
+  `~User != *User`. No wildcard / coercion behavior.
+- `formatType` renders `*T` / `~T`. `substituteType` and
+  `typeEqualsAfterSubst` recurse through both.
+- `(share x)` at expression position now types as `shared(typeOf(x))`
+  (was: silent pass-through). `(weak x)` requires its operand to be
+  `shared(T)` and types as `weak(T)`, with a clean diagnostic on
+  non-shared operand.
+
+#### M20d(2/5) — Runtime + driver integration
+- `src/runtime_zig.zig`: V1 runtime as a Zig string constant.
+  `RcBox(T)` carries `allocator` + `strong: usize` + `weak: usize`
+  (implicit `+1` while strong > 0) + `value: T`. `WeakHandle(T)`
+  wraps `?*RcBox(T)`. Explicit API names: `cloneStrong`, `dropStrong`,
+  `weakRef`, `cloneWeak`, `dropWeak`, `upgrade` (per GPT-5.5: avoids
+  ambiguity with library-defined `clone`/`drop` patterns; makes
+  emitted Zig readable). `rcNew(anytype)` is the constructor helper.
+- Driver (`src/main.zig`): `emitProjectToTmp` writes `_rig_runtime.zig`
+  to the same tmpdir as the module .zig files. Single-file and
+  multi-file `run` / `build` both get the runtime co-located so the
+  per-module `@import("_rig_runtime.zig")` resolves uniformly.
+- Emitter (`src/emit.zig`): prelude includes `const rig =
+  @import("_rig_runtime.zig");` unconditionally (top-level unused
+  namespace imports are permitted in Zig 0.16).
+- All 38 existing emit goldens regenerated with the new prelude.
+
+#### M20d(3/5) — Operator emit + alias-footgun rule
+- Emit dispatches on operand TYPE via a `handleKindOf` classifier:
+  - `(share x)`  → `(rig.rcNew(<x>) catch @panic("Rig Rc allocation failed"))`
+  - `(clone x)`  → `<x>.cloneStrong()` if shared, `<x>.cloneWeak()` if weak,
+                   pass-through otherwise
+  - `(weak x)`   → `<x>.weakRef()` (sema invariant: operand is shared)
+  - `(drop x)`   → `<x>.dropStrong();` if shared, `<x>.dropWeak();` if weak,
+                   `// drop <x>` otherwise (existing V1 no-op)
+  - `(move x)`   → pass-through (handle transfer is sema-only)
+- `emitType` for `(shared T)` → `*rig.RcBox(<T>)`; `(weak T)` →
+  `rig.WeakHandle(<T>)`.
+- **Alias-footgun rule** (per GPT-5.5's post-(1/5) call as THE biggest
+  M20d footgun): bare `*T`/`~T` on the RHS of a binding or as a call
+  argument fires a clean diagnostic suggesting `<rc` (move) or `+rc`
+  (clone). Implemented as purely additive `checkSharedHandleAlias`
+  helper in `ownership.zig`, called from `walkSet` (RHS) and
+  `walkCall` (args). Does not touch `walk` or `checkPlainUse`.
+- 3 EMIT_TARGETS: `shared_basic`, `shared_move_into_fn`, `weak_basic`.
+- `WeakHandle.dropWeak` takes `Self` by value (not `*Self`) so weak
+  bindings emit as `const` Zig; ownership's `walkDrop` already catches
+  `-w; -w` so defensive nulling without ownership integration would
+  only paper over checker bugs. Trade-off documented in runtime source.
+
+#### M20d(4/5) — Read-only auto-deref + receiver-mode rejections
+- New `unwrapReadAccess(ctx, ty_id)` helper that peels `borrow_read`
+  + `borrow_write` + `shared` (NOT `weak`, optional, fallible, raw).
+  Per GPT-5.5 hazard call: narrow helper instead of broadly extending
+  `unwrapBorrows` so write/consume paths don't accidentally compose
+  with shared. `lookupDataField` / `lookupMethod` / `hasMethodNamed`
+  switched to use it.
+- New `ReceiverTypeKind.shared` variant. `classifyReceiverType`
+  returns `.shared` when the receiver type unwraps borrows to
+  `shared(nominal_sym)` matching the method's enclosing nominal.
+- `checkReceiverMode` rejects:
+  - `.write` receiver through `.shared` → "cannot call write-
+    receiver method through a shared handle (`*T`); other handles
+    may exist. Use an interior-mutable type (planned `Cell(T)` in
+    M20+ item #7)".
+  - `.value` receiver through `.shared` → "method consumes the
+    receiver; cannot consume the inner value through a shared
+    handle (`*T`)".
+- `checkSet` rejects field-target assignment when LHS is
+  `(member obj field)` and `typeOf(obj)` unwraps to `shared(_)`.
+  Same `Cell(T)`-pointing diagnostic.
+- `resolveType` rejects nested shared (`**T`); currently defensive
+  (the literal `**` syntax tokenizes as the power operator and so
+  is unreachable, but the check fires if a future type alias /
+  generic composition produces nested shared).
+- Emit: `.@"member"` bridges through `RcBox.value` when
+  `handleKindOf(obj) == .shared` so emitted Zig is
+  `rc.value.field` / `rc.value.method()` not `rc.field` (Zig sees
+  `*rig.RcBox(T)`; field/method access on T requires the `.value`
+  hop). Sema's prior rejections ensure the bridging is only ever
+  applied to safe read-only accesses.
+
+#### M20d(5/5) — Tests + SPEC + ROADMAP
+- 1 new positive example (`shared_auto_deref`): field + method
+  through shared, runs end-to-end (prints `42` twice).
+- 6 new negative-test goldens pinning each diagnostic:
+  - `shared_alias_in_binding`        — bare `rc2 = rc`
+  - `shared_alias_in_call`           — bare `f(rc)`
+  - `shared_write_method_rejected`   — `rc.write_method()`
+  - `shared_consume_method_rejected` — `rc.consume()`
+  - `shared_field_assign_rejected`   — `rc.field = X`
+  - `weak_of_non_shared`             — `~u` on non-shared `u`
+- SPEC §Shared Ownership amended (V1 explicit-drop discipline,
+  alias rule, `*T?` vs `(*T)?` precedence, `*expr` move semantics).
+- M20e queued below, ordered before #8 closure capture.
+
+**Final test count: 544 passed, 0 failed (was 496 at the start of
+the milestone; +48 = 7 examples × 5 golden buckets + 3 EMIT_TARGETS
+× 1 emit-compile + 10 misc).**
+
+**Deferred to M20e**:
+- Soft scope-exit warning lint (would require a new `warning`
+  severity in `ownership.zig`'s diagnostic system + a scope-exit
+  walker; M20e needs the same walker for auto-drop synthesis so
+  they share infrastructure).
+- `weak.upgrade()` sema special-case (V1 hand-test works through
+  the runtime; making it first-class via sema requires either a
+  synthetic `Field` on `weak(T)` or a `synthMemberCall` intercept
+  — neither belongs in the M20d critical path).
+
+### M20e — Auto-drop discipline for `*T` / `~T` (queued, blocks M20+ #8)
+
+Compiler-synthesized scope-exit drops for `*T` / `~T` bindings.
+Closes the V1-documented gap that M20d ships with explicit-only
+drop discipline. Per the joint Q1 decision in the M20d arc:
+
+- Extend `src/ownership.zig` (or a dedicated pass) to insert
+  synthesized `(drop x)` IR nodes at scope exit for any `*T` /
+  `~T` binding not already discharged.
+- Discharge markers: explicit `-x`, `<x` (move out), bare `return x`
+  on a tail position (treated as a consuming move-out).
+- Suppress synthesis when the binding's type isn't shared/weak,
+  when the binding was already moved/dropped, when it's a global /
+  pre decl, or when its type is unknown.
+- Add the soft warning lint deferred from M20d(5/5) on top of the
+  same scope-exit walker (warns when synthesis is blocked by a
+  shape we can't safely synthesize for, so the user knows to add
+  explicit `-x`).
+- Hazards to cover (per GPT-5.5's M20d design pass): early
+  `return`, `break` / `continue`, `panic` / `unreachable`,
+  `try` / `catch` unwinding, `match` arm divergence (M18 multi-
+  statement arms), conditionally-moved bindings (move in one arm
+  only), and labeled-block lowering (M17's `if`-as-expression
+  recipe).
+- Drop order: nested handles drop in reverse declaration order
+  within a scope, then ascend.
+
+Must land **before M20+ item #8** (closure capture) per the joint
+Q1 decision — closures capturing shared/weak handles need auto-
+drop semantics to avoid leaking every captured handle on each
+closure invocation. M20+ item #7 (`Cell(T)`) can land before M20e
+provided `Cell` stays simple and uses explicit drops; if `Cell`
+starts storing callbacks/captures it must move after M20e.
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note
@@ -895,9 +1059,10 @@ the M20+ items below):
 5. ~~**Methods on enums**~~ ✅ **Landed in M20a** (resolver +
    emitter both go through the unified `resolveNominalMethod` /
    `emitNominalMethods` paths).
-6. `*T` / `~T` real `Rc` / `Weak` semantics (SPEC §Shared
-   Ownership, §Weak Reference — text landed; runtime
-   implementation TBD).
+6. ~~**`*T` / `~T` real `Rc` / `Weak` semantics**~~ ✅ **Landed in
+   M20d** above. V1 ships with explicit-only drop discipline; M20e
+   queued above adds compiler-synthesized scope-exit drops (must
+   land before item #8 closure capture).
 7. Interior mutability — `Cell(T)` library type
    (REACTIVITY-DESIGN D6, option A for V1). Depends on items
    4 + 6 (the M20a/M20b method + generic machinery are now in

@@ -1,4 +1,4 @@
-# Rig — Session Handoff (M20d Implementation)
+# Rig — Session Handoff (post-M20d)
 
 **You are picking up a Rig compiler session in mid-arc.** This document
 captures everything you need to continue cleanly. Read top-to-bottom
@@ -10,16 +10,18 @@ once; then it's a reference.
 
 - **Project**: Rig is a systems language ("Zig-fast, Rust-safe, Ruby-readable")
   that compiles to Zig 0.16. Repo: `/Users/shreeve/Data/Code/rig`.
-- **Where we are**: Just shipped **M20c** (generic enums — `Option(T)`,
-  `Result(T, E)`). Last commit: `21b6ba3`. **496 tests passing, 0 failing.**
-  Clean tree on `main`, all pushed.
-- **Next milestone**: **M20d** — real `*T` / `~T` `Rc` / `Weak` semantics.
-  Design is locked (with GPT-5.5 review); implementation hasn't started.
-- **Owner**: Steve (`shreeve@github`). Collaborates with you AND consults
-  GPT-5.5 for design checkpoints + post-implementation reviews.
-- **Established cadence**: design checkpoint → implement in 3–5 sub-commits
-  (M5-style: `Mxx(n/total)`) → post-implementation review → commit. Each
-  sub-commit must keep all tests passing.
+- **Where we are**: Just shipped **M20d** (`*T` / `~T` real `Rc<T>` /
+  `Weak<T>` semantics). Last commit on `main` covers M20d(5/5). **544
+  tests passing, 0 failing.** Clean tree, all pushed.
+- **Next milestone**: **M20e** — automatic scope-exit drop for `*T` /
+  `~T` bindings. Design pre-sketched in ROADMAP M20e entry; must land
+  before M20+ item #8 (closure capture).
+- **Owner**: Steve (`shreeve@github`). Collaborates with the AI agent
+  AND consults GPT-5.5 via the `user-ai` MCP for design checkpoints +
+  post-implementation reviews.
+- **Established cadence**: design checkpoint → implement in 3–5 sub-
+  commits (M5-style: `Mxx(n/total)`) → post-implementation review →
+  commit. Each sub-commit must keep all tests passing.
 
 ---
 
@@ -29,12 +31,12 @@ Authoritative project docs, in order of importance:
 
 | File | Purpose |
 |---|---|
-| `SPEC.md` | Language spec. Ownership sigils, `?/!` triangle, V1 scope, etc. |
-| `docs/ROADMAP.md` | Milestone history (M0–M20c done). M20+ "now-blocking" list at the bottom. |
+| `SPEC.md` | Language spec. Ownership sigils, `?/!` triangle, V1 scope, etc. §Shared Ownership covers the M20d V1 contract (explicit-drop, alias rule, `*T?` vs `(*T)?` precedence, `*expr` move semantics). |
+| `docs/ROADMAP.md` | Milestone history (M0–M20d done). M20e queued. M20+ "now-blocking" list at the bottom. |
 | `docs/REACTIVITY-DESIGN.md` | Substrate design note. The forcing function for M20+ work. |
 | `docs/SEMANTIC-SEXP.md` | Sema IR shape. What the grammar emits, what the checker walks. |
 | `docs/INHERITED-FROM-ZAG.md` | Grammar/lexer surface inherited from the Zag/Nexus stack. |
-| `rig.grammar` | Nexus grammar. Conflict count currently **34** — verify after any grammar edit. |
+| `rig.grammar` | Nexus grammar. Conflict count currently **38** (M20d added 4 for `*T?` / `~T?` chain). |
 
 Codebase highlights:
 
@@ -42,12 +44,13 @@ Codebase highlights:
 |---|---|
 | `src/rig.zig` | Lexer rewriter + Tag enum. Add new IR tags here. |
 | `src/parser.zig` | **Generated** by `zig build parser` from `rig.grammar`. Don't edit by hand. |
-| `src/types.zig` | Sema: SymbolResolver, TypeResolver, ExprChecker, Type interner, lookup helpers. ~5000 lines. |
-| `src/emit.zig` | Zig codegen. ~2200 lines. |
-| `src/ownership.zig` | M2-era borrow/move checker. Less touched recently. |
+| `src/types.zig` | Sema: SymbolResolver, TypeResolver, ExprChecker, Type interner, lookup helpers. ~5800 lines after M20d. |
+| `src/emit.zig` | Zig codegen. ~2400 lines after M20d. |
+| `src/ownership.zig` | M2-era borrow/move checker. M20d added the alias-footgun rule (`checkSharedHandleAlias`). M20e expands the scope-exit walker here for auto-drop. |
 | `src/effects.zig` | Fallibility (`T!`) checker. Subordinate to sema. |
 | `src/modules.zig` | Multi-file projects via `use foo`. M15. |
-| `src/main.zig` | CLI driver: `parse`/`normalize`/`check`/`build`/`run`. |
+| `src/main.zig` | CLI driver. M20d added `_rig_runtime.zig` sibling-file writing in `emitProjectToTmp`. |
+| `src/runtime_zig.zig` | M20d V1 runtime source as a Zig string constant. Emit prepends `const rig = @import("_rig_runtime.zig");` to every module. |
 | `build.zig` | Build steps. `zig build`, `zig build parser`, `zig build test`. |
 | `test/run` | Test driver. `./test/run` to verify; `./test/run --update` to regenerate goldens. |
 | `examples/*.rig` | Source-form test inputs. Auto-discovered by `test/run` for raw_sexp/semantic_sexp/errors goldens. |
@@ -63,397 +66,188 @@ Codebase highlights:
 | 1 | Instance methods + `self` semantics + receiver-style calls | ✅ | M20a + M20a.1 + M20a.2 |
 | 2 | Real generic-instance member typing | ✅ | M20b(4/5) |
 | 3 | Generic methods on generic types | ✅ | M20b(4/5) + M20b(5/5) |
-| 4 | `Option(T)` / `Result(T, E)` as generic enum types | ✅ | **M20c** (just landed) |
+| 4 | `Option(T)` / `Result(T, E)` as generic enum types | ✅ | M20c |
 | 5 | Methods on enums | ✅ | M20a |
-| 6 | **`*T` / `~T` real `Rc` / `Weak` semantics** | ⬜ | **M20d (next — design ready)** |
-| 7 | Interior mutability — `Cell(T)` library type | ⬜ | After M20d |
-| 8 | Closure capture mode syntax (`|name|` / `|~name|` etc.) | ⬜ | After M20d |
-
-Notes:
-- M20d ships the substrate for #7 (interior-mutable types live behind `*T`).
-- The Cell/Memo/Effect reactive sketch in REACTIVITY-DESIGN needs M20d + #7 to be fully buildable.
-- `T?` / `T!` desugar to user-defined `Option(T)` / `Result(T, E)` is **strongly deferred**.
+| 6 | **`*T` / `~T` real `Rc` / `Weak` semantics** | ✅ | **M20d (just landed)** |
+| 6.5 | Automatic scope-exit drop for `*T` / `~T` | ⬜ | **M20e (next — design pre-sketched in ROADMAP)** |
+| 7 | Interior mutability — `Cell(T)` library type | ⬜ | After M20e (or before, IF Cell stays simple) |
+| 8 | Closure capture mode syntax (`|name|` / `|~name|` etc.) | ⬜ | After M20e (HARD dependency — see ROADMAP M20e entry) |
 
 ---
 
-## 3. M20d design (DO NOT DEVIATE without re-checkpointing GPT-5.5)
+## 3. M20d retrospective + decisions locked
 
-Design checkpoint with GPT-5.5 is on record in conversation
-`c_5c1d09d53ebe2f62` (the user-ai MCP server's persistent thread). It was
-extensive and corrected several of my initial proposals. The corrected
-design below is what to implement.
+M20d shipped as 5 sub-commits with one tactical follow-up pass on the
+GPT-5.5 conversation. The full milestone retro lives in
+`docs/ROADMAP.md` (M20d section); this section captures the **decisions
+locked** during the milestone so future work doesn't re-derive them.
 
-### Core decisions (locked)
+### Joint Q1 — Auto-drop discipline (Steve delegated to Claude + GPT-5.5)
 
-**Type representation** (parallel to M20b's `borrow_read`/`borrow_write`):
+**Decision: Option A — explicit `-x` / `-w` only for V1.** Compiler
+auto-drop synthesis deferred to **M20e**, queued before #8 closure
+capture.
 
-```zig
-pub const Type = union(enum) {
-    ...
-    borrow_read:  TypeId,
-    borrow_write: TypeId,
-    shared:       TypeId,   // M20d: *T — Rc<T>
-    weak:         TypeId,   // M20d: ~T — Weak<T>
-    ...
-};
-```
+Rationale (jointly agreed):
+- M20d already touched grammar, type variants, runtime, driver wiring,
+  operator emit, read-only auto-deref, and three receiver-mode
+  rejections. Adding flow-aware drop synthesis to the same milestone
+  would force meaningful surgery on `src/ownership.zig` (M2-era) AND
+  touch every control-flow form (early return, break/continue, panic,
+  try/catch, match arm divergence, conditional moves) — too much
+  surface for one milestone.
+- A → B is strictly additive (M20e can refine M20d users' code
+  silently); B → A would be breaking.
+- Rig's visible-effects thesis supports explicit `-x` — consistent
+  with `<x` / `+x` / `?x` / `!x` already being explicit.
+- The alias-footgun rule (M20d(3/5)) catches the worst silent-leak
+  hazard (`rc2 = rc`, `f(rc)`). The residual "forgot to `-x`" leak is
+  documented honestly in SPEC §Shared Ownership.
 
-Add to: interner equality/hash (in `TypeStore.typeEqual`), `formatType`,
-`compatible`, `substituteType`, `typeEqualsAfterSubst`, `emitType`,
-`classifyReceiverType`.
+### Joint Q2 — Multi-module runtime resolution
 
-For `compatible`: `*User == *User` only; `*User != User`; `~User != *User`.
-**Do NOT make shared/weak wildcard-like.** Strict structural equality only.
+**Decision: sibling file in the same tmpdir as emitted modules.**
+`emitProjectToTmp` writes `_rig_runtime.zig` once, every module
+prelude has `const rig = @import("_rig_runtime.zig");`, all modules
+share one dir so the import resolves uniformly.
 
-**Grammar additions**:
+### Joint Q3 — `*expr` consume vs clone
 
-```text
-type = ...
-     | SHARE_PFX type    → (shared 2)   # *T
-     | "~"       type    → (weak 2)     # ~T
-```
+**Decision: `*expr` MOVES `expr` into the new `RcBox`.** Implicit
+clone would silently duplicate ownership. Users wanting to keep the
+original write `*(+expr)` (clone then move into Rc). Documented in
+SPEC §Shared Ownership.
 
-`SHARE_PFX` exists from the M20a-era unary rules (`*x` at expression
-position). `~` is plain `"~"` operator token — verify the type-position
-addition doesn't bump the conflict count above 34.
+### Q4 — Existing `(share x)` / `(weak x)` no-op users
 
-At expression position, `*Foo(...)` already parses as
-`(share (call Foo ...))`. M20d sema types this as `shared(nominal(Foo))`
-(was `unknown`).
+Resolved trivially: only `examples/spacing.rig` used these in
+expression position (parser smoke test). M20d's sema change (`(share x)`
+types as `shared(typeOf(x))`) is transparent to the test because the
+spacing test only checks raw_sexp / semantic_sexp shapes, which were
+unchanged.
 
-**Per GPT-5.5: use distinct tag names**:
-- Type-position: `(shared T)` and `(weak T)`
-- Expression-position: `(share x)` and `(weak x)` already exist
-- Don't reuse the exact same tag if phase walkers are position-sensitive
+### New: `*T?` precedence
 
-So new Tag entries: `shared` (type-position; distinct from existing
-expression-position `share`). Note: `weak` is reused — be careful with
-sema dispatch.
+Suffix `?` binds TIGHTER than prefix `*` / `~`, consistent with
+`?T?` / `!T?`. So `*User?` parses as `(shared (optional User))`
+("shared handle to optional User"); the "optional shared handle"
+form needed by `WeakHandle.upgrade()` is spelled `(*User)?`.
+Documented in SPEC §Shared Ownership.
 
-### Runtime: `_rig_runtime.zig` sibling file
+### GPT-5.5 refinements folded in
 
-Driver (`main.zig`) writes both `_rig_runtime.zig` and the main module
-into `/tmp/rig_<name>/`. Emitted modules `@import("_rig_runtime.zig")`.
+All 8 of GPT-5.5's post-(1/5) refinements made it into the right
+sub-commits:
 
-Suggested runtime shape (per GPT-5.5):
+| # | Refinement | Where it landed |
+|---|---|---|
+| 1 | Explicit runtime API names (`cloneStrong` / `dropStrong` / `cloneWeak` / `dropWeak` / `weakRef` / `upgrade`) | M20d(2/5) `src/runtime_zig.zig` |
+| 2 | `+weak` / `-weak` lower correctly (not silently no-op) | M20d(3/5) `handleKindOf` dispatch |
+| 3 | Moves don't touch refcounts (sema-only handle transfer) | M20d(3/5) `(move x)` pass-through |
+| 4 | Bare-handle alias rule for ordinary binding/assign/call-arg | M20d(3/5) `checkSharedHandleAlias` in `ownership.zig` |
+| 5 | Read-only auto-deref ONLY (write/value through `*T` rejected) | M20d(4/5) `unwrapReadAccess` + `ReceiverTypeKind.shared` |
+| 6 | Reject nested `**T` (defensive, since `**` lexes as power op) | M20d(4/5) `resolveType` arm |
+| 7 | Soft scope-exit warning lint | **Deferred to M20e** (would need new `warning` severity + scope-exit walker; M20e needs the same walker for auto-drop so they share infrastructure) |
+| 8 | Runtime as Zig string constant (operationally simpler than `@embedFile`) | M20d(2/5) `src/runtime_zig.zig` |
 
-```zig
-pub fn RcBox(comptime T: type) type {
-    return struct {
-        allocator: std.mem.Allocator,
-        strong: usize,                 // NOT u32, per GPT-5.5
-        weak: usize,                   // includes implicit +1 while strong > 0
-        value: T,
+### One deviation from GPT-5.5's M20d design
 
-        const Self = @This();
+`WeakHandle.dropWeak` takes `Self` BY VALUE, not `*Self`. GPT-5.5's
+original spec was `*Self` for defensive nulling. The deviation: `*Self`
+would require weak bindings to emit as `var` in Zig (Zig errors on
+`&const_binding` to a non-const param), which would force sema-aware
+mutation scanning in emit. Rig's ownership pass already catches
+`-w; -w` (see `walkDrop` — "cannot drop `x` twice"), so defensive
+nulling without ownership integration would just paper over checker
+bugs. Trade-off documented in `src/runtime_zig.zig` source.
 
-        pub fn new(allocator: std.mem.Allocator, value: T) !*Self {
-            const box = try allocator.create(Self);
-            box.* = .{ .allocator = allocator, .strong = 1, .weak = 1, .value = value };
-            return box;
-        }
+### Two pre-existing gaps NOT addressed in M20d
 
-        pub fn clone(self: *Self) *Self {
-            std.debug.assert(self.strong > 0);
-            self.strong += 1;
-            return self;
-        }
-
-        pub fn weakRef(self: *Self) WeakHandle(T) {
-            std.debug.assert(self.strong > 0);
-            self.weak += 1;
-            return .{ .ptr = self };
-        }
-
-        pub fn drop(self: *Self) void {
-            std.debug.assert(self.strong > 0);
-            self.strong -= 1;
-            if (self.strong == 0) {
-                // Future: run user-defined Drop on `value` here.
-                // M20d V1: no user destructors yet.
-                self.weak -= 1; // release implicit weak
-                if (self.weak == 0) self.allocator.destroy(self);
-            }
-        }
-    };
-}
-
-pub fn WeakHandle(comptime T: type) type {
-    return struct {
-        ptr: ?*RcBox(T),
-
-        const Self = @This();
-
-        pub fn clone(self: Self) Self {
-            if (self.ptr) |p| p.weak += 1;
-            return self;
-        }
-
-        pub fn drop(self: *Self) void {
-            if (self.ptr) |p| {
-                std.debug.assert(p.weak > 0);
-                p.weak -= 1;
-                if (p.weak == 0 and p.strong == 0) p.allocator.destroy(p);
-                self.ptr = null;
-            }
-        }
-
-        pub fn upgrade(self: Self) ?*RcBox(T) {
-            const p = self.ptr orelse return null;
-            if (p.strong == 0) return null;
-            p.strong += 1;
-            return p;
-        }
-    };
-}
-
-pub fn defaultAllocator() std.mem.Allocator {
-    return std.heap.page_allocator;
-}
-
-pub fn rcNew(value: anytype) !*RcBox(@TypeOf(value)) {
-    return RcBox(@TypeOf(value)).new(defaultAllocator(), value);
-}
-```
-
-**Per GPT-5.5: store the allocator in the box.** No mutable global. The
-runtime helper `rcNew(anytype)` lets emit avoid needing expression-type
-info for `*expr`.
-
-### Operator lowering
-
-```text
-*expr        → rig.rcNew(expr) catch @panic("Rig Rc allocation failed")
-+rc          → rc.clone()
--rc          → rc.drop()                  # statement-only
-~rc          → rc.weakRef()
-+w (weak)    → w.clone()
--w (weak)    → w.drop()                   # statement-only
-<rc          → move handle; no runtime call (sema-only ownership transfer)
-w.upgrade()  → returns ?*RcBox(T)   →   Rig type `optional(shared(T))` i.e. `*T?`
-              **NOT** user-defined `Option(*T)` yet
-```
-
-**Per GPT-5.5: `*expr` CONSUMES `expr` into the Rc.** If the user wants to
-keep `expr`, they write `*(+expr)` (explicit clone then move into Rc).
-Otherwise `*x` duplicates ownership of `x` — a bug.
-
-**OOM policy**: `*expr` panics (Rust-style). Runtime primitive `rcNew(...)`
-returns `!*RcBox(T)` for future recoverable-allocation APIs.
-
-### Auto-deref: READ-ONLY ONLY (the big design point)
-
-**This is the architectural correction from GPT-5.5's design review.** The
-ergonomic temptation is to let `rc.method()` work for all receiver modes —
-DO NOT do that.
-
-`*T = Rc<T>` is shared. You can get a read view of `T` but you CANNOT get:
-- `!T` (unique mutable borrow) — other handles may exist
-- `T` (by-value / consuming) — other handles may exist
-
-Rules:
-
-```text
-*T auto-deref ALLOWS:
-  rc.field             (read field access)
-  rc.method()          where method takes ?self
-
-*T auto-deref REJECTS:
-  rc.write_method()    where method takes !self
-  rc.consume_method()  where method takes self (by-value)
-  !rc.field = X        field assignment through shared handle
-```
-
-Diagnostic example:
-```
-cannot call write-receiver method `rename` through shared handle `*User`;
-use an interior-mutable type
-```
-
-Implementation: extend `checkReceiverMode` to accept a new
-`ReceiverTypeKind.shared` and reject `.write` / `.value` receivers
-against it. Mirror of M20a.2's consume-through-borrow rejection but
-for the shared case.
-
-**For mutation through `*T`, users will need interior mutability**
-(M20+ item #7 — `Cell(T)` library type). `Cell.set` will take `?self`
-(read borrow) and internally do controlled `unsafe` mutation. M20d
-ships the substrate; #7 ships the user-facing pattern. Together they
-unlock the reactive sketch in REACTIVITY-DESIGN.
-
-**For weak handles, do NOT auto-deref.** Weak handles require explicit
-`.upgrade()`.
-
-### Helper extensions
-
-- Extend `lookupDataField` to peel `shared` for the read-only field
-  access path. Per GPT-5.5: **add a separate helper** for read-only
-  unwrap rather than broadly modifying `unwrapBorrows`. Suggestion:
-  `unwrapReadAccess(ctx, ty_id)` peels `borrow_read` + `borrow_write` +
-  `shared` (NOT `weak`, NOT `optional`/`fallible`).
-- Extend `lookupMethod` similarly; combined with the receiver-mode
-  rejection above, this lets method calls go through the helper but
-  fail correctly on write/consume receivers.
-- Add `nominalSymOfReceiver` already handles peeling for diagnostics —
-  audit whether it should peel `shared` too. Probably yes.
-
-### Drop discipline (OPEN QUESTION — needs Steve)
-
-**Status: UNRESOLVED.** Two valid approaches:
-
-**A) Explicit-`-x`-only (V1 minimum):**
-- `-rc` and `-w` decrement counts
-- Without explicit `-x`, handles leak at scope exit
-- Document loudly in SPEC + ROADMAP
-- Smaller scope; less new machinery
-- Honest about what Rig V1 does
-
-**B) Automatic scope-exit drop:**
-- Compiler inserts `-x` at scope exit for any `*T` / `~T` binding not
-  moved out
-- Matches Rust RAII expectations
-- Requires extending `ownership.zig` (or a new pass) to emit synthesized
-  drop nodes for shared/weak bindings
-- Bigger scope; closer to actual Rc<T> semantics users expect
-- Risk: subtle double-drop / use-after-free bugs if ownership tracking
-  is off (GPT-5.5 specifically flagged this as a hazard class)
-
-**Decision required from Steve before M20d(4/5) or M20d(5/5).** If (B),
-add it as a dedicated sub-commit (M20d's plan becomes 6 commits, not 5).
-
-GPT-5.5's recommendation: do (B) eventually, but (A) is acceptable for
-V1 if documented honestly. Don't silently imply Rust RAII if Rig doesn't
-emit it.
-
-### What's IN vs OUT
-
-**IN (M20d):**
-- Type variants + grammar
-- Runtime file (`_rig_runtime.zig`) + driver integration
-- Operator emit for `*expr`, `+rc`, `-rc`, `~rc`, `+w`, `-w`
-- Read-only auto-deref (field + `?self` method)
-- Receiver-mode rejection for write/consume through `*T`
-- `weak.upgrade()` returning `optional(shared(T))` i.e. `*T?`
-- SPEC text already covers cycle leaks — keep as-is
-
-**OUT (deferred):**
-- User-defined `Drop` (no infra yet; document gap honestly)
-- Multi-threaded `Arc<T>` / `Send` / `Sync` (V2)
-- Cycle detection (never; leak-by-default per SPEC)
-- Operator overloading through `*T` (defer; `*a + *b` won't work)
-- Multi-level auto-deref chains (`*(*T)` weird; defer)
-- Recoverable allocation surface in user code (runtime has it; user
-  syntax doesn't until later milestones)
-- `T? → Option(T)` desugar (strongly deferred — separate milestone)
+1. **`weak.upgrade()` is not first-class in sema.** Hand-written Zig
+   `w.upgrade()` calls work via the runtime, but Rig source
+   `w.upgrade()` errors with "no method on type `(weak ...)`" because
+   `unwrapReadAccess` doesn't peel weak (intentional — auto-deref of
+   weak is unsafe). Making `.upgrade()` work via Rig source needs
+   either a synthetic `Field` on `weak(T)` symbols or a
+   `synthMemberCall` intercept that recognizes `.upgrade()` on weak
+   receivers. **Defer to M20e or M20d.1.**
+2. **`unsafe` / `%x` enforcement** (M20+ item #9). Pre-existing
+   deferral, unchanged by M20d.
 
 ---
 
-## 4. M20d implementation plan (5 sub-commits)
+## 4. M20e plan (next session)
 
-Each commit must keep all tests passing. M5-style; commit messages
-should follow the M20a–c pattern (motivation, what changed, GPT-5.5
-attribution where applicable, test count delta).
+The ROADMAP M20e entry has the full design sketch. Quick recap:
 
-### M20d(1/5) — Grammar + Type variants + sema typing
+- Extend `src/ownership.zig` (or a dedicated post-ownership pass) to
+  synthesize `(drop x)` IR nodes at scope exit for any `*T` / `~T`
+  binding not already discharged.
+- **Discharge markers** (per GPT-5.5's M20d Q1 refinements):
+  - `-x` (explicit drop)
+  - `<x` (move out, including `<- rc` and explicit `<rc` arg / RHS)
+  - bare `return x` on a tail position (treat as consuming move-out)
+- **Non-discharge** (binding stays live):
+  - `+x` (clone — original still alive)
+  - `~rc` (weak ref — original shared still alive)
+  - `w.upgrade()` (weak still alive)
+  - field access / method calls (read-only via auto-deref; binding
+    not consumed)
+- **Suppress synthesis when**:
+  - binding type isn't `shared` / `weak`
+  - binding already in state `.moved` or `.dropped`
+  - global / `pre` decl
+  - binding type is `unknown` (no type info means we can't be safe)
+- **On top of the same walker, add the M20d-deferred soft warning
+  lint**: when synthesis is blocked by a shape we can't safely
+  synthesize for (multiple control-flow branches with divergent move
+  status, etc.), emit a warning telling the user to add explicit `-x`.
 
-- Add `shared` / `weak` Type variants to `src/types.zig`. Extend
-  `TypeStore.typeEqual`, `formatType`, `compatible`, `substituteType`,
-  `typeEqualsAfterSubst`, `classifyReceiverType`, `unwrapBorrows`
-  (NOT this one — keep narrow per GPT-5.5; add `unwrapReadAccess`
-  instead).
-- Add `shared` IR Tag (distinct from expression-position `share`).
-- Grammar: add `SHARE_PFX type → (shared 2)` and `"~" type → (weak 2)`.
-  Run `zig build parser`; verify conflict count stays at 34.
-- Sema: `(share x)` at expression position now types as
-  `shared(typeOf(x))`. `(weak x)` requires its operand to be
-  `shared(T)` and types as `weak(T)` — fire diagnostic if applied to
-  non-shared. Type-position `*T` / `~T` resolve via new arm in
-  `resolveType`.
-- No emit changes in this commit.
-- Tests stay at 496.
+Hazards to design through (GPT-5.5 flagged these in the M20d design
+pass):
+- early `return`, `break` / `continue`, `panic` / `unreachable`
+- `try` / `catch` unwinding (M14's labeled-block lowering is
+  non-trivial)
+- `match` arm divergence (M18 multi-statement arms)
+- conditionally-moved bindings (`<rc` in one arm only — only ONE
+  branch should drop)
+- M17's labeled-block recipe for `if`-as-expression (`rig_blk_N`)
 
-### M20d(2/5) — Runtime + driver integration
+Expected sub-commits: 4–5 (mirror M20d). First commit is probably
+the IR + walker scaffolding (no behavior change); subsequent commits
+add discharge tracking, branch-aware analysis, the lint, and tests.
 
-- Create `src/runtime.zig` or similar (in-tree source) with the
-  `RcBox` / `WeakHandle` / `rcNew` / `defaultAllocator` code from
-  §3 above.
-- Driver: in `bin/rig build`/`run`, write `_rig_runtime.zig` to the
-  same `/tmp/rig_<name>/` directory as the main emitted module.
-  Source of `_rig_runtime.zig` content lives at compile-time in the
-  Rig binary (embed via `@embedFile` or just a string constant).
-- Emitted modules: add `const rig = @import("_rig_runtime.zig");` to
-  the prelude of every emitted module.
-- Multi-module note: if `use foo` produces multiple `.zig` files,
-  they all need to be in the same dir so `@import("_rig_runtime.zig")`
-  resolves consistently. Audit `src/modules.zig` for this.
-- Tests stay at 496 (no behavior change in any existing example).
-
-### M20d(3/5) — Operator emit
-
-- `emitExpr` for `(share x)` → `rig.rcNew(x) catch @panic(...)`.
-- `emitExpr` for `(clone x)` where x has type `shared(_)` → `x.clone()`.
-- `emitStmt` for `(drop x)` where x has type `shared(_)` → `x.drop();`.
-- `emitExpr` for `(weak x)` where x has type `shared(_)` → `x.weakRef()`.
-- `(clone w)` / `(drop w)` for weak handles → `w.clone()` / `w.drop()`.
-- `(move x)` for shared handles: NO runtime call (handle transfer is
-  sema-only).
-- `emitType` for `(shared T)` → `*rig.RcBox(<T>)`.
-- `emitType` for `(weak T)` → `rig.WeakHandle(<T>)`.
-- Add 2–3 positive examples to verify end-to-end (e.g., construct an
-  `*Int`-like wrapper, clone it, drop it; weak ref + upgrade).
-
-### M20d(4/5) — Read-only auto-deref
-
-- New helper `unwrapReadAccess(ctx, ty_id)` peels `borrow_read` +
-  `borrow_write` + `shared` (NOT weak, NOT optional/fallible).
-- `synthMember` uses it for the value-member branch.
-- `lookupDataField` / `lookupMethod` use it.
-- Receiver-mode validation: extend `ReceiverTypeKind` with `.shared`
-  and update `checkReceiverMode` to reject `.write` / `.value`
-  receivers when receiver is `.shared`.
-- `checkSet` rejects `obj.field = X` when `obj` is `shared`.
-- Negative tests for write-through-shared, consume-through-shared,
-  field-assign-through-shared.
-
-### M20d(5/5) — Tests + drop discipline + ROADMAP
-
-- **First: get Steve's decision on the drop-discipline question**
-  (§3 above). If (B), this becomes M20d(5/5) = automatic scope drop
-  and M20d(6/5) = tests/docs. If (A), this commit is just docs +
-  tests + the explicit-only behavior documented.
-- Positive tests: shared int wrapper, weak/upgrade cycle break,
-  generic enum + shared interaction (`*Option(Int)`).
-- Negative tests: shared-of-shared (`**T`), weak-of-non-shared
-  (should error in M20d(1/5) already), `weak.upgrade()` returning
-  `*T?` correctly typed.
-- ROADMAP M20d entry following the M20a/M20b/M20c template.
-- REACTIVITY-DESIGN status note: M20+ item #6 landed.
-- Update M20+ "now-blocking" table to mark #6 done.
+**Pre-(1/5) checkpoint with GPT-5.5 is recommended** — auto-drop is
+the kind of work where a focused design pass catches whole categories
+of bugs before code lands.
 
 ---
 
-## 5. Open questions for Steve (BEFORE M20d(5/5))
+## 5. Open questions for Steve (BEFORE M20e)
 
-**Q1 — Auto-drop discipline.** Does Rig V1 do automatic scope-exit drop
-of `*T` / `~T` handles, or explicit `-x` only? Options A and B in §3
-above. Affects scope of M20d and SPEC language.
+**Q1 — Auto-drop scope: full RAII or just shared/weak?** Rig's
+existing M5 v1 Move classification treats nominal user types
+(`User`, `Box`, etc.) as Move but DOES NOT enforce no-implicit-copy
+on plain assignment. M20e could either:
+- (A) Only synthesize drops for `*T` / `~T` (matches the M20d V1
+  contract; smaller scope). User types still leak silently.
+- (B) Generalize to all non-Copy types with declared destructors
+  (full RAII). Requires `Drop` infra (which V1 doesn't have yet)
+  and is a much bigger lift.
 
-**Q2 — Multi-module runtime resolution.** Confirm that `_rig_runtime.zig`
-being a sibling file works for `use foo` projects (multi-file). The
-M15 module system writes per-module `.zig` files to `/tmp/rig_<name>/`;
-ensure they all share the same dir for the import to resolve.
+My lean for M20e: **A**. M20+ item #7 (`Cell(T)`) and the reactive
+substrate need shared/weak RAII specifically; nominal-type RAII can
+wait for a dedicated "user Drop" milestone (M20f / V2).
 
-**Q3 — `*expr` consume vs clone.** GPT-5.5 says `*expr` MOVES `expr`
-into the Rc (so `x = User(...); rc = *x;` invalidates `x`). The
-alternative is implicit clone. Implicit clone is friendlier but
-duplicates ownership of `x`. Confirm Steve agrees with the move
-semantics before M20d(3/5).
+**Q2 — `weak.upgrade()` sema first-class?** Make `w.upgrade()` work
+via Rig source (currently errors). Two implementations: synthetic
+field on weak symbols, or `synthMemberCall` intercept. Either is
+small. Worth bundling into M20e (1/n) or a separate M20d.1?
 
-**Q4 — Existing `share`/`weak` expression-position semantics.** Today
-`(share x)` and `(weak x)` are M3-era ownership wrappers that
-silently pass through. Verify nothing depends on the current
-no-op behavior before M20d changes their meaning. Specifically:
-search for `(share` and `(weak` in `examples/` and `test/golden/`.
+My lean: bundle into **M20e(1/n)**. The auto-drop walker needs to
+treat `w.upgrade()` as non-discharging, which means it needs to
+recognize the form anyway. Adding the sema bridge at the same time
+keeps the design coherent.
 
 ---
 
@@ -464,7 +258,7 @@ search for `(share` and `(weak` in `examples/` and `test/golden/`.
 - All commits on `main`. No feature branches in current practice.
 - Sub-commit style: `Mxx(n/total): short summary` (M5-style).
 - Commit messages: motivation + what changed + GPT-5.5 attribution
-  where applicable + test count delta. See M20a–c commits for
+  where applicable + test count delta. See M20a–d commits for
   templates.
 - ALWAYS pass via HEREDOC for multi-line messages:
   ```
@@ -479,7 +273,7 @@ search for `(share` and `(weak` in `examples/` and `test/golden/`.
 
 ### Testing
 
-- `./test/run` — run all 496 tests + Zig unit tests
+- `./test/run` — run all 544 tests + Zig unit tests
 - `./test/run --update` — regenerate goldens (review diffs before committing)
 - New examples auto-discovered for raw_sexp / semantic_sexp / errors
 - For end-to-end (emit + ast-check + actual run): add example name to
@@ -504,10 +298,10 @@ search for `(share` and `(weak` in `examples/` and `test/golden/`.
 substantive. The `max_tokens: 4000` default once produced an empty
 response (eaten by reasoning budget).
 
-**Key prior reviews to skim** (in the conversation thread): M5(1–6)
-audit (way back), M20a design pass, M20a.2 hardening (caught
-soundness bugs), M20b design + 2 review rounds, M20c design + review,
-M20d design (the one you'll build against).
+**Key prior reviews** (in the conversation thread): M5(1–6) audit,
+M20a design pass, M20a.2 hardening, M20b design + 2 review rounds,
+M20c design + review, M20d design + post-(1/5) refinements +
+tactical Q2/Q3/`*T?`-precedence round.
 
 ### Editing conventions
 
@@ -525,16 +319,19 @@ M20d design (the one you'll build against).
 
 Persistent conversation ID: **`c_5c1d09d53ebe2f62`**
 
-It contains, in order:
-1. M20a thesis review (the first turn — Rig's design from scratch)
+It now contains, in order:
+1. M20a thesis review
 2. Reactivity design discussion (3+ rounds)
 3. M20a design pass → implementation → 2 review rounds
 4. M20a.1 sugar → review
 5. M20a.2 hardening → 2 review rounds
 6. M20b design checkpoint → 5 sub-commits → 2 review rounds
 7. M20c design checkpoint → 3 sub-commits → review
-8. **M20d design checkpoint (the most recent turn)** — locked-in
-   design captured in §3 above
+8. M20d design checkpoint
+9. **M20d Q1 (auto-drop) decision** — joint Claude + GPT-5.5 call,
+   Option A locked
+10. **M20d post-(1/5) tactical Q2/Q3/`*T?`-precedence round** — A/B/C
+    + 8 concrete refinements, all folded into (2/5)–(5/5)
 
 To continue the thread, pass `conversation_id: "c_5c1d09d53ebe2f62"`
 and `model: "openai:gpt-5.5"` (or `"openai:gpt-5.5-pro"` for harder
@@ -543,35 +340,35 @@ questions). Models live in
 
 ---
 
-## 8. Hazards / things to NOT do
+## 8. Hazards / things to NOT do (post-M20d edition)
 
-1. **Don't allow `*T` to silently produce `!T`.** Write-through-shared
-   breaks the aliasing model. M20d(4/5)'s receiver-mode rejection is
-   the safety check.
-2. **Don't broadly extend `unwrapBorrows` to peel `shared`.** Add a
-   narrower `unwrapReadAccess` helper instead, so existing
-   write-borrow / consume paths don't accidentally compose with
-   shared.
-3. **Don't auto-deref `weak`.** Weak handles require explicit
-   `.upgrade()`.
-4. **Don't tie `weak.upgrade()` to user-defined `Option(*T)`.** Use
-   built-in `optional(shared(T))` i.e. `*T?`. The `T? → Option(T)`
-   desugar is a separate (deferred) milestone.
-5. **Don't use a mutable global allocator.** Store allocator in the
-   `RcBox`.
-6. **Don't use `u32` for refcounts.** Use `usize` per GPT-5.5.
-7. **Don't `@constCast(sema)` in emit.** Phase discipline. The
-   `typeEqualsAfterSubst` helper (added in M20b(5/5)) is the
-   non-mutating alternative for emit-time type comparisons.
-8. **Don't ship M20d(5/5) without an explicit decision on auto-drop
-   (Q1 above).** Either way is OK; silent ambiguity is not.
-9. **Don't make `Option` / `Result` the built-in optional/fallible
-   representation.** `T?` and `T!` are separate built-in types
-   (`Type.optional` / `Type.fallible`). Confusion here would cascade.
-10. **Don't skip the GPT-5.5 review loop.** It has caught real bugs in
-    every milestone so far (M20a soundness gap, M20b allocator
-    lifetimes, M20a.2 consume-through-borrow, etc.). Cost is ~$0.30 per
-    round; value is preventing days of debugging.
+1. **Don't extend `unwrapReadAccess` to peel `weak`.** Weak handles
+   require explicit `.upgrade()`. Adding silent weak deref would
+   reintroduce null-deref hazards.
+2. **Don't extend `unwrapBorrows` to peel `shared`.** Use the narrower
+   `unwrapReadAccess` helper. Hazard #2 from the prior HANDOFF is
+   resolved by the helper split — keep them separated.
+3. **Don't let auto-deref bridge write/value receivers.** M20d(4/5)'s
+   `checkReceiverMode` adding `.shared` rejection for `.write` /
+   `.value` is the safety check. Removing it would silently permit
+   write-through-shared, breaking the aliasing model.
+4. **Don't `@constCast(sema)` in emit.** Use `typeEqualsAfterSubst`
+   for type comparisons in emit paths.
+5. **Don't bind weak handles to `var` in emit speculatively.** The
+   runtime's `dropWeak` takes `Self` by value (M20d deviation) so
+   weak bindings can stay `const`. Adding `var` would trip Zig's
+   unused-mutable error.
+6. **Don't use a mutable global allocator.** Allocator is in
+   `RcBox`. M20+ may later thread allocator through; keep the
+   storage-in-box invariant.
+7. **Don't use `u32` for refcounts.** `usize` per GPT-5.5.
+8. **Don't make `Option` / `Result` the built-in optional / fallible
+   representation.** `T?` and `T!` are separate built-in types.
+9. **Don't skip the GPT-5.5 review loop.** Cost: ~$0.30/round; value:
+   prevented soundness bugs in every M20 milestone so far.
+10. **Don't ship M20+ #8 (closure capture) without M20e first.**
+    Captures of `*T` / `~T` need automatic drop or every closure
+    leaks every captured handle on each invocation.
 
 ---
 
@@ -581,37 +378,42 @@ questions). Models live in
   shows just the failures. Most failures are golden diffs from
   intended changes — verify with `git diff test/golden/` and
   `./test/run --update` if intentional.
-- **Grammar conflict count changed**: revert and reconsider. The 34
+- **Grammar conflict count changed**: revert and reconsider. The 38
   conflicts are all reviewed and intentional. Adding more without
   understanding is a code smell.
 - **Sema diagnostic isn't firing**: check that the IR shape reaches
   the right walker. `bin/rig normalize path/to/file.rig` prints the
   semantic IR — useful for confirming what sema sees.
-- **Zig compile error in emitted code**: `bin/rig build path/to/file.rig`
-  prints both the emitted Zig AND any Zig errors. Often the issue is
-  sema "succeeded" with `unknown` types that propagated.
+- **Zig compile error in emitted code**: `bin/rig run path/to/file.rig`
+  shows both the emitted Zig path (in the error footer) AND any Zig
+  errors. For shared/weak issues: open `/tmp/rig_<name>/<name>.zig`
+  AND `/tmp/rig_<name>/_rig_runtime.zig` to inspect.
+- **`*T` user-code surprise**: re-read SPEC §Shared Ownership. The
+  V1 contract is explicit-drop, no auto-deref for weak, read-only
+  for shared.
 - **General confusion**: read REACTIVITY-DESIGN.md. It's the design
   note that drives the M20+ ordering and explains *why* each
   substrate piece matters.
 
 ---
 
-## 10. Closing notes from the prior session
+## 10. Closing notes from the M20d session
 
-- The user is Steve. Communicates clearly; pushes back when the design
-  feels off. Trusts the GPT-5.5 collaboration loop.
-- Pace expectation: M5-style sub-commits with reviews; not "big drop
-  every few days." Each sub-commit must be self-validating.
-- The Rip→Rig syntax connection is important to Steve (he made Rip,
-  a CoffeeScript-to-JS language, and Rig inherits the syntactic
-  philosophy). REACTIVITY-DESIGN.md exists because of his Rip
-  reactivity model — Cell/Memo/Effect is the validation target for
-  the entire M20+ arc.
-- The Rig-as-a-whole "wow factor" emerges from the *combination* of
-  features, not any single one. Don't over-promise individual
-  features; the value is in the synthesis.
-- Have fun. This is a beautifully scoped project and the trajectory
-  is sound.
+- The user is Steve. Communicates clearly; trusts the GPT-5.5 loop.
+- Pace expectation: M5-style sub-commits with reviews. Each sub-
+  commit must be self-validating.
+- Steve delegated Q1/Q2/Q3 + `*T?` precedence jointly to Claude +
+  GPT-5.5 during the M20d arc. The decisions are recorded in §3
+  above and in the GPT-5.5 conversation thread. Don't re-derive
+  them.
+- The Rip→Rig syntax connection is important to Steve. REACTIVITY-
+  DESIGN.md is the validation target for the entire M20+ arc.
+- Rig's "wow factor" emerges from the COMBINATION of features. Don't
+  over-promise individual ones; value is in the synthesis.
+- Have fun. The trajectory is sound, the substrate is most of the
+  way in, and M20e is the last piece before the reactive validation
+  milestone can begin.
 
-Good luck. Read SPEC.md, then ROADMAP.md M20+ section, then the M20d
-design above. Then start M20d(1/5).
+Good luck. Read SPEC.md §Shared Ownership, then ROADMAP.md M20d +
+M20e sections, then the M20e design sketch in §4 above. Then
+checkpoint the M20e design with GPT-5.5 before starting M20e(1/n).

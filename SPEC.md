@@ -228,24 +228,107 @@ shared = *user
 
 Single-threaded reference-counted shared ownership. V1 semantics:
 
-- construction increments the strong count
-- drop decrements the strong count
-- last strong drop runs `T`'s destructor synchronously, before the
-  `*T` handle itself is gone
-- NOT `Send`, NOT `Sync` (no atomics — single-threaded V1)
-- cycles leak by default; document loudly and lint where possible
+- `*expr` allocates a new `RcBox(T)` and **moves** `expr` into it
+  (per the M20d design pass: implicit clone would silently
+  duplicate ownership; users wanting to keep the original write
+  `*(+expr)` to clone-then-share).
+- `+rc` increments the strong count (`cloneStrong`); the original
+  handle stays valid alongside the new one.
+- `-rc` decrements the strong count (`dropStrong`); when the count
+  reaches zero, the value's slot is released. **V1 does NOT yet run
+  a user-defined destructor on the inner T** (no user `Drop` infra
+  yet; see M20+ roadmap).
+- NOT `Send`, NOT `Sync` (no atomics — single-threaded V1).
+- Cycles leak by default; document loudly and lint where possible.
 
 This is exactly `Rc<T>`. Multi-threaded shared ownership (`Arc<T>`,
 `Send` / `Sync` marker, atomic refcounting) is deferred to V2.
 
+### V1 Drop Discipline (explicit-only, M20e adds auto-drop)
+
+**V1 requires explicit `-rc` and `-w` to release handles.** The
+compiler does NOT auto-insert scope-exit drops in V1. Omitting `-x`
+on a `*T` / `~T` binding leaks the handle (the inner value's slot
+stays allocated until process exit).
+
+Rationale: M20d ships the manual reference-count primitives in
+isolation so the substrate lands without the additional control-flow
+analysis required for safe auto-drop (early return, break/continue,
+match arm divergence, conditional moves, etc.). The M20d alias-
+footgun rule (see below) catches the worst silent-aliasing hazard at
+binding/call sites; the residual "forgot to `-x`" leak is documented
+and explicit.
+
+Automatic scope-exit drop is queued as **M20e**, ordered before
+closure capture (M20+ item #8) and the reactive-substrate validation
+milestone (Phase B of `docs/REACTIVITY-DESIGN.md`). When M20e lands,
+explicit `-rc` will become an "early drop" optimization rather than a
+correctness requirement, and existing V1 code that does explicit
+drops will continue to work unchanged.
+
+### Alias Discipline (M20d, enforced now)
+
+Bare `*T` / `~T` handles cannot be reused without making the
+ownership effect visible. Specifically:
+
+```rig
+rc = *User(...)
+rc2 = rc              # error: bare alias; use `<rc` (move) or `+rc` (clone)
+takes_rc(rc)          # error: bare alias; use `<rc` (move into callee)
+```
+
+The fix matches Rig's `?x` / `!x` / `<x` / `+x` algebra: the
+ownership effect appears at the call site. Move (`<rc`) transfers
+the handle without bumping the count; clone (`+rc`) bumps the strong
+count and produces a fresh handle.
+
+Read-only access through a shared handle is unrestricted:
+
+```rig
+print(rc.field)       # OK — read-only auto-deref
+print(rc.read_method()) # OK — method declared with `self: ?T`
+```
+
+Write or consume through shared is rejected (other handles may
+exist; we can't hand out unique mutable access):
+
+```rig
+rc.write_method()     # error: write-receiver method through `*T`
+rc.consume()          # error: consume through `*T`
+rc.field = X          # error: field-target assign through `*T`
+```
+
+The user-facing escape hatch for controlled mutation through shared
+ownership is interior mutability (`Cell(T)` / `RefCell(T)`, planned
+as M20+ item #7).
+
+### Type-position precedence: `*T?` vs `(*T)?`
+
+Prefix `*` and `~` bind LOOSER than suffix `?` and `!` (consistent
+with `?T?` parsing as `(borrow_read (optional T))`):
+
+```text
+*User?     parses as  shared(optional(User))   # "shared handle to optional User"
+(*User)?   parses as  optional(shared(User))   # "optional shared handle"
+~User?     parses as  weak(optional(User))
+(~User)?   parses as  optional(weak(User))
+```
+
+`WeakHandle.upgrade()` returns `(*T)?` (optional shared handle) —
+the spelling requires parens because the suffix would otherwise bind
+inside the prefix.
+
 ### Drop Order
 
 When the last `*T` strong handle is dropped, the value's destructor
-runs **synchronously**, before the `*T` handle itself is gone. Any
-`~T` weak handles to the same value upgrade to `none` after this
-point. Destructors during a callback dispatch (reactive flush,
-observer notify, etc.) are allowed; re-entrant destruction is the
-calling library's policy to handle.
+**will run** synchronously before the `*T` handle itself is gone
+(see the V1 caveat above — V1 currently has no user-defined
+destructors; the synchronous-run-before-handle-loss guarantee is the
+contract once user `Drop` lands). Any `~T` weak handles to the same
+value upgrade to `none` after this point. Destructors during a
+callback dispatch (reactive flush, observer notify, etc.) are
+allowed; re-entrant destruction is the calling library's policy to
+handle.
 
 ---
 

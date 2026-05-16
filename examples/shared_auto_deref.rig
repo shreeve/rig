@@ -1,0 +1,22 @@
+# M20d(4/5): read-only auto-deref through a shared (`*T`) handle.
+#
+# Verifies:
+#   - Field access through shared: `rc.age` works (auto-derefs through
+#     `borrow_read` + `shared` to reach User's `age` field).
+#   - Read-receiver method through shared: `rc.read_age()` works
+#     (`read_age` is declared with `self: ?User`; the M20d receiver-
+#     mode rule permits read receivers through shared).
+#   - Emit bridges through `RcBox.value`: the emitted Zig is
+#     `rc.value.age` / `rc.value.read_age()`, not raw `rc.age`.
+
+struct User
+  age: Int
+
+  fun read_age(self: ?User) -> Int
+    self.age
+
+sub main()
+  rc = *User(age: 42)
+  print(rc.age)
+  print(rc.read_age())
+  -rc

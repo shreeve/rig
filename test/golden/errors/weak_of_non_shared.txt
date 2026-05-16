@@ -1,0 +1,1 @@
+examples/weak_of_non_shared.rig:10:8: error: `~` weak reference requires a shared handle `*T`; got `User`
