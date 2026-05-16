@@ -34,8 +34,19 @@ common borrow-receiver case, validated to only fire on `self`
 inside a nominal body. The library sketches below now use the
 sugar form (`fun get(?self)` instead of `fun get(self: ?Self)`).
 
-Subsequent items (generic methods, `Option(T)`, real `*`/`~`
-Rc/Weak, interior mutability, closure capture) remain M20+ work.
+M20a.2 hardened receiver semantics with `MethodReceiver` metadata,
+decl-time self validation, and consume-through-borrow rejection
+(per two rounds of GPT-5.5 review).
+
+M20+ now-blocking items #2 (real generic-instance member typing)
+and #3 (generic methods on generic types) landed in M20b. The
+`Cell(T)` / `Memo(T)` / `Effect` library sketch below is now
+mechanically buildable — `Cell(Int).get()`-style calls type
+correctly, generic methods substitute T at lookup time, and
+emit produces clean Zig `struct { const Self = @This(); ... }`
+patterns. Remaining V1 work: real `*T` / `~T` (item #6),
+interior mutability (item #7), `Option(T)` / `Result(T, E)`
+as generic enums (item #4), closure capture mode (item #8).
 
 ## Motivating use case
 

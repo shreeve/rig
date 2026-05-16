@@ -611,6 +611,158 @@ defensive two-self test:
 - `MethodReceiver.invalid` mode to reduce cascaded diagnostics
   on receiver-type errors — minor polish.
 
+### M20b — Real generic-instance member typing + generic methods ✅
+Closes the M14-deferred items (#2 and #3 of the M20+ "now-blocking"
+list below). After M20b, `b.value` on `b: Box(Int)` types as `Int`
+(was: `unknown`), constructor field-type mismatches fire clean
+diagnostics, generic types emit their methods (the latent M14 emit
+bug), and `b.get()` on a generic receiver runs end-to-end with the
+right substituted return type.
+
+Shipped as 5 self-validating sub-commits (M5-style, per GPT-5.5's
+design checkpoint). Tests grew 432 → 470 across the milestone.
+
+#### M20b(1/5) — Lookup-helper refactor (pure)
+Pre-positioning refactor. New top-level helpers:
+- `lookupDataField(ctx, receiver_ty, name) !?ResolvedField`
+- `lookupMethod(ctx, receiver_ty, name)    !?ResolvedMethod`
+- `hasMethodNamed(ctx, receiver_ty, name)   bool` (const,
+  non-allocating existence check for diagnostics).
+- `ResolvedField { field, ty, nominal_sym }`,
+  `ResolvedMethod { field, receiver, fn_ty, nominal_sym }`.
+
+`synthMember` and `synthInstanceCall` switched to use the helpers.
+No semantic change; 432 tests still pass.
+
+#### M20b(2/5) — Type representation scaffolding
+- New `Type.parameterized_nominal: ParamNominal { sym, args }` —
+  fully-applied generic instantiation (`Box(Int)`). Args owned by
+  the SemContext arena; interner deduplicates by structure.
+- New `Type.type_var: SymbolId` — references a `.generic_param`
+  Symbol. Strict equality (same SymbolId only — never a wildcard,
+  per GPT-5.5).
+- New `SymbolKind.generic_param`.
+- New `NominalContext { sym, self_type, type_params }` replaces
+  the M20a `current_nominal: ?SymbolId` on both TypeResolver and
+  ExprChecker.
+- New `TypeSubst { params, args; .lookup, .isEmpty }` +
+  `substituteType(ctx, ty_id, subst) !TypeId` that recurses
+  through every Type variant carrying a TypeId. Leaves unbound
+  type_vars unchanged (matters for future method-local generics).
+- New `makeNominalContext(ctx, sym_id)` + `isSelfTypeId(ctx, ty,
+  ctx)` helpers.
+- `compatible` / `formatType` / interner equality extended.
+
+#### M20b(3/5) — Generic body walking + symbolic field resolution
+- `SymbolResolver.walkGenericType` walks the body: binds each type
+  param as a `.generic_param` Symbol, records the IDs on the
+  generic type's `Symbol.type_params`, and walks member methods to
+  push their body scopes. Duplicate-param diagnostic. (Per
+  GPT-5.5's post-implementation review, M20b(5/5) detached these
+  symbols from lexical scope; see below.)
+- `TypeResolver.resolveDecl` dispatches `.generic_type` →
+  `resolveGenericTypeFields`, which populates `.fields` with
+  type-var-bearing symbolic types (`value: T` → `type_var(T_sym)`)
+  and threads `current_nominal` so `Self` and `T` resolve correctly
+  in signatures.
+- `resolveType.@".src"` now resolves `Self` via
+  `NominalContext.self_type` and bare `T` via
+  `NominalContext.type_params` (by-name walk, not lexical-scope-
+  only — robust to on-the-fly TypeResolvers).
+- Receiver-type validation extended for generics via the
+  `isSelfTypeId` helper; `?Self` inside `type Box(T)` now matches
+  `borrow_read(parameterized_nominal(Box, [type_var(T)]))`.
+
+#### M20b(4/5) — Generic-instance dispatch
+The user-facing payoff:
+- `resolveType` handles `(generic_inst Name T1 T2 ...)` →
+  `parameterized_nominal`. Arity validation + diagnostic on
+  mismatch.
+- Lookup helpers extended to handle parameterized receivers: build
+  a `TypeSubst` from the receiver's args + the generic's
+  `type_params`, then `substituteType` on the matched field/method
+  type. T → Int at lookup time.
+- `classifyReceiverType` recognizes parameterized nominals whose
+  base symbol matches.
+- New `checkGenericConstructorCall` + `checkConstructorArgsSubst`:
+  `checkExpr` intercepts `(call <name> args...)` where the callee
+  resolves to the same `generic_type` as the expected
+  `parameterized_nominal`, then drives substitution from the
+  expected-type args (per GPT-5.5: "design for expected-type-driven
+  generic construction, not inference"). `b: Box(Int) = Box(value:
+  5)` works; `b: Box(Int) = Box(value: "hello")` errors cleanly.
+
+#### M20b(5/5) — Emit + post-implementation hardening
+**Emit**:
+- `emitGenericType` emits `const Self = @This();` + data fields +
+  nested `pub fn` methods (parameterized `emitNominalMethods`
+  indent). Closes the latent M14 emit bug.
+- `current_nominal_name = "Self"` inside generic body, so the
+  emit `Self`-substitution is a no-op rename that pairs with the
+  alias. Plain nominals (M20a) keep the existing
+  `Self → bare-type-name` substitution — inconsistent but
+  minimizes golden churn.
+- Print polish extended for parameterized fields via the new
+  const `typeEqualsAfterSubst` helper (NOT `@constCast(sema)` —
+  phase discipline).
+
+**Hardening** (per two rounds of GPT-5.5 review):
+- **Detached generic-param symbols** (`addDetachedSymbol`): `T` no
+  longer leaks into module scope; lookup goes exclusively through
+  `NominalContext.type_params`. Two generics with `T` no longer
+  collide. Bare `Box` in type position now errors with
+  `"generic type 'Box' requires type arguments"`.
+- **Fallible lookup helpers**: `lookupDataField` /
+  `lookupMethod` return `!?ResolvedField` / `!?ResolvedMethod`;
+  no `catch f.ty` fallback. Allocator-error discipline restored.
+- **Unannotated generic construction rejected**: `Box(value: 5)`
+  without an LHS type errors with `"generic constructor 'Box'
+  requires an expected type; write 'b: Box(T) = Box(...)'"`. V1
+  has no inference — by design.
+- **`@constCast(sema)` in print polish replaced** with the new
+  const `typeEqualsAfterSubst` helper. Emit no longer mutates
+  sema's interner.
+- **`nominalSymOfReceiver` helper** for diagnostics: `b.missing()`
+  on `b: Box(Int)` now fires `"no method 'missing' on type 'Box'"`
+  cleanly (was `"(unknown)"` or silent).
+- **`type_var` skip removed** from `checkConstructorArgsSubst`
+  (round 2): the skip silently hid real symbolic-body errors like
+  `b: Self = Box(value: "hello")` inside a generic body. The new
+  test `generic_symbolic_body_mismatch` pins this.
+- **`typeEqualsAfterSubst` fast-path soundness** (round 2): the
+  `ty_id == target` short-circuit is gated on `subst.isEmpty()` —
+  otherwise `Box(T) == Box(T)` would short-circuit incorrectly
+  when `subst` says `T → Int`.
+
+**Tests across M20b** (6 new examples in M20b(4/5) + M20b(5/5)):
+
+  POSITIVE (EMIT_TARGETS, run end-to-end):
+    generic_member_typed             — `b.value` types as Int
+    generic_method                   — `b.get()` returns 42 via subst
+    generic_string_field             — `Box(String).value` polishes to {s}
+
+  NEGATIVE (sema-error goldens):
+    generic_constructor_type_mismatch — `Box(value: "hi")` vs `Box(Int)`
+    generic_unannotated               — `b = Box(value: 5)` without LHS
+    generic_bare_in_type_position     — `x: Box`
+    generic_missing_method            — `b.missing()` on parameterized
+    generic_symbolic_body_mismatch    — T vs String inside generic body
+
+470 passed, 0 failed (was 432 at M20a.2).
+
+**Deferred to follow-up M20+ items**:
+- Generic enum types (`Option(T)` / `Result(T, E)`) — needs grammar
+  work; remains a now-blocking M20+ item below.
+- Generic-associated-method inference (`Box.make(5)` inferring
+  `T = Int`) — out of M20b scope. Today fires the unannotated-
+  construction diagnostic; users must write `b: Box(Int) =
+  Box.make(5)` (which currently has no special handling and
+  routes through the synth path).
+- Plain-nominal Self emitting as bare-type-name (vs `Self =
+  @This()` like generics) — minor consistency cleanup; deferred.
+- Field-target assignment + write-receiver mutation runtime test
+  (separate M20+ item).
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note
@@ -629,13 +781,14 @@ the M20+ items below):
 
 1. ~~**Instance methods + `self` semantics + receiver-style calls**~~
    ✅ **Landed in M20a** above.
-2. **Real generic-instance member typing** (completes M14).
-   Today `b.value` on `b: Box(Int)` types as `unknown`; needs
-   per-instance field-type substitution in sema so member access
-   resolves to the substituted type.
-3. **Generic methods on generic types** (M14-deferred). Depends
-   on item 2 and the M20a self-binding machinery (already in
-   place).
+2. ~~**Real generic-instance member typing**~~ ✅ **Landed in M20b**
+   above. `b.value` on `b: Box(Int)` now types as `Int` via
+   parameterized_nominal + substituteType.
+3. ~~**Generic methods on generic types**~~ ✅ **Landed in M20b**.
+   `b.get()` on a parameterized receiver dispatches via
+   `lookupMethod`'s substituted `fn_ty`; emit produces nested
+   `pub fn` inside the Zig generic struct with `const Self =
+   @This();`.
 4. **`Option(T)` / `Result(T, E)` as generic enum types**
    (M14-deferred). Needs grammar work — `enum Name INDENT ...`
    doesn't yet accept `params`, and adding it conflicts with
@@ -649,7 +802,8 @@ the M20+ items below):
    implementation TBD).
 7. Interior mutability — `Cell(T)` library type
    (REACTIVITY-DESIGN D6, option A for V1). Depends on items
-   2 + 4 + 6.
+   4 + 6 (the M20a/M20b method + generic machinery are now in
+   place).
 8. Closure capture mode syntax (REACTIVITY-DESIGN D7) — `|name|`
    strong, `|~name|` weak, `|<name|` move, etc.
 
