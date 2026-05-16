@@ -1,0 +1,1 @@
+examples/generic_constructor_type_mismatch.rig:18:28: error: type mismatch: expected `Int`, got `String`

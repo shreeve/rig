@@ -1,0 +1,19 @@
+## M20b(4/5) negative: generic constructor field type mismatch.
+##
+## Before M20b: `Box(value: "hello")` against expected `Box(Int)` was
+## silently accepted because the constructor returned `nominal(Box)`
+## (no type args) and field-type checking either skipped via the
+## interim `type_var` guard or just compared against `T`.
+##
+## After M20b(4/5): expected-type-driven substitution turns the field
+## type from `T` into `Int`, then the string literal is checked
+## against `Int` and rightly errors.
+##
+## EXPECTED: sema error: type mismatch.
+
+type Box(T)
+  value: T
+
+sub main()
+  b: Box(Int) = Box(value: "hello")
+  print(b.value)

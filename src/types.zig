@@ -1860,6 +1860,52 @@ const TypeResolver = struct {
                             .is_sub = false,
                         } });
                     },
+                    // M20b(4/5): `(generic_inst Name T1 T2 ...)` — a
+                    // fully-applied generic type instantiation. Resolve
+                    // `Name` to a `generic_type` Symbol, recursively
+                    // resolve each type arg, intern as
+                    // `parameterized_nominal{sym, args}`. The interner
+                    // guarantees `Box(Int)` is always the same TypeId.
+                    //
+                    // Arity validation: error if the supplied count
+                    // doesn't match the generic's declared type_params.
+                    .@"generic_inst" => {
+                        if (items.len < 2) return self.ctx.types.invalid_id;
+                        const name_node = items[1];
+                        const name = identAt(self.ctx.source, name_node) orelse return self.ctx.types.invalid_id;
+                        const pos: u32 = if (name_node == .src) name_node.src.pos else 0;
+                        const sym_id = self.ctx.lookup(scope, name) orelse {
+                            try self.err(pos, "unknown type `{s}`", .{name});
+                            return self.ctx.types.invalid_id;
+                        };
+                        const sym = self.ctx.symbols.items[sym_id];
+                        if (sym.kind != .generic_type) {
+                            try self.err(pos, "`{s}` is not a generic type", .{name});
+                            return self.ctx.types.invalid_id;
+                        }
+                        const expected_count = if (sym.type_params) |tps| tps.len else 0;
+                        const supplied = items[2..];
+                        if (supplied.len != expected_count) {
+                            try self.err(pos, "generic type `{s}` expects {d} type argument{s}, got {d}", .{
+                                name,
+                                expected_count,
+                                if (expected_count == 1) @as([]const u8, "") else "s",
+                                supplied.len,
+                            });
+                            return self.ctx.types.invalid_id;
+                        }
+                        var arg_ids: std.ArrayListUnmanaged(TypeId) = .empty;
+                        defer arg_ids.deinit(self.ctx.allocator);
+                        try arg_ids.ensureTotalCapacity(self.ctx.allocator, supplied.len);
+                        for (supplied) |arg| {
+                            arg_ids.appendAssumeCapacity(try self.resolveType(arg, scope));
+                        }
+                        const owned = try self.ctx.arena.allocator().dupe(TypeId, arg_ids.items);
+                        return self.ctx.types.intern(self.ctx.allocator, .{ .parameterized_nominal = .{
+                            .sym = sym_id,
+                            .args = owned,
+                        } });
+                    },
                     else => return self.ctx.types.invalid_id,
                 }
             },
@@ -1965,14 +2011,21 @@ fn classifyReceiverType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
     const ty = ctx.types.get(ty_id);
     switch (ty) {
         .nominal => |s| return if (s == nominal_sym) .owned_nominal else .other,
+        // M20b(4/5): a parameterized_nominal whose base symbol matches
+        // the expected nominal counts as owned for receiver-mode rules
+        // — the type args don't affect mode classification (substitution
+        // is handled in the lookup helper).
+        .parameterized_nominal => |pn| return if (pn.sym == nominal_sym) .owned_nominal else .other,
         .borrow_read => |inner| {
             const inner_ty = ctx.types.get(inner);
             if (inner_ty == .nominal and inner_ty.nominal == nominal_sym) return .read_borrow;
+            if (inner_ty == .parameterized_nominal and inner_ty.parameterized_nominal.sym == nominal_sym) return .read_borrow;
             return .other;
         },
         .borrow_write => |inner| {
             const inner_ty = ctx.types.get(inner);
             if (inner_ty == .nominal and inner_ty.nominal == nominal_sym) return .write_borrow;
+            if (inner_ty == .parameterized_nominal and inner_ty.parameterized_nominal.sym == nominal_sym) return .write_borrow;
             return .other;
         },
         else => return .other,
@@ -2264,17 +2317,38 @@ pub const ResolvedMethod = struct {
 ///
 /// M20b(4/5) will extend this to handle `parameterized_nominal` and
 /// substitute the returned `ty` against the receiver's type arguments.
-pub fn lookupDataField(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) ?ResolvedField {
+pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) ?ResolvedField {
     const peeled = unwrapBorrows(ctx, receiver_ty);
     const ty = ctx.types.get(peeled);
-    if (ty != .nominal) return null;
-    const sym_id = ty.nominal;
+
+    // Classify the receiver: plain nominal vs parameterized.
+    var sym_id: SymbolId = symbol_invalid;
+    var subst: TypeSubst = TypeSubst.empty;
+    switch (ty) {
+        .nominal => |s| {
+            sym_id = s;
+        },
+        .parameterized_nominal => |pn| {
+            sym_id = pn.sym;
+            const sym = ctx.symbols.items[pn.sym];
+            const tparams = sym.type_params orelse &.{};
+            subst = .{ .params = tparams, .args = pn.args };
+        },
+        else => return null,
+    }
+
     const sym = ctx.symbols.items[sym_id];
     const fields = sym.fields orelse return null;
     for (fields) |f| {
         if (f.is_method) continue;
         if (std.mem.eql(u8, f.name, name)) {
-            return .{ .field = f, .ty = f.ty, .nominal_sym = sym_id };
+            // M20b(4/5): substitute the field's stored type against
+            // the receiver's type arguments. For plain nominals,
+            // `subst` is empty so `substituteType` returns the
+            // original TypeId unchanged. For parameterized receivers,
+            // `type_var(T)` → concrete arg.
+            const sub_ty = substituteType(ctx, f.ty, subst) catch f.ty;
+            return .{ .field = f, .ty = sub_ty, .nominal_sym = sym_id };
         }
     }
     return null;
@@ -2288,11 +2362,25 @@ pub fn lookupDataField(ctx: *const SemContext, receiver_ty: TypeId, name: []cons
 /// Returns `null` on no match. M20b(4/5) will substitute the returned
 /// `fn_ty` (params + return) against the receiver's type arguments
 /// for parameterized nominals.
-pub fn lookupMethod(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) ?ResolvedMethod {
+pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) ?ResolvedMethod {
     const peeled = unwrapBorrows(ctx, receiver_ty);
     const ty = ctx.types.get(peeled);
-    if (ty != .nominal) return null;
-    const sym_id = ty.nominal;
+
+    var sym_id: SymbolId = symbol_invalid;
+    var subst: TypeSubst = TypeSubst.empty;
+    switch (ty) {
+        .nominal => |s| {
+            sym_id = s;
+        },
+        .parameterized_nominal => |pn| {
+            sym_id = pn.sym;
+            const sym = ctx.symbols.items[pn.sym];
+            const tparams = sym.type_params orelse &.{};
+            subst = .{ .params = tparams, .args = pn.args };
+        },
+        else => return null,
+    }
+
     const sym = ctx.symbols.items[sym_id];
     const fields = sym.fields orelse return null;
     for (fields) |f| {
@@ -2300,10 +2388,17 @@ pub fn lookupMethod(ctx: *const SemContext, receiver_ty: TypeId, name: []const u
         if (std.mem.eql(u8, f.name, name)) {
             const fn_ty_val = ctx.types.get(f.ty);
             if (fn_ty_val != .function) continue;
+            // M20b(4/5): substitute the function type against the
+            // receiver's type arguments. For plain nominals subst is
+            // empty (no-op). For generics, T inside the signature
+            // becomes the concrete arg.
+            const sub_fn_ty_id = substituteType(ctx, f.ty, subst) catch f.ty;
+            const sub_fn_ty_val = ctx.types.get(sub_fn_ty_id);
+            const sub_fn_ty: FunctionType = if (sub_fn_ty_val == .function) sub_fn_ty_val.function else fn_ty_val.function;
             return .{
                 .field = f,
                 .receiver = f.receiver,
-                .fn_ty = fn_ty_val.function,
+                .fn_ty = sub_fn_ty,
                 .nominal_sym = sym_id,
             };
         }
@@ -2316,7 +2411,7 @@ pub fn lookupMethod(ctx: *const SemContext, receiver_ty: TypeId, name: []const u
 /// to produce a targeted "bare method reference not supported"
 /// diagnostic when the user wrote `u.greet` (no call) and `greet` is
 /// actually a method.
-pub fn hasMethodNamed(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) bool {
+pub fn hasMethodNamed(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) bool {
     return lookupMethod(ctx, receiver_ty, name) != null;
 }
 
@@ -3419,6 +3514,22 @@ const ExprChecker = struct {
         callee_name: []const u8,
         callee_pos: u32,
     ) std.mem.Allocator.Error!void {
+        try self.checkConstructorArgsSubst(args, nominal_sym, callee_name, callee_pos, TypeSubst.empty);
+    }
+
+    /// M20b(4/5): generic-aware constructor checking. When `subst` is
+    /// non-empty, each declared field type is substituted (T → arg)
+    /// before being compared against the supplied kwarg's value type.
+    /// For plain nominals, callers pass `TypeSubst.empty` (or use the
+    /// `checkConstructorArgs` convenience wrapper above).
+    fn checkConstructorArgsSubst(
+        self: *ExprChecker,
+        args: []const Sexp,
+        nominal_sym: SymbolId,
+        callee_name: []const u8,
+        callee_pos: u32,
+        subst: TypeSubst,
+    ) std.mem.Allocator.Error!void {
         const sym = self.ctx.symbols.items[nominal_sym];
         const fields = sym.fields orelse {
             // No field metadata — opaque nominal. Synth args, return.
@@ -3460,21 +3571,22 @@ const ExprChecker = struct {
                     break :blk null;
                 } orelse continue;
 
-                // M20b(3/5) interim: if the field's declared type is a
-                // `type_var` (i.e., we're constructing a generic type
-                // and the field's type mentions a generic param), skip
-                // arg type-checking — we don't yet have the type
-                // arguments at this point (no inference, and no
-                // expected-type propagation through constructor calls
-                // yet). M20b(4/5) replaces this with proper expected-
-                // type-driven substitution.
-                const field_ty = self.ctx.types.get(field.ty);
-                if (field_ty == .type_var) {
+                // M20b(4/5): substitute the field's declared type
+                // against the expected-type's args (T → Int for
+                // `Box(Int)`). For plain nominals subst is empty so
+                // this is a no-op. If a field's substituted type is
+                // still a type_var (unbound — shouldn't happen with
+                // expected-type-driven generics, but possible at
+                // module-level construction without LHS annotation),
+                // skip type-check.
+                const substituted_field_ty = substituteType(self.ctx, field.ty, subst) catch field.ty;
+                const sft = self.ctx.types.get(substituted_field_ty);
+                if (sft == .type_var) {
                     _ = try self.synthExpr(arg.list[2]);
                     continue;
                 }
 
-                try self.checkExpr(arg.list[2], field.ty);
+                try self.checkExpr(arg.list[2], substituted_field_ty);
             } else {
                 has_positional = true;
                 _ = try self.synthExpr(arg);
@@ -3765,6 +3877,30 @@ const ExprChecker = struct {
             return;
         }
 
+        // M20b(4/5): generic constructor with expected parameterized_nominal.
+        // `Box(value: 5)` with expected `Box(Int)` should check the value
+        // against the substituted field type (T → Int). Without this
+        // expected-type-driven substitution, `synthCall` returns
+        // `nominal(Box)` for the constructor (no inference) and the
+        // compatibility check fails with "expected Box(Int), got Box".
+        // Per GPT-5.5: "Design for expected-type-driven generic
+        // construction, not inference."
+        if (expr == .list and expr.list.len >= 2 and expr.list[0] == .tag and
+            expr.list[0].tag == .@"call" and expr.list[1] == .src)
+        {
+            const expected_ty = self.ctx.types.get(expected);
+            if (expected_ty == .parameterized_nominal) {
+                const callee_src = expr.list[1].src;
+                const callee_name = self.ctx.source[callee_src.pos..][0..callee_src.len];
+                if (self.ctx.lookup(self.current_scope, callee_name)) |sym_id| {
+                    if (sym_id == expected_ty.parameterized_nominal.sym) {
+                        try self.checkGenericConstructorCall(expr.list, expected_ty.parameterized_nominal, callee_name, callee_src.pos);
+                        return;
+                    }
+                }
+            }
+        }
+
         const actual = try self.synthExpr(expr);
         if (compatible(self.ctx, actual, expected)) return;
         const pos = firstSrcPos(expr);
@@ -3772,6 +3908,25 @@ const ExprChecker = struct {
             try formatType(self.ctx, expected),
             try formatType(self.ctx, actual),
         });
+    }
+
+    /// M20b(4/5): `Box(value: 5)` with expected `Box(Int)` — the
+    /// expected-type's args become the substitution for field-type
+    /// checking. Called by `checkExpr` when the constructor's callee
+    /// matches the expected `parameterized_nominal`'s sym.
+    fn checkGenericConstructorCall(
+        self: *ExprChecker,
+        items: []const Sexp,
+        pn: ParamNominal,
+        callee_name: []const u8,
+        callee_pos: u32,
+    ) std.mem.Allocator.Error!void {
+        // items: (call <name> args...)
+        const args = items[2..];
+        const sym = self.ctx.symbols.items[pn.sym];
+        const tparams = sym.type_params orelse &.{};
+        const subst: TypeSubst = .{ .params = tparams, .args = pn.args };
+        try self.checkConstructorArgsSubst(args, pn.sym, callee_name, callee_pos, subst);
     }
 
     /// `(call (enum_lit name) args...)` — payload-variant construction

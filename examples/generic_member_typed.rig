@@ -1,0 +1,22 @@
+## M20b(4/5): generic-instance member access types correctly.
+##
+## Before M20b: `b.value` on `b: Box(Int)` types as `unknown` because
+## generic types had no `fields` populated and `synthMember` returned
+## `unknown` for any nominal whose `.fields == null`. Print polish
+## then emitted `{any}` instead of `{}` for the int value.
+##
+## After M20b(4/5): `Box(Int)` resolves to `parameterized_nominal{Box,
+## [Int]}`; `b.value` looks up `value` on Box.fields (with type
+## `type_var(T)`), substitutes T → Int via the receiver's args, and
+## returns Int. Constructor checking uses the expected `Box(Int)`
+## from the LHS to drive the same substitution, so `5` is checked
+## against Int (passes) instead of against `T` (would fail).
+##
+## EXPECTED: clean. Runs and prints `5`.
+
+type Box(T)
+  value: T
+
+sub main()
+  b: Box(Int) = Box(value: 5)
+  print(b.value)
