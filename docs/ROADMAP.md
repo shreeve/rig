@@ -509,6 +509,108 @@ sub consume(self: Self)        # by-value still uses the long form
   `method_sugar_outside_nominal`) pin the two diagnostics.
 - 402 passed, 0 failed (was 394).
 
+### M20a.2 — Receiver metadata + self validation + decl-time soundness ✅
+Hardening pass on M20a before M20b builds on top, prompted by
+GPT-5.5's post-implementation audit which surfaced two soundness
+holes and several validation gaps. Closes the M20a holes that
+would otherwise compound in generic-method dispatch.
+
+**Soundness fixes:**
+
+- **Static-as-instance dispatch (M20a soundness bug).**
+  `synthInstanceCall` previously inferred receiver-ness from
+  `fn_ty.params.len > 0`, silently dispatching associated/static
+  methods called as instance form (`u.make()` where `make` is
+  static). Now dispatches on a new `MethodReceiver` enum
+  (`.none` / `.read` / `.write` / `.value`) populated at
+  decl-time by `resolveNominalMethod` from the syntactic first
+  parameter. `synthInstanceCall` errors cleanly for `.none`
+  with a targeted diagnostic pointing the user at the
+  associated-call form.
+- **Consume-through-borrow.** `checkReceiverMode` previously
+  classified receiver expressions by syntactic shape only —
+  `get_ref().consume()` (where `get_ref` returns `?User`) was
+  accepted as `.call` → `rvalue` → `.value`-receiver-OK,
+  silently consuming through a read borrow. Fix: new
+  `ReceiverTypeKind` (`owned_nominal` / `read_borrow` /
+  `write_borrow` / `other`) classifies the receiver's TYPE,
+  combined with the shape check. New rules:
+  - read receiver: any owned-or-borrowed kind accepted; only
+    explicit move rejected
+  - write receiver: read-borrowed type rejected; rvalues only
+    OK if owned/write-borrowed; explicit `(!u)` always OK
+  - value receiver: any borrowed type rejected; rvalues only
+    OK if owned; explicit `(<u)` always OK
+
+**Self validation:**
+
+- `self` must be the first parameter of a method (positional).
+- `self` receiver type must match the enclosing nominal (or
+  `Self` alias).
+- `?self` / `!self` sugar only valid at param[0] (was: only
+  validated for name).
+- Bare untyped `self` (`fun foo(self)`) in first position is
+  now a hard error — per GPT-5.5: "once `self` is special
+  enough to power receiver metadata, it must not silently
+  become an ordinary associated-method param." Users wanting
+  a by-value receiver must spell `self: Self` (or
+  `self: <Nominal>`) explicitly; bare-`self` sugar is
+  deliberately deferred.
+- Sigil-prefixed entries in nominal MEMBER position
+  (`struct S { ?x }`) now fire a dedicated diagnostic
+  (previously dropped silently by `resolveStructFields`'s
+  `else` arm).
+- `Self` resolution inside method body local annotations now
+  works (`ExprChecker.current_nominal` plumbed into the
+  on-the-fly `TypeResolver` constructed by `checkSet`).
+
+**Code quality:**
+
+- New `unwrapBorrows(ctx, ty_id) -> TypeId` helper factored
+  from four duplicated inline loops (two in types.zig: `synthMember`,
+  `synthInstanceCall`; two in emit.zig: `matchExhaustive`, print
+  polish). Comment now accurately says "peels borrow wrappers";
+  optional/fallible/shared/weak/raw are intentionally NOT peeled.
+- New `classifyReceiverShape` helper factored from
+  `checkReceiverMode`. Expanded rvalue set per GPT-5.5: added
+  `if` / `match` / `ternary` / `catch` / `try` / `try_block` /
+  `array` / `anon_init`; removed `raw` and `pin` (not true
+  rvalues — `%x` is an unsafe view of existing storage, `@x` is
+  V2-deferred). Documented the "false negatives OK; false
+  positives unsound" rationale inline.
+- `ownership.zig`'s `bindParam` extended to recognize the
+  `(read NAME)` / `(write NAME)` sugar shapes (per GPT-5.5's
+  param-walker audit), with a length guard against malformed
+  Sexp.
+
+**Tests:** 7 new examples covering each new diagnostic and the
+defensive two-self test:
+- `method_static_as_instance` — the original soundness bug
+- `method_self_second_position` — self at non-zero position
+- `method_self_wrong_type` — self typed as different nominal
+- `method_self_bare_untyped` — bare `self` rejected
+- `method_consume_through_borrow` — value receiver applied to
+  read-borrowed call result rejected
+- `method_sigil_struct_member` — `struct S { ?x }` rejected
+- `method_two_self_methods` — defensive: two methods named
+  `self` on different nominals returning different types;
+  print polish correctly dispatches via object's type, not
+  global name scan
+
+432 passed, 0 failed (was 402).
+
+**Deferred** (per GPT-5.5's review):
+- Write-receiver mutation runtime test — needs `checkSet`
+  member-target support first (separate M20+ item).
+- `lookupDataField` / `lookupMethod` helpers + `NominalContext`
+  refactor — first patch of M20b, in service of generic
+  substitution.
+- Emitter scope-aware symbol resolution — long-term cleanup
+  for the global-name-scan fragility (M20a.2's two_self_methods
+  test pins current behavior).
+- `MethodReceiver.invalid` mode to reduce cascaded diagnostics
+  on receiver-type errors — minor polish.
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note

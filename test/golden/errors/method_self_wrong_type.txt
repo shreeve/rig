@@ -1,0 +1,2 @@
+examples/method_self_wrong_type.rig:16:7: error: `self` receiver type must be `?Self` or `?User`
+examples/method_self_wrong_type.rig:21:11: error: method `bad` has no `self` receiver; call as `User.bad(...)`

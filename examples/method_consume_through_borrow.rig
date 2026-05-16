@@ -1,0 +1,26 @@
+## M20a.2 negative: consuming receiver applied to a read-borrowed value.
+##
+## Per GPT-5.5's pre-commit review: `checkReceiverMode` must look at
+## the receiver expression's TYPE, not just its syntactic shape. Before
+## this fix, `get_ref().consume()` was silently accepted because
+## `get_ref()` is a `.call` → classified as `rvalue` → `.value`
+## receivers accept rvalues. But the call's RETURN TYPE is `?User`,
+## meaning we'd be consuming through a read borrow — unsound.
+##
+## After the fix, `classifyReceiverType` notices the call's type is
+## `read_borrow` and the dispatch refuses to consume through it.
+##
+## EXPECTED: sema error: method `consume` cannot consume through a borrowed value.
+
+struct User
+  name: String
+
+  sub consume(self: User)
+    print(self.name)
+
+fun get_ref(u: ?User) -> ?User
+  u
+
+sub main()
+  u = User(name: "Steve")
+  get_ref(?u).consume()

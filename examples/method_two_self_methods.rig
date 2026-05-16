@@ -1,0 +1,42 @@
+## M20a.2 positive (defensive): two unrelated nominal types each have
+## a method with a `self` parameter, returning DIFFERENT types. This
+## stresses the emitter's print polish, which historically dispatched
+## via a global-name scan that could pick the wrong `self` symbol when
+## multiple methods share the receiver name.
+##
+## Per GPT-5.5's M20a.2 design pass: "Add a test with two methods
+## using `self` on different nominal types. If it fails, either make
+## emitter lookup scope-aware or remove the heuristic and rely on
+## sema-attached expression types later."
+##
+## The polish actually dispatches through the OBJECT's nominal at the
+## call site (not through `self` itself), so this passes — but the
+## test pins that behavior against regressions if anyone later
+## refactors the polish to be name-scan-driven.
+##
+## EXPECTED: clean. `u.greet()` returns String → emits `{s}`;
+## `c.code()` returns Int → emits `{any}` (conservative fallback).
+## Prints `Steve` then `1`.
+
+struct User
+  name: String
+
+  fun greet(?self) -> String
+    self.name
+
+enum Color
+  red
+  green
+  blue
+
+  fun code(?self) -> Int
+    match self
+      .red => 1
+      .green => 2
+      .blue => 3
+
+sub main()
+  u = User(name: "Steve")
+  c = Color.red
+  print(u.greet())
+  print(c.code())

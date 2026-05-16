@@ -1,0 +1,1 @@
+examples/method_static_as_instance.rig:23:9: error: method `make` has no `self` receiver; call as `User.make(...)`

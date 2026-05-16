@@ -1201,17 +1201,10 @@ pub const Emitter = struct {
         const name = self.source[scrutinee.src.pos..][0..scrutinee.src.len];
         for (sema.symbols.items) |sym| {
             if (!std.mem.eql(u8, sym.name, name)) continue;
-            // M20a: method params have borrow_read/borrow_write types;
-            // unwrap one level so `match self` on `self: ?Color` finds
-            // Color's variants.
-            var ty = sema.types.get(sym.ty);
-            while (true) {
-                switch (ty) {
-                    .borrow_read => |inner| ty = sema.types.get(inner),
-                    .borrow_write => |inner| ty = sema.types.get(inner),
-                    else => break,
-                }
-            }
+            // M20a / M20a.2: peel borrow_read / borrow_write so
+            // `match self` on `self: ?Color` finds Color's variants.
+            const peeled = types.unwrapBorrows(sema, sym.ty);
+            const ty = sema.types.get(peeled);
             if (ty != .nominal) continue;
             const enum_sym = sema.symbols.items[ty.nominal];
             const fields = enum_sym.fields orelse return false;
@@ -1698,17 +1691,12 @@ pub const Emitter = struct {
                             const oname = self.source[obj.src.pos..][0..obj.src.len];
                             for (sema.symbols.items) |sym| {
                                 if (!std.mem.eql(u8, sym.name, oname)) continue;
-                                // M20a: method params have `borrow_read` /
-                                // `borrow_write` types; unwrap one level
-                                // to reach the nominal for field lookup.
-                                var ty = sema.types.get(sym.ty);
-                                while (true) {
-                                    switch (ty) {
-                                        .borrow_read => |inner| ty = sema.types.get(inner),
-                                        .borrow_write => |inner| ty = sema.types.get(inner),
-                                        else => break,
-                                    }
-                                }
+                                // M20a / M20a.2: method params carry
+                                // borrow_read / borrow_write types;
+                                // peel to reach the nominal for field
+                                // lookup. (Helper lives in types.zig.)
+                                const peeled = types.unwrapBorrows(sema, sym.ty);
+                                const ty = sema.types.get(peeled);
                                 if (ty != .nominal) continue;
                                 const owner = sema.symbols.items[ty.nominal];
                                 const fields = owner.fields orelse continue;

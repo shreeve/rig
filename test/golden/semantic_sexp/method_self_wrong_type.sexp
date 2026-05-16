@@ -1,0 +1,1 @@
+(module (struct Order (: id Int)) (struct User (: name String) (fun bad ((: self (borrow_read Order))) Int (block 42))) (sub main () _ (block (set _ u _ (call User (kwarg name "x"))) (call print (call (member u bad))))))

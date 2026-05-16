@@ -1,0 +1,1 @@
+(module (struct User (: name String) (sub consume ((: self User)) _ (block (call print (member self name))))) (fun get_ref ((: u (borrow_read User))) (borrow_read User) (block u)) (sub main () _ (block (set _ u _ (call User (kwarg name "Steve"))) (call (member (call get_ref (read u)) consume)))))

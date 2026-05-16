@@ -1,0 +1,3 @@
+examples/method_self_second_position.rig:13:24: error: `self` must be the first parameter of a method
+examples/method_self_second_position.rig:13:24: error: sigil-prefixed parameter sugar (`?self` / `!self`) is only allowed at the first parameter position
+examples/method_self_second_position.rig:18:11: error: method `bad` has no `self` receiver; call as `User.bad(...)`

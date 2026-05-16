@@ -493,9 +493,16 @@ pub const Checker = struct {
     }
 
     fn bindParam(self: *Checker, p: Sexp) Error!void {
-        // Param shapes: name | (: name type) | (pre_param name type) | (default name type expr) | (aligned name type alignexpr)
+        // Param shapes:
+        //   name                                — untyped
+        //   (: name type)                       — typed
+        //   (pre_param name type)               — comptime-typed
+        //   (default name type expr)            — typed with default
+        //   (aligned name type alignexpr)       — typed with align
+        //   (read NAME) / (write NAME)          — M20a.1 `?self` / `!self` sugar
         var name_node: Sexp = Sexp{ .nil = {} };
         var type_node: Sexp = Sexp{ .nil = {} };
+        var sugar_borrowed = false;
         switch (p) {
             .src => name_node = p,
             .list => {
@@ -504,6 +511,22 @@ pub const Checker = struct {
                         .@":", .pre_param, .default, .aligned => {
                             name_node = p.list[1];
                             if (p.list.len >= 3) type_node = p.list[2];
+                        },
+                        // M20a.1: `?self` / `!self` sugar appears as
+                        // `(read NAME)` / `(write NAME)` at param
+                        // position. The sema-side resolveParamType
+                        // synthesizes the borrow type; here we just
+                        // need to bind the name as a borrowed param so
+                        // ownership analysis applies the right rules.
+                        // M20a.2 (per GPT-5.5 pre-commit review): guard
+                        // against malformed `(read)` / `(write)` Sexp
+                        // (grammar guarantees len >= 2, but a defensive
+                        // bound check costs nothing).
+                        .@"read", .@"write" => {
+                            if (p.list.len >= 2) {
+                                name_node = p.list[1];
+                                sugar_borrowed = true;
+                            }
                         },
                         else => {},
                     }
@@ -515,7 +538,7 @@ pub const Checker = struct {
         }
         if (name_node != .src) return;
         const nm = self.source[name_node.src.pos..][0..name_node.src.len];
-        const borrowed = isBorrowedType(type_node);
+        const borrowed = sugar_borrowed or isBorrowedType(type_node);
         _ = try self.addBinding(.{
             .name = nm,
             .is_param = true,

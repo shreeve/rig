@@ -1,0 +1,2 @@
+examples/method_self_bare_untyped.rig:14:13: error: `self` parameter requires an explicit receiver type; use `?self`, `!self`, or `self: Self`
+examples/method_self_bare_untyped.rig:19:11: error: method `greet` has no `self` receiver; call as `User.greet(...)`

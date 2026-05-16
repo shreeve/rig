@@ -1,0 +1,18 @@
+## M20a.2 negative: `self` parameter at position other than first.
+##
+## Per GPT-5.5's M20a.2 design pass: "self must be first param if
+## present as receiver." Before M20a.2, second-position `self` was
+## silently accepted, and the call site would either bind the wrong
+## argument or fall through to a confusing arity error.
+##
+## EXPECTED: sema error: `self` must be the first parameter.
+
+struct User
+  name: String
+
+  fun bad(other: Int, ?self) -> Int
+    other
+
+sub main()
+  u = User(name: "x")
+  print(u.bad(42))

@@ -1,0 +1,1 @@
+examples/method_consume_through_borrow.rig:26:15: error: method `consume` consumes the receiver; cannot consume through a borrowed value

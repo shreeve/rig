@@ -263,6 +263,18 @@ pub const SymbolFlags = packed struct {
 ///   - payload `circle(r:Int)` → `ty = void_id`, `payload = [{r, Int}]`
 ///                              (M9a: declared, lowers to Zig union(enum);
 ///                              construction lands in M9b+).
+/// M20a.2: describes how a method receives its receiver. Computed
+/// at decl-time by `resolveNominalMethod` from the syntactic first
+/// parameter, *not* inferred at call sites from `params.len > 0`
+/// (that was the M20a soundness bug: associated/static methods
+/// with parameters silently dispatched as instance methods).
+///
+///   .none       method has NO `self` parameter (associated/static)
+///   .read       `self: ?Self` / `self: ?User` / `?self` sugar
+///   .write      `self: !Self` / `self: !User` / `!self` sugar
+///   .value      `self: Self` / `self: User` (by-value, consuming)
+pub const MethodReceiver = enum { none, read, write, value };
+
 pub const Field = struct {
     name: []const u8, // borrowed slice into source
     ty: TypeId,
@@ -271,10 +283,15 @@ pub const Field = struct {
 
     /// M12: when true, this `Field` represents a method declared on
     /// the owning nominal type, not a data field. `ty` is then the
-    /// method's `function` Type. Method bodies are emitted inside
-    /// the Zig struct/enum but aren't type-checked yet (M13+ when
-    /// generic params + `self` semantics land).
+    /// method's `function` Type. Method body type-checking landed in
+    /// M20a (`ExprChecker.walkMethod`).
     is_method: bool = false,
+
+    /// M20a.2: receiver mode for methods. `.none` for both data
+    /// fields and associated/static methods (`fun make(...)` with
+    /// no `self` param). Populated alongside `is_method` by
+    /// `TypeResolver.resolveNominalMethod`.
+    receiver: MethodReceiver = .none,
 };
 
 pub const Symbol = struct {
@@ -1070,6 +1087,22 @@ const TypeResolver = struct {
                 .@"fun", .@"sub" => {
                     cursor = try self.resolveNominalMethod(member.list, parent_scope, sym_id, cursor, &fields);
                 },
+                // M20a.2: sigil-prefixed sugar (`?name` / `!name`) is
+                // ONLY valid as a method's `self` parameter. The
+                // grammar's `field` production is reused for nominal
+                // members, so `struct S { ?x }` parses to a `(read x)`
+                // member that the prior `else => {}` silently dropped.
+                // Diagnose it cleanly instead.
+                .@"read", .@"write" => {
+                    try self.err(
+                        paramPos(member, 0),
+                        "sigil-prefixed member (`?{s}` / `!{s}`) is not allowed in a nominal body; sigil-prefix sugar is only valid for the `self` parameter of a method",
+                        .{
+                            if (member.list.len >= 2) identAt(self.ctx.source, member.list[1]) orelse "name" else "name",
+                            if (member.list.len >= 2) identAt(self.ctx.source, member.list[1]) orelse "name" else "name",
+                        },
+                    );
+                },
                 else => {},
             }
         }
@@ -1133,6 +1166,112 @@ const TypeResolver = struct {
                 }
             }
         }
+
+        // M20a.2: determine MethodReceiver from params[0] and validate
+        // self position + type. Without this, `synthInstanceCall` would
+        // (incorrectly) treat any first-param method as an instance
+        // method, silently dispatching associated/static methods called
+        // with receiver-style syntax.
+        var receiver_mode: MethodReceiver = .none;
+        if (params == .list and params.list.len > 0) {
+            for (params.list, 0..) |p, i| {
+                const pname = paramName(self.ctx.source, p);
+                const is_named_self = if (pname) |nm| std.mem.eql(u8, nm, "self") else false;
+                const is_sugar = blk: {
+                    if (p == .list and p.list.len >= 1 and p.list[0] == .tag) {
+                        switch (p.list[0].tag) {
+                            .@"read", .@"write" => break :blk true,
+                            else => {},
+                        }
+                    }
+                    break :blk false;
+                };
+
+                // M20a.2: `self` only allowed at param[0].
+                if (is_named_self and i != 0) {
+                    try self.err(
+                        paramPos(p, mpos),
+                        "`self` must be the first parameter of a method",
+                        .{},
+                    );
+                }
+
+                // M20a.2: `?self` / `!self` sugar only allowed at
+                // param[0]. (resolveParamType already rejected non-self
+                // names; this catches `?self` / `!self` in second+
+                // position.)
+                if (is_sugar and i != 0) {
+                    try self.err(
+                        paramPos(p, mpos),
+                        "sigil-prefixed parameter sugar (`?self` / `!self`) is only allowed at the first parameter position",
+                        .{},
+                    );
+                }
+            }
+
+            // Classify receiver from param[0] if it's `self`.
+            const first = params.list[0];
+            const first_pname = paramName(self.ctx.source, first);
+            const first_is_self = if (first_pname) |nm| std.mem.eql(u8, nm, "self") else false;
+            if (first_is_self) {
+                const ptype_id = param_types.items[0];
+                const ptype = self.ctx.types.get(ptype_id);
+                const nom_name = self.ctx.symbols.items[nominal_sym].name;
+                switch (ptype) {
+                    .borrow_read => |inner| {
+                        const inner_ty = self.ctx.types.get(inner);
+                        if (inner_ty == .nominal and inner_ty.nominal == nominal_sym) {
+                            receiver_mode = .read;
+                        } else {
+                            try self.err(mpos, "`self` receiver type must be `?Self` or `?{s}`", .{nom_name});
+                        }
+                    },
+                    .borrow_write => |inner| {
+                        const inner_ty = self.ctx.types.get(inner);
+                        if (inner_ty == .nominal and inner_ty.nominal == nominal_sym) {
+                            receiver_mode = .write;
+                        } else {
+                            try self.err(mpos, "`self` receiver type must be `!Self` or `!{s}`", .{nom_name});
+                        }
+                    },
+                    .nominal => |s| {
+                        if (s == nominal_sym) {
+                            receiver_mode = .value;
+                        } else {
+                            try self.err(mpos, "`self` receiver type must be `Self` or `{s}`", .{nom_name});
+                        }
+                    },
+                    .unknown, .invalid => {
+                        // M20a.2 (per GPT-5.5 pre-commit review):
+                        // distinguish bare untyped `self` (`fun foo(self)`)
+                        // from `self: T` where T didn't resolve. Bare
+                        // untyped `self` in first position is a hard
+                        // error — once `self` is special enough to power
+                        // receiver metadata, it must not silently become
+                        // an ordinary associated-method param. Users
+                        // wanting a by-value receiver should write
+                        // `self: Self` or `self: <Nominal>` explicitly;
+                        // bare-`self` sugar is deliberately deferred.
+                        if (first == .src) {
+                            try self.err(
+                                paramPos(first, mpos),
+                                "`self` parameter requires an explicit receiver type; use `?self`, `!self`, or `self: Self`",
+                                .{},
+                            );
+                        }
+                        // For `self: SomeUnresolvedType`, leave
+                        // receiver_mode = .none silently — the type
+                        // resolver already fired a diagnostic for the
+                        // unresolved name (or will, when M5 v1's
+                        // deferred-diagnostic policy tightens).
+                    },
+                    else => {
+                        try self.err(mpos, "`self` receiver type must be `?Self`, `!Self`, `Self`, or an explicit `{s}` form", .{nom_name});
+                    },
+                }
+            }
+        }
+
         const owned_params = try self.ctx.arena.allocator().dupe(TypeId, param_types.items);
         const fn_ty = try self.ctx.types.intern(self.ctx.allocator, .{ .function = .{
             .params = owned_params,
@@ -1145,6 +1284,7 @@ const TypeResolver = struct {
             .ty = fn_ty,
             .decl_pos = mpos,
             .is_method = true,
+            .receiver = receiver_mode,
         });
 
         // Advance past this method's body scopes — same machinery
@@ -1178,10 +1318,25 @@ const TypeResolver = struct {
         for (items[2..]) |variant| {
             // M20a: enum methods (fun/sub members) get the same
             // `is_method = true` Field treatment as struct methods.
+            // M20a.2: also catch sigil-prefixed sugar at member
+            // position (which the grammar's reused `field` production
+            // accepts; without this diagnostic the member is silently
+            // dropped).
             if (variant == .list and variant.list.len > 0 and variant.list[0] == .tag) {
                 switch (variant.list[0].tag) {
                     .@"fun", .@"sub" => {
                         cursor = try self.resolveNominalMethod(variant.list, parent_scope, sym_id, cursor, &fields);
+                        continue;
+                    },
+                    .@"read", .@"write" => {
+                        try self.err(
+                            paramPos(variant, 0),
+                            "sigil-prefixed member (`?{s}` / `!{s}`) is not allowed in a nominal body; sigil-prefix sugar is only valid for the `self` parameter of a method",
+                            .{
+                                if (variant.list.len >= 2) identAt(self.ctx.source, variant.list[1]) orelse "name" else "name",
+                                if (variant.list.len >= 2) identAt(self.ctx.source, variant.list[1]) orelse "name" else "name",
+                            },
+                        );
                         continue;
                     },
                     else => {},
@@ -1543,6 +1698,136 @@ fn scopeAfter(ctx: *const SemContext, from_scope: ScopeId) ScopeId {
     return total;
 }
 
+/// M20a / M20a.2: classify a receiver expression's "shape" at the call
+/// site, used by `checkReceiverMode` to enforce visible-effects rules.
+///
+/// Per GPT-5.5's M20a.2 design pass: "false negatives are okay; false
+/// positives are not." A false negative (treating an rvalue as lvalue)
+/// just annoys the user with an unnecessary explicit move/borrow. A
+/// false positive (treating an lvalue as rvalue) silently permits
+/// invalid moves/writes. So this is intentionally conservative — only
+/// confidently-fresh-value expression heads are classified as rvalue.
+pub const ReceiverShape = enum {
+    read_explicit, // (read X)   — `?u.method()` form
+    write_explicit, // (write X) — `(!u).method()` form
+    move_explicit, // (move X)   — `(<u).method()` form
+    rvalue, // expressions that produce a fresh value (no place to borrow)
+    lvalue_bare, // bare identifier or any other place expression
+};
+
+/// M20a.2 (per GPT-5.5 pre-commit review): receiver expression's
+/// *type* classification, complementing the syntactic shape. Without
+/// this, expressions like `get_ref().consume()` — where `get_ref`
+/// returns `?User` (read borrow) — would be silently accepted by a
+/// `MethodReceiver.value` method because the syntactic shape is
+/// `rvalue`. The fix: also check that the receiver expression's
+/// TYPE is compatible with the receiver mode (owned vs read-borrow
+/// vs write-borrow), not just its syntactic shape.
+pub const ReceiverTypeKind = enum {
+    owned_nominal, // T (matching the enclosing nominal)
+    read_borrow, // ?T (matching the enclosing nominal)
+    write_borrow, // !T (matching the enclosing nominal)
+    other, // doesn't unwrap to the expected nominal, or unknown
+};
+
+fn classifyReceiverType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: SymbolId) ReceiverTypeKind {
+    const ty = ctx.types.get(ty_id);
+    switch (ty) {
+        .nominal => |s| return if (s == nominal_sym) .owned_nominal else .other,
+        .borrow_read => |inner| {
+            const inner_ty = ctx.types.get(inner);
+            if (inner_ty == .nominal and inner_ty.nominal == nominal_sym) return .read_borrow;
+            return .other;
+        },
+        .borrow_write => |inner| {
+            const inner_ty = ctx.types.get(inner);
+            if (inner_ty == .nominal and inner_ty.nominal == nominal_sym) return .write_borrow;
+            return .other;
+        },
+        else => return .other,
+    }
+}
+
+fn classifyReceiverShape(receiver_expr: Sexp) ReceiverShape {
+    if (receiver_expr == .list and receiver_expr.list.len >= 1 and
+        receiver_expr.list[0] == .tag)
+    {
+        switch (receiver_expr.list[0].tag) {
+            .@"read" => return .read_explicit,
+            .@"write" => return .write_explicit,
+            .@"move" => return .move_explicit,
+
+            // Confidently-fresh-value expression heads:
+            .@"call", // function / method / constructor call result
+            .@"builtin", // @sizeOf(...) etc.
+            .@"record", // Type{...} struct literal
+            .@"anon_init", // .{...} anonymous literal
+            .@"array", // [a, b, c] array literal
+            .@"clone", // +x — explicit fresh clone
+            .@"share", // *x — fresh shared handle
+            .@"weak", // ~x — fresh weak handle
+            .@"if", // value-position if produces a fresh value
+            .@"match", // value-position match produces a fresh value
+            .@"ternary", // postfix-if expression
+            .@"catch", // expr catch ... — yields a value
+            .@"try", // try expr — wraps a value
+            .@"try_block", // value-yielding try / catch block
+            .@"propagate", // x! — yields T from T!, fresh value
+            => return .rvalue,
+
+            // Place expressions (lvalue): member access, index, deref,
+            // bare identifiers reached through `.src` below, and the
+            // unsafe escape hatches (`@x` pin, `%x` raw) which are
+            // views over existing storage rather than fresh values.
+            else => return .lvalue_bare,
+        }
+    }
+    // `.src` (bare name) or other leaf — lvalue.
+    return .lvalue_bare;
+}
+
+/// M20a.2: peel `borrow_read` / `borrow_write` wrappers from a type
+/// to reach the underlying nominal (or whatever). Used by member
+/// lookup, instance-call dispatch, exhaustiveness checks, and the
+/// emitter's print polish — anywhere "I have a value of type T or
+/// a borrow of T; find the underlying nominal" semantics applies.
+///
+/// Per GPT-5.5: deliberately does NOT unwrap optional, fallible,
+/// shared, weak, raw, or anything else — those have member-access
+/// semantics that haven't been decided yet. Adding silent unwrap
+/// here would reintroduce null-deref-style hazards.
+pub fn unwrapBorrows(ctx: *const SemContext, ty_id: TypeId) TypeId {
+    var id = ty_id;
+    while (true) {
+        const ty = ctx.types.get(id);
+        switch (ty) {
+            .borrow_read => |inner| id = inner,
+            .borrow_write => |inner| id = inner,
+            else => return id,
+        }
+    }
+}
+
+/// M20a.2: best-effort source position for a parameter Sexp, falling
+/// back to the supplied default if the shape doesn't carry one.
+fn paramPos(param: Sexp, fallback: u32) u32 {
+    return switch (param) {
+        .src => |s| s.pos,
+        .list => |items| blk: {
+            if (items.len >= 2 and items[0] == .tag) {
+                switch (items[0].tag) {
+                    .@":", .@"pre_param", .@"read", .@"write" => {
+                        if (items[1] == .src) break :blk items[1].src.pos;
+                    },
+                    else => {},
+                }
+            }
+            break :blk fallback;
+        },
+        else => fallback,
+    };
+}
+
 /// Extract the name of a parameter Sexp, regardless of shape.
 fn paramName(source: []const u8, param: Sexp) ?[]const u8 {
     return switch (param) {
@@ -1633,6 +1918,13 @@ const ExprChecker = struct {
     /// expression of a function with a non-void return.
     current_fn_return: TypeId,
 
+    /// M20a.2: enclosing nominal when type-checking inside a method
+    /// body. Plumbed into any `TypeResolver` instance constructed by
+    /// `ExprChecker` (e.g., for `x: Self = ...` annotations in body)
+    /// so `Self` resolves correctly in expression-position type
+    /// annotations as well as method signatures.
+    current_nominal: ?SymbolId = null,
+
     /// Enter the next scope in the resolver's creation order. Saves the
     /// previous scope so the caller can restore via `leaveScope`.
     fn enterNextScope(self: *ExprChecker) ScopeId {
@@ -1700,11 +1992,17 @@ const ExprChecker = struct {
 
     /// M20a: walk a nominal declaration (`(struct ...)` /
     /// `(enum ...)` / `(errors ...)`), descending into each
-    /// `fun`/`sub` member so its body is type-checked.
+    /// `fun`/`sub` member so its body is type-checked. M20a.2:
+    /// also sets `current_nominal` so `Self` in body local type
+    /// annotations resolves correctly.
     fn walkNominalDecl(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
         if (items.len < 2) return;
         const name = identAt(self.ctx.source, items[1]) orelse return;
         const nominal_sym_id = self.ctx.lookup(self.current_scope, name) orelse return;
+
+        const prev_nominal = self.current_nominal;
+        self.current_nominal = nominal_sym_id;
+        defer self.current_nominal = prev_nominal;
 
         for (items[2..]) |member| {
             if (member != .list or member.list.len == 0 or member.list[0] != .tag) continue;
@@ -1878,10 +2176,12 @@ const ExprChecker = struct {
             break :blk self.ctx.lookup(self.current_scope, nm) orelse symbol_invalid;
         };
 
-        // Resolve the explicit type annotation, if any.
+        // Resolve the explicit type annotation, if any. M20a.2: plumb
+        // `current_nominal` so `Self` resolves correctly inside method
+        // bodies (e.g., `x: Self = User(...)`).
         var declared_ty: TypeId = self.ctx.types.unknown_id;
         if (type_node != .nil) {
-            var tr: TypeResolver = .{ .ctx = self.ctx };
+            var tr: TypeResolver = .{ .ctx = self.ctx, .current_nominal = self.current_nominal };
             declared_ty = try tr.resolveType(type_node, self.current_scope);
         } else if (sym_id != symbol_invalid) {
             const existing = self.ctx.symbols.items[sym_id].ty;
@@ -2401,17 +2701,10 @@ const ExprChecker = struct {
         name_pos: u32,
         args: []const Sexp,
     ) std.mem.Allocator.Error!TypeId {
-        // Unwrap borrow_read / borrow_write (but NOT optional —
-        // optional unwrap would silently reintroduce null-deref;
-        // per GPT-5.5 M20a design pass).
-        var ty = self.ctx.types.get(receiver_ty_id);
-        while (true) {
-            switch (ty) {
-                .borrow_read => |inner| ty = self.ctx.types.get(inner),
-                .borrow_write => |inner| ty = self.ctx.types.get(inner),
-                else => break,
-            }
-        }
+        // M20a / M20a.2: peel borrow_read / borrow_write — see
+        // `unwrapBorrows` rationale.
+        const peeled = unwrapBorrows(self.ctx, receiver_ty_id);
+        const ty = self.ctx.types.get(peeled);
 
         if (ty != .nominal) {
             // Receiver doesn't resolve to a nominal — silent unknown
@@ -2434,20 +2727,31 @@ const ExprChecker = struct {
             if (fn_ty_val != .function) continue;
             const fn_ty = fn_ty_val.function;
 
-            if (fn_ty.params.len == 0) {
-                // Method declared with no `self` — calling as instance
-                // is wrong. Diagnose and synth args.
-                try self.err(name_pos, "method `{s}` has no `self` parameter; call as `{s}.{s}(...)`", .{
+            // M20a.2: dispatch on the receiver metadata established at
+            // decl-time, NOT on `params.len > 0`. Otherwise associated/
+            // static methods with parameters silently dispatch as
+            // instance methods — the M20a soundness bug GPT-5.5 caught.
+            if (f.receiver == .none) {
+                try self.err(name_pos, "method `{s}` has no `self` receiver; call as `{s}.{s}(...)`", .{
                     method_name, nominal_sym.name, method_name,
                 });
                 for (args) |a| _ = try self.synthExpr(a);
                 return fn_ty.returns;
             }
 
-            // Validate receiver mode at the call site.
-            try self.checkReceiverMode(receiver_expr, fn_ty.params[0], method_name, name_pos);
+            // Validate receiver mode at the call site using the method's
+            // declared receiver mode (decl-time, authoritative) rather
+            // than re-deriving from `fn_ty.params[0]`. M20a.2 also
+            // passes the receiver expression's TYPE classification so
+            // we catch e.g. `get_ref().consume()` where the rvalue
+            // is actually a read borrow (would be silently accepted
+            // on shape alone).
+            const recv_type_kind = classifyReceiverType(self.ctx, receiver_ty_id, nominal_sym_id);
+            try self.checkReceiverMode(receiver_expr, f.receiver, recv_type_kind, method_name, name_pos);
 
-            // Check the remaining args against `params[1..]`.
+            // Check the remaining args against `params[1..]`. (Instance
+            // methods always have at least one param — `self` — by
+            // construction of f.receiver != .none.)
             const non_self_fn = FunctionType{
                 .params = fn_ty.params[1..],
                 .returns = fn_ty.returns,
@@ -2480,65 +2784,81 @@ const ExprChecker = struct {
     fn checkReceiverMode(
         self: *ExprChecker,
         receiver_expr: Sexp,
-        self_param_ty_id: TypeId,
+        receiver: MethodReceiver,
+        recv_type_kind: ReceiverTypeKind,
         method_name: []const u8,
         name_pos: u32,
     ) std.mem.Allocator.Error!void {
-        const self_param_ty = self.ctx.types.get(self_param_ty_id);
+        const shape = classifyReceiverShape(receiver_expr);
 
-        const ReceiverShape = enum { read_explicit, write_explicit, move_explicit, lvalue_bare, rvalue };
-        const shape: ReceiverShape = blk: {
-            if (receiver_expr == .list and receiver_expr.list.len >= 2 and
-                receiver_expr.list[0] == .tag)
-            {
-                switch (receiver_expr.list[0].tag) {
-                    .@"read" => break :blk .read_explicit,
-                    .@"write" => break :blk .write_explicit,
-                    .@"move" => break :blk .move_explicit,
-                    // Expression forms that produce a fresh value: rvalue.
-                    .@"call", .@"builtin", .@"record", .@"propagate",
-                    .@"clone", .@"share", .@"weak", .@"pin", .@"raw",
-                    => break :blk .rvalue,
-                    else => break :blk .lvalue_bare,
-                }
-            }
-            // .src (bare name) or other — lvalue.
-            break :blk .lvalue_bare;
-        };
-
-        switch (self_param_ty) {
-            .borrow_read => {
-                // ?Self — auto-borrow OK.
+        switch (receiver) {
+            .read => {
+                // ?Self — auto-borrow OK. Any receiver-type kind that
+                // resolves to the enclosing nominal is fine; `other`
+                // typed receivers (different nominal, unknown, etc.)
+                // also slide silently — sema has likely already fired
+                // a more useful diagnostic elsewhere.
                 switch (shape) {
-                    .read_explicit, .lvalue_bare, .rvalue => return,
-                    // Write borrow can coerce to read access at the call site.
-                    .write_explicit => return,
                     .move_explicit => {
                         try self.err(name_pos, "method `{s}` takes a read borrow of receiver; cannot move", .{method_name});
                     },
+                    else => return,
                 }
             },
-            .borrow_write => {
-                // !Self — require explicit write borrow.
+            .write => {
+                // !Self — require explicit write borrow OR a write-
+                // borrowed type at call site OR an owned rvalue.
+                // Reject: read borrow (type or shape), bare lvalue
+                // without explicit !, explicit move.
+                if (recv_type_kind == .read_borrow) {
+                    try self.err(name_pos, "method `{s}` requires a write-borrowed receiver; cannot upgrade a read borrow to a write borrow", .{method_name});
+                    return;
+                }
                 switch (shape) {
-                    .write_explicit, .rvalue => return,
+                    .write_explicit => return, // explicit (!u)
+                    .rvalue => {
+                        // OK only if the rvalue's type is owned or
+                        // already write-borrowed. (Read-borrow rvalue
+                        // already rejected above.) `.other` slides —
+                        // sema has likely fired a more useful error
+                        // elsewhere, and we don't want to compound it.
+                        if (recv_type_kind == .owned_nominal or
+                            recv_type_kind == .write_borrow or
+                            recv_type_kind == .other) return;
+                        try self.err(name_pos, "method `{s}` requires a write-borrowed receiver; this expression yields a borrowed value, not an owned one", .{method_name});
+                    },
                     .read_explicit => try self.err(name_pos, "method `{s}` requires a write-borrowed receiver; got `?...`; use `(!receiver).{s}(...)`", .{ method_name, method_name }),
                     .move_explicit => try self.err(name_pos, "method `{s}` requires a write-borrowed receiver; cannot move; use `(!receiver).{s}(...)`", .{ method_name, method_name }),
                     .lvalue_bare => try self.err(name_pos, "method `{s}` requires a write-borrowed receiver; use `(!receiver).{s}(...)`", .{ method_name, method_name }),
                 }
             },
-            .nominal => {
-                // By-value Self — require explicit move from lvalue; rvalue OK.
+            .value => {
+                // By-value Self — require explicit move OR owned
+                // rvalue. Reject any borrow (read or write), bare
+                // lvalue without explicit `<`.
+                switch (recv_type_kind) {
+                    .read_borrow, .write_borrow => {
+                        try self.err(name_pos, "method `{s}` consumes the receiver; cannot consume through a borrowed value", .{method_name});
+                        return;
+                    },
+                    else => {},
+                }
                 switch (shape) {
-                    .move_explicit, .rvalue => return,
+                    .move_explicit => return,
+                    .rvalue => {
+                        // OK only if owned. (Borrow returned from
+                        // a call was rejected above on type kind.)
+                        if (recv_type_kind == .owned_nominal or recv_type_kind == .other) return;
+                        try self.err(name_pos, "method `{s}` consumes the receiver; this expression yields a borrowed value, not an owned one", .{method_name});
+                    },
                     .read_explicit, .write_explicit => try self.err(name_pos, "method `{s}` consumes the receiver; borrow forms not allowed; use `(<receiver).{s}(...)`", .{ method_name, method_name }),
                     .lvalue_bare => try self.err(name_pos, "method `{s}` consumes the receiver; use `(<receiver).{s}(...)`", .{ method_name, method_name }),
                 }
             },
-            else => {
-                // Receiver type isn't ?Self / !Self / Self — skip
-                // mode check (e.g., method with no self, malformed,
-                // or generic-instance unknown). Conservative.
+            .none => {
+                // Should never reach here — synthInstanceCall errors
+                // for `none` receivers before calling checkReceiverMode.
+                // Belt-and-suspenders guard.
             },
         }
     }
@@ -2717,19 +3037,11 @@ const ExprChecker = struct {
         if (obj_ty_id == self.ctx.types.invalid_id or obj_ty_id == self.ctx.types.unknown_id) {
             return self.ctx.types.unknown_id;
         }
-        // M20a: unwrap one level of borrow_read / borrow_write so
-        // `self.name` on `self: ?User` reaches User's fields. Do NOT
-        // unwrap optional (`User?`) — that would silently introduce
-        // null-deref; member access on optional must be an error or
-        // explicit handling via a future `?.` operator.
-        var ty = self.ctx.types.get(obj_ty_id);
-        while (true) {
-            switch (ty) {
-                .borrow_read => |inner| ty = self.ctx.types.get(inner),
-                .borrow_write => |inner| ty = self.ctx.types.get(inner),
-                else => break,
-            }
-        }
+        // M20a / M20a.2: peel borrow_read / borrow_write so `self.name`
+        // on `self: ?User` reaches User's fields. Optional / fallible
+        // are NOT peeled — see `unwrapBorrows` rationale.
+        const peeled = unwrapBorrows(self.ctx, obj_ty_id);
+        const ty = self.ctx.types.get(peeled);
         if (ty != .nominal) return self.ctx.types.unknown_id;
 
         const sym_id = ty.nominal;

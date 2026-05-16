@@ -1,0 +1,21 @@
+## M20a.2 negative: sigil-prefixed entry in nominal MEMBER position.
+##
+## The grammar's `field` production is reused for both function
+## parameters and nominal members. After M20a.1 added `READ_PFX fname`
+## and `WRITE_PFX fname` as `field` alternatives, `struct S { ?x }`
+## parses to a `(read x)` member that `resolveStructFields` would
+## silently drop (the prior `else => {}` branch). M20a.2 closes the
+## hole with a dedicated diagnostic so users see why their member
+## declaration was rejected instead of getting a downstream
+## "no field `x`" surprise.
+##
+## EXPECTED: sema error: sigil-prefixed member is not allowed in a
+## nominal body.
+
+struct S
+  name: String
+  ?x
+
+sub main()
+  s = S(name: "a", x: 5)
+  print(s.name)
