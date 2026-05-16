@@ -114,9 +114,30 @@ pub const Type = union(enum) {
 
     function: FunctionType,
     /// Reference to a named declaration (struct, enum, type alias,
-    /// generic-type instantiation later). The actual definition lives
-    /// at `SemContext.symbols[symbol]`.
+    /// generic-type DECLARATION). The actual definition lives at
+    /// `SemContext.symbols[symbol]`.
     nominal: SymbolId,
+
+    /// M20b(2/5): a fully-applied generic type instantiation. `sym`
+    /// points at the generic_type Symbol (e.g., `Box`); `args` are
+    /// the type arguments in declaration order (e.g., `[Int]` for
+    /// `Box(Int)`). The interner deduplicates by structure so
+    /// `Box(Int)` always returns the same TypeId. `args` is owned
+    /// by the SemContext arena.
+    parameterized_nominal: ParamNominal,
+
+    /// M20b(2/5): a generic type parameter reference. `SymbolId`
+    /// points at a `.generic_param` Symbol bound by SymbolResolver
+    /// when walking a generic type's body. Substituted away by
+    /// `substituteType` at use sites; should never escape into
+    /// resolved expression types after substitution.
+    type_var: SymbolId,
+};
+
+/// M20b(2/5): a fully-applied generic type instantiation.
+pub const ParamNominal = struct {
+    sym: SymbolId,
+    args: []const TypeId,
 };
 
 /// Type interner. Ensures structural equality for atomic types
@@ -213,6 +234,14 @@ pub const TypeStore = struct {
                 break :blk true;
             },
             .nominal => |an| an == b.nominal,
+            .parameterized_nominal => |an| blk: {
+                const bn = b.parameterized_nominal;
+                if (an.sym != bn.sym) break :blk false;
+                if (an.args.len != bn.args.len) break :blk false;
+                for (an.args, bn.args) |ap, bp| if (ap != bp) break :blk false;
+                break :blk true;
+            },
+            .type_var => |an| an == b.type_var,
         };
     }
 };
@@ -232,6 +261,12 @@ pub const SymbolKind = enum {
     type_alias,
     /// Generic type declaration (`type Box(T) = ...`).
     generic_type,
+    /// M20b(2/5): a generic type parameter (`T` in `type Box(T)`).
+    /// Bound by SymbolResolver when walking the generic type body.
+    /// Referenced as a `type_var(SymbolId)` Type variant. Lives in
+    /// the type namespace only — using `T` as a value-position name
+    /// must fail to resolve.
+    generic_param,
     /// Struct / enum / errors / opaque declaration.
     nominal_type,
     /// Module imported via `use`.
@@ -1785,6 +1820,158 @@ fn classifyReceiverShape(receiver_expr: Sexp) ReceiverShape {
     // `.src` (bare name) or other leaf — lvalue.
     return .lvalue_bare;
 }
+
+/// M20b(2/5): substitution map for generic type-parameter resolution.
+/// `params` and `args` are parallel slices: index `i` maps `params[i]`
+/// (a `.generic_param` SymbolId) to `args[i]` (the supplied TypeId).
+///
+/// Constructed at lookup time from a receiver's `parameterized_nominal`
+/// args, then passed into `substituteType` to walk the field/method's
+/// stored symbolic type and produce the concrete substituted form.
+pub const TypeSubst = struct {
+    params: []const SymbolId,
+    args: []const TypeId,
+
+    pub const empty: TypeSubst = .{ .params = &.{}, .args = &.{} };
+
+    pub fn lookup(self: TypeSubst, param: SymbolId) ?TypeId {
+        for (self.params, 0..) |p, i| {
+            if (p == param and i < self.args.len) return self.args[i];
+        }
+        return null;
+    }
+
+    pub fn isEmpty(self: TypeSubst) bool {
+        return self.params.len == 0;
+    }
+};
+
+/// M20b(2/5): walk a type and substitute generic-param references
+/// (`type_var(T_sym)`) with the corresponding TypeId from `subst`.
+/// Recurses through every Type variant that can contain a TypeId
+/// (`borrow_read`/`borrow_write`/`optional`/`fallible`/`slice`/`array`/
+/// `function`/`parameterized_nominal`). Returns the input unchanged if
+/// no substitution applies (including when `subst` is empty — fast
+/// path for plain nominals).
+///
+/// Per GPT-5.5: unbound type_vars left unchanged (`type_var(U)` not
+/// in `subst` returns `type_var(U)`) — matters for future method-local
+/// generics where outer-scope and inner-scope substitutions stage
+/// separately.
+pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem.Allocator.Error!TypeId {
+    if (subst.isEmpty()) return ty_id;
+    const ty = ctx.types.get(ty_id);
+    return switch (ty) {
+        .type_var => |sym| subst.lookup(sym) orelse ty_id,
+        .borrow_read => |inner| blk: {
+            const new_inner = try substituteType(ctx, inner, subst);
+            if (new_inner == inner) break :blk ty_id;
+            break :blk try ctx.types.intern(ctx.allocator, .{ .borrow_read = new_inner });
+        },
+        .borrow_write => |inner| blk: {
+            const new_inner = try substituteType(ctx, inner, subst);
+            if (new_inner == inner) break :blk ty_id;
+            break :blk try ctx.types.intern(ctx.allocator, .{ .borrow_write = new_inner });
+        },
+        .optional => |inner| blk: {
+            const new_inner = try substituteType(ctx, inner, subst);
+            if (new_inner == inner) break :blk ty_id;
+            break :blk try ctx.types.intern(ctx.allocator, .{ .optional = new_inner });
+        },
+        .fallible => |inner| blk: {
+            const new_inner = try substituteType(ctx, inner, subst);
+            if (new_inner == inner) break :blk ty_id;
+            break :blk try ctx.types.intern(ctx.allocator, .{ .fallible = new_inner });
+        },
+        .slice => |s| blk: {
+            const new_elem = try substituteType(ctx, s.elem, subst);
+            if (new_elem == s.elem) break :blk ty_id;
+            break :blk try ctx.types.intern(ctx.allocator, .{ .slice = .{ .elem = new_elem } });
+        },
+        .array => |arr| blk: {
+            const new_elem = try substituteType(ctx, arr.elem, subst);
+            if (new_elem == arr.elem) break :blk ty_id;
+            break :blk try ctx.types.intern(ctx.allocator, .{ .array = .{ .elem = new_elem, .len = arr.len } });
+        },
+        .function => |fn_ty| blk: {
+            var changed = false;
+            const new_ret = try substituteType(ctx, fn_ty.returns, subst);
+            if (new_ret != fn_ty.returns) changed = true;
+            var new_params_buf: std.ArrayListUnmanaged(TypeId) = .empty;
+            defer new_params_buf.deinit(ctx.allocator);
+            try new_params_buf.ensureTotalCapacity(ctx.allocator, fn_ty.params.len);
+            for (fn_ty.params) |p| {
+                const np = try substituteType(ctx, p, subst);
+                if (np != p) changed = true;
+                new_params_buf.appendAssumeCapacity(np);
+            }
+            if (!changed) break :blk ty_id;
+            const owned = try ctx.arena.allocator().dupe(TypeId, new_params_buf.items);
+            break :blk try ctx.types.intern(ctx.allocator, .{ .function = .{
+                .params = owned,
+                .returns = new_ret,
+                .is_sub = fn_ty.is_sub,
+            } });
+        },
+        .parameterized_nominal => |pn| blk: {
+            var changed = false;
+            var new_args_buf: std.ArrayListUnmanaged(TypeId) = .empty;
+            defer new_args_buf.deinit(ctx.allocator);
+            try new_args_buf.ensureTotalCapacity(ctx.allocator, pn.args.len);
+            for (pn.args) |a| {
+                const na = try substituteType(ctx, a, subst);
+                if (na != a) changed = true;
+                new_args_buf.appendAssumeCapacity(na);
+            }
+            if (!changed) break :blk ty_id;
+            const owned = try ctx.arena.allocator().dupe(TypeId, new_args_buf.items);
+            break :blk try ctx.types.intern(ctx.allocator, .{ .parameterized_nominal = .{ .sym = pn.sym, .args = owned } });
+        },
+        else => ty_id,
+    };
+}
+
+/// M20b(2/5): the enclosing nominal context for type resolution and
+/// body checking. Replaces the simpler `current_nominal: ?SymbolId`
+/// used in M20a/M20a.2 — generic types need to carry their type-param
+/// list (so `T` inside `type Box(T)` resolves) AND a precomputed
+/// `self_type` so `Self` always resolves to the right `(parameterized_)
+/// nominal` consistently.
+///
+/// For plain nominals (struct/enum/errors):
+///   `{ sym, self_type = nominal(sym), type_params = &.{} }`.
+///
+/// For generic types (`type Box(T)`):
+///   `{ sym, self_type = parameterized_nominal(sym, [type_var(T)]),
+///      type_params = [T_sym] }`.
+///
+/// `resolveType` uses `type_params` to resolve bare identifier `T` to
+/// `type_var(T_sym)` even when the original generic body scope is no
+/// longer active (e.g., when `ExprChecker.checkSet` constructs an
+/// on-the-fly TypeResolver for a body annotation). Per GPT-5.5: do
+/// not rely solely on lexical scope binding.
+pub const NominalContext = struct {
+    sym: SymbolId,
+    self_type: TypeId,
+    type_params: []const SymbolId,
+
+    /// Empty context — for top-level resolution outside any nominal.
+    pub const none: NominalContext = .{
+        .sym = symbol_invalid,
+        .self_type = type_invalid,
+        .type_params = &.{},
+    };
+
+    pub fn isEmpty(self: NominalContext) bool {
+        return self.sym == symbol_invalid;
+    }
+    // Note: NominalContext does NOT carry a "selfSubst" — for generic
+    // body symbolic resolution, `resolveType` stores `type_var(T)`
+    // directly via NominalContext.type_params lookup, so no identity
+    // substitution is needed. Concrete substitution at use sites uses
+    // `TypeSubst{params=ctx.type_params, args=parameterized_nominal.args}`
+    // constructed by the lookup helpers (M20b(4/5)).
+};
 
 /// M20b: result of resolving a data-field reference on a receiver
 /// type. Carries the matched `Field`, the (possibly substituted) field
@@ -3615,6 +3802,24 @@ fn formatType(ctx: *SemContext, ty_id: TypeId) std.mem.Allocator.Error![]const u
         .array => |arr| try std.fmt.allocPrint(a, "[{d}]{s}", .{ arr.len, try formatType(ctx, arr.elem) }),
         .function => "fn(...)",
         .nominal => |sym| ctx.symbols.items[sym].name,
+        .parameterized_nominal => |pn| blk: {
+            // Render `Box(Int, String)` style.
+            const base_name = ctx.symbols.items[pn.sym].name;
+            if (pn.args.len == 0) break :blk try std.fmt.allocPrint(a, "{s}()", .{base_name});
+            // Build args list via repeated allocPrint — fine for the
+            // diagnostic path; not on the hot loop.
+            var buf: std.ArrayListUnmanaged(u8) = .empty;
+            defer buf.deinit(a);
+            try buf.appendSlice(a, base_name);
+            try buf.append(a, '(');
+            for (pn.args, 0..) |arg, i| {
+                if (i > 0) try buf.appendSlice(a, ", ");
+                try buf.appendSlice(a, try formatType(ctx, arg));
+            }
+            try buf.append(a, ')');
+            break :blk try a.dupe(u8, buf.items);
+        },
+        .type_var => |sym| ctx.symbols.items[sym].name,
     };
 }
 
