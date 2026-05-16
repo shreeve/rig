@@ -1,0 +1,1 @@
+examples/method_sugar_bad_name.rig:11:12: error: sigil-prefixed parameter is only allowed for `self`; for other parameters use `xs: ?Type` / `xs: !Type`

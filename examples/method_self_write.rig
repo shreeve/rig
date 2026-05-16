@@ -1,7 +1,6 @@
-## M20a: instance method with write receiver (!self).
+## M20a + M20a.1: instance method with write receiver, sigil-on-name sugar.
 ##
-## - `sub modify(self: !User, new_name: String)` declares a write-
-##   borrowed self.
+## - `!self` is M20a.1 sugar for `self: !Self`. Desugars in sema.
 ## - At the call site, `(!u).modify("Bob")` requires the EXPLICIT `!`.
 ##   Per M20a (and Rig's visible-mutation thesis), write receivers
 ##   are NEVER auto-borrowed — the caller must mark mutation visibly.
@@ -14,7 +13,7 @@
 struct User
   name: String
 
-  sub modify(self: !User, new_name: String)
+  sub modify(!self, new_name: String)
     print(self.name)
     print(new_name)
 

@@ -1,0 +1,15 @@
+## M20a.1 negative: sigil-prefixed parameter on a non-`self` name.
+##
+## `?xs` and `!other` etc. are reserved for the `?self` / `!self`
+## sugar only. For other parameters, the sigil belongs on the type:
+## `xs: ?[]Item`, `other: !User`, etc. This rule defends against the
+## foot-gun where users assume `?name` is a general "borrowed param"
+## form.
+##
+## EXPECTED: sema error at the bad parameter.
+
+fun first(?xs) -> Int
+  42
+
+sub main()
+  print(first(1))

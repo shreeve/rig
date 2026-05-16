@@ -468,6 +468,47 @@ currently silent — minor hole); explicit diagnostic for
 field-target assignment (`self.name = new_name` — `checkSet`
 enhancement).
 
+### M20a.1 — `?self` / `!self` sigil-on-name sugar ✅
+Tiny ergonomic follow-up to M20a. The common borrow-receiver
+case gets a sigil-on-name shorthand that desugars during sema:
+
+```rig
+fun greet(?self) -> String     # sugar for `self: ?Self`
+sub modify(!self, n: String)   # sugar for `self: !Self`
+sub consume(self: Self)        # by-value still uses the long form
+```
+
+- **Grammar** (`rig.grammar`): two new `field` productions emit
+  `(read NAME)` / `(write NAME)` at param position. Conflict
+  count unchanged at 34. Both spellings remain valid; the sugar
+  is purely an alternative for the common case.
+- **Sema** (`src/types.zig`):
+  - `paramName` recognizes the new shapes for name extraction.
+  - `SymbolResolver.bindParam` accepts `(read NAME)` /
+    `(write NAME)` and marks the symbol as a borrowed param.
+  - `TypeResolver.resolveParamType` validates: name must be
+    literally `self`, and the enclosing `current_nominal` must
+    be set (i.e., we're inside a method body). Returns
+    `borrow_read(nominal(self))` / `borrow_write(nominal(self))`.
+  - Two new diagnostics: "sigil-prefixed parameter is only
+    allowed for `self`" (for `?xs`, `!other`, etc.); "`?self`
+    is only allowed in a method body" (for `?self` at module
+    scope).
+- **Emit** (`src/emit.zig`):
+  - `emitParam` lowers `(read NAME)` / `(write NAME)` to
+    `NAME: EnclosingType` using `current_nominal_name` (set
+    by `emitStruct` / `emitEnum`).
+  - Emitter's `bindParam` also recognizes the shapes.
+- **No new tags, no new IR shapes** — reuses the existing
+  `read` / `write` Tags. Position-based disambiguation
+  (param-position vs expression-position).
+- Existing M20a examples updated to use the sugar; emitted Zig
+  is byte-identical to the explicit form (the desugared sema
+  resolves to the same `borrow_read(nominal(...))` type).
+- 2 new negative examples (`method_sugar_bad_name`,
+  `method_sugar_outside_nominal`) pin the two diagnostics.
+- 402 passed, 0 failed (was 394).
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note

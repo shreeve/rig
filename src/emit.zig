@@ -493,7 +493,13 @@ pub const Emitter = struct {
     }
 
     fn emitParam(self: *Emitter, p: Sexp) Error!void {
-        // Param shapes: name | (: name type) | (pre_param name type) | (default name type expr)
+        // Param shapes:
+        //   name                       — untyped
+        //   (: name type)              — typed
+        //   (pre_param name type)      — comptime-typed
+        //   (default name type expr)   — typed with default
+        //   (read NAME) / (write NAME) — M20a.1 `?self` / `!self` sugar;
+        //                                desugars to NAME: EnclosingType
         switch (p) {
             .src => |s| try self.w.print("{s}: anytype", .{self.source[s.pos..][0..s.len]}),
             .list => |items| {
@@ -508,6 +514,21 @@ pub const Emitter = struct {
                         const name = identText(self.source, items[1]) orelse "_";
                         try self.w.print("comptime {s}: ", .{name});
                         if (items.len >= 3) try self.emitType(items[2]) else try self.w.writeAll("anytype");
+                    },
+                    // M20a.1: `?self` / `!self` sugar. Emit as
+                    // `NAME: EnclosingType`. Borrow stripping in
+                    // emit follows the same convention as the
+                    // explicit `self: ?User` form (Zig is loose
+                    // about borrows at the type level — M2 enforced
+                    // them).
+                    .@"read", .@"write" => {
+                        const name = identText(self.source, items[1]) orelse "_";
+                        try self.w.print("{s}: ", .{name});
+                        if (self.current_nominal_name) |nom| {
+                            try self.w.writeAll(nom);
+                        } else {
+                            try self.w.writeAll("anytype");
+                        }
                     },
                     else => {},
                 }
@@ -524,6 +545,10 @@ pub const Emitter = struct {
                 if (p.list.len >= 2 and p.list[0] == .tag) {
                     switch (p.list[0].tag) {
                         .@":", .pre_param, .default, .aligned => name_node = p.list[1],
+                        // M20a.1: `?self` / `!self` sugar — bind the
+                        // wrapped name (typically `self`) into the
+                        // emit scope.
+                        .@"read", .@"write" => name_node = p.list[1],
                         else => {},
                     }
                 }

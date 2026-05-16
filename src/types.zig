@@ -613,6 +613,18 @@ const SymbolResolver = struct {
                             type_node = items[2];
                         }
                     },
+                    // M20a.1: `?self` / `!self` sugar — `(read NAME)` /
+                    // `(write NAME)` at param position. Treat as a
+                    // borrowed param; type-resolution happens in
+                    // TypeResolver where the enclosing nominal is known.
+                    .@"read", .@"write" => {
+                        if (items.len >= 2) {
+                            name_node = items[1];
+                            // type_node stays nil; the borrowed-param
+                            // flag below is set unconditionally for
+                            // these shapes.
+                        }
+                    },
                     else => return,
                 }
             },
@@ -621,7 +633,18 @@ const SymbolResolver = struct {
 
         const name = identAt(self.ctx.source, name_node) orelse return;
         const decl_pos = if (name_node == .src) name_node.src.pos else 0;
-        const borrowed = isBorrowedTypeNode(type_node);
+        // M20a.1: `?self` / `!self` sugar — the `read`/`write` head
+        // signals a borrow without an explicit type_node, so mark as
+        // borrowed unconditionally.
+        const borrowed = blk: {
+            if (param == .list and param.list.len >= 1 and param.list[0] == .tag) {
+                switch (param.list[0].tag) {
+                    .@"read", .@"write" => break :blk true,
+                    else => {},
+                }
+            }
+            break :blk isBorrowedTypeNode(type_node);
+        };
         _ = try self.addSymbol(.{
             .name = name,
             .kind = .param,
@@ -1327,6 +1350,32 @@ const TypeResolver = struct {
                 switch (items[0].tag) {
                     .@":" => if (items.len >= 3) return self.resolveType(items[2], scope),
                     .@"pre_param" => if (items.len >= 3) return self.resolveType(items[2], scope),
+                    // M20a.1: `?self` / `!self` sugar. Type resolves to
+                    // `(borrow_read|borrow_write) nominal(current_nominal)`.
+                    // Validate that the wrapped name is literally `self`
+                    // and that we're inside a nominal body. Otherwise
+                    // fire a diagnostic and return invalid.
+                    .@"read", .@"write" => {
+                        if (items.len < 2) return self.ctx.types.invalid_id;
+                        const name = identAt(self.ctx.source, items[1]) orelse return self.ctx.types.invalid_id;
+                        const pos: u32 = if (items[1] == .src) items[1].src.pos else 0;
+                        if (!std.mem.eql(u8, name, "self")) {
+                            try self.err(pos, "sigil-prefixed parameter is only allowed for `self`; for other parameters use `{s}: ?Type` / `{s}: !Type`", .{ name, name });
+                            return self.ctx.types.invalid_id;
+                        }
+                        const nom_id = self.current_nominal orelse {
+                            try self.err(pos, "`{s}self` is only allowed in a method body (inside a struct, enum, or errors declaration)", .{
+                                if (items[0].tag == .@"read") "?" else "!",
+                            });
+                            return self.ctx.types.invalid_id;
+                        };
+                        const self_ty = try self.ctx.types.intern(self.ctx.allocator, .{ .nominal = nom_id });
+                        const wrap_payload = if (items[0].tag == .@"read")
+                            Type{ .borrow_read = self_ty }
+                        else
+                            Type{ .borrow_write = self_ty };
+                        return try self.ctx.types.intern(self.ctx.allocator, wrap_payload);
+                    },
                     else => {},
                 }
                 return self.ctx.types.unknown_id;
@@ -1502,6 +1551,11 @@ fn paramName(source: []const u8, param: Sexp) ?[]const u8 {
             if (items.len == 0 or items[0] != .tag) break :blk null;
             switch (items[0].tag) {
                 .@":", .@"pre_param" => {
+                    if (items.len >= 2) break :blk identAt(source, items[1]);
+                },
+                // M20a.1: `?self` / `!self` sugar emits `(read self)` /
+                // `(write self)` at param position — extract the name.
+                .@"read", .@"write" => {
                     if (items.len >= 2) break :blk identAt(source, items[1]);
                 },
                 else => {},

@@ -1,0 +1,1 @@
+examples/method_sugar_outside_nominal.rig:10:13: error: `?self` is only allowed in a method body (inside a struct, enum, or errors declaration)

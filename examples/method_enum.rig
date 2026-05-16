@@ -13,7 +13,7 @@ enum Color
   green
   blue
 
-  fun is_red(self: ?Color) -> Bool
+  fun is_red(?self) -> Bool
     match self
       .red => true
       .green => false

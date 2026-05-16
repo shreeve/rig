@@ -1,1 +1,1 @@
-(module (struct User (: name String) (fun greet ((: self (borrow_read User))) String (block 42))) (sub main () _ (block (set _ u _ (call User (kwarg name "Steve"))) (call print (call (member u greet))))))
+(module (struct User (: name String) (fun greet ((read self)) String (block 42))) (sub main () _ (block (set _ u _ (call User (kwarg name "Steve"))) (call print (call (member u greet))))))

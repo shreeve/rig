@@ -1,0 +1,14 @@
+## M20a.1 negative: `?self` / `!self` sugar outside a method body.
+##
+## The sugar resolves to `?Self` / `!Self`, which only has a meaning
+## inside a nominal (struct/enum/errors) body where `Self` is bound.
+## At module-level functions, there's no enclosing nominal — the sugar
+## must error rather than silently lower to something nonsensical.
+##
+## EXPECTED: sema error at the `?self` parameter.
+
+fun lonely(?self) -> Int
+  42
+
+sub main()
+  print(lonely(1))

@@ -10,7 +10,7 @@
 struct User
   name: String
 
-  fun greet(self: ?User) -> String
+  fun greet(?self) -> String
     42
 
 sub main()

@@ -1,6 +1,8 @@
-## M20a: instance method with read receiver (?self).
+## M20a + M20a.1: instance method with read receiver, sigil-on-name sugar.
 ##
-## - `fun greet(self: ?User) -> String` declares a read-borrowed self.
+## - `?self` is M20a.1 sugar for `self: ?Self`. Desugars in sema; the
+##   IR `(read self)` at param position is recognized by paramName /
+##   bindParam / resolveParamType / emitParam.
 ## - At the call site, `u.greet()` auto-borrows ?u — per M20a receiver
 ##   rules, read receivers may be auto-borrowed from a bare lvalue.
 ## - Inside the body, `self.name` reaches User's `name` field via the
@@ -11,7 +13,7 @@
 struct User
   name: String
 
-  fun greet(self: ?User) -> String
+  fun greet(?self) -> String
     self.name
 
 sub main()

@@ -372,6 +372,8 @@ field    = PRE fname ":" type               → (pre_param 2 4)
          | fname ":" type                   → (: 1 3)
          | fname ":" type ALIGN atom        → (aligned 1 3 5)
          | fname ":" type "=" expr          → (default 1 3 5)
+         | READ_PFX  fname                  → (read 2)        # M20a.1: `?self` sugar → desugars to `self: ?Self` in sema
+         | WRITE_PFX fname                  → (write 2)       # M20a.1: `!self` sugar → desugars to `self: !Self` in sema
 
 # SPEC uses parenthesized params: `fun add(a: Int, b: Int) -> Int` and
 # `sub main()`. Bare-list form (Zag-style) also accepted.

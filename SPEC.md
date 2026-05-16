@@ -432,6 +432,71 @@ Procedures return nothing.
 
 ---
 
+## Methods and `self` Receivers
+
+A `fun` or `sub` declared inside a `struct`, `enum`, or `errors`
+body is a method. If its first parameter is named `self`, it's an
+instance method (callable as `value.method(args)`); otherwise it's
+an associated/static method (callable as `Type.method(args)`).
+
+The receiver type uses the same `?T` / `!T` borrow-prefix rules as
+any other parameter:
+
+```rig
+struct User
+  name: String
+
+  fun greet(self: ?User) -> String       # read-borrowed self
+    self.name
+
+  sub modify(self: !User, n: String)     # write-borrowed self
+    self.name = n
+
+  sub consume(self: User)                # by-value (consuming) self
+    print(self.name)
+```
+
+`Self` is a type alias for the enclosing nominal, usable in
+method signatures (and constructors):
+
+```rig
+struct User
+  name: String
+
+  fun make(default: String) -> Self
+    User(name: default)
+```
+
+### Sigil-on-name Sugar for `self`
+
+For the very common borrow-receiver case, Rig accepts a sigil-on-
+name shorthand at parameter position — **only when the name is
+literally `self`**:
+
+```rig
+fun greet(?self) -> String       # sugar for `self: ?Self`
+sub modify(!self, n: String)     # sugar for `self: !Self`
+sub consume(self: Self)          # by-value uses the long form
+```
+
+The sugar lowers to the canonical `self: ?Self` / `self: !Self`
+form during sema; the IR shape, emit output, and ownership rules
+are identical to the explicit form. Both spellings are valid; the
+sugar exists purely as an ergonomic shortcut for the common case.
+
+This is the **only** position where a sigil-prefix may attach to a
+parameter name. Writing `?xs` or `!other` is a sema error
+("sigil-prefixed parameter is only allowed for `self`; for other
+parameters use `xs: ?Type`"). The rule defends against the
+foot-gun where users might assume `?name` is a general "borrowed
+parameter" form — borrow-ness belongs on the type, per the
+`?` / `!` triangle.
+
+The sugar is also rejected outside a nominal body (since `Self`
+has no enclosing type to resolve to).
+
+---
+
 # Function Calls
 
 Rig allows Ruby-style omitted parentheses.

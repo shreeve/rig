@@ -1,1 +1,1 @@
-(module (struct User (: name String) (sub modify ((: self (borrow_write User)) (: new_name String)) _ (block (call print (member self name)) (call print new_name)))) (sub main () _ (block (set _ u _ (call User (kwarg name "Steve"))) (call (member (write u) modify) "Bob"))))
+(module (struct User (: name String) (sub modify ((write self) (: new_name String)) _ (block (call print (member self name)) (call print new_name)))) (sub main () _ (block (set _ u _ (call User (kwarg name "Steve"))) (call (member (write u) modify) "Bob"))))

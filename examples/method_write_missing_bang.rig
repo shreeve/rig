@@ -10,7 +10,7 @@
 struct User
   name: String
 
-  sub rename(self: !User, new_name: String)
+  sub rename(!self, new_name: String)
     print(new_name)
 
 sub main()

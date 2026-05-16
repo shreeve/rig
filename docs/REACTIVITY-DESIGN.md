@@ -27,9 +27,15 @@ note (D6's Cell sketch + the "Why this is a substrate question"
 table) now have real syntax in the language — `cell.set(2)`
 auto-borrows `?cell`, `(!cell).set(2)` is required for write
 receivers, `(<cell).consume()` is required for consuming
-receivers. Subsequent items (generic methods, `Option(T)`, real
-`*`/`~` Rc/Weak, interior mutability, closure capture) remain
-M20+ work.
+receivers.
+
+M20a.1 added the `?self` / `!self` sigil-on-name sugar for the
+common borrow-receiver case, validated to only fire on `self`
+inside a nominal body. The library sketches below now use the
+sugar form (`fun get(?self)` instead of `fun get(self: ?Self)`).
+
+Subsequent items (generic methods, `Option(T)`, real `*`/`~`
+Rc/Weak, interior mutability, closure capture) remain M20+ work.
 
 ## Motivating use case
 
@@ -326,20 +332,20 @@ type Reactor
   # opaque; owns the dirty queue and flush epoch state
 
 sub Reactor.new() -> *Reactor
-sub Reactor.batch(self: ?Reactor, body: fn())
-sub Reactor.flush(self: ?Reactor)
+sub Reactor.batch(?self, body: fn())
+sub Reactor.flush(?self)
 
 type Cell(T)
   # interior-mutable shared cell
 
 sub Cell.new(value: T, reactor: ?Reactor) -> *Cell(T)
-sub Cell.get(self: ?Cell(T)) -> T
-sub Cell.set(self: ?Cell(T), value: T)        # dirty-mark + maybe queue
+sub Cell.get(?self) -> T
+sub Cell.set(?self, value: T)                 # dirty-mark + maybe queue
 
 type Memo(T)
 
 sub Memo.new(deps: [?Reactive], compute: fn() -> T, reactor: ?Reactor) -> *Memo(T)
-sub Memo.get(self: ?Memo(T)) -> T             # lazy pull; recomputes if dirty
+sub Memo.get(?self) -> T                      # lazy pull; recomputes if dirty
 
 type Effect
 
