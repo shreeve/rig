@@ -344,7 +344,21 @@ pub const Symbol = struct {
     ///
     /// Member access (`obj.name`) and constructor checking
     /// (`User(name: ...)`) consult this list.
+    ///
+    /// M20b(3/5): also populated for `generic_type` symbols with the
+    /// type-var-bearing symbolic field types (e.g., for `type Box(T)
+    /// value: T`, the `value` field's `ty` is `type_var(T_sym)`).
     fields: ?[]const Field = null,
+
+    /// M20b(3/5): for `generic_type` symbols, the SymbolIds of this
+    /// type's generic parameters (in declaration order). `null` for
+    /// non-generic symbols. Used by `NominalContext` and by
+    /// `TypeResolver.resolveType` to map a bare identifier `T` to
+    /// `type_var(T_sym)` without depending on the original lexical
+    /// scope being active (per GPT-5.5: more robust than scope-only
+    /// lookup, which fails when `ExprChecker.checkSet` constructs an
+    /// on-the-fly TypeResolver for a body annotation).
+    type_params: ?[]const SymbolId = null,
 };
 
 pub const Scope = struct {
@@ -735,17 +749,84 @@ const SymbolResolver = struct {
     }
 
     fn walkGenericType(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        // (generic_type name params? members)
-        if (items.len < 2) return;
+        // (generic_type name (param...) member...)
+        if (items.len < 3) return;
         const name = identAt(self.ctx.source, items[1]) orelse return;
         const decl_pos = if (items[1] == .src) items[1].src.pos else 0;
-        _ = try self.addSymbol(.{
+        const generic_sym_id = try self.addSymbol(.{
             .name = name,
             .kind = .generic_type,
             .ty = self.ctx.types.unknown_id,
             .decl_pos = decl_pos,
             .scope = self.current_scope,
         });
+
+        // M20b(3/5): bind each type parameter as a `.generic_param`
+        // symbol AND record the param SymbolIds on the generic type
+        // symbol (via `Symbol.type_params`). NominalContext later uses
+        // these to resolve bare `T` → `type_var(T_sym)` even when the
+        // generic body scope isn't lexically active.
+        const params_node = items[2];
+        var param_ids: std.ArrayListUnmanaged(SymbolId) = .empty;
+        defer param_ids.deinit(self.ctx.allocator);
+
+        // Generic-param symbols live in the surrounding (module) scope
+        // so that nested-method-body lookups can reach them via the
+        // ordinary lexical chain too — but the primary resolution path
+        // goes through `Symbol.type_params` + NominalContext, NOT scope.
+        if (params_node == .list) {
+            // Detect duplicate generic params: `type Pair(T, T)` should
+            // error rather than silently shadowing.
+            for (params_node.list, 0..) |p, i| {
+                const pname = identAt(self.ctx.source, p) orelse continue;
+                for (params_node.list[0..i]) |earlier| {
+                    const ename = identAt(self.ctx.source, earlier) orelse continue;
+                    if (std.mem.eql(u8, pname, ename)) {
+                        // Duplicate. We don't have err() here in
+                        // SymbolResolver — fire a diagnostic via the
+                        // ctx's append path.
+                        const ppos: u32 = if (p == .src) p.src.pos else decl_pos;
+                        const msg = try std.fmt.allocPrint(
+                            self.ctx.arena.allocator(),
+                            "duplicate generic parameter `{s}` on `{s}`",
+                            .{ pname, name },
+                        );
+                        try self.ctx.diagnostics.append(self.ctx.allocator, .{
+                            .severity = .@"error",
+                            .pos = ppos,
+                            .message = msg,
+                        });
+                    }
+                }
+            }
+            for (params_node.list) |p| {
+                const pname = identAt(self.ctx.source, p) orelse continue;
+                const ppos: u32 = if (p == .src) p.src.pos else 0;
+                const param_sym_id = try self.addSymbol(.{
+                    .name = pname,
+                    .kind = .generic_param,
+                    .ty = self.ctx.types.unknown_id,
+                    .decl_pos = ppos,
+                    .scope = self.current_scope,
+                });
+                try param_ids.append(self.ctx.allocator, param_sym_id);
+            }
+        }
+
+        const owned_params = try self.ctx.arena.allocator().dupe(SymbolId, param_ids.items);
+        self.ctx.symbols.items[generic_sym_id].type_params = owned_params;
+
+        // M20b(3/5): walk members for `fun`/`sub` methods to open their
+        // body scopes (same machinery as nominal `walkNominalType`).
+        // Data fields don't push scopes; they're typed at pass 2.
+        // Sigil-prefixed members (`?x`) are diagnosed at pass 2.
+        for (items[3..]) |member| {
+            if (member != .list or member.list.len == 0 or member.list[0] != .tag) continue;
+            switch (member.list[0].tag) {
+                .@"fun", .@"sub" => try self.walkMethod(member.list),
+                else => {},
+            }
+        }
     }
 
     fn walkNominalType(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
@@ -1018,10 +1099,13 @@ const SymbolResolver = struct {
 const TypeResolver = struct {
     ctx: *SemContext,
 
-    /// M20a: enclosing nominal symbol when resolving method signatures,
-    /// so `Self` in param/return types resolves to `nominal(enclosing)`.
-    /// Null at module scope and inside ordinary (non-method) functions.
-    current_nominal: ?SymbolId = null,
+    /// M20a / M20b(3/5): enclosing nominal context when resolving
+    /// method signatures or body annotations. Empty (`.none`) at
+    /// module scope. For plain nominals, holds `{sym, nominal(sym),
+    /// &.{}}`. For generic types, holds `{sym, parameterized_nominal(
+    /// sym, [type_var(T_i)]), [T_i...]}` so `Self` and bare `T`
+    /// resolve correctly inside the body.
+    current_nominal: NominalContext = NominalContext.none,
 
     /// Walk top-level decls in the module scope and populate types.
     fn walk(self: *TypeResolver, ir: Sexp, module_scope: ScopeId) std.mem.Allocator.Error!void {
@@ -1067,6 +1151,13 @@ const TypeResolver = struct {
                 // resolver so error-set declarations get fields too.
                 // M20a: returns cursor advanced past method body scopes.
                 return self.resolveEnumVariants(items, parent_scope, scope_cursor);
+            },
+            .@"generic_type" => {
+                // M20b(3/5): generic type body resolution. Populates
+                // `.fields` with type_var-bearing symbolic types and
+                // advances cursor past method body scopes pushed by
+                // SymbolResolver.walkGenericType.
+                return self.resolveGenericTypeFields(items, parent_scope, scope_cursor);
             },
             else => return scope_cursor,
         }
@@ -1147,6 +1238,77 @@ const TypeResolver = struct {
         return cursor;
     }
 
+    /// M20b(3/5): walk a `(generic_type Name (T...) members...)`
+    /// declaration. Populates `.fields` with type-var-bearing symbolic
+    /// types (data fields get their declared type with `T` resolved
+    /// to `type_var(T_sym)`; methods get their function type with the
+    /// same symbolic types in params/return). Advances scope_cursor
+    /// past method body scopes pushed by `SymbolResolver.walkGenericType`.
+    fn resolveGenericTypeFields(
+        self: *TypeResolver,
+        items: []const Sexp,
+        parent_scope: ScopeId,
+        scope_cursor: ScopeId,
+    ) std.mem.Allocator.Error!ScopeId {
+        if (items.len < 3) return scope_cursor;
+        const name = identAt(self.ctx.source, items[1]) orelse return scope_cursor;
+        const sym_id = self.ctx.lookup(parent_scope, name) orelse return scope_cursor;
+
+        // Set NominalContext so resolveType in field/method signatures
+        // resolves `T` → type_var(T_sym) and `Self` → parameterized_nominal.
+        const prev_nominal = self.current_nominal;
+        self.current_nominal = try makeNominalContext(self.ctx, sym_id);
+        defer self.current_nominal = prev_nominal;
+
+        var fields: std.ArrayListUnmanaged(Field) = .empty;
+        defer fields.deinit(self.ctx.allocator);
+
+        var cursor = scope_cursor;
+        // Members start at items[3] for generic_type
+        // (items[0]=tag, items[1]=name, items[2]=params, items[3..]=members).
+        for (items[3..]) |member| {
+            if (member != .list or member.list.len < 2 or member.list[0] != .tag) continue;
+            switch (member.list[0].tag) {
+                // Data field: (: name type) or (: name type default)
+                .@":" => {
+                    if (member.list.len < 3) continue;
+                    const fname_node = member.list[1];
+                    const ftype_node = member.list[2];
+                    const fname = identAt(self.ctx.source, fname_node) orelse continue;
+                    const ftype = try self.resolveType(ftype_node, parent_scope);
+                    try fields.append(self.ctx.allocator, .{
+                        .name = fname,
+                        .ty = ftype,
+                        .decl_pos = if (fname_node == .src) fname_node.src.pos else 0,
+                    });
+                },
+                // M20b(3/5): generic methods. Same resolveNominalMethod
+                // machinery — it already threads current_nominal for
+                // Self / type-var resolution.
+                .@"fun", .@"sub" => {
+                    cursor = try self.resolveNominalMethod(member.list, parent_scope, sym_id, cursor, &fields);
+                },
+                // M20a.2: sigil-prefixed sugar at member position is
+                // rejected for nominals; same for generic types.
+                .@"read", .@"write" => {
+                    try self.err(
+                        paramPos(member, 0),
+                        "sigil-prefixed member (`?{s}` / `!{s}`) is not allowed in a generic type body; sigil-prefix sugar is only valid for the `self` parameter of a method",
+                        .{
+                            if (member.list.len >= 2) identAt(self.ctx.source, member.list[1]) orelse "name" else "name",
+                            if (member.list.len >= 2) identAt(self.ctx.source, member.list[1]) orelse "name" else "name",
+                        },
+                    );
+                },
+                else => {},
+            }
+        }
+
+        const owned = try self.ctx.arena.allocator().dupe(Field, fields.items);
+        self.ctx.symbols.items[sym_id].fields = owned;
+        return cursor;
+    }
+
     /// Resolve a `fun`/`sub` method member of a nominal (struct or
     /// enum) body. Interns the function type, writes each param
     /// symbol's `ty` back into the method body's scope (so `self.name`
@@ -1169,9 +1331,12 @@ const TypeResolver = struct {
         const mname = identAt(self.ctx.source, name_node) orelse return scope_cursor;
         const mpos: u32 = if (name_node == .src) name_node.src.pos else 0;
 
-        // Enclosing nominal is in scope for `Self` resolution.
+        // Enclosing nominal is in scope for `Self` and (for generics)
+        // `T` resolution. M20b(3/5): NominalContext is now a struct
+        // carrying both the SymbolId AND the precomputed self_type
+        // and type_params, so generic methods see the right Self.
         const prev_nominal = self.current_nominal;
-        self.current_nominal = nominal_sym;
+        self.current_nominal = try makeNominalContext(self.ctx, nominal_sym);
         defer self.current_nominal = prev_nominal;
 
         // The method body scope was pushed by SymbolResolver.walkMethod
@@ -1254,23 +1419,31 @@ const TypeResolver = struct {
                 const nom_name = self.ctx.symbols.items[nominal_sym].name;
                 switch (ptype) {
                     .borrow_read => |inner| {
-                        const inner_ty = self.ctx.types.get(inner);
-                        if (inner_ty == .nominal and inner_ty.nominal == nominal_sym) {
+                        if (isSelfTypeId(self.ctx, inner, self.current_nominal)) {
                             receiver_mode = .read;
                         } else {
                             try self.err(mpos, "`self` receiver type must be `?Self` or `?{s}`", .{nom_name});
                         }
                     },
                     .borrow_write => |inner| {
-                        const inner_ty = self.ctx.types.get(inner);
-                        if (inner_ty == .nominal and inner_ty.nominal == nominal_sym) {
+                        if (isSelfTypeId(self.ctx, inner, self.current_nominal)) {
                             receiver_mode = .write;
                         } else {
                             try self.err(mpos, "`self` receiver type must be `!Self` or `!{s}`", .{nom_name});
                         }
                     },
-                    .nominal => |s| {
-                        if (s == nominal_sym) {
+                    .nominal => {
+                        if (isSelfTypeId(self.ctx, ptype_id, self.current_nominal)) {
+                            receiver_mode = .value;
+                        } else {
+                            try self.err(mpos, "`self` receiver type must be `Self` or `{s}`", .{nom_name});
+                        }
+                    },
+                    .parameterized_nominal => {
+                        // M20b(3/5): for generic methods, `self: Self`
+                        // resolves to `parameterized_nominal(sym, [type_var(T)])`
+                        // — that's an isSelfType match for a by-value receiver.
+                        if (isSelfTypeId(self.ctx, ptype_id, self.current_nominal)) {
                             receiver_mode = .value;
                         } else {
                             try self.err(mpos, "`self` receiver type must be `Self` or `{s}`", .{nom_name});
@@ -1553,13 +1726,17 @@ const TypeResolver = struct {
                             try self.err(pos, "sigil-prefixed parameter is only allowed for `self`; for other parameters use `{s}: ?Type` / `{s}: !Type`", .{ name, name });
                             return self.ctx.types.invalid_id;
                         }
-                        const nom_id = self.current_nominal orelse {
+                        if (self.current_nominal.isEmpty()) {
                             try self.err(pos, "`{s}self` is only allowed in a method body (inside a struct, enum, or errors declaration)", .{
                                 if (items[0].tag == .@"read") "?" else "!",
                             });
                             return self.ctx.types.invalid_id;
-                        };
-                        const self_ty = try self.ctx.types.intern(self.ctx.allocator, .{ .nominal = nom_id });
+                        }
+                        // M20b(3/5): use NominalContext.self_type so
+                        // generic methods get `?Box(T)` rather than the
+                        // bare nominal — keeps `?self` symbolic for
+                        // generic-body checking.
+                        const self_ty = self.current_nominal.self_type;
                         const wrap_payload = if (items[0].tag == .@"read")
                             Type{ .borrow_read = self_ty }
                         else
@@ -1583,12 +1760,25 @@ const TypeResolver = struct {
                 if (primitiveTypeId(self.ctx, name)) |id| return id;
                 if (sizedIntTypeId(self.ctx, name)) |id| return id;
                 if (sizedFloatTypeId(self.ctx, name)) |id| return id;
-                // M20a: `Self` inside a nominal-method signature
-                // resolves to the enclosing nominal type. Outside a
-                // nominal context, falls through to ordinary lookup.
-                if (self.current_nominal) |nom_id| {
+                // M20a / M20b(3/5): `Self` inside a nominal context
+                // resolves to the context's cached self_type
+                // (`nominal(sym)` for plain, `parameterized_nominal(
+                // sym, [type_var(T)])` for generics).
+                if (!self.current_nominal.isEmpty()) {
                     if (std.mem.eql(u8, name, "Self")) {
-                        return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = nom_id });
+                        return self.current_nominal.self_type;
+                    }
+                    // M20b(3/5): bare generic param `T` inside the
+                    // generic body resolves to `type_var(T_sym)`.
+                    // Looked up via NominalContext.type_params rather
+                    // than the lexical scope so on-the-fly
+                    // TypeResolvers (e.g., constructed by checkSet for
+                    // body annotations) still find them.
+                    for (self.current_nominal.type_params) |tp_sym| {
+                        const tp = self.ctx.symbols.items[tp_sym];
+                        if (std.mem.eql(u8, tp.name, name)) {
+                            return self.ctx.types.intern(self.ctx.allocator, .{ .type_var = tp_sym });
+                        }
                     }
                 }
                 if (self.ctx.lookup(scope, name)) |sym_id| {
@@ -1597,6 +1787,12 @@ const TypeResolver = struct {
                         sym.kind == .generic_type)
                     {
                         return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = sym_id });
+                    }
+                    // M20b(3/5): generic_param symbols found via scope
+                    // lookup (rare — the NominalContext path above
+                    // usually fires first) resolve to type_var.
+                    if (sym.kind == .generic_param) {
+                        return self.ctx.types.intern(self.ctx.allocator, .{ .type_var = sym_id });
                     }
                 }
                 // Unknown type name. M5 v1 doesn't have a module
@@ -1931,6 +2127,63 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
     };
 }
 
+/// M20b(3/5): does the given TypeId match the enclosing nominal's
+/// `self_type` (modulo identity comparison via the interner)? For
+/// plain nominals this is `ty_id == nominal(sym)`. For generic types
+/// this is `ty_id == parameterized_nominal(sym, [type_var(T_i)])` —
+/// i.e., `Self` as it appears symbolically in the body.
+///
+/// Used by `resolveNominalMethod` to validate that `self: ?Self`
+/// inside `struct User` resolves to `?User` (and inside `type Box(T)`
+/// resolves to `?Box(T)`). The interner gives us structural equality
+/// for free, so this is just a TypeId compare against the cached
+/// self_type.
+pub fn isSelfTypeId(ctx: *const SemContext, ty_id: TypeId, nominal_ctx: NominalContext) bool {
+    if (nominal_ctx.isEmpty()) return false;
+    if (ty_id == nominal_ctx.self_type) return true;
+    // Allow the explicit form (`self: User` matching nominal(User))
+    // for plain nominals — already covered by interner equality above
+    // since `self_type` for plain nominals IS `nominal(sym)`.
+    // For generics, the parameterized form is checked the same way.
+    _ = ctx;
+    return false;
+}
+
+/// M20b(3/5): construct the canonical `NominalContext` for a given
+/// nominal Symbol. For plain nominals (struct/enum/errors), returns
+/// `{sym, nominal(sym), &.{}}`. For generic types, returns
+/// `{sym, parameterized_nominal(sym, [type_var(T)]), [T...]}` —
+/// `self_type` is the parameterized form whose args are the generic
+/// params themselves (so `Self` inside `type Box(T)` is `Box(T)`,
+/// not `Box`).
+pub fn makeNominalContext(ctx: *SemContext, sym_id: SymbolId) std.mem.Allocator.Error!NominalContext {
+    const sym = ctx.symbols.items[sym_id];
+    switch (sym.kind) {
+        .nominal_type => {
+            const self_type = try ctx.types.intern(ctx.allocator, .{ .nominal = sym_id });
+            return .{ .sym = sym_id, .self_type = self_type, .type_params = &.{} };
+        },
+        .generic_type => {
+            const tparams = sym.type_params orelse &.{};
+            // Build args = [type_var(T_i) ...] for self_type = Box(T).
+            var args_buf: std.ArrayListUnmanaged(TypeId) = .empty;
+            defer args_buf.deinit(ctx.allocator);
+            try args_buf.ensureTotalCapacity(ctx.allocator, tparams.len);
+            for (tparams) |tp_sym| {
+                const tv = try ctx.types.intern(ctx.allocator, .{ .type_var = tp_sym });
+                args_buf.appendAssumeCapacity(tv);
+            }
+            const owned = try ctx.arena.allocator().dupe(TypeId, args_buf.items);
+            const self_type = try ctx.types.intern(ctx.allocator, .{ .parameterized_nominal = .{
+                .sym = sym_id,
+                .args = owned,
+            } });
+            return .{ .sym = sym_id, .self_type = self_type, .type_params = tparams };
+        },
+        else => return NominalContext.none,
+    }
+}
+
 /// M20b(2/5): the enclosing nominal context for type resolution and
 /// body checking. Replaces the simpler `current_nominal: ?SymbolId`
 /// used in M20a/M20a.2 — generic types need to carry their type-param
@@ -2199,12 +2452,13 @@ const ExprChecker = struct {
     /// expression of a function with a non-void return.
     current_fn_return: TypeId,
 
-    /// M20a.2: enclosing nominal when type-checking inside a method
-    /// body. Plumbed into any `TypeResolver` instance constructed by
-    /// `ExprChecker` (e.g., for `x: Self = ...` annotations in body)
-    /// so `Self` resolves correctly in expression-position type
-    /// annotations as well as method signatures.
-    current_nominal: ?SymbolId = null,
+    /// M20a.2 / M20b(3/5): enclosing nominal context when type-checking
+    /// inside a method body. Plumbed into any `TypeResolver` instance
+    /// constructed by `ExprChecker` (e.g., for `x: Self = ...`
+    /// annotations in body) so `Self` and (for generics) `T` resolve
+    /// correctly in expression-position type annotations as well as
+    /// method signatures.
+    current_nominal: NominalContext = NominalContext.none,
 
     /// Enter the next scope in the resolver's creation order. Saves the
     /// previous scope so the caller can restore via `leaveScope`.
@@ -2261,31 +2515,38 @@ const ExprChecker = struct {
                 if (items.len >= 2) try self.walkDecl(items[1]);
             },
             .@"fun", .@"sub" => try self.walkFun(items),
-            // M20a: descend into nominal bodies so method bodies are
-            // type-checked. Each method's body scope was pushed by the
-            // SymbolResolver (walkMethod); we must enter them in the
-            // same order to stay in lockstep with the scope cursor.
-            .@"struct", .@"enum", .@"errors" => try self.walkNominalDecl(items),
+            // M20a / M20b(3/5): descend into nominal bodies so method
+            // bodies are type-checked. Each method's body scope was
+            // pushed by the SymbolResolver (walkMethod /
+            // walkGenericType); we must enter them in the same order
+            // to stay in lockstep with the scope cursor.
+            .@"struct", .@"enum", .@"errors", .@"generic_type" => try self.walkNominalDecl(items),
             // type aliases / extern / use have no body to type-check.
             else => {},
         }
     }
 
-    /// M20a: walk a nominal declaration (`(struct ...)` /
-    /// `(enum ...)` / `(errors ...)`), descending into each
-    /// `fun`/`sub` member so its body is type-checked. M20a.2:
-    /// also sets `current_nominal` so `Self` in body local type
-    /// annotations resolves correctly.
+    /// M20a / M20b(3/5): walk a nominal declaration (`(struct ...)` /
+    /// `(enum ...)` / `(errors ...)` / `(generic_type ...)`),
+    /// descending into each `fun`/`sub` member so its body is
+    /// type-checked. Sets `current_nominal` so `Self` (and, for
+    /// generic types, `T`) in body local type annotations resolves
+    /// correctly.
     fn walkNominalDecl(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
         if (items.len < 2) return;
         const name = identAt(self.ctx.source, items[1]) orelse return;
         const nominal_sym_id = self.ctx.lookup(self.current_scope, name) orelse return;
 
         const prev_nominal = self.current_nominal;
-        self.current_nominal = nominal_sym_id;
+        self.current_nominal = try makeNominalContext(self.ctx, nominal_sym_id);
         defer self.current_nominal = prev_nominal;
 
-        for (items[2..]) |member| {
+        // For generic_type, members are at items[3..] (after name and
+        // params list); for plain struct/enum/errors, items[2..].
+        const head = items[0].tag;
+        const member_start: usize = if (head == .@"generic_type") 3 else 2;
+        if (items.len <= member_start) return;
+        for (items[member_start..]) |member| {
             if (member != .list or member.list.len == 0 or member.list[0] != .tag) continue;
             switch (member.list[0].tag) {
                 .@"fun", .@"sub" => try self.walkMethod(member.list, nominal_sym_id),
@@ -3198,6 +3459,20 @@ const ExprChecker = struct {
                     _ = try self.synthExpr(arg.list[2]);
                     break :blk null;
                 } orelse continue;
+
+                // M20b(3/5) interim: if the field's declared type is a
+                // `type_var` (i.e., we're constructing a generic type
+                // and the field's type mentions a generic param), skip
+                // arg type-checking — we don't yet have the type
+                // arguments at this point (no inference, and no
+                // expected-type propagation through constructor calls
+                // yet). M20b(4/5) replaces this with proper expected-
+                // type-driven substitution.
+                const field_ty = self.ctx.types.get(field.ty);
+                if (field_ty == .type_var) {
+                    _ = try self.synthExpr(arg.list[2]);
+                    continue;
+                }
 
                 try self.checkExpr(arg.list[2], field.ty);
             } else {
