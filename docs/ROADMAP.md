@@ -1511,6 +1511,94 @@ with a clean diagnostic.
 **Tests across M20f + M20f.1: 622 → 648 (+26).**
 **Tests across M20d + M20e + M20f arcs: 496 → 648 (+152).**
 
+### M20g — Closure captures with mode-aware ownership effects ✅
+
+The last V1 substrate piece. Lambdas now capture outer bindings
+via explicit mode sigils (`|x|` / `|+x|` / `|~x|` / `|<x|`),
+lower to anonymous Zig structs with `pub fn invoke(self:
+*@This())` methods, and integrate with M20e auto-drop guards at
+the closure-instance lifetime. Shipped as 5 sub-commits (+ one
+post-review polish) with a locked GPT-5.5 design pass at the
+checkpoint.
+
+**Sub-commits**:
+
+- **M20g(1/5)** — Grammar + IR: lambda IR extends from 4 to 5
+  children (`(lambda CAPTURES PARAMS RETURNS BODY)`). New tags:
+  `captures`, `cap_copy`, `cap_clone`, `cap_weak`, `cap_move`.
+  Lexer's `isCapturePipe` probe accepts the `+`/`<`/`~` sigil
+  prefix. Conflict count unchanged at 38.
+- **M20g(2/5)** — Sema + ownership: new `SymbolKind.capture`;
+  `SymbolResolver.walkLambda` binds captures before params (so
+  collisions diagnose cleanly); `ExprChecker.synthLambda` walks
+  the body and runs the mode-vs-type validation table;
+  `Binding.is_closure` on the ownership side; new
+  `in_call_callee`/`in_set_rhs` context flags drive the
+  non-escaping / non-copyable enforcement; dedicated
+  `walkLambda` in ownership.zig applies cap_move's outer-state
+  effect.
+- **M20g(2.1)** — Polish (per GPT-5.5's review): tailored
+  "cannot reassign closure binding" diagnostic instead of the
+  generic `=!` fixed-binding message users never wrote.
+- **M20g(3/5)** — Emit: lambda binding lowers to `var
+  <name> = struct { cap_<n>: T, pub fn invoke(self: *@This())
+  RT { ... } }{ .cap_<n> = <init> }; _ = &<name>;`. Capture
+  refs inside the body remap to `self.cap_<n>` via a
+  scope-frame push, NOT a global name scan. `f()` lowers to
+  `f.invoke()` for closure bindings. Return type stashed in
+  `SemContext.lambda_return_types` (keyed by lambda first src
+  pos) by sema and read by emit.
+- **M20g(4/5)** — Auto-drop: per RESOURCE capture, emit an
+  M20e-style guard + defer at the closure-instance's
+  enclosing scope. Drop expression accesses `<closure>.cap_<n>`
+  so it's keyed on closure-binding lifetime, not per-invoke.
+  LIFO defer ordering means closure-capture drops fire before
+  the outer's bare-binding drops.
+- **M20g(5/5)** — Docs: SPEC §Lambdas with capture-mode table;
+  ROADMAP M20+ #8 → ✅; HANDOFF refresh.
+
+**Locked design decisions (GPT-5.5)**:
+
+1. Default `|x|` is Copy-only. Resources require explicit mode.
+2. NO `|*x|` capture mode (`*expr` already means Rc-construct).
+3. V1 closures are strictly non-escaping (no return / store /
+   call arg / record field / non-bind RHS).
+4. Closure values are non-copyable AND implicitly fixed.
+5. Resource captures' guards live at the closure-instance
+   enclosing scope (NOT per-invocation).
+6. Ownership-side `Binding.is_closure` flag (no `Type.closure`
+   variant — would cascade into compatible / formatType /
+   emit's type lowering for no V1 benefit).
+
+**Tests** (5 new positive + 6 new negative examples):
+
+Positive (EMIT_TARGETS):
+- `closure_capture_copy.rig` — Copy capture; outer Int untouched
+- `closure_capture_clone.rig` — clone-capture of `*Cell(Int)`;
+  refcount discipline verified end-to-end
+- `closure_capture_weak.rig` — weak-capture; multiple invokes
+- `closure_capture_move.rig` — move-capture; outer disarmed
+
+Negative (sema/ownership goldens):
+- `closure_resource_default_rejected.rig` — visible-effects
+  diagnostic for `|rc|` on `*T`
+- `closure_copy_rejected.rig` — non-copyable closure
+- `closure_escape_return_rejected.rig` — V1 non-escaping
+- `closure_escape_arg_rejected.rig` — closure as call arg
+- `closure_capture_param_collision_rejected.rig` — name conflict
+- `closure_nested_capture_rejected.rig` — nested-lambda capture
+- `closure_reassign_rejected.rig` — closure-fixed reassignment
+
+**Tests across M20g (1/5) → (4/5) + (2.1): 648 → 700 (+52).**
+
+**V1 substrate**: COMPLETE. M20a (methods/self) + M20b (generic
+instances) + M20c (generic enums) + M20d (shared/weak handles)
++ M20e (auto-drop via defer-guards) + M20f (Cell interior
+mutability) + M20g (closure captures) all compose end-to-end.
+The next major arc is Phase B of REACTIVITY-DESIGN.md —
+rig-reactive validation, where Cell / Memo / Effect demonstrate
+the substrate is sufficient for the reactivity stress test.
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note
@@ -1556,8 +1644,12 @@ the M20+ items below):
    synthetic `get` / `set` methods; V1 restricts T to Copy
    (Int/Bool/Float/String); non-Copy `Cell(T)` deferred until
    the resource-aware replace/take/Drop substrate lands.
-8. Closure capture mode syntax (REACTIVITY-DESIGN D7) — `|name|`
-   strong, `|~name|` weak, `|<name|` move, etc.
+8. ~~**Closure capture mode syntax**~~ ✅ **Landed in M20g** above.
+   Default `|x|` is Copy-only (visible-effects rule rejects bare
+   resource captures); `|+x|` clones, `|~x|` weaks (from shared),
+   `|<x|` moves. V1 closures are strictly non-escaping and
+   non-copyable; resource captures get M20e-style guards anchored
+   at the closure-instance lifetime.
 
 **Soon (substrate maturity):**
 

@@ -711,6 +711,146 @@ has no enclosing type to resolve to).
 
 ---
 
+## Lambdas
+
+A `fn` expression is a lambda — an anonymous function value bound
+to a local, then invoked via call-receiver syntax:
+
+```rig
+sub main()
+  n =! 7
+  add = fn |n|
+    n * 2
+  print(add())            # 14
+```
+
+The body is an indented block (or a single expression). The
+lambda has no name; its `fn` keyword stands alone (contrast `fun
+name(...)`).
+
+V1 lambdas are **strictly non-escaping**: a closure value may
+appear ONLY as a `(set ...)` RHS or as the callee of a `(call
+...)` form. Returns, call arguments, struct/enum field values,
+and any other position are rejected by the ownership checker.
+Closure values are also **non-copyable** — `g = f` is rejected,
+and the closure binding is implicitly fixed so reassignment is
+disallowed too. The combined effect: a closure stays anchored to
+its original binding and is invoked there. Storing closures
+across scope boundaries (for reactive callbacks, etc.) is a
+future M20h "escaping closures" milestone.
+
+### Capture modes
+
+A lambda may capture exactly ONE outer name in V1, prefixed by
+a mode sigil between the `fn` keyword and the params:
+
+```rig
+fn |x|   body            # cap_copy  — Copy-only; rejects *T / ~T
+fn |+x|  body            # cap_clone — refcount-bump for shared/weak
+fn |~x|  body            # cap_weak  — requires *T; captures ~T
+fn |<x|  body            # cap_move  — transfers ownership; disarms outer
+```
+
+The mode sigils mirror the M20d ownership family (`+x` clone,
+`<x` move, `~x` weak). Multi-capture (`|+rc, n|`) is a follow-up;
+V1 grammar accepts a single capture node.
+
+Per the visible-effects thesis, the default `|x|` form requires a
+Copy type (`Int` / `Bool` / `Float` / `String` and the literal
+pseudo-types — same set as `Cell(T)`'s V1 restriction). For
+shared / weak handles, the user MUST pick a mode explicitly. A
+bare `|rc|` capture of a `*T` outer fires:
+
+```text
+error: bare capture `|rc|` of shared handle `*T` would hide a
+       refcount bump; use `|+rc|` to clone, `|<rc|` to move, or
+       `|~rc|` to capture a weak ref
+```
+
+The capture-mode validation table (enforced by sema):
+
+| Mode      | Outer Type   | Bound Type | Effect on Outer |
+|-----------|--------------|------------|-----------------|
+| `|x|`     | Copy (non-resource) | same | none |
+| `|+x|`    | `*T`         | `*T`       | `.cloneStrong()` at construct |
+| `|+x|`    | `~T`         | `~T`       | `.cloneWeak()` at construct |
+| `|+x|`    | Copy         | same       | copy (degenerate clone) |
+| `|~x|`    | `*T`         | `~T`       | `.weakRef()` at construct |
+| `|<x|`    | any          | same       | outer enters `.moved` state |
+
+Other shapes are diagnostic errors (e.g., `|+x|` on a non-Copy
+non-resource type, `|~x|` on a non-shared outer, etc.).
+
+### Closure-instance lifetime (auto-drop integration)
+
+For each RESOURCE capture, an M20e-style guard + `defer` is
+installed at the CLOSURE-INSTANCE'S enclosing scope — NOT inside
+the body (closures may be invoked multiple times; per-invocation
+drop would be a use-after-free on the second invoke). The guard
+keys on the closure binding's lifetime; the captured handle drops
+exactly once at the closure binding's scope exit.
+
+```rig
+sub main()
+  rc: *Cell(Int) = *Cell(value: 0)
+  read = fn |+rc|              # cloneStrong: rc strong refcount 1 → 2
+    rc.get()
+  print(read())                # closure body uses cloned handle
+  print(read())                # multiple invocations: handle still alive
+  # scope exit (LIFO):
+  #   1. read's capture defer  → dropStrong on read.cap_rc (refcount 2 → 1)
+  #   2. rc's binding defer    → dropStrong on rc          (refcount 1 → 0 → freed)
+```
+
+For `|<rc|` move-capture, the outer's M20e guard disarms at the
+construction site via the standard move-and-yield labeled-block
+recipe; the closure-instance guard takes ownership from there.
+
+### Capture / parameter name collisions
+
+A capture and a parameter with the same name are rejected:
+
+```rig
+f = fn |x|(x: Int)
+  x
+# error: lambda parameter `x` conflicts with captured variable `x`
+#   note: captured here
+```
+
+Captures bind before params in the lambda body scope, so a
+silent shadowing would surprise readers. The diagnostic forces a
+rename of one or the other.
+
+### Nested-lambda capture limitation
+
+A lambda nested inside another lambda's body cannot capture a
+name from the OUTER lambda's body scope in V1:
+
+```rig
+outer = fn |+rc|
+  inner = fn |+rc|     # error: nested closure capture of `rc` is
+    rc.get()           #        not supported in V1; lift the
+  inner()              #        capture to the outer scope or
+                       #        refactor
+```
+
+Emit would have to clone the outer closure's `self.cap_rc` field
+into the inner closure — a layer of indirection V1 deliberately
+omits. Lift the captured value to the outermost enclosing scope
+and capture it directly in both lambdas, or refactor to a single
+flat closure.
+
+### Inline-invoke grammar limitation
+
+The conceptual `(fn |...| body)()` shape — invoking an inline
+lambda literal without binding it to a name — is accepted by
+the ownership checker (call-receiver position is allowed) but
+currently rejected by the parser due to the indented-block /
+suffix-call composition. For V1, use the
+`f = fn |...| body; f()` shape.
+
+---
+
 # Function Calls
 
 Rig allows Ruby-style omitted parentheses.
