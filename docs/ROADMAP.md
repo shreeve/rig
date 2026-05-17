@@ -1088,39 +1088,156 @@ Tests: 556 → ~566 (2 new EMIT_TARGETS × ~5 golden buckets).
   synthetic `Field` on `weak(T)` or a `synthMemberCall` intercept
   — neither belongs in the M20d critical path).
 
-### M20e — Auto-drop discipline for `*T` / `~T` (queued, blocks M20+ #8)
+### M20e — Auto-drop discipline for `*T` / `~T` ✅
+Closes M20+ item #6.5 from the "now-blocking" list. V1's documented
+M20d gap — "you must explicitly `-x` or leak" — is gone. Resource
+bindings auto-drop at scope exit; explicit `-rc` becomes early-drop
+semantics rather than a correctness requirement.
 
-Compiler-synthesized scope-exit drops for `*T` / `~T` bindings.
-Closes the V1-documented gap that M20d ships with explicit-only
-drop discipline. Per the joint Q1 decision in the M20d arc:
+Shipped as 5 self-validating sub-commits with one major design
+redirection from GPT-5.5 during the M20e checkpoint. Tests grew
+564 → 600 (+36).
 
-- Extend `src/ownership.zig` (or a dedicated pass) to insert
-  synthesized `(drop x)` IR nodes at scope exit for any `*T` /
-  `~T` binding not already discharged.
-- Discharge markers: explicit `-x`, `<x` (move out), bare `return x`
-  on a tail position (treated as a consuming move-out).
-- Suppress synthesis when the binding's type isn't shared/weak,
-  when the binding was already moved/dropped, when it's a global /
-  pre decl, or when its type is unknown.
-- Add the soft warning lint deferred from M20d(5/5) on top of the
-  same scope-exit walker (warns when synthesis is blocked by a
-  shape we can't safely synthesize for, so the user knows to add
-  explicit `-x`).
-- Hazards to cover (per GPT-5.5's M20d design pass): early
-  `return`, `break` / `continue`, `panic` / `unreachable`,
-  `try` / `catch` unwinding, `match` arm divergence (M18 multi-
-  statement arms), conditionally-moved bindings (move in one arm
-  only), and labeled-block lowering (M17's `if`-as-expression
-  recipe).
-- Drop order: nested handles drop in reverse declaration order
-  within a scope, then ascend.
+#### The design redirection
 
-Must land **before M20+ item #8** (closure capture) per the joint
-Q1 decision — closures capturing shared/weak handles need auto-
-drop semantics to avoid leaking every captured handle on each
-closure invocation. M20+ item #7 (`Cell(T)`) can land before M20e
-provided `Cell` stays simple and uses explicit drops; if `Cell`
-starts storing callbacks/captures it must move after M20e.
+The original M20e plan (mine): extend `ownership.zig` with a CFG-
+aware drop-synthesis pass that walks the scope chain at every exit
+point (early return, break, continue, match-arm divergence, try-
+catch propagation, labeled blocks), inserts `(drop x)` IR nodes at
+the right edges, and handles per-branch convergence with explicit
+analysis.
+
+GPT-5.5's intervention (saved the milestone): **don't build a mini-
+MIR drop elaborator. Use Zig `defer` guards.**
+
+For every resource binding, emit:
+
+```zig
+const rc = rig.rcNew(...) catch @panic("...");
+var __rig_alive_rc: bool = true;
+defer if (__rig_alive_rc) {
+    __rig_alive_rc = false;
+    rc.dropStrong();
+};
+```
+
+Explicit discharges disarm the guard before the defer fires:
+
+```zig
+rc.dropStrong(); __rig_alive_rc = false;   // explicit -rc
+rig_mv_0: { __rig_alive_rc = false; break :rig_mv_0 rc; }   // explicit <rc
+__rig_alive_rc = false; return rc;   // bare return rc
+```
+
+This is correct by Zig construction across:
+- branch divergence (one arm consumes, other doesn't)
+- early `return`
+- `break` / `continue` out of nested scopes
+- `try` / `catch` propagation (defer fires on error returns)
+- loop iteration scopes (each iteration re-arms its own guard)
+- labeled-block expressions (M17 `if`-as-expression, M18 match-
+  as-expression — defer respects Zig scope nesting)
+
+Drop order is LIFO automatically (each defer queued at binding
+site). Path-sensitivity is runtime-flag-driven, not static-
+analysis-driven. Rig didn't have to build a CFG drop elaborator.
+
+#### M20e(1/5) — Resource guards + basic discharges
+- New emit helpers in `src/emit.zig`:
+  - `resourceKindOfBinding(name_node)` — sound under shadowing
+    via `decl_pos` lookup (distinct from the known-fragile
+    `handleKindOf` name-scan).
+  - `resourceKindOfBareUse(name)` — use-site classification
+    (inherits the global-scan fragility).
+  - `emitResourceGuard(zig_name, kind)` — the var + defer
+    preamble. Uses disarm-inside-defer pattern to keep Zig's
+    "never mutated" check happy in the pure-auto-drop case
+    (no explicit discharge in the body).
+  - `emitResourceDisarm(zig_name)` / `emitDisarmIfBareResourceName`.
+- New Emitter field `pending_param_guards: ?Sexp` for resource
+  parameters; `flushPendingParamGuards` consumes it at the top
+  of `emitBlock` / `emitFunBody`. Resource params get the
+  guard + defer right after the open brace.
+- `emitSetOrBind` (fresh binding branch) installs the guard.
+- `emitStmt.@"drop"` appends the disarm after the runtime call.
+- `emitExprList.@"move"` for bare resource names emits a
+  labeled-block expression `rig_mv_N: { disarm; break :rig_mv_N x; }`
+  so the value yields cleanly into expression contexts (call args,
+  RHS of bind, etc.).
+- 1 new positive EMIT_TARGET: `auto_drop_basic.rig` — runs end-to-
+  end without any explicit `-rc`.
+- 6 existing resource-bearing EMIT_TARGETS regenerated with the
+  new guard preamble (behavior unchanged at runtime — explicit
+  drops disarm before defer fires).
+
+#### M20e(2/5) — Return-disarm
+- Bare `return rc` of a resource binding emits the disarm
+  before the return keyword: `__rig_alive_rc = false; return rc;`
+- Both `emitReturn` and `emitFunBody`'s implicit-return path
+  use the new `emitReturnDisarmIfResource` helper.
+- 1 new EMIT_TARGET: `factory_returns_rc.rig` — `make_counter`
+  factory returns `*Counter` via plain `return rc`, runs end-to-
+  end without any explicit move ceremony.
+
+#### M20e(3/5) — Reassignment policy
+- `rc = *new(...)` (reassignment of an existing resource binding)
+  now drops the previous handle and re-arms the guard:
+    `if (__rig_alive_rc) rc.dropStrong(); rc = ...; __rig_alive_rc = true;`
+- Required a parallel fix in sema: `SymbolResolver.walkSet` was
+  adding a fresh symbol on every `rc = X` (M5-era TODO comment:
+  "Whether to add or reuse will be revisited when ownership
+  consumes sema"). With the orphan-symbol behavior, emit's
+  forward-order `handleKindOf` scan picked up the un-typed first
+  symbol after a reassignment — `rc.field` failed to install
+  the M20d auto-deref `.value` bridge.
+  - New `SemContext.lookupInScopeOnly` for scope-local name
+    lookup (no parent walk).
+  - `SymbolResolver.walkSet`'s `.default` arm dedups: if a same-
+    name symbol exists in the current scope, reuse it. `.fixed`
+    (`=!`) and `.shadow` (`new x = ...`) still unconditionally
+    add (per SPEC: those are explicit fresh declarations).
+- 1 new EMIT_TARGET: `reassign_rc.rig` — exercises both the
+  drop-and-rearm shape AND the bridge fix via `print(rc.value)`
+  after reassignment.
+
+#### M20e(4/5) — Coverage tests (no implementation changes)
+- 3 new EMIT_TARGETS pinning M20e behavior across the M20d-
+  supported control-flow matrix. No emit changes needed — Zig's
+  defer behaves correctly out of the box:
+  - `auto_drop_if_else.rig` — branch divergence (one arm drops,
+    one reads through). The design hazard GPT-5.5 highlighted;
+    runtime alive flag is path-sensitive without static analysis.
+  - `auto_drop_early_return.rig` — `return` from inside a
+    nested conditional. Zig fires defer on both return paths.
+  - `auto_drop_in_loop.rig` — resource declared inside a while
+    body. Each iteration enters a fresh scope and the defer
+    fires at end-of-iteration. Three allocations, three drops.
+
+#### M20e(5/5) — Docs
+- SPEC §Shared Ownership rewrite of the "V1 Drop Discipline"
+  subsection: auto-drop is the V1 commitment; explicit `-x` is
+  documented as early-drop semantics; discharge marker table;
+  panic / unreachable behavior documented.
+- ROADMAP M20e milestone entry (this section).
+- HANDOFF refresh for the next session: TL;DR points at the
+  reactive substrate path (item #7 Cell or #8 closure capture)
+  as next; M20e is no longer queued.
+
+#### Coverage gaps (deferred to follow-up)
+- **`try_block` lowering with resource locals**: blocked on
+  the pre-existing M20+ #14 gap (try-block emit still emits
+  `@compileError`). Once try-block lands, defer-guard should
+  Just Work — error returns run defers same as success returns.
+- **`<-` move-assign LHS reassignment with resource RHS**: the
+  M20e(3/5) tests cover `=` reassignment but not the parallel
+  `<-` form. The implementation path should be identical (kind
+  dispatched in `emitSet`); just not pinned as a golden yet.
+- **Compound assignment edge case with non-`+=` syntax inside
+  nested blocks** (`i = i + 1`): pre-existing `scanMutations`
+  scoping issue, unrelated to M20e but surfaced by the loop
+  test. Workaround: use `i += 1`. Document as a separate cleanup.
+
+**Tests across M20e: 564 → 600 (+36). All green.**
 
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
@@ -1157,9 +1274,11 @@ the M20+ items below):
    emitter both go through the unified `resolveNominalMethod` /
    `emitNominalMethods` paths).
 6. ~~**`*T` / `~T` real `Rc` / `Weak` semantics**~~ ✅ **Landed in
-   M20d** above. V1 ships with explicit-only drop discipline; M20e
-   queued above adds compiler-synthesized scope-exit drops (must
-   land before item #8 closure capture).
+   M20d** above. V1 ships with explicit-only drop discipline.
+6.5. ~~**Automatic scope-exit drop for `*T` / `~T`**~~ ✅ **Landed in
+   M20e** above. Defer-guard strategy per GPT-5.5's design pass;
+   explicit `-x` becomes early-drop semantics. The V1 drop story
+   is complete.
 7. Interior mutability — `Cell(T)` library type
    (REACTIVITY-DESIGN D6, option A for V1). Depends on items
    4 + 6 (the M20a/M20b method + generic machinery are now in

@@ -244,27 +244,49 @@ Single-threaded reference-counted shared ownership. V1 semantics:
 This is exactly `Rc<T>`. Multi-threaded shared ownership (`Arc<T>`,
 `Send` / `Sync` marker, atomic refcounting) is deferred to V2.
 
-### V1 Drop Discipline (explicit-only, M20e adds auto-drop)
+### V1 Drop Discipline (automatic, with explicit early-drop)
 
-**V1 requires explicit `-rc` and `-w` to release handles.** The
-compiler does NOT auto-insert scope-exit drops in V1. Omitting `-x`
-on a `*T` / `~T` binding leaks the handle (the inner value's slot
-stays allocated until process exit).
+**V1 has automatic scope-exit drop for `*T` / `~T` handles.** A
+binding of resource type that is not explicitly discharged is
+dropped at the end of its enclosing scope. Explicit `-rc` / `-w`
+still work and act as **early drop** — the handle is released at
+the explicit point, and the scope-exit auto-drop is a runtime no-
+op for that binding.
 
-Rationale: M20d ships the manual reference-count primitives in
-isolation so the substrate lands without the additional control-flow
-analysis required for safe auto-drop (early return, break/continue,
-match arm divergence, conditional moves, etc.). The M20d alias-
-footgun rule (see below) catches the worst silent-aliasing hazard at
-binding/call sites; the residual "forgot to `-x`" leak is documented
-and explicit.
+Discharge markers that suppress auto-drop:
 
-Automatic scope-exit drop is queued as **M20e**, ordered before
-closure capture (M20+ item #8) and the reactive-substrate validation
-milestone (Phase B of `docs/REACTIVITY-DESIGN.md`). When M20e lands,
-explicit `-rc` will become an "early drop" optimization rather than a
-correctness requirement, and existing V1 code that does explicit
-drops will continue to work unchanged.
+- `-x` — explicit drop. Runs the runtime drop call at the explicit
+  point.
+- `<x` — move out (move-as-argument, move-as-assignment, etc.).
+  Transfers the handle to the receiver; the original binding's
+  auto-drop is suppressed.
+- `return x` (bare) — consuming move-out via the function's return
+  channel. Same suppression as `<x`.
+- Reassignment `x = <new>` — drops the previous handle, re-arms
+  the auto-drop for the new one. Exactly one drop per allocation.
+
+Non-discharging (binding stays live, auto-drop applies):
+
+- `+x` (clone) — original stays valid; both the original and the
+  cloned handle auto-drop independently at scope exit.
+- `~rc` (weak ref) — the shared original stays live; the new weak
+  handle gets its own auto-drop.
+- `w.upgrade()` — returns a fresh `(*T)?` but does not consume w.
+- Field access (`rc.field`) and method calls (`rc.method()`) via
+  M20d read-only auto-deref — these are non-consuming reads.
+
+Implementation (per the M20e design pass with GPT-5.5): every
+resource binding emits a Zig `defer` guarded by a runtime alive
+flag. Explicit discharges disarm the flag before the defer fires.
+Zig's defer behavior gives Rig path-sensitive cleanup across
+branches, early returns, break / continue, try / catch (when
+try-block emit lands), and labeled-block recipes — without any
+Rig-side static drop-elaboration analysis.
+
+V1 panic / unreachable: Zig defers run on `return` and on normal
+scope exit; they do NOT run on `@panic` / `unreachable`. Programs
+that panic with live resource handles leak those handles (the
+process is dying anyway). Document for clarity, not for change.
 
 ### Alias Discipline (M20d, enforced now)
 
