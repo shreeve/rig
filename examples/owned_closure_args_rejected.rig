@@ -1,0 +1,12 @@
+# M20h(5/5): owned-closure invocation takes no arguments.
+#
+# M20h closures are no-arg / void-return only (Closure0 ABI).
+# Arity-bearing variants (`Closure1<T>`, etc.) are deferred.
+# Sema rejects `cb(args)` with a tailored "takes no arguments"
+# diagnostic so the user knows it's an M20h restriction, not
+# a generic call-arity issue.
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  cb: *Closure() = *Closure(fn |+count| count.set(count.get() + 1))
+  cb(1, 2)

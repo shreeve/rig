@@ -1,0 +1,1 @@
+examples/owned_closure_no_lambda_rejected.rig:8:29: error: owned closure `*Closure(...)` argument must be a lambda `fn |...| body`

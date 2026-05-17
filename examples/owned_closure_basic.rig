@@ -1,0 +1,28 @@
+# M20h(5/5): owned-closure basic.
+#
+# A stack-local `*Closure()` constructed inline via
+# `*Closure(fn |+count| body)`. The closure clones the shared
+# `*Cell(Int)` strong handle on construction, so the captured
+# Cell stays alive for every invocation. Auto-drop at scope
+# exit cascades through `RcBox.dropStrong` → `Closure0.__rig_drop`
+# → the per-literal `rigDrop` thunk that releases the cloned
+# capture and frees the heap-allocated env.
+#
+# Per the M20h(1-4/5) design (entry 17 with GPT-5.5):
+#   - Surface: `cb: *Closure() = *Closure(fn |+count| body)`
+#   - Type spelling: `Closure()` zero-arity builtin
+#   - Lowering: type-erased Closure0 + per-literal env struct
+#   - Invocation: `cb()` → `cb.value.invoke()`
+#
+# Compared to M20g's stack-local closures, the owned closure
+# is a regular `*T` shared handle — clonable, returnable,
+# storable. The escape-from-defining-scope rule is relaxed
+# only for the EXACT `*Closure(fn ...)` construction shape.
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  cb: *Closure() = *Closure(fn |+count| count.set(count.get() + 1))
+  cb()
+  cb()
+  cb()
+  print(count.get())

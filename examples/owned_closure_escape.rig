@@ -1,0 +1,24 @@
+# M20h(5/5): owned-closure escapes via function return.
+#
+# The killer use case: a factory function builds a counter that
+# captures its local Cell, then returns the closure. The local
+# Cell binding is dropped at function exit, but the captured
+# strong handle (cloned via `|+count|`) keeps the Cell alive
+# for the caller to invoke the closure as many times as needed.
+#
+# This is exactly the shape Phase B's retained Effect needs:
+# build a callback inside a registration helper, return it,
+# store it, invoke later. Compared to M20g stack-local closures
+# (which the ownership pass rejected for this shape), M20h
+# allows the lambda inside the construction to escape with
+# the surrounding `*Closure()` handle.
+
+fun make_counter() -> *Closure()
+  count: *Cell(Int) = *Cell(value: 0)
+  *Closure(fn |+count| count.set(count.get() + 1))
+
+sub main()
+  cb = make_counter()
+  cb()
+  cb()
+  print("retained ok")

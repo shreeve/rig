@@ -1,0 +1,15 @@
+# M20h(5/5): owned-closure with move capture.
+#
+# `|<count|` moves the outer `count` binding INTO the closure
+# env at construction time. The outer can't be used afterwards
+# (M2-era move semantics still apply); the closure becomes the
+# sole owner of the Cell handle. When the closure handle hits
+# last-strong-drop, the env's `dropStrong` releases the moved
+# Cell — same lifecycle as a regular `*T` move into a struct.
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 100)
+  cb: *Closure() = *Closure(fn |<count| count.set(count.get() + 1))
+  cb()
+  cb()
+  print("moved ok")

@@ -1,0 +1,32 @@
+# M20h(5/5): clone doesn't drop captures early.
+#
+# This is the test that pins the M20h ABI decision per the
+# entry-17 design pass. An earlier proposal would have run
+# capture drops from each binding's scope-exit defer; in this
+# example, dropping `cb` while `cb2` still held a clone would
+# UAF on the next `cb2()`. The locked design (capture drop
+# from `RcBox.dropStrong` → `Closure0.__rig_drop` → per-literal
+# rigDrop, fired only on LAST strong) prevents the UAF.
+#
+# Sequence:
+#   1. `cb = make_counter()`           — strong = 1
+#   2. `cb2 = +cb`                     — strong = 2 (clone)
+#   3. `-cb`                            — strong = 1 (cb dropped; env alive)
+#   4. `cb2(); cb2()`                  — env still valid
+#   5. main exits                       — cb2 auto-dropped, strong = 0
+#                                          → captures dropped + env freed
+#
+# Running this under a memory tool would show one alloc + free
+# per Cell + Env, with all uses inside the allocation window.
+
+fun make_counter() -> *Closure()
+  count: *Cell(Int) = *Cell(value: 0)
+  *Closure(fn |+count| count.set(count.get() + 1))
+
+sub main()
+  cb = make_counter()
+  cb2 = +cb
+  -cb
+  cb2()
+  cb2()
+  print("no uaf")

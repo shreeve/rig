@@ -728,16 +728,22 @@ The body is an indented block (or a single expression). The
 lambda has no name; its `fn` keyword stands alone (contrast `fun
 name(...)`).
 
-V1 lambdas are **strictly non-escaping**: a closure value may
-appear ONLY as a `(set ...)` RHS or as the callee of a `(call
-...)` form. Returns, call arguments, struct/enum field values,
-and any other position are rejected by the ownership checker.
-Closure values are also **non-copyable** — `g = f` is rejected,
-and the closure binding is implicitly fixed so reassignment is
-disallowed too. The combined effect: a closure stays anchored to
-its original binding and is invoked there. Storing closures
-across scope boundaries (for reactive callbacks, etc.) is a
-future M20h "escaping closures" milestone.
+V1 lambdas are **non-escaping by default**: a bare closure
+value (`f = fn |...| body`) may appear ONLY as a `(set ...)`
+RHS or as the callee of a `(call ...)` form. Returns, call
+arguments, struct/enum field values, and any other position
+are rejected by the ownership checker. Closure values are also
+**non-copyable** — `g = f` is rejected, and the closure binding
+is implicitly fixed so reassignment is disallowed too. The
+combined effect: a stack-local closure stays anchored to its
+original binding and is invoked there.
+
+For **escaping callbacks** — closures stored past their defining
+scope, returned from a function, retained in a subscriber list,
+etc. — Rig provides the **owned-closure handle** `*Closure()`
+described in §Owned Closures (M20h) below. The escape is opt-in
+and visible at the construction site via the `*` sigil; bare
+lambdas remain non-escaping.
 
 ### Capture modes
 
@@ -848,6 +854,87 @@ the ownership checker (call-receiver position is allowed) but
 currently rejected by the parser due to the indented-block /
 suffix-call composition. For V1, use the
 `f = fn |...| body; f()` shape.
+
+### Owned Closures (M20h)
+
+Bare lambdas can't escape their defining scope; the
+**owned-closure handle** `*Closure()` opts into escape via an
+explicit constructor that allocates the closure's env on the
+heap and tracks the lifetime through a refcounted handle:
+
+```rig
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  cb: *Closure() = *Closure(fn |+count| count.set(count.get() + 1))
+  cb()
+  cb()
+  print(count.get())                # 2
+```
+
+The construction shape is fixed: `*Closure(fn |...| body)` —
+exactly one argument, which MUST be a lambda. Bare `Closure(fn
+...)` (no `*`), `*Closure(42)` (non-lambda), `*Closure()` (no
+arg), and `*Closure(fn ..., fn ...)` (multiple args) all
+produce tailored sema diagnostics.
+
+`*Closure()` is itself an ordinary `*T` shared handle:
+
+```rig
+fun make_counter() -> *Closure()
+  count: *Cell(Int) = *Cell(value: 0)
+  *Closure(fn |+count| count.set(count.get() + 1))
+
+sub main()
+  cb = make_counter()       # returned, alive past defining scope
+  cb2 = +cb                 # clone — refcount 1 → 2
+  -cb                       # drop  — refcount 2 → 1
+  cb2()                     # cb's gone, cb2's env still alive
+```
+
+Invocation is via the natural `cb()` syntax (sema rejects
+`cb(args)` — M20h closures are no-arg / void-return only). The
+emitter lowers `cb()` to `cb.value.invoke()` (a Closure0 vtable
+jump). Auto-drop at scope exit cascades through
+`RcBox.dropStrong` → `Closure0.__rig_drop` → a per-literal
+drop thunk that releases each captured resource and frees the
+heap-allocated env.
+
+**ABI: type erasure via Closure0.** Each `*Closure(fn ...)`
+literal generates a unique anonymous env struct holding its
+captures plus an `invoke`/`drop` thunk pair tailored to that
+layout. The env pointer is type-erased through `ctx: *anyopaque`
+so every `*Closure()` literal produces the SAME surface type
+(`*rig.RcBox(rig.Closure0)`). Returning, storing, aliasing,
+and weak-ref-ing all flow through the existing `*T` paths
+unchanged.
+
+**Capture semantics** are inherited from M20g: `|+count|` clones,
+`|<count|` moves, `|~count|` weak-references. The same mode-
+validation table applies — Copy types for `|x|`, etc. Drop
+happens at LAST-strong-drop of the closure handle (NOT at each
+binding's scope-exit defer); the type-erasure design + the
+`RcBox.__rig_drop` runtime hook are what make `cb2 = +cb; -cb;
+cb2()` safe.
+
+**V1 restrictions:**
+
+- `*Closure()` is the only legal arity. `Closure(Int)` errors
+  with "expects 0 type arguments, got 1"; bare `Closure`
+  errors with "must be written with empty parentheses; write
+  `Closure()`". Arity-bearing closure types (`Closure1<T>`,
+  etc.) are deferred.
+- The closure body returns `void`. Returning a value is
+  deferred until typed `Closure()` arities ship.
+- Multi-line closure bodies require pre-binding into a named
+  helper (the grammar accepts inline-call bodies via a
+  narrow `FN captures call` form; multi-stmt bodies need
+  `INDENT/OUTDENT` which doesn't compose inside `(...)`
+  parens).
+- `*Closure()` doesn't replace the M20g non-escaping closures —
+  use the bare `f = fn |...| body; f()` form for stack-local
+  callbacks (cheaper: no heap allocation, no refcount, no
+  vtable indirection). Reach for `*Closure()` only when the
+  closure needs to outlive its defining scope.
 
 ---
 

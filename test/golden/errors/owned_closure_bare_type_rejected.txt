@@ -1,0 +1,1 @@
+examples/owned_closure_bare_type_rejected.rig:9:15: error: generic type `Closure` must be written with empty parentheses; write `Closure()`

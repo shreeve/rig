@@ -41,19 +41,22 @@ sub main()
   bump()
   print(count.get())                # 3
 
-  # TODO M20h: retained escaping closure. The reactive library
-  # needs a closure value that can be stored in an Effect (or
-  # Reactor subscriber list) and invoked after the defining
-  # scope exits. M20g closures are strictly non-escaping. The
-  # M20h design checkpoint will pick the syntax (provisional
-  # bias: `*Closure(fn |+rc| body)` constructor, mirroring
-  # `*Cell(value: 0)`) and the ABI (closure env on the heap,
-  # captures dropped when the closure handle is dropped).
+  # PB1 (M20h shipped): retained escaping closure. The reactive
+  # library needs a closure value that can be stored in an Effect
+  # (or Reactor subscriber list) and invoked after the defining
+  # scope exits. M20g closures were strictly non-escaping; M20h
+  # introduced `*Closure(fn |...| body)` — a heap-owned closure
+  # with type-erased ABI (rig.Closure0 vtable + per-literal env
+  # struct) and last-strong-drop capture cleanup via __rig_drop.
   #
-  # eff = *Closure(fn |+count|
-  #   print(count.get())
-  # )
-  # eff.call()
+  # The minimal Effect-shaped invocation: build a closure that
+  # captures the Cell, retain it past the defining scope, and
+  # invoke it explicitly. PB2 will add Cell → Effect notification
+  # (Reactor.flush); for now PB1 demonstrates the substrate.
+  eff: *Closure() = *Closure(fn |+count| count.set(count.get() + 10))
+  eff()
+  print(count.get())                # 13
+
 
   # TODO M20i: resource-aware Vec(T) for subscriber lists. The
   # Cell.subscribers field in the full library is a

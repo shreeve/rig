@@ -1599,6 +1599,118 @@ The next major arc is Phase B of REACTIVITY-DESIGN.md —
 rig-reactive validation, where Cell / Memo / Effect demonstrate
 the substrate is sufficient for the reactivity stress test.
 
+### M20h — Owned / escaping closures ✅
+
+Closes the biggest M20g-deferred limitation: `*Closure(fn |...|
+body)` produces a heap-owned closure handle that escapes its
+defining scope. The retained-Effect callback story Phase B's
+reactive canary needs is now expressible — store a `*Closure()`
+in a struct field, return one from a builder, alias via `+cb`,
+weaken via `~cb`, drop the originating handle, invoke through
+a surviving clone, all without UAF.
+
+**Locked design (GPT-5.5, entry 17)**:
+
+1. **Surface**: `cb: *Closure() = *Closure(fn |+count| body)`.
+   Explicit `*` makes the heap allocation visible; mirrors the
+   M20f `*Cell(value: 0)` constructor shape.
+2. **Type spelling**: `Closure()` only in M20h (zero arity).
+   Arity / return-type variants deferred. Bare `Closure` (no
+   parens) and `Closure(Int)` (non-zero args) both fire
+   tailored diagnostics.
+3. **ABI**: type-erased `rig.Closure0` vtable (`ctx:
+   *anyopaque`, `invoke_fn`, `drop_fn`, `allocator`). Each
+   closure literal generates a unique anonymous env struct
+   matching its capture list; `ctx` is type-erased so all
+   `*Closure()` literals share a single surface type
+   (`*rig.RcBox(rig.Closure0)`).
+4. **Drop model**: `RcBox(T).dropStrong()` gains an
+   `@hasDecl(T, "__rig_drop")`-gated hook (wrapped in a
+   comptime `hasRigDrop` predicate for non-container payload
+   safety). On last strong, `Closure0.__rig_drop` fires →
+   per-literal `rigDrop` thunk → capture drops + env free.
+   Critically, drop is NOT done from each binding's scope-
+   exit defer — the earlier ABI proposal that did so would
+   UAF on `cb2 = +cb; -cb; cb2()`.
+5. **Ownership**: owned closure is a regular `*T` shared
+   handle. Clone/move/weak/return/store all flow through the
+   existing `*T` paths. The closure binding is NOT marked
+   `is_closure` (that flag is for bare lambdas); a new
+   `is_owned_closure` flag triggers only the
+   `cb()` → `cb.value.invoke()` call rewrite.
+6. **Lambda escape relaxation**: a dedicated ownership flag
+   `in_owned_closure_constructor_arg` permits the lambda
+   inside `*Closure(...)` to escape its defining scope. The
+   M20g non-escaping rules still apply to bare lambdas and
+   to lambdas at any other call-arg position.
+7. **Grammar**: new narrow `FN captures inline_body` lambda
+   form (with `inline_body = call → (block 1)`) so the
+   single-call body shape parses inside `(...)` parens.
+   Conflict count: 38 → 69 (all benign S/R, prefer-shift).
+
+**Sub-commits**:
+
+- **M20h(1/5)** — Runtime + type spelling. `Closure0` vtable
+  + `hasRigDrop` predicate + `RcBox.dropStrong` hook in
+  `runtime_zig.zig`. `Closure` registered as zero-arity
+  builtin in `types.zig`. Emit lowers `*Closure()` →
+  `*rig.RcBox(rig.Closure0)`. Diagnostics for bare `Closure`,
+  `Closure(Int)`, and `type Closure(T)` redefinition.
+- **M20h(2/5)** — Sema for construction + invocation.
+  `detectOwnedClosureConstruction` intercepts the share-call-
+  lambda shape in synthExpr; `isOwnedClosureHandleType`
+  drives `cb()` typing. Bare `Closure(fn ...)` rejected.
+  Grammar extension for inline-call lambda body. Conflict
+  count: 38 → 69.
+- **M20h(3/5)** — Ownership relaxation.
+  `in_owned_closure_constructor_arg` context flag set by a
+  new `walkShare` dispatcher when the inner is owned-closure
+  construction. `walkLambda` accepts the new flag for the
+  escape check; resets it inside the body so nested
+  constructions don't inherit. Pre-M20h `return *Closure(fn
+  ...)` (rejected by M20g) now passes.
+- **M20h(4/5)** — Emit construction + invocation. The
+  load-bearing emit work. `emitOwnedClosureConstruction`
+  produces a labeled-block expression with an inline
+  anonymous env struct (`fn rigInvoke` + `fn rigDrop`
+  thunks); env is heap-allocated, captures init via reuse
+  of M20g's `emitClosureInit`, wrapped in `Closure0` + fed
+  through `rig.rcNew`. `emitCall` adds the M20h
+  `cb.value.invoke()` rewrite. `SymbolEntry.is_owned_closure`
+  flag set by `emitSetOrBind` via three signals (RHS shape
+  / type annotation / sema-inferred type).
+- **M20h(5/5)** — Tests + PB1 canary + docs. 4 positive
+  examples (in EMIT_TARGETS) + 4 negative (sema goldens).
+  `examples/reactive_canary.rig` updated to use a retained
+  M20h closure (PB1).
+
+**Tests across M20h (1/5) → (5/5): 706 → 746 (+40).**
+
+**Examples added**:
+
+Positive (EMIT_TARGETS):
+- `owned_closure_basic.rig` — stack-local construction +
+  invocation; verifies the canonical `cb: *Closure() =
+  *Closure(fn |+count| ...)` shape.
+- `owned_closure_escape.rig` — factory function returns
+  `*Closure()`; counter persists across the local Cell's
+  drop.
+- `owned_closure_clone.rig` — `cb2 = +cb; -cb; cb2()` —
+  the UAF-prevention test that pins the
+  `__rig_drop`-on-last-strong design.
+- `owned_closure_move.rig` — `fn |<count| ...` move-capture.
+
+Negative (sema goldens):
+- `owned_closure_bare_rejected.rig` — `Closure(fn ...)` no `*`
+- `owned_closure_no_lambda_rejected.rig` — non-lambda arg
+- `owned_closure_args_rejected.rig` — `cb(args)` invocation
+- `owned_closure_bare_type_rejected.rig` — bare `Closure` type
+
+**Phase B status after M20h**: PB0 ✅, PB1 effectively
+included via the reactive canary refresh, M20i (resource-
+aware `Vec(T)`) next when Phase B needs multi-subscriber
+notification.
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note

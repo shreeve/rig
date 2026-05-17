@@ -1,0 +1,13 @@
+# M20h(5/5): bare `Closure` (no parens) is rejected as a type.
+#
+# `Closure` is a zero-arity builtin generic type; the spelling
+# must be `Closure()` so the empty parens are visually consistent
+# with future arity-bearing closure types and with the
+# `*Closure(fn ...)` construction shape. Bare `Closure` would
+# otherwise be ambiguous.
+
+sub stub(cb: *Closure)
+  print("never reached")
+
+sub main()
+  print("hi")

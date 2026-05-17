@@ -1,0 +1,1 @@
+examples/owned_closure_bare_rejected.rig:11:8: error: owned closure must be wrapped with `*`; write `*Closure(fn |...| body)`

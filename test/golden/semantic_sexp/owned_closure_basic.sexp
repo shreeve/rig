@@ -1,0 +1,1 @@
+(module (sub main () _ (block (set _ count (shared (generic_inst Cell Int)) (share (call Cell (kwarg value 0)))) (set _ cb (shared (generic_inst Closure)) (share (call Closure (lambda (captures (cap_clone count)) _ _ (block (call (member count set) (+ (call (member count get)) 1))))))) (call cb) (call cb) (call cb) (call print (call (member count get))))))
