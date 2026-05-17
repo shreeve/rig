@@ -1,0 +1,26 @@
+# M20e(2/5): a factory function returns a shared handle via bare
+# `return rc`. The M20e auto-drop guard installed at the binding
+# site is disarmed BEFORE the return so the caller receives a
+# valid handle (the function-scope `defer` is a no-op).
+#
+# Verifies the factory-function pattern works WITHOUT explicit
+# ceremony — no `<rc` move, no manual disarm, no `*expr inline`
+# trick. Just `return rc`. The auto-drop machinery understands
+# this is a consuming move-out.
+#
+# Compare against the M20d-era pattern that required either
+# `return <rc` (explicit move) or wrapping the construction
+# directly in the return — both still work; this is the cleaner
+# spelling that M20e unlocks.
+
+struct Counter
+  value: Int
+
+fun make_counter(n: Int) -> *Counter
+  rc = *Counter(value: n)
+  return rc
+
+sub main()
+  c = make_counter(42)
+  print(c.value)
+  # c auto-drops at main's scope exit

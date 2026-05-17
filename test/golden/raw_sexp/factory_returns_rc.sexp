@@ -1,0 +1,1 @@
+(module (struct Counter (: value Int)) (fun make_counter ((: n Int)) (shared Counter) (block (set _ rc _ (share (call Counter (kwarg value n)))) (return rc))) (sub main () _ (block (set _ c _ (call make_counter 42)) (call print (member c value)))))

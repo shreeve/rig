@@ -623,6 +623,11 @@ pub const Emitter = struct {
         for (stmts, 0..) |stmt, i| {
             try self.indentSpaces();
             if (i == stmts.len - 1 and isExprStmt(stmt)) {
+                // M20e(2/5): same disarm-before-return rule as
+                // emitReturn — the implicit-return path also exits
+                // the function with the value, so resource bindings
+                // need to be disarmed first.
+                try self.emitReturnDisarmIfResource(stmt);
                 try self.w.writeAll("return ");
                 try self.emitExpr(stmt);
                 try self.w.writeAll(";");
@@ -1238,9 +1243,28 @@ pub const Emitter = struct {
             try self.w.writeAll("return;");
             return;
         }
+        // M20e(2/5): bare `return rc` of a resource binding must
+        // disarm the guard before the return so the scope-exit defer
+        // is a no-op. Without this the caller sees the handle but
+        // the defer drops it immediately, leaving a dangling pointer.
+        try self.emitReturnDisarmIfResource(items[1]);
         try self.w.writeAll("return ");
         try self.emitExpr(items[1]);
         try self.w.writeAll(";");
+    }
+
+    /// M20e(2/5): if `expr` is a bare resource-binding reference,
+    /// emit the disarm statement right before the `return`. Silent
+    /// no-op for wrapped forms (`+rc` / `<rc` / `~rc` etc.) and
+    /// non-resource expressions — those have their own discharge
+    /// handling (clone keeps original alive; move already disarms
+    /// via the labeled-block; etc.).
+    fn emitReturnDisarmIfResource(self: *Emitter, expr: Sexp) Error!void {
+        if (expr != .src) return;
+        const name = self.source[expr.src.pos..][0..expr.src.len];
+        if (self.resourceKindOfBareUse(name) == null) return;
+        const zig_name = self.lookup(name) orelse name;
+        try self.w.print("__rig_alive_{s} = false; ", .{zig_name});
     }
 
     fn emitIf(self: *Emitter, items: []const Sexp) Error!void {
