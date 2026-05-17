@@ -87,6 +87,14 @@ pub const Emitter = struct {
     /// the nominal's name. Null when not inside a nominal body.
     current_nominal_name: ?[]const u8 = null,
 
+    /// M20e: parameter list for the function whose body we're about
+    /// to emit. The body emit (`emitBlock` / `emitFunBody`) consumes
+    /// this once, right after writing the open brace, to install
+    /// `__rig_alive_<param>` guards + `defer` for each resource-typed
+    /// parameter. Set by `emitFun` before delegating to the body
+    /// emitter; cleared by whichever body emitter consumed it.
+    pending_param_guards: ?Sexp = null,
+
     pub fn init(allocator: std.mem.Allocator, source: []const u8, w: *Writer) Emitter {
         return .{
             .allocator = allocator,
@@ -583,11 +591,16 @@ pub const Emitter = struct {
         if (params == .list) {
             for (params.list) |p| try self.bindParam(p);
         }
+        // M20e: stage the param list so the body emit can install
+        // resource-binding guards for each `*T` / `~T` param right
+        // after the open brace. Cleared by the body emit.
+        self.pending_param_guards = params;
         if (is_sub) {
             try self.emitBlock(body);
         } else {
             try self.emitFunBody(body);
         }
+        self.pending_param_guards = null;
         try self.popScope();
         try self.w.writeAll("\n");
     }
@@ -598,6 +611,8 @@ pub const Emitter = struct {
         try self.w.writeAll("{\n");
         self.indent += 1;
         try self.pushScope();
+        // M20e: install param guards (consumes pending_param_guards).
+        try self.flushPendingParamGuards();
 
         const stmts: []const Sexp = if (body == .list and body.list.len > 0 and
             body.list[0] == .tag and body.list[0].tag == .@"block")
@@ -620,6 +635,30 @@ pub const Emitter = struct {
         self.indent -= 1;
         try self.indentSpaces();
         try self.w.writeAll("}");
+    }
+
+    /// M20e: consume `pending_param_guards` and emit a guard +
+    /// `defer` for each resource-typed parameter, at the top of a
+    /// function body (right after the `{`). Clearing the pending
+    /// pointer means nested `emitBlock` calls (if/while bodies)
+    /// don't accidentally re-emit guards.
+    fn flushPendingParamGuards(self: *Emitter) Error!void {
+        const params = self.pending_param_guards orelse return;
+        self.pending_param_guards = null;
+        if (params != .list) return;
+        for (params.list) |p| {
+            const name_node = paramNameNode(p) orelse continue;
+            const kind = self.resourceKindOfBinding(name_node) orelse continue;
+            // For params, the Zig-side name equals the source-side
+            // name (no shadow renaming at the function entry).
+            const name = if (name_node == .src)
+                self.source[name_node.src.pos..][0..name_node.src.len]
+            else
+                continue;
+            try self.indentSpaces();
+            try self.emitResourceGuard(name, kind);
+            try self.w.writeAll("\n");
+        }
     }
 
     fn emitParams(self: *Emitter, params: Sexp) Error!void {
@@ -786,6 +825,10 @@ pub const Emitter = struct {
         try self.w.writeAll("{\n");
         self.indent += 1;
         try self.pushScope();
+        // M20e: install param guards if this is a function-root block
+        // (consumes pending_param_guards if set). Nested blocks find
+        // it null and skip.
+        try self.flushPendingParamGuards();
         if (body == .list and body.list.len > 0 and body.list[0] == .tag and
             body.list[0].tag == .@"block")
         {
@@ -816,10 +859,8 @@ pub const Emitter = struct {
             .@"set" => try self.emitSet(items),
             .@"drop" => {
                 // M20d: explicit `-x` for shared/weak handles maps to
-                // runtime refcount ops. For non-handle types the
-                // statement remains a documenting comment (V1 has no
-                // user-defined Drop yet; M20e adds auto-drop for shared
-                // and weak only).
+                // runtime refcount ops. M20e: also disarms the M20e
+                // guard so the scope-exit `defer` is a no-op.
                 if (items.len < 2) {
                     try self.w.writeAll("// drop");
                     return;
@@ -829,10 +870,12 @@ pub const Emitter = struct {
                     .shared => {
                         try self.emitExpr(items[1]);
                         try self.w.writeAll(".dropStrong();");
+                        try self.emitDisarmIfBareResourceName(items[1]);
                     },
                     .weak => {
                         try self.emitExpr(items[1]);
                         try self.w.writeAll(".dropWeak();");
+                        try self.emitDisarmIfBareResourceName(items[1]);
                     },
                     .other => {
                         try self.w.writeAll("// drop ");
@@ -939,6 +982,14 @@ pub const Emitter = struct {
             }
             try self.emitExpr(expr);
             try self.w.writeAll(";");
+            // M20e: if this binding is a resource (`*T` / `~T`), install
+            // a `var __rig_alive_<zig_name> = true;` guard + `defer` that
+            // drops via the runtime if the guard is still armed at scope
+            // exit. Explicit `-x` / `<x` / bare `return x` disarm the
+            // guard (subsequent sub-commits cover those discharges).
+            if (self.resourceKindOfBinding(name_node)) |kind| {
+                try self.emitResourceGuard(zig_name, kind);
+            }
         } else {
             try self.w.print("{s} = ", .{found.?});
             try self.emitExpr(expr);
@@ -966,6 +1017,112 @@ pub const Emitter = struct {
     /// first-match-wins under shadowing. Acceptable for M20d (rare
     /// collision with shared/weak names), revisited when emit grows
     /// real scope-aware symbol resolution.
+    /// M20e: classify a binding (by its declared-site `.src` Sexp) as
+    /// `shared` / `weak` / null (not a resource). Used by M20e's
+    /// auto-drop emit to decide whether to install a Zig `defer`
+    /// guard for the binding.
+    ///
+    /// Looks up the binding's sema-side type via `decl_pos` (the same
+    /// pattern as `tryEmitInferredType` / `semaBindingIsCopy` — sound
+    /// under shadowing because `decl_pos` is unique per declaration).
+    /// Returns null when sema isn't wired, the binding isn't found,
+    /// or its type isn't shared/weak.
+    ///
+    /// NOTE: distinct from `handleKindOf(expr)` which classifies an
+    /// expression's TYPE via a name scan — that helper is the
+    /// known-fragile global-scan used for dispatch on uses. This helper
+    /// is sound because declarations are unique by position.
+    fn resourceKindOfBinding(self: *const Emitter, name_node: Sexp) ?ResourceKind {
+        const sema = self.sema orelse return null;
+        if (name_node != .src) return null;
+        const decl_pos = name_node.src.pos;
+        for (sema.symbols.items) |sym| {
+            if (sym.decl_pos != decl_pos) continue;
+            const ty = sema.types.get(sym.ty);
+            return switch (ty) {
+                .shared => .shared,
+                .weak => .weak,
+                else => null,
+            };
+        }
+        return null;
+    }
+
+    /// M20e: classify a use-site bare-name reference for guard-disarm
+    /// purposes. Same as `handleKindOf` semantically, but returns the
+    /// Zig-side name so we can construct the guard-variable spelling.
+    /// Bridges the `.src` use to its declaration via the Checker's
+    /// existing scope-aware lookup chain (well, via emit's scope
+    /// table built in `pushScope`/`declare`).
+    fn resourceKindOfBareUse(self: *const Emitter, name: []const u8) ?ResourceKind {
+        const sema = self.sema orelse return null;
+        for (sema.symbols.items) |sym| {
+            if (!std.mem.eql(u8, sym.name, name)) continue;
+            const ty = sema.types.get(sym.ty);
+            return switch (ty) {
+                .shared => .shared,
+                .weak => .weak,
+                else => null,
+            };
+        }
+        return null;
+    }
+
+    /// M20e: emit the resource-binding guard preamble.
+    ///
+    ///   var __rig_alive_<zig_name>: bool = true;
+    ///   defer if (__rig_alive_<zig_name>) {
+    ///       __rig_alive_<zig_name> = false;
+    ///       <zig_name>.{dropStrong|dropWeak}();
+    ///   }
+    ///
+    /// The disarm-inside-defer keeps Zig's "never mutated" check
+    /// happy in the pure-auto-drop case (no explicit discharge in
+    /// the body) while remaining semantically a no-op: explicit
+    /// discharges always set the flag false BEFORE the defer fires,
+    /// so the body of the defer's if-true branch only runs when
+    /// auto-drop actually applies.
+    ///
+    /// Caller must have already emitted the binding declaration (so
+    /// `<zig_name>` is in scope). Writes a trailing newline + indent.
+    fn emitResourceGuard(self: *Emitter, zig_name: []const u8, kind: ResourceKind) Error!void {
+        const drop_method: []const u8 = switch (kind) {
+            .shared => "dropStrong",
+            .weak => "dropWeak",
+        };
+        try self.w.writeAll("\n");
+        try self.indentSpaces();
+        try self.w.print("var __rig_alive_{s}: bool = true;", .{zig_name});
+        try self.w.writeAll("\n");
+        try self.indentSpaces();
+        try self.w.print(
+            "defer if (__rig_alive_{s}) {{ __rig_alive_{s} = false; {s}.{s}(); }};",
+            .{ zig_name, zig_name, zig_name, drop_method },
+        );
+    }
+
+    /// M20e: emit the disarm of a resource binding's guard. Called at
+    /// every explicit discharge site (`-rc`, `<rc`, bare `return rc` —
+    /// the last two land in subsequent sub-commits).
+    fn emitResourceDisarm(self: *Emitter, zig_name: []const u8) Error!void {
+        try self.w.print(" __rig_alive_{s} = false;", .{zig_name});
+    }
+
+    /// M20e: convenience for the common pattern "expr is a bare name
+    /// referring to a resource binding; emit the disarm." Silent
+    /// no-op for non-name or non-resource expressions, so callers
+    /// can use it unconditionally.
+    fn emitDisarmIfBareResourceName(self: *Emitter, expr: Sexp) Error!void {
+        if (expr != .src) return;
+        const name = self.source[expr.src.pos..][0..expr.src.len];
+        const kind = self.resourceKindOfBareUse(name) orelse return;
+        _ = kind;
+        const zig_name = self.lookup(name) orelse name;
+        try self.emitResourceDisarm(zig_name);
+    }
+
+    pub const ResourceKind = enum { shared, weak };
+
     const HandleKind = enum { shared, weak, other };
     fn handleKindOf(self: *const Emitter, expr: Sexp) HandleKind {
         const sema = self.sema orelse return .other;
@@ -1583,11 +1740,38 @@ pub const Emitter = struct {
         const head = items[0].tag;
         switch (head) {
             // Ownership wrappers: most lower transparently. M20d adds
-            // runtime dispatch for shared (`*T`) and weak (`~T`) handle
-            // ops; the others pass through unchanged (M2-era enforced
-            // ownership; Zig handles ref/move at runtime).
-            .@"move", .@"read", .@"write", .@"pin", .@"raw" => {
+            // runtime dispatch for shared/weak ops (below). M20e wraps
+            // `(move x)` for resource bindings in a labeled-block
+            // expression that disarms the guard before yielding the
+            // bare handle, so the scope-exit `defer` is a no-op and
+            // the callee gets a clean handle.
+            .@"read", .@"write", .@"pin", .@"raw" => {
                 if (items.len >= 2) try self.emitExpr(items[1]);
+            },
+            .@"move" => {
+                if (items.len < 2) return;
+                // For bare resource-name moves, emit:
+                //   blk_NN: { __rig_alive_<name> = false; break :blk_NN <name>; }
+                // The labeled-block form is the smallest Zig expression
+                // that lets us run a side-effect (disarm) before
+                // yielding the value, in any expression context.
+                const inner = items[1];
+                if (inner == .src) {
+                    const name = self.source[inner.src.pos..][0..inner.src.len];
+                    if (self.resourceKindOfBareUse(name)) |_| {
+                        const zig_name = self.lookup(name) orelse name;
+                        const label = self.block_label_counter;
+                        self.block_label_counter += 1;
+                        try self.w.print(
+                            "rig_mv_{d}: {{ __rig_alive_{s} = false; break :rig_mv_{d} {s}; }}",
+                            .{ label, zig_name, label, zig_name },
+                        );
+                        return;
+                    }
+                }
+                // Non-resource move: pass through (M2 enforced
+                // ownership; Zig's value semantics handle the transfer).
+                try self.emitExpr(inner);
             },
             // M20d: `(share x)` always constructs a fresh Rc box.
             // Operator semantics: `*expr` MOVES `expr` into the new
@@ -2213,6 +2397,23 @@ pub const Emitter = struct {
 // =============================================================================
 // Free helpers
 // =============================================================================
+
+/// M20e helper: extract the name `.src` node from any param shape.
+/// Returns null for shapes that don't carry a normal name (e.g.,
+/// destructured params if/when those land).
+fn paramNameNode(p: Sexp) ?Sexp {
+    switch (p) {
+        .src => return p,
+        .list => |items| {
+            if (items.len < 2 or items[0] != .tag) return null;
+            return switch (items[0].tag) {
+                .@":", .pre_param, .default, .aligned, .@"read", .@"write" => items[1],
+                else => null,
+            };
+        },
+        else => return null,
+    }
+}
 
 fn identText(source: []const u8, sexp: Sexp) ?[]const u8 {
     return switch (sexp) {

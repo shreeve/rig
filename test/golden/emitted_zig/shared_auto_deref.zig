@@ -11,7 +11,9 @@ pub const User = struct {
 
 pub fn main() void {
     const rc = (rig.rcNew(User{ .age = 42 }) catch @panic("Rig Rc allocation failed"));
+    var __rig_alive_rc: bool = true;
+    defer if (__rig_alive_rc) { __rig_alive_rc = false; rc.dropStrong(); };
     std.debug.print("{any}\n", .{ rc.value.age });
     std.debug.print("{any}\n", .{ rc.value.read_age() });
-    rc.dropStrong();
+    rc.dropStrong(); __rig_alive_rc = false;
 }

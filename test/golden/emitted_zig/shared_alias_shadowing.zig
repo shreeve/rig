@@ -6,7 +6,10 @@ pub const Box = struct {
 };
 
 pub fn holder(rc: *rig.RcBox(Box)) void {
-    rc.dropStrong();
+    
+    var __rig_alive_rc: bool = true;
+    defer if (__rig_alive_rc) { __rig_alive_rc = false; rc.dropStrong(); };
+    rc.dropStrong(); __rig_alive_rc = false;
 }
 
 pub fn consumer(rc: i32) void {
@@ -15,6 +18,8 @@ pub fn consumer(rc: i32) void {
 
 pub fn main() void {
     const b = (rig.rcNew(Box{ .value = 1 }) catch @panic("Rig Rc allocation failed"));
-    holder(b);
+    var __rig_alive_b: bool = true;
+    defer if (__rig_alive_b) { __rig_alive_b = false; b.dropStrong(); };
+    holder(rig_mv_0: { __rig_alive_b = false; break :rig_mv_0 b; });
     consumer(42);
 }

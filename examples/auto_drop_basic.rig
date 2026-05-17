@@ -1,0 +1,16 @@
+# M20e: a shared handle with NO explicit `-rc` — auto-drop fires at
+# scope exit via the Zig `defer` guard emitted by M20e(1/5).
+#
+# Verifies the milestone's user-facing payoff:
+#   - `rc = *Counter(...)` works without a matching `-rc`.
+#   - The runtime asserts (`strong > 0` on drop, free-on-strong=0)
+#     all succeed, proving the auto-drop ran exactly once.
+#   - Compare against `shared_basic.rig` (explicit `-rc` form) —
+#     same runtime behavior, less ceremony.
+
+struct Counter
+  value: Int
+
+sub main()
+  rc = *Counter(value: 7)
+  print(rc.value)
