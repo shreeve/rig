@@ -1,11 +1,11 @@
-# Rig — Session Handoff (post-M20g, V1 substrate complete)
+# Rig — Session Handoff (post-PB0, Phase B scoped)
 
-**You are picking up a Rig compiler session at a clean
-milestone boundary.** M20g has shipped end-to-end; the V1
-ownership substrate is functionally complete. The next major
-arc is **Phase B of REACTIVITY-DESIGN.md** — the rig-reactive
-validation milestone. Read top-to-bottom once; then it's a
-reference.
+**You are picking up a Rig compiler session mid-arc.** M20g
+shipped end-to-end (V1 substrate complete); PB0 (Phase B
+canary scaffold) just landed; Phase B has been scoped with
+GPT-5.5 and the agreed plan is below. The next concrete
+action is the **M20h design checkpoint** (escaping closures).
+Read top-to-bottom once; then it's a reference.
 
 ---
 
@@ -14,17 +14,20 @@ reference.
 - **Project**: Rig is a systems language ("Zig-fast, Rust-safe,
   Ruby-readable") that compiles to Zig 0.16. Repo:
   `/Users/shreeve/Data/Code/rig`.
-- **Where we are**: Just shipped **M20g (1-5/5) + M20g(2.1)** —
-  closure captures with mode-aware ownership effects. **700
-  tests passing, 0 failing.** Clean tree on `main`, all pushed.
-  The V1 ownership substrate (M20a + M20b + M20c + M20d + M20e
-  + M20f + M20g) is complete and composes end-to-end.
-- **Next major arc**: **Phase B of
-  `docs/REACTIVITY-DESIGN.md`** — the rig-reactive validation
-  milestone. This is the "wow factor" arc where Cell + Memo +
-  Effect demonstrate that the V1 substrate is sufficient for
-  the reactivity stress test the whole M20+ ordering was
-  designed around.
+- **Where we are**: M20g (V1 substrate) shipped end-to-end. **PB0
+  (Phase B canary scaffold)** landed at `examples/reactive_canary.rig`
+  with `M20f` Cell composition and `M20g` stack-local closure
+  invoke both verified end-to-end. **706 tests passing, 0
+  failing.** Clean tree on `main`, all pushed.
+- **Next concrete action**: **M20h design checkpoint** —
+  escaping/owned closure values. Phase B's load-bearing first
+  substrate gap. The Phase B scoping checkpoint already
+  produced the IN/OUT scope guardrails for M20h (see §4 below);
+  the M20h-specific checkpoint locks the syntax, ABI, drop
+  model, and type spelling.
+- **Phase B is scoped** (entries 15-16 in the user-ai
+  conversation): the agreed sequence is
+  `PB0 → M20h → PB1 → M20i → PB2 → PB3`. PB0 done.
 - **Owner**: Steve (`shreeve@github`). Collaborates with the AI
   agent AND consults GPT-5.5 via the `user-ai` MCP for design
   checkpoints + post-implementation reviews.
@@ -77,12 +80,23 @@ Codebase highlights:
 | 6 | `*T` / `~T` real `Rc` / `Weak` semantics | ✅ | M20d + M20d.1 + M20d.2 |
 | 6.5 | Automatic scope-exit drop | ✅ | M20e + M20e.1 |
 | 7 | Interior mutability — `Cell(T)` library type | ✅ | M20f + M20f.1 |
-| 8 | **Closure capture mode syntax** | ✅ | **M20g (1-5/5) + M20g(2.1)** |
+| 8 | Closure capture mode syntax (non-escaping V1) | ✅ | M20g (1-5/5) + M20g(2.1) |
 
 **The V1 ownership substrate is COMPLETE.** Items 9-17 are
 substrate maturity (`unsafe` lattice, `try_block` lowering,
 explicit error sets, etc.) — important but not blocking the
 reactivity validation milestone.
+
+## Phase B status
+
+| Step | Item | Status | Where |
+|---|---|---|---|
+| PB0 | Reactive canary scaffold | ✅ | `examples/reactive_canary.rig` |
+| M20h | Owned/escaping closure values | 🚧 | NEXT — design checkpoint |
+| PB1 | Single retained Effect | pending | depends on M20h |
+| M20i | Resource-aware `Vec(T)` | pending | depends on PB1 exposing the need |
+| PB2 | Cell → Effect notification | pending | depends on M20i |
+| PB3 | Memo + batching + topology | pending | depends on PB2 |
 
 ---
 
@@ -183,49 +197,143 @@ Negative: `closure_<scenario>_rejected.rig` (sema/ownership goldens only):
 
 ---
 
-## 4. Quick-start for the next session
+## 4. Phase B plan (scoped with GPT-5.5; conversation entries 15-16)
 
-### Minute-1: orient
+The Phase B scoping checkpoint produced an agreed sequence
+through ~12-20 commits over the next 6-10 weeks. **Do NOT
+re-litigate Q1-Q5 below — they were decided collaboratively
+and locked.** Each subsequent Mxx arc (M20h, M20i) gets its
+own design checkpoint when it starts.
+
+### Agreed sequencing
+
+```
+PB0:  Minimal reactive canary scaffold      ✅ shipped
+M20h: Owned/escaping closure values         ← NEXT: design checkpoint
+PB1:  Single retained Effect using M20h
+M20i: Resource-aware Vec(T)                 ← design checkpoint when reached
+PB2:  Cell → Effect notification (multi-subscriber)
+PB3:  Memo + batching + topology
+```
+
+### Locked decisions (Q1-Q5 from the Phase B checkpoint)
+
+**Q1 — Minimum canary first, NOT the full ~500-line library.**
+Each surfaced language gap gets its own Mxx commit on main;
+the library grows in `examples/reactive_canary.rig` (single
+file until M15b cross-module sema improves) as those commits
+land. Avoids speculatively designing M20h/M20i with no concrete
+use exposing what shape they need.
+
+**Q2 — Narrow M20h (escaping closures), NOT trusted Effect/Memo
+builtins.** This is the load-bearing decision. The original
+lean (mirror the `Cell` builtin playbook for `Effect` / `Memo`)
+was rejected because it would HIDE the gap Phase B is supposed
+to expose. Quote from GPT-5.5: *"Cell was acceptable as a
+builtin because interior mutability is a primitive unsafe
+abstraction with no user-level unsafe yet. Effect/Memo are
+library constructs. If you bake them into the runtime, the
+canary stops testing whether Rig can express retained
+callbacks."* The Rig substrate must grow real escaping
+closures; the library stays library-level.
+
+**Q3 — Defer `Vec(T)` until PB1 exposes the need.** First
+retained Effect uses a single-callback slot. When `Vec(T)`
+does land (as M20i), it MUST be resource-aware: `push` /
+`drop` / `resize` correctly handle `*T` / `~T` element
+ownership; no naive `std.ArrayList` wrapper that memcpy-copies
+handles.
+
+**Q4 — Hybrid on main, single-file until M15b.** Language
+fixes ship as normal Mxx commits with the M5-style cadence.
+The canary file (`examples/reactive_canary.rig`) IS the
+regression test and lives in `EMIT_TARGETS`. Start single-file
+to avoid cross-module sema weakness masking errors; split into
+`test/modules/reactive/` only after M15b matures.
+
+**Q5 — Functional canary + docs as success.** Phase B done
+when a single end-to-end test passes (e.g., `count.set(2);
+reactor.flush(); effect observes new value`) AND SPEC
+documents what subset of reactivity works + what's
+intentionally deferred. NOT the full 500-line library — the
+canary is the validation deliverable.
+
+### M20h scope guardrails (locked at Phase B checkpoint)
+
+When M20h gets its own design checkpoint, these are the
+already-locked constraints. The checkpoint scopes syntax,
+ABI, drop model, type spelling — NOT whether to do M20h.
+
+```
+IN:  no-arg or fixed-arity closures (matching M20g lambda params)
+     heap-owned closure environment
+     resource captures dropped with the closure
+     call/invoke after defining-scope exit
+     store in struct field (so a parent can retain the closure)
+
+OUT: async, traits / interfaces, dynamic dispatch over arbitrary
+     signatures, closure equality, closure cloning, fallible
+     callbacks (`fn() -> Void!`), cross-module closure ABI
+```
+
+GPT-5.5's and my shared bias for the M20h syntax: explicit
+`*Closure(fn |+rc| body)` constructor (mirrors `*Cell(value: 0)`)
+versus overloading `*lambda` to mean both "Rc allocate" and
+"synthesize closure object with generated ABI / drop glue."
+NOT locked — the M20h checkpoint should weigh both with the
+emitter constraints in view.
+
+Substrate gaps GPT-5.5 flagged that M20h/PB1/PB2/PB3 will
+encounter (Phase B checkpoint, entry 15):
+
+1. **Closure type spelling and ABI** — FnOnce vs FnMut vs Fn-like.
+   Start with no-arg void; defer the trait hierarchy.
+2. **Resource containers** — `Vec(~Effect)` push/drop/resize
+   must move handles correctly. M20i designs this.
+3. **Built-in optional ergonomics** — `weak.upgrade()` returns
+   `(*T)?`; match/unwrap may need cleanup before subscriber
+   lists are pleasant.
+4. **Method values / function references** — `Effect(count.changed)`
+   form deferred initially.
+5. **Fallible callbacks** — defer until `try_block` emit lands;
+   initial closures are `fn() -> Void`.
+
+### Minute-1 next session
 
 ```bash
 git pull --ff-only
-git log -1 --format='%h %s'   # should be HEAD at or after M20g(5/5)
-./test/run 2>&1 | tail -3     # should print "700+ passed, 0 failed"
+git log -1 --format='%h %s'   # should be HEAD at or after PB0 commit
+./test/run 2>&1 | tail -3     # should print "706+ passed, 0 failed"
+bin/rig run examples/reactive_canary.rig    # prints "1\n3"
 ```
 
-### Minute-2: read Phase B
+### Minute-2: read the agreed scope above
 
-The next arc is the rig-reactive validation milestone in
-`docs/REACTIVITY-DESIGN.md`. Read top-to-bottom; pay particular
-attention to:
+Re-read §4. Q1-Q5 are locked. M20h scope IN/OUT is locked.
+The remaining open decision is the M20h checkpoint itself:
+syntax, ABI, drop model.
 
-- Phase B section (the validation milestone itself)
-- The Cell / Memo / Effect surface examples
-- The "D-numbered" design items (D1-D9) that Phase B exercises
-- Any "Phase B exposes the seam" callouts in the substrate
-  retrospective
+### Minute-3: run the M20h design checkpoint
 
-### Minute-3: design checkpoint with GPT-5.5
+Open the user-ai conversation (`c_5c1d09d53ebe2f62`,
+`model: "openai:gpt-5.5"`, `max_tokens >= 6000`) and run a
+focused M20h checkpoint covering:
 
-Phase B is NOT a single-sub-commit task. Before coding, run a
-fresh design checkpoint with GPT-5.5 to scope:
+- Syntax: `*Closure(fn |+rc| body)` constructor vs `*lambda`
+  sigil overload vs `own fn |+rc| body` new keyword
+- ABI: closure environment layout, invoke method signature,
+  generated drop glue for resource captures
+- Type spelling: `*Closure()` / `*Closure(args, returns)` /
+  something else
+- Drop model: refcounting (Rc-wrapped) vs unique ownership
+  (the `*T` shape implies Rc but Effects don't need sharing)
+- Interaction with M20g's `is_closure` / `non-escaping`
+  enforcement: M20h needs to relax this for closures that
+  are explicitly `*Closure(...)`-wrapped
+- Sub-commit decomposition (~3-5 sub-commits expected,
+  matching the M20d/M20e/M20g pattern)
 
-- What's the MINIMUM Rip-style example that demonstrates the
-  substrate composes? (e.g., a Cell + a derived value + an
-  Effect that observes both.)
-- Which D-items from REACTIVITY-DESIGN.md are blocking vs.
-  nice-to-have for Phase B?
-- Should the validation milestone ship as ONE example or as a
-  family of escalating examples?
-- What's the success criterion — a single passing test, a
-  cookbook section in SPEC.md, both?
-
-Use the `user-ai` MCP server's `discuss` tool with
-`conversation_id: "c_5c1d09d53ebe2f62"` and
-`model: "openai:gpt-5.5"`. Set `max_tokens >= 6000`.
-
-The Phase B checkpoint is the FIRST interaction in the next
-arc — treat it like the M20a / M20d / M20g design checkpoints.
+Then implement. Then post-implementation review. Then PB1.
 
 ---
 
@@ -278,12 +386,22 @@ Now contains, in order:
 10. M20f design checkpoint — Cell synthetic methods + Copy-only
 11. M20f post-implementation review (M20f.1 fixes round)
 12. M20g design checkpoint — capture modes + non-escaping closures
-13. **M20g(2/5) tactical checkpoint** — closure-value enforcement
+13. M20g(2/5) tactical checkpoint — closure-value enforcement
     point, escape-detection scope, etc. Locked the Q&A
     summarized in §3 above.
-14. **M20g(2/5) post-implementation review** — cleared (2/5),
+14. M20g(2/5) post-implementation review — cleared (2/5),
     surfaced one polish item (closure-reassign diagnostic →
     M20g(2.1)) and emit guidance for (3/5).
+15. **Phase B scoping checkpoint** — locked Q1-Q5 (minimum
+    canary first, narrow M20h not trusted builtins, defer Vec
+    until PB1 exposes the need, hybrid on main with single-file
+    until M15b, functional canary + docs as success). Locked
+    M20h scope guardrails (IN/OUT lists in §4 above).
+16. **Phase B scoping confirmation** — locked sequencing
+    (`PB0 → M20h → PB1 → M20i → PB2 → PB3`), confirmed PB0
+    content (working Cell+stack-local closure + commented
+    M20h/M20i TODOs as gap markers, not syntax promises),
+    confirmed fresh M20h checkpoint required before coding.
 
 To continue the thread for the next arc, pass `conversation_id`
 and `model` as above. Models live in

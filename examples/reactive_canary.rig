@@ -1,0 +1,67 @@
+# Phase B canary scaffold (PB0).
+#
+# Purpose: establish the reactive validation test location and
+# anchor the substrate baseline. Per the GPT-5.5 Phase B
+# checkpoint, this file is NOT a library — it's the canary that
+# exposes what the substrate is missing for the
+# `rig-reactive` validation milestone (REACTIVITY-DESIGN.md
+# §Phase B).
+#
+# The canary grows over multiple commits:
+#
+#   PB0  (this file) — baseline: Cell + stack-local closure work
+#   M20h — owned/escaping closure values; design checkpoint
+#          required (substrate-level decision on closure ABI,
+#          drop model, type spelling)
+#   PB1  — single retained Effect using M20h
+#   M20i — resource-aware Vec(T) for multi-subscriber lists
+#   PB2  — Cell -> Effect notification (multiple subscribers)
+#   PB3  — Memo + batching + topology (Reactor.flush)
+#
+# Each substrate gap exposed by the canary gets fixed on main,
+# not in the library. Per the design doc: "the library is the
+# canary; fix the language, not the library."
+
+sub main()
+  # Substrate check #1: M20f Cell(T) interior mutability through
+  # a shared *T handle. The Reactor-less precursor to Cell.set
+  # that drives push-invalidation in the full library.
+  count: *Cell(Int) = *Cell(value: 0)
+  count.set(1)
+  print(count.get())                # 1
+
+  # Substrate check #2: M20g stack-local closure capturing a
+  # shared handle by clone. Confirms the closure body can read
+  # through the captured Rc. The retained-Effect case (M20h)
+  # generalizes this to closures that outlive their defining
+  # scope.
+  bump = fn |+count|
+    count.set(count.get() + 1)
+  bump()
+  bump()
+  print(count.get())                # 3
+
+  # TODO M20h: retained escaping closure. The reactive library
+  # needs a closure value that can be stored in an Effect (or
+  # Reactor subscriber list) and invoked after the defining
+  # scope exits. M20g closures are strictly non-escaping. The
+  # M20h design checkpoint will pick the syntax (provisional
+  # bias: `*Closure(fn |+rc| body)` constructor, mirroring
+  # `*Cell(value: 0)`) and the ABI (closure env on the heap,
+  # captures dropped when the closure handle is dropped).
+  #
+  # eff = *Closure(fn |+count|
+  #   print(count.get())
+  # )
+  # eff.call()
+
+  # TODO M20i: resource-aware Vec(T) for subscriber lists. The
+  # Cell.subscribers field in the full library is a
+  # Vec(~Effect) — weak handles to retained closures. Vec(T)
+  # must call .dropStrong()/.dropWeak() on resource elements at
+  # remove / clear / Vec drop time; a naive ArrayList wrapper
+  # would memcpy-copy handles and leak refcounts.
+  #
+  # subs: Vec(~Effect) = Vec.new()
+  # subs.push(~eff)
+  # ...
