@@ -1,0 +1,17 @@
+# M20f(2/4): Cell's `get` / `set` methods. Built-in read-receiver
+# methods (`?self` typing); M20b's generic-method substitution
+# handles `T → Int` per-call; M20d's read-only auto-deref permits
+# them through any borrow shape (no special-casing needed at
+# sema dispatch).
+#
+# The runtime's `set(self: *Self, value: T)` requires a mutable
+# pointer; M20f(2/4) emits Cell bindings as `var` to support this.
+# Rig's `=!` still prevents rebinding at the Rig level — interior
+# mutation through a fixed binding is fine per SPEC.
+
+sub main()
+  c: Cell(Int) = Cell(value: 0)
+  c.set(5)
+  print(c.get())
+  c.set(c.get() + 10)
+  print(c.get())

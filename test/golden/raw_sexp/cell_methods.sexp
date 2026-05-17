@@ -1,0 +1,1 @@
+(module (sub main () _ (block (set _ c (generic_inst Cell Int) (call Cell (kwarg value 0))) (call (member c set) 5) (call print (call (member c get))) (call (member c set) (+ (call (member c get)) 10)) (call print (call (member c get))))))

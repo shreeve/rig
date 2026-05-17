@@ -656,11 +656,64 @@ fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.E
 
     // Synthetic field: `value: T` (T as type_var(t_sym_id)).
     const t_type_id = try ctx.types.intern(ctx.allocator, .{ .type_var = t_sym_id });
-    const fields = try ctx.arena.allocator().alloc(Field, 1);
+
+    // M20f(2/4): synthetic methods `get(?self) -> T` and
+    // `set(?self, value: T)`. Per GPT-5.5's M20f design pass:
+    // model Cell's methods as ordinary read-receiver methods on
+    // a generic nominal. M20b's generic-method substitution
+    // machinery handles the per-call-site `T → Int` rewrite, and
+    // M20d's read-only auto-deref accepts the receivers through
+    // shared without any ad-hoc intercept. The trusted-runtime
+    // implementation does the actual interior mutation.
+    //
+    // The Cell instance type used as the self-receiver:
+    //   borrow_read(parameterized_nominal(Cell, [type_var(T)]))
+    const cell_inst_id = try ctx.types.intern(ctx.allocator, .{
+        .parameterized_nominal = .{
+            .sym = cell_sym_id,
+            .args = blk: {
+                const a = try ctx.arena.allocator().alloc(TypeId, 1);
+                a[0] = t_type_id;
+                break :blk a;
+            },
+        },
+    });
+    const self_ty_id = try ctx.types.intern(ctx.allocator, .{ .borrow_read = cell_inst_id });
+
+    // get(self: ?Cell(T)) -> T
+    const get_params = try ctx.arena.allocator().alloc(TypeId, 1);
+    get_params[0] = self_ty_id;
+    const get_fn_ty = try ctx.types.intern(ctx.allocator, .{
+        .function = .{ .params = get_params, .returns = t_type_id, .is_sub = false },
+    });
+
+    // set(self: ?Cell(T), value: T) -> Void
+    const set_params = try ctx.arena.allocator().alloc(TypeId, 2);
+    set_params[0] = self_ty_id;
+    set_params[1] = t_type_id;
+    const set_fn_ty = try ctx.types.intern(ctx.allocator, .{
+        .function = .{ .params = set_params, .returns = ctx.types.void_id, .is_sub = true },
+    });
+
+    const fields = try ctx.arena.allocator().alloc(Field, 3);
     fields[0] = .{
         .name = "value",
         .ty = t_type_id,
         .decl_pos = 0,
+    };
+    fields[1] = .{
+        .name = "get",
+        .ty = get_fn_ty,
+        .decl_pos = 0,
+        .is_method = true,
+        .receiver = .read,
+    };
+    fields[2] = .{
+        .name = "set",
+        .ty = set_fn_ty,
+        .decl_pos = 0,
+        .is_method = true,
+        .receiver = .read,
     };
     ctx.symbols.items[cell_sym_id].fields = fields;
 }

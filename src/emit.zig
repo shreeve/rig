@@ -1034,8 +1034,20 @@ pub const Emitter = struct {
             // it via scope-aware lookup (sound under shadowing).
             try self.declareWithResourceKind(name, zig_name, self.resourceKindOfBinding(name_node));
             // `var` only if reassigned later. `=!` always emits `const`.
+            //
+            // M20f(2/4): Cell(T) (and other future interior-mutable
+            // nominals) need their Zig storage to be mutable so the
+            // `set(self: *Self, value: T)` runtime method has a
+            // valid mutable pointer. Per GPT-5.5's M20f design pass:
+            // emit Cell locals as `var` unconditionally — Rig's `=!`
+            // still prevents rebinding at the Rig level (SPEC
+            // permits interior mutation through fixed bindings).
             const is_mutated = self.fn_mutated.contains(name);
-            const decl_kw: []const u8 = if (is_fixed or !is_mutated) "const" else "var";
+            const is_interior_mutable = self.isInteriorMutableBinding(name_node);
+            const want_var = is_mutated or is_interior_mutable;
+            const decl_kw: []const u8 = if (is_fixed and !is_interior_mutable)
+                "const"
+            else if (want_var) "var" else "const";
             if (has_type) {
                 try self.w.print("{s} {s}: ", .{ decl_kw, zig_name });
                 try self.emitType(type_node);
@@ -1066,6 +1078,17 @@ pub const Emitter = struct {
             // guard (subsequent sub-commits cover those discharges).
             if (self.resourceKindOfBinding(name_node)) |kind| {
                 try self.emitResourceGuard(zig_name, kind);
+            }
+            // M20f(2/4): Cell bindings are emitted as `var` so the
+            // runtime `set(self: *Self, value: T)` method has a valid
+            // mutable pointer. If the binding is only field-read in
+            // the body (no `c.set(...)` calls), Zig fires
+            // "local variable is never mutated, consider using 'const'".
+            // Pacify with `_ = &<name>;` — the address-taken hint tells
+            // Zig the var may be mutated through an alias. Harmless
+            // when the binding IS mutated; necessary when it isn't.
+            if (is_interior_mutable) {
+                try self.w.print(" _ = &{s};", .{zig_name});
             }
         } else {
             // M20e(3/5): reassigning a resource binding must drop the
@@ -1139,6 +1162,30 @@ pub const Emitter = struct {
     /// first-match-wins under shadowing. Acceptable for M20d (rare
     /// collision with shared/weak names), revisited when emit grows
     /// real scope-aware symbol resolution.
+    /// M20f(2/4): is this binding's sema-side type an
+    /// interior-mutable nominal (currently just `Cell(T)`)? Used by
+    /// `emitSetOrBind` to force `var` emission so the runtime
+    /// `set(self: *Self, value: T)` method has a valid mutable
+    /// pointer. Per GPT-5.5's M20f design pass: emit Cell locals as
+    /// `var` unconditionally — Rig's `=!` still prevents rebinding
+    /// at the Rig level (SPEC permits interior mutation through
+    /// fixed bindings).
+    fn isInteriorMutableBinding(self: *const Emitter, name_node: Sexp) bool {
+        const sema = self.sema orelse return false;
+        if (name_node != .src) return false;
+        const decl_pos = name_node.src.pos;
+        for (sema.symbols.items) |sym| {
+            if (sym.decl_pos != decl_pos) continue;
+            const ty = sema.types.get(sym.ty);
+            return switch (ty) {
+                .parameterized_nominal => |pn| pn.sym == sema.cell_sym_id,
+                .nominal => |s| s == sema.cell_sym_id,
+                else => false,
+            };
+        }
+        return false;
+    }
+
     /// M20e: classify a binding (by its declared-site `.src` Sexp) as
     /// `shared` / `weak` / null (not a resource). Used by M20e's
     /// auto-drop emit to decide whether to install a Zig `defer`
