@@ -11,19 +11,22 @@ once; then it's a reference.
 - **Project**: Rig is a systems language ("Zig-fast, Rust-safe,
   Ruby-readable") that compiles to Zig 0.16. Repo:
   `/Users/shreeve/Data/Code/rig`.
-- **Where we are**: Just shipped **M20f + M20f.1** — interior
+- **Where we are**: Just shipped **M20f + M20f.1** (interior
   mutability via the built-in `Cell(T)` type, plus post-review
-  fixes (builtin decl_pos sentinel, `Cell.set` addressability
-  check, built-in name reservation). `*Cell(T).set(...)` works
-  end-to-end through M20d's auto-deref + M20e's auto-drop.
+  fixes) AND **M20g(1/5)** (closure capture grammar + IR
+  foundation per a fresh GPT-5.5 design checkpoint).
   **648 tests passing, 0 failing.** Clean tree on `main`, all
   pushed. The V1 ownership + interior-mutability substrate is
-  complete.
-- **Next milestone**: **M20g — Closure capture mode syntax**
-  (M20+ item #8). The last V1 substrate piece before the
-  rig-reactive validation milestone (Phase B of
-  REACTIVITY-DESIGN.md) becomes reachable. Steve confirmed M20f
-  first, M20g after.
+  complete; closure capture is half-built (grammar/IR done;
+  sema/emit/auto-drop pending).
+- **Next milestone**: **complete M20g** — sub-commits (2-5/5)
+  remain. Grammar + IR foundation shipped in (1/5); (2/5) sema
+  capture binding + mode validation, (3/5) emit closure as
+  anonymous Zig struct + invoke method, (4/5) auto-drop
+  integration with M20e guards, (5/5) SPEC + ROADMAP + HANDOFF.
+  Design checkpoint with GPT-5.5 is LOCKED (see §3 below for
+  the design decisions). Next session can start (2/5)
+  immediately without re-checkpointing.
 - **Owner**: Steve (`shreeve@github`). Collaborates with the AI
   agent AND consults GPT-5.5 via the `user-ai` MCP for design
   checkpoints + post-implementation reviews.
@@ -74,8 +77,8 @@ Codebase highlights:
 | 5 | Methods on enums | ✅ | M20a |
 | 6 | `*T` / `~T` real `Rc` / `Weak` semantics | ✅ | M20d + M20d.1 + M20d.2 |
 | 6.5 | Automatic scope-exit drop | ✅ | M20e + M20e.1 |
-| 7 | **Interior mutability — `Cell(T)` library type** | ✅ | **M20f (just landed)** |
-| 8 | Closure capture mode syntax | ⬜ | **Next (M20g)** |
+| 7 | Interior mutability — `Cell(T)` library type | ✅ | M20f + M20f.1 |
+| 8 | **Closure capture mode syntax** | 🚧 | **M20g(1/5) shipped — grammar + IR. (2-5/5) pending.** |
 
 ---
 
@@ -312,12 +315,25 @@ case — Cell's `get` / `set` are ordinary read-receiver methods.
 
 ---
 
-## 4. Next milestone — M20g closure capture modes
+## 4. Next milestone — finish M20g closure capture modes
 
 The last V1 substrate piece before the rig-reactive validation
 (Phase B of REACTIVITY-DESIGN.md) becomes reachable. Closures
 that capture resources need M20e (which exists now) to avoid
 leaking captured handles on each invocation.
+
+**M20g(1/5) is shipped at `99927c0`**. Grammar + lexer +
+IR foundation: `fn |x| body`, `fn |+rc| body`, `fn |~rc| body`,
+`fn |<rc| body` all parse correctly into the new
+`(lambda CAPTURES PARAMS RETURNS BODY)` shape. Tags landed:
+`captures`, `cap_copy`, `cap_clone`, `cap_weak`, `cap_move`.
+Existing lambda tests (none in EMIT_TARGETS) continue to pass
+via the `_`-for-captures backwards-compat shape.
+
+**The remaining sub-commits should be implementable cleanly
+on this foundation. Design is locked per GPT-5.5's M20g
+checkpoint (in the user-ai conversation thread). Next session
+does NOT need to re-checkpoint — just execute.**
 
 ### Surface
 
@@ -384,23 +400,125 @@ Significant lift. Need to:
 
 Surface these in the M20g design checkpoint.
 
-### Sub-commit plan (estimate)
+### Locked design (from GPT-5.5's M20g checkpoint)
 
-5 sub-commits, parallel to M20e:
+Five binding decisions to honor in sub-commits (2-5/5):
 
-1. **M20g(1/5)**: grammar + IR shape for capture lists. Lambdas
-   without captures continue to work; lambdas with explicit
-   capture syntax parse. No sema or emit changes for captures
-   yet — just IR shape.
-2. **M20g(2/5)**: sema for captures. Each capture's type per
-   mode. Resource captures classified for auto-drop.
-3. **M20g(3/5)**: emit closures as Zig anonymous structs with
-   captured fields. Mode-driven initialization at closure-
-   construct time.
-4. **M20g(4/5)**: auto-drop inside closure body. Resource
-   captures get M20e guard + defer. Closure-instance auto-drop
-   at outer scope exit.
-5. **M20g(5/5)**: SPEC + ROADMAP + HANDOFF; M20+ #8 ✅.
+1. **Default `|x|` is Copy-only.** Resources (`*T`/`~T`) MUST
+   use explicit mode (`|+x|` / `|~x|` / `|<x|`). Without this,
+   `|rc|` would hide a refcount-bump (violating M20d's
+   visible-effects rule).
+2. **NO `|*x|` capture mode.** `*` already means
+   "allocate Rc by moving expr in"; overloading would be
+   confusing. Strong-clone capture spells as `|+rc|`.
+3. **V1 closures are STRICTLY non-escaping.** Can be bound
+   to a local and invoked synchronously in the declaring
+   scope. Cannot be returned, stored in structs/enums, or
+   passed to APIs that retain them. Reactive callback
+   storage needs a future M20h (or a trusted
+   Reactor/Effect builtin).
+4. **Closure values are non-copyable.** `g = f` where
+   `f = fn |+rc| ...` must be rejected, otherwise resource
+   captures double-drop (Zig struct copy without
+   cloneStrong).
+5. **Captured resource guards live in the
+   closure-instance's enclosing scope**, not inside the
+   closure body. (Otherwise each invocation would drop the
+   capture; second invocation would UAF.)
+
+### Sub-commit plan for sub-commits (2-5/5)
+
+**M20g(2/5) — sema for captures.** Bind capture names in the
+closure body scope with the right type:
+- `cap_copy NAME`: requires outer-scope `NAME` to be Copy and
+  non-resource; binds NAME in body with same type. Reject
+  with diagnostic for `*T`/`~T` outer.
+- `cap_clone NAME`: cloneStrong on `*T` → bind as `*T`;
+  cloneWeak on `~T` → bind as `~T`; else copy-clone.
+- `cap_weak NAME`: requires outer-scope `NAME` to be `*T`;
+  binds NAME in body as `~T`. Reject otherwise.
+- `cap_move NAME`: moves outer NAME; binds in body with
+  same type; outer becomes "moved" state (ownership pass
+  picks this up).
+
+Also reject closure escape (return/store of a closure value)
+and closure-value copy/assignment in this commit OR document
+as deferred to a follow-up sub-commit if too invasive.
+
+Look at `walkLambda` in `src/types.zig` (already updated for
+the new IR shape in M20g(1/5)). Capture-binding logic goes
+right before `try self.walk(body)` — push the captures into
+the fn_scope before walking.
+
+**M20g(3/5) — emit closure as anonymous struct + invoke
+method.** Each capture becomes a field on the closure struct.
+Mode-driven field-init at construct time:
+- cap_copy: `field = <outer_name>` (Zig value copy)
+- cap_clone (shared): `field = <outer>.cloneStrong()`
+- cap_clone (weak): `field = <outer>.cloneWeak()`
+- cap_weak: `field = <outer>.weakRef()`
+- cap_move: `field = blk: { __rig_alive_<outer> = false; break :blk <outer>; }`
+
+Inside the closure body, capture-name references map to
+`self.<field>` not the outer scope name. Per GPT-5.5:
+**need an explicit emitter scope mapping** (not just the
+global-name-scan fallback). Add a `CaptureBinding` entry
+type in the emitter's scope table that distinguishes
+"capture: emit as self.field" from "local: emit as bare
+name".
+
+The closure value lowers to:
+```zig
+const f = struct {
+    rc: *rig.RcBox(rig.Cell(i32)),
+    pub fn invoke(self: *@This()) RetType { ... }
+}{ .rc = __init };
+```
+Then `f()` lowers to `f.invoke()`.
+
+**M20g(4/5) — auto-drop integration.** For each resource
+capture, install an M20e-style guard + defer in the
+enclosing scope of the closure instance:
+```zig
+const __cap_rc = rc.cloneStrong();
+const f = struct { ... }{ .rc = __cap_rc };
+var __rig_alive_f_rc: bool = true;
+defer if (__rig_alive_f_rc) {
+    __rig_alive_f_rc = false;
+    f.rc.dropStrong();
+};
+```
+The guard owns the captured handle's lifetime; closure
+invocation doesn't disarm it (closures can be invoked
+multiple times; only scope-exit drops the captures).
+
+For `cap_move`, the outer binding's guard disarms (move
+semantics) and the closure capture takes over.
+
+**M20g(5/5) — SPEC + ROADMAP + HANDOFF.** SPEC §Lambdas
+section with capture-mode table. ROADMAP M20+ #8 → ✅.
+HANDOFF refresh — V1 substrate complete; Phase B of
+REACTIVITY-DESIGN becomes reachable. Note the
+non-escaping V1 limitation explicitly: stored reactive
+callbacks need a future M20h or trusted-builtin path.
+
+### Open questions for sub-commit (2/5)
+
+Before starting, the next session should consider:
+
+- **Closure-value copy rejection enforcement point.** Sema
+  or ownership? Ownership has the binding-tracker; sema has
+  the type info. My lean: ownership-side rule that rejects
+  any reassignment / parameter-pass / return of a closure
+  value. The "closure type" is structural in Zig but
+  semantically should be non-copyable in Rig.
+- **Escape detection scope.** `return fn |+rc| ...` should
+  be rejected. So should storing a closure in a struct field.
+  Detecting at sema time requires tracking closure values
+  through return/binding/assignment. A reasonable V1: reject
+  any non-immediate-call use of a closure-typed expression
+  (force inline call `(fn |+rc| body)()` or local-binding-
+  then-invoke).
 
 ---
 
@@ -450,7 +568,9 @@ Now contains, in order:
 7. M20d.2 (`^w` sigil vs method form) joint decision
 8. M20e design checkpoint — the defer-guard redirection
 9. M20e post-implementation review (M20e.1 review fixes round)
-10. **M20f design checkpoint — Cell synthetic methods + Copy-only**
+10. M20f design checkpoint — Cell synthetic methods + Copy-only
+11. M20f post-implementation review (M20f.1 fixes round)
+12. **M20g design checkpoint — capture modes + non-escaping closures**
 
 To continue the thread, pass `conversation_id` and `model` as
 above. Models live in
@@ -571,6 +691,7 @@ above. Models live in
   emerges from the combination of features.
 
 Good luck. Read SPEC.md §Shared Ownership (Cell subsection),
-ROADMAP.md M20d–M20f sections, REACTIVITY-DESIGN.md, then start
-the M20g design checkpoint with GPT-5.5 (Q1-Q5 in §4 above).
-Then begin M20g(1/5).
+ROADMAP.md M20d–M20f sections, REACTIVITY-DESIGN.md, then pick
+up M20g at sub-commit (2/5). The design checkpoint is locked;
+the 5 binding decisions are in §4 above. Implementation order:
+sema → emit → auto-drop → docs.
