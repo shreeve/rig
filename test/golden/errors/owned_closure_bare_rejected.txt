@@ -1,1 +1,2 @@
 examples/owned_closure_bare_rejected.rig:11:8: error: owned closure must be wrapped with `*`; write `*Closure(fn |...| body)`
+examples/owned_closure_bare_rejected.rig:11:21: error: closures cannot escape their defining scope in V1; bind to a local with `f = fn |...| ...` and call `f()`, or invoke inline `(fn |...| ...)()`

@@ -1,0 +1,14 @@
+# M20h.1: lambda literal as array element is rejected.
+#
+# Pre-M20h.1, `walkSet` set `in_set_rhs = true` for the entire
+# RHS walk, which leaked through the array element walk and
+# silently permitted lambdas inside aggregate literals to
+# escape. After GPT-5.5's M20h post-implementation review, the
+# flag fires ONLY for direct lambda RHS — nested lambdas in
+# arrays / records / sub-call args correctly produce the
+# escape diagnostic.
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  xs = [fn |+count| count.set(count.get() + 1)]
+  _ = xs

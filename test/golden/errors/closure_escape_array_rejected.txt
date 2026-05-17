@@ -1,0 +1,1 @@
+examples/closure_escape_array_rejected.rig:13:14: error: closures cannot escape their defining scope in V1; bind to a local with `f = fn |...| ...` and call `f()`, or invoke inline `(fn |...| ...)()`

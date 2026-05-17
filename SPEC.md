@@ -728,22 +728,27 @@ The body is an indented block (or a single expression). The
 lambda has no name; its `fn` keyword stands alone (contrast `fun
 name(...)`).
 
-V1 lambdas are **non-escaping by default**: a bare closure
-value (`f = fn |...| body`) may appear ONLY as a `(set ...)`
-RHS or as the callee of a `(call ...)` form. Returns, call
-arguments, struct/enum field values, and any other position
-are rejected by the ownership checker. Closure values are also
-**non-copyable** — `g = f` is rejected, and the closure binding
-is implicitly fixed so reassignment is disallowed too. The
-combined effect: a stack-local closure stays anchored to its
-original binding and is invoked there.
+**Bare lambda values are non-escaping in V1.** A `fn |...|
+body` literal may appear ONLY as:
 
-For **escaping callbacks** — closures stored past their defining
-scope, returned from a function, retained in a subscriber list,
-etc. — Rig provides the **owned-closure handle** `*Closure()`
-described in §Owned Closures (M20h) below. The escape is opt-in
-and visible at the construction site via the `*` sigil; bare
-lambdas remain non-escaping.
+- the DIRECT right-hand side of a `(set ...)` binding
+  (`f = fn |...| body`), OR
+- the callee of a `(call ...)` form (the inline-invoke shape),
+  OR
+- the lambda argument of an `*Closure(fn |...| body)`
+  construction (M20h, below).
+
+Every other position — nested inside an array literal, a
+record / struct / enum constructor arg, a sub-call's
+argument, a function's implicit-return expression — is
+rejected by the ownership checker. Closure values are also
+**non-copyable**: `g = f` is rejected, and the closure
+binding is implicitly fixed so reassignment is disallowed.
+
+To retain a closure beyond its defining scope, wrap the
+lambda in an owned closure handle using `*Closure(...)` —
+see §Owned Closures (M20h) below. The wrap is the visible
+opt-in; the compiler does not infer escape.
 
 ### Capture modes
 

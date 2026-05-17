@@ -1711,6 +1711,56 @@ included via the reactive canary refresh, M20i (resource-
 aware `Vec(T)`) next when Phase B needs multi-subscriber
 notification.
 
+### M20h.1 — Tighten `in_set_rhs` to direct lambda RHS ✅
+
+GPT-5.5's M20h post-implementation review caught a
+pre-existing M20g ownership leak: `walkSet` set
+`in_set_rhs = true` for the ENTIRE RHS walk (not just for
+direct lambda literals), so a lambda buried in an aggregate
+literal silently passed the escape check. Before this fix,
+`xs = [fn |+rc| ...]` and `h = Holder(cb: fn |+rc| ...)`
+both compiled without diagnostic — the lambda would have
+escaped via the aggregate.
+
+The flag now fires ONLY when the RHS is DIRECTLY a lambda
+literal (`isLambdaLiteral(expr)` gate). The
+`*Closure(fn ...)` shape is unaffected — its escape
+permission flows through the separate M20h(3/5)
+`in_owned_closure_constructor_arg` flag set by `walkShare`.
+
+**Implementation** (one-line conceptual change to
+`ownership.zig::walkSet`):
+
+```zig
+const direct_lambda_rhs = isLambdaLiteral(expr);
+const prev_rhs = self.in_set_rhs;
+if (direct_lambda_rhs) self.in_set_rhs = true;
+try self.walk(expr, false);
+self.in_set_rhs = prev_rhs;
+```
+
+**Tests** (+8 from two new negative examples):
+
+- `closure_escape_array_rejected.rig` — `xs = [fn |+x| ...]`
+  fires "closures cannot escape" diagnostic.
+- `closure_escape_record_rejected.rig` — `h = Holder(cb: fn
+  |+x| ...)` fires the same.
+
+**Cascade observation**: `owned_closure_bare_rejected.rig`
+(bare `Closure(fn ...)` without `*`) now produces BOTH the
+sema "must be wrapped with `*`" diagnostic AND the
+ownership "cannot escape" diagnostic. Both are correct —
+the user's expression is wrong in two distinct ways. Golden
+updated to match.
+
+**SPEC §Lambdas** tightened (per GPT-5.5's R6): the
+"non-escaping by default" wording was replaced with an
+explicit enumeration of the three legitimate lambda
+positions (direct bind RHS, call callee, `*Closure(...)`
+arg) and a "compiler does not infer escape" disclaimer.
+
+754 tests pass (was 746).
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note

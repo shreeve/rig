@@ -87,7 +87,7 @@ Codebase highlights:
 | 6.5 | Automatic scope-exit drop | ✅ | M20e + M20e.1 |
 | 7 | Interior mutability — `Cell(T)` library type | ✅ | M20f + M20f.1 |
 | 8 | Closure capture mode syntax (non-escaping V1) | ✅ | M20g (1-5/5) + M20g(2.1) |
-| 8.5 | Owned/escaping closure values | ✅ | M20h (1-5/5) |
+| 8.5 | Owned/escaping closure values | ✅ | M20h (1-5/5) + M20h.1 |
 
 **The V1 ownership substrate is COMPLETE + has its first
 escape-aware abstraction.** Items 9-17 are substrate maturity
@@ -195,12 +195,14 @@ Sub-commit by sub-commit (all on `main`):
    existing `fn block` no-capture indented form works for
    block-bodied cases, but inline `fn || expr` doesn't.
    Most callbacks capture something, so not urgent.
-4. **Pre-existing M20g `in_set_rhs` leak**: a bare lambda
-   inside an array literal at set-RHS position (`xs = [fn ||
-   ...]`) silently passes ownership because `in_set_rhs`
-   flows through the array element walk. Not addressed in
-   M20h; flagged as a hazard candidate for a future
-   ownership tightening pass.
+4. **~~Pre-existing M20g `in_set_rhs` leak~~ FIXED in M20h.1**:
+   was — a bare lambda inside an array literal at set-RHS
+   position (`xs = [fn |+x| ...]`) silently passes
+   ownership because `in_set_rhs` flows through the array
+   element walk. GPT-5.5's M20h post-implementation review
+   flagged this as a must-fix-before-M20i (Vec storage
+   shapes hit it directly), and M20h.1 narrows the flag to
+   direct lambda RHS only. See ROADMAP §M20h.1.
 5. **Method-value form** (`Effect(count.changed)` syntax).
    Deferred indefinitely; for V1 users always wrap the
    method in a lambda.
@@ -409,8 +411,8 @@ encounter (Phase B checkpoint, entry 15):
 
 ```bash
 git pull --ff-only
-git log -1 --format='%h %s'   # should be at or after M20h(5/5)
-./test/run 2>&1 | tail -3     # should print "746+ passed, 0 failed"
+git log -1 --format='%h %s'   # should be at or after M20h.1
+./test/run 2>&1 | tail -3     # should print "754+ passed, 0 failed"
 bin/rig run examples/reactive_canary.rig    # prints "1\n3\n13"
 ```
 

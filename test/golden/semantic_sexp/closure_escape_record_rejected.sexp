@@ -1,0 +1,1 @@
+(module (struct Holder (: cb Int)) (sub main () _ (block (set _ count (shared (generic_inst Cell Int)) (share (call Cell (kwarg value 0)))) (set _ h _ (call Holder (kwarg cb (lambda (captures (cap_clone count)) _ _ (block (call (member count set) (+ (call (member count get)) 1))))))) (set _ _ _ h))))

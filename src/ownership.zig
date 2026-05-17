@@ -109,12 +109,21 @@ pub const Checker = struct {
     /// passed as arguments still fail.
     in_call_callee: bool = false,
 
-    /// M20g(2/5): true while walking the RHS of a `(set ...)` form.
-    /// Permits the lambda-literal binding shape `f = fn |...| body`
-    /// — when the lambda IR head is reached with this flag set, the
-    /// closure is recognized as anchored to a local binding rather
-    /// than escaping. Reset everywhere else (including nested
-    /// constructions inside the RHS).
+    /// M20g(2/5) + M20h.1: true while walking a lambda literal that
+    /// IS the direct RHS of a `(set ...)` form (`f = fn |...|
+    /// body`). The flag is set EXACTLY for the lambda walk —
+    /// `walkSet` checks `isLambdaLiteral(rhs)` before setting it.
+    ///
+    /// Pre-M20h.1, this flag was set for the entire RHS walk, which
+    /// silently permitted nested lambda literals to escape (e.g.,
+    /// `xs = [fn |+x| ...]` would pass ownership because the array
+    /// walk preserved `in_set_rhs = true`, and the lambda inside
+    /// the array element passed its escape check). GPT-5.5's M20h
+    /// post-implementation review caught this; the M20h(3/5)
+    /// `in_owned_closure_constructor_arg` flag handles the only
+    /// other legitimate inner-position lambda case
+    /// (`*Closure(fn ...)`), so the narrow direct-lambda-RHS
+    /// semantics for `in_set_rhs` are sound.
     in_set_rhs: bool = false,
 
     /// M20h(3/5): true while walking the lambda argument of an
@@ -863,15 +872,27 @@ pub const Checker = struct {
         // complain there.
         if (kind == .default or kind == .fixed or kind == .shadow) try self.checkSharedHandleAlias(expr, "binding");
 
-        // M20g(2/5): mark `in_set_rhs=true` while walking the RHS so
-        // a `(lambda ...)` literal is recognized as anchored to a
-        // binding (not an escaping closure). A bare CLOSURE NAME on
-        // the RHS (`g = f`) is still rejected by `checkPlainUse`'s
-        // closure-non-copyable check (which intentionally fires on
-        // every non-call-receiver use), so we don't need a separate
-        // rebind-specific diagnostic.
+        // M20g(2/5) + M20h.1: mark `in_set_rhs=true` ONLY when the
+        // RHS is DIRECTLY a lambda literal. The flag must NOT leak
+        // into nested positions (array elements, record/constructor
+        // args, sub-call args, etc.) — otherwise a lambda buried
+        // in an aggregate literal would escape with no diagnostic.
+        //
+        // Pre-M20h.1, this code set the flag unconditionally for
+        // the whole RHS walk. GPT-5.5's M20h post-implementation
+        // review surfaced the leak (`xs = [fn |+x| ...]` silently
+        // passed). The owned-closure case is handled by the
+        // separate `in_owned_closure_constructor_arg` flag set by
+        // `walkShare` when the share-inner is the exact owned-
+        // closure construction shape — that's the only OTHER
+        // legitimate non-callee inner-position lambda site.
+        //
+        // A bare CLOSURE NAME on the RHS (`g = f`) is still
+        // rejected by `checkPlainUse`'s closure-non-copyable
+        // check.
+        const direct_lambda_rhs = isLambdaLiteral(expr);
         const prev_rhs = self.in_set_rhs;
-        self.in_set_rhs = true;
+        if (direct_lambda_rhs) self.in_set_rhs = true;
         try self.walk(expr, false);
         self.in_set_rhs = prev_rhs;
 
