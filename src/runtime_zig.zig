@@ -141,6 +141,39 @@ pub const source =
     \\    };
     \\}
     \\
+    \\/// Cell(T) — interior mutability for Copy T. M20f.
+    \\///
+    \\/// `set(self: *Self, value: T)` mutates through a mutable pointer.
+    \\/// Bindings of type `Cell(T)` are emitted as Zig `var` so the
+    \\/// pointer is valid. For `*Cell(T)` (shared cell), the `RcBox`'s
+    \\/// `.value` field is mutable through the strong handle, so the
+    \\/// pointer-to-mutable path works through M20d's auto-deref.
+    \\///
+    \\/// V1 restricts `T` to Copy types (Int, Bool, Float, String,
+    \\/// literal pseudo-types) at the sema layer. Non-Copy T would
+    \\/// allow ownership corruption (`Cell(*User).set` would overwrite
+    \\/// without dropping the previous handle); revisit when V1 grows
+    \\/// proper replace/take semantics + user Drop.
+    \\pub fn Cell(comptime T: type) type {
+    \\    return struct {
+    \\        value: T,
+    \\
+    \\        const Self = @This();
+    \\
+    \\        pub fn new(initial: T) Self {
+    \\            return .{ .value = initial };
+    \\        }
+    \\
+    \\        pub fn get(self: Self) T {
+    \\            return self.value;
+    \\        }
+    \\
+    \\        pub fn set(self: *Self, value: T) void {
+    \\            self.value = value;
+    \\        }
+    \\    };
+    \\}
+    \\
     \\/// V1 default allocator for `*expr` boxes. Single-threaded, page-
     \\/// based. Later milestones may surface an allocator parameter; for
     \\/// V1 the runtime hides the choice so `*expr` is a one-liner in

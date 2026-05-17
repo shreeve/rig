@@ -1,0 +1,15 @@
+# M20f(1/4) Copy-only restriction. `Cell(T)` in V1 requires `T` to
+# be Copy (Int / Bool / Float / String / literal pseudo-types).
+# Non-Copy `T` is rejected with a targeted diagnostic.
+#
+# Per GPT-5.5's M20f design pass: non-Copy `Cell(T)` is unsound
+# without replace/take/Drop semantics — `Cell.set` would overwrite
+# the previous value without releasing it (`*User` leaks; nominal
+# structs leak any resource fields). Deferred to a later milestone
+# once V1 grows the substrate.
+
+struct User
+  name: String
+
+sub main()
+  c: Cell(User) = Cell(value: User(name: "x"))

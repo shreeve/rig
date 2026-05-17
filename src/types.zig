@@ -429,6 +429,13 @@ pub const SemContext = struct {
 
     diagnostics: std.ArrayListUnmanaged(Diagnostic) = .empty,
 
+    /// M20f: built-in `Cell(T)` generic_type SymbolId. Set by
+    /// `registerBuiltins` during `check`; `symbol_invalid` if
+    /// builtins haven't been registered (defensive). Used by
+    /// `resolveType` to detect `Cell(T)` instantiations and enforce
+    /// the V1 Copy-only restriction.
+    cell_sym_id: SymbolId = symbol_invalid,
+
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
             .allocator = allocator,
@@ -570,6 +577,13 @@ pub fn check(
 
     // Pass 1: symbol resolution.
     const module_scope = try ctx.pushScope(scope_invalid);
+
+    // M20f: register built-in nominal types (Cell, etc.) BEFORE
+    // walking user IR, so user code referencing them finds the
+    // symbol via the normal lookup path. Stays parallel to how the
+    // type interner pre-registers primitive Type IDs in TypeStore.init.
+    try registerBuiltins(&ctx, module_scope);
+
     var resolver: SymbolResolver = .{ .ctx = &ctx, .current_scope = module_scope };
     try resolver.walk(ir);
 
@@ -586,6 +600,83 @@ pub fn check(
     try expr_checker.walkModule(ir, module_scope);
 
     return ctx;
+}
+
+// =============================================================================
+// Built-in nominal registration (M20f)
+// =============================================================================
+
+/// M20f: pre-register built-in nominal types in the module scope
+/// BEFORE the user's IR is walked. Currently registers `Cell(T)`;
+/// future built-in stdlib types live here too.
+///
+/// Cell registration shape:
+///   - Cell symbol (kind = .generic_type, scope = module_scope)
+///   - Detached `T` generic_param symbol (kind = .generic_param)
+///   - Cell.type_params = [T_sym_id]
+///   - Synthetic `value: T` field (for `Cell(Int)(value: 0)`
+///     constructor syntax)
+///
+/// Methods (`get`, `set`) are added in M20f(2/4); this commit only
+/// gives Rig source the type-position view of `Cell`.
+fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.Error!void {
+    // Cell symbol.
+    const cell_sym_id = blk: {
+        const id: SymbolId = @intCast(ctx.symbols.items.len);
+        try ctx.symbols.append(ctx.allocator, .{
+            .name = "Cell",
+            .kind = .generic_type,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = 0,
+            .scope = module_scope,
+        });
+        try ctx.scopes.items[module_scope].symbols.append(ctx.allocator, id);
+        break :blk id;
+    };
+    ctx.cell_sym_id = cell_sym_id;
+
+    // T parameter (detached — lives in ctx.symbols + on
+    // Cell.type_params, but NOT in module_scope's symbol list).
+    const t_sym_id = blk: {
+        const id: SymbolId = @intCast(ctx.symbols.items.len);
+        try ctx.symbols.append(ctx.allocator, .{
+            .name = "T",
+            .kind = .generic_param,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = 0,
+            .scope = module_scope,
+        });
+        break :blk id;
+    };
+
+    // Cell.type_params = [T]
+    const type_params = try ctx.arena.allocator().alloc(SymbolId, 1);
+    type_params[0] = t_sym_id;
+    ctx.symbols.items[cell_sym_id].type_params = type_params;
+
+    // Synthetic field: `value: T` (T as type_var(t_sym_id)).
+    const t_type_id = try ctx.types.intern(ctx.allocator, .{ .type_var = t_sym_id });
+    const fields = try ctx.arena.allocator().alloc(Field, 1);
+    fields[0] = .{
+        .name = "value",
+        .ty = t_type_id,
+        .decl_pos = 0,
+    };
+    ctx.symbols.items[cell_sym_id].fields = fields;
+}
+
+/// M20f: is a TypeId a Copy type for Cell(T) instantiation? V1
+/// restricts Cell to Copy T (primitives + literal pseudo-types).
+/// Non-Copy T (nominal structs, resource handles, slices, etc.)
+/// would let `Cell.set` corrupt ownership semantics — overwriting
+/// a `*User` without dropping it, etc. Defer until V1 grows
+/// replace/take/Drop semantics.
+fn isCopyTypeForCell(ctx: *const SemContext, ty_id: TypeId) bool {
+    const ty = ctx.types.get(ty_id);
+    return switch (ty) {
+        .bool, .int, .float, .string, .int_literal, .float_literal => true,
+        else => false,
+    };
 }
 
 // =============================================================================
@@ -2104,6 +2195,27 @@ const TypeResolver = struct {
                         for (supplied) |arg| {
                             arg_ids.appendAssumeCapacity(try self.resolveType(arg, scope));
                         }
+
+                        // M20f: Cell(T) is a built-in nominal with a
+                        // hard V1 restriction — T must be a Copy type.
+                        // Non-Copy T would let `Cell.set` corrupt
+                        // ownership (overwriting a `*User` without
+                        // dropping the previous handle, etc.).
+                        // Deferred until V1 grows replace/take/Drop.
+                        if (sym_id == self.ctx.cell_sym_id and supplied.len == 1) {
+                            const arg_ty = arg_ids.items[0];
+                            // Allow unknown/invalid to slide silently
+                            // (some upstream resolution failed; don't
+                            // double-fault).
+                            const is_known = arg_ty != self.ctx.types.unknown_id and
+                                arg_ty != self.ctx.types.invalid_id;
+                            if (is_known and !isCopyTypeForCell(self.ctx, arg_ty)) {
+                                const ty_str = try formatType(self.ctx, arg_ty);
+                                try self.err(pos, "`Cell(T)` in V1 requires `T` to be a Copy type (Int, Bool, Float, String); got `{s}`. Non-Copy `Cell(T)` requires replace/take/Drop semantics and is deferred to a later milestone.", .{ty_str});
+                                return self.ctx.types.invalid_id;
+                            }
+                        }
+
                         const owned = try self.ctx.arena.allocator().dupe(TypeId, arg_ids.items);
                         return self.ctx.types.intern(self.ctx.allocator, .{ .parameterized_nominal = .{
                             .sym = sym_id,

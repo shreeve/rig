@@ -2471,10 +2471,18 @@ pub const Emitter = struct {
                     // a Zig function call `Name(T1, T2, ...)` since
                     // `(generic_type ...)` lowers to a type-returning
                     // function. Box(Int) → Box(i32).
+                    //
+                    // M20f: built-in nominal types (`Cell`) live in the
+                    // runtime module, so the emitted Zig form is
+                    // `rig.Cell(T)` not bare `Cell(T)`. Identified by
+                    // name; the corresponding sema symbol is registered
+                    // by `registerBuiltins` at module-scope creation.
                     .@"generic_inst" => {
                         const name_node = items[1];
                         if (name_node == .src) {
-                            try self.w.writeAll(self.source[name_node.src.pos..][0..name_node.src.len]);
+                            const name = self.source[name_node.src.pos..][0..name_node.src.len];
+                            if (isBuiltinNominalName(name)) try self.w.writeAll("rig.");
+                            try self.w.writeAll(name);
                         } else {
                             try self.w.writeAll("anytype");
                         }
@@ -2513,6 +2521,13 @@ pub const Emitter = struct {
 // =============================================================================
 // Free helpers
 // =============================================================================
+
+/// M20f: is `name` one of Rig's built-in nominal types whose Zig
+/// implementation lives in `_rig_runtime.zig`? Currently just
+/// `Cell`. The list grows as more stdlib types get runtime-baked.
+fn isBuiltinNominalName(name: []const u8) bool {
+    return std.mem.eql(u8, name, "Cell");
+}
 
 /// M20e helper: extract the name `.src` node from any param shape.
 /// Returns null for shapes that don't carry a normal name (e.g.,

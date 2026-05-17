@@ -1,0 +1,16 @@
+# M20f(1/4): `Cell(T)` is a built-in generic nominal pre-registered
+# in sema's module scope. This commit lands type resolution +
+# constructor; methods (`get`, `set`) arrive in M20f(2/4).
+#
+# Verifies:
+#   - `Cell(Int)` parses + types as `parameterized_nominal(Cell, [Int])`
+#   - The synthetic `value: T` field is reachable for constructor
+#   - Emit lowers to `rig.Cell(i32)` (runtime-baked, parallel to
+#     `*rig.RcBox(T)` and `rig.WeakHandle(T)`)
+#   - V1 Copy-only restriction: tested via the negative example
+#     `cell_non_copy_rejected.rig` (non-Copy T like `User` or `*U`
+#     rejected at sema with the M20f Copy-only diagnostic).
+
+sub main()
+  c: Cell(Int) = Cell(value: 7)
+  print(c.value)
