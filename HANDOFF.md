@@ -1,4 +1,4 @@
-# Rig — Session Handoff (post-M20f)
+# Rig — Session Handoff (post-M20g(1/5))
 
 **You are picking up a Rig compiler session in mid-arc.** This document
 captures everything you need to continue cleanly. Read top-to-bottom
@@ -42,8 +42,8 @@ Authoritative project docs, in order of importance:
 
 | File | Purpose |
 |---|---|
-| `SPEC.md` | Language spec. §Shared Ownership now documents real auto-drop semantics (M20e), the alias-footgun rule (M20d), `*T?` vs `(*T)?` precedence (M20d.1), `*expr` move semantics (M20d), built-in `~T.upgrade()` method (M20d.2). |
-| `docs/ROADMAP.md` | Milestone history (M0–M20e done). M20+ list shows what's next. |
+| `SPEC.md` | Language spec. §Shared Ownership documents: auto-drop semantics (M20e), alias-footgun rule (M20d), `*T?` vs `(*T)?` precedence (M20d.1), `*expr` move semantics (M20d), built-in `~T.upgrade()` method (M20d.2), `Cell(T)` interior mutability + Copy-only restriction (M20f), resource-temporaries boundary (M20e.1). |
+| `docs/ROADMAP.md` | Milestone history (M0–M20f done; M20g(1/5) shipped, (2-5/5) pending). M20+ list shows what's next. |
 | `docs/REACTIVITY-DESIGN.md` | Substrate design note. The forcing function for M20+ work. |
 | `docs/SEMANTIC-SEXP.md` | Sema IR shape. What the grammar emits, what the checker walks. |
 | `docs/INHERITED-FROM-ZAG.md` | Grammar/lexer surface inherited from the Zag/Nexus stack. |
@@ -55,8 +55,8 @@ Codebase highlights:
 |---|---|
 | `src/rig.zig` | Lexer rewriter + Tag enum. |
 | `src/parser.zig` | **Generated** by `zig build parser` from `rig.grammar`. Don't edit by hand. |
-| `src/types.zig` | Sema: SymbolResolver, TypeResolver, ExprChecker, Type interner, lookup helpers. ~5900 lines after M20e. |
-| `src/emit.zig` | Zig codegen. ~2600 lines after M20e (added M20e guard / disarm helpers). |
+| `src/types.zig` | Sema: SymbolResolver, TypeResolver, ExprChecker, Type interner, lookup helpers. ~6100 lines after M20f.1. M20f's `registerBuiltins(ctx, module_scope)` registers built-in Cell. |
+| `src/emit.zig` | Zig codegen. ~2800 lines after M20f. M20e guard/disarm helpers + M20f Cell-binding `var` emit + M20g(1/5) lambda IR walker. |
 | `src/ownership.zig` | M2-era borrow/move checker. M20d added the alias-footgun rule. |
 | `src/runtime_zig.zig` | M20d V1 runtime as a Zig string constant (`RcBox` / `WeakHandle` / `rcNew` / etc.). |
 | `src/main.zig` | CLI driver. Writes `_rig_runtime.zig` sibling file in `emitProjectToTmp`. |
@@ -66,7 +66,7 @@ Codebase highlights:
 
 ---
 
-## 2. M20+ status (post-M20f)
+## 2. M20+ status (post-M20g(1/5))
 
 | # | Item | Status | Where |
 |---|---|---|---|
@@ -315,94 +315,15 @@ case — Cell's `get` / `set` are ordinary read-receiver methods.
 
 ---
 
-## 4. Next milestone — finish M20g closure capture modes
+### M20g(1/5) — closure capture grammar + IR foundation
 
-The last V1 substrate piece before the rig-reactive validation
-(Phase B of REACTIVITY-DESIGN.md) becomes reachable. Closures
-that capture resources need M20e (which exists now) to avoid
-leaking captured handles on each invocation.
+M20g(1/5) shipped at commit `99927c0` with a fresh GPT-5.5
+design checkpoint. The remaining sub-commits (2-5/5) ship sema,
+emit, auto-drop, docs — design is fully locked, no further
+checkpoint needed before executing.
 
-**M20g(1/5) is shipped at `99927c0`**. Grammar + lexer +
-IR foundation: `fn |x| body`, `fn |+rc| body`, `fn |~rc| body`,
-`fn |<rc| body` all parse correctly into the new
-`(lambda CAPTURES PARAMS RETURNS BODY)` shape. Tags landed:
-`captures`, `cap_copy`, `cap_clone`, `cap_weak`, `cap_move`.
-Existing lambda tests (none in EMIT_TARGETS) continue to pass
-via the `_`-for-captures backwards-compat shape.
-
-**The remaining sub-commits should be implementable cleanly
-on this foundation. Design is locked per GPT-5.5's M20g
-checkpoint (in the user-ai conversation thread). Next session
-does NOT need to re-checkpoint — just execute.**
-
-### Surface
-
-Lambda syntax with explicit capture-mode markers:
-
-```rig
-fn |x| body              # strong (M20d *T) — refcount-bump capture
-fn |~x| body             # weak — weak ref capture
-fn |<x| body             # move — transfer ownership
-fn |+x| body             # clone — fresh handle
-```
-
-Mode prefixes follow the existing sigil family (`*` / `~` / `<`
-/ `+`). The mode determines how the captured variable's handle
-is acquired and stored in the closure environment.
-
-### Shape
-
-Significant lift. Need to:
-
-- **Grammar**: extend the `lambda` rule with capture-mode
-  syntax. Need to check conflict count carefully — `|` is
-  currently used by `catch |err|` capture too.
-- **IR**: new shape for capture lists,
-  e.g., `(lambda (captures (cap_strong x) (cap_weak y) ...) params body)`.
-- **Sema**: each capture's type per its mode. Resource captures
-  trigger M20e auto-drop inside the closure body. Sigil-name
-  collision check (only `|x|` etc., not bare `|expr|`).
-- **Emit**: Zig 0.16 closures are anonymous structs with
-  captured fields. Capture-mode determines how each field is
-  initialized at closure-construction time AND whether it gets
-  an M20e guard inside the closure body.
-- **Auto-drop interaction**: each captured shared/weak gets a
-  guard + defer inside the closure body — M20e already does
-  this for normal bindings; capture variables need parallel
-  handling at the closure's body emit.
-
-### Pre-checkpoint design questions for GPT-5.5
-
-1. **Capture grammar collisions** — does
-   `fn |~weak_x, <moved_y| body` parse cleanly without
-   bumping the conflict count? `|` is used by `catch |err|`
-   AND by lambda params. The mode-prefixed form should
-   disambiguate via position, but worth verifying.
-2. **Capture-mode IR shape** — should captures be a separate
-   list inside the lambda Sexp (`(lambda (captures ...)
-   params body)`), or interleaved with params somehow? My
-   lean: separate list. Cleaner walker.
-3. **Closure environment lifetime** — when a closure that
-   captured `*T` is itself dropped, the captured handle drops
-   too. Zig anonymous structs have their own scope-exit
-   destructors (via defer). M20e's guard pattern should
-   compose naturally inside the closure body. Confirm.
-4. **Cross-cutting**: are closures first-class values (can be
-   returned, stored in structs)? Or only inline-call style?
-   Zig closures can't escape their declaring function easily;
-   if Rig surface allows escape, emit lowers to a heap-
-   allocated closure. Big design decision.
-5. **Mode default** — if user writes `fn |x| body` without an
-   explicit mode prefix, what's the default? Borrow? Strong?
-   Move? Rust uses `move ||` for explicit move; default is
-   borrow. Rig's existing sigil family suggests default-borrow
-   (no prefix = read borrow).
-
-Surface these in the M20g design checkpoint.
-
-### Locked design (from GPT-5.5's M20g checkpoint)
-
-Five binding decisions to honor in sub-commits (2-5/5):
+**Locked design decisions** (the 5 binding rules from
+GPT-5.5's M20g checkpoint; do NOT re-derive):
 
 1. **Default `|x|` is Copy-only.** Resources (`*T`/`~T`) MUST
    use explicit mode (`|+x|` / `|~x|` / `|<x|`). Without this,
@@ -426,103 +347,198 @@ Five binding decisions to honor in sub-commits (2-5/5):
    closure body. (Otherwise each invocation would drop the
    capture; second invocation would UAF.)
 
-### Sub-commit plan for sub-commits (2-5/5)
+**What (1/5) shipped:**
+- Grammar: extended `lambda` rule with optional `|capture|`
+  between FN and params. New `captures` sub-rule wraps the
+  single-capture form. Conflict count unchanged at 38.
+  Multi-capture (comma-separated) is a follow-up.
+- Lexer: extended `isCapturePipe` probe to accept a single
+  sigil-prefix token (`+`/`<`/`~`) before the captured ident.
+  New `Lexer.isCaptureContentCat` predicate keeps sigil
+  prefix + ident tokens from clearing `pending_close_bar`.
+- IR shape: `(lambda CAPTURES PARAMS RETURNS BODY)` — 5
+  children. CAPTURES is `_` (nil) or `(captures cap_node)`.
+- New Tags: `captures`, `cap_copy`, `cap_clone`, `cap_weak`,
+  `cap_move`.
+- `SymbolResolver.walkLambda` updated for the new shape
+  (items[2] is now params; captures slot is read but not yet
+  bound — that's (2/5)).
 
-**M20g(2/5) — sema for captures.** Bind capture names in the
-closure body scope with the right type:
-- `cap_copy NAME`: requires outer-scope `NAME` to be Copy and
-  non-resource; binds NAME in body with same type. Reject
-  with diagnostic for `*T`/`~T` outer.
-- `cap_clone NAME`: cloneStrong on `*T` → bind as `*T`;
-  cloneWeak on `~T` → bind as `~T`; else copy-clone.
-- `cap_weak NAME`: requires outer-scope `NAME` to be `*T`;
-  binds NAME in body as `~T`. Reject otherwise.
-- `cap_move NAME`: moves outer NAME; binds in body with
-  same type; outer becomes "moved" state (ownership pass
-  picks this up).
+**What (2/5) needs to do** (sema):
+- Bind each capture's NAME in the closure body scope with
+  the per-mode type:
+  - `cap_copy`: requires outer Copy non-resource; binds with
+    outer type. Reject `*T`/`~T` outer with the visible-
+    effects diagnostic.
+  - `cap_clone`: cloneStrong on `*T` → binds `*T`; cloneWeak
+    on `~T` → binds `~T`; else copy-clone (Copy types).
+  - `cap_weak`: requires outer `*T`; binds `~T`. Reject
+    otherwise.
+  - `cap_move`: moves outer; binds with outer type; outer
+    enters `.moved` state (ownership pass picks this up).
+- Reject closure escape (return / store / non-immediate
+  use). Per GPT-5.5's V1 conservative path: accept only
+  `f = fn |...| body` then immediate-invocation `f()` or
+  inline `(fn |...| body)()`. Reject any other use.
+- Reject closure-value copy/assignment.
+- Implementation hook: `walkLambda` in `src/types.zig`
+  already updated for the new shape. Bind-capture logic
+  goes right before `try self.walk(body)`.
 
-Also reject closure escape (return/store of a closure value)
-and closure-value copy/assignment in this commit OR document
-as deferred to a follow-up sub-commit if too invasive.
+**What (3/5) needs to do** (emit):
+- Closure value lowers to an anonymous Zig struct with a
+  field per capture and a `pub fn invoke(self: *@This()) RT`
+  method. Field-init at construct time:
+  - `cap_copy`: `field = <outer_name>` (Zig value copy)
+  - `cap_clone` (shared): `field = <outer>.cloneStrong()`
+  - `cap_clone` (weak): `field = <outer>.cloneWeak()`
+  - `cap_weak`: `field = <outer>.weakRef()`
+  - `cap_move`: `field = blk: { __rig_alive_<outer> = false;
+    break :blk <outer>; }`
+- Inside the closure body, capture-name references map to
+  `self.<field>`, NOT the outer-scope name. Per GPT-5.5:
+  need an explicit emitter scope mapping (not the global-
+  name-scan fallback). Add a capture-binding entry on the
+  emitter's `ScopeFrame` that distinguishes "capture: emit
+  as self.field" from "local: emit as bare name".
+- `f()` lowers to `f.invoke()`.
+- Implementation hook: `emitFun` in `src/emit.zig` already
+  dispatches to lambda; needs lambda-specific path that
+  emits the struct + invoke method.
 
-Look at `walkLambda` in `src/types.zig` (already updated for
-the new IR shape in M20g(1/5)). Capture-binding logic goes
-right before `try self.walk(body)` — push the captures into
-the fn_scope before walking.
+**What (4/5) needs to do** (auto-drop integration):
+- For each resource capture, install an M20e-style guard +
+  defer in the enclosing scope of the closure instance:
 
-**M20g(3/5) — emit closure as anonymous struct + invoke
-method.** Each capture becomes a field on the closure struct.
-Mode-driven field-init at construct time:
-- cap_copy: `field = <outer_name>` (Zig value copy)
-- cap_clone (shared): `field = <outer>.cloneStrong()`
-- cap_clone (weak): `field = <outer>.cloneWeak()`
-- cap_weak: `field = <outer>.weakRef()`
-- cap_move: `field = blk: { __rig_alive_<outer> = false; break :blk <outer>; }`
+  ```zig
+  const __cap_rc = rc.cloneStrong();
+  const f = struct { ... }{ .rc = __cap_rc };
+  var __rig_alive_f_rc: bool = true;
+  defer if (__rig_alive_f_rc) {
+      __rig_alive_f_rc = false;
+      f.rc.dropStrong();
+  };
+  ```
 
-Inside the closure body, capture-name references map to
-`self.<field>` not the outer scope name. Per GPT-5.5:
-**need an explicit emitter scope mapping** (not just the
-global-name-scan fallback). Add a `CaptureBinding` entry
-type in the emitter's scope table that distinguishes
-"capture: emit as self.field" from "local: emit as bare
-name".
+- For `cap_move`, the outer guard disarms (move semantics)
+  and the closure capture takes over.
+- Guard ownership is closure-instance-lifetime, NOT per-
+  invocation. Closures may be invoked multiple times;
+  drop happens once at scope exit.
+- Implementation hook: extend `emitSetOrBind`'s resource-
+  guard installation to also handle closure values that own
+  resource captures. The closure struct value isn't itself
+  a resource (no Rc), but its CAPTURED resources need
+  M20e-style guards.
 
-The closure value lowers to:
-```zig
-const f = struct {
-    rc: *rig.RcBox(rig.Cell(i32)),
-    pub fn invoke(self: *@This()) RetType { ... }
-}{ .rc = __init };
-```
-Then `f()` lowers to `f.invoke()`.
+**What (5/5) needs to do** (docs):
+- SPEC: new §Lambdas section (or expand §Shared Ownership)
+  with the capture-mode table:
+  - `|x|` → cap_copy (Copy required; resources rejected)
+  - `|+x|` → cap_clone
+  - `|~x|` → cap_weak (requires *T)
+  - `|<x|` → cap_move (disarms outer)
+  Document V1 non-escaping limitation explicitly. Note
+  stored reactive callbacks need a future M20h or trusted-
+  builtin path.
+- ROADMAP: M20f section's M20g entry → full retro. M20+ #8
+  → ✅. Note that the V1 ownership substrate is complete
+  and Phase B of REACTIVITY-DESIGN.md becomes reachable.
+- HANDOFF: refresh for the next session — substrate
+  complete; what comes after (reactive validation, stdlib,
+  unsafe enforcement, etc.).
 
-**M20g(4/5) — auto-drop integration.** For each resource
-capture, install an M20e-style guard + defer in the
-enclosing scope of the closure instance:
-```zig
-const __cap_rc = rc.cloneStrong();
-const f = struct { ... }{ .rc = __cap_rc };
-var __rig_alive_f_rc: bool = true;
-defer if (__rig_alive_f_rc) {
-    __rig_alive_f_rc = false;
-    f.rc.dropStrong();
-};
-```
-The guard owns the captured handle's lifetime; closure
-invocation doesn't disarm it (closures can be invoked
-multiple times; only scope-exit drops the captures).
+**Example file naming convention for M20g tests:**
+- Positive: `closure_capture_copy.rig`,
+  `closure_capture_clone.rig`, `closure_capture_weak.rig`,
+  `closure_capture_move.rig`, `closure_cell_mutation.rig`
+  (the M20f integration test).
+- Negative: `closure_resource_default_rejected.rig`
+  (`|rc|` for resource), `closure_copy_rejected.rig`
+  (`g = f` for closure value), `closure_escape_rejected.rig`
+  (`return fn |+rc| ...`).
 
-For `cap_move`, the outer binding's guard disarms (move
-semantics) and the closure capture takes over.
-
-**M20g(5/5) — SPEC + ROADMAP + HANDOFF.** SPEC §Lambdas
-section with capture-mode table. ROADMAP M20+ #8 → ✅.
-HANDOFF refresh — V1 substrate complete; Phase B of
-REACTIVITY-DESIGN becomes reachable. Note the
-non-escaping V1 limitation explicitly: stored reactive
-callbacks need a future M20h or trusted-builtin path.
-
-### Open questions for sub-commit (2/5)
-
-Before starting, the next session should consider:
+**Two open implementation questions for (2/5):**
 
 - **Closure-value copy rejection enforcement point.** Sema
   or ownership? Ownership has the binding-tracker; sema has
   the type info. My lean: ownership-side rule that rejects
   any reassignment / parameter-pass / return of a closure
   value. The "closure type" is structural in Zig but
-  semantically should be non-copyable in Rig.
-- **Escape detection scope.** `return fn |+rc| ...` should
-  be rejected. So should storing a closure in a struct field.
-  Detecting at sema time requires tracking closure values
-  through return/binding/assignment. A reasonable V1: reject
-  any non-immediate-call use of a closure-typed expression
-  (force inline call `(fn |+rc| body)()` or local-binding-
-  then-invoke).
+  semantically should be non-copyable in Rig. A simple
+  marker on the binding (kind `.closure` or a flag on
+  `Binding`?) suffices.
+- **Escape detection scope.** Per GPT-5.5: V1 conservative
+  acceptance is "local-binding-then-immediate-invoke" OR
+  "inline-call". Any other use (return value, RHS of
+  binding for non-call contexts, struct field, etc.) is
+  rejected. Implementable in ownership.zig as a rule that
+  fires when a closure-typed value appears in a non-call,
+  non-bind-then-invoke context.
 
 ---
 
-## 6. Working conventions (unchanged from M20d HANDOFF)
+## 4. Quick-start for M20g(2/5)
+
+The detailed retrospective for M20g(1/5) and the full plan
+for sub-commits (2-5/5) live in §3 above. This section is a
+quick orientation for a new session opening the repo.
+
+### Minute-1: orient
+
+```bash
+git pull --ff-only
+git log -1 --format='%h %s'   # should be HEAD at or after a4ecbdf
+./test/run 2>&1 | tail -3     # should print "648 passed, 0 failed"
+```
+
+### Minute-2: read the locked design
+
+§3 above. The five binding decisions are non-negotiable
+(GPT-5.5 endorsed; do NOT re-checkpoint). Specifically:
+
+- `|x|` is Copy-only — resources require explicit mode
+- No `|*x|` (use `|+x|` for clone)
+- Non-escaping closures only (no return/store)
+- Closure values are non-copyable
+- Capture guards live in closure-instance enclosing scope
+
+### Minute-3: start coding sub-commit (2/5)
+
+The first concrete step is in `src/types.zig`:
+
+1. Find `walkLambda` (one of two; the SymbolResolver's
+   `walkLambda` is around line ~852). It's already
+   updated for the new IR shape; you'll extend its
+   captures-handling.
+2. Bind each capture's NAME into the closure's body scope
+   with the per-mode type (see §3's (2/5) plan).
+3. Reject `cap_copy` on resource types (the visible-effects
+   diagnostic).
+4. Add escape-detection in ownership.zig (a closure-typed
+   value can only appear in immediate-call or
+   local-binding-then-invoke positions).
+5. Add closure-copy rejection in ownership.zig (treat
+   closure bindings as Move-and-non-rebindable).
+6. Add example files following the naming convention
+   in §3.
+7. Run `./test/run --update` to capture goldens, review
+   diffs, run `./test/run` to verify all green.
+8. Commit with M5-style header
+   (`M20g(2/5): <short summary>`).
+
+### Reading the GPT-5.5 design pass yourself
+
+If you want to see the actual checkpoint message + the
+response that locked the five decisions, use the `user-ai`
+MCP server's `get_conversation` tool with
+`conversation_id: "c_5c1d09d53ebe2f62"` to dump the thread.
+The M20g checkpoint is the last design-pass turn (turn 12
+in the running list — see §7 below).
+
+---
+
+## 5. Working conventions (unchanged from M20d HANDOFF)
 
 ### Git
 
@@ -554,7 +570,7 @@ review → commit.
 
 ---
 
-## 7. The user-ai MCP conversation
+## 6. The user-ai MCP conversation
 
 Persistent conversation ID: **`c_5c1d09d53ebe2f62`**
 
@@ -578,7 +594,7 @@ above. Models live in
 
 ---
 
-## 8. Hazards / known fragilities
+## 7. Hazards / known fragilities
 
 1. **Don't extend `unwrapReadAccess` to peel `weak`.** Weak
    handles require explicit `.upgrade()`. Adding silent weak
@@ -623,21 +639,22 @@ above. Models live in
    dedup is same-scope only. `x = ...` in an inner scope when
    `x` only exists in an outer scope currently still creates a
    fresh inner symbol — possibly inconsistent with SPEC's
-   "implicit shadowing is illegal" rule. Should be audited
-   against the SPEC before M20f Cell starts touching block-
-   scoped state.
-3. **`scanMutations` per-block `seen` masking** — `i = i + 1`
+   "implicit shadowing is illegal" rule. Worth auditing against
+   the SPEC when M20g(2/5) starts touching block-scoped state
+   (closure bodies are new scopes; closure-capture rules touch
+   the same `walkLambda` machinery).
+4. **`scanMutations` per-block `seen` masking** — `i = i + 1`
    inside a nested block is treated as a fresh declaration
    instead of a mutation. Workaround: use `i += 1`. Surfaced
    during M20e(4/5) loop test work.
-4. **`unsafe` / `%x` enforcement** (M20+ item #9) — pre-existing
+5. **`unsafe` / `%x` enforcement** (M20+ item #9) — pre-existing
    deferral, unchanged.
-5. **`try_block` emit** (M20+ item #14) — pre-existing
+6. **`try_block` emit** (M20+ item #14) — pre-existing
    `@compileError`. Blocks M20e's try/catch resource test.
 
 ---
 
-## 9. If you get stuck
+## 8. If you get stuck
 
 - **Tests failing after a change**: `./test/run 2>&1 | grep FAIL`
   shows just the failures. Most failures are golden diffs from
@@ -661,7 +678,7 @@ above. Models live in
 
 ---
 
-## 10. Closing notes from the M20f session
+## 9. Closing notes from the M20f / M20g(1/5) session
 
 - The biggest design moment of the M20f arc was GPT-5.5's
   "synthetic ordinary methods, not ad-hoc intercept" pushback.
@@ -692,6 +709,6 @@ above. Models live in
 
 Good luck. Read SPEC.md §Shared Ownership (Cell subsection),
 ROADMAP.md M20d–M20f sections, REACTIVITY-DESIGN.md, then pick
-up M20g at sub-commit (2/5). The design checkpoint is locked;
-the 5 binding decisions are in §4 above. Implementation order:
-sema → emit → auto-drop → docs.
+up M20g at sub-commit (2/5). The design checkpoint is locked
+(see §3 retrospective + §4 quick-start above). Implementation
+order: sema → emit → auto-drop → docs.
