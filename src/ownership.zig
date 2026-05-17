@@ -860,6 +860,18 @@ pub const Checker = struct {
     fn reassignOrBindFresh(self: *Checker, nm: []const u8, pos: u32, expr: Sexp, is_compound: bool) Error!void {
         if (self.lookup(nm)) |bi| {
             const b = &self.bindings.items[bi];
+            // M20g(2.1) per GPT-5.5's M20g(2/5) post-implementation
+            // review: closure bindings are implicitly `fixed=true`
+            // but the user never wrote `=!`. Surface a tailored
+            // diagnostic so the message matches the user's mental
+            // model ("I bound a closure; why is reassignment a
+            // fixed-binding error?") instead of the generic `=!`
+            // message that doesn't appear in their source.
+            if (b.fixed and b.is_closure) {
+                try self.err(pos, "cannot reassign closure binding `{s}`; closures are implicitly fixed in V1", .{nm});
+                try self.note(b.declared_at, "`{s}` was bound here as a closure", .{nm});
+                return;
+            }
             if (b.fixed) {
                 try self.err(pos, "cannot reassign fixed binding `{s}`", .{nm});
                 try self.note(b.declared_at, "`{s}` was bound here with `=!`", .{nm});

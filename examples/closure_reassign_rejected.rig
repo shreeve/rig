@@ -1,0 +1,12 @@
+# M20g(2.1) per GPT-5.5's M20g(2/5) post-implementation review:
+# closures are implicitly fixed (non-rebindable) in V1. Re-binding
+# fires a tailored diagnostic referencing the closure-fixed rule
+# instead of the generic `=!` message (the user never wrote `=!`).
+
+sub main()
+  n =! 7
+  f = fn |n|
+    n
+  f = fn |n|
+    n + 1
+  print(f())

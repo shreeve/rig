@@ -1,0 +1,2 @@
+examples/closure_reassign_rejected.rig:10:3: error: cannot reassign closure binding `f`; closures are implicitly fixed in V1
+examples/closure_reassign_rejected.rig:8:3:   note: `f` was bound here as a closure
