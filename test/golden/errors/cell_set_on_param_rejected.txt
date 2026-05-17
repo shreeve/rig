@@ -1,0 +1,1 @@
+examples/cell_set_on_param_rejected.rig:12:5: error: `Cell.set` requires an addressable Cell receiver: either a local Cell binding or a shared Cell handle (`*Cell(T)`). Cell-typed function parameters, borrows, and rvalue temporaries are not mutable in Zig — `Cell.set` would fail to lower. Bind the value to a local first or pass `*Cell(T)` if you need cross-function mutation.

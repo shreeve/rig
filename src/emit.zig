@@ -1247,8 +1247,15 @@ pub const Emitter = struct {
         const sema = self.sema orelse return false;
         if (name_node != .src) return false;
         const decl_pos = name_node.src.pos;
+        const name = self.source[name_node.src.pos..][0..name_node.src.len];
+        // M20f.1 per GPT-5.5: also match on `name`. The
+        // `decl_pos`-only bridge was vulnerable to collision with
+        // built-in symbols (which use `builtin_decl_pos` now, but
+        // belt-and-suspenders: future builtins or other phases
+        // adding decl_pos-less symbols won't accidentally match).
         for (sema.symbols.items) |sym| {
             if (sym.decl_pos != decl_pos) continue;
+            if (!std.mem.eql(u8, sym.name, name)) continue;
             const ty = sema.types.get(sym.ty);
             return switch (ty) {
                 .parameterized_nominal => |pn| pn.sym == sema.cell_sym_id,
@@ -1278,8 +1285,12 @@ pub const Emitter = struct {
         const sema = self.sema orelse return null;
         if (name_node != .src) return null;
         const decl_pos = name_node.src.pos;
+        const name = self.source[name_node.src.pos..][0..name_node.src.len];
+        // M20f.1: cross-check name alongside decl_pos. Defense
+        // against collisions with builtin symbols.
         for (sema.symbols.items) |sym| {
             if (sym.decl_pos != decl_pos) continue;
+            if (!std.mem.eql(u8, sym.name, name)) continue;
             const ty = sema.types.get(sym.ty);
             return switch (ty) {
                 .shared => .shared,

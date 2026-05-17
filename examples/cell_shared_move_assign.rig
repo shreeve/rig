@@ -1,0 +1,25 @@
+# M20f.1: regression test for the M20d+M20e+M20f composition
+# under `<-` move-assign. Exercises:
+#   - M20e(3/5) drop-and-rearm on LHS reassignment
+#   - M20e.1 `<-` move-assign disarm on RHS
+#   - M20f's Cell-payload through M20d's shared
+#   - M20e auto-drop of both handles at scope exit
+#
+# Before move-assign:
+#   rc1's box holds value=10 (its own original)
+#   rc2's box holds value=20 (rc1 set it)
+# After `rc1 <- rc2`:
+#   rc1 now references rc2's box (value=20)
+#   rc1's old box was dropped during reassign
+#   rc2 was disarmed (no double-drop)
+# At scope exit:
+#   rc1's defer drops the box (which was rc2's original)
+#   rc2's defer is a no-op (disarmed)
+
+sub main()
+  rc1: *Cell(Int) = *Cell(value: 0)
+  rc2: *Cell(Int) = *Cell(value: 0)
+  rc1.set(10)
+  rc2.set(20)
+  rc1 <- rc2
+  print(rc1.get())     # 20 — rc1 now references rc2's old box

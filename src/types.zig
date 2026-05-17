@@ -606,6 +606,16 @@ pub fn check(
 // Built-in nominal registration (M20f)
 // =============================================================================
 
+/// M20f.1 per GPT-5.5: a source-position sentinel for built-in
+/// symbols (Cell, etc.). Real `.src` positions can't reach this
+/// value (source files don't span 4GB). Using a real value like
+/// 0 collides with user bindings that start at byte 0, which
+/// silently poisons emit's `(name, decl_pos)` bridge helpers
+/// (`isInteriorMutableBinding`, `resourceKindOfBinding`) — they
+/// would return the builtin's classification instead of the
+/// user binding's.
+pub const builtin_decl_pos: u32 = std.math.maxInt(u32);
+
 /// M20f: pre-register built-in nominal types in the module scope
 /// BEFORE the user's IR is walked. Currently registers `Cell(T)`;
 /// future built-in stdlib types live here too.
@@ -616,9 +626,7 @@ pub fn check(
 ///   - Cell.type_params = [T_sym_id]
 ///   - Synthetic `value: T` field (for `Cell(Int)(value: 0)`
 ///     constructor syntax)
-///
-/// Methods (`get`, `set`) are added in M20f(2/4); this commit only
-/// gives Rig source the type-position view of `Cell`.
+///   - Synthetic `get` / `set` methods (M20f(2/4))
 fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.Error!void {
     // Cell symbol.
     const cell_sym_id = blk: {
@@ -627,7 +635,7 @@ fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.E
             .name = "Cell",
             .kind = .generic_type,
             .ty = ctx.types.unknown_id,
-            .decl_pos = 0,
+            .decl_pos = builtin_decl_pos,
             .scope = module_scope,
         });
         try ctx.scopes.items[module_scope].symbols.append(ctx.allocator, id);
@@ -643,7 +651,7 @@ fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.E
             .name = "T",
             .kind = .generic_param,
             .ty = ctx.types.unknown_id,
-            .decl_pos = 0,
+            .decl_pos = builtin_decl_pos,
             .scope = module_scope,
         });
         break :blk id;
@@ -699,23 +707,33 @@ fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.E
     fields[0] = .{
         .name = "value",
         .ty = t_type_id,
-        .decl_pos = 0,
+        .decl_pos = builtin_decl_pos,
     };
     fields[1] = .{
         .name = "get",
         .ty = get_fn_ty,
-        .decl_pos = 0,
+        .decl_pos = builtin_decl_pos,
         .is_method = true,
         .receiver = .read,
     };
     fields[2] = .{
         .name = "set",
         .ty = set_fn_ty,
-        .decl_pos = 0,
+        .decl_pos = builtin_decl_pos,
         .is_method = true,
         .receiver = .read,
     };
     ctx.symbols.items[cell_sym_id].fields = fields;
+}
+
+/// M20f.1 per GPT-5.5: names reserved for built-in nominal types
+/// (Cell, etc.). User declarations of these names are rejected at
+/// sema time so the emit-side `isBuiltinNominalName` check stays
+/// sound (it's a string-equality test, so a user-redefined `Cell`
+/// would be mis-classified as built-in and emit would prefix
+/// `rig.` to a user type).
+fn isReservedBuiltinName(name: []const u8) bool {
+    return std.mem.eql(u8, name, "Cell");
 }
 
 /// M20f: is a TypeId a Copy type for Cell(T) instantiation? V1
@@ -951,6 +969,26 @@ const SymbolResolver = struct {
         if (items.len < 3) return;
         const name = identAt(self.ctx.source, items[1]) orelse return;
         const decl_pos = if (items[1] == .src) items[1].src.pos else 0;
+        // M20f.1 per GPT-5.5: reject user redefinition of reserved
+        // built-in nominal names (`Cell`, etc.). Without this, a
+        // user `type Cell(T)` would shadow the M20f builtin and
+        // emit's `isBuiltinNominalName` (string-based check) would
+        // mis-prefix the user's type with `rig.`. The reservation
+        // is enforced at sema time so the user gets a clean
+        // diagnostic instead of confused emit output.
+        if (isReservedBuiltinName(name)) {
+            const msg = try std.fmt.allocPrint(
+                self.ctx.arena.allocator(),
+                "`{s}` is a reserved built-in nominal name and cannot be redefined",
+                .{name},
+            );
+            try self.ctx.diagnostics.append(self.ctx.allocator, .{
+                .severity = .@"error",
+                .pos = decl_pos,
+                .message = msg,
+            });
+            return;
+        }
         const generic_sym_id = try self.addSymbol(.{
             .name = name,
             .kind = .generic_type,
@@ -1070,6 +1108,21 @@ const SymbolResolver = struct {
         if (items.len < 2) return;
         const name = identAt(self.ctx.source, items[1]) orelse return;
         const decl_pos = if (items[1] == .src) items[1].src.pos else 0;
+        // M20f.1: reservation check (see walkGenericType for the
+        // rationale).
+        if (isReservedBuiltinName(name)) {
+            const msg = try std.fmt.allocPrint(
+                self.ctx.arena.allocator(),
+                "`{s}` is a reserved built-in nominal name and cannot be redefined",
+                .{name},
+            );
+            try self.ctx.diagnostics.append(self.ctx.allocator, .{
+                .severity = .@"error",
+                .pos = decl_pos,
+                .message = msg,
+            });
+            return;
+        }
         _ = try self.addSymbol(.{
             .name = name,
             .kind = .nominal_type,
@@ -4096,6 +4149,44 @@ const ExprChecker = struct {
         return self.ctx.types.unknown_id;
     }
 
+    /// M20f.1: receiver-addressability check for `Cell.set`. A
+    /// receiver is "addressable" in the Zig sense — i.e., `&recv`
+    /// produces a mutable pointer suitable for the runtime's
+    /// `set(self: *Self, value: T)` — when it's one of:
+    ///   - A bare local Cell binding (sema kind = .local; emit
+    ///     forces `var` storage for Cell bindings via
+    ///     `isInteriorMutableBinding`).
+    ///   - A shared Cell handle (`*Cell(T)`): the strong pointer
+    ///     gives access to the mutable RcBox value via M20d's
+    ///     auto-deref `.value` bridge.
+    /// Anything else (function params, rvalue temporaries, borrows)
+    /// would compile to a Zig const that can't be mutated.
+    fn isAddressableCellReceiver(self: *ExprChecker, receiver_expr: Sexp, receiver_ty_id: TypeId) bool {
+        const ty = self.ctx.types.get(receiver_ty_id);
+        // Shared Cell handle — always OK.
+        if (ty == .shared) {
+            const inner = self.ctx.types.get(ty.shared);
+            if (inner == .parameterized_nominal and inner.parameterized_nominal.sym == self.ctx.cell_sym_id) return true;
+            if (inner == .nominal and inner.nominal == self.ctx.cell_sym_id) return true;
+        }
+        // Borrow of Cell — NOT addressable (Rig borrows lower to
+        // bare `T` in Zig).
+        if (ty == .borrow_read or ty == .borrow_write) return false;
+        // Bare nominal Cell as receiver — addressable iff the
+        // binding kind is `.local`. Function parameters
+        // (`.param`) and other shapes are not.
+        if (receiver_expr == .src) {
+            const name = self.ctx.source[receiver_expr.src.pos..][0..receiver_expr.src.len];
+            if (self.ctx.lookup(self.current_scope, name)) |sym_id| {
+                const sym = self.ctx.symbols.items[sym_id];
+                if (sym.kind == .local) return true;
+                if (sym.kind == .param) return false;
+            }
+        }
+        // Rvalue / unknown shape — NOT addressable.
+        return false;
+    }
+
     /// Case 3 helper: `value.method(args)`. Looks up the method on the
     /// receiver's nominal type (unwrapping one level of `?T` / `!T`
     /// borrow), validates the receiver mode at the call site per the
@@ -4137,6 +4228,42 @@ const ExprChecker = struct {
         };
 
         const nominal_sym = self.ctx.symbols.items[resolved.nominal_sym];
+
+        // M20f.1 (per GPT-5.5's M20f post-implementation review):
+        // `Cell.set` mutates through a `*Self` pointer at the
+        // runtime. If the receiver's Zig storage is `const` (a Zig
+        // function parameter, an rvalue temporary, or a borrowed
+        // value whose borrow strips mutability in lowering), the
+        // Zig compile fails with "cast discards const qualifier".
+        // Sema accepts these shapes today via the standard read-
+        // receiver auto-borrow rule, so the failure manifests as
+        // Zig errors instead of a clean Rig diagnostic.
+        //
+        // Reject Cell.set early when the receiver isn't an
+        // addressable Cell place. Addressable shapes:
+        //   - bare local `c: Cell(Int)` (sema kind = .local; emit
+        //     forces `var`).
+        //   - shared `*Cell(T)` (heap-allocated, mutable through
+        //     the strong pointer; M20d auto-deref bridges via
+        //     `.value`).
+        //
+        // Rejected:
+        //   - Cell-typed function parameters (Zig params are const).
+        //   - rvalue receivers (call result, anon_init, etc.).
+        //   - borrow_read / borrow_write of Cell (Rig borrows
+        //     lower to bare `T` in Zig, losing mutability info).
+        //
+        // Cell.get is unaffected — it returns a copy and doesn't
+        // need an addressable receiver.
+        if (resolved.nominal_sym == self.ctx.cell_sym_id and
+            std.mem.eql(u8, method_name, "set"))
+        {
+            if (!self.isAddressableCellReceiver(receiver_expr, receiver_ty_id)) {
+                try self.err(name_pos, "`Cell.set` requires an addressable Cell receiver: either a local Cell binding or a shared Cell handle (`*Cell(T)`). Cell-typed function parameters, borrows, and rvalue temporaries are not mutable in Zig — `Cell.set` would fail to lower. Bind the value to a local first or pass `*Cell(T)` if you need cross-function mutation.", .{});
+                for (args) |a| _ = try self.synthExpr(a);
+                return self.ctx.types.void_id;
+            }
+        }
 
         // M20a.2: dispatch on the receiver metadata established at
         // decl-time, NOT on `params.len > 0`. Otherwise associated/

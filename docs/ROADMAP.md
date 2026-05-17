@@ -1457,6 +1457,60 @@ Two emit-side fixes to make the one-step pattern work:
 
 **Tests across M20d + M20e + M20f arcs: 496 → 634 (+138).**
 
+### M20f.1 — post-implementation review fixes ✅
+GPT-5.5's M20f review surfaced two correctness issues and one
+soundness gap. Tests grew 634 → 648 (+14).
+
+**Fix 1: builtin `decl_pos` sentinel.** `registerBuiltins` was
+using `decl_pos = 0` for Cell and its generic param T, plus the
+synthetic fields. Emit's bridge helpers (`isInteriorMutableBinding`,
+`resourceKindOfBinding`) match source bindings to sema symbols
+via `decl_pos`. A real user binding starting at byte 0 would
+collide with the builtin and the scan would return the wrong
+symbol — silently classifying a Cell binding as non-Cell (`const`
+emit; Zig errors on `c.set`). Fix: new `builtin_decl_pos =
+std.math.maxInt(u32)` sentinel for all built-in registrations;
+real source positions can't reach that value. Defense-in-depth:
+both bridge helpers also cross-check the symbol name now (was
+decl_pos-only).
+
+**Fix 2: `Cell.set` addressability check.** Sema was accepting
+`c.set(1)` on:
+- Cell-typed function parameters (Zig params are const → Zig
+  errors "cast discards const qualifier")
+- borrowed Cell receivers (`?Cell(T)` / `!Cell(T)`)
+- rvalue temporaries (`make_cell().set(...)`)
+
+Each case was Zig-rejected with a confusing low-level error.
+Fix: new `isAddressableCellReceiver` helper in `synthInstanceCall`.
+When the method's nominal is Cell and the name is `set`, the
+receiver must unwrap to either a bare local binding (sema kind
+= `.local`) or `shared(Cell(_))` (heap-allocated, mutable via
+pointer). Anything else fires a clear Rig diagnostic suggesting
+the two valid shapes. Cell.get is unaffected (it returns a copy
+and doesn't need addressability).
+
+**Fix 3: built-in name reservation.** Emit's
+`isBuiltinNominalName` is a string-equality check ("Cell"). A
+user-declared `type Cell(T)` or `struct Cell` would have
+shadowed the builtin in sema (latter declaration wins) and
+emit's prefix `rig.` would have been mis-applied to the user
+type. Fix: new `isReservedBuiltinName` predicate; `SymbolResolver.
+walkGenericType` and `walkNominalType` reject reserved names
+with a clean diagnostic.
+
+**Tests** (3 new EMIT_TARGETS):
+- `cell_set_on_param_rejected.rig` — pins the addressability
+  diagnostic.
+- `cell_reservation_rejected.rig` — pins the name-reservation
+  diagnostic.
+- `cell_shared_move_assign.rig` — pins the M20d+M20e+M20f
+  composition under `<-` move-assign (regression test the
+  reviewer recommended).
+
+**Tests across M20f + M20f.1: 622 → 648 (+26).**
+**Tests across M20d + M20e + M20f arcs: 496 → 648 (+152).**
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note

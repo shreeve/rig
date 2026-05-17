@@ -1,0 +1,1 @@
+examples/cell_reservation_rejected.rig:12:6: error: `Cell` is a reserved built-in nominal name and cannot be redefined

@@ -1,0 +1,13 @@
+# M20f.1: `Cell` is a reserved built-in nominal name. User code
+# cannot redefine it (either as `type Cell(T)` generic or as a
+# plain `struct Cell`).
+#
+# Without this reservation, the user-declared `Cell` would
+# shadow the M20f builtin and emit's name-based check
+# (`isBuiltinNominalName`) would mis-classify the user type as
+# the runtime-baked Cell, prefixing it with `rig.` and producing
+# confused Zig output. The reservation is enforced at sema time
+# so the user gets a clean diagnostic.
+
+type Cell(T)
+  value: T

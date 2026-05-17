@@ -1,0 +1,16 @@
+# M20f.1 (per GPT-5.5's M20f post-implementation review): a
+# Cell-typed function parameter is NOT an addressable receiver
+# for `Cell.set` — Zig parameters are immutable, so the runtime
+# `set(self: *Self, value: T)` call would fail with
+# "cast discards const qualifier" at the Zig level.
+#
+# Sema rejects the call early with a targeted diagnostic that
+# points users at the two supported shapes (local Cell binding
+# or `*Cell(T)` shared handle).
+
+sub bump(c: Cell(Int))
+  c.set(1)
+
+sub main()
+  c: Cell(Int) = Cell(value: 0)
+  bump(c)

@@ -11,12 +11,14 @@ once; then it's a reference.
 - **Project**: Rig is a systems language ("Zig-fast, Rust-safe,
   Ruby-readable") that compiles to Zig 0.16. Repo:
   `/Users/shreeve/Data/Code/rig`.
-- **Where we are**: Just shipped **M20f** — interior mutability
-  via the built-in `Cell(T)` type. `*Cell(T).set(...)` works end-
-  to-end through M20d's auto-deref + M20e's auto-drop. The M20d
-  diagnostics' promised escape hatch is real. **634 tests passing,
-  0 failing.** Clean tree on `main`, all pushed. The V1 ownership
-  + interior-mutability substrate is now complete.
+- **Where we are**: Just shipped **M20f + M20f.1** — interior
+  mutability via the built-in `Cell(T)` type, plus post-review
+  fixes (builtin decl_pos sentinel, `Cell.set` addressability
+  check, built-in name reservation). `*Cell(T).set(...)` works
+  end-to-end through M20d's auto-deref + M20e's auto-drop.
+  **648 tests passing, 0 failing.** Clean tree on `main`, all
+  pushed. The V1 ownership + interior-mutability substrate is
+  complete.
 - **Next milestone**: **M20g — Closure capture mode syntax**
   (M20+ item #8). The last V1 substrate piece before the
   rig-reactive validation milestone (Phase B of
@@ -413,7 +415,7 @@ Surface these in the M20g design checkpoint.
 
 ### Testing
 
-- `./test/run` — run all 634 tests + Zig unit tests
+- `./test/run` — run all 648 tests + Zig unit tests
 - `./test/run --update` — regenerate goldens
 - Add new examples to `EMIT_TARGETS` for end-to-end coverage
 
