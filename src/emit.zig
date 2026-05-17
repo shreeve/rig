@@ -110,6 +110,17 @@ pub const Emitter = struct {
     /// emitter; cleared by whichever body emitter consumed it.
     pending_param_guards: ?Sexp = null,
 
+    /// M20f(3/4): the LHS type annotation Sexp currently being emitted
+    /// into, threaded by `emitSetOrBind` so deep emit paths can
+    /// recover the expected target type without re-walking sema. The
+    /// `(share x)` emit needs this when `x` is a built-in nominal
+    /// constructor (e.g., `Cell(value: 0)`) — without an explicit
+    /// type on the struct literal, `rig.rcNew(anytype)` infers a
+    /// synthetic comptime struct instead of `rig.Cell(T)`. Saved/
+    /// restored on entry/exit of `emitSetOrBind` to keep nested
+    /// bindings sound.
+    current_set_type: ?Sexp = null,
+
     pub fn init(allocator: std.mem.Allocator, source: []const u8, w: *Writer) Emitter {
         return .{
             .allocator = allocator,
@@ -1022,6 +1033,13 @@ pub const Emitter = struct {
         var zig_name: []const u8 = name;
         const found = self.lookup(name);
 
+        // M20f(3/4): make the LHS type visible to deep emit paths
+        // (specifically the `(share x)` arm for built-in nominal
+        // constructors) via a saved/restored Emitter field.
+        const prev_set_type = self.current_set_type;
+        self.current_set_type = if (has_type) type_node else null;
+        defer self.current_set_type = prev_set_type;
+
         if (is_shadow or found == null) {
             if (is_shadow and found != null) {
                 // Mark the shadowed binding as "used" so Zig doesn't error
@@ -1162,6 +1180,61 @@ pub const Emitter = struct {
     /// first-match-wins under shadowing. Acceptable for M20d (rare
     /// collision with shared/weak names), revisited when emit grows
     /// real scope-aware symbol resolution.
+    /// M20f(3/4): true when the inner expr of a `(share ...)` is a
+    /// built-in-nominal constructor call AND we know the LHS type
+    /// requires the corresponding `*Builtin(T)` shape. Drives the
+    /// explicit-typed struct literal emit so `rig.rcNew(anytype)`
+    /// can infer the right payload type. Currently only Cell.
+    fn shouldExplicitTypeShareInner(self: *const Emitter, inner: Sexp) bool {
+        if (inner != .list or inner.list.len < 2 or inner.list[0] != .tag) return false;
+        if (inner.list[0].tag != .@"call") return false;
+        const callee = inner.list[1];
+        if (callee != .src) return false;
+        const callee_name = self.source[callee.src.pos..][0..callee.src.len];
+        if (!isBuiltinNominalName(callee_name)) return false;
+        // Verify the LHS type wraps an instantiation of the same
+        // built-in (i.e., `*Cell(...)`).
+        const lhs = self.current_set_type orelse return false;
+        if (lhs != .list or lhs.list.len < 2 or lhs.list[0] != .tag) return false;
+        if (lhs.list[0].tag != .@"shared") return false;
+        const inner_lhs = lhs.list[1];
+        if (inner_lhs != .list or inner_lhs.list.len < 2 or inner_lhs.list[0] != .tag) return false;
+        if (inner_lhs.list[0].tag != .@"generic_inst") return false;
+        const lhs_name = inner_lhs.list[1];
+        if (lhs_name != .src) return false;
+        const lhs_name_str = self.source[lhs_name.src.pos..][0..lhs_name.src.len];
+        return std.mem.eql(u8, lhs_name_str, callee_name);
+    }
+
+    /// M20f(3/4): emit a built-in nominal constructor call as an
+    /// explicit-typed struct literal (`rig.Cell(i32){ .value = 0 }`
+    /// rather than `.{ .value = 0 }`). The explicit type derives
+    /// from the current LHS type annotation.
+    fn emitExplicitTypedConstruction(self: *Emitter, call: Sexp) Error!void {
+        // Type prefix: emit the inner of the `(shared (generic_inst Name T))`
+        // LHS type as a Zig type. That gives us `rig.Cell(i32)`.
+        const lhs = self.current_set_type.?;
+        const inner_lhs = lhs.list[1]; // (generic_inst Name T)
+        try self.emitType(inner_lhs);
+        try self.w.writeAll("{ ");
+        var first = true;
+        for (call.list[2..]) |arg| {
+            if (!first) try self.w.writeAll(", ");
+            first = false;
+            if (arg == .list and arg.list.len >= 3 and arg.list[0] == .tag and
+                arg.list[0].tag == .@"kwarg")
+            {
+                try self.w.writeAll(".");
+                try self.emitExpr(arg.list[1]);
+                try self.w.writeAll(" = ");
+                try self.emitExpr(arg.list[2]);
+            } else {
+                try self.emitExpr(arg);
+            }
+        }
+        try self.w.writeAll(" }");
+    }
+
     /// M20f(2/4): is this binding's sema-side type an
     /// interior-mutable nominal (currently just `Cell(T)`)? Used by
     /// `emitSetOrBind` to force `var` emission so the runtime
@@ -1942,10 +2015,24 @@ pub const Emitter = struct {
             // would silently duplicate ownership). The OOM behavior
             // is panic (Rust-style); the runtime helper returns an
             // error union for future recoverable-allocation APIs.
+            //
+            // M20f(3/4): when the inner is a built-in nominal
+            // construction (e.g., `Cell(value: 0)`) and the LHS
+            // type peels to that built-in, emit the inner as an
+            // explicit-typed struct literal so `rig.rcNew(anytype)`
+            // can infer the right RcBox payload type. Without this,
+            // the anonymous struct literal `.{ .value = 0 }` would
+            // get inferred as a synthetic comptime struct and the
+            // resulting `*RcBox(synthetic_struct)` mismatches the
+            // expected `*RcBox(rig.Cell(i32))`.
             .@"share" => {
                 if (items.len < 2) return;
                 try self.w.writeAll("(rig.rcNew(");
-                try self.emitExpr(items[1]);
+                if (self.shouldExplicitTypeShareInner(items[1])) {
+                    try self.emitExplicitTypedConstruction(items[1]);
+                } else {
+                    try self.emitExpr(items[1]);
+                }
                 try self.w.writeAll(") catch @panic(\"Rig Rc allocation failed\"))");
             },
             // M20d: `(clone x)` dispatches on the operand's TYPE.

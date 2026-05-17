@@ -4637,6 +4637,28 @@ const ExprChecker = struct {
     // -------------------------------------------------------------------------
 
     fn checkExpr(self: *ExprChecker, expr: Sexp, expected: TypeId) std.mem.Allocator.Error!void {
+        // M20f(3/4): propagate expected type through `(share x)`. The
+        // pattern `*Cell(value: 0)` with expected `*Cell(Int)` parses
+        // as `(share (call Cell (kwarg value 0)))` and the inner
+        // `Cell(...)` constructor needs the expected `Cell(Int)` to
+        // drive its expected-type-based generic substitution
+        // (otherwise it fires the "unannotated generic constructor"
+        // diagnostic). The simplest fix is to unwrap the shared
+        // wrapper from the expected type and recursively check the
+        // inner expression. The result-type compatibility check is
+        // automatic — if inner produces `Cell(Int)`, the outer
+        // `(share ...)` produces `shared(Cell(Int))` which matches
+        // the original expected.
+        if (expr == .list and expr.list.len >= 2 and expr.list[0] == .tag and
+            expr.list[0].tag == .@"share")
+        {
+            const expected_ty = self.ctx.types.get(expected);
+            if (expected_ty == .shared) {
+                try self.checkExpr(expr.list[1], expected_ty.shared);
+                return;
+            }
+        }
+
         // M7: enum literal `.red` is intrinsically context-typed —
         // synth would return `unknown` (no enum is named in the
         // expression itself). When the expected type is a nominal

@@ -1,0 +1,23 @@
+# M20f(3/4): `*Cell(T)` — the user-facing payoff. Mutation through
+# a shared handle, exactly what M20d's diagnostics promise:
+#
+#   "cannot call write-receiver method through a shared handle (`*T`);
+#    use an interior-mutable type (planned `Cell(T)` in M20+ item #7)"
+#
+# Pattern verifies the entire substrate end-to-end:
+#
+#   - M20b generic-instance machinery: `Cell(Int)` → parameterized_nominal
+#   - M20d shared semantics: `*Cell(Int)` is `shared(parameterized_nominal(...))`
+#   - M20e auto-drop: scope-exit defer drops the Rc handle
+#   - M20d read-only auto-deref: `rc.set(5)` → `rc.value.set(5)` in emit
+#   - M20f synthetic methods: `set` / `get` work through the shared
+#   - M20f Copy-only enforcement: `*Cell(Int)` is allowed (Int is Copy)
+#   - M20f explicit-typed struct literal: `*Cell(value: 0)` lowers to
+#     `rig.rcNew(rig.Cell(i32){...})` not `rig.rcNew(.{...})`
+#
+# The expected output is `5` (the value set, then read back).
+
+sub main()
+  rc: *Cell(Int) = *Cell(value: 0)
+  rc.set(5)
+  print(rc.get())
