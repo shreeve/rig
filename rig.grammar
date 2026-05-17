@@ -263,7 +263,7 @@ tokens
 # = "shared handle to optional User". The optional-shared shape
 # returned by `WeakHandle.upgrade()` is spelled `(*User)?` — see
 # SPEC §Shared Ownership for the user-facing precedence rule.
-@conflicts = 38
+@conflicts = 69
 
 @as ident = [keyword]
 
@@ -645,6 +645,16 @@ lambda   = FN captures params block         → (lambda 2 3 returns:_ 4)
          | FN captures        block         → (lambda 2 params:_ returns:_ 3)
          | FN          params block         → (lambda captures:_ 2 returns:_ 3)
          | FN                 block         → (lambda captures:_ params:_ returns:_ 2)
+         | FN captures inline_body          → (lambda 2 params:_ returns:_ 3)   # M20h: inline-call body for owned-closure construction
+
+# M20h: synthesize a `(block ...)` wrapper around an inline-call
+# lambda body so sema/ownership/emit's existing `(lambda ... (block ...))`
+# walkers see the same shape as block-bodied lambdas. The body shape
+# is restricted to `call` (member/method chains, function calls,
+# atoms) to avoid the LR conflicts that a broader `expr` body would
+# introduce — `call` covers the V1 retained-Effect callback shapes
+# (e.g., `count.set(count.get() + 1)`, `print(count.get())`).
+inline_body = call                          → (block 1)
 
 # M20g capture list. SINGLE-capture only in V1; multi-capture
 # (comma-separated) is a follow-up. The outer (captures ...) wrap

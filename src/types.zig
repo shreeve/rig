@@ -4105,8 +4105,19 @@ const ExprChecker = struct {
             // ownership pass (M2-era), not here. This commit only
             // changes the *type* attribution from `unknown` to
             // `shared(T)`; emit lowering lands in M20d(3/5).
+            //
+            // M20h: `*Closure(fn ...)` is the owned-closure
+            // construction shape — the only construction shape for
+            // escaping closures (bare `Closure(fn ...)` is rejected
+            // in synthCall). We intercept it here so the result type
+            // is `shared(parameterized_nominal(Closure, []))` even
+            // though the inner `(call Closure ...)` would synth as
+            // `unknown` otherwise.
             .@"share" => {
                 if (items.len < 2) return self.ctx.types.unknown_id;
+                if (try self.detectOwnedClosureConstruction(items[1])) |closure_ty| {
+                    return closure_ty;
+                }
                 const inner = try self.synthExpr(items[1]);
                 if (inner == self.ctx.types.unknown_id or inner == self.ctx.types.invalid_id) return inner;
                 return self.ctx.types.intern(self.ctx.allocator, .{ .shared = inner }) catch self.ctx.types.invalid_id;
@@ -4189,6 +4200,22 @@ const ExprChecker = struct {
                         return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = sym_id }) catch self.ctx.types.unknown_id;
                     },
                     .generic_type => {
+                        // M20h: bare `Closure(fn ...)` (no `*`) is
+                        // rejected — the owned-closure construction
+                        // shape requires `*` to make the heap
+                        // allocation visible and to thread the lambda
+                        // through `rcNew`. Without `*`, the user has
+                        // a non-escaping closure (which the M20g
+                        // rules handle differently) AND a generic-
+                        // constructor mismatch (Closure takes zero
+                        // type args, the user is supplying a lambda
+                        // as if it were a type). Tailored diagnostic
+                        // keeps the user pointed at the right shape.
+                        if (sym_id == self.ctx.closure_sym_id) {
+                            try self.err(callee.src.pos, "owned closure must be wrapped with `*`; write `*Closure(fn |...| body)`", .{});
+                            for (items[2..]) |arg| _ = try self.synthExpr(arg);
+                            return self.ctx.types.unknown_id;
+                        }
                         // M20b(5/5) per GPT-5.5: unannotated generic
                         // construction (e.g., `Box(value: 5)` with no
                         // LHS type annotation) requires expected-type
@@ -4205,6 +4232,24 @@ const ExprChecker = struct {
                         });
                         for (items[2..]) |arg| _ = try self.synthExpr(arg);
                         return self.ctx.types.unknown_id;
+                    },
+                    // M20h: closure invocation `cb()` when
+                    // `cb: *Closure()`. The callee binding lives in
+                    // `.local` / `.param` / `.capture` symbol slots
+                    // (depending on where it was bound). Validate
+                    // arity (closures take no args in M20h) and
+                    // return `void` — the body's return type isn't
+                    // tracked through Closure0's type erasure (a
+                    // future M20h+ milestone could add a typed
+                    // `Closure1`/`Closure2` family).
+                    .local, .param, .capture => {
+                        if (isOwnedClosureHandleType(self.ctx, sym.ty)) {
+                            if (items.len > 2) {
+                                try self.err(callee.src.pos, "owned closure `{s}` invocation takes no arguments; got {d}", .{ name, items.len - 2 });
+                                for (items[2..]) |a| _ = try self.synthExpr(a);
+                            }
+                            return self.ctx.types.void_id;
+                        }
                     },
                     else => {},
                 }
@@ -5005,6 +5050,95 @@ const ExprChecker = struct {
     /// We must enter it via `enterNextScope` to stay in lockstep
     /// with the scope cursor; missing this would silently mis-bind
     /// any scopes lexically following the lambda.
+    /// M20h: detect `(share (call Closure (lambda ...)))` — the
+    /// owned-closure construction shape — at synth time and produce
+    /// the precise type `shared(parameterized_nominal(Closure, []))`
+    /// instead of the generic `shared(unknown)` the fall-through
+    /// path would yield.
+    ///
+    /// `inner` is the `(share ...)` operand (i.e., items[1] of the
+    /// share node). Returns the synthesized type if this is owned-
+    /// closure construction; null otherwise (caller falls through
+    /// to the generic share-synth path).
+    ///
+    /// Validation performed here:
+    ///   - the call's callee is the `Closure` symbol
+    ///   - exactly one argument, which must be a lambda
+    ///   - the lambda's body is walked through synthExpr so nested
+    ///     type errors fire (and the body's last-expression type
+    ///     gets recorded for emit consumption)
+    ///
+    /// Malformed shapes (wrong arg count, non-lambda arg, etc.) get
+    /// a tailored diagnostic and still return the closure type so
+    /// downstream sema/ownership see the construction in the
+    /// expected shape and don't cascade misleading errors.
+    fn detectOwnedClosureConstruction(
+        self: *ExprChecker,
+        inner: Sexp,
+    ) std.mem.Allocator.Error!?TypeId {
+        if (self.ctx.closure_sym_id == symbol_invalid) return null;
+        if (inner != .list) return null;
+        const items = inner.list;
+        if (items.len < 2) return null;
+        if (items[0] != .tag or items[0].tag != .@"call") return null;
+        const callee = items[1];
+        if (callee != .src) return null;
+        const callee_name = self.ctx.source[callee.src.pos..][0..callee.src.len];
+        const sym_id = self.ctx.lookup(self.current_scope, callee_name) orelse return null;
+        if (sym_id != self.ctx.closure_sym_id) return null;
+
+        const call_args = items[2..];
+        const callee_pos = callee.src.pos;
+
+        // Validate exactly one lambda arg. Diagnose other shapes but
+        // still return the closure type so cascade errors stay quiet.
+        if (call_args.len == 0) {
+            try self.err(callee_pos, "owned closure `*Closure(...)` requires a lambda argument; write `*Closure(fn |...| body)`", .{});
+        } else if (call_args.len > 1) {
+            try self.err(callee_pos, "owned closure `*Closure(...)` takes exactly one lambda argument; got {d}", .{call_args.len});
+            // Best-effort synth of extra args so nested errors fire.
+            for (call_args) |a| _ = try self.synthExpr(a);
+        } else {
+            const arg = call_args[0];
+            if (!isLambdaSexp(arg)) {
+                try self.err(firstSrcPos(arg), "owned closure `*Closure(...)` argument must be a lambda `fn |...| body`", .{});
+                _ = try self.synthExpr(arg);
+            } else {
+                // Synth the lambda so its body is type-checked and
+                // its return type is recorded in lambda_return_types
+                // for the emit path.
+                _ = try self.synthExpr(arg);
+            }
+        }
+
+        // Build `shared(parameterized_nominal(Closure, []))`.
+        const empty_args = try self.ctx.arena.allocator().alloc(TypeId, 0);
+        const inner_ty = self.ctx.types.intern(self.ctx.allocator, .{
+            .parameterized_nominal = .{ .sym = self.ctx.closure_sym_id, .args = empty_args },
+        }) catch return self.ctx.types.unknown_id;
+        const outer_ty = self.ctx.types.intern(self.ctx.allocator, .{ .shared = inner_ty }) catch
+            return self.ctx.types.unknown_id;
+        return outer_ty;
+    }
+
+    /// M20h: does the symbol's type slot describe a `*Closure()`
+    /// handle? Used by `synthCall` to recognize closure invocation
+    /// `cb()` when `cb: *Closure()`.
+    fn isOwnedClosureHandleType(ctx: *const SemContext, ty_id: TypeId) bool {
+        if (ctx.closure_sym_id == symbol_invalid) return false;
+        const ty = ctx.types.get(ty_id);
+        const inner_id = switch (ty) {
+            .shared => |t| t,
+            else => return false,
+        };
+        const inner_ty = ctx.types.get(inner_id);
+        return switch (inner_ty) {
+            .nominal => |s| s == ctx.closure_sym_id,
+            .parameterized_nominal => |pn| pn.sym == ctx.closure_sym_id,
+            else => false,
+        };
+    }
+
     fn synthLambda(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
         if (items.len < 5) return self.ctx.types.unknown_id;
         const captures = items[1];
@@ -5242,6 +5376,22 @@ const ExprChecker = struct {
         if (expr == .list and expr.list.len >= 2 and expr.list[0] == .tag and
             expr.list[0].tag == .@"share")
         {
+            // M20h: owned-closure construction takes precedence over
+            // the generic Cell-style share-unwrap. `*Closure(fn ...)`
+            // is its own construction shape — routing through
+            // `checkGenericConstructorCall` (which expects a struct-
+            // like field list) would mis-classify the lambda arg.
+            // Synth handles construction; we just verify the
+            // expected matches and return.
+            if (try self.detectOwnedClosureConstruction(expr.list[1])) |closure_ty| {
+                if (compatible(self.ctx, closure_ty, expected)) return;
+                const pos = firstSrcPos(expr);
+                try self.err(pos, "type mismatch: expected `{s}`, got `{s}`", .{
+                    try formatType(self.ctx, expected),
+                    try formatType(self.ctx, closure_ty),
+                });
+                return;
+            }
             const expected_ty = self.ctx.types.get(expected);
             if (expected_ty == .shared) {
                 try self.checkExpr(expr.list[1], expected_ty.shared);
@@ -5693,6 +5843,14 @@ fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
 
 /// M20g(2/5): the four capture-mode IR heads.
 const CaptureMode = enum { cap_copy, cap_clone, cap_weak, cap_move };
+
+/// M20h: is the given Sexp a lambda IR node `(lambda ...)`? Used
+/// by the owned-closure construction detector to validate the
+/// argument shape of `*Closure(fn ...)`.
+fn isLambdaSexp(sexp: Sexp) bool {
+    return sexp == .list and sexp.list.len >= 1 and sexp.list[0] == .tag and
+        sexp.list[0].tag == .@"lambda";
+}
 
 /// M20g(2/5): extract the capture mode tag from a capture node.
 fn captureModeOf(cap: Sexp) ?CaptureMode {
