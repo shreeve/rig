@@ -1,0 +1,15 @@
+# M20e(4/5): resource declared inside a loop body. Each iteration
+# enters a fresh scope, installs the guard, and drops at the end
+# of the iteration (Zig's `defer` runs at the end of the enclosing
+# block, which for a loop body is each iteration's scope).
+
+struct C
+  v: Int
+
+sub main()
+  i = 0
+  while i < 3
+    rc = *C(v: i)
+    print(rc.v)
+    i += 1
+  print("done")

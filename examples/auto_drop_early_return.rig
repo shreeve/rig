@@ -1,0 +1,18 @@
+# M20e(4/5): early return from inside a nested conditional. Zig's
+# defer fires on the return path — Rig didn't need to enumerate
+# the scope chain or synthesize explicit drops at each return site
+# (the original M20e plan I proposed; GPT-5.5's defer-guard
+# strategy made it unnecessary).
+
+struct C
+  v: Int
+
+fun pick(cond: Bool) -> Int
+  rc = *C(v: 99)
+  if cond
+    return 1
+  return 2
+
+sub main()
+  print(pick(true))
+  print(pick(false))

@@ -1,0 +1,1 @@
+(module (struct C (: v Int)) (fun pick ((: cond Bool)) Int (block (set _ rc _ (share (call C (kwarg v 99)))) (if cond (block (return 1))) (return 2))) (sub main () _ (block (call print (call pick true)) (call print (call pick false)))))

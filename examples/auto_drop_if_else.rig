@@ -1,0 +1,22 @@
+# M20e(4/5): branch divergence — one arm consumes the handle
+# explicitly (via `-rc`), the other doesn't. The runtime guard
+# flag is path-sensitive: the then-branch disarm runs at runtime,
+# so the scope-exit `defer` is a no-op on that path; the else-
+# branch runs the auto-drop. Either way, exactly one drop fires.
+#
+# The hazard GPT-5.5 highlighted in the M20e design pass: with
+# explicit per-branch IR-level drop insertion this would require
+# branch-aware static analysis. With Zig's defer + a runtime
+# alive flag, Zig handles it transparently.
+
+struct C
+  v: Int
+
+sub main()
+  rc = *C(v: 7)
+  cond = true
+  if cond
+    -rc
+  else
+    print(rc.v)
+  print("done")
