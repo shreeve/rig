@@ -47,6 +47,14 @@ const SymbolEntry = struct {
     /// disarm missed). Per GPT-5.5's M20e post-implementation review:
     /// scoped emitter metadata is the correct phase to carry this.
     resource_kind: ?ResourceKind = null,
+    /// M20g(3/5): set on a binding produced by `f = fn |...| body`.
+    /// `emitCall` consults this when the callee resolves to such a
+    /// binding and emits `<zig_name>.invoke(args)` instead of the
+    /// regular `<zig_name>(args)`. Closure bindings emit as Zig
+    /// `var` (the invoke method takes `self: *@This()`); the
+    /// ownership pass enforces the V1 non-copyability so the
+    /// emitter doesn't need to defend against rebinds.
+    is_closure: bool = false,
 };
 
 const ScopeFrame = struct {
@@ -810,6 +818,42 @@ pub const Emitter = struct {
         });
     }
 
+    /// M20g(3/5): mark the most-recently-declared symbol with the
+    /// given rig_name in the current scope as a closure binding.
+    /// Used by `emitClosureBinding` right after writing the
+    /// closure `var` declaration so `emitCall` can later rewrite
+    /// `<name>(args)` → `<name>.invoke(args)`.
+    fn markClosure(self: *Emitter, rig_name: []const u8) void {
+        if (self.scopes.items.len == 0) return;
+        const top = &self.scopes.items[self.scopes.items.len - 1];
+        var i = top.symbols.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (std.mem.eql(u8, top.symbols.items[i].rig_name, rig_name)) {
+                top.symbols.items[i].is_closure = true;
+                return;
+            }
+        }
+    }
+
+    /// M20g(3/5): true iff the bare name resolves to a closure
+    /// binding in the visible scope chain. Walked innermost-first
+    /// so a closure shadowing an outer name correctly wins.
+    fn lookupIsClosure(self: *const Emitter, rig_name: []const u8) bool {
+        var i = self.scopes.items.len;
+        while (i > 0) {
+            i -= 1;
+            const frame = &self.scopes.items[i];
+            var j = frame.symbols.items.len;
+            while (j > 0) {
+                j -= 1;
+                const s = frame.symbols.items[j];
+                if (std.mem.eql(u8, s.rig_name, rig_name)) return s.is_closure;
+            }
+        }
+        return false;
+    }
+
     /// M20e.1: scope-aware resource classification for use sites
     /// (`<rc`, `-rc`, `return rc`, the auto-deref bridge). Replaces
     /// the M20e(1/5) `resourceKindOfBareUse` global scan, which had
@@ -1040,6 +1084,20 @@ pub const Emitter = struct {
         self.current_set_type = if (has_type) type_node else null;
         defer self.current_set_type = prev_set_type;
 
+        // M20g(3/5): closure binding. The RHS is a lambda literal
+        // `(lambda CAPTURES PARAMS RETURNS BODY)`; lower to an
+        // anonymous Zig struct + `pub fn invoke(self: *@This())`
+        // method. The binding is `var` so `invoke` has a valid
+        // mutable pointer; `_ = &name;` pacifies Zig's
+        // "never mutated" warning in the common case where the
+        // closure is only invoked. ownership.zig has already
+        // enforced V1 non-copyability / non-escape, so the
+        // emitter doesn't have to defend against rebinds here.
+        if (isLambdaExpr(expr)) {
+            try self.emitClosureBinding(name, name_node, expr, is_shadow, found);
+            return;
+        }
+
         if (is_shadow or found == null) {
             if (is_shadow and found != null) {
                 // Mark the shadowed binding as "used" so Zig doesn't error
@@ -1158,6 +1216,456 @@ pub const Emitter = struct {
                 try self.w.print(" __rig_alive_{s} = true;", .{found_name});
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // M20g(3/5): closure emit
+    // -------------------------------------------------------------------------
+
+    /// `(set kind name _ (lambda CAPTURES PARAMS RETURNS BODY))` →
+    ///
+    ///   var <name> = struct {
+    ///       cap_<n1>: <T1>,
+    ///       ...
+    ///       pub fn invoke(self: *@This()) <RT> {
+    ///           // body, with captures rewritten to `self.cap_<n>`
+    ///       }
+    ///   }{
+    ///       .cap_<n1> = <init_expr1>,
+    ///       ...
+    ///   };
+    ///   _ = &<name>;
+    ///
+    /// Per GPT-5.5's M20g(2/5) post-implementation guidance:
+    ///   - receiver is `*@This()` (anchors the invoke call site;
+    ///     future-proof for mutable captures)
+    ///   - closure binding emits as `var` (so `f.invoke()` can take
+    ///     `&f` implicitly)
+    ///   - `_ = &<name>;` pacifies Zig's "never mutated" complaint
+    ///     when the closure is only invoked (no direct mutation)
+    ///   - capture-name references inside the body resolve to
+    ///     `self.cap_<name>` via a scope-frame mapping pushed
+    ///     before walking the body
+    ///
+    /// V1 scope per the GPT-5.5 tactical Q&A: ALL capture modes
+    /// (cap_copy / cap_clone / cap_weak / cap_move) are supported
+    /// at the emit level, but auto-drop guards for resource
+    /// captures land in M20g(4/5). EMIT_TARGETS in (3/5) covers
+    /// the Copy-capture and no-capture cases only; resource-capture
+    /// closures pass sema but their emitted Zig leaks until (4/5).
+    fn emitClosureBinding(
+        self: *Emitter,
+        rig_name: []const u8,
+        name_node: Sexp,
+        lambda: Sexp,
+        is_shadow: bool,
+        found: ?[]const u8,
+    ) Error!void {
+        // Resolve the shadow rename. If we're shadowing an outer
+        // binding, generate a fresh `<name>_<n>` and mark the old
+        // one as "used" so Zig doesn't fire dead-code warnings.
+        var zig_name: []const u8 = rig_name;
+        if (is_shadow and found != null) {
+            try self.w.print("_ = {s}; ", .{found.?});
+            zig_name = try self.freshShadow(rig_name);
+        }
+        try self.declareWithResourceKind(rig_name, zig_name, null);
+        self.markClosure(rig_name);
+
+        // Pull the IR pieces.
+        const items = lambda.list;
+        const captures = items[1];
+        const params = items[2];
+        const body = items[4];
+
+        // Render the closure struct + init.
+        try self.w.print("var {s} = struct {{\n", .{zig_name});
+        self.indent += 1;
+        try self.emitClosureFields(captures);
+        try self.emitClosureInvoke(captures, params, body, lambda);
+        self.indent -= 1;
+        try self.indentSpaces();
+        try self.w.writeAll("}");
+        // Initializer.
+        try self.emitClosureInit(captures);
+        try self.w.writeAll(";");
+        // Pacify Zig's never-mutated warning for closures that are
+        // only invoked.
+        try self.w.print(" _ = &{s};", .{zig_name});
+        _ = name_node;
+    }
+
+    fn emitClosureFields(self: *Emitter, captures: Sexp) Error!void {
+        if (!isCapturesNode(captures)) return;
+        for (captures.list[1..]) |cap| {
+            const name_node = captureNameSrc(cap) orelse continue;
+            const name = self.source[name_node.src.pos..][0..name_node.src.len];
+            try self.indentSpaces();
+            try self.w.print("cap_{s}: ", .{name});
+            try self.emitCapturedType(cap, name_node);
+            try self.w.writeAll(",\n");
+        }
+    }
+
+    /// Emit the Zig type for a capture field. Mode-aware:
+    ///   - cap_copy / cap_clone (Copy types): outer's type
+    ///   - cap_clone shared: still `*T` (cloneStrong returns same)
+    ///   - cap_clone weak:   still `~T`
+    ///   - cap_weak:          `~T` (we converted shared → weak)
+    ///   - cap_move:          outer's type, unchanged
+    ///
+    /// Lookup of the outer's type goes through `self.sema` by the
+    /// capture name + outer source position. Falls back to
+    /// `anytype` if we can't recover a concrete type (shouldn't
+    /// happen for the V1 capture shapes sema validated).
+    fn emitCapturedType(self: *Emitter, cap: Sexp, name_node: Sexp) Error!void {
+        const sema = self.sema orelse {
+            try self.w.writeAll("anytype");
+            return;
+        };
+        const mode = cap.list[0].tag;
+        const name = self.source[name_node.src.pos..][0..name_node.src.len];
+        const outer_ty_id = self.findOuterCaptureType(sema, name, name_node.src.pos) orelse {
+            try self.w.writeAll("anytype");
+            return;
+        };
+        // cap_weak converts shared(T) → weak(T). We can't intern new
+        // TypeIds from emit (sema is `*const`), so handle the
+        // weak-wrap directly at the Zig-type spelling level.
+        if (mode == .@"cap_weak") {
+            const outer_ty = sema.types.get(outer_ty_id);
+            if (outer_ty == .shared) {
+                try self.w.writeAll("rig.WeakHandle(");
+                try self.emitZigTypeForTypeId(outer_ty.shared);
+                try self.w.writeAll(")");
+                return;
+            }
+            // Sema should have rejected non-shared cap_weak earlier.
+            // Defensive fall-through emits the outer's type spelling.
+        }
+        try self.emitZigTypeForTypeId(outer_ty_id);
+    }
+
+    fn emitClosureInvoke(
+        self: *Emitter,
+        captures: Sexp,
+        params: Sexp,
+        body: Sexp,
+        lambda: Sexp,
+    ) Error!void {
+        try self.indentSpaces();
+        try self.w.writeAll("pub fn invoke(self: *@This()");
+        if (params == .list) {
+            for (params.list) |p| {
+                try self.w.writeAll(", ");
+                try self.emitParam(p);
+            }
+        }
+        try self.w.writeAll(") ");
+        try self.emitClosureReturnType(lambda);
+        try self.w.writeAll(" ");
+
+        // Push a fresh scope frame for the invoke method. Captures
+        // become locals whose `zig_name` is the fully-qualified
+        // `self.cap_<name>` expression (so a plain bare-name
+        // reference inside the body emits as `self.cap_x`). Params
+        // bind ordinarily.
+        try self.pushScope();
+        defer self.popScope() catch {};
+
+        if (isCapturesNode(captures)) {
+            for (captures.list[1..]) |cap| {
+                const name_node = captureNameSrc(cap) orelse continue;
+                const name = self.source[name_node.src.pos..][0..name_node.src.len];
+                const qualified = std.fmt.allocPrint(
+                    self.name_arena.allocator(),
+                    "self.cap_{s}",
+                    .{name},
+                ) catch return error.OutOfMemory;
+                // Capture's resource kind inside the body. We carry
+                // it so the M20d read-only auto-deref bridge
+                // (handleKindOf via lookupResourceKind) fires on
+                // `rc.field` correctly for shared/weak captures.
+                const cap_kind = self.closureCaptureBodyResourceKind(cap, name_node);
+                try self.declareWithResourceKind(name, qualified, cap_kind);
+            }
+        }
+        if (params == .list) {
+            for (params.list) |p| try self.bindParam(p);
+        }
+
+        try self.emitClosureBody(body, lambda);
+    }
+
+    /// Render the lambda body. For a `(block ...)` body, the last
+    /// statement is the implicit-return expression unless the
+    /// inferred return type is `void` (in which case it stays a
+    /// plain statement). For a single-expression body, we always
+    /// emit it as a `return <expr>;`.
+    fn emitClosureBody(self: *Emitter, body: Sexp, lambda: Sexp) Error!void {
+        try self.w.writeAll("{\n");
+        self.indent += 1;
+        try self.pushScope();
+        const ret_is_void = self.closureReturnIsVoid(lambda);
+
+        if (body == .list and body.list.len > 0 and body.list[0] == .tag and
+            body.list[0].tag == .@"block")
+        {
+            const stmts = body.list[1..];
+            for (stmts, 0..) |stmt, i| {
+                try self.indentSpaces();
+                if (i == stmts.len - 1 and !ret_is_void and isExprStmt(stmt)) {
+                    try self.w.writeAll("return ");
+                    try self.emitExpr(stmt);
+                    try self.w.writeAll(";");
+                } else {
+                    try self.emitStmt(stmt);
+                }
+                try self.w.writeAll("\n");
+            }
+        } else {
+            try self.indentSpaces();
+            if (!ret_is_void) {
+                try self.w.writeAll("return ");
+                try self.emitExpr(body);
+                try self.w.writeAll(";");
+            } else {
+                try self.emitStmt(body);
+            }
+            try self.w.writeAll("\n");
+        }
+        try self.popScope();
+        self.indent -= 1;
+        try self.indentSpaces();
+        try self.w.writeAll("}\n");
+    }
+
+    fn emitClosureInit(self: *Emitter, captures: Sexp) Error!void {
+        try self.w.writeAll("{");
+        if (!isCapturesNode(captures)) {
+            try self.w.writeAll("}");
+            return;
+        }
+        try self.w.writeAll(" ");
+        var first = true;
+        for (captures.list[1..]) |cap| {
+            const name_node = captureNameSrc(cap) orelse continue;
+            const name = self.source[name_node.src.pos..][0..name_node.src.len];
+            if (!first) try self.w.writeAll(", ");
+            first = false;
+            try self.w.print(".cap_{s} = ", .{name});
+            try self.emitCaptureInitExpr(cap, name_node, name);
+        }
+        try self.w.writeAll(" }");
+    }
+
+    fn emitCaptureInitExpr(
+        self: *Emitter,
+        cap: Sexp,
+        name_node: Sexp,
+        name: []const u8,
+    ) Error!void {
+        const mode = cap.list[0].tag;
+        // The outer source spelling — pass through emit's symbol
+        // table for shadow handling.
+        const outer_zig = self.lookup(name) orelse name;
+        const outer_kind = self.resourceKindOfBareUse(name);
+        switch (mode) {
+            .@"cap_copy" => {
+                // Plain Zig value copy.
+                try self.w.writeAll(outer_zig);
+            },
+            .@"cap_clone" => {
+                // shared → cloneStrong, weak → cloneWeak, else copy.
+                if (outer_kind) |k| {
+                    const m: []const u8 = switch (k) {
+                        .shared => "cloneStrong",
+                        .weak => "cloneWeak",
+                    };
+                    try self.w.print("{s}.{s}()", .{ outer_zig, m });
+                } else {
+                    try self.w.writeAll(outer_zig);
+                }
+            },
+            .@"cap_weak" => {
+                // outer is shared(T); produce a weak handle.
+                try self.w.print("{s}.weakRef()", .{outer_zig});
+            },
+            .@"cap_move" => {
+                // For resource captures: disarm the outer guard via
+                // the labeled-block recipe so the outer's defer is
+                // a no-op when scope exits. For non-resource: plain
+                // value passthrough.
+                if (outer_kind) |_| {
+                    const label = self.block_label_counter;
+                    self.block_label_counter += 1;
+                    try self.w.print(
+                        "rig_mv_{d}: {{ __rig_alive_{s} = false; break :rig_mv_{d} {s}; }}",
+                        .{ label, outer_zig, label, outer_zig },
+                    );
+                } else {
+                    try self.w.writeAll(outer_zig);
+                }
+            },
+            else => try self.w.writeAll(outer_zig),
+        }
+        _ = name_node;
+    }
+
+    /// Emit the Zig type for the lambda's invoke return slot.
+    /// Reads `sema.lambda_return_types` keyed by the lambda IR's
+    /// first src pos (populated in `ExprChecker.synthLambda`).
+    /// Falls back to `void` for unknown types — degrades cleanly
+    /// for closures whose body is a statement (e.g., a
+    /// `print(...)` call that returns void).
+    fn emitClosureReturnType(self: *Emitter, lambda: Sexp) Error!void {
+        const sema = self.sema orelse {
+            try self.w.writeAll("void");
+            return;
+        };
+        const pos = firstSrcPosEmit(lambda);
+        const ty_id = sema.lambda_return_types.get(pos) orelse {
+            try self.w.writeAll("void");
+            return;
+        };
+        try self.emitZigTypeForTypeId(ty_id);
+    }
+
+    fn closureReturnIsVoid(self: *const Emitter, lambda: Sexp) bool {
+        const sema = self.sema orelse return true;
+        const pos = firstSrcPosEmit(lambda);
+        const ty_id = sema.lambda_return_types.get(pos) orelse return true;
+        const ty = sema.types.get(ty_id);
+        return switch (ty) {
+            .void, .unknown, .invalid => true,
+            else => false,
+        };
+    }
+
+    /// Map a sema TypeId to the corresponding Zig type spelling.
+    /// V1 covers the types lambdas commonly return: primitives,
+    /// shared/weak handles, nominal types, parameterized
+    /// nominals (Cell, etc.), optional / fallible wrappers, and
+    /// borrow wrappers. Unknown/invalid → `void`.
+    fn emitZigTypeForTypeId(self: *Emitter, ty_id: types.TypeId) Error!void {
+        const sema = self.sema orelse {
+            try self.w.writeAll("anytype");
+            return;
+        };
+        const ty = sema.types.get(ty_id);
+        switch (ty) {
+            .void, .unknown, .invalid => try self.w.writeAll("void"),
+            .bool => try self.w.writeAll("bool"),
+            .string => try self.w.writeAll("[]const u8"),
+            .int_literal => try self.w.writeAll("i32"),
+            .float_literal => try self.w.writeAll("f32"),
+            .int => |info| {
+                if (info.bits == 0) {
+                    try self.w.writeAll("i32");
+                } else if (info.signed) {
+                    try self.w.print("i{d}", .{info.bits});
+                } else {
+                    try self.w.print("u{d}", .{info.bits});
+                }
+            },
+            .float => |info| {
+                try self.w.print("f{d}", .{if (info.bits == 0) @as(u32, 32) else info.bits});
+            },
+            .shared => |inner| {
+                try self.w.writeAll("*rig.RcBox(");
+                try self.emitZigTypeForTypeId(inner);
+                try self.w.writeAll(")");
+            },
+            .weak => |inner| {
+                try self.w.writeAll("rig.WeakHandle(");
+                try self.emitZigTypeForTypeId(inner);
+                try self.w.writeAll(")");
+            },
+            .nominal => |sym_id| {
+                const sym = sema.symbols.items[sym_id];
+                if (isBuiltinNominalName(sym.name)) {
+                    try self.w.print("rig.{s}", .{sym.name});
+                } else {
+                    try self.w.writeAll(sym.name);
+                }
+            },
+            .parameterized_nominal => |pn| {
+                const sym = sema.symbols.items[pn.sym];
+                if (isBuiltinNominalName(sym.name)) {
+                    try self.w.print("rig.{s}", .{sym.name});
+                } else {
+                    try self.w.writeAll(sym.name);
+                }
+                try self.w.writeAll("(");
+                var first = true;
+                for (pn.args) |arg| {
+                    if (!first) try self.w.writeAll(", ");
+                    first = false;
+                    try self.emitZigTypeForTypeId(arg);
+                }
+                try self.w.writeAll(")");
+            },
+            else => try self.w.writeAll("void"),
+        }
+    }
+
+    /// Walk sema's symbol table to find the OUTER symbol named
+    /// `name` whose `decl_pos` is < `cap_pos`. Used by capture-
+    /// emit to discover the outer's type at the capture site.
+    /// We approximate by finding the symbol with the largest
+    /// `decl_pos < cap_pos` matching name (closest preceding
+    /// declaration is the most-likely outer source).
+    fn findOuterCaptureType(
+        self: *const Emitter,
+        sema: *const types.SemContext,
+        name: []const u8,
+        cap_pos: u32,
+    ) ?types.TypeId {
+        _ = self;
+        var best_pos: u32 = 0;
+        var best_ty: ?types.TypeId = null;
+        for (sema.symbols.items) |sym| {
+            if (!std.mem.eql(u8, sym.name, name)) continue;
+            if (sym.decl_pos == 0 or sym.decl_pos >= cap_pos) continue;
+            // Skip the capture symbol itself (kind == .capture
+            // lives inside the lambda body scope, decl_pos == name
+            // node pos, which equals cap_pos here, so the
+            // `< cap_pos` guard already filters it out).
+            if (sym.decl_pos > best_pos) {
+                best_pos = sym.decl_pos;
+                best_ty = sym.ty;
+            }
+        }
+        return best_ty;
+    }
+
+    /// What's the resource kind of a capture INSIDE the lambda
+    /// body? Mostly mirrors the outer's kind, with cap_weak
+    /// converting shared → weak. Used to register the capture in
+    /// the body's emit scope so the M20d read-auto-deref bridge
+    /// (`handleKindOf` → `lookupResourceKind`) fires correctly.
+    fn closureCaptureBodyResourceKind(
+        self: *const Emitter,
+        cap: Sexp,
+        name_node: Sexp,
+    ) ?ResourceKind {
+        const sema = self.sema orelse return null;
+        const name = self.source[name_node.src.pos..][0..name_node.src.len];
+        const outer_ty_id = self.findOuterCaptureType(sema, name, name_node.src.pos) orelse return null;
+        const outer_ty = sema.types.get(outer_ty_id);
+        const mode = cap.list[0].tag;
+        return switch (mode) {
+            .@"cap_weak" => switch (outer_ty) {
+                .shared => .weak,
+                else => null,
+            },
+            .@"cap_copy", .@"cap_clone", .@"cap_move" => switch (outer_ty) {
+                .shared => .shared,
+                .weak => .weak,
+                else => null,
+            },
+            else => null,
+        };
     }
 
     /// M20d: classify whether an expression Sexp evaluates to a shared
@@ -2186,6 +2694,29 @@ pub const Emitter = struct {
         }
         if (items.len < 2) return;
 
+        // M20g(3/5): closure invocation. If the callee is a bare
+        // name resolving to a closure binding (marked by
+        // `emitClosureBinding` via `is_closure=true` on the
+        // SymbolEntry), lower `f(args)` to `f.invoke(args)`. The
+        // ownership pass already guarantees the closure is in
+        // call-receiver position, so we never see this name in
+        // a context that would require .invoke handling elsewhere.
+        if (items[1] == .src) {
+            const cn = self.source[items[1].src.pos..][0..items[1].src.len];
+            if (self.lookupIsClosure(cn)) {
+                const zig_name = self.lookup(cn) orelse cn;
+                try self.w.print("{s}.invoke(", .{zig_name});
+                var first = true;
+                for (items[2..]) |arg| {
+                    if (!first) try self.w.writeAll(", ");
+                    first = false;
+                    try self.emitExpr(arg);
+                }
+                try self.w.writeAll(")");
+                return;
+            }
+        }
+
         // M9b: payload-bearing variant construction. When the callee is
         // `(enum_lit name)`, the call is constructing a tagged-union
         // value. Lower to Zig's anonymous-tagged-union literal so the
@@ -2944,6 +3475,47 @@ fn scanMutationsRec(
         }
     }
     for (items) |child| try scanMutationsRec(out, seen, allocator, child, source);
+}
+
+/// M20g(3/5): true iff `sexp` is a lambda literal `(lambda ...)`.
+fn isLambdaExpr(sexp: Sexp) bool {
+    if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return false;
+    return sexp.list[0].tag == .@"lambda";
+}
+
+/// M20g(3/5): true iff `sexp` is the `(captures cap_node...)` wrapper.
+fn isCapturesNode(sexp: Sexp) bool {
+    if (sexp != .list or sexp.list.len < 2 or sexp.list[0] != .tag) return false;
+    return sexp.list[0].tag == .@"captures";
+}
+
+/// M20g(3/5): extract the NAME `.src` from a capture node
+/// `(cap_xxx NAME)`. Returns null for malformed shapes.
+fn captureNameSrc(cap: Sexp) ?Sexp {
+    if (cap != .list or cap.list.len < 2 or cap.list[0] != .tag) return null;
+    return switch (cap.list[0].tag) {
+        .@"cap_copy", .@"cap_clone", .@"cap_weak", .@"cap_move" => cap.list[1],
+        else => null,
+    };
+}
+
+/// M20g(3/5): recursively find the first `.src` position in a Sexp
+/// (mirrors the helper in src/types.zig). Used to key the
+/// `lambda_return_types` map between sema and emit; both ends
+/// derive the key from the lambda IR itself, so the
+/// stash + read sites agree.
+fn firstSrcPosEmit(s: Sexp) u32 {
+    return switch (s) {
+        .src => |x| x.pos,
+        .list => |items| blk: {
+            for (items) |c| {
+                const p = firstSrcPosEmit(c);
+                if (p > 0) break :blk p;
+            }
+            break :blk 0;
+        },
+        else => 0,
+    };
 }
 
 /// True if `sexp` is an expression-statement (i.e., not a binding/return/etc).

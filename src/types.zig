@@ -447,6 +447,17 @@ pub const SemContext = struct {
     /// the V1 Copy-only restriction.
     cell_sym_id: SymbolId = symbol_invalid,
 
+    /// M20g(2/5): per-lambda body-return TypeId. Keyed by the
+    /// `(lambda ...)` IR node's first `.src` position (recovered
+    /// at emit time via the same helper). Populated by
+    /// `ExprChecker.synthLambda` from the body's last-expression
+    /// synth. Read by `Emitter.emitClosureBinding` to produce a
+    /// concrete Zig return type on the synthesized `invoke`
+    /// method (V1 has no inferred-return slot, and lambdas have
+    /// no source-level return annotation in the M20g grammar).
+    /// Absent entry → unknown / void.
+    lambda_return_types: std.AutoHashMapUnmanaged(u32, TypeId) = .empty,
+
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
             .allocator = allocator,
@@ -473,6 +484,7 @@ pub const SemContext = struct {
         self.symbols.deinit(self.allocator);
         self.types.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
+        self.lambda_return_types.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -4956,12 +4968,28 @@ const ExprChecker = struct {
         // type in V1 (returns slot is `_`); we typecheck statements
         // without an implicit-return constraint. ownership.zig's
         // walkFun handles return-escape separately.
-        try self.walkLambdaBody(body);
+        const body_ret = try self.walkLambdaBody(body);
+
+        // M20g(3/5) hook: stash the body's last-expression type so
+        // emit can produce a concrete Zig return type on the
+        // synthesized `invoke` method. Keyed by the lambda's first
+        // src pos (emit recovers the same key via `firstSrcPos`).
+        const pos = firstSrcPos(.{ .list = items });
+        if (pos != 0 and body_ret != self.ctx.types.invalid_id) {
+            self.ctx.lambda_return_types.put(self.ctx.allocator, pos, body_ret) catch {};
+        }
 
         return self.ctx.types.unknown_id;
     }
 
-    fn walkLambdaBody(self: *ExprChecker, body: Sexp) std.mem.Allocator.Error!void {
+    /// Walk the lambda body. Returns the TypeId of the implicit-
+    /// return expression (the last statement of a `(block ...)`
+    /// body, or the body itself if it's a single expression),
+    /// which (3/5) emit uses to synthesize the `invoke` method's
+    /// Zig return type. For statement-form last expressions (calls
+    /// returning `void`, etc.) the synthesized type may itself be
+    /// `void` — that's fine; emit lowers it to `void`.
+    fn walkLambdaBody(self: *ExprChecker, body: Sexp) std.mem.Allocator.Error!TypeId {
         const is_block = body == .list and body.list.len > 0 and
             body.list[0] == .tag and body.list[0].tag == .@"block";
         if (is_block) {
@@ -4969,10 +4997,17 @@ const ExprChecker = struct {
             // for it. Enter that scope before walking statements.
             const prev = self.enterNextScope();
             defer self.leaveScope(prev);
-            for (body.list[1..]) |stmt| try self.checkStmt(stmt);
+            const stmts = body.list[1..];
+            if (stmts.len == 0) return self.ctx.types.void_id;
+            for (stmts[0 .. stmts.len - 1]) |stmt| try self.checkStmt(stmt);
+            // Synth the last statement's type. We deliberately use
+            // `synthExpr` (not `checkStmt`) so the implicit-return
+            // type flows back. For genuine statement positions (e.g.,
+            // a trailing `print(...)` call that returns void) this
+            // still returns `void` cleanly.
+            return try self.synthExpr(stmts[stmts.len - 1]);
         } else {
-            // Single-expression body — no extra scope.
-            _ = try self.synthExpr(body);
+            return try self.synthExpr(body);
         }
     }
 
