@@ -290,6 +290,17 @@ pub const SymbolKind = enum {
     module,
     /// Extern var / const declaration.
     @"extern",
+    /// M20g(2/5): closure capture binding. Lives in the lambda's
+    /// body scope (bound by `SymbolResolver.walkLambda`) and carries
+    /// the per-mode type assigned by `ExprChecker.synthLambda` from
+    /// the outer-scope source binding. Inside the closure body the
+    /// name behaves like a local of the captured type; outside the
+    /// closure it is invisible. Per GPT-5.5's M20g design pass:
+    /// captures are bound BEFORE params so a name collision between
+    /// capture and param fires a clean diagnostic, and the body
+    /// scope sees the capture rather than the outer symbol so
+    /// reference-by-name uniformly reads the captured slot.
+    capture,
 };
 
 pub const SymbolFlags = packed struct {
@@ -750,6 +761,22 @@ fn isCopyTypeForCell(ctx: *const SemContext, ty_id: TypeId) bool {
     };
 }
 
+/// M20g(2/5): Copy classification for `|x|` (cap_copy) lambda
+/// captures. Same conservative primitive-only set as
+/// `isCopyTypeForCell` and `ownership.isCopyType` — keeps the three
+/// Copy/non-Copy boundaries aligned. Resources (`shared`/`weak`) are
+/// explicitly NOT Copy here, but the cap_copy validation in
+/// `ExprChecker.validateOneCapture` fires a dedicated diagnostic
+/// for them (mentioning `|+x|`/`|<x|`/`|~x|`) so users get the
+/// visible-effects guidance instead of a generic "not Copy".
+fn isCopyTypeForCapture(ctx: *const SemContext, ty_id: TypeId) bool {
+    const ty = ctx.types.get(ty_id);
+    return switch (ty) {
+        .bool, .int, .float, .string, .int_literal, .float_literal => true,
+        else => false,
+    };
+}
+
 // =============================================================================
 // Symbol Resolution
 // =============================================================================
@@ -848,13 +875,16 @@ const SymbolResolver = struct {
         _ = is_sub; // kept for future kind-distinction (e.g., return-type defaulting)
     }
 
-    /// `(lambda params returns body)` — like `fun` but anonymous.
+    /// `(lambda CAPTURES PARAMS RETURNS BODY)` — anonymous function.
+    /// CAPTURES is `_` (nil) for non-capturing lambdas, otherwise
+    /// `(captures cap_node)` wrapping a single capture node (V1).
+    /// Each capture node is `(cap_copy NAME)` / `(cap_clone NAME)` /
+    /// `(cap_weak NAME)` / `(cap_move NAME)`. Per GPT-5.5's M20g
+    /// design pass, captures are bound BEFORE params so a name
+    /// collision between capture and param produces a clean
+    /// diagnostic and the body scope sees the capture (not the
+    /// outer) when the name is referenced.
     fn walkLambda(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        // M20g: lambda IR shape is `(lambda CAPTURES PARAMS RETURNS BODY)`.
-        // CAPTURES is `_` (nil) for non-capturing lambdas or
-        // `(captures cap_node...)` list. The capture symbols get
-        // bound in the closure body scope (M20g(2/5)); for (1/5)
-        // we just thread the new shape and walk the body.
         if (items.len < 5) return;
         const captures = items[1];
         const params = items[2];
@@ -865,15 +895,119 @@ const SymbolResolver = struct {
         self.current_scope = fn_scope;
         defer self.current_scope = prev_scope;
 
+        // M20g(2/5): bind capture names into the lambda body scope
+        // FIRST. ExprChecker.synthLambda fills in each capture's
+        // `.ty` per the mode-vs-outer-type validation table.
+        try self.bindCaptures(captures);
+
         if (params == .list) {
-            for (params.list) |p| try self.bindParam(p);
+            for (params.list) |p| try self.bindParamWithCaptureCollision(p, captures);
         }
-        // M20g(2/5) will bind captures here. For (1/5) we accept
-        // the IR shape but don't yet bind the capture names — sema
-        // walks the body with the outer-scope `rc` visible, which
-        // is fine for the IR-shape pin tests in this commit.
-        _ = captures;
+
         try self.walk(body);
+    }
+
+    /// M20g(2/5): bind each capture node `(cap_xxx NAME)` as a
+    /// `.capture` symbol in the current (lambda body) scope. Type
+    /// stays `unknown_id` here — ExprChecker.synthLambda assigns the
+    /// per-mode type once outer-scope symbols are resolved.
+    /// V1 grammar produces at most one capture (`captures = BAR
+    /// capture BAR`); we still iterate defensively in case a future
+    /// multi-capture grammar lands without touching this site.
+    fn bindCaptures(self: *SymbolResolver, captures: Sexp) std.mem.Allocator.Error!void {
+        if (captures != .list) return;
+        if (captures.list.len < 2 or captures.list[0] != .tag) return;
+        if (captures.list[0].tag != .@"captures") return;
+        for (captures.list[1..]) |cap| {
+            const name_node = captureNameNode(cap) orelse continue;
+            const name = identAt(self.ctx.source, name_node) orelse continue;
+            const decl_pos = if (name_node == .src) name_node.src.pos else 0;
+            // Reject duplicate captures (defensive; V1 grammar is
+            // single-capture so this only fires under a future
+            // multi-capture grammar rev — better to error here than
+            // silently shadow).
+            if (self.ctx.lookupInScopeOnly(self.current_scope, name)) |prev_id| {
+                const prev = self.ctx.symbols.items[prev_id];
+                const msg = try std.fmt.allocPrint(
+                    self.ctx.arena.allocator(),
+                    "duplicate capture name `{s}`",
+                    .{name},
+                );
+                try self.ctx.diagnostics.append(self.ctx.allocator, .{
+                    .severity = .@"error",
+                    .pos = decl_pos,
+                    .message = msg,
+                });
+                const note = try std.fmt.allocPrint(
+                    self.ctx.arena.allocator(),
+                    "first captured here",
+                    .{},
+                );
+                try self.ctx.diagnostics.append(self.ctx.allocator, .{
+                    .severity = .note,
+                    .pos = prev.decl_pos,
+                    .message = note,
+                });
+                continue;
+            }
+            _ = try self.addSymbol(.{
+                .name = name,
+                .kind = .capture,
+                .ty = self.ctx.types.unknown_id,
+                .decl_pos = decl_pos,
+                .scope = self.current_scope,
+            });
+        }
+    }
+
+    /// M20g(2/5): bind a lambda parameter, additionally checking for
+    /// a name collision with an already-bound capture (which we
+    /// inserted into the body scope before walking params). Emits a
+    /// dedicated diagnostic when a param shadows a capture so users
+    /// don't accidentally write `fn |x| (x: Int) ...` and have the
+    /// param silently win.
+    fn bindParamWithCaptureCollision(
+        self: *SymbolResolver,
+        param: Sexp,
+        captures: Sexp,
+    ) std.mem.Allocator.Error!void {
+        if (captures == .list and captures.list.len >= 2 and
+            captures.list[0] == .tag and captures.list[0].tag == .@"captures")
+        {
+            const pname = paramName(self.ctx.source, param);
+            if (pname) |name| {
+                for (captures.list[1..]) |cap| {
+                    const cap_name_node = captureNameNode(cap) orelse continue;
+                    const cap_name = identAt(self.ctx.source, cap_name_node) orelse continue;
+                    if (std.mem.eql(u8, cap_name, name)) {
+                        const ppos = firstSrcPos(param);
+                        const msg = try std.fmt.allocPrint(
+                            self.ctx.arena.allocator(),
+                            "lambda parameter `{s}` conflicts with captured variable `{s}`",
+                            .{ name, name },
+                        );
+                        try self.ctx.diagnostics.append(self.ctx.allocator, .{
+                            .severity = .@"error",
+                            .pos = ppos,
+                            .message = msg,
+                        });
+                        const cap_pos: u32 = if (cap_name_node == .src) cap_name_node.src.pos else 0;
+                        const note_msg = try std.fmt.allocPrint(
+                            self.ctx.arena.allocator(),
+                            "captured here",
+                            .{},
+                        );
+                        try self.ctx.diagnostics.append(self.ctx.allocator, .{
+                            .severity = .note,
+                            .pos = cap_pos,
+                            .message = note_msg,
+                        });
+                        return;
+                    }
+                }
+            }
+        }
+        try self.bindParam(param);
     }
 
     /// Add a parameter binding to the current (function) scope. Param
@@ -3943,6 +4077,13 @@ const ExprChecker = struct {
             .@"anon_init", .@"array" => self.ctx.types.unknown_id,
             // Enum literal `.name` — context-dependent; unknown for now.
             .@"enum_lit" => self.ctx.types.unknown_id,
+            // M20g(2/5): lambda expression. Returns `unknown_id` for the
+            // closure value itself (V1 has no `Type.closure` variant per
+            // GPT-5.5's M20g tactical checkpoint — ownership recognizes
+            // closures structurally via the lambda IR head). Validates
+            // captures against outer-scope types and walks the body for
+            // nested type-checking.
+            .@"lambda" => try self.synthLambda(items),
             else => self.ctx.types.unknown_id,
         };
     }
@@ -4771,6 +4912,220 @@ const ExprChecker = struct {
     }
 
     // -------------------------------------------------------------------------
+    // M20g(2/5): lambda body checking + capture validation
+    // -------------------------------------------------------------------------
+
+    /// `(lambda CAPTURES PARAMS RETURNS BODY)` — type the lambda
+    /// expression. Validates each capture against the outer-scope
+    /// source-binding's type per the M20g capture-mode table, fills
+    /// in the body-scope capture symbol's `.ty`, then walks the
+    /// body for nested type-checking.
+    ///
+    /// Returns `unknown_id` — V1 has no `Type.closure` variant per
+    /// GPT-5.5's M20g tactical checkpoint. The ownership pass
+    /// recognizes closure bindings structurally via the lambda IR
+    /// head; that's sufficient for V1 non-escaping enforcement.
+    ///
+    /// Scope discipline: Pass 1 (`SymbolResolver.walkLambda`) created
+    /// the lambda body scope and bound captures + params into it.
+    /// We must enter it via `enterNextScope` to stay in lockstep
+    /// with the scope cursor; missing this would silently mis-bind
+    /// any scopes lexically following the lambda.
+    fn synthLambda(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
+        if (items.len < 5) return self.ctx.types.unknown_id;
+        const captures = items[1];
+        const body = items[4];
+
+        // Enter the lambda body scope in lockstep with Pass 1.
+        const prev_scope = self.enterNextScope();
+        defer self.leaveScope(prev_scope);
+
+        // M20g(2/5): nested-closure-capture rejection. If we're
+        // already inside a lambda scope (the outer scope chain
+        // includes a `.capture` symbol), capturing from there is
+        // not supported in V1 — emit would have to clone the
+        // enclosing closure's `self.<field>`, which (3/5) does
+        // not handle. Per GPT-5.5: reject loudly rather than slip
+        // through and produce wrong emit later.
+        try self.rejectNestedLambdaCaptures(captures, prev_scope);
+
+        // Validate each capture and fill in its body-scope `.ty`.
+        try self.validateCaptures(captures, prev_scope);
+
+        // Walk the body. Lambdas don't declare an explicit return
+        // type in V1 (returns slot is `_`); we typecheck statements
+        // without an implicit-return constraint. ownership.zig's
+        // walkFun handles return-escape separately.
+        try self.walkLambdaBody(body);
+
+        return self.ctx.types.unknown_id;
+    }
+
+    fn walkLambdaBody(self: *ExprChecker, body: Sexp) std.mem.Allocator.Error!void {
+        const is_block = body == .list and body.list.len > 0 and
+            body.list[0] == .tag and body.list[0].tag == .@"block";
+        if (is_block) {
+            // Body is a `(block ...)` — Pass 1 pushed a fresh scope
+            // for it. Enter that scope before walking statements.
+            const prev = self.enterNextScope();
+            defer self.leaveScope(prev);
+            for (body.list[1..]) |stmt| try self.checkStmt(stmt);
+        } else {
+            // Single-expression body — no extra scope.
+            _ = try self.synthExpr(body);
+        }
+    }
+
+    fn rejectNestedLambdaCaptures(
+        self: *ExprChecker,
+        captures: Sexp,
+        outer_scope: ScopeId,
+    ) std.mem.Allocator.Error!void {
+        if (captures != .list) return;
+        if (captures.list.len < 2 or captures.list[0] != .tag) return;
+        if (captures.list[0].tag != .@"captures") return;
+        if (!self.scopeIsInsideLambda(outer_scope)) return;
+        for (captures.list[1..]) |cap| {
+            const name_node = captureNameNode(cap) orelse continue;
+            const name = identAt(self.ctx.source, name_node) orelse continue;
+            const pos: u32 = if (name_node == .src) name_node.src.pos else 0;
+            try self.err(pos, "nested closure capture of `{s}` is not supported in V1; lift the capture to the outer scope or refactor", .{name});
+        }
+    }
+
+    /// Does any scope in `scope`'s parent chain contain a `.capture`
+    /// symbol? Cheap check: a `.capture` symbol exists only inside
+    /// a lambda body scope, so finding one means we're nested.
+    fn scopeIsInsideLambda(self: *ExprChecker, scope: ScopeId) bool {
+        var sid: ?ScopeId = scope;
+        while (sid) |s| {
+            if (s == scope_invalid or s >= self.ctx.scopes.items.len) break;
+            const sc = &self.ctx.scopes.items[s];
+            for (sc.symbols.items) |sym_id| {
+                if (self.ctx.symbols.items[sym_id].kind == .capture) return true;
+            }
+            sid = sc.parent;
+        }
+        return false;
+    }
+
+    fn validateCaptures(
+        self: *ExprChecker,
+        captures: Sexp,
+        outer_scope: ScopeId,
+    ) std.mem.Allocator.Error!void {
+        if (captures != .list) return;
+        if (captures.list.len < 2 or captures.list[0] != .tag) return;
+        if (captures.list[0].tag != .@"captures") return;
+        for (captures.list[1..]) |cap| try self.validateOneCapture(cap, outer_scope);
+    }
+
+    fn validateOneCapture(
+        self: *ExprChecker,
+        cap: Sexp,
+        outer_scope: ScopeId,
+    ) std.mem.Allocator.Error!void {
+        const mode = captureModeOf(cap) orelse return;
+        const name_node = captureNameNode(cap) orelse return;
+        const name = identAt(self.ctx.source, name_node) orelse return;
+        const pos: u32 = if (name_node == .src) name_node.src.pos else 0;
+
+        // Look up the OUTER symbol (parent scope and up). The capture
+        // symbol itself lives in the lambda body scope so we
+        // explicitly walk from `outer_scope`.
+        const outer_id = self.ctx.lookup(outer_scope, name) orelse {
+            try self.err(pos, "captured name `{s}` is not in scope", .{name});
+            try self.assignCaptureType(name, self.ctx.types.invalid_id);
+            return;
+        };
+        const outer_sym = self.ctx.symbols.items[outer_id];
+        // M20g(2/5): closures are non-copyable in V1, so capturing a
+        // closure binding by any mode is rejected here. (Closure
+        // bindings have kind `.local` from `checkSet`; ownership
+        // marks them `is_closure`. Sema does not currently track
+        // closure-ness on the Symbol, so we lean on the ownership
+        // pass for the full diagnostic. This branch handles the
+        // explicit `.capture` case — capturing an outer capture is
+        // already rejected by `rejectNestedLambdaCaptures` above.)
+        const outer_ty = outer_sym.ty;
+        const outer_ty_resolved = self.ctx.types.get(outer_ty);
+
+        const bound_ty: TypeId = switch (mode) {
+            .cap_copy => blk: {
+                // Resources (shared/weak) must use an explicit
+                // capture mode so the refcount-bump / move is
+                // visible at the closure-construction site.
+                switch (outer_ty_resolved) {
+                    .shared => {
+                        try self.err(pos, "bare capture `|{s}|` of shared handle `*T` would hide a refcount bump; use `|+{s}|` to clone, `|<{s}|` to move, or `|~{s}|` to capture a weak ref", .{ name, name, name, name });
+                        break :blk self.ctx.types.invalid_id;
+                    },
+                    .weak => {
+                        try self.err(pos, "bare capture `|{s}|` of weak handle `~T` would hide a refcount bump; use `|+{s}|` to clone or `|<{s}|` to move", .{ name, name, name });
+                        break :blk self.ctx.types.invalid_id;
+                    },
+                    else => {
+                        // Non-resource: must be Copy. V1 uses the
+                        // conservative primitive-only check (same as
+                        // ownership.zig's `isCopyType`).
+                        if (!isCopyTypeForCapture(self.ctx, outer_ty)) {
+                            const fmt_outer = formatType(self.ctx, outer_ty) catch "?";
+                            try self.err(pos, "bare capture `|{s}|` requires a Copy type; got `{s}`; use `|+{s}|` to explicitly clone (if cloning is defined), `|<{s}|` to move, or refactor", .{ name, fmt_outer, name, name });
+                            break :blk self.ctx.types.invalid_id;
+                        }
+                        break :blk outer_ty;
+                    },
+                }
+            },
+            .cap_clone => blk: {
+                // Refcount-bump for resources; copy for Copy types.
+                // Other types (non-Copy non-resource) rejected per
+                // GPT-5.5: cap_clone has no defined semantics for a
+                // nominal value type until V1 grows a Clone trait.
+                switch (outer_ty_resolved) {
+                    .shared, .weak => break :blk outer_ty,
+                    else => {
+                        if (isCopyTypeForCapture(self.ctx, outer_ty)) break :blk outer_ty;
+                        const fmt_outer = formatType(self.ctx, outer_ty) catch "?";
+                        try self.err(pos, "clone-capture `|+{s}|` requires a shared `*T`, weak `~T`, or Copy type; got `{s}`", .{ name, fmt_outer });
+                        break :blk self.ctx.types.invalid_id;
+                    },
+                }
+            },
+            .cap_weak => blk: {
+                // Must be shared(T); produces weak(T).
+                switch (outer_ty_resolved) {
+                    .shared => |inner| {
+                        const wt = self.ctx.types.intern(self.ctx.allocator, .{ .weak = inner }) catch {
+                            break :blk self.ctx.types.invalid_id;
+                        };
+                        break :blk wt;
+                    },
+                    else => {
+                        const fmt_outer = formatType(self.ctx, outer_ty) catch "?";
+                        try self.err(pos, "weak-capture `|~{s}|` requires a shared handle `*T`; got `{s}`", .{ name, fmt_outer });
+                        break :blk self.ctx.types.invalid_id;
+                    },
+                }
+            },
+            .cap_move => outer_ty,
+        };
+
+        try self.assignCaptureType(name, bound_ty);
+    }
+
+    /// Find the `.capture` symbol named `name` in the current
+    /// (lambda body) scope and assign its type. The capture was
+    /// bound by `SymbolResolver.bindCaptures` before any params, so
+    /// it lives at the head of the current scope's symbol list.
+    fn assignCaptureType(self: *ExprChecker, name: []const u8, ty: TypeId) std.mem.Allocator.Error!void {
+        if (self.ctx.lookupInScopeOnly(self.current_scope, name)) |sym_id| {
+            const sym = &self.ctx.symbols.items[sym_id];
+            if (sym.kind == .capture) sym.ty = ty;
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // checkExpr — synth + compatibility-check
     // -------------------------------------------------------------------------
 
@@ -5236,6 +5591,40 @@ fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
     return switch (sexp) {
         .src => |s| source[s.pos..][0..s.len],
         else => null,
+    };
+}
+
+/// M20g(2/5): the four capture-mode IR heads.
+const CaptureMode = enum { cap_copy, cap_clone, cap_weak, cap_move };
+
+/// M20g(2/5): extract the capture mode tag from a capture node.
+fn captureModeOf(cap: Sexp) ?CaptureMode {
+    if (cap != .list or cap.list.len < 2 or cap.list[0] != .tag) return null;
+    return switch (cap.list[0].tag) {
+        .@"cap_copy" => .cap_copy,
+        .@"cap_clone" => .cap_clone,
+        .@"cap_weak" => .cap_weak,
+        .@"cap_move" => .cap_move,
+        else => null,
+    };
+}
+
+/// M20g(2/5): extract the NAME sub-node of a capture `(cap_xxx NAME)`.
+fn captureNameNode(cap: Sexp) ?Sexp {
+    if (cap != .list or cap.list.len < 2 or cap.list[0] != .tag) return null;
+    return switch (cap.list[0].tag) {
+        .@"cap_copy", .@"cap_clone", .@"cap_weak", .@"cap_move" => cap.list[1],
+        else => null,
+    };
+}
+
+/// M20g(2/5): human-readable surface for diagnostics.
+fn captureModeLabel(m: CaptureMode) []const u8 {
+    return switch (m) {
+        .cap_copy => "|x|",
+        .cap_clone => "|+x|",
+        .cap_weak => "|~x|",
+        .cap_move => "|<x|",
     };
 }
 

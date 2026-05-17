@@ -1,0 +1,16 @@
+# M20g(2/5) negative: default `|rc|` capture for a shared handle
+# `*T` is rejected by sema with the visible-effects diagnostic.
+#
+# Per GPT-5.5's M20g design: `|rc|` for a resource would silently
+# emit a Zig pointer copy without a refcount bump — leaving two
+# Rig bindings (outer `rc` + closure capture) both believing they
+# own the same RcBox. That violates Rig's visible-effects thesis
+# (cf. the M20d alias-footgun rule).
+#
+# Surface fix: `|+rc|` (clone), `|<rc|` (move), or `|~rc|` (weak).
+
+sub main()
+  rc: *Cell(Int) = *Cell(value: 0)
+  f = fn |rc|
+    rc.get()
+  print(f())

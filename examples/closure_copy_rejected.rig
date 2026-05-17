@@ -1,0 +1,15 @@
+# M20g(2/5) negative: closure values are non-copyable in V1. A
+# subsequent `g = f` is rejected by ownership.
+#
+# Per GPT-5.5's M20g design: closures are structurally Zig structs
+# that contain capture fields. Allowing `g = f` would Zig-copy
+# the struct without cloning the captured handles — causing
+# double-drops of `*T` captures. V1 keeps closures pinned to
+# their original binding.
+
+sub main()
+  n =! 5
+  f = fn |n|
+    n + 1
+  g = f
+  g()

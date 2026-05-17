@@ -1,0 +1,19 @@
+# M20g(2/5): `|~rc|` weak-capture. Requires the outer to be a
+# shared handle `*T`; the captured value is `~T` (weak).
+#
+# Inside the body, accessing the underlying value requires
+# `.upgrade()` (per M20d.2). For (2/5), we just exercise the
+# sema-side mode/type validation — the body just typechecks
+# the weak handle.
+#
+# Verifies:
+#   - `fn |~rc| ...` typechecks; captured slot is `~T`
+#   - Outer `*T` is not consumed (cap_weak is non-mutating)
+#   - Bare reference to the weak handle inside the body is fine
+#     for sema (no upgrade needed for the type-check itself)
+
+sub main()
+  rc: *Cell(Int) = *Cell(value: 1)
+  watch = fn |~rc|
+    rc
+  watch()

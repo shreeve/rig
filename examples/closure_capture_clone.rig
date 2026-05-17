@@ -1,0 +1,24 @@
+# M20g(2/5): `|+rc|` clone-capture for a shared handle `*T`. The
+# closure body sees a fresh `*T` handle owned by the closure
+# struct; the outer `rc` remains live and independently dropped.
+#
+# Per GPT-5.5's M20g design: this is the canonical pattern for
+# closures that need to keep a resource alive — the refcount bump
+# is visible at the construction site via the `+` sigil.
+#
+# Verifies:
+#   - `fn |+rc| ...` typechecks; captured `rc` binds with `*T`
+#   - The outer `rc` is NOT consumed (cap_clone is non-mutating)
+#   - The closure can be invoked multiple times
+#
+# Note: emit/auto-drop for closure captures arrive in (3-4/5).
+# This file currently exercises sema only — it is intentionally
+# NOT in EMIT_TARGETS until (3/5) lands the closure-struct lowering.
+
+sub main()
+  rc: *Cell(Int) = *Cell(value: 0)
+  read = fn |+rc|
+    rc.get()
+  print(read())
+  print(read())
+  print(rc.get())

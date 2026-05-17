@@ -1,0 +1,1 @@
+(module (sub main () _ (block (set _ rc (shared (generic_inst Cell Int)) (share (call Cell (kwarg value 1)))) (set _ watch _ (lambda (captures (cap_weak rc)) _ _ (block rc))) (call watch))))

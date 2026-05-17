@@ -1,0 +1,2 @@
+examples/closure_capture_param_collision_rejected.rig:9:14: error: lambda parameter `x` conflicts with captured variable `x`
+examples/closure_capture_param_collision_rejected.rig:9:11:   note: captured here

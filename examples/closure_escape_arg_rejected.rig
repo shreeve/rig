@@ -1,0 +1,13 @@
+# M20g(2/5) negative: a closure value cannot be passed as a call
+# argument in V1 — that would let the callee retain/escape it.
+# Both the bare-name form `consume(f)` and the inline-literal
+# form `consume(fn |...| ...)` are rejected.
+
+sub consume(f)
+  print(f)
+
+sub main()
+  n =! 3
+  f = fn |n|
+    n
+  consume(f)

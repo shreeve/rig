@@ -1,0 +1,1 @@
+(module (sub main () _ (block (set _ rc (shared (generic_inst Cell Int)) (share (call Cell (kwarg value 0)))) (set _ f _ (lambda (captures (cap_copy rc)) _ _ (block (call (member rc get))))) (call print (call f)))))

@@ -1,0 +1,1 @@
+examples/closure_resource_default_rejected.rig:14:11: error: bare capture `|rc|` of shared handle `*T` would hide a refcount bump; use `|+rc|` to clone, `|<rc|` to move, or `|~rc|` to capture a weak ref

@@ -1,0 +1,18 @@
+# M20g(2/5): `|<rc|` move-capture. Transfers ownership of the
+# outer shared handle into the closure; outer `rc` enters `.moved`
+# state and may not be referenced afterwards (the bare-name use
+# at the bottom would error).
+#
+# Verifies:
+#   - `fn |<rc| ...` typechecks; captured `rc` keeps `*T`
+#   - Outer `rc` is marked `.moved` after the lambda construction
+#   - The closure can be invoked while inside the same scope
+#
+# Note: emit/auto-drop coordination (disarm outer guard at the
+# construction site, install closure-instance guard) is (4/5).
+
+sub main()
+  rc: *Cell(Int) = *Cell(value: 42)
+  owned = fn |<rc|
+    rc.get()
+  print(owned())

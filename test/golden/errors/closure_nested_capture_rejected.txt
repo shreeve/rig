@@ -1,0 +1,1 @@
+examples/closure_nested_capture_rejected.rig:14:18: error: nested closure capture of `rc` is not supported in V1; lift the capture to the outer scope or refactor

@@ -1,0 +1,1 @@
+examples/closure_escape_arg_rejected.rig:13:11: error: closure `f` cannot be moved, returned, stored, or aliased in V1; bind it once with `f = fn |...| ...` and invoke it directly as `f()`

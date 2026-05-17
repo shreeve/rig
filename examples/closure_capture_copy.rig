@@ -1,0 +1,18 @@
+# M20g(2/5): default `|x|` capture binds a Copy outer (Int, Bool,
+# Float, String) by value. The captured `n` inside the closure
+# body refers to the closure's captured slot, not the outer `n` —
+# but for a Copy type that distinction is semantically invisible.
+#
+# Verifies:
+#   - `fn |n| n * 2` typechecks
+#   - The closure binds to a local with `is_closure = true`
+#   - `add()` invocation in call-receiver position is accepted
+#   - Outer `n` is still readable after the capture (Copy, no
+#     visible effect on the outer)
+
+sub main()
+  n =! 7
+  add = fn |n|
+    n * 2
+  print(add())
+  print(n)

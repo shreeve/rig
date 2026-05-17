@@ -1,0 +1,13 @@
+# M20g(2/5) negative: closures cannot be returned from a function
+# in V1 (non-escaping rule). The lambda literal at the return
+# position is rejected at the lambda IR head.
+#
+# Per GPT-5.5's M20g design: returning a closure requires lifetime
+# bookkeeping for the captured handles outside the construction
+# scope — that's a future M20h "escaping closures" milestone with
+# explicit lifetime management (or a trusted Reactor/Effect
+# builtin path).
+
+fun make() -> Int
+  return fn |x|
+    x + 1

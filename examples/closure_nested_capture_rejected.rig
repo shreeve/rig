@@ -1,0 +1,17 @@
+# M20g(2/5) negative: a nested lambda capturing a name from an
+# enclosing lambda's body is not supported in V1.
+#
+# Per GPT-5.5's M20g tactical checkpoint: such a shape is
+# semantically meaningful (clone the outer closure's `self.rc`
+# into the inner closure) but emit (3/5) doesn't support it.
+# Reject at sema with a dedicated diagnostic so users get the
+# right pointer to the limitation, rather than slip through and
+# produce wrong emitted code.
+
+sub main()
+  rc: *Cell(Int) = *Cell(value: 0)
+  outer = fn |+rc|
+    inner = fn |+rc|
+      rc.get()
+    inner()
+  outer()

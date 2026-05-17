@@ -1,0 +1,11 @@
+# M20g(2/5) negative: a capture and a parameter cannot share a
+# name. The capture is bound BEFORE params in the lambda body
+# scope, so a same-name param would silently shadow the capture
+# and confuse anyone reading the call site. We require a clean
+# diagnostic instead.
+
+sub main()
+  x =! 10
+  f = fn |x|(x)
+    x
+  print(f(99))

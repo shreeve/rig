@@ -55,6 +55,15 @@ pub const Binding = struct {
     /// `r` references so that scope-exit / `r`'s drop can release it.
     borrow_root_index: ?usize = null,
     borrow_kind: enum { none, read, write } = .none,
+
+    /// M20g(2/5): set when the binding was created by `f = fn |...|
+    /// body`. Closures are non-copyable and non-escaping in V1 per
+    /// GPT-5.5's M20g design: such a binding may only appear in
+    /// call-receiver position (`f()` / `if cond then f() else g()`)
+    /// and cannot be reassigned, returned, stored, or passed as a
+    /// call argument. Enforced by `checkPlainUse` (bare-name uses)
+    /// and the `walk` dispatcher (rebind/escape contexts).
+    is_closure: bool = false,
 };
 
 const Scope = struct {
@@ -90,6 +99,23 @@ pub const Checker = struct {
     /// outer `(borrow_read ...)` or `(borrow_write ...)` — explicitly a
     /// borrowed return for SPEC's borrow-escape rule.
     in_borrowed_fn: bool = false,
+
+    /// M20g(2/5): true while walking the CALLEE position of a `(call
+    /// callee args)` form. Used to allow two otherwise-rejected
+    /// shapes per the V1 closure non-escaping rules:
+    ///   - bare name `f` whose binding is a closure value
+    ///   - inline `(lambda ...)` literal (the `(fn||...)()` shape)
+    /// Walked-into call args reset this to false so closures
+    /// passed as arguments still fail.
+    in_call_callee: bool = false,
+
+    /// M20g(2/5): true while walking the RHS of a `(set ...)` form.
+    /// Permits the lambda-literal binding shape `f = fn |...| body`
+    /// — when the lambda IR head is reached with this flag set, the
+    /// closure is recognized as anchored to a local binding rather
+    /// than escaping. Reset everywhere else (including nested
+    /// constructions inside the RHS).
+    in_set_rhs: bool = false,
 
     /// Optional sema context (M5(5/n)). When provided, `checkPlainUse`
     /// classifies the binding's type as Copy or Move and skips the
@@ -280,7 +306,7 @@ pub const Checker = struct {
         switch (head) {
             .@"module" => for (items[1..]) |child| try self.walk(child, true),
             .@"fun", .@"sub" => try self.walkFun(items, head == .@"sub"),
-            .@"lambda" => try self.walkFun(items, true), // sub-like for ownership
+            .@"lambda" => try self.walkLambda(items),
             .@"pub", .@"extern", .@"export", .@"packed", .@"callconv" => {
                 if (items.len >= 2) try self.walk(items[items.len - 1], true);
             },
@@ -375,6 +401,19 @@ pub const Checker = struct {
     fn checkPlainUse(self: *Checker, pos: u32, name: []const u8) Error!void {
         const idx = self.lookup(name) orelse return;
         const b = &self.bindings.items[idx];
+
+        // M20g(2/5): closure bindings are non-escaping in V1. They
+        // may appear only in call-receiver position (`f()` /
+        // `if cond then f() else g()`). Any other bare-name use
+        // (return value, call argument, RHS of another binding,
+        // record field, etc.) is rejected. The dispatcher sets
+        // `in_call_callee=true` exactly while walking the callee
+        // child of `(call ...)`, so this single check covers all
+        // escape shapes uniformly.
+        if (b.is_closure and !self.in_call_callee) {
+            try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased in V1; bind it once with `{s} = fn |...| ...` and invoke it directly as `{s}()`", .{ name, name, name });
+            return;
+        }
 
         // M5(5/n): if sema can classify this binding's type as Copy
         // (Bool, Int, Float, String, etc.), plain uses are unconditionally
@@ -492,6 +531,178 @@ pub const Checker = struct {
         self.in_borrowed_fn = prev_borrowed;
     }
 
+    /// M20g(2/5): walk a lambda `(lambda CAPTURES PARAMS RETURNS BODY)`.
+    ///
+    /// Distinct from `walkFun` because:
+    ///   1. **Capture effects on outer scope.** Per GPT-5.5's M20g
+    ///      design, captures have visible effects at the closure-
+    ///      construction site: `|<rc|` moves the outer (marks
+    ///      `.moved`), `|+rc|`/`|~rc|` are non-mutating refcount
+    ///      bumps, `|x|` requires Copy (no effect). The outer
+    ///      effects fire BEFORE we push the lambda scope so
+    ///      diagnostics point at the construction site.
+    ///   2. **Escape diagnostic at entry.** A lambda literal can
+    ///      only legally appear (a) as a `(set ...)` RHS or
+    ///      (b) as a `(call ...)` callee. The dispatcher tracks
+    ///      `in_set_rhs` / `in_call_callee` and we diagnose any
+    ///      other position before walking children.
+    ///   3. **Capture-name shadowing in body.** Captures bind as
+    ///      fresh locals in the lambda scope (a clean slate,
+    ///      `.valid`); the outer binding's state is unchanged for
+    ///      non-move modes. References to the capture name inside
+    ///      the body resolve to the fresh local via the standard
+    ///      `lookup` chain.
+    ///   4. **No `in_borrowed_fn` propagation.** Lambdas don't
+    ///      declare a return type in V1 (the grammar slot is `_`),
+    ///      so borrow-escape doesn't apply to the lambda body's
+    ///      implicit return. Outer `in_borrowed_fn` is preserved
+    ///      around the walk so a lambda nested inside a borrowed-
+    ///      return fn doesn't see its borrows flagged at the wrong
+    ///      escape boundary.
+    fn walkLambda(self: *Checker, items: []const Sexp) Error!void {
+        if (items.len < 5) return;
+        const captures = items[1];
+        const params = items[2];
+        const body = items[4];
+
+        // 1. Escape diagnostic: lambda literal must be in a binding
+        //    RHS or call callee position.
+        if (!self.in_set_rhs and !self.in_call_callee) {
+            const pos = firstSrcPosOwn(.{ .list = items });
+            try self.err(pos, "closures cannot escape their defining scope in V1; bind to a local with `f = fn |...| ...` and call `f()`, or invoke inline `(fn |...| ...)()`", .{});
+        }
+
+        // 2. Apply capture effects on the OUTER scope.
+        try self.applyCaptureEffects(captures);
+
+        // 3. Push the lambda body scope and bind captures + params
+        //    as fresh locals.
+        try self.pushScope();
+
+        // Reset closure-context flags inside the lambda body: a
+        // nested `f = fn||...` is its own binding, a nested `f()`
+        // its own call. The current flags belong to the enclosing
+        // expression context.
+        const prev_callee = self.in_call_callee;
+        const prev_rhs = self.in_set_rhs;
+        self.in_call_callee = false;
+        self.in_set_rhs = false;
+
+        try self.bindCapturesLocal(captures);
+        if (params == .list) {
+            for (params.list) |p| try self.bindParam(p);
+        }
+
+        try self.walk(body, true);
+
+        self.in_call_callee = prev_callee;
+        self.in_set_rhs = prev_rhs;
+        try self.popScope();
+    }
+
+    /// M20g(2/5): apply the visible effects of each capture on the
+    /// outer-scope bindings. Fires BEFORE the lambda's body scope
+    /// is pushed so all diagnostics anchor to the construction
+    /// site.
+    ///
+    ///   `cap_move` — mark outer as `.moved` (subsequent uses error).
+    ///                Also reject capturing a binding currently borrowed.
+    ///   `cap_clone`/`cap_weak` — non-mutating; assert the binding
+    ///                exists, error on `.moved`/`.dropped`.
+    ///   `cap_copy` — non-mutating; assert exists, error on
+    ///                `.moved`/`.dropped`. Sema also validated Copy-
+    ///                ness already.
+    ///
+    /// Additionally rejects capturing a closure binding (`is_closure`)
+    /// in any mode — closures are non-copyable in V1, capturing
+    /// them would require nested-closure support that emit
+    /// doesn't have yet.
+    fn applyCaptureEffects(self: *Checker, captures: Sexp) Error!void {
+        if (captures != .list) return;
+        if (captures.list.len < 2 or captures.list[0] != .tag) return;
+        if (captures.list[0].tag != .@"captures") return;
+
+        for (captures.list[1..]) |cap| {
+            if (cap != .list or cap.list.len < 2 or cap.list[0] != .tag) continue;
+            const mode = cap.list[0].tag;
+            const name_node = cap.list[1];
+            if (name_node != .src) continue;
+            const name = self.source[name_node.src.pos..][0..name_node.src.len];
+            const pos = name_node.src.pos;
+
+            // Sema already diagnoses unbound captured names via
+            // `ExprChecker.validateOneCapture` — silently skip the
+            // ownership-side work if the name didn't resolve, to
+            // avoid a duplicate diagnostic.
+            const outer_idx = self.lookup(name) orelse continue;
+            const outer = &self.bindings.items[outer_idx];
+
+            // Closures are non-copyable. Capturing a closure in any
+            // mode would require the inner lambda to clone the outer
+            // closure's struct — outside V1's emit support.
+            if (outer.is_closure) {
+                try self.err(pos, "cannot capture closure `{s}`; closures are non-copyable in V1", .{name});
+                continue;
+            }
+
+            // Common precondition: outer must be live.
+            if (outer.state == .moved) {
+                try self.err(pos, "cannot capture `{s}` after move", .{name});
+                try self.note(outer.moved_at, "`{s}` was moved here", .{name});
+                continue;
+            }
+            if (outer.state == .dropped) {
+                try self.err(pos, "cannot capture `{s}` after drop", .{name});
+                try self.note(outer.dropped_at, "`{s}` was dropped here", .{name});
+                continue;
+            }
+
+            switch (mode) {
+                .@"cap_move" => {
+                    if (outer.read_borrows > 0) {
+                        try self.err(pos, "cannot move-capture `{s}` while it is read-borrowed", .{name});
+                        try self.note(outer.read_borrowed_at, "read borrow taken here", .{});
+                        continue;
+                    }
+                    if (outer.write_borrows > 0) {
+                        try self.err(pos, "cannot move-capture `{s}` while it is write-borrowed", .{name});
+                        try self.note(outer.write_borrowed_at, "write borrow taken here", .{});
+                        continue;
+                    }
+                    outer.state = .moved;
+                    outer.moved_at = pos;
+                },
+                // Non-consuming capture modes have no state effect on
+                // the outer binding. Sema's `validateOneCapture` is
+                // responsible for the mode-vs-type checks (e.g.,
+                // rejecting `|x|` on a `*T`).
+                .@"cap_clone", .@"cap_weak", .@"cap_copy" => {},
+                else => {},
+            }
+        }
+    }
+
+    /// M20g(2/5): bind each capture as a fresh local in the lambda
+    /// body scope so references inside the body resolve to the
+    /// captured slot rather than walking the parent chain to the
+    /// outer binding. Capture locals start `.valid` and are NOT
+    /// marked as params (closures don't have receivers).
+    fn bindCapturesLocal(self: *Checker, captures: Sexp) Error!void {
+        if (captures != .list) return;
+        if (captures.list.len < 2 or captures.list[0] != .tag) return;
+        if (captures.list[0].tag != .@"captures") return;
+        for (captures.list[1..]) |cap| {
+            if (cap != .list or cap.list.len < 2 or cap.list[0] != .tag) continue;
+            const name_node = cap.list[1];
+            if (name_node != .src) continue;
+            const name = self.source[name_node.src.pos..][0..name_node.src.len];
+            _ = try self.addBinding(.{
+                .name = name,
+                .declared_at = name_node.src.pos,
+            });
+        }
+    }
+
     fn bindParam(self: *Checker, p: Sexp) Error!void {
         // Param shapes:
         //   name                                — untyped
@@ -574,8 +785,17 @@ pub const Checker = struct {
         // complain there.
         if (kind == .default or kind == .fixed or kind == .shadow) try self.checkSharedHandleAlias(expr, "binding");
 
-        // RHS effects first.
+        // M20g(2/5): mark `in_set_rhs=true` while walking the RHS so
+        // a `(lambda ...)` literal is recognized as anchored to a
+        // binding (not an escaping closure). A bare CLOSURE NAME on
+        // the RHS (`g = f`) is still rejected by `checkPlainUse`'s
+        // closure-non-copyable check (which intentionally fires on
+        // every non-call-receiver use), so we don't need a separate
+        // rebind-specific diagnostic.
+        const prev_rhs = self.in_set_rhs;
+        self.in_set_rhs = true;
         try self.walk(expr, false);
+        self.in_set_rhs = prev_rhs;
 
         // For `<-` move-assign, the target receives the moved value — we
         // must also mark the source as moved. Synthesize a (move <expr>)
@@ -600,6 +820,16 @@ pub const Checker = struct {
         }
         // No `else` — exhaustive on BindingKind. Adding a new kind to
         // rig.BindingKind will break this build until we handle it here.
+
+        // M20g(2/5): if the RHS was a lambda literal, mark the
+        // freshly-created binding as a closure value. Closures are
+        // non-copyable and non-rebindable in V1.
+        if (isLambdaLiteral(expr)) {
+            if (self.lookupCurrent(nm)) |bi| {
+                self.bindings.items[bi].is_closure = true;
+                self.bindings.items[bi].fixed = true;
+            }
+        }
     }
 
     /// Always create a fresh binding in the current scope (for `shadow`).
@@ -818,7 +1048,22 @@ pub const Checker = struct {
                 }
             }
         }
-        for (items[1..]) |child| try self.walk(child, false);
+        // M20g(2/5): walk the callee with `in_call_callee=true` so a
+        // bare closure name OR an inline `(lambda ...)` literal at
+        // the callee position is accepted. Args walk normally
+        // (in_call_callee=false), which is exactly what we want —
+        // a closure passed as an arg should fail the non-escaping
+        // check.
+        if (items.len >= 2) {
+            const prev_callee = self.in_call_callee;
+            const prev_rhs = self.in_set_rhs;
+            self.in_call_callee = true;
+            self.in_set_rhs = false;
+            try self.walk(items[1], false);
+            self.in_call_callee = prev_callee;
+            self.in_set_rhs = prev_rhs;
+        }
+        for (items[2..]) |arg| try self.walk(arg, false);
     }
 
     /// M20d: diagnose the bare-shared/weak alias footgun. Fires only
@@ -1132,6 +1377,32 @@ fn identName(source: []const u8, sexp: Sexp) ?[]const u8 {
     return switch (sexp) {
         .src => |s| source[s.pos..][0..s.len],
         else => null,
+    };
+}
+
+/// M20g(2/5): structural check — is this Sexp a `(lambda ...)` head?
+fn isLambdaLiteral(s: Sexp) bool {
+    if (s != .list) return false;
+    if (s.list.len == 0 or s.list[0] != .tag) return false;
+    return s.list[0].tag == .@"lambda";
+}
+
+/// M20g(2/5): best-effort source position for a tag/list Sexp.
+/// Recursively descends until it finds a `.src` leaf — used to
+/// anchor closure-escape diagnostics at the lambda's first
+/// concrete token (typically the capture pipe or first param).
+/// Falls back to 0 if no `.src` is reachable.
+fn firstSrcPosOwn(s: Sexp) u32 {
+    return switch (s) {
+        .src => |x| x.pos,
+        .list => |items| blk: {
+            for (items) |c| {
+                const p = firstSrcPosOwn(c);
+                if (p > 0) break :blk p;
+            }
+            break :blk 0;
+        },
+        else => 0,
     };
 }
 

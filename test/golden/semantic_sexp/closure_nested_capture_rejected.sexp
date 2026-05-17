@@ -1,0 +1,1 @@
+(module (sub main () _ (block (set _ rc (shared (generic_inst Cell Int)) (share (call Cell (kwarg value 0)))) (set _ outer _ (lambda (captures (cap_clone rc)) _ _ (block (set _ inner _ (lambda (captures (cap_clone rc)) _ _ (block (call (member rc get))))) (call inner)))) (call outer))))
