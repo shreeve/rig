@@ -1328,6 +1328,135 @@ audit; not blocking M20e.
 
 **Tests across M20e + M20e.1: 564 → 606 (+42). All green.**
 
+### M20f — Interior mutability via `Cell(T)` ✅
+Closes M20+ item #7 from the "now-blocking" list. The user-facing
+escape hatch the M20d diagnostics already promised:
+
+  "cannot call write-receiver method through a shared handle (`*T`);
+   use an interior-mutable type (planned `Cell(T)` in M20+ item #7)"
+
+`Cell(T)` is a built-in generic nominal pre-registered in sema at
+module-scope creation, runtime-baked in `src/runtime_zig.zig`
+parallel to `RcBox` / `WeakHandle`. End-to-end working:
+
+  sub main()
+    rc: *Cell(Int) = *Cell(value: 0)
+    rc.set(5)
+    print(rc.get())     # 5
+
+The whole V1 ownership stack composes through Cell:
+M20b parameterized_nominal + M20d shared + M20e auto-drop +
+M20d read-only auto-deref + M20f synthetic Cell methods + M20f
+Copy-only enforcement. NO new sema dispatch for the shared
+case — Cell's `get` / `set` are ordinary read-receiver methods;
+M20d's existing `?self`-through-shared rule accepts them.
+
+Shipped as 4 self-validating sub-commits with one GPT-5.5 design
+pass at the start. Tests grew 622 → 634 (+12).
+
+#### Design decisions (per GPT-5.5's M20f checkpoint)
+
+1. **Cell is runtime-baked**, not a Rig source file. Parallel to
+   `RcBox` / `WeakHandle`. Future stdlib types may live in
+   `std/*.rig` once a layout coalesces; Cell is fundamental
+   enough that "it's a builtin" is the right mental model.
+
+2. **Synthetic ordinary methods, not ad-hoc sema intercept.** My
+   original plan was to special-case Cell's `set` at
+   `synthMemberCall` (parallel to M20d.2's `.upgrade()`
+   intercept). GPT-5.5 pushed back: Cell is a NOMINAL type,
+   modelable via M20b's generic-method machinery. Register Cell
+   as a generic_type with synthetic methods whose first param is
+   `?Self`; M20d auto-deref then permits them through shared
+   naturally. No write-receiver bypass needed. Significantly
+   cleaner than the intercept path.
+
+3. **`set(self: *Self)` in runtime, NOT `*const Self` +
+   `@constCast`.** My original plan was `@constCast` to mutate
+   through a const view. GPT-5.5 vetoed: only valid if the
+   underlying storage is actually mutable. Use `*Self` and emit
+   Cell bindings as `var`. `=!` (fixed) still prevents
+   rebinding at the Rig level — SPEC permits interior mutation
+   through fixed bindings.
+
+4. **V1 restriction: `T` must be Copy.** The critical hazard I
+   missed. Non-Copy T (`Cell(*User)`, `Cell(NominalStruct)`,
+   etc.) is unsound without replace/take/Drop semantics — `set`
+   would overwrite the previous value without releasing
+   resources. Enforced at sema time via the new
+   `isCopyTypeForCell` predicate. Deferred until V1 grows the
+   resource-aware replacement substrate.
+
+#### M20f(1/4) — Built-in registration + Copy-only enforcement
+- `src/runtime_zig.zig`: new `rig.Cell(T)` type with
+  `get(self: Self) T` (value receiver, Zig-copy) and
+  `set(self: *Self, value: T)`.
+- `src/types.zig`: new `registerBuiltins(ctx, module_scope)`
+  step in `check`, runs BEFORE resolver walks user IR. Adds Cell
+  as a `.generic_type` symbol with detached `T` param + Cell's
+  `type_params = [T]` + synthetic `value: T` data field.
+- New `SemContext.cell_sym_id` tracks Cell's SymbolId.
+- `resolveType.@"generic_inst"` fires the Copy-only diagnostic
+  when the target sym is Cell and the type arg is non-Copy.
+- `src/emit.zig`: new `isBuiltinNominalName(name)` predicate;
+  `(generic_inst Cell ...)` emit prefixes `rig.` to the name so
+  the resolved Zig type is `rig.Cell(T)`.
+
+#### M20f(2/4) — Synthetic methods + var-emit
+- `registerBuiltins` extends Cell's `fields` slice with two
+  synthetic methods:
+  - `get` with `fn_ty = function([borrow_read(Cell(T))],
+    returns = T)` and `receiver = .read, is_method = true`
+  - `set` with `fn_ty = function([borrow_read(Cell(T)), T],
+    returns = Void)` and `receiver = .read, is_method = true`
+- M20b's `lookupMethod` machinery picks them up automatically
+  for both bare Cell and `*Cell(T)` receivers.
+- Emit: new `isInteriorMutableBinding(name_node)` predicate;
+  `emitSetOrBind` forces `var` for Cell bindings. `_ = &<name>;`
+  pacifies Zig's "never mutated" check for read-only Cell
+  usage (`c: Cell(Int) = ...; print(c.value)` with no `.set`).
+
+#### M20f(3/4) — `*Cell(T)` integration (the payoff)
+Two emit-side fixes to make the one-step pattern work:
+
+- **Expected-type propagation through `(share x)`**: `checkExpr`
+  for `(share x)` with expected `shared(T)` recursively
+  `checkExpr(x, T)`. The inner Cell constructor sees the
+  expected `Cell(Int)` and drives M20b's substitution machinery
+  correctly. Mirrors the M20b(4/5) expected-type-driven
+  construction logic for plain bindings.
+- **Explicit-typed struct literal for built-in inner**: emit's
+  `(share inner)` previously produced
+  `rig.rcNew(<inner-emit>)` where `<inner-emit>` for a
+  generic_type was an anonymous struct literal `.{ ... }`.
+  `rig.rcNew(anytype)` has no type context — Zig inferred a
+  synthetic comptime struct mismatching the expected
+  `*RcBox(rig.Cell(i32))`. Fix: when inner is a built-in
+  nominal call AND the LHS type wraps the same built-in
+  (`shouldExplicitTypeShareInner`), emit the inner as
+  `rig.Cell(i32){ .value = ... }` (explicit-typed). New
+  Emitter field `current_set_type: ?Sexp` threads the LHS type
+  Sexp from `emitSetOrBind` saved/restored on entry/exit.
+
+#### M20f(4/4) — Docs
+- SPEC §Shared Ownership new "Interior mutability via
+  `Cell(T)`" subsection. Documents the API, the V1 Copy-only
+  restriction, the diagnostic pointing at the future
+  replace/take/Drop substrate.
+- ROADMAP M20f milestone entry (this section). M20+ #7 → ✅.
+- HANDOFF refresh: next milestone is M20g (closure capture
+  modes), the last V1 substrate piece before rig-reactive
+  validation (Phase B of REACTIVITY-DESIGN) becomes reachable.
+
+#### Tests across M20f
+4 new examples:
+- `cell_basic.rig` — type registration + Copy field access
+- `cell_non_copy_rejected.rig` — Copy-only diagnostic
+- `cell_methods.rig` — bare Cell get/set
+- `cell_shared.rig` — the user-facing `*Cell(T)` payoff
+
+**Tests across M20d + M20e + M20f arcs: 496 → 634 (+138).**
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note
@@ -1368,10 +1497,11 @@ the M20+ items below):
    M20e** above. Defer-guard strategy per GPT-5.5's design pass;
    explicit `-x` becomes early-drop semantics. The V1 drop story
    is complete.
-7. Interior mutability — `Cell(T)` library type
-   (REACTIVITY-DESIGN D6, option A for V1). Depends on items
-   4 + 6 (the M20a/M20b method + generic machinery are now in
-   place).
+7. ~~**Interior mutability — `Cell(T)` library type**~~ ✅
+   **Landed in M20f** above. Built-in runtime type with
+   synthetic `get` / `set` methods; V1 restricts T to Copy
+   (Int/Bool/Float/String); non-Copy `Cell(T)` deferred until
+   the resource-aware replace/take/Drop substrate lands.
 8. Closure capture mode syntax (REACTIVITY-DESIGN D7) — `|name|`
    strong, `|~name|` weak, `|<name|` move, etc.
 

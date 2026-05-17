@@ -288,6 +288,48 @@ scope exit; they do NOT run on `@panic` / `unreachable`. Programs
 that panic with live resource handles leak those handles (the
 process is dying anyway). Document for clarity, not for change.
 
+### Interior mutability via `Cell(T)` (M20f)
+
+The M20d rules reject write-receiver and consume-receiver methods
+through `*T` — shared ownership cannot grant unique mutable access.
+The user-facing escape hatch is `Cell(T)`, a built-in interior-
+mutability container:
+
+```rig
+rc: *Cell(Int) = *Cell(value: 0)
+rc.set(5)
+print(rc.get())            # 5
+```
+
+`Cell(T)` is a built-in generic nominal (registered alongside
+primitives at sema init; runtime implementation lives in
+`_rig_runtime.zig`). It provides:
+
+- `get(self: ?Cell(T)) -> T` — returns the current value by copy
+- `set(self: ?Cell(T), value: T)` — interior mutation; trusted
+  runtime implementation does the actual write
+- `value: T` — synthetic data field for the constructor sugar
+  `Cell(value: ...)`
+
+Both methods take `?self` (read borrow) so M20d's auto-deref
+permits them through any access path (bare value, `?Cell(T)`
+borrow, `*Cell(T)` shared handle). The interior mutation is
+guaranteed safe by Cell's contract: single-threaded V1 has no
+concurrency, and Cell's only methods are the trusted runtime
+ones.
+
+**V1 restriction: `T` must be a Copy type.** Allowed: `Int`,
+`Bool`, `Float`, `String`, the literal pseudo-types. Rejected:
+nominal structs, resource handles (`*U` / `~U`), slices,
+generic instantiations of non-Copy types. Non-Copy `Cell(T)`
+would let `Cell.set` corrupt ownership (overwriting a `*User`
+without dropping the previous handle, etc.); deferred until V1
+grows replace/take/Drop semantics.
+
+```rig
+c: Cell(*User) = ...     # error: Cell(T) in V1 requires Copy T
+```
+
 ### Resource temporaries (named-binding RAII boundary)
 
 **V1 auto-drop applies to named bindings and parameters.** Unbound
