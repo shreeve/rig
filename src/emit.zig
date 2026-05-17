@@ -996,9 +996,37 @@ pub const Emitter = struct {
                 try self.emitResourceGuard(zig_name, kind);
             }
         } else {
-            try self.w.print("{s} = ", .{found.?});
+            // M20e(3/5): reassigning a resource binding must drop the
+            // previous handle before overwriting. Without this, the
+            // old strong/weak handle would leak silently. The
+            // sequence is:
+            //   1. Conditional drop of the previous handle (only if
+            //      the guard is still armed — explicit `-rc` earlier
+            //      in this scope may have already disarmed).
+            //   2. The actual assignment.
+            //   3. Re-arm the guard to true so scope-exit / future
+            //      reassign sites can drop the new handle.
+            // Together these preserve the M20e invariant: every
+            // resource binding has exactly-one drop per allocation.
+            //
+            // Per GPT-5.5's M20e design pass: this is the only safe
+            // option — silent overwrite would leak; rejection would
+            // break the natural `rc = *fresh(...)` pattern.
+            const found_name = found.?;
+            const resource_kind = self.resourceKindOfBareUse(name);
+            if (resource_kind) |kind| {
+                const drop_method: []const u8 = switch (kind) {
+                    .shared => "dropStrong",
+                    .weak => "dropWeak",
+                };
+                try self.w.print("if (__rig_alive_{s}) {s}.{s}(); ", .{ found_name, found_name, drop_method });
+            }
+            try self.w.print("{s} = ", .{found_name});
             try self.emitExpr(expr);
             try self.w.writeAll(";");
+            if (resource_kind != null) {
+                try self.w.print(" __rig_alive_{s} = true;", .{found_name});
+            }
         }
     }
 

@@ -1,0 +1,27 @@
+# M20e(3/5): reassigning a resource binding drops the previous
+# handle and re-arms the auto-drop guard for the new one.
+#
+# Without M20e(3/5)'s drop-and-rearm, this would leak the first
+# `*Counter` handle silently — the second `rc = ...` would
+# overwrite the variable but the original strong count would stay
+# at 1 forever.
+#
+# Verifies:
+#   - The first Counter's strong count goes 1 → 0 (freed) at the
+#     reassignment site.
+#   - The second Counter's strong count goes 1 → 0 (freed) at the
+#     scope-exit defer.
+#   - The runtime assert `strong > 0` fires zero times (every drop
+#     hits a live count).
+#   - `rc.value` after reassignment correctly reads the second
+#     Counter's payload (verifies the sema resolver dedup that
+#     M20e(3/5) introduced).
+
+struct Counter
+  value: Int
+
+sub main()
+  rc = *Counter(value: 11)
+  rc = *Counter(value: 22)
+  print(rc.value)
+  # rc auto-drops at scope exit

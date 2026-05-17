@@ -500,6 +500,24 @@ pub const SemContext = struct {
     /// Returns the most recent (latest-declared) match in the innermost
     /// scope that contains it — this matches the ownership checker's
     /// reverse-order lookup so shadowed names resolve correctly.
+    /// M20e(3/5): scope-local name lookup. Unlike `lookup`, does NOT
+    /// walk parent scopes — only matches symbols declared in the given
+    /// scope. Used by `SymbolResolver.walkSet` to detect reassignment
+    /// vs fresh shadowing within the same scope.
+    pub fn lookupInScopeOnly(self: *const SemContext, scope_id: ScopeId, name: []const u8) ?SymbolId {
+        if (scope_id == scope_invalid or scope_id >= self.scopes.items.len) return null;
+        const scope = &self.scopes.items[scope_id];
+        var i = scope.symbols.items.len;
+        while (i > 0) {
+            i -= 1;
+            const sym_id = scope.symbols.items[i];
+            if (std.mem.eql(u8, self.symbols.items[sym_id].name, name)) {
+                return sym_id;
+            }
+        }
+        return null;
+    }
+
     pub fn lookup(self: *const SemContext, from_scope: ScopeId, name: []const u8) ?SymbolId {
         var sid: ?ScopeId = from_scope;
         while (sid) |s| {
@@ -985,12 +1003,39 @@ const SymbolResolver = struct {
         try self.walk(expr);
 
         switch (kind) {
-            .default, .fixed, .shadow => {
-                // Introduce a local. `default` may also be a rebind in
-                // outer scope (we don't dedupe here — duplicates within
-                // a scope are caught by the ownership checker; sema
-                // mirrors what the checker sees). Whether to add or
-                // reuse will be revisited when ownership consumes sema.
+            .default => {
+                // M20e(3/5): dedup. The original M5-era behavior added a
+                // fresh symbol on every `rc = X` (relying on lookup's
+                // reverse iteration to find the newest one). That works
+                // for sema's own queries but produces an orphan (untyped)
+                // first-symbol that downstream consumers (emit's
+                // forward `handleKindOf` scan, print polish, etc.) trip
+                // over. Reassignment in Rig source — `rc = X; rc = Y`
+                // — semantically updates the existing slot, so the
+                // resolver should reflect that.
+                //
+                // If a same-name symbol already exists in the current
+                // scope, REUSE it. Outer-scope shadowing via `default`
+                // kind is still possible (the inner scope's lookup
+                // returns null for outer-only names → fresh symbol),
+                // matching the M5/M20a semantics.
+                const name = identAt(self.ctx.source, target) orelse return;
+                if (self.ctx.lookupInScopeOnly(self.current_scope, name) != null) return;
+                const decl_pos = if (target == .src) target.src.pos else 0;
+                _ = try self.addSymbol(.{
+                    .name = name,
+                    .kind = .local,
+                    .ty = self.ctx.types.unknown_id,
+                    .decl_pos = decl_pos,
+                    .scope = self.current_scope,
+                    .flags = .{},
+                });
+            },
+            .fixed, .shadow => {
+                // `=!` declares a fixed binding (Rig errors on
+                // reassignment to it); `new x = ...` explicitly creates
+                // a fresh slot that shadows any outer-scope name. Both
+                // unconditionally add a new symbol — no dedup.
                 const name = identAt(self.ctx.source, target) orelse return;
                 const decl_pos = if (target == .src) target.src.pos else 0;
                 const fixed = kind == .fixed;
