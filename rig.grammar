@@ -628,8 +628,33 @@ record   = name "{" L(pair) "}"             → (record 1 ...3)
 pair     = name ":" expr                    → (kwarg 1 3)
 dotpair  = "." name "=" expr                → (kwarg 2 4)
 
-lambda   = FN params block                  → (lambda 2 returns:_ 3)
-         | FN        block                  → (lambda params:_ returns:_ 2)
+# M20g: lambdas optionally have a capture list `|...|` between FN
+# and the params. The IR shape becomes `(lambda CAPTURES PARAMS
+# RETURNS BODY)` — CAPTURES is `_` (nil) for non-capturing lambdas
+# or a `(captures cap_node...)` list. Per GPT-5.5's M20g design
+# pass: V1 supports SINGLE capture only; multi-capture (comma-
+# separated) is a follow-up.
+#
+# Capture-mode prefixes mirror the M20d sigil family:
+#   `|x|`   bare (Copy-only)
+#   `|+x|`  clone (cap_clone)   — refcount-bump for *T/~T
+#   `|~x|`  weak (cap_weak)     — requires *T receiver
+#   `|<x|`  move (cap_move)     — disarms outer guard
+lambda   = FN captures params block         → (lambda 2 3 returns:_ 4)
+         | FN captures        block         → (lambda 2 params:_ returns:_ 3)
+         | FN          params block         → (lambda captures:_ 2 returns:_ 3)
+         | FN                 block         → (lambda captures:_ params:_ returns:_ 2)
+
+# M20g capture list. SINGLE-capture only in V1; multi-capture
+# (comma-separated) is a follow-up. The outer (captures ...) wrap
+# is built via a sub-rule because Nexus grammar actions don't
+# support inline nested list construction.
+captures = BAR_CAPTURE capture BAR_CAPTURE  → (captures 2)
+
+capture  = name                             → (cap_copy 1)
+         | CLONE_PFX name                   → (cap_clone 2)
+         | MOVE_PFX  name                   → (cap_move 2)
+         | "~"       name                   → (cap_weak 2)
 
 # ==============================================================================
 # INFIX OPERATORS (precedence chain auto-generated above `unary`)

@@ -140,6 +140,28 @@ pub const Tag = enum(u8) {
     @"propagate",       // expr?  (suffix propagation)
     @"inline",
     @"lambda",
+    // M20g: closure capture list and per-capture mode tags.
+    // Lambda IR shape extends to `(lambda captures params returns body)`;
+    // captures slot is `_` (nil) for non-capturing lambdas or a
+    // `(captures cap_node...)` list.
+    //
+    // Capture modes (per GPT-5.5's M20g design pass):
+    //   `|x|`   — `(cap_copy NAME)`   Copy-only; resource handles
+    //                                  must use explicit mode below.
+    //   `|+x|`  — `(cap_clone NAME)`  refcount-bump for `*T`/`~T`;
+    //                                  Copy clone for other types.
+    //   `|~x|`  — `(cap_weak NAME)`   requires `*T`; captures `~T`.
+    //   `|<x|`  — `(cap_move NAME)`   transfers ownership; disarms
+    //                                  outer guard.
+    //
+    // `*x` is intentionally NOT a capture mode — `*` already means
+    // "allocate Rc by moving expr in"; overloading it would be
+    // confusing per the M20g design discussion.
+    @"captures",
+    @"cap_copy",
+    @"cap_clone",
+    @"cap_weak",
+    @"cap_move",
 
     // Calls and access
     @"addr_of",
@@ -713,10 +735,13 @@ pub const Lexer = struct {
                     self.pending_close_bar = true;
                     return cap;
                 }
-            } else if (self.pending_close_bar and tok.cat != .ident) {
-                // Anything that isn't the captured name itself or the
-                // closing `|` invalidates capture context — clear the
-                // flag so a later unrelated `|` isn't misclassified.
+            } else if (self.pending_close_bar and !Lexer.isCaptureContentCat(tok.cat)) {
+                // M20g: allow capture-mode sigil tokens (`+` clone, `<`
+                // move, `~` weak) AND the captured `ident` to flow
+                // through without clearing the bar_capture pending
+                // state. Other tokens (binary operators, brackets, etc.)
+                // still clear the flag so a later unrelated `|` isn't
+                // misclassified.
                 self.pending_close_bar = false;
             }
 
@@ -991,12 +1016,45 @@ pub const Lexer = struct {
         }
     }
 
+    /// True when the upcoming token sequence looks like a capture
+    /// pipe: optional capture-mode sigil (`+`/`<`/`~`), then ident,
+    /// then closing `|`. M20g extends the original `ident |` probe
+    /// to accept the sigil-prefixed lambda capture forms while
+    /// keeping the catch / for-each single-ident pattern intact.
     fn isCapturePipe(self: *const Lexer) bool {
         var probe = self.base;
         const tok1 = probe.matchRules();
-        if (tok1.cat != .ident) return false;
-        const tok2 = probe.matchRules();
-        return tok2.cat == .bar;
+        const has_sigil = switch (tok1.cat) {
+            // Raw tokens before lexer sigil-classification: `+` is
+            // `plus`, `<` is `lt`, `~` is `tilde`. After the opening
+            // bar_capture they'll be reclassified as
+            // clone_pfx / move_pfx / kept-as-tilde respectively.
+            .plus, .lt, .tilde => true,
+            else => false,
+        };
+        const ident_tok = if (has_sigil) probe.matchRules() else tok1;
+        if (ident_tok.cat != .ident) return false;
+        const close_tok = probe.matchRules();
+        return close_tok.cat == .bar;
+    }
+
+    /// M20g: token categories that may appear inside a `|...|`
+    /// capture pipe without clearing `pending_close_bar`. The
+    /// opening pipe was already classified as `bar_capture`; we
+    /// want the sigil prefix (if any) and the bound identifier to
+    /// NOT clear the pending-close state. The closing `|` is
+    /// handled separately in the bar arm.
+    fn isCaptureContentCat(cat: TokenCat) bool {
+        return switch (cat) {
+            .ident,
+            // Sigil-classified forms produced inside capture context:
+            .clone_pfx, .move_pfx, .tilde,
+            // Raw forms (in case classification didn't fire by the time
+            // we check — defensive):
+            .plus,
+            => true,
+            else => false,
+        };
     }
 
     /// Probe ahead: is the next significant token a `:` ?

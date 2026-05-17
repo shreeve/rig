@@ -850,9 +850,15 @@ const SymbolResolver = struct {
 
     /// `(lambda params returns body)` — like `fun` but anonymous.
     fn walkLambda(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        if (items.len < 4) return;
-        const params = items[1];
-        const body = items[items.len - 1];
+        // M20g: lambda IR shape is `(lambda CAPTURES PARAMS RETURNS BODY)`.
+        // CAPTURES is `_` (nil) for non-capturing lambdas or
+        // `(captures cap_node...)` list. The capture symbols get
+        // bound in the closure body scope (M20g(2/5)); for (1/5)
+        // we just thread the new shape and walk the body.
+        if (items.len < 5) return;
+        const captures = items[1];
+        const params = items[2];
+        const body = items[4];
 
         const fn_scope = try self.ctx.pushScope(self.current_scope);
         const prev_scope = self.current_scope;
@@ -862,6 +868,11 @@ const SymbolResolver = struct {
         if (params == .list) {
             for (params.list) |p| try self.bindParam(p);
         }
+        // M20g(2/5) will bind captures here. For (1/5) we accept
+        // the IR shape but don't yet bind the capture names — sema
+        // walks the body with the outer-scope `rc` visible, which
+        // is fine for the IR-shape pin tests in this commit.
+        _ = captures;
         try self.walk(body);
     }
 
