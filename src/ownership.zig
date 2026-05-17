@@ -117,6 +117,24 @@ pub const Checker = struct {
     /// constructions inside the RHS).
     in_set_rhs: bool = false,
 
+    /// M20h(3/5): true while walking the lambda argument of an
+    /// owned-closure construction `(share (call Closure (lambda
+    /// ...)))`. Permits the lambda literal to escape its defining
+    /// scope: the closure handle (`*Closure()`) is the escaping
+    /// value, NOT the lambda — the lambda is consumed into the
+    /// heap-allocated env at construction time. Reset everywhere
+    /// else; in particular, walkLambda resets it inside the body
+    /// so nested constructions don't inherit the flag.
+    ///
+    /// This is the M20g `in_set_rhs` analog for `*Closure(...)`
+    /// constructions that are NOT at a set-RHS position (e.g.,
+    /// when the construction is a function's implicit-return
+    /// expression: `fun make_counter() -> *Closure() { *Closure(fn
+    /// ...) }`). M20g's in_set_rhs leak accidentally accepted
+    /// stack-local construction; this new flag makes the
+    /// permission explicit AND extends it to the escape position.
+    in_owned_closure_constructor_arg: bool = false,
+
     /// Optional sema context (M5(5/n)). When provided, `checkPlainUse`
     /// classifies the binding's type as Copy or Move and skips the
     /// move/drop/write-borrow checks for Copy types — matching SPEC's
@@ -316,9 +334,19 @@ pub const Checker = struct {
             .@"move" => try self.walkBorrow(items, .move_op),
             .@"read" => try self.walkBorrow(items, .read_op),
             .@"write" => try self.walkBorrow(items, .write_op),
-            .@"clone", .@"share", .@"weak", .@"pin", .@"raw" => {
+            .@"clone", .@"weak", .@"pin", .@"raw" => {
                 if (items.len >= 2) try self.walk(items[1], false);
             },
+            // M20h(3/5): `(share (call Closure (lambda ...)))` is the
+            // owned-closure construction shape. The lambda inside is
+            // ALLOWED to escape (it becomes the heap-allocated env of
+            // a new `*Closure()` handle), so we set
+            // `in_owned_closure_constructor_arg` before recursing.
+            // Other share shapes (e.g., `*Cell(value: 0)`) flow
+            // unchanged — the lambda body argument is the only thing
+            // the flag affects, and non-construction inners don't
+            // walk a lambda at all.
+            .@"share" => try self.walkShare(items),
             .@"if" => try self.walkIf(items),
             .@"while" => try self.walkWhile(items),
             .@"for" => try self.walkFor(items),
@@ -559,6 +587,49 @@ pub const Checker = struct {
     ///      around the walk so a lambda nested inside a borrowed-
     ///      return fn doesn't see its borrows flagged at the wrong
     ///      escape boundary.
+    /// M20h(3/5): walk a `(share inner)` form, with special handling
+    /// for the owned-closure construction shape `(share (call Closure
+    /// (lambda ...)))`. The lambda inside is allowed to escape the
+    /// defining scope (it becomes the env of a new `*Closure()`
+    /// handle), so we set `in_owned_closure_constructor_arg = true`
+    /// for the inner walk. Other share shapes (`*Cell(value: 0)`,
+    /// `*User(name: ...)`) flow with the flag unchanged.
+    fn walkShare(self: *Checker, items: []const Sexp) Error!void {
+        if (items.len < 2) return;
+        const is_closure_ctor = self.isOwnedClosureConstruction(items[1]);
+        if (is_closure_ctor) {
+            const prev = self.in_owned_closure_constructor_arg;
+            self.in_owned_closure_constructor_arg = true;
+            try self.walk(items[1], false);
+            self.in_owned_closure_constructor_arg = prev;
+        } else {
+            try self.walk(items[1], false);
+        }
+    }
+
+    /// M20h(3/5): does this Sexp look like `(call Closure (lambda
+    /// ...))` — the owned-closure construction shape? Sema's
+    /// `detectOwnedClosureConstruction` runs an identical check at
+    /// type-check time; the duplication is intentional (ownership
+    /// runs without sema in unit tests, and the structural check is
+    /// cheap and self-contained).
+    fn isOwnedClosureConstruction(self: *const Checker, inner: Sexp) bool {
+        if (inner != .list) return false;
+        const items = inner.list;
+        if (items.len < 3) return false;
+        if (items[0] != .tag or items[0].tag != .@"call") return false;
+        const callee = items[1];
+        if (callee != .src) return false;
+        const callee_name = self.source[callee.src.pos..][0..callee.src.len];
+        if (!std.mem.eql(u8, callee_name, "Closure")) return false;
+        // Args must include at least one item, and that item must be a lambda.
+        const args = items[2..];
+        if (args.len != 1) return false;
+        const arg = args[0];
+        return arg == .list and arg.list.len >= 1 and arg.list[0] == .tag and
+            arg.list[0].tag == .@"lambda";
+    }
+
     fn walkLambda(self: *Checker, items: []const Sexp) Error!void {
         if (items.len < 5) return;
         const captures = items[1];
@@ -566,8 +637,11 @@ pub const Checker = struct {
         const body = items[4];
 
         // 1. Escape diagnostic: lambda literal must be in a binding
-        //    RHS or call callee position.
-        if (!self.in_set_rhs and !self.in_call_callee) {
+        //    RHS, call callee position, OR owned-closure constructor
+        //    arg (the M20h escape-but-via-the-Closure-handle case).
+        if (!self.in_set_rhs and !self.in_call_callee and
+            !self.in_owned_closure_constructor_arg)
+        {
             const pos = firstSrcPosOwn(.{ .list = items });
             try self.err(pos, "closures cannot escape their defining scope in V1; bind to a local with `f = fn |...| ...` and call `f()`, or invoke inline `(fn |...| ...)()`", .{});
         }
@@ -581,12 +655,15 @@ pub const Checker = struct {
 
         // Reset closure-context flags inside the lambda body: a
         // nested `f = fn||...` is its own binding, a nested `f()`
-        // its own call. The current flags belong to the enclosing
+        // its own call, a nested `*Closure(fn ...)` its own
+        // construction. The current flags belong to the enclosing
         // expression context.
         const prev_callee = self.in_call_callee;
         const prev_rhs = self.in_set_rhs;
+        const prev_ctor = self.in_owned_closure_constructor_arg;
         self.in_call_callee = false;
         self.in_set_rhs = false;
+        self.in_owned_closure_constructor_arg = false;
 
         try self.bindCapturesLocal(captures);
         if (params == .list) {
@@ -597,6 +674,7 @@ pub const Checker = struct {
 
         self.in_call_callee = prev_callee;
         self.in_set_rhs = prev_rhs;
+        self.in_owned_closure_constructor_arg = prev_ctor;
         try self.popScope();
     }
 
