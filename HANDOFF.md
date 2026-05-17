@@ -19,12 +19,14 @@ Read top-to-bottom once; then it's a reference.
   with `M20f` Cell composition and `M20g` stack-local closure
   invoke both verified end-to-end. **706 tests passing, 0
   failing.** Clean tree on `main`, all pushed.
-- **Next concrete action**: **M20h design checkpoint** —
-  escaping/owned closure values. Phase B's load-bearing first
-  substrate gap. The Phase B scoping checkpoint already
-  produced the IN/OUT scope guardrails for M20h (see §4 below);
-  the M20h-specific checkpoint locks the syntax, ABI, drop
-  model, and type spelling.
+- **Next concrete action**: **start M20h(1/5)** — runtime +
+  type spelling for owned/escaping closure values. The M20h
+  design is ALREADY LOCKED at user-ai conversation entry 17
+  (see §6 below for the full entry list). Do NOT re-checkpoint
+  M20h; read entry 17, then §4 below, then code. The five
+  sub-commits are scoped; design caught a UAF bug in an earlier
+  ABI proposal and locked the type-erased `Closure0` + vtable
+  + `RcBox.__rig_drop` approach.
 - **Phase B is scoped** (entries 15-16 in the user-ai
   conversation): the agreed sequence is
   `PB0 → M20h → PB1 → M20i → PB2 → PB3`. PB0 done.
@@ -92,7 +94,7 @@ reactivity validation milestone.
 | Step | Item | Status | Where |
 |---|---|---|---|
 | PB0 | Reactive canary scaffold | ✅ | `examples/reactive_canary.rig` |
-| M20h | Owned/escaping closure values | 🚧 | NEXT — design checkpoint |
+| M20h | Owned/escaping closure values | 🚧 | Design LOCKED (entry 17); start (1/5) |
 | PB1 | Single retained Effect | pending | depends on M20h |
 | M20i | Resource-aware `Vec(T)` | pending | depends on PB1 exposing the need |
 | PB2 | Cell → Effect notification | pending | depends on M20i |
@@ -313,27 +315,115 @@ Re-read §4. Q1-Q5 are locked. M20h scope IN/OUT is locked.
 The remaining open decision is the M20h checkpoint itself:
 syntax, ABI, drop model.
 
-### Minute-3: run the M20h design checkpoint
+### Minute-3: start M20h(1/5)
 
-Open the user-ai conversation (`c_5c1d09d53ebe2f62`,
-`model: "openai:gpt-5.5"`, `max_tokens >= 6000`) and run a
-focused M20h checkpoint covering:
+The M20h design is already locked at user-ai conversation
+entry 17. Read that entry for the full ABI + reasoning, then
+implement. Do NOT re-checkpoint — the design caught and fixed
+a UAF bug in an earlier ABI proposal, and adding fresh design
+rounds risks re-introducing those mistakes.
 
-- Syntax: `*Closure(fn |+rc| body)` constructor vs `*lambda`
-  sigil overload vs `own fn |+rc| body` new keyword
-- ABI: closure environment layout, invoke method signature,
-  generated drop glue for resource captures
-- Type spelling: `*Closure()` / `*Closure(args, returns)` /
-  something else
-- Drop model: refcounting (Rc-wrapped) vs unique ownership
-  (the `*T` shape implies Rc but Effects don't need sharing)
-- Interaction with M20g's `is_closure` / `non-escaping`
-  enforcement: M20h needs to relax this for closures that
-  are explicitly `*Closure(...)`-wrapped
-- Sub-commit decomposition (~3-5 sub-commits expected,
-  matching the M20d/M20e/M20g pattern)
+**Locked M20h design (entry 17 summary):**
 
-Then implement. Then post-implementation review. Then PB1.
+- **Surface**: `cb: *Closure() = *Closure(fn |+count| body)`
+  — explicit constructor, mirrors `*Cell(value: 0)`. NOT
+  `*lambda` sigil overload; NOT `own fn` keyword.
+- **Type spelling**: `Closure()` only in M20h (special-case
+  empty `()` since it would normally hit the generic-empty-
+  params rejection). NO args, NO return type yet — pure
+  no-arg void closures. Reject `Closure(Int)`, bare
+  `Closure`, etc.
+- **ABI** (this is the load-bearing call; entry 17 caught a
+  UAF in an earlier proposal):
+  - New runtime type `rig.Closure0` with vtable:
+    `ctx: *anyopaque`, `invoke_fn`, `drop_fn`, `allocator`.
+  - Each closure literal generates a UNIQUE env struct
+    (`RIG_CLOSURE_ENV_N`) holding captures + invoke/drop
+    thunks. Env is heap-allocated SEPARATELY from the RcBox.
+  - `RcBox.dropStrong()` gets a NEW hook: when payload type
+    has `__rig_drop`, call it before freeing. Closure0
+    implements `__rig_drop` to call `drop_fn(ctx, allocator)`.
+  - Surface type `*Closure()` lowers to
+    `*rig.RcBox(rig.Closure0)` UNIFORMLY (type erasure;
+    enables return-from-fn, store-in-struct, future Vec).
+- **Why type erasure**: each closure literal has a different
+  anonymous env struct, but the surface type must be uniform
+  so multiple closure literals can be assigned to the same
+  `*Closure()` variable, returned from functions, stored in
+  containers, etc.
+- **Ownership**: owned closure becomes a regular `*T` handle
+  (clonable via `+cb`, moveable via `<cb`, weakable via `~cb`,
+  storable in struct fields, returnable). NOT marked
+  `is_closure=true`. M20g's `is_closure` flag is only for
+  bare lambda values.
+- **Allow lambda in constructor arg**: dedicated
+  `in_owned_closure_constructor_arg` flag, set ONLY for the
+  exact `*Closure(fn ...)` shape. Do NOT generalize to all
+  constructors (would prematurely allow `Effect(fn ...)` /
+  `Box(fn ...)` before escaping semantics exist for arbitrary
+  APIs).
+- **Invocation**: `cb()` plain call syntax, lowered to
+  `cb.value.invoke()`. Reject `cb(args)` in M20h.
+- **Capture semantics**: same as M20g (cap_copy / cap_clone /
+  cap_weak / cap_move) but drop happens at `__rig_drop` time
+  (last strong drop), NOT at each binding's scope-exit
+  defer. THIS IS CRITICAL — the earlier proposal that called
+  capture-drop from every binding's defer would UAF when
+  `cb2 = +cb; -cb; cb2()`.
+
+**Sub-commit decomposition (5, not 4)**:
+
+```
+M20h(1/5): runtime + type spelling
+  - add rig.Closure0 (vtable struct) to runtime
+  - add RcBox.__rig_drop hook (call payload's __rig_drop on last strong)
+  - register Closure builtin (special-case empty arity)
+  - sema accepts Closure() type; rejects other arities
+  - emit type Closure() → rig.Closure0; *Closure() → *rig.RcBox(rig.Closure0)
+  No closure construction emit yet.
+
+M20h(2/5): sema / call typing
+  - *Closure(fn ...) recognized as owned closure construction
+  - cb() typechecks when cb: *Closure()
+  - reject cb(args), bare Closure(fn ...), Closure(Int), etc.
+
+M20h(3/5): ownership relaxation
+  - add in_owned_closure_constructor_arg context flag
+  - allow lambda literal only in exact owned-closure-constructor-arg shape
+  - owned closure binding is NOT is_closure; ordinary shared handle
+  - capture move effects still apply to outer
+
+M20h(4/5): emit owned closure construction + invocation
+  - generate env struct (RIG_CLOSURE_ENV_N) with invoke/drop thunks
+  - allocate env, init captures, build Closure0, rcNew
+  - cb() → cb.value.invoke()
+
+M20h(5/5): tests + PB1 + docs
+  - retained-callback test (returns *Closure() from a function)
+  - clone-doesn't-drop-early test (catches the UAF the design fixed:
+    `cb2 = +cb; -cb; cb2()` must NOT drop captures until cb2 also drops)
+  - move-capture test
+  - escape rejection still works for non-wrapped lambdas
+  - bare `Closure(fn ...)` rejected
+  - SPEC §Lambdas extension + ROADMAP + HANDOFF refresh
+```
+
+Required regression tests (called out at entry 17 — these
+pin the design decisions):
+
+1. **Basic retained callback** (returns `*Closure()` from a
+   function, invokes after defining scope exits).
+2. **Clone doesn't drop captures early** (`cb2 = +cb; -cb;
+   cb2()` — the test that proves type-erasure + `__rig_drop`-
+   on-last-strong is correct).
+3. **Move capture** (`*Closure(fn |<count| ...)`).
+4. **Escape rejection** for non-wrapped lambdas still works
+   (M20g enforcement preserved).
+5. **Bare `Closure(fn ...)` rejected** (the owned form is
+   `*Closure(fn ...)` — without `*` is an error).
+
+Then post-implementation review with GPT-5.5 in the same
+conversation. Then PB1.
 
 ---
 
@@ -397,11 +487,23 @@ Now contains, in order:
     until PB1 exposes the need, hybrid on main with single-file
     until M15b, functional canary + docs as success). Locked
     M20h scope guardrails (IN/OUT lists in §4 above).
-16. **Phase B scoping confirmation** — locked sequencing
+16. Phase B scoping confirmation — locked sequencing
     (`PB0 → M20h → PB1 → M20i → PB2 → PB3`), confirmed PB0
     content (working Cell+stack-local closure + commented
     M20h/M20i TODOs as gap markers, not syntax promises),
     confirmed fresh M20h checkpoint required before coding.
+17. **M20h design pass** — locked syntax (`*Closure(fn ...)`
+    constructor), type spelling (`Closure()` only, no args
+    in M20h), ABI (type-erased `rig.Closure0` + vtable +
+    `RcBox.__rig_drop` hook), ownership (owned closure is
+    regular `*T` handle; dedicated
+    `in_owned_closure_constructor_arg` flag for the lambda
+    arg position), invocation (`cb()` → `cb.value.invoke()`),
+    and the 5-sub-commit decomposition. The checkpoint CAUGHT
+    a UAF bug in an earlier ABI proposal (capture-drop from
+    every binding's defer would UAF on `cb2 = +cb; -cb;
+    cb2()`); type erasure + `__rig_drop` on last strong is
+    the fix. See §4 above for the full locked design summary.
 
 To continue the thread for the next arc, pass `conversation_id`
 and `model` as above. Models live in
