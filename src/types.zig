@@ -3788,30 +3788,68 @@ const ExprChecker = struct {
         // Case 3: instance method call.
         const obj_ty_id = try self.synthExpr(obj);
 
-        // M20d.1: built-in `~T.upgrade() -> (*T)?` special case. The
-        // runtime ships the method but it's not declared on any Rig
-        // nominal — without this special-case, source-level
-        // `w.upgrade()` would error with "no method on type
-        // `weak(...)`" (lookupMethod uses unwrapReadAccess which
-        // deliberately does NOT peel weak, since weak auto-deref
-        // would be unsafe). Per GPT-5.5's M20d post-review: making
-        // upgrade first-class is required for V1 to actually be
-        // usable for weak code from Rig source.
+        // M20d.1 + M20d.2: built-in `.upgrade()` on weak handles.
+        //
+        // The runtime ships `WeakHandle.upgrade()`, but it's not
+        // declared on any Rig nominal — without this special-case,
+        // source-level `w.upgrade()` would error with "no method on
+        // type `weak(...)`" because `lookupMethod` uses
+        // `unwrapReadAccess` which deliberately does NOT peel weak
+        // (weak auto-deref would be unsafe).
+        //
+        // Per the joint M20d.2 design pass with GPT-5.5: `upgrade` is
+        // a **built-in method** on `~T`, with the same status as
+        // array `.len` or future built-in optional methods. It's
+        // NOT a sigil (`^w` was considered and rejected for V1 — see
+        // HANDOFF §3); a sigil would be the first one whose normal
+        // contract includes failure, and the totality invariant of
+        // Rig's sigil family is more valuable than the symmetry win.
         //
         // The returned type is built-in `optional(shared(T))` — NOT
         // user-defined `Option(*T)`. The `T? → Option(T)` desugar
         // is a separate (deferred) milestone.
-        const obj_ty = self.ctx.types.get(obj_ty_id);
-        if (obj_ty == .weak and std.mem.eql(u8, method_name, "upgrade")) {
-            if (args.len != 0) {
-                try self.err(name_pos, "`upgrade` takes no arguments; got {d}", .{args.len});
-                for (args) |a| _ = try self.synthExpr(a);
+        //
+        // Precedence: built-in `upgrade` on `~T` takes precedence
+        // over user-defined `.upgrade()` methods — but only when the
+        // receiver is actually weak. If the user has `.upgrade()` on
+        // their own type and calls it via `value.upgrade()`, the
+        // normal dispatch path handles it. The "rc.upgrade() on a
+        // shared handle (not weak)" footgun gets a targeted
+        // diagnostic so users who reach for upgrade in the wrong
+        // place see an actionable message.
+        if (std.mem.eql(u8, method_name, "upgrade")) {
+            // Peel borrow wrappers so `(?w).upgrade()` / `(!w).upgrade()`
+            // also hit the built-in. We do NOT peel `shared` here —
+            // that's the wrong-receiver case below.
+            const peeled = unwrapBorrows(self.ctx, obj_ty_id);
+            const peeled_ty = self.ctx.types.get(peeled);
+            switch (peeled_ty) {
+                .weak => |inner| {
+                    if (args.len != 0) {
+                        try self.err(name_pos, "weak `upgrade` takes no arguments; got {d}", .{args.len});
+                        for (args) |a| _ = try self.synthExpr(a);
+                    }
+                    const shared_id = self.ctx.types.intern(self.ctx.allocator, .{ .shared = inner }) catch
+                        return self.ctx.types.unknown_id;
+                    return self.ctx.types.intern(self.ctx.allocator, .{ .optional = shared_id }) catch
+                        self.ctx.types.unknown_id;
+                },
+                .shared => {
+                    // `rc.upgrade()` where `rc: *T`. If T has its own
+                    // `.upgrade()` method, the normal dispatch path
+                    // will find it via auto-deref — fall through.
+                    // Otherwise fire a targeted diagnostic instead of
+                    // the generic "no method" message — users who
+                    // reach for `.upgrade()` here almost certainly
+                    // meant a weak handle.
+                    if (!hasMethodNamed(self.ctx, peeled, method_name)) {
+                        try self.err(name_pos, "`upgrade` is only available on weak handles (`~T`); receiver here is a shared handle (`*T`). Use `~rc` to obtain a weak reference, then `.upgrade()` on the weak.", .{});
+                        for (args) |a| _ = try self.synthExpr(a);
+                        return self.ctx.types.unknown_id;
+                    }
+                },
+                else => {},
             }
-            const inner = obj_ty.weak;
-            const shared_id = self.ctx.types.intern(self.ctx.allocator, .{ .shared = inner }) catch
-                return self.ctx.types.unknown_id;
-            return self.ctx.types.intern(self.ctx.allocator, .{ .optional = shared_id }) catch
-                self.ctx.types.unknown_id;
         }
 
         return self.synthInstanceCall(obj, obj_ty_id, method_name, name_pos, args);

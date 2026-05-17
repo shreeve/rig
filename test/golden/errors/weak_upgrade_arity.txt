@@ -1,0 +1,1 @@
+examples/weak_upgrade_arity.rig:13:10: error: weak `upgrade` takes no arguments; got 1

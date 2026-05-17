@@ -1,0 +1,1 @@
+examples/upgrade_on_shared.rig:16:11: error: `upgrade` is only available on weak handles (`~T`); receiver here is a shared handle (`*T`). Use `~rc` to obtain a weak reference, then `.upgrade()` on the weak.

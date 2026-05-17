@@ -1024,6 +1024,60 @@ RcBox"), not silent. The systematic fix needs sema-side use-site
 attribution (`pos → SymbolId` table built during type-check),
 queued as substrate cleanup. Tracked in HANDOFF §3.
 
+### M20d.2 — formalize `upgrade` as built-in method on `~T` ✅
+Second tactical follow-up after Steve raised the `^w` upgrade-
+sigil design question. Joint Claude + GPT-5.5 design pass:
+**`^w` reserved as a future-sugar candidate but not shipped in
+V1.** Method form is the V1 commitment.
+
+Rationale (jointly agreed):
+- Every Rig ownership sigil today is **total within its domain**
+  (`<x` move, `?x`/`!x` borrows, `+x` clone, `-x` drop, `*x`
+  share, `~x` weaken, `%x` raw, `@x` pin). They succeed in normal
+  control flow; failures are sema-rejected or environmental (OOM).
+- `^w` would be the first sigil whose normal contract includes
+  failure (referent may be gone). Spending the totality invariant
+  of the sigil family for one ergonomic win is the wrong trade.
+- Method form makes the failure mode visible — `(*T)?` return,
+  call shape signals "operation with logic, not primitive coercion."
+- Sigil reservation is purely additive later: if real Rig code
+  proves `.upgrade()` clunky, `^w` can be added as pure sugar
+  over `w.upgrade()` with the same runtime call. The reverse
+  direction (ship sigil, remove later) breaks user code.
+
+Changes:
+- Tightened `synthMemberCall`'s upgrade intercept:
+  - Peels borrow wrappers via `unwrapBorrows` so `(?w).upgrade()`
+    routes to the built-in path along with `w.upgrade()`.
+  - Better arity message: "weak `upgrade` takes no arguments;
+    got N".
+  - New "wrong-receiver" diagnostic for `rc.upgrade()` (shared
+    receiver, no user-defined `.upgrade()` on the underlying `T`):
+    `"upgrade is only available on weak handles (~T); receiver
+     here is a shared handle (*T). Use ~rc to obtain a weak
+     reference, then .upgrade() on the weak."`
+  - Auto-deref through shared still dispatches to user-defined
+    `.upgrade()` methods when they exist (verified end-to-end
+    with a `Stage.upgrade(self: ?Stage) -> Int` hand-test).
+- SPEC §Weak Reference: new subsection "Built-in method:
+  `upgrade() -> (*T)?`". Formalizes upgrade as a built-in on `~T`
+  (status equivalent to array `.len`, future built-in optional
+  methods). Includes the "why method, not sigil" rationale in
+  prose so future maintainers don't re-derive the decision.
+- Two new negative-test examples pinning the new diagnostics:
+  - `weak_upgrade_arity` — `w.upgrade(42)` rejected
+  - `upgrade_on_shared`  — `rc.upgrade()` rejected (no user method)
+
+**`^w` reserved future-sugar candidate** (HANDOFF only, NOT
+SPEC). If it ships in a future ergonomics milestone:
+1. Must return `(*T)?` — never panic-on-dead-weak.
+2. Must be pure sugar over `w.upgrade()` — same runtime call.
+3. Method form stays canonical; sigil is shorthand.
+4. Decision gated on evidence from real Rig code (reactive
+   substrate validation, stdlib) that the method form is clunky.
+
+Tests: 556 → ~566 (2 new EMIT_TARGETS × ~5 golden buckets).
+
 **Deferred to M20e**:
 - Soft scope-exit warning lint (would require a new `warning`
   severity in `ownership.zig`'s diagnostic system + a scope-exit

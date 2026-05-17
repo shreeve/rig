@@ -10,10 +10,11 @@ once; then it's a reference.
 
 - **Project**: Rig is a systems language ("Zig-fast, Rust-safe, Ruby-readable")
   that compiles to Zig 0.16. Repo: `/Users/shreeve/Data/Code/rig`.
-- **Where we are**: Just shipped **M20d + M20d.1** (`*T` / `~T` real
-  `Rc<T>` / `Weak<T>` semantics, plus post-review tactical fixes).
-  Last commit on `main` covers M20d.1. **556 tests passing, 0
-  failing.** Clean tree, all pushed.
+- **Where we are**: Just shipped **M20d + M20d.1 + M20d.2** (`*T` /
+  `~T` real `Rc<T>` / `Weak<T>` semantics; post-review tactical
+  fixes; `upgrade` formalized as a built-in method on `~T`, with
+  `^w` deliberately deferred as a future-sugar candidate per a
+  joint design pass). **All M20d work green; clean tree, pushed.**
 - **Next milestone**: **M20e** — automatic scope-exit drop for `*T` /
   `~T` bindings. Design pre-sketched in ROADMAP M20e entry; must land
   before M20+ item #8 (closure capture).
@@ -173,7 +174,43 @@ four items; all addressed in M20d.1 (see ROADMAP). Tests grew
 - `formatType` paren-disambiguation for `*T?` vs `(*T)?`
 - Ownership-side scope-aware lookup in `checkSharedHandleAlias`
 
-### Two pre-existing gaps NOT addressed in M20d/M20d.1
+### M20d.2 follow-up (formalize upgrade as built-in method)
+
+A second tactical pass after Steve raised the `^w` (upgrade-sigil)
+design question. Joint Claude + GPT-5.5 call: **`^w` is reserved
+as a future-sugar candidate but NOT shipped in V1.** The method
+form is the V1 commitment. Tests grew 556 → ~566.
+
+- Tightened the M20d.1 upgrade intercept: peels borrow wrappers
+  before checking weak (so `(?w).upgrade()` would also dispatch
+  correctly if anyone writes that), better arity message ("weak
+  `upgrade` takes no arguments").
+- Added targeted "wrong-receiver" diagnostic for `rc.upgrade()`
+  when `rc: *T` and `T` has no user-defined `.upgrade()` method.
+  Auto-deref through shared still works when the user DOES define
+  `.upgrade()` on `T` (verified end-to-end).
+- SPEC §Weak Reference: formalized `upgrade` as a built-in method
+  on `~T` (status: same as array `.len`, future built-in optional
+  methods). Documented the "why method, not sigil" decision in
+  prose so future maintainers don't re-derive it.
+- Two new negative-test EMIT_TARGETS: `weak_upgrade_arity` and
+  `upgrade_on_shared`.
+
+**`^w` reserved future-sugar candidate.** Documented HERE (not in
+SPEC) so future maintainers can revisit if real Rig code reveals
+the method form clunky. Key constraints if it ever ships:
+1. Return type must be `(*T)?` (fallible). Panic-on-dead-weak is
+   wrong — weak refs exist *because* the referent may be gone.
+2. The sigil would break the totality invariant of the sigil
+   family — every other sigil today is total within its domain;
+   `^w` would be the first that fails in normal control flow.
+   Worth the break only if the ergonomic win is decisive in real
+   code, not just aesthetic. Defer until evidence accrues.
+3. If it ships, it's pure sugar over `w.upgrade()` — same runtime
+   call, no new behavior. The method form stays as the canonical
+   spelling; the sigil is shorthand.
+
+### Pre-existing gaps NOT addressed in M20d / M20d.1 / M20d.2
 
 1. **`(T)?` paren-grouping in type position**: the grammar's
    `"(" type ")" → 2` action leaks the literal parens into the IR

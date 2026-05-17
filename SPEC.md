@@ -341,7 +341,6 @@ weak = ~shared
 Single-threaded weak handle paired with `*T`. V1 semantics:
 
 - does NOT keep `T` alive
-- `upgrade()` returns `*T?` (optional shared handle)
 - after the last `*T` is dropped, all `~T.upgrade()` calls return
   `none`
 
@@ -349,6 +348,46 @@ Exactly `Weak<T>`. Required for cycle-free shared-graph structures
 (GUI parent/child, observer subscriber lists, reactive subscriber
 back-edges, ECS handles, graph data structures, compiler
 self-referential types).
+
+### Built-in method: `upgrade() -> (*T)?`
+
+Every weak handle (`~T`) supports the built-in method:
+
+```rig
+w.upgrade()    # returns (*T)?
+```
+
+`upgrade` is a **built-in method on `~T`**, not a sigil and not a
+user-overridable function. Semantically:
+
+- Returns `(*T)?` — an optional shared handle. The optional carries
+  the failure mode: weak references exist precisely because the
+  referent may have been dropped, and `upgrade` reports that
+  honestly rather than panicking.
+  - Note the type spelling: `(*T)?` is `optional(shared(T))`
+    ("optional shared handle"). The prefix-suffix precedence rules
+    (see §Shared Ownership) mean `*T?` parses as
+    `shared(optional(T))` instead — a different type.
+- Takes no arguments. `w.upgrade(arg)` is a sema error.
+- Only available on weak handles. `rc.upgrade()` where `rc: *T` is
+  a sema error with a targeted suggestion (use `~rc` first), UNLESS
+  the underlying type `T` defines its own `.upgrade()` method, in
+  which case auto-deref through shared dispatches to the user's
+  method.
+- Built-in `upgrade` on `~T` takes precedence over any user-defined
+  `.upgrade()` only when the receiver is actually weak. Users
+  cannot override the built-in via a method on `T`.
+
+Why a method and not a sigil: every other Rig ownership sigil
+(`<`, `?`, `!`, `+`, `-`, `*`, `~`, `@`, `%`) is total within its
+domain — it succeeds in normal control flow and only fails on
+sema-detectable errors or environmental conditions (OOM). `upgrade`
+is fundamentally fallible (the referent may be gone), so spelling
+it as a method makes the failure mode visible at the call site and
+keeps the sigil family's "sigil = total transformation" invariant
+intact. A future sugar candidate (`^w` for upgrade) was considered
+during M20d.2 design and deferred — see HANDOFF / ROADMAP for the
+discussion. The method form is the V1 commitment.
 
 **Constraint.** `*T` and `~T` are an "all or nothing" V1
 commitment. Shipping them as parsed-but-fake is more dangerous than
