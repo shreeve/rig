@@ -132,7 +132,7 @@ pub const source =
     \\            std.debug.assert(self.strong > 0);
     \\            self.strong -= 1;
     \\            if (self.strong == 0) {
-    \\                if (hasRigDrop(T)) self.value.__rig_drop();
+    \\                if (comptime hasRigDrop(T)) self.value.__rig_drop();
     \\                self.weak -= 1; // release implicit +1
     \\                if (self.weak == 0) self.allocator.destroy(self);
     \\            }

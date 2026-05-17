@@ -55,6 +55,15 @@ const SymbolEntry = struct {
     /// ownership pass enforces the V1 non-copyability so the
     /// emitter doesn't need to defend against rebinds.
     is_closure: bool = false,
+
+    /// M20h(4/5): set on a binding produced by
+    /// `cb = *Closure(fn |...| body)`. Distinct from `is_closure`:
+    /// the binding is an ordinary `*T` shared handle (auto-drop,
+    /// clone, weak-ref all flow through the usual `*T` paths), but
+    /// the call rewrite is different (`cb()` → `cb.value.invoke()`
+    /// instead of `cb.invoke()`) because the closure value is
+    /// inside an `RcBox` payload, not a direct struct.
+    is_owned_closure: bool = false,
 };
 
 const ScopeFrame = struct {
@@ -85,6 +94,13 @@ pub const Emitter = struct {
     /// a unique `rig_blk_<n>` label so nested expressions never shadow.
     /// See `emitBranchExpr`.
     block_label_counter: u32 = 0,
+
+    /// M20h(4/5): counter for owned-closure construction sites. Each
+    /// `*Closure(fn |...| body)` literal generates a unique anonymous
+    /// env struct + a labeled block to construct + initialize it. The
+    /// counter prevents label / type-name collisions when multiple
+    /// closure literals appear in the same function.
+    closure_env_counter: u32 = 0,
 
     /// Per-function pre-scan: names that are reassigned in the body,
     /// so they need `var` instead of `const` in Zig. Reset at the
@@ -854,6 +870,61 @@ pub const Emitter = struct {
         return false;
     }
 
+    /// M20h(4/5): mirror of `markClosure` for owned closures
+    /// (`cb = *Closure(fn ...)`). Sets `is_owned_closure = true`
+    /// on the most-recently-declared symbol with `rig_name` in
+    /// the current scope.
+    fn markOwnedClosure(self: *Emitter, rig_name: []const u8) void {
+        if (self.scopes.items.len == 0) return;
+        const top = &self.scopes.items[self.scopes.items.len - 1];
+        var i = top.symbols.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (std.mem.eql(u8, top.symbols.items[i].rig_name, rig_name)) {
+                top.symbols.items[i].is_owned_closure = true;
+                return;
+            }
+        }
+    }
+
+    /// M20h(4/5): mirror of `lookupIsClosure` for owned closures.
+    /// True iff the bare name resolves to an owned-closure binding
+    /// in the visible scope chain.
+    fn lookupIsOwnedClosure(self: *const Emitter, rig_name: []const u8) bool {
+        var i = self.scopes.items.len;
+        while (i > 0) {
+            i -= 1;
+            const frame = &self.scopes.items[i];
+            var j = frame.symbols.items.len;
+            while (j > 0) {
+                j -= 1;
+                const s = frame.symbols.items[j];
+                if (std.mem.eql(u8, s.rig_name, rig_name)) return s.is_owned_closure;
+            }
+        }
+        return false;
+    }
+
+    /// M20h(4/5): consult sema to determine whether the binding
+    /// at `name_node` has type `shared(parameterized_nominal(Closure,
+    /// _))` or `shared(nominal(Closure))`. Used by `emitSetOrBind`
+    /// as a fallback when neither the RHS shape nor the type
+    /// annotation identifies the binding — e.g., for `cb = +other`,
+    /// `cb = make_counter()`, captures with `cap_clone` of a
+    /// `*Closure()` outer, etc.
+    fn isOwnedClosureBindingViaSema(self: *const Emitter, name_node: Sexp) bool {
+        const sema = self.sema orelse return false;
+        if (name_node != .src) return false;
+        const name = self.source[name_node.src.pos..][0..name_node.src.len];
+        const decl_pos = name_node.src.pos;
+        for (sema.symbols.items) |sym| {
+            if (sym.decl_pos != decl_pos) continue;
+            if (!std.mem.eql(u8, sym.name, name)) continue;
+            return semaTypeIsOwnedClosure(sema, sym.ty);
+        }
+        return false;
+    }
+
     /// M20e.1: scope-aware resource classification for use sites
     /// (`<rc`, `-rc`, `return rc`, the auto-deref bridge). Replaces
     /// the M20e(1/5) `resourceKindOfBareUse` global scan, which had
@@ -1098,6 +1169,18 @@ pub const Emitter = struct {
             return;
         }
 
+        // M20h(4/5): owned-closure binding. The RHS is a `(share
+        // (call Closure (lambda ...)))` shape — a `*Closure()`
+        // construction. Sema typed the binding as `*Closure()`
+        // (shared(closure)), so resource_kind = .shared is set by
+        // the regular path below and auto-drop / clone / weak-ref
+        // all flow through the existing `*T` shared-handle paths.
+        // The ONLY thing different is `cb()` invocation: it must
+        // become `cb.value.invoke()` (Closure0 vtable jump) rather
+        // than the M20g `cb.invoke()` (direct struct method). We
+        // mark the binding so `emitCall` can apply that rewrite.
+        const is_owned_closure_rhs = isOwnedClosureConstruction(self.source, expr);
+
         if (is_shadow or found == null) {
             if (is_shadow and found != null) {
                 // Mark the shadowed binding as "used" so Zig doesn't error
@@ -1109,6 +1192,24 @@ pub const Emitter = struct {
             // in the emitter's scope table so use-site disarms find
             // it via scope-aware lookup (sound under shadowing).
             try self.declareWithResourceKind(name, zig_name, self.resourceKindOfBinding(name_node));
+            // M20h(4/5): mark owned-closure bindings so `emitCall`
+            // rewrites `cb()` to `cb.value.invoke()`. We mark when
+            // ANY of three signals identifies the binding as owned-
+            // closure:
+            //   - RHS shape is `*Closure(fn ...)` (immediate construction)
+            //   - type annotation is `*Closure()`
+            //   - sema's type for the binding is `shared(closure)`
+            //     (covers `cb = +other_cb`, `cb = make_counter()`,
+            //     captures, etc. — anywhere the value comes from a
+            //     `*Closure()` source other than direct construction)
+            // The marking is done AFTER `declareWithResourceKind` so
+            // it targets the freshly-installed scope entry.
+            if (is_owned_closure_rhs or
+                isOwnedClosureTypeNode(self.source, type_node) or
+                self.isOwnedClosureBindingViaSema(name_node))
+            {
+                self.markOwnedClosure(name);
+            }
             // `var` only if reassigned later. `=!` always emits `const`.
             //
             // M20f(2/4): Cell(T) (and other future interior-mutable
@@ -1319,6 +1420,188 @@ pub const Emitter = struct {
         // original handle at scope exit.
         try self.emitClosureCaptureGuards(captures, zig_name);
         _ = name_node;
+    }
+
+    /// M20h(4/5): emit the owned-closure construction expression for
+    /// `(share (call Closure (lambda ...)))`. The shape is a single
+    /// labeled-block expression that:
+    ///
+    ///   1. Defines a UNIQUE anonymous env struct local to the
+    ///      block (`Env`), with one field per capture plus two
+    ///      `fn rigInvoke`/`fn rigDrop` thunks bound to that env
+    ///      layout.
+    ///   2. Heap-allocates an `Env`, initializes its capture
+    ///      fields (clone/weakRef/copy/move per capture mode —
+    ///      same as M20g's stack-local closures).
+    ///   3. Wraps a `rig.Closure0` vtable struct (`ctx = env_ptr`,
+    ///      `invoke_fn = Env.rigInvoke`, `drop_fn = Env.rigDrop`,
+    ///      `allocator = defaultAllocator()`) and feeds it through
+    ///      `rig.rcNew(...)` to get back the `*RcBox(Closure0)`
+    ///      handle.
+    ///
+    /// The `Env` type is local to each construction's block, so
+    /// every `*Closure(fn ...)` literal in the function gets its
+    /// own layout matching exactly its capture list. The surface
+    /// type `*Closure()` (uniform `*RcBox(Closure0)`) hides the
+    /// per-literal env via `ctx: *anyopaque`.
+    ///
+    /// Drop semantics: `RcBox(Closure0).dropStrong()` on last
+    /// strong calls `Closure0.__rig_drop` (M20h(1/5) runtime
+    /// hook) which calls our `Env.rigDrop(env_ptr, allocator)`.
+    /// `rigDrop` drops each resource capture + `allocator.destroy(env)`.
+    /// CRITICAL: this happens at LAST-STRONG-DROP, NOT at each
+    /// binding's scope-exit. That's what makes `cb2 = +cb; -cb;
+    /// cb2()` safe — `cb`'s drop releases its strong, but `cb2`
+    /// still holds a strong, so captures aren't freed yet.
+    fn emitOwnedClosureConstruction(
+        self: *Emitter,
+        call_items: []const Sexp,
+    ) Error!void {
+        // call_items: (call Closure (lambda CAPTURES PARAMS RETURNS BODY))
+        const lambda = call_items[2];
+        const lambda_items = lambda.list;
+        const captures = lambda_items[1];
+        const body = lambda_items[4];
+
+        const env_id = self.closure_env_counter;
+        self.closure_env_counter += 1;
+
+        // Labeled block: `rig_closure_<n>: { ... }` so nested
+        // construction sites don't collide on the break-out label.
+        try self.w.print("rig_closure_{d}: {{\n", .{env_id});
+        self.indent += 1;
+
+        // 1. Inline anonymous env struct, scoped to this block.
+        try self.indentSpaces();
+        try self.w.writeAll("const Env = struct {\n");
+        self.indent += 1;
+        try self.emitClosureFields(captures);
+        try self.emitOwnedClosureInvokeThunk(captures, body, lambda);
+        try self.emitOwnedClosureDropThunk(captures);
+        self.indent -= 1;
+        try self.indentSpaces();
+        try self.w.writeAll("};\n");
+
+        // 2. Allocate the env on the heap.
+        try self.indentSpaces();
+        try self.w.writeAll("const __rig_env = rig.defaultAllocator().create(Env) catch @panic(\"Rig closure env allocation failed\");\n");
+
+        // 3. Initialize env's capture fields. Mode-aware (clone /
+        //    weakRef / move / copy) — reuses M20g's helper. The
+        //    leading `.` makes it an inferred struct literal whose
+        //    type Zig grabs from the LHS pointer (`*Env`).
+        try self.indentSpaces();
+        try self.w.writeAll("__rig_env.* = .");
+        try self.emitClosureInit(captures);
+        try self.w.writeAll(";\n");
+
+        // 4. Wrap in Closure0 + rcNew, break out with the handle.
+        try self.indentSpaces();
+        try self.w.print(
+            "break :rig_closure_{d} (rig.rcNew(rig.Closure0{{ .ctx = __rig_env, .invoke_fn = Env.rigInvoke, .drop_fn = Env.rigDrop, .allocator = rig.defaultAllocator() }}) catch @panic(\"Rig Rc allocation failed\"));\n",
+            .{env_id},
+        );
+
+        self.indent -= 1;
+        try self.indentSpaces();
+        try self.w.writeAll("}");
+    }
+
+    /// M20h(4/5): emit the `rigInvoke(ctx: *anyopaque) void` thunk.
+    /// Inside the thunk, ctx is `@ptrCast(@alignCast)`-narrowed to
+    /// `*@This()` (= `*Env`) and bound to the local name `self` so
+    /// `emitClosureBody`'s capture remapping (which writes
+    /// `self.cap_<n>`) works unchanged.
+    fn emitOwnedClosureInvokeThunk(
+        self: *Emitter,
+        captures: Sexp,
+        body: Sexp,
+        lambda: Sexp,
+    ) Error!void {
+        try self.indentSpaces();
+        try self.w.writeAll("fn rigInvoke(ctx: *anyopaque) void {\n");
+        self.indent += 1;
+        try self.indentSpaces();
+        try self.w.writeAll("const self: *@This() = @ptrCast(@alignCast(ctx));\n");
+        // Register captures in a fresh scope frame so bare capture
+        // names in the body emit as `self.cap_<n>` — same trick the
+        // M20g `emitClosureInvoke` uses. We open the scope here so
+        // the captures live for the duration of the body emit and
+        // get popped before the closing brace.
+        try self.pushScope();
+        // Pacify the unused-self warning for void-bodied closures
+        // with unreferenced captures. Same scan M20g uses.
+        if (!bodyReferencesAnyCapture(self.source, body, captures)) {
+            try self.indentSpaces();
+            try self.w.writeAll("_ = self;\n");
+        }
+        if (isCapturesNode(captures)) {
+            for (captures.list[1..]) |cap| {
+                const name_node = captureNameSrc(cap) orelse continue;
+                const name = self.source[name_node.src.pos..][0..name_node.src.len];
+                const qualified = std.fmt.allocPrint(
+                    self.name_arena.allocator(),
+                    "self.cap_{s}",
+                    .{name},
+                ) catch return error.OutOfMemory;
+                const cap_kind = self.closureCaptureBodyResourceKind(cap, name_node);
+                try self.declareWithResourceKind(name, qualified, cap_kind);
+            }
+        }
+        // Emit body statements. Owned closures are no-arg void-return
+        // in M20h, so no implicit-return rewrite needed.
+        if (body == .list and body.list.len > 0 and body.list[0] == .tag and
+            body.list[0].tag == .@"block")
+        {
+            for (body.list[1..]) |stmt| {
+                try self.indentSpaces();
+                try self.emitStmt(stmt);
+                try self.w.writeAll("\n");
+            }
+        } else {
+            try self.indentSpaces();
+            try self.emitStmt(body);
+            try self.w.writeAll("\n");
+        }
+        try self.popScope();
+        // M20g's lambda return type (M20h pin: void only) — emit
+        // is hard-coded to void return here; if a future M20h+
+        // adds typed-return closures, this is the integration
+        // point.
+        _ = lambda;
+        self.indent -= 1;
+        try self.indentSpaces();
+        try self.w.writeAll("}\n");
+    }
+
+    /// M20h(4/5): emit the `rigDrop(ctx: *anyopaque, allocator)
+    /// void` thunk. Drops each resource capture in declaration
+    /// order, then `allocator.destroy(env)`. Drop methods match
+    /// `RcBox`/`WeakHandle` runtime API.
+    fn emitOwnedClosureDropThunk(self: *Emitter, captures: Sexp) Error!void {
+        try self.indentSpaces();
+        try self.w.writeAll("fn rigDrop(ctx: *anyopaque, allocator: std.mem.Allocator) void {\n");
+        self.indent += 1;
+        try self.indentSpaces();
+        try self.w.writeAll("const self: *@This() = @ptrCast(@alignCast(ctx));\n");
+        if (isCapturesNode(captures)) {
+            for (captures.list[1..]) |cap| {
+                const name_node = captureNameSrc(cap) orelse continue;
+                const kind = self.closureCaptureBodyResourceKind(cap, name_node) orelse continue;
+                const name = self.source[name_node.src.pos..][0..name_node.src.len];
+                const drop_method: []const u8 = switch (kind) {
+                    .shared => "dropStrong",
+                    .weak => "dropWeak",
+                };
+                try self.indentSpaces();
+                try self.w.print("self.cap_{s}.{s}();\n", .{ name, drop_method });
+            }
+        }
+        try self.indentSpaces();
+        try self.w.writeAll("allocator.destroy(self);\n");
+        self.indent -= 1;
+        try self.indentSpaces();
+        try self.w.writeAll("}\n");
     }
 
     fn emitClosureCaptureGuards(
@@ -2630,8 +2913,19 @@ pub const Emitter = struct {
             // get inferred as a synthetic comptime struct and the
             // resulting `*RcBox(synthetic_struct)` mismatches the
             // expected `*RcBox(rig.Cell(i32))`.
+            //
+            // M20h(4/5): `*Closure(fn |...| body)` is the owned-
+            // closure construction shape — special-cased before the
+            // generic share path because the value being boxed is a
+            // synthesized `rig.Closure0` (vtable) wrapping a per-
+            // literal anonymous env struct. See
+            // `emitOwnedClosureConstruction` for the full shape.
             .@"share" => {
                 if (items.len < 2) return;
+                if (isOwnedClosureConstruction(self.source, items[1])) {
+                    try self.emitOwnedClosureConstruction(items[1].list);
+                    return;
+                }
                 try self.w.writeAll("(rig.rcNew(");
                 if (self.shouldExplicitTypeShareInner(items[1])) {
                     try self.emitExplicitTypedConstruction(items[1]);
@@ -2787,6 +3081,13 @@ pub const Emitter = struct {
         // ownership pass already guarantees the closure is in
         // call-receiver position, so we never see this name in
         // a context that would require .invoke handling elsewhere.
+        //
+        // M20h(4/5): owned-closure invocation. When the callee is
+        // a binding of type `*Closure()`, the value lives inside
+        // an RcBox payload — lower `cb()` to `cb.value.invoke()`
+        // (Closure0's no-arg vtable invocation). Distinct from the
+        // M20g path because the closure isn't a direct struct.
+        // M20h sema rejects `cb(args)`, so this path never has args.
         if (items[1] == .src) {
             const cn = self.source[items[1].src.pos..][0..items[1].src.len];
             if (self.lookupIsClosure(cn)) {
@@ -2799,6 +3100,11 @@ pub const Emitter = struct {
                     try self.emitExpr(arg);
                 }
                 try self.w.writeAll(")");
+                return;
+            }
+            if (self.lookupIsOwnedClosure(cn)) {
+                const zig_name = self.lookup(cn) orelse cn;
+                try self.w.print("{s}.value.invoke()", .{zig_name});
                 return;
             }
         }
@@ -3301,6 +3607,63 @@ pub const Emitter = struct {
 /// `rig.` namespace prefix decision in type emission.
 fn isBuiltinNominalName(name: []const u8) bool {
     return std.mem.eql(u8, name, "Cell") or std.mem.eql(u8, name, "Closure");
+}
+
+/// M20h(4/5): does the Sexp look like `(call Closure (lambda ...))`?
+/// Pure structural check — same predicate sema and ownership use.
+fn isOwnedClosureConstruction(source: []const u8, inner: Sexp) bool {
+    if (inner != .list) return false;
+    const items = inner.list;
+    if (items.len < 3) return false;
+    if (items[0] != .tag or items[0].tag != .@"call") return false;
+    const callee = items[1];
+    if (callee != .src) return false;
+    const callee_name = source[callee.src.pos..][0..callee.src.len];
+    if (!std.mem.eql(u8, callee_name, "Closure")) return false;
+    const args = items[2..];
+    if (args.len != 1) return false;
+    const arg = args[0];
+    return arg == .list and arg.list.len >= 1 and arg.list[0] == .tag and
+        arg.list[0].tag == .@"lambda";
+}
+
+/// M20h(4/5): does the type annotation IR Sexp look like
+/// `(shared (generic_inst Closure))`? Used by `emitSetOrBind` to
+/// recognize bindings declared as `*Closure()` even when the RHS
+/// isn't an immediate construction (e.g., `cb: *Closure() = +other`).
+fn isOwnedClosureTypeNode(source: []const u8, type_node: Sexp) bool {
+    if (type_node != .list) return false;
+    const items = type_node.list;
+    if (items.len < 2) return false;
+    if (items[0] != .tag or items[0].tag != .@"shared") return false;
+    const inner = items[1];
+    if (inner != .list) return false;
+    const inner_items = inner.list;
+    if (inner_items.len < 2) return false;
+    if (inner_items[0] != .tag or inner_items[0].tag != .@"generic_inst") return false;
+    const name_node = inner_items[1];
+    if (name_node != .src) return false;
+    const name = source[name_node.src.pos..][0..name_node.src.len];
+    return std.mem.eql(u8, name, "Closure");
+}
+
+/// M20h(4/5): does the sema-side TypeId describe `*Closure()` —
+/// the owned-closure handle? Free helper rather than method because
+/// emit's sema reference is `*const SemContext`; this keeps the
+/// callsite ergonomic without smuggling state into Emitter.
+fn semaTypeIsOwnedClosure(sema: *const types.SemContext, ty_id: types.TypeId) bool {
+    if (sema.closure_sym_id == types.symbol_invalid) return false;
+    const ty = sema.types.get(ty_id);
+    const inner_id = switch (ty) {
+        .shared => |t| t,
+        else => return false,
+    };
+    const inner_ty = sema.types.get(inner_id);
+    return switch (inner_ty) {
+        .nominal => |s| s == sema.closure_sym_id,
+        .parameterized_nominal => |pn| pn.sym == sema.closure_sym_id,
+        else => false,
+    };
 }
 
 /// M20h: built-in nominal types whose Rig-surface name differs
