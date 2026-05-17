@@ -1,19 +1,28 @@
-# M20g(2/5): `|~rc|` weak-capture. Requires the outer to be a
-# shared handle `*T`; the captured value is `~T` (weak).
+# M20g: `|~rc|` weak-capture. Requires the outer to be a shared
+# handle `*T`; the captured value is `~T` (weak). Weak captures
+# DON'T extend the underlying allocation's lifetime — they just
+# observe whether the strong handle is still alive.
 #
-# Inside the body, accessing the underlying value requires
-# `.upgrade()` (per M20d.2). For (2/5), we just exercise the
-# sema-side mode/type validation — the body just typechecks
-# the weak handle.
+# The closure body here is void-returning (just a `print` call)
+# so we exercise the capture-lifetime path without forcing the
+# user to plumb `.upgrade()` (which returns `(*T)?` and would
+# bring optional-formatting into the golden test). Multiple
+# invocations confirm the captured weak survives across calls.
 #
 # Verifies:
 #   - `fn |~rc| ...` typechecks; captured slot is `~T`
 #   - Outer `*T` is not consumed (cap_weak is non-mutating)
-#   - Bare reference to the weak handle inside the body is fine
-#     for sema (no upgrade needed for the type-check itself)
+#   - Weak capture survives multiple invocations because the
+#     closure-instance guard (M20g(4/5)) drops only at the
+#     closure binding's scope exit
+#   - LIFO defer ordering drops the closure's captured weak
+#     before the outer's strong, so the strong handle is still
+#     valid when the weak's drop runs
 
 sub main()
   rc: *Cell(Int) = *Cell(value: 1)
   watch = fn |~rc|
-    rc
+    print('observing weak')
   watch()
+  watch()
+  print(rc.get())

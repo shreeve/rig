@@ -1292,7 +1292,71 @@ pub const Emitter = struct {
         // Pacify Zig's never-mutated warning for closures that are
         // only invoked.
         try self.w.print(" _ = &{s};", .{zig_name});
+
+        // M20g(4/5): install one M20e-style guard per RESOURCE
+        // capture, anchored at the closure-instance's enclosing
+        // scope. The guard's drop expression accesses the captured
+        // handle through the closure struct (`<closure>.cap_<n>`)
+        // so it's keyed on the closure-instance lifetime, NOT
+        // per-invocation — closures may be invoked many times,
+        // and the captured handle must persist until the closure
+        // binding itself leaves scope.
+        //
+        // Pairs with M20g(3/5)'s emit of the capture init:
+        //   - cap_clone shared/weak: clone() bumped refcount;
+        //     guard drops the cloned handle at scope exit.
+        //   - cap_weak: weakRef() created a fresh weak; guard
+        //     drops it (dropWeak) at scope exit.
+        //   - cap_move resource: outer's guard already disarmed
+        //     via the M20e labeled-block recipe at construction
+        //     time; new guard takes over from there.
+        //   - cap_copy / cap_clone Copy: no resource, no guard.
+        //
+        // Defer ordering is LIFO — the closure's capture defers
+        // fire BEFORE the outer's bare-binding defers, so e.g.
+        // `rc = *Cell(...); f = fn |+rc| ...` cleanly drops the
+        // closure's cloned strong handle before the outer's
+        // original handle at scope exit.
+        try self.emitClosureCaptureGuards(captures, zig_name);
         _ = name_node;
+    }
+
+    fn emitClosureCaptureGuards(
+        self: *Emitter,
+        captures: Sexp,
+        closure_zig_name: []const u8,
+    ) Error!void {
+        if (!isCapturesNode(captures)) return;
+        for (captures.list[1..]) |cap| {
+            const name_node = captureNameSrc(cap) orelse continue;
+            const kind = self.closureCaptureBodyResourceKind(cap, name_node) orelse continue;
+            const cap_name = self.source[name_node.src.pos..][0..name_node.src.len];
+            const drop_method: []const u8 = switch (kind) {
+                .shared => "dropStrong",
+                .weak => "dropWeak",
+            };
+            // Variable name: `__rig_alive_<closure>_cap_<n>` — the
+            // closure-and-capture pair uniquely identifies the
+            // guard, so multiple closures with same-named captures
+            // (across sibling scopes) never collide.
+            try self.w.writeAll("\n");
+            try self.indentSpaces();
+            try self.w.print(
+                "var __rig_alive_{s}_cap_{s}: bool = true;",
+                .{ closure_zig_name, cap_name },
+            );
+            try self.w.writeAll("\n");
+            try self.indentSpaces();
+            try self.w.print(
+                "defer if (__rig_alive_{s}_cap_{s}) {{ __rig_alive_{s}_cap_{s} = false; {s}.cap_{s}.{s}(); }};",
+                .{
+                    closure_zig_name, cap_name,
+                    closure_zig_name, cap_name,
+                    closure_zig_name, cap_name,
+                    drop_method,
+                },
+            );
+        }
     }
 
     fn emitClosureFields(self: *Emitter, captures: Sexp) Error!void {
@@ -1407,6 +1471,19 @@ pub const Emitter = struct {
         self.indent += 1;
         try self.pushScope();
         const ret_is_void = self.closureReturnIsVoid(lambda);
+
+        // Pacify Zig's unused-parameter check on `self` for the
+        // case where the body never reads any capture (Zig also
+        // forbids a `_ = self;` discard when self IS used — so
+        // we must scan first). Without this, a void-body lambda
+        // like `fn |+rc| print('alive')` would fail Zig compile
+        // with "unused function parameter" on the synthesized
+        // `self: *@This()` slot.
+        const captures = lambda.list[1];
+        if (!bodyReferencesAnyCapture(self.source, body, captures)) {
+            try self.indentSpaces();
+            try self.w.writeAll("_ = self;\n");
+        }
 
         if (body == .list and body.list.len > 0 and body.list[0] == .tag and
             body.list[0].tag == .@"block")
@@ -3496,6 +3573,51 @@ fn captureNameSrc(cap: Sexp) ?Sexp {
     return switch (cap.list[0].tag) {
         .@"cap_copy", .@"cap_clone", .@"cap_weak", .@"cap_move" => cap.list[1],
         else => null,
+    };
+}
+
+/// M20g(3/5): true iff `body` contains any bare-name reference
+/// (`.src`) matching one of the capture names in `captures`.
+/// Drives the `_ = self;` pacification: Zig forbids the discard
+/// when self IS used, but also requires self use somewhere. Body
+/// references to capture names get rewritten in emit to
+/// `self.cap_<n>`, so a capture-name `.src` reaching this scan
+/// means the body will reference `self.cap_<n>` and we should
+/// SKIP the discard. Returns true for the lookup-finds-capture
+/// case AND for explicit `(deref self)`/`(member self ...)`
+/// shapes — both keep `self` live for Zig.
+fn bodyReferencesAnyCapture(source: []const u8, body: Sexp, captures: Sexp) bool {
+    if (!isCapturesNode(captures)) return false;
+    return scanBodyForCaptureRef(source, body, captures.list[1..]);
+}
+
+fn scanBodyForCaptureRef(source: []const u8, sexp: Sexp, caps: []const Sexp) bool {
+    return switch (sexp) {
+        .src => |s| blk: {
+            const text = source[s.pos..][0..s.len];
+            for (caps) |c| {
+                const nn = captureNameSrc(c) orelse continue;
+                if (nn != .src) continue;
+                const cn = source[nn.src.pos..][0..nn.src.len];
+                if (std.mem.eql(u8, text, cn)) break :blk true;
+            }
+            break :blk false;
+        },
+        .list => |items| blk: {
+            // Don't recurse into nested lambdas (those have their
+            // own scope; the outer captures are not visible by
+            // M20g sema, so any bare-name match would be a false
+            // positive from a same-named local inside the inner
+            // lambda).
+            if (items.len > 0 and items[0] == .tag and items[0].tag == .@"lambda") {
+                break :blk false;
+            }
+            for (items) |child| {
+                if (scanBodyForCaptureRef(source, child, caps)) break :blk true;
+            }
+            break :blk false;
+        },
+        else => false,
     };
 }
 
