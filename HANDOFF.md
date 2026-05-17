@@ -11,11 +11,13 @@ once; then it's a reference.
 - **Project**: Rig is a systems language ("Zig-fast, Rust-safe,
   Ruby-readable") that compiles to Zig 0.16. Repo:
   `/Users/shreeve/Data/Code/rig`.
-- **Where we are**: Just shipped **M20e** — automatic scope-exit
-  drop for `*T` / `~T` bindings via Zig `defer` guards (per GPT-
-  5.5's M20e design pass). **600 tests passing, 0 failing.** Clean
-  tree on `main`, all pushed. The M20d / M20e arc is complete — V1
-  has real, ergonomic shared/weak ownership semantics.
+- **Where we are**: Just shipped **M20e + M20e.1** — automatic
+  scope-exit drop for `*T` / `~T` bindings via Zig `defer` guards,
+  plus post-review tactical fixes (reassignment disarm-order under
+  fallible RHS, scoped resource classification under shadowing, `<-`
+  move-assign disarm). **606 tests passing, 0 failing.** Clean tree
+  on `main`, all pushed. The M20d / M20e arc is complete — V1 has
+  real, ergonomic shared/weak ownership semantics.
 - **Next milestone**: pick one of two M20+ items. Both feed the
   reactive-substrate validation:
   - **M20f: Interior mutability — `Cell(T)` library type** (M20+
@@ -187,9 +189,9 @@ Fix: `walkSet` now dedups on `.default` kind via the new
 `SemContext.lookupInScopeOnly`. `.fixed` (`=!`) and `.shadow`
 (`new x = ...`) still unconditionally add new symbols.
 
-### Tests added across M20e
+### Tests added across M20e + M20e.1
 
-Eight new EMIT_TARGETS:
+M20e itself (six new EMIT_TARGETS):
 - `auto_drop_basic.rig` — pure auto-drop, no explicit `-rc`
 - `factory_returns_rc.rig` — bare `return rc` factory pattern
 - `reassign_rc.rig` — drop-and-rearm on reassignment
@@ -197,10 +199,16 @@ Eight new EMIT_TARGETS:
 - `auto_drop_early_return.rig` — early return from nested if
 - `auto_drop_in_loop.rig` — resource declared inside while body
 
-Plus 6 existing resource-bearing examples regenerated with the
-new guard preamble (semantically unchanged at runtime).
+M20e.1 regressions (two new EMIT_TARGETS for fixes from GPT-5.5's
+post-implementation review):
+- `auto_drop_shadow_across_fns.rig` — scoped resource
+  classification under cross-function shadowing.
+- `move_assign_rc.rig` — `<-` move-assign disarms the RHS.
 
-**Total: 564 → 600 (+36).**
+Plus 6 existing resource-bearing examples regenerated with the
+M20e guard preamble.
+
+**Total: 564 → 606 (+42).**
 
 ### M20e coverage gaps (deferred)
 
@@ -208,12 +216,16 @@ new guard preamble (semantically unchanged at runtime).
    the pre-existing M20+ #14 gap (`try_block` emit still emits
    `@compileError`). Once try-block lands, defer-guard should
    Just Work; add the regression test then.
-2. **`<-` move-assign LHS reassignment with resource RHS** —
-   implementation path should be identical to `=` reassignment
-   (kind-dispatched in `emitSet`); just not pinned as a golden.
-3. **`i = i + 1` inside a nested block** — pre-existing
+2. **`i = i + 1` inside a nested block** — pre-existing
    `scanMutations` issue with per-block `seen` masking the outer
    binding. Workaround: use `i += 1`. Unrelated to M20e.
+3. **Unbound resource temporaries** — `(*User(...)).field` and
+   similar shapes that don't bind the allocation to a name fall
+   outside M20e's RAII contract. SPEC §Shared Ownership now
+   documents the binding-only boundary; the M20e auto-drop
+   only fires for named bindings and parameters. A future
+   ergonomics milestone may close this by rejection or hidden-
+   temp lowering.
 
 ---
 
@@ -436,15 +448,23 @@ above. Models live in
    `"(" type ")" → 2` action leaks the literal parens into the
    IR, so users can't currently spell `(*T)?` in type
    annotations. Workaround: type inference. Pre-existing.
-2. **Emit's `handleKindOf` global symbol scan** (also
-   `resourceKindOfBareUse` in M20e): first-match-wins
-   shadowing fragility. M20d.1 fixed the ownership-side scope-
-   aware lookup; emit-side stays as a TODO. Failure mode is
-   loud (Zig compile error), not silent. The systematic fix is
-   a sema-side use-site attribution table (`pos → SymbolId`
-   built during type-check), shared between emit and ownership.
-   Tracked here; would also subsume the M20a.2 two-self-methods
-   fragility. **High leverage cleanup.**
+2. **Emit's `handleKindOf` and `resourceKindOfBareUse` use a
+   scope-aware lookup as of M20e.1** (the original first-match-
+   wins global scan was a memory-safety hazard for auto-drop
+   disarm and got fixed). The legacy concern about the M20a.2
+   two-self-methods fragility (still uses a global name scan in
+   the print-polish path elsewhere) remains; the systematic fix
+   is a sema-side use-site attribution table (`pos → SymbolId`
+   built during type-check) that all consumers can query.
+   Lower priority now that the highest-stakes consumer
+   (auto-drop) is sound.
+3. **`SymbolResolver.walkSet` outer-scope assignment**: M20e(3/5)
+   dedup is same-scope only. `x = ...` in an inner scope when
+   `x` only exists in an outer scope currently still creates a
+   fresh inner symbol — possibly inconsistent with SPEC's
+   "implicit shadowing is illegal" rule. Should be audited
+   against the SPEC before M20f Cell starts touching block-
+   scoped state.
 3. **`scanMutations` per-block `seen` masking** — `i = i + 1`
    inside a nested block is treated as a fresh declaration
    instead of a mutation. Workaround: use `i += 1`. Surfaced

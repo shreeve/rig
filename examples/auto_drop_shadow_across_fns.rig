@@ -1,0 +1,35 @@
+# M20e.1 (per GPT-5.5's M20e post-implementation review): two
+# functions with a same-named local binding but DIFFERENT
+# resource classifications. Before the M20e.1 scoped-emitter-
+# metadata fix, emit's `resourceKindOfBareUse` did a first-match-
+# wins global sema symbol scan — it would have found `take_int`'s
+# `x: Int` first and mis-classified `make_rc`'s `x: *U` as non-
+# resource. The `return x` disarm would have been silently
+# skipped, the function-scope defer would have dropped the
+# returned handle, and main's `rc` would have been dangling on
+# the first `rc.value` access.
+#
+# After M20e.1: each binding's resource classification is stored
+# in the emitter's scope frame at `declareWithResourceKind` time,
+# and `lookupResourceKind` walks scopes innermost-first. The two
+# `x` bindings live in separate scopes; lookups in `make_rc`'s
+# scope find the `*U` x and emit the disarm correctly.
+#
+# Verifies: `bin/rig run` prints 99 and the runtime asserts fire
+# zero times (one allocation in `make_rc`, one drop in `main`).
+
+struct U
+  v: Int
+
+sub take_int(x: Int)
+  print(x)
+
+fun make_rc() -> *U
+  x = *U(v: 99)
+  return x
+
+sub main()
+  take_int(5)
+  rc = make_rc()
+  print(rc.v)
+  -rc

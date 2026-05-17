@@ -1,0 +1,1 @@
+(module (struct U (: v Int)) (sub take_int ((: x Int)) _ (block (call print x))) (fun make_rc () (shared U) (block (set _ x _ (share (call U (kwarg v 99)))) (return x))) (sub main () _ (block (call take_int 5) (set _ rc _ (call make_rc)) (call print (member rc v)) (drop rc))))

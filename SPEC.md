@@ -288,6 +288,34 @@ scope exit; they do NOT run on `@panic` / `unreachable`. Programs
 that panic with live resource handles leak those handles (the
 process is dying anyway). Document for clarity, not for change.
 
+### Resource temporaries (named-binding RAII boundary)
+
+**V1 auto-drop applies to named bindings and parameters.** Unbound
+`*expr` temporaries — for example `consume(*User(name: "a"))` or
+`(*User(name: "a")).field` — are NOT automatically dropped by
+M20e. They are only safe in positions where the receiving context
+takes ownership of the handle:
+
+- ✅ `consume(*User(...))` where `consume` has a `*User`
+  parameter (the callee owns it; its own M20e guard drops it).
+- ⚠️ `(*User(...)).field` — read access on an unbound temporary
+  leaks the allocation.
+- ⚠️ `*User(...)` as a bare expression-statement — leaks.
+
+For V1, bind the result to a name and let M20e auto-drop handle
+it:
+
+```rig
+rc = *User(name: "a")
+print(rc.field)
+# rc auto-drops at scope exit
+```
+
+A future ergonomics milestone may either reject leak-shaped
+temporaries with a clear diagnostic or lower them to hidden
+guarded bindings; for V1 the binding-only boundary is the
+contract.
+
 ### Alias Discipline (M20d, enforced now)
 
 Bare `*T` / `~T` handles cannot be reused without making the

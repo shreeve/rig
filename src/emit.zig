@@ -29,9 +29,24 @@ const Writer = std.Io.Writer;
 
 pub const Error = std.mem.Allocator.Error || Writer.Error || rig.BindingKindError;
 
+/// M20e: classification of a binding's resource type. File-scope so
+/// the SymbolEntry / scope-table can carry it without a circular ref.
+pub const ResourceKind = enum { shared, weak };
+
 const SymbolEntry = struct {
     rig_name: []const u8,
     zig_name: []const u8, // may differ from rig_name due to shadowing
+    /// M20e.1: resource classification carried in the emitter's scope
+    /// table so use-site disarm (`<rc`, `-rc`, `return rc`) and the
+    /// auto-deref bridge can dispatch correctly under shadowing. The
+    /// original M20e(1/5) implementation used a global symbol scan
+    /// (`resourceKindOfBareUse`) which first-match-wins picked the
+    /// wrong binding when the same name was reused across functions
+    /// — and for auto-drop disarm that's a memory-safety bug (a
+    /// returned handle could be dropped by the function defer if the
+    /// disarm missed). Per GPT-5.5's M20e post-implementation review:
+    /// scoped emitter metadata is the correct phase to carry this.
+    resource_kind: ?ResourceKind = null,
 };
 
 const ScopeFrame = struct {
@@ -741,7 +756,10 @@ pub const Emitter = struct {
         }
         if (name_node != .src) return;
         const nm = self.source[name_node.src.pos..][0..name_node.src.len];
-        try self.declare(nm, nm);
+        // M20e.1: record param's resource classification (if any)
+        // alongside its scope-table entry, so use-site lookups see
+        // the correct kind under shadowing.
+        try self.declareWithResourceKind(nm, nm, self.resourceKindOfBinding(name_node));
     }
 
     // -------------------------------------------------------------------------
@@ -759,9 +777,47 @@ pub const Emitter = struct {
     }
 
     fn declare(self: *Emitter, rig_name: []const u8, zig_name: []const u8) Error!void {
+        try self.declareWithResourceKind(rig_name, zig_name, null);
+    }
+
+    /// M20e.1: like `declare`, but records the binding's resource
+    /// classification (`shared` / `weak`) in the emitter's scope
+    /// table. Callers query via `lookupResourceKind` at use sites —
+    /// scope-aware lookup, sound under shadowing.
+    fn declareWithResourceKind(
+        self: *Emitter,
+        rig_name: []const u8,
+        zig_name: []const u8,
+        kind: ?ResourceKind,
+    ) Error!void {
         if (self.scopes.items.len == 0) try self.pushScope();
         const top = &self.scopes.items[self.scopes.items.len - 1];
-        try top.symbols.append(self.allocator, .{ .rig_name = rig_name, .zig_name = zig_name });
+        try top.symbols.append(self.allocator, .{
+            .rig_name = rig_name,
+            .zig_name = zig_name,
+            .resource_kind = kind,
+        });
+    }
+
+    /// M20e.1: scope-aware resource classification for use sites
+    /// (`<rc`, `-rc`, `return rc`, the auto-deref bridge). Replaces
+    /// the M20e(1/5) `resourceKindOfBareUse` global scan, which had
+    /// first-match-wins shadowing fragility unacceptable for auto-
+    /// drop disarm (a missed disarm = dangling pointer returned to
+    /// caller). Walks the scope stack innermost-first.
+    fn lookupResourceKind(self: *const Emitter, rig_name: []const u8) ?ResourceKind {
+        var i = self.scopes.items.len;
+        while (i > 0) {
+            i -= 1;
+            const frame = &self.scopes.items[i];
+            var j = frame.symbols.items.len;
+            while (j > 0) {
+                j -= 1;
+                const s = frame.symbols.items[j];
+                if (std.mem.eql(u8, s.rig_name, rig_name)) return s.resource_kind;
+            }
+        }
+        return null;
     }
 
     /// Look up the Zig name for a Rig name, walking scopes.
@@ -926,7 +982,20 @@ pub const Emitter = struct {
             .@"-=" => try self.emitCompoundAssign(name, "-=", expr),
             .@"*=" => try self.emitCompoundAssign(name, "*=", expr),
             .@"/=" => try self.emitCompoundAssign(name, "/=", expr),
-            .@"move", .default => try self.emitSetOrBind(name, name_node, type_node, expr, false, false),
+            // M20e.1 (per GPT-5.5's M20e post-implementation review):
+            // `<-` move-assign with a resource RHS must consume the
+            // source — same as the `(move x)` wrapped form. Without
+            // this, `rc2 <- rc` lowered to `rc2 = rc;` (Zig pointer
+            // copy) leaving BOTH guards armed → scope-exit defers
+            // double-drop on the same RcBox → UAF. Synthesize a
+            // `(move RHS)` wrapper so the resource-aware emit path
+            // installs the disarm.
+            .@"move" => {
+                var wrapped_items = [_]Sexp{ .{ .tag = .@"move" }, expr };
+                const wrapped = Sexp{ .list = &wrapped_items };
+                try self.emitSetOrBind(name, name_node, type_node, wrapped, false, false);
+            },
+            .default => try self.emitSetOrBind(name, name_node, type_node, expr, false, false),
             .fixed => try self.emitSetOrBind(name, name_node, type_node, expr, true, false),
             .shadow => try self.emitSetOrBind(name, name_node, type_node, expr, false, true),
         }
@@ -960,7 +1029,10 @@ pub const Emitter = struct {
                 try self.w.print("_ = {s}; ", .{found.?});
                 zig_name = try self.freshShadow(name);
             }
-            try self.declare(name, zig_name);
+            // M20e.1: record the binding's resource classification
+            // in the emitter's scope table so use-site disarms find
+            // it via scope-aware lookup (sound under shadowing).
+            try self.declareWithResourceKind(name, zig_name, self.resourceKindOfBinding(name_node));
             // `var` only if reassigned later. `=!` always emits `const`.
             const is_mutated = self.fn_mutated.contains(name);
             const decl_kw: []const u8 = if (is_fixed or !is_mutated) "const" else "var";
@@ -1015,11 +1087,28 @@ pub const Emitter = struct {
             const found_name = found.?;
             const resource_kind = self.resourceKindOfBareUse(name);
             if (resource_kind) |kind| {
+                // M20e.1 (per GPT-5.5 post-implementation review):
+                // disarm INSIDE the drop-old block, BEFORE evaluating
+                // the RHS. The original M20e(3/5) ordering
+                //     drop_old; rhs; arm = true
+                // double-dropped on fallible RHS: if `<rhs>` propagated
+                // an error (via `expr!`), Zig unwinds the scope with
+                // `__rig_alive_x == true` but the old handle had
+                // already been dropped — the scope-exit defer would
+                // call dropStrong on a freed box.
+                //
+                // Correct shape: clear the flag as part of the old-
+                // handle release atomic step, then evaluate RHS, then
+                // re-arm only after the assignment completes. If RHS
+                // propagates, the flag is false and the defer is a
+                // no-op (correct: the new handle never landed).
                 const drop_method: []const u8 = switch (kind) {
                     .shared => "dropStrong",
                     .weak => "dropWeak",
                 };
-                try self.w.print("if (__rig_alive_{s}) {s}.{s}(); ", .{ found_name, found_name, drop_method });
+                try self.w.print("if (__rig_alive_{s}) {{ {s}.{s}(); __rig_alive_{s} = false; }} ", .{
+                    found_name, found_name, drop_method, found_name,
+                });
             }
             try self.w.print("{s} = ", .{found_name});
             try self.emitExpr(expr);
@@ -1081,24 +1170,17 @@ pub const Emitter = struct {
         return null;
     }
 
-    /// M20e: classify a use-site bare-name reference for guard-disarm
-    /// purposes. Same as `handleKindOf` semantically, but returns the
-    /// Zig-side name so we can construct the guard-variable spelling.
-    /// Bridges the `.src` use to its declaration via the Checker's
-    /// existing scope-aware lookup chain (well, via emit's scope
-    /// table built in `pushScope`/`declare`).
+    /// M20e.1: classify a use-site bare-name reference via the
+    /// emitter's scope-aware metadata. Replaces the M20e(1/5) global
+    /// sema scan — that approach was first-match-wins and could
+    /// mis-classify resources under cross-function shadowing, which
+    /// for auto-drop disarm is a memory-safety hazard (a missed
+    /// disarm leaves the function-scope defer dropping a returned
+    /// handle). Per GPT-5.5's M20e post-implementation review:
+    /// scope-aware metadata carried at `declareWithResourceKind`
+    /// time is the correct phase for this lookup.
     fn resourceKindOfBareUse(self: *const Emitter, name: []const u8) ?ResourceKind {
-        const sema = self.sema orelse return null;
-        for (sema.symbols.items) |sym| {
-            if (!std.mem.eql(u8, sym.name, name)) continue;
-            const ty = sema.types.get(sym.ty);
-            return switch (ty) {
-                .shared => .shared,
-                .weak => .weak,
-                else => null,
-            };
-        }
-        return null;
+        return self.lookupResourceKind(name);
     }
 
     /// M20e: emit the resource-binding guard preamble.
@@ -1154,41 +1236,23 @@ pub const Emitter = struct {
         try self.emitResourceDisarm(zig_name);
     }
 
-    pub const ResourceKind = enum { shared, weak };
-
     const HandleKind = enum { shared, weak, other };
     fn handleKindOf(self: *const Emitter, expr: Sexp) HandleKind {
-        const sema = self.sema orelse return .other;
         return switch (expr) {
             .src => |s| blk: {
                 const name = self.source[s.pos..][0..s.len];
-                // KNOWN FRAGILITY (per GPT-5.5's M20d post-review):
-                // first-match-wins global symbol scan. Two functions
-                // with the same param name `rc` but different types
-                // (one `*Box`, one `Int`) will mis-classify the
-                // second one depending on declaration order. The
-                // mis-classification is a LOUD failure (Zig compile
-                // error like "no field 'X' on RcBox" or "method not
-                // found"), never silent runtime corruption.
-                //
-                // Workaround: rename one of the bindings, or wrap the
-                // use site in an explicit `<rc` / `+rc` (the wrapped
-                // forms take precedence over the bare-name lookup
-                // via the list arm below).
-                //
-                // The deeper fix is sema-side use-site attribution
-                // (`pos → SymbolId` table built during type-check)
-                // shared between emit and ownership. Tracked in
-                // HANDOFF §3 as a known fragility; queued as part of
-                // M20e prep (ownership.zig's own scope-aware lookup
-                // already removed this hazard from the alias rule).
-                for (sema.symbols.items) |sym| {
-                    if (!std.mem.eql(u8, sym.name, name)) continue;
-                    const ty = sema.types.get(sym.ty);
-                    return switch (ty) {
+                // M20e.1: scope-aware bare-name classification via
+                // the emitter's `lookupResourceKind` (declared at
+                // `declareWithResourceKind` time on each binding).
+                // Replaces the prior first-match-wins global sema
+                // scan, which was fragile under cross-function
+                // shadowing. The scope-aware path is sound under
+                // shadowing because each binding's resource_kind is
+                // recorded against its own scope frame.
+                if (self.lookupResourceKind(name)) |kind| {
+                    break :blk switch (kind) {
                         .shared => .shared,
                         .weak => .weak,
-                        else => .other,
                     };
                 }
                 break :blk .other;

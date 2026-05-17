@@ -1239,6 +1239,95 @@ analysis-driven. Rig didn't have to build a CFG drop elaborator.
 
 **Tests across M20e: 564 → 600 (+36). All green.**
 
+### M20e.1 — post-implementation review fixes ✅
+Tactical pass after GPT-5.5's M20e post-implementation review
+surfaced two correctness bugs and one design debt. Tests grew
+600 → 606 (+6).
+
+**Must-fix 1: reassignment double-drop on fallible RHS.**
+
+The M20e(3/5) reassignment lowering was:
+
+```zig
+if (__rig_alive_rc) rc.dropStrong();
+rc = <rhs>;
+__rig_alive_rc = true;
+```
+
+If `<rhs>` propagated an error (`expr!`), Zig unwinds the scope
+with `__rig_alive_rc == true` but the old handle had already
+been dropped — the scope-exit defer would call `dropStrong()` on
+a freed box. UAF on the failure path.
+
+Fix: disarm INSIDE the drop-old block, before evaluating RHS:
+
+```zig
+if (__rig_alive_rc) { rc.dropStrong(); __rig_alive_rc = false; }
+rc = <rhs>;
+__rig_alive_rc = true;
+```
+
+If RHS propagates, the flag is false and the defer is a no-op
+(correct — the new handle never landed).
+
+**Must-fix 2: scoped resource classification.**
+
+M20e(1/5)'s `resourceKindOfBareUse` did first-match-wins on
+`sema.symbols.items` — a flat scan. Under cross-function
+shadowing (`fun a() { x = ~rc }`, `fun b() -> *U { x = *U(...);
+return x }`) the scan could mis-classify `x` and silently skip
+the disarm in `b()`'s `return x`. The function defer would then
+drop the returned handle, leaving the caller with a dangling
+pointer.
+
+Fix: scope-aware resource metadata carried in the emitter's own
+scope table. New file-scope `ResourceKind` enum, new
+`SymbolEntry.resource_kind` field, new
+`declareWithResourceKind(rig_name, zig_name, ?ResourceKind)` +
+`lookupResourceKind(rig_name) ?ResourceKind`. Each binding /
+param records its kind at declaration time (sound under
+shadowing per `decl_pos`); use sites query scope-aware. Both
+`resourceKindOfBareUse` AND `handleKindOf`'s `.src` arm rewired
+to use the scoped lookup.
+
+**Recommended 3: `<-` move-assign with resource RHS.**
+
+Surfaced during M20e.1's regression-test sweep — actually a
+THIRD must-fix. `rc2 <- rc` was emitting a bare pointer copy
+without disarming the RHS source, double-dropping at scope exit
+(segfault on the second `dropStrong`).
+
+Fix: in `emitSet`, for the `.@"move"` kind, synthesize a
+`(move RHS)` wrapper around the RHS Sexp before passing to
+`emitSetOrBind`. The resource-aware `(move ...)` emit path then
+installs the disarm via the M20e(1/5) labeled-block expression.
+
+**Recommended 4: resource-temporaries SPEC note.**
+
+SPEC §Shared Ownership now documents the named-binding RAII
+boundary: M20e auto-drop applies to named bindings and params,
+NOT to unbound `*expr` temporaries. Bind to a name and let the
+compiler manage it. A future ergonomics milestone may close
+this gap with rejection or hidden-temp lowering; the V1
+contract is binding-only.
+
+**Recommended 5: outer-scope assignment audit (HANDOFF only).**
+
+The M20e(3/5) `SymbolResolver.walkSet` dedup was scoped to
+same-scope only. Outer-scope assignment (`x = ...` in an inner
+scope when `x` only exists in an outer) currently still creates
+a fresh inner symbol — possibly inconsistent with SPEC's
+"implicit shadowing is illegal" rule. Flagged in HANDOFF §8 for
+audit; not blocking M20e.
+
+**Tests**: 2 new regression EMIT_TARGETS:
+- `auto_drop_shadow_across_fns.rig` — pins the scoped-resource-
+  classification fix (would have segfaulted pre-M20e.1).
+- `move_assign_rc.rig` — pins the `<-` move-assign fix (would
+  have segfaulted pre-M20e.1).
+
+**Tests across M20e + M20e.1: 564 → 606 (+42). All green.**
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note

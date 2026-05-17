@@ -1,0 +1,25 @@
+# M20e.1 (per GPT-5.5's M20e post-implementation review): `<-`
+# move-assign with a resource RHS. Without M20e.1, `rc2 <- rc`
+# emitted bare `rc2 = rc;` (Zig pointer copy) leaving BOTH guards
+# armed — the scope-exit defers double-drop the same RcBox and
+# segfault.
+#
+# After M20e.1: the `<-` kind in `emitSet` synthesizes a `(move
+# RHS)` wrapper so the resource-aware move path installs the
+# RHS disarm via the labeled-block expression. Together with the
+# drop-and-rearm on the LHS, the move-assign is sound:
+#   1. rc2's old handle drops (free).
+#   2. rc disarms; rc2 = rc (Zig copy, but rc is logically gone).
+#   3. rc2 guard re-arms.
+# At scope exit: rc defer no-ops (alive=false); rc2 defer drops.
+# Exactly one allocation per handle, exactly one drop per
+# allocation.
+
+struct U
+  v: Int
+
+sub main()
+  rc = *U(v: 1)
+  rc2 = *U(v: 2)
+  rc2 <- rc
+  print(rc2.v)
