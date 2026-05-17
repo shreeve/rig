@@ -22,6 +22,26 @@
 //!     the value's slot but does not run user destructors. M20e adds
 //!     compiler-synthesized scope-exit drops.
 //!
+//! Per the M20h design checkpoint with GPT-5.5 (entry 17):
+//!
+//!   - `Closure0` is the type-erased no-arg/void-return closure ABI.
+//!     A vtable struct carrying `ctx: *anyopaque`, `invoke_fn`,
+//!     `drop_fn`, and `allocator`. Each closure literal generates a
+//!     unique env struct holding captures + invoke/drop thunks; the
+//!     env is heap-allocated SEPARATELY from the surrounding `RcBox`
+//!     and freed by `drop_fn` when the closure's strong count hits
+//!     zero. The type erasure (uniform `Closure0` surface for all
+//!     closure literals) is what makes `*Closure()` a real handle —
+//!     returnable from functions, storable in struct fields, etc.
+//!   - `RcBox(T).dropStrong()` runs `T.__rig_drop(&self.value)` on
+//!     last strong when `T` declares it. This is the hook closures
+//!     use to drop their captures + free the env at the right
+//!     moment. Other payload types are unaffected.
+//!   - `hasRigDrop(T)` is a `comptime` predicate that only inspects
+//!     containers (`struct`/`union`/`enum`/`opaque`). Primitives like
+//!     `i32` lack the `@hasDecl` syntax, so the helper avoids any
+//!     Zig-version surprises.
+//!
 //! The source is kept here as a single `pub const source: []const u8`
 //! so the driver can write it byte-for-byte to the output directory
 //! without any build-time path coordination. Editing this file changes
@@ -37,6 +57,22 @@ pub const source =
     \\//! scope-exit drop is planned for M20e (before closure capture).
     \\
     \\const std = @import("std");
+    \\
+    \\/// Compile-time predicate: does `T` declare `__rig_drop`?
+    \\///
+    \\/// Used by `RcBox(T).dropStrong()` to invoke a payload's
+    \\/// destructor hook on last-strong-drop. Only container kinds
+    \\/// (struct/union/enum/opaque) can declare functions, so for
+    \\/// primitive payloads (`i32`, `bool`, etc.) the answer is
+    \\/// always `false`. Wrapping `@hasDecl` in this switch makes
+    \\/// the runtime robust to Zig-version differences in how
+    \\/// `@hasDecl` handles non-container types.
+    \\pub fn hasRigDrop(comptime T: type) bool {
+    \\    return switch (@typeInfo(T)) {
+    \\        .@"struct", .@"union", .@"enum", .@"opaque" => @hasDecl(T, "__rig_drop"),
+    \\        else => false,
+    \\    };
+    \\}
     \\
     \\/// Reference-counted box. `strong` counts owning handles; `weak`
     \\/// counts weak handles plus an implicit `+1` while `strong > 0` to
@@ -78,17 +114,25 @@ pub const source =
     \\            return .{ .ptr = self };
     \\        }
     \\
-    \\        /// Decrement strong count. When it reaches zero, release the
-    \\        /// implicit weak `+1`; if weak also reaches zero (no live weak
-    \\        /// handles), free the box.
+    \\        /// Decrement strong count. When it reaches zero, run the
+    \\        /// payload's `__rig_drop` (if it declares one), then release
+    \\        /// the implicit weak `+1`; if weak also reaches zero (no
+    \\        /// live weak handles), free the box.
     \\        ///
-    \\        /// V1: does NOT run a user-defined destructor on `value`. M20e
-    \\        /// or later adds the Drop hook.
+    \\        /// `__rig_drop(&self.value)` runs while the RcBox is still
+    \\        /// valid and `strong == 0` — meaning any weak-upgrade
+    \\        /// attempt from inside the destructor (or from another
+    \\        /// thread, future-multithreading) will correctly fail.
+    \\        /// This is the M20h hook used by `Closure0` to free its
+    \\        /// heap-allocated env + drop captured resources.
+    \\        ///
+    \\        /// Containers without `__rig_drop` (the M20a-M20g cases)
+    \\        /// short-circuit on the comptime branch — no runtime cost.
     \\        pub fn dropStrong(self: *Self) void {
     \\            std.debug.assert(self.strong > 0);
     \\            self.strong -= 1;
     \\            if (self.strong == 0) {
-    \\                // Future: run user-defined Drop on `self.value` here.
+    \\                if (hasRigDrop(T)) self.value.__rig_drop();
     \\                self.weak -= 1; // release implicit +1
     \\                if (self.weak == 0) self.allocator.destroy(self);
     \\            }
@@ -173,6 +217,47 @@ pub const source =
     \\        }
     \\    };
     \\}
+    \\
+    \\/// Closure0 — M20h type-erased no-arg / void-return closure.
+    \\///
+    \\/// Each closure literal in Rig source generates a unique anonymous
+    \\/// env struct (`RIG_CLOSURE_ENV_N`) holding its captures plus
+    \\/// invoke/drop thunks tailored to those captures. The env is
+    \\/// allocated separately from the surrounding `RcBox(Closure0)`;
+    \\/// the env pointer is type-erased to `*anyopaque` so that
+    \\/// `*Closure()` is a uniform handle type regardless of which
+    \\/// literal produced it. That uniformity is what makes
+    \\/// `*Closure()` returnable from functions, storable in struct
+    \\/// fields, and aliasable through ordinary `+` / `<` / `~`.
+    \\///
+    \\/// `invoke(self)` jumps through the per-literal `invoke_fn` thunk
+    \\/// (which knows the real env layout and calls the lambda body
+    \\/// with captures threaded through).
+    \\///
+    \\/// `__rig_drop(self)` is the destructor hook honored by
+    \\/// `RcBox(T).dropStrong()` on last strong: it calls the per-
+    \\/// literal `drop_fn` thunk so capture-drops + env-free run at
+    \\/// the right moment (NOT at each binding's scope-exit defer,
+    \\/// which would UAF on `cb2 = +cb; -cb; cb2()`).
+    \\pub const Closure0 = struct {
+    \\    ctx: *anyopaque,
+    \\    invoke_fn: *const fn (*anyopaque) void,
+    \\    drop_fn: *const fn (*anyopaque, std.mem.Allocator) void,
+    \\    allocator: std.mem.Allocator,
+    \\
+    \\    const Self = @This();
+    \\
+    \\    pub fn invoke(self: *Self) void {
+    \\        self.invoke_fn(self.ctx);
+    \\    }
+    \\
+    \\    /// Honored by `RcBox(Closure0).dropStrong()` via the
+    \\    /// `hasRigDrop` predicate. Runs when the last strong handle
+    \\    /// to the closure drops, before the control block is freed.
+    \\    pub fn __rig_drop(self: *Self) void {
+    \\        self.drop_fn(self.ctx, self.allocator);
+    \\    }
+    \\};
     \\
     \\/// V1 default allocator for `*expr` boxes. Single-threaded, page-
     \\/// based. Later milestones may surface an allocator parameter; for

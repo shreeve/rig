@@ -1660,7 +1660,9 @@ pub const Emitter = struct {
             },
             .nominal => |sym_id| {
                 const sym = sema.symbols.items[sym_id];
-                if (isBuiltinNominalName(sym.name)) {
+                if (builtinZigSpelling(sym.name)) |spelled| {
+                    try self.w.print("rig.{s}", .{spelled});
+                } else if (isBuiltinNominalName(sym.name)) {
                     try self.w.print("rig.{s}", .{sym.name});
                 } else {
                     try self.w.writeAll(sym.name);
@@ -1668,6 +1670,13 @@ pub const Emitter = struct {
             },
             .parameterized_nominal => |pn| {
                 const sym = sema.symbols.items[pn.sym];
+                // M20h: `Closure` is zero-arity by construction; emit
+                // bare `rig.Closure0` (the type-erased ABI), NOT
+                // `rig.Closure()` (which Zig doesn't have).
+                if (builtinZigSpelling(sym.name)) |spelled| {
+                    try self.w.print("rig.{s}", .{spelled});
+                    return;
+                }
                 if (isBuiltinNominalName(sym.name)) {
                     try self.w.print("rig.{s}", .{sym.name});
                 } else {
@@ -3234,6 +3243,18 @@ pub const Emitter = struct {
                         const name_node = items[1];
                         if (name_node == .src) {
                             const name = self.source[name_node.src.pos..][0..name_node.src.len];
+                            // M20h: built-in zero-arity generics
+                            // (`Closure()`) lower to a bare Zig type
+                            // name (`rig.Closure0`) — no parens, no
+                            // type args. The mapping table handles
+                            // both: when a builtin needs a different
+                            // Zig spelling than its Rig name, we
+                            // short-circuit without emitting the
+                            // `(args)` suffix.
+                            if (builtinZigSpelling(name)) |spelled| {
+                                try self.w.print("rig.{s}", .{spelled});
+                                return;
+                            }
                             if (isBuiltinNominalName(name)) try self.w.writeAll("rig.");
                             try self.w.writeAll(name);
                         } else {
@@ -3276,10 +3297,29 @@ pub const Emitter = struct {
 // =============================================================================
 
 /// M20f: is `name` one of Rig's built-in nominal types whose Zig
-/// implementation lives in `_rig_runtime.zig`? Currently just
-/// `Cell`. The list grows as more stdlib types get runtime-baked.
+/// implementation lives in `_rig_runtime.zig`? Used for the
+/// `rig.` namespace prefix decision in type emission.
 fn isBuiltinNominalName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "Cell");
+    return std.mem.eql(u8, name, "Cell") or std.mem.eql(u8, name, "Closure");
+}
+
+/// M20h: built-in nominal types whose Rig-surface name differs
+/// from their Zig spelling. Returns the Zig spelling (without the
+/// `rig.` namespace prefix) when a remapping applies, otherwise
+/// null. The caller is responsible for adding `rig.` itself.
+///
+/// `Closure` lowers to `Closure0` because the type is a bare
+/// vtable struct (no generic args) — Zig doesn't accept
+/// `rig.Closure()` for a non-generic type, and the `0` suffix
+/// leaves room for `Closure1`/`Closure2`/etc. when Rig grows
+/// arity-bearing closures in a future milestone.
+///
+/// `Cell` does NOT remap — its Rig name and Zig generic function
+/// name are identical. The 1:1 mapping is what `isBuiltinNominalName`
+/// covers; this helper is only for the divergent cases.
+fn builtinZigSpelling(name: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, name, "Closure")) return "Closure0";
+    return null;
 }
 
 /// M20e helper: extract the name `.src` node from any param shape.

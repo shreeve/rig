@@ -447,6 +447,19 @@ pub const SemContext = struct {
     /// the V1 Copy-only restriction.
     cell_sym_id: SymbolId = symbol_invalid,
 
+    /// M20h: built-in `Closure()` generic_type SymbolId (zero
+    /// type parameters — the type is "no-arg, void-return closure
+    /// handle"). Set by `registerBuiltins` during `check`. Used by
+    /// `resolveType` to:
+    ///   - tailor the diagnostic when a user writes bare `Closure`
+    ///     (the "write `Closure(T)`" message is wrong for the
+    ///     zero-arity case; we say "write `Closure()`" instead);
+    ///   - tailor the diagnostic for non-empty args (`Closure(Int)`
+    ///     should hint that V1 closures are no-arg only).
+    /// Future M20h+ sub-commits also consult this from sema /
+    /// emit to recognize `*Closure(...)` construction.
+    closure_sym_id: SymbolId = symbol_invalid,
+
     /// M20g(2/5): per-lambda body-return TypeId. Keyed by the
     /// `(lambda ...)` IR node's first `.src` position (recovered
     /// at emit time via the same helper). Populated by
@@ -747,6 +760,44 @@ fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.E
         .receiver = .read,
     };
     ctx.symbols.items[cell_sym_id].fields = fields;
+
+    // M20h: register `Closure()` as a zero-arity built-in generic
+    // type. The surface syntax `cb: *Closure() = *Closure(fn ...)`
+    // gives users an explicit, namespace-clean handle for escaping
+    // closures (mirrors `*Cell(value: 0)` — explicit constructor,
+    // visible Rc allocation). Subsequent M20h sub-commits will
+    // teach sema/ownership/emit how to recognize the
+    // `*Closure(fn ...)` construction shape and lower it through
+    // a per-literal env struct + type-erased `Closure0` vtable.
+    //
+    // For (1/5) we only need the symbol so type-position
+    // `cb: *Closure()` parses + resolves and emit lowers the
+    // type spelling to `*rig.RcBox(rig.Closure0)`. Construction
+    // and invocation come in (2/5)-(4/5).
+    //
+    // No type parameters: a future M20h+ might add no-arg-only
+    // generics over capture lists or return types, but V1 keeps
+    // `Closure()` as a single uniform handle type.
+    const closure_sym_id = blk: {
+        const id: SymbolId = @intCast(ctx.symbols.items.len);
+        try ctx.symbols.append(ctx.allocator, .{
+            .name = "Closure",
+            .kind = .generic_type,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_decl_pos,
+            .scope = module_scope,
+        });
+        try ctx.scopes.items[module_scope].symbols.append(ctx.allocator, id);
+        break :blk id;
+    };
+    ctx.closure_sym_id = closure_sym_id;
+
+    // Closure has zero type_params. Allocate an empty slice (rather
+    // than leaving `type_params = null`) so the arity check in
+    // `TypeResolver.resolveType` (`if (supplied.len != expected_count)`)
+    // computes `expected_count = 0` cleanly via `tps.len`.
+    const closure_type_params = try ctx.arena.allocator().alloc(SymbolId, 0);
+    ctx.symbols.items[closure_sym_id].type_params = closure_type_params;
 }
 
 /// M20f.1 per GPT-5.5: names reserved for built-in nominal types
@@ -756,7 +807,7 @@ fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.E
 /// would be mis-classified as built-in and emit would prefix
 /// `rig.` to a user type).
 fn isReservedBuiltinName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "Cell");
+    return std.mem.eql(u8, name, "Cell") or std.mem.eql(u8, name, "Closure");
 }
 
 /// M20f: is a TypeId a Copy type for Cell(T) instantiation? V1
@@ -2314,8 +2365,19 @@ const TypeResolver = struct {
                     // `x: Box` should error, only `x: Box(Int)` is
                     // valid. Return invalid_id; the use site fires
                     // the diagnostic.
+                    //
+                    // M20h: special-case zero-arity built-in
+                    // generics (`Closure`) since the "write `T(T)`"
+                    // hint is wrong for them. Bare `Closure` should
+                    // hint `Closure()` — the no-arg, void-return
+                    // closure handle type spelling.
                     if (sym.kind == .generic_type) {
-                        try self.err(s.pos, "generic type `{s}` requires type arguments; write `{s}(T)`", .{ name, name });
+                        const expects_args = if (sym.type_params) |tps| tps.len > 0 else false;
+                        if (expects_args) {
+                            try self.err(s.pos, "generic type `{s}` requires type arguments; write `{s}(T)`", .{ name, name });
+                        } else {
+                            try self.err(s.pos, "generic type `{s}` must be written with empty parentheses; write `{s}()`", .{ name, name });
+                        }
                         return self.ctx.types.invalid_id;
                     }
                     // Generic-param symbols are detached (per M20b(5/5)

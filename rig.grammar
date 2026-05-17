@@ -390,6 +390,7 @@ returns  = "->" type                        → 2
 
 type     = name
          | name "(" L(type) ")"             → (generic_inst 1 ...3) # M14: Box(Int), Result(T, E)
+         | name "(" ")"                     → (generic_inst 1)      # M20h: zero-arity generic, e.g., Closure()
          | type SUFFIX_Q                    → (optional 1)     # T?  optional type (suffix binds tightest)
          | type SUFFIX_BANG                 → (error_union 1)  # T!  fallible type (error union)
          | READ_PFX             type        → (borrow_read 2)  # ?T  read-borrowed type (param/return)
