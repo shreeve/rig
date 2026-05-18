@@ -1,22 +1,19 @@
-# Phase B canary scaffold (PB0).
+# Phase B canary (PB0 → PB1 → PB2 layers).
 #
-# Purpose: establish the reactive validation test location and
-# anchor the substrate baseline. Per the GPT-5.5 Phase B
-# checkpoint, this file is NOT a library — it's the canary that
-# exposes what the substrate is missing for the
-# `rig-reactive` validation milestone (REACTIVITY-DESIGN.md
-# §Phase B).
+# Purpose: anchor the reactive validation milestone. Per the
+# GPT-5.5 Phase B checkpoint, this file is NOT a library — it's
+# the canary that proves each Phase B substrate piece composes
+# end-to-end (REACTIVITY-DESIGN.md §Phase B).
 #
-# The canary grows over multiple commits:
+# The canary has grown alongside each substrate milestone:
 #
-#   PB0  (this file) — baseline: Cell + stack-local closure work
-#   M20h — owned/escaping closure values; design checkpoint
-#          required (substrate-level decision on closure ABI,
-#          drop model, type spelling)
-#   PB1  — single retained Effect using M20h
-#   M20i — resource-aware Vec(T) for multi-subscriber lists
-#   PB2  — Cell -> Effect notification (multiple subscribers)
-#   PB3  — Memo + batching + topology (Reactor.flush)
+#   PB0  baseline: Cell + stack-local closure       ✅ shipped
+#   M20h owned/escaping closure values              ✅ shipped
+#   PB1  single retained Effect (folded M20h(5/5))  ✅ shipped
+#   M20i resource-aware Vec(T)                      ✅ shipped
+#   PB2  Signal: single-subscriber notification     ✅ NEW HERE
+#   PB3  multi-subscriber + batching + topology    pending (needs
+#         resource-Vec iteration; M20i.1 / M20j)
 #
 # Each substrate gap exposed by the canary gets fixed on main,
 # not in the library. Per the design doc: "the library is the
@@ -57,14 +54,30 @@ sub main()
   eff()
   print(count.get())                # 13
 
-
-  # TODO M20i: resource-aware Vec(T) for subscriber lists. The
-  # Cell.subscribers field in the full library is a
-  # Vec(~Effect) — weak handles to retained closures. Vec(T)
-  # must call .dropStrong()/.dropWeak() on resource elements at
-  # remove / clear / Vec drop time; a naive ArrayList wrapper
-  # would memcpy-copy handles and leak refcounts.
+  # PB2 (Signal primitive shipped): single-subscriber Cell →
+  # Effect notification. The Signal(T) builtin combines a
+  # Cell-like value slot with an OPTIONAL retained closure
+  # subscriber. On `signal.set(v)`, the value updates AND the
+  # subscriber (if any) is invoked synchronously. This is the
+  # minimum viable reactive primitive — proves "retained
+  # subscriber observes state change" without committing to
+  # multi-subscriber semantics or batching/topology (those
+  # land in PB3 after resource-Vec iteration is designed).
   #
-  # subs: Vec(~Effect) = Vec.new()
-  # subs.push(~eff)
-  # ...
+  # Per GPT-5.5's PB2 design: single subscriber is enough to
+  # validate the load-bearing claim. Don't pre-bake
+  # multi-subscriber until the actual gap (Vec iteration)
+  # is designed under real use pressure.
+  sig: *Signal(Int) = *Signal(value: 0)
+  log: *Closure() = *Closure(fn |+sig| print(sig.get()))
+  sig.subscribe(+log)
+  sig.set(7)                        # 7  (set triggers log)
+  sig.set(99)                       # 99 (same)
+
+  # TODO PB3 (multi-subscriber): once resource-Vec iteration
+  # (M20i.1 / M20j) lands, generalize Signal to hold
+  # `Vec(*Closure())` and notify all subscribers on `set`.
+  # The substrate piece already validated by
+  # `examples/vec_subscribers.rig` (Vec drop cascades
+  # correctly through all retained handles); the missing
+  # piece is the notify-iteration primitive itself.
