@@ -643,10 +643,57 @@ Now contains, in order:
     every binding's defer would UAF on `cb2 = +cb; -cb;
     cb2()`); type erasure + `__rig_drop` on last strong is
     the fix. See §4 above for the full locked design summary.
+18. **Grammar-blocker resolution for M20h(2/5)** — picked the
+    narrow `FN captures inline_body` form (with `inline_body
+    = call → (block 1)`) over braces or pre-bind workarounds.
+    Conflict count 38 → 69 (all benign S/R, prefer-shift).
+19. **M20h post-implementation review** — signed off the
+    full arc with one must-fix (`in_set_rhs` leak → M20h.1)
+    and several wording refinements (M20h-as-async substrate
+    not ABI; bare-Closure rejection wording; "Closure0"
+    numbering rationale).
+20. **Async / Clojure / Nexis influence review** (the most
+    recent turn). Reviewed Claude's analysis of a ChatGPT-5
+    digest on Rust async + Clojure borrowings + Steve's Nexis
+    project. Corrected: M20h validates substrate not ABI;
+    PersistentVec-first for M20i is overreach (M20i stays
+    mutable resource-aware Vec). Signed off `docs/INFLUENCES.md`
+    with small wording fixes (now applied).
 
 To continue the thread for the next arc, pass `conversation_id`
 and `model` as above. Models live in
 `/Users/shreeve/.cursor/projects/Users-shreeve-Data-Code-rig/mcps/user-ai/tools/`.
+
+---
+
+## 6b. Future arcs (deferred, NOT roadmap commitments)
+
+These are documented in `docs/INFLUENCES.md` as design-space
+options to weigh when the time comes. They are NOT on the
+near-term roadmap; they are NOT promises to ship.
+
+- **Async via `^` sigil**. Plausible candidate spellings:
+  `^expr` (await), `^T` (Future<T>). NOT `expr^` (suffix
+  preserved for future use; deliberate non-commitment).
+  Async ships only after structured concurrency, which
+  ships only after reactivity validation. See INFLUENCES §3
+  and §8 Rule 2.
+- **Structured concurrency**. The layer between reactivity
+  (M20i / PB2 / PB3) and async. Trio-style nurseries vs
+  Kotlin-style coroutine scopes is an open question. Design
+  checkpoint after Phase B is done.
+- **CHAMP-backed persistent collections**. Architecturally
+  studied via the Nexis project (`/Users/shreeve/Data/Code/nexis`),
+  which ships real CHAMP + plain trie + transients + xxHash3
+  on Zig. Nexis brought its own GC; Rig cannot. Implementation
+  options: Rc-every-node (viable but expensive), arena-per-
+  snapshot (defeats the point), region/epoch (open).
+  Demoted to M20j+ conditional on Phase B exposing the need.
+- **User-defined `Drop`**. The M20h `__rig_drop` runtime hook
+  is already extensible to user types declaring `__rig_drop`.
+  When V1 grows a Drop story, the substrate is ready.
+- **Style guide that idiomatically prefers `=!`**. NOT a
+  surface flip; cultural / documentation. See INFLUENCES §5.
 
 ---
 

@@ -1815,19 +1815,44 @@ the M20+ items below):
 
 **Soon (substrate maturity):**
 
-9. `%T` unsafe-effect lattice + `unsafe` block / fn-modifier
-   (SPEC §Unsafe / Raw — text landed; checker enforcement TBD)
-10. `pre` AST extraction for derive-style macros
+8.5. ~~**Owned/escaping closure values (`*Closure()`)**~~ ✅
+   **Landed in M20h** above. Heap-owned, type-erased
+   `Closure0` ABI with `__rig_drop`-on-last-strong cleanup.
+   PB1 (single retained Effect) folded into M20h(5/5) canary
+   refresh.
+9. **Resource-aware `Vec(T)`** (M20i — NEXT, design checkpoint
+   pending). For multi-subscriber lists and general resource-
+   element storage. Per `docs/INFLUENCES.md` §7: V1 stays
+   **mutable resource-aware Vec**; persistent collections are
+   demoted to M20j+ conditional on Phase B's notification
+   pattern showing snapshot-iteration value.
+10. `%T` unsafe-effect lattice + `unsafe` block / fn-modifier
+    (SPEC §Unsafe / Raw — text landed; checker enforcement TBD)
+11. `pre` AST extraction for derive-style macros
     (REACTIVITY-DESIGN D8)
-11. Explicit error sets in `T!E` return types
-12. Module path canonicalization (M15b)
-13. Guard patterns (`x if cond => body`) — M13-deferred due to
+12. Explicit error sets in `T!E` return types
+13. Module path canonicalization (M15b)
+14. Guard patterns (`x if cond => body`) — M13-deferred due to
     `if` keyword conflict risk
-14. Try-block lowering (still `@compileError`)
-15. Expected-type propagation through bindings / calls / returns
-16. Opaque types
-17. Fold of `effects.zig` into `types.zig` once expression typing
+15. Try-block lowering (still `@compileError`)
+16. Expected-type propagation through bindings / calls / returns
+17. Opaque types
+18. Fold of `effects.zig` into `types.zig` once expression typing
     is rich enough to express "non-fallible expected here" naturally
+
+**Conditional / influence-driven (see `docs/INFLUENCES.md`):**
+
+- **CHAMP-backed persistent collections** (`PersistentVec(T)` /
+  `PersistentMap(K, V)`). Architectural target if Phase B's
+  notification path demonstrates snapshot-iteration value;
+  otherwise indefinitely deferred. Per INFLUENCES.md §6, the
+  Nexis project (`/Users/shreeve/Data/Code/nexis`) is the
+  Clojure-on-Zig reality check — Rig can borrow architecture
+  (CHAMP > HAMT, plain trie, xxHash3, transients) but NOT
+  Nexis's GC-backed implementation.
+- **Structured concurrency** (scope-bound tasks, automatic
+  cancellation propagation). The layer above reactivity and
+  below async. Designed before async per INFLUENCES.md §8.
 
 **Deferred to V2 or later** (per SPEC §V2/V3):
 

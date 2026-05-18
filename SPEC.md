@@ -941,6 +941,18 @@ cb2()` safe.
   vtable indirection). Reach for `*Closure()` only when the
   closure needs to outlive its defining scope.
 
+**Stored-partial-execution note.** An owned closure is
+structurally the zero-suspension case of stored partial
+execution: heap-owned environment holding captured locals,
+explicit invoke and drop entry points, last-owner cleanup
+via the `__rig_drop` hook. The `Closure0` vtable (`ctx` +
+`invoke_fn` + `drop_fn`) maps directly onto a one-state
+`Future`. A future async milestone would generalize this
+shape — multi-state state machines, poll/wake protocol,
+borrow-across-suspension rules, pin discipline — but the
+substrate `*Closure()` proves is reusable, not throwaway.
+See `docs/INFLUENCES.md` §2 for the full mapping.
+
 ---
 
 # Function Calls
