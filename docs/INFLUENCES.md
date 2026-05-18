@@ -7,6 +7,23 @@ Rig's design at the M20h/Phase B boundary. NOT a roadmap (that's
 (that's `CHECKLIST.md`). This file answers: *"Why does Rig lean
 the way it does?"*
 
+**Primacy of Rig's own goals.** Rig is its own language with its
+own thesis. The original goals — **powerful, safe, performant,
+clean, elegant, succinct**, with explicit ownership and visible
+effects as the unifying spine — come FIRST. Nothing in this
+document is a direction override. Every external idea cited here
+is a **selective extraction**: a pattern worth borrowing
+*because* it serves a Rig goal Rig is already pursuing, NOT a
+recommendation to make Rig look like the source. Where any
+external influence conflicts with Rig's thesis, **the thesis
+wins** and the idea gets demoted, deferred, or rejected. The
+Nexis project (§6) and Clojure (§4) are referenced as
+mature-project lessons and Zig-target case studies; neither is
+a playbook Rig is following. The whole point of writing this
+document down is so the next session can tell the difference
+between "Rig should borrow X" and "Rig is becoming X-like" —
+the former is healthy, the latter would be drift.
+
 **Sources synthesized here:**
 
 1. **A ChatGPT-5 digest** Steve forwarded (2026-05-17) on Rust's
@@ -173,7 +190,10 @@ compose.
 
 The digest's Clojure section was the most actionable part.
 After GPT-5.5's review, the recommendations sort cleanly into
-take / skip / defer.
+take / skip / defer. The point of this section is **selective
+adoption** in service of Rig's existing goals — Rig is a
+systems language with explicit ownership, not a Lisp; nothing
+below tries to change that.
 
 ### Take — applies to Rig idioms now
 
@@ -292,11 +312,24 @@ default". If Steve ever wants this, it becomes a separate Rig
 
 ## 6. Nexis as the Clojure-on-Zig reality check
 
+**Role of this section.** Nexis is referenced as a mature
+sibling project — a working data point for what's been proven
+feasible on a Zig substrate — NOT as a model Rig should
+emulate. Rig and Nexis have different theses (Rig: ownership +
+visible effects + zero-cost on a small substrate; Nexis: full
+Clojure surface + persistent collections + durable refs on a
+GC'd runtime). The findings below extract ideas that survive
+the translation back into Rig's thesis; everything that
+requires Nexis's runtime model (especially the GC) is excluded.
+
 `/Users/shreeve/Data/Code/nexis` is Steve's sister project —
 Clojure language design on a Zig-native runtime. It exists,
 it works, and crucially **it documents the cost of taking
 Clojure's persistent collections seriously on a non-JVM
-target.**
+target.** That cost framing is the load-bearing reason to
+reference it: Rig now knows what shape the design space looks
+like *with full implementation detail*, which is much better
+than design from speculation.
 
 ### What Nexis ships (Phase 1 complete)
 
