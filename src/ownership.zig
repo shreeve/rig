@@ -84,6 +84,30 @@ pub const Binding = struct {
     /// inside the loop body fires the existing borrow-conflict
     /// diagnostic.
     is_loop_borrow: bool = false,
+
+    /// PB3(1/5) — captured-resource audit fix per GPT-5.5 entry 29.
+    ///
+    /// Set when a closure capture binds a resource-typed value
+    /// (`*T` / `~T`) into the lambda body's scope via `+x` / `<x` /
+    /// `~x`. The captured slot is owned by the closure ENV, not by
+    /// the body's invocation. A retained closure (M20h
+    /// `*Closure()`) may be invoked multiple times; if the body
+    /// could move, drop, return, or store-bare the capture, the
+    /// second invocation would be UAF (the slot was consumed by
+    /// the first call).
+    ///
+    /// Reject contract (matches `is_loop_borrow`):
+    ///   - `<cap` (move), `-cap` (drop), `return cap`, bare-alias
+    ///     in call args / binding RHS — all REJECTED.
+    ///   - `+cap` (clone — fresh strong handle), `~cap` (weak),
+    ///     `cap()` invoke, `cap.method(...)`, `cap.field` — all
+    ///     ALLOWED. These are non-consuming reads of the capture.
+    ///
+    /// Unified with `is_loop_borrow` via `rejectNonConsumableBindingOp`:
+    /// both flags fall into the same "owned-elsewhere, body sees
+    /// borrowed view" category; the diagnostic wording branches on
+    /// which flag is set.
+    is_capture_resource: bool = false,
 };
 
 const Scope = struct {
@@ -378,7 +402,7 @@ pub const Checker = struct {
                         else => "consume",
                     };
                     const nm = self.source[items[1].src.pos..][0..items[1].src.len];
-                    const rejected = try self.rejectLoopBorrowOp(items[1].src.pos, nm, op_name);
+                    const rejected = try self.rejectNonConsumableBindingOp(items[1].src.pos, nm, op_name);
                     if (rejected) return;
                 }
                 if (items.len >= 2) try self.walk(items[1], false);
@@ -820,9 +844,21 @@ pub const Checker = struct {
             const name_node = cap.list[1];
             if (name_node != .src) continue;
             const name = self.source[name_node.src.pos..][0..name_node.src.len];
+            // PB3(1/5): cap_clone / cap_weak / cap_move bind a
+            // resource-typed value into the closure ENV. The body's
+            // view of that slot is non-consuming — the env owns the
+            // slot; the body sees a borrowed view that may be read
+            // (call, member access) and cloned/weak'd to produce
+            // fresh handles, but MAY NOT be moved/dropped/returned/
+            // stored. cap_copy carries no resource so no flag.
+            const is_resource_cap = switch (cap.list[0].tag) {
+                .@"cap_clone", .@"cap_weak", .@"cap_move" => true,
+                else => false,
+            };
             _ = try self.addBinding(.{
                 .name = name,
                 .declared_at = name_node.src.pos,
+                .is_capture_resource = is_resource_cap,
             });
         }
     }
@@ -1100,10 +1136,7 @@ pub const Checker = struct {
 
         switch (op) {
             .move_op => {
-                if (b.is_loop_borrow) {
-                    try self.err(root_pos, "cannot move loop-borrow alias `{s}`; resource Vec(T) iteration binds the element as a read borrow of the Vec slot. Clone / move / drop / store are not supported on borrowed elements in V1.", .{root_name});
-                    return;
-                }
+                if (try self.rejectNonConsumableBindingOp(root_pos, root_name, "move")) return;
                 if (b.read_borrows > 0) {
                     try self.err(root_pos, "cannot move `{s}` while it is read-borrowed", .{root_name});
                     try self.note(b.read_borrowed_at, "read borrow taken here", .{});
@@ -1155,10 +1188,7 @@ pub const Checker = struct {
             return;
         };
         const b = &self.bindings.items[idx];
-        if (b.is_loop_borrow) {
-            try self.err(target.src.pos, "cannot drop loop-borrow alias `{s}`; resource Vec(T) iteration binds the element as a read borrow of the Vec slot. Clone / move / drop / store are not supported on borrowed elements in V1.", .{nm});
-            return;
-        }
+        if (try self.rejectNonConsumableBindingOp(target.src.pos, nm, "drop")) return;
         if (b.state == .moved) {
             try self.err(target.src.pos, "cannot drop `{s}` after it was moved", .{nm});
             try self.note(b.moved_at, "`{s}` was moved here", .{nm});
@@ -1251,13 +1281,19 @@ pub const Checker = struct {
 
         const idx = self.lookup(name) orelse return;
         const b = &self.bindings.items[idx];
-        // M20i.1: bare-name use of a loop-borrow alias in a call-
-        // argument or binding-RHS position would silently smuggle the
-        // borrowed handle past the loop boundary. The diagnostic
-        // wording is distinct from the M20d shared/weak case (a
-        // loop-borrow has no `<x` / `+x` recovery in V1).
+        // M20i.1 + PB3(1/5): bare-name aliasing of a non-consumable
+        // binding (loop-borrow OR captured resource) in a call-
+        // argument or binding-RHS position would smuggle the
+        // borrowed handle past its owning scope. Tailored
+        // diagnostics for the two flag categories preserve the
+        // `ctx` context string passed in by the call site
+        // (`"call argument"` / `"binding"`).
         if (b.is_loop_borrow) {
             try self.err(expr.src.pos, "bare use of loop-borrow alias `{s}` in {s} would smuggle the borrowed handle past the loop boundary; resource Vec(T) iteration binds the element as a read borrow of the Vec slot. Clone / move / drop / store are not supported on borrowed elements in V1.", .{ name, ctx });
+            return;
+        }
+        if (b.is_capture_resource) {
+            try self.err(expr.src.pos, "bare use of captured resource `{s}` in {s} would smuggle the borrowed handle past the closure body; closure captures (`+x` / `~x` / `<x`) are owned by the closure env. Use `+{s}` to clone a fresh handle into the {s}, or `~{s}` for a weak reference.", .{ name, ctx, name, ctx, name });
             return;
         }
         // Bridge to sema via (name, declared_at) — same pattern as
@@ -1312,7 +1348,7 @@ pub const Checker = struct {
             // anchors at the return value.
             if (value == .src) {
                 const nm = self.source[value.src.pos..][0..value.src.len];
-                _ = try self.rejectLoopBorrowOp(value.src.pos, nm, "return");
+                _ = try self.rejectNonConsumableBindingOp(value.src.pos, nm, "return");
             }
             try self.walk(value, false);
             if (self.in_borrowed_fn) try self.checkBorrowEscape(value);
@@ -1545,22 +1581,30 @@ pub const Checker = struct {
         return false;
     }
 
-    /// M20i.1: reject bare consume / smuggle ops on a loop-borrow
-    /// element binding. The binding represents a borrowed view of a
-    /// Vec slot; cloning / moving / dropping / returning / aliasing it
-    /// would silently smuggle a strong handle past the loop boundary
-    /// without a refcount bump. Allowed uses are bare reads in call-
-    /// callee, member-access, and member-method-call positions —
-    /// none of which route through this check.
+    /// M20i.1 + PB3(1/5): reject bare consume / smuggle ops on a
+    /// binding whose ownership lives elsewhere — the body has only
+    /// a borrowed view. Unified helper per GPT-5.5 entry 29: covers
+    /// both `is_loop_borrow` (M20i.1: element of `for x in ?vec`)
+    /// and `is_capture_resource` (PB3: resource captured into a
+    /// closure env via `+x` / `<x` / `~x`). The diagnostic wording
+    /// branches on which flag is set; the hook sites are uniform
+    /// so neither category can be missed by future code paths.
     ///
     /// `op_kind` is a short noun for the diagnostic (e.g., "clone",
-    /// "move", "drop", "return", "alias").
-    fn rejectLoopBorrowOp(self: *Checker, pos: u32, name: []const u8, op_kind: []const u8) Error!bool {
+    /// "move", "drop", "return", "alias"). Returns true if the op
+    /// was rejected (caller should NOT then walk the inner).
+    fn rejectNonConsumableBindingOp(self: *Checker, pos: u32, name: []const u8, op_kind: []const u8) Error!bool {
         const idx = self.lookup(name) orelse return false;
         const b = &self.bindings.items[idx];
-        if (!b.is_loop_borrow) return false;
-        try self.err(pos, "cannot {s} loop-borrow alias `{s}`; resource Vec(T) iteration binds the element as a read borrow of the Vec slot. Clone / move / drop / store are not supported on borrowed elements in V1.", .{ op_kind, name });
-        return true;
+        if (b.is_loop_borrow) {
+            try self.err(pos, "cannot {s} loop-borrow alias `{s}`; resource Vec(T) iteration binds the element as a read borrow of the Vec slot. Clone / move / drop / store are not supported on borrowed elements in V1.", .{ op_kind, name });
+            return true;
+        }
+        if (b.is_capture_resource) {
+            try self.err(pos, "cannot {s} captured resource `{s}`; closure captures (`+x` / `~x` / `<x`) are owned by the closure env and the body has only a borrowed view. A retained closure may be invoked multiple times; consuming a capture would corrupt the env. Use `+{s}` to clone a fresh handle, `~{s}` to take a weak reference, or `{s}.method(...)` to invoke a non-consuming method.", .{ op_kind, name, name, name, name });
+            return true;
+        }
+        return false;
     }
 
     fn walkTryBlock(self: *Checker, items: []const Sexp) Error!void {

@@ -1,0 +1,21 @@
+## PB3(1/5): captured-resource audit fix — move inside inline call arg.
+##
+## The inline-body grammar for `*Closure(fn |+cap| body)` restricts
+## body to a `call` expression (per M20h(2/5)). That excludes the
+## bare `-cap` / `<cap` statement forms BUT NOT `<cap` as a call
+## argument (which is a valid expression). Without the PB3(1/5)
+## audit fix, this shape silently produced malformed Zig
+## (`__rig_alive_self.cap_sig = false`) that the Zig compiler
+## eventually rejected — but with a confusing diagnostic, not the
+## clear Rig-level "you can't consume a closure capture" message.
+##
+## With the audit fix in place, sema/ownership reject this AT THE
+## RIG LEVEL with a tailored diagnostic.
+
+fun consume_sig(s: *Signal(Int)) -> Int
+  s.get()
+
+sub main()
+  sig: *Signal(Int) = *Signal(value: 0)
+  cb: *Closure() = *Closure(fn |+sig| consume_sig(<sig))
+  cb()

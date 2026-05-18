@@ -1,0 +1,24 @@
+## PB3(1/5): captured resources allow NON-consuming reads.
+##
+## Per GPT-5.5 entry 29: the audit fix rejects consume ops
+## (`-cap`, `<cap`, `return cap`, bare aliasing) on captured
+## resources but ALLOWS read-style ops:
+##   - `cap.method(...)` and `cap.field` (auto-deref through *T)
+##   - `+cap` (clone — produces a fresh strong handle)
+##   - `~cap` (weak — produces a fresh weak handle)
+##   - `cap()` invoke for `*Closure()` captures
+##
+## This example exercises the allowed paths: a closure captures
+## `count: *Cell(Int)` by clone, then reads `count.get()`,
+## mutates via `count.set(...)`, and runs successfully on
+## multiple invocations. Per M20h discipline, the closure's
+## captured `count` is a `*Cell(Int)` strong handle owned by
+## the env; the body just calls methods on it.
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  bump: *Closure() = *Closure(fn |+count| count.set(count.get() + 1))
+  bump()
+  bump()
+  bump()
+  print(count.get())                # 3

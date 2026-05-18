@@ -1,0 +1,28 @@
+## PB3(1/5): captured-resource audit fix.
+##
+## Per GPT-5.5 entry 29 (PB3 design checkpoint): a closure capture
+## (`+sig` / `~sig` / `<sig` for a resource-typed value) is OWNED
+## by the closure ENV, not by the body's invocation. A retained
+## closure (`*Closure()`) may be invoked multiple times; if the
+## body could move, drop, return, or store-bare the capture, the
+## second invocation would be UAF (the slot was consumed by the
+## first call).
+##
+## The ownership pass rejects `-cap` (drop) on a captured resource
+## with the unified `rejectNonConsumableBindingOp` helper —
+## parallel to M20i.1's loop-borrow rejection. Diagnostic wording
+## branches on which flag fired so the user sees a context-
+## appropriate explanation.
+##
+## Sample triggers covered by this audit (non-exhaustive):
+##   `-sig`     drop captured resource
+##   `<sig`     move captured resource
+##   `return sig`  return captured resource (would-be smuggle)
+##   `f(sig)`   bare alias pass as call arg
+##   `x = sig`  bare alias as binding RHS
+
+sub main()
+  sig: *Signal(Int) = *Signal(value: 0)
+  bump = fn |+sig|
+    -sig
+  bump()
