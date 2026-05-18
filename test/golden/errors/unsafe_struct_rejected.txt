@@ -1,0 +1,1 @@
+examples/unsafe_struct_rejected.rig:17:15: error: `unsafe` may only modify `fun`, `sub`, or `extern` declarations; got `struct`

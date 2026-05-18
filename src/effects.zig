@@ -402,15 +402,21 @@ pub const Checker = struct {
         self.current_fn_name = name;
         self.current_fn_is_fallible = fallible;
         self.in_main_sub = is_sub and std.mem.eql(u8, name, "main");
-        // M19(2/6): consume the `pending_fn_unsafe` flag set by an
-        // enclosing `(unsafe_decl ...)` wrapper. Reset it so nested
-        // declarations (e.g., a `fun` defined inside this body) don't
-        // accidentally inherit the unsafe-fn marker. The whole body
-        // of this fn now runs in an unsafe context (Rust-style).
-        // The outer `unsafe_decl` arm saves+restores `pending_fn_unsafe`
-        // around its `walk(items[1])` so we don't need to restore here.
+        // M19(2/6): the whole body of an unsafe fn is treated as an
+        // unsafe context (Rust-style — no redundant inner `unsafe`
+        // block needed). The `pending_fn_unsafe` flag was set by an
+        // enclosing `(unsafe_decl ...)` wrapper; we READ it without
+        // mutating it. The wrapper's own save+restore (around
+        // `walk(items[1])`) owns the flag's lifetime, so we don't
+        // need to consume here.
+        //
+        // M19.1 per GPT-5.5 entry 37: the earlier
+        // `self.pending_fn_unsafe = false;` consume was a hazard —
+        // if `unsafe_decl` ever wraps a non-fn decl (e.g., a future
+        // `unsafe struct` or transient parse error), the flag could
+        // leak to a sibling fn walked later. Removing the consume
+        // closes the gap; the wrapper's defer-restore is sufficient.
         self.current_fn_is_unsafe = self.pending_fn_unsafe;
-        self.pending_fn_unsafe = false;
 
         // Skip params for now (no fallible default exprs in V1) and walk body.
         try self.walk(body);

@@ -1,0 +1,22 @@
+## M19.1: `pub unsafe sub` and `unsafe pub sub` both compose cleanly.
+##
+## Per GPT-5.5 entry 37: composition tests are a small but
+## worthwhile sanity check. The `(pub child)` and
+## `(unsafe_decl child)` IR wrappers each stamp their flag on
+## the first newly-added symbol from the wrapped decl, so both
+## orderings end up flagging the same Symbol with both flags.
+##
+## This example exercises both orderings + verifies the
+## resulting fn is correctly marked as `is_unsafe = true`
+## (callers from safe context fire the M19(4/6) diagnostic).
+
+pub unsafe sub a()
+  print(1)
+
+unsafe pub sub b()
+  print(2)
+
+sub main()
+  unsafe
+    a()            # OK: inside unsafe block
+    b()            # OK: same

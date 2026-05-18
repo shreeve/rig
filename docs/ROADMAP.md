@@ -2356,6 +2356,15 @@ purpose AND respects the new effect rule).
 - `zig "..."` raw Zig blocks (parsed but not wired through
   emit; M21+ extension; will inherit the same unsafe-context
   requirement when it lands).
+- **Body-less `extern fun`/`extern sub` declarations**
+  (`extern fun puts(s: String) -> Int` without a body block).
+  Currently the grammar's `fun`/`sub` productions require a
+  block, so extern FUNCTION declarations aren't expressible
+  — only extern variables with fn-typed annotations
+  (`extern puts: fn(String) Int`) are callable today. The
+  M21 enforcement is in place; the FFI ergonomics need
+  M21.x for body-less extern fn syntax to unlock real
+  FFI work.
 - Cross-module extern signatures (same M15b gap as
   fallibility checking).
 - User-defined `trusted` decoration for writing custom
@@ -2380,6 +2389,71 @@ purpose AND respects the new effect rule).
 - **Future async** — FFI / poll/wake / pin / executor
   patterns will all live behind the `unsafe` boundary.
   Substrate prerequisite shipped.
+
+### M21.1 — Post-implementation review fixes ✅
+
+GPT-5.5's M21 post-implementation review (entry 37) identified
+one must-fix and a few small improvements. All landed together
+as M21.1.
+
+**Must-fix: `pending_fn_unsafe` propagation hazard.**
+
+The M19(2/6) implementation modeled the unsafe-fn marker as a
+global mutable state (`pending_fn_unsafe: bool`) that
+`(unsafe_decl ...)` set true before walking the inner decl,
+and `walkFun` CONSUMED via `self.pending_fn_unsafe = false`
+at fn-entry to "reset" it. GPT-5.5 caught the leak: if
+`unsafe_decl` wraps a NON-callable decl (e.g., `unsafe struct
+S`), no `walkFun` fires to consume the flag, and it could
+leak to a sibling fn walked after the wrapper.
+
+Fix: remove the `pending_fn_unsafe = false` mutation from
+`walkFun`. The wrapper's own save+restore around
+`walk(items[1])` exclusively owns the flag's lifetime.
+`walkFun` now READS the flag without mutating it.
+
+Companion fix at the SymbolResolver layer: reject
+`unsafe struct` / `unsafe enum` / `unsafe type` / `unsafe
+opaque` etc. with a tailored diagnostic. The unsafe modifier
+only makes sense on callable decls. The check walks past
+benign wrappers (pub / extern / packed / callconv) to find
+the actual decl head before classifying.
+
+**Regression tests (M21.1):**
+
+  - `unsafe_struct_rejected.rig`             negative: `unsafe struct S`
+                                             fires the new sema rejection.
+  - `unsafe_no_leak_to_sibling_fn.rig`       negative + regression:
+                                             `unsafe struct S` followed
+                                             by `sub main()` with bare
+                                             `%x` — BOTH diagnostics
+                                             fire (the struct
+                                             rejection AND the raw-
+                                             access-requires-unsafe
+                                             rejection). If the leak
+                                             regressed, the raw-access
+                                             diagnostic would be
+                                             swallowed.
+
+**Optional composition test:**
+
+  - `unsafe_pub_compose_ok.rig`              positive: both
+                                             `pub unsafe sub` and
+                                             `unsafe pub sub`
+                                             orderings compose and the
+                                             resulting fn correctly
+                                             requires unsafe context
+                                             at the call site.
+
+**Tests across M21.1: 924 → 932 (+8).** Three new examples
+plus the leak regression. All previously-passing tests still
+green.
+
+**Additional ROADMAP note:** body-less `extern fun`/`extern
+sub` declarations explicitly added to "What M21 does NOT
+cover" — needed for real FFI ergonomics but blocked on a
+grammar extension to allow body-less fn declarations.
+Deferred to M21.x.
 
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
