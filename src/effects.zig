@@ -308,6 +308,27 @@ pub const Checker = struct {
                 if (items.len >= 2) try self.walk(items[1]);
             },
 
+            // M19(3/6): `@builtin(...)` classification per GPT-5.5
+            // entry 35. Default-unsafe with a small safe whitelist.
+            // Builtins NOT on the whitelist require unsafe context.
+            // The whitelist intentionally errs conservative: each
+            // addition needs to be reviewed for whether it preserves
+            // Rig's ownership / type safety guarantees.
+            .@"builtin" => {
+                if (items.len >= 2 and items[1] == .src) {
+                    const name_pos = items[1].src.pos;
+                    const name = self.source[name_pos..][0..items[1].src.len];
+                    if (!isSafeBuiltin(name) and !self.inUnsafeContext()) {
+                        try self.err(name_pos, "builtin `@{s}` is not in the safe whitelist; wrap in an `unsafe` block or call from an `unsafe` function. Safe builtins in V1: `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`, `@hasDecl`, `@hasField`, `@len`, `@This`.", .{name});
+                    }
+                }
+                // Walk args (each arg gets a clean handle context).
+                const prev = self.in_handle_context;
+                self.in_handle_context = false;
+                for (items[1..]) |child| try self.walk(child);
+                self.in_handle_context = prev;
+            },
+
             else => {
                 // Default: recurse into children. Children are NOT in
                 // handle context (only direct children of propagate/catch are).
@@ -418,6 +439,51 @@ pub const Checker = struct {
 fn identText(source: []const u8, sexp: Sexp) ?[]const u8 {
     if (sexp != .src) return null;
     return source[sexp.src.pos..][0..sexp.src.len];
+}
+
+/// M19(3/6): safe builtin whitelist per GPT-5.5 entry 35 (PB4 design
+/// follow-on / M19 design pass).
+///
+/// Default-unsafe policy: any `@name(...)` builtin NOT on this list
+/// requires an unsafe context. The whitelist is intentionally small;
+/// each addition must be reviewed for whether it preserves Rig's
+/// ownership / type safety guarantees.
+///
+/// Currently safe:
+///   `@sizeOf` / `@alignOf`     — pure compile-time type queries.
+///   `@TypeOf` / `@typeName`    — pure compile-time type introspection.
+///   `@hasDecl` / `@hasField`   — pure compile-time meta queries.
+///   `@len`                     — array / slice length; no pointer
+///                                manipulation; ownership-safe.
+///   `@This`                    — current containing type; pure
+///                                compile-time, used in generic
+///                                methods (`const Self = @This();`).
+///
+/// Currently unsafe (NOT on the whitelist):
+///   `@ptrCast`, `@alignCast`, `@intFromPtr`, `@ptrFromInt`,
+///   `@memcpy`, `@memmove`, `@bitCast`, `@as`, `@cInclude`,
+///   `@cImport`, `@compileError`, `@compileLog`, `@embedFile`,
+///   `@field`, `@frame`, `@frameAddress`, ...
+///
+/// If a new safe builtin needs to be added, audit it for:
+///   - no pointer manipulation that breaks the borrow checker
+///   - no memory layout changes that violate ownership
+///   - no side effects beyond compile-time type inspection
+fn isSafeBuiltin(name: []const u8) bool {
+    const safe_builtins = [_][]const u8{
+        "sizeOf",
+        "alignOf",
+        "TypeOf",
+        "typeName",
+        "hasDecl",
+        "hasField",
+        "len",
+        "This",
+    };
+    for (safe_builtins) |s| {
+        if (std.mem.eql(u8, name, s)) return true;
+    }
+    return false;
 }
 
 fn isErrorUnion(returns: Sexp) bool {

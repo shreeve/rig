@@ -1,0 +1,11 @@
+## M19(3/6): unsafe builtins are allowed inside an unsafe block.
+##
+## Per GPT-5.5 entry 35: the same `inUnsafeContext()` predicate
+## that gates `%x` raw access also gates unsafe builtins. The
+## block IS the audit boundary.
+
+sub main()
+  x = 42
+  unsafe
+    y = @ptrCast(x)          # OK: inside unsafe block
+    print(y)
