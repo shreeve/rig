@@ -317,12 +317,13 @@ own design checkpoint when it starts.
 ### Agreed sequencing
 
 ```
-PB0:  Minimal reactive canary scaffold      ✅ shipped
-M20h: Owned/escaping closure values         ← NEXT: design checkpoint
-PB1:  Single retained Effect using M20h
-M20i: Resource-aware Vec(T)                 ← design checkpoint when reached
-PB2:  Cell → Effect notification (multi-subscriber)
-PB3:  Memo + batching + topology
+PB0:  Minimal reactive canary scaffold       ✅ shipped
+M20h: Owned/escaping closure values          ✅ shipped (1-5/5 + .1)
+PB1:  Single retained Effect using M20h      ✅ folded into M20h(5/5)
+M20i: Resource-aware Vec(T)                  ← NEXT: design checkpoint
+M20i.x: Cell-non-Copy relaxation             — conditional (may not be needed)
+PB2:  Cell → Effect notification             pending
+PB3:  Memo + batching + topology             pending
 ```
 
 ### Locked decisions (Q1-Q5 from the Phase B checkpoint)
@@ -391,6 +392,67 @@ versus overloading `*lambda` to mean both "Rc allocate" and
 "synthesize closure object with generated ABI / drop glue."
 NOT locked — the M20h checkpoint should weigh both with the
 emitter constraints in view.
+
+### M20i scope (locked 2026-05-17 with GPT-5.5)
+
+**The next arc is M20i ALONE.** Both Claude and GPT-5.5
+independently endorsed Option A (M20i alone) over Option B
+(M20i + Phase B together). See conversation entry 23 for
+the full reasoning. The locked scope:
+
+```
+IN:  resource-aware Vec(T) (or equivalent container type)
+     element kinds: Copy T, *T, ~T, *Closure()
+     push/pop/len/clear with explicit ownership semantics
+     drop discipline: Vec-drop walks elements + drops each
+     subscriber-list-shaped regression test (NOT reactivity)
+
+OUT: reactivity / PB2 / PB3 (separate follow-on arc)
+     Cell-non-Copy relaxation (separate, CONDITIONAL — may not be needed)
+     PersistentVec / CHAMP (demoted to M20j+ per INFLUENCES §8)
+     arbitrary non-Copy nominal T (deferred until user Drop exists)
+     full iteration semantics for resource T (V1 may defer indexing
+     for resource types; design decision at checkpoint)
+```
+
+**The subscriber-list-shaped regression test is mandatory**
+(per GPT-5.5's M20i scoping review): even though we're NOT
+building reactivity yet, M20i must include a test that uses
+`Vec(~Closure())` (or similar) with explicit `+`/`<`/`~`
+push modes and verifies that Vec-drop cascades correctly
+through each element's `dropStrong`/`dropWeak`. Without
+this guard, M20i risks shipping with a clean abstract API
+that turns out to be wrong-shaped when PB2 tries to use it.
+
+**Cell-non-Copy stays separate and may not be needed.**
+GPT-5.5's observation: PB2 doesn't necessarily require
+`*Cell(Vec(~Effect))`. The Reactor can be modeled as an
+owned mutable object instead:
+
+```rig
+reactor: Reactor
+!reactor.subscribe(...)   # write-borrow + mutate
+!reactor.flush()
+```
+
+So Cell-non-Copy is conditional. If PB2 design forces it,
+it becomes M20i.x (a separate sub-arc with replace/take/
+drop semantics). If not, it never ships in V1.
+
+**Sequencing estimate**:
+- M20i: ~5 sub-commits, 1-2 productive sessions
+- M20i.x (Cell-non-Copy): ~3 sub-commits, 1 session, conditional
+- PB2 + PB3: ~3 sub-commits, 1 session
+
+Total Layer 6 + Layer 7: 2-3 productive sessions. The
+Cell relaxation may turn out to be skippable, which would
+collapse it to 2 sessions.
+
+**Substrate-ladder cross-reference**: M20i is Layer 6 in
+`docs/INFLUENCES.md` §1. Reactivity (Layer 7) and structured
+concurrency (Layer 8) both depend on it. The scope-lock
+here governs Layer 6 only; Layer 7 design follows once
+Layer 6 is concrete.
 
 Substrate gaps GPT-5.5 flagged that M20h/PB1/PB2/PB3 will
 encounter (Phase B checkpoint, entry 15):
