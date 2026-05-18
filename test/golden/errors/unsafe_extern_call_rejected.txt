@@ -1,0 +1,1 @@
+examples/unsafe_extern_call_rejected.rig:14:3: error: call to extern function `puts` requires unsafe context; wrap in an `unsafe` block or call from an `unsafe` function. Extern declarations are the FFI boundary and bypass Rig's ownership / effect contracts.

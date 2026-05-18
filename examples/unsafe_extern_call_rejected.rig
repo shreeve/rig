@@ -1,0 +1,14 @@
+## M19(5/6): calling an extern function from a safe context is rejected.
+##
+## Per GPT-5.5 entry 35 (M19 design): "all extern calls require
+## unsafe even if the extern declaration is not syntactically
+## marked unsafe." Extern declarations are the FFI boundary and
+## bypass Rig's ownership / effect contracts. Calling an extern
+## from a safe context would silently treat a C/Zig API as
+## ownership-safe; the unsafe wrapping requirement forces the
+## caller to acknowledge the bargain.
+
+extern puts: fn(String) Int
+
+sub main()
+  puts("hi")       # error: extern call requires unsafe context

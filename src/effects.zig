@@ -184,6 +184,18 @@ pub const Checker = struct {
         return sema.symbols.items[sym_id].flags.is_unsafe;
     }
 
+    /// M19(5/6): look up whether a name refers to an extern symbol.
+    /// Returns null if no sema OR name doesn't resolve. Per GPT-5.5
+    /// entry 35: "all extern calls require unsafe even if the
+    /// extern declaration is not syntactically marked unsafe."
+    /// Extern is the FFI boundary; the safety bargain across it
+    /// requires explicit acknowledgment by the caller.
+    fn lookupIsExtern(self: *const Checker, name: []const u8) ?bool {
+        const sema = self.sema orelse return null;
+        const sym_id = sema.lookup(1, name) orelse return null;
+        return sema.symbols.items[sym_id].kind == .@"extern";
+    }
+
     pub fn writeDiagnostics(self: *const Checker, file_path: []const u8, w: anytype) !void {
         for (self.diagnostics.items) |d| {
             const lc = lineCol(self.source, d.pos);
@@ -429,6 +441,18 @@ pub const Checker = struct {
             if (self.lookupIsUnsafe(fn_name)) |is_unsafe| {
                 if (is_unsafe and !self.inUnsafeContext()) {
                     try self.err(callee.src.pos, "call to unsafe function `{s}` requires unsafe context; wrap in an `unsafe` block or call from an `unsafe` function", .{fn_name});
+                }
+            }
+            // M19(5/6): extern call from safe context must wrap.
+            // Per GPT-5.5 entry 35: extern declarations are the FFI
+            // boundary; the safety bargain across them requires
+            // explicit acknowledgment. Even an extern WITHOUT
+            // explicit `unsafe` annotation is unsafe-by-default to
+            // call. Prevents silently treating C/Zig APIs as
+            // ownership-safe.
+            if (self.lookupIsExtern(fn_name)) |is_extern| {
+                if (is_extern and !self.inUnsafeContext()) {
+                    try self.err(callee.src.pos, "call to extern function `{s}` requires unsafe context; wrap in an `unsafe` block or call from an `unsafe` function. Extern declarations are the FFI boundary and bypass Rig's ownership / effect contracts.", .{fn_name});
                 }
             }
         }

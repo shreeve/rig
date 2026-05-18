@@ -1,0 +1,15 @@
+## M19(5/6): extern call wrapped in an `unsafe` block is allowed.
+##
+## The "safe wrapper" pattern around an FFI function: the public
+## `safe_puts` Rig fn has a safe contract; internally it wraps
+## the extern call in `unsafe`. Callers of `safe_puts` don't
+## need to know about the FFI boundary.
+
+extern puts: fn(String) Int
+
+sub safe_puts(s: String)
+  unsafe
+    puts(s)        # OK: inside unsafe block
+
+sub main()
+  safe_puts("hi")  # OK: safe_puts has a safe contract
