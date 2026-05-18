@@ -1,0 +1,16 @@
+## M19(4/6): unsafe fn calling another unsafe fn directly is OK.
+##
+## Per the Rust-style "unsafe fn body is unsafe context" rule
+## (GPT-5.5 entry 35): the entire body of an unsafe fn is an
+## unsafe context, so calls to other unsafe fns don't need an
+## explicit `unsafe` block.
+
+unsafe sub low_level()
+  print(1)
+
+unsafe sub high_level()
+  low_level()      # OK: body of unsafe fn is unsafe context
+
+sub main()
+  unsafe
+    high_level()

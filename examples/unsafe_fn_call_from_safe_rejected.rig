@@ -1,0 +1,13 @@
+## M19(4/6): calling an `unsafe` fn from a safe context is rejected.
+##
+## Per GPT-5.5 entry 35: an `unsafe sub`/`unsafe fun` declares
+## that calling it requires the caller to be in an unsafe
+## context. Without an enclosing `unsafe` block or an enclosing
+## `unsafe` fn, the call is sema-rejected with a tailored
+## diagnostic naming the callee and pointing at both fixes.
+
+unsafe sub raw_op()
+  print(1)
+
+sub main()
+  raw_op()         # error: call to unsafe function requires unsafe context

@@ -311,7 +311,14 @@ pub const SymbolFlags = packed struct {
     /// Function parameter declared with a borrowed type (`?T` / `!T`),
     /// relevant to the borrow-escape rule.
     borrowed_param: bool = false,
-    _padding: u5 = 0,
+    /// M19(4/6): `unsafe sub` / `unsafe fun` declaration. Calls to
+    /// this function from a safe context must wrap the call in an
+    /// `unsafe` block. The effects checker consults this flag at
+    /// call sites via `Symbol.flags.is_unsafe`. Set by the
+    /// SymbolResolver when an `(unsafe_decl (fun ...))` wrap is
+    /// encountered, parallel to how `(pub fun)` sets `is_public`.
+    is_unsafe: bool = false,
+    _padding: u4 = 0,
 };
 
 /// A field in a nominal type (struct/enum/errors). Stored on the
@@ -1229,6 +1236,23 @@ const SymbolResolver = struct {
                     }
                 }
             },
+            .@"unsafe_decl" => {
+                // M19(4/6): `(unsafe_decl child)` decoration. Mark the
+                // inner declaration as unsafe-to-call. Identical bridge
+                // pattern as `(pub child)` above: capture the symbols-
+                // before count, walk the inner, then flag the first
+                // newly-added symbol with `is_unsafe = true`. The
+                // effects checker reads `Symbol.flags.is_unsafe` at
+                // call sites to enforce the unsafe-call-from-safe rule.
+                if (items.len >= 2) {
+                    const before = self.ctx.symbols.items.len;
+                    try self.walk(items[1]);
+                    const after = self.ctx.symbols.items.len;
+                    if (after > before) {
+                        self.ctx.symbols.items[before].flags.is_unsafe = true;
+                    }
+                }
+            },
             .@"fun", .@"sub" => try self.walkFun(items),
             .@"lambda" => try self.walkLambda(items),
             .@"use" => try self.walkUse(items),
@@ -2022,6 +2046,14 @@ const TypeResolver = struct {
         const items = sexp.list;
         switch (items[0].tag) {
             .@"pub" => {
+                if (items.len >= 2) return self.resolveDecl(items[1], parent_scope, scope_cursor);
+                return scope_cursor;
+            },
+            .@"unsafe_decl" => {
+                // M19(4/6): unsafe-decl wrap is transparent to type
+                // resolution — the unsafe flag was stamped on the
+                // symbol by SymbolResolver; here we just recurse into
+                // the inner decl so its types resolve normally.
                 if (items.len >= 2) return self.resolveDecl(items[1], parent_scope, scope_cursor);
                 return scope_cursor;
             },
@@ -3883,6 +3915,11 @@ const ExprChecker = struct {
         const items = sexp.list;
         switch (items[0].tag) {
             .@"pub" => {
+                if (items.len >= 2) try self.walkDecl(items[1]);
+            },
+            .@"unsafe_decl" => {
+                // M19(4/6): transparent to expr checking (the unsafe
+                // flag was stamped by SymbolResolver in pass 1).
                 if (items.len >= 2) try self.walkDecl(items[1]);
             },
             .@"fun", .@"sub" => try self.walkFun(items),

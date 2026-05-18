@@ -1,0 +1,17 @@
+## M19(4/6): calling an `unsafe` fn from inside an `unsafe` block is OK.
+##
+## This is the "safe wrapper" pattern: a regular `sub` whose
+## internal implementation needs unsafe operations wraps them
+## in an `unsafe` block but exposes a safe public contract.
+## The fn's external contract is "safe to call"; the internal
+## body just opts into the unsafe context where needed.
+
+unsafe sub raw_op()
+  print(1)
+
+sub safe_wrapper()
+  unsafe
+    raw_op()       # OK: unsafe block opens the context
+
+sub main()
+  safe_wrapper()

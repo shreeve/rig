@@ -169,6 +169,21 @@ pub const Checker = struct {
         return self.sigs.get(name);
     }
 
+    /// M19(4/6): look up whether a function name refers to an
+    /// `unsafe` function (i.e., declared with the `unsafe` prefix
+    /// modifier). Requires sema; unit-test paths without sema get
+    /// `null` (no enforcement). Returns null if the name doesn't
+    /// resolve.
+    ///
+    /// The sema-side flag `Symbol.flags.is_unsafe` is set by the
+    /// `(unsafe_decl ...)` arm in `SymbolResolver.walk` (M19(4/6)
+    /// types.zig change).
+    fn lookupIsUnsafe(self: *const Checker, name: []const u8) ?bool {
+        const sema = self.sema orelse return null;
+        const sym_id = sema.lookup(1, name) orelse return null;
+        return sema.symbols.items[sym_id].flags.is_unsafe;
+    }
+
     pub fn writeDiagnostics(self: *const Checker, file_path: []const u8, w: anytype) !void {
         for (self.diagnostics.items) |d| {
             const lc = lineCol(self.source, d.pos);
@@ -404,6 +419,16 @@ pub const Checker = struct {
                     if (sig.decl_pos > 0) {
                         try self.note(sig.decl_pos, "`{s}` declared as fallible here", .{fn_name});
                     }
+                }
+            }
+            // M19(4/6): unsafe-fn call from safe context must wrap.
+            // Per GPT-5.5 entry 35: "call to unsafe function `foo`
+            // requires unsafe context" — diagnostic names the callee
+            // and points the user at both fixes (block wrap or
+            // unsafe-fn caller).
+            if (self.lookupIsUnsafe(fn_name)) |is_unsafe| {
+                if (is_unsafe and !self.inUnsafeContext()) {
+                    try self.err(callee.src.pos, "call to unsafe function `{s}` requires unsafe context; wrap in an `unsafe` block or call from an `unsafe` function", .{fn_name});
                 }
             }
         }

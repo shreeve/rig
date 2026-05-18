@@ -1,0 +1,1 @@
+examples/unsafe_fn_call_from_safe_rejected.rig:13:3: error: call to unsafe function `raw_op` requires unsafe context; wrap in an `unsafe` block or call from an `unsafe` function
