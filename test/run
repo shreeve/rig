@@ -280,10 +280,16 @@ run_end_to_end signal_multi_subscriber "222"
 # Final line should be `111` (PB3 builtin Signal walk) after
 # the M20i.1 user-written `for cb in ?subs` line (also `111`).
 run_end_to_end reactive_canary "111"
-# PB3.1 R2 reentrancy contract: reentrant set during
-# notification must panic with the V1 message. Prevents
-# accidental relaxation of the notifying-flag guard.
-run_expected_panic signal_reentrant_set_panics "reentrant set is not supported in V1"
+# PB4 reentrant-subscribe contract: reentrant `subscribe`
+# during notification panics in V1 (reentrant `set` was
+# relaxed to a queued+coalesced drain loop per GPT-5.5
+# entry 33; subscribe stays strict because list mutation
+# during iteration is subtler than queued value). The
+# contract is documented in `runtime.zig` and SPEC §Signal;
+# a Rig-source test for it requires multi-capture (single-
+# capture V1 can't express "capture both sig and the
+# closure-to-subscribe"), so the panic itself is verified
+# at code-review time, not via the test harness.
 section_done $(( SECONDS - SECTION_START ))
 
 # -----------------------------------------------------------------------------

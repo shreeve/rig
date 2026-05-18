@@ -309,14 +309,19 @@ pub const source =
     \\    }
     \\};
     \\
-    \\/// PB3: `Signal(T)` — multi-subscriber reactive primitive.
+    \\/// PB3 + PB4: `Signal(T)` — multi-subscriber reactive primitive.
     \\///
-    \\/// Generalizes PB2's single-subscriber slot to a `Vec` of
-    \\/// retained `*Closure()` subscribers. Per GPT-5.5's PB3
-    \\/// design pass (entry 29): synchronous push-on-set with a
-    \\/// strict non-reentrant guard (R2 semantics). The minimum
-    \\/// viable shape that composes forward to PB4 (Reactor /
-    \\/// batching / Memo) AND to a future `Future<T>` for async.
+    \\/// **Canary status (PB4, per GPT-5.5 entry 33).** Signal(T) is
+    \\/// Rig's canary reactive primitive — NOT a long-term reactive
+    \\/// API. Rust and Zig deliberately keep reactivity in libraries
+    \\/// (Leptos / Dioxus / etc. on Rust; no ecosystem on Zig). Rig
+    \\/// holds the same position: the SUBSTRATE (heap closures +
+    \\/// resource Vec + Vec iteration + capture-resource audit)
+    \\/// belongs in the language; reactive LIBRARIES (Reactor /
+    \\/// Memo / Effect / batching) belong in userland once
+    \\/// Cell-non-Copy or equivalent substrate lands. Signal is
+    \\/// the minimum viable surface that forces the substrate to
+    \\/// compose correctly. Do not extend Signal speculatively.
     \\///
     \\/// V1 restrictions:
     \\///   - `T` must be a Copy type (Int / Bool / Float / String /
@@ -325,18 +330,23 @@ pub const source =
     \\///   - `Signal(T)` must be heap-owned via `*Signal(T)`. A
     \\///     stack-local `Signal(T)` would own a `Vec` without an
     \\///     M20e-style scope-exit guard wired through Signal's
-    \\///     destructor. The sema-layer `tryEmitSignalConstruction`
-    \\///     enforces the `*Signal(...)` shape per GPT-5.5's
-    \\///     entry 29 stack-Signal note.
-    \\///   - **Non-reentrant.** Calling `set` or `subscribe`
-    \\///     during an active notification is V1-unsupported and
-    \\///     panics. The `notifying: bool` flag is the runtime
-    \\///     guard. Lifting this restriction is a PB4 concern
-    \\///     (queue / flush / snapshot) — staying strict here
-    \\///     keeps the V1 semantics simple AND keeps the shape
-    \\///     compatible with async `Future<T>` resolution (which
-    \\///     also wants "resolve once, notify waiters, late
-    \\///     waiters see the resolved-value path").
+    \\///     destructor. The sema-layer `checkSet` enforces the
+    \\///     `*Signal(...)` shape per GPT-5.5's entry 29.
+    \\///   - **Reentrant set is queued + coalesced (PB4).** A
+    \\///     subscriber body that calls `signal.set(v)` on the same
+    \\///     Signal does NOT recursively notify; the value is
+    \\///     queued and runs in another notification round after
+    \\///     the current walk completes. Multiple reentrant sets
+    \\///     within one round coalesce to the most-recent value
+    \\///     (latest wins). Iterative drain loop, NOT recursive —
+    \\///     avoids stack growth on cascade chains.
+    \\///   - **Reentrant subscribe still panics.** Adding
+    \\///     subscribers from inside notification mutates the
+    \\///     subscriber list mid-iteration; the queued-buffer-
+    \\///     mutation semantics are subtler than set's queued
+    \\///     value, and locking that policy would force a mini-
+    \\///     Reactor design PB4 deliberately defers. Strict-first;
+    \\///     relax later only if a canary forces it.
     \\///
     \\/// Lifecycle:
     \\///   - `init(value)`: construct with `subs = Vec.init(...)`.
@@ -344,46 +354,48 @@ pub const source =
     \\///     so the surface `*Signal(value: 0)` lowers to
     \\///     `rig.rcNew(rig.Signal(T).init(0))`.
     \\///   - `subscribe(cb)`: clones the incoming `*Closure()`
-    \\///     handle and pushes it into `subs`. Caller's handle
-    \\///     is unaffected. PANIC if called during notification.
-    \\///   - `set(value)`: updates the cell AND walks `subs`
-    \\///     LIFO (by index), invoking each closure synchronously.
-    \\///     PANIC if called during notification (reentrant set
-    \\///     is not supported in V1).
+    \\///     handle and pushes it into `subs`. PANIC on reentry.
+    \\///   - `set(value)`: if NOT notifying, run a drain loop that
+    \\///     updates `value`, walks subscribers, then re-runs for
+    \\///     any queued value until none remain. If notifying,
+    \\///     queue the value (coalesce to latest) and return.
     \\///   - `__rig_drop`: cascades through `subs.__rig_drop()`,
     \\///     which walks elements LIFO and dropStrongs each
     \\///     retained closure handle (via M20i `dropElement`).
     \\///
     \\/// Iteration policy. The walk is by index with `len` snapshot
-    \\/// at start; since `subs` is non-reentrant (panic on nested
-    \\/// set/subscribe), `subs.len` and `subs.buf` are stable for
-    \\/// the duration of the walk, so the snapshot is just a cheap
-    \\/// upper-bound guard. The "tolerate-shrink / ignore-late-
-    \\/// addition" R4 semantics from the initial PB3 design were
-    \\/// rejected in favor of R2 (strict) because R4's recursive
-    \\/// semantics would force the V1 spec to define behaviors
-    \\/// (cascade fan-out, late-subscriber visibility, unsubscribe
-    \\/// interaction) that should be locked in PB4 after canary
-    \\/// pressure exposes the use cases.
+    \\/// at the start of each notification round; reentrant
+    \\/// subscribe is still rejected, so `subs.len` and `subs.buf`
+    \\/// are stable for the duration of any one round. The snapshot
+    \\/// is cheap defense-in-depth.
     \\pub fn Signal(comptime T: type) type {
     \\    return struct {
     \\        value: T,
     \\        subs: Vec(*RcBox(Closure0)),
     \\        notifying: bool,
+    \\        /// PB4: pending value queued by a reentrant `set`
+    \\        /// call. Only meaningful when `pending_set = true`.
+    \\        /// Coalesces to the most-recent reentrant value
+    \\        /// within a notification cycle (latest wins).
+    \\        pending_value: T,
+    \\        pending_set: bool,
     \\
     \\        const Self = @This();
     \\
-    \\        /// PB3 constructor. Called by emit's
-    \\        /// `tryEmitSignalConstruction` for the surface form
-    \\        /// `*Signal(value: V)` -> `rig.rcNew(rig.Signal(T).init(V))`.
-    \\        /// The Vec is initialized empty with the default
-    \\        /// allocator; the heap-owned `subs` buffer materializes
-    \\        /// on the first `subscribe` call.
+    \\        /// PB3 constructor (PB4 fields zero-init'd). Called by
+    \\        /// emit's `tryEmitSignalConstruction` for the surface
+    \\        /// form `*Signal(value: V)` ->
+    \\        /// `rig.rcNew(rig.Signal(T).init(V))`. The Vec is
+    \\        /// initialized empty with the default allocator; the
+    \\        /// heap-owned `subs` buffer materializes on the first
+    \\        /// `subscribe` call.
     \\        pub fn init(value: T) Self {
     \\            return .{
     \\                .value = value,
     \\                .subs = Vec(*RcBox(Closure0)).init(defaultAllocator()),
     \\                .notifying = false,
+    \\                .pending_value = value,
+    \\                .pending_set = false,
     \\            };
     \\        }
     \\
@@ -391,35 +403,56 @@ pub const source =
     \\            return self.value;
     \\        }
     \\
-    \\        /// Update the value AND invoke every retained
-    \\        /// subscriber synchronously. PANIC on reentry per
-    \\        /// the R2 policy (GPT-5.5 entry 29).
+    \\        /// PB4 R2-relaxation: update the value AND invoke
+    \\        /// every retained subscriber. Reentrant `set` from a
+    \\        /// subscriber body queues the value (coalesce to most-
+    \\        /// recent) instead of panicking; the outer drain loop
+    \\        /// runs another notification round per queued value.
     \\        ///
-    \\        /// Snapshot the initial length so cascade `set` calls
-    \\        /// (rejected by the notifying-guard panic anyway)
-    \\        /// can't drift `len` during this walk. Iterate
-    \\        /// forwards in subscription order so user expectations
-    \\        /// match "subscribers fire in the order they were
-    \\        /// added" — the standard observer-pattern contract.
+    \\        /// Implementation is an iterative loop, NOT recursive
+    \\        /// `self.set(v)` — recursion would re-enter the
+    \\        /// notifying guard AND grow the stack proportionally
+    \\        /// to cascade depth. The loop is bounded only by user
+    \\        /// logic; a subscriber that always re-sets its own
+    \\        /// Signal will loop forever (user-logic bug, not a
+    \\        /// memory-safety issue).
+    \\        ///
+    \\        /// Iteration order: forwards (subscription order) per
+    \\        /// the standard observer-pattern contract.
     \\        pub fn set(self: *Self, value: T) void {
-    \\            if (self.notifying) @panic("Rig Signal.set: reentrant set is not supported in V1");
-    \\            self.value = value;
+    \\            if (self.notifying) {
+    \\                // PB4 R2-relaxation: queue the value;
+    \\                // coalesce to most-recent. The outer drain
+    \\                // loop will pick this up after the current
+    \\                // notification round completes.
+    \\                self.pending_value = value;
+    \\                self.pending_set = true;
+    \\                return;
+    \\            }
     \\            self.notifying = true;
     \\            defer self.notifying = false;
-    \\            const initial_len = self.subs.len;
-    \\            if (self.subs.buf) |p| {
-    \\                var i: usize = 0;
-    \\                while (i < initial_len) : (i += 1) {
-    \\                    p[i].value.invoke();
+    \\            var next_value = value;
+    \\            while (true) {
+    \\                self.value = next_value;
+    \\                const initial_len = self.subs.len;
+    \\                if (self.subs.buf) |p| {
+    \\                    var i: usize = 0;
+    \\                    while (i < initial_len) : (i += 1) {
+    \\                        p[i].value.invoke();
+    \\                    }
     \\                }
+    \\                if (!self.pending_set) break;
+    \\                next_value = self.pending_value;
+    \\                self.pending_set = false;
     \\            }
     \\        }
     \\
     \\        /// Register a subscriber. Clones the caller's
     \\        /// `*Closure()` handle and appends to `subs`. PANIC on
-    \\        /// reentry — adding subscribers from inside an active
-    \\        /// notification would alias the buffer while iterating,
-    \\        /// which the V1 strict policy forbids.
+    \\        /// reentry — list-mutation semantics during iteration
+    \\        /// are subtler than `set`'s queued value, and PB4
+    \\        /// deliberately defers that policy. Strict-first;
+    \\        /// relax later only if a canary forces it.
     \\        pub fn subscribe(self: *Self, cb: *RcBox(Closure0)) void {
     \\            if (self.notifying) @panic("Rig Signal.subscribe: subscribing during notification is not supported in V1");
     \\            self.subs.push(cb.cloneStrong());
@@ -429,8 +462,9 @@ pub const source =
     \\        /// containing RcBox hits last strong, cascade through
     \\        /// `subs.__rig_drop()` which walks elements LIFO and
     \\        /// dropStrongs each retained closure via the M20i
-    \\        /// `dropElement` hybrid dispatch. The `value` field
-    \\        /// is Copy so no per-element drop is needed.
+    \\        /// `dropElement` hybrid dispatch. `value` and
+    \\        /// `pending_value` are Copy so no per-element drop is
+    \\        /// needed.
     \\        pub fn __rig_drop(self: *Self) void {
     \\            self.subs.__rig_drop();
     \\        }
