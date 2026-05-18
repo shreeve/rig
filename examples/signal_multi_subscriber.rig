@@ -1,0 +1,44 @@
+## PB3(4/5): mandatory multi-subscriber Signal regression.
+##
+## The PB3 substrate exit gate (parallel to M20i(5/5)'s
+## `vec_subscribers.rig` and M20i.1(4/4)'s `vec_for_notify.rig`):
+## a Signal with three retained `*Closure()` subscribers, each
+## driving a shared `*Cell(Int)` counter. `signal.set(v)` updates
+## the value AND invokes every subscriber synchronously in
+## subscription order. The counter advances 0 → 1+10+100 = 111
+## on the first set; → 1+10+100 = 111 more on the second set
+## → final 222.
+##
+## Validates end-to-end:
+##   1. PB3 runtime: `subs: Vec(*Closure())` field + `init(value)`
+##      constructor + `subscribe(cb)` clone-into-Vec + `set(v)`
+##      synchronous walk with R2 reentrancy guard (notifying flag).
+##   2. PB3 emit: `*Signal(value: 0)` lowers via
+##      `tryEmitSignalConstruction` to
+##      `rig.rcNew(rig.Signal(i32).init(0))`.
+##   3. PB3(1/5) audit fix: each closure body uses `+notes` capture
+##      and calls `notes.set(notes.get() + N)` — the "read methods
+##      OK, consume rejected" allowed-path side of the captured-
+##      resource discipline.
+##   4. Scope-exit drop cascade: `sig.dropStrong()` triggers
+##      `Signal.__rig_drop` → `self.subs.__rig_drop()` → walks
+##      LIFO and `dropStrong`s each retained closure → each
+##      closure's `drop_fn` releases its captured `notes` clone
+##      → final `notes.dropStrong()` frees the Cell.
+
+sub main()
+  notes: *Cell(Int) = *Cell(value: 0)
+  one:   *Closure() = *Closure(fn |+notes| notes.set(notes.get() + 1))
+  ten:   *Closure() = *Closure(fn |+notes| notes.set(notes.get() + 10))
+  cent:  *Closure() = *Closure(fn |+notes| notes.set(notes.get() + 100))
+
+  sig: *Signal(Int) = *Signal(value: 0)
+  sig.subscribe(+one)
+  sig.subscribe(+ten)
+  sig.subscribe(+cent)
+
+  print(notes.get())                # 0   (no notification yet)
+  sig.set(1)                        # invokes all three: notes 0 → 111
+  print(notes.get())                # 111
+  sig.set(2)                        # invokes all three again: notes 111 → 222
+  print(notes.get())                # 222

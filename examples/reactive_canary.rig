@@ -1,4 +1,4 @@
-# Phase B canary (PB0 → PB1 → PB2 → M20i.1 layers).
+# Phase B canary (PB0 → PB1 → PB2 → M20i.1 → PB3 layers).
 #
 # Purpose: anchor the reactive validation milestone. Per the
 # GPT-5.5 Phase B checkpoint, this file is NOT a library — it's
@@ -12,8 +12,9 @@
 #   PB1    single retained Effect (folded M20h(5/5))   ✅ shipped
 #   M20i   resource-aware Vec(T)                       ✅ shipped
 #   PB2    Signal: single-subscriber notification      ✅ shipped
-#   M20i.1 resource-Vec iteration `for cb in ?subs`    ✅ NEW HERE
-#   PB3    multi-subscriber Signal + batching + topo  pending
+#   M20i.1 resource-Vec iteration `for cb in ?subs`    ✅ shipped
+#   PB3    multi-subscriber Signal (R2 reentrancy)     ✅ NEW HERE
+#   PB4    Memo / Effect lifecycle / Reactor / batch  pending
 #
 # Each substrate gap exposed by the canary gets fixed on main,
 # not in the library. Per the design doc: "the library is the
@@ -103,8 +104,38 @@ sub main()
     cb()
   print(notes.get())                # 111 (1 + 10 + 100)
 
-  # TODO PB3 (multi-subscriber Signal): generalize Signal(T) to
-  # hold `Vec(*Closure())` and run the same `for cb in ?subs`
-  # iteration on `set`. M20i.1 lands the substrate piece; the
-  # remaining work is wiring the iteration into Signal.set and
-  # designing batching / topology (separate design checkpoint).
+  # PB3 (multi-subscriber Signal): now generalize Signal from
+  # PB2's single-slot subscriber to a `Vec(*Closure())` of
+  # retained subscribers. The Rig surface is unchanged
+  # (`sig.subscribe(+cb)`), but the runtime now appends rather
+  # than replaces, and `signal.set(v)` walks every subscriber
+  # synchronously in subscription order. Reentrancy is strict:
+  # calling `set` or `subscribe` during an active notification
+  # panics in V1 (the "notifying" flag is the runtime guard).
+  # PB4 may relax this to queue/snapshot semantics if the canary
+  # exposes a real use case.
+  #
+  # The two notification primitives are now both available:
+  #   - User-written external `for cb in ?subs` (above) — for
+  #     code that wants explicit control of the walk.
+  #   - Internal `signal.set(v)` (below) — Signal's builtin
+  #     synchronous notify-all. Substrate-wise the two are
+  #     equivalent; the Signal builtin packages "value cell +
+  #     subscriber list + notify-on-set" for ergonomics.
+  tally: *Cell(Int) = *Cell(value: 0)
+  add_a: *Closure() = *Closure(fn |+tally| tally.set(tally.get() + 1))
+  add_b: *Closure() = *Closure(fn |+tally| tally.set(tally.get() + 10))
+  add_c: *Closure() = *Closure(fn |+tally| tally.set(tally.get() + 100))
+  multi: *Signal(Int) = *Signal(value: 0)
+  multi.subscribe(+add_a)
+  multi.subscribe(+add_b)
+  multi.subscribe(+add_c)
+  multi.set(42)                     # invokes all three: tally 0 → 111
+  print(tally.get())                # 111
+
+  # TODO PB4 (Memo / Effect lifecycle / Reactor / batching):
+  # derived values that auto-recompute on dep change; deferred
+  # batching so `signal.set` enqueues invalidations and a
+  # `reactor.flush()` runs them once at the end of a transaction.
+  # M20i.1 + PB3 cover the substrate; PB4 designs the
+  # batching/topology layer in its own checkpoint.

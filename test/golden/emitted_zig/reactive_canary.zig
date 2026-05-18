@@ -130,14 +130,82 @@ pub fn main() void {
     subs.push(one.cloneStrong());
     subs.push(ten.cloneStrong());
     subs.push(cent.cloneStrong());
-    if (subs.buf) |__rig_p_4817| {
-        var __rig_i_4817: usize = 0;
-        while (__rig_i_4817 < subs.len) : (__rig_i_4817 += 1) {
-            const __rig_elem_4817 = &__rig_p_4817[__rig_i_4817];
+    if (subs.buf) |__rig_p_4892| {
+        var __rig_i_4892: usize = 0;
+        while (__rig_i_4892 < subs.len) : (__rig_i_4892 += 1) {
+            const __rig_elem_4892 = &__rig_p_4892[__rig_i_4892];
             {
-                __rig_elem_4817.*.value.invoke();
+                __rig_elem_4892.*.value.invoke();
             }
         }
     }
     std.debug.print("{any}\n", .{ notes.value.get() });
+    const tally: *rig.RcBox(rig.Cell(i32)) = (rig.rcNew(rig.Cell(i32){ .value = 0 }) catch @panic("Rig Rc allocation failed"));
+    var __rig_alive_tally: bool = true;
+    defer if (__rig_alive_tally) { __rig_alive_tally = false; tally.dropStrong(); };
+    const add_a: *rig.RcBox(rig.Closure0) = rig_closure_5: {
+        const Env = struct {
+            cap_tally: *rig.RcBox(rig.Cell(i32)),
+            fn rigInvoke(ctx: *anyopaque) void {
+                const self: *@This() = @ptrCast(@alignCast(ctx));
+                self.cap_tally.value.set((self.cap_tally.value.get() + 1));
+            }
+            fn rigDrop(ctx: *anyopaque, allocator: std.mem.Allocator) void {
+                const self: *@This() = @ptrCast(@alignCast(ctx));
+                self.cap_tally.dropStrong();
+                allocator.destroy(self);
+            }
+        };
+        const __rig_env = rig.defaultAllocator().create(Env) catch @panic("Rig closure env allocation failed");
+        __rig_env.* = .{ .cap_tally = tally.cloneStrong() };
+        break :rig_closure_5 (rig.rcNew(rig.Closure0{ .ctx = __rig_env, .invoke_fn = Env.rigInvoke, .drop_fn = Env.rigDrop, .allocator = rig.defaultAllocator() }) catch @panic("Rig Rc allocation failed"));
+    };
+    var __rig_alive_add_a: bool = true;
+    defer if (__rig_alive_add_a) { __rig_alive_add_a = false; add_a.dropStrong(); };
+    const add_b: *rig.RcBox(rig.Closure0) = rig_closure_6: {
+        const Env = struct {
+            cap_tally: *rig.RcBox(rig.Cell(i32)),
+            fn rigInvoke(ctx: *anyopaque) void {
+                const self: *@This() = @ptrCast(@alignCast(ctx));
+                self.cap_tally.value.set((self.cap_tally.value.get() + 10));
+            }
+            fn rigDrop(ctx: *anyopaque, allocator: std.mem.Allocator) void {
+                const self: *@This() = @ptrCast(@alignCast(ctx));
+                self.cap_tally.dropStrong();
+                allocator.destroy(self);
+            }
+        };
+        const __rig_env = rig.defaultAllocator().create(Env) catch @panic("Rig closure env allocation failed");
+        __rig_env.* = .{ .cap_tally = tally.cloneStrong() };
+        break :rig_closure_6 (rig.rcNew(rig.Closure0{ .ctx = __rig_env, .invoke_fn = Env.rigInvoke, .drop_fn = Env.rigDrop, .allocator = rig.defaultAllocator() }) catch @panic("Rig Rc allocation failed"));
+    };
+    var __rig_alive_add_b: bool = true;
+    defer if (__rig_alive_add_b) { __rig_alive_add_b = false; add_b.dropStrong(); };
+    const add_c: *rig.RcBox(rig.Closure0) = rig_closure_7: {
+        const Env = struct {
+            cap_tally: *rig.RcBox(rig.Cell(i32)),
+            fn rigInvoke(ctx: *anyopaque) void {
+                const self: *@This() = @ptrCast(@alignCast(ctx));
+                self.cap_tally.value.set((self.cap_tally.value.get() + 100));
+            }
+            fn rigDrop(ctx: *anyopaque, allocator: std.mem.Allocator) void {
+                const self: *@This() = @ptrCast(@alignCast(ctx));
+                self.cap_tally.dropStrong();
+                allocator.destroy(self);
+            }
+        };
+        const __rig_env = rig.defaultAllocator().create(Env) catch @panic("Rig closure env allocation failed");
+        __rig_env.* = .{ .cap_tally = tally.cloneStrong() };
+        break :rig_closure_7 (rig.rcNew(rig.Closure0{ .ctx = __rig_env, .invoke_fn = Env.rigInvoke, .drop_fn = Env.rigDrop, .allocator = rig.defaultAllocator() }) catch @panic("Rig Rc allocation failed"));
+    };
+    var __rig_alive_add_c: bool = true;
+    defer if (__rig_alive_add_c) { __rig_alive_add_c = false; add_c.dropStrong(); };
+    const multi: *rig.RcBox(rig.Signal(i32)) = (rig.rcNew(rig.Signal(i32).init(0)) catch @panic("Rig Rc allocation failed"));
+    var __rig_alive_multi: bool = true;
+    defer if (__rig_alive_multi) { __rig_alive_multi = false; multi.dropStrong(); };
+    multi.value.subscribe(add_a.cloneStrong());
+    multi.value.subscribe(add_b.cloneStrong());
+    multi.value.subscribe(add_c.cloneStrong());
+    multi.value.set(42);
+    std.debug.print("{any}\n", .{ tally.value.get() });
 }
