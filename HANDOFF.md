@@ -1,14 +1,15 @@
 # Rig — Session Handoff (PB2 complete; PB3 gated on Vec iteration)
 
-**You are picking up a Rig compiler session at the PB2
-boundary.** M20h + M20i + PB2 all shipped end-to-end. The
-reactive canary (`examples/reactive_canary.rig`) now
-demonstrates the full Cell + closure + Signal subscriber
-chain producing `1\n3\n13\n7\n99`. The next concrete
-action is **M20i.1 / M20j — resource-Vec iteration**, which
-is the substrate prerequisite for PB3 (multi-subscriber +
-batching + topology). Read top-to-bottom once; then it's
-a reference.
+**You are picking up a Rig compiler session at the PB2 boundary.**
+M20h (owned escaping closures) + M20i (resource-aware Vec) +
+PB2 (single-subscriber Signal) all shipped end-to-end. The
+reactive canary (`examples/reactive_canary.rig`) demonstrates
+the full Cell + closure + Signal subscriber chain producing
+`1\n3\n13\n7\n99`. **804 tests passing, 0 failing. Clean tree
+on `main`.** The next concrete action is the **M20i.1 /
+M20j design checkpoint — resource-Vec iteration**, which is
+the substrate prerequisite for PB3 (multi-subscriber + batching
++ topology).
 
 ---
 
@@ -17,74 +18,119 @@ a reference.
 - **Project**: Rig is a systems language ("Zig-fast, Rust-safe,
   Ruby-readable") that compiles to Zig 0.16. Repo:
   `/Users/shreeve/Data/Code/rig`.
-- **Where we are**: M20h + M20i + PB2 all shipped end-to-end.
-  Substrate ladder Layers 0–6 complete; Layer 7 (reactivity)
-  half-shipped — single-subscriber via `Signal(T)` is in,
-  multi-subscriber pending. The reactive canary now produces
-  `1\n3\n13\n7\n99` demonstrating PB0 + M20g + M20h + PB2
-  composition. **804 tests passing, 0 failing.** Clean tree
-  on `main`, all pushed.
-- **Next concrete action**: **M20i.1 / M20j — resource-Vec
-  iteration**. This is the substrate prerequisite for PB3
-  (multi-subscriber Cell → Effect notification + batching +
-  topology). The PB2(2/3) commit added a `TODO PB3` comment
-  in the canary explaining the gap. Joint design pass with
-  GPT-5.5 (entry 25) locked: do NOT try to ship PB3 without
-  iteration; design iteration as its own milestone first.
-
-  Design questions for the iteration checkpoint:
-  - Internal iteration (callback-based: `vec.foreach(fn (e)
-    e())`) vs external (`for x in vec`) vs both?
-  - Element binding mode in the loop body — borrow-read
-    (`?T`) for read-only access; what about mutation?
-  - Lambda-as-call-arg with params: M20h shipped
-    `FN captures inline_body`; iteration needs
-    `FN params inline_body` (no captures or with).
-  - For external `for x in vec`: how does ownership of the
-    iterated element work? Borrow per iteration?
-
-- **Phase B sequence**:
-  `PB0 ✅ → M20h ✅ → PB1 ✅ → M20i ✅ → PB2 ✅ →
-  M20i.1/M20j 🚧 NEXT → PB3 → PB4 (Memo + topology)`. M20i.x
-  (Cell-non-Copy) remains conditional — GPT-5.5's PB2 pass
-  confirmed PB2 doesn't force it; PB3 may or may not.
-- **Owner**: Steve (`shreeve@github`). Collaborates with the AI
-  agent AND consults GPT-5.5 via the `user-ai` MCP for design
-  checkpoints + post-implementation reviews.
-- **Established cadence**: design checkpoint → implement in 3–5
-  sub-commits (M5-style: `Mxx(n/total)`) → post-implementation
-  review → commit. Each sub-commit must keep all tests passing.
+- **Where we are**: Substrate ladder Layers 0–6 ✅; Layer 7
+  (reactivity) HALF-shipped — single-subscriber via
+  `Signal(T)` ✅; multi-subscriber pending.
+- **Next concrete action**: **M20i.1 / M20j design checkpoint**
+  with GPT-5.5 (resource-Vec iteration). Then PB3
+  (multi-subscriber + batching + topology) becomes a small
+  follow-on.
+- **Cadence (non-negotiable)**: design checkpoint with GPT-5.5
+  via `user-ai` MCP → implement in 3–5 sub-commits (M5-style:
+  `Mxx(n/total)`) → post-implementation review → commit.
+  Each sub-commit must keep all tests passing.
+- **Owner**: Steve (`shreeve@github`). GPT-5.5 collaboration
+  is non-negotiable — see §8 for the MCP details.
 
 ---
 
-## 1. Project orientation (read these first)
+## First 3 minutes for next AI
 
-Authoritative project docs, in order of importance for the
-next arc:
+```bash
+git pull --ff-only
+git log -1 --format='%h %s'        # most recent commit; should be at/after PB2(3/3)
+./test/run 2>&1 | tail -3          # should say "804 passed, 0 failed"
+bin/rig run examples/reactive_canary.rig    # should print "1\n3\n13\n7\n99"
+```
+
+**Then read** (in order):
+
+1. This file's TL;DR + Non-negotiable invariants below (~5 min)
+2. `docs/INFLUENCES.md` §1 (the substrate ladder — the
+   conceptual map of where every milestone fits) (~5 min)
+3. ROADMAP.md most-recent entries (PB2, M20i, M20h) (~10 min)
+4. `docs/REACTIVITY-DESIGN.md` (Phase B design north star)
+   (~15 min)
+5. `examples/reactive_canary.rig` (~2 min — the regression
+   test that captures the full Phase B chain)
+
+**Then do**:
+
+- Open a design checkpoint with GPT-5.5 for **M20i.1 / M20j —
+  resource-Vec iteration**. Do NOT design PB3 (multi-subscriber
+  Memo + batching + topology) yet; iteration must land first
+  per the joint design decision in entry 25.
+
+---
+
+## Non-negotiable invariants
+
+A fresh AI must internalize these BEFORE writing any code.
+Violating any of them will silently corrupt the substrate.
+
+- **Resource handles `*T` / `~T` are NOT Copy.** Use explicit
+  `+` (clone), `<` (move), `-` (drop), `~` (weak from shared).
+  Bare aliasing is rejected.
+- **`*T` auto-deref is read-only.** Write-through-shared
+  requires an interior-mutability primitive (Cell-style or
+  Signal-style trusted runtime).
+- **Cell(T) is Copy-only.** Non-Copy `Cell(T)` is deferred
+  until replace/take/Drop semantics land.
+- **Owned closures are `*Closure()` no-arg void only.**
+  Arity-bearing closures (`Closure1<T>`, etc.), return types,
+  and fallible callbacks are all deferred.
+- **Bare lambdas are non-escaping.** Only the exact
+  `*Closure(fn ...)` construction shape may escape. Other
+  positions (call args, struct fields, array elements,
+  function returns) all reject bare lambdas.
+- **Vec(T) is a resource value type** (owns its buffer). Bare
+  copy is rejected as would-double-free; must move (`<v`) or
+  explicitly drop (`-v`).
+- **Vec resource iteration / `get` / `pop` are deferred** for
+  resource T (Copy T `get` / `pop` work). This is the M20i.1
+  gap.
+- **Signal(T) is single-subscriber synchronous canary.** No
+  multi-subscriber, no batching, no topology. PB3 will
+  generalize once iteration lands.
+- **Grammar conflict count: 69** (was 38 pre-M20h; +31 from
+  the M20h(2/5) inline-call lambda body). All benign S/R with
+  prefer-shift; reviewed and accepted.
+- **Never edit `src/parser.zig` by hand** — it's generated
+  from `rig.grammar` via `zig build parser`.
+- **Always run GPT-5.5 design checkpoints** before starting a
+  new arc. The collaboration has caught real bugs (UAF in the
+  M20h ABI proposal; `in_set_rhs` leak in M20g) that would
+  have shipped otherwise.
+
+---
+
+## 1. Project orientation
+
+Authoritative project docs, in order of importance:
 
 | File | Purpose |
 |---|---|
-| `docs/REACTIVITY-DESIGN.md` | **Phase B starts here.** The design note that drove the M20+ ordering. Phase A (substrate) is done; Phase B is the rig-reactive validation milestone. |
-| `SPEC.md` | Language spec. §Lambdas (M20g) documents capture modes + V1 non-escaping rule. §Shared Ownership covers M20d (handles), M20e (auto-drop), M20f (Cell). |
-| `docs/ROADMAP.md` | Milestone history (M0 → M20g done). M20+ list shows item #8 (closure captures) is now ✅; only items #9-#17 (substrate maturity) remain before V2. |
+| `docs/INFLUENCES.md` | **The substrate ladder + design lineage.** §1 is the conceptual map; everything else is design-rationale for why Rig leans the way it does. |
+| `docs/REACTIVITY-DESIGN.md` | Phase B design north star — what `Cell` / `Memo` / `Effect` are eventually supposed to look like. Useful when designing PB3 / PB4. |
+| `SPEC.md` | Language spec. §Owned Closures (M20h), §Resource-aware containers via Vec(T) (M20i), §Reactive primitive Signal (PB2), §Cell, §Lambdas. |
+| `docs/ROADMAP.md` | Milestone history (M0 → PB2 done). Each shipped milestone has a dedicated section with sub-commit table + locked design decisions. |
 | `docs/SEMANTIC-SEXP.md` | Sema IR shape. What the grammar emits, what the checker walks. |
 | `docs/INHERITED-FROM-ZAG.md` | Grammar/lexer surface inherited from the Zag/Nexus stack. |
-| `rig.grammar` | Nexus grammar. Conflict count currently **38** (unchanged across M20g). |
+| `rig.grammar` | Nexus grammar. **Conflict count: 69.** |
 
 Codebase highlights:
 
-| File | Role |
-|---|---|
-| `src/rig.zig` | Lexer rewriter + Tag enum. M20g added `captures` / `cap_*` tags. |
-| `src/parser.zig` | **Generated** by `zig build parser` from `rig.grammar`. Don't edit by hand. |
-| `src/types.zig` | Sema: SymbolResolver, TypeResolver, ExprChecker, Type interner, lookup helpers. ~6500 lines after M20g. New: `SymbolKind.capture`; `synthLambda` + `validateCaptures` + `walkLambdaBody`; `SemContext.lambda_return_types` map. |
-| `src/emit.zig` | Zig codegen. ~3500 lines after M20g. New: closure struct emit (`emitClosureBinding` + a dozen helpers); `SymbolEntry.is_closure`; `lookupIsClosure` rewrites `f()` → `f.invoke()`. |
-| `src/ownership.zig` | M2-era borrow/move checker. M20g added: `Binding.is_closure`; `in_call_callee`/`in_set_rhs` context flags; dedicated `walkLambda` applying cap_move outer-state effects. |
-| `src/runtime.zig` | M20d V1 runtime as a Zig string constant (`RcBox` / `WeakHandle` / `Cell` / `rcNew` / etc.). Unchanged in M20g. |
-| `src/main.zig` | CLI driver. Writes `_rig_runtime.zig` sibling file in `emitProjectToTmp`. |
-| `build.zig` | Build steps. `zig build`, `zig build parser`, `zig build test`. |
-| `test/run` | Test driver. `./test/run` to verify; `./test/run --update` to regenerate goldens. |
-| `EMIT_TARGETS` in `test/run` | Names of `examples/` to run end-to-end. M20g added the 4 positive closure examples. |
+| File | Lines | Role |
+|---|---:|---|
+| `src/rig.zig` | ~1360 | Lexer rewriter + Tag enum. |
+| `src/parser.zig` | ~2400 | **GENERATED** by `zig build parser`. Do not edit. |
+| `src/types.zig` | ~7370 | Sema. SymbolResolver, TypeResolver, ExprChecker, type interner. `registerBuiltins` registers Cell/Closure/Vec/Signal. |
+| `src/emit.zig` | ~4260 | Zig codegen. `tryEmitVecConstruction`, `emitOwnedClosureConstruction`, `ResourceKind` (.shared/.weak/.vec_value), interior-mutable binding detection. |
+| `src/ownership.zig` | ~1600 | M2-era borrow/move checker. Context flags: `in_call_callee`, `in_set_rhs` (narrow to direct lambda RHS post-M20h.1), `in_owned_closure_constructor_arg`. |
+| `src/runtime.zig` | ~510 | V1 runtime as a Zig string constant. Contains `RcBox`, `WeakHandle`, `Cell`, `Closure0`, `Vec`, `Signal`, `dropElement` hybrid-dispatch helper, RcBox/WeakHandle/Vec markers (`__rig_rcbox_marker` etc.). |
+| `src/main.zig` | ~700 | CLI driver. Writes `_rig_runtime.zig` sibling file per emitted module. |
+| `build.zig` | ~70 | `zig build`, `zig build parser`, `zig build test`. |
+| `test/run` | ~270 | Test driver. `EMIT_TARGETS` array names the end-to-end runnable examples. |
 
 ---
 
@@ -105,12 +151,7 @@ Codebase highlights:
 | 9 | Resource-aware containers (Vec(T)) | ✅ | M20i (1-5/5) |
 | 10 | Single-subscriber reactive primitive (Signal(T)) | ✅ | PB2 (1-3/3) |
 
-**The V1 ownership substrate is COMPLETE + has its first
-escape-aware abstraction.** Items 9-17 are substrate maturity
-(`unsafe` lattice, `try_block` lowering, explicit error sets,
-etc.) — important but not blocking Phase B.
-
-## Phase B status
+## 2b. Phase B status
 
 | Step | Item | Status | Where |
 |---|---|---|---|
@@ -118,660 +159,211 @@ etc.) — important but not blocking Phase B.
 | M20h | Owned/escaping closure values | ✅ | commits `f4b448c..a4505d5` |
 | PB1 | Single retained Effect | ✅ | folded into canary refresh (M20h(5/5)) |
 | M20i | Resource-aware `Vec(T)` | ✅ | commits `4675fca..d6d6c83` |
-| PB2 | Single-subscriber Signal | ✅ | commits `5918a15..ea91145` + docs |
-| M20i.1 | Resource-Vec iteration | 🚧 NEXT | design checkpoint pending |
+| PB2 | Single-subscriber Signal | ✅ | commits `5918a15..8c4f36c` |
+| **M20i.1** | **Resource-Vec iteration** | **🚧 NEXT** | **design checkpoint pending** |
 | PB3 | Multi-subscriber + batching + topology | pending | depends on M20i.1 |
 
 ---
 
-## 3. M20i retrospective (just-completed arc)
+## 3. PB2 retrospective (just-completed arc)
 
-### Design lock (GPT-5.5 conversation entries 23 + 24)
+### Design lock (GPT-5.5 conversation entry 25)
 
-Five locked decisions, all enforced or in flight:
+Locked at the PB2 design checkpoint:
 
-1. **Vec(T) is a resource VALUE TYPE.** Owns its backing
-   buffer; bare copy/alias is double-free; must move (`<vec`)
-   or explicitly drop (`-vec`).
-2. **V1 element kinds**: Copy primitives, `*T`, `~T`,
-   `*Closure()`. Arbitrary nominal T rejected (needs user
-   Drop). Nested `Vec(Vec(T))` rejected.
-3. **Mutating methods are write-receiver**: `push`,
-   `clear`, `pop` require `(!vec).method(...)`. `length`,
-   `get` are read-receiver. Distinct from Cell's interior-
-   mutability-style read-receiver-everywhere pattern.
-4. **`get` and `pop` are Copy-T-only.** Returning a resource
-   T would either silently clone (visibility violation) or
-   produce `(*T)?` that Rig's V1 optional-handling can't
-   auto-drop. Sema rejects them on resource Vec at call site.
-5. **`dropElement` uses hybrid marker + `__rig_drop`
-   dispatch.** Strong handles (pointer types) detected via
-   `__rig_rcbox_marker`; value types via `__rig_drop` decl.
+1. **Single-subscriber `Signal(T)`, NOT Reactor / NOT
+   Cell-extension.** Per GPT-5.5: "PB2 should prove one
+   retained closure can be subscribed and invoked by state
+   change. It should not solve subscriber-list iteration."
+   The canary discipline (Phase B Q1) drives the scoping.
+2. **Signal wrapper, NOT Cell extension.** Keeps Cell
+   primitive; avoids needing `*Cell(Vec(...))` (which would
+   force Cell-non-Copy relaxation).
+3. **Read-receiver methods (interior mutability).** Matches
+   Cell's pattern: `signal.set(v)` not `(!signal).set(v)`.
+   Runtime trusts itself to mutate through `*Self`.
+4. **Synchronous push on `set`.** PB3 will introduce
+   mark-dirty + queued flush; PB2 ships the simplest possible
+   notification path.
 
-### Implementation so far
-
-Sub-commit by sub-commit (all on `main`):
+### Implementation
 
 | Commit | What it shipped |
 |---|---|
-| `dcaff39` M20i scope lock | HANDOFF §4 Phase B plan locked: M20i alone, subscriber-shaped regression test mandatory, Cell-non-Copy stays separate-and-conditional. |
-| `4675fca` M20i(1/5) | Runtime + type spelling. `rig.Vec(T)` generic struct with allocator/buf/len/cap + push/length/get/pop/clear/`__rig_drop`. `dropElement` helper with hybrid shape+marker dispatch. `__rig_rcbox_marker` on RcBox, `__rig_weak_marker` + `__rig_drop` on WeakHandle. Sema registers Vec as one-arg builtin generic_type. `isValidVecElementType` predicate enforces V1 element restrictions. Emit `Vec(T)` → `rig.Vec(T)`; `*Vec(T)` → `*rig.RcBox(rig.Vec(T))`. |
-| `b774e8b` M20i(2/5) | Sema methods + constructor. 5 methods registered with substituted self-receiver types (?Vec(T) / !Vec(T) per receiver mode). `checkVecConstruction` recognizes `Vec()` and `Vec(capacity: N)` against expected `parameterized_nominal{Vec, [T]}`. Routed BEFORE `checkGenericConstructorCall` because Vec has no data fields. |
-| `13f079b` M20i(3/5) | Ownership rules. `checkSharedHandleAlias` extended with a Vec branch: bare Vec use in call args or binding RHS fires "would copy the buffer pointer and double-free; use `<v` to move ownership". Move (`<vec`) and drop (`-vec`) semantics work via existing M2 machinery — no new code needed. |
-| `2ef41b6` M20i(4/5) | Emit. New `ResourceKind.vec_value` variant routes Vec stack-locals through a `__rig_drop()` scope-exit guard. `tryEmitVecConstruction` lowers `Vec()` / `Vec(capacity: N)` to `rig.Vec(T).init(allocator)` / `initCapacity(...) catch panic`. `-vec` discharge handled by extending the `.@"drop"` arm. `isInteriorMutableBinding` extended for Vec so stack-locals emit as `var`. |
-| TBD M20i(5/5) | Tests + examples + EMIT_TARGETS + SPEC/ROADMAP/HANDOFF refresh. |
+| `5918a15` PB2(1/3) | `Signal(T)` runtime + sema + emit. Runtime: `value: T`, `subscriber: ?*RcBox(Closure0) = null`, methods `get` / `set` / `subscribe` / `__rig_drop`. Sema: one-arg generic_type builtin, Copy-T-only, methods registered with read receivers. Emit: routes through existing Cell-style construction path. |
+| `ea91145` PB2(2/3) | Canary extension. New PB2 block in `examples/reactive_canary.rig`. Canary output: `1\n3\n13\n7\n99`. |
+| `8c4f36c` PB2(3/3) | Docs. SPEC §"Reactive primitive: Signal(T) (PB2)"; ROADMAP PB2 entry; this HANDOFF refresh. |
 
-### What works right now (sema only — no emit yet)
+### Verified canary chain
 
 ```rig
-sub main()
-  v: Vec(Int) = Vec()                    # constructor OK
-  rv: *Vec(Int) = *Vec()                 # shared OK
-  vc: Vec(Int) = Vec(capacity: 10)       # capacity hint OK
-  (!v).push(42)                          # write-receiver OK
-  n = v.length()                          # read-receiver OK
-  v2: Vec(Int) = <v                      # move OK
-  -v2                                    # drop OK
+# examples/reactive_canary.rig output: 1\n3\n13\n7\n99
+count: *Cell(Int) = *Cell(value: 0)
+count.set(1); print(count.get())                # 1   — PB0 Cell
+
+bump = fn |+count| count.set(count.get() + 1)
+bump(); bump(); print(count.get())              # 3   — M20g stack-local closure
+
+eff: *Closure() = *Closure(fn |+count| count.set(count.get() + 10))
+eff(); print(count.get())                       # 13  — M20h retained closure
+
+sig: *Signal(Int) = *Signal(value: 0)
+log: *Closure() = *Closure(fn |+sig| print(sig.get()))
+sig.subscribe(+log); sig.set(7); sig.set(99)   # 7, 99 — PB2 Signal
 ```
 
-### What's rejected (sema diagnostics fire correctly)
+### What PB2 explicitly does NOT cover
 
-- `Vec(User)` — "requires Copy / `*T` / `~T`; got `User`"
-- `Vec(size: 10)` — "accepts only `capacity` as a kwarg"
-- `Vec(10)` — "takes no positional arguments"
-- `struct Vec` — "reserved built-in nominal name"
-- `v.push(42)` (no write-borrow) — "method `push` requires
-  a write-borrowed receiver; use `(!receiver).push(...)`"
-- `v2: Vec(Int) = v` — "bare use of `Vec` value `v` in
-  binding would copy the buffer pointer and double-free"
-- `take(v)` (Vec in call arg) — same double-free diagnostic
-- `v2 = <v; n = v.length()` — "use of `v` after move"
-- `-v; n = v.length()` — "use of `v` after drop"
-
-### What (4/5) needs to do
-
-The remaining emit work, broken into roughly 6 chunks:
-
-1. **`isInteriorMutableBinding` extended** to recognize
-   Vec(T) types (parallel to Cell). Vec stack-locals get
-   `var` emission so mutating methods can call `*Self`
-   receivers. Plus the `_ = &v;` pacifier when not directly
-   referenced post-binding.
-2. **Vec construction emit**. New helper
-   `emitVecConstruction(call_items)` (parallel to
-   `emitOwnedClosureConstruction`):
-   - `(call Vec)` → `rig.Vec(i32).init(rig.defaultAllocator())`
-   - `(call Vec (kwarg capacity N))` →
-     `rig.Vec(i32).initCapacity(rig.defaultAllocator(), N) catch @panic("Rig Vec allocation failed")`
-   - Detect when called inside `(share ...)` and route to
-     the `*Vec` shared variant.
-3. **Method call emit**. The existing M20a member-call
-   emit should handle most cases — verify with smoke tests
-   that `v.length()` → `v.length()` and `(!v).push(x)` →
-   `v.push(x)` (the `(write v)` wrapper needs to lower
-   transparently).
-4. **Auto-drop guard for stack-local Vec**. Extend
-   `ResourceKind` with `.vec_value`; extend `emitResourceGuard`
-   with a `__rig_drop()` branch. Extend
-   `resourceKindOfBinding` to return `.vec_value` for Vec
-   types.
-5. **`-vec` and `<vec` discharge emit**. Update `walkDrop`
-   and the move-assign path to handle the new `.vec_value`
-   resource kind. `-vec` lowers to
-   `vec.__rig_drop(); __rig_alive_vec = false;`.
-6. **Push-arg visibility emit**. Reject bare resource
-   handles in `push` args; require `+rc` / `<rc` / `~rc`.
-   This parallels the existing `checkSharedHandleAlias`
-   pattern for call args but is specific to push.
-
-Estimated size: bigger than (1/5)/(2/5)/(3/5) combined.
-Probably worth 1-2 productive sessions on its own with
-GPT-5.5 post-impl review at the end.
-
-### What (5/5) needs to do
-
-- **Subscriber-list-shaped regression test** (the
-  MANDATORY one per GPT-5.5's M20i scoping review):
-  `Vec(~Closure())` storage with explicit `+`/`~` push
-  modes; verify drop cascade via emitted Zig.
-- **Examples for EMIT_TARGETS**:
-  - `vec_copy.rig` — Vec(Int) push/pop/length
-  - `vec_shared.rig` — `*Vec(Int)` shared variant
-  - `vec_clone_handle.rig` — Vec of `*T` with `+rc` push
-  - `vec_move_handle.rig` — Vec of `*T` with `<rc` push
-  - `vec_subscribers.rig` — the mandatory subscriber test
-- **Negative goldens**:
-  - `vec_bad_element_rejected.rig` — nominal element type
-  - `vec_bare_copy_rejected.rig` — `v2 = v1`
-  - `vec_bare_push_arg_rejected.rig` — `push(rc)` no mode
-- **SPEC §Vec subsection** + **ROADMAP M20i entry** +
-  **HANDOFF refresh** (this section becomes M20i
-  retrospective).
+- Multi-subscriber notification (PB3, after iteration lands).
+- Batching / topology / Reactor.flush (PB4).
+- Memo (derived values that auto-recompute).
+- Effect lifecycle / unregister-on-drop.
 
 ---
 
-## 4. M20h retrospective (just-completed arc)
+## 4. M20i retrospective (resource-aware containers)
 
-### Design lock (entry 17 — DO NOT re-checkpoint)
+### Design lock (GPT-5.5 entries 23 + 24)
 
-Five locked decisions, all enforced by the test corpus:
+1. **Vec(T) is a resource VALUE TYPE** (owns its backing
+   buffer). Bare copy/alias = double-free; must move (`<v`)
+   or explicitly drop (`-v`).
+2. **V1 element kinds**: Copy primitives, `*T`, `~T`,
+   `*Closure()`. Arbitrary nominal T deferred. Nested
+   `Vec(Vec(T))` rejected.
+3. **Mutating methods are write-receiver**: `push`, `clear`,
+   `pop` require `(!vec).method(...)`. `length`, `get` are
+   read-receiver. Distinct from Cell's interior-mutability
+   pattern.
+4. **`get` and `pop` are Copy-T-only** at the call site.
+   Resource-T iteration is the deferred M20i.1 gap.
+5. **`dropElement` uses hybrid marker + `__rig_drop` dispatch**:
+   strong handles (pointer types) detected via
+   `__rig_rcbox_marker` on the pointee; value types via
+   `__rig_drop` decl.
 
-1. **Surface**: `cb: *Closure() = *Closure(fn |+count| body)`.
-   Mirrors `*Cell(value: 0)` (explicit `*` for visible heap
-   alloc + refcount). Bare `Closure(fn ...)` rejected with
-   tailored hint.
-2. **Type spelling**: `Closure()` zero-arity only in M20h.
-   `Closure(Int)` errors with "expects 0 type arguments, got
-   1"; bare `Closure` errors with "must be written with empty
-   parentheses". Arity-bearing closures (Closure1<T>, etc.)
-   deferred.
-3. **ABI**: type-erased `rig.Closure0` vtable + per-literal
+### Implementation
+
+| Commit | What it shipped |
+|---|---|
+| `dcaff39` scope lock | HANDOFF M20i scope locked + mandatory subscriber-shaped regression test. |
+| `4675fca` M20i(1/5) | Runtime + type spelling. `rig.Vec(T)` + `dropElement` + RcBox/WeakHandle markers. |
+| `b774e8b` M20i(2/5) | Sema methods + `Vec()` / `Vec(capacity: N)` constructor. |
+| `13f079b` M20i(3/5) | Ownership: bare-Vec-copy rejected as double-free. |
+| `2ef41b6` M20i(4/5) | Emit: `tryEmitVecConstruction`, `ResourceKind.vec_value`, auto-drop guard, `-vec` discharge. |
+| `d6d6c83` M20i(5/5) | 10 examples (5 positive + 5 negative) + SPEC §Vec + ROADMAP + HANDOFF. **Subscriber-shaped regression test** `vec_subscribers.rig` (the mandatory exit gate) prints `11` end-to-end. |
+
+### M20i deferred (M20i.1+ candidates)
+
+- **Resource-T iteration** (`vec.foreach(fn (e) e())` or
+  `for x in vec`). The PB3 blocker.
+- **Resource-T `get` / `pop`** (return `(*T)?` needs optional-
+  resource auto-drop).
+- **`insert(i, v)` / `remove(i)` / `swap_remove(i)`**.
+- **Persistent/CHAMP Vec** (see INFLUENCES §6).
+
+---
+
+## 5. M20h retrospective (owned escaping closures)
+
+### Design lock (GPT-5.5 entry 17)
+
+1. **Surface**: `*Closure(fn |+count| body)`. Mirrors
+   `*Cell(value: 0)`. Explicit `*` for visible heap alloc.
+2. **Type spelling**: `Closure()` only — zero arity. Arity-
+   bearing variants (Closure1<T>) deferred.
+3. **ABI**: type-erased `rig.Closure0` vtable (`ctx`,
+   `invoke_fn`, `drop_fn`, `allocator`) + per-literal
    anonymous env struct. Surface type is uniform
-   `*rig.RcBox(rig.Closure0)`. Each closure literal gets a
-   unique env struct + invoke/drop thunks; `ctx: *anyopaque`
-   hides the layout.
-4. **Drop model**: `RcBox.dropStrong` runs payload's
-   `__rig_drop` (gated by `comptime hasRigDrop(T)`) on LAST
-   strong drop. Closure0's `__rig_drop` calls the per-literal
-   `rigDrop` thunk → capture drops + `allocator.destroy(env)`.
-   The earlier proposal that ran capture-drop from each
-   binding's scope-exit defer was caught and rejected at
-   design time — would UAF on `cb2 = +cb; -cb; cb2()`.
-5. **Ownership relaxation**:
-   `in_owned_closure_constructor_arg` is a NEW context flag
-   set ONLY for the exact `*Closure(fn ...)` shape. `walkLambda`
-   accepts ANY of three flags now (`in_set_rhs ||
-   in_call_callee || in_owned_closure_constructor_arg`). The
-   M20g non-escaping rules still apply everywhere else.
+   `*rig.RcBox(rig.Closure0)`.
+4. **Drop**: `RcBox.dropStrong` runs payload's `__rig_drop` on
+   last strong (gated by `comptime hasRigDrop(T)`). Closure0's
+   `__rig_drop` calls the per-literal `rigDrop` thunk. **NOT**
+   from each binding's defer — that earlier proposal would
+   UAF on `cb2 = +cb; -cb; cb2()`.
+5. **Ownership relaxation**: dedicated
+   `in_owned_closure_constructor_arg` context flag set ONLY
+   for the `*Closure(fn ...)` shape.
 
-### Implementation summary
-
-Sub-commit by sub-commit (all on `main`):
+### Implementation
 
 | Commit | What it shipped |
 |---|---|
-| `f4b448c` M20h(1/5) | Runtime + type spelling. `Closure0` vtable + `hasRigDrop` predicate + `RcBox.dropStrong` `__rig_drop` hook in `runtime.zig`. `Closure` builtin (zero arity) registered in `types.zig`. Emit lowers `*Closure()` → `*rig.RcBox(rig.Closure0)`. Bare `Closure` / `Closure(Int)` / redefinition diagnostics. |
-| `3f00bdf` M20h(2/5) | Sema for construction + invocation. `detectOwnedClosureConstruction` intercepts `(share (call Closure (lambda ...)))` in `synthExpr` → returns the precise closure handle type. `cb()` typing for owned closures returns void. Diagnostics: bare `Closure(fn ...)` no `*`, non-lambda arg, wrong arity, `cb(args)`. Grammar: new `FN captures inline_body` form with `inline_body = call → (block 1)` so single-call lambda bodies parse inside `(...)`. Conflict count: 38 → 69. |
-| `64e29ab` M20h(3/5) | Ownership relaxation. New `walkShare` dispatcher detects owned-closure construction and sets `in_owned_closure_constructor_arg` for the inner walk. `walkLambda` escape check accepts the new flag; reset inside the body so nested constructions don't inherit. Pre-M20h `return *Closure(fn ...)` (rejected by M20g) now passes. |
-| `a4505d5` M20h(4/5) | Emit construction + invocation — the load-bearing emit work. `emitOwnedClosureConstruction` produces a labeled-block expression with an inline `Env = struct { ... fn rigInvoke ... fn rigDrop ... }`; env is heap-allocated via `rig.defaultAllocator().create(Env)`, captures init via reuse of M20g's `emitClosureInit` with a leading `.` for the inferred struct literal, wrapped in `Closure0` + `rig.rcNew`. `emitCall` adds the M20h `cb.value.invoke()` rewrite. `is_owned_closure` SymbolEntry flag set by `emitSetOrBind` via three signals (RHS / type annotation / sema). |
-| TBD M20h(5/5) | Tests + canary + docs. 4 positive (EMIT_TARGETS) + 4 negative examples. `examples/reactive_canary.rig` updated to include a retained M20h closure. SPEC §Lambdas extended with §Owned Closures (M20h). ROADMAP M20h entry. This HANDOFF refresh. |
+| `f4b448c` M20h(1/5) | Runtime: `Closure0` + `hasRigDrop` + `RcBox.dropStrong` `__rig_drop` hook. Sema: `Closure` zero-arity builtin. |
+| `3f00bdf` M20h(2/5) | Sema construction + invocation. Grammar: new `FN captures inline_body` form. Conflict count: 38 → 69. |
+| `64e29ab` M20h(3/5) | Ownership relaxation via new context flag. |
+| `a4505d5` M20h(4/5) | Emit: `emitOwnedClosureConstruction` produces labeled-block with inline anonymous env struct + invoke/drop thunks. |
+| `09a6b78` M20h(5/5) | 8 examples + canary refresh (PB1 folded in) + SPEC §Owned Closures. |
+| `1c86aca` M20h.1 | Post-impl fix: `in_set_rhs` narrowed to direct lambda RHS only (caught by GPT-5.5 review). |
 
-### Verified end-to-end behaviors
+### Verified end-to-end
 
-- **Stack-local construction**: `cb: *Closure() = *Closure(fn
-  |+count| count.set(count.get() + 1)); cb(); cb()` compiles
-  + runs (count is 2 after two invocations).
-- **Escaping return**: `fun make_counter() -> *Closure() { ...
-  *Closure(fn |+count| ...) }; cb = make_counter(); cb()`
-  works. The local Cell binding is dropped at function exit
-  but the closure's cloned strong handle keeps it alive.
-- **Clone-doesn't-drop-early**: `cb = make_counter(); cb2 =
-  +cb; -cb; cb2(); cb2()` runs cleanly. The Cell payload is
-  freed only when BOTH `cb` and `cb2` drop their strong
-  handles — last-strong-drop semantics work as designed.
-- **Move capture**: `*Closure(fn |<count| ...)` compiles +
-  runs; outer `count` enters `.moved` state.
-- **Escape rejection still works**: bare `f = fn |...| ...;
-  return f` (M20g shape) still rejected. Only the exact
-  `*Closure(fn ...)` shape gets the new flag.
-- **The canary refresh** (`examples/reactive_canary.rig`)
-  prints `1\n3\n13` — M20f Cell set/get + M20g stack-local
-  closure + M20h retained-effect-closure all composing.
+- Stack-local construction: works, drops cleanly.
+- Escaping return (`fun make_counter() -> *Closure() { ... }`).
+- Clone-doesn't-drop-early UAF test (`cb2 = +cb; -cb; cb2()`).
+- Move-capture.
+- Escape rejection still fires for non-wrapped lambdas.
 
-### M20h deferred — explicitly NOT done
+### M20h deferred
 
-1. **Arity-bearing closures** (`Closure1<T>`, `Closure2<A, B>`,
-   etc.). Required for callbacks with arguments. The M20h
-   ABI is committed to no-arg / void-return; arity-bearing
-   variants need a parallel `Closure1` / `Closure2` runtime
-   type per arity + sema/emit dispatch on signature. Likely
-   a future M20j or after Phase B exposes the need.
-2. **Multi-statement closure bodies**. The new grammar form
-   is `FN captures call` (the `inline_body` non-terminal is
-   a single `call`). Multi-stmt bodies still need indented-
-   block lambdas which don't compose inside `(...)`.
-   Workaround: lift the work into a named helper sub and
-   have the closure call it.
-3. **`fn || expr` empty-capture inline form**. Grammar
-   `captures = BAR_CAPTURE capture BAR_CAPTURE` requires
-   non-empty captures, so empty `||` doesn't parse. The
-   existing `fn block` no-capture indented form works for
-   block-bodied cases, but inline `fn || expr` doesn't.
-   Most callbacks capture something, so not urgent.
-4. **~~Pre-existing M20g `in_set_rhs` leak~~ FIXED in M20h.1**:
-   was — a bare lambda inside an array literal at set-RHS
-   position (`xs = [fn |+x| ...]`) silently passes
-   ownership because `in_set_rhs` flows through the array
-   element walk. GPT-5.5's M20h post-implementation review
-   flagged this as a must-fix-before-M20i (Vec storage
-   shapes hit it directly), and M20h.1 narrows the flag to
-   direct lambda RHS only. See ROADMAP §M20h.1.
-5. **Method-value form** (`Effect(count.changed)` syntax).
-   Deferred indefinitely; for V1 users always wrap the
-   method in a lambda.
+- Arity-bearing closures (`Closure1<T>`, `Closure2<A, B>`).
+- Multi-statement closure bodies inside `*Closure(...)`.
+- `fn || expr` empty-capture inline form.
+- Method-value form (`Effect(count.changed)`).
 
 ---
 
-## 4. M20g retrospective (prior arc — kept for reference)
+## 6. M20g retrospective (closure captures)
 
-### Design pass (GPT-5.5, locked)
-
-The five binding rules from the M20g checkpoint, plus tactical
-clarifications from the M20g(2/5) post-implementation review.
-Do NOT re-derive these:
-
-1. **Default `|x|` is Copy-only.** Resources (`*T`/`~T`) MUST
-   use explicit mode (`|+x|` / `|<x|` / `|~x|`). Without this,
-   `|rc|` would hide a refcount-bump (violating M20d's
-   visible-effects rule).
-2. **NO `|*x|` capture mode.** `*` already means "allocate Rc
-   by moving expr in"; overloading would be confusing.
-   Strong-clone capture spells as `|+rc|`.
-3. **V1 closures are STRICTLY non-escaping.** Allowed only as
-   `(set ...)` RHS or as `(call ...)` callee. No return / no
-   call arg / no record field / no aliasing. Reactive callback
-   storage needs a future M20h (or a trusted Reactor/Effect
-   builtin).
-4. **Closure values are non-copyable AND implicitly fixed.**
-   `g = f` rejected; `f = fn ...; f = fn ...` rejected.
-5. **Captured resource guards live in the closure-instance's
-   enclosing scope**, not inside the closure body. (Otherwise
-   each invocation would drop the capture; second invocation
-   would UAF.)
-
-Tactical Q&A (from M20g(2/5) checkpoint, also locked):
-
-- **Ownership-side `Binding.is_closure` flag**, NOT a
-  `Type.closure` variant. The type variant would cascade into
-  `compatible` / `formatType` / emit's type lowering for
-  zero V1 benefit; the ownership flag is sufficient because
-  closures are structurally distinguishable in the IR.
-- **Context tracking via two Checker bools** (`in_call_callee`
-  + `in_set_rhs`) rather than an enum stack. The only "allowed"
-  contexts for a closure value are call-receiver and set-RHS;
-  two bools suffice.
-- **EMIT_TARGETS strategy**: Copy-only closure in (3/5);
-  resource captures added in (4/5) once the closure-instance
-  guard discipline lands. Avoids ever shipping leaky golden
-  Zig output.
-
-### Implementation summary
-
-Sub-commit by sub-commit (all on `main`):
-
-| Commit | What it shipped |
-|---|---|
-| `99927c0` M20g(1/5) | Grammar + lexer + IR shape extension. Lambda IR: `(lambda CAPTURES PARAMS RETURNS BODY)`. New tags: `captures`, `cap_copy`, `cap_clone`, `cap_weak`, `cap_move`. SymbolResolver scaffolding (no binding yet). |
-| `3b26692` M20g(2/5) | Sema + ownership. `SymbolKind.capture`, `synthLambda` mode validation, `Binding.is_closure`, context flags, non-escaping enforcement, dedicated ownership `walkLambda`. |
-| `5413c8e` M20g(2.1) | Polish: tailored "cannot reassign closure binding" diagnostic per GPT-5.5's review (was the generic `=!` message users never wrote). |
-| `dcc5baa` M20g(3/5) | Emit: closure struct + `invoke(self: *@This())`; `f()` → `f.invoke()`; capture remapping to `self.cap_<n>`; `SemContext.lambda_return_types` for inferred Zig return types. Copy-only example in EMIT_TARGETS. |
-| `b8a3248` M20g(4/5) | Auto-drop: per-resource-capture guards at the closure-instance enclosing scope. clone/weak/move examples added to EMIT_TARGETS. |
-| TBD M20g(5/5) | Docs (SPEC §Lambdas + ROADMAP M20g + this HANDOFF refresh). |
-
-### Example file naming convention (kept for future closure tests)
-
-Positive: `closure_capture_<mode>.rig` (in EMIT_TARGETS).
-
-Negative: `closure_<scenario>_rejected.rig` (sema/ownership goldens only):
-- `closure_resource_default_rejected.rig` — `|rc|` for `*T`
-- `closure_copy_rejected.rig` — `g = f` for closure
-- `closure_escape_return_rejected.rig` — `return fn ...`
-- `closure_escape_arg_rejected.rig` — `foo(f)` for closure
-- `closure_capture_param_collision_rejected.rig` — `fn |x| (x: Int)`
-- `closure_nested_capture_rejected.rig` — `fn |+rc| fn |+rc| ...`
-- `closure_reassign_rejected.rig` — closure-fixed reassignment
-
-### Deferred from M20g (revisit when relevant)
-
-1. **Multi-capture syntax** (`fn |+rc, n| body`). V1 grammar
-   accepts a single capture node; the IR shape already wraps it
-   in a `(captures cap_node...)` list so future multi-capture
-   is purely a grammar + capture-iteration extension. Defensive
-   duplicate-name detection is already plumbed in
-   `SymbolResolver.bindCaptures`.
-2. **Inline-call shape `(fn |...| body)()`**. The
-   ownership-side accept list includes this position, but the
-   parser rejects it due to the indented-block / suffix-call
-   composition. SPEC §Lambdas documents the limitation.
-   Closing it requires a grammar refinement around block-as-
-   expression composability — out of scope for V1.
-3. **Nested-lambda capture from outer closure**. Rejected with
-   a dedicated diagnostic; emit would need to clone
-   `self.cap_<n>` from the outer closure into the inner
-   closure's init expression. Future "escaping closures"
-   M20h work would handle this naturally.
-4. **Value-returning closures with non-primitive return types**.
-   Current `emitZigTypeForTypeId` handles primitives, shared/
-   weak, nominal, parameterized_nominal. Closures returning
-   unusual types (slices, fn-types, etc.) fall back to `void`.
-   Not a hard blocker — the V1 use cases (Phase B Effects)
-   are void-returning callbacks.
+M20g shipped (1-5/5 + 2.1, commits `99927c0..a999461`) on
+2026-05-16. The five locked rules: default `|x|` is Copy-only;
+no `|*x|` mode; V1 closures strictly non-escaping (until M20h
+relaxed for `*Closure()`); closure values non-copyable +
+implicitly fixed; captured-resource guards live at the
+closure-instance's enclosing scope. Full retrospective lives
+in `docs/ROADMAP.md` §M20g. The M20h.1 fix later corrected
+M20g's `in_set_rhs` leak (lambdas in array literals/struct
+constructors silently passing) — that hazard is closed.
 
 ---
 
-## 4. Phase B plan (scoped with GPT-5.5; conversation entries 15-16)
+## 7. Phase B plan (locked decisions from entries 15-16)
 
-The Phase B scoping checkpoint produced an agreed sequence
-through ~12-20 commits over the next 6-10 weeks. **Do NOT
-re-litigate Q1-Q5 below — they were decided collaboratively
-and locked.** Each subsequent Mxx arc (M20h, M20i) gets its
-own design checkpoint when it starts.
-
-### Agreed sequencing
-
-```
-PB0:  Minimal reactive canary scaffold       ✅ shipped
-M20h: Owned/escaping closure values          ✅ shipped (1-5/5 + .1)
-PB1:  Single retained Effect using M20h      ✅ folded into M20h(5/5)
-M20i: Resource-aware Vec(T)                  ← NEXT: design checkpoint
-M20i.x: Cell-non-Copy relaxation             — conditional (may not be needed)
-PB2:  Cell → Effect notification             pending
-PB3:  Memo + batching + topology             pending
-```
-
-### Locked decisions (Q1-Q5 from the Phase B checkpoint)
+The original Phase B scoping checkpoint locked Q1-Q5. These
+remain operationally relevant; do NOT re-litigate.
 
 **Q1 — Minimum canary first, NOT the full ~500-line library.**
 Each surfaced language gap gets its own Mxx commit on main;
-the library grows in `examples/reactive_canary.rig` (single
-file until M15b cross-module sema improves) as those commits
-land. Avoids speculatively designing M20h/M20i with no concrete
-use exposing what shape they need.
+the library grows in `examples/reactive_canary.rig` as those
+commits land. PB2's single-subscriber Signal is the current
+state of the canary.
 
-**Q2 — Narrow M20h (escaping closures), NOT trusted Effect/Memo
-builtins.** This is the load-bearing decision. The original
-lean (mirror the `Cell` builtin playbook for `Effect` / `Memo`)
-was rejected because it would HIDE the gap Phase B is supposed
-to expose. Quote from GPT-5.5: *"Cell was acceptable as a
-builtin because interior mutability is a primitive unsafe
-abstraction with no user-level unsafe yet. Effect/Memo are
-library constructs. If you bake them into the runtime, the
-canary stops testing whether Rig can express retained
-callbacks."* The Rig substrate must grow real escaping
-closures; the library stays library-level.
+**Q2 — Narrow substrate features, NOT trusted Effect/Memo
+builtins.** The Rig substrate must grow real escaping
+closures (M20h ✅), real resource-aware containers (M20i ✅),
+real reactive primitives (PB2 Signal ✅). Effect/Memo/Reactor
+must remain expressible in user-level code, not baked into
+the runtime.
 
-**Q3 — Defer `Vec(T)` until PB1 exposes the need.** First
-retained Effect uses a single-callback slot. When `Vec(T)`
-does land (as M20i), it MUST be resource-aware: `push` /
-`drop` / `resize` correctly handle `*T` / `~T` element
-ownership; no naive `std.ArrayList` wrapper that memcpy-copies
-handles.
+**Q3 — Defer multi-feature pieces until the canary exposes
+the need.** Vec deferred until PB1 exposed it; multi-
+subscriber deferred until PB3 forces it; Cell-non-Copy
+deferred until PB3 forces it (and it may not).
 
-**Q4 — Hybrid on main, single-file until M15b.** Language
-fixes ship as normal Mxx commits with the M5-style cadence.
-The canary file (`examples/reactive_canary.rig`) IS the
-regression test and lives in `EMIT_TARGETS`. Start single-file
-to avoid cross-module sema weakness masking errors; split into
-`test/modules/reactive/` only after M15b matures.
+**Q4 — Hybrid on main, single-file canary until M15b.** All
+language fixes ship as normal Mxx commits. The canary file
+(`examples/reactive_canary.rig`) IS the regression test and
+lives in `EMIT_TARGETS`.
 
 **Q5 — Functional canary + docs as success.** Phase B done
-when a single end-to-end test passes (e.g., `count.set(2);
-reactor.flush(); effect observes new value`) AND SPEC
-documents what subset of reactivity works + what's
-intentionally deferred. NOT the full 500-line library — the
-canary is the validation deliverable.
-
-### M20h scope guardrails (locked at Phase B checkpoint)
-
-When M20h gets its own design checkpoint, these are the
-already-locked constraints. The checkpoint scopes syntax,
-ABI, drop model, type spelling — NOT whether to do M20h.
-
-```
-IN:  no-arg or fixed-arity closures (matching M20g lambda params)
-     heap-owned closure environment
-     resource captures dropped with the closure
-     call/invoke after defining-scope exit
-     store in struct field (so a parent can retain the closure)
-
-OUT: async, traits / interfaces, dynamic dispatch over arbitrary
-     signatures, closure equality, closure cloning, fallible
-     callbacks (`fn() -> Void!`), cross-module closure ABI
-```
-
-GPT-5.5's and my shared bias for the M20h syntax: explicit
-`*Closure(fn |+rc| body)` constructor (mirrors `*Cell(value: 0)`)
-versus overloading `*lambda` to mean both "Rc allocate" and
-"synthesize closure object with generated ABI / drop glue."
-NOT locked — the M20h checkpoint should weigh both with the
-emitter constraints in view.
-
-### M20i scope (locked 2026-05-17 with GPT-5.5)
-
-**The next arc is M20i ALONE.** Both Claude and GPT-5.5
-independently endorsed Option A (M20i alone) over Option B
-(M20i + Phase B together). See conversation entry 23 for
-the full reasoning. The locked scope:
-
-```
-IN:  resource-aware Vec(T) (or equivalent container type)
-     element kinds: Copy T, *T, ~T, *Closure()
-     push/pop/len/clear with explicit ownership semantics
-     drop discipline: Vec-drop walks elements + drops each
-     subscriber-list-shaped regression test (NOT reactivity)
-
-OUT: reactivity / PB2 / PB3 (separate follow-on arc)
-     Cell-non-Copy relaxation (separate, CONDITIONAL — may not be needed)
-     PersistentVec / CHAMP (demoted to M20j+ per INFLUENCES §8)
-     arbitrary non-Copy nominal T (deferred until user Drop exists)
-     full iteration semantics for resource T (V1 may defer indexing
-     for resource types; design decision at checkpoint)
-```
-
-**The subscriber-list-shaped regression test is mandatory**
-(per GPT-5.5's M20i scoping review): even though we're NOT
-building reactivity yet, M20i must include a test that uses
-`Vec(~Closure())` (or similar) with explicit `+`/`<`/`~`
-push modes and verifies that Vec-drop cascades correctly
-through each element's `dropStrong`/`dropWeak`. Without
-this guard, M20i risks shipping with a clean abstract API
-that turns out to be wrong-shaped when PB2 tries to use it.
-
-**Cell-non-Copy stays separate and may not be needed.**
-GPT-5.5's observation: PB2 doesn't necessarily require
-`*Cell(Vec(~Effect))`. The Reactor can be modeled as an
-owned mutable object instead:
-
-```rig
-reactor: Reactor
-!reactor.subscribe(...)   # write-borrow + mutate
-!reactor.flush()
-```
-
-So Cell-non-Copy is conditional. If PB2 design forces it,
-it becomes M20i.x (a separate sub-arc with replace/take/
-drop semantics). If not, it never ships in V1.
-
-**Sequencing estimate**:
-- M20i: ~5 sub-commits, 1-2 productive sessions
-- M20i.x (Cell-non-Copy): ~3 sub-commits, 1 session, conditional
-- PB2 + PB3: ~3 sub-commits, 1 session
-
-Total Layer 6 + Layer 7: 2-3 productive sessions. The
-Cell relaxation may turn out to be skippable, which would
-collapse it to 2 sessions.
-
-**Substrate-ladder cross-reference**: M20i is Layer 6 in
-`docs/INFLUENCES.md` §1. Reactivity (Layer 7) and structured
-concurrency (Layer 8) both depend on it. The scope-lock
-here governs Layer 6 only; Layer 7 design follows once
-Layer 6 is concrete.
-
-Substrate gaps GPT-5.5 flagged that M20h/PB1/PB2/PB3 will
-encounter (Phase B checkpoint, entry 15):
-
-1. **Closure type spelling and ABI** — FnOnce vs FnMut vs Fn-like.
-   Start with no-arg void; defer the trait hierarchy.
-2. **Resource containers** — `Vec(~Effect)` push/drop/resize
-   must move handles correctly. M20i designs this.
-3. **Built-in optional ergonomics** — `weak.upgrade()` returns
-   `(*T)?`; match/unwrap may need cleanup before subscriber
-   lists are pleasant.
-4. **Method values / function references** — `Effect(count.changed)`
-   form deferred initially.
-5. **Fallible callbacks** — defer until `try_block` emit lands;
-   initial closures are `fn() -> Void`.
-
-### Minute-1 next session
-
-```bash
-git pull --ff-only
-git log -1 --format='%h %s'   # should be at or after M20h.1
-./test/run 2>&1 | tail -3     # should print "754+ passed, 0 failed"
-bin/rig run examples/reactive_canary.rig    # prints "1\n3\n13"
-```
-
-### Minute-2: scope M20i with GPT-5.5
-
-M20i (resource-aware `Vec(T)`) needs a fresh design
-checkpoint — unlike M20h, this isn't locked. Concrete
-questions for the GPT-5.5 checkpoint:
-
-1. **Builtin vs library**: Q2 of the Phase B checkpoint
-   leaned "Cell as builtin OK because primitive; Effect /
-   Memo as user code". Where does `Vec(T)` fall?
-   - Lean **builtin** for V1 because: heap allocation +
-     refcount-handle semantics are baked-into-runtime
-     territory, paralleling Cell.
-   - Counter-lean: a real `Vec` has push/pop/iter/clear/etc.
-     and Rig should be expressive enough to write it.
-   - Defer the call to the checkpoint.
-2. **Resource discipline**: For `Vec(*T)` (vec of strong
-   handles), `Vec(~T)` (vec of weak handles), `Vec(T)` (vec
-   of Copy types) — what's the V1 API contract?
-   - `push(<rc)` move-into vec? `push(+rc)` clone-into vec?
-   - `remove(i)` returns the moved-out element vs drops it?
-   - `clear()` drops all elements?
-   - `Vec(*T)` whole-vec drop: does it walk each element
-     and call `dropStrong`?
-3. **Generic parameterization**: `Vec(T)` is generic in T.
-   M20c's generic enum machinery + M20b's generic struct
-   machinery cover the typing side. The runtime emit shape
-   needs to handle both Copy and Resource element types.
-4. **Sema integration**: `Vec` becomes another reserved
-   builtin name (like Cell, Closure). The arity / type-
-   parameter contract is `Vec(T)` exactly one type arg.
-5. **PB2 driver**: with `Vec(~Effect)` in place, the canary
-   gains a multi-subscriber demo
-   (`count.subscribe(eff); count.set(2); flush()` → each
-   eff invoked). The PB2 commit drives the M20i API shape.
-
-### Minute-3: start M20i(1/N) after checkpoint
-
-The Phase B Q1-Q5 locked decisions still apply. Hybrid on
-main, single-file canary, narrow language-fixes rather than
-trusted builtins where possible.
+when an end-to-end test passes AND SPEC documents the working
+subset + intentional deferrals. PB2 satisfies the "retained-
+subscriber observes state change" milestone; PB3 + PB4 finish
+the picture (multi-subscriber + Memo + topology).
 
 ---
 
-**Below: legacy M20h plan (kept for reference; M20h shipped
-2026-05-17 — see §3 above for the implementation summary).**
-
-**Locked M20h design (entry 17 summary):**
-
-- **Surface**: `cb: *Closure() = *Closure(fn |+count| body)`
-  — explicit constructor, mirrors `*Cell(value: 0)`. NOT
-  `*lambda` sigil overload; NOT `own fn` keyword.
-- **Type spelling**: `Closure()` only in M20h (special-case
-  empty `()` since it would normally hit the generic-empty-
-  params rejection). NO args, NO return type yet — pure
-  no-arg void closures. Reject `Closure(Int)`, bare
-  `Closure`, etc.
-- **ABI** (this is the load-bearing call; entry 17 caught a
-  UAF in an earlier proposal):
-  - New runtime type `rig.Closure0` with vtable:
-    `ctx: *anyopaque`, `invoke_fn`, `drop_fn`, `allocator`.
-  - Each closure literal generates a UNIQUE env struct
-    (`RIG_CLOSURE_ENV_N`) holding captures + invoke/drop
-    thunks. Env is heap-allocated SEPARATELY from the RcBox.
-  - `RcBox.dropStrong()` gets a NEW hook: when payload type
-    has `__rig_drop`, call it before freeing. Closure0
-    implements `__rig_drop` to call `drop_fn(ctx, allocator)`.
-  - Surface type `*Closure()` lowers to
-    `*rig.RcBox(rig.Closure0)` UNIFORMLY (type erasure;
-    enables return-from-fn, store-in-struct, future Vec).
-- **Why type erasure**: each closure literal has a different
-  anonymous env struct, but the surface type must be uniform
-  so multiple closure literals can be assigned to the same
-  `*Closure()` variable, returned from functions, stored in
-  containers, etc.
-- **Ownership**: owned closure becomes a regular `*T` handle
-  (clonable via `+cb`, moveable via `<cb`, weakable via `~cb`,
-  storable in struct fields, returnable). NOT marked
-  `is_closure=true`. M20g's `is_closure` flag is only for
-  bare lambda values.
-- **Allow lambda in constructor arg**: dedicated
-  `in_owned_closure_constructor_arg` flag, set ONLY for the
-  exact `*Closure(fn ...)` shape. Do NOT generalize to all
-  constructors (would prematurely allow `Effect(fn ...)` /
-  `Box(fn ...)` before escaping semantics exist for arbitrary
-  APIs).
-- **Invocation**: `cb()` plain call syntax, lowered to
-  `cb.value.invoke()`. Reject `cb(args)` in M20h.
-- **Capture semantics**: same as M20g (cap_copy / cap_clone /
-  cap_weak / cap_move) but drop happens at `__rig_drop` time
-  (last strong drop), NOT at each binding's scope-exit
-  defer. THIS IS CRITICAL — the earlier proposal that called
-  capture-drop from every binding's defer would UAF when
-  `cb2 = +cb; -cb; cb2()`.
-
-**Sub-commit decomposition (5, not 4)**:
-
-```
-M20h(1/5): runtime + type spelling
-  - add rig.Closure0 (vtable struct) to runtime
-  - add RcBox.__rig_drop hook (call payload's __rig_drop on last strong)
-  - register Closure builtin (special-case empty arity)
-  - sema accepts Closure() type; rejects other arities
-  - emit type Closure() → rig.Closure0; *Closure() → *rig.RcBox(rig.Closure0)
-  No closure construction emit yet.
-
-M20h(2/5): sema / call typing
-  - *Closure(fn ...) recognized as owned closure construction
-  - cb() typechecks when cb: *Closure()
-  - reject cb(args), bare Closure(fn ...), Closure(Int), etc.
-
-M20h(3/5): ownership relaxation
-  - add in_owned_closure_constructor_arg context flag
-  - allow lambda literal only in exact owned-closure-constructor-arg shape
-  - owned closure binding is NOT is_closure; ordinary shared handle
-  - capture move effects still apply to outer
-
-M20h(4/5): emit owned closure construction + invocation
-  - generate env struct (RIG_CLOSURE_ENV_N) with invoke/drop thunks
-  - allocate env, init captures, build Closure0, rcNew
-  - cb() → cb.value.invoke()
-
-M20h(5/5): tests + PB1 + docs
-  - retained-callback test (returns *Closure() from a function)
-  - clone-doesn't-drop-early test (catches the UAF the design fixed:
-    `cb2 = +cb; -cb; cb2()` must NOT drop captures until cb2 also drops)
-  - move-capture test
-  - escape rejection still works for non-wrapped lambdas
-  - bare `Closure(fn ...)` rejected
-  - SPEC §Lambdas extension + ROADMAP + HANDOFF refresh
-```
-
-Required regression tests (called out at entry 17 — these
-pin the design decisions):
-
-1. **Basic retained callback** (returns `*Closure()` from a
-   function, invokes after defining scope exits).
-2. **Clone doesn't drop captures early** (`cb2 = +cb; -cb;
-   cb2()` — the test that proves type-erasure + `__rig_drop`-
-   on-last-strong is correct).
-3. **Move capture** (`*Closure(fn |<count| ...)`).
-4. **Escape rejection** for non-wrapped lambdas still works
-   (M20g enforcement preserved).
-5. **Bare `Closure(fn ...)` rejected** (the owned form is
-   `*Closure(fn ...)` — without `*` is an error).
-
-Then post-implementation review with GPT-5.5 in the same
-conversation. Then PB1.
-
----
-
-## 5. Working conventions (unchanged)
+## 8. Working conventions (unchanged)
 
 ### Git
 
@@ -782,15 +374,20 @@ conversation. Then PB1.
 
 ### Testing
 
-- `./test/run` — run all 700+ tests + Zig unit tests
-- `./test/run --update` — regenerate goldens
-- Add new examples to `EMIT_TARGETS` for end-to-end coverage
+- `./test/run` — runs all 800+ tests + Zig unit tests.
+- `./test/run --update` — regenerates goldens.
+- Add new examples to `EMIT_TARGETS` in `test/run` for
+  end-to-end coverage.
 
-### GPT-5.5 collaboration
+### GPT-5.5 collaboration (non-negotiable)
 
-Non-negotiable per Steve. Use the `user-ai` MCP server's
-`discuss` tool with `conversation_id: "c_5c1d09d53ebe2f62"` and
-`model: "openai:gpt-5.5"`. Set `max_tokens >= 6000`.
+Use the `user-ai` MCP server's `discuss` tool with:
+
+```
+conversation_id: "c_5c1d09d53ebe2f62"
+model: "openai:gpt-5.5"
+max_tokens: >= 6000
+```
 
 Pattern: design checkpoint → implement → post-implementation
 review → commit. Polish from the review ships as `Mxx.1`.
@@ -799,118 +396,77 @@ review → commit. Polish from the review ships as `Mxx.1`.
 
 - DO NOT edit `src/parser.zig` directly — it's generated.
 - DO use `ReadLints` after substantive edits.
-- DO use `TodoWrite` for multi-step tasks.
+- DO use TodoWrite for multi-step tasks (don't tell the user
+  you're updating todos; just do it).
 
 ---
 
-## 6. The user-ai MCP conversation
+## 9. The user-ai MCP conversation log
 
 Persistent conversation ID: **`c_5c1d09d53ebe2f62`**
 
-Now contains, in order:
-1. M20a thesis review
-2. Reactivity design discussion
-3. M20a–c design + review cycles
-4. M20d design + post-(1/5) refinements + tactical Q2/Q3/`*T?`-precedence round
-5. M20d Q1 (auto-drop discipline) joint decision
-6. M20d.1 review fixes round
-7. M20d.2 (`^w` sigil vs method form) joint decision
-8. M20e design checkpoint — the defer-guard redirection
-9. M20e post-implementation review (M20e.1 review fixes round)
-10. M20f design checkpoint — Cell synthetic methods + Copy-only
-11. M20f post-implementation review (M20f.1 fixes round)
-12. M20g design checkpoint — capture modes + non-escaping closures
-13. M20g(2/5) tactical checkpoint — closure-value enforcement
-    point, escape-detection scope, etc. Locked the Q&A
-    summarized in §3 above.
-14. M20g(2/5) post-implementation review — cleared (2/5),
-    surfaced one polish item (closure-reassign diagnostic →
-    M20g(2.1)) and emit guidance for (3/5).
-15. **Phase B scoping checkpoint** — locked Q1-Q5 (minimum
-    canary first, narrow M20h not trusted builtins, defer Vec
-    until PB1 exposes the need, hybrid on main with single-file
-    until M15b, functional canary + docs as success). Locked
-    M20h scope guardrails (IN/OUT lists in §4 above).
-16. Phase B scoping confirmation — locked sequencing
-    (`PB0 → M20h → PB1 → M20i → PB2 → PB3`), confirmed PB0
-    content (working Cell+stack-local closure + commented
-    M20h/M20i TODOs as gap markers, not syntax promises),
-    confirmed fresh M20h checkpoint required before coding.
-17. **M20h design pass** — locked syntax (`*Closure(fn ...)`
-    constructor), type spelling (`Closure()` only, no args
-    in M20h), ABI (type-erased `rig.Closure0` + vtable +
-    `RcBox.__rig_drop` hook), ownership (owned closure is
-    regular `*T` handle; dedicated
-    `in_owned_closure_constructor_arg` flag for the lambda
-    arg position), invocation (`cb()` → `cb.value.invoke()`),
-    and the 5-sub-commit decomposition. The checkpoint CAUGHT
-    a UAF bug in an earlier ABI proposal (capture-drop from
-    every binding's defer would UAF on `cb2 = +cb; -cb;
-    cb2()`); type erasure + `__rig_drop` on last strong is
-    the fix. See §4 above for the full locked design summary.
-18. **Grammar-blocker resolution for M20h(2/5)** — picked the
-    narrow `FN captures inline_body` form (with `inline_body
-    = call → (block 1)`) over braces or pre-bind workarounds.
-    Conflict count 38 → 69 (all benign S/R, prefer-shift).
-19. **M20h post-implementation review** — signed off the
-    full arc with one must-fix (`in_set_rhs` leak → M20h.1)
-    and several wording refinements (M20h-as-async substrate
-    not ABI; bare-Closure rejection wording; "Closure0"
-    numbering rationale).
-20. **Async / Clojure / Nexis influence review** (the most
-    recent turn). Reviewed Claude's analysis of a ChatGPT-5
-    digest on Rust async + Clojure borrowings + Steve's Nexis
-    project. Corrected: M20h validates substrate not ABI;
-    PersistentVec-first for M20i is overreach (M20i stays
-    mutable resource-aware Vec). Signed off `docs/INFLUENCES.md`
-    with small wording fixes (now applied).
+Compressed history (25 entries; ~$20 total spend across all
+arcs). Each numbered entry is a logical exchange:
 
-To continue the thread for the next arc, pass `conversation_id`
-and `model` as above. Models live in
-`/Users/shreeve/.cursor/projects/Users-shreeve-Data-Code-rig/mcps/user-ai/tools/`.
+1. **M20a thesis review** — Rig's three philosophical tensions
+2. **Reactivity design discussion** — Q1-Q5 Phase B scoping pre-locked
+3. **M20a-c design + review cycles** — methods/self, generics, generic enums
+4. **M20d design + (1/5) refinements + tactical rounds** — *T/~T semantics, *T? precedence
+5. **M20d Q1 (auto-drop discipline)** — defer-guard direction picked
+6. **M20d.1 review fixes**
+7. **M20d.2 (`^w` sigil vs method form)** — built-in method picked
+8. **M20e design** — defer-guard redirection
+9. **M20e post-impl review (M20e.1 fixes)**
+10. **M20f design** — Cell synthetic methods + Copy-only
+11. **M20f post-impl review (M20f.1 fixes)**
+12. **M20g design** — capture modes + non-escaping
+13. **M20g(2/5) tactical** — locked Q&A on closure-value enforcement
+14. **M20g(2/5) post-impl review** — caught reassign-diagnostic polish
+15. **Phase B scoping** — Q1-Q5 locked + M20h scope guardrails
+16. **Phase B sequencing confirmation** — locked `PB0→M20h→PB1→M20i→PB2→PB3`
+17. **M20h design** — locked `*Closure()` ABI + caught UAF in earlier proposal
+18. **M20h(2/5) grammar resolution** — narrow `FN captures inline_body` over braces
+19. **M20h post-impl review** — caught `in_set_rhs` leak → M20h.1
+20. **Async / Clojure / Nexis influence review** — corrected M20h-as-async-substrate overstatement; PersistentVec-first overreach
+21. **Substrate ladder review** — locked the 10-layer hierarchy in INFLUENCES §1; corrected Layer 5 wording (stored callable state, not partial execution); softened lifetime comparison
+22. **PB2/PB3 scoping** — Option A vs B vs C vs D for iteration; locked Option B (single-subscriber Signal, defer iteration)
+23. **M20i scoping** — Option A (M20i alone) over Option B (M20i + Phase B together); subscriber-shaped regression mandatory; Cell-non-Copy stays separate
+24. **M20i design** — Vec is a resource VALUE TYPE (the load-bearing insight); 5-sub-commit decomp; hybrid `dropElement` dispatch
+25. **PB2 design** — single-subscriber Signal; Cell unchanged; PB3 deferred until iteration
+
+To continue the thread, pass `conversation_id` and `model`
+as above. MCP tool descriptors live at:
+`/Users/shreeve/.cursor/projects/Users-shreeve-Data-Code-rig/mcps/user-ai/tools/`
 
 ---
 
-## 6b. Future arcs (deferred, NOT roadmap commitments)
+## 10. Future arcs (deferred, NOT roadmap commitments)
 
-These are documented in `docs/INFLUENCES.md` as design-space
-options to weigh when the time comes. They are NOT on the
-near-term roadmap; they are NOT promises to ship.
+Documented in `docs/INFLUENCES.md` as design-space options.
+NOT promises to ship.
 
-- **Async via `^` sigil**. Plausible candidate spellings:
-  `^expr` (await), `^T` (Future<T>). NOT `expr^` (suffix
-  preserved for future use; deliberate non-commitment).
-  Async ships only after structured concurrency, which
-  ships only after reactivity validation. See INFLUENCES §4
-  and §8 Rule 2.
-- **Structured concurrency**. The layer between reactivity
-  (M20i / PB2 / PB3) and async. Trio-style nurseries vs
-  Kotlin-style coroutine scopes is an open question. Design
-  checkpoint after Phase B is done.
-- **CHAMP-backed persistent collections**. Architecturally
-  studied via the Nexis project (`/Users/shreeve/Data/Code/nexis`),
-  which ships real CHAMP + plain trie + transients + xxHash3
-  on Zig. Nexis brought its own GC; Rig cannot. Implementation
-  options: Rc-every-node (viable but expensive), arena-per-
-  snapshot (defeats the point), region/epoch (open).
-  Demoted to M20j+ conditional on Phase B exposing the need.
+- **Async via `^` sigil**. Plausible spellings: `^expr`
+  (await), `^T` (Future<T>). NOT `expr^`. See INFLUENCES §4.
+- **Structured concurrency**. Layer 8. Designed after Phase B.
+- **CHAMP-backed persistent collections**. Nexis project shows
+  what this costs on Zig (requires GC, which Rig doesn't have).
+  Conditional on PB3 actually needing snapshot-iteration.
 - **User-defined `Drop`**. The M20h `__rig_drop` runtime hook
-  is already extensible to user types declaring `__rig_drop`.
-  When V1 grows a Drop story, the substrate is ready.
-- **Style guide that idiomatically prefers `=!`**. NOT a
-  surface flip; cultural / documentation. See INFLUENCES §6.
+  is already extensible to user types.
+- **Cell-non-Copy relaxation**. Conditional — may never be
+  needed if Reactor stays an owned mutable object.
 
 ---
 
-## 7. Hazards / known fragilities
+## 11. Hazards / known fragilities
 
-### V1-substrate hazards (unchanged from prior HANDOFFs)
+### V1 invariants
 
 1. **Don't extend `unwrapReadAccess` to peel `weak`.** Weak
    handles require explicit `.upgrade()`.
 2. **Don't let auto-deref bridge write/value receivers.**
-   M20d(4/5)'s `checkReceiverMode` adding `.shared` rejection
-   is the safety check.
+   M20d(4/5)'s `checkReceiverMode` `.shared` rejection is
+   the safety check.
 3. **Don't `@constCast(sema)` in emit.** Use
    `typeEqualsAfterSubst` for type comparisons.
 4. **Don't use a mutable global allocator.** Allocator is in
@@ -919,127 +475,103 @@ near-term roadmap; they are NOT promises to ship.
 6. **Don't make `Option` / `Result` the built-in optional /
    fallible representation.** `T?` and `T!` are separate
    built-in types.
-7. **Don't skip the GPT-5.5 review loop.** Most recently,
-   GPT-5.5's M20g(2/5) review surfaced the closure-reassign
-   diagnostic polish AND endorsed the (3/5) emit shape before
-   we coded it.
-8. **Don't ship `^w` upgrade-sigil without re-checkpointing.**
-   M20d.2 reserved this as a future-sugar candidate; three
-   hard constraints documented if it ever ships.
+7. **Don't skip the GPT-5.5 review loop.** It catches real
+   bugs (UAFs, leaks) that would otherwise ship.
+8. **Conflict count 69 is intentional.** If it changes,
+   revert and reconsider.
 
-### M20g-specific notes
+### Closure / Vec / Signal-specific
 
-1. **`Binding.is_closure` + `fixed=true` are paired.** Set both
-   when emit's `walkSet` sees a lambda RHS. The fixed flag
-   prevents reassignment; the closure flag drives the
-   non-escaping enforcement in `checkPlainUse`.
-2. **The two context bools (`in_call_callee` + `in_set_rhs`)
-   reset inside the lambda body.** ownership.zig's `walkLambda`
-   does this explicitly so a nested `f = fn ...; f()` inside
-   the body doesn't inherit the outer construction's flags.
-3. **Capture-name body refs map via emit's scope frame, NOT a
-   global name scan.** A new scope frame is pushed at invoke
-   body entry; each capture's `zig_name` is the fully-qualified
-   `"self.cap_<n>"` string. Body `emitExpr` on a bare `.src`
-   does the normal `self.lookup(text)` and writes
-   `"self.cap_<n>"` literally. Don't add a global-name-scan
-   shortcut here — emit's known-fragile global scan was paid
-   down in M20e.1 specifically to avoid this kind of
-   shadow-sensitive hazard.
-4. **Closure-instance guards key on `<closure>.cap_<n>`**, NOT
-   on a separate `__cap_<n>` const intermediate. Per GPT-5.5's
-   emit guidance: keep the indirection at the captured-field
-   level, not a separate binding. LIFO defer ordering takes
-   care of "closure drops before outer" automatically.
-5. **`closure_capture_weak.rig` uses a void-body** to avoid
-   `.upgrade()`'s optional-formatting in the golden. If a
-   future test wants to exercise upgrade-then-format, expect
-   to plumb a custom format helper or accept the Zig
-   default-format ugliness.
+1. **`Binding.is_closure` + `fixed=true` are paired.** Set
+   both when emit's `walkSet` sees a bare lambda RHS. The
+   `is_owned_closure` flag (M20h) is separate — owned
+   closures are NOT marked `is_closure`.
+2. **Three lambda-permission ownership flags** must all
+   reset inside lambda body: `in_call_callee`, `in_set_rhs`,
+   `in_owned_closure_constructor_arg`.
+3. **Capture-name body refs map via emit's scope frame**, NOT
+   a global name scan. The scope frame stores
+   `"self.cap_<n>"` qualified names.
+4. **Closure-instance guards key on `<closure>.cap_<n>`**, not
+   on separate `__cap_<n>` const intermediates.
+5. **Vec is a resource VALUE.** Bare alias = double-free. The
+   M20i(3/5) `checkSharedHandleAlias` extension covers Vec;
+   the M20h.1 `in_set_rhs` narrowing is what makes nested
+   Vec-in-aggregate sites correctly reject.
+6. **`vec_subscribers.rig` is the M20i exit gate.** Don't
+   break it without checkpoint approval.
 
-### Pre-existing fragilities NOT addressed in M20g
+### Pre-existing fragilities not yet addressed
 
-1. **`(T)?` paren-grouping in type position**: the grammar's
-   `"(" type ")" → 2` action leaks the literal parens into the
-   IR, so users can't currently spell `(*T)?` in type
-   annotations. Workaround: type inference. Pre-existing.
-2. **Emit's global name scans in legacy paths** (the M20a.2
-   `two_self_methods` shape uses a global name scan in
-   print-polish). The high-stakes consumers (auto-drop disarm,
-   closure capture remap) are scope-aware; this remaining
-   global scan is acceptable until a sema-side use-site
-   attribution table (`pos → SymbolId` built during
-   type-check) lands.
-3. **`SymbolResolver.walkSet` outer-scope assignment**:
-   M20e(3/5) dedup is same-scope only. Worth auditing against
-   SPEC's "implicit shadowing is illegal" rule when a future
-   arc touches block-scoped state.
-4. **`scanMutations` per-block `seen` masking** — `i = i + 1`
-   inside a nested block is treated as a fresh declaration
-   instead of a mutation. Workaround: use `i += 1`.
-5. **`unsafe` / `%x` enforcement** (M20+ item #9) — pre-existing
-   deferral, unchanged.
-6. **`try_block` emit** (M20+ item #14) — pre-existing
-   `@compileError`. Blocks M20e's try/catch resource test (and
-   any Phase B Effect that wants to propagate errors out of a
-   callback).
+1. **`(T)?` paren-grouping** in type position: grammar leaks
+   the literal parens. Workaround: type inference.
+2. **Emit's global name scans in legacy paths** (M20a.2
+   `two_self_methods` print-polish). Acceptable until a
+   sema-side use-site attribution table lands.
+3. **`scanMutations` per-block `seen` masking** — `i = i + 1`
+   inside a nested block treated as fresh declaration.
+   Workaround: use `i += 1`.
+4. **`unsafe` / `%x` enforcement** — pre-existing deferral.
+5. **`try_block` emit** — `@compileError` placeholder. Blocks
+   fallible Effects.
 
 ---
 
-## 8. If you get stuck
+## 12. If you get stuck
 
-- **Tests failing after a change**: `./test/run 2>&1 | grep FAIL`
-  shows just the failures. Most failures are golden diffs from
-  intended changes — verify with `git diff test/golden/` and
+- **Tests failing**: `./test/run 2>&1 | grep FAIL` shows
+  failures. Most are golden diffs from intended changes —
+  verify with `git diff test/golden/` and
   `./test/run --update` if intentional.
 - **Grammar conflict count changed**: revert and reconsider.
-  The 38 conflicts are all reviewed and intentional.
-- **Sema diagnostic isn't firing**: check that the IR shape
-  reaches the right walker. `bin/rig normalize path/to/file.rig`
-  prints the semantic IR.
+  The 69 conflicts are reviewed and intentional.
+- **Sema diagnostic isn't firing**: check the IR shape via
+  `bin/rig normalize path/to/file.rig`.
 - **Zig compile error in emitted code**: `bin/rig run
-  path/to/file.rig` shows both the path AND the Zig error.
-  For shared/weak issues: inspect both `/tmp/rig_<name>/<name>.zig`
-  AND `/tmp/rig_<name>/_rig_runtime.zig`.
-- **Closure-specific**: if a closure isn't behaving, check the
-  emitted Zig for the `cap_<n>` fields and the
-  `__rig_alive_<closure>_cap_<n>` guards. The body should
-  reference captures via `self.cap_<n>`.
-- **General confusion**: read `docs/REACTIVITY-DESIGN.md` — for
-  the next arc, that document IS the design.
+  path/to/file.rig` shows path + Zig error. For shared/weak:
+  inspect both `/tmp/rig_<name>/<name>.zig` AND
+  `/tmp/rig_<name>/_rig_runtime.zig`.
+- **Closure/Vec/Signal-specific**: check the emitted Zig for
+  the `cap_<n>` fields, `__rig_alive_<binding>` guards, and
+  `__rig_drop` calls. The body of a closure should reference
+  captures via `self.cap_<n>`.
+- **General confusion**: read `docs/INFLUENCES.md` §1
+  (substrate ladder) to see where the current arc fits.
 
 ---
 
-## 9. Closing notes from the M20g session
+## 13. Current frontier notes
 
-- The biggest design win of the M20g arc was GPT-5.5's "no
-  `Type.closure` variant" pushback at the tactical checkpoint.
-  My original lean was to add a closure type to the type system
-  for symmetry with shared / weak. GPT-5.5 saw that the type
-  variant would cascade into `compatible`, `formatType`, emit
-  type lowering, and possibly function-type interop — for V1's
-  non-escaping non-copyable closures, structural recognition
-  via the lambda IR head is sufficient. The result: closure
-  semantics live on the ownership pass's `Binding.is_closure`
-  flag, type checking continues with `unknown_id`, and the
-  whole substrate stays clean.
-- The `_ = self;` pacification for void-body closures with
-  unreferenced captures was a small but important detail. Zig
-  refuses both "unused parameter" AND "pointless discard" —
-  the `bodyReferencesAnyCapture` scan is the right size of
-  workaround.
-- The closure-instance guard discipline composes beautifully
-  with M20e's defer-guard strategy. LIFO defer ordering means
-  "drop the closure's captures first, then the outer's
-  bindings" Just Works without explicit ordering logic.
-- The whole V1 substrate (M20a + M20b + M20c + M20d + M20e +
-  M20f + M20g) now composes through closures: a closure can
-  capture a `*Cell(T)` clone, invoke `.set(x)` on the cell from
-  inside the body, and have everything drop cleanly at scope
-  exit. That's the substrate working AS DESIGNED — and it sets
-  Phase B up to demonstrate the same composition end-to-end.
+- **PB2 is complete but intentionally single-subscriber.**
+  Don't expand Signal's API speculatively. Multi-subscriber
+  is the M20i.1 / PB3 milestone, with its own design
+  checkpoint.
+- **M20i.1 is the next concrete arc.** Resource-Vec iteration
+  is the substrate prerequisite for PB3. Design questions
+  for the upcoming checkpoint:
+  - Internal iteration (callback-based: `vec.foreach(fn (e)
+    e())`) vs external (`for x in vec`) vs both?
+  - Element binding mode in the loop body — borrow-read
+    (`?T`) for read-only access; what about mutation?
+  - Lambda-as-call-arg with params: M20h shipped
+    `FN captures inline_body`; iteration needs
+    `FN params inline_body` (with or without captures).
+  - For external `for x in vec`: ownership of the iterated
+    element — borrow per iteration?
+- **Do not design Memo / batching / topology** until
+  iteration / multi-subscriber-list shape is decided. PB3 is
+  the milestone where those land, after iteration substrate
+  is solid.
+- **Maintain the cadence**: design checkpoint → sub-commits →
+  post-impl review. Each sub-commit must keep all tests
+  passing. The cadence has caught real correctness bugs;
+  skipping it costs more than running it.
+- **The substrate ladder** (`docs/INFLUENCES.md` §1) is the
+  authoritative conceptual map. M20i.1 is in Layer 6
+  ("Resource-aware containers"); PB3 is in Layer 7
+  ("Reactivity"). Layers 8 (Structured concurrency) and 9
+  (Async) remain deferred.
 
-Good luck. Read `docs/REACTIVITY-DESIGN.md`, run a design
-checkpoint with GPT-5.5, then scope Phase B at whatever
-sub-commit granularity feels right for the validation
-milestone.
+Good luck. Read `docs/INFLUENCES.md` §1 first, then ROADMAP's
+PB2 and M20i sections, then this file's invariants. Then run
+the M20i.1 design checkpoint with GPT-5.5.
