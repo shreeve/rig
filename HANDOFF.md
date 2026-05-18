@@ -1,21 +1,24 @@
-# Rig — Session Handoff (Phase B complete; PB4 / Phase C / Layer 8 unblocked)
+# Rig — Session Handoff (Phase B complete; reactivity-in-library locked)
 
-**You are picking up a Rig compiler session at the PB3 boundary.**
-**Phase B is complete.** M20h (owned escaping closures) + M20i
-(resource-aware Vec) + M20i.1 (resource-Vec iteration via
+**You are picking up a Rig compiler session at the PB4 boundary.**
+**Phase B is complete and the language/library boundary for
+reactivity is now locked.** M20h (owned escaping closures) +
+M20i (resource-aware Vec) + M20i.1 (resource-Vec iteration via
 `for x in ?vec`) + M20i.1.1 (sema attribution table) + PB2
 (single-subscriber Signal) + PB3(1/5) (captured-resource audit
 fix) + PB3 (multi-subscriber `Signal(T)` with R2 reentrancy
-policy) all shipped end-to-end. The reactive canary
+policy) + **PB4** (R2 relaxed: same-Signal reentrant `set`
+queues + coalesces; library/substrate boundary locked at
+"reactive library is userland, not future builtins") all
+shipped end-to-end. The reactive canary
 (`examples/reactive_canary.rig`) demonstrates the full Cell +
 closure + Vec-iteration + Signal chain producing
-`1\n3\n13\n7\n99\n111\n111`. **876 tests passing, 0 failing.
+`1\n3\n13\n7\n99\n111\n111`. **880 tests passing, 0 failing.
 Clean tree on `main`.** The substrate ladder Layers 0–7 are
-all complete; the next concrete action is a **design decision
-between three forward paths** (all unblocked): **PB4** (Memo +
-Effect lifecycle + Reactor + batching), **Phase C** (reactive
-sugar `:=` / `~=` / `~>`), or **Layer 8** (structured
-concurrency — prerequisite for safe async per INFLUENCES §1).
+all complete and the reactive primitive itself is in its V1
+final form; the next concrete action is a **Steve-driven
+choice between substrate-cleanup arcs and Layer 8 / Phase C
+deferred work** — see §13 for the full forward-arc menu.
 
 ---
 
@@ -25,25 +28,25 @@ concurrency — prerequisite for safe async per INFLUENCES §1).
   Ruby-readable") that compiles to Zig 0.16. Repo:
   `/Users/shreeve/Data/Code/rig`.
 - **Where we are**: Substrate ladder Layers 0–7 ✅. **Phase B
-  complete.** Multi-subscriber `Signal(T)` shipped with R2
-  reentrancy policy; captured-resource consume audit closed;
-  external `for x in ?vec` resource-Vec iteration shipped.
-  The reactive substrate is now solid end-to-end and
-  structurally generalizes to async `Future<T>` (same shape:
-  resolved value + waiter list + notify-once).
-- **Next concrete action**: **Forward-path design decision**
-  with Steve. Three unblocked arcs (all are substrate-ready):
-    1. **PB4** — Reactor / batching / Memo / Effect lifecycle.
-       The full reactive library. Builds on PB3 + M20i.1.
-    2. **Phase C** — reactive sugar (`:=` / `~=` / `~>`).
-       Optional; can be deferred indefinitely.
-    3. **Layer 8** — structured concurrency (scope-bound
-       tasks, cancellation discipline). Prerequisite for safe
-       async per INFLUENCES §1; PB3's shape generalizes to
-       `Future<T>` directly.
-  Per the Q1-Q5 Phase B lock (entry 15): "canary first, fix
-  the language not the library." Wait for canary pressure to
-  force one of the three arcs.
+  complete + reactivity-in-library boundary locked.**
+  Multi-subscriber `Signal(T)` shipped with PB4-relaxed R2
+  semantics (reentrant set queues + coalesces; reentrant
+  subscribe still panics). Per GPT-5.5 entry 33 + Steve's
+  "Rust/Zig don't ship reactivity" cue: Rig holds the same
+  position as Rust and Zig — substrate in the language,
+  reactive library in userland. **No more reactivity builtins
+  will ship.** Reactor / Memo / Effect / batching / topology
+  are explicitly userland work, blocked on `Cell`-non-`Copy`
+  for the natural shape.
+- **Next concrete action**: **Steve-driven choice from the
+  forward-arc menu** in §13. With Phase B done and the
+  language/library boundary locked, the V1 work that remains
+  is substrate-cleanup (GPT-5.5 entry 32 "must-have before
+  credible V1"): `%T` unsafe / effect boundary, `try_block`
+  emit, M15b cross-module sigs, closure-with-args, legacy
+  name-scan cleanup. Plus Layer 8 / Phase D / Phase C as
+  optional substrate extensions. Wait for Steve's pick;
+  don't speculatively open an arc.
 - **Cadence (non-negotiable)**: design checkpoint with GPT-5.5
   via `user-ai` MCP → implement in 3–5 sub-commits (M5-style:
   `Mxx(n/total)`) → post-implementation review → commit.
@@ -57,8 +60,8 @@ concurrency — prerequisite for safe async per INFLUENCES §1).
 
 ```bash
 git pull --ff-only
-git log -1 --format='%h %s'        # most recent commit; at/after PB3(5/5)
-./test/run 2>&1 | tail -3          # should say "876 passed, 0 failed"
+git log -1 --format='%h %s'        # most recent commit; at/after PB4(3/3)
+./test/run 2>&1 | tail -3          # should say "880 passed, 0 failed"
 bin/rig run examples/reactive_canary.rig    # 1\n3\n13\n7\n99\n111\n111
 bin/rig run examples/signal_multi_subscriber.rig  # 0\n111\n222
 ```
@@ -132,11 +135,17 @@ Violating any of them will silently corrupt the substrate.
   the `?` source borrow, element binds as a read borrow of
   the slot, `+x` / `<x` / `-x` / `return x` / bare-aliasing
   uses are sema/ownership-rejected with tailored diagnostics.
-- **`Signal(T)` is multi-subscriber, synchronous, strictly
-  non-reentrant** (PB3 R2 policy). Calling `set` /
-  `subscribe` during an active notification panics. `T` must
-  be Copy. Heap-owned `*Signal(T)` only — stack-local
-  rejected. No `unsubscribe` in V1.
+- **`Signal(T)` is multi-subscriber, synchronous, mixed
+  reentrancy** (PB4 R2-relaxed-for-set policy). Same-Signal
+  reentrant `set` queues + coalesces to latest value;
+  reentrant `subscribe` still panics. `T` must be Copy.
+  Heap-owned `*Signal(T)` only — stack-local rejected. No
+  `unsubscribe` in V1.
+- **Reactive library (`Reactor` / `Memo` / `Effect` /
+  batching / topology) is USERLAND work, NOT future
+  builtins.** Locked in PB4 (GPT-5.5 entry 33) — matches
+  Rust/Zig position. Blocked on `Cell`-non-`Copy` for the
+  natural shape.
 - **Captured resources (`+x` / `~x` / `<x` in a closure
   capture list) are non-consumable inside the closure body.**
   `<cap` / `-cap` / `return cap` / bare-alias-as-arg are all
@@ -201,7 +210,7 @@ Codebase highlights:
 | 9 | Resource-aware containers (Vec(T)) | ✅ | M20i (1-5/5) |
 | 9.1 | Resource-Vec iteration (`for x in ?vec`) | ✅ | M20i.1 (1-4/4) + M20i.1.1 post-impl |
 | 9.2 | Captured-resource non-consumability audit | ✅ | PB3(1/5) — must-precede |
-| 10 | Multi-subscriber reactive primitive (Signal(T)) | ✅ | PB2 (1-3/3) + PB3 (1-5/5) |
+| 10 | Multi-subscriber reactive primitive (Signal(T)) | ✅ | PB2 (1-3/3) + PB3 (1-5/5) + PB4 (1-3/3) |
 
 ## 2b. Phase B status
 
@@ -214,9 +223,10 @@ Codebase highlights:
 | PB2 | Single-subscriber Signal | ✅ | commits `5918a15..8c4f36c` |
 | M20i.1 | Resource-Vec iteration (`for x in ?vec`) | ✅ | commits `65a3c44..5622832` |
 | M20i.1.1 | Sema attribution table + non-bare source rejection | ✅ | commit `2c33c63` |
-| PB3 | Multi-subscriber Signal + R2 reentrancy + capture audit | ✅ | commits `b0c0861..` (this arc) |
-| **Phase B** | **complete** | ✅ | reactive substrate solid end-to-end |
-| **Next** | **PB4 / Phase C / Layer 8** | **🚧 design** | **wait for canary pressure** |
+| PB3 | Multi-subscriber Signal + R2 reentrancy + capture audit | ✅ | commits `b0c0861..b735c71` |
+| PB4 | Reentrant-set queue + library/substrate boundary lock | ✅ | commits `e1b09dc..` (this arc) |
+| **Phase B** | **complete** | ✅ | reactive substrate solid; reactive library is userland |
+| **Next** | **Steve picks** | **🚧** | **see §13 forward-arc menu** |
 
 ---
 
@@ -502,6 +512,8 @@ arcs). Each numbered entry is a logical exchange:
 29. **PB3 design — multi-subscriber Signal** — locked R2 (strict `notifying` flag + panic) over R4 (silent tolerate). GPT-5.5 pushed back hard on R4 because (a) it forces V1 to define recursive semantics that should be locked in PB4, (b) R2 has zero allocation and zero Vec-mutation-during-iteration, (c) R2 generalizes cleanly to `Future<T>`. Also locked: `Vec(*Closure())` state shape (no optional-first-slot micro-opt); subscribe-only (defer unsubscribe to PB3.x); reject stack-local `Signal(T)` (smallest-safe-path over wiring the M20e defer-guard machinery). Critical audit must-precede: captured-resource consume rejection — closure bodies must not be able to move/drop their captured `*T`/`~T` because retained subscribers are invoked multiple times
 30. **PB3 tactical** — unify M20i.1's `is_loop_borrow` and PB3's `is_capture_resource` behind a single `rejectNonConsumableBindingOp` helper. Diagnostics branch on which flag fired; hooks at the same five sites M20i.1 added. Avoids "missing one of the five sites later" risk
 31. **PB3 post-implementation review** — confirmed PB3 is solid (R2 is correct, Shape X for resource elements is correct, audit fix is correct). Identified small PB3.1: suppress misleading stack-Signal cascade diagnostic; add bare-resource-capture invariant test + comment (the `cap_copy` exclusion in `is_capture_resource` depends on M20g's bare-resource-capture rejection — pin the dependency); add nested-capture rejection regression; add expected-panic harness for reentrant set. Forward-arc guidance: **do not** jump to async — PB3 looks like a `Future<T>` waiter list but async still needs state-machine lowering, poll/wake ABI, pin, cancellation, borrow-across-suspension, executor. **PB4 should focus on deferred queue + flush** (R2 panic is the obvious forcing function for batching), NOT Memo first. Phase C sugar after PB4 semantics stabilize, not before
+32. **Forward-arc strategic check** — GPT-5.5 recommended PB4 narrowly scoped as "queue + flush canary," preferring an explicit `*Reactor` builtin for async/future executor generalization. Out of scope: Memo / topology / batching beyond simple queue / async / sugar. V1 remaining work: `%T` unsafe / `try_block` / M15b / closure-with-args / legacy global-scan cleanup
+33. **PB4 design (refined by Steve's two cues)** — Steve surfaced two inputs that reshaped PB4: (a) "Rust and Zig don't support reactivity" — implicit pushback on accumulating reactive builtins; (b) type-inference ergonomics — verbose `reactor: *Reactor = *Reactor()` is unnecessary ceremony, `rc = *User(name: "x")` works for non-generic. GPT-5.5 changed their recommendation from a new `*Reactor` builtin to a **minimal per-Signal queued reentrancy relaxation**. Reactive library (Reactor / Memo / Effect / batching) is now explicitly **userland** work, blocked on `Cell`-non-`Copy` for the natural shape — matches Rust/Zig "substrate in language, library in userland" position. PB4 ships only the `set` reentry relaxation (queue + coalesce to latest); `subscribe` stays strict (panics) because list-mutation during iteration is subtler. Iterative drain loop, NOT recursive, avoids stack growth on cascade chains. Bad user logic (infinite cascade) acceptable as V1 contract.
 
 To continue the thread, pass `conversation_id` and `model`
 as above. MCP tool descriptors live at:
@@ -605,6 +617,22 @@ NOT promises to ship.
     defer-guard machinery grows a `.signal_value` resource
     kind, the rejection can be relaxed; until then, keep
     the rejection so the V1 shape stays predictable.
+14. **Signal's `set` drain loop is iterative, NOT recursive
+    (PB4).** Reentrant set queues `pending_value` and the
+    outer drain loop picks it up. Recursive `self.set(v)`
+    would re-enter the `notifying` guard AND grow the stack
+    on cascade chains. If anyone "simplifies" set to a
+    recursive call, that's a regression.
+15. **`pending_value` is initialized to the constructor's
+    `value` argument as a placeholder.** Only read when
+    `pending_set == true`. The default isn't load-bearing —
+    any value of type T works — but `value` is conveniently
+    in scope and avoids a `?T` optional.
+16. **Reactive library (Reactor / Memo / Effect / batching)
+    is permanently userland for V1.** Don't ship any new
+    in-language reactivity builtins. If someone proposes
+    one, point them at the PB4 entry 33 lock + GPT-5.5's
+    reasoning + the Rust/Zig position.
 
 ### Pre-existing fragilities not yet addressed
 
@@ -647,39 +675,66 @@ NOT promises to ship.
 
 ## 13. Current frontier notes
 
-- **Phase B is complete.** PB3 shipped multi-subscriber Signal
-  with R2 strict reentrancy. PB3(1/5) closed the captured-
-  resource consume hole that M20g shipped without. The
-  reactive substrate (Layers 0–7 of the INFLUENCES §1 ladder)
-  is solid end-to-end and the canary demonstrates the full
-  PB0→PB3 chain.
-- **The next arc is a design decision** between three forward
-  paths (all unblocked). Steve picks based on canary pressure:
-  1. **PB4 (deferred queue + flush)** if a use case forces
-     batched / transactional update semantics. The PB3 R2
-     reentrancy panic is the obvious forcing function: as
-     soon as a real use case wants "subscriber B updates
-     signal X which subscriber A also watches," users will
-     hit the panic and need queued flush. Per GPT-5.5 entry
-     31: **PB4 should be queue + flush FIRST, NOT Memo
-     first** — the queue is the bridge from synchronous push
-     to scheduler semantics; Memo / Effect lifecycle / topo
-     order come after the queue shape is locked.
-  2. **Phase C (sugar `:=` / `~=` / `~>`)** if Steve wants the
-     Rip-style ergonomics. Optional; can be deferred
-     indefinitely. The library shape (PB3 + PB4) is ergonomic
-     enough on its own per the Phase B Q5 lock.
-  3. **Layer 8 (structured concurrency) / Phase D (async)**
-     if a use case forces concurrent or asynchronous
-     computation. PB3's retained-callback-list shape RESEMBLES
-     `Future<T>`'s waiter list, BUT async still needs state-
-     machine lowering, poll/wake ABI, pin discipline,
-     cancellation-by-state, borrow-across-suspension rules,
-     and an executor (per GPT-5.5 entry 31's pushback on
-     "1-3 sub-commit Future"). Substrate is closer than it
-     was, but not "PB3 → trivial async." Per INFLUENCES §1
-     and the entry 20 review, async should be paired with
-     Layer 8 (structured concurrency) for safety.
+- **Phase B is complete + reactive library/substrate boundary
+  is locked.** PB3 shipped multi-subscriber Signal with R2
+  reentrancy; PB3(1/5) closed the captured-resource consume
+  hole; PB4 relaxed reentrant `set` to a queued-coalesced
+  drain loop AND locked the position that reactive LIBRARIES
+  (Reactor / Memo / Effect / batching / topology) are
+  **userland work**, not future builtins. This matches the
+  Rust and Zig position: substrate in the language, reactive
+  library in userland.
+- **The next arc is Steve's choice from the forward-arc
+  menu.** With Phase B done and the language/library boundary
+  locked, the unblocked V1 work splits into two categories:
+
+  **A. Substrate cleanup (GPT-5.5 entry 32 "must-have before
+       credible V1")** — these are the items that gate real
+       stdlib / library development:
+    - **`%T` unsafe / effect boundary** (highest strategic
+      importance per GPT-5.5). Raw pointers, Zig blocks,
+      extern declarations, trusted-runtime/stdlib boundary.
+      Required before any serious stdlib seed.
+    - **`try_block` emit** (currently `@compileError`
+      placeholder). Required for any code that wants to
+      `try` a multi-statement block.
+    - **M15b cross-module signature import**. Required for
+      multi-file stdlib / library projects.
+    - **Closure-with-args** (`Closure1<T>`, `Closure2<A,B>`)
+      beyond no-arg `Closure()`. Required for any callback-
+      based API that takes arguments.
+    - **Cleanup of legacy global name-scan paths** in
+      safety-critical code (M20a.2 + M20e.1 partially done;
+      audit remaining).
+
+  **B. Optional substrate extensions** — these add language
+       surface but aren't V1-blockers:
+    - **`Cell`-non-`Copy`** — replace/take/Drop semantics
+      for resource-typed Cells. Blocks userland Reactor /
+      Memo / Effect implementation; should land before users
+      build production reactive libraries on Rig.
+    - **Layer 8 (structured concurrency)** — scope-bound
+      tasks, cancellation discipline. Prerequisite for safe
+      async per INFLUENCES §1. PB3 + PB4 shapes generalize
+      to `Future<T>` (resolve-once + waiter list + drain) but
+      async still needs state-machine lowering, poll/wake ABI,
+      pin discipline, cancellation, and an executor — NOT a
+      "trivial derivation" from PB4.
+    - **Phase C reactive sugar** (`:=` / `~=` / `~>`).
+      Optional Rip-style ergonomics. Per GPT-5.5 entry 31:
+      "do not do sugar before PB4 semantics stabilize"
+      (PB4 is now stable, so this is unblocked, but it's
+      still last-priority luxury).
+    - **`pre` AST extraction** (REACTIVITY-DESIGN D8) — for
+      derive-style macros. Would unlock auto-tracking Memo.
+    - **Persistent / CHAMP-backed collections** — see
+      INFLUENCES §6.
+
+  **My read**: Category A is more aligned with making Rig a
+  usable systems language; Category B is more aligned with
+  pushing the substrate forward. Steve picks based on what
+  use case is pulling on him next.
+
 - **Maintain the cadence**: design checkpoint → sub-commits →
   post-impl review. The cadence has caught real correctness
   bugs in every M20+ arc (UAF in M20h's earlier ABI proposal;
@@ -696,12 +751,17 @@ NOT promises to ship.
     (currently inline-call only per M20h grammar), the audit
     is already in place — consume-of-capture is rejected at
     the ownership layer, not the emit layer.
+- **Reactive library boundary is now FINAL for V1**: no more
+  in-language reactivity builtins will ship. Anyone wanting
+  Reactor / Memo / Effect builds them in Rig source on top of
+  Cell + Vec + Closure + Signal (once Cell-non-Copy lands).
 - **The substrate ladder** (`docs/INFLUENCES.md` §1) is the
   authoritative conceptual map. Layers 0–7 ✅; Layer 8
   (Structured concurrency) and Layer 9 (Async) deferred
   pending forward-arc decision.
 
 Good luck. Read `docs/INFLUENCES.md` §1 first, then ROADMAP's
-PB3 and M20i.1 sections, then this file's invariants. Then
-discuss with Steve which forward arc (PB4 / Phase C / Layer 8)
-the canary discipline favors.
+PB4 and PB3 sections, then this file's invariants. Then
+discuss with Steve which forward arc (substrate cleanup
+Category A vs substrate extension Category B) his current
+use case favors.

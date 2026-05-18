@@ -2150,6 +2150,93 @@ the library." If/when a canary use case forces Memo or
 batching, PB4 wins. If a use case forces concurrency or
 async, Layer 8 / Phase D wins. Phase C is luxury.
 
+### PB4 — Reentrant-set queue + library/substrate boundary lock ✅
+
+PB4 was the test of whether the next reactivity arc should
+keep pushing in-language reactivity primitives (toward Reactor /
+Memo / etc.) or hold the line at "substrate in language, library
+in userland." Two cues from Steve reshaped the design:
+
+1. **"Rust and Zig don't ship reactivity"** — implicit
+   pushback on accumulating reactive builtins. Rust treats
+   reactivity as a library (Leptos / Dioxus on
+   `Rc<RefCell<T>>` + closures); Zig has nothing. Rig
+   already had 4 reactive-ish builtins (Cell, Vec, Closure,
+   Signal); adding a 5th (Reactor) would have gone against
+   the "clean succinct powerful elegant" instinct AND
+   against the REACTIVITY-DESIGN principle "library is the
+   deliverable, substrate is the immediate one."
+2. **Type-inference ergonomics observation** — the verbose
+   `reactor: *Reactor = *Reactor()` form was unnecessary
+   ceremony. Quick test confirmed `rc = *User(name: "Steve")`
+   works without annotation for non-generic constructors
+   via the existing `rcNew(anytype)` path. Reinforced the
+   "minimum surface" preference.
+
+GPT-5.5's entry-32 recommendation (add `*Reactor` builtin for
+async/future executor generalization) was superseded by
+entry 33: **minimal per-Signal queue relaxation, no new
+Reactor builtin.** The reactive library (Reactor / Memo /
+Effect / batching / topology) is now explicitly USERLAND
+work, not future builtins.
+
+**Locked design (GPT-5.5 entry 33):**
+
+- `Signal(T).set(v)` reentry semantics relaxed from PB3's
+  R2 panic to a queued-coalesced drain loop. Same-Signal
+  reentrant set queues the new value (latest wins) and
+  triggers another notification round after the current
+  walk completes. Iterative loop (NOT recursive) avoids
+  stack growth on cascade chains.
+- `Signal(T).subscribe(cb)` reentry **still panics**. List
+  mutation during iteration is subtler than queued value;
+  locking that policy would force a mini-Reactor design
+  PB4 deliberately defers. Strict-first.
+- Document Signal explicitly as a **canary primitive**, not
+  Rig's long-term reactive API.
+
+**Sub-commits:**
+
+| Commit | What it shipped |
+|---|---|
+| `e1b09dc` PB4(1/3) | Runtime: two new fields (`pending_value: T`, `pending_set: bool`); `set` becomes iterative drain loop with `notifying` guard; reentrant `subscribe` still panics. Removed `signal_reentrant_set_panics.rig` (no longer panics — would infinite-loop the test harness; positive PB4 test for queued coalesce isn't expressible from Rig source in V1 because terminating reentrancy requires conditional inline-body grammar). |
+| `25405b0` PB4(2/3) | Canary refresh: header milestone table grew PB4 row; trailing TODO PB4 comment rewritten to document the locked position (reactive library is USERLAND work, not future builtins). No behavioral change to the canary — PB4 is backward-compatible. Canary output unchanged: `1\n3\n13\n7\n99\n111\n111`. |
+| PB4(3/3) | Docs (this entry). SPEC §Signal rewritten with the canary-primitive disclaimer and the R2-relaxed-for-set policy. HANDOFF refresh. |
+
+**Tests across PB4 (1/3) → (3/3): 885 → 880 (-5).** Reduction
+is from the removed `signal_reentrant_set_panics` example +
+its goldens; all other tests still pass. The R2 relaxation is
+backward-compatible for all non-reentrant uses (which is every
+test in the suite).
+
+**What PB4 explicitly does NOT cover** (per the locked
+boundary):
+
+- New `*Reactor` builtin. Won't ship. Reactor is userland.
+- Cross-Signal batching / `flush()`. Userland. Blocked on
+  `Cell`-non-`Copy` for the natural shape.
+- `Memo` / `Effect` / dependency-graph topology. Userland.
+- Reentrant `subscribe` relaxation. V1 stays strict.
+- Reactive sugar (`:=` / `~=` / `~>`). Phase C, deferred.
+
+**What V1 still needs (per GPT-5.5 entry 32 "must-have
+before credible V1")**:
+
+- `%T` unsafe / effect boundary (raw pointers, Zig blocks,
+  extern, trusted runtime/stdlib).
+- `try_block` emit (currently `@compileError` placeholder).
+- M15b cross-module signature import.
+- Closure-with-args (`Closure1<T>`, `Closure2<A,B>`) beyond
+  no-arg.
+- Cleanup of legacy global name-scan paths in safety-critical
+  code.
+
+These are substrate-cleanup arcs that don't extend the
+language but make it usable for real stdlib / library
+development. The next concrete arc is a Steve-driven
+choice between these substrate-cleanup items vs Layer 8
+(structured concurrency) vs Phase C sugar.
+
 ### M20h.1 — Tighten `in_set_rhs` to direct lambda RHS ✅
 
 GPT-5.5's M20h post-implementation review caught a
@@ -2281,6 +2368,14 @@ the M20+ items below):
    captured-resource discipline (PB3(1/5)) compose into Signal.
    Future `Future<T>` async primitive is structurally the same
    shape (resolve-once + waiter list).
+9.4. ~~**Reentrant-set queue + library/substrate boundary lock**~~
+   ✅ **Landed in PB4** above. Same-Signal reentrant `set`
+   relaxed from panic to a queued-coalesced drain loop;
+   reentrant `subscribe` stays strict. Locked the position
+   that reactive LIBRARIES (`Reactor` / `Memo` / `Effect` /
+   batching) are USERLAND work, not future builtins —
+   matches Rust/Zig "substrate in language, library in
+   userland."
 10. `%T` unsafe-effect lattice + `unsafe` block / fn-modifier
     (SPEC §Unsafe / Raw — text landed; checker enforcement TBD)
 11. `pre` AST extraction for derive-style macros

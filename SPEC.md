@@ -587,13 +587,25 @@ notify all subscribers. The substrate piece is now solid; the
 remaining design questions (batching, topology, Memo) live in
 their own PB3 / PB4 checkpoints.
 
-### Reactive primitive: `Signal(T)` (PB2 / PB3)
+### Reactive primitive: `Signal(T)` (PB2 / PB3 / PB4)
 
-`Signal(T)` is Rig's canonical push-on-change reactive
-primitive — a `Cell`-like value slot paired with a list of
-retained `*Closure()` subscribers. On `signal.set(v)`, the
-value updates AND every subscriber is invoked synchronously
-in subscription order.
+`Signal(T)` is Rig's **canary reactive primitive** — NOT a
+long-term reactive API. Per GPT-5.5 entry 33 (PB4 design pass):
+Rust and Zig deliberately keep reactivity in libraries
+(Leptos / Dioxus / etc. on Rust; no ecosystem on Zig). Rig
+holds the same position: the SUBSTRATE (heap closures +
+resource Vec + Vec iteration + capture-resource audit) belongs
+in the language; reactive LIBRARIES (`Reactor` / `Memo` /
+`Effect` / batching / dependency-graph topology) belong in
+userland, once `Cell`-non-`Copy` or equivalent substrate
+lands. Signal is the minimum-viable surface that forces the
+substrate to compose correctly. **Do not extend Signal
+speculatively.**
+
+The Signal primitive itself: a `Cell`-like value slot paired
+with a list of retained `*Closure()` subscribers. On
+`signal.set(v)`, the value updates AND every subscriber is
+invoked synchronously in subscription order.
 
 ```rig
 sub main()
@@ -629,25 +641,40 @@ as `Cell`. Non-Copy `T` would need the same replace/take/Drop
 machinery deferred from Cell-non-Copy; will arrive together if
 either lands.
 
-**R2 reentrancy policy (PB3, GPT-5.5 entry 29).** Calling
-`signal.set(...)` or `signal.subscribe(...)` from inside a
-subscriber's body (i.e., during an active notification) is
-V1-unsupported and panics at runtime:
+**Reentrancy policy (PB3 R2 baseline, PB4 set-relaxation).**
+The runtime's `notifying: bool` flag tracks whether a
+notification round is active.
 
-```
-thread <id> panic: Rig Signal.set: reentrant set is not
-                   supported in V1
-```
+PB3 (R2 baseline) made both `set` and `subscribe` panic on
+reentry — the strict starting point. PB4 (per GPT-5.5
+entry 33) relaxed `set` to a queued-coalesced drain loop while
+keeping `subscribe` strict:
 
-The runtime's `notifying: bool` flag is the guard. Both `set`
-and `subscribe` check it and panic if active. Rationale: silent
-tolerance (snapshot, queue, or index-walk-with-shrink) would
-force the V1 spec to define cascade semantics (re-fire? skip?
-share notification context?) that should be locked in PB4 after
-canary pressure exposes the use cases. R2 is strict-first;
-relax in PB4 once requirements are clearer. R2 also generalizes
-cleanly to a future `Future<T>` async primitive (resolve-once,
-notify-waiters, no recursive resolve).
+  - **Reentrant `set`** queues the new value into a per-Signal
+    `pending_value` slot (coalescing — multiple reentrant sets
+    in one notification round all collapse to the last value).
+    After the current walk completes, the queued value
+    triggers another walk, repeating until no more values
+    queue. Iterative drain loop, NOT recursive (recursion
+    would re-enter the guard AND grow the stack proportionally
+    to cascade depth). A subscriber that always re-sets its
+    own Signal will loop forever — that's a user-logic bug,
+    not a memory-safety issue.
+  - **Reentrant `subscribe`** still panics:
+    ```
+    thread <id> panic: Rig Signal.subscribe: subscribing
+                       during notification is not supported in V1
+    ```
+    List-mutation semantics during iteration are subtler than
+    the queued-value pattern set uses; locking that policy
+    would force a mini-Reactor design that PB4 deliberately
+    defers. Strict-first; relax later only if a canary
+    forces it.
+
+The R2-relaxed-for-set policy generalizes cleanly to a future
+`Future<T>` async primitive (resolve-once, notify-waiters, no
+recursive resolve — the same shape applies, with `set`'s drain
+loop becoming `resolve`'s one-shot notify).
 
 **Stack-local `Signal(T)` rejected in V1.** Signal owns a
 `Vec(*Closure())` of retained subscribers; the Vec requires an
@@ -681,42 +708,68 @@ userland via weak handles + `.upgrade()` (M20d primitives).
 
 - `init(value)` — Vec subs initialized empty with the default
   allocator; first `subscribe` allocates the backing buffer.
+  `pending_value` placeholder-initialized to the init value
+  (only read when `pending_set` is true).
 - `subscribe(cb)` — clone + push. Caller's handle still live.
-- `set(v)` — `notifying = true`; walk `subs` forwards with
-  `len` snapshot at start; `defer notifying = false` on scope
-  exit. PANIC on reentry.
+  PANIC if called during notification.
+- `set(v)` — if NOT notifying, run a drain loop: set
+  `notifying = true`, write `value`, walk `subs` forwards
+  with `len` snapshot at the start of each round, then loop
+  while `pending_set` is true (consuming `pending_value` each
+  round and clearing the flag). `defer notifying = false`
+  resets the guard at function exit. If notifying, queue the
+  value (overwriting any prior queued value) and return.
 - `__rig_drop` — cascades through `self.subs.__rig_drop()`
   which walks elements LIFO and dropStrongs each retained
-  closure via the M20i `dropElement` dispatch.
+  closure via the M20i `dropElement` dispatch. `value` and
+  `pending_value` are Copy so no per-field cleanup is needed.
 
 **V1 deferred features.**
 
+- Reentrant `subscribe` (list mutation during iteration).
+  Stays panic in V1.
 - Unsubscribe / subscription tokens. Userland-buildable via
   weak handles + `.upgrade()` in the meantime.
-- Memo (derived values that auto-recompute on dep change). PB4.
-- Effect lifecycle (auto-unregister on Effect drop). PB4.
-- Reactor / batching / `flush` (so multiple `set` calls in a
-  transaction enqueue invalidations and run once at the end).
-  PB4.
-- Topology / dependency-graph ordering. PB4.
-- Reentrant `set` / `subscribe` with snapshot or queue
-  semantics. PB4, conditional on canary use case.
+- Cross-Signal batching / explicit `Reactor.flush()`.
+  Explicitly **userland** work, not future builtin per
+  GPT-5.5 entry 33. Blocked on `Cell`-non-`Copy` substrate
+  for the natural userland shape (`*Cell(Vec(NotifyJob))`).
+- `Memo` (derived values that auto-recompute on dep change).
+  Userland. May require `pre`-time AST extraction (D8) for
+  ergonomic auto-tracking.
+- `Effect` lifecycle (auto-unregister on Effect drop).
+  Userland. Needs the unsubscribe primitive above.
+- Topology / dependency-graph ordering. Userland.
 - Multi-threaded Signal (`Arc<Signal>` / `Send` / `Sync`). V2+.
 
-**Substrate composition.** PB3 is the convergence point of
-Phase B's substrate work:
+**Substrate composition.** Phase B is the convergence point
+of Rig's reactive substrate work:
 
   M20h     heap closures            (stored partial execution)
   M20i     resource Vec             (owned container of escaping callbacks)
   M20i.1   resource-Vec iteration   (walk over retained callbacks)
   PB3      multi-subscriber Signal  (retained-callback-list notify)
+  PB4      reentrant-set queued     (deterministic cascade in V1)
 
 This same shape — value slot + list of resumption continuations
-+ notify-on-resolve — is structurally what `Future<T>` needs.
-Phase D (async, per `docs/INFLUENCES.md` §2 "async is
-stored-partial-execution") and Phase C (full reactive library:
-`Effect` / `Memo` / `Reactor` user-buildable on PB3) both fall
-out cheaply now that PB3 is locked.
++ notify-on-resolve — is structurally what `Future<T>` needs
+for async (per `docs/INFLUENCES.md` §2 "async is
+stored-partial-execution"). Future async work derives the
+`Future<T>` shape from PB3 + PB4 (resolve-once + waiter list
++ drain-to-completion) but still requires state-machine
+lowering, poll/wake ABI, pin discipline, cancellation, and an
+executor — substrate-closer-than-it-was, not "trivial
+derivation."
+
+**Position relative to other languages.** Rust ships zero
+reactivity in std (Leptos / Dioxus / Yew / Sycamore are all
+libraries on `Rc<RefCell<T>>` + closures). Zig ships nothing.
+Rig holds the same position: substrate in the language,
+reactive library in userland. The reactive library shape
+(`Reactor` / `Memo` / `Effect`) does NOT belong as future
+builtins; it belongs as userland code built on Cell + Vec +
+Closure + Signal, once Cell-non-Copy lands and unblocks the
+natural shape.
 
 ### Resource temporaries (named-binding RAII boundary)
 
