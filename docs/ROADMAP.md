@@ -892,7 +892,7 @@ closure capture).
   non-shared operand.
 
 #### M20d(2/5) — Runtime + driver integration
-- `src/runtime_zig.zig`: V1 runtime as a Zig string constant.
+- `src/runtime.zig`: V1 runtime as a Zig string constant.
   `RcBox(T)` carries `allocator` + `strong: usize` + `weak: usize`
   (implicit `+1` while strong > 0) + `value: T`. `WeakHandle(T)`
   wraps `?*RcBox(T)`. Explicit API names: `cloneStrong`, `dropStrong`,
@@ -1336,7 +1336,7 @@ escape hatch the M20d diagnostics already promised:
    use an interior-mutable type (planned `Cell(T)` in M20+ item #7)"
 
 `Cell(T)` is a built-in generic nominal pre-registered in sema at
-module-scope creation, runtime-baked in `src/runtime_zig.zig`
+module-scope creation, runtime-baked in `src/runtime.zig`
 parallel to `RcBox` / `WeakHandle`. End-to-end working:
 
   sub main()
@@ -1388,7 +1388,7 @@ pass at the start. Tests grew 622 → 634 (+12).
    resource-aware replacement substrate.
 
 #### M20f(1/4) — Built-in registration + Copy-only enforcement
-- `src/runtime_zig.zig`: new `rig.Cell(T)` type with
+- `src/runtime.zig`: new `rig.Cell(T)` type with
   `get(self: Self) T` (value receiver, Zig-copy) and
   `set(self: *Self, value: T)`.
 - `src/types.zig`: new `registerBuiltins(ctx, module_scope)`
@@ -1652,7 +1652,7 @@ a surviving clone, all without UAF.
 
 - **M20h(1/5)** — Runtime + type spelling. `Closure0` vtable
   + `hasRigDrop` predicate + `RcBox.dropStrong` hook in
-  `runtime_zig.zig`. `Closure` registered as zero-arity
+  `runtime.zig`. `Closure` registered as zero-arity
   builtin in `types.zig`. Emit lowers `*Closure()` →
   `*rig.RcBox(rig.Closure0)`. Diagnostics for bare `Closure`,
   `Closure(Int)`, and `type Closure(T)` redefinition.

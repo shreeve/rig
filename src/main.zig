@@ -20,7 +20,7 @@ const effects = @import("effects.zig");
 const ownership = @import("ownership.zig");
 const emit = @import("emit.zig");
 const modules = @import("modules.zig");
-const runtime_zig = @import("runtime_zig.zig");
+const runtime = @import("runtime.zig");
 
 const Mode = enum {
     parse,
@@ -293,7 +293,7 @@ fn emitProjectToTmp(
     // machinery. Unconditional write — top-level unused namespace
     // imports are fine in Zig.
     {
-        const runtime_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ tmpdir, runtime_zig.filename });
+        const runtime_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ tmpdir, runtime.filename });
         const rf = std.Io.Dir.cwd().createFile(io, runtime_path, .{}) catch |err| {
             std.debug.print("error creating {s}: {}\n", .{ runtime_path, err });
             std.process.exit(1);
@@ -303,7 +303,7 @@ fn emitProjectToTmp(
         var rt_buffer: [4096]u8 = undefined;
         var rt_writer = rf.writer(io, &rt_buffer);
         const rw: *std.Io.Writer = &rt_writer.interface;
-        try rw.writeAll(runtime_zig.source);
+        try rw.writeAll(runtime.source);
         try rw.flush();
     }
 

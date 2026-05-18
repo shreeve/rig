@@ -72,7 +72,7 @@ Codebase highlights:
 | `src/types.zig` | Sema: SymbolResolver, TypeResolver, ExprChecker, Type interner, lookup helpers. ~6500 lines after M20g. New: `SymbolKind.capture`; `synthLambda` + `validateCaptures` + `walkLambdaBody`; `SemContext.lambda_return_types` map. |
 | `src/emit.zig` | Zig codegen. ~3500 lines after M20g. New: closure struct emit (`emitClosureBinding` + a dozen helpers); `SymbolEntry.is_closure`; `lookupIsClosure` rewrites `f()` → `f.invoke()`. |
 | `src/ownership.zig` | M2-era borrow/move checker. M20g added: `Binding.is_closure`; `in_call_callee`/`in_set_rhs` context flags; dedicated `walkLambda` applying cap_move outer-state effects. |
-| `src/runtime_zig.zig` | M20d V1 runtime as a Zig string constant (`RcBox` / `WeakHandle` / `Cell` / `rcNew` / etc.). Unchanged in M20g. |
+| `src/runtime.zig` | M20d V1 runtime as a Zig string constant (`RcBox` / `WeakHandle` / `Cell` / `rcNew` / etc.). Unchanged in M20g. |
 | `src/main.zig` | CLI driver. Writes `_rig_runtime.zig` sibling file in `emitProjectToTmp`. |
 | `build.zig` | Build steps. `zig build`, `zig build parser`, `zig build test`. |
 | `test/run` | Test driver. `./test/run` to verify; `./test/run --update` to regenerate goldens. |
@@ -279,7 +279,7 @@ Sub-commit by sub-commit (all on `main`):
 
 | Commit | What it shipped |
 |---|---|
-| `f4b448c` M20h(1/5) | Runtime + type spelling. `Closure0` vtable + `hasRigDrop` predicate + `RcBox.dropStrong` `__rig_drop` hook in `runtime_zig.zig`. `Closure` builtin (zero arity) registered in `types.zig`. Emit lowers `*Closure()` → `*rig.RcBox(rig.Closure0)`. Bare `Closure` / `Closure(Int)` / redefinition diagnostics. |
+| `f4b448c` M20h(1/5) | Runtime + type spelling. `Closure0` vtable + `hasRigDrop` predicate + `RcBox.dropStrong` `__rig_drop` hook in `runtime.zig`. `Closure` builtin (zero arity) registered in `types.zig`. Emit lowers `*Closure()` → `*rig.RcBox(rig.Closure0)`. Bare `Closure` / `Closure(Int)` / redefinition diagnostics. |
 | `3f00bdf` M20h(2/5) | Sema for construction + invocation. `detectOwnedClosureConstruction` intercepts `(share (call Closure (lambda ...)))` in `synthExpr` → returns the precise closure handle type. `cb()` typing for owned closures returns void. Diagnostics: bare `Closure(fn ...)` no `*`, non-lambda arg, wrong arity, `cb(args)`. Grammar: new `FN captures inline_body` form with `inline_body = call → (block 1)` so single-call lambda bodies parse inside `(...)`. Conflict count: 38 → 69. |
 | `64e29ab` M20h(3/5) | Ownership relaxation. New `walkShare` dispatcher detects owned-closure construction and sets `in_owned_closure_constructor_arg` for the inner walk. `walkLambda` escape check accepts the new flag; reset inside the body so nested constructions don't inherit. Pre-M20h `return *Closure(fn ...)` (rejected by M20g) now passes. |
 | `a4505d5` M20h(4/5) | Emit construction + invocation — the load-bearing emit work. `emitOwnedClosureConstruction` produces a labeled-block expression with an inline `Env = struct { ... fn rigInvoke ... fn rigDrop ... }`; env is heap-allocated via `rig.defaultAllocator().create(Env)`, captures init via reuse of M20g's `emitClosureInit` with a leading `.` for the inferred struct literal, wrapped in `Closure0` + `rig.rcNew`. `emitCall` adds the M20h `cb.value.invoke()` rewrite. `is_owned_closure` SymbolEntry flag set by `emitSetOrBind` via three signals (RHS / type annotation / sema). |
