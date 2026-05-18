@@ -439,6 +439,72 @@ sub main()
   arc; PB2 may not need it (Reactor can be modeled as an
   owned mutable object).
 
+### Reactive primitive: `Signal(T)` (PB2)
+
+`Signal(T)` is the minimum viable reactive primitive — a
+`Cell`-like value slot paired with **one optional retained
+closure subscriber**. On `signal.set(v)`, the value updates AND
+the subscriber (if present) is invoked synchronously. This is
+the canonical "push-on-change" reactive pattern, reduced to its
+load-bearing minimum: prove that a retained closure observes
+state changes, without yet committing to multi-subscriber
+semantics, batching, or topology.
+
+```rig
+sub main()
+  sig: *Signal(Int) = *Signal(value: 0)
+  log: *Closure() = *Closure(fn |+sig| print(sig.get()))
+  sig.subscribe(+log)
+  sig.set(7)                      # prints 7 (set invokes log)
+  sig.set(99)                     # prints 99
+```
+
+`Signal(T)` is registered as a one-arg built-in generic type at
+sema init (parallel to `Cell` and `Vec`); its runtime lives in
+`_rig_runtime.zig`. V1 API:
+
+- `Signal(value: T)` — constructor sugar; subscriber starts as
+  `null`.
+- `signal.get() -> T` — current value (copy semantics).
+- `signal.set(v: T)` — updates value and invokes the
+  subscriber if one is registered. **Synchronous.**
+- `signal.subscribe(cb: *Closure())` — registers `cb` as the
+  subscriber, replacing any prior one (the old subscriber's
+  strong handle is dropped before the new one is cloned in).
+
+**V1 restriction: `T` must be a Copy type** (`Int`, `Bool`,
+`Float`, `String`, the literal pseudo-types) — same restriction
+as `Cell`. Non-Copy `T` would need the same replace/take/Drop
+machinery deferred from Cell-non-Copy; will arrive together if
+either lands.
+
+**Single-subscriber rationale.** Multi-subscriber notification
+requires walking a `Vec(*Closure())` and invoking each, which in
+turn requires resource-element iteration on `Vec` — a separate
+substrate piece (M20i.1 / M20j) deliberately deferred. The
+single-subscriber Signal proves the load-bearing reactive
+claim without dragging in the iteration design. **PB3** will
+generalize to multi-subscriber once iteration lands; the
+substrate proof for that direction is already in
+`examples/vec_subscribers.rig` (Vec drop cascades correctly
+through resource elements).
+
+**Lifecycle**:
+
+- `subscribe` clones the incoming `*Closure()` handle (refcount
+  bump), so callers can keep their original handle alive
+  independently. Replace semantics: a second `subscribe` call
+  drops the previous handle and installs the new one.
+- `Signal.__rig_drop` releases the retained subscriber handle
+  (if any) on last-strong drop of the containing `RcBox`. The
+  `value` field is Copy so no per-field cleanup is needed.
+
+**`Signal(T)` is a resource value type** for the same reason as
+`Vec(T)` — it owns the retained closure handle. The standard
+`*Signal(T)` form (shared via `RcBox`) is the natural shape;
+stack-local `Signal(T)` bindings get the same auto-drop
+discipline as Cell/Vec stack-locals.
+
 ### Resource temporaries (named-binding RAII boundary)
 
 **V1 auto-drop applies to named bindings and parameters.** Unbound

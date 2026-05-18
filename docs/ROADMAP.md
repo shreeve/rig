@@ -1811,6 +1811,70 @@ the remaining Phase B work, unblocked. Cell-non-Copy
 can model Reactor as an owned mutable object means Cell-
 non-Copy may never be needed.
 
+### PB2 — Signal: single-subscriber Cell → Effect notification ✅
+
+The minimum viable reactive primitive. `Signal(T)` combines a
+Cell-like value slot with one optional retained `*Closure()`
+subscriber; `set` updates the value AND invokes the subscriber
+synchronously. Proves the load-bearing reactivity claim
+("retained closure observes state change") without committing
+to multi-subscriber semantics — those land in PB3 once
+resource-Vec iteration is designed.
+
+Locked at GPT-5.5 conversation entry 25 (Phase B post-M20i
+checkpoint). The locked decisions:
+
+1. **Single-subscriber Signal, not Reactor or Cell extension.**
+   GPT-5.5: "PB2 should prove one retained closure can be
+   subscribed and invoked by state change. It should not solve
+   subscriber-list iteration." The canary discipline (Q1 of
+   Phase B) drives this scoping.
+2. **`Signal(T)` wrapper, not Cell-extension.** Keeps Cell
+   primitive; avoids needing `*Cell(Vec(...))` (which would
+   force Cell-non-Copy relaxation).
+3. **Read-receiver methods (interior mutability).** Matches
+   Cell's pattern: `signal.set(v)` not `(!signal).set(v)`. The
+   runtime trusts itself to mutate through `*Self`.
+4. **Synchronous push on set.** PB3 will introduce mark-dirty
+   + queued flush; PB2 ships the simplest possible
+   notification path.
+
+**Sub-commits**:
+
+- **PB2(1/3)** `5918a15` — `Signal(T)` primitive: runtime
+  (`pub fn Signal(comptime T)`) + sema registration (one-arg
+  generic_type with `get`/`set`/`subscribe` methods +
+  synthetic `value` field) + emit (via the existing Cell-
+  style construction path). `isInteriorMutableBinding`
+  extended for Signal.
+- **PB2(2/3)** `ea91145` — Canary extension. New PB2 block
+  in `examples/reactive_canary.rig` demonstrating the
+  full subscribe-then-set-then-observe chain. Canary now
+  outputs `1\n3\n13\n7\n99` across the PB0 + M20g + M20h
+  + PB2 layers.
+- **PB2(3/3)** — Docs (this entry + SPEC §Signal + HANDOFF
+  refresh).
+
+**Tests**: 804/804 still pass (PB2(1/3) added the Signal
+primitive without new examples; PB2(2/3) regenerated the
+reactive_canary goldens which were already in EMIT_TARGETS).
+
+**PB3 deferred**. Per the joint design pass, PB3 (Memo +
+batching + topology) requires multi-subscriber notification,
+which requires `Vec(*Closure())` iteration. That's a separate
+substrate milestone (M20i.1 / M20j) that should be designed
+under real pressure when PB3 forces it. The
+`examples/vec_subscribers.rig` regression test already
+validates the drop-cascade discipline; the missing piece is
+the notify-iteration primitive itself.
+
+**Phase B status after PB2**: PB0 ✅, M20h ✅, PB1 ✅, M20i ✅,
+PB2 ✅. PB3 pending (depends on M20i.1 / M20j). The reactive
+canary now demonstrates the full single-subscriber chain
+end-to-end; multi-subscriber generalization is the only
+remaining Phase B work, gated on substrate maturity rather
+than design uncertainty.
+
 ### M20h.1 — Tighten `in_set_rhs` to direct lambda RHS ✅
 
 GPT-5.5's M20h post-implementation review caught a

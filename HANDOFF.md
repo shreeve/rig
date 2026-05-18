@@ -1,14 +1,14 @@
-# Rig — Session Handoff (M20i complete; Phase B PB2/PB3 next)
+# Rig — Session Handoff (PB2 complete; PB3 gated on Vec iteration)
 
-**You are picking up a Rig compiler session at the M20i
-boundary.** M20h (owned / escaping closures) and M20i
-(resource-aware Vec) both shipped end-to-end. Layer 6 of
-the substrate ladder is complete; Phase B PB2 (Cell →
-Effect notification) and PB3 (Memo + batching + topology)
-are unblocked. The next concrete action is the **PB2
-design checkpoint** with GPT-5.5 to scope the reactive
-notification work. Read top-to-bottom once; then it's a
-reference.
+**You are picking up a Rig compiler session at the PB2
+boundary.** M20h + M20i + PB2 all shipped end-to-end. The
+reactive canary (`examples/reactive_canary.rig`) now
+demonstrates the full Cell + closure + Signal subscriber
+chain producing `1\n3\n13\n7\n99`. The next concrete
+action is **M20i.1 / M20j — resource-Vec iteration**, which
+is the substrate prerequisite for PB3 (multi-subscriber +
+batching + topology). Read top-to-bottom once; then it's
+a reference.
 
 ---
 
@@ -17,31 +17,37 @@ reference.
 - **Project**: Rig is a systems language ("Zig-fast, Rust-safe,
   Ruby-readable") that compiles to Zig 0.16. Repo:
   `/Users/shreeve/Data/Code/rig`.
-- **Where we are**: M20h + M20i both shipped end-to-end.
-  Substrate ladder Layers 0–6 complete. Phase B PB0 + PB1
-  (canary refresh) shipped. The next reactive milestone is
-  PB2 — Cell → Effect notification using the Vec(*Closure())
-  subscriber storage pattern that M20i validates in the
-  `vec_subscribers.rig` regression test. **804 tests
-  passing, 0 failing.** Clean tree on `main`, all pushed.
-- **Next concrete action**: **PB2 design checkpoint** with
-  GPT-5.5. Key questions:
-  - Reactor structure: owned mutable object (`reactor:
-    Reactor; !reactor.subscribe(...); !reactor.flush()`) or
-    `*Reactor` shared handle? GPT-5.5's M20i scoping
-    observation: PB2 may avoid needing `*Cell(Vec(...))`
-    by modeling Reactor as owned mutable.
-  - Effect lifecycle: how does Cell notify its subscribers?
-    Synchronous push or two-phase mark+sweep?
-  - Subscription idiom: `cell.subscribe(eff)` vs
-    `eff.bind(cell)` — direction of registration.
-  - Effect cleanup: when does a subscriber unregister?
-    Drop semantics?
+- **Where we are**: M20h + M20i + PB2 all shipped end-to-end.
+  Substrate ladder Layers 0–6 complete; Layer 7 (reactivity)
+  half-shipped — single-subscriber via `Signal(T)` is in,
+  multi-subscriber pending. The reactive canary now produces
+  `1\n3\n13\n7\n99` demonstrating PB0 + M20g + M20h + PB2
+  composition. **804 tests passing, 0 failing.** Clean tree
+  on `main`, all pushed.
+- **Next concrete action**: **M20i.1 / M20j — resource-Vec
+  iteration**. This is the substrate prerequisite for PB3
+  (multi-subscriber Cell → Effect notification + batching +
+  topology). The PB2(2/3) commit added a `TODO PB3` comment
+  in the canary explaining the gap. Joint design pass with
+  GPT-5.5 (entry 25) locked: do NOT try to ship PB3 without
+  iteration; design iteration as its own milestone first.
+
+  Design questions for the iteration checkpoint:
+  - Internal iteration (callback-based: `vec.foreach(fn (e)
+    e())`) vs external (`for x in vec`) vs both?
+  - Element binding mode in the loop body — borrow-read
+    (`?T`) for read-only access; what about mutation?
+  - Lambda-as-call-arg with params: M20h shipped
+    `FN captures inline_body`; iteration needs
+    `FN params inline_body` (no captures or with).
+  - For external `for x in vec`: how does ownership of the
+    iterated element work? Borrow per iteration?
+
 - **Phase B sequence**:
-  `PB0 ✅ → M20h ✅ → PB1 (canary refresh) ✅ →
-  M20i ✅ → PB2 (NEXT) → PB3`. M20i.x (Cell-non-Copy)
-  remains conditional — may never be needed if PB2's
-  Reactor design uses owned mutable.
+  `PB0 ✅ → M20h ✅ → PB1 ✅ → M20i ✅ → PB2 ✅ →
+  M20i.1/M20j 🚧 NEXT → PB3 → PB4 (Memo + topology)`. M20i.x
+  (Cell-non-Copy) remains conditional — GPT-5.5's PB2 pass
+  confirmed PB2 doesn't force it; PB3 may or may not.
 - **Owner**: Steve (`shreeve@github`). Collaborates with the AI
   agent AND consults GPT-5.5 via the `user-ai` MCP for design
   checkpoints + post-implementation reviews.
@@ -97,6 +103,7 @@ Codebase highlights:
 | 8 | Closure capture mode syntax (non-escaping V1) | ✅ | M20g (1-5/5) + M20g(2.1) |
 | 8.5 | Owned/escaping closure values | ✅ | M20h (1-5/5) + M20h.1 |
 | 9 | Resource-aware containers (Vec(T)) | ✅ | M20i (1-5/5) |
+| 10 | Single-subscriber reactive primitive (Signal(T)) | ✅ | PB2 (1-3/3) |
 
 **The V1 ownership substrate is COMPLETE + has its first
 escape-aware abstraction.** Items 9-17 are substrate maturity
@@ -110,9 +117,10 @@ etc.) — important but not blocking Phase B.
 | PB0 | Reactive canary scaffold | ✅ | `examples/reactive_canary.rig` |
 | M20h | Owned/escaping closure values | ✅ | commits `f4b448c..a4505d5` |
 | PB1 | Single retained Effect | ✅ | folded into canary refresh (M20h(5/5)) |
-| M20i | Resource-aware `Vec(T)` | ✅ | commits `4675fca..2ef41b6` + (5/5) |
-| PB2 | Cell → Effect notification | 🚧 NEXT | design checkpoint pending |
-| PB3 | Memo + batching + topology | pending | depends on PB2 |
+| M20i | Resource-aware `Vec(T)` | ✅ | commits `4675fca..d6d6c83` |
+| PB2 | Single-subscriber Signal | ✅ | commits `5918a15..ea91145` + docs |
+| M20i.1 | Resource-Vec iteration | 🚧 NEXT | design checkpoint pending |
+| PB3 | Multi-subscriber + batching + topology | pending | depends on M20i.1 |
 
 ---
 
