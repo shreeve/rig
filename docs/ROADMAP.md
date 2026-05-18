@@ -2287,6 +2287,100 @@ arg) and a "compiler does not infer escape" disclaimer.
 
 754 tests pass (was 746).
 
+### M21 — Unsafe / Raw effect boundary ✅
+
+*(Shipped as `M19` in commit prefixes for historical
+conversation continuity — see GPT-5.5 entry 35. The earlier
+`### M19 — Typed Mutable Binding Emission` above is a
+small, unrelated arc; this entry's M-number is M21 to
+disambiguate.)*
+
+The substrate-cleanup arc Steve picked after Phase B
+completion. Per GPT-5.5 entry 31 and entry 32: "highest
+strategic importance" within Category A "must-have before
+credible V1." Locks the safety bargain that Rig's runtime
++ user code already relies on but had no enforced surface.
+
+Locked at the M21 / `%T` design checkpoint with GPT-5.5
+(conversation `c_5c1d09d53ebe2f62`, entries 35 + 36).
+Steve's two cues from PB4 (Rust/Zig don't ship reactivity;
+minimum-surface ergonomics) reshaped the recommendation
+during PB4 and continued shaping M21: stick to the
+minimum-viable shape, defer raw Zig blocks and user-
+trusted-types to follow-ons.
+
+**Locked design (entries 35 + 36):**
+
+- **Block-only `unsafe`** (no single-statement `unsafe expr`).
+  The block IS the audit boundary; visually heavy is the
+  point.
+- **Prefix `unsafe sub`/`unsafe fun`** (NOT suffix). Matches
+  the existing `pub`/`extern`/`packed`/`callconv` modifier
+  pattern. Single grammar line; no IR shape change. SPEC
+  updated to match.
+- **Two distinct IR tags**: `unsafe_decl` (decl-modifier wrap,
+  parallel to `(pub decl)`) and `unsafe_block` (statement
+  form, parallel to `(defer block)`).
+- **Effect model**: unsafe-fn body IS unsafe context by
+  default (Rust-style). Unsafe block opens a context; safe
+  fn calling an unsafe fn must wrap in `unsafe` block.
+- **Default-unsafe builtin classification**: small safe
+  whitelist (`@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`,
+  `@hasDecl`, `@hasField`, `@len`, `@This`); everything else
+  requires unsafe. Each addition audited.
+- **Extern is unsafe-by-default at call sites** even without
+  explicit `unsafe` modifier. Extern is the FFI boundary;
+  the safety bargain across it requires explicit caller
+  acknowledgment.
+
+**Sub-commits:**
+
+| Commit | What it shipped |
+|---|---|
+| `5859f5e` M19(1/6) | Grammar: `UNSAFE` keyword + `unsafe_decl` / `unsafe_block` tags. Decl-modifier rule `UNSAFE decl -> (unsafe_decl 2)` parallel to `pub`/`extern`/`packed`. Statement-form rule `UNSAFE block -> (unsafe_block 2)` parallel to `defer block`. Conflict count stayed at 69. (Em-dash in grammar comments breaks Nexus parsing — found during dev; ASCII-only in grammar comments going forward.) |
+| `64df3bf` M19(2/6) | Effects: `unsafe_depth` + `current_fn_is_unsafe` + `pending_fn_unsafe` state on `Checker`. New `inUnsafeContext()` helper. `(raw X)` outside unsafe context fires tailored diagnostic. New arms for `(unsafe_block ...)` and `(unsafe_decl ...)` wire the audit context. `walkFun` consumes `pending_fn_unsafe`. Existing `spacing.rig` example updated to wrap its `%x` line in `unsafe`. |
+| `dadcefb` M19(3/6) | Builtin classification: `isSafeBuiltin(name)` whitelist; `.@"builtin"` dispatcher arm fires diagnostic for non-whitelisted builtins outside unsafe context. Diagnostic lists the safe set so users see options. |
+| `2c925b3` M19(4/6) | Unsafe fn calls: `SymbolFlags.is_unsafe` field; SymbolResolver stamps it from `unsafe_decl` wrapper. TypeResolver + ExprChecker get transparent `unsafe_decl` arms. New `lookupIsUnsafe(name)` helper in effects; `walkCall` fires diagnostic for unsafe-fn calls from safe context. |
+| `5f1b3aa` M19(5/6) | Extern call enforcement: `lookupIsExtern(name)` checks `Symbol.kind == .@"extern"`. `walkCall` adds extern-call-from-safe diagnostic. Catches the currently-callable extern shape (`extern puts: fn(String) Int`). |
+| M19(6/6) | Docs (this entry). SPEC §"Unsafe / Raw (M19)" rewritten end-to-end with syntax, builtin whitelist, extern-FFI-boundary rule, safe-wrapper pattern, trusted-runtime boundary, V1 deferred features. ROADMAP M21 entry. HANDOFF refresh. |
+
+**Tests across M21 (1/6) → (6/6): 880 → 924 (+44).** 8
+positive + 5 negative examples covering raw access, builtin
+classification, unsafe-fn calls, extern calls. The existing
+`spacing.rig` sigil-tokenization test was updated to wrap
+its `%x` line in `unsafe` (preserves the tokenization
+purpose AND respects the new effect rule).
+
+**What M21 does NOT cover:**
+
+- `zig "..."` raw Zig blocks (parsed but not wired through
+  emit; M21+ extension; will inherit the same unsafe-context
+  requirement when it lands).
+- Cross-module extern signatures (same M15b gap as
+  fallibility checking).
+- User-defined `trusted` decoration for writing custom
+  trusted-runtime types in Rig source (V1 substitute is the
+  safe-wrapper pattern documented in SPEC).
+- The "unsafe extern" composition is parseable but
+  redundant — extern is already unsafe-by-default at call
+  sites, so explicit `unsafe extern` is informational. May
+  get its own diagnostic in M21+.
+
+**What this unlocks:**
+
+- **Real stdlib seed work** — `HashMap`, `String`, `File`,
+  `IO` can now be written in Rig source with safe public
+  contracts wrapping unsafe Zig internals via the safe-
+  wrapper pattern.
+- **Userland reactive library** — Reactor / Memo / Effect
+  (locked as userland work in PB4) can now use `unsafe`
+  blocks for the interior-mutability they need. Once
+  `Cell`-non-`Copy` lands, the library shape is fully
+  expressible.
+- **Future async** — FFI / poll/wake / pin / executor
+  patterns will all live behind the `unsafe` boundary.
+  Substrate prerequisite shipped.
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note
@@ -2376,8 +2470,14 @@ the M20+ items below):
    batching) are USERLAND work, not future builtins —
    matches Rust/Zig "substrate in language, library in
    userland."
-10. `%T` unsafe-effect lattice + `unsafe` block / fn-modifier
-    (SPEC §Unsafe / Raw — text landed; checker enforcement TBD)
+10. ~~`%T` unsafe-effect lattice + `unsafe` block / fn-modifier~~
+    ✅ **Landed in M21** above (shipped as `M19` in commits for
+    historical conversation continuity per GPT-5.5 entry 35).
+    Block-only `unsafe`; prefix `unsafe sub`/`unsafe fun`;
+    default-unsafe builtin classification with audited safe
+    whitelist; extern call sites are unsafe-by-default at the
+    FFI boundary; safe-wrapper pattern documented. SPEC
+    §"Unsafe / Raw (M19)" rewritten end-to-end.
 11. `pre` AST extraction for derive-style macros
     (REACTIVITY-DESIGN D8)
 12. Explicit error sets in `T!E` return types
