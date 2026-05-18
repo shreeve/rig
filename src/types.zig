@@ -469,6 +469,14 @@ pub const SemContext = struct {
     /// move-only transfer, auto-drop guard).
     vec_sym_id: SymbolId = symbol_invalid,
 
+    /// PB2: built-in `Signal(T)` generic_type SymbolId. Set by
+    /// `registerBuiltins`. PB2 reactive primitive — single
+    /// retained subscriber slot + a `*Cell(T)` value. Methods:
+    /// `get`/`set`/`subscribe`. V1 restriction: T must be Copy
+    /// (same as Cell). PB3 generalizes to multi-subscriber once
+    /// resource-Vec iteration is designed.
+    signal_sym_id: SymbolId = symbol_invalid,
+
     /// M20g(2/5): per-lambda body-return TypeId. Keyed by the
     /// `(lambda ...)` IR node's first `.src` position (recovered
     /// at emit time via the same helper). Populated by
@@ -847,6 +855,138 @@ fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.E
     vec_type_params[0] = vec_t_sym_id;
     ctx.symbols.items[vec_sym_id].type_params = vec_type_params;
 
+    // Vec methods registration — must stay in `registerBuiltins`
+    // because it uses the locally-bound `vec_sym_id` /
+    // `vec_t_sym_id`. (PB2's `Signal` registration follows AFTER
+    // Vec methods are set up.)
+    try registerVecMethods(ctx, vec_sym_id, vec_t_sym_id);
+
+    // PB2: register `Signal(T)` as a one-arg builtin generic type
+    // (parallel to Cell). Single-subscriber reactive primitive
+    // with `get`/`set`/`subscribe` methods. Read-receiver methods
+    // (matches Cell's interior-mutability pattern — the trusted
+    // runtime mutates through `*Self`). V1 restricts T to Copy
+    // types at instantiation time, same as Cell. Multi-subscriber
+    // generalization waits for Vec(*Closure()) iteration design.
+    try registerSignal(ctx, module_scope);
+}
+
+fn registerSignal(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.Error!void {
+    const signal_sym_id = blk: {
+        const id: SymbolId = @intCast(ctx.symbols.items.len);
+        try ctx.symbols.append(ctx.allocator, .{
+            .name = "Signal",
+            .kind = .generic_type,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_decl_pos,
+            .scope = module_scope,
+        });
+        try ctx.scopes.items[module_scope].symbols.append(ctx.allocator, id);
+        break :blk id;
+    };
+    ctx.signal_sym_id = signal_sym_id;
+
+    // Detached T type-param.
+    const t_sym_id = blk: {
+        const id: SymbolId = @intCast(ctx.symbols.items.len);
+        try ctx.symbols.append(ctx.allocator, .{
+            .name = "T",
+            .kind = .generic_param,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_decl_pos,
+            .scope = module_scope,
+        });
+        break :blk id;
+    };
+    const type_params = try ctx.arena.allocator().alloc(SymbolId, 1);
+    type_params[0] = t_sym_id;
+    ctx.symbols.items[signal_sym_id].type_params = type_params;
+
+    const t_type_id = try ctx.types.intern(ctx.allocator, .{ .type_var = t_sym_id });
+    const signal_inst_id = try ctx.types.intern(ctx.allocator, .{
+        .parameterized_nominal = .{
+            .sym = signal_sym_id,
+            .args = blk: {
+                const a = try ctx.arena.allocator().alloc(TypeId, 1);
+                a[0] = t_type_id;
+                break :blk a;
+            },
+        },
+    });
+    const self_ty_id = try ctx.types.intern(ctx.allocator, .{ .borrow_read = signal_inst_id });
+
+    // `Closure()` builtin type for the `subscribe` argument. PB2
+    // takes a `*Closure()` strong handle and clones it internally.
+    const closure_inst_id = blk: {
+        if (ctx.closure_sym_id == symbol_invalid) {
+            // Defensive: Closure registered before Signal in
+            // `registerBuiltins`, so this branch shouldn't fire.
+            break :blk ctx.types.unknown_id;
+        }
+        const empty_args = try ctx.arena.allocator().alloc(TypeId, 0);
+        break :blk try ctx.types.intern(ctx.allocator, .{
+            .parameterized_nominal = .{ .sym = ctx.closure_sym_id, .args = empty_args },
+        });
+    };
+    const closure_handle_ty = try ctx.types.intern(ctx.allocator, .{ .shared = closure_inst_id });
+
+    // get(self: ?Signal(T)) -> T
+    const get_params = try ctx.arena.allocator().alloc(TypeId, 1);
+    get_params[0] = self_ty_id;
+    const get_fn_ty = try ctx.types.intern(ctx.allocator, .{
+        .function = .{ .params = get_params, .returns = t_type_id, .is_sub = false },
+    });
+
+    // set(self: ?Signal(T), value: T)
+    const set_params = try ctx.arena.allocator().alloc(TypeId, 2);
+    set_params[0] = self_ty_id;
+    set_params[1] = t_type_id;
+    const set_fn_ty = try ctx.types.intern(ctx.allocator, .{
+        .function = .{ .params = set_params, .returns = ctx.types.void_id, .is_sub = true },
+    });
+
+    // subscribe(self: ?Signal(T), cb: *Closure())
+    const sub_params = try ctx.arena.allocator().alloc(TypeId, 2);
+    sub_params[0] = self_ty_id;
+    sub_params[1] = closure_handle_ty;
+    const sub_fn_ty = try ctx.types.intern(ctx.allocator, .{
+        .function = .{ .params = sub_params, .returns = ctx.types.void_id, .is_sub = true },
+    });
+
+    // Synthetic `value` field for `Signal(value: 0)` constructor
+    // sugar. Matches Cell's pattern — the runtime initializes the
+    // inner cell with this value.
+    const fields = try ctx.arena.allocator().alloc(Field, 4);
+    fields[0] = .{
+        .name = "value",
+        .ty = t_type_id,
+        .decl_pos = builtin_decl_pos,
+    };
+    fields[1] = .{
+        .name = "get",
+        .ty = get_fn_ty,
+        .decl_pos = builtin_decl_pos,
+        .is_method = true,
+        .receiver = .read,
+    };
+    fields[2] = .{
+        .name = "set",
+        .ty = set_fn_ty,
+        .decl_pos = builtin_decl_pos,
+        .is_method = true,
+        .receiver = .read,
+    };
+    fields[3] = .{
+        .name = "subscribe",
+        .ty = sub_fn_ty,
+        .decl_pos = builtin_decl_pos,
+        .is_method = true,
+        .receiver = .read,
+    };
+    ctx.symbols.items[signal_sym_id].fields = fields;
+}
+
+fn registerVecMethods(ctx: *SemContext, vec_sym_id: SymbolId, vec_t_sym_id: SymbolId) std.mem.Allocator.Error!void {
     // M20i(2/5): synthetic methods for Vec(T).
     //
     // Receiver discipline (per GPT-5.5's M20i design pass, D3+):
@@ -967,7 +1107,8 @@ fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.E
 fn isReservedBuiltinName(name: []const u8) bool {
     return std.mem.eql(u8, name, "Cell") or
         std.mem.eql(u8, name, "Closure") or
-        std.mem.eql(u8, name, "Vec");
+        std.mem.eql(u8, name, "Vec") or
+        std.mem.eql(u8, name, "Signal");
 }
 
 /// M20f: is a TypeId a Copy type for Cell(T) instantiation? V1
@@ -2744,6 +2885,22 @@ const TypeResolver = struct {
                             if (is_known and !isValidVecElementType(self.ctx, arg_ty)) {
                                 const ty_str = try formatType(self.ctx, arg_ty);
                                 try self.err(pos, "`Vec(T)` in V1 requires `T` to be a Copy type (Int, Bool, Float, String), a shared handle (`*T`), or a weak handle (`~T`); got `{s}`. Nested `Vec(Vec(T))` and arbitrary nominal element types are deferred until V1 grows user-defined Drop.", .{ty_str});
+                                return self.ctx.types.invalid_id;
+                            }
+                        }
+
+                        // PB2: Signal(T) — same Copy-only T restriction
+                        // as Cell. Non-Copy T would need replace/take
+                        // semantics on `Signal.set` (Cell's deferred
+                        // problem); deferred until Cell-non-Copy
+                        // lands as its own sub-arc.
+                        if (sym_id == self.ctx.signal_sym_id and supplied.len == 1) {
+                            const arg_ty = arg_ids.items[0];
+                            const is_known = arg_ty != self.ctx.types.unknown_id and
+                                arg_ty != self.ctx.types.invalid_id;
+                            if (is_known and !isCopyTypeForCell(self.ctx, arg_ty)) {
+                                const ty_str = try formatType(self.ctx, arg_ty);
+                                try self.err(pos, "`Signal(T)` in V1 requires `T` to be a Copy type (Int, Bool, Float, String); got `{s}`. Non-Copy `Signal(T)` would need the same replace/take/Drop semantics as non-Copy `Cell(T)` and is deferred until that substrate lands.", .{ty_str});
                                 return self.ctx.types.invalid_id;
                             }
                         }

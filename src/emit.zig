@@ -2285,9 +2285,16 @@ pub const Emitter = struct {
             if (!std.mem.eql(u8, sym.name, name)) continue;
             const ty = sema.types.get(sym.ty);
             return switch (ty) {
+                // PB2: Signal also needs `var` storage like Cell/Vec.
+                // The runtime's `set` / `subscribe` take `*Self`
+                // receivers (the interior-mutability pattern), and
+                // the Zig binding must be mutable for that pointer
+                // to be valid.
                 .parameterized_nominal => |pn| pn.sym == sema.cell_sym_id or
-                    pn.sym == sema.vec_sym_id,
-                .nominal => |s| s == sema.cell_sym_id or s == sema.vec_sym_id,
+                    pn.sym == sema.vec_sym_id or
+                    pn.sym == sema.signal_sym_id,
+                .nominal => |s| s == sema.cell_sym_id or s == sema.vec_sym_id or
+                    s == sema.signal_sym_id,
                 else => false,
             };
         }
@@ -3786,7 +3793,8 @@ pub const Emitter = struct {
 fn isBuiltinNominalName(name: []const u8) bool {
     return std.mem.eql(u8, name, "Cell") or
         std.mem.eql(u8, name, "Closure") or
-        std.mem.eql(u8, name, "Vec");
+        std.mem.eql(u8, name, "Vec") or
+        std.mem.eql(u8, name, "Signal");
 }
 
 /// M20h(4/5): does the Sexp look like `(call Closure (lambda ...))`?

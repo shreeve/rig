@@ -309,6 +309,80 @@ pub const source =
     \\    }
     \\};
     \\
+    \\/// PB2: `Signal(T)` — single-subscriber reactive primitive.
+    \\///
+    \\/// PB2's MINIMUM VIABLE reactive canary helper per GPT-5.5's
+    \\/// Phase B design pass: one Cell-like value + an OPTIONAL
+    \\/// retained `*Closure()` subscriber slot. On `set`, the value
+    \\/// is updated AND the subscriber (if any) is invoked
+    \\/// synchronously. This proves the load-bearing reactivity
+    \\/// claim — "subscriber observes the new value" — without
+    \\/// committing to multi-subscriber semantics, batching, or
+    \\/// topology (those land in PB3 + later, after resource-Vec
+    \\/// iteration is designed).
+    \\///
+    \\/// V1 restriction: `T` must be a Copy type (Int/Bool/Float/
+    \\/// String/literal pseudo-types). Same restriction as Cell.
+    \\/// Non-Copy `T` would need replace/take/Drop semantics that
+    \\/// Rig V1 doesn't yet have.
+    \\///
+    \\/// Lifecycle:
+    \\///   - `subscribe(cb)`: clones the incoming `*Closure()` handle
+    \\///     so the Signal retains its own strong reference. If a
+    \\///     prior subscriber was set, its strong handle is dropped
+    \\///     first (replace-by-drop semantics).
+    \\///   - `set(value)`: updates the cell AND invokes the
+    \\///     subscriber synchronously if one is registered.
+    \\///   - `__rig_drop`: drops the subscriber (if any) on the
+    \\///     last-strong drop of `*Signal(T)`. The cell drops via
+    \\///     its own field destructor (Copy T = no-op).
+    \\///
+    \\/// PB3 will replace the single-subscriber slot with a real
+    \\/// subscriber list, but that requires Vec(*Closure())
+    \\/// iteration which is its own deferred substrate piece.
+    \\pub fn Signal(comptime T: type) type {
+    \\    return struct {
+    \\        value: T,
+    \\        subscriber: ?*RcBox(Closure0) = null,
+    \\
+    \\        const Self = @This();
+    \\
+    \\        pub fn get(self: *const Self) T {
+    \\            return self.value;
+    \\        }
+    \\
+    \\        /// Update the value AND invoke the subscriber (if any)
+    \\        /// synchronously. PB3's two-phase flush model will
+    \\        /// replace this with mark-dirty + queue-effect; for
+    \\        /// PB2 the simplest possible notification path is
+    \\        /// enough.
+    \\        pub fn set(self: *Self, value: T) void {
+    \\            self.value = value;
+    \\            if (self.subscriber) |cb| cb.value.invoke();
+    \\        }
+    \\
+    \\        /// Register a subscriber. Replaces any existing slot
+    \\        /// (drops the old strong handle, clones the new). The
+    \\        /// caller's original `*Closure()` handle is unaffected
+    \\        /// because `subscribe` clones rather than moves.
+    \\        pub fn subscribe(self: *Self, cb: *RcBox(Closure0)) void {
+    \\            if (self.subscriber) |old| old.dropStrong();
+    \\            self.subscriber = cb.cloneStrong();
+    \\        }
+    \\
+    \\        /// M20h-style destructor hook: when the Signal's
+    \\        /// containing RcBox hits last strong, drop the
+    \\        /// retained subscriber (if any). The `value` field
+    \\        /// is Copy so no per-element drop is needed.
+    \\        pub fn __rig_drop(self: *Self) void {
+    \\            if (self.subscriber) |cb| {
+    \\                cb.dropStrong();
+    \\                self.subscriber = null;
+    \\            }
+    \\        }
+    \\    };
+    \\}
+    \\
     \\/// M20i: comptime predicate for the `dropElement` strong-handle
     \\/// branch. Returns true iff `T` is a single-element pointer to
     \\/// a struct declaring `__rig_rcbox_marker` (i.e., `T == *RcBox(U)`
