@@ -1,0 +1,22 @@
+## PB3.1: bare resource capture is rejected at the M20g layer.
+##
+## Per GPT-5.5 entry 31 (PB3 post-impl review): the PB3(1/5)
+## audit's `is_capture_resource` flag is set ONLY for the
+## explicit resource-mode captures `|+x|` / `|<x|` / `|~x|`.
+## `cap_copy` (bare `|x|`) is intentionally EXCLUDED because
+## M20g already rejects bare resource captures with a separate
+## tailored diagnostic — the user is required to pick an
+## explicit mode for any *T / ~T capture, which makes the
+## refcount effect visible at the construction site (per Rig's
+## visible-effects thesis).
+##
+## This example pins that invariant. If M20g's bare-resource-
+## capture rejection ever weakens, the PB3 audit would silently
+## fail to mark the binding as `is_capture_resource` and the
+## body could consume the capture (UAF on multi-invocation).
+## Keep this test green to keep the audit sound.
+
+sub main()
+  sig: *Signal(Int) = *Signal(value: 0)
+  cb: *Closure() = *Closure(fn |sig| sig.get())
+  cb()

@@ -244,6 +244,29 @@ run_end_to_end() {
     fi
 }
 
+# PB3.1 per GPT-5.5 entry 31: expected-panic harness. Runs the
+# example, expects a non-zero exit AND the panic message
+# substring to appear in stderr. Prevents accidental removal of
+# runtime contracts (like the R2 reentrancy guard) from going
+# unnoticed because the example otherwise type-checks cleanly.
+run_expected_panic() {
+    local name=$1
+    local expected_msg=$2
+    local rig_file="examples/${name}.rig"
+    local out
+    set +e
+    out=$($RIG run "$rig_file" 2>&1)
+    local exit=$?
+    set -e
+    if [[ $exit -ne 0 ]] && echo "$out" | grep -q "$expected_msg"; then
+        say_pass "$name panics with expected message"
+        PASS=$((PASS + 1))
+    else
+        FAIL=$((FAIL + 1))
+        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  $name panic — expected non-zero exit with \"$expected_msg\", got exit=$exit:"$'\n'"$(echo "$out" | sed 's/^/    /')"
+    fi
+}
+
 section "End-to-end run"
 SECTION_START=$SECONDS
 run_end_to_end hello "hello, rig"
@@ -257,6 +280,10 @@ run_end_to_end signal_multi_subscriber "222"
 # Final line should be `111` (PB3 builtin Signal walk) after
 # the M20i.1 user-written `for cb in ?subs` line (also `111`).
 run_end_to_end reactive_canary "111"
+# PB3.1 R2 reentrancy contract: reentrant set during
+# notification must panic with the V1 message. Prevents
+# accidental relaxation of the notifying-flag guard.
+run_expected_panic signal_reentrant_set_panics "reentrant set is not supported in V1"
 section_done $(( SECONDS - SECTION_START ))
 
 # -----------------------------------------------------------------------------

@@ -1,2 +1,1 @@
 examples/signal_stack_local_rejected.rig:19:3: error: stack-local `Signal(T)` is not supported in V1; Signal owns a subscriber `Vec` that requires heap ownership. Use `*Signal(T)` (heap-owned) instead: `sig: *Signal(...) = *Signal(value: ...)`.
-examples/signal_stack_local_rejected.rig:19:22: error: generic constructor `Signal` requires an expected type; write `b: Signal(T) = Signal(...)`

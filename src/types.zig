@@ -4156,6 +4156,15 @@ const ExprChecker = struct {
         // than the smallest-safe-path rejection. The user-facing
         // shape is always `*Signal(T)` per the PB2 + PB3 design;
         // diagnostics point them at the fix.
+        //
+        // PB3.1 per GPT-5.5 entry 31: skip RHS synth on this path
+        // because synthing `Signal(value: 0)` without an LHS
+        // expected type fires a SECOND diagnostic ("generic
+        // constructor `Signal` requires an expected type; write
+        // `b: Signal(T) = Signal(...)`") that contradicts the
+        // first one (telling the user to do exactly what they
+        // just did). Single-error semantics keep the diagnostic
+        // actionable.
         if (declared_ty != self.ctx.types.unknown_id and
             self.ctx.signal_sym_id != symbol_invalid)
         {
@@ -4166,7 +4175,6 @@ const ExprChecker = struct {
                 try self.err(firstSrcPos(target), "stack-local `Signal(T)` is not supported in V1; Signal owns a subscriber `Vec` that requires heap ownership. Use `*Signal(T)` (heap-owned) instead: `{s}: *Signal(...) = *Signal(value: ...)`.", .{
                     identAt(self.ctx.source, target) orelse "x",
                 });
-                _ = self.synthExpr(expr) catch self.ctx.types.unknown_id;
                 return;
             }
         }

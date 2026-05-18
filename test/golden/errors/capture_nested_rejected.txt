@@ -1,0 +1,1 @@
+examples/capture_nested_rejected.rig:21:18: error: nested closure capture of `sig` is not supported in V1; lift the capture to the outer scope or refactor

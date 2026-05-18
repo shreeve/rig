@@ -1,0 +1,1 @@
+examples/capture_bare_resource_rejected.rig:21:33: error: bare capture `|sig|` of shared handle `*T` would hide a refcount bump; use `|+sig|` to clone, `|<sig|` to move, or `|~sig|` to capture a weak ref

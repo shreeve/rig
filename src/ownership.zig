@@ -850,7 +850,19 @@ pub const Checker = struct {
             // slot; the body sees a borrowed view that may be read
             // (call, member access) and cloned/weak'd to produce
             // fresh handles, but MAY NOT be moved/dropped/returned/
-            // stored. cap_copy carries no resource so no flag.
+            // stored.
+            //
+            // **Invariant (PB3.1 per GPT-5.5 entry 31).** `cap_copy`
+            // is intentionally EXCLUDED from the resource-capture
+            // flag because M20g's bare-capture validator rejects
+            // resource types (`*T` / `~T` / `*Closure()`) in bare
+            // captures with a tailored diagnostic. If that M20g
+            // rule ever weakens, this exclusion MUST change too —
+            // otherwise the body could silently consume a resource
+            // capture (UAF on multi-invocation of a retained
+            // closure). The negative test
+            // `examples/capture_bare_resource_rejected.rig`
+            // pins the M20g rule.
             const is_resource_cap = switch (cap.list[0].tag) {
                 .@"cap_clone", .@"cap_weak", .@"cap_move" => true,
                 else => false,

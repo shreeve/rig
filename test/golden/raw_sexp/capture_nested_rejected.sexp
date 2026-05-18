@@ -1,0 +1,1 @@
+(module (sub main () _ (block (set _ sig (shared (generic_inst Signal Int)) (share (call Signal (kwarg value 0)))) (set _ outer _ (lambda (captures (cap_clone sig)) _ _ (block (set _ inner _ (lambda (captures (cap_clone sig)) _ _ (block (call (member sig get))))) (call inner)))) (call outer))))

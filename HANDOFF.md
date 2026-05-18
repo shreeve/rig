@@ -433,6 +433,14 @@ the picture (multi-subscriber + Memo + topology).
 - `./test/run --update` — regenerates goldens.
 - Add new examples to `EMIT_TARGETS` in `test/run` for
   end-to-end coverage.
+- **Runtime-affecting M20+ changes should add/extend end-to-end
+  run tests, not only ast-check + goldens.** Per the GPT-5.5
+  PB3 post-impl review (entry 31): the M20i.1 / PB3 sub-commits
+  caught a runtime field-mismatch only via manual canary run
+  because the test harness was historically only running
+  `hello.rig` end-to-end. `run_end_to_end <name> <substr>` and
+  `run_expected_panic <name> <substr>` helpers are now in
+  `test/run`; use them for any new runtime-shape change.
 
 ### GPT-5.5 collaboration (non-negotiable)
 
@@ -493,6 +501,7 @@ arcs). Each numbered entry is a logical exchange:
 28. **M20i.1 post-implementation review** — locked must-fix: replace emit-side `vecSourceForEmit` global reverse scan with sema attribution table keyed by source position (M20i.1.1). Also locked three follow-ups: reject resource Vec iteration over non-bare source; positive test for post-loop mutation released; negative test for capture-loop-borrow-in-lambda (M20g clone-capture validator handles it). PB3 reentrancy gap documented but deferred — closure-call-mediated subscriber mutation needs a runtime policy (snapshot, `notifying` flag, or queued mutations) that PB3 design will decide
 29. **PB3 design — multi-subscriber Signal** — locked R2 (strict `notifying` flag + panic) over R4 (silent tolerate). GPT-5.5 pushed back hard on R4 because (a) it forces V1 to define recursive semantics that should be locked in PB4, (b) R2 has zero allocation and zero Vec-mutation-during-iteration, (c) R2 generalizes cleanly to `Future<T>`. Also locked: `Vec(*Closure())` state shape (no optional-first-slot micro-opt); subscribe-only (defer unsubscribe to PB3.x); reject stack-local `Signal(T)` (smallest-safe-path over wiring the M20e defer-guard machinery). Critical audit must-precede: captured-resource consume rejection — closure bodies must not be able to move/drop their captured `*T`/`~T` because retained subscribers are invoked multiple times
 30. **PB3 tactical** — unify M20i.1's `is_loop_borrow` and PB3's `is_capture_resource` behind a single `rejectNonConsumableBindingOp` helper. Diagnostics branch on which flag fired; hooks at the same five sites M20i.1 added. Avoids "missing one of the five sites later" risk
+31. **PB3 post-implementation review** — confirmed PB3 is solid (R2 is correct, Shape X for resource elements is correct, audit fix is correct). Identified small PB3.1: suppress misleading stack-Signal cascade diagnostic; add bare-resource-capture invariant test + comment (the `cap_copy` exclusion in `is_capture_resource` depends on M20g's bare-resource-capture rejection — pin the dependency); add nested-capture rejection regression; add expected-panic harness for reentrant set. Forward-arc guidance: **do not** jump to async — PB3 looks like a `Future<T>` waiter list but async still needs state-machine lowering, poll/wake ABI, pin, cancellation, borrow-across-suspension, executor. **PB4 should focus on deferred queue + flush** (R2 panic is the obvious forcing function for batching), NOT Memo first. Phase C sugar after PB4 semantics stabilize, not before
 
 To continue the thread, pass `conversation_id` and `model`
 as above. MCP tool descriptors live at:
@@ -646,23 +655,29 @@ NOT promises to ship.
   PB0→PB3 chain.
 - **The next arc is a design decision** between three forward
   paths (all unblocked). Steve picks based on canary pressure:
-  1. **PB4 (Reactor / Memo / Effect / batching)** if a use
-     case forces derived values or transactional update
-     semantics. The PB3 R2 reentrancy panic is the natural
-     forcing function: as soon as a real use case wants
-     "subscriber B updates signal X which subscriber A also
-     watches," users will hit the panic and ask for batched
-     flush. PB4 is the answer.
+  1. **PB4 (deferred queue + flush)** if a use case forces
+     batched / transactional update semantics. The PB3 R2
+     reentrancy panic is the obvious forcing function: as
+     soon as a real use case wants "subscriber B updates
+     signal X which subscriber A also watches," users will
+     hit the panic and need queued flush. Per GPT-5.5 entry
+     31: **PB4 should be queue + flush FIRST, NOT Memo
+     first** — the queue is the bridge from synchronous push
+     to scheduler semantics; Memo / Effect lifecycle / topo
+     order come after the queue shape is locked.
   2. **Phase C (sugar `:=` / `~=` / `~>`)** if Steve wants the
      Rip-style ergonomics. Optional; can be deferred
      indefinitely. The library shape (PB3 + PB4) is ergonomic
      enough on its own per the Phase B Q5 lock.
   3. **Layer 8 (structured concurrency) / Phase D (async)**
      if a use case forces concurrent or asynchronous
-     computation. PB3's retained-callback-list shape is
-     structurally the same as `Future<T>`'s waiter list —
-     async is now substrate-ready, with the `Future<T>`
-     design naturally derivable from PB3. Per INFLUENCES §1
+     computation. PB3's retained-callback-list shape RESEMBLES
+     `Future<T>`'s waiter list, BUT async still needs state-
+     machine lowering, poll/wake ABI, pin discipline,
+     cancellation-by-state, borrow-across-suspension rules,
+     and an executor (per GPT-5.5 entry 31's pushback on
+     "1-3 sub-commit Future"). Substrate is closer than it
+     was, but not "PB3 → trivial async." Per INFLUENCES §1
      and the entry 20 review, async should be paired with
      Layer 8 (structured concurrency) for safety.
 - **Maintain the cadence**: design checkpoint → sub-commits →

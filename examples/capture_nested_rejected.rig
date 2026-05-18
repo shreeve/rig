@@ -1,0 +1,23 @@
+## PB3.1: nested closure capture is rejected at the M20g layer.
+##
+## Per GPT-5.5 entry 31 (PB3 post-impl review): a nested lambda
+## that re-captures a name from the outer body's capture list
+## (`fn |+sig| inner = fn |+sig| sig.get()`) is rejected in V1.
+## The case is nontrivial — inner capture from `self.cap_<n>`,
+## clone from capture field, inner env drop, possible nested
+## retained closure — and Steve has deliberately deferred it
+## until a real canary use case forces it.
+##
+## This example pins the rejection. If M20g's nested-capture
+## rejection ever weakens, the PB3 audit's per-binding flag
+## would still fire correctly for each layer of capture, BUT
+## the emit machinery for capture-field plumbing through
+## nested env structs isn't ready. Keep this test green to
+## keep the V1 surface predictable.
+
+sub main()
+  sig: *Signal(Int) = *Signal(value: 0)
+  outer = fn |+sig|
+    inner = fn |+sig| sig.get()
+    inner()
+  outer()
