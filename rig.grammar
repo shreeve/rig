@@ -314,6 +314,7 @@ decl     = defn
          | EXPORT decl                      → (export 2)
          | PACKED decl                      → (packed 2)
          | CALLCONV name decl               → (callconv 2 3)
+         | UNSAFE decl                      → (unsafe_decl 2)   # M19: `unsafe sub raw_op()` declares an unsafe fn (wraps decl)
 
 defn     = fun | sub | enum | struct | errors | typedef | test | opaq
 
@@ -433,6 +434,7 @@ expr     = if
          | errdefer
          | pre
          | inline
+         | unsafe
          | assign
          | fixed
          | moveassign
@@ -538,6 +540,14 @@ errdefer = ERRDEFER block                   → (errdefer 2)
 pre      = PRE      block                   → (pre_block 2)
          | PRE      expr                    → (pre 2)
 inline   = INLINE   expr                    → (inline 2)
+
+# M19: `unsafe` indented block - the statement-level audit boundary.
+# Per GPT-5.5 entry 35 lock: block-only form (no `unsafe expr`
+# single-statement form). The block IS the audit boundary; making
+# it visually heavy is the point. Parallel to `defer block` shape
+# but distinct tag (`unsafe_block` vs the decl-modifier-wrap tag
+# `unsafe_decl` on the `UNSAFE decl` rule above).
+unsafe   = UNSAFE block                     → (unsafe_block 2)
 
 # --- Bindings ---
 

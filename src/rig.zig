@@ -134,6 +134,20 @@ pub const Tag = enum(u8) {
     @"continue",
     @"defer",
     @"errdefer",
+    // M19: unsafe lattice. Two distinct tags so walkers don't
+    // need context-dependent disambiguation (per GPT-5.5
+    // entry 35 + 36 tactical):
+    //   `unsafe_decl` — `unsafe sub raw_op()` decl-modifier wrap.
+    //                   Inner is a decl Sexp; outer signals
+    //                   "the wrapped fn/sub is unsafe to call."
+    //                   Parallel to `(pub decl)` / `(extern decl)`.
+    //   `unsafe_block` — `unsafe INDENT body OUTDENT` statement
+    //                    form. Body executes in an unsafe context
+    //                    (raw `%x`, unsafe builtins, unsafe-fn
+    //                    calls, extern calls all allowed).
+    //                    Parallel to `(defer block)`.
+    @"unsafe_decl",
+    @"unsafe_block",
     @"try",             // prefix: try expr
     @"try_block",       // value-yielding try INDENT body OUTDENT
     @"catch_block",     // catch |err| INDENT body OUTDENT
@@ -349,6 +363,7 @@ pub const KeywordId = enum(u16) {
     TEST,
     PRE,            // Rig: replaces COMPTIME
     NEW,            // Rig: explicit shadowing
+    UNSAFE,         // M19: unsafe block + decl modifier
     ZIG,
     NULL,
     UNREACHABLE,
@@ -405,6 +420,7 @@ const keywordMap = std.StaticStringMap(KeywordId).initComptime(.{
     .{ "test", .TEST },
     .{ "pre", .PRE },         // Rig
     .{ "new", .NEW },         // Rig
+    .{ "unsafe", .UNSAFE },   // Rig: M19 unsafe lattice
     .{ "zig", .ZIG },
     .{ "null", .NULL },
     .{ "unreachable", .UNREACHABLE },
