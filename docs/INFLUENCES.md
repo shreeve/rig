@@ -69,7 +69,7 @@ between each.
 | 3 | **Interior mutability** | Mutate through a shared handle without breaking borrow rules; mutation visible at call site | M20f (`Cell(T)`) | ✅ |
 | 4 | **Closure captures with explicit modes** | Pull outer values into a captured context; mode sigils make refcount/copy/move visible | M20g (`fn \|+x\|` / `\|<x\|` / `\|~x\|` / `\|x\|`) | ✅ |
 | 5 | **Stored callable state (heap-owned closures)** | Closures that outlive their defining scope; first abstraction where captured execution context lives past the local stack; UAF-safe drop on last strong. The first step toward "stored partial execution" — async generalizes this to multi-suspension state machines. | M20h (`*Closure(fn ...)`) | ✅ |
-| 6 | **Resource-aware containers** | Collections that handle `*T` / `~T` element ownership correctly (no memcpy of refcount handles, drops cascade properly) | M20i (resource-aware Vec / container) | 🚧 IN PROGRESS (3 of 5 sub-commits shipped: runtime + sema + ownership; emit + tests/docs remain) |
+| 6 | **Resource-aware containers** | Collections that handle `*T` / `~T` element ownership correctly (no memcpy of refcount handles, drops cascade properly) | M20i (resource-aware Vec / container) | ✅ shipped (1-5/5 — runtime + sema + ownership + emit + tests) |
 | 7 | **Reactivity** | Push/pull dependency tracking; subscriber notification; Cell → Effect | PB2 + PB3 (Phase B) | pending |
 | 8 | **Structured concurrency** | Scope-bound tasks, automatic cancellation propagation, no orphan tasks (Trio/Anyio-style) | post-Phase B | deferred |
 | 9 | **Async** | Multi-suspension state machines; poll/wake; pin discipline; executor; should be paired with Layer 8 cancellation discipline | post-structured-concurrency | deferred |
@@ -130,13 +130,15 @@ sitting in the hierarchy:
 ### Where we are now
 
 Layer 5 shipped (M20h, commits `f4b448c..1c86aca`). Layer 6
-is in progress: M20i(1/5) runtime + type spelling
-(`4675fca`), (2/5) sema methods + constructor (`b774e8b`),
-(3/5) ownership rules (`13f079b`) shipped; (4/5) emit and
-(5/5) tests/docs remain. Layer 7 gets validated by Phase
-B's canary on top of Layers 5+6 (PB2/PB3). Layers 8 and 9
-are deferred — they're designed only after Phase B exposes
-what they actually need to solve.
+shipped (M20i, commits `4675fca..` through (5/5)). Layer 7
+is **next** — Phase B's canary extension (PB2 + PB3)
+validates Cell → Effect notification + Memo + batching +
+topology on top of Layers 5 + 6. The `vec_subscribers.rig`
+regression test (the mandatory M20i exit gate per GPT-5.5)
+already validates the subscriber-storage shape end-to-end
+with output `11`. Layers 8 and 9 are deferred — they're
+designed only after Phase B exposes what they actually need
+to solve.
 
 ### A note about "lifetimes"
 

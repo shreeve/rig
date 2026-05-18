@@ -1,0 +1,1 @@
+(module (sub main () _ (block (set _ v (generic_inst Vec Int) (call Vec (kwarg capacity 32))) (call (member (write v) push) 1) (call (member (write v) push) 2) (call (member (write v) push) 3) (call print (call (member v length))))))

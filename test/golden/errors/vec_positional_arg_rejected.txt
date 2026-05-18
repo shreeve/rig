@@ -1,0 +1,1 @@
+examples/vec_positional_arg_rejected.rig:8:21: error: `Vec` constructor takes no positional arguments; use `Vec()` (empty) or `Vec(capacity: N)`

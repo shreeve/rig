@@ -1,0 +1,13 @@
+# M20i(5/5): shared variant — `*Vec(T)`.
+#
+# `*Vec(Int) = *Vec()` constructs a Vec inside an RcBox.
+# The Vec's `__rig_drop` fires when the RcBox's last strong
+# handle drops (via the M20h `hasRigDrop` hook on RcBox).
+# Element drop is identical to the stack-local variant —
+# `dropElement` walks LIFO and dispatches per element type.
+
+sub main()
+  rv: *Vec(Int) = *Vec()
+  (!rv).push(100)
+  (!rv).push(200)
+  print(rv.length())                # 2

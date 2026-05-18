@@ -1,0 +1,22 @@
+# M20i(5/5): Vec with `*T` shared-handle elements, pushed
+# via move (`<`).
+#
+# The push args use explicit `<` (move) — the outer `c1`/
+# `c2` bindings transfer ownership of their handles INTO
+# the Vec. After the moves, the outer bindings are in
+# `.moved` state and can't be reused (M2 enforces).
+#
+# At scope exit:
+#   1. v.__rig_drop() walks elements LIFO, calls
+#      dropElement(*RcBox(Cell(i32))) on each → strong-
+#      handle branch via isStrongHandle → dropStrong()
+#   2. Each `*Cell(Int)` element drops; its underlying Cell
+#      is freed because the Vec held the only handle.
+
+sub main()
+  c1: *Cell(Int) = *Cell(value: 7)
+  c2: *Cell(Int) = *Cell(value: 13)
+  v: Vec(*Cell(Int)) = Vec()
+  (!v).push(<c1)
+  (!v).push(<c2)
+  print(v.length())                 # 2

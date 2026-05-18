@@ -330,6 +330,115 @@ grows replace/take/Drop semantics.
 c: Cell(*User) = ...     # error: Cell(T) in V1 requires Copy T
 ```
 
+### Resource-aware containers via `Vec(T)` (M20i)
+
+`Vec(T)` is the first user-facing builtin OWNING value
+type — a growable container that owns its backing buffer
+and correctly cascades drops to its elements when it goes
+out of scope. Distinct from `*T` / `~T` handles (which are
+references to heap-allocated boxes), `Vec(T)` IS the
+allocation; the binding directly owns the buffer.
+
+```rig
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(10)
+  (!v).push(20)
+  (!v).push(30)
+  print(v.length())              # 3
+  # Scope exit: v.__rig_drop() walks elements LIFO + frees buf.
+```
+
+`Vec(T)` is registered as a built-in generic type at sema
+init; its runtime lives in `_rig_runtime.zig`. The V1 API:
+
+- `Vec()` — construct empty.
+- `Vec(capacity: N)` — pre-allocate N elements of room.
+- `(!v).push(value)` — append. Write-receiver method.
+- `v.length() -> Int` — count. Read-receiver.
+- `(!v).clear()` — drop all elements (LIFO) + reset length.
+- `v.get(i) -> T?` — index access. Copy-T only.
+- `(!v).pop() -> T?` — remove + return last. Copy-T only.
+
+**Element-type restrictions (V1).** Allowed:
+
+- Copy primitives (`Int`, `Bool`, `Float`, `String`,
+  literal pseudo-types).
+- `*T` shared handles — drop via `dropStrong()`.
+- `~T` weak handles — drop via `dropWeak()`.
+- `*Closure()` — a specific `*T`; works through the
+  shared-handle branch.
+
+Rejected:
+
+- Arbitrary nominal `T` (e.g., user-defined structs) —
+  deferred until V1 grows user-defined `Drop`.
+- Nested `Vec(Vec(T))` — recursive resource semantics
+  deferred.
+- `Cell(T)` elements — since `Cell` is Copy-only, the
+  natural shape is `Vec(*Cell(T))` instead.
+
+**Resource-value ownership rules.** Because `Vec(T)` owns
+its buffer, the M2 / M20d alias-footgun discipline applies
+to the Vec value itself:
+
+```rig
+v: Vec(Int) = Vec()
+v2: Vec(Int) = v          # error: bare use of `Vec` value would
+                          # copy the buffer pointer and double-free
+v2: Vec(Int) = <v         # OK — move ownership; `v` is consumed
+-v                        # OK — explicit drop; subsequent use rejected
+```
+
+**Push-arg visibility.** For resource element types, the
+`push` argument must use an explicit mode sigil:
+
+```rig
+v.push(<rc)               # move handle into Vec
+v.push(+rc)               # clone handle into Vec
+v.push(rc)                # error: bare use of *T handle in
+                          # call argument would alias the handle
+```
+
+For Copy element types, plain `push(x)` is fine (no aliasing
+concern).
+
+**Auto-drop discipline.** Stack-local `Vec(T)` bindings get
+an M20e-style defer-guard that calls `__rig_drop()` at
+scope exit. The destructor walks elements (LIFO) +
+dispatches per-element via `dropElement` (hybrid shape +
+marker comptime dispatch), then frees the backing buffer.
+Shared `*Vec(T)` bindings use the standard `*T` auto-drop
+(via `dropStrong`); the Vec's `__rig_drop` fires on last
+strong via M20h's `hasRigDrop` hook.
+
+```rig
+sub main()
+  c1: *Cell(Int) = *Cell(value: 11)
+  c2: *Cell(Int) = *Cell(value: 22)
+  v: Vec(*Cell(Int)) = Vec()
+  (!v).push(<c1)             # move c1's handle into Vec
+  (!v).push(<c2)             # move c2's handle into Vec
+  print(v.length())          # 2
+  # Scope exit (LIFO defer order):
+  #   v.__rig_drop() walks elements, calls dropStrong on each
+  #   *Cell(Int). Each Cell's RcBox refcount → 0 → Cell freed.
+```
+
+**V1 deferred features.**
+
+- `get`/`pop` on resource elements (returning `(*T)?` would
+  need optional-resource auto-drop semantics that aren't
+  yet designed). For subscriber notification patterns,
+  iterate by pushing/clearing rather than indexing.
+- `insert(i, v)` / `remove(i)` / `swap_remove(i)`.
+- Iteration primitives (`for x in v`, `v.each(...)`).
+- Persistent / CHAMP-backed Vec — see `docs/INFLUENCES.md`
+  §8 for the conditional roadmap entry.
+- `*Cell(Vec(T))` — Cell-non-Copy is its own deferred sub-
+  arc; PB2 may not need it (Reactor can be modeled as an
+  owned mutable object).
+
 ### Resource temporaries (named-binding RAII boundary)
 
 **V1 auto-drop applies to named bindings and parameters.** Unbound

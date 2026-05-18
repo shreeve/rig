@@ -1,0 +1,12 @@
+# M20i(5/5): Vec(T) with explicit capacity hint.
+#
+# `Vec(capacity: N)` pre-allocates a buffer of size N so
+# the first N pushes don't reallocate. Lowers to
+# `rig.Vec(i32).initCapacity(allocator, N) catch panic`.
+
+sub main()
+  v: Vec(Int) = Vec(capacity: 32)
+  (!v).push(1)
+  (!v).push(2)
+  (!v).push(3)
+  print(v.length())                 # 3

@@ -1,0 +1,1 @@
+(module (sub main () _ (block (set _ v (generic_inst Vec Int) (call Vec)) (call (member (write v) push) 10) (call (member (write v) push) 20) (call (member (write v) push) 30) (call print (call (member v length))))))

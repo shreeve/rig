@@ -1,0 +1,42 @@
+# M20i(5/5): subscriber-list-shaped regression test.
+#
+# This is the MANDATORY test from GPT-5.5's M20i scoping
+# pass — even though M20i doesn't build reactivity itself,
+# it must include a test that uses the actual Phase B
+# shape: `Vec(*Closure())` storage with explicit-mode push,
+# plus drop-cascade validation at scope exit.
+#
+# Sequence:
+#   1. Cell at 0.
+#   2. Two closures, each captures the cell by clone and
+#      mutates it on invoke.
+#   3. Vec of `*Closure()` — clone-into push for both
+#      closures (`+cb1` / `+cb2`). The Vec holds its own
+#      strong handles; original `cb1` / `cb2` bindings also
+#      hold strong handles.
+#   4. Invoke `cb1()` and `cb2()` directly through the
+#      original bindings; each modifies the shared Cell.
+#   5. Scope exit drops everything in LIFO order:
+#        a. subs.__rig_drop() — walks Vec elements,
+#           dropStrong on each cloned closure handle.
+#           Each closure's refcount drops from 2 to 1.
+#        b. cb2.dropStrong() — strong=0 → __rig_drop →
+#           drop_fn → drops cb2's `count` clone (count
+#           refcount 3 → 2).
+#        c. cb1.dropStrong() — same → count refcount 2 → 1.
+#        d. count.dropStrong() — refcount=0 → Cell freed.
+#
+# Output: 11 (0 + 1 + 10 = 11).
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  cb1: *Closure() = *Closure(fn |+count| count.set(count.get() + 1))
+  cb2: *Closure() = *Closure(fn |+count| count.set(count.get() + 10))
+
+  subs: Vec(*Closure()) = Vec()
+  (!subs).push(+cb1)
+  (!subs).push(+cb2)
+
+  cb1()
+  cb2()
+  print(count.get())                # 11

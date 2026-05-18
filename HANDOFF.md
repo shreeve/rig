@@ -1,13 +1,14 @@
-# Rig — Session Handoff (M20i in progress; (1-3/5) shipped, (4-5/5) next)
+# Rig — Session Handoff (M20i complete; Phase B PB2/PB3 next)
 
-**You are picking up a Rig compiler session mid-arc.** M20h
-(owned / escaping closures) shipped fully. M20i (resource-
-aware Vec) is in progress: sub-commits (1/5), (2/5), (3/5)
-are shipped (runtime + type spelling + sema + ownership);
-(4/5) emit and (5/5) tests/docs remain. The next concrete
-action is **M20i(4/5) emit work** — construction lowering,
-method-call lowering, auto-drop guard, and push-arg
-visibility. Read top-to-bottom once; then it's a reference.
+**You are picking up a Rig compiler session at the M20i
+boundary.** M20h (owned / escaping closures) and M20i
+(resource-aware Vec) both shipped end-to-end. Layer 6 of
+the substrate ladder is complete; Phase B PB2 (Cell →
+Effect notification) and PB3 (Memo + batching + topology)
+are unblocked. The next concrete action is the **PB2
+design checkpoint** with GPT-5.5 to scope the reactive
+notification work. Read top-to-bottom once; then it's a
+reference.
 
 ---
 
@@ -16,30 +17,31 @@ visibility. Read top-to-bottom once; then it's a reference.
 - **Project**: Rig is a systems language ("Zig-fast, Rust-safe,
   Ruby-readable") that compiles to Zig 0.16. Repo:
   `/Users/shreeve/Data/Code/rig`.
-- **Where we are**: M20h shipped end-to-end. M20i sub-commits
-  (1-3/5) shipped this session: runtime `Vec(T)` + builtin
-  registration, sema constructor + methods, ownership rules
-  for Vec-as-resource-value. `examples/reactive_canary.rig`
-  still demonstrates Cell + stack-local closure (M20g) +
-  retained `*Closure()` (M20h) all composing. **754 tests
+- **Where we are**: M20h + M20i both shipped end-to-end.
+  Substrate ladder Layers 0–6 complete. Phase B PB0 + PB1
+  (canary refresh) shipped. The next reactive milestone is
+  PB2 — Cell → Effect notification using the Vec(*Closure())
+  subscriber storage pattern that M20i validates in the
+  `vec_subscribers.rig` regression test. **804 tests
   passing, 0 failing.** Clean tree on `main`, all pushed.
-- **Next concrete action**: **M20i(4/5) emit work**. The
-  sema + ownership layers are done; emit needs:
-  - Vec construction lowering (`Vec()` → `rig.Vec(T).init(rig.defaultAllocator())`)
-  - Method call lowering (works through existing M20a
-    machinery; verify with smoke tests)
-  - Vec stack-locals emit as Zig `var` (extend `isInteriorMutableBinding`)
-  - Auto-drop guard for stack-local Vec (new
-    `ResourceKind.vec_value` variant + `emitResourceGuard`
-    branch calling `__rig_drop()`)
-  - `-vec` and `<vec` discharge emit
-  - Push-arg visibility check at emit time (reject bare
-    resource handles in push, require `+rc` / `<rc` /
-    `~rc` modes)
+- **Next concrete action**: **PB2 design checkpoint** with
+  GPT-5.5. Key questions:
+  - Reactor structure: owned mutable object (`reactor:
+    Reactor; !reactor.subscribe(...); !reactor.flush()`) or
+    `*Reactor` shared handle? GPT-5.5's M20i scoping
+    observation: PB2 may avoid needing `*Cell(Vec(...))`
+    by modeling Reactor as owned mutable.
+  - Effect lifecycle: how does Cell notify its subscribers?
+    Synchronous push or two-phase mark+sweep?
+  - Subscription idiom: `cell.subscribe(eff)` vs
+    `eff.bind(cell)` — direction of registration.
+  - Effect cleanup: when does a subscriber unregister?
+    Drop semantics?
 - **Phase B sequence**:
   `PB0 ✅ → M20h ✅ → PB1 (canary refresh) ✅ →
-  M20i 🚧 (3/5 shipped) → PB2 → PB3`. M20i(4-5/5) +
-  optional M20i.x (Cell-non-Copy) remain before PB2 starts.
+  M20i ✅ → PB2 (NEXT) → PB3`. M20i.x (Cell-non-Copy)
+  remains conditional — may never be needed if PB2's
+  Reactor design uses owned mutable.
 - **Owner**: Steve (`shreeve@github`). Collaborates with the AI
   agent AND consults GPT-5.5 via the `user-ai` MCP for design
   checkpoints + post-implementation reviews.
@@ -94,6 +96,7 @@ Codebase highlights:
 | 7 | Interior mutability — `Cell(T)` library type | ✅ | M20f + M20f.1 |
 | 8 | Closure capture mode syntax (non-escaping V1) | ✅ | M20g (1-5/5) + M20g(2.1) |
 | 8.5 | Owned/escaping closure values | ✅ | M20h (1-5/5) + M20h.1 |
+| 9 | Resource-aware containers (Vec(T)) | ✅ | M20i (1-5/5) |
 
 **The V1 ownership substrate is COMPLETE + has its first
 escape-aware abstraction.** Items 9-17 are substrate maturity
@@ -107,15 +110,15 @@ etc.) — important but not blocking Phase B.
 | PB0 | Reactive canary scaffold | ✅ | `examples/reactive_canary.rig` |
 | M20h | Owned/escaping closure values | ✅ | commits `f4b448c..a4505d5` |
 | PB1 | Single retained Effect | ✅ | folded into canary refresh (M20h(5/5)) |
-| M20i | Resource-aware `Vec(T)` | 🚧 | NEXT: design checkpoint |
-| PB2 | Cell → Effect notification | pending | depends on M20i |
+| M20i | Resource-aware `Vec(T)` | ✅ | commits `4675fca..2ef41b6` + (5/5) |
+| PB2 | Cell → Effect notification | 🚧 NEXT | design checkpoint pending |
 | PB3 | Memo + batching + topology | pending | depends on PB2 |
 
 ---
 
-## 3. M20i progress so far (in-progress arc)
+## 3. M20i retrospective (just-completed arc)
 
-### Design lock (GPT-5.5 conversation entry 24)
+### Design lock (GPT-5.5 conversation entries 23 + 24)
 
 Five locked decisions, all enforced or in flight:
 
@@ -147,8 +150,8 @@ Sub-commit by sub-commit (all on `main`):
 | `4675fca` M20i(1/5) | Runtime + type spelling. `rig.Vec(T)` generic struct with allocator/buf/len/cap + push/length/get/pop/clear/`__rig_drop`. `dropElement` helper with hybrid shape+marker dispatch. `__rig_rcbox_marker` on RcBox, `__rig_weak_marker` + `__rig_drop` on WeakHandle. Sema registers Vec as one-arg builtin generic_type. `isValidVecElementType` predicate enforces V1 element restrictions. Emit `Vec(T)` → `rig.Vec(T)`; `*Vec(T)` → `*rig.RcBox(rig.Vec(T))`. |
 | `b774e8b` M20i(2/5) | Sema methods + constructor. 5 methods registered with substituted self-receiver types (?Vec(T) / !Vec(T) per receiver mode). `checkVecConstruction` recognizes `Vec()` and `Vec(capacity: N)` against expected `parameterized_nominal{Vec, [T]}`. Routed BEFORE `checkGenericConstructorCall` because Vec has no data fields. |
 | `13f079b` M20i(3/5) | Ownership rules. `checkSharedHandleAlias` extended with a Vec branch: bare Vec use in call args or binding RHS fires "would copy the buffer pointer and double-free; use `<v` to move ownership". Move (`<vec`) and drop (`-vec`) semantics work via existing M2 machinery — no new code needed. |
-| TBD M20i(4/5) | Emit. |
-| TBD M20i(5/5) | Tests + EMIT_TARGETS + SPEC/ROADMAP/HANDOFF docs. |
+| `2ef41b6` M20i(4/5) | Emit. New `ResourceKind.vec_value` variant routes Vec stack-locals through a `__rig_drop()` scope-exit guard. `tryEmitVecConstruction` lowers `Vec()` / `Vec(capacity: N)` to `rig.Vec(T).init(allocator)` / `initCapacity(...) catch panic`. `-vec` discharge handled by extending the `.@"drop"` arm. `isInteriorMutableBinding` extended for Vec so stack-locals emit as `var`. |
+| TBD M20i(5/5) | Tests + examples + EMIT_TARGETS + SPEC/ROADMAP/HANDOFF refresh. |
 
 ### What works right now (sema only — no emit yet)
 

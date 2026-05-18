@@ -1,0 +1,1 @@
+examples/vec_bare_copy_rejected.rig:11:18: error: bare use of `Vec` value `v` in binding would copy the buffer pointer and double-free on scope exit; use `<v` to move ownership

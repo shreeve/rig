@@ -1,0 +1,1 @@
+examples/vec_bad_element_rejected.rig:13:16: error: `Vec(T)` in V1 requires `T` to be a Copy type (Int, Bool, Float, String), a shared handle (`*T`), or a weak handle (`~T`); got `User`. Nested `Vec(Vec(T))` and arbitrary nominal element types are deferred until V1 grows user-defined Drop.

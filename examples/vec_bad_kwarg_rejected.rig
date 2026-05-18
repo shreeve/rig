@@ -1,0 +1,8 @@
+# M20i: only `capacity` is accepted as a constructor kwarg.
+#
+# `Vec(size: 10)`, `Vec(initial: 0)`, etc. are all rejected.
+# The diagnostic names the supported form so users can
+# correct.
+
+sub main()
+  v: Vec(Int) = Vec(size: 10)

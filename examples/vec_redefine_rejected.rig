@@ -1,0 +1,13 @@
+# M20i: `Vec` is reserved as a builtin nominal name.
+#
+# User declarations `struct Vec`, `type Vec(T)`, `enum Vec`,
+# etc. are all rejected at sema time. Without this guard, a
+# user-redefined `Vec` would shadow the M20i builtin and
+# emit's `isBuiltinNominalName` (string-based check) would
+# mis-prefix the user's type with `rig.`.
+
+struct Vec
+  x: Int
+
+sub main()
+  print("hi")

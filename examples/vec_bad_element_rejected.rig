@@ -1,0 +1,17 @@
+# M20i: arbitrary nominal element types are rejected.
+#
+# V1 Vec(T) supports Copy primitives, `*T` shared handles,
+# `~T` weak handles, and `*Closure()`. Arbitrary nominal
+# types (user structs without an established Drop story)
+# would either silently copy (corrupting ownership if the
+# nominal owns resources) or require user-defined Drop.
+# Deferred until user Drop exists.
+
+struct User
+  name: String
+
+sub takeVec(v: Vec(User))
+  print("placeholder")
+
+sub main()
+  print("hi")

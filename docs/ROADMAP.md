@@ -1711,6 +1711,106 @@ included via the reactive canary refresh, M20i (resource-
 aware `Vec(T)`) next when Phase B needs multi-subscriber
 notification.
 
+### M20i — Resource-aware `Vec(T)` container ✅
+
+The first user-facing builtin OWNING value type beyond
+`*T` / `~T` handles. Vec(T) owns its backing buffer and
+correctly cascades drops to its elements when it goes out
+of scope. Designed via two GPT-5.5 checkpoints
+(conversation `c_5c1d09d53ebe2f62` entries 23 + 24):
+**entry 23** locked the scope (M20i alone, subscriber-
+shaped regression test mandatory, Cell-non-Copy stays
+separate and conditional); **entry 24** locked the design
+(`Vec(T)` is a resource value type, write-receiver
+methods, Copy-T-only `get`/`pop`, hybrid marker +
+`__rig_drop` dispatch).
+
+The biggest GPT-5.5 correction in the design pass: **Vec
+is a resource VALUE TYPE**, not just a container with
+resource elements. Even `Vec(Int)` (Copy element) owns a
+buffer; bare copy is unsafe; move-only transfer; auto-
+drop guards at scope exit.
+
+**Sub-commits**:
+
+- **M20i(1/5)** `4675fca` — Runtime + type spelling.
+  `rig.Vec(T)` generic struct with allocator / buf / len /
+  cap + init / push / length / get / pop / clear /
+  `__rig_drop`. `dropElement` helper with hybrid shape +
+  marker dispatch. Markers added to RcBox / WeakHandle.
+  Sema registers Vec as a one-arg builtin generic_type.
+  `isValidVecElementType` enforces V1 element restrictions.
+  Emit `Vec(T)` → `rig.Vec(T)`; `*Vec(T)` →
+  `*rig.RcBox(rig.Vec(T))`.
+
+- **M20i(2/5)** `b774e8b` — Sema methods + constructor.
+  5 methods registered with substituted self-receiver
+  types (`?Vec(T)` for read receivers, `!Vec(T)` for
+  write). `checkVecConstruction` recognizes `Vec()` and
+  `Vec(capacity: N)` against the expected
+  `parameterized_nominal{Vec, [T]}`, BEFORE the generic-
+  constructor path (Vec has no data fields — `capacity`
+  is a constructor hint, not a field-init).
+
+- **M20i(3/5)** `13f079b` — Ownership rules for
+  Vec-as-resource-value. `checkSharedHandleAlias`
+  extended: bare Vec use in call args or binding RHS fires
+  "would copy the buffer pointer and double-free; use
+  `<v` to move ownership". Move (`<vec`) and drop (`-vec`)
+  semantics work via existing M2 machinery unchanged.
+
+- **M20i(4/5)** `2ef41b6` — Emit. New `ResourceKind.vec_value`
+  variant routes Vec stack-locals through a `__rig_drop()`
+  scope-exit guard. `tryEmitVecConstruction` lowers
+  `Vec()` / `Vec(capacity: N)` to
+  `rig.Vec(T).init(allocator)` /
+  `initCapacity(allocator, N) catch panic`. `-vec`
+  discharge handled by the `.@"drop"` arm extension.
+  `isInteriorMutableBinding` extended so Vec stack-locals
+  emit as Zig `var` (mutating methods need it).
+
+- **M20i(5/5)** — Tests + examples + docs (this entry).
+
+**Tests across M20i (1/5) → (5/5): 754 → 804 (+50).**
+
+**Examples** (5 positive in EMIT_TARGETS + 5 negative):
+
+Positive:
+- `vec_basic.rig` — Vec(Int) push / length, basic Copy case.
+- `vec_capacity.rig` — Vec with capacity hint.
+- `vec_shared.rig` — `*Vec(Int)` shared variant.
+- `vec_move_handle.rig` — Vec(*Cell(Int)) with `<` move push.
+- `vec_subscribers.rig` — **the mandatory regression test**
+  per GPT-5.5's M20i scoping review. `Vec(*Closure())`
+  with `+` clone push; closures invoked separately; scope
+  exit cleans up the full chain (Vec → closures → captured
+  Cell). Output: `11`.
+
+Negative (sema/ownership goldens only):
+- `vec_bad_element_rejected.rig` — `Vec(User)` with a
+  custom struct element type.
+- `vec_bare_copy_rejected.rig` — `v2 = v1` (double-free).
+- `vec_bad_kwarg_rejected.rig` — `Vec(size: 10)` instead
+  of `Vec(capacity: 10)`.
+- `vec_positional_arg_rejected.rig` — `Vec(10)` (no
+  positional args).
+- `vec_redefine_rejected.rig` — `struct Vec` (reserved
+  builtin name).
+
+**SPEC §"Resource-aware containers via `Vec(T)` (M20i)"**
+added with the V1 API, element-type restrictions,
+resource-value ownership rules, push-arg visibility, and
+auto-drop discipline. V1 deferred features explicitly
+called out (get/pop on resource T, insert/remove,
+iteration, persistent Vec, Cell-non-Copy interaction).
+
+**Phase B status after M20i**: PB0 ✅, M20h ✅ (PB1 folded),
+M20i ✅ (Layer 6 in the substrate ladder). PB2 + PB3 are
+the remaining Phase B work, unblocked. Cell-non-Copy
+(M20i.x) is conditional — GPT-5.5's observation that PB2
+can model Reactor as an owned mutable object means Cell-
+non-Copy may never be needed.
+
 ### M20h.1 — Tighten `in_set_rhs` to direct lambda RHS ✅
 
 GPT-5.5's M20h post-implementation review caught a

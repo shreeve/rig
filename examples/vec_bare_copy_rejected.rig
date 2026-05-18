@@ -1,0 +1,11 @@
+# M20i: bare copy of Vec is rejected (would double-free).
+#
+# Vec(T) is a resource VALUE: it owns its backing buffer.
+# `v2 = v1` would copy the buffer pointer; at scope exit
+# BOTH `v1` and `v2` would try to free the same buffer.
+# Sema rejects with a tailored diagnostic pointing to the
+# `<v` move syntax.
+
+sub main()
+  v: Vec(Int) = Vec()
+  v2: Vec(Int) = v
