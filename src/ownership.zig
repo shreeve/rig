@@ -1213,6 +1213,28 @@ pub const Checker = struct {
             if (sym.decl_pos != b.declared_at) continue;
             if (!std.mem.eql(u8, sym.name, b.name)) continue;
             const ty = sema.types.get(sym.ty);
+
+            // M20i(3/5): Vec(T) is a resource value (it owns a
+            // backing buffer). Bare use of a Vec local in an
+            // aliasing context (call arg, binding RHS) would
+            // double-free on scope exit. The diagnostic wording
+            // is distinct from the M20d shared/weak case because
+            // the failure mode is different: handle aliasing
+            // leaves refcounts wrong; Vec aliasing leaves two
+            // owners of the same buffer.
+            //
+            // Per GPT-5.5's M20i design pass: `Vec(T)` must be
+            // moved (`<vec`) or explicitly dropped (`-vec`);
+            // bare copy is rejected.
+            if (ty == .parameterized_nominal and
+                ty.parameterized_nominal.sym == sema.vec_sym_id)
+            {
+                try self.err(expr.src.pos, "bare use of `Vec` value `{s}` in {s} would copy the buffer pointer and double-free on scope exit; use `<{s}` to move ownership", .{
+                    name, ctx, name,
+                });
+                return;
+            }
+
             const kind: ?[]const u8 = switch (ty) {
                 .shared => "shared (`*T`)",
                 .weak => "weak (`~T`)",
