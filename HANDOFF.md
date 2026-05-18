@@ -676,7 +676,7 @@ near-term roadmap; they are NOT promises to ship.
   `^expr` (await), `^T` (Future<T>). NOT `expr^` (suffix
   preserved for future use; deliberate non-commitment).
   Async ships only after structured concurrency, which
-  ships only after reactivity validation. See INFLUENCES §3
+  ships only after reactivity validation. See INFLUENCES §4
   and §8 Rule 2.
 - **Structured concurrency**. The layer between reactivity
   (M20i / PB2 / PB3) and async. Trio-style nurseries vs
@@ -693,7 +693,7 @@ near-term roadmap; they are NOT promises to ship.
   is already extensible to user types declaring `__rig_drop`.
   When V1 grows a Drop story, the substrate is ready.
 - **Style guide that idiomatically prefers `=!`**. NOT a
-  surface flip; cultural / documentation. See INFLUENCES §5.
+  surface flip; cultural / documentation. See INFLUENCES §6.
 
 ---
 

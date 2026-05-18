@@ -1845,14 +1845,21 @@ the M20+ items below):
 - **CHAMP-backed persistent collections** (`PersistentVec(T)` /
   `PersistentMap(K, V)`). Architectural target if Phase B's
   notification path demonstrates snapshot-iteration value;
-  otherwise indefinitely deferred. Per INFLUENCES.md §6, the
+  otherwise indefinitely deferred. Per INFLUENCES.md §7, the
   Nexis project (`/Users/shreeve/Data/Code/nexis`) is the
   Clojure-on-Zig reality check — Rig can borrow architecture
   (CHAMP > HAMT, plain trie, xxHash3, transients) but NOT
   Nexis's GC-backed implementation.
 - **Structured concurrency** (scope-bound tasks, automatic
   cancellation propagation). The layer above reactivity and
-  below async. Designed before async per INFLUENCES.md §8.
+  below async. Designed before async per INFLUENCES.md §10
+  (strategic rules).
+
+**Cross-reference to the substrate ladder** (`docs/INFLUENCES.md` §1):
+M20i is **Layer 6** (resource-aware containers). Reactivity
+(Layer 7) and structured concurrency (Layer 8) both depend
+on it. Async (Layer 9) depends on Layer 5 (already shipped
+in M20h) with Layer 8 as a strongly recommended companion.
 
 **Deferred to V2 or later** (per SPEC §V2/V3):
 

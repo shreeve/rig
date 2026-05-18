@@ -17,7 +17,7 @@ is a **selective extraction**: a pattern worth borrowing
 recommendation to make Rig look like the source. Where any
 external influence conflicts with Rig's thesis, **the thesis
 wins** and the idea gets demoted, deferred, or rejected. The
-Nexis project (§6) and Clojure (§4) are referenced as
+Nexis project (§7) and Clojure (§5) are referenced as
 mature-project lessons and Zig-target case studies; neither is
 a playbook Rig is following. The whole point of writing this
 document down is so the next session can tell the difference
@@ -48,7 +48,138 @@ persistent collections?" conversation.
 
 ---
 
-## 1. The deepest framing: async is stored-partial-execution
+## 1. The substrate ladder
+
+Rig's V1 substrate work, post-M20h, is best understood as a
+dependency hierarchy: each layer is a prerequisite for the
+ones above it, and every layer below the current frontier
+must be solid before the frontier moves up. This is the
+partial order of safety prerequisites that languages without
+explicit ownership often push into runtime convention, GC, or
+discipline. The order below is partial — some layers could
+have shipped in parallel — but Rig's actual build order has
+been linear, one layer at a time, with design checkpoints
+between each.
+
+| # | Layer | What it solves | Rig milestone(s) | Status |
+|---|---|---|---|---|
+| 0 | **Static types + grammar** | Catch type mismatches before runtime; have a parseable surface | M0–M5 | ✅ |
+| 1 | **Ownership / borrow checking** | Who owns each value; who can read/write it; when ownership transfers | M2 + M20a–c (nominal/generic type substrate) | ✅ |
+| 2 | **Resource lifetimes (shared + weak + drop)** | Reference-counted handles; weak-without-keeping-alive; cleanup when the last owner drops | M20d (`*T`/`~T` real `Rc`/`Weak`) + M20e (auto-drop via defer-guards) | ✅ |
+| 3 | **Interior mutability** | Mutate through a shared handle without breaking borrow rules; mutation visible at call site | M20f (`Cell(T)`) | ✅ |
+| 4 | **Closure captures with explicit modes** | Pull outer values into a captured context; mode sigils make refcount/copy/move visible | M20g (`fn \|+x\|` / `\|<x\|` / `\|~x\|` / `\|x\|`) | ✅ |
+| 5 | **Stored callable state (heap-owned closures)** | Closures that outlive their defining scope; first abstraction where captured execution context lives past the local stack; UAF-safe drop on last strong. The first step toward "stored partial execution" — async generalizes this to multi-suspension state machines. | M20h (`*Closure(fn ...)`) | ✅ |
+| 6 | **Resource-aware containers** | Collections that handle `*T` / `~T` element ownership correctly (no memcpy of refcount handles, drops cascade properly) | M20i (resource-aware Vec / container) | 🚧 NEXT |
+| 7 | **Reactivity** | Push/pull dependency tracking; subscriber notification; Cell → Effect | PB2 + PB3 (Phase B) | pending |
+| 8 | **Structured concurrency** | Scope-bound tasks, automatic cancellation propagation, no orphan tasks (Trio/Anyio-style) | post-Phase B | deferred |
+| 9 | **Async** | Multi-suspension state machines; poll/wake; pin discipline; executor; should be paired with Layer 8 cancellation discipline | post-structured-concurrency | deferred |
+
+### Why this exact order
+
+Each upward edge in the dependency graph:
+
+- **0 → 1**: Can't reason about ownership without a type
+  system that distinguishes a value from its handle.
+- **1 → 2**: Refcounted handles need borrow rules to be safe;
+  the borrow checker decides when a `*T` is OK to read/write.
+- **2 → 3**: `Cell(T)` is "interior mutation through a shared
+  pointer" — the shared pointer must exist first.
+- **2 → 4**: Captures of resource types need refcount
+  discipline (clone bumps, move transfers).
+- **3 + 4 → 5**: Heap-owned closures combine Rc allocation
+  (Layer 2), capture modes (Layer 4), and `__rig_drop` for
+  last-strong-cleanup. Cell (Layer 3) is what closures most
+  commonly capture, so it must compose cleanly.
+- **2 → 6**: A `Vec(~Effect)` needs to drop element handles
+  correctly when the Vec drops; that's Layer 2's discipline
+  applied to a container.
+- **5 + 6 → 7**: Reactivity is "list of escaping callbacks" +
+  "notify on state change" — needs both heap closures AND
+  resource-aware containers.
+- **5 + 6 → 8**: Structured concurrency is parallel to 7 in
+  dependency terms (also needs Layers 5 + 6) but Rig sequences
+  7 first because Phase B's reactive canary is the active
+  validation milestone.
+- **5 → 9**: Async generalizes Layer 5 from callable stored
+  state to multi-suspension state machines.
+- **8 → 9** (policy companion, not strict prerequisite): Rig
+  should not ship production async without structured
+  concurrency / cancellation discipline. But async lowering
+  is technically possible without it — plenty of systems
+  demonstrate this; they are simply less safe and less
+  composable.
+
+### Cross-cutting concerns (NOT layers)
+
+Several Rig concerns thread through every layer rather than
+sitting in the hierarchy:
+
+- **Effects** (fallibility `T!`, optionality `T?`) —
+  type/effect properties, distributed across layers.
+- **Modules** (M15) — namespace organization, orthogonal to
+  the ownership hierarchy.
+- **`%` / unsafe** (M20+ item #9) — escape boundary that must
+  be audited at every layer; not a foundation rung.
+- **`@` / pin** (currently reserved) — side prerequisite to
+  async; will become load-bearing alongside Layer 9.
+- **User-defined `Drop`** — M20d/M20e implement
+  resource-specific drop for Rig-owned runtime handles.
+  General Drop remains deferred and will matter before
+  arbitrary non-Copy resources become first-class.
+
+### Where we are now
+
+Layer 5 just shipped (M20h, commits `f4b448c..1c86aca`). The
+M20i checkpoint (Layer 6) is the next concrete frontier.
+Layer 7 gets validated by Phase B's canary on top of Layers
+5+6 (PB2/PB3). Layers 8 and 9 are deferred — they're
+designed only after Phase B exposes what they actually need
+to solve.
+
+### A note about "lifetimes"
+
+Rust exposes many borrow-validity relationships through
+explicit lifetime parameters (`'a`). Rig does not currently
+have user-written lifetime parameters. Instead, the relevant
+safety questions are distributed across three mechanisms:
+
+- **Borrow validity** (Layer 1, M2) — "is this `?x` borrow
+  safe to use here?"
+- **Refcount lifetime** (Layer 2, M20d) — "when does this
+  `*T`'s underlying Rc drop?"
+- **Scope-exit cleanup** (Layer 2, M20e) — "what gets dropped
+  when this scope ends?"
+
+These mechanisms cover Rig's V1 lifetime story without
+user-written `<'a>` annotations. They do not yet express the
+full range of Rust-style lifetime relationships — especially
+borrowed returns and async suspension lifetimes; those are
+deferred until reactivity validation exposes the concrete
+need. The "succinct" goal is preserved in the meantime —
+lifetime tracking is implicit in the ownership shape, not
+explicit in the type signature.
+
+### What this ladder is NOT
+
+**Not a fast-forward roadmap.** Each layer landed (or will
+land) through multiple sub-commits with design checkpoints
++ post-implementation reviews. The ladder is the conceptual
+scaffold; `ROADMAP.md` has the actual commit-by-commit
+history.
+
+**Not a rigid linear chain.** Layers 3 and 4 are siblings
+under Layer 2; Layers 7 and 8 are siblings under Layers 5+6.
+The strict prerequisite edges are what matter: a layer
+cannot be treated as reliable while one of its dependencies
+still has known safety gaps.
+
+**Not a feature wishlist.** Layers 8 and 9 are explicitly
+deferred. They are mentioned here to make the dependency
+chain visible, NOT to commit Rig to building them in V1.
+
+---
+
+## 2. The deepest framing: async is stored-partial-execution
 
 The digest's strongest single claim — and the one Rig should
 internalize — is this:
@@ -85,7 +216,7 @@ async corrupts the rest of the language.
 
 ---
 
-## 2. M20h, in this light
+## 3. M20h, in this light
 
 M20h shipped owned closures: `*Closure(fn |+count| body)`. With
 the stored-partial-execution framing, M20h reads as the
@@ -143,7 +274,7 @@ Closures noting the stored-partial-execution framing.
 
 ---
 
-## 3. The sigil algebra and async
+## 4. The sigil algebra and async
 
 The digest proposes `^` for suspension. After GPT-5.5's
 review, this is best treated as a **plausible candidate**, not
@@ -186,7 +317,7 @@ compose.
 
 ---
 
-## 4. Clojure influences — what to borrow, what to skip
+## 5. Clojure influences — what to borrow, what to skip
 
 The digest's Clojure section was the most actionable part.
 After GPT-5.5's review, the recommendations sort cleanly into
@@ -200,7 +331,7 @@ below tries to change that.
 **Cultural preference for immutability.** Rig should encourage
 `=!` (fixed binding) in idiomatic code; mutation should be
 the visible exception, not the default reading. This is a
-style-guide change, NOT a surface-syntax flip. (See §5 for
+style-guide change, NOT a surface-syntax flip. (See §6 for
 why we explicitly don't flip.)
 
 **Mutation visible at the call site, not just the binding.**
@@ -215,7 +346,7 @@ Clojure principle is just to lean on it.
 
 ### Defer — interesting, NOT in immediate scope
 
-**Persistent collections (CHAMP / radix trie).** See §6 below
+**Persistent collections (CHAMP / radix trie).** See §7 below
 for the long form. Short version: these are a target, NOT
 M20i. The path from "we want Vec for subscribers" to "we ship
 CHAMP-backed PersistentVec" goes through a non-trivial design
@@ -276,7 +407,7 @@ boundaries (`!x`, `<x`, `Cell.set`, `-x`).
 
 ---
 
-## 5. The "flip immutable-by-default surface" question
+## 6. The "flip immutable-by-default surface" question
 
 The digest's strongest Clojure pitch is **immutable by
 default, with mutation visible**. In Rig terms, this would
@@ -310,7 +441,7 @@ default". If Steve ever wants this, it becomes a separate Rig
 
 ---
 
-## 6. Nexis as the Clojure-on-Zig reality check
+## 7. Nexis as the Clojure-on-Zig reality check
 
 **Role of this section.** Nexis is referenced as a mature
 sibling project — a working data point for what's been proven
@@ -442,7 +573,7 @@ take/adapt/reject discipline is worth keeping.
 
 ---
 
-## 7. The M20i pivot (the most concrete consequence)
+## 8. The M20i pivot (the most concrete consequence)
 
 Pre-digest, Claude's M20i lean was: "builtin mutable `Vec(T)`
 parallel to Cell, for subscriber lists." The digest pushed
@@ -499,7 +630,7 @@ checkpoint.
 
 ---
 
-## 8. The five carry-forward questions, answered
+## 9. The five carry-forward questions, answered
 
 From the digest's closing five:
 
@@ -557,7 +688,7 @@ But all of this is M20j+ at the earliest.
 
 ### Q4. How should the sigil algebra extend to suspension/cancellation without semantic drift?
 
-**`^` is a plausible candidate**, not a commitment. See §3.
+**`^` is a plausible candidate**, not a commitment. See §4.
 The async-design milestone will scope syntax, ABI, drop model,
 borrow rules. Until then, INFLUENCES.md captures the lean;
 SPEC stays factual.
@@ -578,7 +709,7 @@ something.
 
 ---
 
-## 9. The strategic rules
+## 10. The strategic rules
 
 These are the rules INFLUENCES.md is committing to memory:
 
@@ -625,7 +756,7 @@ These are the rules INFLUENCES.md is committing to memory:
 
 ---
 
-## 10. What this means for the current arc
+## 11. What this means for the current arc
 
 Concrete actions falling out of this document:
 
@@ -639,7 +770,7 @@ Concrete actions falling out of this document:
 
 ---
 
-## 11. Sources cited
+## 12. Sources cited
 
 - **ChatGPT-5 digest** (2026-05-17, forwarded by Steve) — the
   initial impetus.
@@ -658,7 +789,7 @@ Concrete actions falling out of this document:
 
 ---
 
-## 12. Open questions for future sessions
+## 13. Open questions for future sessions
 
 These are not answered above; they are deliberately left open.
 
