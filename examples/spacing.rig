@@ -23,7 +23,13 @@ sub main()
   m = <x             # move: (move x)
   s = *x             # share: (share x)
   k = +x             # clone: (clone x)
-  r = %x             # raw: (raw x)
+  # M19: `%x` raw access now requires an unsafe context. The
+  # tokenization test still applies (this file's purpose is
+  # sigil classification); wrap in `unsafe` so the example
+  # passes the M19(2/6) effects check while preserving the
+  # raw-prefix tokenization signal.
+  unsafe
+    r = %x           # raw: (raw x)
   p = @x             # pin: (pin x)
   rb = ?x            # read borrow: (read x)
   wb = !x            # write borrow: (write x)

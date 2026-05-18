@@ -1,0 +1,1 @@
+examples/unsafe_raw_outside_rejected.rig:11:8: error: raw access `%x` requires unsafe context; wrap in an `unsafe` block or call from an `unsafe` function

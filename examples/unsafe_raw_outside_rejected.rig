@@ -1,0 +1,11 @@
+## M19(2/6): raw `%x` access outside an unsafe context is rejected.
+##
+## Per GPT-5.5 entry 35 (M19 design): raw access is the
+## archetypal unsafe operation. Without an enclosing `unsafe`
+## block OR an `unsafe` fn declaration, the operation is sema-
+## rejected with a tailored diagnostic pointing the user at
+## both fixes.
+
+sub main()
+  x = 7
+  r = %x           # error: raw access outside unsafe context
