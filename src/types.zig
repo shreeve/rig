@@ -4147,6 +4147,30 @@ const ExprChecker = struct {
             if (existing != self.ctx.types.unknown_id) declared_ty = existing;
         }
 
+        // PB3(3/5): stack-local `Signal(T)` is rejected in V1 per
+        // GPT-5.5 entry 29. Signal owns a `Vec(*Closure())` which
+        // requires the M20e-style scope-exit defer-guard that
+        // currently only wires through `Vec(T)` value bindings
+        // (via `resourceKindOfBinding -> .vec_value`). Wiring
+        // Signal into the same machinery is possible but bigger
+        // than the smallest-safe-path rejection. The user-facing
+        // shape is always `*Signal(T)` per the PB2 + PB3 design;
+        // diagnostics point them at the fix.
+        if (declared_ty != self.ctx.types.unknown_id and
+            self.ctx.signal_sym_id != symbol_invalid)
+        {
+            const ty = self.ctx.types.get(declared_ty);
+            if (ty == .parameterized_nominal and
+                ty.parameterized_nominal.sym == self.ctx.signal_sym_id)
+            {
+                try self.err(firstSrcPos(target), "stack-local `Signal(T)` is not supported in V1; Signal owns a subscriber `Vec` that requires heap ownership. Use `*Signal(T)` (heap-owned) instead: `{s}: *Signal(...) = *Signal(value: ...)`.", .{
+                    identAt(self.ctx.source, target) orelse "x",
+                });
+                _ = self.synthExpr(expr) catch self.ctx.types.unknown_id;
+                return;
+            }
+        }
+
         // Check or synth the RHS.
         const rhs_ty = if (declared_ty == self.ctx.types.unknown_id)
             try self.synthExpr(expr)

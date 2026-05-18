@@ -2126,6 +2126,12 @@ pub const Emitter = struct {
         // fall-through `emitExpr` path reaches that helper via
         // `emitCall`.
         if (std.mem.eql(u8, callee_name, "Vec")) return false;
+        // PB3(3/5): same exclusion for Signal — it now uses an
+        // `init(value)` constructor (the new `subs: Vec(...)`
+        // field needs an allocator, which isn't expressible as a
+        // Zig struct-field default). Signal construction routes
+        // through `tryEmitSignalConstruction` instead.
+        if (std.mem.eql(u8, callee_name, "Signal")) return false;
         // Verify the LHS type wraps an instantiation of the same
         // built-in (i.e., `*Cell(...)`).
         const lhs = self.current_set_type orelse return false;
@@ -2212,6 +2218,87 @@ pub const Emitter = struct {
         } else {
             try self.w.writeAll(".init(rig.defaultAllocator())");
         }
+        return true;
+    }
+
+    /// PB3(3/5): detect and emit `Signal(value: V)` construction.
+    /// Returns true if Signal construction was detected and
+    /// emitted; false otherwise (caller continues with the normal
+    /// call-emit path).
+    ///
+    /// Lowering: `Signal(value: V)` -> `rig.Signal(T).init(V)`.
+    ///
+    /// The element type `T` comes from the surrounding LHS type
+    /// annotation via `current_set_type` (parallel to Vec's path).
+    /// Both stack-local and shared construction route through here:
+    ///   - `sig: Signal(Int) = Signal(value: 0)` — direct
+    ///     `emitCall` on `(call Signal (kwarg value 0))`.
+    ///     `current_set_type = (generic_inst Signal Int)`.
+    ///     **Sema rejects this shape** (see `checkSignalConstruction`)
+    ///     because stack-local Signal owns a Vec without an M20e-
+    ///     style scope-exit guard wired through Signal's
+    ///     destructor. This emit path remains for safety: if sema
+    ///     ever stops rejecting, emit still produces valid Zig.
+    ///   - `sig: *Signal(Int) = *Signal(value: 0)` — share-arm
+    ///     calls emitExpr on `(call Signal (kwarg value 0))`.
+    ///     `current_set_type = (shared (generic_inst Signal Int))`.
+    ///     The share-arm wraps the result with
+    ///     `rig.rcNew(...) catch @panic(...)` afterward.
+    fn tryEmitSignalConstruction(self: *Emitter, items: []const Sexp) Error!bool {
+        if (items.len < 2) return false;
+        const callee = items[1];
+        if (callee != .src) return false;
+        const callee_name = self.source[callee.src.pos..][0..callee.src.len];
+        if (!std.mem.eql(u8, callee_name, "Signal")) return false;
+
+        // Pull the type-bearing `(generic_inst Signal T)` from the
+        // LHS type annotation. Two valid shapes (parallel to Vec):
+        //   - `(generic_inst Signal T)`            — stack-local
+        //   - `(shared (generic_inst Signal T))`   — *Signal via share-arm
+        const lhs = self.current_set_type orelse {
+            try self.w.writeAll("@compileError(\"Rig Signal construction requires a type-annotated binding\")");
+            return true;
+        };
+        var inst_node = lhs;
+        if (lhs == .list and lhs.list.len >= 2 and lhs.list[0] == .tag and
+            lhs.list[0].tag == .@"shared")
+        {
+            inst_node = lhs.list[1];
+        }
+        if (inst_node != .list or inst_node.list.len < 2 or inst_node.list[0] != .tag) return false;
+        if (inst_node.list[0].tag != .@"generic_inst") return false;
+        const inst_name = inst_node.list[1];
+        if (inst_name != .src) return false;
+        const inst_name_str = self.source[inst_name.src.pos..][0..inst_name.src.len];
+        if (!std.mem.eql(u8, inst_name_str, "Signal")) return false;
+
+        // Pull the `(kwarg value V)` argument. Signal's constructor
+        // is single-arg `init(value)`. Sema validates the kwarg
+        // presence before we get here.
+        var value_expr: ?Sexp = null;
+        for (items[2..]) |arg| {
+            if (arg != .list or arg.list.len < 3 or arg.list[0] != .tag) continue;
+            if (arg.list[0].tag != .@"kwarg") continue;
+            const kw_name_node = arg.list[1];
+            if (kw_name_node != .src) continue;
+            const kw_name = self.source[kw_name_node.src.pos..][0..kw_name_node.src.len];
+            if (std.mem.eql(u8, kw_name, "value")) {
+                value_expr = arg.list[2];
+                break;
+            }
+        }
+
+        // Emit `rig.Signal(T).init(V)`.
+        try self.emitType(inst_node);
+        try self.w.writeAll(".init(");
+        if (value_expr) |v| {
+            try self.emitExpr(v);
+        } else {
+            // Defensive: sema should have rejected, but produce
+            // a Zig diagnostic for the case where it didn't.
+            try self.w.writeAll("@compileError(\"Rig Signal construction requires `value:` kwarg\")");
+        }
+        try self.w.writeAll(")");
         return true;
     }
 
@@ -3396,6 +3483,14 @@ pub const Emitter = struct {
         // construction emit produces an inner expression that
         // composes correctly with the existing share machinery.
         if (try self.tryEmitVecConstruction(items)) return;
+
+        // PB3(3/5): Signal construction lowers to
+        // `rig.Signal(T).init(V)` (instead of struct-literal). The
+        // new `subs: Vec(...)` field needs an allocator that
+        // isn't expressible as a Zig field default, so construction
+        // must go through the init function. Parallel to
+        // `tryEmitVecConstruction`.
+        if (try self.tryEmitSignalConstruction(items)) return;
 
         // M20g(3/5): closure invocation. If the callee is a bare
         // name resolving to a closure binding (marked by

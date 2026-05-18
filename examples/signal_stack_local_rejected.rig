@@ -1,0 +1,19 @@
+## PB3(3/5): stack-local `Signal(T)` is rejected in V1.
+##
+## Per GPT-5.5 entry 29 (PB3 design checkpoint): Signal owns a
+## `Vec(*Closure())` of retained subscribers. The Vec is a
+## resource value type that requires an M20e-style scope-exit
+## defer-guard to release the buffer at scope exit. Wiring
+## Signal through the same `resourceKindOfBinding ->
+## .vec_value` machinery as Vec is possible but bigger than
+## the smallest-safe-path rejection.
+##
+## All canonical PB2 / PB3 / canary uses of Signal are
+## heap-owned via `*Signal(T)` — `*` makes the allocation
+## visible AND wires Signal's `__rig_drop` through M20h's
+## `hasRigDrop` hook so the subs-Vec destructor fires on
+## last-strong drop. The diagnostic points the user at the
+## fix.
+
+sub main()
+  sig: Signal(Int) = Signal(value: 0)

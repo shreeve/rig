@@ -39,7 +39,7 @@ pub fn main() void {
     defer if (__rig_alive_eff) { __rig_alive_eff = false; eff.dropStrong(); };
     eff.value.invoke();
     std.debug.print("{any}\n", .{ count.value.get() });
-    const sig: *rig.RcBox(rig.Signal(i32)) = (rig.rcNew(rig.Signal(i32){ .value = 0 }) catch @panic("Rig Rc allocation failed"));
+    const sig: *rig.RcBox(rig.Signal(i32)) = (rig.rcNew(rig.Signal(i32).init(0)) catch @panic("Rig Rc allocation failed"));
     var __rig_alive_sig: bool = true;
     defer if (__rig_alive_sig) { __rig_alive_sig = false; sig.dropStrong(); };
     const log: *rig.RcBox(rig.Closure0) = rig_closure_1: {
