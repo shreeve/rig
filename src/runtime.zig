@@ -309,76 +309,130 @@ pub const source =
     \\    }
     \\};
     \\
-    \\/// PB2: `Signal(T)` — single-subscriber reactive primitive.
+    \\/// PB3: `Signal(T)` — multi-subscriber reactive primitive.
     \\///
-    \\/// PB2's MINIMUM VIABLE reactive canary helper per GPT-5.5's
-    \\/// Phase B design pass: one Cell-like value + an OPTIONAL
-    \\/// retained `*Closure()` subscriber slot. On `set`, the value
-    \\/// is updated AND the subscriber (if any) is invoked
-    \\/// synchronously. This proves the load-bearing reactivity
-    \\/// claim — "subscriber observes the new value" — without
-    \\/// committing to multi-subscriber semantics, batching, or
-    \\/// topology (those land in PB3 + later, after resource-Vec
-    \\/// iteration is designed).
+    \\/// Generalizes PB2's single-subscriber slot to a `Vec` of
+    \\/// retained `*Closure()` subscribers. Per GPT-5.5's PB3
+    \\/// design pass (entry 29): synchronous push-on-set with a
+    \\/// strict non-reentrant guard (R2 semantics). The minimum
+    \\/// viable shape that composes forward to PB4 (Reactor /
+    \\/// batching / Memo) AND to a future `Future<T>` for async.
     \\///
-    \\/// V1 restriction: `T` must be a Copy type (Int/Bool/Float/
-    \\/// String/literal pseudo-types). Same restriction as Cell.
-    \\/// Non-Copy `T` would need replace/take/Drop semantics that
-    \\/// Rig V1 doesn't yet have.
+    \\/// V1 restrictions:
+    \\///   - `T` must be a Copy type (Int / Bool / Float / String /
+    \\///     literal pseudo-types). Same as Cell. Non-Copy T would
+    \\///     need replace/take/Drop semantics not yet in V1.
+    \\///   - `Signal(T)` must be heap-owned via `*Signal(T)`. A
+    \\///     stack-local `Signal(T)` would own a `Vec` without an
+    \\///     M20e-style scope-exit guard wired through Signal's
+    \\///     destructor. The sema-layer `tryEmitSignalConstruction`
+    \\///     enforces the `*Signal(...)` shape per GPT-5.5's
+    \\///     entry 29 stack-Signal note.
+    \\///   - **Non-reentrant.** Calling `set` or `subscribe`
+    \\///     during an active notification is V1-unsupported and
+    \\///     panics. The `notifying: bool` flag is the runtime
+    \\///     guard. Lifting this restriction is a PB4 concern
+    \\///     (queue / flush / snapshot) — staying strict here
+    \\///     keeps the V1 semantics simple AND keeps the shape
+    \\///     compatible with async `Future<T>` resolution (which
+    \\///     also wants "resolve once, notify waiters, late
+    \\///     waiters see the resolved-value path").
     \\///
     \\/// Lifecycle:
-    \\///   - `subscribe(cb)`: clones the incoming `*Closure()` handle
-    \\///     so the Signal retains its own strong reference. If a
-    \\///     prior subscriber was set, its strong handle is dropped
-    \\///     first (replace-by-drop semantics).
-    \\///   - `set(value)`: updates the cell AND invokes the
-    \\///     subscriber synchronously if one is registered.
-    \\///   - `__rig_drop`: drops the subscriber (if any) on the
-    \\///     last-strong drop of `*Signal(T)`. The cell drops via
-    \\///     its own field destructor (Copy T = no-op).
+    \\///   - `init(value)`: construct with `subs = Vec.init(...)`.
+    \\///     Called by the emit-side `tryEmitSignalConstruction`
+    \\///     so the surface `*Signal(value: 0)` lowers to
+    \\///     `rig.rcNew(rig.Signal(T).init(0))`.
+    \\///   - `subscribe(cb)`: clones the incoming `*Closure()`
+    \\///     handle and pushes it into `subs`. Caller's handle
+    \\///     is unaffected. PANIC if called during notification.
+    \\///   - `set(value)`: updates the cell AND walks `subs`
+    \\///     LIFO (by index), invoking each closure synchronously.
+    \\///     PANIC if called during notification (reentrant set
+    \\///     is not supported in V1).
+    \\///   - `__rig_drop`: cascades through `subs.__rig_drop()`,
+    \\///     which walks elements LIFO and dropStrongs each
+    \\///     retained closure handle (via M20i `dropElement`).
     \\///
-    \\/// PB3 will replace the single-subscriber slot with a real
-    \\/// subscriber list, but that requires Vec(*Closure())
-    \\/// iteration which is its own deferred substrate piece.
+    \\/// Iteration policy. The walk is by index with `len` snapshot
+    \\/// at start; since `subs` is non-reentrant (panic on nested
+    \\/// set/subscribe), `subs.len` and `subs.buf` are stable for
+    \\/// the duration of the walk, so the snapshot is just a cheap
+    \\/// upper-bound guard. The "tolerate-shrink / ignore-late-
+    \\/// addition" R4 semantics from the initial PB3 design were
+    \\/// rejected in favor of R2 (strict) because R4's recursive
+    \\/// semantics would force the V1 spec to define behaviors
+    \\/// (cascade fan-out, late-subscriber visibility, unsubscribe
+    \\/// interaction) that should be locked in PB4 after canary
+    \\/// pressure exposes the use cases.
     \\pub fn Signal(comptime T: type) type {
     \\    return struct {
     \\        value: T,
-    \\        subscriber: ?*RcBox(Closure0) = null,
+    \\        subs: Vec(*RcBox(Closure0)),
+    \\        notifying: bool,
     \\
     \\        const Self = @This();
+    \\
+    \\        /// PB3 constructor. Called by emit's
+    \\        /// `tryEmitSignalConstruction` for the surface form
+    \\        /// `*Signal(value: V)` -> `rig.rcNew(rig.Signal(T).init(V))`.
+    \\        /// The Vec is initialized empty with the default
+    \\        /// allocator; the heap-owned `subs` buffer materializes
+    \\        /// on the first `subscribe` call.
+    \\        pub fn init(value: T) Self {
+    \\            return .{
+    \\                .value = value,
+    \\                .subs = Vec(*RcBox(Closure0)).init(defaultAllocator()),
+    \\                .notifying = false,
+    \\            };
+    \\        }
     \\
     \\        pub fn get(self: *const Self) T {
     \\            return self.value;
     \\        }
     \\
-    \\        /// Update the value AND invoke the subscriber (if any)
-    \\        /// synchronously. PB3's two-phase flush model will
-    \\        /// replace this with mark-dirty + queue-effect; for
-    \\        /// PB2 the simplest possible notification path is
-    \\        /// enough.
+    \\        /// Update the value AND invoke every retained
+    \\        /// subscriber synchronously. PANIC on reentry per
+    \\        /// the R2 policy (GPT-5.5 entry 29).
+    \\        ///
+    \\        /// Snapshot the initial length so cascade `set` calls
+    \\        /// (rejected by the notifying-guard panic anyway)
+    \\        /// can't drift `len` during this walk. Iterate
+    \\        /// forwards in subscription order so user expectations
+    \\        /// match "subscribers fire in the order they were
+    \\        /// added" — the standard observer-pattern contract.
     \\        pub fn set(self: *Self, value: T) void {
+    \\            if (self.notifying) @panic("Rig Signal.set: reentrant set is not supported in V1");
     \\            self.value = value;
-    \\            if (self.subscriber) |cb| cb.value.invoke();
+    \\            self.notifying = true;
+    \\            defer self.notifying = false;
+    \\            const initial_len = self.subs.len;
+    \\            if (self.subs.buf) |p| {
+    \\                var i: usize = 0;
+    \\                while (i < initial_len) : (i += 1) {
+    \\                    p[i].value.invoke();
+    \\                }
+    \\            }
     \\        }
     \\
-    \\        /// Register a subscriber. Replaces any existing slot
-    \\        /// (drops the old strong handle, clones the new). The
-    \\        /// caller's original `*Closure()` handle is unaffected
-    \\        /// because `subscribe` clones rather than moves.
+    \\        /// Register a subscriber. Clones the caller's
+    \\        /// `*Closure()` handle and appends to `subs`. PANIC on
+    \\        /// reentry — adding subscribers from inside an active
+    \\        /// notification would alias the buffer while iterating,
+    \\        /// which the V1 strict policy forbids.
     \\        pub fn subscribe(self: *Self, cb: *RcBox(Closure0)) void {
-    \\            if (self.subscriber) |old| old.dropStrong();
-    \\            self.subscriber = cb.cloneStrong();
+    \\            if (self.notifying) @panic("Rig Signal.subscribe: subscribing during notification is not supported in V1");
+    \\            self.subs.push(cb.cloneStrong());
     \\        }
     \\
     \\        /// M20h-style destructor hook: when the Signal's
-    \\        /// containing RcBox hits last strong, drop the
-    \\        /// retained subscriber (if any). The `value` field
+    \\        /// containing RcBox hits last strong, cascade through
+    \\        /// `subs.__rig_drop()` which walks elements LIFO and
+    \\        /// dropStrongs each retained closure via the M20i
+    \\        /// `dropElement` hybrid dispatch. The `value` field
     \\        /// is Copy so no per-element drop is needed.
     \\        pub fn __rig_drop(self: *Self) void {
-    \\            if (self.subscriber) |cb| {
-    \\                cb.dropStrong();
-    \\                self.subscriber = null;
-    \\            }
+    \\            self.subs.__rig_drop();
     \\        }
     \\    };
     \\}
