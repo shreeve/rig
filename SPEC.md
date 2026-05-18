@@ -676,6 +676,20 @@ The R2-relaxed-for-set policy generalizes cleanly to a future
 recursive resolve — the same shape applies, with `set`'s drain
 loop becoming `resolve`'s one-shot notify).
 
+**Signal is a last-value primitive, NOT an event stream.**
+Per GPT-5.5 entry 34: when multiple reentrant `set` calls
+happen within one notification round, the queue COALESCES to
+the most-recent value (the slot is a single `pending_value`,
+not a queue). If subscriber A calls `sig.set(99)` and a later
+subscriber B in the same round calls `sig.set(42)`, only 42
+is consumed by the next round; 99 is silently dropped. This
+is the correct semantics for a value-broadcast model: the
+Signal represents "the current value of X," not "the history
+of values X has taken." Users who need every-value-delivered
+semantics (event streams, message queues) need a different
+primitive (Event / Channel / Queue) — not Signal. That
+distinction matters for future async/channel design.
+
 **Stack-local `Signal(T)` rejected in V1.** Signal owns a
 `Vec(*Closure())` of retained subscribers; the Vec requires an
 M20e-style scope-exit defer-guard to release the buffer at

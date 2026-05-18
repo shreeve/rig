@@ -374,9 +374,21 @@ pub const source =
     \\        subs: Vec(*RcBox(Closure0)),
     \\        notifying: bool,
     \\        /// PB4: pending value queued by a reentrant `set`
-    \\        /// call. Only meaningful when `pending_set = true`.
+    \\        /// call. Only meaningful when `pending_set = true`;
+    \\        /// stale data while the flag is false is harmless.
     \\        /// Coalesces to the most-recent reentrant value
     \\        /// within a notification cycle (latest wins).
+    \\        ///
+    \\        /// **Copy-T-only invariant (PB4.1).** This stored-by-
+    \\        /// value design depends on `T` being a Copy type in
+    \\        /// V1 (Int / Bool / Float / String / literal pseudo-
+    \\        /// types — same restriction as Cell). If `Signal(T)`
+    \\        /// ever relaxes to non-Copy T, `pending_value` must
+    \\        /// become `?T` (or equivalent owned-optional shape)
+    \\        /// AND the queue/drain logic must handle resource
+    \\        /// replace/take semantics on every transition. Do
+    \\        /// not relax Signal's Copy-only T until that
+    \\        /// substrate (Cell-non-Copy) lands.
     \\        pending_value: T,
     \\        pending_set: bool,
     \\

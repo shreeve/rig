@@ -628,11 +628,30 @@ NOT promises to ship.
     `pending_set == true`. The default isn't load-bearing —
     any value of type T works — but `value` is conveniently
     in scope and avoids a `?T` optional.
-16. **Reactive library (Reactor / Memo / Effect / batching)
-    is permanently userland for V1.** Don't ship any new
-    in-language reactivity builtins. If someone proposes
-    one, point them at the PB4 entry 33 lock + GPT-5.5's
-    reasoning + the Rust/Zig position.
+16. **For V1, no more in-language reactivity builtins
+    without an explicit design reset.** Reactor / Memo /
+    Effect / batching / topology are userland work in V1
+    (per the PB4 entry 33 + 34 lock; matches Rust/Zig).
+    If someone proposes a new reactivity builtin, point
+    them at the lock + GPT-5.5's reasoning + the Rust/Zig
+    position. The "explicit design reset" escape hatch is
+    reserved for V2 cases like thread-safe `Arc<Signal>`
+    that genuinely can't be expressed userland.
+17. **`Signal(T)` is a LAST-VALUE primitive, NOT an event
+    stream.** Reentrant `set` calls within one notification
+    round coalesce to the most-recent value (slot, not
+    queue). Users who need every-value-delivered semantics
+    need a different primitive (Event / Channel / Queue).
+    This distinction matters for future async/channel
+    design — don't accidentally turn Signal into a stream.
+18. **Test gap: PB4 queued reentrant-set semantics lacks a
+    Rig-source regression** until V1 grows multi-capture
+    (`fn |+sig, +cb|`) OR conditional inline-body grammar.
+    The runtime contract is enforced by code review,
+    documented in SPEC + `runtime.zig`, and verified by
+    non-regression. Add a Zig-level runtime unit test as
+    a small infrastructure task when one of those grammar
+    extensions lands.
 
 ### Pre-existing fragilities not yet addressed
 
@@ -751,10 +770,16 @@ NOT promises to ship.
     (currently inline-call only per M20h grammar), the audit
     is already in place — consume-of-capture is rejected at
     the ownership layer, not the emit layer.
-- **Reactive library boundary is now FINAL for V1**: no more
-  in-language reactivity builtins will ship. Anyone wanting
+- **Reactive library boundary for V1**: per the PB4 entry 33
+  + 34 lock, **for V1, no more built-in reactive primitives
+  ship without an explicit design reset**. Anyone wanting
   Reactor / Memo / Effect builds them in Rig source on top of
   Cell + Vec + Closure + Signal (once Cell-non-Copy lands).
+  The "explicit design reset" escape hatch leaves room for
+  V2 cases like thread-safe `Arc<Signal>` that genuinely
+  can't be expressed userland — but those would require a
+  fresh full design pass with GPT-5.5, not an incremental
+  bolt-on.
 - **The substrate ladder** (`docs/INFLUENCES.md` §1) is the
   authoritative conceptual map. Layers 0–7 ✅; Layer 8
   (Structured concurrency) and Layer 9 (Async) deferred
