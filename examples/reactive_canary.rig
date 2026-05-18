@@ -1,4 +1,4 @@
-# Phase B canary (PB0 → PB1 → PB2 → M20i.1 → PB3 layers).
+# Phase B canary (PB0 → PB1 → PB2 → M20i.1 → PB3 → PB4 layers).
 #
 # Purpose: anchor the reactive validation milestone. Per the
 # GPT-5.5 Phase B checkpoint, this file is NOT a library — it's
@@ -13,12 +13,22 @@
 #   M20i   resource-aware Vec(T)                       ✅ shipped
 #   PB2    Signal: single-subscriber notification      ✅ shipped
 #   M20i.1 resource-Vec iteration `for cb in ?subs`    ✅ shipped
-#   PB3    multi-subscriber Signal (R2 reentrancy)     ✅ NEW HERE
-#   PB4    Memo / Effect lifecycle / Reactor / batch  pending
+#   PB3    multi-subscriber Signal (R2 reentrancy)     ✅ shipped
+#   PB4    reentrant set queues + coalesces            ✅ shipped
+#          (backward-compat; not visible in canary)
 #
 # Each substrate gap exposed by the canary gets fixed on main,
 # not in the library. Per the design doc: "the library is the
 # canary; fix the language, not the library."
+#
+# PB4 note: the R2 reentrant-set relaxation is a backward-
+# compatible change — same-Signal `set` from a subscriber body
+# now queues (coalescing to most-recent value) instead of
+# panicking. The canary doesn't exercise this case directly
+# because a terminating reentrant-set demo requires conditional
+# logic in the closure body (not available in V1 inline-body
+# grammar). The R2 relaxation is documented in SPEC §Signal +
+# verified by non-regression of the existing canary output.
 
 sub main()
   # Substrate check #1: M20f Cell(T) interior mutability through
@@ -133,9 +143,17 @@ sub main()
   multi.set(42)                     # invokes all three: tally 0 → 111
   print(tally.get())                # 111
 
-  # TODO PB4 (Memo / Effect lifecycle / Reactor / batching):
-  # derived values that auto-recompute on dep change; deferred
-  # batching so `signal.set` enqueues invalidations and a
-  # `reactor.flush()` runs them once at the end of a transaction.
-  # M20i.1 + PB3 cover the substrate; PB4 designs the
-  # batching/topology layer in its own checkpoint.
+  # PB4 shipped a minimal R2 relaxation: same-Signal reentrant
+  # `set` from inside a subscriber body now queues (coalesce-
+  # to-latest) instead of panicking. Reentrant `subscribe`
+  # still panics (list-mutation during iteration is subtler
+  # and locking the policy would force a mini-Reactor design).
+  #
+  # The full reactive library (Reactor / Memo / Effect
+  # lifecycle / cross-Signal batching / dependency-graph
+  # topology) is explicitly USERLAND work per GPT-5.5
+  # entry 33 — Rig holds the same position as Rust and Zig:
+  # substrate in the language, reactive library in userland.
+  # Signal stays the canary primitive; further reactivity
+  # builds OUTSIDE the language, once Cell-non-Copy or
+  # equivalent substrate lands.

@@ -130,12 +130,12 @@ pub fn main() void {
     subs.push(one.cloneStrong());
     subs.push(ten.cloneStrong());
     subs.push(cent.cloneStrong());
-    if (subs.buf) |__rig_p_4892| {
-        var __rig_i_4892: usize = 0;
-        while (__rig_i_4892 < subs.len) : (__rig_i_4892 += 1) {
-            const __rig_elem_4892 = &__rig_p_4892[__rig_i_4892];
+    if (subs.buf) |__rig_p_5448| {
+        var __rig_i_5448: usize = 0;
+        while (__rig_i_5448 < subs.len) : (__rig_i_5448 += 1) {
+            const __rig_elem_5448 = &__rig_p_5448[__rig_i_5448];
             {
-                __rig_elem_4892.*.value.invoke();
+                __rig_elem_5448.*.value.invoke();
             }
         }
     }
