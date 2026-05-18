@@ -1,0 +1,2 @@
+examples/vec_for_clone_elem_rejected.rig:24:20: error: type mismatch: expected `*Closure()`, got `?*Closure()`
+examples/vec_for_clone_elem_rejected.rig:24:20: error: cannot clone loop-borrow alias `cb`; resource Vec(T) iteration binds the element as a read borrow of the Vec slot. Clone / move / drop / store are not supported on borrowed elements in V1.

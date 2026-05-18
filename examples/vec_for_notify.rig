@@ -1,0 +1,49 @@
+## M20i.1(4/4) — MANDATORY subscriber-shaped iteration regression.
+##
+## Mirrors M20i(5/5)'s `vec_subscribers.rig`, but exercises the
+## NEW `for cb in ?subs` iteration primitive. This is the
+## substrate test that unblocks PB3 (multi-subscriber Signal
+## notification): the loop walks `Vec(*Closure())`, invokes each
+## retained closure via the borrowed-slot alias, and the closures
+## drive a shared Cell counter from 0 to 111.
+##
+## Emit shape (Shape X, resource elements):
+##   if (subs.buf) |__rig_p_X| {
+##       var __rig_i_X: usize = 0;
+##       while (__rig_i_X < subs.len) : (__rig_i_X += 1) {
+##           const __rig_elem_cb = &__rig_p_X[__rig_i_X];
+##           __rig_elem_cb.*.value.invoke();
+##       }
+##   }
+##
+## Per GPT-5.5's M20i.1 design pass: resource element bound as
+## a borrowed view of the slot (`cb : ?(*Closure())`). The Rig
+## name `cb` resolves to `__rig_elem_cb.*` via the emit scope
+## frame; the M20h owned-closure rewrite (`cb() -> cb.value.invoke()`)
+## composes naturally with the deref.
+##
+## Scope-exit drops cascade:
+##   1. subs.__rig_drop() walks elements (LIFO), each
+##      dropElement -> dropStrong on the cloned closure handle.
+##      Each closure's refcount: 2 -> 1.
+##   2. cb3.dropStrong() -> 0 -> __rig_drop -> drop_fn ->
+##      drops cb3's captured `count` clone (count: 4 -> 3).
+##   3. cb2.dropStrong() -> count: 3 -> 2.
+##   4. cb1.dropStrong() -> count: 2 -> 1.
+##   5. count.dropStrong() -> 0 -> Cell freed.
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  cb1: *Closure() = *Closure(fn |+count| count.set(count.get() + 1))
+  cb2: *Closure() = *Closure(fn |+count| count.set(count.get() + 10))
+  cb3: *Closure() = *Closure(fn |+count| count.set(count.get() + 100))
+
+  subs: Vec(*Closure()) = Vec()
+  (!subs).push(+cb1)
+  (!subs).push(+cb2)
+  (!subs).push(+cb3)
+
+  for cb in ?subs
+    cb()
+
+  print(count.get())                  # 111

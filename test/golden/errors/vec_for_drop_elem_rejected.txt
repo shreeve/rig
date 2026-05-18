@@ -1,0 +1,1 @@
+examples/vec_for_drop_elem_rejected.rig:19:6: error: cannot drop loop-borrow alias `cb`; resource Vec(T) iteration binds the element as a read borrow of the Vec slot. Clone / move / drop / store are not supported on borrowed elements in V1.

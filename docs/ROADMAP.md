@@ -1875,6 +1875,101 @@ end-to-end; multi-subscriber generalization is the only
 remaining Phase B work, gated on substrate maturity rather
 than design uncertainty.
 
+### M20i.1 — Resource-Vec iteration via `for x in ?vec` ✅
+
+The substrate prerequisite for PB3 (multi-subscriber Signal).
+External `for x in vec` walks a `Vec(T)`, with the source mode
+discriminator (`iter` for Copy T, `read` for resource T)
+driving sema's element-binding shape, the ownership-layer
+loop-source borrow + element-as-loop-borrow consume
+restrictions, and emit's Shape X (resource: slot alias +
+scope-frame rewrite) vs Shape Y (Copy: plain const) lowering.
+
+Locked at the M20i.1 / M20j design checkpoint with GPT-5.5
+(conversation `c_5c1d09d53ebe2f62`, entry 26). Steve had
+originally proposed an internal `vec.foreach(fn (e) e())`
+callback method; GPT-5.5 pushed back hard on **Option B,
+external `for` over Vec, read-only** because:
+
+1. External `for` reuses the existing grammar (no conflict-
+   count bump from 69) and the language's existing ownership-
+   mode vocabulary (`iter` / `read` / `write` / `move` / `ptr`).
+2. No new callback ABI or lambda-with-params grammar work.
+3. The `?vec` source mode does the borrow enforcement
+   naturally — `for cb in ?subs` read-borrows `subs` for the
+   loop body, so `(!subs).push(...)` inside fires the standard
+   M2 borrow-conflict diagnostic.
+4. By-value resource elements would silently copy a strong
+   handle pointer without bumping refcount; binding as a
+   borrowed view of the Vec slot (`cb : borrow_read(*Closure())`)
+   makes the "this isn't owned" semantics visible at both the
+   sema and emit layers.
+
+The follow-up checkpoint (entry 27) locked the emit shape
+split (Shape X for resource elements with `&__rig_elem_X` slot
+alias + scope-frame rewrite to `__rig_elem_X.*`; Shape Y for
+Copy elements with a plain `const X = __rig_p[__rig_i]`).
+
+**Sub-commits:**
+
+| Commit | What it shipped |
+|---|---|
+| `65a3c44` M20i.1(1/4) | Sema: `checkForStmt` recognizes Vec(T) sources, validates mode against element resource-ness (resource T requires `?vec`), binds element as `borrow_read(T)` for resource T / `T` for Copy T. `isOwnedClosureHandleType` peels `borrow_read`/`borrow_write` so a borrowed `*Closure()` (the loop element type) is still recognized as callable. |
+| `ee4f9e8` M20i.1(2/4) | Ownership: new `is_loop_borrow` binding flag. `walkFor` installs a scope-bound read borrow on the source + marks the element with `is_loop_borrow=true` + `borrow_root_index` for auto-release at popScope. New `rejectLoopBorrowOp` helper hooks consume-op sites: `+cb` (clone) and `~cb` (weak) in the `.@"clone"`/`.@"weak"` arm; `<cb` (move) in `walkBorrow` op=move_op; `-cb` (drop) in `walkDrop`; `return cb` in `walkReturn`; bare-name alias in `checkSharedHandleAlias`. |
+| `7049da3` M20i.1(3/4) | Emit: `emitFor` branches on `vecSourceForEmit` to a new explicit-walk lowering. Shape Y (Copy T): bind by value as `const`. Shape X (resource T): declare `__rig_elem_X = &__rig_p_X[__rig_i_X]` slot alias + install `rig_name → __rig_elem_X.*` mapping in the emit scope frame. For `*Closure()` elements, mark `is_owned_closure=true` so `cb()` lowers to `__rig_elem_X.*.value.invoke()` via the existing M20h call-site rewrite. Generated names allocated in `name_arena`. |
+| M20i.1(4/4) | Tests + canary refresh + docs (this entry). |
+
+**Tests across M20i.1 (1/4) → (4/4): 804 → 832 (+28).**
+
+**Examples** (2 positive in EMIT_TARGETS + 4 negative):
+
+Positive:
+- `vec_for_copy.rig` — `for n in nums` over `Vec(Int)`. Shape Y.
+- `vec_for_notify.rig` — **the mandatory subscriber-shaped
+  regression test** (analog of M20i(5/5)'s `vec_subscribers.rig`,
+  but exercising the new `for cb in ?subs` primitive). Three
+  cloned-into-Vec closures, foreach via `for`, counter advances
+  to `111`. Shape X.
+
+Negative (sema/ownership goldens only):
+- `vec_for_no_borrow_rejected.rig` — `for cb in subs` without
+  `?` over resource Vec.
+- `vec_for_write_during_iter_rejected.rig` — `(!subs).push(...)`
+  inside `for cb in ?subs` body.
+- `vec_for_clone_elem_rejected.rig` — `+cb` on a loop-borrow
+  alias.
+- `vec_for_drop_elem_rejected.rig` — `-cb` on a loop-borrow
+  alias.
+
+**Canary refresh.** `examples/reactive_canary.rig` now ends
+with a multi-subscriber Vec notification block:
+
+```rig
+notes: *Cell(Int) = *Cell(value: 0)
+one:   *Closure() = *Closure(fn |+notes| notes.set(notes.get() + 1))
+ten:   *Closure() = *Closure(fn |+notes| notes.set(notes.get() + 10))
+cent:  *Closure() = *Closure(fn |+notes| notes.set(notes.get() + 100))
+subs: Vec(*Closure()) = Vec()
+(!subs).push(+one); (!subs).push(+ten); (!subs).push(+cent)
+for cb in ?subs
+  cb()
+print(notes.get())  # 111
+```
+
+Canary output: `1\n3\n13\n7\n99\n111` (PB0 → PB1 → PB2 → M20i.1).
+
+**SPEC §"Vec iteration via `for x in ?vec` (M20i.1)"** added
+with the mode table, by-value vs borrowed-slot element binding
+shape, the loop-source-borrow / consume-rejection diagnostics,
+the Shape X / Shape Y emit lowering, and the PB3 substrate-
+role pointer.
+
+**Phase B status after M20i.1**: PB0 ✅, M20h ✅ (PB1 folded),
+M20i ✅, PB2 ✅, M20i.1 ✅. PB3 is unblocked — the remaining
+work is wiring `for cb in ?self.subs` into a new
+multi-subscriber `Signal(T)` shape (and designing the
+batching / topology layer in its own checkpoint).
+
 ### M20h.1 — Tighten `in_set_rhs` to direct lambda RHS ✅
 
 GPT-5.5's M20h post-implementation review caught a
@@ -1984,12 +2079,15 @@ the M20+ items below):
    `Closure0` ABI with `__rig_drop`-on-last-strong cleanup.
    PB1 (single retained Effect) folded into M20h(5/5) canary
    refresh.
-9. **Resource-aware `Vec(T)`** (M20i — NEXT, design checkpoint
-   pending). For multi-subscriber lists and general resource-
-   element storage. Per `docs/INFLUENCES.md` §7: V1 stays
-   **mutable resource-aware Vec**; persistent collections are
-   demoted to M20j+ conditional on Phase B's notification
-   pattern showing snapshot-iteration value.
+9. ~~**Resource-aware `Vec(T)`**~~ ✅ **Landed in M20i** above.
+   Vec is a resource VALUE TYPE; bare copy rejected; move-only
+   transfer; auto-drop guards. Hybrid `dropElement` dispatch
+   for Copy / `*T` / `~T` / `*Closure()` elements.
+9.1. ~~**Resource-Vec iteration via `for x in ?vec`**~~ ✅
+   **Landed in M20i.1** above. External `for` with mode-driven
+   sema (Copy element OK in `iter` mode; resource element
+   requires `read`) + ownership loop-source borrow + Shape X
+   slot-alias emit. PB3 substrate prerequisite shipped.
 10. `%T` unsafe-effect lattice + `unsafe` block / fn-modifier
     (SPEC §Unsafe / Raw — text landed; checker enforcement TBD)
 11. `pre` AST extraction for derive-style macros

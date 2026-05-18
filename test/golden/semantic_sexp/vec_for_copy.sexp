@@ -1,0 +1,1 @@
+(module (sub main () _ (block (set _ nums (generic_inst Vec Int) (call Vec)) (call (member (write nums) push) 10) (call (member (write nums) push) 20) (call (member (write nums) push) 30) (for iter n _ nums (block (call print n))))))

@@ -1,0 +1,19 @@
+## M20i.1: resource Vec iteration without `?` source borrow is rejected.
+##
+## Per GPT-5.5's M20i.1 design pass: bare-source iteration over
+## `Vec(*Closure())` (or any resource-element Vec) would silently
+## yield a strong handle copy per iteration without bumping the
+## refcount. Sema requires the explicit `?vec` source borrow so
+## the ownership layer can install the loop-borrow on `subs` AND
+## bind the element as a borrowed view of the slot. The
+## diagnostic points at the fix.
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  cb1: *Closure() = *Closure(fn |+count| count.set(count.get() + 1))
+
+  subs: Vec(*Closure()) = Vec()
+  (!subs).push(+cb1)
+
+  for cb in subs
+    cb()

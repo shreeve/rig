@@ -1,15 +1,16 @@
-# Rig — Session Handoff (PB2 complete; PB3 gated on Vec iteration)
+# Rig — Session Handoff (M20i.1 complete; PB3 unblocked)
 
-**You are picking up a Rig compiler session at the PB2 boundary.**
+**You are picking up a Rig compiler session at the M20i.1 boundary.**
 M20h (owned escaping closures) + M20i (resource-aware Vec) +
-PB2 (single-subscriber Signal) all shipped end-to-end. The
+PB2 (single-subscriber Signal) + **M20i.1 (resource-Vec
+iteration via `for x in ?vec`)** all shipped end-to-end. The
 reactive canary (`examples/reactive_canary.rig`) demonstrates
-the full Cell + closure + Signal subscriber chain producing
-`1\n3\n13\n7\n99`. **804 tests passing, 0 failing. Clean tree
-on `main`.** The next concrete action is the **M20i.1 /
-M20j design checkpoint — resource-Vec iteration**, which is
-the substrate prerequisite for PB3 (multi-subscriber + batching
-+ topology).
+the full Cell + closure + Signal + Vec-iteration chain
+producing `1\n3\n13\n7\n99\n111`. **832 tests passing, 0
+failing. Clean tree on `main`.** The next concrete action is
+the **PB3 design checkpoint — multi-subscriber Signal +
+batching + topology**, now that the substrate prerequisite
+(resource-Vec iteration) is solid.
 
 ---
 
@@ -18,13 +19,19 @@ the substrate prerequisite for PB3 (multi-subscriber + batching
 - **Project**: Rig is a systems language ("Zig-fast, Rust-safe,
   Ruby-readable") that compiles to Zig 0.16. Repo:
   `/Users/shreeve/Data/Code/rig`.
-- **Where we are**: Substrate ladder Layers 0–6 ✅; Layer 7
+- **Where we are**: Substrate ladder Layers 0–6 ✅; Layer 6
+  iteration (M20i.1, the PB3 prerequisite) ✅; Layer 7
   (reactivity) HALF-shipped — single-subscriber via
   `Signal(T)` ✅; multi-subscriber pending.
-- **Next concrete action**: **M20i.1 / M20j design checkpoint**
-  with GPT-5.5 (resource-Vec iteration). Then PB3
-  (multi-subscriber + batching + topology) becomes a small
-  follow-on.
+- **Next concrete action**: **PB3 design checkpoint** with
+  GPT-5.5 (multi-subscriber Signal + batching + topology).
+  Substrate is now solid — `for cb in ?self.subs` is the
+  intended notification primitive; the open design questions
+  are the Signal-state shape (one `Vec(*Closure())` slot vs
+  Cell-extension), the synchronous-set-with-iteration ABI,
+  and whether PB3 introduces Reactor.flush or stays purely
+  synchronous (the "minimum viable multi-subscriber" question
+  parallel to PB2's "minimum viable single-subscriber").
 - **Cadence (non-negotiable)**: design checkpoint with GPT-5.5
   via `user-ai` MCP → implement in 3–5 sub-commits (M5-style:
   `Mxx(n/total)`) → post-implementation review → commit.
@@ -38,9 +45,9 @@ the substrate prerequisite for PB3 (multi-subscriber + batching
 
 ```bash
 git pull --ff-only
-git log -1 --format='%h %s'        # most recent commit; should be at/after PB2(3/3)
-./test/run 2>&1 | tail -3          # should say "804 passed, 0 failed"
-bin/rig run examples/reactive_canary.rig    # should print "1\n3\n13\n7\n99"
+git log -1 --format='%h %s'        # most recent commit; at/after M20i.1(4/4)
+./test/run 2>&1 | tail -3          # should say "832 passed, 0 failed"
+bin/rig run examples/reactive_canary.rig    # 1\n3\n13\n7\n99\n111
 ```
 
 **Then read** (in order):
@@ -48,7 +55,8 @@ bin/rig run examples/reactive_canary.rig    # should print "1\n3\n13\n7\n99"
 1. This file's TL;DR + Non-negotiable invariants below (~5 min)
 2. `docs/INFLUENCES.md` §1 (the substrate ladder — the
    conceptual map of where every milestone fits) (~5 min)
-3. ROADMAP.md most-recent entries (PB2, M20i, M20h) (~10 min)
+3. ROADMAP.md most-recent entries (M20i.1, PB2, M20i, M20h)
+   (~10 min)
 4. `docs/REACTIVITY-DESIGN.md` (Phase B design north star)
    (~15 min)
 5. `examples/reactive_canary.rig` (~2 min — the regression
@@ -56,10 +64,15 @@ bin/rig run examples/reactive_canary.rig    # should print "1\n3\n13\n7\n99"
 
 **Then do**:
 
-- Open a design checkpoint with GPT-5.5 for **M20i.1 / M20j —
-  resource-Vec iteration**. Do NOT design PB3 (multi-subscriber
-  Memo + batching + topology) yet; iteration must land first
-  per the joint design decision in entry 25.
+- Open a design checkpoint with GPT-5.5 for **PB3 — multi-
+  subscriber Signal**. The substrate prerequisite (`for cb in
+  ?subs`) is solid; the design space is the Signal-state
+  shape (one `Vec(*Closure())` field vs Cell-extension), the
+  set-with-iteration ABI (synchronous vs deferred), and
+  whether PB3 introduces Reactor.flush or stays purely
+  synchronous like PB2. Steve has resisted speculative
+  expansion of Signal's API; keep PB3 minimum-viable and
+  defer batching/topology/Memo to PB4.
 
 ---
 
@@ -86,12 +99,15 @@ Violating any of them will silently corrupt the substrate.
 - **Vec(T) is a resource value type** (owns its buffer). Bare
   copy is rejected as would-double-free; must move (`<v`) or
   explicitly drop (`-v`).
-- **Vec resource iteration / `get` / `pop` are deferred** for
-  resource T (Copy T `get` / `pop` work). This is the M20i.1
-  gap.
+- **Vec resource `get` / `pop` are deferred** for resource T
+  (Copy T `get` / `pop` work). Iteration **shipped in
+  M20i.1** via external `for x in ?vec`; resource T mandates
+  the `?` source borrow, element binds as a read borrow of
+  the slot, `+x` / `<x` / `-x` / `return x` / bare-aliasing
+  uses are sema/ownership-rejected with tailored diagnostics.
 - **Signal(T) is single-subscriber synchronous canary.** No
-  multi-subscriber, no batching, no topology. PB3 will
-  generalize once iteration lands.
+  multi-subscriber, no batching, no topology. PB3 (now
+  unblocked) will generalize.
 - **Grammar conflict count: 69** (was 38 pre-M20h; +31 from
   the M20h(2/5) inline-call lambda body). All benign S/R with
   prefer-shift; reviewed and accepted.
@@ -149,6 +165,7 @@ Codebase highlights:
 | 8 | Closure capture mode syntax (non-escaping V1) | ✅ | M20g (1-5/5) + M20g(2.1) |
 | 8.5 | Owned/escaping closure values | ✅ | M20h (1-5/5) + M20h.1 |
 | 9 | Resource-aware containers (Vec(T)) | ✅ | M20i (1-5/5) |
+| 9.1 | Resource-Vec iteration (`for x in ?vec`) | ✅ | M20i.1 (1-4/4) |
 | 10 | Single-subscriber reactive primitive (Signal(T)) | ✅ | PB2 (1-3/3) |
 
 ## 2b. Phase B status
@@ -160,8 +177,8 @@ Codebase highlights:
 | PB1 | Single retained Effect | ✅ | folded into canary refresh (M20h(5/5)) |
 | M20i | Resource-aware `Vec(T)` | ✅ | commits `4675fca..d6d6c83` |
 | PB2 | Single-subscriber Signal | ✅ | commits `5918a15..8c4f36c` |
-| **M20i.1** | **Resource-Vec iteration** | **🚧 NEXT** | **design checkpoint pending** |
-| PB3 | Multi-subscriber + batching + topology | pending | depends on M20i.1 |
+| M20i.1 | Resource-Vec iteration (`for x in ?vec`) | ✅ | commits `65a3c44..` (this arc) |
+| **PB3** | **Multi-subscriber + batching + topology** | **🚧 NEXT** | **design checkpoint pending; substrate now unblocked** |
 
 ---
 
@@ -433,6 +450,8 @@ arcs). Each numbered entry is a logical exchange:
 23. **M20i scoping** — Option A (M20i alone) over Option B (M20i + Phase B together); subscriber-shaped regression mandatory; Cell-non-Copy stays separate
 24. **M20i design** — Vec is a resource VALUE TYPE (the load-bearing insight); 5-sub-commit decomp; hybrid `dropElement` dispatch
 25. **PB2 design** — single-subscriber Signal; Cell unchanged; PB3 deferred until iteration
+26. **M20i.1 design** — external `for x in ?vec` (Option B) over internal `vec.foreach(...)`; GPT-5.5 pushed back hard on the foreach plan because external `for` reuses existing grammar + ownership-mode vocabulary, no callback ABI, no lambda-params grammar, and the `?` source mode is the natural enforcement point for both loop-borrow on source AND borrowed-slot element binding
+27. **M20i.1 emit shape clarification** — Shape X (resource: `&__rig_p[__rig_i]` slot alias + scope-frame rewrite to `__rig_elem.*`) for resource elements; Shape Y (plain Zig `const`) for Copy elements. Closes the "Zig copy is harmless because Rig will reject bad uses" shortcut from Steve's Shape Y proposal — Shape X preserves the borrow boundary at the Zig level too
 
 To continue the thread, pass `conversation_id` and `model`
 as above. MCP tool descriptors live at:
@@ -500,6 +519,20 @@ NOT promises to ship.
    Vec-in-aggregate sites correctly reject.
 6. **`vec_subscribers.rig` is the M20i exit gate.** Don't
    break it without checkpoint approval.
+7. **M20i.1 `is_loop_borrow` element bindings reject consume
+   ops uniformly.** `+cb` / `<cb` / `-cb` / `return cb` /
+   bare-alias all fire tailored diagnostics. The element's
+   `borrow_root_index` is set to the source Vec, so popScope
+   auto-releases the loop-source read borrow.
+8. **M20i.1 emit Shape X (resource elements) installs a
+   `cb → __rig_elem_X.*` scope-frame mapping.** Combined
+   with the `is_owned_closure=true` mark, `cb()` lowers to
+   `__rig_elem_X.*.value.invoke()` via the M20h call-site
+   rewrite. Don't bypass the scope-frame; it's the only way
+   the borrow boundary stays visible at the Zig level.
+9. **`vec_for_notify.rig` is the M20i.1 exit gate.** Don't
+   break it without checkpoint approval — it's the multi-
+   subscriber PB3 substrate test.
 
 ### Pre-existing fragilities not yet addressed
 
@@ -542,26 +575,37 @@ NOT promises to ship.
 
 ## 13. Current frontier notes
 
-- **PB2 is complete but intentionally single-subscriber.**
-  Don't expand Signal's API speculatively. Multi-subscriber
-  is the M20i.1 / PB3 milestone, with its own design
-  checkpoint.
-- **M20i.1 is the next concrete arc.** Resource-Vec iteration
-  is the substrate prerequisite for PB3. Design questions
-  for the upcoming checkpoint:
-  - Internal iteration (callback-based: `vec.foreach(fn (e)
-    e())`) vs external (`for x in vec`) vs both?
-  - Element binding mode in the loop body — borrow-read
-    (`?T`) for read-only access; what about mutation?
-  - Lambda-as-call-arg with params: M20h shipped
-    `FN captures inline_body`; iteration needs
-    `FN params inline_body` (with or without captures).
-  - For external `for x in vec`: ownership of the iterated
-    element — borrow per iteration?
-- **Do not design Memo / batching / topology** until
-  iteration / multi-subscriber-list shape is decided. PB3 is
-  the milestone where those land, after iteration substrate
-  is solid.
+- **PB2 + M20i.1 are complete.** PB2 is intentionally single-
+  subscriber; don't expand Signal's API speculatively. M20i.1
+  shipped external `for x in ?vec` (resource Vec) and `for x
+  in vec` (Copy Vec) with the locked design from entries 26 +
+  27. The substrate for multi-subscriber notification is now
+  solid.
+- **PB3 is the next concrete arc.** Multi-subscriber Signal +
+  notification iteration via `for cb in ?self.subs`. Design
+  questions for the upcoming checkpoint:
+  - Signal-state shape: one `Vec(*Closure())` field replacing
+    the optional single subscriber slot? Cell-extension is
+    still off the table (would force Cell-non-Copy
+    relaxation).
+  - Set-with-iteration ABI: synchronous push-on-set (parallel
+    to PB2's single-subscriber synchronous notification) vs
+    deferred queue + explicit `flush`. The canary discipline
+    pushes toward "minimum viable" — synchronous-iterate-all
+    is probably right for PB3.
+  - Where to design Reactor / batching: PB4 or earlier?
+    Steve's instinct (and GPT-5.5's PB2 lock) is to defer
+    Reactor until PB3 exposes whether topology / order /
+    re-entrance actually bite.
+  - Mutation-during-iteration: PB3 must reject
+    `signal.subscribe(...)` triggered transitively by a
+    subscriber being invoked (that would write-borrow the
+    Signal's Vec while it's read-borrowed). M20i.1's standard
+    borrow-conflict rule already handles this at the IR
+    level; we just need to confirm the Signal method bodies
+    compile cleanly under that rule.
+- **Do not design Memo / batching / topology** in PB3 itself.
+  Those are PB4. Keep PB3 minimum-viable.
 - **Maintain the cadence**: design checkpoint → sub-commits →
   post-impl review. Each sub-commit must keep all tests
   passing. The cadence has caught real correctness bugs;
@@ -573,5 +617,5 @@ NOT promises to ship.
   (Async) remain deferred.
 
 Good luck. Read `docs/INFLUENCES.md` §1 first, then ROADMAP's
-PB2 and M20i sections, then this file's invariants. Then run
-the M20i.1 design checkpoint with GPT-5.5.
+M20i.1 and PB2 sections, then this file's invariants. Then run
+the PB3 design checkpoint with GPT-5.5.

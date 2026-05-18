@@ -430,14 +430,135 @@ sub main()
 - `get`/`pop` on resource elements (returning `(*T)?` would
   need optional-resource auto-drop semantics that aren't
   yet designed). For subscriber notification patterns,
-  iterate by pushing/clearing rather than indexing.
+  iterate via `for x in ?vec` (M20i.1 — see below).
 - `insert(i, v)` / `remove(i)` / `swap_remove(i)`.
-- Iteration primitives (`for x in v`, `v.each(...)`).
+- Internal-callback iteration (`v.each(...)`) — M20i.1 ships
+  external `for` only; the callback shape may be added in
+  M20j after PB3 exposes whether the ergonomics matter.
 - Persistent / CHAMP-backed Vec — see `docs/INFLUENCES.md`
   §8 for the conditional roadmap entry.
 - `*Cell(Vec(T))` — Cell-non-Copy is its own deferred sub-
   arc; PB2 may not need it (Reactor can be modeled as an
   owned mutable object).
+
+### Vec iteration via `for x in ?vec` (M20i.1)
+
+External `for x in vec` walks the Vec's elements in insertion
+order. The shape mirrors the existing `for u in ?users`
+iteration over borrowed slices, but lowers to a Vec-aware Zig
+walk and threads borrow discipline through both element binding
+shape and source mutation.
+
+**Copy element T (e.g., `Vec(Int)`):**
+
+```rig
+nums: Vec(Int) = Vec()
+(!nums).push(10); (!nums).push(20); (!nums).push(30)
+for n in nums                      # iter mode (no `?`); bind by value
+  print(n)                         # 10, 20, 30
+```
+
+The element `n: Int` is bound by value. Iterator-invalidation
+for Copy T is "wrong logic" (silently misleading output), not
+memory unsafety — runtime is bounded by `len`. The user is
+responsible for not mutating the Vec mid-iteration.
+
+**Resource element T (e.g., `Vec(*Closure())`):**
+
+```rig
+subs: Vec(*Closure()) = Vec()
+(!subs).push(+cb1); (!subs).push(+cb2)
+for cb in ?subs                    # `?` source borrow is MANDATORY
+  cb()                             # bare read OK (invoke = read op)
+```
+
+Per the M20i.1 design pass (GPT-5.5 entry 26):
+
+1. **The `?` source borrow is mandatory.** Bare-source
+   iteration over a resource-element Vec is sema-rejected:
+   ```
+   error: resource Vec(T) iteration requires an explicit read
+          borrow; write `for x in ?vec`
+   ```
+   The `?` makes the borrow visible at the syntax level and
+   lights up the ownership-layer mutation guard.
+2. **The element binding is a borrowed view of the Vec slot.**
+   Sema types `cb` as `borrow_read(*Closure())` — not as an
+   owned `*Closure()`. The element stays in the Vec's storage;
+   the body sees a non-consuming read alias of it. The M20d
+   auto-deref makes `cb()`, `cb.method(...)`, and `cb.field`
+   all work transparently.
+3. **The loop body cannot write-borrow the source.** The for
+   installs a scope-bound read borrow on the source Vec, so
+   `(!subs).push(...)` / `<subs` / `-subs` inside the body
+   fire the standard borrow-conflict diagnostic. This prevents
+   iterator-invalidation that could free elements mid-iteration
+   (resource Vec drop is memory-safety, unlike Copy T).
+4. **The element cannot be cloned / moved / dropped / returned
+   / stored.** `+cb`, `<cb`, `-cb`, `return cb`, and bare
+   `cb` as a call argument / binding RHS all fire tailored
+   diagnostics:
+   ```
+   error: cannot {clone,move,drop,return,...} loop-borrow
+          alias `cb`; resource Vec(T) iteration binds the
+          element as a read borrow of the Vec slot. Clone /
+          move / drop / store are not supported on borrowed
+          elements in V1.
+   ```
+   For PB3 multi-subscriber notification, the only required
+   use is `cb()`, which works cleanly.
+
+**Modes.** The for grammar's mode slot drives the dispatch:
+
+| Mode    | Source form    | Copy T | Resource T |
+|---------|----------------|--------|------------|
+| `iter`  | `for x in vec` | OK     | rejected   |
+| `read`  | `for x in ?vec`| OK     | OK         |
+| `write` | `for x in !vec`| n/a    | rejected (V1) |
+| `move`  | `for x in <vec`| n/a    | rejected (V1) |
+| `ptr`   | `for *x in vec`| n/a    | rejected (V1) |
+
+Write / move / pointer iteration over resource Vec is V1-
+deferred — would require resource-T `pop`/`get` or `take`/
+`swap` primitives that don't exist yet.
+
+**Emit shape.** Vec iteration lowers to an explicit walk
+(Zig doesn't know how to iterate `rig.Vec(T)`):
+
+```zig
+// Copy element (Shape Y):
+if (nums.buf) |__rig_p_X| {
+    var __rig_i_X: usize = 0;
+    while (__rig_i_X < nums.len) : (__rig_i_X += 1) {
+        const n = __rig_p_X[__rig_i_X];
+        // <body>
+    }
+}
+
+// Resource element (Shape X):
+if (subs.buf) |__rig_p_X| {
+    var __rig_i_X: usize = 0;
+    while (__rig_i_X < subs.len) : (__rig_i_X += 1) {
+        const __rig_elem_cb = &__rig_p_X[__rig_i_X];
+        // Uses of `cb` lower to `__rig_elem_cb.*`.
+        // `cb()` lowers to `__rig_elem_cb.*.value.invoke()`.
+    }
+}
+```
+
+The outer `if (vec.buf) ...` handles the empty-Vec case
+naturally (runtime: `buf == null` until the first push). The
+slot-alias rewrite for Shape X preserves the "borrowed view"
+semantics at the Zig level — no normal Zig local of the strong
+handle type exists for the body to misuse.
+
+**Substrate role.** M20i.1 is the prerequisite for PB3 (multi-
+subscriber Signal). PB3 will generalize `Signal(T)` from one
+optional `*Closure()` subscriber to `Vec(*Closure())`, with
+`signal.set(v)` running `for cb in ?self.subs ; cb()` to
+notify all subscribers. The substrate piece is now solid; the
+remaining design questions (batching, topology, Memo) live in
+their own PB3 / PB4 checkpoints.
 
 ### Reactive primitive: `Signal(T)` (PB2)
 

@@ -1,0 +1,2 @@
+examples/vec_for_write_during_iter_rejected.rig:19:7: error: cannot write-borrow `subs` while a read borrow is live
+examples/vec_for_write_during_iter_rejected.rig:17:14:   note: read borrow taken here

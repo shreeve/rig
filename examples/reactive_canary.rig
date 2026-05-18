@@ -1,4 +1,4 @@
-# Phase B canary (PB0 → PB1 → PB2 layers).
+# Phase B canary (PB0 → PB1 → PB2 → M20i.1 layers).
 #
 # Purpose: anchor the reactive validation milestone. Per the
 # GPT-5.5 Phase B checkpoint, this file is NOT a library — it's
@@ -7,13 +7,13 @@
 #
 # The canary has grown alongside each substrate milestone:
 #
-#   PB0  baseline: Cell + stack-local closure       ✅ shipped
-#   M20h owned/escaping closure values              ✅ shipped
-#   PB1  single retained Effect (folded M20h(5/5))  ✅ shipped
-#   M20i resource-aware Vec(T)                      ✅ shipped
-#   PB2  Signal: single-subscriber notification     ✅ NEW HERE
-#   PB3  multi-subscriber + batching + topology    pending (needs
-#         resource-Vec iteration; M20i.1 / M20j)
+#   PB0    baseline: Cell + stack-local closure        ✅ shipped
+#   M20h   owned/escaping closure values               ✅ shipped
+#   PB1    single retained Effect (folded M20h(5/5))   ✅ shipped
+#   M20i   resource-aware Vec(T)                       ✅ shipped
+#   PB2    Signal: single-subscriber notification      ✅ shipped
+#   M20i.1 resource-Vec iteration `for cb in ?subs`    ✅ NEW HERE
+#   PB3    multi-subscriber Signal + batching + topo  pending
 #
 # Each substrate gap exposed by the canary gets fixed on main,
 # not in the library. Per the design doc: "the library is the
@@ -74,10 +74,37 @@ sub main()
   sig.set(7)                        # 7  (set triggers log)
   sig.set(99)                       # 99 (same)
 
-  # TODO PB3 (multi-subscriber): once resource-Vec iteration
-  # (M20i.1 / M20j) lands, generalize Signal to hold
-  # `Vec(*Closure())` and notify all subscribers on `set`.
-  # The substrate piece already validated by
-  # `examples/vec_subscribers.rig` (Vec drop cascades
-  # correctly through all retained handles); the missing
-  # piece is the notify-iteration primitive itself.
+  # M20i.1 (resource-Vec iteration): `for cb in ?subs` walks a
+  # `Vec(*Closure())` and invokes each retained subscriber via a
+  # borrowed view of the slot. This is the substrate primitive
+  # PB3's multi-subscriber Signal will use internally — the
+  # canary block below proves the iteration shape composes with
+  # the M20h escaping-closure + M20i Vec drop-cascade
+  # discipline. Per GPT-5.5's M20i.1 design pass:
+  #   - `?subs` is mandatory for resource-element Vec iteration
+  #     (sema rejects bare-source iteration with a tailored
+  #     diagnostic pointing at `?vec`).
+  #   - The loop binding `cb` is a read borrow of the Vec slot;
+  #     it may be called (`cb()`) but NOT cloned/moved/dropped
+  #     (ownership rejects those with a tailored diagnostic).
+  #   - The loop body is forbidden from write-borrowing `subs`
+  #     (e.g., `(!subs).push(...)`) by the standard borrow-
+  #     conflict rule — the loop installs a scope-bound read
+  #     borrow on the source.
+  notes: *Cell(Int) = *Cell(value: 0)
+  one:   *Closure() = *Closure(fn |+notes| notes.set(notes.get() + 1))
+  ten:   *Closure() = *Closure(fn |+notes| notes.set(notes.get() + 10))
+  cent:  *Closure() = *Closure(fn |+notes| notes.set(notes.get() + 100))
+  subs: Vec(*Closure()) = Vec()
+  (!subs).push(+one)
+  (!subs).push(+ten)
+  (!subs).push(+cent)
+  for cb in ?subs
+    cb()
+  print(notes.get())                # 111 (1 + 10 + 100)
+
+  # TODO PB3 (multi-subscriber Signal): generalize Signal(T) to
+  # hold `Vec(*Closure())` and run the same `for cb in ?subs`
+  # iteration on `set`. M20i.1 lands the substrate piece; the
+  # remaining work is wiring the iteration into Signal.set and
+  # designing batching / topology (separate design checkpoint).

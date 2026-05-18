@@ -1,0 +1,19 @@
+## M20i.1: writing to the iterated Vec during the loop is rejected.
+##
+## `for cb in ?subs` takes a scope-bound read borrow on `subs`
+## for the loop body. `(!subs).push(...)` inside the body
+## requires a write borrow, which conflicts with the live read
+## borrow — fires the standard M2 "cannot write-borrow `X` while
+## a read borrow is live" diagnostic with a note pointing at the
+## loop source.
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  cb1: *Closure() = *Closure(fn |+count| count.set(count.get() + 1))
+
+  subs: Vec(*Closure()) = Vec()
+  (!subs).push(+cb1)
+
+  for cb in ?subs
+    cb()
+    (!subs).push(+cb1)

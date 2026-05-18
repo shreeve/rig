@@ -1,0 +1,1 @@
+examples/vec_for_no_borrow_rejected.rig:18:13: error: resource Vec(T) iteration requires an explicit read borrow; write `for x in ?vec`

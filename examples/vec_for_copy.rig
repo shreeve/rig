@@ -1,0 +1,29 @@
+## M20i.1(4/4): external `for x in vec` over Copy `Vec(T)` (Shape Y).
+##
+## Per GPT-5.5's M20i.1 design pass: Copy-element Vec iteration
+## binds the element by value. Default `iter` mode (no `?`) is
+## fine because copying a Copy value is the same as reading it;
+## the underlying Vec is not borrowed for the loop. Iterator-
+## invalidation hazards for Copy T are "merely wrong logic" not
+## "memory unsafety", and runtime is bounded by `len`.
+##
+## Emit (Shape Y): the Vec body lowers to
+##   if (nums.buf) |__rig_p_X| {
+##       var __rig_i_X: usize = 0;
+##       while (__rig_i_X < nums.len) : (__rig_i_X += 1) {
+##           const n = __rig_p_X[__rig_i_X];
+##           <body>
+##       }
+##   }
+##
+## The outer `if (buf)` handles the empty Vec case naturally
+## (Vec(T).init has `buf == null` until the first push). No
+## scope-frame rewrite needed for Copy elements.
+
+sub main()
+  nums: Vec(Int) = Vec()
+  (!nums).push(10)
+  (!nums).push(20)
+  (!nums).push(30)
+  for n in nums
+    print(n)                          # 10, 20, 30

@@ -1,0 +1,24 @@
+## M20i.1: cloning a loop-borrow alias is rejected.
+##
+## `for cb in ?subs` binds `cb` as a borrowed view of the Vec
+## slot. `+cb` (clone) would bump the strong refcount on the
+## borrowed handle and silently smuggle a new strong reference
+## past the loop boundary. Per GPT-5.5's M20i.1 design pass:
+## clone-from-borrow has no V1 form — explicit clone-from-borrow
+## semantics are deferred until the substrate decides between a
+## dedicated primitive vs an opt-in `.clone()` method.
+##
+## The diagnostic fires twice (defense-in-depth): sema's type
+## mismatch (push expects `*Closure()`, got `?*Closure()`) AND
+## the ownership rejection on the loop-borrow alias.
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  cb1: *Closure() = *Closure(fn |+count| count.set(count.get() + 1))
+
+  subs: Vec(*Closure()) = Vec()
+  (!subs).push(+cb1)
+
+  other: Vec(*Closure()) = Vec()
+  for cb in ?subs
+    (!other).push(+cb)
