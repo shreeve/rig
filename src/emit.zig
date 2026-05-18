@@ -31,7 +31,18 @@ pub const Error = std.mem.Allocator.Error || Writer.Error || rig.BindingKindErro
 
 /// M20e: classification of a binding's resource type. File-scope so
 /// the SymbolEntry / scope-table can carry it without a circular ref.
-pub const ResourceKind = enum { shared, weak };
+/// M20e + M20i: resource-bearing binding classification. Used by
+/// `emitResourceGuard` (to install scope-exit defers) and the
+/// disarm logic at explicit-discharge sites (`-rc`, `<rc`, return).
+///
+/// - `.shared`: `*T` strong handle — drops via `dropStrong()`.
+/// - `.weak`:   `~T` weak handle — drops via `dropWeak()`.
+/// - `.vec_value`: M20i `Vec(T)` resource value — drops via
+///   `__rig_drop()`. Vec owns a backing buffer; the destructor
+///   walks elements + frees buffer. Distinct from `.shared` /
+///   `.weak` because Vec is a VALUE type (not a handle) and the
+///   stack-local binding is the owner, not a reference.
+pub const ResourceKind = enum { shared, weak, vec_value };
 
 const SymbolEntry = struct {
     rig_name: []const u8,
@@ -1048,9 +1059,30 @@ pub const Emitter = struct {
                 // M20d: explicit `-x` for shared/weak handles maps to
                 // runtime refcount ops. M20e: also disarms the M20e
                 // guard so the scope-exit `defer` is a no-op.
+                //
+                // M20i(4/5): `-vec` for a Vec(T) value calls the
+                // runtime destructor (`vec.__rig_drop()`) which walks
+                // elements + frees buffer + nulls the buf pointer. The
+                // M20e guard's flag is then disarmed so the scope-exit
+                // defer is a no-op. Note: __rig_drop is idempotent
+                // w.r.t. the buf-null check, but the flag disarm is
+                // the official "I handled this" signal.
                 if (items.len < 2) {
                     try self.w.writeAll("// drop");
                     return;
+                }
+                // Vec values go through the scope-aware resource lookup
+                // (not `handleKindOf` which is shared/weak only).
+                if (items[1] == .src) {
+                    const drop_name = self.source[items[1].src.pos..][0..items[1].src.len];
+                    if (self.lookupResourceKind(drop_name)) |rk| {
+                        if (rk == .vec_value) {
+                            try self.emitExpr(items[1]);
+                            try self.w.writeAll(".__rig_drop();");
+                            try self.emitDisarmIfBareResourceName(items[1]);
+                            return;
+                        }
+                    }
                 }
                 const kind = self.handleKindOf(items[1]);
                 switch (kind) {
@@ -1305,6 +1337,11 @@ pub const Emitter = struct {
                 const drop_method: []const u8 = switch (kind) {
                     .shared => "dropStrong",
                     .weak => "dropWeak",
+                    // M20i: Vec(T) bindings drop via __rig_drop. The
+                    // reassignment-of-resource path applies uniformly
+                    // — same atomic "drop-old, assign-new, re-arm"
+                    // pattern as shared/weak.
+                    .vec_value => "__rig_drop",
                 };
                 try self.w.print("if (__rig_alive_{s}) {{ {s}.{s}(); __rig_alive_{s} = false; }} ", .{
                     found_name, found_name, drop_method, found_name,
@@ -1592,6 +1629,11 @@ pub const Emitter = struct {
                 const drop_method: []const u8 = switch (kind) {
                     .shared => "dropStrong",
                     .weak => "dropWeak",
+                    // M20i: Vec captures aren't supported (Vec is
+                    // non-copyable, capture would require move which
+                    // sema rejects). Unreachable at runtime; included
+                    // for exhaustiveness.
+                    .vec_value => unreachable,
                 };
                 try self.indentSpaces();
                 try self.w.print("self.cap_{s}.{s}();\n", .{ name, drop_method });
@@ -1617,6 +1659,9 @@ pub const Emitter = struct {
             const drop_method: []const u8 = switch (kind) {
                 .shared => "dropStrong",
                 .weak => "dropWeak",
+                // M20i: Vec captures aren't supported in V1.
+                // Unreachable; here for switch exhaustiveness.
+                .vec_value => unreachable,
             };
             // Variable name: `__rig_alive_<closure>_cap_<n>` — the
             // closure-and-capture pair uniquely identifies the
@@ -1841,6 +1886,9 @@ pub const Emitter = struct {
                     const m: []const u8 = switch (k) {
                         .shared => "cloneStrong",
                         .weak => "cloneWeak",
+                        // M20i: Vec captures aren't supported in V1.
+                        // Unreachable; here for switch exhaustiveness.
+                        .vec_value => unreachable,
                     };
                     try self.w.print("{s}.{s}()", .{ outer_zig, m });
                 } else {
@@ -2069,6 +2117,15 @@ pub const Emitter = struct {
         if (callee != .src) return false;
         const callee_name = self.source[callee.src.pos..][0..callee.src.len];
         if (!isBuiltinNominalName(callee_name)) return false;
+        // M20i: Vec is a builtin nominal but does NOT use the
+        // explicit-struct-literal construction shape (`rig.Vec(T){
+        // .buf = ..., .len = 0, .cap = 0 }`). Vec construction
+        // goes through `tryEmitVecConstruction` instead, which
+        // produces `rig.Vec(T).init(allocator)` /
+        // `initCapacity(...) catch panic`. The share-arm's
+        // fall-through `emitExpr` path reaches that helper via
+        // `emitCall`.
+        if (std.mem.eql(u8, callee_name, "Vec")) return false;
         // Verify the LHS type wraps an instantiation of the same
         // built-in (i.e., `*Cell(...)`).
         const lhs = self.current_set_type orelse return false;
@@ -2081,6 +2138,81 @@ pub const Emitter = struct {
         if (lhs_name != .src) return false;
         const lhs_name_str = self.source[lhs_name.src.pos..][0..lhs_name.src.len];
         return std.mem.eql(u8, lhs_name_str, callee_name);
+    }
+
+    /// M20i(4/5): detect and emit `Vec(T)()` / `Vec(T)(capacity: N)`
+    /// construction. Returns true if Vec construction was detected
+    /// and emitted; false otherwise (caller continues with the
+    /// normal call-emit path).
+    ///
+    /// Both stack-local and shared construction route through here:
+    ///   - `v: Vec(Int) = Vec()` — emitCall on `(call Vec)`
+    ///     directly. `current_set_type = (generic_inst Vec Int)`.
+    ///   - `rv: *Vec(Int) = *Vec()` — share-arm calls emitExpr on
+    ///     `(call Vec)`. `current_set_type = (shared (generic_inst
+    ///     Vec Int))`. The share-arm wraps the result with
+    ///     `rig.rcNew(...) catch @panic(...)` afterward.
+    ///
+    /// Emit shapes (where `T` is the resolved Zig element type):
+    ///   - `Vec()`                    → `rig.Vec(T).init(rig.defaultAllocator())`
+    ///   - `Vec(capacity: N)`         → `rig.Vec(T).initCapacity(rig.defaultAllocator(), N) catch @panic("Rig Vec allocation failed")`
+    fn tryEmitVecConstruction(self: *Emitter, items: []const Sexp) Error!bool {
+        // items: (call <callee> args...). callee must be `Vec` identifier.
+        if (items.len < 2) return false;
+        const callee = items[1];
+        if (callee != .src) return false;
+        const callee_name = self.source[callee.src.pos..][0..callee.src.len];
+        if (!std.mem.eql(u8, callee_name, "Vec")) return false;
+
+        // Pull the element-type-bearing `(generic_inst Vec T)` from
+        // the LHS type annotation. Two valid shapes:
+        //   - `(generic_inst Vec T)`               — stack-local Vec
+        //   - `(shared (generic_inst Vec T))`      — *Vec via share-arm
+        const lhs = self.current_set_type orelse {
+            // No type annotation — sema should have rejected this
+            // (Vec construction requires an expected type), but emit
+            // a safety net so the Zig compiler complains rather than
+            // silently producing garbage.
+            try self.w.writeAll("@compileError(\"Rig Vec construction requires a type-annotated binding\")");
+            return true;
+        };
+        var inst_node = lhs;
+        if (lhs == .list and lhs.list.len >= 2 and lhs.list[0] == .tag and
+            lhs.list[0].tag == .@"shared")
+        {
+            inst_node = lhs.list[1];
+        }
+        if (inst_node != .list or inst_node.list.len < 2 or inst_node.list[0] != .tag) return false;
+        if (inst_node.list[0].tag != .@"generic_inst") return false;
+        const inst_name = inst_node.list[1];
+        if (inst_name != .src) return false;
+        const inst_name_str = self.source[inst_name.src.pos..][0..inst_name.src.len];
+        if (!std.mem.eql(u8, inst_name_str, "Vec")) return false;
+
+        // Detect a `(kwarg capacity expr)` argument if present.
+        var capacity_expr: ?Sexp = null;
+        for (items[2..]) |arg| {
+            if (arg != .list or arg.list.len < 3 or arg.list[0] != .tag) continue;
+            if (arg.list[0].tag != .@"kwarg") continue;
+            const kw_name_node = arg.list[1];
+            if (kw_name_node != .src) continue;
+            const kw_name = self.source[kw_name_node.src.pos..][0..kw_name_node.src.len];
+            if (std.mem.eql(u8, kw_name, "capacity")) {
+                capacity_expr = arg.list[2];
+                break;
+            }
+        }
+
+        // Emit the type prefix: `(generic_inst Vec Int)` → `rig.Vec(i32)`.
+        try self.emitType(inst_node);
+        if (capacity_expr) |cap| {
+            try self.w.writeAll(".initCapacity(rig.defaultAllocator(), ");
+            try self.emitExpr(cap);
+            try self.w.writeAll(") catch @panic(\"Rig Vec allocation failed\")");
+        } else {
+            try self.w.writeAll(".init(rig.defaultAllocator())");
+        }
+        return true;
     }
 
     /// M20f(3/4): emit a built-in nominal constructor call as an
@@ -2120,6 +2252,24 @@ pub const Emitter = struct {
     /// `var` unconditionally — Rig's `=!` still prevents rebinding
     /// at the Rig level (SPEC permits interior mutation through
     /// fixed bindings).
+    /// M20f + M20i: does this stack-local binding need Zig `var`
+    /// storage (rather than the M19-inferred `const`) so its
+    /// methods can take `*Self` receivers?
+    ///
+    /// Two cases trigger `var`:
+    ///   - **Cell(T)** (M20f) — interior-mutable: `set(*Self, T)`
+    ///     needs a mutable pointer to update `value` through a
+    ///     read-receiver call site.
+    ///   - **Vec(T)** (M20i) — resource value with mutating
+    ///     methods: `push` / `pop` / `clear` / `__rig_drop` all
+    ///     take `*Self`. Without `var`, calling `(!v).push(...)`
+    ///     would fail Zig's "expected mutable pointer" check.
+    ///
+    /// Both share the "user-facing API requires mutable storage
+    /// even if the binding is never reassigned" pattern. The
+    /// surrounding emit code also fires `_ = &<name>;` to pacify
+    /// Zig's "never mutated" warning in the case where the body
+    /// only invokes methods (no rebinding).
     fn isInteriorMutableBinding(self: *const Emitter, name_node: Sexp) bool {
         const sema = self.sema orelse return false;
         if (name_node != .src) return false;
@@ -2135,8 +2285,9 @@ pub const Emitter = struct {
             if (!std.mem.eql(u8, sym.name, name)) continue;
             const ty = sema.types.get(sym.ty);
             return switch (ty) {
-                .parameterized_nominal => |pn| pn.sym == sema.cell_sym_id,
-                .nominal => |s| s == sema.cell_sym_id,
+                .parameterized_nominal => |pn| pn.sym == sema.cell_sym_id or
+                    pn.sym == sema.vec_sym_id,
+                .nominal => |s| s == sema.cell_sym_id or s == sema.vec_sym_id,
                 else => false,
             };
         }
@@ -2172,6 +2323,13 @@ pub const Emitter = struct {
             return switch (ty) {
                 .shared => .shared,
                 .weak => .weak,
+                // M20i: Vec(T) stack-local bindings get a scope-exit
+                // defer that calls `__rig_drop()`. The destructor
+                // walks elements (LIFO) + frees the backing buffer.
+                .parameterized_nominal => |pn| if (pn.sym == sema.vec_sym_id)
+                    @as(?ResourceKind, .vec_value)
+                else
+                    null,
                 else => null,
             };
         }
@@ -2212,6 +2370,7 @@ pub const Emitter = struct {
         const drop_method: []const u8 = switch (kind) {
             .shared => "dropStrong",
             .weak => "dropWeak",
+            .vec_value => "__rig_drop",
         };
         try self.w.writeAll("\n");
         try self.indentSpaces();
@@ -2261,6 +2420,14 @@ pub const Emitter = struct {
                     break :blk switch (kind) {
                         .shared => .shared,
                         .weak => .weak,
+                        // M20i: Vec is a resource value, not a
+                        // handle. `handleKindOf` answers "is this a
+                        // clonable Rc/Weak handle"; Vec is move-only
+                        // (no clone), so map to `.other` which means
+                        // "not a clone-aware handle". Callers like
+                        // `(clone x)` and `(drop x)` fall back to the
+                        // pass-through / vec-specific branches.
+                        .vec_value => .other,
                     };
                 }
                 break :blk .other;
@@ -3073,6 +3240,17 @@ pub const Emitter = struct {
             }
         }
         if (items.len < 2) return;
+
+        // M20i(4/5): Vec construction. `(call Vec)` and
+        // `(call Vec (kwarg capacity N))` lower to the runtime's
+        // `rig.Vec(T).init(...)` / `initCapacity(...) catch
+        // @panic(...)`. The element type `T` comes from the
+        // surrounding LHS type annotation via `current_set_type`.
+        // The share-arm `(share (call Vec))` wraps the result in
+        // `rig.rcNew(...) catch @panic(...)` unchanged — the Vec
+        // construction emit produces an inner expression that
+        // composes correctly with the existing share machinery.
+        if (try self.tryEmitVecConstruction(items)) return;
 
         // M20g(3/5): closure invocation. If the callee is a bare
         // name resolving to a closure binding (marked by
