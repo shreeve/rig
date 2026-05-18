@@ -2048,6 +2048,108 @@ reentrancy caveat on the lexical borrow rule (closure
 calls can mutate the subscriber list indirectly — PB3
 will need a runtime policy for this).
 
+### PB3 — Multi-subscriber `Signal(T)` ✅
+
+The convergence point of Phase B's substrate work. Generalizes
+PB2's single-subscriber slot to a `Vec(*RcBox(Closure0))` of
+retained subscribers; `signal.set(v)` walks every subscriber
+synchronously in subscription order with strict non-reentrant
+discipline. Closes Phase B and sets up Phase C (full reactive
+library: `Effect` / `Memo` / `Reactor` user-buildable on PB3)
+AND Phase D (async, per INFLUENCES §2 — `Future<T>` is
+structurally the same shape).
+
+Locked at the PB3 design checkpoint with GPT-5.5 (conversation
+`c_5c1d09d53ebe2f62`, entries 29 + 30). Steve initially
+proposed R4 (index walk, len snapshot, tolerate shrinks, ignore
+late additions) as a low-allocation reentrancy policy; GPT-5.5
+pushed back hard on **R2 (strict `notifying` flag + panic)**
+because:
+
+1. R4 forces the V1 spec to define recursive semantics that
+   should be locked in PB4 once canary pressure exposes the
+   use cases.
+2. R2 has no allocation, no Vec mutation during iteration, no
+   late-subscriber visibility rules to specify.
+3. R2 is easy to relax later to queue / snapshot. R4 would
+   calcify into "the API contract" once users started
+   depending on cascade behavior.
+4. R2 generalizes cleanly to `Future<T>` (resolve-once,
+   notify-waiters, no recursive resolve semantics).
+
+GPT-5.5 also flagged a critical audit BEFORE PB3 could ship:
+closures must be unable to move/drop their captured resource
+handles. A retained subscriber is invoked multiple times; if
+the body could consume its capture, the second invocation
+would be UAF. The audit confirmed the hole existed (sema/
+ownership accepted `*Closure(fn |+sig| consume(<sig))` while
+emit produced malformed Zig that accidentally caught it);
+fixed in PB3(1/5) BEFORE the runtime change.
+
+**Sub-commits:**
+
+| Commit | What it shipped |
+|---|---|
+| `b0c0861` PB3(1/5) | **Audit fix (must-precede).** New `Binding.is_capture_resource: bool` set by `bindCapturesLocal` for `cap_clone`/`cap_weak`/`cap_move` captures. Unified `rejectLoopBorrowOp` -> `rejectNonConsumableBindingOp` per GPT-5.5 tactical guidance — single helper covering both M20i.1's `is_loop_borrow` and PB3's `is_capture_resource`. Branches diagnostic wording on which flag fired; hooks at the same five sites M20i.1 added. Allowed: `cap()`, `cap.method()`, `+cap`, `~cap`. Rejected: `<cap`, `-cap`, `return cap`, bare-alias. |
+| `673de60` PB3(2/5) | **Runtime.** Signal struct gets `subs: Vec(*RcBox(Closure0))` (replacing PB2's optional single slot), `notifying: bool` (R2 guard), `init(value)` constructor (Vec needs allocator — not Zig-default-expressible). `set` checks `notifying` (panic on reentry), sets it true, walks `subs` forwards with `len` snapshot, defers reset. `subscribe` checks `notifying` (panic on reentry), clones + pushes. `__rig_drop` cascades via `subs.__rig_drop()` -> M20i `dropElement`. |
+| `e86cfce` PB3(3/5) | **Emit + sema.** New `tryEmitSignalConstruction` parallel to `tryEmitVecConstruction`. Lowers `*Signal(value: V)` to `rig.rcNew(rig.Signal(T).init(V))`. `shouldExplicitTypeShareInner` excludes Signal (matches Vec exclusion). Sema-side `checkSet` rejects stack-local `Signal(T)` bindings per GPT-5.5 entry 29 — Signal owns a Vec that requires the M20e defer-guard machinery; rather than ship that for a use case no canary needs, reject the shape. Diagnostic points at the heap-owned `*Signal(T)` fix. |
+| `1788d9d` PB3(4/5) | **Tests + canary + harness.** New `signal_multi_subscriber.rig` (mandatory subscriber-shaped regression: 3 closures driving a shared Cell, 2 `set` calls advance 0 -> 111 -> 222). New `signal_reentrant_set_panics.rig` (informational; not in EMIT_TARGETS — documents the R2 panic). Canary refresh with a PB3 multi-subscriber block; output now `1\n3\n13\n7\n99\n111\n111` (M20i.1 user-written walk + PB3 builtin walk both produce 111). Generalized `End-to-end run` harness into `run_end_to_end <name> <expected>` covering hello + signal_multi_subscriber + reactive_canary. |
+| PB3(5/5) | **Docs (this entry).** SPEC §Signal rewritten for multi-subscriber + R2 + stack-rejection + V1 deferrals. ROADMAP PB3 entry. HANDOFF refresh (Phase B complete; PB4 / Phase C / Phase D become the next concrete arcs). |
+
+**Tests across PB3 (1/5) → (5/5): 846 → 876 (+30).**
+
+**Canary chain (Phase B complete)**:
+
+```
+1     PB0   Cell + stack-local closure
+3     M20g  capture + invoke from stack
+13    M20h  retained escaping closure
+7     PB2   single-subscriber Signal (first set)
+99    PB2   single-subscriber Signal (second set)
+111   M20i.1 Vec(*Closure()) + for cb in ?subs (user-written walk)
+111   PB3   multi-subscriber Signal (builtin walk, same tally)
+```
+
+**Substrate composition note.** The two notification primitives
+shipped in Phase B are structurally equivalent:
+
+  - User-written `for cb in ?subs ; cb()` (M20i.1) — explicit
+    control over the walk; subscribe / iterate via Rig source.
+  - Builtin `signal.set(v)` (PB3) — packages "value cell +
+    subscriber list + notify-on-set" with R2 reentrancy guard.
+
+The canary demonstrates both. Users who want full control
+(custom iteration order, conditional invoke, error handling
+per subscriber) reach for the M20i.1 primitive directly; users
+who want the canonical reactive ergonomics reach for the
+Signal builtin.
+
+**Phase B status after PB3**: PB0 ✅, M20h ✅ (PB1 folded),
+M20i ✅, PB2 ✅, M20i.1 ✅, **PB3 ✅** — Phase B is **complete**.
+The next concrete arc is a design decision between three
+forward paths (all are unblocked):
+
+  1. **PB4** — Reactor / batching / Memo / Effect lifecycle.
+     The full reactive library. Builds entirely on PB3 +
+     M20i.1; substrate is solid.
+  2. **Phase C** — reactive sugar (`:=` / `~=` / `~>` per the
+     original Rip vision). Optional, can be deferred
+     indefinitely; the library shape (PB3 + future PB4) is
+     ergonomic enough on its own.
+  3. **Layer 8** — structured concurrency (scope-bound tasks,
+     cancellation discipline). Per INFLUENCES §1, this is the
+     prerequisite for safe async. PB3's retained-callback-list
+     shape is structurally the same as `Future<T>`'s waiter
+     list — async is now substrate-ready, with the
+     `Future<T>` design naturally derivable from PB3.
+
+Steve will pick the next arc based on which substrate the
+canary discipline forces. Per the Q1-Q5 Phase B lock from
+entry 15: "canary first, library never; fix the language not
+the library." If/when a canary use case forces Memo or
+batching, PB4 wins. If a use case forces concurrency or
+async, Layer 8 / Phase D wins. Phase C is luxury.
+
 ### M20h.1 — Tighten `in_set_rhs` to direct lambda RHS ✅
 
 GPT-5.5's M20h post-implementation review caught a
@@ -2166,6 +2268,19 @@ the M20+ items below):
    sema (Copy element OK in `iter` mode; resource element
    requires `read`) + ownership loop-source borrow + Shape X
    slot-alias emit. PB3 substrate prerequisite shipped.
+9.2. ~~**Captured-resource non-consumability audit**~~ ✅
+   **Landed in PB3(1/5)** above. Unified `is_loop_borrow` +
+   `is_capture_resource` non-consumable-binding helper closed
+   the gap where closure bodies could move/drop their captured
+   resource handles (UAF on multi-invocation of retained
+   subscribers). Must-precede PB3.
+9.3. ~~**Multi-subscriber `Signal(T)`**~~ ✅ **Landed in PB3**
+   above. Strict R2 (non-reentrant) reactivity primitive. The
+   convergence point of Phase B substrate work: heap closures
+   (M20h) + resource Vec (M20i) + Vec iteration (M20i.1) +
+   captured-resource discipline (PB3(1/5)) compose into Signal.
+   Future `Future<T>` async primitive is structurally the same
+   shape (resolve-once + waiter list).
 10. `%T` unsafe-effect lattice + `unsafe` block / fn-modifier
     (SPEC §Unsafe / Raw — text landed; checker enforcement TBD)
 11. `pre` AST extraction for derive-style macros

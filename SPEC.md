@@ -587,38 +587,41 @@ notify all subscribers. The substrate piece is now solid; the
 remaining design questions (batching, topology, Memo) live in
 their own PB3 / PB4 checkpoints.
 
-### Reactive primitive: `Signal(T)` (PB2)
+### Reactive primitive: `Signal(T)` (PB2 / PB3)
 
-`Signal(T)` is the minimum viable reactive primitive — a
-`Cell`-like value slot paired with **one optional retained
-closure subscriber**. On `signal.set(v)`, the value updates AND
-the subscriber (if present) is invoked synchronously. This is
-the canonical "push-on-change" reactive pattern, reduced to its
-load-bearing minimum: prove that a retained closure observes
-state changes, without yet committing to multi-subscriber
-semantics, batching, or topology.
+`Signal(T)` is Rig's canonical push-on-change reactive
+primitive — a `Cell`-like value slot paired with a list of
+retained `*Closure()` subscribers. On `signal.set(v)`, the
+value updates AND every subscriber is invoked synchronously
+in subscription order.
 
 ```rig
 sub main()
   sig: *Signal(Int) = *Signal(value: 0)
-  log: *Closure() = *Closure(fn |+sig| print(sig.get()))
-  sig.subscribe(+log)
-  sig.set(7)                      # prints 7 (set invokes log)
-  sig.set(99)                     # prints 99
+  log_a: *Closure() = *Closure(fn |+sig| print(sig.get() + 1000))
+  log_b: *Closure() = *Closure(fn |+sig| print(sig.get() + 2000))
+  sig.subscribe(+log_a)
+  sig.subscribe(+log_b)
+  sig.set(7)                      # prints 1007 then 2007
+  sig.set(99)                     # prints 1099 then 2099
 ```
 
 `Signal(T)` is registered as a one-arg built-in generic type at
 sema init (parallel to `Cell` and `Vec`); its runtime lives in
 `_rig_runtime.zig`. V1 API:
 
-- `Signal(value: T)` — constructor sugar; subscriber starts as
-  `null`.
+- `*Signal(value: T)` — constructor. Lowers to
+  `rig.rcNew(rig.Signal(T).init(V))` via the emit-side
+  `tryEmitSignalConstruction`. **Heap-owned form is mandatory**
+  in V1; stack-local `Signal(T)` is sema-rejected (see below).
 - `signal.get() -> T` — current value (copy semantics).
-- `signal.set(v: T)` — updates value and invokes the
-  subscriber if one is registered. **Synchronous.**
-- `signal.subscribe(cb: *Closure())` — registers `cb` as the
-  subscriber, replacing any prior one (the old subscriber's
-  strong handle is dropped before the new one is cloned in).
+- `signal.set(v: T)` — updates value AND invokes every
+  retained subscriber synchronously in subscription order.
+  **Non-reentrant** — see R2 policy below.
+- `signal.subscribe(cb: *Closure())` — clones the incoming
+  `*Closure()` handle and appends to the internal subscriber
+  Vec. Multiple subscribes accumulate; there is no `unsubscribe`
+  in V1 (deferred — see below).
 
 **V1 restriction: `T` must be a Copy type** (`Int`, `Bool`,
 `Float`, `String`, the literal pseudo-types) — same restriction
@@ -626,32 +629,94 @@ as `Cell`. Non-Copy `T` would need the same replace/take/Drop
 machinery deferred from Cell-non-Copy; will arrive together if
 either lands.
 
-**Single-subscriber rationale.** Multi-subscriber notification
-requires walking a `Vec(*Closure())` and invoking each, which in
-turn requires resource-element iteration on `Vec` — a separate
-substrate piece (M20i.1 / M20j) deliberately deferred. The
-single-subscriber Signal proves the load-bearing reactive
-claim without dragging in the iteration design. **PB3** will
-generalize to multi-subscriber once iteration lands; the
-substrate proof for that direction is already in
-`examples/vec_subscribers.rig` (Vec drop cascades correctly
-through resource elements).
+**R2 reentrancy policy (PB3, GPT-5.5 entry 29).** Calling
+`signal.set(...)` or `signal.subscribe(...)` from inside a
+subscriber's body (i.e., during an active notification) is
+V1-unsupported and panics at runtime:
+
+```
+thread <id> panic: Rig Signal.set: reentrant set is not
+                   supported in V1
+```
+
+The runtime's `notifying: bool` flag is the guard. Both `set`
+and `subscribe` check it and panic if active. Rationale: silent
+tolerance (snapshot, queue, or index-walk-with-shrink) would
+force the V1 spec to define cascade semantics (re-fire? skip?
+share notification context?) that should be locked in PB4 after
+canary pressure exposes the use cases. R2 is strict-first;
+relax in PB4 once requirements are clearer. R2 also generalizes
+cleanly to a future `Future<T>` async primitive (resolve-once,
+notify-waiters, no recursive resolve).
+
+**Stack-local `Signal(T)` rejected in V1.** Signal owns a
+`Vec(*Closure())` of retained subscribers; the Vec requires an
+M20e-style scope-exit defer-guard to release the buffer at
+scope exit. Wiring Signal through the same machinery as Vec is
+possible but bigger than the smallest-safe-path rejection. The
+heap-owned form `*Signal(T)` is the only V1 shape:
+
+```rig
+sig: Signal(Int) = Signal(value: 0)
+# error: stack-local `Signal(T)` is not supported in V1;
+#        Signal owns a subscriber `Vec` that requires heap
+#        ownership. Use `*Signal(T)` (heap-owned) instead.
+
+sig: *Signal(Int) = *Signal(value: 0)
+# OK — *Signal wires Signal's `__rig_drop` through M20h's
+# `hasRigDrop` hook so the subs-Vec destructor cascades on
+# last-strong drop.
+```
+
+**`subscribe` discipline.** Caller's `*Closure()` handle is
+unaffected — `subscribe` clones it, so the user can retain
+their own strong reference (e.g., for logging or testing) while
+the Signal independently holds its own. No unsubscribe in V1:
+identity-comparison on RcBox pointers is straightforward but
+the slot-shift / iteration interaction is its own design
+decision. Users who need register/unregister can build it
+userland via weak handles + `.upgrade()` (M20d primitives).
 
 **Lifecycle**:
 
-- `subscribe` clones the incoming `*Closure()` handle (refcount
-  bump), so callers can keep their original handle alive
-  independently. Replace semantics: a second `subscribe` call
-  drops the previous handle and installs the new one.
-- `Signal.__rig_drop` releases the retained subscriber handle
-  (if any) on last-strong drop of the containing `RcBox`. The
-  `value` field is Copy so no per-field cleanup is needed.
+- `init(value)` — Vec subs initialized empty with the default
+  allocator; first `subscribe` allocates the backing buffer.
+- `subscribe(cb)` — clone + push. Caller's handle still live.
+- `set(v)` — `notifying = true`; walk `subs` forwards with
+  `len` snapshot at start; `defer notifying = false` on scope
+  exit. PANIC on reentry.
+- `__rig_drop` — cascades through `self.subs.__rig_drop()`
+  which walks elements LIFO and dropStrongs each retained
+  closure via the M20i `dropElement` dispatch.
 
-**`Signal(T)` is a resource value type** for the same reason as
-`Vec(T)` — it owns the retained closure handle. The standard
-`*Signal(T)` form (shared via `RcBox`) is the natural shape;
-stack-local `Signal(T)` bindings get the same auto-drop
-discipline as Cell/Vec stack-locals.
+**V1 deferred features.**
+
+- Unsubscribe / subscription tokens. Userland-buildable via
+  weak handles + `.upgrade()` in the meantime.
+- Memo (derived values that auto-recompute on dep change). PB4.
+- Effect lifecycle (auto-unregister on Effect drop). PB4.
+- Reactor / batching / `flush` (so multiple `set` calls in a
+  transaction enqueue invalidations and run once at the end).
+  PB4.
+- Topology / dependency-graph ordering. PB4.
+- Reentrant `set` / `subscribe` with snapshot or queue
+  semantics. PB4, conditional on canary use case.
+- Multi-threaded Signal (`Arc<Signal>` / `Send` / `Sync`). V2+.
+
+**Substrate composition.** PB3 is the convergence point of
+Phase B's substrate work:
+
+  M20h     heap closures            (stored partial execution)
+  M20i     resource Vec             (owned container of escaping callbacks)
+  M20i.1   resource-Vec iteration   (walk over retained callbacks)
+  PB3      multi-subscriber Signal  (retained-callback-list notify)
+
+This same shape — value slot + list of resumption continuations
++ notify-on-resolve — is structurally what `Future<T>` needs.
+Phase D (async, per `docs/INFLUENCES.md` §2 "async is
+stored-partial-execution") and Phase C (full reactive library:
+`Effect` / `Memo` / `Reactor` user-buildable on PB3) both fall
+out cheaply now that PB3 is locked.
 
 ### Resource temporaries (named-binding RAII boundary)
 

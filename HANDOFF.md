@@ -1,17 +1,21 @@
-# Rig — Session Handoff (M20i.1 + M20i.1.1 complete; PB3 unblocked)
+# Rig — Session Handoff (Phase B complete; PB4 / Phase C / Layer 8 unblocked)
 
-**You are picking up a Rig compiler session at the M20i.1 boundary.**
-M20h (owned escaping closures) + M20i (resource-aware Vec) +
-PB2 (single-subscriber Signal) + **M20i.1 (resource-Vec
-iteration via `for x in ?vec`)** + **M20i.1.1 (sema attribution
-table + non-bare source rejection)** all shipped end-to-end.
-The reactive canary (`examples/reactive_canary.rig`)
-demonstrates the full Cell + closure + Signal + Vec-iteration
-chain producing `1\n3\n13\n7\n99\n111`. **846 tests passing, 0
-failing. Clean tree on `main`.** The next concrete action is
-the **PB3 design checkpoint — multi-subscriber Signal +
-batching + topology**, now that the substrate prerequisite
-(resource-Vec iteration) is solid.
+**You are picking up a Rig compiler session at the PB3 boundary.**
+**Phase B is complete.** M20h (owned escaping closures) + M20i
+(resource-aware Vec) + M20i.1 (resource-Vec iteration via
+`for x in ?vec`) + M20i.1.1 (sema attribution table) + PB2
+(single-subscriber Signal) + PB3(1/5) (captured-resource audit
+fix) + PB3 (multi-subscriber `Signal(T)` with R2 reentrancy
+policy) all shipped end-to-end. The reactive canary
+(`examples/reactive_canary.rig`) demonstrates the full Cell +
+closure + Vec-iteration + Signal chain producing
+`1\n3\n13\n7\n99\n111\n111`. **876 tests passing, 0 failing.
+Clean tree on `main`.** The substrate ladder Layers 0–7 are
+all complete; the next concrete action is a **design decision
+between three forward paths** (all unblocked): **PB4** (Memo +
+Effect lifecycle + Reactor + batching), **Phase C** (reactive
+sugar `:=` / `~=` / `~>`), or **Layer 8** (structured
+concurrency — prerequisite for safe async per INFLUENCES §1).
 
 ---
 
@@ -20,19 +24,26 @@ batching + topology**, now that the substrate prerequisite
 - **Project**: Rig is a systems language ("Zig-fast, Rust-safe,
   Ruby-readable") that compiles to Zig 0.16. Repo:
   `/Users/shreeve/Data/Code/rig`.
-- **Where we are**: Substrate ladder Layers 0–6 ✅; Layer 6
-  iteration (M20i.1, the PB3 prerequisite) ✅; Layer 7
-  (reactivity) HALF-shipped — single-subscriber via
-  `Signal(T)` ✅; multi-subscriber pending.
-- **Next concrete action**: **PB3 design checkpoint** with
-  GPT-5.5 (multi-subscriber Signal + batching + topology).
-  Substrate is now solid — `for cb in ?self.subs` is the
-  intended notification primitive; the open design questions
-  are the Signal-state shape (one `Vec(*Closure())` slot vs
-  Cell-extension), the synchronous-set-with-iteration ABI,
-  and whether PB3 introduces Reactor.flush or stays purely
-  synchronous (the "minimum viable multi-subscriber" question
-  parallel to PB2's "minimum viable single-subscriber").
+- **Where we are**: Substrate ladder Layers 0–7 ✅. **Phase B
+  complete.** Multi-subscriber `Signal(T)` shipped with R2
+  reentrancy policy; captured-resource consume audit closed;
+  external `for x in ?vec` resource-Vec iteration shipped.
+  The reactive substrate is now solid end-to-end and
+  structurally generalizes to async `Future<T>` (same shape:
+  resolved value + waiter list + notify-once).
+- **Next concrete action**: **Forward-path design decision**
+  with Steve. Three unblocked arcs (all are substrate-ready):
+    1. **PB4** — Reactor / batching / Memo / Effect lifecycle.
+       The full reactive library. Builds on PB3 + M20i.1.
+    2. **Phase C** — reactive sugar (`:=` / `~=` / `~>`).
+       Optional; can be deferred indefinitely.
+    3. **Layer 8** — structured concurrency (scope-bound
+       tasks, cancellation discipline). Prerequisite for safe
+       async per INFLUENCES §1; PB3's shape generalizes to
+       `Future<T>` directly.
+  Per the Q1-Q5 Phase B lock (entry 15): "canary first, fix
+  the language not the library." Wait for canary pressure to
+  force one of the three arcs.
 - **Cadence (non-negotiable)**: design checkpoint with GPT-5.5
   via `user-ai` MCP → implement in 3–5 sub-commits (M5-style:
   `Mxx(n/total)`) → post-implementation review → commit.
@@ -46,9 +57,10 @@ batching + topology**, now that the substrate prerequisite
 
 ```bash
 git pull --ff-only
-git log -1 --format='%h %s'        # most recent commit; at/after M20i.1.1
-./test/run 2>&1 | tail -3          # should say "846 passed, 0 failed"
-bin/rig run examples/reactive_canary.rig    # 1\n3\n13\n7\n99\n111
+git log -1 --format='%h %s'        # most recent commit; at/after PB3(5/5)
+./test/run 2>&1 | tail -3          # should say "876 passed, 0 failed"
+bin/rig run examples/reactive_canary.rig    # 1\n3\n13\n7\n99\n111\n111
+bin/rig run examples/signal_multi_subscriber.rig  # 0\n111\n222
 ```
 
 **Then read** (in order):
@@ -56,24 +68,38 @@ bin/rig run examples/reactive_canary.rig    # 1\n3\n13\n7\n99\n111
 1. This file's TL;DR + Non-negotiable invariants below (~5 min)
 2. `docs/INFLUENCES.md` §1 (the substrate ladder — the
    conceptual map of where every milestone fits) (~5 min)
-3. ROADMAP.md most-recent entries (M20i.1, PB2, M20i, M20h)
+3. ROADMAP.md most-recent entries (PB3, M20i.1.1, M20i.1, PB2)
    (~10 min)
 4. `docs/REACTIVITY-DESIGN.md` (Phase B design north star)
    (~15 min)
-5. `examples/reactive_canary.rig` (~2 min — the regression
-   test that captures the full Phase B chain)
+5. `examples/reactive_canary.rig` + `signal_multi_subscriber.rig`
+   (~3 min — the regression tests that capture the full Phase B
+   chain)
 
 **Then do**:
 
-- Open a design checkpoint with GPT-5.5 for **PB3 — multi-
-  subscriber Signal**. The substrate prerequisite (`for cb in
-  ?subs`) is solid; the design space is the Signal-state
-  shape (one `Vec(*Closure())` field vs Cell-extension), the
-  set-with-iteration ABI (synchronous vs deferred), and
-  whether PB3 introduces Reactor.flush or stays purely
-  synchronous like PB2. Steve has resisted speculative
-  expansion of Signal's API; keep PB3 minimum-viable and
-  defer batching/topology/Memo to PB4.
+- Wait for canary pressure or a Steve-driven design decision
+  before opening the next arc. Phase B is complete; the three
+  forward paths (PB4 / Phase C / Layer 8) are all unblocked,
+  but Q1-Q5's "canary first" discipline says don't pre-empt
+  the design space.
+- If Steve picks **PB4** (Reactor / Memo / Effect / batching),
+  the design checkpoint will need to cover: Reactor as runtime
+  type vs ambient context (D9 of REACTIVITY-DESIGN was "defer
+  language mechanism, libraries pass explicitly"); Memo's
+  deps-list shape (explicit vs `pre`-extracted per D8); Effect
+  lifecycle (unregister-on-drop needs the unsubscribe primitive
+  PB3 deferred); batching policy (snapshot vs queue — the R3/R4
+  alternatives GPT-5.5 set aside in PB3 entry 29 may resurface).
+- If Steve picks **Phase C** (sugar `:=` / `~=` / `~>`), the
+  lowering is locked per REACTIVITY-DESIGN's sugar mapping; the
+  open questions are `pre`-time AST extraction (D8) and whether
+  scoped-context (D9 Reactor) lands at the language level.
+- If Steve picks **Layer 8 / async**, the open question is pin
+  discipline (M20+ deferred per INFLUENCES §1's lifetime note)
+  and how `Future<T>` derives from PB3's shape — same waiter-
+  list + value slot + notify-once shape, with resolve-once
+  semantics instead of repeated set.
 
 ---
 
@@ -106,9 +132,16 @@ Violating any of them will silently corrupt the substrate.
   the `?` source borrow, element binds as a read borrow of
   the slot, `+x` / `<x` / `-x` / `return x` / bare-aliasing
   uses are sema/ownership-rejected with tailored diagnostics.
-- **Signal(T) is single-subscriber synchronous canary.** No
-  multi-subscriber, no batching, no topology. PB3 (now
-  unblocked) will generalize.
+- **`Signal(T)` is multi-subscriber, synchronous, strictly
+  non-reentrant** (PB3 R2 policy). Calling `set` /
+  `subscribe` during an active notification panics. `T` must
+  be Copy. Heap-owned `*Signal(T)` only — stack-local
+  rejected. No `unsubscribe` in V1.
+- **Captured resources (`+x` / `~x` / `<x` in a closure
+  capture list) are non-consumable inside the closure body.**
+  `<cap` / `-cap` / `return cap` / bare-alias-as-arg are all
+  sema/ownership-rejected. `+cap` / `~cap` / `cap()` /
+  `cap.method(...)` are allowed. Per the PB3(1/5) audit.
 - **Grammar conflict count: 69** (was 38 pre-M20h; +31 from
   the M20h(2/5) inline-call lambda body). All benign S/R with
   prefer-shift; reviewed and accepted.
@@ -166,8 +199,9 @@ Codebase highlights:
 | 8 | Closure capture mode syntax (non-escaping V1) | ✅ | M20g (1-5/5) + M20g(2.1) |
 | 8.5 | Owned/escaping closure values | ✅ | M20h (1-5/5) + M20h.1 |
 | 9 | Resource-aware containers (Vec(T)) | ✅ | M20i (1-5/5) |
-| 9.1 | Resource-Vec iteration (`for x in ?vec`) | ✅ | M20i.1 (1-4/4) |
-| 10 | Single-subscriber reactive primitive (Signal(T)) | ✅ | PB2 (1-3/3) |
+| 9.1 | Resource-Vec iteration (`for x in ?vec`) | ✅ | M20i.1 (1-4/4) + M20i.1.1 post-impl |
+| 9.2 | Captured-resource non-consumability audit | ✅ | PB3(1/5) — must-precede |
+| 10 | Multi-subscriber reactive primitive (Signal(T)) | ✅ | PB2 (1-3/3) + PB3 (1-5/5) |
 
 ## 2b. Phase B status
 
@@ -178,9 +212,11 @@ Codebase highlights:
 | PB1 | Single retained Effect | ✅ | folded into canary refresh (M20h(5/5)) |
 | M20i | Resource-aware `Vec(T)` | ✅ | commits `4675fca..d6d6c83` |
 | PB2 | Single-subscriber Signal | ✅ | commits `5918a15..8c4f36c` |
-| M20i.1 | Resource-Vec iteration (`for x in ?vec`) | ✅ | commits `65a3c44..5622832` (this arc) |
-| M20i.1.1 | Sema attribution table + non-bare source rejection | ✅ | post-impl fix (this arc) |
-| **PB3** | **Multi-subscriber + batching + topology** | **🚧 NEXT** | **design checkpoint pending; substrate now unblocked** |
+| M20i.1 | Resource-Vec iteration (`for x in ?vec`) | ✅ | commits `65a3c44..5622832` |
+| M20i.1.1 | Sema attribution table + non-bare source rejection | ✅ | commit `2c33c63` |
+| PB3 | Multi-subscriber Signal + R2 reentrancy + capture audit | ✅ | commits `b0c0861..` (this arc) |
+| **Phase B** | **complete** | ✅ | reactive substrate solid end-to-end |
+| **Next** | **PB4 / Phase C / Layer 8** | **🚧 design** | **wait for canary pressure** |
 
 ---
 
@@ -455,6 +491,8 @@ arcs). Each numbered entry is a logical exchange:
 26. **M20i.1 design** — external `for x in ?vec` (Option B) over internal `vec.foreach(...)`; GPT-5.5 pushed back hard on the foreach plan because external `for` reuses existing grammar + ownership-mode vocabulary, no callback ABI, no lambda-params grammar, and the `?` source mode is the natural enforcement point for both loop-borrow on source AND borrowed-slot element binding
 27. **M20i.1 emit shape clarification** — Shape X (resource: `&__rig_p[__rig_i]` slot alias + scope-frame rewrite to `__rig_elem.*`) for resource elements; Shape Y (plain Zig `const`) for Copy elements. Closes the "Zig copy is harmless because Rig will reject bad uses" shortcut from Steve's Shape Y proposal — Shape X preserves the borrow boundary at the Zig level too
 28. **M20i.1 post-implementation review** — locked must-fix: replace emit-side `vecSourceForEmit` global reverse scan with sema attribution table keyed by source position (M20i.1.1). Also locked three follow-ups: reject resource Vec iteration over non-bare source; positive test for post-loop mutation released; negative test for capture-loop-borrow-in-lambda (M20g clone-capture validator handles it). PB3 reentrancy gap documented but deferred — closure-call-mediated subscriber mutation needs a runtime policy (snapshot, `notifying` flag, or queued mutations) that PB3 design will decide
+29. **PB3 design — multi-subscriber Signal** — locked R2 (strict `notifying` flag + panic) over R4 (silent tolerate). GPT-5.5 pushed back hard on R4 because (a) it forces V1 to define recursive semantics that should be locked in PB4, (b) R2 has zero allocation and zero Vec-mutation-during-iteration, (c) R2 generalizes cleanly to `Future<T>`. Also locked: `Vec(*Closure())` state shape (no optional-first-slot micro-opt); subscribe-only (defer unsubscribe to PB3.x); reject stack-local `Signal(T)` (smallest-safe-path over wiring the M20e defer-guard machinery). Critical audit must-precede: captured-resource consume rejection — closure bodies must not be able to move/drop their captured `*T`/`~T` because retained subscribers are invoked multiple times
+30. **PB3 tactical** — unify M20i.1's `is_loop_borrow` and PB3's `is_capture_resource` behind a single `rejectNonConsumableBindingOp` helper. Diagnostics branch on which flag fired; hooks at the same five sites M20i.1 added. Avoids "missing one of the five sites later" risk
 
 To continue the thread, pass `conversation_id` and `model`
 as above. MCP tool descriptors live at:
@@ -536,6 +574,28 @@ NOT promises to ship.
 9. **`vec_for_notify.rig` is the M20i.1 exit gate.** Don't
    break it without checkpoint approval — it's the multi-
    subscriber PB3 substrate test.
+10. **PB3 Signal is non-reentrant (R2 strict).** Calling
+    `set` or `subscribe` during an active notification
+    panics. The `notifying: bool` flag is the runtime
+    guard. Lift only in PB4 with a locked queue/snapshot
+    policy — don't sneak in silent reentrant behavior.
+11. **PB3 captured-resource flag `is_capture_resource` is set
+    by `bindCapturesLocal` for `cap_clone`/`cap_weak`/
+    `cap_move`.** Unified with `is_loop_borrow` behind
+    `rejectNonConsumableBindingOp`. All five hook sites
+    (`.@"clone"`/`.@"weak"` arm, `walkBorrow` move_op,
+    `walkDrop`, `walkReturn`, `checkSharedHandleAlias`) route
+    through this helper — adding a sixth requires the same
+    routing or it WILL miss one of the categories.
+12. **`signal_multi_subscriber.rig` is the PB3 exit gate.**
+    Don't break it without checkpoint approval — it's the
+    mandatory subscriber-shaped regression that proves
+    end-to-end runtime + emit + audit composes correctly.
+13. **Stack-local `Signal(T)` is sema-rejected.** All Signal
+    uses must be `*Signal(T)` (heap-owned). If/when M20e's
+    defer-guard machinery grows a `.signal_value` resource
+    kind, the rejection can be relaxed; until then, keep
+    the rejection so the V1 shape stays predictable.
 
 ### Pre-existing fragilities not yet addressed
 
@@ -578,50 +638,55 @@ NOT promises to ship.
 
 ## 13. Current frontier notes
 
-- **PB2 + M20i.1 are complete.** PB2 is intentionally single-
-  subscriber; don't expand Signal's API speculatively. M20i.1
-  shipped external `for x in ?vec` (resource Vec) and `for x
-  in vec` (Copy Vec) with the locked design from entries 26 +
-  27. The substrate for multi-subscriber notification is now
-  solid.
-- **PB3 is the next concrete arc.** Multi-subscriber Signal +
-  notification iteration via `for cb in ?self.subs`. Design
-  questions for the upcoming checkpoint:
-  - Signal-state shape: one `Vec(*Closure())` field replacing
-    the optional single subscriber slot? Cell-extension is
-    still off the table (would force Cell-non-Copy
-    relaxation).
-  - Set-with-iteration ABI: synchronous push-on-set (parallel
-    to PB2's single-subscriber synchronous notification) vs
-    deferred queue + explicit `flush`. The canary discipline
-    pushes toward "minimum viable" — synchronous-iterate-all
-    is probably right for PB3.
-  - Where to design Reactor / batching: PB4 or earlier?
-    Steve's instinct (and GPT-5.5's PB2 lock) is to defer
-    Reactor until PB3 exposes whether topology / order /
-    re-entrance actually bite.
-  - Mutation-during-iteration: M20i.1's lexical borrow rule
-    rejects `(!subs).push(...)` directly inside `for cb in
-    ?subs`, but it CANNOT see through `cb()` itself —
-    if the invoked closure captures `subs` (or `signal`)
-    and mutates it, the lexical checker has nothing to fire
-    on. PB3 needs a runtime policy: snapshot subscribers
-    before iteration, set a `notifying` flag that rejects
-    `subscribe`, queue mutations until after notification,
-    or some other approach. This was explicitly flagged
-    by GPT-5.5 in the M20i.1 post-impl review (entry 28).
-- **Do not design Memo / batching / topology** in PB3 itself.
-  Those are PB4. Keep PB3 minimum-viable.
+- **Phase B is complete.** PB3 shipped multi-subscriber Signal
+  with R2 strict reentrancy. PB3(1/5) closed the captured-
+  resource consume hole that M20g shipped without. The
+  reactive substrate (Layers 0–7 of the INFLUENCES §1 ladder)
+  is solid end-to-end and the canary demonstrates the full
+  PB0→PB3 chain.
+- **The next arc is a design decision** between three forward
+  paths (all unblocked). Steve picks based on canary pressure:
+  1. **PB4 (Reactor / Memo / Effect / batching)** if a use
+     case forces derived values or transactional update
+     semantics. The PB3 R2 reentrancy panic is the natural
+     forcing function: as soon as a real use case wants
+     "subscriber B updates signal X which subscriber A also
+     watches," users will hit the panic and ask for batched
+     flush. PB4 is the answer.
+  2. **Phase C (sugar `:=` / `~=` / `~>`)** if Steve wants the
+     Rip-style ergonomics. Optional; can be deferred
+     indefinitely. The library shape (PB3 + PB4) is ergonomic
+     enough on its own per the Phase B Q5 lock.
+  3. **Layer 8 (structured concurrency) / Phase D (async)**
+     if a use case forces concurrent or asynchronous
+     computation. PB3's retained-callback-list shape is
+     structurally the same as `Future<T>`'s waiter list —
+     async is now substrate-ready, with the `Future<T>`
+     design naturally derivable from PB3. Per INFLUENCES §1
+     and the entry 20 review, async should be paired with
+     Layer 8 (structured concurrency) for safety.
 - **Maintain the cadence**: design checkpoint → sub-commits →
-  post-impl review. Each sub-commit must keep all tests
-  passing. The cadence has caught real correctness bugs;
-  skipping it costs more than running it.
+  post-impl review. The cadence has caught real correctness
+  bugs in every M20+ arc (UAF in M20h's earlier ABI proposal;
+  `in_set_rhs` leak in M20g; emit reverse-scan fragility in
+  M20i.1; captured-resource UAF in PB3); skipping it costs
+  more than running it.
+- **Closing PB3(1/5) hazards on the radar**:
+  - The non-escaping-closure consume-from-capture path
+    (`bump = fn |+sig| -sig`) was the second case PB3(1/5)
+    closed. Same `is_capture_resource` flag fires. Future
+    extensions to non-escaping-closure body shapes need to
+    keep this hook live.
+  - If/when `*Closure(...)` grows block-body support
+    (currently inline-call only per M20h grammar), the audit
+    is already in place — consume-of-capture is rejected at
+    the ownership layer, not the emit layer.
 - **The substrate ladder** (`docs/INFLUENCES.md` §1) is the
-  authoritative conceptual map. M20i.1 is in Layer 6
-  ("Resource-aware containers"); PB3 is in Layer 7
-  ("Reactivity"). Layers 8 (Structured concurrency) and 9
-  (Async) remain deferred.
+  authoritative conceptual map. Layers 0–7 ✅; Layer 8
+  (Structured concurrency) and Layer 9 (Async) deferred
+  pending forward-arc decision.
 
 Good luck. Read `docs/INFLUENCES.md` §1 first, then ROADMAP's
-M20i.1 and PB2 sections, then this file's invariants. Then run
-the PB3 design checkpoint with GPT-5.5.
+PB3 and M20i.1 sections, then this file's invariants. Then
+discuss with Steve which forward arc (PB4 / Phase C / Layer 8)
+the canary discipline favors.
