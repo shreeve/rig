@@ -1,0 +1,31 @@
+## M20i.1.1 (post-impl review): the loop-source read borrow on `subs`
+## is RELEASED at loop scope exit. After the for-loop, writing to
+## `subs` (push / pop / etc.) is allowed again.
+##
+## Per GPT-5.5's M20i.1 post-impl review (conversation entry 28):
+## this test proves the popScope -> releaseOwnedBorrow chain
+## correctly releases the loop-source read borrow when the for-loop
+## scope exits, so subsequent write-borrow operations on the same
+## Vec succeed without diagnostic.
+##
+## The earlier vec_for_write_during_iter_rejected.rig pins the
+## negative case (write INSIDE the loop fires the conflict
+## diagnostic); this example pins the positive case (write AFTER
+## the loop is fine).
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  cb1: *Closure() = *Closure(fn |+count| count.set(count.get() + 1))
+  cb2: *Closure() = *Closure(fn |+count| count.set(count.get() + 10))
+
+  subs: Vec(*Closure()) = Vec()
+  (!subs).push(+cb1)
+
+  for cb in ?subs
+    cb()
+  # After loop: source read borrow released; write is fine again.
+  (!subs).push(+cb2)
+  for cb in ?subs
+    cb()
+
+  print(count.get())                # 1 (cb1) + 1 + 10 (cb1, cb2) = 12

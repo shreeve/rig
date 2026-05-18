@@ -1,0 +1,1 @@
+examples/vec_for_non_bare_source_rejected.rig:23:14: error: resource Vec(T) iteration in V1 requires a bare local Vec binding as the source; got an expression. Bind the result to a `Vec(T)` local first.

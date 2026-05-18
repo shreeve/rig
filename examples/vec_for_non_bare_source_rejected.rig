@@ -1,0 +1,24 @@
+## M20i.1.1 (post-impl review): resource Vec iteration over a non-bare
+## source is rejected.
+##
+## Per GPT-5.5's M20i.1 post-implementation review (conversation entry
+## 28): resource Vec iteration in V1 must have a bare local Vec
+## binding as its source. Two reasons:
+##
+##   1. The ownership-layer loop-source read borrow only attaches to a
+##      bare name. Iterating over a member access or call-result
+##      temporary would leave the Vec un-borrowed, defeating the
+##      mutation-during-iteration rejection rule.
+##   2. A function-result temporary's buffer would be dropped at
+##      statement end, freeing the elements mid-loop. Memory unsafety.
+##
+## The sema diagnostic points the user at the fix: bind the result
+## to a `Vec(T)` local first.
+
+fun makeSubs() -> Vec(*Closure())
+  v: Vec(*Closure()) = Vec()
+  <v
+
+sub main()
+  for cb in ?makeSubs()
+    cb()

@@ -1970,6 +1970,84 @@ work is wiring `for cb in ?self.subs` into a new
 multi-subscriber `Signal(T)` shape (and designing the
 batching / topology layer in its own checkpoint).
 
+### M20i.1.1 — Post-implementation review fixes ✅
+
+GPT-5.5's M20i.1 post-implementation review (conversation
+entry 28) identified one must-fix and three worthwhile
+follow-ups. All landed in this single sub-commit per the
+M5-style cadence (post-impl fixes are folded into one `.1`
+companion when they share a theme).
+
+**The must-fix: emit-side `vecSourceForEmit` global reverse
+scan.** The original M20i.1(3/4) implementation scanned
+`sema.symbols` reverse-order for a name match to classify the
+for-source as Vec or not, gating on `vec_sym_id`. GPT-5.5's
+review noted this is the M20e-legacy "first-match-wins"
+pattern that mis-classifies under cross-function shadowing —
+two same-named Vecs in different functions could pick the
+wrong one and produce wrong-Shape emit (Shape X for Copy →
+Zig compile error; Shape Y for resource → silent borrow-model
+violation that could become dangerous if the body keys off
+owned-closure detection downstream).
+
+The fix mirrors M20a.2's `MethodReceiver` / M20e.1's
+`declareWithResourceKind` pattern: attribute the Vec source
+classification at sema time in a side table, and look up by
+source position at emit time.
+
+- New `pub const VecIterInfo` (in `src/types.zig`) holds
+  `{elem_ty, is_resource, is_closure}`.
+- New `SemContext.for_source_vec_info: std.AutoHashMapUnmanaged
+  (u32, VecIterInfo)`, freed in `deinit`.
+- `ExprChecker.checkForStmt` populates the table for every
+  bare-name Vec source it processes (gated on the same
+  `vecElementForIteration` predicate as the type-binding
+  decision). `elemIsOwnedClosure(elem_ty)` computes the
+  `*Closure()` flag once at sema time.
+- `Emitter.vecSourceForEmit` is now a pure hashmap lookup
+  keyed by `source.src.pos` — no name scan, no shadowing
+  fragility. Returns null for non-bare sources and for sources
+  sema didn't classify.
+
+**Worthwhile follow-ups (also in this commit):**
+
+1. **Reject resource Vec iteration over non-bare source.**
+   `for cb in ?makeSubs()` and `for cb in ?h.subs` are now
+   sema-rejected with a tailored diagnostic
+   (`resource Vec(T) iteration in V1 requires a bare local
+   Vec binding as the source; got an expression. Bind the
+   result to a Vec(T) local first.`). The fix prevents (a)
+   iterating over a Vec whose buffer is freed at statement
+   end (function-result temporary), and (b) iterating without
+   the ownership-layer read-borrow attaching to the source
+   (member access leaves the Vec un-borrowed). Copy Vec
+   iteration is unaffected by the restriction — only resource
+   elements have the memory-safety hazard.
+
+2. **Positive test: post-loop mutation released.**
+   `examples/vec_for_post_loop_mutation.rig` proves the
+   loop-source read borrow is released at the for-scope's
+   popScope, so a subsequent `(!subs).push(...)` succeeds.
+   Output: `12` (cb1 × 2 + cb2 × 1).
+
+3. **Negative test: capture loop-borrow in lambda.**
+   `examples/vec_for_capture_elem_rejected.rig` exercises
+   `for cb in ?subs; f = fn |+cb| cb()`. The M20g
+   clone-capture validator fires:
+   `clone-capture |+cb| requires a shared *T, weak ~T, or
+   Copy type; got ?*Closure()`. Defense-in-depth alongside
+   the M20i.1 `rejectLoopBorrowOp` machinery.
+
+**Tests after M20i.1.1: 832 → 846 (+14).** All previously-
+passing tests still green; goldens for the three new
+examples auto-generated.
+
+**SPEC §"Vec iteration via `for x in ?vec` (M20i.1)"**
+extended with the M20i.1.1 source-restriction note + a
+reentrancy caveat on the lexical borrow rule (closure
+calls can mutate the subscriber list indirectly — PB3
+will need a runtime policy for this).
+
 ### M20h.1 — Tighten `in_set_rhs` to direct lambda RHS ✅
 
 GPT-5.5's M20h post-implementation review caught a

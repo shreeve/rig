@@ -1,0 +1,1 @@
+examples/vec_for_capture_elem_rejected.rig:26:14: error: clone-capture `|+cb|` requires a shared `*T`, weak `~T`, or Copy type; got `?*Closure()`

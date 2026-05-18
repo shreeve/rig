@@ -1,0 +1,1 @@
+(module (fun makeSubs () (generic_inst Vec (shared (generic_inst Closure))) (block (set _ v (generic_inst Vec (shared (generic_inst Closure))) (call Vec)) (move v))) (sub main () _ (block (for iter cb _ (read (call makeSubs)) (block (call cb))))))

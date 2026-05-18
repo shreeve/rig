@@ -2812,52 +2812,29 @@ pub const Emitter = struct {
     ///
     /// V1: only handles bare-name sources (`for x in vec` /
     /// `for x in ?vec`). General expression sources fall back to the
-    /// legacy emit path. For nested member-access sources
-    /// (`for x in ?holder.subs`), a future M20i.1.x can extend this
-    /// to walk the expression's sema-resolved type via `synthExpr`.
+    /// legacy emit path. Resource Vec iteration with a non-bare
+    /// source is sema-rejected (M20i.1.1).
+    ///
+    /// M20i.1.1 per GPT-5.5 post-impl review: looks up the per-`for`
+    /// classification recorded by `ExprChecker.checkForStmt` in
+    /// `SemContext.for_source_vec_info`. The previous implementation
+    /// scanned `sema.symbols` reverse-order for a name match —
+    /// the same M20e-legacy "first-match-wins" pattern that
+    /// mis-classifies under cross-function shadowing. With the
+    /// attribution table, each `for` source is keyed by its own
+    /// `.src.pos`, so the lookup is uniquely sound.
     const VecEmitInfo = struct {
         elem_is_resource: bool,
         elem_is_closure: bool,
     };
     fn vecSourceForEmit(self: *const Emitter, source: Sexp) ?VecEmitInfo {
         const sema = self.sema orelse return null;
-        if (sema.vec_sym_id == types.symbol_invalid) return null;
         if (source != .src) return null;
-        const name = self.source[source.src.pos..][0..source.src.len];
-
-        // Reverse scan so the most-recently-declared symbol with the
-        // name wins under shadowing — same shape as M20e's legacy
-        // global scan, gated on `vec_sym_id` so non-Vec same-name
-        // bindings fall through cleanly.
-        var i = sema.symbols.items.len;
-        while (i > 0) {
-            i -= 1;
-            const sym = sema.symbols.items[i];
-            if (!std.mem.eql(u8, sym.name, name)) continue;
-            const peeled = types.unwrapBorrows(sema, sym.ty);
-            const ty = sema.types.get(peeled);
-            if (ty != .parameterized_nominal) continue;
-            if (ty.parameterized_nominal.sym != sema.vec_sym_id) continue;
-            if (ty.parameterized_nominal.args.len != 1) continue;
-            const elem_ty_id = ty.parameterized_nominal.args[0];
-            const elem_ty = sema.types.get(elem_ty_id);
-            const is_resource = switch (elem_ty) {
-                .shared, .weak => true,
-                else => false,
-            };
-            const is_closure = blk: {
-                if (sema.closure_sym_id == types.symbol_invalid) break :blk false;
-                if (elem_ty != .shared) break :blk false;
-                const inner = sema.types.get(elem_ty.shared);
-                break :blk switch (inner) {
-                    .nominal => |s| s == sema.closure_sym_id,
-                    .parameterized_nominal => |pn| pn.sym == sema.closure_sym_id,
-                    else => false,
-                };
-            };
-            return .{ .elem_is_resource = is_resource, .elem_is_closure = is_closure };
-        }
-        return null;
+        const info = sema.for_source_vec_info.get(source.src.pos) orelse return null;
+        return .{
+            .elem_is_resource = info.is_resource,
+            .elem_is_closure = info.is_closure,
+        };
     }
 
     /// `(match scrutinee arm...)` lowers to a Zig `switch` statement.

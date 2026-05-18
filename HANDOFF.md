@@ -1,12 +1,13 @@
-# Rig — Session Handoff (M20i.1 complete; PB3 unblocked)
+# Rig — Session Handoff (M20i.1 + M20i.1.1 complete; PB3 unblocked)
 
 **You are picking up a Rig compiler session at the M20i.1 boundary.**
 M20h (owned escaping closures) + M20i (resource-aware Vec) +
 PB2 (single-subscriber Signal) + **M20i.1 (resource-Vec
-iteration via `for x in ?vec`)** all shipped end-to-end. The
-reactive canary (`examples/reactive_canary.rig`) demonstrates
-the full Cell + closure + Signal + Vec-iteration chain
-producing `1\n3\n13\n7\n99\n111`. **832 tests passing, 0
+iteration via `for x in ?vec`)** + **M20i.1.1 (sema attribution
+table + non-bare source rejection)** all shipped end-to-end.
+The reactive canary (`examples/reactive_canary.rig`)
+demonstrates the full Cell + closure + Signal + Vec-iteration
+chain producing `1\n3\n13\n7\n99\n111`. **846 tests passing, 0
 failing. Clean tree on `main`.** The next concrete action is
 the **PB3 design checkpoint — multi-subscriber Signal +
 batching + topology**, now that the substrate prerequisite
@@ -45,8 +46,8 @@ batching + topology**, now that the substrate prerequisite
 
 ```bash
 git pull --ff-only
-git log -1 --format='%h %s'        # most recent commit; at/after M20i.1(4/4)
-./test/run 2>&1 | tail -3          # should say "832 passed, 0 failed"
+git log -1 --format='%h %s'        # most recent commit; at/after M20i.1.1
+./test/run 2>&1 | tail -3          # should say "846 passed, 0 failed"
 bin/rig run examples/reactive_canary.rig    # 1\n3\n13\n7\n99\n111
 ```
 
@@ -177,7 +178,8 @@ Codebase highlights:
 | PB1 | Single retained Effect | ✅ | folded into canary refresh (M20h(5/5)) |
 | M20i | Resource-aware `Vec(T)` | ✅ | commits `4675fca..d6d6c83` |
 | PB2 | Single-subscriber Signal | ✅ | commits `5918a15..8c4f36c` |
-| M20i.1 | Resource-Vec iteration (`for x in ?vec`) | ✅ | commits `65a3c44..` (this arc) |
+| M20i.1 | Resource-Vec iteration (`for x in ?vec`) | ✅ | commits `65a3c44..5622832` (this arc) |
+| M20i.1.1 | Sema attribution table + non-bare source rejection | ✅ | post-impl fix (this arc) |
 | **PB3** | **Multi-subscriber + batching + topology** | **🚧 NEXT** | **design checkpoint pending; substrate now unblocked** |
 
 ---
@@ -452,6 +454,7 @@ arcs). Each numbered entry is a logical exchange:
 25. **PB2 design** — single-subscriber Signal; Cell unchanged; PB3 deferred until iteration
 26. **M20i.1 design** — external `for x in ?vec` (Option B) over internal `vec.foreach(...)`; GPT-5.5 pushed back hard on the foreach plan because external `for` reuses existing grammar + ownership-mode vocabulary, no callback ABI, no lambda-params grammar, and the `?` source mode is the natural enforcement point for both loop-borrow on source AND borrowed-slot element binding
 27. **M20i.1 emit shape clarification** — Shape X (resource: `&__rig_p[__rig_i]` slot alias + scope-frame rewrite to `__rig_elem.*`) for resource elements; Shape Y (plain Zig `const`) for Copy elements. Closes the "Zig copy is harmless because Rig will reject bad uses" shortcut from Steve's Shape Y proposal — Shape X preserves the borrow boundary at the Zig level too
+28. **M20i.1 post-implementation review** — locked must-fix: replace emit-side `vecSourceForEmit` global reverse scan with sema attribution table keyed by source position (M20i.1.1). Also locked three follow-ups: reject resource Vec iteration over non-bare source; positive test for post-loop mutation released; negative test for capture-loop-borrow-in-lambda (M20g clone-capture validator handles it). PB3 reentrancy gap documented but deferred — closure-call-mediated subscriber mutation needs a runtime policy (snapshot, `notifying` flag, or queued mutations) that PB3 design will decide
 
 To continue the thread, pass `conversation_id` and `model`
 as above. MCP tool descriptors live at:
@@ -597,13 +600,16 @@ NOT promises to ship.
     Steve's instinct (and GPT-5.5's PB2 lock) is to defer
     Reactor until PB3 exposes whether topology / order /
     re-entrance actually bite.
-  - Mutation-during-iteration: PB3 must reject
-    `signal.subscribe(...)` triggered transitively by a
-    subscriber being invoked (that would write-borrow the
-    Signal's Vec while it's read-borrowed). M20i.1's standard
-    borrow-conflict rule already handles this at the IR
-    level; we just need to confirm the Signal method bodies
-    compile cleanly under that rule.
+  - Mutation-during-iteration: M20i.1's lexical borrow rule
+    rejects `(!subs).push(...)` directly inside `for cb in
+    ?subs`, but it CANNOT see through `cb()` itself —
+    if the invoked closure captures `subs` (or `signal`)
+    and mutates it, the lexical checker has nothing to fire
+    on. PB3 needs a runtime policy: snapshot subscribers
+    before iteration, set a `notifying` flag that rejects
+    `subscribe`, queue mutations until after notification,
+    or some other approach. This was explicitly flagged
+    by GPT-5.5 in the M20i.1 post-impl review (entry 28).
 - **Do not design Memo / batching / topology** in PB3 itself.
   Those are PB4. Keep PB3 minimum-viable.
 - **Maintain the cadence**: design checkpoint → sub-commits →

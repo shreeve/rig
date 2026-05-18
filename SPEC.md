@@ -494,6 +494,13 @@ Per the M20i.1 design pass (GPT-5.5 entry 26):
    fire the standard borrow-conflict diagnostic. This prevents
    iterator-invalidation that could free elements mid-iteration
    (resource Vec drop is memory-safety, unlike Copy T).
+   **Caveat:** the lexical borrow rule only catches direct
+   `subs` references inside the loop body. If the loop calls a
+   retained closure (`cb()`) that itself captures `subs` and
+   mutates it, the lexical checker can't see through the
+   indirection — that's a reentrancy hazard PB3 will need a
+   runtime policy for (snapshot subscribers, queue mutations,
+   or an explicit `notifying` flag).
 4. **The element cannot be cloned / moved / dropped / returned
    / stored.** `+cb`, `<cb`, `-cb`, `return cb`, and bare
    `cb` as a call argument / binding RHS all fire tailored
@@ -521,6 +528,26 @@ Per the M20i.1 design pass (GPT-5.5 entry 26):
 Write / move / pointer iteration over resource Vec is V1-
 deferred — would require resource-T `pop`/`get` or `take`/
 `swap` primitives that don't exist yet.
+
+**Source restrictions for resource Vec (M20i.1.1).** Resource
+Vec iteration requires the source to be a bare local Vec
+binding. `for cb in ?h.subs` (member access) and
+`for cb in ?makeVec()` (function call) are rejected:
+
+```
+error: resource Vec(T) iteration in V1 requires a bare local
+       Vec binding as the source; got an expression. Bind the
+       result to a `Vec(T)` local first.
+```
+
+Two reasons: (a) the ownership-layer loop-source read borrow
+only attaches to a bare name; iterating over a member /
+temporary would leave the Vec un-borrowed, defeating the
+mutation rejection rule; (b) a function-result temporary's
+buffer is dropped at statement end, freeing elements
+mid-loop. Copy Vec iteration is permissive on source shape
+(no resource hazard) — this restriction only fires for
+resource elements.
 
 **Emit shape.** Vec iteration lowers to an explicit walk
 (Zig doesn't know how to iterate `rig.Vec(T)`):

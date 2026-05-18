@@ -488,6 +488,17 @@ pub const SemContext = struct {
     /// Absent entry → unknown / void.
     lambda_return_types: std.AutoHashMapUnmanaged(u32, TypeId) = .empty,
 
+    /// M20i.1.1: per-`for` Vec-source attribution table. Keyed by
+    /// the for-source Sexp's `.src.pos` (M20i.1 restricts resource
+    /// Vec iteration to bare-name sources, so the source is always
+    /// a `.src` leaf). Populated by `ExprChecker.checkForStmt` when
+    /// it recognizes a `Vec(T)` source; read by `Emitter.emitFor`
+    /// to drive Shape X / Shape Y selection without re-scanning
+    /// sema.symbols (fixes the GPT-5.5 review hazard around the
+    /// global reverse-scan being fragile under cross-function
+    /// shadowing).
+    for_source_vec_info: std.AutoHashMapUnmanaged(u32, VecIterInfo) = .empty,
+
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
             .allocator = allocator,
@@ -515,6 +526,7 @@ pub const SemContext = struct {
         self.types.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.lambda_return_types.deinit(self.allocator);
+        self.for_source_vec_info.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -1097,6 +1109,23 @@ fn registerVecMethods(ctx: *SemContext, vec_sym_id: SymbolId, vec_t_sym_id: Symb
     };
     ctx.symbols.items[vec_sym_id].fields = vec_fields;
 }
+
+/// M20i.1.1: per-`for` Vec-source attribution stored in
+/// `SemContext.for_source_vec_info`. Populated by
+/// `ExprChecker.checkForStmt` when a Vec source is recognized;
+/// read by `Emitter.emitFor` to drive the Shape X / Shape Y
+/// lowering without re-scanning sema.symbols.
+///
+/// Fixes the GPT-5.5 post-impl review hazard around the global
+/// reverse-scan in the emit-side `vecSourceForEmit`, which was
+/// the M20e-legacy "first-match-wins" pattern and would
+/// mis-classify the loop element under cross-function shadowing
+/// when two Vecs share a name across functions.
+pub const VecIterInfo = struct {
+    elem_ty: TypeId,
+    is_resource: bool,
+    is_closure: bool,
+};
 
 /// M20f.1 per GPT-5.5: names reserved for built-in nominal types
 /// (Cell, etc.). User declarations of these names are rejected at
@@ -4178,6 +4207,20 @@ const ExprChecker = struct {
         //   - Mode `iter` over resource Vec emits a tailored
         //     diagnostic pointing the user at `?vec`.
         //
+        // M20i.1.1 per GPT-5.5 post-impl review:
+        //   - Resource Vec iteration is restricted to BARE LOCAL
+        //     bindings (`for cb in ?subs`). Member access
+        //     (`for cb in ?signal.subs`) and call results
+        //     (`for cb in ?makeSubs()`) are rejected because the
+        //     ownership-layer loop-source borrow only fires for bare
+        //     names; iterating over a temporary Vec could free the
+        //     buffer mid-loop without the read-borrow enforcement.
+        //   - Per-`for` Vec attribution is stored in the SemContext
+        //     side table `for_source_vec_info` so the emitter can
+        //     look up the element classification by source-position
+        //     (avoids the M20e-legacy global name scan that's
+        //     fragile under cross-function shadowing).
+        //
         // For non-Vec sources, retain the pre-M20i.1 behavior
         // (synth + discard, walk body) so existing iteration over
         // borrowed slices etc. keeps working.
@@ -4194,6 +4237,8 @@ const ExprChecker = struct {
             const mode_tag: ?Tag = if (mode == .tag) mode.tag else null;
             const source_pos = firstSrcPos(source);
             const is_resource = info.is_resource;
+            const is_closure = self.elemIsOwnedClosure(info.elem_ty);
+            const source_is_bare = (source == .src);
 
             if (is_resource) {
                 switch (mode_tag orelse .iter) {
@@ -4202,10 +4247,34 @@ const ExprChecker = struct {
                     .@"write", .@"move", .ptr => try self.err(source_pos, "iteration mode not supported for resource Vec(T) in V1; use `for x in ?vec` to read-iterate", .{}),
                     else => {},
                 }
+                // M20i.1.1: resource Vec iteration requires the
+                // source to be a bare local binding. The ownership-
+                // layer loop-source read borrow can only attach to a
+                // bare name; member access / call temporaries would
+                // iterate over an un-borrowed Vec, defeating the
+                // mutation-during-iteration rejection AND risking
+                // a buffer free mid-loop if the source is a
+                // function-result temporary.
+                if (!source_is_bare) {
+                    try self.err(source_pos, "resource Vec(T) iteration in V1 requires a bare local Vec binding as the source; got an expression. Bind the result to a `Vec(T)` local first.", .{});
+                }
             } else {
                 // Copy element T. Any mode is fine (default `iter`
                 // is bare-value iteration; explicit `?vec` also OK
                 // for consistency with the resource case).
+            }
+
+            // M20i.1.1: attribute the Vec source for the emitter.
+            // Only valid bare-name sources get recorded — the emit
+            // path falls back to legacy `for (source) |x| body` when
+            // attribution is absent (which only happens for non-bare
+            // sources, which sema has already rejected for resource T).
+            if (source_is_bare) {
+                self.ctx.for_source_vec_info.put(self.ctx.allocator, source.src.pos, .{
+                    .elem_ty = info.elem_ty,
+                    .is_resource = is_resource,
+                    .is_closure = is_closure,
+                }) catch {};
             }
 
             // Bind the element symbol's type. We must enter the scope
@@ -4259,6 +4328,25 @@ const ExprChecker = struct {
             else => false,
         };
         return .{ .elem_ty = elem_ty, .is_resource = is_resource };
+    }
+
+    /// M20i.1.1: does this Vec element type spell `*Closure()`?
+    /// Drives the emit-side `markOwnedClosure` decision so `cb()`
+    /// lowers to the M20h `cb.value.invoke()` shape when the
+    /// element is a closure handle. Pre-substitution element types
+    /// from the Vec's `parameterized_nominal.args[0]` are what
+    /// reach here; the substitution from Vec(T)'s T to the
+    /// concrete T was already done at instantiation.
+    fn elemIsOwnedClosure(self: *const ExprChecker, elem_ty_id: TypeId) bool {
+        if (self.ctx.closure_sym_id == symbol_invalid) return false;
+        const elem_ty = self.ctx.types.get(elem_ty_id);
+        if (elem_ty != .shared) return false;
+        const inner = self.ctx.types.get(elem_ty.shared);
+        return switch (inner) {
+            .nominal => |s| s == self.ctx.closure_sym_id,
+            .parameterized_nominal => |pn| pn.sym == self.ctx.closure_sym_id,
+            else => false,
+        };
     }
 
     /// `(match scrutinee arm...)` at statement position.
