@@ -1,11 +1,13 @@
-# Rig — Session Handoff (post-M20h, PB1 effectively complete)
+# Rig — Session Handoff (M20i in progress; (1-3/5) shipped, (4-5/5) next)
 
 **You are picking up a Rig compiler session mid-arc.** M20h
-(owned / escaping closures) shipped end-to-end (1/5 → 5/5);
-the Phase B reactive canary now exercises a retained M20h
-closure (effectively PB1). The next concrete action is
-**M20i — resource-aware `Vec(T)`** for multi-subscriber lists.
-Read top-to-bottom once; then it's a reference.
+(owned / escaping closures) shipped fully. M20i (resource-
+aware Vec) is in progress: sub-commits (1/5), (2/5), (3/5)
+are shipped (runtime + type spelling + sema + ownership);
+(4/5) emit and (5/5) tests/docs remain. The next concrete
+action is **M20i(4/5) emit work** — construction lowering,
+method-call lowering, auto-drop guard, and push-arg
+visibility. Read top-to-bottom once; then it's a reference.
 
 ---
 
@@ -14,26 +16,30 @@ Read top-to-bottom once; then it's a reference.
 - **Project**: Rig is a systems language ("Zig-fast, Rust-safe,
   Ruby-readable") that compiles to Zig 0.16. Repo:
   `/Users/shreeve/Data/Code/rig`.
-- **Where we are**: M20h shipped end-to-end (commits `f4b448c..a4505d5`).
-  `examples/reactive_canary.rig` now demonstrates Cell + stack-
-  local closure (M20g) + retained `*Closure()` (M20h) all
-  composing — the substrate piece Phase B's reactive validation
-  needed. **746 tests passing, 0 failing.** Clean tree on
-  `main`, all pushed.
-- **Next concrete action**: **start M20i design checkpoint**
-  with GPT-5.5 (resource-aware `Vec(T)` for multi-subscriber
-  callback lists). Then implement in 3-5 sub-commits per the
-  M5-style cadence. M20i's load-bearing question: how does
-  `Vec(~Effect)` handle `push` / `drop` / `resize` for
-  refcounted element handles without leaking refcounts? A
-  naive `ArrayList(handle)` wrapper memcpy-copies handles
-  and double-frees on resize.
-- **Phase B sequence updated**:
-  `PB0 ✅ → M20h ✅ → PB1 (covered by canary refresh) →
-  M20i (next) → PB2 → PB3`. PB1's "single retained Effect"
-  ships via the canary's `eff: *Closure() = *Closure(fn |+count|
-  ...); eff()` block — the next canary extension is multi-
-  subscriber notification (PB2), which needs `Vec(~Effect)`.
+- **Where we are**: M20h shipped end-to-end. M20i sub-commits
+  (1-3/5) shipped this session: runtime `Vec(T)` + builtin
+  registration, sema constructor + methods, ownership rules
+  for Vec-as-resource-value. `examples/reactive_canary.rig`
+  still demonstrates Cell + stack-local closure (M20g) +
+  retained `*Closure()` (M20h) all composing. **754 tests
+  passing, 0 failing.** Clean tree on `main`, all pushed.
+- **Next concrete action**: **M20i(4/5) emit work**. The
+  sema + ownership layers are done; emit needs:
+  - Vec construction lowering (`Vec()` → `rig.Vec(T).init(rig.defaultAllocator())`)
+  - Method call lowering (works through existing M20a
+    machinery; verify with smoke tests)
+  - Vec stack-locals emit as Zig `var` (extend `isInteriorMutableBinding`)
+  - Auto-drop guard for stack-local Vec (new
+    `ResourceKind.vec_value` variant + `emitResourceGuard`
+    branch calling `__rig_drop()`)
+  - `-vec` and `<vec` discharge emit
+  - Push-arg visibility check at emit time (reject bare
+    resource handles in push, require `+rc` / `<rc` /
+    `~rc` modes)
+- **Phase B sequence**:
+  `PB0 ✅ → M20h ✅ → PB1 (canary refresh) ✅ →
+  M20i 🚧 (3/5 shipped) → PB2 → PB3`. M20i(4-5/5) +
+  optional M20i.x (Cell-non-Copy) remain before PB2 starts.
 - **Owner**: Steve (`shreeve@github`). Collaborates with the AI
   agent AND consults GPT-5.5 via the `user-ai` MCP for design
   checkpoints + post-implementation reviews.
@@ -107,7 +113,133 @@ etc.) — important but not blocking Phase B.
 
 ---
 
-## 3. M20h retrospective (the just-completed arc)
+## 3. M20i progress so far (in-progress arc)
+
+### Design lock (GPT-5.5 conversation entry 24)
+
+Five locked decisions, all enforced or in flight:
+
+1. **Vec(T) is a resource VALUE TYPE.** Owns its backing
+   buffer; bare copy/alias is double-free; must move (`<vec`)
+   or explicitly drop (`-vec`).
+2. **V1 element kinds**: Copy primitives, `*T`, `~T`,
+   `*Closure()`. Arbitrary nominal T rejected (needs user
+   Drop). Nested `Vec(Vec(T))` rejected.
+3. **Mutating methods are write-receiver**: `push`,
+   `clear`, `pop` require `(!vec).method(...)`. `length`,
+   `get` are read-receiver. Distinct from Cell's interior-
+   mutability-style read-receiver-everywhere pattern.
+4. **`get` and `pop` are Copy-T-only.** Returning a resource
+   T would either silently clone (visibility violation) or
+   produce `(*T)?` that Rig's V1 optional-handling can't
+   auto-drop. Sema rejects them on resource Vec at call site.
+5. **`dropElement` uses hybrid marker + `__rig_drop`
+   dispatch.** Strong handles (pointer types) detected via
+   `__rig_rcbox_marker`; value types via `__rig_drop` decl.
+
+### Implementation so far
+
+Sub-commit by sub-commit (all on `main`):
+
+| Commit | What it shipped |
+|---|---|
+| `dcaff39` M20i scope lock | HANDOFF §4 Phase B plan locked: M20i alone, subscriber-shaped regression test mandatory, Cell-non-Copy stays separate-and-conditional. |
+| `4675fca` M20i(1/5) | Runtime + type spelling. `rig.Vec(T)` generic struct with allocator/buf/len/cap + push/length/get/pop/clear/`__rig_drop`. `dropElement` helper with hybrid shape+marker dispatch. `__rig_rcbox_marker` on RcBox, `__rig_weak_marker` + `__rig_drop` on WeakHandle. Sema registers Vec as one-arg builtin generic_type. `isValidVecElementType` predicate enforces V1 element restrictions. Emit `Vec(T)` → `rig.Vec(T)`; `*Vec(T)` → `*rig.RcBox(rig.Vec(T))`. |
+| `b774e8b` M20i(2/5) | Sema methods + constructor. 5 methods registered with substituted self-receiver types (?Vec(T) / !Vec(T) per receiver mode). `checkVecConstruction` recognizes `Vec()` and `Vec(capacity: N)` against expected `parameterized_nominal{Vec, [T]}`. Routed BEFORE `checkGenericConstructorCall` because Vec has no data fields. |
+| `13f079b` M20i(3/5) | Ownership rules. `checkSharedHandleAlias` extended with a Vec branch: bare Vec use in call args or binding RHS fires "would copy the buffer pointer and double-free; use `<v` to move ownership". Move (`<vec`) and drop (`-vec`) semantics work via existing M2 machinery — no new code needed. |
+| TBD M20i(4/5) | Emit. |
+| TBD M20i(5/5) | Tests + EMIT_TARGETS + SPEC/ROADMAP/HANDOFF docs. |
+
+### What works right now (sema only — no emit yet)
+
+```rig
+sub main()
+  v: Vec(Int) = Vec()                    # constructor OK
+  rv: *Vec(Int) = *Vec()                 # shared OK
+  vc: Vec(Int) = Vec(capacity: 10)       # capacity hint OK
+  (!v).push(42)                          # write-receiver OK
+  n = v.length()                          # read-receiver OK
+  v2: Vec(Int) = <v                      # move OK
+  -v2                                    # drop OK
+```
+
+### What's rejected (sema diagnostics fire correctly)
+
+- `Vec(User)` — "requires Copy / `*T` / `~T`; got `User`"
+- `Vec(size: 10)` — "accepts only `capacity` as a kwarg"
+- `Vec(10)` — "takes no positional arguments"
+- `struct Vec` — "reserved built-in nominal name"
+- `v.push(42)` (no write-borrow) — "method `push` requires
+  a write-borrowed receiver; use `(!receiver).push(...)`"
+- `v2: Vec(Int) = v` — "bare use of `Vec` value `v` in
+  binding would copy the buffer pointer and double-free"
+- `take(v)` (Vec in call arg) — same double-free diagnostic
+- `v2 = <v; n = v.length()` — "use of `v` after move"
+- `-v; n = v.length()` — "use of `v` after drop"
+
+### What (4/5) needs to do
+
+The remaining emit work, broken into roughly 6 chunks:
+
+1. **`isInteriorMutableBinding` extended** to recognize
+   Vec(T) types (parallel to Cell). Vec stack-locals get
+   `var` emission so mutating methods can call `*Self`
+   receivers. Plus the `_ = &v;` pacifier when not directly
+   referenced post-binding.
+2. **Vec construction emit**. New helper
+   `emitVecConstruction(call_items)` (parallel to
+   `emitOwnedClosureConstruction`):
+   - `(call Vec)` → `rig.Vec(i32).init(rig.defaultAllocator())`
+   - `(call Vec (kwarg capacity N))` →
+     `rig.Vec(i32).initCapacity(rig.defaultAllocator(), N) catch @panic("Rig Vec allocation failed")`
+   - Detect when called inside `(share ...)` and route to
+     the `*Vec` shared variant.
+3. **Method call emit**. The existing M20a member-call
+   emit should handle most cases — verify with smoke tests
+   that `v.length()` → `v.length()` and `(!v).push(x)` →
+   `v.push(x)` (the `(write v)` wrapper needs to lower
+   transparently).
+4. **Auto-drop guard for stack-local Vec**. Extend
+   `ResourceKind` with `.vec_value`; extend `emitResourceGuard`
+   with a `__rig_drop()` branch. Extend
+   `resourceKindOfBinding` to return `.vec_value` for Vec
+   types.
+5. **`-vec` and `<vec` discharge emit**. Update `walkDrop`
+   and the move-assign path to handle the new `.vec_value`
+   resource kind. `-vec` lowers to
+   `vec.__rig_drop(); __rig_alive_vec = false;`.
+6. **Push-arg visibility emit**. Reject bare resource
+   handles in `push` args; require `+rc` / `<rc` / `~rc`.
+   This parallels the existing `checkSharedHandleAlias`
+   pattern for call args but is specific to push.
+
+Estimated size: bigger than (1/5)/(2/5)/(3/5) combined.
+Probably worth 1-2 productive sessions on its own with
+GPT-5.5 post-impl review at the end.
+
+### What (5/5) needs to do
+
+- **Subscriber-list-shaped regression test** (the
+  MANDATORY one per GPT-5.5's M20i scoping review):
+  `Vec(~Closure())` storage with explicit `+`/`~` push
+  modes; verify drop cascade via emitted Zig.
+- **Examples for EMIT_TARGETS**:
+  - `vec_copy.rig` — Vec(Int) push/pop/length
+  - `vec_shared.rig` — `*Vec(Int)` shared variant
+  - `vec_clone_handle.rig` — Vec of `*T` with `+rc` push
+  - `vec_move_handle.rig` — Vec of `*T` with `<rc` push
+  - `vec_subscribers.rig` — the mandatory subscriber test
+- **Negative goldens**:
+  - `vec_bad_element_rejected.rig` — nominal element type
+  - `vec_bare_copy_rejected.rig` — `v2 = v1`
+  - `vec_bare_push_arg_rejected.rig` — `push(rc)` no mode
+- **SPEC §Vec subsection** + **ROADMAP M20i entry** +
+  **HANDOFF refresh** (this section becomes M20i
+  retrospective).
+
+---
+
+## 4. M20h retrospective (just-completed arc)
 
 ### Design lock (entry 17 — DO NOT re-checkpoint)
 
