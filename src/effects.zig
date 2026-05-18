@@ -83,28 +83,16 @@ pub const Checker = struct {
     current_fn_name: []const u8 = "",
     current_fn_is_fallible: bool = false,
 
-    /// M19(2/6): unsafe-context tracking per GPT-5.5 entry 35.
+    /// M22: raw-context tracking (renamed from M19's `unsafe_depth`;
+    /// the per-fn `current_fn_is_unsafe` + `pending_fn_unsafe`
+    /// bridge state was dropped because there's no V1 use case for
+    /// a fn-level raw marker — block-only enforcement is sufficient
+    /// per GPT-5.5 entry 38).
     ///
-    /// `unsafe_depth` counts nested `unsafe` blocks (incremented on
-    /// `(unsafe_block ...)` entry, decremented on exit). Allows
-    /// arbitrary nesting; "in unsafe context" iff `unsafe_depth > 0`
-    /// OR the enclosing function is itself an unsafe fn.
-    ///
-    /// `current_fn_is_unsafe` is set by `walkFun` from
-    /// `pending_fn_unsafe` at fn-entry; restored on exit. Treats the
-    /// entire body of an `unsafe sub`/`unsafe fun` as an unsafe
-    /// context (Rust-style — no need for a redundant `unsafe` block
-    /// inside an `unsafe` fn).
-    ///
-    /// `pending_fn_unsafe` is the "wrapping `(unsafe_decl ...)` has
-    /// been seen" signal. The `unsafe_decl` arm sets it true before
-    /// walking the inner decl; walkFun consumes it and resets it
-    /// before recursing into the body. This indirection is needed
-    /// because the IR shape is `(unsafe_decl (fun ...))` — walkFun
-    /// sees the inner `(fun ...)` and needs to know it was wrapped.
-    unsafe_depth: usize = 0,
-    current_fn_is_unsafe: bool = false,
-    pending_fn_unsafe: bool = false,
+    /// `raw_depth` counts nested `raw` blocks (incremented on
+    /// `(raw_block ...)` entry, decremented on exit). Allows
+    /// arbitrary nesting. "In raw context" iff `raw_depth > 0`.
+    raw_depth: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Error!Checker {
         return .{ .allocator = allocator, .source = source };
@@ -167,21 +155,6 @@ pub const Checker = struct {
             };
         }
         return self.sigs.get(name);
-    }
-
-    /// M19(4/6): look up whether a function name refers to an
-    /// `unsafe` function (i.e., declared with the `unsafe` prefix
-    /// modifier). Requires sema; unit-test paths without sema get
-    /// `null` (no enforcement). Returns null if the name doesn't
-    /// resolve.
-    ///
-    /// The sema-side flag `Symbol.flags.is_unsafe` is set by the
-    /// `(unsafe_decl ...)` arm in `SymbolResolver.walk` (M19(4/6)
-    /// types.zig change).
-    fn lookupIsUnsafe(self: *const Checker, name: []const u8) ?bool {
-        const sema = self.sema orelse return null;
-        const sym_id = sema.lookup(1, name) orelse return null;
-        return sema.symbols.items[sym_id].flags.is_unsafe;
     }
 
     /// M19(5/6): look up whether a name refers to an extern symbol.
@@ -299,38 +272,26 @@ pub const Checker = struct {
 
             .@"call" => try self.walkCall(items),
 
-            // M19(2/6): unsafe-block enters an unsafe context for its
-            // body. Increments `unsafe_depth`; restored on exit.
-            .@"unsafe_block" => {
+            // M22: raw-block enters a raw context for its body.
+            // Increments `raw_depth`; restored on exit.
+            // (Renamed from M19's `unsafe_block`; the M19 decl-
+            // modifier-wrap `unsafe_decl` arm was dropped because
+            // there's no V1 use case for a fn-level raw marker.)
+            .@"raw_block" => {
                 if (items.len >= 2) {
-                    self.unsafe_depth += 1;
-                    defer self.unsafe_depth -= 1;
+                    self.raw_depth += 1;
+                    defer self.raw_depth -= 1;
                     try self.walk(items[1]);
                 }
             },
 
-            // M19(2/6): unsafe-decl wraps a fn/sub declaration to
-            // mark it as unsafe. Sets `pending_fn_unsafe` so walkFun
-            // can pick it up at fn-entry. Also walks the inner so
-            // nested wraps (e.g., `(unsafe_decl (pub (sub ...)))`)
-            // compose naturally.
-            .@"unsafe_decl" => {
-                if (items.len >= 2) {
-                    const prev = self.pending_fn_unsafe;
-                    self.pending_fn_unsafe = true;
-                    try self.walk(items[1]);
-                    self.pending_fn_unsafe = prev;
-                }
-            },
-
-            // M19(2/6): raw `%x` access requires an unsafe context.
-            // Per GPT-5.5 entry 35: "raw access `%x` requires unsafe
-            // context" — diagnostic names the operation specifically
-            // so users can find the fix quickly.
+            // M22: raw `%x` access requires a `raw` block context.
+            // Per GPT-5.5 entries 35 + 38: diagnostic names the
+            // operation specifically so users can find the fix.
             .@"raw" => {
-                if (!self.inUnsafeContext()) {
+                if (!self.inRawContext()) {
                     const pos = firstSrcPos(.{ .list = items });
-                    try self.err(pos, "raw access `%x` requires unsafe context; wrap in an `unsafe` block or call from an `unsafe` function", .{});
+                    try self.err(pos, "raw access `%x` requires `raw` block; wrap the operation in `raw INDENT body OUTDENT`", .{});
                 }
                 if (items.len >= 2) try self.walk(items[1]);
             },
@@ -345,8 +306,8 @@ pub const Checker = struct {
                 if (items.len >= 2 and items[1] == .src) {
                     const name_pos = items[1].src.pos;
                     const name = self.source[name_pos..][0..items[1].src.len];
-                    if (!isSafeBuiltin(name) and !self.inUnsafeContext()) {
-                        try self.err(name_pos, "builtin `@{s}` is not in the safe whitelist; wrap in an `unsafe` block or call from an `unsafe` function. Safe builtins in V1: `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`, `@hasDecl`, `@hasField`, `@len`, `@This`.", .{name});
+                    if (!isSafeBuiltin(name) and !self.inRawContext()) {
+                        try self.err(name_pos, "builtin `@{s}` is not in the safe whitelist; wrap in a `raw` block. Safe builtins in V1: `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`, `@hasDecl`, `@hasField`, `@len`, `@This`.", .{name});
                     }
                 }
                 // Walk args (each arg gets a clean handle context).
@@ -367,13 +328,12 @@ pub const Checker = struct {
         }
     }
 
-    /// M19(2/6): are we inside an unsafe context? True iff at least
-    /// one enclosing `(unsafe_block ...)` is active OR the enclosing
-    /// function is itself marked unsafe via `unsafe_decl`. Both
-    /// signals are equivalent at the use-site: an unsafe operation
-    /// is permitted.
-    fn inUnsafeContext(self: *const Checker) bool {
-        return self.unsafe_depth > 0 or self.current_fn_is_unsafe;
+    /// M22: are we inside a `raw` block? True iff at least one
+    /// enclosing `(raw_block ...)` is active. Replaces the M19
+    /// `inUnsafeContext()` helper (renamed; the fn-level branch
+    /// `current_fn_is_unsafe` was dropped per GPT-5.5 entry 38).
+    fn inRawContext(self: *const Checker) bool {
+        return self.raw_depth > 0;
     }
 
     fn walkFun(self: *Checker, items: []const Sexp) Error!void {
@@ -389,34 +349,24 @@ pub const Checker = struct {
         const prev_name = self.current_fn_name;
         const prev_fall = self.current_fn_is_fallible;
         const prev_main = self.in_main_sub;
-        const prev_unsafe = self.current_fn_is_unsafe;
         defer {
             self.current_fn_pos = prev_pos;
             self.current_fn_name = prev_name;
             self.current_fn_is_fallible = prev_fall;
             self.in_main_sub = prev_main;
-            self.current_fn_is_unsafe = prev_unsafe;
         }
 
         self.current_fn_pos = name_pos;
         self.current_fn_name = name;
         self.current_fn_is_fallible = fallible;
         self.in_main_sub = is_sub and std.mem.eql(u8, name, "main");
-        // M19(2/6): the whole body of an unsafe fn is treated as an
-        // unsafe context (Rust-style — no redundant inner `unsafe`
-        // block needed). The `pending_fn_unsafe` flag was set by an
-        // enclosing `(unsafe_decl ...)` wrapper; we READ it without
-        // mutating it. The wrapper's own save+restore (around
-        // `walk(items[1])`) owns the flag's lifetime, so we don't
-        // need to consume here.
-        //
-        // M19.1 per GPT-5.5 entry 37: the earlier
-        // `self.pending_fn_unsafe = false;` consume was a hazard —
-        // if `unsafe_decl` ever wraps a non-fn decl (e.g., a future
-        // `unsafe struct` or transient parse error), the flag could
-        // leak to a sibling fn walked later. Removing the consume
-        // closes the gap; the wrapper's defer-restore is sufficient.
-        self.current_fn_is_unsafe = self.pending_fn_unsafe;
+        // M22 dropped M19's per-fn unsafe-marker handling. There is
+        // no V1 fn-level raw marker; the body's unsafe operations
+        // (`%x`, unsafe builtins, extern calls) must be wrapped in
+        // an explicit `raw` block inside the body (per GPT-5.5
+        // entry 38). The earlier `current_fn_is_unsafe` /
+        // `pending_fn_unsafe` checker fields + the `is_unsafe` symbol
+        // flag are all gone.
 
         // Skip params for now (no fallible default exprs in V1) and walk body.
         try self.walk(body);
@@ -439,26 +389,19 @@ pub const Checker = struct {
                     }
                 }
             }
-            // M19(4/6): unsafe-fn call from safe context must wrap.
-            // Per GPT-5.5 entry 35: "call to unsafe function `foo`
-            // requires unsafe context" — diagnostic names the callee
-            // and points the user at both fixes (block wrap or
-            // unsafe-fn caller).
-            if (self.lookupIsUnsafe(fn_name)) |is_unsafe| {
-                if (is_unsafe and !self.inUnsafeContext()) {
-                    try self.err(callee.src.pos, "call to unsafe function `{s}` requires unsafe context; wrap in an `unsafe` block or call from an `unsafe` function", .{fn_name});
-                }
-            }
-            // M19(5/6): extern call from safe context must wrap.
-            // Per GPT-5.5 entry 35: extern declarations are the FFI
-            // boundary; the safety bargain across them requires
-            // explicit acknowledgment. Even an extern WITHOUT
-            // explicit `unsafe` annotation is unsafe-by-default to
-            // call. Prevents silently treating C/Zig APIs as
-            // ownership-safe.
+            // M22 dropped M19's unsafe-fn-call enforcement: there
+            // is no V1 fn-level raw marker (per GPT-5.5 entry 38),
+            // so there's no "call to unsafe function" diagnostic.
+            // The block-level enforcement (raw `%x`, unsafe
+            // builtins) is sufficient for the V1 audit boundary.
+
+            // M19(5/6): extern call from outside a `raw` block must
+            // wrap. Per GPT-5.5 entry 35: extern declarations are
+            // the FFI boundary; the safety bargain across them
+            // requires explicit acknowledgment.
             if (self.lookupIsExtern(fn_name)) |is_extern| {
-                if (is_extern and !self.inUnsafeContext()) {
-                    try self.err(callee.src.pos, "call to extern function `{s}` requires unsafe context; wrap in an `unsafe` block or call from an `unsafe` function. Extern declarations are the FFI boundary and bypass Rig's ownership / effect contracts.", .{fn_name});
+                if (is_extern and !self.inRawContext()) {
+                    try self.err(callee.src.pos, "call to extern function `{s}` requires `raw` block; wrap the call in `raw INDENT body OUTDENT`. Extern declarations are the FFI boundary and bypass Rig's ownership / effect contracts.", .{fn_name});
                 }
             }
         }

@@ -134,20 +134,18 @@ pub const Tag = enum(u8) {
     @"continue",
     @"defer",
     @"errdefer",
-    // M19: unsafe lattice. Two distinct tags so walkers don't
-    // need context-dependent disambiguation (per GPT-5.5
-    // entry 35 + 36 tactical):
-    //   `unsafe_decl` — `unsafe sub raw_op()` decl-modifier wrap.
-    //                   Inner is a decl Sexp; outer signals
-    //                   "the wrapped fn/sub is unsafe to call."
-    //                   Parallel to `(pub decl)` / `(extern decl)`.
-    //   `unsafe_block` — `unsafe INDENT body OUTDENT` statement
-    //                    form. Body executes in an unsafe context
-    //                    (raw `%x`, unsafe builtins, unsafe-fn
-    //                    calls, extern calls all allowed).
-    //                    Parallel to `(defer block)`.
-    @"unsafe_decl",
-    @"unsafe_block",
+    // M22: raw escape. Single IR tag (the M19 `unsafe_decl`
+    // decl-modifier-wrap tag was dropped because the
+    // `unsafe sub`/`unsafe fun` form has no V1 use case per
+    // GPT-5.5 entry 38).
+    //
+    //   `raw_block` — `raw INDENT body OUTDENT` statement form.
+    //                 Body executes in a raw context (raw `%x`,
+    //                 unsafe builtins, extern calls all allowed).
+    //                 Parallel to `(defer block)`. The block IS
+    //                 the audit boundary; there is no V1 fn-level
+    //                 marker for "calling this requires raw."
+    @"raw_block",
     @"try",             // prefix: try expr
     @"try_block",       // value-yielding try INDENT body OUTDENT
     @"catch_block",     // catch |err| INDENT body OUTDENT
@@ -363,7 +361,10 @@ pub const KeywordId = enum(u16) {
     TEST,
     PRE,            // Rig: replaces COMPTIME
     NEW,            // Rig: explicit shadowing
-    UNSAFE,         // M19: unsafe block + decl modifier
+    RAW,            // M22: `raw` block keyword (M19's `unsafe`
+                    //   renamed for sigil-alignment with `%x`).
+                    //   The fn-modifier form `unsafe sub` is
+                    //   dropped in M22 (no V1 use case).
     ZIG,
     NULL,
     UNREACHABLE,
@@ -420,7 +421,7 @@ const keywordMap = std.StaticStringMap(KeywordId).initComptime(.{
     .{ "test", .TEST },
     .{ "pre", .PRE },         // Rig
     .{ "new", .NEW },         // Rig
-    .{ "unsafe", .UNSAFE },   // Rig: M19 unsafe lattice
+    .{ "raw", .RAW },         // Rig: M22 raw escape (M19 unsafe renamed)
     .{ "zig", .ZIG },
     .{ "null", .NULL },
     .{ "unreachable", .UNREACHABLE },

@@ -311,14 +311,11 @@ pub const SymbolFlags = packed struct {
     /// Function parameter declared with a borrowed type (`?T` / `!T`),
     /// relevant to the borrow-escape rule.
     borrowed_param: bool = false,
-    /// M19(4/6): `unsafe sub` / `unsafe fun` declaration. Calls to
-    /// this function from a safe context must wrap the call in an
-    /// `unsafe` block. The effects checker consults this flag at
-    /// call sites via `Symbol.flags.is_unsafe`. Set by the
-    /// SymbolResolver when an `(unsafe_decl (fun ...))` wrap is
-    /// encountered, parallel to how `(pub fun)` sets `is_public`.
-    is_unsafe: bool = false,
-    _padding: u4 = 0,
+    _padding: u5 = 0,
+    // (M22 removed M19's `is_unsafe` flag — the fn-level raw
+    // marker `unsafe sub`/`unsafe fun` was dropped because there
+    // was no V1 use case per GPT-5.5 entry 38; the block-only
+    // enforcement in `effects.zig` is sufficient.)
 };
 
 /// A field in a nominal type (struct/enum/errors). Stored on the
@@ -1236,70 +1233,12 @@ const SymbolResolver = struct {
                     }
                 }
             },
-            .@"unsafe_decl" => {
-                // M19(4/6): `(unsafe_decl child)` decoration. Mark the
-                // inner declaration as unsafe-to-call. Identical bridge
-                // pattern as `(pub child)` above: capture the symbols-
-                // before count, walk the inner, then flag the first
-                // newly-added symbol with `is_unsafe = true`. The
-                // effects checker reads `Symbol.flags.is_unsafe` at
-                // call sites to enforce the unsafe-call-from-safe rule.
-                //
-                // M19.1 per GPT-5.5 entry 37: reject `unsafe struct` /
-                // `unsafe enum` / `unsafe type` / `unsafe opaque` — the
-                // unsafe modifier only makes sense on callable decls
-                // (`fun`/`sub`/`extern`). The grammar parses any
-                // `unsafe decl` form due to wrapper composition; sema
-                // is where we draw the semantic line.
-                if (items.len >= 2) {
-                    const inner = items[1];
-                    if (inner == .list and inner.list.len >= 1 and inner.list[0] == .tag) {
-                        // Walk past benign wrappers (pub / extern /
-                        // export / packed / callconv) to find the
-                        // actual decl head. `extern` wrapper is OK
-                        // because it composes with unsafe (extern is
-                        // unsafe-by-default at call sites anyway).
-                        var head_node = inner;
-                        while (head_node == .list and head_node.list.len >= 2 and
-                            head_node.list[0] == .tag)
-                        {
-                            switch (head_node.list[0].tag) {
-                                .@"pub", .@"extern", .@"export", .@"packed" => head_node = head_node.list[1],
-                                .@"callconv" => if (head_node.list.len >= 3) {
-                                    head_node = head_node.list[2];
-                                } else break,
-                                else => break,
-                            }
-                        }
-                        if (head_node == .list and head_node.list.len >= 1 and
-                            head_node.list[0] == .tag)
-                        {
-                            const head = head_node.list[0].tag;
-                            const is_callable = head == .@"fun" or head == .@"sub";
-                            if (!is_callable) {
-                                const pos = firstSrcPos(items[1]);
-                                const msg = try std.fmt.allocPrint(self.ctx.arena.allocator(), "`unsafe` may only modify `fun`, `sub`, or `extern` declarations; got `{s}`", .{@tagName(head)});
-                                try self.ctx.diagnostics.append(self.ctx.allocator, .{
-                                    .severity = .@"error",
-                                    .pos = pos,
-                                    .message = msg,
-                                });
-                                // Continue the walk so downstream
-                                // sema sees the inner decl normally;
-                                // we just don't stamp the unsafe flag.
-                                try self.walk(items[1]);
-                                return;
-                            }
-                        }
-                    }
-                    const before = self.ctx.symbols.items.len;
-                    try self.walk(items[1]);
-                    const after = self.ctx.symbols.items.len;
-                    if (after > before) {
-                        self.ctx.symbols.items[before].flags.is_unsafe = true;
-                    }
-                }
-            },
+            // (M22 removed M19's `.@"unsafe_decl"` arm — the
+            // fn-level raw marker `unsafe sub`/`unsafe fun` was
+            // dropped per GPT-5.5 entry 38. The associated M21.1
+            // "reject `unsafe` on non-callable decl" sema rule
+            // (rejected `unsafe struct` etc.) became irrelevant
+            // and was removed too.)
             .@"fun", .@"sub" => try self.walkFun(items),
             .@"lambda" => try self.walkLambda(items),
             .@"use" => try self.walkUse(items),
@@ -2096,14 +2035,8 @@ const TypeResolver = struct {
                 if (items.len >= 2) return self.resolveDecl(items[1], parent_scope, scope_cursor);
                 return scope_cursor;
             },
-            .@"unsafe_decl" => {
-                // M19(4/6): unsafe-decl wrap is transparent to type
-                // resolution — the unsafe flag was stamped on the
-                // symbol by SymbolResolver; here we just recurse into
-                // the inner decl so its types resolve normally.
-                if (items.len >= 2) return self.resolveDecl(items[1], parent_scope, scope_cursor);
-                return scope_cursor;
-            },
+            // (M22 removed M19's `.@"unsafe_decl"` transparent arm —
+            // see SymbolResolver above for the cleanup rationale.)
             .@"fun", .@"sub" => return self.resolveFun(items, parent_scope, scope_cursor),
             .@"type" => {
                 try self.resolveTypeAlias(items, parent_scope);
@@ -3964,11 +3897,8 @@ const ExprChecker = struct {
             .@"pub" => {
                 if (items.len >= 2) try self.walkDecl(items[1]);
             },
-            .@"unsafe_decl" => {
-                // M19(4/6): transparent to expr checking (the unsafe
-                // flag was stamped by SymbolResolver in pass 1).
-                if (items.len >= 2) try self.walkDecl(items[1]);
-            },
+            // (M22 removed M19's `.@"unsafe_decl"` transparent arm —
+            // see SymbolResolver / TypeResolver above.)
             .@"fun", .@"sub" => try self.walkFun(items),
             // M20a / M20b(3/5): descend into nominal bodies so method
             // bodies are type-checked. Each method's body scope was

@@ -308,13 +308,17 @@ extvar   = EXTERN CONST name ":" type       → (extern fixed 3 5)
 zig      = ZIG STRING_SQ                    → (zig 2)
          | ZIG STRING_DQ                    → (zig 2)
 
+# M22 dropped the M19 `UNSAFE decl` modifier-wrap from the decl
+# alternation list below. Per GPT-5.5 entry 38: no V1 use case
+# for a fn-level raw marker; block-only enforcement (the `raw`
+# statement rule further down) is sufficient. SPEC explicitly
+# says no raw/unsafe function modifier in V1.
 decl     = defn
          | PUB decl                         → (pub 2)
          | EXTERN decl                      → (extern 2)
          | EXPORT decl                      → (export 2)
          | PACKED decl                      → (packed 2)
          | CALLCONV name decl               → (callconv 2 3)
-         | UNSAFE decl                      → (unsafe_decl 2)   # M19: `unsafe sub raw_op()` declares an unsafe fn (wraps decl)
 
 defn     = fun | sub | enum | struct | errors | typedef | test | opaq
 
@@ -434,7 +438,7 @@ expr     = if
          | errdefer
          | pre
          | inline
-         | unsafe
+         | raw
          | assign
          | fixed
          | moveassign
@@ -541,13 +545,15 @@ pre      = PRE      block                   → (pre_block 2)
          | PRE      expr                    → (pre 2)
 inline   = INLINE   expr                    → (inline 2)
 
-# M19: `unsafe` indented block - the statement-level audit boundary.
-# Per GPT-5.5 entry 35 lock: block-only form (no `unsafe expr`
-# single-statement form). The block IS the audit boundary; making
-# it visually heavy is the point. Parallel to `defer block` shape
-# but distinct tag (`unsafe_block` vs the decl-modifier-wrap tag
-# `unsafe_decl` on the `UNSAFE decl` rule above).
-unsafe   = UNSAFE block                     → (unsafe_block 2)
+# M22: `raw` indented block - the statement-level audit boundary
+# for raw operations (raw `%x`, unsafe `@builtin(...)` calls,
+# `extern` calls). Per GPT-5.5 entries 35 + 38: block-only form
+# (no `raw expr` single-statement form; no `raw sub` fn-modifier
+# in V1). The block IS the audit boundary; making it visually
+# heavy is the point. Parallel to `defer block` shape. Renamed
+# from M19's `unsafe` keyword for sigil-alignment with the
+# existing `%x` raw-prefix sigil.
+raw      = RAW block                        → (raw_block 2)
 
 # --- Bindings ---
 
