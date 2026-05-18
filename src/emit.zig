@@ -3606,7 +3606,9 @@ pub const Emitter = struct {
 /// implementation lives in `_rig_runtime.zig`? Used for the
 /// `rig.` namespace prefix decision in type emission.
 fn isBuiltinNominalName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "Cell") or std.mem.eql(u8, name, "Closure");
+    return std.mem.eql(u8, name, "Cell") or
+        std.mem.eql(u8, name, "Closure") or
+        std.mem.eql(u8, name, "Vec");
 }
 
 /// M20h(4/5): does the Sexp look like `(call Closure (lambda ...))`?

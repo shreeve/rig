@@ -460,6 +460,15 @@ pub const SemContext = struct {
     /// emit to recognize `*Closure(...)` construction.
     closure_sym_id: SymbolId = symbol_invalid,
 
+    /// M20i: built-in `Vec(T)` generic_type SymbolId. Set by
+    /// `registerBuiltins`. Used by `resolveType` to enforce V1
+    /// element-type restrictions (Copy, `*T`, `~T`, `*Closure()`
+    /// only — arbitrary nominal T deferred). Later M20i sub-commits
+    /// also consult this for method dispatch (push/pop/len/clear/get)
+    /// and for the resource-value ownership rules (no bare copy,
+    /// move-only transfer, auto-drop guard).
+    vec_sym_id: SymbolId = symbol_invalid,
+
     /// M20g(2/5): per-lambda body-return TypeId. Keyed by the
     /// `(lambda ...)` IR node's first `.src` position (recovered
     /// at emit time via the same helper). Populated by
@@ -798,6 +807,45 @@ fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.E
     // computes `expected_count = 0` cleanly via `tps.len`.
     const closure_type_params = try ctx.arena.allocator().alloc(SymbolId, 0);
     ctx.symbols.items[closure_sym_id].type_params = closure_type_params;
+
+    // M20i: register `Vec(T)` as a one-arg builtin generic type.
+    // Element-type restrictions (Copy / `*T` / `~T` / `*Closure()`)
+    // are enforced at instantiation time in `resolveType`. The
+    // resource-value rules (no bare copy/alias, move-only transfer,
+    // auto-drop guard) live in ownership.zig (later sub-commits).
+    //
+    // Synthetic methods come in M20i(2/5). For (1/5), only the
+    // type symbol + type_params slot are populated so type position
+    // (`v: Vec(Int)`) parses + resolves + emits correctly.
+    const vec_sym_id = blk: {
+        const id: SymbolId = @intCast(ctx.symbols.items.len);
+        try ctx.symbols.append(ctx.allocator, .{
+            .name = "Vec",
+            .kind = .generic_type,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_decl_pos,
+            .scope = module_scope,
+        });
+        try ctx.scopes.items[module_scope].symbols.append(ctx.allocator, id);
+        break :blk id;
+    };
+    ctx.vec_sym_id = vec_sym_id;
+
+    // Vec's T type-param symbol (detached — analogous to Cell's T).
+    const vec_t_sym_id = blk: {
+        const id: SymbolId = @intCast(ctx.symbols.items.len);
+        try ctx.symbols.append(ctx.allocator, .{
+            .name = "T",
+            .kind = .generic_param,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_decl_pos,
+            .scope = module_scope,
+        });
+        break :blk id;
+    };
+    const vec_type_params = try ctx.arena.allocator().alloc(SymbolId, 1);
+    vec_type_params[0] = vec_t_sym_id;
+    ctx.symbols.items[vec_sym_id].type_params = vec_type_params;
 }
 
 /// M20f.1 per GPT-5.5: names reserved for built-in nominal types
@@ -807,7 +855,9 @@ fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.E
 /// would be mis-classified as built-in and emit would prefix
 /// `rig.` to a user type).
 fn isReservedBuiltinName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "Cell") or std.mem.eql(u8, name, "Closure");
+    return std.mem.eql(u8, name, "Cell") or
+        std.mem.eql(u8, name, "Closure") or
+        std.mem.eql(u8, name, "Vec");
 }
 
 /// M20f: is a TypeId a Copy type for Cell(T) instantiation? V1
@@ -820,6 +870,32 @@ fn isCopyTypeForCell(ctx: *const SemContext, ty_id: TypeId) bool {
     const ty = ctx.types.get(ty_id);
     return switch (ty) {
         .bool, .int, .float, .string, .int_literal, .float_literal => true,
+        else => false,
+    };
+}
+
+/// M20i: is a TypeId a valid element type for Vec(T) in V1?
+///
+/// Allowed:
+///   - Copy primitives (Int, Bool, Float, String, literal pseudo)
+///   - `*T` shared handles (drop via `dropElement`'s strong arm)
+///   - `~T` weak handles (drop via `WeakHandle.__rig_drop`)
+///
+/// Rejected:
+///   - Nested `Vec(Vec(T))` — recursive resource semantics deferred
+///   - `Cell(T)` elements — non-Copy Cell isn't supported, so the
+///     `*Cell(T)` form must be used instead (which is allowed via
+///     the `*T` branch)
+///   - Arbitrary nominal T — needs user-defined Drop
+///   - Slices, arrays, fn types — not yet first-class resources
+fn isValidVecElementType(ctx: *const SemContext, ty_id: TypeId) bool {
+    const ty = ctx.types.get(ty_id);
+    return switch (ty) {
+        // Copy primitives.
+        .bool, .int, .float, .string, .int_literal, .float_literal => true,
+        // Shared / weak handles — both have known drop discipline.
+        .shared, .weak => true,
+        // Everything else: rejected for V1.
         else => false,
     };
 }
@@ -2537,6 +2613,27 @@ const TypeResolver = struct {
                             if (is_known and !isCopyTypeForCell(self.ctx, arg_ty)) {
                                 const ty_str = try formatType(self.ctx, arg_ty);
                                 try self.err(pos, "`Cell(T)` in V1 requires `T` to be a Copy type (Int, Bool, Float, String); got `{s}`. Non-Copy `Cell(T)` requires replace/take/Drop semantics and is deferred to a later milestone.", .{ty_str});
+                                return self.ctx.types.invalid_id;
+                            }
+                        }
+
+                        // M20i: Vec(T) is a built-in resource-aware
+                        // container. V1 element kinds:
+                        //   - Copy primitives (Int, Bool, Float, String)
+                        //   - `*T` shared handles (drop via dropStrong)
+                        //   - `~T` weak handles (drop via dropWeak)
+                        // Rejected at sema:
+                        //   - arbitrary nominal T (no user Drop yet)
+                        //   - nested Vec(Vec(T)) (recursive resource
+                        //     semantics deferred per GPT-5.5 M20i pass)
+                        //   - Cell(T) elements (would need non-Copy Cell)
+                        if (sym_id == self.ctx.vec_sym_id and supplied.len == 1) {
+                            const arg_ty = arg_ids.items[0];
+                            const is_known = arg_ty != self.ctx.types.unknown_id and
+                                arg_ty != self.ctx.types.invalid_id;
+                            if (is_known and !isValidVecElementType(self.ctx, arg_ty)) {
+                                const ty_str = try formatType(self.ctx, arg_ty);
+                                try self.err(pos, "`Vec(T)` in V1 requires `T` to be a Copy type (Int, Bool, Float, String), a shared handle (`*T`), or a weak handle (`~T`); got `{s}`. Nested `Vec(Vec(T))` and arbitrary nominal element types are deferred until V1 grows user-defined Drop.", .{ty_str});
                                 return self.ctx.types.invalid_id;
                             }
                         }

@@ -42,6 +42,32 @@
 //!     `i32` lack the `@hasDecl` syntax, so the helper avoids any
 //!     Zig-version surprises.
 //!
+//! Per the M20i design checkpoint with GPT-5.5 (entry 24):
+//!
+//!   - `Vec(T)` is the resource-aware container — the first user-
+//!     facing builtin OWNING value type beyond `*T`/`~T` handles. It
+//!     itself owns a heap-allocated buffer plus tracks `len`/`cap`/
+//!     `allocator`. Bare copy is unsafe (would double-free the
+//!     buffer); the sema layer enforces "no bare copy/alias" + "move
+//!     via `<vec`" + "explicit drop via `-vec`" + "auto-drop guard
+//!     at scope exit" (M20i sub-commits (2-3/5)).
+//!   - `Vec(T)` element kinds in V1: Copy primitives, `*T` shared
+//!     handles, `~T` weak handles, `*Closure()`. Arbitrary nominal
+//!     T is rejected until user-defined Drop exists.
+//!   - `dropElement(comptime T, *T)` is the runtime helper that
+//!     knows how to drop a Vec element by inspecting the element
+//!     type at comptime. Uses a hybrid dispatch:
+//!       1. `*RcBox(U)` (strong handle, a pointer type) →
+//!          `dropStrong()`. Detected via `__rig_rcbox_marker` on
+//!          the pointee. Pointer types can't declare `__rig_drop`,
+//!          so the marker-based path is necessary.
+//!       2. Anything with `__rig_drop` (weak handles, closures,
+//!          future user types) → call it.
+//!       3. Else (Copy primitives) → no-op.
+//!     The markers (`__rig_rcbox_marker`, `__rig_weak_marker`,
+//!     `__rig_vec_marker`) are comptime decls used ONLY for shape
+//!     dispatch; no runtime cost.
+//!
 //! The source is kept here as a single `pub const source: []const u8`
 //! so the driver can write it byte-for-byte to the output directory
 //! without any build-time path coordination. Editing this file changes
@@ -84,6 +110,14 @@ pub const source =
     \\        strong: usize,
     \\        weak: usize,
     \\        value: T,
+    \\
+    \\        /// M20i: marker for the `dropElement` hybrid dispatch.
+    \\        /// `*RcBox(U)` is a POINTER type — pointer types can't
+    \\        /// declare `__rig_drop`, so we use shape-based dispatch
+    \\        /// on the pointee. The marker is a comptime decl with
+    \\        /// no runtime cost.
+    \\        pub const __rig_rcbox_marker = true;
+    \\        pub const __rig_child = T;
     \\
     \\        const Self = @This();
     \\
@@ -146,7 +180,23 @@ pub const source =
     \\    return struct {
     \\        ptr: ?*RcBox(T),
     \\
+    \\        /// M20i: marker + `__rig_drop` hook so `dropElement`
+    \\        /// can dispatch on weak handles uniformly. Weak handles
+    \\        /// are STRUCT values (not pointers), so they CAN
+    \\        /// declare `__rig_drop` directly.
+    \\        pub const __rig_weak_marker = true;
+    \\
     \\        const Self = @This();
+    \\
+    \\        /// M20i: standard destructor hook \u2014 invoked by
+    \\        /// `dropElement` when a `Vec(~T)` element is dropped.
+    \\        /// Identical to `dropWeak`. Named separately so the
+    \\        /// `__rig_drop` convention is consistent across all
+    \\        /// droppable types in the runtime (`Closure0`,
+    \\        /// `Vec(T)`, `WeakHandle(T)`).
+    \\        pub fn __rig_drop(self: *Self) void {
+    \\            self.*.dropWeak();
+    \\        }
     \\
     \\        /// Increment weak count, return a new handle aliasing the
     \\        /// same control block. Safe when `ptr == null` (returns null).
@@ -258,6 +308,167 @@ pub const source =
     \\        self.drop_fn(self.ctx, self.allocator);
     \\    }
     \\};
+    \\
+    \\/// M20i: comptime predicate for the `dropElement` strong-handle
+    \\/// branch. Returns true iff `T` is a single-element pointer to
+    \\/// a struct declaring `__rig_rcbox_marker` (i.e., `T == *RcBox(U)`
+    \\/// for some `U`). Pointer types can't declare `__rig_drop`, so
+    \\/// we use shape-based dispatch on the pointee instead.
+    \\pub fn isStrongHandle(comptime T: type) bool {
+    \\    return switch (@typeInfo(T)) {
+    \\        .pointer => |p| p.size == .one and
+    \\            @typeInfo(p.child) == .@"struct" and
+    \\            @hasDecl(p.child, "__rig_rcbox_marker"),
+    \\        else => false,
+    \\    };
+    \\}
+    \\
+    \\/// M20i: drop a Vec element by inspecting its type at comptime.
+    \\/// Hybrid dispatch per the M20i design pass:
+    \\///
+    \\///   1. `*RcBox(U)` strong handle (pointer type) \u2014 call
+    \\///      `dropStrong()` on the value.
+    \\///   2. Any value type with `__rig_drop` \u2014 call it.
+    \\///   3. Else (Copy primitives, plain structs without a drop
+    \\///      hook) \u2014 no-op.
+    \\///
+    \\/// Called by `Vec(T).clear` (in reverse order, LIFO) and
+    \\/// `Vec(T).__rig_drop`. The comptime dispatch means the
+    \\/// generated drop code for `Vec(i32)` (Copy element) is just
+    \\/// `len = 0; free(buf)` \u2014 no per-element work at runtime.
+    \\pub fn dropElement(comptime T: type, value: *T) void {
+    \\    if (comptime isStrongHandle(T)) {
+    \\        value.*.dropStrong();
+    \\    } else if (comptime hasRigDrop(T)) {
+    \\        value.__rig_drop();
+    \\    }
+    \\    // Copy/no-op branch: nothing to do.
+    \\}
+    \\
+    \\/// M20i: `Vec(T)` \u2014 the resource-aware growable container.
+    \\///
+    \\/// Vec(T) is a resource VALUE TYPE (not a handle): it owns its
+    \\/// backing buffer and is responsible for freeing both the
+    \\/// elements (via `dropElement`) and the buffer itself when it
+    \\/// drops. The Rig sema layer enforces that bare copy/alias of
+    \\/// `Vec(T)` is rejected (would double-free); move via `<vec` is
+    \\/// the only legal way to transfer ownership.
+    \\///
+    \\/// V1 element kinds: Copy primitives, `*T` shared handles, `~T`
+    \\/// weak handles, `*Closure()`. Arbitrary nominal T is rejected
+    \\/// at sema time until user-defined Drop exists.
+    \\///
+    \\/// Storage: `buf` is null when empty (`len == 0`, `cap == 0`)
+    \\/// per `std.ArrayList` convention. First push allocates an
+    \\/// initial capacity of 4; subsequent grows double the capacity.
+    \\///
+    \\/// Drop order: LIFO (last-pushed dropped first). Matches Zig
+    \\/// `defer` ordering and Rust's `Drop` semantics for vectors.
+    \\pub fn Vec(comptime T: type) type {
+    \\    return struct {
+    \\        allocator: std.mem.Allocator,
+    \\        buf: ?[*]T,
+    \\        len: usize,
+    \\        cap: usize,
+    \\
+    \\        /// M20i: marker for the resource-aware-container family.
+    \\        /// Not currently consumed (sema dispatches on the type
+    \\        /// shape directly), but reserved for future dispatch.
+    \\        pub const __rig_vec_marker = true;
+    \\
+    \\        const Self = @This();
+    \\
+    \\        pub fn init(allocator: std.mem.Allocator) Self {
+    \\            return .{ .allocator = allocator, .buf = null, .len = 0, .cap = 0 };
+    \\        }
+    \\
+    \\        pub fn initCapacity(allocator: std.mem.Allocator, capacity: usize) !Self {
+    \\            if (capacity == 0) return init(allocator);
+    \\            const buf = try allocator.alloc(T, capacity);
+    \\            return .{ .allocator = allocator, .buf = buf.ptr, .len = 0, .cap = capacity };
+    \\        }
+    \\
+    \\        fn ensureCapacity(self: *Self, min_cap: usize) !void {
+    \\            if (self.cap >= min_cap) return;
+    \\            const new_cap = if (self.cap == 0)
+    \\                @max(min_cap, @as(usize, 4))
+    \\            else
+    \\                @max(min_cap, self.cap * 2);
+    \\            const new_buf = try self.allocator.alloc(T, new_cap);
+    \\            // Bitwise-move elements from old to new. Element drop
+    \\            // semantics DO NOT fire here \u2014 the elements live in
+    \\            // new_buf now; the old buffer is freed as raw storage.
+    \\            if (self.buf) |old_ptr| {
+    \\                if (self.len > 0) {
+    \\                    @memcpy(new_buf[0..self.len], old_ptr[0..self.len]);
+    \\                }
+    \\                self.allocator.free(old_ptr[0..self.cap]);
+    \\            }
+    \\            self.buf = new_buf.ptr;
+    \\            self.cap = new_cap;
+    \\        }
+    \\
+    \\        /// Append `value` to the end. Panics on OOM (per M20d's
+    \\        /// simple-API convention; fallible variant deferred).
+    \\        pub fn push(self: *Self, value: T) void {
+    \\            self.ensureCapacity(self.len + 1) catch @panic("Rig Vec allocation failed");
+    \\            self.buf.?[self.len] = value;
+    \\            self.len += 1;
+    \\        }
+    \\
+    \\        /// Returns the current element count.
+    \\        pub fn length(self: *const Self) usize {
+    \\            return self.len;
+    \\        }
+    \\
+    \\        /// Returns the element at index `i`, or null if `i >= len`.
+    \\        /// V1: Copy T only \u2014 sema rejects `get` on resource T.
+    \\        pub fn get(self: *const Self, i: usize) ?T {
+    \\            if (i >= self.len) return null;
+    \\            return self.buf.?[i];
+    \\        }
+    \\
+    \\        /// Remove and return the last element, or null if empty.
+    \\        /// V1: Copy T only \u2014 sema rejects `pop` on resource T
+    \\        /// (returning `(*T)?` would need optional-resource auto-drop
+    \\        /// semantics that don't exist yet).
+    \\        pub fn pop(self: *Self) ?T {
+    \\            if (self.len == 0) return null;
+    \\            self.len -= 1;
+    \\            return self.buf.?[self.len];
+    \\        }
+    \\
+    \\        /// Drop all elements and reset `len` to 0. The backing
+    \\        /// buffer is retained for reuse (use `__rig_drop` to free
+    \\        /// the buffer too). Element drop is LIFO.
+    \\        pub fn clear(self: *Self) void {
+    \\            if (self.buf) |p| {
+    \\                var i = self.len;
+    \\                while (i > 0) {
+    \\                    i -= 1;
+    \\                    dropElement(T, &p[i]);
+    \\                }
+    \\            }
+    \\            self.len = 0;
+    \\        }
+    \\
+    \\        /// Destructor hook. Drops all elements (LIFO) and frees
+    \\        /// the backing buffer. Invoked by:
+    \\        ///   - `RcBox(Vec(T)).dropStrong()` on last strong
+    \\        ///     (via `hasRigDrop` in M20h's hook).
+    \\        ///   - Emit-side scope-exit defer-guard for stack-local
+    \\        ///     `Vec(T)` bindings (M20i sub-commit (3-4/5)).
+    \\        ///   - Explicit `-vec` in Rig source.
+    \\        pub fn __rig_drop(self: *Self) void {
+    \\            self.clear();
+    \\            if (self.buf) |p| {
+    \\                self.allocator.free(p[0..self.cap]);
+    \\                self.buf = null;
+    \\                self.cap = 0;
+    \\            }
+    \\        }
+    \\    };
+    \\}
     \\
     \\/// V1 default allocator for `*expr` boxes. Single-threaded, page-
     \\/// based. Later milestones may surface an allocator parameter; for
