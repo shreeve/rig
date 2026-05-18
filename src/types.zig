@@ -4163,16 +4163,102 @@ const ExprChecker = struct {
     }
 
     fn checkForStmt(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
-        // (for <mode> binding1 binding2-or-_ source body else?). We
-        // don't have iterator-protocol types in V1, so only walk source
-        // (synth + discard) and the body. The for itself opens a scope
-        // for the loop variable(s) — match the resolver here.
+        // (for <mode> binding1 binding2-or-_ source body else?).
+        //
+        // M20i.1: when the source is a `Vec(T)`, validate the mode and
+        // type the loop element. Per GPT-5.5's M20i.1 design pass
+        // (Option B, external `for x in vec`):
+        //   - Copy T: any mode OK; element binds as `T`.
+        //   - Resource T (`*T`, `~T`, `*Closure()`): require `read`
+        //     mode (user wrote `for x in ?vec`). Element binds as
+        //     `borrow_read(T)` — a borrowed view of the element slot.
+        //     Write / move iteration over resource Vec is rejected in
+        //     M20i.1 (would require resource-T `pop`/`get` or take/swap
+        //     primitives that don't exist yet).
+        //   - Mode `iter` over resource Vec emits a tailored
+        //     diagnostic pointing the user at `?vec`.
+        //
+        // For non-Vec sources, retain the pre-M20i.1 behavior
+        // (synth + discard, walk body) so existing iteration over
+        // borrowed slices etc. keeps working.
         if (items.len < 6) return;
-        _ = try self.synthExpr(items[4]);
-        const prev = self.enterNextScope();
-        try self.checkStmt(items[5]);
-        self.leaveScope(prev);
+        const mode = items[1];
+        const binding1 = items[2];
+        const source = items[4];
+
+        const source_ty = try self.synthExpr(source);
+        const elem_info = self.vecElementForIteration(source_ty);
+
+        if (elem_info) |info| {
+            // Source is a Vec(T). Validate mode + bind element type.
+            const mode_tag: ?Tag = if (mode == .tag) mode.tag else null;
+            const source_pos = firstSrcPos(source);
+            const is_resource = info.is_resource;
+
+            if (is_resource) {
+                switch (mode_tag orelse .iter) {
+                    .@"read" => {},
+                    .iter => try self.err(source_pos, "resource Vec(T) iteration requires an explicit read borrow; write `for x in ?vec`", .{}),
+                    .@"write", .@"move", .ptr => try self.err(source_pos, "iteration mode not supported for resource Vec(T) in V1; use `for x in ?vec` to read-iterate", .{}),
+                    else => {},
+                }
+            } else {
+                // Copy element T. Any mode is fine (default `iter`
+                // is bare-value iteration; explicit `?vec` also OK
+                // for consistency with the resource case).
+            }
+
+            // Bind the element symbol's type. We must enter the scope
+            // briefly to find the symbol the resolver added.
+            const prev_scope = self.enterNextScope();
+            const elem_ty: TypeId = if (is_resource)
+                (self.ctx.types.intern(self.ctx.allocator, .{ .borrow_read = info.elem_ty }) catch info.elem_ty)
+            else
+                info.elem_ty;
+            if (binding1 == .src) {
+                const name = self.ctx.source[binding1.src.pos..][0..binding1.src.len];
+                if (self.ctx.lookupInScopeOnly(self.current_scope, name)) |sid| {
+                    self.ctx.symbols.items[sid].ty = elem_ty;
+                }
+            }
+
+            try self.checkStmt(items[5]);
+            self.leaveScope(prev_scope);
+        } else {
+            const prev = self.enterNextScope();
+            try self.checkStmt(items[5]);
+            self.leaveScope(prev);
+        }
         if (items.len > 6 and items[6] != .nil) try self.checkStmt(items[6]);
+    }
+
+    /// M20i.1: classify a `for` source as Vec(T) iteration if its type
+    /// peels to `parameterized_nominal{Vec, [T]}`. Returns the element
+    /// TypeId and a resource-ness flag. Resource elements are `*T`,
+    /// `~T`, or `*Closure()`; everything else (Copy primitives) is
+    /// treated as non-resource. The caller uses `is_resource` to drive
+    /// mode validation and element-binding shape.
+    const VecElemInfo = struct {
+        elem_ty: TypeId,
+        is_resource: bool,
+    };
+    fn vecElementForIteration(self: *ExprChecker, ty_id: TypeId) ?VecElemInfo {
+        if (self.ctx.vec_sym_id == symbol_invalid) return null;
+        const peeled = unwrapBorrows(self.ctx, ty_id);
+        const ty = self.ctx.types.get(peeled);
+        const pn = switch (ty) {
+            .parameterized_nominal => |x| x,
+            else => return null,
+        };
+        if (pn.sym != self.ctx.vec_sym_id) return null;
+        if (pn.args.len != 1) return null;
+        const elem_ty = pn.args[0];
+        const elem = self.ctx.types.get(elem_ty);
+        const is_resource = switch (elem) {
+            .shared, .weak => true,
+            else => false,
+        };
+        return .{ .elem_ty = elem_ty, .is_resource = is_resource };
     }
 
     /// `(match scrutinee arm...)` at statement position.
@@ -5488,9 +5574,19 @@ const ExprChecker = struct {
     /// M20h: does the symbol's type slot describe a `*Closure()`
     /// handle? Used by `synthCall` to recognize closure invocation
     /// `cb()` when `cb: *Closure()`.
+    ///
+    /// M20i.1: borrows are peeled first so a borrowed closure handle
+    /// (e.g., the element binding of `for cb in ?subs` where
+    /// `subs: Vec(*Closure())`) is recognized as callable. Per GPT-5.5's
+    /// design pass: a borrowed `*Closure()` is still callable — invoke
+    /// is a read operation on the underlying handle — even though it
+    /// cannot be cloned/moved/dropped via the borrowed binding. The
+    /// ownership layer enforces the consume restrictions; the type
+    /// classifier just decides whether `cb()` is a closure invocation.
     fn isOwnedClosureHandleType(ctx: *const SemContext, ty_id: TypeId) bool {
         if (ctx.closure_sym_id == symbol_invalid) return false;
-        const ty = ctx.types.get(ty_id);
+        const peeled = unwrapBorrows(ctx, ty_id);
+        const ty = ctx.types.get(peeled);
         const inner_id = switch (ty) {
             .shared => |t| t,
             else => return false,
