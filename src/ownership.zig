@@ -64,6 +64,26 @@ pub const Binding = struct {
     /// call argument. Enforced by `checkPlainUse` (bare-name uses)
     /// and the `walk` dispatcher (rebind/escape contexts).
     is_closure: bool = false,
+
+    /// M20i.1: set when the binding is the loop element of a
+    /// resource-Vec iteration (`for cb in ?vec`). Per GPT-5.5's
+    /// M20i.1 design pass: the element is a borrowed view of the
+    /// Vec slot, not an owned handle. It may be read (called,
+    /// member-accessed, member-method-called), but it MAY NOT be
+    /// cloned (`+cb`), moved (`<cb`), dropped (`-cb`), returned,
+    /// stored, or passed as a bare-name value argument. Those
+    /// operations would silently smuggle a strong handle pointer
+    /// past the loop boundary without a refcount bump, corrupting
+    /// either drop-cascade discipline or the Vec's own ownership
+    /// of the element slot.
+    ///
+    /// The companion machinery on this binding also carries
+    /// `borrow_root_index` / `borrow_kind = .read` pointing at the
+    /// source Vec binding — that lights up the standard
+    /// write-while-read-borrowed rejection so `(!vec).push(...)`
+    /// inside the loop body fires the existing borrow-conflict
+    /// diagnostic.
+    is_loop_borrow: bool = false,
 };
 
 const Scope = struct {
@@ -344,6 +364,23 @@ pub const Checker = struct {
             .@"read" => try self.walkBorrow(items, .read_op),
             .@"write" => try self.walkBorrow(items, .write_op),
             .@"clone", .@"weak", .@"pin", .@"raw" => {
+                // M20i.1: bare `+cb` / `~cb` on a loop-borrow alias
+                // would silently bump a refcount on a borrowed-view
+                // slot, smuggling out a strong handle past the loop
+                // boundary. Reject before walking the inner so the
+                // diagnostic anchors at the consume sigil.
+                if (items.len >= 2 and items[1] == .src) {
+                    const op_name: []const u8 = switch (head) {
+                        .@"clone" => "clone",
+                        .@"weak" => "take a weak reference to",
+                        .@"pin" => "pin",
+                        .@"raw" => "take a raw pointer to",
+                        else => "consume",
+                    };
+                    const nm = self.source[items[1].src.pos..][0..items[1].src.len];
+                    const rejected = try self.rejectLoopBorrowOp(items[1].src.pos, nm, op_name);
+                    if (rejected) return;
+                }
                 if (items.len >= 2) try self.walk(items[1], false);
             },
             // M20h(3/5): `(share (call Closure (lambda ...)))` is the
@@ -1063,6 +1100,10 @@ pub const Checker = struct {
 
         switch (op) {
             .move_op => {
+                if (b.is_loop_borrow) {
+                    try self.err(root_pos, "cannot move loop-borrow alias `{s}`; resource Vec(T) iteration binds the element as a read borrow of the Vec slot. Clone / move / drop / store are not supported on borrowed elements in V1.", .{root_name});
+                    return;
+                }
                 if (b.read_borrows > 0) {
                     try self.err(root_pos, "cannot move `{s}` while it is read-borrowed", .{root_name});
                     try self.note(b.read_borrowed_at, "read borrow taken here", .{});
@@ -1114,6 +1155,10 @@ pub const Checker = struct {
             return;
         };
         const b = &self.bindings.items[idx];
+        if (b.is_loop_borrow) {
+            try self.err(target.src.pos, "cannot drop loop-borrow alias `{s}`; resource Vec(T) iteration binds the element as a read borrow of the Vec slot. Clone / move / drop / store are not supported on borrowed elements in V1.", .{nm});
+            return;
+        }
         if (b.state == .moved) {
             try self.err(target.src.pos, "cannot drop `{s}` after it was moved", .{nm});
             try self.note(b.moved_at, "`{s}` was moved here", .{nm});
@@ -1206,6 +1251,15 @@ pub const Checker = struct {
 
         const idx = self.lookup(name) orelse return;
         const b = &self.bindings.items[idx];
+        // M20i.1: bare-name use of a loop-borrow alias in a call-
+        // argument or binding-RHS position would silently smuggle the
+        // borrowed handle past the loop boundary. The diagnostic
+        // wording is distinct from the M20d shared/weak case (a
+        // loop-borrow has no `<x` / `+x` recovery in V1).
+        if (b.is_loop_borrow) {
+            try self.err(expr.src.pos, "bare use of loop-borrow alias `{s}` in {s} would smuggle the borrowed handle past the loop boundary; resource Vec(T) iteration binds the element as a read borrow of the Vec slot. Clone / move / drop / store are not supported on borrowed elements in V1.", .{ name, ctx });
+            return;
+        }
         // Bridge to sema via (name, declared_at) — same pattern as
         // `semaBindingIsCopy`. Only one sema Symbol has this exact
         // pair, so first-match here is correct under shadowing.
@@ -1252,6 +1306,14 @@ pub const Checker = struct {
         // (return value? if?). Check borrow-escape on the value if borrowed-fn.
         if (items.len >= 2) {
             const value = items[1];
+            // M20i.1: returning a loop-borrow alias would smuggle a
+            // borrowed Vec-slot view past the loop AND the function
+            // boundary. Fire BEFORE the generic walk so the diagnostic
+            // anchors at the return value.
+            if (value == .src) {
+                const nm = self.source[value.src.pos..][0..value.src.len];
+                _ = try self.rejectLoopBorrowOp(value.src.pos, nm, "return");
+            }
             try self.walk(value, false);
             if (self.in_borrowed_fn) try self.checkBorrowEscape(value);
         }
@@ -1387,22 +1449,64 @@ pub const Checker = struct {
         //
         // For ownership purposes the body sees `binding1` (and `binding2`
         // if present) as fresh locals. The source's mode tag is
-        // informational for V1; we conservatively just walk the source as
-        // an expression and rely on the loop-body's borrow rules.
+        // informational for most V1 cases; M20i.1 adds resource-Vec
+        // iteration which needs explicit read-borrow + element-as-loop-
+        // borrow tracking.
         if (items.len < 6) return;
+        const mode = items[1];
         const binding1 = items[2];
         const binding2 = items[3];
         const source = items[4];
         const body = items[5];
 
         try self.walk(source, false);
+
+        // M20i.1: detect `for cb in ?vec` over a resource-element Vec.
+        // When the source's MODE is `read` (Parser promotes
+        // `(for iter cb _ (read vec) body)` → `(for read cb _ vec body)`),
+        // AND the source is a bare name resolving to a Vec(T) where T
+        // is a resource, AND the binding1 is a fresh `.src` name, take
+        // a scope-bound read borrow on the source and mark binding1
+        // with `is_loop_borrow = true`. The borrow is anchored on
+        // binding1's `borrow_root_index`, so the for-scope's popScope
+        // auto-releases via the existing `releaseOwnedBorrow` path.
+        //
+        // For Copy Vec(T) sources (mode = `iter`, no `?`), no scope-
+        // bound borrow is installed and the element is a plain local
+        // (matches the M5 default). The "iterator-invalidation" hazard
+        // for Copy T is documented in SPEC; runtime is safe (Copy
+        // elements have no destructor + the Zig slice access is
+        // bounded by `len`).
+        var loop_borrow_root: ?usize = null;
+        if (mode == .tag and mode.tag == .@"read" and
+            binding1 == .src and source == .src and self.sema != null)
+        {
+            const source_name = self.source[source.src.pos..][0..source.src.len];
+            if (self.lookup(source_name)) |src_idx| {
+                if (self.bindingIsResourceVec(src_idx)) {
+                    const sb = &self.bindings.items[src_idx];
+                    if (sb.write_borrows == 0 and sb.state == .valid) {
+                        sb.read_borrows += 1;
+                        if (sb.read_borrows == 1) sb.read_borrowed_at = source.src.pos;
+                        loop_borrow_root = src_idx;
+                    }
+                }
+            }
+        }
+
         try self.pushScope();
         if (binding1 == .src) {
             const nm = self.source[binding1.src.pos..][0..binding1.src.len];
-            _ = try self.addBinding(.{
+            const idx = try self.addBinding(.{
                 .name = nm,
                 .declared_at = binding1.src.pos,
             });
+            if (loop_borrow_root) |ri| {
+                const eb = &self.bindings.items[idx];
+                eb.is_loop_borrow = true;
+                eb.borrow_root_index = ri;
+                eb.borrow_kind = .read;
+            }
         }
         if (binding2 == .src) {
             const nm = self.source[binding2.src.pos..][0..binding2.src.len];
@@ -1414,6 +1518,49 @@ pub const Checker = struct {
         try self.walk(body, true);
         try self.popScope();
         if (items.len > 6) try self.walk(items[6], true);
+    }
+
+    /// M20i.1: does the binding's sema type peel to a Vec(T) with a
+    /// resource element? Drives the `for x in ?vec` loop-borrow
+    /// installation in `walkFor`.
+    fn bindingIsResourceVec(self: *Checker, binding_idx: usize) bool {
+        const sema = self.sema orelse return false;
+        const b = &self.bindings.items[binding_idx];
+        for (sema.symbols.items) |sym| {
+            if (sym.decl_pos != b.declared_at) continue;
+            if (!std.mem.eql(u8, sym.name, b.name)) continue;
+            // Peel borrows so a borrowed-param `?vec: Vec(...)`
+            // also classifies correctly.
+            const peeled = types.unwrapBorrows(sema, sym.ty);
+            const ty = sema.types.get(peeled);
+            if (ty != .parameterized_nominal) return false;
+            if (ty.parameterized_nominal.sym != sema.vec_sym_id) return false;
+            if (ty.parameterized_nominal.args.len != 1) return false;
+            const elem_ty = sema.types.get(ty.parameterized_nominal.args[0]);
+            return switch (elem_ty) {
+                .shared, .weak => true,
+                else => false,
+            };
+        }
+        return false;
+    }
+
+    /// M20i.1: reject bare consume / smuggle ops on a loop-borrow
+    /// element binding. The binding represents a borrowed view of a
+    /// Vec slot; cloning / moving / dropping / returning / aliasing it
+    /// would silently smuggle a strong handle past the loop boundary
+    /// without a refcount bump. Allowed uses are bare reads in call-
+    /// callee, member-access, and member-method-call positions —
+    /// none of which route through this check.
+    ///
+    /// `op_kind` is a short noun for the diagnostic (e.g., "clone",
+    /// "move", "drop", "return", "alias").
+    fn rejectLoopBorrowOp(self: *Checker, pos: u32, name: []const u8, op_kind: []const u8) Error!bool {
+        const idx = self.lookup(name) orelse return false;
+        const b = &self.bindings.items[idx];
+        if (!b.is_loop_borrow) return false;
+        try self.err(pos, "cannot {s} loop-borrow alias `{s}`; resource Vec(T) iteration binds the element as a read borrow of the Vec slot. Clone / move / drop / store are not supported on borrowed elements in V1.", .{ op_kind, name });
+        return true;
     }
 
     fn walkTryBlock(self: *Checker, items: []const Sexp) Error!void {
