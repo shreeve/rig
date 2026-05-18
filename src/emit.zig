@@ -2676,17 +2676,121 @@ pub const Emitter = struct {
     fn emitFor(self: *Emitter, items: []const Sexp) Error!void {
         // (for <mode> binding1 binding2-or-_ source body else?)
         //
-        // Mode is informational for V1 (Zig's `for` doesn't distinguish
-        // borrow modes); ownership semantics were enforced by M2.
-        // mode = `ptr` could lower to Zig's `for (xs) |*x| { ... }` for
-        // pointer iteration; for V1 we emit plain `for (xs) |x| { ... }`
-        // and let Zig figure out the binding shape from context.
+        // M20i.1: Vec(T) iteration lowers to an explicit
+        // `if (vec.buf) |__p| { while ... }` walk instead of Zig's
+        // raw `for (vec) |x|` (Zig doesn't know how to iterate
+        // `rig.Vec(T)`). Two emit shapes per GPT-5.5's M20i.1
+        // design pass:
+        //
+        //   - **Shape Y (Copy elements):** bind the element by value
+        //     to a Zig const.
+        //     `for n in nums` lowers to:
+        //         if (nums.buf) |__p_X| {
+        //             var __i_X: usize = 0;
+        //             while (__i_X < nums.len) : (__i_X += 1) {
+        //                 const n = __p_X[__i_X];
+        //                 <body>
+        //             }
+        //         }
+        //
+        //   - **Shape X (resource elements `*T` / `~T`):** bind the
+        //     element via a slot pointer so emit can resolve uses
+        //     through `__elem_<name>.*`. The textual rewrite is
+        //     installed via the emit scope frame's `zig_name` slot.
+        //     `for cb in ?subs` (subs: Vec(*Closure())) lowers to:
+        //         if (subs.buf) |__p_X| {
+        //             var __i_X: usize = 0;
+        //             while (__i_X < subs.len) : (__i_X += 1) {
+        //                 const __elem_cb = &__p_X[__i_X];
+        //                 <body, where `cb` => `__elem_cb.*`>
+        //             }
+        //         }
+        //     The owned-closure invocation path
+        //     (`lookupIsOwnedClosure` -> `cb.value.invoke()`) is
+        //     marked on the element binding so `cb()` lowers to
+        //     `__elem_cb.*.value.invoke()` correctly.
+        //
+        // For non-Vec sources (existing M2 `for u in ?users` over
+        // borrowed slices, etc.) retain the pre-M20i.1 emit:
+        // `for (<source>) |b1, b2?| body`.
         if (items.len < 6) return;
         const binding1 = items[2];
         const binding2 = items[3];
         const source = items[4];
         const body = items[5];
 
+        const vec_emit = self.vecSourceForEmit(source);
+        if (vec_emit) |info| {
+            // Use the binding's source position as a uniqueness
+            // suffix so nested fors don't collide.
+            const tag_pos: u32 = if (binding1 == .src) binding1.src.pos else 0;
+            // Allocate generated names in the emit's `name_arena`
+            // so they outlive the for-statement walk (the emit scope
+            // frame holds a slice into them) and get reclaimed when
+            // the Emitter deinits.
+            const p_name = try std.fmt.allocPrint(self.name_arena.allocator(), "__rig_p_{d}", .{tag_pos});
+            const i_name = try std.fmt.allocPrint(self.name_arena.allocator(), "__rig_i_{d}", .{tag_pos});
+
+            // Outer scope: the slot alias lives here, body resolves
+            // the loop binding via the scope-frame `zig_name`.
+            try self.pushScope();
+
+            try self.w.print("if (", .{});
+            try self.emitExpr(source);
+            try self.w.print(".buf) |{s}| {{\n", .{p_name});
+            self.indent += 1;
+            try self.indentSpaces();
+            try self.w.print("var {s}: usize = 0;\n", .{i_name});
+            try self.indentSpaces();
+            try self.w.print("while ({s} < ", .{i_name});
+            try self.emitExpr(source);
+            try self.w.print(".len) : ({s} += 1) {{\n", .{i_name});
+            self.indent += 1;
+
+            if (binding1 == .src) {
+                const name = self.source[binding1.src.pos..][0..binding1.src.len];
+                if (info.elem_is_resource) {
+                    // Shape X: declare the slot alias and rewrite the
+                    // Rig binding's uses via `__elem_<name>.*` in the
+                    // emit scope frame.
+                    const elem_name = try std.fmt.allocPrint(self.name_arena.allocator(), "__rig_elem_{d}", .{binding1.src.pos});
+                    try self.indentSpaces();
+                    try self.w.print("const {s} = &{s}[{s}];\n", .{ elem_name, p_name, i_name });
+                    const deref_zig_name = try std.fmt.allocPrint(self.name_arena.allocator(), "{s}.*", .{elem_name});
+                    try self.declareWithResourceKind(name, deref_zig_name, null);
+                    // Owned closure invocation rewrite — if the
+                    // element is `*Closure()`, `cb()` must lower to
+                    // `<elem>.value.invoke()`. We mark uniformly for
+                    // all resource elements; non-closure invocations
+                    // never look at the flag.
+                    if (info.elem_is_closure) self.markOwnedClosure(name);
+                } else {
+                    // Shape Y: bind by value as a normal Zig const.
+                    try self.indentSpaces();
+                    try self.w.print("const {s} = {s}[{s}];\n", .{ name, p_name, i_name });
+                    try self.declare(name, name);
+                }
+            }
+
+            // Body. emitBlockOrInline pushes its own nested scope,
+            // but the loop-binding declaration lives in the parent
+            // for-scope so it's visible throughout the body.
+            try self.indentSpaces();
+            try self.emitBlockOrInline(body);
+            try self.w.writeAll("\n");
+
+            self.indent -= 1;
+            try self.indentSpaces();
+            try self.w.writeAll("}\n");
+            self.indent -= 1;
+            try self.indentSpaces();
+            try self.w.writeAll("}");
+
+            try self.popScope();
+            return;
+        }
+
+        // Legacy path: non-Vec source.
         try self.w.writeAll("for (");
         try self.emitExpr(source);
         try self.w.writeAll(") |");
@@ -2697,6 +2801,63 @@ pub const Emitter = struct {
         }
         try self.w.writeAll("| ");
         try self.emitBlockOrInline(body);
+    }
+
+    /// M20i.1: classify a for-loop source expression for emit-time
+    /// dispatch. Returns null for non-Vec sources (existing M2 path).
+    /// For Vec sources, signals whether the element is a resource
+    /// handle (Shape X with slot-alias rewrite) and whether it's
+    /// specifically a `*Closure()` (so emit can mark the binding for
+    /// the M20h `cb() -> cb.value.invoke()` rewrite).
+    ///
+    /// V1: only handles bare-name sources (`for x in vec` /
+    /// `for x in ?vec`). General expression sources fall back to the
+    /// legacy emit path. For nested member-access sources
+    /// (`for x in ?holder.subs`), a future M20i.1.x can extend this
+    /// to walk the expression's sema-resolved type via `synthExpr`.
+    const VecEmitInfo = struct {
+        elem_is_resource: bool,
+        elem_is_closure: bool,
+    };
+    fn vecSourceForEmit(self: *const Emitter, source: Sexp) ?VecEmitInfo {
+        const sema = self.sema orelse return null;
+        if (sema.vec_sym_id == types.symbol_invalid) return null;
+        if (source != .src) return null;
+        const name = self.source[source.src.pos..][0..source.src.len];
+
+        // Reverse scan so the most-recently-declared symbol with the
+        // name wins under shadowing — same shape as M20e's legacy
+        // global scan, gated on `vec_sym_id` so non-Vec same-name
+        // bindings fall through cleanly.
+        var i = sema.symbols.items.len;
+        while (i > 0) {
+            i -= 1;
+            const sym = sema.symbols.items[i];
+            if (!std.mem.eql(u8, sym.name, name)) continue;
+            const peeled = types.unwrapBorrows(sema, sym.ty);
+            const ty = sema.types.get(peeled);
+            if (ty != .parameterized_nominal) continue;
+            if (ty.parameterized_nominal.sym != sema.vec_sym_id) continue;
+            if (ty.parameterized_nominal.args.len != 1) continue;
+            const elem_ty_id = ty.parameterized_nominal.args[0];
+            const elem_ty = sema.types.get(elem_ty_id);
+            const is_resource = switch (elem_ty) {
+                .shared, .weak => true,
+                else => false,
+            };
+            const is_closure = blk: {
+                if (sema.closure_sym_id == types.symbol_invalid) break :blk false;
+                if (elem_ty != .shared) break :blk false;
+                const inner = sema.types.get(elem_ty.shared);
+                break :blk switch (inner) {
+                    .nominal => |s| s == sema.closure_sym_id,
+                    .parameterized_nominal => |pn| pn.sym == sema.closure_sym_id,
+                    else => false,
+                };
+            };
+            return .{ .elem_is_resource = is_resource, .elem_is_closure = is_closure };
+        }
+        return null;
     }
 
     /// `(match scrutinee arm...)` lowers to a Zig `switch` statement.
