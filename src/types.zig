@@ -846,6 +846,116 @@ fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.E
     const vec_type_params = try ctx.arena.allocator().alloc(SymbolId, 1);
     vec_type_params[0] = vec_t_sym_id;
     ctx.symbols.items[vec_sym_id].type_params = vec_type_params;
+
+    // M20i(2/5): synthetic methods for Vec(T).
+    //
+    // Receiver discipline (per GPT-5.5's M20i design pass, D3+):
+    //   - push / clear / pop: write-receiver (`!Vec(T)`). Vec is a
+    //     resource value; mutating it requires explicit write
+    //     access. Users invoke as `(!vec).push(...)` or similar
+    //     (M20i(3/5) extends the ownership pass to make this
+    //     ergonomic for stack-local Vec bindings).
+    //   - length / get: read-receiver (`?Vec(T)`).
+    //
+    // Copy-T-only restrictions on `get` and `pop`:
+    //   Returning a resource T from `get`/`pop` would either silently
+    //   clone (visibility violation) or produce an optional resource
+    //   value `(*T)?` that Rig's V1 optional-handling can't auto-drop
+    //   correctly. The methods are REGISTERED for all T (so syntax
+    //   parses), but sema at the call site rejects them when T is a
+    //   resource handle. Use `push` + `clear` + scope drop for
+    //   resource T; future M20i.x or M20j adds non-consuming access.
+    const t_type_id_v = try ctx.types.intern(ctx.allocator, .{ .type_var = vec_t_sym_id });
+    const vec_inst_id = try ctx.types.intern(ctx.allocator, .{
+        .parameterized_nominal = .{
+            .sym = vec_sym_id,
+            .args = blk: {
+                const a = try ctx.arena.allocator().alloc(TypeId, 1);
+                a[0] = t_type_id_v;
+                break :blk a;
+            },
+        },
+    });
+    const vec_read_self_id = try ctx.types.intern(ctx.allocator, .{ .borrow_read = vec_inst_id });
+    const vec_write_self_id = try ctx.types.intern(ctx.allocator, .{ .borrow_write = vec_inst_id });
+
+    // push(self: !Vec(T), value: T) -> Void
+    const vec_push_params = try ctx.arena.allocator().alloc(TypeId, 2);
+    vec_push_params[0] = vec_write_self_id;
+    vec_push_params[1] = t_type_id_v;
+    const vec_push_fn_ty = try ctx.types.intern(ctx.allocator, .{
+        .function = .{ .params = vec_push_params, .returns = ctx.types.void_id, .is_sub = true },
+    });
+
+    // length(self: ?Vec(T)) -> Int
+    const vec_length_params = try ctx.arena.allocator().alloc(TypeId, 1);
+    vec_length_params[0] = vec_read_self_id;
+    const vec_length_fn_ty = try ctx.types.intern(ctx.allocator, .{
+        .function = .{ .params = vec_length_params, .returns = ctx.types.int_id, .is_sub = false },
+    });
+
+    // clear(self: !Vec(T)) -> Void
+    const vec_clear_params = try ctx.arena.allocator().alloc(TypeId, 1);
+    vec_clear_params[0] = vec_write_self_id;
+    const vec_clear_fn_ty = try ctx.types.intern(ctx.allocator, .{
+        .function = .{ .params = vec_clear_params, .returns = ctx.types.void_id, .is_sub = true },
+    });
+
+    // get(self: ?Vec(T), i: Int) -> T?
+    //   Copy-T-only at call site.
+    const t_optional_id = try ctx.types.intern(ctx.allocator, .{ .optional = t_type_id_v });
+    const vec_get_params = try ctx.arena.allocator().alloc(TypeId, 2);
+    vec_get_params[0] = vec_read_self_id;
+    vec_get_params[1] = ctx.types.int_id;
+    const vec_get_fn_ty = try ctx.types.intern(ctx.allocator, .{
+        .function = .{ .params = vec_get_params, .returns = t_optional_id, .is_sub = false },
+    });
+
+    // pop(self: !Vec(T)) -> T?
+    //   Copy-T-only at call site.
+    const vec_pop_params = try ctx.arena.allocator().alloc(TypeId, 1);
+    vec_pop_params[0] = vec_write_self_id;
+    const vec_pop_fn_ty = try ctx.types.intern(ctx.allocator, .{
+        .function = .{ .params = vec_pop_params, .returns = t_optional_id, .is_sub = true },
+    });
+
+    const vec_fields = try ctx.arena.allocator().alloc(Field, 5);
+    vec_fields[0] = .{
+        .name = "push",
+        .ty = vec_push_fn_ty,
+        .decl_pos = builtin_decl_pos,
+        .is_method = true,
+        .receiver = .write,
+    };
+    vec_fields[1] = .{
+        .name = "length",
+        .ty = vec_length_fn_ty,
+        .decl_pos = builtin_decl_pos,
+        .is_method = true,
+        .receiver = .read,
+    };
+    vec_fields[2] = .{
+        .name = "clear",
+        .ty = vec_clear_fn_ty,
+        .decl_pos = builtin_decl_pos,
+        .is_method = true,
+        .receiver = .write,
+    };
+    vec_fields[3] = .{
+        .name = "get",
+        .ty = vec_get_fn_ty,
+        .decl_pos = builtin_decl_pos,
+        .is_method = true,
+        .receiver = .read,
+    };
+    vec_fields[4] = .{
+        .name = "pop",
+        .ty = vec_pop_fn_ty,
+        .decl_pos = builtin_decl_pos,
+        .is_method = true,
+        .receiver = .write,
+    };
+    ctx.symbols.items[vec_sym_id].fields = vec_fields;
 }
 
 /// M20f.1 per GPT-5.5: names reserved for built-in nominal types
@@ -5531,6 +5641,13 @@ const ExprChecker = struct {
         // compatibility check fails with "expected Box(Int), got Box".
         // Per GPT-5.5: "Design for expected-type-driven generic
         // construction, not inference."
+        //
+        // M20i(2/5): Vec construction is special-cased BEFORE
+        // `checkGenericConstructorCall` because Vec doesn't have
+        // data fields — the kwarg `capacity` is a constructor
+        // hint, not a field-init. Routing through the generic
+        // constructor path would error "no field `capacity` on
+        // type `Vec`".
         if (expr == .list and expr.list.len >= 2 and expr.list[0] == .tag and
             expr.list[0].tag == .@"call" and expr.list[1] == .src)
         {
@@ -5539,6 +5656,12 @@ const ExprChecker = struct {
                 const callee_src = expr.list[1].src;
                 const callee_name = self.ctx.source[callee_src.pos..][0..callee_src.len];
                 if (self.ctx.lookup(self.current_scope, callee_name)) |sym_id| {
+                    if (sym_id == self.ctx.vec_sym_id and
+                        sym_id == expected_ty.parameterized_nominal.sym)
+                    {
+                        try self.checkVecConstruction(expr.list, expected_ty.parameterized_nominal, callee_src.pos);
+                        return;
+                    }
                     if (sym_id == expected_ty.parameterized_nominal.sym) {
                         try self.checkGenericConstructorCall(expr.list, expected_ty.parameterized_nominal, callee_name, callee_src.pos);
                         return;
@@ -5554,6 +5677,64 @@ const ExprChecker = struct {
             try formatType(self.ctx, expected),
             try formatType(self.ctx, actual),
         });
+    }
+
+    /// M20i(2/5): `Vec()` / `Vec(capacity: N)` construction against
+    /// an expected `parameterized_nominal{Vec, [T]}` type. Routed
+    /// from `checkExpr` BEFORE the generic-constructor path because
+    /// Vec doesn't have data fields — the `capacity` kwarg is a
+    /// constructor hint, not a field-init.
+    ///
+    /// Accepted shapes:
+    ///   - `Vec()`                  zero args, default capacity
+    ///   - `Vec(capacity: N)`       int kwarg, pre-sized
+    ///
+    /// Rejected (with tailored diagnostics):
+    ///   - any positional argument
+    ///   - any kwarg other than `capacity`
+    ///   - duplicate `capacity` kwargs
+    ///   - non-integer `capacity` value
+    fn checkVecConstruction(
+        self: *ExprChecker,
+        items: []const Sexp,
+        pn: ParamNominal,
+        callee_pos: u32,
+    ) std.mem.Allocator.Error!void {
+        const args = items[2..];
+        var seen_capacity = false;
+        var seen_capacity_pos: u32 = 0;
+        for (args) |arg| {
+            // Kwarg form: `(kwarg name expr)`.
+            if (arg == .list and arg.list.len >= 3 and arg.list[0] == .tag and
+                arg.list[0].tag == .@"kwarg")
+            {
+                const name = identAt(self.ctx.source, arg.list[1]) orelse continue;
+                const name_pos: u32 = if (arg.list[1] == .src) arg.list[1].src.pos else callee_pos;
+                if (!std.mem.eql(u8, name, "capacity")) {
+                    try self.err(name_pos, "`Vec` constructor accepts only `capacity` as a kwarg; got `{s}`", .{name});
+                    _ = try self.synthExpr(arg.list[2]);
+                    continue;
+                }
+                if (seen_capacity) {
+                    try self.err(name_pos, "duplicate `capacity` kwarg in `Vec` constructor", .{});
+                    try self.note(seen_capacity_pos, "first `capacity` here", .{});
+                    _ = try self.synthExpr(arg.list[2]);
+                    continue;
+                }
+                seen_capacity = true;
+                seen_capacity_pos = name_pos;
+                // Check the capacity value against Int.
+                try self.checkExpr(arg.list[2], self.ctx.types.int_id);
+            } else {
+                // Positional argument — not allowed.
+                const pos = firstSrcPos(arg);
+                try self.err(pos, "`Vec` constructor takes no positional arguments; use `Vec()` (empty) or `Vec(capacity: N)`", .{});
+                _ = try self.synthExpr(arg);
+            }
+        }
+        _ = pn; // The expected nominal is implicit in the return shape;
+        // the caller already established `sym_id == vec_sym_id` so
+        // T-inference works through the LHS type annotation.
     }
 
     /// M20b(4/5): `Box(value: 5)` with expected `Box(Int)` — the
