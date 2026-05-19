@@ -36,7 +36,7 @@ don't care which one they get.
 In Rig today, both wrappers are defined: `rig.Lexer` reclassifies
 tokens (sigils, indentation, kwarg promotion, etc.); `rig.Parser`
 walks `BaseParser`'s raw output and applies the semantic rewrites
-documented in `docs/SEMANTIC-SEXP.md`. The result: callers do
+documented in `docs/IR.md`. The result: callers do
 `parser.parseProgram(allocator, source)` and get the fully-rewritten
 semantic IR back in one call.
 
@@ -102,7 +102,7 @@ stmt-only (not in `expr`), eliminating the `name : type =` vs
 
 ## M1 — Parser (sexp rewriter)
 
-- [x] `docs/SEMANTIC-SEXP.md`
+- [x] `docs/IR.md`
 - [x] `Parser` (sexp rewriter wrapper) in `src/rig.zig` implements every SPEC §"Semantic IR Nodes" form
 - [x] Goldens in `test/golden/semantic_sexp/`
 - [x] `bin/rig normalize <file.rig>` works
@@ -318,7 +318,7 @@ moving to M5.
 - [x] Negative test additions: `escape_nested`, `branch_independent`,
   `branch_merged_move`. All goldens locked.
 - [x] **Doc refresh.** `INHERITED-FROM-ZAG.md`, `ROADMAP.md`, this
-  file, `SEMANTIC-SEXP.md` all match implementation. Stale grammar
+  file, `IR.md` all match implementation. Stale grammar
   comments updated (`prop_q` → `suffix_q`, `?` propagation → `!`,
   pointer-type comments removed).
 - [x] M4.5b commit landed.

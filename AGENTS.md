@@ -69,7 +69,7 @@ In order, with rough budgets:
 4. **`docs/REACTIVITY.md`** (~15 min) — Phase B north star.
 5. **`SPEC.md`** §Overview + the section relevant to your arc
    (~10 min depending on scope).
-6. **`docs/SEMANTIC-SEXP.md`** (~5 min) — IR shape and the
+6. **`docs/IR.md`** (~5 min) — IR shape and the
    lowering invariant.
 
 If your work touches reactivity, also read
@@ -156,7 +156,7 @@ warranted, raise it as a discussion item with GPT-5.5 first.
 | `SPEC.md` | Language spec (canonical) |
 | `docs/ROADMAP.md` | Milestone history (M0 → PB4 done) and V1.x tooling layer |
 | `docs/CHECKLIST.md` | Per-milestone checklists |
-| `docs/SEMANTIC-SEXP.md` | IR shape + lowering invariant |
+| `docs/IR.md` | IR shape + lowering invariant |
 | `docs/REACTIVITY.md` | Phase B design north star |
 | `docs/INFLUENCES.md` | Design lineage; substrate ladder; strategic rules (§12 covers the Zag / Nexus grammar substrate) |
 | `rig.grammar` | Nexus grammar (current conflict count: 75) |

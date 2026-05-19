@@ -345,7 +345,7 @@ Violating any of them will silently corrupt the substrate.
 - **Visible source effects must survive as visible semantic
   Tags through lowering.** This is the language-wide thesis
   the M20+ substrate ladder protects (SPEC §Overview second
-  paragraph; `docs/SEMANTIC-SEXP.md` design rule). Ownership
+  paragraph; `docs/IR.md` design rule). Ownership
   operations, failure propagation, compile-time specialization,
   capture modes, and the raw-escape boundary all emit as
   first-class IR nodes the checkers and emitter consume by
@@ -382,7 +382,7 @@ Authoritative project docs, in order of importance:
 | `docs/REACTIVITY.md` | Phase B design north star — what `Cell` / `Memo` / `Effect` are eventually supposed to look like. Useful when designing PB3 / PB4. |
 | `SPEC.md` | Language spec. §Owned Closures (M20h), §Resource-aware containers via Vec(T) (M20i), §Reactive primitive Signal (PB2), §Cell, §Lambdas. |
 | `docs/ROADMAP.md` | Milestone history (M0 → PB2 done). Each shipped milestone has a dedicated section with sub-commit table + locked design decisions. |
-| `docs/SEMANTIC-SEXP.md` | Sema IR shape. What the grammar emits, what the checker walks. |
+| `docs/IR.md` | Sema IR shape. What the grammar emits, what the checker walks. |
 | `rig.grammar` | Nexus grammar. **Conflict count: 69.** |
 
 Codebase highlights:

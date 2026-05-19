@@ -3,7 +3,7 @@
 # Purpose: anchor the reactive validation milestone. Per the
 # GPT-5.5 Phase B checkpoint, this file is NOT a library — it's
 # the canary that proves each Phase B substrate piece composes
-# end-to-end (REACTIVITY-DESIGN.md §Phase B).
+# end-to-end (REACTIVITY.md §Phase B).
 #
 # The canary has grown alongside each substrate milestone:
 #

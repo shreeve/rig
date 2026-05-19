@@ -767,7 +767,7 @@ These are the rules INFLUENCES.md is committing to memory:
 9. **Rig is the contract for human and tool consumption. AI
    works in the language, not around it.** The visible-effects
    thesis (SPEC §Overview second paragraph,
-   `docs/SEMANTIC-SEXP.md` design rule) is what makes Rig
+   `docs/IR.md` design rule) is what makes Rig
    useful to AI tooling — every effect that other languages
    push to runtime convention is a first-class IR Tag in Rig.
    Tools (and AI) read those facts; they do not have to guess.

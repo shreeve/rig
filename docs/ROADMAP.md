@@ -38,7 +38,7 @@ Rig owns lexing, parsing, normalization, semantic checking, and lowering. Zig ow
   normalized shape directly for nearly every form; the rewriter handles
   only one inspection-requiring transform (for-source ownership wrapper
   promotion).
-- `docs/SEMANTIC-SEXP.md` documents the IR.
+- `docs/IR.md` documents the IR.
 
 ### M2 — Ownership checker ✅
 - `src/ownership.zig`: implements SPEC §"Ownership Checker V1".
@@ -1446,7 +1446,7 @@ Two emit-side fixes to make the one-step pattern work:
 - ROADMAP M20f milestone entry (this section). M20+ #7 → ✅.
 - HANDOFF refresh: next milestone is M20g (closure capture
   modes), the last V1 substrate piece before rig-reactive
-  validation (Phase B of REACTIVITY-DESIGN) becomes reachable.
+  validation (Phase B of REACTIVITY) becomes reachable.
 
 #### Tests across M20f
 4 new examples:
@@ -1595,7 +1595,7 @@ Negative (sema/ownership goldens):
 instances) + M20c (generic enums) + M20d (shared/weak handles)
 + M20e (auto-drop via defer-guards) + M20f (Cell interior
 mutability) + M20g (closure captures) all compose end-to-end.
-The next major arc is Phase B of REACTIVITY-DESIGN.md —
+The next major arc is Phase B of REACTIVITY.md —
 rig-reactive validation, where Cell / Memo / Effect demonstrate
 the substrate is sufficient for the reactivity stress test.
 
@@ -2164,7 +2164,7 @@ in userland." Two cues from Steve reshaped the design:
    already had 4 reactive-ish builtins (Cell, Vec, Closure,
    Signal); adding a 5th (Reactor) would have gone against
    the "clean succinct powerful elegant" instinct AND
-   against the REACTIVITY-DESIGN principle "library is the
+   against the REACTIVITY principle "library is the
    deliverable, substrate is the immediate one."
 2. **Type-inference ergonomics observation** — the verbose
    `reactor: *Reactor = *Reactor()` form was unnecessary
@@ -2910,7 +2910,7 @@ that owned a `*Cell`, `Vec(T)`, or `*Closure()` either needed
 a manual cleanup call somewhere or silently leaked. The
 userland reactive library that Phase B is building toward
 (Reactor / Memo / Effect / batching / topology — see
-`docs/REACTIVITY-DESIGN.md`) needs structs with retained
+`docs/REACTIVITY.md`) needs structs with retained
 subscriber lists. Without user Drop OR auto-generated
 structural drop glue, those structs would leak.
 
@@ -3098,7 +3098,7 @@ rename ripple, then a clean implementation in one session.
   updated.
 - 3 active fixtures swept (`extern puts: fn(String) Int` →
   `extern puts: fun(String) Int`).
-- `docs/REACTIVITY-DESIGN.md` sketches updated to use
+- `docs/REACTIVITY.md` sketches updated to use
   `fun(Args) Ret` shape (and to match the actual return-type
   grammar — pre-M30 sketches used `fn() -> T` arrow shape that
   doesn't actually parse; post-M30 sketches use the real
@@ -3107,7 +3107,7 @@ rename ripple, then a clean implementation in one session.
   expressions (M30)" that documents the unified `fun` vocabulary
   and the intentional `->` asymmetry. Existing extern examples
   updated.
-- `docs/SEMANTIC-SEXP.md` and `docs/CHECKLIST.md` updated to
+- `docs/IR.md` and `docs/CHECKLIST.md` updated to
   reference `(fun_type ...)`.
 - Goldens regenerated (8 `.sexp` files: 4 in `semantic_sexp/`,
   4 in `raw_sexp/`).
@@ -3609,7 +3609,7 @@ nesting now drop-correct):
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note
-[`docs/REACTIVITY-DESIGN.md`](REACTIVITY-DESIGN.md), which uses
+[`docs/REACTIVITY.md`](REACTIVITY.md), which uses
 Rip-style reactivity (`Cell` / `Memo` / `Effect`) as a
 multi-feature stress test. Each blocking item below is required
 regardless of reactivity — reactivity just exposes the seams.
@@ -3704,7 +3704,7 @@ the M20+ items below):
     FFI boundary; safe-wrapper pattern documented. SPEC
     §"Unsafe / Raw (M19)" rewritten end-to-end.
 11. `pre` AST extraction for derive-style macros
-    (REACTIVITY-DESIGN D8)
+    (REACTIVITY D8)
 12. Explicit error sets in `T!E` return types
 13. Module path canonicalization (M15b)
 14. Guard patterns (`x if cond => body`) — M13-deferred due to
@@ -3740,16 +3740,16 @@ in M20h) with Layer 8 as a strongly recommended companion.
 
 18. `@T` pinning as a real `Pin<P>` discipline
 19. Scoped-context language mechanism (Reactor / Allocator / Span
-    passed implicitly; REACTIVITY-DESIGN D9)
+    passed implicitly; REACTIVITY D9)
 20. Multi-threaded shared ownership (`Arc<T>` / `Send` / `Sync`)
 21. Reactive sugar (`:=` / `~=` / `~>` — Phase C of
-    REACTIVITY-DESIGN, optional)
+    REACTIVITY, optional)
 22. Stdlib seed (Vec, HashMap, String) — depends on items 1–8
 23. LSP
 24. Async / coroutines
 25. Real fuzzing of the robustness contract
 
-**Validation milestone — Phase B of REACTIVITY-DESIGN.md.** Once
+**Validation milestone — Phase B of REACTIVITY.md.** Once
 items 1–8 land, build `rig-reactive` in a branch as a ~500-line
 library that exercises the substrate end-to-end. If anything in
 1–8 doesn't compose, fix the language, not the library.
@@ -3773,7 +3773,7 @@ language's existing semantic facts *consumable* by external tools
 peer-review tooling). This layer is a **projection over the
 existing `SemContext` + IR Tags** — not a new IR, not a redesign,
 not a positioning pivot. The visible-effects thesis (SPEC §Overview
-and `docs/SEMANTIC-SEXP.md`) is what makes Rig useful to tooling;
+and `docs/IR.md`) is what makes Rig useful to tooling;
 this milestone just exposes those facts cleanly.
 
 ### V1.x(1) — `rig sema --json` v0 (stable semantic export)

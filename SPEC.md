@@ -17,7 +17,7 @@ Rig is not trying to become "Rust with prettier syntax." The core philosophy is:
 Rig aims to make ownership, mutation, transfer, failure propagation, compile-time specialization, and iteration semantics explicit and lightweight.
 
 The complement to that philosophy is the IR invariant in
-`docs/SEMANTIC-SEXP.md`: **visible source effects survive as visible
+`docs/IR.md`: **visible source effects survive as visible
 semantic Tags through lowering.** Ownership operations (`<x` / `?x`
 / `!x` / `+x` / `-x` / `*x` / `~x` / `%x`), failure propagation
 (`expr!`), compile-time specialization (`pre`), capture modes
@@ -992,7 +992,7 @@ discussion. The method form is the V1 commitment.
 commitment. Shipping them as parsed-but-fake is more dangerous than
 not shipping them — fake handles create false-promise APIs that
 calcify. Either both have real semantics in V1, or both are
-reserved for V2. See `docs/REACTIVITY-DESIGN.md` for the design
+reserved for V2. See `docs/REACTIVITY.md` for the design
 discussion.
 
 ---
@@ -2829,7 +2829,7 @@ Possible future features:
   ambient reactor / allocator / tracing parameters
 - effect annotations on methods (`mutates(self)` etc.)
 - reactive sugar (`:=` / `~=` / `~>` as parser-level desugar over
-  `Cell` / `Memo` / `Effect`; see `docs/REACTIVITY-DESIGN.md`)
+  `Cell` / `Memo` / `Effect`; see `docs/REACTIVITY.md`)
 
 These are intentionally deferred.
 

@@ -51,7 +51,7 @@ const Sexp = parser.Sexp;
 // The grammar now emits the normalized IR shape directly via Nexus's
 // tag-literal-at-child-position support (Nexus 0.10.x+), so the Tag
 // enum is sized to the **normalized** vocabulary — not the historical
-// raw-vs-normalized union. See docs/SEMANTIC-SEXP.md for the full
+// raw-vs-normalized union. See docs/IR.md for the full
 // emitted-shape catalog.
 
 pub const Tag = enum(u8) {
@@ -1124,7 +1124,7 @@ pub const Lexer = struct {
 //
 // `Parser` (this struct) is the language-specific wrapper that runs
 // BaseParser, then walks the raw Sexp tree and rewrites it into the
-// normalized semantic IR documented in `docs/SEMANTIC-SEXP.md`. M2
+// normalized semantic IR documented in `docs/IR.md`. M2
 // (ownership checker) and M3 (Zig emitter) consume Parser's output, not
 // BaseParser's.
 //

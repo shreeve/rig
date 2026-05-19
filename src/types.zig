@@ -6176,7 +6176,7 @@ const ExprChecker = struct {
 
         // M20a: dispatch on `(call (member obj name) args)` callees.
         // Three cases (module / nominal-type / value-receiver) per the
-        // M20a design — see docs/REACTIVITY-DESIGN.md and the M20
+        // M20a design — see docs/REACTIVITY.md and the M20
         // conversation summary.
         if (callee == .list and callee.list.len >= 3 and
             callee.list[0] == .tag and callee.list[0].tag == .@"member")
