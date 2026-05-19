@@ -18,8 +18,9 @@ fun first(T, xs: ?[]T) -> T?
   xs[0]
 
 # Compile-time specialization (`pre` replaces Zig's `comptime`).
+# M22.1: `pre_param` survives; `pre <expr>` form is reserved.
 fun parse(pre mode: ParseMode, input: ?Bytes) -> Ast
-  if pre mode == .strict
+  if mode == .strict
     parseStrict ?input
   else
     parseLoose ?input
@@ -41,14 +42,12 @@ sub main()
   # Move-assignment sugar: `other <- user` is `other = <user`.
   other <- user
 
-  # Value-yielding try/catch block.
-  view = try
-    u = loadUser(1)!
-    p = loadProfile(u.id)!
-    UserView(?u, ?p)
-  catch |err|
-    log.warn "view failed"
-    UserView.empty()
+  # Fallible chains via `expr!` propagation (the block form
+  # `view = try INDENT body OUTDENT catch |err| ...` is
+  # reserved in V1 per M22.1).
+  u = loadUser(1)!
+  p = loadProfile(u.id)!
+  view = UserView(?u, ?p)
 
   # Ownership-aware iteration.
   for u in ?users

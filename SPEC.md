@@ -107,8 +107,8 @@ Rig ownership is represented through sigils.
 -x       drop/end ownership
 *x       shared strong ownership
 ~x       weak reference
-@x       pinned/stable address
-%x       unsafe/raw access
+@x       pinned/stable address           (RESERVED: V2; sema rejects in V1)
+%x       raw access                      (requires `raw` block)
 ```
 
 These operators are intentionally:
@@ -1121,10 +1121,12 @@ safe-wrapper pattern above; for V1 there is no separate
   resurrect the M19 `unsafe sub` form without an explicit
   reset; it had no V1 use case and the machinery wasn't
   worth carrying.
-- **`zig "..."` raw Zig blocks** for inline FFI. Parsed by
-  the grammar but not yet wired through emit; M22+
-  extension. Will inherit the same raw-block requirement
-  when it lands.
+- **`zig "..."` raw Zig blocks** for inline FFI. Reserved in
+  V1 per M22.1 — the grammar still accepts the syntax but
+  sema rejects it cleanly with a Rig diagnostic. Inline Zig
+  text needs a real V2+ design pass for scope capture, symbol
+  hygiene, and ownership effects; the practical needs are
+  covered today by `raw` block + `extern`.
 - **Body-less `extern fun`/`extern sub` declarations** (no
   block, just a signature). Required for real FFI ergonomics
   but blocked on a grammar extension to allow body-less fn
@@ -2340,12 +2342,81 @@ Rig V1 should fully support:
 - ownership checking
 - single-threaded reference-counted shared ownership (`*T` as `Rc<T>`)
 - weak references (`~T` as `Weak<T>`) with `upgrade() -> *T?`
-- unsafe context (`unsafe` block / `unsafe` fn modifier; required
-  for `%x`, `zig "..."`, dangerous `@builtin(...)`)
+- raw context (`raw INDENT body OUTDENT` block ONLY; required
+  for `%x` raw access and non-whitelisted `@builtin(...)`. M22
+  dropped the M19 `unsafe` keyword and the `unsafe sub`/`unsafe
+  fun` fn-modifier; M22.1 audited the surface to ensure every
+  accepted construct has enforced semantics — see §Reserved
+  surface below)
+- extern call FFI boundary (`extern` declarations are raw-by-
+  default at call sites; callers must wrap in `raw` block)
 
-Rig V1 may parse but does not enforce:
+# Reserved surface (M22.1)
 
-- pinning (`@T`) — deferred to V2 per §Pin
+M22.1 ("fake-surface audit" per GPT-5.5 entry 39): every accepted
+V1 surface form has enforced semantics and a working Rig lowering;
+unsupported / reserved forms fail at sema time with a Rig
+diagnostic before Zig emission. The following forms parse (the
+lexer / grammar still recognize them so the design space is
+preserved for V2+), but sema rejects them in V1:
+
+- **`@x` pin sigil** — pinning / stable-address semantics
+  deferred to V2. Lexer still distinguishes `@x` (pin_pfx) from
+  `@len(x)` (builtin call); the resulting `(pin x)` IR is
+  rejected by sema. M19's emit was identity (`@x` lowered to
+  plain `x`), a fake-surface hazard. `@Builtin(...)` form is
+  unaffected.
+- **`for *x in v` ptr-mode loop binding** — by-reference
+  iteration deferred. M20i.1's emit for Copy Vec was identical
+  to bare `for x in v` (silent no-op). V1 has one spelling per
+  element kind: `for x in v` for Copy, `for x in ?v` for
+  resource. Future by-reference iteration likely takes a
+  borrow-shaped spelling (`for ?x in v` / `for !x in v`) to
+  avoid muddying `*` (which means shared ownership everywhere
+  else in the grid).
+- **`pre <expr>` / `pre INDENT body OUTDENT`** — compile-time
+  expression / block forms reserved. `pre_param` (compile-time
+  function parameters: `sub f(pre x: Int, y: Int)`) STAYS — it
+  lowers to Zig `comptime x: i32` and is fully wired.
+- **`try INDENT body OUTDENT [catch |e| ...]`** — value-yielding
+  multi-line try-block reserved. V1 fallibility: `expr!`
+  propagation and `expr catch |e| recovery` (inline single-
+  expression). The block form needs a real design pass (value
+  vs statement position, catch-binding scope, drop-on-error path
+  interaction with M20e auto-drop guards).
+- **`zig "..."` inline-Zig escape** — embedded Zig text
+  reserved. V1 escape-valves are `raw` block (audit boundary)
+  and `extern` (FFI boundary at the symbol level), which cover
+  the practical needs without embedding a second language with
+  no scope-capture / hygiene story.
+
+Each retracted surface has a regression-test example in
+`examples/*_reserved.rig` / `examples/*_rejected.rig` documenting
+the diagnostic.
+
+# Resource-temporary leak rule (M22.1)
+
+A "resource allocation" — `*Foo(...)` (a fresh `Rc<Foo>`) — may
+appear ONLY in ownership-installing positions:
+
+- RHS of a `set` binding: `x: *Foo = *Foo(...)`
+- Direct child of `return`: `return *Foo(...)`
+- Direct argument of a `call` (callee parameter consumes)
+
+It may NOT appear as the receiver / object of:
+
+- `member` access: `(*Foo(...)).field`        — REJECTED
+- `index`:          `(*Foo(...))[i]`           — REJECTED
+- method call:      `(*Foo(...)).method(...)`  — REJECTED (via member)
+- ownership wrapper: `?(*Foo(...))`, `!(*Foo(...))`, `+(*Foo(...))`,
+  `~(*Foo(...))`, `%(*Foo(...))` — REJECTED
+
+Such anonymous Rc temporaries have no M20e auto-drop guard
+installed (guards key off NAMED bindings) and would leak the
+allocation. V1 fix: bind to a name first; the guard installs
+at the binding site and the borrow / method-call / member-access
+stays valid for the binding's scope. Hidden guarded temporaries
+are a possible V2+ extension when a concrete use case appears.
 
 ---
 

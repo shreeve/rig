@@ -2549,6 +2549,112 @@ Canary unchanged at `1\n3\n13\n7\n99\n111\n111`.
   boundary; M22 = current `raw` cleanup) with cross-references
   for the conversation log.
 
+### M22.1 — Fake-surface audit (raise the floor before more features) ✅
+
+Cleanup arc triggered by Steve's "is our syntax clean and
+powerful?" high-level review. GPT-5.5 (entry 39) returned a
+verdict of "(b) holding up but watch X, Y, Z" with one through-
+line: **every concrete hazard was the same shape — accepted
+syntax with no enforced semantics**. M22 was the first instance
+of this pattern being fixed (`unsafe` keyword removed). M22.1
+audits the rest of the surface and applies the same discipline.
+
+**Invariant locked**: every accepted V1 surface form must either
+have enforced semantics with a working Rig lowering, OR be
+rejected at sema time with a clear Rig diagnostic. No more
+parsed-but-not-enforced affordances. No more emit-time
+`@compileError`-as-feature-placeholder.
+
+**Hazards closed (one per sub-commit):**
+
+| # | Hazard | Before M22.1 | After M22.1 |
+|---|---|---|---|
+| H1 | Resource-temp leak | `(*User(...)).field` allocated an Rc with no M20e guard → strong-count-1 leak forever in safe code | Sema rejects fresh-resource rvalues used as member/index/borrow/clone/weak/raw/pin/method-call objects; users bind to a name first |
+| H4 | `@x` pin sigil | Lexed, parsed, emit was identity (`@x` lowered to plain `x`) — a no-op sigil in the ownership grid | Sema rejects with "reserved for V2"; lexer disambiguation from `@builtin(...)` preserved |
+| H5 | `for *x in v` ptr-mode | Resource Vec rejected; Copy Vec silently emitted same as `for x in v` (silent no-op) | Sema rejects for ALL Vec sources; one spelling per element kind (`for x in v` Copy, `for x in ?v` resource) |
+| H7+H8 | `pre <expr>` / `pre INDENT body` | Parsed, walked, emit produced `@compileError("rig: emitter does not yet support pre_block")` | Sema rejects both forms cleanly; `pre_param` (compile-time fn parameters) STAYS — it's wired |
+| H2 | `try INDENT body OUTDENT [catch \|e\| ...]` | Parsed, walked, emit produced `@compileError("...does not yet support try_block")` | Sema rejects with "reserved in V1"; `expr!` propagation + `expr catch \|e\| handler` inline form still work |
+| H3 | `zig "..."` inline-Zig block | Parsed, walked, emit produced `@compileError("...does not yet support zig")` | Sema rejects with "reserved in V1"; `raw` block + `extern` cover the practical needs |
+| H6 | SPEC stale `unsafe` reference | Pre-M22 leftover language in V1-context table | Updated; new §"Reserved surface (M22.1)" + §"Resource-temporary leak rule (M22.1)" sections added |
+
+**Audit holes GPT-5.5 flagged + checked:**
+
+- Emit `@compileError("rig: ...")` paths: only the catch-all
+  `else` in `emitExprList` reaches Rig source — closed for
+  `try_block`/`zig`/`pre_block`/`pre` via sema. Other paths
+  (Vec/Signal type-annotation, value-position empty branch)
+  are correctness safety nets for compile-time impossibilities,
+  not user-reachable surfaces.
+- `@builtin(...)` classification: default-unsafe with explicit
+  safe-list (`@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`,
+  `@hasDecl`, `@hasField`, `@len`, `@This`). Non-whitelisted
+  builtins outside `raw` block fire — already correct.
+- Escaping-closure laundering of raw context: not reachable in
+  V1 because closure bodies via `*Closure(fn |...|...)` are
+  restricted to single-call inline-body shape; multi-stmt
+  closure bodies that could contain `raw` blocks aren't
+  expressible.
+
+**Sub-commits:**
+
+| Commit | What it shipped |
+|---|---|
+| M22.1(1/8) | H1 resource-temp leak fix: structural (`isFreshResourceAlloc`) + type-aware (`isCallExpr` + `isResourceOwningType`) two-tier check in `types.zig`; rejection wired into `synthMember`, `synthIndex`, `synthBorrow`, `.@"clone"/.@"raw"/.@"weak"` arms. Type-aware tier catches `make_user().age` (resource-returning function calls); structural tier gives the precise `*Foo` diagnostic. Method-call receiver covered via `synthMember`. 5 regression examples (`resource_temp_*_rejected.rig`, `resource_call_member_rejected.rig`, `resource_bind_first_ok.rig`). |
+| M22.1(2/8) | H4 pin retract: split `.@"pin"` out of the `.@"clone", .@"pin", .@"raw"` group; new arm rejects `(pin x)` with "reserved for V2". `examples/spacing.rig` updated (line + comment); 1 regression example (`pin_sigil_reserved.rig`). |
+| M22.1(3/8) | H5 `for *x` retract: lifted ptr-mode rejection out of the resource-only branch so it fires for both resource and Copy Vec. 1 regression example (`for_ptr_binding_reserved.rig`). |
+| M22.1(4/8) | H7+H8 `pre` retract: new sema arm for `.@"pre"` + `.@"pre_block"` rejecting both. 2 regression examples (`pre_block_reserved.rig`, `pre_expr_reserved.rig`). |
+| M22.1(5/8) | H2 `try_block` retract: new sema arm rejecting `.@"try_block"`. 1 regression example (`try_block_reserved.rig`). |
+| M22.1(6/8) | H3 `zig` block retract: new sema arm rejecting `.@"zig"`. 1 regression example (`zig_block_reserved.rig`). |
+| M22.1(7/8) | H6 SPEC sweep + ROADMAP/HANDOFF: new §"Reserved surface (M22.1)" + §"Resource-temporary leak rule (M22.1)" in SPEC; ownership sigil grid annotated `@x` as RESERVED; `zig "..."` deferred-feature note updated to "reserved in V1"; this ROADMAP entry. |
+| M22.1(8/8) | Regression sweep + final review. |
+
+**Tests across M22.1: 908 → 952 (+44).** 11 new regression
+examples × ~4 goldens each (raw_sexp + semantic_sexp + errors
++ deterministic). Canary unchanged at
+`1\n3\n13\n7\n99\n111\n111`.
+
+**Measured impact:**
+
+- **Source code added**: ~90 lines (sema rejection arms +
+  helpers) in `types.zig`.
+- **Hazards eliminated (one real-safety bug)**: H1 was a
+  confirmed leak in safe Rig code (verified by `bin/rig build`
+  showing the `rcNew` with no `defer` / no `__rig_alive_*` flag
+  for the member-access case). Closing this is the only Tier 1
+  fix in M22.1.
+- **Conceptual surface cleaned**: 5 user-visible constructs
+  retracted to clean diagnostics (`@x` pin, `for *x`,
+  `pre`/`pre_block`, `try_block`, `zig "..."`). Each one was a
+  fake-surface promise where the lexer/grammar accepted the
+  form but emit either produced a no-op or `@compileError`.
+- **No grammar changes**. All retractions land at sema. This
+  preserves the design space for V2+ (when one of these returns
+  with real semantics, the lexer/parser doesn't need to change
+  — only the sema rejection comes out).
+
+**What's intentionally lost (per GPT-5.5 entry 39)**:
+
+- `@x` as a usable V1 sigil. Reserved for V2 pinning story.
+- `for *x in v` as a usable V1 iteration. Reserved; future
+  by-reference iteration likely takes `for ?x in v` /
+  `for !x in v` (borrow-shaped) instead — `*x` already means
+  shared ownership everywhere else in the grid.
+- `pre <expr>` and `pre INDENT body` (block + expression
+  forms). Reserved; `pre_param` survives.
+- `try INDENT body OUTDENT [catch ...]` value-yielding form.
+  Reserved; `expr!` propagation + `expr catch |e| handler`
+  inline form survive.
+- `zig "..."` inline-Zig escape. Reserved; `raw` + `extern`
+  cover the practical needs.
+
+**Hazards retired**:
+
+- "Parsed but not enforced" affordances in the surface — the
+  M22.1 invariant is now the explicit policy. Future arcs that
+  add new syntax must ship the semantics + emit OR ship a
+  clean "reserved" sema rejection. The fake-surface
+  anti-pattern has a name and a regression suite.
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note

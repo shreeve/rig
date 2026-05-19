@@ -1,25 +1,29 @@
-# Rig — Session Handoff (M22 raw cleanup complete)
+# Rig — Session Handoff (M22.1 fake-surface audit complete)
 
-**You are picking up a Rig compiler session at the M22 boundary.**
-**Phase B + the raw-escape boundary (M22 simplification of
-M21) are both shipped.** M20h (owned escaping closures) + M20i
-(resource-aware Vec) + M20i.1 (resource-Vec iteration via
-`for x in ?vec`) + M20i.1.1 (sema attribution table) + PB2
-(single-subscriber Signal) + PB3(1/5) (captured-resource audit
-fix) + PB3 (multi-subscriber `Signal(T)` with R2 reentrancy
-policy) + PB4 (R2 relaxed for set; library/substrate boundary
-locked) + M21 (`%T` unsafe / raw effect boundary) + **M22
-(rename `unsafe` → `raw`; drop fn-modifier; block-only
-enforcement)** all shipped end-to-end. The reactive canary
+**You are picking up a Rig compiler session at the M22.1 boundary.**
+**Phase B + the raw-escape boundary (M22) + the fake-surface
+floor-raising audit (M22.1) are all shipped.** M20h (owned
+escaping closures) + M20i (resource-aware Vec) + M20i.1
+(resource-Vec iteration via `for x in ?vec`) + M20i.1.1 (sema
+attribution table) + PB2 (single-subscriber Signal) + PB3(1/5)
+(captured-resource audit fix) + PB3 (multi-subscriber
+`Signal(T)` with R2 reentrancy policy) + PB4 (R2 relaxed for
+set; library/substrate boundary locked) + M21 (`%T` unsafe /
+raw effect boundary) + M22 (rename `unsafe` → `raw`; drop
+fn-modifier; block-only enforcement) + **M22.1 (fake-surface
+audit: H1 resource-temp leak fix + 5 reserved-surface
+retractions)** all shipped end-to-end. The reactive canary
 (`examples/reactive_canary.rig`) demonstrates the full Cell +
 closure + Vec-iteration + Signal chain producing
-`1\n3\n13\n7\n99\n111\n111`. **908 tests passing, 0 failing.
+`1\n3\n13\n7\n99\n111\n111`. **952 tests passing, 0 failing.
 Clean tree on `main`.** The substrate ladder Layers 0–7 are
 all complete, the reactive primitive is in its V1 final form,
-the safety boundary that gates real stdlib work is enforced
-AND uses a clean Rig-native `raw` block syntax. The next
-concrete action is a **Steve-driven choice from the remaining
-V1-blockers** — see §13 for the forward-arc menu.
+the safety boundary uses a clean Rig-native `raw` block
+syntax, AND every accepted V1 surface form now has enforced
+semantics or a clean Rig sema rejection — no more
+parsed-but-not-enforced affordances. The next concrete action
+is a **Steve-driven choice from the remaining V1-blockers** —
+see §13 for the forward-arc menu.
 
 ---
 
@@ -30,28 +34,34 @@ V1-blockers** — see §13 for the forward-arc menu.
   `/Users/shreeve/Data/Code/rig`.
 - **Where we are**: Substrate ladder Layers 0–7 ✅. **Phase B
   complete + reactivity-in-library boundary locked + M21
-  raw-escape boundary shipped + M22 simplification applied.**
-  Multi-subscriber `Signal(T)` with PB4-relaxed R2 semantics
-  (reentrant set queues + coalesces; reentrant subscribe
-  still panics). Per GPT-5.5 entry 33 + Steve's "Rust/Zig
-  don't ship reactivity" cue: Rig holds the same position —
-  substrate in the language, reactive library in userland.
-  M22 ships the simplified raw-escape lattice: **`raw` block
-  ONLY** (no fn-modifier; the M19 `unsafe sub`/`unsafe fun`
-  form was dropped per GPT-5.5 entry 38 because no V1 use
-  case required it and the machinery was substantial).
-  Default-unsafe builtin classification + extern-call-FFI-
-  boundary enforcement preserved.
+  raw-escape boundary shipped + M22 simplification applied +
+  M22.1 fake-surface audit closed.** Multi-subscriber
+  `Signal(T)` with PB4-relaxed R2 semantics (reentrant set
+  queues + coalesces; reentrant subscribe still panics). Per
+  GPT-5.5 entry 33: Rig holds the position — substrate in the
+  language, reactive library in userland. M22 ships the
+  simplified raw-escape lattice: **`raw` block ONLY** (no
+  fn-modifier per GPT-5.5 entry 38). M22.1 ships the
+  fake-surface invariant per GPT-5.5 entry 39: **every
+  accepted V1 surface form has enforced semantics OR a clean
+  Rig sema rejection**. H1 (resource-temp leak) was a real
+  safety bug in safe code, now fixed. 5 other surfaces (`@x`
+  pin, `for *x`, `pre`/`pre_block`, `try_block`, `zig "..."`)
+  retracted to clean sema diagnostics. Default-unsafe
+  builtin classification + extern-call-FFI-boundary
+  enforcement preserved.
 - **Next concrete action**: **Steve-driven choice from the
-  remaining V1-blockers** in §13. With M22 done, the
-  remaining "must-have before credible V1" items per
-  GPT-5.5 entry 32 are: `try_block` emit (currently
-  `@compileError` placeholder), M15b cross-module signature
-  import, closure-with-args (`Closure1<T>`, `Closure2<A,B>`),
-  body-less `extern fun` declarations (M22+ extension for
-  real FFI ergonomics), legacy global name-scan cleanup.
-  Plus Cell-non-Copy / Layer 8 / Phase C as optional
-  substrate extensions.
+  remaining V1-blockers** in §13. With M22.1 done, the
+  "fake-surface" hazard class is closed; the remaining
+  must-have V1 items per GPT-5.5 entry 32 (+ entry 39's
+  capability-hole audit) are: M15b cross-module signature
+  import, body-less `extern fun` declarations (real FFI
+  ergonomics), closure-with-args (`Closure1<T>`,
+  `Closure2<A,B>`), user-defined `Drop` / non-Copy resource
+  values, legacy global name-scan cleanup. Plus Cell-non-Copy
+  / Layer 8 / Phase C as optional substrate extensions.
+  `try_block` is now an explicit V2+ deferral (sema-rejected
+  with a clean diagnostic), not a placeholder.
 - **Cadence (non-negotiable)**: design checkpoint with GPT-5.5
   via `user-ai` MCP → implement in 3–5 sub-commits (M5-style:
   `Mxx(n/total)`) → post-implementation review → commit.
@@ -65,11 +75,14 @@ V1-blockers** — see §13 for the forward-arc menu.
 
 ```bash
 git pull --ff-only
-git log -1 --format='%h %s'        # most recent commit; at/after M22(3/3)
-./test/run 2>&1 | tail -3          # should say "908 passed, 0 failed"
+git log -1 --format='%h %s'        # most recent commit; at/after M22.1
+./test/run 2>&1 | tail -3          # should say "952 passed, 0 failed"
 bin/rig run examples/reactive_canary.rig    # 1\n3\n13\n7\n99\n111\n111
 bin/rig run examples/signal_multi_subscriber.rig  # 0\n111\n222
 bin/rig check examples/raw_outside_rejected.rig   # error msg
+bin/rig check examples/resource_temp_member_rejected.rig  # M22.1 H1
+bin/rig check examples/pin_sigil_reserved.rig             # M22.1 H4
+bin/rig check examples/try_block_reserved.rig             # M22.1 H2
 ```
 
 **Then read** (in order):
@@ -169,6 +182,23 @@ Violating any of them will silently corrupt the substrate.
   `<cap` / `-cap` / `return cap` / bare-alias-as-arg are all
   sema/ownership-rejected. `+cap` / `~cap` / `cap()` /
   `cap.method(...)` are allowed. Per the PB3(1/5) audit.
+- **No fresh resource allocations as anonymous temporaries.**
+  M22.1(1/8) per GPT-5.5 entry 39: `(*Foo(...)).field`,
+  `(*Foo(...)).method()`, `?(*Foo(...))`, `+(*Foo(...))`,
+  `~(*Foo(...))`, `%(*Foo(...))` are all sema-rejected. M20e
+  auto-drop guards key off NAMED bindings; anonymous Rc
+  temporaries would leak. Users bind to a name first.
+- **No parsed-but-not-enforced surfaces (M22.1 invariant).**
+  Every accepted V1 form has enforced semantics + working
+  Rig lowering, OR is rejected at sema time with a Rig
+  diagnostic. NEW arcs that add syntax MUST ship the
+  semantics + emit OR a clean "reserved" sema rejection. No
+  emit-time `@compileError`-as-placeholder. Forms currently
+  reserved (parse-accepted, sema-rejected): `@x` (pin),
+  `for *x` (ptr-mode loop binding), `pre <expr>` /
+  `pre INDENT body OUTDENT`, `try INDENT body OUTDENT
+  [catch ...]`, `zig "..."`. Reserved-surface tests live in
+  `examples/*_reserved.rig` and `examples/resource_temp_*_rejected.rig`.
 - **Grammar conflict count: 69** (was 38 pre-M20h; +31 from
   the M20h(2/5) inline-call lambda body). All benign S/R with
   prefer-shift; reviewed and accepted.
@@ -539,6 +569,7 @@ arcs). Each numbered entry is a logical exchange:
 36. **M21 tactical (prefix vs suffix)** — locked PREFIX `unsafe sub` over the suffix form from entry 35. Reason: suffix would have doubled `fun`/`sub` grammar productions (+6 lines) AND changed the `(fun ...)` IR shape, requiring walker updates in sema/ownership/emit. Prefix matches existing `pub`/`extern`/`packed`/`callconv` wrapper with 1 new grammar line. Distinct IR tags `unsafe_decl` (decl-modifier wrap) and `unsafe_block` (statement form) — avoids context-dependent walker dispatch. SPEC updated to prefix shape. *(M22 later dropped the prefix-decl-modifier entirely; see entry 38.)*
 37. **M21 post-implementation review** — confirmed M21 sound; one must-fix (the `pending_fn_unsafe` propagation hazard that could leak the flag from `unsafe_decl` of a non-fn to a sibling fn walked after). Shipped as M21.1: removed the `walkFun` consume; the wrapper's defer/restore exclusively owns the flag's lifetime. Companion fix: reject `unsafe struct`/`unsafe enum`/etc. with a tailored diagnostic. GPT-5.5 flagged the global-mutable-bridge pattern as long-term tech debt: "Longer-term, symbol collection should also use a `DeclCtx` instead of before/after stamping." *(M22 later rendered this whole hazard class obsolete by dropping the fn-modifier; the `pending_fn_unsafe` state ceases to exist.)*
 38. **M22 cleanup design (`unsafe` → `raw`, drop fn-modifier)** — Steve flagged the M21 `unsafe` keyword as aesthetically off (heavy, Rust-imported, against Rig's sigil-heavy aesthetic). Triggered a cleanup pass. Locked: rename `unsafe` keyword → `raw` (3 letters, matches `%x` raw-prefix sigil); DROP the `unsafe sub`/`unsafe fun` fn-modifier ENTIRELY (no V1 use case justifies the ~120 lines of machinery + the global-mutable-bridge hazard); block-only enforcement; distinct `RAW` keyword token (don't reuse `RAW_PFX`); single IR tag `raw_block` (drop `unsafe_decl`). Rip-and-replace (Rig is pre-release; no deprecation). SPEC §"Unsafe / Raw (M19)" rewritten as §"Raw escape (M22)" with explicit "no raw/unsafe function modifier in V1" note to prevent future sessions from resurrecting the fn-modifier without an explicit reset.
+39. **M22.1 fake-surface audit (Steve's high-level review → GPT-5.5 verdict (b) + finish-vs-retract design)** — Steve asked the senior-PL-designer question: "is our syntax clean and powerful? Are there other holes like the missing raw-fn-modifier?" GPT-5.5 returned (b) "holding up but watch X, Y, Z" with the through-line: **every concrete hazard was the same shape — accepted syntax with no enforced semantics**. M22 was the first instance of this pattern being fixed. M22.1 audits the rest and locks the invariant: every accepted V1 surface form has enforced semantics OR a clean Rig sema rejection. Six concrete hazards confirmed via `bin/rig build` evidence: H1 (resource-temp leak — real safety bug in safe code), H4 (`@x` pin sigil as no-op), H5 (`for *x` Copy-Vec as silent no-op), H2 (`try_block` emits `@compileError`), H3 (`zig "..."` emits `@compileError`), H7+H8 (`pre_block` / `pre <expr>` emit `@compileError`; `pre_param` kept). Per-item finish-vs-retract: H1 fix (reject leak-shaped resource rvalues, hidden guarded temporaries deferred); H4/H5/H7/H8/H2/H3 retract (sema rejection, no grammar changes so V2+ design space stays open). GPT-5.5 added five audit holes — all checked: emit `@compileError` paths beyond the catch-all only fire for compile-time-impossible inputs; builtin classification already default-unsafe with whitelist; raw context leak via escaping closure not reachable in V1 (single-call inline-body restriction); no other parsed-but-unenforced modifiers; `pre_param` is the only `pre`-family form that's wired and stays. Locked one-arc structure (8 sub-commits) rather than splitting Tier-3 to "cosmetic later" — H4 in particular is not cosmetic, it's a false guarantee.
 
 To continue the thread, pass `conversation_id` and `model`
 as above. MCP tool descriptors live at:
@@ -710,6 +741,24 @@ NOT promises to ship.
     breaks`). Place comments BEFORE the rule definition or
     in dedicated comment lines. Em-dashes in `@lexer`
     section comments are fine. Found during M22(1/3).
+24. **M22.1 invariant: no parsed-but-not-enforced surfaces.**
+    Per GPT-5.5 entry 39: every accepted V1 form has enforced
+    semantics + working Rig lowering, OR is rejected at sema
+    time with a Rig diagnostic. NEW arcs that add syntax MUST
+    ship both. No emit-time `@compileError`-as-placeholder.
+    Currently reserved (parse-accepted, sema-rejected): `@x`
+    (pin), `for *x` (ptr-mode loop binding), `pre <expr>` /
+    `pre INDENT body OUTDENT`, `try INDENT body OUTDENT
+    [catch ...]`, `zig "..."`. Regression-test the rejection
+    via `examples/*_reserved.rig`.
+25. **M22.1 resource-temp leak rule.** Fresh `*Foo(...)`
+    allocations are sema-rejected as the object/receiver of
+    `member` / `index` / method-call / ownership-wrapper
+    (`?`/`!`/`+`/`~`/`%`). M20e auto-drop guards key off
+    NAMED bindings; anonymous Rc temporaries leak. Users
+    bind to a name first. Allowed positions: RHS of `set`,
+    direct `return`, direct positional/kwarg arg of `call`.
+    See `isFreshResourceAlloc` in `types.zig`.
 
 ### Pre-existing fragilities not yet addressed
 
@@ -721,9 +770,6 @@ NOT promises to ship.
 3. **`scanMutations` per-block `seen` masking** — `i = i + 1`
    inside a nested block treated as fresh declaration.
    Workaround: use `i += 1`.
-4. **`unsafe` / `%x` enforcement** — pre-existing deferral.
-5. **`try_block` emit** — `@compileError` placeholder. Blocks
-   fallible Effects.
 
 ---
 
@@ -765,36 +811,50 @@ NOT promises to ship.
   menu.** With Phase B done and the language/library boundary
   locked, the unblocked V1 work splits into two categories:
 
-  **A. Substrate cleanup (GPT-5.5 entry 32 "must-have before
-       credible V1")** — these are the items that gate real
-       stdlib / library development:
+  **A. Substrate cleanup (GPT-5.5 entry 32 + entry 39
+       "must-have before credible V1")** — items that gate
+       real stdlib / library development:
     - ~~**`%T` unsafe / effect boundary**~~ ✅ **Landed in
-      M21**, simplified in **M22** (`raw` block only). The
-      trusted-runtime boundary is now a declared part of the
-      language; stdlib seed work can proceed via the safe-
-      wrapper pattern.
-    - **`try_block` emit** (currently `@compileError`
-      placeholder). Required for any code that wants to
-      `try` a multi-statement block. **Probably highest
-      remaining priority** — `try_block` is a tiny scope
-      and the placeholder is genuinely user-hostile.
+      M21**, simplified in **M22** (`raw` block only).
+    - ~~**Fake-surface audit / floor-raising**~~ ✅ **Landed
+      in M22.1.** Resource-temp leak fixed; 5 reserved
+      surfaces retracted to clean sema diagnostics. Per
+      GPT-5.5 entry 39: invariant "no parsed-but-not-
+      enforced surfaces" now in place.
     - **M15b cross-module signature import**. Required for
       multi-file stdlib / library projects. Cross-module
       extern + fallible call enforcement both depend on
-      this.
+      this. **Probably highest remaining priority** per
+      GPT-5.5 entry 39: "Otherwise Rig becomes safe within
+      one file and conventional across files."
+    - **Body-less `extern fun`/`extern sub` declarations**
+      (M22+ extension). Per GPT-5.5 entry 39: "a more
+      urgent FFI hole than raw-fn, honestly. `extern puts:
+      fn(String) Int` works, but it is not the ergonomic
+      or readable shape users will expect."
     - **Closure-with-args** (`Closure1<T>`, `Closure2<A,B>`)
       beyond no-arg `Closure()`. Required for any callback-
-      based API that takes arguments. Substrate-extension
-      flavored.
+      based API that takes arguments.
+    - **User-defined `Drop` / non-Copy resource values.**
+      Per GPT-5.5 entry 39: "the big one." Until this
+      lands, Vec resource get/pop, Cell-non-Copy, Signal
+      stack-local, and many other "honest restrictions"
+      stay deferred. They all point at the same missing
+      substrate layer.
     - **Cleanup of legacy global name-scan paths** in
       safety-critical code (M20a.2 + M20e.1 partially done;
       audit remaining).
-    - **Body-less `extern fun`/`extern sub` declarations**
-      (M22+ extension). Required for real FFI ergonomics —
-      currently only `extern var: fn(...) Type` is callable.
-    - **`zig "..."` raw Zig blocks** (parsed but not wired
-      through emit; M22+ extension). Inherits the `raw`
-      block requirement when it lands.
+
+    Reserved (M22.1 retracted; sema-rejected with reserved
+    diagnostic, design space preserved for V2+):
+    - `try INDENT body OUTDENT [catch ...]` value-yielding
+      block — `expr!` + inline `expr catch |e|` cover V1.
+    - `zig "..."` inline-Zig escape — `raw` + `extern`
+      cover V1.
+    - `@x` pin sigil — V2 pinning story.
+    - `for *x` ptr-mode loop binding — future by-ref
+      iteration likely uses borrow-shaped (`for ?x`).
+    - `pre <expr>` / `pre_block` — `pre_param` covers V1.
 
   **B. Optional substrate extensions** — these add language
        surface but aren't V1-blockers:
