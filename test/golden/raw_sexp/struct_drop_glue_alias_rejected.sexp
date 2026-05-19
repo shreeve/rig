@@ -1,0 +1,1 @@
+(module (struct Owner (: cell (shared (generic_inst Cell Int)))) (sub main () _ (block (set _ o1 _ (call Owner (kwarg cell (share (call Cell (kwarg value 0)))))) (set _ o2 _ o1) (call print (call (member (member o2 cell) get))))))

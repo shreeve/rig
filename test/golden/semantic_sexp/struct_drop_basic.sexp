@@ -1,0 +1,1 @@
+(module (struct Owner (: cell (shared (generic_inst Cell Int))) (drop_decl ((: self (borrow_write Owner))) (block (call print 99)))) (sub main () _ (block (set _ c (shared (generic_inst Cell Int)) (share (call Cell (kwarg value 42)))) (set _ o Owner (call Owner (kwarg cell (move c)))) (call print 0))))

@@ -1,0 +1,26 @@
+# M25(4/5): user-defined Drop on a plain struct fires correctly.
+#
+# `Owner` carries a single `*Cell(Int)` resource field. M25(2/5)
+# flagged the struct as `has_drop_glue` because it owns a
+# resource. M25(4/5) emits a compiler-generated `__rig_drop` that
+# walks the field with `dropStrong()` in reverse declaration order.
+# The user-authored `drop self: !Self` body runs first, then the
+# generated field drop, then the field's `RcBox.dropStrong` releases
+# the underlying Cell.
+#
+# Auto-drop discipline: `o` is a value-type local with drop glue, so
+# the M20e-style scope-exit defer fires `o.__rig_drop()` automatically
+# at `main`'s end. The user body prints `99` first; then the field's
+# *Cell drops its strong refcount.
+
+struct Owner
+  cell: *Cell(Int)
+
+  drop self: !Owner
+    print(99)
+
+sub main()
+  c: *Cell(Int) = *Cell(value: 42)
+  o: Owner = Owner(cell: <c)
+  print(0)
+  # scope exit: prints 99 (user body), then *Cell handle drops.

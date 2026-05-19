@@ -1,0 +1,1 @@
+examples/struct_drop_glue_alias_rejected.rig:23:8: error: bare use of `Owner` value `o1` in binding would alias an owning value; `Owner` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor on scope exit. Use `<o1` to move ownership

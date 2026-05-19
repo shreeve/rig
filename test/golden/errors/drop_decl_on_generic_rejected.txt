@@ -1,0 +1,1 @@
+examples/drop_decl_on_generic_rejected.rig:8:8: error: `drop` declarations on generic types are deferred in V1 (M25 ships plain-struct Drop only); generic Drop requires bounds / monomorphized resource analysis

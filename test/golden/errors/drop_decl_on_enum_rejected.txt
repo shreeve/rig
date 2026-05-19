@@ -1,0 +1,1 @@
+examples/drop_decl_on_enum_rejected.rig:11:8: error: `drop` declarations on enums are deferred in V1 (M25 ships plain-struct Drop only); enum Drop requires per-variant payload drop, designed in a future arc

@@ -1337,6 +1337,42 @@ pub const Checker = struct {
                 return;
             }
 
+            // M25(3/5): "any type with drop glue is non-Copy" rule
+            // per GPT-5.5's M25 design lock. A nominal struct that
+            // has user-authored Drop OR resource fields owns its
+            // contents — bare alias would create two bindings whose
+            // scope-exit auto-drops would each fire the destructor,
+            // double-freeing the resources.
+            //
+            // Fire on either:
+            //   - `nominal{sym}` where the symbol carries
+            //     `has_drop_glue = true`;
+            //   - `parameterized_nominal{base, _}` where the BASE
+            //     symbol has `has_drop_glue` (e.g., a future user
+            //     `Reactor(T)`).
+            //
+            // No `+x` clone form yet for user-defined Drop types in
+            // V1 (user Clone is its own deferred arc); only `<x`
+            // move is suggested.
+            const drop_glue_sym: ?types.SymbolId = switch (ty) {
+                .nominal => |s| blk: {
+                    const target = sema.symbols.items[s];
+                    break :blk if (target.flags.has_drop_glue) s else null;
+                },
+                .parameterized_nominal => |pn| blk: {
+                    const base = sema.symbols.items[pn.sym];
+                    break :blk if (base.flags.has_drop_glue) pn.sym else null;
+                },
+                else => null,
+            };
+            if (drop_glue_sym) |dgs| {
+                const tname = sema.symbols.items[dgs].name;
+                try self.err(expr.src.pos, "bare use of `{s}` value `{s}` in {s} would alias an owning value; `{s}` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor on scope exit. Use `<{s}` to move ownership", .{
+                    tname, name, ctx, tname, name,
+                });
+                return;
+            }
+
             const kind: ?[]const u8 = switch (ty) {
                 .shared => "shared (`*T`)",
                 .weak => "weak (`~T`)",

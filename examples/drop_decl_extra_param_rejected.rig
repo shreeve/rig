@@ -1,0 +1,9 @@
+# M25(2/5): `drop` declaration takes exactly one parameter,
+# `self: !Self`. Extra parameters are rejected (drop is invoked
+# implicitly by the runtime; the user can't pass arguments).
+
+struct File
+  fd: Int
+
+  drop self: !File, extra: Int
+    print(self.fd + extra)

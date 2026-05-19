@@ -356,7 +356,22 @@ pub const SymbolFlags = packed struct {
     /// Function parameter declared with a borrowed type (`?T` / `!T`),
     /// relevant to the borrow-escape rule.
     borrowed_param: bool = false,
-    _padding: u5 = 0,
+    /// M25(2/5): the nominal type has compiler-generated or user-
+    /// authored drop glue. Set on a struct symbol when EITHER:
+    ///   - the struct has a user `drop self: !Self` declaration
+    ///     (one of its fields has `is_drop_method = true`), OR
+    ///   - any of its data fields has a resource type (shared,
+    ///     weak, Vec, Closure, or another struct already flagged
+    ///     `has_drop_glue`).
+    /// Drives:
+    ///   - "any type with drop glue is non-Copy" (M20d alias-
+    ///     discipline generalization, M25(3/5));
+    ///   - generated `__rig_drop` emission with reverse-order
+    ///     field drops (M25(4/5));
+    ///   - auto-drop guard (M20e) installation for named bindings
+    ///     of the type (M25(3/5)).
+    has_drop_glue: bool = false,
+    _padding: u4 = 0,
     // (M22 removed M19's `is_unsafe` flag — the fn-level raw
     // marker `unsafe sub`/`unsafe fun` was dropped because there
     // was no V1 use case per GPT-5.5 entry 38; the block-only
@@ -414,6 +429,19 @@ pub const Field = struct {
     /// for enum-literal / match-arm resolution. Per GPT-5.5 M20c
     /// design pass.
     is_variant: bool = false,
+
+    /// M25(2/5): when true, this `Field` is the user-authored
+    /// `drop self: !Self` declaration for the enclosing struct.
+    /// Stored in the same `fields[]` slice as ordinary methods
+    /// (`is_method = true`, `name = "drop"`, `receiver = .write`),
+    /// distinguished by this flag so:
+    ///   - method lookup (`lookupMethod`) can filter it out (drop
+    ///     is implicit; users cannot call `instance.drop()`);
+    ///   - emit (M25(4/5)) can find the user body without scanning
+    ///     by name;
+    ///   - the "exactly one drop per struct" rule has a clean
+    ///     primary key.
+    is_drop_method: bool = false,
 };
 
 pub const Symbol = struct {
@@ -1297,6 +1325,65 @@ fn isCopyTypeForCapture(ctx: *const SemContext, ty_id: TypeId) bool {
     };
 }
 
+/// M25(2/5): does a TypeId represent a value-shaped resource — one
+/// that requires drop glue when held by a struct field?
+///
+/// True for:
+///   - `shared(T)` / `weak(T)` — refcount handles release on drop;
+///   - `parameterized_nominal{Vec, _}` — Vec owns its buffer;
+///   - `parameterized_nominal{Closure, _}` — owned closure handle;
+///   - `nominal{sym}` where `sym.flags.has_drop_glue` — recursive
+///     case (struct with resource fields or user `drop`).
+///
+/// False for:
+///   - primitives (int, bool, float, string, literal pseudo-types,
+///     void, etc.) — Copy by definition;
+///   - `optional` / `fallible` / `borrow_*` — V1 doesn't yet support
+///     resource Optionals (deferred per GPT-5.5 M25 lock); borrows
+///     don't own the value;
+///   - `slice` / `array` / `function` — not first-class resources
+///     in V1 (slices to resource elements are a follow-up arc);
+///   - `imported_nominal` — V1 cross-module Drop is deferred (the
+///     foreign nominal's drop glue lives in its origin module's
+///     emit; a follow-up arc threads `has_drop_glue` through
+///     `importType`).
+///
+/// **NOT** equivalent to "non-Copy" — `Cell(T)` is non-Copy in some
+/// contexts (V1 restriction) but is itself a leaf value with no
+/// drop glue when T is Copy. The drop-glue question is specifically
+/// "does this field need __rig_drop to walk it on the parent's drop?"
+fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
+    if (ty_id == ctx.types.invalid_id or ty_id == ctx.types.unknown_id) return false;
+    const ty = ctx.types.get(ty_id);
+    return switch (ty) {
+        .shared, .weak => true,
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.vec_sym_id) break :blk true;
+            if (pn.sym == ctx.closure_sym_id) break :blk true;
+            // Other parameterized builtins (Cell, Signal) aren't
+            // value-resources at the field level: Cell holds a Copy T
+            // (V1 restriction), Signal owns a subscriber Vec but the
+            // owning shape is heap-only (`*Signal(T)`), so any field
+            // typed `*Signal(_)` falls into the `.shared` branch above.
+            // Bare-value `Signal(T)` in field position is rejected at
+            // sema time elsewhere.
+            //
+            // For user-defined generics, `has_drop_glue` only flows
+            // through if the BASE struct is flagged. Type-args (`pn.args`)
+            // could carry resources, but field-level recursion happens
+            // when the field IS the type-arg-bearing nominal — the
+            // parameterized base must declare what it owns.
+            const base_sym = ctx.symbols.items[pn.sym];
+            break :blk base_sym.flags.has_drop_glue;
+        },
+        .nominal => |s| blk: {
+            const sym = ctx.symbols.items[s];
+            break :blk sym.flags.has_drop_glue;
+        },
+        else => false,
+    };
+}
+
 // =============================================================================
 // Symbol Resolution
 // =============================================================================
@@ -1824,11 +1911,17 @@ const SymbolResolver = struct {
         // themselves are NOT added as module-scope function symbols —
         // they're recorded as `is_method = true` entries on the
         // nominal's `Symbol.fields` slice by `TypeResolver`.
+        //
+        // M25(2/5): drop_decl members get the same scope+param
+        // treatment so the body can type-check `self.field` reads.
+        // The shape differs (`(drop_decl params block)` — no name,
+        // no return slot), so it has its own walker.
         if (items.len > 2) {
             for (items[2..]) |member| {
                 if (member != .list or member.list.len == 0 or member.list[0] != .tag) continue;
                 switch (member.list[0].tag) {
                     .@"fun", .@"sub" => try self.walkMethod(member.list),
+                    .@"drop_decl" => try self.walkDropDecl(member.list),
                     else => {},
                 }
             }
@@ -1843,6 +1936,29 @@ const SymbolResolver = struct {
         if (items.len < 3) return;
         const params = items[2];
         const body = items[items.len - 1];
+
+        const fn_scope = try self.ctx.pushScope(self.current_scope);
+        const prev_scope = self.current_scope;
+        self.current_scope = fn_scope;
+        defer self.current_scope = prev_scope;
+
+        if (params == .list) {
+            for (params.list) |p| try self.bindParam(p);
+        }
+        try self.walk(body);
+    }
+
+    /// M25(2/5): walk a `(drop_decl params block)` member of a struct
+    /// body. Same shape as `walkMethod` but with positions shifted
+    /// (params at items[1], body at items[2]) since drop has no
+    /// user-supplied name or return type. Opens a body scope, binds
+    /// `self`, walks the body. The TypeResolver's drop-decl branch
+    /// fills in the param symbol's resolved type and the method
+    /// signature on the enclosing struct's `fields[]`.
+    fn walkDropDecl(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
+        if (items.len < 3) return;
+        const params = items[1];
+        const body = items[2];
 
         const fn_scope = try self.ctx.pushScope(self.current_scope);
         const prev_scope = self.current_scope;
@@ -2271,25 +2387,21 @@ const TypeResolver = struct {
                 // opened and the cursor stays consistent — drop the
                 // diagnostic and continue iterating other members.
                 .@"drop_decl" => {
-                    // Anchor the diagnostic at the first src position
-                    // we can find inside the drop_decl. Tag nodes don't
-                    // carry positions; the params list holds the
-                    // self-binding's src node which gives a sensible
-                    // line/col for the user.
-                    const drop_pos: u32 = blk: {
-                        if (member.list.len >= 2 and member.list[1] == .list) {
-                            for (member.list[1].list) |p| {
-                                const pp = paramPos(p, 0);
-                                if (pp != 0) break :blk pp;
-                            }
-                        }
-                        break :blk 0;
-                    };
-                    try self.err(
-                        drop_pos,
-                        "user-defined `drop` declarations are not yet supported in V1; landing in M25(2/5)+ (track HANDOFF §13 forward-arc menu Category A). The surface is parse-accepted to lock the design space; full semantics (structural drop glue, ownership generalization, emit) arrive in upcoming sub-commits",
-                        .{},
-                    );
+                    // M25(2/5): validate the user-defined Drop
+                    // declaration and register it as a hidden method
+                    // on the enclosing struct. Per GPT-5.5's M25
+                    // design lock:
+                    //   - structs only (enum / generic_type /
+                    //     generic_enum reject in their own resolvers
+                    //     below);
+                    //   - exactly one `drop` per struct;
+                    //   - receiver MUST be `self: !Self` (write-borrow);
+                    //   - no other params;
+                    //   - no return type;
+                    //   - cannot be marked `pub` (drop is implicit
+                    //     in the type's contract; visibility doesn't
+                    //     apply).
+                    cursor = try self.resolveDropDecl(member.list, parent_scope, sym_id, cursor, &fields);
                 },
                 else => {},
             }
@@ -2297,7 +2409,173 @@ const TypeResolver = struct {
 
         const owned = try self.ctx.arena.allocator().dupe(Field, fields.items);
         self.ctx.symbols.items[sym_id].fields = owned;
+
+        // M25(2/5): compute `has_drop_glue` after fields are
+        // resolved. The flag is true if EITHER a user `drop` decl
+        // is present OR any data field has a resource-shaped type.
+        // `typeHasDropGlue` recurses through nominal fields, so a
+        // struct whose only "resource" is a nominal field with its
+        // own drop glue still flips. (Cycles are prevented by the
+        // declaration-order resolution: forward-referenced nominal
+        // types resolve to `unknown_id` here and pick up the flag
+        // on a later pass; for V1 same-file we resolve in declaration
+        // order so this works in practice.)
+        var has_glue = false;
+        for (owned) |f| {
+            if (f.is_drop_method) { has_glue = true; break; }
+            if (f.is_method or f.is_variant) continue;
+            if (typeHasDropGlue(self.ctx, f.ty)) { has_glue = true; break; }
+        }
+        self.ctx.symbols.items[sym_id].flags.has_drop_glue = has_glue;
+
         return cursor;
+    }
+
+    /// M25(2/5): resolve a `(drop_decl params block)` member of a
+    /// struct body. Validates the signature per GPT-5.5's M25 design
+    /// lock, registers the drop body as a hidden method on the
+    /// enclosing struct's `fields[]` (with `is_drop_method = true`),
+    /// and advances the scope cursor past the body scope opened by
+    /// `SymbolResolver.walkDropDecl`.
+    ///
+    /// Validation rules (per the lock):
+    ///   - exactly one drop_decl per struct (counted via existing
+    ///     `is_drop_method` field in `fields[]`);
+    ///   - first (and only) param must be named `self`;
+    ///   - param type must be `!Self` (write-borrow);
+    ///   - no other params;
+    ///   - no return type (drop is total);
+    ///   - cannot be `pub` / `extern` (handled by the grammar — there
+    ///     is no `pub drop` production);
+    ///   - cannot reference itself (drop is implicit; no `instance.drop()`
+    ///     call shape — emit will lower to `__rig_drop` directly).
+    ///
+    /// The body's ownership-discipline rules (reject consume of self,
+    /// reject drop/move of resource fields, reject reassignment of
+    /// resource fields) land in M25(3/5).
+    fn resolveDropDecl(
+        self: *TypeResolver,
+        items: []const Sexp,
+        parent_scope: ScopeId,
+        nominal_sym: SymbolId,
+        scope_cursor: ScopeId,
+        fields: *std.ArrayListUnmanaged(Field),
+    ) std.mem.Allocator.Error!ScopeId {
+        if (items.len < 3) return scope_cursor;
+        const params = items[1];
+        // Anchor diagnostics at the first src node we can find inside
+        // the params list (the `self` binding's name); fall back to 0.
+        const drop_pos: u32 = blk: {
+            if (params == .list) {
+                for (params.list) |p| {
+                    const pp = paramPos(p, 0);
+                    if (pp != 0) break :blk pp;
+                }
+            }
+            break :blk 0;
+        };
+
+        // M25(2/5): "exactly one drop per struct" — reject the second
+        // and subsequent decls. Anchor at the duplicate; the first one
+        // already registered.
+        for (fields.items) |f| {
+            if (f.is_drop_method) {
+                try self.err(drop_pos, "duplicate `drop` declaration on this struct; M25 V1 allows exactly one user-defined Drop per struct", .{});
+                // Still advance the cursor past the duplicate's body
+                // scope so downstream methods stay aligned.
+                return scopeAfter(self.ctx, scope_cursor);
+            }
+        }
+
+        // The body scope was pushed by SymbolResolver.walkDropDecl
+        // (M25(2/5)); it's the next cursor.
+        const fn_scope = scope_cursor;
+
+        // Set NominalContext so `Self` and field-name resolution work
+        // inside the body. Same pattern as `resolveNominalMethod`.
+        const prev_nominal = self.current_nominal;
+        self.current_nominal = try makeNominalContext(self.ctx, nominal_sym);
+        defer self.current_nominal = prev_nominal;
+
+        // Resolve params (should be exactly one: `self: !Self`).
+        var param_types: std.ArrayListUnmanaged(TypeId) = .empty;
+        defer param_types.deinit(self.ctx.allocator);
+        var param_count: usize = 0;
+        if (params == .list) {
+            param_count = params.list.len;
+            for (params.list) |p| {
+                const ptype = try self.resolveParamType(p, parent_scope);
+                try param_types.append(self.ctx.allocator, ptype);
+                // Write the resolved type back into the symbol the
+                // SymbolResolver bound in the body scope. Without this,
+                // `self` types as `unknown` and `self.field` collapses.
+                const pname = paramName(self.ctx.source, p);
+                if (pname) |nm| {
+                    if (self.ctx.lookup(fn_scope, nm)) |bound| {
+                        self.ctx.symbols.items[bound].ty = ptype;
+                    }
+                }
+            }
+        }
+
+        // Validation: exactly one param.
+        if (param_count != 1) {
+            try self.err(drop_pos, "`drop` declaration must take exactly one parameter `self: !Self`; got {d} parameter(s)", .{param_count});
+            return scopeAfter(self.ctx, fn_scope);
+        }
+
+        // Validation: param must be named `self` and typed `!Self`.
+        const first_param = params.list[0];
+        const first_name = paramName(self.ctx.source, first_param);
+        const named_self = if (first_name) |nm| std.mem.eql(u8, nm, "self") else false;
+        if (!named_self) {
+            try self.err(paramPos(first_param, drop_pos), "`drop` declaration's parameter must be named `self`", .{});
+            return scopeAfter(self.ctx, fn_scope);
+        }
+
+        // The resolved param type must be `borrow_write(nominal(Self))`
+        // or `borrow_write(parameterized_nominal(Self, ...))`. The
+        // M20a.1 sugar `!self` resolves to exactly that. Reject
+        // anything else (including `?self`, `<self`, bare `self: Self`).
+        const ptype = param_types.items[0];
+        const ptype_resolved = self.ctx.types.get(ptype);
+        const valid_self_ty = blk: {
+            if (ptype_resolved != .borrow_write) break :blk false;
+            const inner = self.ctx.types.get(ptype_resolved.borrow_write);
+            switch (inner) {
+                .nominal => |s| break :blk s == nominal_sym,
+                .parameterized_nominal => |pn| break :blk pn.sym == nominal_sym,
+                else => break :blk false,
+            }
+        };
+        if (!valid_self_ty) {
+            try self.err(paramPos(first_param, drop_pos), "`drop` declaration must use `self: !Self` (write-borrow); other receiver shapes are rejected", .{});
+            return scopeAfter(self.ctx, fn_scope);
+        }
+
+        // Build the function type: (self: !Self) -> void.
+        const owned_params = try self.ctx.arena.allocator().dupe(TypeId, param_types.items);
+        const fn_ty = try self.ctx.types.intern(self.ctx.allocator, .{ .function = .{
+            .params = owned_params,
+            .returns = self.ctx.types.void_id,
+            .is_sub = true,
+        } });
+
+        // Register on the struct's fields list. Name = "drop" for
+        // diagnostics; receiver = .write; is_method = true so generic
+        // method-walking machinery picks it up; is_drop_method = true
+        // so lookupMethod can filter it out and emit (M25(4/5)) can
+        // find it without a name scan.
+        try fields.append(self.ctx.allocator, .{
+            .name = "drop",
+            .ty = fn_ty,
+            .decl_pos = drop_pos,
+            .is_method = true,
+            .receiver = .write,
+            .is_drop_method = true,
+        });
+
+        return scopeAfter(self.ctx, fn_scope);
     }
 
     /// M20b(3/5): walk a `(generic_type Name (T...) members...)`
@@ -2361,6 +2639,23 @@ const TypeResolver = struct {
                             if (member.list.len >= 2) identAt(self.ctx.source, member.list[1]) orelse "name" else "name",
                         },
                     );
+                },
+                // M25(2/5): user `drop` on generic types is V1-deferred
+                // per GPT-5.5's design lock. Emit a clean diagnostic
+                // and advance the cursor past the body scope opened by
+                // SymbolResolver.walkDropDecl.
+                .@"drop_decl" => {
+                    const drop_pos: u32 = blk: {
+                        if (member.list.len >= 2 and member.list[1] == .list) {
+                            for (member.list[1].list) |p| {
+                                const pp = paramPos(p, 0);
+                                if (pp != 0) break :blk pp;
+                            }
+                        }
+                        break :blk 0;
+                    };
+                    try self.err(drop_pos, "`drop` declarations on generic types are deferred in V1 (M25 ships plain-struct Drop only); generic Drop requires bounds / monomorphized resource analysis", .{});
+                    cursor = scopeAfter(self.ctx, cursor);
                 },
                 else => {},
             }
@@ -2631,6 +2926,27 @@ const TypeResolver = struct {
                                 if (variant.list.len >= 2) identAt(self.ctx.source, variant.list[1]) orelse "name" else "name",
                             },
                         );
+                        continue;
+                    },
+                    // M25(2/5): `drop` on enum / errors / generic_enum
+                    // is V1-deferred per GPT-5.5's design lock — enum
+                    // drop glue requires switch-over-active-variant +
+                    // payload drop, which is its own substrate arc.
+                    // Plain-struct Drop unlocks the important V1 cases.
+                    .@"drop_decl" => {
+                        const drop_pos: u32 = blk: {
+                            if (variant.list.len >= 2 and variant.list[1] == .list) {
+                                for (variant.list[1].list) |p| {
+                                    const pp = paramPos(p, 0);
+                                    if (pp != 0) break :blk pp;
+                                }
+                            }
+                            break :blk 0;
+                        };
+                        try self.err(drop_pos, "`drop` declarations on {s} are deferred in V1 (M25 ships plain-struct Drop only); enum Drop requires per-variant payload drop, designed in a future arc", .{
+                            if (head == .@"errors") "error sets" else "enums",
+                        });
+                        cursor = scopeAfter(self.ctx, cursor);
                         continue;
                     },
                     else => {},
@@ -4427,9 +4743,40 @@ const ExprChecker = struct {
             if (member != .list or member.list.len == 0 or member.list[0] != .tag) continue;
             switch (member.list[0].tag) {
                 .@"fun", .@"sub" => try self.walkMethod(member.list, nominal_sym_id),
+                // M25(2/5): walk drop body so `self.field` reads inside
+                // the drop type-check correctly. Same scope-entry +
+                // current_fn_return discipline as ordinary methods, but
+                // shifted positions (params at items[1], body at items[2]).
+                .@"drop_decl" => try self.walkDropDecl(member.list, nominal_sym_id),
                 else => {},
             }
         }
+    }
+
+    /// M25(2/5): walk a `(drop_decl params block)` body. The drop is
+    /// a void-returning sub with `self: !Self` receiver; type-checking
+    /// its body uses the same discipline as `walkMethod` but with the
+    /// drop_decl's IR positions and a guaranteed void return.
+    fn walkDropDecl(self: *ExprChecker, items: []const Sexp, nominal_sym_id: SymbolId) std.mem.Allocator.Error!void {
+        if (items.len < 3) return;
+        const body = items[2];
+
+        // Set NominalContext so `self.field` resolution + Self lookups
+        // inside the body work the same way as for ordinary methods.
+        const prev_nominal = self.current_nominal;
+        self.current_nominal = try makeNominalContext(self.ctx, nominal_sym_id);
+        defer self.current_nominal = prev_nominal;
+
+        const fn_return = self.ctx.types.void_id;
+        const prev_scope = self.enterNextScope();
+        const prev_return = self.current_fn_return;
+        defer {
+            self.leaveScope(prev_scope);
+            self.current_fn_return = prev_return;
+        }
+        self.current_fn_return = fn_return;
+
+        try self.walkBody(body, fn_return, true);
     }
 
     /// M20a: walk a method body. Mirrors `walkFun` but pulls the

@@ -1,0 +1,9 @@
+# M25(2/5): `drop` declarations on generic types are V1-deferred.
+# Generic Drop needs bounds / monomorphized resource analysis to
+# decide which T's are droppable; plain-struct Drop covers V1.
+
+type Box(T)
+  value: T
+
+  drop self: !Self
+    print(0)

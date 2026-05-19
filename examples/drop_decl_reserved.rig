@@ -1,14 +1,12 @@
-# M25(1/5): user-defined Drop declaration is parse-accepted but
-# sema-rejected with a reserved-surface diagnostic. The grammar
-# accepts `drop self: !Self` in a struct body so the design space
-# is locked, but the validation, ownership, and emit work lands in
-# M25(2/5)–(5/5). Until then, the diagnostic points at the M25
-# milestone.
+# M25 (post 1-4/5): user-defined `drop` declaration with a body
+# that references `self`. The body runs at scope exit before the
+# struct's resource fields (none here — `fd: Int` is Copy).
 #
-# Per the M22.1 fake-surface invariant: every accepted V1 form has
-# enforced semantics + working Rig lowering, OR is rejected at
-# sema time with a Rig diagnostic. M25(1/5) is the "reserved"
-# branch; M25(2/5)+ flips it to fully enforced.
+# Filename retained from the M25(1/5) "reserved" era for golden
+# stability; the example now demonstrates a working user Drop.
+# A pure-Copy-fields struct without a user `drop` would NOT have
+# `has_drop_glue` set; it's the user `drop self: !Self` that
+# flips the flag here.
 
 struct File
   fd: Int
@@ -16,3 +14,9 @@ struct File
   drop self: !File
     raw
       print(self.fd)
+
+sub main()
+  f: File = File(fd: 7)
+  print(0)
+  # scope exit: f.__rig_drop() runs, calling __rig_user_drop which
+  # prints `7` (the fd value); no resource fields to walk after.

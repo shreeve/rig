@@ -263,7 +263,91 @@ pub const Emitter = struct {
         }
 
         try self.emitNominalMethods(items[2..], 1);
+
+        // M25(4/5): if the struct has drop glue (user `drop` decl OR
+        // resource fields per sema's `has_drop_glue` flag), emit a
+        // compiler-generated `__rig_drop` method. This is the ABI
+        // hook the runtime calls when:
+        //   - a `*Self` shared handle hits last-strong drop (RcBox);
+        //   - a `Self` value-type binding's M20e auto-drop guard
+        //     fires at scope exit;
+        //   - a `Self`-element in a `Vec(T)` drops as part of
+        //     `Vec.__rig_drop`'s element walk.
+        // The generated body calls the user `__rig_user_drop` (if
+        // any) first, then walks resource fields in REVERSE
+        // declaration order — Rust-shaped drop semantics.
+        try self.emitGeneratedDropIfNeeded(name, items);
+
         try self.w.writeAll("};\n");
+    }
+
+    /// M25(4/5): emit the compiler-generated `__rig_drop` method if
+    /// the struct has drop glue. The struct has drop glue when EITHER
+    /// it declares a user `drop self: !Self` body OR any of its data
+    /// fields has a resource type. The body shape:
+    ///
+    ///   pub fn __rig_drop(self: *Self) void {
+    ///       self.__rig_user_drop();   // only if user drop_decl
+    ///       self.field_n.{drop_method_n}();
+    ///       ...
+    ///       self.field_1.{drop_method_1}();
+    ///   }
+    ///
+    /// where `field_k` are resource fields (shared/weak/Vec/nominal-
+    /// with-drop-glue) in REVERSE declaration order, and the drop
+    /// method is `dropStrong` for `*T`, `dropWeak` for `~T`, and
+    /// `__rig_drop` for `Vec(T)` / nominal-with-drop-glue.
+    fn emitGeneratedDropIfNeeded(self: *Emitter, struct_name: []const u8, items: []const Sexp) Error!void {
+        const sema = self.sema orelse return;
+
+        // Look up the struct's sema Symbol to read `has_drop_glue`.
+        if (items.len < 2 or items[1] != .src) return;
+        const decl_pos = items[1].src.pos;
+        var has_glue = false;
+        var has_user_drop = false;
+        for (sema.symbols.items) |sym| {
+            if (sym.decl_pos != decl_pos) continue;
+            if (!std.mem.eql(u8, sym.name, struct_name)) continue;
+            has_glue = sym.flags.has_drop_glue;
+            // The user_drop presence is recorded on `fields[]` with
+            // `is_drop_method = true`; check it here so we know
+            // whether to invoke `__rig_user_drop` in the generated body.
+            if (sym.fields) |fs| {
+                for (fs) |f| if (f.is_drop_method) { has_user_drop = true; break; };
+            }
+            break;
+        }
+        if (!has_glue) return;
+
+        try self.w.writeAll("\n    pub fn __rig_drop(self: *");
+        try self.w.writeAll(struct_name);
+        try self.w.writeAll(") void {\n");
+
+        if (has_user_drop) {
+            try self.w.writeAll("        self.__rig_user_drop();\n");
+        }
+
+        // Walk data fields in REVERSE declaration order, emitting a
+        // drop call for each resource field. The IR's data-field
+        // members are `(: name type)` shapes interleaved with methods;
+        // we filter by tag.
+        const member_count: usize = if (items.len > 2) items.len - 2 else 0;
+        var i: usize = member_count;
+        while (i > 0) {
+            i -= 1;
+            const member = items[2 + i];
+            if (member != .list or member.list.len < 3 or member.list[0] != .tag) continue;
+            if (member.list[0].tag != .@":") continue;
+            const fname = identText(self.source, member.list[1]) orelse continue;
+            // Resolve this field's type via the struct's Symbol.fields
+            // (where TypeResolver already wrote the resolved TypeId)
+            // rather than re-walking the type expression.
+            const field_ty = lookupFieldTypeByDeclPos(sema, decl_pos, struct_name, member.list[1]) orelse continue;
+            const drop_method = dropMethodForResourceType(sema, field_ty) orelse continue;
+            try self.w.print("        self.{s}.{s}();\n", .{ fname, drop_method });
+        }
+
+        try self.w.writeAll("    }\n");
     }
 
     /// M20a: emit `fun`/`sub` members of a nominal body as nested
@@ -273,24 +357,88 @@ pub const Emitter = struct {
     /// `indent_levels` controls how much extra indent to push for
     /// method body emission (1 for top-level structs/enums; 2 for
     /// generic types whose struct is nested inside `return struct {...}`).
+    ///
+    /// M25(4/5): also emits user-defined `drop self: !Self` bodies
+    /// as `pub fn __rig_user_drop(self: *Self) void { body }`. The
+    /// public-facing `__rig_drop` is generated separately by
+    /// `emitGeneratedDropIfNeeded` after this function returns.
     fn emitNominalMethods(self: *Emitter, members: []const Sexp, indent_levels: u32) Error!void {
         var any_methods = false;
         for (members) |member| {
-            if (member != .list or member.list.len < 5 or member.list[0] != .tag) continue;
+            if (member != .list or member.list.len == 0 or member.list[0] != .tag) continue;
             const head = member.list[0].tag;
-            if (head != .@"fun" and head != .@"sub") continue;
+            const is_method_form = head == .@"fun" or head == .@"sub";
+            const is_drop_form = head == .@"drop_decl";
+            if (!is_method_form and !is_drop_form) continue;
+            if (is_method_form and member.list.len < 5) continue;
+            if (is_drop_form and member.list.len < 3) continue;
             if (!any_methods) {
                 try self.w.writeAll("\n");
                 any_methods = true;
             }
-            // Write leading spaces for the `pub fn` line itself.
             var i: u32 = 0;
             while (i < indent_levels) : (i += 1) try self.w.writeAll("    ");
             const prev_indent = self.indent;
             self.indent += indent_levels;
-            try self.emitFun(member.list, head == .@"sub");
+            if (is_drop_form) {
+                try self.emitDropDecl(member.list);
+            } else {
+                try self.emitFun(member.list, head == .@"sub");
+            }
             self.indent = prev_indent;
         }
+    }
+
+    /// M25(4/5): emit a `(drop_decl params block)` member as
+    /// `pub fn __rig_user_drop(self: *Self) void { body }`. The
+    /// IR shape lacks the name slot of fun/sub (drop is implicit
+    /// per the type's contract), and the receiver was sema-validated
+    /// as `self: !Self`, so we hardcode the lowered signature.
+    /// `current_nominal_name` is set by the caller (emitStruct) so
+    /// `Self` in the body resolves correctly via `emitType`.
+    fn emitDropDecl(self: *Emitter, items: []const Sexp) Error!void {
+        if (items.len < 3) return;
+        const params = items[1];
+        const body = items[2];
+
+        const struct_name = self.current_nominal_name orelse "Self";
+        try self.w.print("pub fn __rig_user_drop(self: *{s}) void {{\n", .{struct_name});
+
+        // The user body is a single sub-shaped block. We push a scope
+        // + bind self the same way emitFun does, then emit each
+        // statement. If the body doesn't reference `self`, prepend a
+        // `_ = self;` discard so Zig's "unused function parameter"
+        // check stays quiet. If it does reference self, omit the
+        // discard — Zig also rejects "pointless discard of function
+        // parameter".
+        self.indent += 1;
+        try self.pushScope();
+        if (params == .list) {
+            for (params.list) |p| try self.bindParam(p);
+        }
+        self.pending_param_guards = null;
+
+        const self_used = isNameUsedInBody(self.source, body, "self");
+        if (!self_used) {
+            try self.indentSpaces();
+            try self.w.writeAll("_ = self;\n");
+        }
+
+        const stmts: []const Sexp = if (body == .list and body.list.len > 0 and
+            body.list[0] == .tag and body.list[0].tag == .@"block")
+            body.list[1..]
+        else
+            &[_]Sexp{body};
+        for (stmts) |stmt| {
+            try self.indentSpaces();
+            try self.emitStmt(stmt);
+            try self.w.writeAll("\n");
+        }
+
+        try self.popScope();
+        self.indent -= 1;
+        try self.indentSpaces();
+        try self.w.writeAll("}\n");
     }
 
     /// `(generic_type Name (T1 T2 ...) members...)` → Zig
@@ -2394,11 +2542,19 @@ pub const Emitter = struct {
                 // receivers (the interior-mutability pattern), and
                 // the Zig binding must be mutable for that pointer
                 // to be valid.
+                //
+                // M25(4/5): user structs with `has_drop_glue` also
+                // need `var` storage. The auto-drop guard's defer
+                // calls `o.__rig_drop()` which requires `&o`; that
+                // requires `var o`. Same shape as Vec — the
+                // generated `__rig_drop` takes `*Self`.
                 .parameterized_nominal => |pn| pn.sym == sema.cell_sym_id or
                     pn.sym == sema.vec_sym_id or
-                    pn.sym == sema.signal_sym_id,
+                    pn.sym == sema.signal_sym_id or
+                    sema.symbols.items[pn.sym].flags.has_drop_glue,
                 .nominal => |s| s == sema.cell_sym_id or s == sema.vec_sym_id or
-                    s == sema.signal_sym_id,
+                    s == sema.signal_sym_id or
+                    sema.symbols.items[s].flags.has_drop_glue,
                 else => false,
             };
         }
@@ -2438,6 +2594,20 @@ pub const Emitter = struct {
                 // defer that calls `__rig_drop()`. The destructor
                 // walks elements (LIFO) + frees the backing buffer.
                 .parameterized_nominal => |pn| if (pn.sym == sema.vec_sym_id)
+                    @as(?ResourceKind, .vec_value)
+                else
+                    null,
+                // M25(4/5): user-struct values with `has_drop_glue`
+                // (user `drop` decl OR resource fields) get the same
+                // `.vec_value` treatment as Vec — both call
+                // `__rig_drop()` for cleanup, both need the M20e
+                // alive-guard + defer, both disarm on `<x` move /
+                // `-x` discharge / return / reassign. The
+                // ResourceKind-level representation is identical;
+                // diagnostics differ at the ownership layer, where
+                // M25(3/5) already routes to a distinct error
+                // message that mentions the user struct name.
+                .nominal => |s| if (sema.symbols.items[s].flags.has_drop_glue)
                     @as(?ResourceKind, .vec_value)
                 else
                     null,
@@ -4145,6 +4315,59 @@ fn identText(source: []const u8, sexp: Sexp) ?[]const u8 {
         .src => |s| source[s.pos..][0..s.len],
         else => null,
     };
+}
+
+/// M25(4/5): which Zig method drops a value of this type? Returns
+/// the method name (`dropStrong` / `dropWeak` / `__rig_drop`) for
+/// resource-shaped types, or null for non-resources. Used by the
+/// generated `__rig_drop` body to lower per-field cleanup.
+fn dropMethodForResourceType(sema: *const types.SemContext, ty_id: types.TypeId) ?[]const u8 {
+    if (ty_id == sema.types.invalid_id or ty_id == sema.types.unknown_id) return null;
+    const ty = sema.types.get(ty_id);
+    return switch (ty) {
+        .shared => "dropStrong",
+        .weak => "dropWeak",
+        .parameterized_nominal => |pn| blk: {
+            // Vec(T) and Closure() pre-defined by the runtime;
+            // user-defined parameterized types with drop glue
+            // (when those land) flow through the second branch.
+            if (pn.sym == sema.vec_sym_id) break :blk "__rig_drop";
+            if (pn.sym == sema.closure_sym_id) break :blk null;
+            break :blk if (sema.symbols.items[pn.sym].flags.has_drop_glue) "__rig_drop" else null;
+        },
+        .nominal => |s| if (sema.symbols.items[s].flags.has_drop_glue)
+            @as(?[]const u8, "__rig_drop")
+        else
+            null,
+        else => null,
+    };
+}
+
+/// M25(4/5): look up a struct field's resolved TypeId via sema.
+/// `decl_pos` is the struct's declaration position (its name
+/// `.src.pos`); `struct_name` cross-checks the identity. The
+/// `field_name_node` carries the field's source-position; we
+/// match against `Symbol.fields[]` entries by `decl_pos`. Returns
+/// `null` if any step fails (defensive — caller treats null as
+/// "not a resource field, skip drop emission").
+fn lookupFieldTypeByDeclPos(
+    sema: *const types.SemContext,
+    struct_decl_pos: u32,
+    struct_name: []const u8,
+    field_name_node: parser.Sexp,
+) ?types.TypeId {
+    if (field_name_node != .src) return null;
+    const field_pos = field_name_node.src.pos;
+    for (sema.symbols.items) |sym| {
+        if (sym.decl_pos != struct_decl_pos) continue;
+        if (!std.mem.eql(u8, sym.name, struct_name)) continue;
+        const fields = sym.fields orelse return null;
+        for (fields) |f| {
+            if (f.decl_pos == field_pos) return f.ty;
+        }
+        return null;
+    }
+    return null;
 }
 
 /// True if `body` (an IR Sexp) contains any `.src` reference whose

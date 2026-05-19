@@ -1,0 +1,1 @@
+examples/drop_decl_duplicate_rejected.rig:10:8: error: duplicate `drop` declaration on this struct; M25 V1 allows exactly one user-defined Drop per struct

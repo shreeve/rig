@@ -1,0 +1,1 @@
+examples/drop_decl_invalid_self_rejected.rig:11:8: error: `drop` declaration must use `self: !Self` (write-borrow); other receiver shapes are rejected

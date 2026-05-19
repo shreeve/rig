@@ -1,1 +1,0 @@
-examples/drop_decl_reserved.rig:16:8: error: user-defined `drop` declarations are not yet supported in V1; landing in M25(2/5)+ (track HANDOFF §13 forward-arc menu Category A). The surface is parse-accepted to lock the design space; full semantics (structural drop glue, ownership generalization, emit) arrive in upcoming sub-commits

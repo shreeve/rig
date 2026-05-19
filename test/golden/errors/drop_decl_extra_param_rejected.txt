@@ -1,0 +1,1 @@
+examples/drop_decl_extra_param_rejected.rig:8:8: error: `drop` declaration must take exactly one parameter `self: !Self`; got 2 parameter(s)

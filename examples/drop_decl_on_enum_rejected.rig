@@ -1,0 +1,12 @@
+# M25(2/5): `drop` declarations on enums are V1-deferred.
+# Enum drop glue requires switch-over-active-variant + per-variant
+# payload drop, which is its own substrate arc. Plain-struct Drop
+# unlocks the important V1 cases first.
+
+enum Color
+  red
+  green
+  blue
+
+  drop self: !Color
+    print(1)

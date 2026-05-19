@@ -1,0 +1,12 @@
+# M25(2/5): the user `drop` declaration's receiver MUST be
+# `self: !Self` (write-borrow). Other shapes are rejected:
+#   - `self: ?Self` (read-borrow) — drop is mutating cleanup
+#   - `self: Self`  (consuming) — drop semantics are write-borrow
+#   - any non-`self` first param — must be named `self`
+#   - any other receiver type — must reference enclosing struct
+
+struct File
+  fd: Int
+
+  drop self: ?File
+    print(self.fd)

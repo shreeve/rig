@@ -1,0 +1,11 @@
+# M25(2/5): exactly one user `drop` declaration per struct.
+# Duplicates are rejected at the second occurrence.
+
+struct File
+  fd: Int
+
+  drop self: !File
+    print(self.fd)
+
+  drop self: !File
+    print(self.fd + 1)
