@@ -35,30 +35,30 @@ and only on the one for-loop that uses `?users`.
 
 ## Shapes the grammar emits directly
 
-| Source form              | Emitted IR (grammar action)        | Notes                                          |
-|--------------------------|-------------------------------------|------------------------------------------------|
-| `x = expr`               | `(set _      x _    expr)`         | default kind = `_`                             |
-| `x += expr` etc.         | `(set += x _ expr)`                | compound assign; op is the kind                |
-| `x <- expr`              | `(set move   x _    expr)`         | move-assign                                    |
-| `x =! expr`              | `(set fixed  x _    expr)`         | immutable bind                                 |
-| `new x = expr`           | `(set shadow x _    expr)`         | explicit shadow                                |
-| `x: T = expr`            | `(set _      x T    expr)`         | typed `=`                                      |
-| `x: T =! expr`           | `(set fixed  x T    expr)`         | typed `=!`                                     |
-| `extern x: T`            | `(extern _     x T)`               | extern var                                     |
-| `extern const x: T`      | `(extern fixed x T)`               | extern const                                   |
-| `obj.name`               | `(member obj name)`                | cosmetic (was `(. obj name)`)                  |
-| `f(name: expr)`          | `(kwarg name expr)`                | keyword arg / record sugar (was `(pair ...)`)  |
-| `T?`                     | `(optional T)`                     | suffix optional                                |
-| `T!`                     | `(error_union T)`                  | suffix fallible                                |
-| `expr!`                  | `(propagate expr)`                 | error propagation                              |
-| `for x in xs`            | `(for iter x _ xs body)`           | mode = `iter` (default)                        |
-| `for *x in xs`           | `(for ptr  x _ xs body)`           | mode = `ptr` (Zag-style pointer iter)          |
-| `for x, i in xs`         | `(for iter x i xs body)`           | value + index                                  |
+| Source form         | Emitted IR (grammar action) | Notes                                         |
+|---------------------|-----------------------------|-----------------------------------------------|
+| `x = expr`          | `(set _      x _    expr)`  | default kind = `_`                            |
+| `x += expr` etc.    | `(set += x _ expr)`         | compound assign; op is the kind               |
+| `x <- expr`         | `(set move   x _    expr)`  | move-assign                                   |
+| `x =! expr`         | `(set fixed  x _    expr)`  | immutable bind                                |
+| `new x = expr`      | `(set shadow x _    expr)`  | explicit shadow                               |
+| `x: T = expr`       | `(set _      x T    expr)`  | typed `=`                                     |
+| `x: T =! expr`      | `(set fixed  x T    expr)`  | typed `=!`                                    |
+| `extern x: T`       | `(extern _     x T)`        | extern var                                    |
+| `extern const x: T` | `(extern fixed x T)`        | extern const                                  |
+| `obj.name`          | `(member obj name)`         | cosmetic (was `(. obj name)`)                 |
+| `f(name: expr)`     | `(kwarg name expr)`         | keyword arg / record sugar (was `(pair ...)`) |
+| `T?`                | `(optional T)`              | suffix optional                               |
+| `T!`                | `(error_union T)`           | suffix fallible                               |
+| `expr!`             | `(propagate expr)`          | error propagation                             |
+| `for x in xs`       | `(for iter x _ xs body)`    | mode = `iter` (default)                       |
+| `for *x in xs`      | `(for ptr  x _ xs body)`    | mode = `ptr` (Zag-style pointer iter)         |
+| `for x, i in xs`    | `(for iter x i xs body)`    | value + index                                 |
 
 ## Shapes the Parser (sexp rewriter) rewrites
 
-| Raw from grammar          | Normalized              | Why parser-side                             |
-|---------------------------|-------------------------|---------------------------------------------|
+| Raw from grammar                 | Normalized                | Why parser-side                          |
+|----------------------------------|---------------------------|------------------------------------------|
 | `(for iter x _ (read xs) body)`  | `(for read x _ xs body)`  | inspect source's head, promote into mode |
 | `(for iter x _ (write xs) body)` | `(for write x _ xs body)` | (same)                                   |
 | `(for iter x _ (move xs) body)`  | `(for move x _ xs body)`  | (same)                                   |
