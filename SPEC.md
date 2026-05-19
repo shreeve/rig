@@ -1038,8 +1038,8 @@ noun rather than a Rust-imported scarlet letter.)
 ### Syntax
 
 **Block-only form.** There is no `raw expr` single-statement
-shortcut, and no `raw sub`/`raw fun` fn-modifier in V1 (per
-the M22 cleanup, GPT-5.5 entry 38). The block is the only
+shortcut, and no `raw sub`/`raw fun` function-modifier in V1
+(per the M22 cleanup, GPT-5.5 entry 38). The block is the only
 construct:
 
 ```rig
@@ -1050,7 +1050,7 @@ sub safe_wrapper()
 ```
 
 **There is no raw/unsafe function modifier in V1.** Users who
-want a whole fn body in a raw context wrap it as the first
+want a whole function body in a raw context wrap it as the first
 statement (one extra line of indentation). This is the V1
 intentional limitation — see "V1 deferred features" below.
 
@@ -1089,7 +1089,7 @@ Adding a new safe builtin requires explicit audit for:
 ### Extern declarations are the FFI boundary
 
 ```rig
-extern puts: fn(String) Int
+extern puts: fun(String) Int
 
 sub main()
   puts("hi")       # error: extern call requires `raw` block
@@ -1104,13 +1104,37 @@ Extern declarations bypass Rig's ownership / effect contracts;
 the `raw` wrapping requirement forces the caller to
 acknowledge the FFI bargain explicitly.
 
+### Function declarations vs function-type expressions (M30)
+
+Rig uses a single `fun` keyword for both function declarations
+and function-type expressions, distinguished by what follows:
+
+```rig
+fun add(a: Int, b: Int) -> Int     # declaration: `fun NAME (...) -> RetType { ... }`
+  a + b
+
+extern puts: fun(String) Int       # type expression: `fun(ArgTypes...) RetType`
+```
+
+The grammar disambiguates by lookahead — `fun IDENT (` is a
+declaration, `fun (` is a type expression. The asymmetry in
+return-type spelling (`-> RetType` for declarations, no arrow
+for type expressions) is intentional: declarations have a body
+that benefits from the visual `->` separator; type expressions
+are dense annotations that don't need it.
+
+Pre-M30 Rig spelled type expressions with a separate `fn`
+keyword (`extern puts: fn(String) Int`); this was folded into
+`fun` during M30 alongside the M29 lambda cleanup, removing
+`fn` from Rig entirely.
+
 ### The safe-wrapper pattern
 
 The canonical idiom for exposing raw internals through a
 safe public API:
 
 ```rig
-extern raw_alloc: fn(Int) RawPtr
+extern raw_alloc: fun(Int) RawPtr
 
 sub safe_alloc(n: Int) -> *Buffer
   raw
@@ -1181,10 +1205,10 @@ safe-wrapper pattern above; for V1 there is no separate
   covered today by `raw` block + `extern`.
 - **Body-less `extern fun`/`extern sub` declarations** (no
   block, just a signature). Required for real FFI ergonomics
-  but blocked on a grammar extension to allow body-less fn
+  but blocked on a grammar extension to allow body-less function
   declarations. Currently extern callable surface is limited
-  to extern variables with fn-typed annotations
-  (`extern puts: fn(String) Int`).
+  to extern variables with `fun(...)` type annotations
+  (`extern puts: fun(String) Int`).
 - **Cross-module signature import.** ✅ **Shipped in M15b.**
   Every cross-module reference now carries the same checked
   contract it would have carried in the defining file:
@@ -2375,7 +2399,7 @@ Rig ownership analysis should operate on semantic S-expressions.
 (pin expr)
 (raw expr)
 
-(call fn args...)
+(call callee args...)
 (return expr)
 (if cond then else)
 (for mode binding collection body)
@@ -2576,8 +2600,8 @@ Rig V1 should fully support:
 - raw context (`raw INDENT body OUTDENT` block ONLY; required
   for `%x` raw access and non-whitelisted `@builtin(...)`. M22
   dropped the M19 `unsafe` keyword and the `unsafe sub`/`unsafe
-  fun` fn-modifier; M22.1 audited the surface to ensure every
-  accepted construct has enforced semantics — see §Reserved
+  fun` function-modifier; M22.1 audited the surface to ensure
+  every accepted construct has enforced semantics — see §Reserved
   surface below)
 - extern call FFI boundary (`extern` declarations are raw-by-
   default at call sites; callers must wrap in `raw` block)

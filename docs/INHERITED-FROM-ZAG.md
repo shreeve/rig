@@ -59,7 +59,7 @@ Other type forms inherited from Zag:
 - `(TYPE)` — parens for grouping (e.g., `([]T)?` is "optional slice of T")
 - `[] TYPE`, `[: ATOM] TYPE` — slices
 - `[INTEGER] TYPE` — array
-- `fn ( L(TYPE) ) TYPE`, `fn () TYPE` — function type
+- `fn ( L(TYPE) ) TYPE`, `fn () TYPE` — function type *(M30: Rig renamed `fn` → `fun` for function-type expressions; current spelling is `fun(...) TYPE`)*
 
 **Pruned from Zag's grammar in M4.5b** (broken/unused):
 
@@ -102,7 +102,7 @@ All binding forms collapse into a single `(set <kind> name type-or-_ expr)` IR s
   - Both lower to the same `(call T (kwarg ...) ...)` IR
 - Anonymous init: `.{ name = expr, ... }` and `.{ expr, ... }`
 - Arrays: `[expr, ...]`
-- Lambdas: `fn params block`, `fn block`
+- Lambdas: `fn params block`, `fn block` *(M29 / M30: Rig dropped the `fn` keyword from lambda literals entirely; current spelling is bare-bars `|...| body`)*
 - Builtins: `@name(args)` — Zig builtin call (lexer's `pin_pfx` only fires on `@name` NOT followed by `(`)
 - Calls: `f(args)`, `f arg1, arg2` (paren-less, Ruby/Zag style)
 - Member: `expr.name`, deref `expr.*`, index `expr[expr]`

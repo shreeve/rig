@@ -1,7 +1,7 @@
 ## M22: extern call wrapped in a `raw` block is allowed.
 ##
 ## The "safe wrapper" pattern around an FFI function: the
-## public `safe_puts` Rig fn has a safe contract; internally
+## public `safe_puts` Rig sub has a safe contract; internally
 ## it wraps the extern call in a `raw` block. Callers of
 ## `safe_puts` don't need to know about the FFI boundary.
 ##
@@ -9,7 +9,7 @@
 ## A safe wrapper may contain raw internals; APIs whose
 ## callers must uphold unchecked preconditions are deferred.
 
-extern puts: fn(String) Int
+extern puts: fun(String) Int
 
 sub safe_puts(s: String)
   raw

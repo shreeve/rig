@@ -196,7 +196,7 @@ Compatible with editor jump-to-error. Goldens are byte-diffed.
 - [x] `src/emit.zig` targets Zig 0.16 (plain `pub fn main() !void`, `std.debug.print` for V1)
 - [x] Goldens in `test/golden/emitted_zig/` (hello, shadow)
 - [x] `zig ast-check` clean on every emitted file
-- [x] Per-fn pre-scan for mutation (chooses `var` vs `const`) and fallibility (`!T` only when body has `propagate`)
+- [x] Per-function pre-scan for mutation (chooses `var` vs `const`) and fallibility (`!T` only when body has `propagate`)
 - [x] Shadow renames: `new x` becomes `x_1` with `_ = x;` to silence Zig's unused-local check
 - [x] `try_block` and complex if/match-as-expression emit `@compileError(...)` for V1
 - [x] M3 commit landed
@@ -209,7 +209,7 @@ Compatible with editor jump-to-error. Goldens are byte-diffed.
 
 ### M3/M4 design notes
 
-**Per-function pre-scan.** Before emitting each fn body:
+**Per-function pre-scan.** Before emitting each function body:
 
   - `scanMutations(body)` collects names that are `set` more than once;
     these get `var`, others get `const` (Zig's strict rule).
@@ -343,7 +343,7 @@ each with a dedicated GPT-5.5 design checkpoint (conversation
   added in M5(3/n).)
 - [x] `TypeStore` interner with primitives pre-interned at construction.
 - [x] `SemContext` central data structure with arena-backed allocations.
-- [x] Symbol resolution pass: walks IR, opens scopes for fn body /
+- [x] Symbol resolution pass: walks IR, opens scopes for function body /
   block / for / catch / arm in lockstep with M2 ownership scope shape.
   Binds functions, params, locals, type aliases, externs, modules.
 - [x] Pipeline wired: `parse → normalize → sema → effects → ownership → emit`.
@@ -360,7 +360,7 @@ each with a dedicated GPT-5.5 design checkpoint (conversation
 - [x] Recognizes primitive type names (`Int`, `Float`, `Bool`, `String`,
   `Void`), sized variants (`I8`–`I64`, `U8`–`U64`, `F32`/`F64`),
   composites (`(optional T)`, `(error_union T)`, `(borrow_read T)`,
-  `(borrow_write T)`, `(slice T)`, `(array_type N T)`, `(fn_type ...)`).
+  `(borrow_write T)`, `(slice T)`, `(array_type N T)`, `(fun_type ...)`).
 - [x] Unknown nominal names silently return `invalid_id` (deferred
   diagnostic — Rig has no module system / forward decls yet, and
   every example uses undeclared `User`/`Profile`/`Ast`/etc. that
@@ -386,7 +386,7 @@ each with a dedicated GPT-5.5 design checkpoint (conversation
 - [x] `(set ...)` bindings: declared type drives RHS check; otherwise
   RHS is synthesized and the canonical form stored on the symbol
   (`Int`, NOT `int_literal`).
-- [x] `(return value)`: value checked against enclosing fn's return type.
+- [x] `(return value)`: value checked against enclosing function's return type.
 - [x] `(if cond then else?)` value-position: cond must be Bool, else
   required, arms must unify.
 - [x] `(while cond body else?)`: cond must be Bool.
@@ -983,7 +983,7 @@ Constructs Zag provides that Rig should validate against SPEC during M1/M2:
 
 ## M16 — Compiler Robustness (No-Panic Contract)
 
-Trigger: a real-world Rig program (enum with a `sub` variant + a `match`-as-fn-body) caused `bin/rig run` to **segfault** instead of producing a diagnostic. Root cause was structural — failed-parse modules left `Module.sema = undefined`, and the diagnostic writer dereferenced it. Designed with GPT-5.5 for the audit method + state invariants.
+Trigger: a real-world Rig program (enum with a `sub` variant + a `match`-as-function-body) caused `bin/rig run` to **segfault** instead of producing a diagnostic. Root cause was structural — failed-parse modules left `Module.sema = undefined`, and the diagnostic writer dereferenced it. Designed with GPT-5.5 for the audit method + state invariants.
 
 ### Contract
 
@@ -1023,7 +1023,7 @@ Enforced by `test/torture/*.rig` + `test/run`'s "Torture corpus" section.
 
 ### Result
 
-- Original repro (`./bin/rig run /tmp/p.rig` with `enum Op { add, sub }` + match-as-fn-body): **was** SIGSEGV, **now** `error: parse error in ...` with exit 1.
+- Original repro (`./bin/rig run /tmp/p.rig` with `enum Op { add, sub }` + match-as-function-body): **was** SIGSEGV, **now** `error: parse error in ...` with exit 1.
 - Full suite: **278 passed, 0 failed**, of which 18 are torture-corpus tests.
 - Adding a new panic case = add one `*.rig` to `test/torture/`. The runner does the rest. Every future failure mode discovered in the wild should land here as a regression test before/with the fix.
 

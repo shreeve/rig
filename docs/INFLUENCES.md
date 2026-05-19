@@ -67,14 +67,14 @@ between each.
 | 1 | **Ownership / borrow checking** | Who owns each value; who can read/write it; when ownership transfers | M2 + M20a–c (nominal/generic type substrate) | ✅ |
 | 2 | **Resource lifetimes (shared + weak + drop)** | Reference-counted handles; weak-without-keeping-alive; cleanup when the last owner drops | M20d (`*T`/`~T` real `Rc`/`Weak`) + M20e (auto-drop via defer-guards) | ✅ |
 | 3 | **Interior mutability** | Mutate through a shared handle without breaking borrow rules; mutation visible at call site | M20f (`Cell(T)`) | ✅ |
-| 4 | **Closure captures with explicit modes** | Pull outer values into a captured context; mode sigils make refcount/copy/move visible | M20g (`fn \|+x\|` / `\|<x\|` / `\|~x\|` / `\|x\|`) | ✅ |
-| 5 | **Stored callable state (heap-owned closures)** | Closures that outlive their defining scope; first abstraction where captured execution context lives past the local stack; UAF-safe drop on last strong. The first step toward "stored partial execution" — async generalizes this to multi-suspension state machines. | M20h (`*Closure(fn ...)`) | ✅ |
+| 4 | **Closure captures with explicit modes** | Pull outer values into a captured context; mode sigils make refcount/copy/move visible | M20g (`\|+x\|` / `\|<x\|` / `\|~x\|` / `\|x\|`; pre-M29 spelled `fn \|+x\|` etc.) | ✅ |
+| 5 | **Stored callable state (heap-owned closures)** | Closures that outlive their defining scope; first abstraction where captured execution context lives past the local stack; UAF-safe drop on last strong. The first step toward "stored partial execution" — async generalizes this to multi-suspension state machines. | M20h (`*Closure(\|...\| ...)`; pre-M29 spelled `*Closure(fn \|...\| ...)`) | ✅ |
 | 6 | **Resource-aware containers** | Collections that handle `*T` / `~T` element ownership correctly (no memcpy of refcount handles, drops cascade properly) | M20i (resource-aware Vec / container) | ✅ shipped (1-5/5 — runtime + sema + ownership + emit + tests) |
 | 7 | **Reactivity (substrate)** | Push/pull dependency tracking; subscriber notification; Cell → Effect | PB2 + PB3 + PB4 (Phase B) | ✅ substrate complete (Signal multi-subscriber + R2 reentrancy + library/substrate boundary locked in userland) |
 | 7.5 | **User-defined Drop (cross-cutting)** | Plain-struct user `drop self: !Self` + auto-generated structural drop glue for any struct with resource fields; "any type with drop glue is non-Copy" alias rule | M25 | ✅ shipped (1-5/5 — grammar + sema + ownership + emit + tests + docs) |
 | 7.6 | **Cell-non-Copy + replace** | Cell over resource T (drop-old-on-set, replace swap-and-yield primitive, unified `dropElement` dispatch); the second half of the userland-reactive-library unblock. `take` and `borrow` deferred. | M26 | ✅ shipped (1-5/5 — sema + runtime + ownership + emit + tests + docs) |
 | 7.7 | **Auto-deref through member-access in method bodies** | Emit insertion of `.value` RcBox-deref for `self.field.method()` patterns through `*Cell` / shared-handle struct fields. Unlocks the rrlib v0 monomorphic IntSource (single-source reactive). | M27 | ✅ shipped + rrlib v0 running |
-| 7.8 | **Multi-capture closures** | `fn \|+a, +b\| body` lifts single-capture limitation. Unlocks the cross-source reactive cascade canary (`count → total → print`). One-grammar-rule + lexer probe extension; downstream pipeline already loop-shaped. | M28 | ✅ shipped + cascade canary running |
+| 7.8 | **Multi-capture closures** | `\|+a, +b\| body` lifts single-capture limitation. Unlocks the cross-source reactive cascade canary (`count → total → print`). One-grammar-rule + lexer probe extension; downstream pipeline already loop-shaped. *(M29 dropped the leading `fn` keyword from closure literals; M30 folded the `fn(...)` function-type spelling into `fun(...)`, removing `fn` from Rig entirely.)* | M28 + M29 + M30 | ✅ shipped + cascade canary running |
 | 8 | **Structured concurrency** | Scope-bound tasks, automatic cancellation propagation, no orphan tasks (Trio/Anyio-style) | post-Phase B | deferred |
 | 9 | **Async** | Multi-suspension state machines; poll/wake; pin discipline; executor; should be paired with Layer 8 cancellation discipline | post-structured-concurrency | deferred |
 
@@ -227,8 +227,9 @@ async corrupts the rest of the language.
 
 ## 3. M20h, in this light
 
-M20h shipped owned closures: `*Closure(fn |+count| body)`. With
-the stored-partial-execution framing, M20h reads as the
+M20h shipped owned closures: `*Closure(|+count| body)` (pre-M29
+spelling: `*Closure(fn |+count| body)`). With the
+stored-partial-execution framing, M20h reads as the
 **zero-suspension-point case** of stored partial execution.
 
 | Async concept | M20h analog |

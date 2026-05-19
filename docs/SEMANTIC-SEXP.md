@@ -173,7 +173,7 @@ Statement-only:
 ### Calls and access
 
 ```
-(call fn args...)                ; positional args, kwarg interspersed as (kwarg n v)
+(call callee args...)            ; positional args, kwarg interspersed as (kwarg n v)
 (kwarg name value)               ; named arg
 (member obj name)                ; obj.name
 (deref expr)                     ; obj.*
@@ -204,7 +204,7 @@ INTEGER REAL STRING_SQ STRING_DQ                ; raw parser src refs
 (slice T) (sentinel_slice S T)
 (array_type N T)
 (many_ptr T) (sentinel_ptr S T)
-(fn_type params ret)
+(fun_type params ret)
 (typed name type)                ; field decl shape
 (default name type expr)         ; field default
 (aligned name type alignexpr)

@@ -17,7 +17,7 @@ attribution table) + PB2 (single-subscriber Signal) + PB3(1/5)
 `Signal(T)` with R2 reentrancy policy) + PB4 (R2 relaxed for
 set; library/substrate boundary locked) + M21 (`%T` unsafe /
 raw effect boundary) + M22 (rename `unsafe` → `raw`; drop
-fn-modifier; block-only enforcement) + M22.1 (fake-surface
+function-modifier; block-only enforcement) + M22.1 (fake-surface
 audit: H1 resource-temp leak fix + 5 reserved-surface
 retractions) + M25 (user `drop self: !Self` + auto-generated
 structural drop glue + "any drop glue is non-Copy" alias rule)
@@ -28,9 +28,9 @@ M27 (auto-deref through member-access in method bodies +
 M28 (multi-capture closures — the cross-source reactive
 cascade canary `count → total → print` runs end-to-end) +
 **M29 (drop the `fn` keyword from closure literals — bare-bars
-syntax `|+x| body`; the `FN` token stays in the lexer for
-function-type spellings `fn(Int) Int` in extern declarations)**
-all shipped end-to-end. The reactive canary
+syntax `|+x| body`)** + **M30 (fold the `fn` keyword for
+function-type expressions into `fun`; `extern puts: fun(String)
+Int` — `fn` is fully removed from Rig)** all shipped end-to-end. The reactive canary
 (`examples/reactive_canary.rig`) demonstrates the full Cell +
 closure + Vec-iteration + Signal chain producing
 `1\n3\n13\n7\n99\n111\n111`; M25's canaries
@@ -78,7 +78,7 @@ arc menu** in §13.
   GPT-5.5 entry 33: Rig holds the position — substrate in the
   language, reactive library in userland. M22 ships the
   simplified raw-escape lattice: **`raw` block ONLY** (no
-  fn-modifier per GPT-5.5 entry 38). M22.1 ships the
+  function-modifier per GPT-5.5 entry 38). M22.1 ships the
   fake-surface invariant per GPT-5.5 entry 39: **every
   accepted V1 surface form has enforced semantics OR a clean
   Rig sema rejection**. H1 (resource-temp leak) was a real
@@ -188,7 +188,7 @@ Violating any of them will silently corrupt the substrate.
   Arity-bearing closures (`Closure1<T>`, etc.), return types,
   and fallible callbacks are all deferred.
 - **Bare lambdas are non-escaping.** Only the exact
-  `*Closure(fn ...)` construction shape may escape. Other
+  `*Closure(|...| ...)` construction shape may escape. Other
   positions (call args, struct fields, array elements,
   function returns) all reject bare lambdas.
 - **Vec(T) is a resource value type** (owns its buffer). Bare
@@ -212,13 +212,13 @@ Violating any of them will silently corrupt the substrate.
   Rust/Zig position. Blocked on `Cell`-non-`Copy` for the
   natural shape.
 - **`%x` raw access requires a `raw` block.** Block-only;
-  no fn-modifier. Diagnostic names the operation. M22.
+  no function-modifier. Diagnostic names the operation. M22.
 - **`@builtin(...)` is default-unsafe.** Only the explicit
   safe whitelist (`@sizeOf`, `@alignOf`, `@TypeOf`,
   `@typeName`, `@hasDecl`, `@hasField`, `@len`, `@This`)
   works outside `raw` block. M22.
 - **No raw/unsafe function modifier in V1.** Dropped in
-  M22 per GPT-5.5 entry 38. Users wrap their fn body's
+  M22 per GPT-5.5 entry 38. Users wrap their function body's
   first statement in a `raw` block if needed.
 - **`extern` symbols are raw-by-default at call sites.**
   Any call to an extern requires wrapping in a `raw`
@@ -259,7 +259,7 @@ Violating any of them will silently corrupt the substrate.
   type-checking.
 - **Cross-module references carry the same checked contracts as
   same-file (M15b invariant).** Every accepted `(member <module>
-  <name>)` access and `(call (member <module> <fn>) args)`
+  <name>)` access and `(call (member <module> <callee>) args)`
   dispatches through `synthMember` + `dispatchCrossModuleCall`
   into the foreign SemContext via `module_refs` + `foreign_semas`,
   imports types via `importType`, and fires the same Rig
@@ -531,7 +531,7 @@ sig.subscribe(+log); sig.set(7); sig.set(99)   # 7, 99 — PB2 Signal
 
 ### M20i deferred (M20i.1+ candidates)
 
-- **Resource-T iteration** (`vec.foreach(fn (e) e())` or
+- **Resource-T iteration** (`vec.foreach(|e| e())` or
   `for x in vec`). The PB3 blocker.
 - **Resource-T `get` / `pop`** (return `(*T)?` needs optional-
   resource auto-drop).
@@ -559,7 +559,8 @@ sig.subscribe(+log); sig.set(7); sig.set(99)   # 7, 99 — PB2 Signal
    UAF on `cb2 = +cb; -cb; cb2()`.
 5. **Ownership relaxation**: dedicated
    `in_owned_closure_constructor_arg` context flag set ONLY
-   for the `*Closure(fn ...)` shape.
+   for the `*Closure(|...| ...)` shape (post-M29 syntax;
+   pre-M29 was `*Closure(fn |...| ...)`).
 
 ### Implementation
 
@@ -884,7 +885,7 @@ NOT promises to ship.
     machinery (Symbol flag, three transparent walker arms,
     `pending_fn_unsafe` global bridge, etc.). If a future
     session proposes `raw sub`/`raw fun` (or any
-    fn-precondition-marker shape): require an explicit
+    function-precondition-marker shape): require an explicit
     design reset + a concrete stdlib use case. Don't
     accidentally resurrect M19 via incremental "small
     addition."
@@ -1016,9 +1017,12 @@ NOT promises to ship.
       arc now that M15b.2 is shipped.
     - **Body-less `extern fun`/`extern sub` declarations**
       (M23). Per GPT-5.5 entry 39: "a more urgent FFI hole
-      than raw-fn, honestly. `extern puts: fn(String) Int`
+      than raw-fun [the deferred body-less raw function
+      modifier], honestly. `extern puts: fun(String) Int`
       works, but it is not the ergonomic or readable shape
-      users will expect."
+      users will expect." *(Quote post-M30-normalized: GPT-5.5
+      originally wrote `raw-fn` / `extern puts: fn(String)
+      Int`; vocabulary updated for consistency.)*
     - **Closure-with-args** (M24: `Closure1<T>`,
       `Closure2<A,B>`) beyond no-arg `Closure()`. Required
       for any callback-based API that takes arguments.

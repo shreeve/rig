@@ -415,8 +415,8 @@ type     = name
          | "["              "]" type        → (slice 3)
          | "[" ":" atom     "]" type        → (sentinel_slice 3 5)
          | "[" INTEGER      "]" type        → (array_type 2 4)
-         | FN "(" L(type)   ")" type        → (fn_type 3 5)
-         | FN "("           ")" type        → (fn_type _ 4)
+         | FUN "(" L(type)  ")" type        → (fun_type 3 5)
+         | FUN "("           ")" type        → (fun_type _ 4)
          #
          # Pointer type forms (`*T`, `* const T`, `* volatile T`, `[*]T`,
          # `[*:s]T`) inherited from Zag are NOT in Rig V1's surface — Rig
@@ -678,10 +678,13 @@ dotpair  = "." name "=" expr                → (kwarg 2 4)
 # downstream sema/ownership/emit see the exact same tree shape as
 # pre-M29.
 #
-# The `FN` keyword token stays in the lexer's keywordMap because
-# the function-type spelling `fn(Int) Int` (used in `extern`
-# declarations etc.) uses it. Only the LAMBDA rule no longer
-# requires it.
+# M30: the `FN` keyword is fully removed from Rig. The
+# function-type spelling now uses `FUN` (`fun(Int) Int` in
+# `extern` declarations etc.), unifying declaration and type
+# vocabulary under a single keyword. `fun NAME (` parses as a
+# declaration; `fun (` parses as a type expression — they
+# appear in syntactically distinct positions, so LR(1)
+# disambiguates by lookahead.
 lambda   = captures params block            → (lambda 1 2 returns:_ 3)
          | captures        block            → (lambda 1 params:_ returns:_ 2)
          | captures inline_body             → (lambda 1 params:_ returns:_ 2)   # M20h: inline-call body for owned-closure construction

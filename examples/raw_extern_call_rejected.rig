@@ -8,7 +8,7 @@
 ## a C/Zig API as ownership-safe; the `raw` wrapping
 ## requirement forces the caller to acknowledge the bargain.
 
-extern puts: fn(String) Int
+extern puts: fun(String) Int
 
 sub main()
   puts("hi")       # error: extern call requires `raw` block

@@ -250,7 +250,7 @@ pub const Tag = enum(u8) {
     @"ptr",             // for-mode: `for *x in xs` (Zag-style pointer iter)
     @"iter",            // for-mode: default value iteration (no sigil, no `*`)
     @"sentinel_slice",
-    @"fn_type",
+    @"fun_type",
     @"error_merge",
     @"pre_param",       // (Zag: comptime_param)
     @"anon_init",
@@ -352,7 +352,6 @@ pub const KeywordId = enum(u16) {
     DEFER,
     ERRDEFER,
     TRY,
-    FN,
     PUB,
     EXTERN,
     EXPORT,
@@ -418,7 +417,6 @@ const keywordMap = std.StaticStringMap(KeywordId).initComptime(.{
     .{ "defer", .DEFER },
     .{ "errdefer", .ERRDEFER },
     .{ "try", .TRY },
-    .{ "fn", .FN },
     .{ "pub", .PUB },
     .{ "extern", .EXTERN },
     .{ "export", .EXPORT },
@@ -1287,6 +1285,10 @@ test "keywordAs - core Rig keywords" {
 
 test "keywordAs - comptime is gone (replaced by pre)" {
     try std.testing.expect(keywordAs("comptime") == null);
+}
+
+test "keywordAs - fn is gone (M30: folded into fun for both decls and types)" {
+    try std.testing.expect(keywordAs("fn") == null);
 }
 
 test "keywordAs - inherited from Zag still present" {

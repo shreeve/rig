@@ -2341,7 +2341,7 @@ trusted-types to follow-ons.
 | `64df3bf` M19(2/6) | Effects: `unsafe_depth` + `current_fn_is_unsafe` + `pending_fn_unsafe` state on `Checker`. New `inUnsafeContext()` helper. `(raw X)` outside unsafe context fires tailored diagnostic. New arms for `(unsafe_block ...)` and `(unsafe_decl ...)` wire the audit context. `walkFun` consumes `pending_fn_unsafe`. Existing `spacing.rig` example updated to wrap its `%x` line in `unsafe`. |
 | `dadcefb` M19(3/6) | Builtin classification: `isSafeBuiltin(name)` whitelist; `.@"builtin"` dispatcher arm fires diagnostic for non-whitelisted builtins outside unsafe context. Diagnostic lists the safe set so users see options. |
 | `2c925b3` M19(4/6) | Unsafe fn calls: `SymbolFlags.is_unsafe` field; SymbolResolver stamps it from `unsafe_decl` wrapper. TypeResolver + ExprChecker get transparent `unsafe_decl` arms. New `lookupIsUnsafe(name)` helper in effects; `walkCall` fires diagnostic for unsafe-fn calls from safe context. |
-| `5f1b3aa` M19(5/6) | Extern call enforcement: `lookupIsExtern(name)` checks `Symbol.kind == .@"extern"`. `walkCall` adds extern-call-from-safe diagnostic. Catches the currently-callable extern shape (`extern puts: fn(String) Int`). |
+| `5f1b3aa` M19(5/6) | Extern call enforcement: `lookupIsExtern(name)` checks `Symbol.kind == .@"extern"`. `walkCall` adds extern-call-from-safe diagnostic. Catches the currently-callable extern shape (pre-M30: `extern puts: fn(String) Int`; post-M30: `extern puts: fun(String) Int`). |
 | M19(6/6) | Docs (this entry). SPEC §"Unsafe / Raw (M19)" rewritten end-to-end with syntax, builtin whitelist, extern-FFI-boundary rule, safe-wrapper pattern, trusted-runtime boundary, V1 deferred features. ROADMAP M21 entry. HANDOFF refresh. |
 
 **Tests across M21 (1/6) → (6/6): 880 → 924 (+44).** 8
@@ -2360,10 +2360,10 @@ purpose AND respects the new effect rule).
   (`extern fun puts(s: String) -> Int` without a body block).
   Currently the grammar's `fun`/`sub` productions require a
   block, so extern FUNCTION declarations aren't expressible
-  — only extern variables with fn-typed annotations
-  (`extern puts: fn(String) Int`) are callable today. The
-  M21 enforcement is in place; the FFI ergonomics need
-  M21.x for body-less extern fn syntax to unlock real
+  — only extern variables with fun-typed annotations
+  (`extern puts: fun(String) Int`, post-M30) are callable
+  today. The M21 enforcement is in place; the FFI ergonomics
+  need M21.x for body-less extern fun syntax to unlock real
   FFI work.
 - Cross-module extern signatures (same M15b gap as
   fallibility checking).
@@ -2441,7 +2441,7 @@ the actual decl head before classifying.
                                              `pub unsafe sub` and
                                              `unsafe pub sub`
                                              orderings compose and the
-                                             resulting fn correctly
+                                             resulting fun correctly
                                              requires unsafe context
                                              at the call site.
 
@@ -2452,7 +2452,7 @@ green.
 **Additional ROADMAP note:** body-less `extern fun`/`extern
 sub` declarations explicitly added to "What M21 does NOT
 cover" — needed for real FFI ergonomics but blocked on a
-grammar extension to allow body-less fn declarations.
+grammar extension to allow body-less function declarations.
 Deferred to M21.x.
 
 ### M22 — Unsafe surface cleanup (`unsafe` → `raw`, drop fn-modifier) ✅
@@ -3048,6 +3048,92 @@ userland LIBRARY (the explicit `Reactor` / `Memo` / `Effect`
 work) was blocked on Cell-non-Copy + user Drop. M25 is the
 first half of that unblock; M26 (Cell-non-Copy) is the second.
 
+### M30 — Fold `fn(...)` function-type spelling into `fun(...)` ✅
+
+The completion of M29's cleanup arc: post-M29, the `FN` token
+was load-bearing for exactly one job — function-type expressions
+in extern declarations (`extern puts: fn(String) Int`). Steve
+flagged that this was an avoidable asymmetry — both function
+DECLARATIONS and function-TYPE expressions describe the same
+"function" concept and should share vocabulary.
+
+**The change.** A single keyword `fun` for both forms:
+
+```rig
+fun add(a: Int, b: Int) -> Int     # declaration: `fun NAME (params) -> RetType { body }`
+  a + b
+
+extern puts: fun(String) Int       # type expression: `fun(ArgTypes) RetType`
+```
+
+LR(1) lookahead disambiguates: `fun IDENT (` is a declaration;
+`fun (` is a type expression. The two forms appear in
+syntactically distinct positions (decl position vs type
+position), so the disambiguation is positional and clean.
+
+The asymmetry in return-type spelling (`-> RetType` for
+declarations vs no-arrow for type expressions) is intentional
+and preserved — declarations have a body, so the visual `->`
+helps; type expressions are dense annotations that don't need
+it.
+
+**Cadence.** Same shape as M29 — single design checkpoint with
+GPT-5.5 to verify the parser-conflict story and the IR-Tag
+rename ripple, then a clean implementation in one session.
+
+**Files touched.**
+
+- `rig.grammar`: `FN "(" ...` → `FUN "(" ...` in the function-
+  type rules. IR Tag emitted as `(fun_type ...)` instead of
+  `(fn_type ...)` per GPT-5.5's recommendation (the IR is a
+  project contract; surfaces in debugging, docs, and AI
+  context). Conflict count unchanged at 75.
+- `src/rig.zig`: `KeywordId.FN` and the `"fn" → .FN` keyword-map
+  entry removed. The `FN` token is fully gone from Rig.
+  `Tag.@"fn_type"` renamed to `Tag.@"fun_type"`. New unit test
+  `keywordAs("fn") == null` confirms `fn` is no longer a
+  keyword.
+- `src/types.zig`: `(fn_type ...)` switch arm renamed to
+  `(fun_type ...)` in `TypeResolver.resolveType`. Doc comments
+  updated.
+- 3 active fixtures swept (`extern puts: fn(String) Int` →
+  `extern puts: fun(String) Int`).
+- `docs/REACTIVITY-DESIGN.md` sketches updated to use
+  `fun(Args) Ret` shape (and to match the actual return-type
+  grammar — pre-M30 sketches used `fn() -> T` arrow shape that
+  doesn't actually parse; post-M30 sketches use the real
+  `fun(Args) Ret` spelling).
+- `SPEC.md` adds a new §"Function declarations vs function-type
+  expressions (M30)" that documents the unified `fun` vocabulary
+  and the intentional `->` asymmetry. Existing extern examples
+  updated.
+- `docs/SEMANTIC-SEXP.md` and `docs/CHECKLIST.md` updated to
+  reference `(fun_type ...)`.
+- Goldens regenerated (8 `.sexp` files: 4 in `semantic_sexp/`,
+  4 in `raw_sexp/`).
+
+**Conflict count.** Stayed at 75 (no change from M29). The
+`fun_type` rule reuses the existing `FUN` token and appears
+only in type position; the `fun` declaration rule appears only
+in decl position. LR(1) handles the lookahead disambiguation
+without needing additional shift-prefer markers.
+
+**Tests.** 1113 → 1113 (unchanged — pure surface rename, no
+new fixtures, no semantic changes).
+
+**Why this completes M29.** The original M29 commit message
+flagged "the `FN` token stays in the lexer for function-type
+spellings — don't accidentally remove it." M30 deliberately
+removes it, finishing what M29 started. After M30, Rig's
+function-related vocabulary is:
+
+- `fun NAME(...) -> Ret { body }` — named function declaration
+- `fun(...) Ret` — function-type expression
+- `sub NAME(...) { body }` — named procedure (returns Void)
+- `|+x| body` — anonymous closure (no keyword)
+
+The `fn` keyword exists nowhere in Rig.
+
 ### M29 — Drop `fn` keyword from closure literals ✅
 
 A surface-cleanup arc: closure literals no longer require the
@@ -3095,10 +3181,13 @@ add = |n|
   `(lambda CAPTURES PARAMS RETURNS BODY)` unchanged from M20g —
   every downstream walker (sema / ownership / emit) sees the
   exact same tree.
-- `src/rig.zig`: NO change to keyword map. The `FN` token stays
-  in the lexer because the function-type spelling `fn(Int) Int`
-  (used in `extern` declarations) still uses it. Only the
-  LAMBDA grammar rule no longer requires it.
+- `src/rig.zig`: NO change to keyword map at M29 ship — the
+  `FN` token stays in the lexer because the function-type
+  spelling `fn(Int) Int` (used in `extern` declarations) still
+  uses it. Only the LAMBDA grammar rule no longer requires it.
+  *(Superseded by M30: `fn` is folded into `fun` for both
+  declarations and type expressions; the `FN` keyword is fully
+  removed from Rig.)*
 - 45 fixtures swept (`fn |` → `|` via mechanical perl). All
   goldens regenerated (positional drift only — IR shape
   unchanged, emit shape unchanged at the Rig surface; columns
@@ -3120,10 +3209,11 @@ unchanged (1113 → 1113).
 produce identical output to pre-M29 (`1\n3\n13\n7\n99\n111\n111`,
 `1\n7`, and `10\n70\n70` respectively).
 
-**The `FN` token is still load-bearing for function types.**
-Extern declarations like `extern puts: fn(String) Int` still
-parse via the function-type rule. Don't accidentally remove
-the `FN` keyword from the lexer.
+**At M29 ship: the `FN` token is still load-bearing for
+function types.** Extern declarations like
+`extern puts: fn(String) Int` still parse via the function-type
+rule. *(M30 follows up: folds `fn` into `fun` for type
+expressions, removing `FN` from the lexer entirely.)*
 
 Tests: 1113 → 1113 (unchanged — pure surface rename).
 

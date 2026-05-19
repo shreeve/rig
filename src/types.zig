@@ -2363,7 +2363,7 @@ const SymbolResolver = struct {
 //   - `(borrow_read T)` / `(borrow_write T)` → wrap recursively
 //   - `(slice T)` → slice
 //   - `(array_type N T)` → fixed-size array (N parsed as u64)
-//   - `(fn_type params returns)` → function type
+//   - `(fun_type params returns)` → function type
 //
 // Unknown names produce a sema diagnostic and return `invalid_id` so
 // downstream synthesis fails fast without cascading.
@@ -3599,8 +3599,8 @@ const TypeResolver = struct {
                             .len = len,
                         } });
                     },
-                    .@"fn_type" => {
-                        // (fn_type params returns) — params is a list of types.
+                    .@"fun_type" => {
+                        // (fun_type params returns) — params is a list of types.
                         if (items.len < 3) return self.ctx.types.invalid_id;
                         var ps: std.ArrayListUnmanaged(TypeId) = .empty;
                         defer ps.deinit(self.ctx.allocator);
@@ -4262,7 +4262,7 @@ fn isCalleeBuiltinWhitelisted(name: []const u8) bool {
 /// **`extern` does NOT bypass `pub`.** Linkage (which symbols Zig
 /// resolves at link time) and Rig visibility (which symbols are
 /// reachable cross-module) are separate concerns. A private
-/// `extern puts: fn(String) Int` in module A is the right way to
+/// `extern puts: fun(String) Int` in module A is the right way to
 /// expose a safe wrapper: A declares the extern privately, wraps
 /// it in `pub sub safe_puts(s) { raw { puts(s) } }`, and callers
 /// reach `a.safe_puts` (not `a.puts`). Per the M15b post-impl
@@ -8290,7 +8290,7 @@ fn formatType(ctx: *SemContext, ty_id: TypeId) std.mem.Allocator.Error![]const u
         .weak => |inner| try std.fmt.allocPrint(a, "~{s}", .{try formatType(ctx, inner)}),
         .slice => |s| try std.fmt.allocPrint(a, "[]{s}", .{try formatType(ctx, s.elem)}),
         .array => |arr| try std.fmt.allocPrint(a, "[{d}]{s}", .{ arr.len, try formatType(ctx, arr.elem) }),
-        .function => "fn(...)",
+        .function => "fun(...)",
         .nominal => |sym| ctx.symbols.items[sym].name,
         // M15b: imported nominal — look up the name in the foreign
         // SemContext if available; otherwise render `<imported#sym>`.

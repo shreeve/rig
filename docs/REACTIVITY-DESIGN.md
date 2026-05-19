@@ -352,7 +352,7 @@ type Reactor
   # opaque; owns the dirty queue and flush epoch state
 
 sub Reactor.new() -> *Reactor
-sub Reactor.batch(?self, body: fn())
+sub Reactor.batch(?self, body: fun() Void)
 sub Reactor.flush(?self)
 
 type Cell(T)
@@ -364,12 +364,12 @@ sub Cell.set(?self, value: T)                 # dirty-mark + maybe queue
 
 type Memo(T)
 
-sub Memo.new(deps: [?Reactive], compute: fn() -> T, reactor: ?Reactor) -> *Memo(T)
+sub Memo.new(deps: [?Reactive], compute: fun() T, reactor: ?Reactor) -> *Memo(T)
 sub Memo.get(?self) -> T                      # lazy pull; recomputes if dirty
 
 type Effect
 
-sub Effect.new(deps: [?Reactive], run: fn(), reactor: ?Reactor) -> *Effect
+sub Effect.new(deps: [?Reactive], run: fun() Void, reactor: ?Reactor) -> *Effect
 # Effect detaches on drop; weak-stored in dep subscriber lists
 ```
 
