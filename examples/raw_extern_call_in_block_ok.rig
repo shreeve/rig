@@ -5,13 +5,9 @@
 ## it wraps the extern call in a `raw` block. Callers of
 ## `safe_puts` don't need to know about the FFI boundary.
 ##
-## (Per GPT-5.5 entry 38: M22 intentionally lacks a Rust-style
-## `unsafe sub`/`raw sub` precondition-marker. APIs with
-## unchecked caller obligations are deferred until a future
-## trusted/raw-function design pass forced by a real use case.
-## V1 raw blocks support safe wrappers over raw internals;
-## they don't support exposing raw preconditions through the
-## public API.)
+## V1 has `raw` blocks, not raw/unsafe function declarations.
+## A safe wrapper may contain raw internals; APIs whose
+## callers must uphold unchecked preconditions are deferred.
 
 extern puts: fn(String) Int
 
