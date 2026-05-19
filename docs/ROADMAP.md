@@ -2655,6 +2655,88 @@ examples × ~4 goldens each (raw_sexp + semantic_sexp + errors
   clean "reserved" sema rejection. The fake-surface
   anti-pattern has a name and a regression suite.
 
+### M15b — Cross-module sema (module honesty) ✅
+
+Lifts the M22.1 fake-surface invariant from single-file scope
+to module scope:
+
+> Every accepted cross-module reference carries the same
+> checked contract it would have carried in the defining file.
+
+Pre-M15b structural finding (documented in `modules.zig:32-44`
+since the M15 era): cross-module sema treated `(member <module>
+<name>)` as silently `unknown`-typed. Member access lowered to
+literal `foo.bar` Zig syntax and relied on Zig's compiler to
+catch type errors — BYPASSING every Rig safety check at the
+module boundary (fallibility, arity, kwargs, borrow obligations,
+extern FFI obligation, M22.1 resource-temp leak, M20e auto-drop
+guards, auto-deref through `*T`).
+
+Audit (`bin/rig check`/`build`/`run` repros) confirmed nine
+distinct cross-module hazards, including a Tier-1 safety bug
+(cross-module `*T`-returning calls leaked the Rc and silently
+skipped auto-deref, printing the entire Container struct
+instead of the requested field).
+
+**Architecture (GPT-5.5 entry 39 design checkpoint)**:
+Imported nominal types carry canonical origin identity
+`{module_id, sym_id}`, NOT structural equality. `a.Box` and
+`b.Box` are different types even if their fields are identical.
+Re-interned into the importer's local TypeStore via the new
+`importType` helper. Three new `SemContext` fields
+(`module_id`, `imports`, `foreign_semas`) plus a `module_refs`
+side table key the cross-module lookups.
+
+**Sub-commits**:
+
+| Commit | What it shipped |
+|---|---|
+| M15b(1-2/5) `4da7656` | Substrate (lookup helper + `imported_nominal` Type variant + `importType` recursive re-interner + `checkWithImports` entry + driver wiring through `modules.zig`) merged with full contract wiring (`synthMember` + `synthMemberCall` + `dispatchCrossModuleCall` + effects `walkCrossModuleCall`). All Tier-1 + Tier-2 hazards fixed in one architectural move. Also: `bin/rig check` now uses ModuleGraph (was single-file-only). |
+| M15b(3/5) `ad83582` | Visibility enforcement (`pub` is real). New `isCrossModuleVisible` helper consulted by the three cross-module lookup sites. Non-pub names rejected with "X is not public; mark it pub in module M". Updated existing `test/modules/qualified_call/math.rig` to mark `add` as `pub`. |
+| M15b(4/5) `7b37e7f` | `use std` reserved diagnostic. Pre-M15b(4/5) silently skipped at `modules.zig:365`. MH9 (sema-time unbound-name detection) deferred to M15b.1 because the initial impl exposed pre-existing branch-scope tracking issues + would require updating ~15 test-placeholder examples (`User`/`rename`/etc. patterns). Inline deferral notes added at both intercept points so M15b.1 picks up cleanly. |
+| M15b(5/5) | SPEC + ROADMAP + HANDOFF + this entry. |
+
+**Tests: 952 → 960 (+8).** Seven new cross-module canaries under
+`test/modules/`:
+- cross_fallible_rejected
+- cross_arity_rejected
+- cross_extern_rejected
+- cross_borrow_rejected
+- cross_constructor_rejected
+- cross_visibility_rejected
+- cross_use_std_reserved
+- cross_resource_ok (positive: end-to-end `*T` lifetime + auto-deref through Rc both work cross-module; prints `42`, not `.{ .value = 42 }`)
+
+Canary unchanged at `1\n3\n13\n7\n99\n111\n111`.
+signal_multi_subscriber unchanged at `0\n111\n222`.
+
+**Measured impact:**
+- Source code added: ~430 lines net (helpers + checker wiring
+  in `types.zig`, the cross-module call branch in `effects.zig`,
+  the imports plumbing in `modules.zig`, `check`-uses-graph in
+  `main.zig`).
+- Hazards eliminated: 7 confirmed cross-module contract leaks.
+  Tier-1 safety bug (resource lifetime + auto-deref) closed.
+- New invariant: "`unknown` may only exist as poison after a
+  diagnostic, never as a silent success type" — locked at sema
+  level for cross-module returns. Bare-identifier use-site
+  enforcement deferred to M15b.1 (see below).
+
+**What's intentionally deferred (M15b.1+):**
+- Sema-time unbound-name detection (MH9).
+- Legacy global name-scan retirement (M20a.2 + M20e.1 partial).
+- Public-API-returning-private-type rejection (the foreign
+  module should reject the decl shape, not just the use site).
+- Qualified resource types in type position (`b: *a.Box = ...`
+  parse-gap).
+- Cross-module user-defined generics.
+
+**Hazards retired**:
+- "Safe within one file, conventional across files." Cross-
+  module references now carry the same checked contracts as
+  same-file references. The M22.1 fake-surface invariant scales
+  to module scope.
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note

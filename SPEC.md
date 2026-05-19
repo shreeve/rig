@@ -1133,9 +1133,13 @@ safe-wrapper pattern above; for V1 there is no separate
   declarations. Currently extern callable surface is limited
   to extern variables with fn-typed annotations
   (`extern puts: fn(String) Int`).
-- **Cross-module extern signatures.** Same M15b gap as
-  fallibility checking — cross-module call signatures aren't
-  yet tracked.
+- **Cross-module signature import.** ✅ **Shipped in M15b.**
+  Every cross-module reference now carries the same checked
+  contract it would have carried in the defining file:
+  fallibility, arity, kwargs, borrow-mode obligations, extern
+  raw-at-call-site, resource-temp leak rule, M20e auto-drop
+  guards, auto-deref through `*T`, and `pub` enforcement all
+  fire uniformly at the module boundary.
 - **User-defined `trusted` decoration** for writing custom
   trusted-runtime types in Rig source. Not in V1; the
   safe-wrapper pattern is the V1 substitute.
@@ -2393,6 +2397,101 @@ preserved for V2+), but sema rejects them in V1:
 Each retracted surface has a regression-test example in
 `examples/*_reserved.rig` / `examples/*_rejected.rig` documenting
 the diagnostic.
+
+# Modules (M15 + M15b)
+
+Rig V1 supports multi-file projects via `use NAME`:
+
+```rig
+# main.rig
+use math
+
+sub main()
+  print(math.add(1, 2))
+
+# math.rig
+pub fun add(a: Int, b: Int) -> Int
+  a + b
+```
+
+`use NAME` resolves to `NAME.rig` in the same directory as the
+importing file. Imports are recursive; cycles are detected and
+rejected with a clean diagnostic.
+
+## Cross-module contract (M15b)
+
+Per the M15b "module honesty" invariant: **every accepted cross-
+module reference carries the same checked contract it would
+have carried in the defining file**. This means cross-module
+calls and member accesses fire the same Rig diagnostics as
+same-file:
+
+- Arity, arg-type, and kwargs validation against the imported
+  signature.
+- Fallibility: `a.parse_int("hi")` without `!` errors with
+  "fallible call to `a.parse_int` must be wrapped with `!`".
+- Borrow obligations: `a.log_box(b)` where the param is `?Box`
+  and the arg is a bare value errors with "type mismatch:
+  expected `?Box`, got `Box`".
+- Extern FFI: `a.puts("hi")` where `a.puts` is an extern
+  requires a `raw` block at the call site (the FFI boundary
+  travels across modules).
+- Resource lifetime: `b = a.make_box()` where `make_box` returns
+  `*Box` installs the M20e auto-drop guard locally, and
+  `b.value` auto-derefs through the Rc just like a same-file
+  binding.
+- M22.1 anonymous-resource-temp rule: `a.make_box().value` is
+  rejected as an anonymous temporary (the same shape as the
+  same-file `(*Box(...)).value` rejection).
+
+## Visibility (M15b)
+
+`pub` is enforced across module boundaries. A symbol declared
+without `pub` is invisible to importers; calling
+`a.internal_helper(x)` where `internal_helper` is not `pub`
+errors with:
+
+> `a.internal_helper` is not public; mark it `pub` in module `a`
+> to expose it across module boundaries.
+
+Implicit exceptions (visible without `pub`):
+- `extern` declarations (visible via FFI; safety is enforced at
+  the call site via the `raw` block requirement)
+- Runtime-registered builtins (`Cell`, `Closure`, `Vec`,
+  `Signal`) — in every module's scope by construction
+
+## Nominal identity across modules
+
+Per the M15b architecture decision: nominal types are tagged
+with their origin module. `a.Box` and `b.Box` are different
+types even if their fields are identical (nominal-by-name, not
+nominal-by-shape). The importer's local TypeStore carries
+`imported_nominal{module_id, sym_id}` for foreign nominals.
+
+## Module-surface reservations (M15b)
+
+Per the M22.1 fake-surface invariant lifted to module scope:
+- `use std` is reserved in V1 (the grammar still accepts it
+  but sema rejects with a clean diagnostic). Future Zig-stdlib
+  pass-through would need a real design pass — possibly
+  `use zig.std` or an explicit FFI form.
+
+## Deferred to M15b.1+ (under active follow-up)
+
+- Unbound-name detection in sema (`nonexistent_fn()` is
+  currently accepted by `bin/rig check` and only caught at
+  Zig compile time).
+- Public-API-leaks-private-type rejection (`pub fun
+  make_secret() -> Secret` where `Secret` is non-pub) — the
+  return type is reachable across modules but can't be
+  constructed/destructured through a public path; M15b.x will
+  reject the public signature at decl time.
+- Qualified resource types in type position (`b: *a.Box = ...`)
+  — currently a parse-gap; users use type inference today
+  (`b = a.make_box()`).
+- Cross-module user-defined generics (V1 cross-module call
+  paths handle built-in parameterized types like `Vec(T)` but
+  not user `pub type Box(T) ...`).
 
 # Resource-temporary leak rule (M22.1)
 
