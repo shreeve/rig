@@ -2728,11 +2728,171 @@ pub const Emitter = struct {
                     .@"weak" => .weak,
                     // Recurse through transparent wrappers.
                     .@"read", .@"write", .@"move", .@"clone", .@"pin", .@"raw" => self.handleKindOf(items[1]),
+                    // M27: member access on a struct field — look up
+                    // the field's declared type on the obj's nominal
+                    // Symbol. If the field is `shared(_)`, return
+                    // `.shared` so the `.@"member"` emit arm inserts
+                    // the `.value` RcBox deref. This unblocks
+                    // `self.value.set(v)` and friends inside method
+                    // bodies, which were previously emitted as
+                    // `self.value.set(v)` (Zig only auto-derefs once
+                    // through pointers).
+                    //
+                    // Per GPT-5.5's M27 design lock:
+                    // - Only return `.shared` for shared fields;
+                    //   `.weak` fields require explicit upgrade and
+                    //   must NOT get an auto-deref.
+                    // - Vec / drop-glue value fields are inline; no
+                    //   bridge needed — return `.other`.
+                    // - Substitution for generic field types (when
+                    //   the field's stored type is a `type_var`) is
+                    //   not yet handled in emit; documented as a
+                    //   follow-up gap.
+                    .@"member" => self.handleKindOfMember(items),
                     else => .other,
                 };
             },
             else => .other,
         };
+    }
+
+    /// M27: classify a `(member <obj> <field>)` shape's handle kind by
+    /// looking up `<field>` on `<obj>`'s nominal Symbol. Returns
+    /// `.shared` if the field's declared type is `shared(_)`, `.weak`
+    /// if `weak(_)`, else `.other`.
+    ///
+    /// Composes with the recursive `nominalSymForExpr` below: an obj
+    /// that's itself a member chain or a bare local resolves to its
+    /// nominal symbol, and field lookup on that symbol yields the
+    /// chained field's type.
+    fn handleKindOfMember(self: *const Emitter, member_items: []const Sexp) HandleKind {
+        if (member_items.len < 3) return .other;
+        const sema = self.sema orelse return .other;
+        const field_name = identText(self.source, member_items[2]) orelse return .other;
+        const obj_nom = self.nominalSymForExpr(member_items[1]) orelse return .other;
+        const sym = sema.symbols.items[obj_nom];
+        const fields = sym.fields orelse return .other;
+        for (fields) |f| {
+            // M20a/M20c: methods and enum variants live in the same
+            // `fields` slice as data fields; filter them out so we
+            // only inspect actual data field types.
+            if (f.is_method or f.is_variant) continue;
+            if (!std.mem.eql(u8, f.name, field_name)) continue;
+            const ty = sema.types.get(f.ty);
+            return switch (ty) {
+                .shared => .shared,
+                .weak => .weak,
+                else => .other,
+            };
+        }
+        return .other;
+    }
+
+    /// M27: recover the nominal Symbol of an expression's type for
+    /// emit-time dispatch. Handles the three shapes the userland
+    /// library exercises:
+    ///
+    /// - bare `self` — uses `current_nominal_name` (set by
+    ///   `emitStruct` / `emitGenericType` when entering a method
+    ///   body).
+    /// - bare local — looks up by `decl_pos` + `name` (matches
+    ///   `resourceKindOfBinding`'s sound-under-shadowing pattern).
+    /// - `(member <obj> <field>)` — recurses to get obj's nominal,
+    ///   then looks up the field's type and reads its nominal sym.
+    ///
+    /// Limitations (documented as follow-ups, not blockers for the
+    /// userland reactive library):
+    /// - Generic struct fields with `type_var` types lose precision
+    ///   here (emit doesn't yet do the M20b substitution machinery
+    ///   that `lookupDataField` does — would require a mutable
+    ///   sema reference for `intern`-on-substitute). `Holder(T)`
+    ///   with `value: T` and `T = *Cell(Int)` won't auto-deref via
+    ///   this path. Userland code can work around with an explicit
+    ///   non-generic wrapper.
+    /// - `borrow_read` / `borrow_write` wrappers around the inner
+    ///   nominal type are peeled (read access through borrows is
+    ///   sound). `shared` wrappers are also peeled — that's the
+    ///   point of the auto-deref.
+    /// - `weak` is NOT peeled here. Weak handles require an
+    ///   explicit `.upgrade()`; auto-derefing through them would
+    ///   silently dereference a potentially dangling handle.
+    fn nominalSymForExpr(self: *const Emitter, expr: Sexp) ?types.SymbolId {
+        const sema = self.sema orelse return null;
+        switch (expr) {
+            .src => |s| {
+                const name = self.source[s.pos..][0..s.len];
+                // `self` resolves via the enclosing nominal name set
+                // by emitStruct / emitGenericType.
+                if (std.mem.eql(u8, name, "self")) {
+                    const nom_name = self.current_nominal_name orelse return null;
+                    // For generic types, current_nominal_name is "Self"
+                    // (set so emitType emits `Self`). Don't try to
+                    // resolve "Self" — would conflict with multiple
+                    // generic instantiations. Defer generic struct
+                    // self.field auto-deref to a follow-up.
+                    if (std.mem.eql(u8, nom_name, "Self")) return null;
+                    for (sema.symbols.items, 0..) |sym, i| {
+                        if (sym.kind != .nominal_type) continue;
+                        if (!std.mem.eql(u8, sym.name, nom_name)) continue;
+                        return @intCast(i);
+                    }
+                    return null;
+                }
+                // Bare local: look up by decl_pos + name to find the
+                // sema Symbol, then peel its type to a nominal sym.
+                for (sema.symbols.items) |sym| {
+                    if (sym.decl_pos != s.pos) continue;
+                    if (!std.mem.eql(u8, sym.name, name)) continue;
+                    return self.peelTypeToNominal(sym.ty);
+                }
+                return null;
+            },
+            .list => |items| {
+                if (items.len < 2 or items[0] != .tag) return null;
+                switch (items[0].tag) {
+                    // Borrow / share wrappers in expression position
+                    // — peel and recurse to inner.
+                    .@"read", .@"write", .@"share" => return self.nominalSymForExpr(items[1]),
+                    .@"member" => {
+                        if (items.len < 3) return null;
+                        const obj_nom = self.nominalSymForExpr(items[1]) orelse return null;
+                        const field_name = identText(self.source, items[2]) orelse return null;
+                        const sym = sema.symbols.items[obj_nom];
+                        const fields = sym.fields orelse return null;
+                        for (fields) |f| {
+                            if (f.is_method or f.is_variant) continue;
+                            if (!std.mem.eql(u8, f.name, field_name)) continue;
+                            return self.peelTypeToNominal(f.ty);
+                        }
+                        return null;
+                    },
+                    else => return null,
+                }
+            },
+            else => return null,
+        }
+    }
+
+    /// M27: walk a TypeId through borrow / shared wrappers and return
+    /// the underlying nominal SymbolId, or null if the type doesn't
+    /// terminate in a nominal/parameterized_nominal. `weak` is NOT
+    /// peeled (weak handles require explicit upgrade — auto-deref
+    /// through them would be unsafe).
+    fn peelTypeToNominal(self: *const Emitter, ty_id: types.TypeId) ?types.SymbolId {
+        const sema = self.sema orelse return null;
+        var id = ty_id;
+        var depth: u8 = 0;
+        while (depth < 8) : (depth += 1) {
+            const t = sema.types.get(id);
+            switch (t) {
+                .borrow_read, .borrow_write => |inner| id = inner,
+                .shared => |inner| id = inner,
+                .nominal => |s| return s,
+                .parameterized_nominal => |pn| return pn.sym,
+                else => return null,
+            }
+        }
+        return null;
     }
 
     /// True iff sema has a concrete type for the binding declared at

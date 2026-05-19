@@ -1,0 +1,88 @@
+# rig-reactive v0 — userland reactive library on M25 + M26 + M27
+# substrate. Per GPT-5.5's design lock (conversation
+# c_5c1d09d53ebe2f62, M27 + rrlib checkpoints): brutally explicit
+# and monomorphic. v0 proves the substrate composes; it is NOT
+# the final reactive API.
+#
+# v0 surface:
+#   - `IntSource` only (Copy Int). Generic Source(T) is v1.
+#   - No Reactor. No Effect wrapper. Use `*Closure()` directly.
+#   - Synchronous notify on set. No flush. No reentrant queue.
+#
+# Implementation notes:
+#   - `value: *Cell(Int)` for interior mutability of the Int.
+#   - `subs: *Cell(Vec(*Closure()))` for the M26 unlock — a Vec
+#     of subscriber closures behind a shared Cell so subscribe /
+#     notify can mutate the list through `?self`.
+#   - All Vec mutation goes through `Cell.replace` (M26 swap-and-
+#     yield). `cell.value` and `cell.get` are sema-rejected for
+#     Drop T like Vec, so we MUST use replace.
+#   - Method bodies use `self.value.get()` / `self.subs.replace(...)`
+#     — these only compile after M27's auto-deref through
+#     member-access fix. The body shape is the M27 regression.
+#
+# Reentrant subscribe during a notify walk is undefined behavior in
+# v0 (notify temporarily replaces subs with an empty Vec, walks
+# the old, then restores). Document; revisit in v1 with PB4-style
+# queue/coalesce semantics if a real use case forces it.
+#
+# Substrate gaps STILL OPEN that the library reveals:
+#   - M28: kwarg expected-type-propagation. `*Cell(value: initial)`
+#     inside another constructor's kwarg loses the expected type;
+#     workaround = bind to typed locals first. Visible in `new`
+#     below.
+#   - Multi-capture closures (`fn |+a, +b| ...`). Blocks the
+#     cross-source cascade canary (count→total→print). v0 ships
+#     with single-capture-only canary.
+
+struct IntSource
+  value: *Cell(Int)
+  subs: *Cell(Vec(*Closure()))
+
+  fun new(initial: Int) -> *IntSource
+    # M28 workaround: typed locals before the outer constructor so
+    # each `*Cell(value: ...)` carries its expected type into emit.
+    val: *Cell(Int) = *Cell(value: initial)
+    empty: Vec(*Closure()) = Vec()
+    subs_cell: *Cell(Vec(*Closure())) = *Cell(value: <empty)
+    *IntSource(value: <val, subs: <subs_cell)
+
+  fun get(self: ?IntSource) -> Int
+    # M27: `self.value.get()` only compiles because auto-deref
+    # through member-access in method bodies now inserts the
+    # `.value` RcBox deref. Pre-M27 this was a Zig compile error.
+    self.value.get()
+
+  sub subscribe(self: ?IntSource, cb: *Closure())
+    # M26 replace-dance: Cell(Vec) has no borrow access (cell.value
+    # is sema-rejected for Drop T), so the only path to mutate the
+    # contained Vec is to swap it out with `replace`, push, and swap
+    # back. v0 surfaces this as "intentionally ugly" — a future arc
+    # may add `Cell.with_mut` or borrow-access for ergonomics.
+    empty: Vec(*Closure()) = Vec()
+    current: Vec(*Closure()) = self.subs.replace(<empty)
+    (!current).push(+cb)
+    discarded: Vec(*Closure()) = self.subs.replace(<current)
+
+  sub set(self: ?IntSource, v: Int)
+    self.value.set(v)
+    # Notify walk: same replace-dance, walk old, restore. Reentrant
+    # subscribe during this window is lost (v0 limitation).
+    empty: Vec(*Closure()) = Vec()
+    current: Vec(*Closure()) = self.subs.replace(<empty)
+    for cb in ?current
+      cb()
+    discarded: Vec(*Closure()) = self.subs.replace(<current)
+
+# v0 canary — single source, single subscriber, prints on set.
+# Multi-capture (`fn |+a, +b| ...`) is the next substrate gap;
+# the cross-source cascade canary (count → total → print) is
+# blocked until that lands.
+
+sub main()
+  count = IntSource.new(0)
+  body: *Closure() = *Closure(fn |+count| print(count.get()))
+  count.subscribe(+body)
+  count.set(1)
+  count.set(7)
+  # Expected output: 1\n7
