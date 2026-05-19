@@ -4,7 +4,14 @@
 ## runtime cond. Conservative merge says: dropped > moved > valid,
 ## so post-if `print x` must error.
 
+fun make() -> Int
+  42
+
+sub send(v: Int)
+  print(v)
+
 sub main()
+  cond = true
   x = make()
   if cond
     send <x

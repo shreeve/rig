@@ -2,6 +2,18 @@
 #
 # `<packet` moves ownership into `send`. Then `?packet` is invalid.
 
+struct Packet
+  payload: Int
+
+fun make_packet() -> Packet
+  Packet(payload: 1)
+
+sub send(p: Packet)
+  print(p.payload)
+
+sub log(p: ?Packet)
+  print(p.payload)
+
 sub main()
   packet = make_packet()
   send <packet

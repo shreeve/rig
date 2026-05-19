@@ -1,9 +1,11 @@
-# Rig — Session Handoff (M15b cross-module sema complete)
+# Rig — Session Handoff (M15b.1 sema-honesty + scope correctness complete)
 
-**You are picking up a Rig compiler session at the M15b boundary.**
+**You are picking up a Rig compiler session at the M15b.1 boundary.**
 **Phase B + the raw-escape boundary (M22) + the fake-surface
 floor-raising audit (M22.1) + the M22.1.1 runtime rename + the
-M15b cross-module sema (module honesty) are all shipped.** M20h (owned
+M15b cross-module sema (module honesty) + M15b.1 sema-time
+unbound-name detection + scope-correctness fixes are all
+shipped.** M20h (owned
 escaping closures) + M20i (resource-aware Vec) + M20i.1
 (resource-Vec iteration via `for x in ?vec`) + M20i.1.1 (sema
 attribution table) + PB2 (single-subscriber Signal) + PB3(1/5)
@@ -16,7 +18,7 @@ audit: H1 resource-temp leak fix + 5 reserved-surface
 retractions)** all shipped end-to-end. The reactive canary
 (`examples/reactive_canary.rig`) demonstrates the full Cell +
 closure + Vec-iteration + Signal chain producing
-`1\n3\n13\n7\n99\n111\n111`. **960 tests passing, 0 failing.
+`1\n3\n13\n7\n99\n111\n111`. **982 tests passing, 0 failing.
 Clean tree on `main`.** The substrate ladder Layers 0–7 are
 all complete, the reactive primitive is in its V1 final form,
 the safety boundary uses a clean Rig-native `raw` block
@@ -77,7 +79,7 @@ see §13 for the forward-arc menu.
 ```bash
 git pull --ff-only
 git log -1 --format='%h %s'        # most recent commit; at/after M22.1
-./test/run 2>&1 | tail -3          # should say "960 passed, 0 failed"
+./test/run 2>&1 | tail -3          # should say "982 passed, 0 failed"
 bin/rig run examples/reactive_canary.rig    # 1\n3\n13\n7\n99\n111\n111
 bin/rig run examples/signal_multi_subscriber.rig  # 0\n111\n222
 bin/rig check examples/raw_outside_rejected.rig   # error msg
@@ -88,6 +90,11 @@ bin/rig check examples/raw_outside_rejected.rig   # error msg
   bin/rig check test/modules/cross_visibility_rejected/main.rig  # M15b(3/5)
   bin/rig check test/modules/cross_use_std_reserved/main.rig     # M15b(4/5)
   bin/rig run test/modules/cross_resource_ok/main.rig            # M15b positive
+  bin/rig check examples/unbound_call_rejected.rig               # M15b.1
+  bin/rig check examples/unbound_value_rejected.rig              # M15b.1
+  bin/rig check examples/unbound_type_rejected.rig               # M15b.1
+  bin/rig check examples/print_as_value_rejected.rig             # M15b.1
+  bin/rig run examples/if_expr_block_local.rig                   # M15b.1 positive
 ```
 
 **Then read** (in order):
@@ -193,6 +200,29 @@ Violating any of them will silently corrupt the substrate.
   `~(*Foo(...))`, `%(*Foo(...))` are all sema-rejected. M20e
   auto-drop guards key off NAMED bindings; anonymous Rc
   temporaries would leak. Users bind to a name first.
+- **`unknown` is poison-after-error, never silent success
+  (M15b.1 invariant, all three sema sites).** Every unresolved
+  bare identifier fires a Rig diagnostic at sema time:
+  value position via `synthLeafSrc` ("use of unbound name `X`"),
+  callee position via `synthCall`'s unknown-callee branch
+  (same message), type position via `TypeResolver.resolveType`
+  ("use of unbound type `X`"). NO leaf whitelist — `print`
+  as a value (`x = print`) errors as unbound. ONLY direct
+  call shape `print(...)` is whitelisted via
+  `isCalleeBuiltinWhitelisted` (the one legacy emit-side
+  builtin not yet in the symbol table). Builtin nominals
+  (Cell/Closure/Vec/Signal) resolve through `registerBuiltins`.
+- **`synthBlock` enters its block scope (M15b.1).** Value-
+  position multi-stmt blocks (`if`-expression arms, `match`-
+  expression arms) properly enter the scope created by
+  `SymbolResolver.walkBlock` so local bindings are visible
+  at use sites within the block.
+- **`walkDecl` handles `.@"generic_enum"` (M15b.1).** Pre-
+  M15b.1 the dispatch silently skipped generic enum bodies,
+  leaving the scope cursor desynced for every subsequent
+  top-level decl. Adding the missing arm both fixes the
+  cursor drift and unblocks generic-enum method-body
+  type-checking.
 - **Cross-module references carry the same checked contracts as
   same-file (M15b invariant).** Every accepted `(member <module>
   <name>)` access and `(call (member <module> <fn>) args)`
@@ -589,6 +619,8 @@ arcs). Each numbered entry is a logical exchange:
 38. **M22 cleanup design (`unsafe` → `raw`, drop fn-modifier)** — Steve flagged the M21 `unsafe` keyword as aesthetically off (heavy, Rust-imported, against Rig's sigil-heavy aesthetic). Triggered a cleanup pass. Locked: rename `unsafe` keyword → `raw` (3 letters, matches `%x` raw-prefix sigil); DROP the `unsafe sub`/`unsafe fun` fn-modifier ENTIRELY (no V1 use case justifies the ~120 lines of machinery + the global-mutable-bridge hazard); block-only enforcement; distinct `RAW` keyword token (don't reuse `RAW_PFX`); single IR tag `raw_block` (drop `unsafe_decl`). Rip-and-replace (Rig is pre-release; no deprecation). SPEC §"Unsafe / Raw (M19)" rewritten as §"Raw escape (M22)" with explicit "no raw/unsafe function modifier in V1" note to prevent future sessions from resurrecting the fn-modifier without an explicit reset.
 39. **M22.1 fake-surface audit (Steve's high-level review → GPT-5.5 verdict (b) + finish-vs-retract design)** — Steve asked the senior-PL-designer question: "is our syntax clean and powerful? Are there other holes like the missing raw-fn-modifier?" GPT-5.5 returned (b) "holding up but watch X, Y, Z" with the through-line: **every concrete hazard was the same shape — accepted syntax with no enforced semantics**. M22 was the first instance of this pattern being fixed. M22.1 audits the rest and locks the invariant: every accepted V1 surface form has enforced semantics OR a clean Rig sema rejection. Six concrete hazards confirmed via `bin/rig build` evidence: H1 (resource-temp leak — real safety bug in safe code), H4 (`@x` pin sigil as no-op), H5 (`for *x` Copy-Vec as silent no-op), H2 (`try_block` emits `@compileError`), H3 (`zig "..."` emits `@compileError`), H7+H8 (`pre_block` / `pre <expr>` emit `@compileError`; `pre_param` kept). Per-item finish-vs-retract: H1 fix (reject leak-shaped resource rvalues, hidden guarded temporaries deferred); H4/H5/H7/H8/H2/H3 retract (sema rejection, no grammar changes so V2+ design space stays open). GPT-5.5 added five audit holes — all checked: emit `@compileError` paths beyond the catch-all only fire for compile-time-impossible inputs; builtin classification already default-unsafe with whitelist; raw context leak via escaping closure not reachable in V1 (single-call inline-body restriction); no other parsed-but-unenforced modifiers; `pre_param` is the only `pre`-family form that's wired and stays. Locked one-arc structure (8 sub-commits) rather than splitting Tier-3 to "cosmetic later" — H4 in particular is not cosmetic, it's a false guarantee.
 
+41. **M15b.1 sema-honesty + scope correctness (the unknown-is-poison arc)** — Steve approved push of M15b + Option A "open M15b.1." Claude audited the 6 deferred items (A=unbound-name, B=scope-tracking, C=pub-extern grammar, D=pub-fn-returns-private, E=qualified-resource-types, F=cross-module-generics). GPT-5.5 locked: M15b.1 = A+B+fixture sweep; defer C/E/F; D becomes M15b.2 immediately after. Implementation discovered+fixed THREE bugs: (1) `synthBlock` not entering its scope (value-position multi-stmt block bindings invisible), (2) `walkDecl` missing `.@"generic_enum"` arm (silently skipped generic enum bodies + desynced scope cursor for every subsequent top-level decl — invisible until unbound-name detection surfaced false-positive "use of unbound name `o1`" in `examples/generic_enum_method.rig`), (3) the original MH9 hazard itself (unbound-name silent unknown). Test-fixture sweep: 13 example files updated to add real declarations for the `User`/`make`/`Packet`/etc. names they relied on being silently unknown. **GPT-5.5 post-impl review caught two must-fixes Claude initially deferred**: (a) `print` whitelist must be call-callee-only, not leaf-position (bare `print` as value must error); (b) type-position unbound (`x: NopeType = ...`) cannot wait for M15b.2 — must close NOW because the invariant is incomplete without it. Both fixed before push. Renamed helper `isUnboundNameWhitelisted` → `isCalleeBuiltinWhitelisted` to make the call-callee-only scope explicit. Added `TypeResolver.resolveType` unbound diagnostic + updated the corresponding unit test that pinned the pre-M15b.1 silent behavior. Tests 962→982 (+20). Five new canaries: `unbound_call_rejected`, `unbound_value_rejected`, `if_expr_block_local`, `unbound_type_rejected`, `print_as_value_rejected`. Canary unchanged. Deferrals after post-impl review: legacy global name-scan retirement (lower urgency now), public-API-leaks-private-type (M15b.2's job).
+
 40. **M15b cross-module sema design + impl + review (the project-honesty arc)** — Steve approved the M22.1+M22.1.1 push and "Option A: open M15b with full fury." Claude ran a 7-hazard audit producing `bin/rig` repros for every cross-module contract leak (fallibility, arity, kwargs, borrow modes, extern raw, visibility, M22.1 resource-temp rule) plus a Tier-1 safety bug: cross-module `*T`-returning calls leaked the Rc + silently skipped auto-deref through it (printed the whole RcBox struct instead of the field). Also flagged `bin/rig check` as single-file-only — didn't use the ModuleGraph, so multi-file projects checked but ran was inconsistent. GPT-5.5 design checkpoint locked: nominal types tagged with origin (`{module_id, sym_id}`), NOT structural equality; foreign types re-interned into importer's local TypeStore via new `importType` recursive helper; ONE architectural fix (extending `synthMember` to look through `module_refs`) unlocks ALL downstream checks. Five sub-commits shipped: (1-2/5) substrate + contract wiring merged (`imported_nominal` Type variant + `importType` + `checkWithImports` entry + `synthMember`/`synthMemberCall`/effects `walkCrossModuleCall` + `check` uses ModuleGraph) — Tier-1 leak closed, 6 contract checks fire cross-module with qualified diagnostic names (e.g., `call to extern function `a.puts` requires raw block`); (3/5) visibility (`pub` enforced via `isCrossModuleVisible` consulting `is_public` flag stamped pre-M15b but never read); (4/5) `use std` reserved diagnostic + MH9 (sema-time unbound-name) DEFERRED to M15b.1 because initial impl exposed pre-existing branch-scope tracking gaps in `synthIfExpr`/etc. AND would require updating ~15 test-placeholder examples (`User`/`rename`/etc.) — inline deferral notes added at both intercept points so M15b.1 picks up cleanly; (5/5) SPEC §Modules section + ROADMAP §M15b + this HANDOFF entry. 8 new `test/modules/` canaries (7 reject + 1 positive `cross_resource_ok` proving end-to-end auto-deref + M20e guard work cross-module). Tests 952→960. Canary unchanged. New invariant: "`unknown` may only exist as poison after a diagnostic, never as a silent success type" — locked at cross-module call return boundary; bare-identifier use-site enforcement deferred to M15b.1.
 
 To continue the thread, pass `conversation_id` and `model`
@@ -842,12 +874,18 @@ NOT promises to ship.
       in M15b.** Every cross-module reference now carries
       the same checked contracts as same-file. `pub` is
       real. Tier-1 cross-module leak closed.
-    - **M15b.1: bare-name + unbound-name detection**
-      (sema-time). Deferred from M15b(4/5) because the
-      initial impl exposed pre-existing branch-scope
-      tracking gaps + would require updating ~15
-      test-placeholder examples. Pair with the legacy
-      global name-scan retirement (also adjacent).
+    - ~~**M15b.1 unbound-name detection + scope correctness**~~
+      ✅ **Landed in M15b.1.** Sema-time "use of unbound name"
+      for value-position bare-name and unknown-callee.
+      `synthBlock` scope-tracking fixed. `walkDecl` missing
+      `.@"generic_enum"` arm fixed. 13 test fixtures updated.
+    - **M15b.2: public-API-leaks-private-type rejection**
+      (foreign-side decl check). Reject `pub fun foo() ->
+      Secret` where `Secret` is non-pub. Probably highest
+      remaining priority before feature work.
+    - **Legacy global name-scan retirement** in `emit.zig`
+      (M20a.2 + M20e.1 partial). Internal cleanup; can
+      ride alongside M15b.2 or be its own arc.
     - **Body-less `extern fun`/`extern sub` declarations**
       (M23). Per GPT-5.5 entry 39: "a more urgent FFI hole
       than raw-fn, honestly. `extern puts: fn(String) Int`

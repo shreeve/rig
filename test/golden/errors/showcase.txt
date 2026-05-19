@@ -1,0 +1,4 @@
+examples/showcase.rig:39:3: error: type mismatch: expected `User!`, got `User`
+examples/showcase.rig:42:3: error: type mismatch: expected `Profile!`, got `Profile`
+examples/showcase.rig:48:18: error: type mismatch: expected `?Bytes`, got `??Bytes`
+examples/showcase.rig:50:17: error: type mismatch: expected `?Bytes`, got `??Bytes`

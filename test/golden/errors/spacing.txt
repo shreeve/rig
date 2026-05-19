@@ -1,4 +1,15 @@
+examples/spacing.rig:17:11: error: use of unbound name `x`
+examples/spacing.rig:23:8: error: use of unbound name `x`
+examples/spacing.rig:24:8: error: use of unbound name `x`
+examples/spacing.rig:25:8: error: use of unbound name `x`
+examples/spacing.rig:32:10: error: use of unbound name `x`
 examples/spacing.rig:38:8: error: pinning sigil `@x` is reserved for V2; V1 does not support pinned/stable-address semantics. Remove the `@` prefix, or use a supported builtin form (e.g. `@sizeOf(T)`, `@TypeOf(x)`) if you meant a compile-time builtin call.
+examples/spacing.rig:39:9: error: use of unbound name `x`
+examples/spacing.rig:40:9: error: use of unbound name `x`
+examples/spacing.rig:41:8: error: use of unbound name `x`
+examples/spacing.rig:47:7: error: use of unbound name `User`
+examples/spacing.rig:51:7: error: use of unbound name `make`
+examples/spacing.rig:51:12: error: use of unbound name `arena`
 examples/spacing.rig:23:8: error: use of unbound name `x`
 examples/spacing.rig:39:9: error: use of unbound name `x`
 examples/spacing.rig:40:9: error: use of unbound name `x`

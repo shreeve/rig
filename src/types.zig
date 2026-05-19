@@ -2866,13 +2866,19 @@ const TypeResolver = struct {
                     // ordinary lexical lookup. If we reach here with
                     // a generic_param symbol, it's a code-path bug.
                 }
-                // Unknown type name. M5 v1 doesn't have a module
-                // system / forward declarations / generic-param scope
-                // yet, so undeclared names are common in idiomatic Rig
-                // (e.g., `User` in showcase.rig). Return `invalid_id`
-                // silently for now — the diagnostic will return once
-                // type-driven expression checking lands and can produce
-                // useful errors at the *use* site.
+                // M15b.1 per GPT-5.5 post-impl review: unbound type
+                // name. Per the hardened "unknown is poison after a
+                // diagnostic, never silent success" invariant, type-
+                // position unbound names must error at sema time. Pre-
+                // M15b.1 this silently returned `invalid_id` and let
+                // downstream type-checking error at the use site (or
+                // not at all). The original deferral note read: "M5
+                // v1 doesn't have a module system / forward
+                // declarations / generic-param scope yet, so
+                // undeclared names are common in idiomatic Rig" —
+                // but with M15b shipped and module-aware scoping in
+                // place, that defense is no longer warranted.
+                try self.err(s.pos, "use of unbound type `{s}`", .{name});
                 return self.ctx.types.invalid_id;
             },
             .list => |items| {
@@ -3441,6 +3447,24 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
         },
         else => ty_id,
     };
+}
+
+/// M15b.1 per GPT-5.5 entry 39 + post-impl review: call-callee-only
+/// whitelist for legacy non-symbol-table builtin call names. Used
+/// ONLY by `synthCall`'s unknown-callee branch (NOT by leaf-position
+/// `synthLeafSrc` per the M15b.1 post-impl review): bare `print` as
+/// a value, `print.foo`, or `print` passed as a callback should
+/// produce "use of unbound name" — only the direct call shape
+/// `print(...)` is accepted.
+///
+/// V1 whitelist:
+///   `print`  — lowers to `std.debug.print(...)` in `emitCall`.
+///
+/// Built-in nominal types (`Cell`, `Closure`, `Vec`, `Signal`) are
+/// NOT in this whitelist because `registerBuiltins` adds them to
+/// the symbol table — they resolve through the normal lookup path.
+fn isCalleeBuiltinWhitelisted(name: []const u8) bool {
+    return std.mem.eql(u8, name, "print");
 }
 
 /// M15b(3/5) per GPT-5.5 entry 39 + post-impl review: cross-module
@@ -4181,7 +4205,24 @@ const ExprChecker = struct {
             // pushed by the SymbolResolver (walkMethod /
             // walkGenericType); we must enter them in the same order
             // to stay in lockstep with the scope cursor.
-            .@"struct", .@"enum", .@"errors", .@"generic_type" => try self.walkNominalDecl(items),
+            //
+            // M15b.1 per GPT-5.5 post-impl review: `.@"generic_enum"`
+            // was MISSING here pre-M15b.1, which meant ExprChecker
+            // silently skipped generic-enum method bodies — their
+            // body/arm scopes were created by SymbolResolver but
+            // never entered by ExprChecker, leaving the scope cursor
+            // misaligned for EVERY subsequent top-level decl. The
+            // bug was invisible because all symbol lookups in the
+            // misaligned scopes silently returned `unknown` (the
+            // pre-M15b.1 fake-surface anti-pattern). Discovered
+            // when M15b.1's unbound-name detection in `synthLeafSrc`
+            // fired on `o1`/`o2` in `examples/generic_enum_method.rig`
+            // — they were "unbound" because the lookup was using
+            // the wrong scope (the generic enum's body scope, not
+            // sub main's body scope). Adding the missing arm fixes
+            // both the cursor drift and the cascading false-positive
+            // unbound diagnostics.
+            .@"struct", .@"enum", .@"errors", .@"generic_type", .@"generic_enum" => try self.walkNominalDecl(items),
             // type aliases / extern / use have no body to type-check.
             else => {},
         }
@@ -4205,7 +4246,10 @@ const ExprChecker = struct {
         // For generic_type, members are at items[3..] (after name and
         // params list); for plain struct/enum/errors, items[2..].
         const head = items[0].tag;
-        const member_start: usize = if (head == .@"generic_type") 3 else 2;
+        // M15b.1: `.generic_enum` follows the same `(name (params) members...)`
+        // shape as `.generic_type`. Members live at index 3+; data
+        // (struct fields / enum variants) and methods are mixed.
+        const member_start: usize = if (head == .@"generic_type" or head == .@"generic_enum") 3 else 2;
         if (items.len <= member_start) return;
         for (items[member_start..]) |member| {
             if (member != .list or member.list.len == 0 or member.list[0] != .tag) continue;
@@ -4969,17 +5013,22 @@ const ExprChecker = struct {
         if (self.ctx.lookup(self.current_scope, text)) |sym_id| {
             return self.ctx.symbols.items[sym_id].ty;
         }
-        // Unresolved name: defer to ownership/effects passes for
-        // diagnostic. Returning `unknown_id` lets type checking
-        // proceed without cascading errors.
+        // M15b.1 per GPT-5.5 entry 39 + post-impl review: unbound-
+        // name detection. Per the hardened invariant: "`unknown` may
+        // only exist as poison after a diagnostic, never as a silent
+        // success type". Pre-M15b.1 this site silently returned
+        // `unknown` for unbound names, letting `nonexistent_fn()` /
+        // `print(nope)` flow through sema and only error at Zig
+        // compile time.
         //
-        // M15b(4/5) deferral: GPT-5.5 entry 39 called for a sema-
-        // time "use of unbound name" diagnostic here. The check is
-        // deferred to M15b.1 because it exposes pre-existing scope-
-        // tracking gaps in if-/match-/lambda-branch handling that
-        // would mis-flag legitimate bindings. See the parallel
-        // deferral note in `synthCall`'s unknown-callee branch.
-        _ = pos;
+        // NO leaf whitelist. The legacy `print` builtin is special-
+        // cased ONLY in `synthCall`'s unknown-callee branch (direct
+        // call shape), per GPT-5.5 post-impl review entry 41: bare
+        // `print` as a value, `print.foo`, or `print` as a callback
+        // should NOT silently flow through as unknown. Builtin
+        // nominals (Cell/Closure/Vec/Signal) resolve via the
+        // symbol table normally because `registerBuiltins` adds them.
+        try self.err(pos, "use of unbound name `{s}`", .{text});
         return self.ctx.types.unknown_id;
     }
 
@@ -5286,19 +5335,29 @@ const ExprChecker = struct {
             return self.synthMemberCall(callee.list, items[2..]);
         }
 
-        // Unknown callee: synth args anyway so nested type errors fire.
+        // M15b.1: unbound callee detection. The known-callee branch
+        // above falls through when the name doesn't resolve to a
+        // symbol. Per the hardened invariant: bare-name calls to
+        // unresolved identifiers are Rig errors at sema time.
         //
-        // M15b(4/5) deferral: GPT-5.5 entry 39 called for unbound-
-        // name detection here (the "use of unbound name `nonexistent_fn`"
-        // diagnostic). Implementing it cleanly requires (a) updating
-        // the ~15 existing examples that intentionally reference
-        // undeclared placeholders (`User`, `rename`, etc.) to test
-        // ownership/borrow rules without a full type context, and
-        // (b) harmonizing scope traversal between SymbolResolver and
-        // ExprChecker for if-/match-/lambda-branch bindings. Both are
-        // non-trivial follow-ups; deferred to M15b.1 alongside the
-        // legacy global-scan retirement that's also adjacent.
-        for (items[1..]) |arg| _ = try self.synthExpr(arg);
+        // Skip the callee leaf in the args-synth loop below — it'd
+        // re-fire as "use of unbound name" from `synthLeafSrc`,
+        // producing a double diagnostic.
+        if (callee == .src) {
+            const name = self.ctx.source[callee.src.pos..][0..callee.src.len];
+            if (!isCalleeBuiltinWhitelisted(name) and
+                self.ctx.lookup(self.current_scope, name) == null)
+            {
+                try self.err(callee.src.pos, "use of unbound name `{s}`", .{name});
+            }
+            // Synth ARGS only (skip callee at items[1]).
+            for (items[2..]) |arg| _ = try self.synthExpr(arg);
+        } else {
+            // Non-bare callee (e.g., `(member ...)`): nothing extra to
+            // diagnose at this site; synth everything for cascading
+            // nested errors.
+            for (items[1..]) |arg| _ = try self.synthExpr(arg);
+        }
         return self.ctx.types.unknown_id;
     }
 
@@ -6310,7 +6369,25 @@ const ExprChecker = struct {
     fn synthBlock(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
         // (block stmts...) — value-position block returns the type of
         // its last expression. Walk all but the last as statements.
+        //
+        // M15b.1 per GPT-5.5 post-impl review: enter the block scope
+        // created by `SymbolResolver.walkBlock`. Pre-M15b.1 this site
+        // didn't push the block scope, so local bindings inside a
+        // value-position block (if-expr arms, match-expr arms, etc.)
+        // were invisible to the use-site lookup — `tmp + 1` resolved
+        // to `unknown` and silently passed type-checking, with later
+        // sibling-scope lookups potentially aliasing the wrong scope's
+        // bindings due to the next-scope cursor staying mis-aligned.
+        // This was hidden until the unbound-name diagnostic was
+        // attempted in M15b(4/5) and surfaced the cursor drift as
+        // false-positive "use of unbound name `doubled`" inside a
+        // legitimate `if cond INDENT doubled = n*2; doubled + 1`
+        // branch. Fixing the scope entry here both fixes the
+        // existing latent bug AND clears the runway for M15b.1's
+        // unbound-name detection.
         if (items.len <= 1) return self.ctx.types.void_id;
+        const prev = self.enterNextScope();
+        defer self.leaveScope(prev);
         for (items[1 .. items.len - 1]) |s| try self.checkStmt(s);
         return self.synthExpr(items[items.len - 1]);
     }
@@ -7733,12 +7810,15 @@ test "type-resolve: T! / T? / ?T / !T wrappers" {
     try std.testing.expectEqual(@as(std.meta.Tag(Type), .borrow_write), @as(std.meta.Tag(Type), ctx.types.get(d_ty.function.params[0])));
 }
 
-test "type-resolve: unknown type silently returns invalid_id (M5 v1 deferred)" {
-    // M5 v1 doesn't fire the unknown-type diagnostic at declaration
-    // resolution time — the user has no module/forward-decl mechanism
-    // yet, so undeclared nominal names are common (every example using
-    // `User`, `Profile`, etc.). The diagnostic will return when type-
-    // driven expression checking lands and can point at a USE site.
+test "type-resolve: unknown type fires `use of unbound type` (M15b.1)" {
+    // M15b.1 per GPT-5.5 post-impl review: unbound type names in type
+    // position now error at sema time, matching the value-position
+    // unbound-name discipline. The pre-M15b.1 behavior (silent
+    // `invalid_id` return) was the type-side instance of the
+    // "unknown is silent success" anti-pattern that M22.1 + M15b
+    // closed elsewhere. M15 cross-module sema is now real, so the
+    // original M5 deferral rationale ("no module system; undeclared
+    // names common") no longer applies.
     const source =
         \\fun bad(x: NotAType) -> Int
         \\  1
@@ -7747,11 +7827,20 @@ test "type-resolve: unknown type silently returns invalid_id (M5 v1 deferred)" {
     var ctx = try checkSource(std.testing.allocator, source);
     defer ctx.deinit();
 
-    try std.testing.expect(!ctx.hasErrors());
+    // Exactly the unbound-type diagnostic fires.
+    try std.testing.expect(ctx.hasErrors());
+    var saw_unbound_type = false;
+    for (ctx.diagnostics.items) |d| {
+        if (std.mem.indexOf(u8, d.message, "unbound type `NotAType`") != null) {
+            saw_unbound_type = true;
+        }
+    }
+    try std.testing.expect(saw_unbound_type);
+
+    // The function still constructs (with invalid_id param) so
+    // downstream type-checking doesn't cascade.
     const bad_id = ctx.lookup(1, "bad").?;
     const bad_ty = ctx.types.get(ctx.symbols.items[bad_id].ty);
-    // The param's type is invalid (unresolved nominal), but the function
-    // type itself was still constructed.
     try std.testing.expectEqual(@as(std.meta.Tag(Type), .function), @as(std.meta.Tag(Type), bad_ty));
     try std.testing.expectEqual(ctx.types.invalid_id, bad_ty.function.params[0]);
 }

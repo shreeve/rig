@@ -2737,6 +2737,98 @@ signal_multi_subscriber unchanged at `0\n111\n222`.
   same-file references. The M22.1 fake-surface invariant scales
   to module scope.
 
+### M15b.1 — sema-time unbound-name detection + scope correctness ✅
+
+Closes the deferred items from M15b(4/5): unbound-name
+detection at sema time. Per GPT-5.5 entry 39: "`unknown` may
+only exist as poison after a diagnostic, never as a silent
+success type." Pre-M15b.1 hazards:
+
+- `print(nonexistent_fn())` exited 0 from `bin/rig check`;
+  only Zig caught the missing identifier later with a
+  confusing "use of undeclared identifier" message.
+- Multi-stmt value-position blocks (`if`-expression arms,
+  `match`-expression arms) had their inner local bindings
+  silently invisible — `synthBlock` didn't enter the block
+  scope created by `SymbolResolver.walkBlock`, so use-site
+  lookups walked the wrong scope chain and silently returned
+  `unknown`.
+- `walkDecl` was missing the `.@"generic_enum"` arm,
+  silently skipping ExprChecker processing of generic enum
+  method bodies AND desyncing the scope cursor for every
+  subsequent top-level decl. Hidden until M15b.1's unbound-
+  name detection surfaced the consequence as false-positive
+  "use of unbound name `o1`" inside `sub main()` in
+  `examples/generic_enum_method.rig` (because main's body
+  was being checked at the wrong scope).
+
+**Fixes**:
+
+1. `synthLeafSrc` (value-position bare-name): unresolved
+   names always error with "use of unbound name `X`". No
+   leaf whitelist per GPT-5.5 post-impl review — bare
+   `print` as a value must error.
+2. `synthCall` unknown-callee branch: same diagnostic at
+   the call site; `isCalleeBuiltinWhitelisted(name)`
+   special-cases ONLY direct call shape `print(...)` (the
+   one legacy non-symbol-table builtin). Skips the callee
+   leaf in the args-synth loop to avoid double-diagnostics.
+3. `TypeResolver.resolveType` (type-position unbound):
+   `x: NopeType = ...` now errors with "use of unbound type
+   `NopeType`" at decl-resolution time. Pre-M15b.1 silently
+   returned `invalid_id`; the deferral note ("M5 v1 doesn't
+   have a module system; undeclared names common") no
+   longer applies post-M15b. Per the M15b.1 hardened
+   invariant lifted to the type system.
+4. `synthBlock` enters its scope via `enterNextScope` /
+   `defer leaveScope` matching `checkStmt`'s `.@"block"`
+   arm.
+5. `walkDecl` extended with `.@"generic_enum"` ->
+   `walkNominalDecl`. `walkNominalDecl`'s `member_start`
+   computed for both `.generic_type` and `.generic_enum`.
+
+**Test-fixture sweep**: 13 example files used undeclared
+fixtures (`User`, `make`, `Packet`, etc.) for ownership /
+borrow / fallibility tests, relying on the pre-M15b.1
+silent-`unknown` to type-check past the undeclared names.
+Each one updated to add the minimal real declarations the
+test needs, keeping the intended diagnostic (use-after-move,
+borrow conflict, etc.) as the test's target.
+
+`examples/showcase.rig` and `examples/spacing.rig` are
+documentation files whose intentional unbound references
+demonstrate language surface; their errors-goldens regen'd
+to include the new "use of unbound name" lines.
+
+**Tests: 962 → 982 (+20)**. 5 new regression canaries
+(`unbound_call_rejected`, `unbound_value_rejected`,
+`if_expr_block_local`, `unbound_type_rejected`,
+`print_as_value_rejected`); 13 fixtures updated;
+showcase + spacing errors-goldens extended. Updated 1
+sema unit test (was pinning the pre-M15b.1 silent
+behavior).
+
+**What's NOT in this commit (deferred to M15b.2+):**
+
+- Legacy global name-scan retirement in `emit.zig` (M20a.2 +
+  M20e.1 partial; explicitly noted as "acceptable in M20d,
+  revisited when emit grows real scope-aware resolution").
+  Sema-side unbound is enough to close the user-visible
+  hazard; the emit-side scans are an internal cleanup that
+  belongs in a dedicated arc.
+- Public-API-leaks-private-type (M15b.2's job).
+
+**Hazards retired**:
+
+- "Sema silently passes unresolved names to emit." Closed
+  for value-position, bare-call, AND type-position. The
+  M22.1 "unknown is poison after a diagnostic" invariant
+  now holds at all three sema entry points (synthLeafSrc,
+  synthCall, resolveType).
+- "Generic enum method bodies aren't type-checked." Closed.
+- "Value-position block locals are invisible at their use
+  sites." Closed.
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note

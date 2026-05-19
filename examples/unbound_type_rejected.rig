@@ -1,0 +1,12 @@
+## M15b.1 per GPT-5.5 post-impl review entry 41: unbound type
+## name in a type annotation fires a Rig diagnostic.
+##
+## Pre-M15b.1 this silently returned `invalid_id` and let the
+## use site cascade to a type-mismatch (or compile-fine
+## depending on flow). With the M22.1+M15b "unknown is poison"
+## invariant lifted to the type system, type-position unbound
+## must error at decl time so users see the root cause.
+
+sub main()
+  x: NopeType = 1
+  print(x)

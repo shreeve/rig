@@ -1,0 +1,10 @@
+## M15b.1: unbound call must be a Rig diagnostic, not silent unknown.
+##
+## Per GPT-5.5 entry 39 + post-impl review: "`unknown` may only
+## exist as poison after a diagnostic, never as a silent success
+## type." Pre-M15b.1, this file exited 0 from `bin/rig check`
+## and only Zig caught the missing identifier with a confusing
+## `error: use of undeclared identifier 'nonexistent_fn'`.
+
+sub main()
+  print(nonexistent_fn())

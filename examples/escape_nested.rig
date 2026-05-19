@@ -5,6 +5,12 @@
 ## `View(name: ?user)`. Without the recursive escape walker the leak
 ## was silent.
 
+struct User
+  name: String
+
+struct View
+  name: ?User
+
 fun bad() -> ?String
   user = User(name: "Steve")
   View(name: ?user)

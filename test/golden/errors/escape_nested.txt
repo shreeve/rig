@@ -1,2 +1,3 @@
-examples/escape_nested.rig:10:15: error: returned borrow of `user` does not originate from a borrowed parameter
-examples/escape_nested.rig:9:3:   note: `user` was bound locally here
+examples/escape_nested.rig:16:3: error: type mismatch: expected `?String`, got `View`
+examples/escape_nested.rig:16:15: error: returned borrow of `user` does not originate from a borrowed parameter
+examples/escape_nested.rig:15:3:   note: `user` was bound locally here

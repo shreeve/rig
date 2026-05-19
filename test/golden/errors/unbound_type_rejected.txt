@@ -1,0 +1,1 @@
+examples/unbound_type_rejected.rig:11:6: error: use of unbound type `NopeType`

@@ -1,0 +1,1 @@
+examples/unbound_value_rejected.rig:8:9: error: use of unbound name `nope`

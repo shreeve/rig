@@ -1,0 +1,1 @@
+examples/unbound_call_rejected.rig:10:9: error: use of unbound name `nonexistent_fn`

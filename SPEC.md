@@ -2476,22 +2476,51 @@ Per the M22.1 fake-surface invariant lifted to module scope:
   pass-through would need a real design pass — possibly
   `use zig.std` or an explicit FFI form.
 
-## Deferred to M15b.1+ (under active follow-up)
+## Deferred to M15b.2+ (under active follow-up)
 
-- Unbound-name detection in sema (`nonexistent_fn()` is
-  currently accepted by `bin/rig check` and only caught at
-  Zig compile time).
 - Public-API-leaks-private-type rejection (`pub fun
-  make_secret() -> Secret` where `Secret` is non-pub) — the
-  return type is reachable across modules but can't be
-  constructed/destructured through a public path; M15b.x will
-  reject the public signature at decl time.
+  make_secret() -> Secret` where `Secret` is non-pub) —
+  M15b.2.
+- `pub extern <name>: <type>` grammar (`extvar` isn't
+  pub-wrappable today; private extern + `pub` safe wrapper
+  is the V1 idiom).
 - Qualified resource types in type position (`b: *a.Box = ...`)
   — currently a parse-gap; users use type inference today
   (`b = a.make_box()`).
 - Cross-module user-defined generics (V1 cross-module call
   paths handle built-in parameterized types like `Vec(T)` but
   not user `pub type Box(T) ...`).
+- Legacy global name-scan retirement in `emit.zig`
+  (M20a.2 + M20e.1 partials; internal cleanup now that
+  sema-side unbound is enforced).
+
+## Closed in M15b.1
+
+- **Unbound value-name detection.** `nonexistent_fn()` and
+  `print(nope)` now error at `bin/rig check` with "use of
+  unbound name `X`" instead of falling through to Zig.
+  `synthLeafSrc` (value position) and `synthCall`'s
+  unknown-callee branch both enforce.
+- **Unbound type-name detection** (per post-impl review).
+  `x: NopeType = ...` now errors with "use of unbound type
+  `X`" at TypeResolver time. Same "unknown is poison after
+  a diagnostic" invariant applied at the type system.
+- **`print` whitelisted ONLY at call-callee position.** Bare
+  `print` as a value (`x = print`) errors as unbound. Only
+  the direct call shape `print(...)` is special-cased
+  (legacy emit-side builtin not yet in the symbol table).
+- `synthBlock` scope-tracking. Value-position multi-stmt
+  blocks (`if` / `match` expression arms, etc.) now correctly
+  enter the block scope created by `SymbolResolver.walkBlock`.
+  Pre-M15b.1 the scope existed but was never entered, leaving
+  local bindings invisible at use sites — hidden by the
+  silent-`unknown` fall-through.
+- `walkDecl` generic-enum dispatch. `.@"generic_enum"` was
+  missing from `ExprChecker.walkDecl`'s switch, which caused
+  ExprChecker to silently skip generic enum method bodies AND
+  desync the scope cursor for every subsequent top-level
+  decl. Fixed; cursor stays aligned with SymbolResolver's
+  scope creation order.
 
 # Resource-temporary leak rule (M22.1)
 

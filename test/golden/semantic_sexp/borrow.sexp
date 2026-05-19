@@ -1,1 +1,1 @@
-(module (sub main () _ (block (set _ user _ (call User (kwarg name "Steve"))) (set _ r _ (read user)) (call rename (write user)))))
+(module (struct User (: name String)) (sub rename ((: u (borrow_write User))) _ (block (call print "rename"))) (sub main () _ (block (set _ user _ (call User (kwarg name "Steve"))) (set _ r _ (read user)) (call rename (write user)))))

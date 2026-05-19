@@ -1,0 +1,10 @@
+## M15b.1 per GPT-5.5 post-impl review entry 41: bare `print` as
+## a value (not as a call) is NOT whitelisted. Only the direct
+## call shape `print(...)` is special-cased in `synthCall`'s
+## unknown-callee branch. Treating bare `print` as a flowable
+## value would be the same fake-surface anti-pattern the
+## leaf-position unbound check closes for everything else.
+
+sub main()
+  x = print
+  x(42)

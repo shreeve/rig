@@ -7,7 +7,14 @@
 ##
 ## EXPECTED: clean (no diagnostics).
 
+fun make() -> Int
+  42
+
+sub send(v: Int)
+  print(v)
+
 sub main()
+  cond = true
   x = make()
   if cond
     send <x

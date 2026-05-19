@@ -6,6 +6,9 @@
 ##
 ## EXPECTED: clean (no diagnostics).
 
+struct User
+  name: String
+
 sub main()
   user = User(name: "Steve")
   r = ?user

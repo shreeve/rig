@@ -2,6 +2,9 @@
 #
 # `=!` creates an immutable binding; reassigning is illegal.
 
+struct User
+  name: String
+
 fun loadUser(id: U64) -> User!
   User(name: "Steve")
 

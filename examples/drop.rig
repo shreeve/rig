@@ -2,6 +2,9 @@
 #
 # `-user` ends ownership immediately. Subsequent use is invalid.
 
+struct User
+  name: String
+
 sub main()
   user = User(name: "Steve")
   -user

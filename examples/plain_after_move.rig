@@ -3,6 +3,18 @@
 ## Existing `move.rig` uses `?packet` (sigil), so the old checker caught it.
 ## This one uses bare `packet` after the move — checker must still fire.
 
+struct Packet
+  payload: Int
+
+fun make_packet() -> Packet
+  Packet(payload: 1)
+
+sub send(p: Packet)
+  print(p.payload)
+
+sub log(p: Packet)
+  print(p.payload)
+
 sub main()
   packet = make_packet()
   send <packet

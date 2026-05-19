@@ -4,6 +4,9 @@
 ## propagate (the bug we're fixing). Effects checker must require an
 ## explicit `!` or `catch`.
 
+struct User
+  name: String
+
 fun loadUser(id: U64) -> User!
   User(name: "Steve")
 

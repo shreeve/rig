@@ -3,6 +3,9 @@
 ## `w = !user` opens an exclusive write borrow. Plain `print user` is a
 ## read access; rejecting it preserves write-borrow exclusivity.
 
+struct User
+  name: String
+
 sub main()
   user = User(name: "Steve")
   w = !user

@@ -1,1 +1,1 @@
-(module (sub main () _ (block (set _ x _ (call make)) (if cond (block (call send (move x))) (block (call print x))))))
+(module (fun make () Int (block 42)) (sub send ((: v Int)) _ (block (call print v))) (sub main () _ (block (set _ cond _ true) (set _ x _ (call make)) (if cond (block (call send (move x))) (block (call print x))))))

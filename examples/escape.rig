@@ -2,6 +2,9 @@
 #
 # A returned borrow must originate from a borrowed parameter.
 
+struct User
+  name: String
+
 fun bad() -> ?String
   user = User(name: "Steve")
   ?user.name

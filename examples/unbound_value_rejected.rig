@@ -1,0 +1,8 @@
+## M15b.1: unbound value-position reference must be a Rig diagnostic.
+##
+## Parallel to `unbound_call_rejected.rig` but for the value-use
+## position (`print(nope)` rather than `nope()`). Closes the
+## "unknown-as-silent-success" path in `synthLeafSrc`.
+
+sub main()
+  print(nope)

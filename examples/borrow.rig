@@ -2,6 +2,12 @@
 #
 # `r = ?user` holds a read borrow; `rename !user` requires a write borrow.
 
+struct User
+  name: String
+
+sub rename(u: !User)
+  print("rename")
+
 sub main()
   user = User(name: "Steve")
   r = ?user

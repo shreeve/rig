@@ -1,0 +1,26 @@
+## M15b.1 positive regression: bindings inside a value-position
+## `if`-branch block are visible at use sites inside the same
+## branch.
+##
+## Per GPT-5.5 post-impl review: pre-M15b.1, `synthBlock` did NOT
+## enter the block scope created by `SymbolResolver.walkBlock` for
+## value-position blocks (e.g., `if` / `match` expression arms
+## that are multi-statement). The scope was created but never
+## entered by `ExprChecker`, leaving every local binding inside
+## the block lookup-invisible at its use sites. The bug was
+## hidden because the silent-`unknown` fall-through allowed
+## downstream type-checking to coast (and Zig's compiler caught
+## anything that mattered).
+##
+## M15b.1 fixes the scope entry. This canary pins the supported
+## shape: `if cond INDENT local: Type = ...; local + 1 OUTDENT`
+## in a value position must type-check correctly with `local`
+## resolving to its binding.
+
+sub main()
+  result = if 5 > 0
+    doubled: Int = 5 * 2
+    doubled + 1
+  else
+    0
+  print(result)

@@ -1,2 +1,3 @@
-examples/missing_bang.rig:11:7: error: fallible call to `loadUser` must be wrapped with `!` (propagate) or `catch` (handle)
-examples/missing_bang.rig:7:5:   note: `loadUser` declared as fallible here
+examples/missing_bang.rig:11:3: error: type mismatch: expected `User!`, got `User`
+examples/missing_bang.rig:14:7: error: fallible call to `loadUser` must be wrapped with `!` (propagate) or `catch` (handle)
+examples/missing_bang.rig:10:5:   note: `loadUser` declared as fallible here

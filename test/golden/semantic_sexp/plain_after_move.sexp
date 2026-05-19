@@ -1,1 +1,1 @@
-(module (sub main () _ (block (set _ packet _ (call make_packet)) (call send (move packet)) (call log packet))))
+(module (struct Packet (: payload Int)) (fun make_packet () Packet (block (call Packet (kwarg payload 1)))) (sub send ((: p Packet)) _ (block (call print (member p payload)))) (sub log ((: p Packet)) _ (block (call print (member p payload)))) (sub main () _ (block (set _ packet _ (call make_packet)) (call send (move packet)) (call log packet))))

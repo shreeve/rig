@@ -2,6 +2,9 @@
 ##
 ## Existing `drop.rig` uses `?user` (sigil); this uses bare `user`.
 
+struct User
+  name: String
+
 sub main()
   user = User(name: "Steve")
   -user
