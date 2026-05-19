@@ -1,0 +1,12 @@
+## M23: body-less `extern sub` declaration. `sub` declarations
+## return Void by definition, so no return-type slot is needed in
+## the IR shape `(extern_sub name params)`.
+
+extern sub log_msg(msg: String)
+
+sub safe_log(msg: String)
+  raw
+    log_msg(msg)
+
+sub main()
+  safe_log("ping")

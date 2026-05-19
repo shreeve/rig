@@ -3048,6 +3048,85 @@ userland LIBRARY (the explicit `Reactor` / `Memo` / `Effect`
 work) was blocked on Cell-non-Copy + user Drop. M25 is the
 first half of that unblock; M26 (Cell-non-Copy) is the second.
 
+### M23 — Body-less `extern fun` / `extern sub` declarations ✅
+
+Real FFI ergonomics. Pre-M23, the only callable extern shape in
+Rig was an extern *variable* with a function-typed annotation:
+`extern puts: fun(String) Int`. That works but is awkward — the
+natural shape every user reaches for is `extern fun puts(s:
+String) -> Int` declared once at the top of a module, no body
+block. M23 ships that shape end-to-end.
+
+**Surface.**
+
+```rig
+extern fun puts(s: String) -> Int
+extern sub log_msg(msg: String)
+
+sub safe_puts(s: String)
+  raw
+    puts(s)                   # extern call still requires `raw`
+```
+
+**Cadence.** Single design checkpoint with GPT-5.5 (locked the
+grammar position, conflict-risk plan, and out-of-scope items),
+then a clean implementation in one session.
+
+**Files touched.**
+
+- `rig.grammar`: two new productions (`ext_fun`, `ext_sub`)
+  parallel to `extvar`. Wired into the top-level `stmt`
+  alternation so they're recognized at module scope. IR shapes:
+  `(extern_fun name params returns)` and `(extern_sub name
+  params)`. **Conflict count unchanged at 75** — LR(1) lookahead
+  cleanly disambiguates `extern fun ... block` (body-bearing,
+  via `EXTERN decl → defn → fun`) from `extern fun ...`
+  (body-less, this arc) by the presence/absence of `INDENT`
+  after the optional `returns`.
+- `src/rig.zig`: two new IR Tag enum entries (`@"extern_fun"`,
+  `@"extern_sub"`).
+- `src/types.zig`:
+  - `SymbolResolver.walkExternFun` registers the name as
+    `Symbol.kind = .@"extern"` so the M21 raw-at-call-site
+    enforcement keys off the same flag the legacy `extvar`
+    form sets.
+  - `TypeResolver.resolveExternFun` resolves param and return
+    types and stamps a `.function` type on the symbol —
+    mirrors `resolveFun`'s signature-build path without a body
+    walk or fn-scope.
+  - Both arms threaded through the `walk` and `resolveDecl`
+    dispatch.
+- `src/emit.zig`: new `emitExternFun` writes `extern fn
+  name(...) ReturnType;` at module scope. Uses Zig's default
+  extern calling convention (C-compatible). Wired in via the
+  top-level `emitDecl` switch.
+- 3 fixtures: `m23_extern_fun_basic` (positive raw-wrapped
+  call), `m23_extern_fun_no_raw_rejected` (negative — extern
+  call from safe context still rejected), `m23_extern_sub_basic`
+  (extern sub returning Void).
+
+**Out of scope (deliberately deferred).**
+
+- `pub extern fun ...` — the `extvar` form doesn't take `pub`
+  either; the V1 idiom is "private extern + `pub` safe wrapper."
+  A future arc can add pub-wrappable `extvar` and `ext_fun`
+  together if a real use case forces it.
+- Calling-convention syntax (`callconv C extern fun ...`).
+  Existing `CALLCONV name decl` grammar is wired to the
+  body-bearing `decl` chain, not to `ext_fun`. Defer until a
+  real ABI-mismatch use case forces it.
+- Full FFI-friendly type mapping. `extern fn puts(s: []const
+  u8) i32;` emits cleanly, but Rig's `String` lowers to a Zig
+  slice (`[]const u8`) which doesn't satisfy `extern fn`'s
+  in-memory representation requirement at link time. Same
+  pre-existing limitation that affects `extvar` today; M23
+  surfaces it without fixing it. The fix is a separate arc on
+  parameter-type lowering for FFI signatures (probably
+  `String → [*:0]const u8` for extern, with explicit opt-in).
+
+**Tests:** 1113 → 1125 (+12 from new fixtures and goldens).
+Conflict count: 75 → 75 (unchanged).
+
 ### M30 — Fold `fn(...)` function-type spelling into `fun(...)` ✅
 
 The completion of M29's cleanup arc: post-M29, the `FN` token

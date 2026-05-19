@@ -1,0 +1,11 @@
+## M23: extern call from a safe context is still rejected even
+## when the extern is declared via the new body-less `extern fun`
+## form. The M21 raw-at-call-site enforcement keys off
+## `Symbol.kind == .@"extern"`, which both the legacy `extvar`
+## form and the new `extern_fun` form set, so the diagnostic
+## fires uniformly.
+
+extern fun puts(s: String) -> Int
+
+sub main()
+  puts("hi")       # error: extern call requires `raw` block

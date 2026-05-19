@@ -216,6 +216,12 @@ pub const Emitter = struct {
         switch (items[0].tag) {
             .@"fun" => try self.emitFun(items, false),
             .@"sub" => try self.emitFun(items, true),
+            // M23: body-less extern function/sub declarations lower
+            // to Zig `extern fn name(...) ReturnType;` at module
+            // scope. The default extern calling convention is C-
+            // compatible (matches Zig's `extern fn` default).
+            .@"extern_fun" => try self.emitExternFun(items, false),
+            .@"extern_sub" => try self.emitExternFun(items, true),
             .@"use" => try self.emitUse(items),
             .@"struct" => try self.emitStruct(items),
             .@"enum" => try self.emitEnum(items),
@@ -756,6 +762,35 @@ pub const Emitter = struct {
         const name = identText(self.source, items[1]) orelse return;
         if (std.mem.eql(u8, name, "std")) return;
         try self.w.print("const {s} = @import(\"{s}.zig\");\n", .{ name, name });
+    }
+
+    /// M23: emit a body-less extern function/sub as a Zig
+    /// `extern fn name(...) ReturnType;` declaration at module
+    /// scope. IR shapes:
+    ///   (extern_fun name params returns)
+    ///   (extern_sub name params)
+    /// `params` may be `_` (nil) for a no-arg extern; for
+    /// `extern_sub` `returns` is implicit Void. The default extern
+    /// calling convention is C-compatible (matches Zig's default).
+    fn emitExternFun(self: *Emitter, items: []const Sexp, is_sub: bool) Error!void {
+        if (items.len < 2) return;
+        const name = identText(self.source, items[1]) orelse "anon";
+        const params: Sexp = if (items.len >= 3) items[2] else .{ .nil = {} };
+        const returns_node: ?Sexp = if (is_sub or items.len < 4) null else items[3];
+
+        try self.w.print("extern fn {s}(", .{name});
+        try self.emitParams(params);
+        try self.w.writeAll(") ");
+
+        if (is_sub) {
+            try self.w.writeAll("void");
+        } else if (returns_node) |r| {
+            try self.emitType(r);
+        } else {
+            try self.w.writeAll("void");
+        }
+
+        try self.w.writeAll(";\n");
     }
 
     fn emitFun(self: *Emitter, items: []const Sexp, is_sub: bool) Error!void {

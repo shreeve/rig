@@ -91,6 +91,13 @@ pub const Tag = enum(u8) {
     @"sub",
     @"return",
 
+    // M23: body-less extern function declarations.
+    // Surface: `extern fun name(...) -> T` / `extern sub name(...)`
+    // — no body block. Distinct from the body-bearing `(extern (fun
+    // ...))` form: sema and emit branch on tag.
+    @"extern_fun",
+    @"extern_sub",
+
     // M25(1/5): user-defined Drop declaration in a nominal body.
     // Surface: `drop self: !Self` followed by an indented block.
     // IR shape: `(drop_decl params block)` — no user-supplied name

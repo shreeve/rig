@@ -1577,6 +1577,11 @@ const SymbolResolver = struct {
             .@"generic_type", .@"generic_enum" => try self.walkGenericType(items),
             .@"struct", .@"enum", .@"errors", .@"opaque" => try self.walkNominalType(items),
             .@"extern" => try self.walkExtern(items),
+            // M23: body-less extern function declarations register
+            // the same way as extern variables: `Symbol.kind =
+            // .@"extern"`, function-typed; the M21 extern-call-from-
+            // safe-context check already keys off `Symbol.kind`.
+            .@"extern_fun", .@"extern_sub" => try self.walkExternFun(items),
             .@"set" => try self.walkSet(items),
             .@"block" => try self.walkBlock(items[1..]),
             .@"for" => try self.walkFor(items),
@@ -2128,6 +2133,28 @@ const SymbolResolver = struct {
         });
     }
 
+    /// M23: body-less extern function/sub declarations.
+    /// IR shapes:
+    ///   (extern_fun name params returns)  — params and/or returns may be `_` (nil)
+    ///   (extern_sub name params)            — params may be `_` (nil); returns is implicit Void
+    /// Symbol kind matches the extern-variable form so the M21
+    /// extern-call-from-safe-context enforcement key (`Symbol.kind
+    /// == .@"extern"`) fires uniformly. Type resolution happens in
+    /// the TypeResolver pass; this pass only registers the symbol.
+    fn walkExternFun(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
+        if (items.len < 2) return;
+        const name_node = items[1];
+        const name = identAt(self.ctx.source, name_node) orelse return;
+        const decl_pos = if (name_node == .src) name_node.src.pos else 0;
+        _ = try self.addSymbol(.{
+            .name = name,
+            .kind = .@"extern",
+            .ty = self.ctx.types.unknown_id,
+            .decl_pos = decl_pos,
+            .scope = self.current_scope,
+        });
+    }
+
     /// `(set <kind> name type-or-_ expr)` — local binding. Only
     /// `default`, `fixed`, `shadow` introduce new locals; compound
     /// assigns and move-assign reuse an existing slot. The expression
@@ -2412,6 +2439,11 @@ const TypeResolver = struct {
             },
             .@"extern" => {
                 try self.resolveExtern(items, parent_scope);
+                return scope_cursor;
+            },
+            // M23: body-less extern function declarations.
+            .@"extern_fun", .@"extern_sub" => {
+                try self.resolveExternFun(items, parent_scope);
                 return scope_cursor;
             },
             .@"struct" => {
@@ -3403,6 +3435,54 @@ const TypeResolver = struct {
         const ty = try self.resolveType(items[3], parent_scope);
         if (self.ctx.lookup(parent_scope, name)) |sym_id| {
             self.ctx.symbols.items[sym_id].ty = ty;
+        }
+    }
+
+    /// M23: resolve a body-less extern function/sub declaration.
+    /// IR shapes:
+    ///   (extern_fun name params returns)
+    ///   (extern_sub name params)
+    /// Builds a `.function` type from params + returns and stamps it
+    /// on the symbol. Mirrors `resolveFun`'s signature-building
+    /// path but without the body-scope walk.
+    fn resolveExternFun(self: *TypeResolver, items: []const Sexp, parent_scope: ScopeId) std.mem.Allocator.Error!void {
+        if (items.len < 2) return;
+        const is_sub = items[0].tag == .@"extern_sub";
+        const name_node = items[1];
+        const params: Sexp = if (items.len >= 3) items[2] else .{ .nil = {} };
+        const returns_node: Sexp = if (is_sub)
+            .{ .nil = {} }
+        else if (items.len >= 4) items[3] else .{ .nil = {} };
+
+        const return_ty: TypeId = if (is_sub)
+            self.ctx.types.void_id
+        else if (returns_node == .nil)
+            self.ctx.types.void_id
+        else
+            try self.resolveType(returns_node, parent_scope);
+
+        const param_count: usize = if (params == .list) params.list.len else 0;
+        var param_types: std.ArrayListUnmanaged(TypeId) = .empty;
+        defer param_types.deinit(self.ctx.allocator);
+        try param_types.ensureTotalCapacity(self.ctx.allocator, param_count);
+
+        if (params == .list) {
+            for (params.list) |p| {
+                const ptype = try self.resolveParamType(p, parent_scope);
+                param_types.appendAssumeCapacity(ptype);
+            }
+        }
+
+        const owned_params = try self.ctx.arena.allocator().dupe(TypeId, param_types.items);
+        const fn_ty = try self.ctx.types.intern(self.ctx.allocator, .{ .function = .{
+            .params = owned_params,
+            .returns = return_ty,
+            .is_sub = is_sub,
+        } });
+        if (identAt(self.ctx.source, name_node)) |nm| {
+            if (self.ctx.lookup(parent_scope, nm)) |sym_id| {
+                self.ctx.symbols.items[sym_id].ty = fn_ty;
+            }
         }
     }
 

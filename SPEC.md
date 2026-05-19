@@ -1106,6 +1106,40 @@ Extern declarations bypass Rig's ownership / effect contracts;
 the `raw` wrapping requirement forces the caller to
 acknowledge the FFI bargain explicitly.
 
+### Body-less `extern fun` / `extern sub` declarations (M23)
+
+The natural FFI shape: declare an external symbol's signature
+once at the top of a module, no body block. Lowers to Zig's
+`extern fn name(...) ReturnType;` at module scope (default
+calling convention is C-compatible).
+
+```rig
+extern fun puts(s: String) -> Int
+extern sub log_msg(msg: String)
+```
+
+Calls still require a `raw` block per the M21/M22 enforcement —
+the `raw` discipline keys off the symbol's extern kind and fires
+uniformly regardless of whether the symbol was declared via the
+legacy extern-variable form (`extern puts: fun(String) Int`) or
+the body-less form above:
+
+```rig
+sub safe_puts(s: String)
+  raw
+    puts(s)                  # OK — inside `raw`
+```
+
+**V1 deferred for the body-less form:**
+
+- `pub extern fun ...` — `extvar` doesn't take `pub` either;
+  the V1 idiom is "private extern + `pub` safe wrapper."
+- Calling-convention syntax (`callconv C extern fun ...`).
+- FFI-friendly parameter-type lowering — `String` lowers to a
+  Zig slice that doesn't satisfy `extern fn`'s in-memory
+  representation requirement; this is a pre-existing limitation
+  shared with `extvar`.
+
 ### Function declarations vs function-type expressions (M30)
 
 Rig uses a single `fun` keyword for both function declarations

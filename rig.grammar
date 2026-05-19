@@ -284,6 +284,8 @@ stmt     = use
          | decl
          | zig
          | extvar
+         | ext_fun
+         | ext_sub
          | shadow
          | drop
          | typed
@@ -304,6 +306,29 @@ shadow   = NEW name "=" expr                → (set shadow 2 _ 4)
 
 extvar   = EXTERN CONST name ":" type       → (extern fixed 3 5)
          | EXTERN name ":" type             → (extern _     2 4)
+
+# M23: body-less extern function declarations. The natural FFI
+# shape: declare an external symbol's signature once at the top
+# of a module, no body block. Lowers to Zig's `extern fn name(...)
+# ReturnType;` at module scope.
+#
+# Conflict story: `EXTERN FUN name params returns` overlaps the
+# existing `EXTERN decl → defn → fun` body-bearing path. LR(1)
+# disambiguates by the next token after `returns`: INDENT continues
+# the body-bearing form (`EXTERN decl → fun ... block`); NEWLINE /
+# OUTDENT / EOF reduces to `ext_fun`. Shift-prefer-resolved.
+#
+# Pub-extern-fun (`pub extern fun ...`) is intentionally NOT added
+# in this arc — `extvar` doesn't take pub today either; the V1 idiom
+# is "private extern + pub safe wrapper." A future arc can add pub-
+# wrappable extvar/ext_fun together if a real use case forces it.
+ext_fun  = EXTERN FUN name params returns   → (extern_fun 3 4 5)
+         | EXTERN FUN name        returns   → (extern_fun 3 _ 4)
+         | EXTERN FUN name params            → (extern_fun 3 4 _)
+         | EXTERN FUN name                   → (extern_fun 3 _ _)
+
+ext_sub  = EXTERN SUB name params           → (extern_sub 3 4)
+         | EXTERN SUB name                  → (extern_sub 3 _)
 
 zig      = ZIG STRING_SQ                    → (zig 2)
          | ZIG STRING_DQ                    → (zig 2)

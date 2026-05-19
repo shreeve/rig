@@ -46,6 +46,8 @@ and only on the one for-loop that uses `?users`.
 | `x: T =! expr`      | `(set fixed  x T    expr)`  | typed `=!`                                    |
 | `extern x: T`       | `(extern _     x T)`        | extern var                                    |
 | `extern const x: T` | `(extern fixed x T)`        | extern const                                  |
+| `extern fun foo(p: T) -> R` | `(extern_fun foo (...) R)`  | M23: body-less extern function decl   |
+| `extern sub foo(p: T)`      | `(extern_sub foo (...))`    | M23: body-less extern sub decl        |
 | `obj.name`          | `(member obj name)`         | cosmetic (was `(. obj name)`)                 |
 | `f(name: expr)`     | `(kwarg name expr)`         | keyword arg / record sugar (was `(pair ...)`) |
 | `T?`                | `(optional T)`              | suffix optional                               |
@@ -90,6 +92,8 @@ That's it. Everything else passes through unchanged.
 (test desc body)
 (extern <kind> name type)        ; standalone decl; kind = _ (var) | fixed (const)
                                  ; (distinct from the 2-child decoration wrapper `(extern <child>)`)
+(extern_fun name params returns) ; M23: body-less extern function declaration
+(extern_sub name params)         ; M23: body-less extern sub (returns Void)
 (zig string)                     ; raw Zig escape hatch (M2: unsafe)
 (labeled name stmt)
 

@@ -1,10 +1,14 @@
-# Rig — Session Handoff (post-M30 / PB4 — `fn` fully removed)
+# Rig — Session Handoff (post-M23 — body-less `extern fun` / `extern sub`)
 
-**You are picking up a Rig compiler session after M30 and PB4.
-Closure literals are bare bars (`|...| body`), function-type
-expressions use `fun`, and `fn` is fully removed from Rig. PB4
-ships reentrant `Signal.set` queueing/coalescing and locks the
-V1 boundary: reactive libraries stay in userland.**
+**You are picking up a Rig compiler session after M23. Body-less
+extern function and sub declarations are the natural FFI shape now:
+`extern fun puts(s: String) -> Int` and `extern sub log_msg(msg:
+String)` declare external symbols at module scope without a body
+block, and lower to Zig `extern fn ...` declarations. The M21 raw-
+at-call-site enforcement fires uniformly for both this form and the
+legacy `extvar` form. Closure literals are bare bars (`|...|
+body`), function-type expressions use `fun`, and the `fn` keyword
+is gone from Rig.**
 **Phase B + the raw-escape boundary (M22) + the fake-surface
 floor-raising audit (M22.1) + the M22.1.1 runtime rename + the
 M15b cross-module sema (module honesty) + M15b.1 sema-time
@@ -31,7 +35,10 @@ cascade canary `count → total → print` runs end-to-end) +
 **M29 (drop the `fn` keyword from closure literals — bare-bars
 syntax `|+x| body`)** + **M30 (fold the `fn` keyword for
 function-type expressions into `fun`; `extern puts: fun(String)
-Int` — `fn` is fully removed from Rig)** all shipped end-to-end. The reactive canary
+Int` — `fn` is fully removed from Rig)** + **M23 (body-less
+`extern fun` / `extern sub` declarations — the natural FFI shape
+that was a known V1 ergonomics gap, now closed)** all shipped
+end-to-end. The reactive canary
 (`examples/reactive_canary.rig`) demonstrates the full Cell +
 closure + Vec-iteration + Signal chain producing
 `1\n3\n13\n7\n99\n111\n111`; M25's canaries
@@ -44,7 +51,7 @@ library — a monomorphic `IntSource` with subscribe / set /
 notify, end-to-end on the substrate; M28's canary
 (`examples/m28_multi_capture_cascade.rig`) demonstrates a
 two-source reactive cascade (`count → total → print`) using
-multi-capture closures. **1113 tests passing, 0 failing.
+multi-capture closures. **1125 tests passing, 0 failing.
 Clean tree on `main`.** The substrate ladder Layers 0–7 + the cross-cutting Drop +
 Cell-non-Copy work (Layers 7.5 and 7.6) are all complete, the
 reactive primitive is in its V1 final form, the safety boundary
@@ -108,7 +115,7 @@ forward-arc menu** in §13.
 ```bash
 git pull --ff-only
 git log -1 --format='%h %s'        # most recent commit; at/after M30/PB4
-./test/run 2>&1 | tail -3          # should say "1113 passed, 0 failed"
+./test/run 2>&1 | tail -3          # should say "1125 passed, 0 failed"
 bin/rig run examples/reactive_canary.rig    # 1\n3\n13\n7\n99\n111\n111
 bin/rig run examples/signal_multi_subscriber.rig  # 0\n111\n222
 bin/rig check examples/raw_outside_rejected.rig   # error msg
@@ -1007,14 +1014,20 @@ NOT promises to ship.
     - **Legacy global name-scan retirement** in `emit.zig`
       (M20a.2 + M20e.1 partial). Internal cleanup; standalone
       arc now that M15b.2 is shipped.
-    - **Body-less `extern fun`/`extern sub` declarations**
-      (M23). Per GPT-5.5 entry 39: "a more urgent FFI hole
-      than raw-fun [the deferred body-less raw function
-      modifier], honestly. `extern puts: fun(String) Int`
-      works, but it is not the ergonomic or readable shape
-      users will expect." *(Quote post-M30-normalized: GPT-5.5
-      originally wrote `raw-fn` / `extern puts: fn(String)
-      Int`; vocabulary updated for consistency.)*
+    - ~~**Body-less `extern fun`/`extern sub` declarations**
+      (M23)~~ ✅ **Landed in M23.** New top-level grammar
+      productions `ext_fun` / `ext_sub` parallel to `extvar`
+      with IR shapes `(extern_fun name params returns)` and
+      `(extern_sub name params)`. Sema registers as
+      `Symbol.kind = .@"extern"` so the M21 raw-at-call-site
+      enforcement fires uniformly for both legacy `extvar` and
+      the new body-less form. Emit lowers to Zig
+      `extern fn name(...) ReturnType;` at module scope. **No
+      conflict-count change** (75 → 75). Deferred follow-ups:
+      `pub extern fun ...` (matches `extvar`'s pub-gap), explicit
+      calling-convention syntax, and FFI-friendly parameter-type
+      lowering (e.g., `String → [*:0]const u8` for extern
+      signatures).
     - **Closure-with-args** (M24: `Closure1<T>`,
       `Closure2<A,B>`) beyond no-arg `Closure()`. Required
       for any callback-based API that takes arguments.

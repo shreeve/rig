@@ -124,7 +124,8 @@ These are guardrails. Each has caused or threatened real harm.
 ## What "complete the Rig language" means
 
 Phase B is shipped (substrate ladder Layers 0–7 plus the Layer
-7.x follow-ons through M30; 1113 tests passing). The next
+7.x follow-ons through M30 plus M23 body-less extern; 1125 tests
+passing). The next
 forward arcs are listed in `HANDOFF.md` §13:
 
 - **Category A — Substrate cleanup**: body-less `extern fun` /

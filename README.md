@@ -13,7 +13,7 @@ happens.
 > **Status: pre-release compiler prototype.** Rig has a working V1
 > ownership / resource substrate and synchronous reactive canaries.
 > A standard library, async, structured concurrency, package
-> ergonomics, and full FFI ergonomics are still in progress. **1113
+> ergonomics, and full FFI ergonomics are still in progress. **1125
 > tests passing, 0 failing** on `main` as of M30. Expect breaking
 > changes.
 
