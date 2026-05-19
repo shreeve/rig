@@ -1028,9 +1028,45 @@ NOT promises to ship.
       calling-convention syntax, and FFI-friendly parameter-type
       lowering (e.g., `String → [*:0]const u8` for extern
       signatures).
-    - **Closure-with-args** (M24: `Closure1<T>`,
-      `Closure2<A,B>`) beyond no-arg `Closure()`. Required
+    - **Closure-with-args** (M24: `Closure1(T)`,
+      `Closure2(A, B)`) beyond no-arg `Closure()`. Required
       for any callback-based API that takes arguments.
+      **M24(1/5) prep landed:** runtime types
+      `Closure1(T)` / `Closure2(A, B)` are present in
+      `src/runtime.zig` as compile-verified Zig (currently
+      inert — unreachable from user code until sema /
+      ownership / emit are wired up). The `Closure0` family's
+      design discipline (per-literal env struct + type-erased
+      `*anyopaque` ctx + invoke/drop thunks + allocator) is
+      preserved verbatim with one extra arg threaded through
+      the invoke signature. **Grammar verified** — the
+      existing `captures params block` form already accepts
+      arity-bearing closure literals (probe parses
+      `|+x| (a)\n  body` to `(lambda (captures (cap_clone x))
+      (a) _ (block ...))`). **Next-session continuation
+      point:**
+        - M24(2/5) sema: register `Closure1` and `Closure2`
+          as builtin parameterized nominals (parallel to
+          `Cell` / `Vec` / `Closure`); add
+          `closure1_sym_id` / `closure2_sym_id` fields on
+          `SemContext`; thread them through every predicate
+          that keys off `closure_sym_id` (search-and-grep
+          pattern). Enforce Copy-only arg types and
+          void-only body per GPT-5.5's design lock.
+        - M24(3/5) ownership: generalize the M20h escape
+          whitelist `*Closure(...)` to also accept
+          `*Closure1(T)(...)` and `*Closure2(A, B)(...)`
+          constructor shapes.
+        - M24(4/5) emit: extend `emitClosure*` to take a
+          declared-arity parameter, emit the env struct's
+          `rigInvoke` with the right arg types, and
+          construct the right runtime type (`rig.Closure1(T)`
+          / `rig.Closure2(A, B)`) at the
+          `*Closure1(...)(|+x| (a) body)` shape.
+        - M24(5/5) tests + canary: a `Memo`-shaped fixture
+          showing `*Closure1(Int)(|+x| (a) ...)` end-to-
+          end. Higher arity (`Closure3+`) deferred until a
+          real fixture forces it.
     - ~~**User-defined `Drop` / non-Copy resource values**
       (M25)~~ ✅ **Landed in M25.** User `drop self: !Self`
       declarations on plain structs work end-to-end:

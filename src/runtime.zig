@@ -354,6 +354,55 @@ pub const source =
     \\    }
     \\};
     \\
+    \\/// Closure1(T) — M24 type-erased one-arg / void-return closure.
+    \\///
+    \\/// Same shape as Closure0 with a single trailing argument
+    \\/// threaded through the per-literal invoke thunk. Each literal
+    \\/// generates its own anonymous env struct; the `T` argument is
+    \\/// passed directly to the user-authored body. V1 restricts
+    \\/// `T` to Copy types — non-Copy resource arguments require a
+    \\/// separate ownership-policy decision (clone? borrow? move?)
+    \\/// that's out of scope for M24.
+    \\pub fn Closure1(comptime T: type) type {
+    \\    return struct {
+    \\        ctx: *anyopaque,
+    \\        invoke_fn: *const fn (*anyopaque, T) void,
+    \\        drop_fn: *const fn (*anyopaque, std.mem.Allocator) void,
+    \\        allocator: std.mem.Allocator,
+    \\
+    \\        const Self = @This();
+    \\
+    \\        pub fn invoke(self: *Self, arg: T) void {
+    \\            self.invoke_fn(self.ctx, arg);
+    \\        }
+    \\
+    \\        pub fn __rig_drop(self: *Self) void {
+    \\            self.drop_fn(self.ctx, self.allocator);
+    \\        }
+    \\    };
+    \\}
+    \\
+    \\/// Closure2(A, B) — M24 type-erased two-arg / void-return closure.
+    \\/// Same discipline as Closure1 with two args.
+    \\pub fn Closure2(comptime A: type, comptime B: type) type {
+    \\    return struct {
+    \\        ctx: *anyopaque,
+    \\        invoke_fn: *const fn (*anyopaque, A, B) void,
+    \\        drop_fn: *const fn (*anyopaque, std.mem.Allocator) void,
+    \\        allocator: std.mem.Allocator,
+    \\
+    \\        const Self = @This();
+    \\
+    \\        pub fn invoke(self: *Self, a: A, b: B) void {
+    \\            self.invoke_fn(self.ctx, a, b);
+    \\        }
+    \\
+    \\        pub fn __rig_drop(self: *Self) void {
+    \\            self.drop_fn(self.ctx, self.allocator);
+    \\        }
+    \\    };
+    \\}
+    \\
     \\/// PB3 + PB4: `Signal(T)` — multi-subscriber reactive primitive.
     \\///
     \\/// **Canary status (PB4, per GPT-5.5 entry 33).** Signal(T) is
