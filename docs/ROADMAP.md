@@ -3044,6 +3044,64 @@ items 1–8 land, build `rig-reactive` in a branch as a ~500-line
 library that exercises the substrate end-to-end. If anything in
 1–8 doesn't compose, fix the language, not the library.
 
+## V1.x — Tooling and semantic-export layer
+
+Once the V1 substrate is locked, the next priority is making the
+language's existing semantic facts *consumable* by external tools
+(editors, audit harnesses, doc / test / canary generators, AI
+peer-review tooling). This layer is a **projection over the
+existing `SemContext` + IR Tags** — not a new IR, not a redesign,
+not a positioning pivot. The visible-effects thesis (SPEC §Overview
+and `docs/SEMANTIC-SEXP.md`) is what makes Rig useful to tooling;
+this milestone just exposes those facts cleanly.
+
+### V1.x(1) — `rig sema --json` v0 (stable semantic export)
+
+A versioned, AI/tool-facing JSON projection of `SemContext`. The
+exported schema becomes part of Rig's public contract; the internal
+S-expression IR remains free to evolve.
+
+**Surface (minimum viable):**
+
+- module / declaration IDs with source spans
+- symbol table entries (name, kind, visibility, origin module)
+- resolved types (canonical TypeIds + structural rendering)
+- effect sets per declaration (fallibility, mutation, raw, pre)
+- ownership operations per binding (move / read / write / clone /
+  drop / share / weak / raw)
+- closure capture lists with mode (`+` / `<` / `~` / value)
+- call-graph edges (caller decl → callee decl, kwarg shapes)
+- diagnostics carrying semantic IDs, not just line numbers
+
+**Excludes (deliberately):**
+
+- the internal S-expression IR shape (free to evolve; use
+  `bin/rig normalize` for the unstable view)
+- emit-layer Zig text (use `bin/rig build` for that)
+- runtime values / execution traces
+
+**Versioning:** schema version is the contract. Adding fields is
+non-breaking; renaming or removing fields requires a version bump.
+
+### V1.x(2) — `rig graph` (derived view, optional)
+
+A dataflow / effect / ownership graph projection over the
+`sema --json` export. Introduces no new semantic facts — it
+re-renders existing ones into a form better suited for
+visualization, dependency analysis, and tool consumption. May
+ship experimental at first; hardens once the export schema
+proves stable.
+
+### Non-goal: marketing pivot
+
+Rig is **not** "the AI language." The visible-effects thesis is
+what makes Rig useful to AI tooling, but the language remains a
+systems language with a human-readable surface. Per the
+INFLUENCES.md strategic rules: fix the contract, not the
+diagram. AI-coding workflows benefit from Rig the same way
+editors and static-analysis tools benefit — by reading facts the
+language carries explicitly, instead of guessing.
+
 ## Beyond V1 (deferred per SPEC §V2/V3)
 
 Multi-threaded shared ownership (`Arc<T>` / `Send` / `Sync`),

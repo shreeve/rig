@@ -759,6 +759,25 @@ These are the rules INFLUENCES.md is committing to memory:
    candidates; `expr^` is deliberately NOT proposed to keep
    the suffix-sigil family small.
 
+9. **Rig is the contract for human and tool consumption. AI
+   works in the language, not around it.** The visible-effects
+   thesis (SPEC §Overview second paragraph,
+   `docs/SEMANTIC-SEXP.md` design rule) is what makes Rig
+   useful to AI tooling — every effect that other languages
+   push to runtime convention is a first-class IR Tag in Rig.
+   Tools (and AI) read those facts; they do not have to guess.
+   That is the AI-relevant claim, and it is downstream of
+   rules 1, 3, and 8 — not an independent direction.
+   **Do NOT pivot Rig's positioning to "the AI language."**
+   That framing invites natural-language-input + opaque-
+   generation expectations, the inverse of Rig's thesis. The
+   right action when AI consumability matters is to expose
+   the existing semantic facts cleanly (e.g., the V1.x
+   `rig sema --json` export in `docs/ROADMAP.md`), not to
+   restructure the language around AI-shaped use cases.
+   Per the GPT-5.5 review (conversation
+   `c_351a16579461fb9b`): fix the contract, not the diagram.
+
 ---
 
 ## 11. What this means for the current arc

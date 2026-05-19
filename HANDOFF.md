@@ -247,6 +247,23 @@ Violating any of them will silently corrupt the substrate.
   `pre INDENT body OUTDENT`, `try INDENT body OUTDENT
   [catch ...]`, `zig "..."`. Reserved-surface tests live in
   `examples/*_reserved.rig` and `examples/resource_temp_*_rejected.rig`.
+- **Visible source effects must survive as visible semantic
+  Tags through lowering.** This is the language-wide thesis
+  the M20+ substrate ladder protects (SPEC §Overview second
+  paragraph; `docs/SEMANTIC-SEXP.md` design rule). Ownership
+  operations, failure propagation, compile-time specialization,
+  capture modes, and the raw-escape boundary all emit as
+  first-class IR nodes the checkers and emitter consume by
+  name. A feature that hides ownership, mutation, failure,
+  capture, or escape under runtime convention or inferred
+  annotation is suspect — even if the feature is otherwise
+  desirable. New arcs that add capability without making any
+  new effect explicit OR unifying multiple ad-hoc mechanisms
+  fail INFLUENCES.md §10 rule 1, and they erode the AI/tool
+  consumability story (`docs/ROADMAP.md` §V1.x). The
+  M22.1 "no parsed-but-not-enforced" invariant is the syntax-
+  level corollary of this rule; this invariant is the
+  semantic-level statement.
 - **Grammar conflict count: 69** (was 38 pre-M20h; +31 from
   the M20h(2/5) inline-call lambda body). All benign S/R with
   prefer-shift; reviewed and accepted.
@@ -950,10 +967,35 @@ NOT promises to ship.
     - **Persistent / CHAMP-backed collections** — see
       INFLUENCES §6.
 
+  **C. V1.x tooling layer** — see `docs/ROADMAP.md` §V1.x.
+       Smaller scope than Category A or B; no design checkpoint
+       required (it's a projection over the existing
+       `SemContext` + IR Tags, not a new IR). Reasonable to
+       interleave between Category A items.
+    - **`rig sema --json` v0** (V1.x(1)) — stable, versioned,
+      AI/tool-facing JSON projection of `SemContext`. Surface:
+      module / decl IDs with source spans, symbol table,
+      resolved types, effect sets per decl, ownership ops per
+      binding, closure captures with mode, call-graph edges,
+      diagnostics carrying semantic IDs. Excludes: the internal
+      S-expression IR shape (free to evolve) and emit-layer Zig
+      text. Schema version IS the public contract.
+    - **`rig graph`** (V1.x(2)) — derived dataflow / effect /
+      ownership graph view over the `sema --json` export. No
+      new semantic facts; pure projection. Optional;
+      experimental until the export schema is stable.
+
+    Non-goal for Category C: any direction shift toward "Rig as
+    AI-native language" marketing. The visible-effects thesis
+    is what makes Rig useful to AI tooling; this category just
+    exposes those facts cleanly (per INFLUENCES §10 rule 9).
+
   **My read**: Category A is more aligned with making Rig a
   usable systems language; Category B is more aligned with
-  pushing the substrate forward. Steve picks based on what
-  use case is pulling on him next.
+  pushing the substrate forward; Category C unlocks the
+  external tooling / AI-peer-review surface without changing
+  the language. Steve picks based on what use case is pulling
+  on him next.
 
 - **Maintain the cadence**: design checkpoint → sub-commits →
   post-impl review. The cadence has caught real correctness

@@ -16,6 +16,21 @@ Rig is not trying to become "Rust with prettier syntax." The core philosophy is:
 
 Rig aims to make ownership, mutation, transfer, failure propagation, compile-time specialization, and iteration semantics explicit and lightweight.
 
+The complement to that philosophy is the IR invariant in
+`docs/SEMANTIC-SEXP.md`: **visible source effects survive as visible
+semantic Tags through lowering.** Ownership operations (`<x` / `?x`
+/ `!x` / `+x` / `-x` / `*x` / `~x` / `%x`), failure propagation
+(`expr!`), compile-time specialization (`pre`), capture modes
+(`|+x|` / `|<x|` / `|~x|` / `|x|`), and the raw-escape boundary
+(`raw` block) all emit as first-class IR nodes the checkers and
+emitter consume by name — not as comments, not as inferred
+annotations, not as runtime convention. Tools that read Rig's
+semantic IR therefore see the same facts the compiler does,
+without speculation. This is the design property the M20+
+substrate ladder (`docs/INFLUENCES.md` §1) protects, and it is
+what a future stable semantic export (`rig sema --json`, see
+`docs/ROADMAP.md` §V1.x) will project for external consumers.
+
 Rig compiles to Zig.
 
 Rig itself performs:
