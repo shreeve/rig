@@ -4948,6 +4948,13 @@ const ExprChecker = struct {
         // Unresolved name: defer to ownership/effects passes for
         // diagnostic. Returning `unknown_id` lets type checking
         // proceed without cascading errors.
+        //
+        // M15b(4/5) deferral: GPT-5.5 entry 39 called for a sema-
+        // time "use of unbound name" diagnostic here. The check is
+        // deferred to M15b.1 because it exposes pre-existing scope-
+        // tracking gaps in if-/match-/lambda-branch handling that
+        // would mis-flag legitimate bindings. See the parallel
+        // deferral note in `synthCall`'s unknown-callee branch.
         _ = pos;
         return self.ctx.types.unknown_id;
     }
@@ -5256,6 +5263,17 @@ const ExprChecker = struct {
         }
 
         // Unknown callee: synth args anyway so nested type errors fire.
+        //
+        // M15b(4/5) deferral: GPT-5.5 entry 39 called for unbound-
+        // name detection here (the "use of unbound name `nonexistent_fn`"
+        // diagnostic). Implementing it cleanly requires (a) updating
+        // the ~15 existing examples that intentionally reference
+        // undeclared placeholders (`User`, `rename`, etc.) to test
+        // ownership/borrow rules without a full type context, and
+        // (b) harmonizing scope traversal between SymbolResolver and
+        // ExprChecker for if-/match-/lambda-branch bindings. Both are
+        // non-trivial follow-ups; deferred to M15b.1 alongside the
+        // legacy global-scan retirement that's also adjacent.
         for (items[1..]) |arg| _ = try self.synthExpr(arg);
         return self.ctx.types.unknown_id;
     }

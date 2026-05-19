@@ -1,6 +1,7 @@
 # A fuller showcase touching most Rig V1 surface.
-
-use std
+#
+# M15b(4/5): `use std` is reserved in V1; removed from the showcase
+# (was carrying the same fake-surface smell M22.1 closed elsewhere).
 
 fun add(a: Int, b: Int) -> Int
   a + b

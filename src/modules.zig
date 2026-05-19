@@ -380,8 +380,20 @@ pub const ModuleGraph = struct {
             const local_name = m.source[child.list[1].src.pos..][0..child.list[1].src.len];
             const pos: u32 = child.list[1].src.pos;
 
-            // Skip `use std` — that's the Zig stdlib, not a Rig module.
-            if (std.mem.eql(u8, local_name, "std")) continue;
+            // M15b(4/5) per GPT-5.5 entry 39: `use std` is reserved
+            // in V1. Pre-M15b(4/5) this silently no-op'd, leaving
+            // `std.foo()` to type as `unknown` and lower to literal
+            // `std.foo()` Zig — pure fake-surface (the same anti-
+            // pattern M22.1 closed for `@x` / `try_block` / `zig
+            // "..."`). V1 doesn't expose a `std` namespace; if it
+            // returns in V2 it needs a real design pass (Rig
+            // re-exports vs Zig stdlib pass-through vs something
+            // else). For now, emit a clean Rig diagnostic so users
+            // see the reservation explicitly.
+            if (std.mem.eql(u8, local_name, "std")) {
+                try self.errAt(id, pos, "`use std` is reserved in V1; Rig does not yet expose a std module namespace. Future syntax (likely `use zig.std` or an explicit raw/extern interop form) needs a real design pass.", .{});
+                continue;
+            }
 
             // Build the candidate path: <importer_dir>/<local_name>.rig.
             const filename = try std.fmt.allocPrint(self.arena.allocator(), "{s}.rig", .{local_name});
