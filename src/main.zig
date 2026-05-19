@@ -139,38 +139,34 @@ fn normalizeAndPrint(allocator: std.mem.Allocator, io: std.Io, source: []const u
 }
 
 fn checkAndReport(allocator: std.mem.Allocator, io: std.Io, source: []const u8, file_path: []const u8) !void {
-    var p = parser.Parser.init(allocator, source);
-    defer p.deinit();
+    // M15b per GPT-5.5 entry 39: `check` now uses the ModuleGraph so
+    // multi-file projects are checked transitively + cross-module
+    // sema/effects/ownership errors surface in `bin/rig check` (not
+    // just `build` / `run`). Pre-M15b, `check` only ran the
+    // single-file pipeline, which silently passed cross-module
+    // contract violations — the M22.1 fake-surface anti-pattern at
+    // the driver level.
+    //
+    // `source` is read but unused here; kept in the signature to
+    // avoid disturbing the call site. The ModuleGraph re-reads the
+    // root file via its own I/O path (same shape as `build`/`run`).
+    _ = source;
 
-    const ir = p.parseProgram() catch {
-        p.printError();
+    var graph = modules.ModuleGraph.init(allocator, io);
+    defer graph.deinit();
+
+    _ = graph.loadRoot(file_path) catch |err| {
+        std.debug.print("error: failed to load `{s}`: {}\n", .{ file_path, err });
         std.process.exit(1);
     };
-
-    // Sema → Effects → Ownership. Sema produces the symbol/type
-    // context; effects.Checker now consumes sema directly (no
-    // duplicate signature scan). Ownership still operates
-    // independently — M5(5/n) wires it through.
-    var sema = try types.check(allocator, source, ir);
-    defer sema.deinit();
-
-    var eff = try effects.Checker.initWithSema(allocator, source, &sema);
-    defer eff.deinit();
-    try eff.check(ir);
-
-    var checker = try ownership.Checker.initWithSema(allocator, source, &sema);
-    defer checker.deinit();
-    try checker.check(ir);
 
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
     const w: *std.Io.Writer = &stdout_writer.interface;
-    try sema.writeDiagnostics(file_path, w);
-    try eff.writeDiagnostics(file_path, w);
-    try checker.writeDiagnostics(file_path, w);
+    try graph.writeAllDiagnostics(w);
     try w.flush();
 
-    if (sema.hasErrors() or eff.hasErrors() or checker.hasErrors()) std.process.exit(1);
+    if (graph.hasErrors()) std.process.exit(1);
 }
 
 /// Bundle returned from `parseAndCheckOrExit`. The caller owns both

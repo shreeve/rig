@@ -406,6 +406,17 @@ pub const Checker = struct {
             }
         }
 
+        // M15b per GPT-5.5 entry 39: cross-module call dispatch
+        // `(call (member <module> <fn>) args)`. Same effect checks as
+        // same-file calls — fallibility, extern-raw — but the lookup
+        // path goes through `foreign_semas` to the imported module's
+        // SemContext. Replaces the M15-era silent-pass behavior.
+        if (callee == .list and callee.list.len >= 3 and
+            callee.list[0] == .tag and callee.list[0].tag == .@"member")
+        {
+            try self.walkCrossModuleCall(callee.list, items[2..]);
+        }
+
         // Recurse into callee + each arg with handle context cleared,
         // since arguments are positions where a fallible value would be
         // silently consumed too.
@@ -413,6 +424,57 @@ pub const Checker = struct {
         self.in_handle_context = false;
         for (items[1..]) |child| try self.walk(child);
         self.in_handle_context = prev;
+    }
+
+    /// M15b: validate effect contracts for a cross-module call
+    /// `(call (member <module> <fn>) args)`. Mirrors the same-file
+    /// `walkCall` branch: looks up the foreign function in the
+    /// importer's `foreign_semas`, checks fallibility / extern-ness,
+    /// and fires the same diagnostics with the qualified name
+    /// (`module.fn`) so users see consistent messages regardless of
+    /// where the callee lives.
+    fn walkCrossModuleCall(self: *Checker, callee_items: []const Sexp, args: []const Sexp) Error!void {
+        _ = args;
+        const obj = callee_items[1];
+        const name_node = callee_items[2];
+        if (obj != .src or name_node != .src) return;
+        const sema = self.sema orelse return;
+
+        const module_name = self.source[obj.src.pos..][0..obj.src.len];
+        const sym_id = sema.lookup(1, module_name) orelse return;
+        const module_sym = sema.symbols.items[sym_id];
+        if (module_sym.kind != .module) return;
+
+        const origin_module_id = sema.module_refs.get(sym_id) orelse return;
+        const foreign = sema.foreign_semas.get(origin_module_id) orelse return;
+        if (foreign.scopes.items.len < 2) return;
+
+        const method_name = self.source[name_node.src.pos..][0..name_node.src.len];
+        const method_pos: u32 = name_node.src.pos;
+        const module_scope = foreign.scopes.items[1];
+        for (module_scope.symbols.items) |fsym_id| {
+            const fsym = foreign.symbols.items[fsym_id];
+            if (!std.mem.eql(u8, fsym.name, method_name)) continue;
+
+            // Fallibility: walk the foreign function's return type for
+            // the `.fallible` variant.
+            if (fsym.kind == .function and !self.in_handle_context) {
+                const foreign_fn_ty = foreign.types.get(fsym.ty);
+                if (foreign_fn_ty == .function) {
+                    const ret = foreign.types.get(foreign_fn_ty.function.returns);
+                    if (ret == .fallible) {
+                        try self.err(method_pos, "fallible call to `{s}.{s}` must be wrapped with `!` (propagate) or `catch` (handle)", .{ module_name, method_name });
+                    }
+                }
+            }
+            // Extern obligation: the call site needs a `raw` wrap
+            // when the foreign symbol is an extern, regardless of
+            // which module declared it.
+            if (fsym.kind == .@"extern" and !self.inRawContext()) {
+                try self.err(method_pos, "call to extern function `{s}.{s}` requires `raw` block; wrap the call in `raw INDENT body OUTDENT`. Extern declarations are the FFI boundary and bypass Rig's ownership / effect contracts.", .{ module_name, method_name });
+            }
+            return;
+        }
     }
 
     // -------------------------------------------------------------------------

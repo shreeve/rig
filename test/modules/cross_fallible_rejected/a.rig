@@ -1,0 +1,2 @@
+pub fun parse_int(s: String) -> Int!
+  return 42

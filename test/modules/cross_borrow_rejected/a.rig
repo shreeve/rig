@@ -1,0 +1,9 @@
+pub struct Box
+  value: Int
+
+pub fun make_box(v: Int) -> Box
+  Box(value: v)
+
+# Public fn requires a read borrow (`?b`) of its argument.
+pub sub log_box(b: ?Box)
+  print(b.value)

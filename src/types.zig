@@ -133,6 +133,16 @@ pub const Type = union(enum) {
     /// `SemContext.symbols[symbol]`.
     nominal: SymbolId,
 
+    /// M15b: an imported nominal from another module. Carries the
+    /// origin module's id + the foreign symbol id. Per GPT-5.5 entry
+    /// 39's M15b architecture call: nominal identity is `{module_id,
+    /// sym_id}`, not structural — `a.Box` and `b.Box` are different
+    /// types even if their fields are identical (nominal-by-name is
+    /// not nominal-by-shape). Imported nominals are accessed by
+    /// helpers that walk `ctx.foreign_semas` to read the foreign
+    /// symbol's fields/methods.
+    imported_nominal: ImportedNominal,
+
     /// M20b(2/5): a fully-applied generic type instantiation. `sym`
     /// points at the generic_type Symbol (e.g., `Box`); `args` are
     /// the type arguments in declaration order (e.g., `[Int]` for
@@ -153,6 +163,34 @@ pub const Type = union(enum) {
 pub const ParamNominal = struct {
     sym: SymbolId,
     args: []const TypeId,
+};
+
+/// M15b per GPT-5.5 entry 39: identity for a nominal type imported
+/// from another module. `module_id` is the origin module's id (as
+/// assigned by the ModuleGraph driver); `sym_id` is the foreign
+/// symbol id of the nominal declaration in the origin module's
+/// SemContext. Type equality is `(module_id, sym_id)` pairwise —
+/// `a.Box` and `b.Box` never compare equal, and the importer never
+/// loses track of which file declared a type. Foreign field/method
+/// lookup goes through `ctx.foreign_semas[module_id]`.
+pub const ImportedNominal = struct {
+    module_id: u32,
+    sym_id: SymbolId,
+};
+
+/// M15b: imported-module descriptor passed from the ModuleGraph to
+/// `types.checkWithImports`. The driver builds one `ImportEntry`
+/// per resolved `use NAME` declaration in the importing module.
+///
+/// The `sema` pointer must outlive the importer's SemContext (the
+/// ModuleGraph allocates per-module SemContexts on the heap with
+/// pointer stability per `modules.zig:97-128`). `module_id` is the
+/// origin module's stable id, used as the canonical nominal-origin
+/// key (see `ImportedNominal`).
+pub const ImportEntry = struct {
+    local_name: []const u8,
+    sema: *SemContext,
+    module_id: u32,
 };
 
 /// Type interner. Ensures structural equality for atomic types
@@ -251,6 +289,13 @@ pub const TypeStore = struct {
                 break :blk true;
             },
             .nominal => |an| an == b.nominal,
+            // M15b: imported nominals compare by (module_id, sym_id).
+            // Different modules with same-shaped types are NOT equal —
+            // nominal-by-name, not nominal-by-shape.
+            .imported_nominal => |an| blk: {
+                const bn = b.imported_nominal;
+                break :blk an.module_id == bn.module_id and an.sym_id == bn.sym_id;
+            },
             .parameterized_nominal => |an| blk: {
                 const bn = b.parameterized_nominal;
                 if (an.sym != bn.sym) break :blk false;
@@ -503,6 +548,29 @@ pub const SemContext = struct {
     /// shadowing).
     for_source_vec_info: std.AutoHashMapUnmanaged(u32, VecIterInfo) = .empty,
 
+    /// M15b per GPT-5.5 entry 39: this module's stable id, assigned
+    /// by the `ModuleGraph` driver. `0` for single-file builds
+    /// (`bin/rig check` of a lone file with no imports).
+    module_id: u32 = 0,
+
+    /// M15b: descriptors for modules imported via `use NAME` in this
+    /// module's source. Populated by `checkWithImports`; consulted by
+    /// `SymbolResolver.walkUse` to populate `module_refs`.
+    imports: []const ImportEntry = &.{},
+
+    /// M15b: per-`use NAME` symbol → origin module id. Populated by
+    /// `SymbolResolver.walkUse` when a `(use NAME)` declaration
+    /// resolves to a real entry in `ctx.imports`. Used by
+    /// `synthMember` to dispatch qualified access (`a.foo`) into
+    /// the imported module's SemContext.
+    module_refs: std.AutoHashMapUnmanaged(SymbolId, u32) = .empty,
+
+    /// M15b: origin module_id → foreign SemContext pointer. Maintained
+    /// in parallel with `imports` for O(1) cross-module sema lookups
+    /// from helpers that only have a `module_id` (e.g., reading a
+    /// foreign nominal's field list from an `imported_nominal` Type).
+    foreign_semas: std.AutoHashMapUnmanaged(u32, *SemContext) = .empty,
+
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
             .allocator = allocator,
@@ -531,6 +599,8 @@ pub const SemContext = struct {
         self.diagnostics.deinit(self.allocator);
         self.lambda_return_types.deinit(self.allocator);
         self.for_source_vec_info.deinit(self.allocator);
+        self.module_refs.deinit(self.allocator);
+        self.foreign_semas.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -641,8 +711,35 @@ pub fn check(
     source: []const u8,
     ir: Sexp,
 ) !SemContext {
+    return checkWithImports(allocator, source, ir, &.{}, 0);
+}
+
+/// M15b per GPT-5.5 entry 39: cross-module-aware sema entry. The
+/// ModuleGraph driver constructs the `imports` slice (one entry per
+/// resolved `use NAME` in this module's source) BEFORE calling this
+/// function. The SymbolResolver consults `imports` to bind each
+/// `(use NAME)` symbol to its origin module id, enabling qualified
+/// member access (`a.foo`) to dispatch into the imported module's
+/// SemContext via `ctx.foreign_semas`.
+///
+/// Single-file callers (e.g., `bin/rig check foo.rig` with no module
+/// graph) call `check` instead, which forwards to this with
+/// `imports = &.{}` and `module_id = 0`.
+pub fn checkWithImports(
+    allocator: std.mem.Allocator,
+    source: []const u8,
+    ir: Sexp,
+    imports: []const ImportEntry,
+    module_id: u32,
+) !SemContext {
     var ctx = try SemContext.init(allocator, source);
     errdefer ctx.deinit();
+
+    ctx.module_id = module_id;
+    ctx.imports = imports;
+    for (imports) |imp| {
+        try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
+    }
 
     // Pass 1: symbol resolution.
     const module_scope = try ctx.pushScope(scope_invalid);
@@ -1513,13 +1610,28 @@ const SymbolResolver = struct {
         if (items.len < 2) return;
         const name = identAt(self.ctx.source, items[1]) orelse return;
         const decl_pos = if (items[1] == .src) items[1].src.pos else 0;
-        _ = try self.addSymbol(.{
+        const sym_id = try self.addSymbol(.{
             .name = name,
             .kind = .module,
             .ty = self.ctx.types.unknown_id,
             .decl_pos = decl_pos,
             .scope = self.current_scope,
         });
+        // M15b: bind the `(use NAME)` symbol to its origin module id
+        // by matching `NAME` against `ctx.imports` (populated by the
+        // ModuleGraph driver before `checkWithImports` runs). If no
+        // match, the import either wasn't resolved or this is a
+        // single-file build with no module graph — leave `module_refs`
+        // empty and the qualified-access path in `synthMember` will
+        // fall through to its legacy "type as unknown" behavior.
+        // M15b(4/5) will close the remaining hole via an unbound-name
+        // diagnostic for unresolved cross-module references.
+        for (self.ctx.imports) |imp| {
+            if (std.mem.eql(u8, imp.local_name, name)) {
+                try self.ctx.module_refs.put(self.ctx.allocator, sym_id, imp.module_id);
+                break;
+            }
+        }
     }
 
     fn walkTypeAlias(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
@@ -3331,6 +3443,142 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
     };
 }
 
+/// M15b per GPT-5.5 entry 39: re-intern a foreign TypeId into the
+/// local TypeStore. Walks the foreign type recursively; primitive /
+/// structural variants intern locally with mapped children; nominal
+/// leaves map to `imported_nominal` carrying the foreign module's id
+/// + the foreign symbol id (canonical nominal origin identity, NOT
+/// structural equality).
+///
+/// `origin_module_id` is the module_id of the SemContext that owns
+/// the foreign TypeId. Nominal types declared there get tagged with
+/// that id so `a.Box` and `b.Box` remain distinct types in the
+/// importer even if their fields happen to match.
+///
+/// Limitations (V1):
+///   - `type_var` is preserved as-is (foreign symbol id is opaque to
+///     the importer; type_vars should not escape a generic body's
+///     resolved use sites in practice). If a foreign generic body
+///     leaks a type_var into a public signature, M15b(3/5)'s public-
+///     API legality check should reject that signature; until then
+///     the importer carries the foreign-sym-id type_var which is
+///     locally meaningless but doesn't crash.
+///   - Parameterized nominals (`Vec(T)`) inherit the imported-nominal
+///     treatment via `imported_param_nominal` (separate variant for
+///     V1 simplicity — adding now would be a bigger architecture
+///     change; M15b(2/5) deals with builtin parameterized nominals
+///     specially since they share `sym_id` across modules via
+///     `registerBuiltins`).
+pub fn importType(
+    local_ctx: *SemContext,
+    foreign_ctx: *SemContext,
+    foreign_ty_id: TypeId,
+    origin_module_id: u32,
+) std.mem.Allocator.Error!TypeId {
+    const ty = foreign_ctx.types.get(foreign_ty_id);
+    return switch (ty) {
+        // Primitives + sentinels: identical interning locally.
+        .invalid, .unknown, .void, .bool, .string,
+        .int_literal, .float_literal,
+        => local_ctx.types.intern(local_ctx.allocator, ty),
+        .int, .float,
+        => local_ctx.types.intern(local_ctx.allocator, ty),
+
+        // Wrappers: recursively import the inner.
+        .optional => |inner| blk: {
+            const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
+            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .optional = local_inner });
+        },
+        .fallible => |inner| blk: {
+            const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
+            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .fallible = local_inner });
+        },
+        .borrow_read => |inner| blk: {
+            const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
+            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .borrow_read = local_inner });
+        },
+        .borrow_write => |inner| blk: {
+            const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
+            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .borrow_write = local_inner });
+        },
+        .shared => |inner| blk: {
+            const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
+            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .shared = local_inner });
+        },
+        .weak => |inner| blk: {
+            const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
+            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .weak = local_inner });
+        },
+
+        .slice => |s| blk: {
+            const local_elem = try importType(local_ctx, foreign_ctx, s.elem, origin_module_id);
+            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .slice = .{ .elem = local_elem } });
+        },
+        .array => |arr| blk: {
+            const local_elem = try importType(local_ctx, foreign_ctx, arr.elem, origin_module_id);
+            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .array = .{ .elem = local_elem, .len = arr.len } });
+        },
+
+        .function => |fn_ty| blk: {
+            const local_returns = try importType(local_ctx, foreign_ctx, fn_ty.returns, origin_module_id);
+            var local_params_buf: std.ArrayListUnmanaged(TypeId) = .empty;
+            defer local_params_buf.deinit(local_ctx.allocator);
+            try local_params_buf.ensureTotalCapacity(local_ctx.allocator, fn_ty.params.len);
+            for (fn_ty.params) |p| {
+                const lp = try importType(local_ctx, foreign_ctx, p, origin_module_id);
+                local_params_buf.appendAssumeCapacity(lp);
+            }
+            const owned = try local_ctx.arena.allocator().dupe(TypeId, local_params_buf.items);
+            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .function = .{
+                .params = owned,
+                .returns = local_returns,
+                .is_sub = fn_ty.is_sub,
+            } });
+        },
+
+        // Nominal (struct/enum/errors/opaque) declared in the foreign
+        // module: tag with `(origin_module_id, foreign_sym_id)`.
+        .nominal => |sym_id| local_ctx.types.intern(local_ctx.allocator, .{ .imported_nominal = .{
+            .module_id = origin_module_id,
+            .sym_id = sym_id,
+        } }),
+
+        // Imported nominal in the foreign module (rare: A imports
+        // from B, then C imports A's re-export). Preserve original
+        // origin tagging.
+        .imported_nominal => |in| local_ctx.types.intern(local_ctx.allocator, .{ .imported_nominal = .{
+            .module_id = in.module_id,
+            .sym_id = in.sym_id,
+        } }),
+
+        // Parameterized nominal (`Vec(T)`, `Box(Int)`, etc.). Built-in
+        // sym_ids are stable across modules (registerBuiltins assigns
+        // them in the same order in every SemContext), so for V1 we
+        // keep the sym_id as-is. User-defined generic types from other
+        // modules would need their own imported-parameterized variant;
+        // deferred until a real use case appears (V1 user code doesn't
+        // expose user-defined generics across modules).
+        .parameterized_nominal => |pn| blk: {
+            var local_args_buf: std.ArrayListUnmanaged(TypeId) = .empty;
+            defer local_args_buf.deinit(local_ctx.allocator);
+            try local_args_buf.ensureTotalCapacity(local_ctx.allocator, pn.args.len);
+            for (pn.args) |a| {
+                const la = try importType(local_ctx, foreign_ctx, a, origin_module_id);
+                local_args_buf.appendAssumeCapacity(la);
+            }
+            const owned = try local_ctx.arena.allocator().dupe(TypeId, local_args_buf.items);
+            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .parameterized_nominal = .{
+                .sym = pn.sym,
+                .args = owned,
+            } });
+        },
+
+        // type_var: opaque foreign symbol id. Should not appear in
+        // resolved public signatures; preserved as-is to avoid crash.
+        .type_var => |sym| local_ctx.types.intern(local_ctx.allocator, .{ .type_var = sym }),
+    };
+}
+
 /// M20b(3/5): does the given TypeId match the enclosing nominal's
 /// `self_type` (modulo identity comparison via the interner)? For
 /// plain nominals this is `ty_id == nominal(sym)`. For generic types
@@ -5024,9 +5272,24 @@ const ExprChecker = struct {
                 const sym = self.ctx.symbols.items[sym_id];
                 switch (sym.kind) {
                     .module => {
-                        // Case 1: cross-module call. M15b deferred —
-                        // synth args silently, return unknown without
-                        // a diagnostic.
+                        // M15b per GPT-5.5 entry 39: cross-module call
+                        // `a.foo(...)`. Look up the foreign function's
+                        // type, import it, and dispatch through the
+                        // normal call-checking path so arity / arg
+                        // types / fallibility / extern-raw / etc. all
+                        // fire uniformly with same-file calls.
+                        //
+                        // Replaces the M15-era silent-unknown
+                        // fall-through that bypassed every contract
+                        // check at the module boundary.
+                        if (self.ctx.module_refs.get(sym_id)) |origin_module_id| {
+                            if (self.ctx.foreign_semas.get(origin_module_id)) |foreign| {
+                                return try self.dispatchCrossModuleCall(foreign, origin_module_id, method_name, name_pos, sym.name, args);
+                            }
+                        }
+                        // No resolved import (already-reported load
+                        // failure or single-file context): synth args
+                        // and degrade silently. M15b(4/5) tightens.
                         for (args) |a| _ = try self.synthExpr(a);
                         return self.ctx.types.unknown_id;
                     },
@@ -5609,6 +5872,26 @@ const ExprChecker = struct {
                     // Opaque nominal — accept silently.
                     return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = sym_id }) catch self.ctx.types.unknown_id;
                 }
+                // M15b per GPT-5.5 entry 39: qualified cross-module
+                // access (`a.foo`). When `obj` is a `.module`-kinded
+                // symbol with a resolved import, look up `field_name`
+                // in the imported SemContext, import its type, and
+                // return it. Replaces the M15-era silent-unknown
+                // fall-through that bypassed every Rig check at the
+                // module boundary.
+                if (sym.kind == .module) {
+                    if (self.ctx.module_refs.get(sym_id)) |origin_module_id| {
+                        if (self.ctx.foreign_semas.get(origin_module_id)) |foreign| {
+                            return try self.lookupCrossModule(foreign, origin_module_id, field_name, pos, sym.name);
+                        }
+                    }
+                    // No resolved import for this `use NAME` — the
+                    // import either failed to load (already reported
+                    // by the ModuleGraph) or this is single-file
+                    // sema. Fall through to `unknown`. M15b(4/5)
+                    // tightens this case with a cleaner diagnostic.
+                    return self.ctx.types.unknown_id;
+                }
             }
         }
 
@@ -5657,6 +5940,216 @@ const ExprChecker = struct {
         const sym = self.ctx.symbols.items[sym_id];
         try self.err(pos, "no field `{s}` on type `{s}`", .{ field_name, sym.name });
         if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
+        return self.ctx.types.unknown_id;
+    }
+
+    /// M15b per GPT-5.5 entry 39: cross-module call dispatch. Looks
+    /// up `method_name` in the foreign SemContext's module scope, and
+    /// if it resolves to a function/sub/extern, dispatches through
+    /// the normal `checkCallArgs` / fallibility / extern-raw paths so
+    /// arity, arg types, and call-site contracts all fire uniformly
+    /// with same-file calls. Nominal-type / generic-type / constructor
+    /// callees through a module-prefix are handled similarly to the
+    /// same-file flavors (constructors get `checkConstructorArgs`).
+    ///
+    /// Returns the imported return type (re-interned via `importType`).
+    fn dispatchCrossModuleCall(
+        self: *ExprChecker,
+        foreign: *SemContext,
+        origin_module_id: u32,
+        method_name: []const u8,
+        name_pos: u32,
+        module_name: []const u8,
+        args: []const Sexp,
+    ) std.mem.Allocator.Error!TypeId {
+        if (foreign.scopes.items.len < 2) {
+            for (args) |a| _ = try self.synthExpr(a);
+            return self.ctx.types.unknown_id;
+        }
+        const module_scope = foreign.scopes.items[1];
+        for (module_scope.symbols.items) |fsym_id| {
+            const fsym = foreign.symbols.items[fsym_id];
+            if (!std.mem.eql(u8, fsym.name, method_name)) continue;
+
+            switch (fsym.kind) {
+                .function => {
+                    const foreign_fn_ty = foreign.types.get(fsym.ty);
+                    if (foreign_fn_ty != .function) {
+                        for (args) |a| _ = try self.synthExpr(a);
+                        return self.ctx.types.unknown_id;
+                    }
+                    // Import the function's signature into the local
+                    // TypeStore so `checkCallArgs` (which uses the
+                    // local `Type` representation) sees real types.
+                    var local_params_buf: std.ArrayListUnmanaged(TypeId) = .empty;
+                    defer local_params_buf.deinit(self.ctx.allocator);
+                    try local_params_buf.ensureTotalCapacity(self.ctx.allocator, foreign_fn_ty.function.params.len);
+                    for (foreign_fn_ty.function.params) |p| {
+                        const lp = try importType(self.ctx, foreign, p, origin_module_id);
+                        local_params_buf.appendAssumeCapacity(lp);
+                    }
+                    const local_returns = try importType(self.ctx, foreign, foreign_fn_ty.function.returns, origin_module_id);
+                    const local_fn_ty: FunctionType = .{
+                        .params = local_params_buf.items,
+                        .returns = local_returns,
+                        .is_sub = foreign_fn_ty.function.is_sub,
+                    };
+                    // Synthesize a qualified name for diagnostics: `a.foo`.
+                    const qualified = std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ module_name, method_name }) catch method_name;
+                    try self.checkCallArgs(args, local_fn_ty, qualified, name_pos);
+                    return local_returns;
+                },
+                .nominal_type => {
+                    // Cross-module constructor call (`a.Box(v: 5)`).
+                    // Import the nominal type as `imported_nominal`
+                    // and check args against the foreign symbol's
+                    // field list.
+                    try self.checkConstructorArgsCrossModule(args, foreign, fsym_id, fsym.name, name_pos);
+                    return self.ctx.types.intern(self.ctx.allocator, .{ .imported_nominal = .{
+                        .module_id = origin_module_id,
+                        .sym_id = fsym_id,
+                    } }) catch self.ctx.types.unknown_id;
+                },
+                else => {
+                    // Variables, externs, type_aliases via module
+                    // call form: V1 doesn't define these. Synth args
+                    // and degrade.
+                    for (args) |a| _ = try self.synthExpr(a);
+                    return self.ctx.types.unknown_id;
+                },
+            }
+        }
+        // Not found.
+        try self.err(name_pos, "no member `{s}` in module `{s}`", .{ method_name, module_name });
+        for (args) |a| _ = try self.synthExpr(a);
+        return self.ctx.types.unknown_id;
+    }
+
+    /// M15b: thin wrapper around `checkConstructorArgs` that reads
+    /// fields from a foreign SemContext's nominal symbol. The field
+    /// metadata (`Field` slices on `Symbol.fields`) is interpreted
+    /// against the foreign type store; field types get imported via
+    /// `importType` before the arg-vs-field type check fires locally.
+    fn checkConstructorArgsCrossModule(
+        self: *ExprChecker,
+        args: []const Sexp,
+        foreign: *SemContext,
+        foreign_sym_id: SymbolId,
+        nom_name: []const u8,
+        callee_pos: u32,
+    ) std.mem.Allocator.Error!void {
+        const foreign_sym = foreign.symbols.items[foreign_sym_id];
+        const foreign_fields = foreign_sym.fields orelse {
+            // Opaque foreign nominal — accept silently (no fields to
+            // check). Synth args for nested-error coverage.
+            for (args) |a| _ = try self.synthExpr(a);
+            return;
+        };
+
+        var seen: std.StringHashMapUnmanaged(u32) = .empty;
+        defer seen.deinit(self.ctx.allocator);
+        var has_positional = false;
+        for (args) |arg| {
+            if (arg == .list and arg.list.len >= 3 and arg.list[0] == .tag and
+                arg.list[0].tag == .@"kwarg")
+            {
+                const fname = identAt(self.ctx.source, arg.list[1]) orelse continue;
+                const fpos: u32 = if (arg.list[1] == .src) arg.list[1].src.pos else callee_pos;
+                if (seen.contains(fname)) {
+                    try self.err(fpos, "duplicate field `{s}` in constructor of `{s}`", .{ fname, nom_name });
+                    continue;
+                }
+                try seen.put(self.ctx.allocator, fname, fpos);
+
+                // Find the foreign data field.
+                const found = blk: {
+                    for (foreign_fields) |f| {
+                        if (f.is_method) continue;
+                        if (std.mem.eql(u8, f.name, fname)) break :blk f;
+                    }
+                    try self.err(fpos, "no field `{s}` on type `{s}`", .{ fname, nom_name });
+                    _ = try self.synthExpr(arg.list[2]);
+                    break :blk null;
+                } orelse continue;
+                // Import the foreign field type and check the arg.
+                const local_field_ty = try importType(self.ctx, foreign, found.ty, foreign.module_id);
+                try self.checkExpr(arg.list[2], local_field_ty);
+            } else {
+                has_positional = true;
+                _ = try self.synthExpr(arg);
+            }
+        }
+        // Missing-field check for all-kwarg constructors.
+        if (!has_positional and foreign_fields.len > 0) {
+            for (foreign_fields) |f| {
+                if (f.is_method) continue;
+                if (!seen.contains(f.name)) {
+                    try self.err(callee_pos, "constructor of `{s}` is missing field `{s}`", .{ nom_name, f.name });
+                }
+            }
+        }
+    }
+
+    /// M15b per GPT-5.5 entry 39: cross-module symbol lookup. Given a
+    /// foreign SemContext + an origin module id + a `field_name` to
+    /// look up, find the foreign module-scope symbol with that name
+    /// and return its TypeId re-interned into the local TypeStore (so
+    /// downstream typing works uniformly with local types).
+    ///
+    /// For nominal types: returns `imported_nominal(module_id, sym_id)`
+    /// — the canonical origin identity per GPT-5.5's M15b architecture
+    /// call (no structural equality across modules).
+    ///
+    /// For functions / variables: returns the imported function type
+    /// or variable type via `importType`. Subsequent `synthCall` /
+    /// member access proceeds normally with the imported type.
+    ///
+    /// `module_name` is the importer's local name for the module
+    /// (e.g., the `a` in `use a; a.foo`); used for diagnostic
+    /// spelling so the error reads naturally from the user's
+    /// perspective.
+    ///
+    /// Diagnostic on missing name: "no member `{field_name}` in module
+    /// `{module_name}`" with a note at the foreign module's source
+    /// (deferred — V1 emits without the note to keep diagnostic
+    /// machinery cross-module-clean; can add a foreign-pos diagnostic
+    /// channel in a follow-up).
+    fn lookupCrossModule(
+        self: *ExprChecker,
+        foreign: *SemContext,
+        origin_module_id: u32,
+        field_name: []const u8,
+        pos: u32,
+        module_name: []const u8,
+    ) std.mem.Allocator.Error!TypeId {
+        // Foreign module scope is scope id 1 (`pushScope(scope_invalid)`
+        // in `checkWithImports`). Walk that scope's symbols looking
+        // for `field_name`. Same name-lookup rule as same-file lookup:
+        // first match wins.
+        if (foreign.scopes.items.len < 2) {
+            return self.ctx.types.unknown_id;
+        }
+        const module_scope = foreign.scopes.items[1];
+        for (module_scope.symbols.items) |fsym_id| {
+            const fsym = foreign.symbols.items[fsym_id];
+            if (!std.mem.eql(u8, fsym.name, field_name)) continue;
+
+            // Nominal types: return `imported_nominal` with origin
+            // tagging. The importer never confuses `a.Box` with a
+            // local `Box`.
+            if (fsym.kind == .nominal_type) {
+                return self.ctx.types.intern(self.ctx.allocator, .{ .imported_nominal = .{
+                    .module_id = origin_module_id,
+                    .sym_id = fsym_id,
+                } }) catch self.ctx.types.unknown_id;
+            }
+
+            // Functions/vars/externs/aliases: import the type via
+            // recursive re-interning.
+            return importType(self.ctx, foreign, fsym.ty, origin_module_id);
+        }
+        // Not found in the foreign module's top scope.
+        try self.err(pos, "no member `{s}` in module `{s}`", .{ field_name, module_name });
         return self.ctx.types.unknown_id;
     }
 
@@ -6745,6 +7238,15 @@ fn formatType(ctx: *SemContext, ty_id: TypeId) std.mem.Allocator.Error![]const u
         .array => |arr| try std.fmt.allocPrint(a, "[{d}]{s}", .{ arr.len, try formatType(ctx, arr.elem) }),
         .function => "fn(...)",
         .nominal => |sym| ctx.symbols.items[sym].name,
+        // M15b: imported nominal — look up the name in the foreign
+        // SemContext if available; otherwise render `<imported#sym>`.
+        .imported_nominal => |in| blk: {
+            const foreign = ctx.foreign_semas.get(in.module_id) orelse {
+                break :blk try std.fmt.allocPrint(a, "<imported#{d}>", .{in.sym_id});
+            };
+            if (in.sym_id >= foreign.symbols.items.len) break :blk "<imported>";
+            break :blk foreign.symbols.items[in.sym_id].name;
+        },
         .parameterized_nominal => |pn| blk: {
             // Render `Box(Int, String)` style.
             const base_name = ctx.symbols.items[pn.sym].name;

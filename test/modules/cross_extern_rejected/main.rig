@@ -1,0 +1,10 @@
+# M15b cross-module extern FFI obligation canary. `a.puts` is an
+# imported extern; calling it from another module STILL requires a
+# `raw` block at the call site, per M22 entry 35: "extern
+# declarations are the FFI boundary; the safety bargain across
+# them requires explicit acknowledgment." Pre-M15b, the obligation
+# evaporated at the module edge.
+use a
+
+sub main()
+  a.puts("hi")

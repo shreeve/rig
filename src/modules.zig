@@ -308,8 +308,27 @@ pub const ModuleGraph = struct {
         // Sema for this module. We discard the source-bearing empty
         // SemContext we set up after read and replace with the real
         // checked one (which carries its own copies via types.check).
+        //
+        // M15b per GPT-5.5 entry 39: build the per-import descriptor
+        // list (`ImportEntry`) from the already-loaded imports and
+        // hand it to `types.checkWithImports`. The SymbolResolver
+        // consults it via `walkUse` to populate `module_refs`, which
+        // `synthMember` reads to dispatch qualified access into the
+        // foreign SemContext. Single-file builds (no `use` statements)
+        // produce an empty `ImportEntry` slice; behavior degrades
+        // gracefully to the M15-era same-file-only checking.
+        var import_entries: std.ArrayListUnmanaged(types.ImportEntry) = .empty;
+        defer import_entries.deinit(self.allocator);
+        for (self.modules.items[id].imports.items) |imp| {
+            const target_sema = self.modules.items[imp.target].sema orelse continue;
+            try import_entries.append(self.allocator, .{
+                .local_name = imp.local_name,
+                .sema = target_sema,
+                .module_id = imp.target,
+            });
+        }
         sema_ptr.deinit();
-        sema_ptr.* = try types.check(self.allocator, source, ir);
+        sema_ptr.* = try types.checkWithImports(self.allocator, source, ir, import_entries.items, id);
 
         // Effects + ownership.
         var eff = try effects.Checker.initWithSema(self.allocator, source, sema_ptr);

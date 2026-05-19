@@ -1,0 +1,9 @@
+# M15b cross-module call-arity canary. `a.add` expects 2 ints; we
+# pass 5 args. Pre-M15b, this silently passed (cross-module sema
+# resolved as `unknown`). M15b imports the foreign function's
+# signature and `checkCallArgs` fires with the qualified name.
+use a
+
+sub main()
+  x = a.add(1, 2, 3, 4, 5)
+  print(x)

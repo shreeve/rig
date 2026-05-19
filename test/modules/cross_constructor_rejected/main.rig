@@ -1,0 +1,10 @@
+# M15b cross-module constructor-kwarg canary. `a.Box(does_not_exist:
+# 5)` mentions a field that doesn't exist on the foreign struct.
+# Same diagnostic same-file would fire; pre-M15b the cross-module
+# constructor silently passed because the field list wasn't
+# imported.
+use a
+
+sub main()
+  b = a.Box(does_not_exist: 5)
+  print(b.value)

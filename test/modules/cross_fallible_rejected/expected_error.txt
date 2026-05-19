@@ -1,0 +1,1 @@
+fallible call to `a.parse_int` must be wrapped with `!` (propagate) or `catch` (handle)

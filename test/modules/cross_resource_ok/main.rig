@@ -1,0 +1,19 @@
+# M15b cross-module resource lifetime canary. `a.make_box`
+# returns `*Box` (strong Rc). Pre-M15b, the call typed as
+# `unknown` so M20e wouldn't install an auto-drop guard
+# (the Rc leaked, strong count stayed at 1), AND `b.value`
+# wouldn't auto-deref through the RcBox (it would print the
+# whole struct as `.{ .value = 42 }`).
+#
+# M15b imports the foreign function's return type, so the
+# named binding gets a proper resource classification:
+#   - `defer if (__rig_alive_b) { ... b.dropStrong(); }`
+#     installs at the binding site
+#   - `b.value` lowers to `b.value.value` (RcBox → Box)
+#
+# Expected output: `42` (not `.{ .value = 42 }`).
+use a
+
+sub main()
+  b = a.make_box(42)
+  print(b.value)

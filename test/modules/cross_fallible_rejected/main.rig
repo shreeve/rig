@@ -1,0 +1,12 @@
+# M15b cross-module fallibility canary.
+# `a.parse_int` returns `Int!` (fallible). Calling without `!` or
+# `catch` must error AT THE CALL SITE, even though the callee
+# lives in another module. Pre-M15b, this silently passed `bin/rig
+# check`; the call resolved as `unknown` and Rig didn't see the
+# fallibility — only Zig's compiler would notice the mismatch
+# eventually.
+use a
+
+sub main()
+  x = a.parse_int("hi")
+  print(x)
