@@ -1,0 +1,1 @@
+examples/m25_1_move_resource_field_rejected.rig:10:19: error: cannot move resource field `self.cell` inside drop body; fields are dropped automatically after the user drop body returns, so a manual move would race the auto-generated drop and double-free

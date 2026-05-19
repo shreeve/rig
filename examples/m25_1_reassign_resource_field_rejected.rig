@@ -1,0 +1,11 @@
+# M25.1: a drop body cannot reassign a resource field — the
+# auto-generated `__rig_drop` walks resource fields after the
+# user body returns, so the new value's destructor would race
+# the auto-generated drop.
+
+struct Owner
+  cell: *Cell(Int)
+
+  drop self: !Owner
+    fresh: *Cell(Int) = *Cell(value: 0)
+    self.cell = <fresh

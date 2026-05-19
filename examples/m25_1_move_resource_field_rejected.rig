@@ -1,0 +1,10 @@
+# M25.1: a drop body cannot move a resource field out — the
+# auto-generated `__rig_drop` walks resource fields after the
+# user body returns, so moving the field would race the auto-
+# generated drop and double-free.
+
+struct Owner
+  cell: *Cell(Int)
+
+  drop self: !Owner
+    stash = <self.cell

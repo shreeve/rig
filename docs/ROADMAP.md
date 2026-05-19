@@ -3048,6 +3048,70 @@ userland LIBRARY (the explicit `Reactor` / `Memo` / `Effect`
 work) was blocked on Cell-non-Copy + user Drop. M25 is the
 first half of that unblock; M26 (Cell-non-Copy) is the second.
 
+### M25.1 — Drop-body restrictions + has_drop_glue fixed-point ✅
+
+Closes the post-implementation review hazards GPT-5.5 flagged
+on M25 (entry following the M25 design checkpoint in
+conversation `c_5c1d09d53ebe2f62`).
+
+**Hazard 1: drop-body restrictions (ship-blocker).** M25(2-4/5)
+shipped without rejecting consume/drop/move-of-self and
+move/reassign-of-resource-fields inside drop bodies. Per
+GPT-5.5: "M25 is not done until you address drop-body
+restrictions. That is a must-fix M25.1, not a nice-to-have."
+The reasoning: M25 advertises that fields are auto-dropped
+after the user body, so safe Rig syntax (`-self.cell` etc.)
+created a direct double-drop path. The fix:
+`TypeResolver.enforceDropBodyRestrictions` walks the body
+recursively after fields are resolved, matching against:
+
+  - `(drop self)` — `-self`
+  - `(move (src self))` — `<self`
+  - `(return (src self))`
+  - `(move (member self field))` where field has drop glue
+  - `(set _ (member self field) _ rhs)` where field has drop glue
+
+Each match produces a tailored diagnostic. Recursion through
+all child positions ensures patterns nested inside calls,
+conditionals, and other expressions still fire.
+
+Negative tests:
+- `examples/m25_1_drop_self_rejected.rig`
+- `examples/m25_1_move_self_rejected.rig`
+- `examples/m25_1_move_resource_field_rejected.rig`
+- `examples/m25_1_reassign_resource_field_rejected.rig`
+
+**Hazard 2: has_drop_glue order-dependence.** The single-pass
+`resolveStructFields` flipped `has_drop_glue` based on the
+state of referenced nominals AT THAT MOMENT, so a struct
+declared BEFORE its Drop-bearing nested-field type missed
+the propagation entirely. Concrete example: `struct Outer {
+inner: Inner }` declared before `struct Inner { r: *Cell(Int) }`
+left `Outer` without drop glue and silently leaked the
+nested resource. Fix: a fixed-point pass after
+`type_resolver.walk` iterates until quiescence (bounded at
+256 rounds defensively), flipping `has_drop_glue` as
+referenced nominals get flagged.
+
+Positive regression tests (both pass with reverse-order
+nesting now drop-correct):
+- `examples/m25_1_nested_struct_basic.rig` (Inner before Outer)
+- `examples/m25_1_nested_struct_reversed.rig` (Outer before Inner)
+
+**Tests: 1035 → 1063 passing, 0 failing.**
+
+**What's still V1-deferred (per the M25 lock):**
+
+- User `Clone` (lets users opt into `+x` for Drop types).
+- Optional-resource auto-drop (`Vec.pop() -> T?` for
+  resource T).
+- Generic Drop (struct templates with type-var-resource
+  fields).
+- Enum / errors Drop (per-variant payload drop).
+- Auto-deref through member-access in method bodies.
+- M26 Cell-non-Copy + replace/take — separate design arc,
+  the natural next milestone post-M25.1.
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note

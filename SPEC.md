@@ -1669,6 +1669,35 @@ the previous handle and re-arms the flag for the new one.
 Same machinery as Vec / `*T` / `~T`; the user-Drop struct
 just rides the existing path.
 
+## Drop body restrictions (M25.1)
+
+A `drop` body cannot consume or replace what the auto-
+generated `__rig_drop` is about to walk. Specifically:
+
+```rig
+struct Owner
+  cell: *Cell(Int)
+
+  drop self: !Owner
+    -self                         # error: drop `self` in own drop body
+    other = <self                 # error: move `self` out of own drop
+    return self                   # error: return `self` from own drop
+    stash = <self.cell            # error: move resource field
+    consume(<self.cell)           # error: same — call-arg position
+    self.cell = *Cell(value: 0)   # error: reassign resource field
+```
+
+The auto-generated `__rig_drop` walks resource fields after
+the user body returns, so any of the above creates a double-
+drop or use-after-free hazard. Drop bodies CAN read fields,
+mutate Copy fields, and use raw cleanup — anything that
+doesn't take ownership of self or its resources.
+
+The check is `enforceDropBodyRestrictions` in
+`TypeResolver`, which recursively walks the body and matches
+against the patterns above using the struct's resolved
+`fields[]` to identify resource-typed fields.
+
 ## What's deferred
 
 Per the M25 design lock (GPT-5.5 conversation
@@ -1679,13 +1708,6 @@ Per the M25 design lock (GPT-5.5 conversation
   to drop the old value before storing the new; the natural
   `take` primitive needs an "empty / taken" state. That's
   its own design checkpoint.
-- **Drop-body restrictions on consume-of-self / drop-of-
-  resource-field / assignment-to-resource-field.** The
-  load-bearing "any drop glue is non-Copy" rule prevents
-  cross-binding double-free; the in-body restrictions
-  (preventing `<self`, `-self.field`, `self.resource = X`)
-  are a follow-up arc that requires `ownership.zig` to walk
-  struct method bodies.
 - **User `Clone`.** Lets users opt into a `+x` form for
   their Drop types. Without it, `<x` move is the only V1
   multi-binding shape.

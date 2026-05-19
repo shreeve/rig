@@ -249,16 +249,27 @@ Violating any of them will silently corrupt the substrate.
   return, no fallibility. The compiler ALSO emits auto-
   generated structural drop glue for any struct that owns a
   resource field (regardless of whether a user body is
-  present). Drop on `enum` / `errors` / `generic_type` /
+  present). A fixed-point pass converges `has_drop_glue`
+  across declaration-order-independent nominal references
+  (M25.1). Drop on `enum` / `errors` / `generic_type` /
   `generic_enum` is V1-deferred (per-variant payload drop
-  and bounds analysis are separate substrate arcs). Drop-body
-  restrictions on consume-of-self / drop-of-resource-field /
-  assignment-to-resource-field are deferred — the load-bearing
-  "any drop glue is non-Copy" rule prevents cross-binding
-  double-free; the in-body restrictions need ownership.zig to
-  walk struct method bodies (a follow-up arc). User-defined
-  `Clone` for Drop types is also deferred; V1 has only `<x`
-  move and explicit `-x` discharge for has_drop_glue values.
+  and bounds analysis are separate substrate arcs). User-
+  defined `Clone` for Drop types is also deferred; V1 has
+  only `<x` move and explicit `-x` discharge for
+  has_drop_glue values.
+- **Drop body restrictions (M25.1).** A `drop self: !Self`
+  body cannot:
+    - `-self` / `<self` / `return self` (consume the
+      binding being destroyed);
+    - `<self.field` for resource fields (race the auto-
+      generated drop walk);
+    - `self.field = X` for resource fields (same race —
+      the new value's destructor would fight the auto-
+      generated drop).
+  These rejections fire at sema time in
+  `enforceDropBodyRestrictions`. Without them, safe Rig had
+  a direct double-drop path. Drop bodies CAN read fields,
+  mutate Copy fields, and use raw cleanup.
 - **Any type with drop glue is non-Copy (M25).** Bare alias /
   assignment / call-arg of a `nominal` or `parameterized_nominal`
   whose symbol carries `has_drop_glue` is rejected at the

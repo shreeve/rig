@@ -785,6 +785,45 @@ pub fn checkWithImports(
     var type_resolver: TypeResolver = .{ .ctx = &ctx };
     try type_resolver.walk(ir, module_scope);
 
+    // M25.1: fixed-point pass for `has_drop_glue` propagation. The
+    // single-pass `resolveStructFields` flips the flag based on the
+    // CURRENT state of referenced nominals' flags — so a struct
+    // declared BEFORE its Drop-bearing nested-field type misses the
+    // propagation (`struct Outer { inner: Inner }` declared before
+    // `struct Inner { r: *Cell(Int) }`). The fixed point iterates
+    // until quiescence; convergence is bounded by the longest
+    // nominal-field chain. Per GPT-5.5's M25 post-implementation
+    // review: needed because forward nominal field references work
+    // and produce real silent-leak hazards otherwise.
+    {
+        var changed = true;
+        var rounds: u32 = 0;
+        while (changed) {
+            if (rounds > 256) break; // defensive bound; pathological cases
+            rounds += 1;
+            changed = false;
+            for (ctx.symbols.items, 0..) |*sym, i| {
+                _ = i;
+                if (sym.kind != .nominal_type) continue;
+                if (sym.flags.has_drop_glue) continue;
+                const fields = sym.fields orelse continue;
+                for (fields) |f| {
+                    if (f.is_drop_method) {
+                        sym.flags.has_drop_glue = true;
+                        changed = true;
+                        break;
+                    }
+                    if (f.is_method or f.is_variant) continue;
+                    if (typeHasDropGlue(&ctx, f.ty)) {
+                        sym.flags.has_drop_glue = true;
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     // Pass 3: expression typing.
     var expr_checker: ExprChecker = .{
         .ctx = &ctx,
@@ -2413,13 +2452,12 @@ const TypeResolver = struct {
         // M25(2/5): compute `has_drop_glue` after fields are
         // resolved. The flag is true if EITHER a user `drop` decl
         // is present OR any data field has a resource-shaped type.
-        // `typeHasDropGlue` recurses through nominal fields, so a
-        // struct whose only "resource" is a nominal field with its
-        // own drop glue still flips. (Cycles are prevented by the
-        // declaration-order resolution: forward-referenced nominal
-        // types resolve to `unknown_id` here and pick up the flag
-        // on a later pass; for V1 same-file we resolve in declaration
-        // order so this works in practice.)
+        // `typeHasDropGlue` recurses through nominal fields. The
+        // single-pass result here is the "lower bound" — a struct
+        // that references a not-yet-flagged nominal field misses
+        // the propagation. The fixed-point pass at the top of
+        // `check` (post-`type_resolver.walk`) converges the flag
+        // across declaration-order-independent references.
         var has_glue = false;
         for (owned) |f| {
             if (f.is_drop_method) { has_glue = true; break; }
@@ -2428,7 +2466,155 @@ const TypeResolver = struct {
         }
         self.ctx.symbols.items[sym_id].flags.has_drop_glue = has_glue;
 
+        // M25.1: drop-body restrictions. Walk every `drop_decl`
+        // member's body and reject patterns that would create
+        // double-drop / use-after-free hazards in safe Rig:
+        //   - consume / drop / move / return of `self`
+        //   - move / drop / reassignment of resource fields of self
+        // The auto-generated `__rig_drop` runs the user body THEN
+        // walks resource fields in reverse declaration order; if
+        // the body has already moved/dropped/replaced one of those
+        // fields, the auto-generated call double-drops or accesses
+        // freed memory. Per GPT-5.5's M25 post-implementation
+        // review: this is a ship-blocker for the substrate, not
+        // a follow-up — without it M25 creates a direct double-
+        // drop path in safe code.
+        for (items[2..]) |member| {
+            if (member != .list or member.list.len < 3 or member.list[0] != .tag) continue;
+            if (member.list[0].tag != .@"drop_decl") continue;
+            // Derive the anchor pos (matches resolveDropDecl's logic).
+            const params = member.list[1];
+            const body = member.list[2];
+            const drop_pos: u32 = blk: {
+                if (params == .list) {
+                    for (params.list) |p| {
+                        const pp = paramPos(p, 0);
+                        if (pp != 0) break :blk pp;
+                    }
+                }
+                break :blk 0;
+            };
+            try self.enforceDropBodyRestrictions(body, owned, drop_pos);
+        }
+
         return cursor;
+    }
+
+    /// M25.1: walk a `drop` body and reject patterns that would
+    /// create a double-drop or use-after-free hazard with the
+    /// auto-generated structural drop glue. Specifically:
+    ///   - `-self` / `<self` / `return self` — the binding is
+    ///     being destroyed by the runtime; consuming it from the
+    ///     body would corrupt the caller's drop chain.
+    ///   - `<self.field` where field is a resource — the auto-
+    ///     generated `__rig_drop` walks resource fields after the
+    ///     user body returns, so moving the field out earlier
+    ///     would either leave a partially-moved slot for the
+    ///     auto-generated drop (use-after-free) or, if the move
+    ///     transferred ownership, the auto-generated drop would
+    ///     fire on a freed handle.
+    ///   - `self.field = X` where field is a resource — same
+    ///     concern: the new value's destructor races the
+    ///     auto-generated walk.
+    ///
+    /// Recurses through ALL child positions so the patterns get
+    /// caught even when nested inside calls, conditionals, etc.
+    /// Field-resource detection consults the struct's resolved
+    /// `fields[]` to ask `typeHasDropGlue` of each field's type.
+    fn enforceDropBodyRestrictions(
+        self: *TypeResolver,
+        body: Sexp,
+        fields: []const Field,
+        drop_pos: u32,
+    ) std.mem.Allocator.Error!void {
+        if (body != .list) return;
+        if (body.list.len == 0 or body.list[0] != .tag) return;
+
+        switch (body.list[0].tag) {
+            .@"drop" => {
+                // `(drop name)` from `-name`. Reject `-self`.
+                if (body.list.len >= 2 and body.list[1] == .src) {
+                    const nm = identAt(self.ctx.source, body.list[1]) orelse "";
+                    if (std.mem.eql(u8, nm, "self")) {
+                        try self.err(body.list[1].src.pos, "cannot drop `self` inside its own drop body; the binding is being destroyed by the runtime", .{});
+                    }
+                }
+            },
+            .@"move" => {
+                // `(move expr)` from `<expr`. Reject `<self` and
+                // `<self.field` where field has drop glue.
+                if (body.list.len >= 2) {
+                    const inner = body.list[1];
+                    if (inner == .src) {
+                        const nm = identAt(self.ctx.source, inner) orelse "";
+                        if (std.mem.eql(u8, nm, "self")) {
+                            try self.err(inner.src.pos, "cannot move `self` out of its own drop body; the binding is being destroyed by the runtime", .{});
+                        }
+                    } else if (inner == .list and inner.list.len >= 3 and inner.list[0] == .tag and inner.list[0].tag == .@"member") {
+                        try self.checkDropBodyResourceFieldOp(inner, fields, drop_pos, "move");
+                    }
+                }
+            },
+            .@"return" => {
+                // `(return value)` — drop body is sub-shaped (void
+                // return) so `return self` is already a type
+                // mismatch, but reject explicitly for clarity.
+                if (body.list.len >= 2 and body.list[1] == .src) {
+                    const nm = identAt(self.ctx.source, body.list[1]) orelse "";
+                    if (std.mem.eql(u8, nm, "self")) {
+                        try self.err(body.list[1].src.pos, "cannot return `self` from its own drop body", .{});
+                    }
+                }
+            },
+            .@"set" => {
+                // `(set kind target type-or-_ rhs)`. Reject
+                // assignment to `self.field` where field has drop
+                // glue. The shadow / fixed kinds are also assignment-
+                // shaped at sema; the same hazard applies.
+                if (body.list.len >= 5) {
+                    const target = body.list[2];
+                    if (target == .list and target.list.len >= 3 and target.list[0] == .tag and target.list[0].tag == .@"member") {
+                        try self.checkDropBodyResourceFieldOp(target, fields, drop_pos, "reassign");
+                    }
+                }
+            },
+            else => {},
+        }
+
+        // Recurse into all children. Bad patterns nested inside
+        // `if` / `match` / call args / etc. still fire.
+        for (body.list[1..]) |child| try self.enforceDropBodyRestrictions(child, fields, drop_pos);
+    }
+
+    /// M25.1 helper: validate that a `(member self field)` access
+    /// in a drop body's move / set target slot doesn't reference a
+    /// resource field. `op_kind` is "move" or "reassign" for the
+    /// diagnostic. Silent on non-self objects, member chains
+    /// (`self.foo.bar`), unknown fields, and Copy fields.
+    fn checkDropBodyResourceFieldOp(
+        self: *TypeResolver,
+        member_expr: Sexp,
+        fields: []const Field,
+        fallback_pos: u32,
+        op_kind: []const u8,
+    ) std.mem.Allocator.Error!void {
+        if (member_expr != .list or member_expr.list.len < 3) return;
+        if (member_expr.list[0] != .tag or member_expr.list[0].tag != .@"member") return;
+        const obj = member_expr.list[1];
+        const field_node = member_expr.list[2];
+        if (obj != .src) return;
+        const obj_name = identAt(self.ctx.source, obj) orelse return;
+        if (!std.mem.eql(u8, obj_name, "self")) return;
+        const field_name = identAt(self.ctx.source, field_node) orelse return;
+        const fpos: u32 = if (field_node == .src) field_node.src.pos else fallback_pos;
+        for (fields) |f| {
+            if (f.is_method or f.is_variant) continue;
+            if (!std.mem.eql(u8, f.name, field_name)) continue;
+            if (typeHasDropGlue(self.ctx, f.ty)) {
+                try self.err(fpos, "cannot {s} resource field `self.{s}` inside drop body; fields are dropped automatically after the user drop body returns, so a manual {s} would race the auto-generated drop and double-free", .{ op_kind, field_name, op_kind });
+            }
+            return;
+        }
     }
 
     /// M25(2/5): resolve a `(drop_decl params block)` member of a

@@ -1,0 +1,22 @@
+# M25.1: nested struct drop glue when the OUTER struct is
+# declared BEFORE the INNER. Without the fixed-point pass for
+# `has_drop_glue`, `Outer` would miss the propagation (Inner
+# isn't yet flagged when Outer's fields are resolved) and `Outer`
+# values would silently leak the nested resource. Per GPT-5.5's
+# M25 post-implementation review: the fixed point is necessary
+# because forward nominal field references work in V1.
+
+struct Outer
+  inner: Inner
+
+struct Inner
+  r: *Cell(Int)
+
+sub main()
+  c: *Cell(Int) = *Cell(value: 5)
+  i: Inner = Inner(r: <c)
+  o: Outer = Outer(inner: <i)
+  print(0)
+  # scope exit: o.__rig_drop() → o.inner.__rig_drop() →
+  # o.inner.r.dropStrong(). Without the fixed-point pass,
+  # Outer would not have __rig_drop and the cell would leak.

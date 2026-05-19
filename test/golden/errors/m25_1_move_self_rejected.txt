@@ -1,0 +1,1 @@
+examples/m25_1_move_self_rejected.rig:8:14: error: cannot move `self` out of its own drop body; the binding is being destroyed by the runtime

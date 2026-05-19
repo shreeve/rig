@@ -1,0 +1,26 @@
+# M25.1: nested struct drop glue. `Outer` owns an `Inner` value
+# field; `Inner` owns a `*Cell(Int)` resource field. Both should
+# be flagged `has_drop_glue` (Inner via the resource field; Outer
+# transitively via the Inner field). The compiler-generated
+# `Outer.__rig_drop` should call `self.inner.__rig_drop()` and
+# Inner's `__rig_drop` should call `self.r.dropStrong()`.
+#
+# This validates the recursive `typeHasDropGlue` predicate when
+# Inner is declared BEFORE Outer (the well-ordered case). Order-
+# reversed nesting is the GPT-5.5 review concern; if forward
+# nominal field references work, has_drop_glue propagation
+# would need a fixed-point pass — verifying the well-ordered
+# case here pins the baseline.
+
+struct Inner
+  r: *Cell(Int)
+
+struct Outer
+  inner: Inner
+
+sub main()
+  c: *Cell(Int) = *Cell(value: 5)
+  i: Inner = Inner(r: <c)
+  o: Outer = Outer(inner: <i)
+  print(0)
+  # scope exit: o.__rig_drop() → o.inner.__rig_drop() → o.inner.r.dropStrong()

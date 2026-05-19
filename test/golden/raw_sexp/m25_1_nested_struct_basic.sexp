@@ -1,0 +1,1 @@
+(module (struct Inner (: r (shared (generic_inst Cell Int)))) (struct Outer (: inner Inner)) (sub main () _ (block (set _ c (shared (generic_inst Cell Int)) (share (call Cell (kwarg value 5)))) (set _ i Inner (call Inner (kwarg r (move c)))) (set _ o Outer (call Outer (kwarg inner (move i)))) (call print 0))))

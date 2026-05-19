@@ -1,0 +1,1 @@
+examples/m25_1_drop_self_rejected.rig:9:6: error: cannot drop `self` inside its own drop body; the binding is being destroyed by the runtime
