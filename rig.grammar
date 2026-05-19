@@ -370,6 +370,15 @@ member   = field
          | name params                      → (variant 1 2)   # payload-bearing enum variant: `circle(radius: Int)`
          | fun
          | sub
+         | drop_decl                                          # M25(1/5): user-defined Drop
+
+# M25(1/5): user-defined Drop declaration. Surface:
+#   `drop self: !Self` followed by an indented block. The full
+# semantics (validation, ownership, emit) land in M25(2/5)–(5/5);
+# this sub-commit ships parse + IR + clean sema rejection per
+# the M22.1 "no parsed-but-not-enforced" invariant. No user name —
+# drop is implicit per the type's contract.
+drop_decl = DROP params block               → (drop_decl 2 3)
 
 # Parameter / field name. Same as `name`, but also accepts `KWARG_NAME`
 # because the rewriter promotes IDENT to KWARG_NAME inside parens

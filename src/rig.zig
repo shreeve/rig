@@ -91,6 +91,15 @@ pub const Tag = enum(u8) {
     @"sub",
     @"return",
 
+    // M25(1/5): user-defined Drop declaration in a nominal body.
+    // Surface: `drop self: !Self` followed by an indented block.
+    // IR shape: `(drop_decl params block)` — no user-supplied name
+    // (drop is implicit per the type's contract). The full design
+    // (validation, ownership, emit) lands in M25(2/5)–(5/5); this
+    // sub-commit ships parse + IR + clean sema rejection per the
+    // M22.1 fake-surface invariant.
+    @"drop_decl",
+
     // Bindings (Rig)
     //
     // ALL binding forms share a single uniform 5-child shape, emitted
@@ -365,6 +374,12 @@ pub const KeywordId = enum(u16) {
                     //   renamed for sigil-alignment with `%x`).
                     //   The fn-modifier form `unsafe sub` is
                     //   dropped in M22 (no V1 use case).
+    DROP,           // M25(1/5): user-defined Drop declaration in
+                    //   nominal body. Distinct from `DROP_STMT`
+                    //   (the `-x` rewriter token for statement-
+                    //   level discharge); they share the visual
+                    //   sigil "drop" but live in different
+                    //   grammatical positions.
     ZIG,
     NULL,
     UNREACHABLE,
@@ -422,6 +437,7 @@ const keywordMap = std.StaticStringMap(KeywordId).initComptime(.{
     .{ "pre", .PRE },         // Rig
     .{ "new", .NEW },         // Rig
     .{ "raw", .RAW },         // Rig: M22 raw escape (M19 unsafe renamed)
+    .{ "drop", .DROP },       // Rig: M25 user-defined Drop declaration
     .{ "zig", .ZIG },
     .{ "null", .NULL },
     .{ "unreachable", .UNREACHABLE },
@@ -1243,6 +1259,8 @@ test "keywordAs - core Rig keywords" {
     try std.testing.expectEqual(KeywordId.SUB, keywordAs("sub").?);
     try std.testing.expectEqual(KeywordId.PRE, keywordAs("pre").?);
     try std.testing.expectEqual(KeywordId.NEW, keywordAs("new").?);
+    try std.testing.expectEqual(KeywordId.RAW, keywordAs("raw").?);
+    try std.testing.expectEqual(KeywordId.DROP, keywordAs("drop").?);
     try std.testing.expectEqual(KeywordId.IF, keywordAs("if").?);
     try std.testing.expectEqual(KeywordId.CATCH, keywordAs("catch").?);
     try std.testing.expectEqual(KeywordId.TRY, keywordAs("try").?);

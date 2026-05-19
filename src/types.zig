@@ -2255,6 +2255,42 @@ const TypeResolver = struct {
                         },
                     );
                 },
+                // M25(1/5): user-defined `drop` declaration is parse-
+                // accepted but sema-rejected. The full design (auto-
+                // generated structural drop glue, reverse-order field
+                // drops, write-borrow `self` validation, ownership
+                // generalization, emit) lands in M25(2/5)–(5/5) per
+                // GPT-5.5's M25 design lock (conversation
+                // c_5c1d09d53ebe2f62, M25 checkpoint). Until then,
+                // shipping the surface without semantics would violate
+                // the M22.1 fake-surface invariant — this diagnostic
+                // is the explicit "reserved" branch.
+                //
+                // SymbolResolver / ExprChecker silently skip this tag
+                // via their `else => {}` branches, so no body scope is
+                // opened and the cursor stays consistent — drop the
+                // diagnostic and continue iterating other members.
+                .@"drop_decl" => {
+                    // Anchor the diagnostic at the first src position
+                    // we can find inside the drop_decl. Tag nodes don't
+                    // carry positions; the params list holds the
+                    // self-binding's src node which gives a sensible
+                    // line/col for the user.
+                    const drop_pos: u32 = blk: {
+                        if (member.list.len >= 2 and member.list[1] == .list) {
+                            for (member.list[1].list) |p| {
+                                const pp = paramPos(p, 0);
+                                if (pp != 0) break :blk pp;
+                            }
+                        }
+                        break :blk 0;
+                    };
+                    try self.err(
+                        drop_pos,
+                        "user-defined `drop` declarations are not yet supported in V1; landing in M25(2/5)+ (track HANDOFF §13 forward-arc menu Category A). The surface is parse-accepted to lock the design space; full semantics (structural drop glue, ownership generalization, emit) arrive in upcoming sub-commits",
+                        .{},
+                    );
+                },
                 else => {},
             }
         }
