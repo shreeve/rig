@@ -1,14 +1,13 @@
 # Rig
 
-Rig is a systems programming language where important effects are
-visible in the syntax and preserved in a semantic S-expression IR
-before lowering to Zig.
-
-Ownership transfer, borrowing, cloning, dropping, sharing, failure
-propagation, compile-time execution, closure capture modes, and raw
-escape boundaries all have explicit source forms. The compiler keeps
-those effects visible through parsing, checking, and emission rather
-than letting them disappear into convention.
+Rig is a systems language that compiles to Zig while keeping
+important effects visible in the source. Moves, borrows, clones,
+drops, shared ownership, failure propagation, compile-time
+execution, closure captures, and raw escape all have explicit
+forms — and the semantic IR preserves them as first-class nodes
+through every compiler phase. The aim is small, readable code with
+Rust-like resource discipline: when ownership moves, failure
+propagates, or mutation happens, you can see it where it happens.
 
 > **Status: pre-release compiler prototype.** Rig has a working V1
 > ownership / resource substrate and synchronous reactive canaries.
@@ -17,27 +16,75 @@ than letting them disappear into convention.
 > tests passing, 0 failing** on `main` as of M30. Expect breaking
 > changes.
 
-## A small example
+## Examples
+
+Three short programs, each a little richer than the one before.
+
+### A first taste
 
 ```rig
 sub main()
-  count: *Cell(Int) = *Cell(value: 0)
-
-  bump: *Closure() = *Closure(|+count| count.set(count.get() + 1))
-  bump()
-  bump()
-  bump()
-
-  print(count.get())   # 3
+  print "hello, rig"
 ```
 
-In one screen of code: a reference-counted handle to an interior-
-mutable `Cell(Int)` (`*Cell(Int)`); a heap-owned closure
-(`*Closure()`) that captures `count` by clone (`|+count|` — the
-`+` makes the refcount bump visible at the source); three
-invocations; and an automatic drop at scope exit that releases both
-references in the right order. No garbage collector, no `raw` block
-in user code, no manual `free`.
+Blocks are indented, not braced. `sub` is a routine; `print`
+doesn't need parens when there's one argument. Most Rig code looks
+roughly like this — no sigils in sight.
+
+### A function and a borrow
+
+```rig
+struct User
+  name: String
+
+fun label(user: ?User) -> String
+  user.name
+
+sub main()
+  u = User(name: "Steve")
+  print(label(?u))
+```
+
+Output: `Steve`
+
+`fun` is a function that returns a value; `sub` doesn't. The `?`
+in `?User` says `label` only borrows the user for reading — it
+can't change `u` or take ownership of it. The same `?` shows up
+at the call site too, so the caller can see that `u` is loaned,
+not handed over.
+
+### Resources and cleanup
+
+```rig
+struct Owner
+  cell: *Cell(Int)
+
+  drop self: !Owner
+    print(self.cell.get())
+
+sub main()
+  c: *Cell(Int) = *Cell(value: 42)
+  o: Owner = Owner(cell: <c)
+  print(0)
+```
+
+Output:
+
+```
+0
+42
+```
+
+`*Cell(Int)` is a shared, counted handle to an `Int` — the `*`
+marks shared ownership in the type. `<c` moves the handle into
+the new `Owner`; after that line, `c` is gone, and the compiler
+will tell you if you try to use it. `drop self: !Owner` is your
+cleanup code — it runs automatically when an `Owner` falls out of
+scope, and the `!` gives the body exclusive access to the value.
+When `main` returns, Rig runs your `drop` first (printing `42`,
+the cell's value at that moment), then releases the `*Cell`
+handle. No GC, no finalizer queue — just lexical scope and
+visible effects.
 
 ## Why Rig exists
 
@@ -187,28 +234,6 @@ This matters for two reasons:
   `(call callee args...)` etc. directly — the same tree future
   tools (linters, doc generators, semantic exporters, editor
   integrations) can consume without reimplementing the parser.
-
-## Quick example: a struct with explicit cleanup
-
-```rig
-struct Owner
-  cell: *Cell(Int)
-
-  drop self: !Owner
-    print(99)
-
-sub main()
-  c: *Cell(Int) = *Cell(value: 42)
-  o: Owner = Owner(cell: <c)
-  print(0)
-  # scope exit: prints 99 (user drop body), then *Cell handle
-  # releases its strong refcount.
-```
-
-The `drop self: !Self` declaration is user-authored; the compiler
-generates the structural drop glue that walks `Owner`'s resource
-fields after the user body runs. Any type with drop glue becomes
-non-`Copy` automatically — bare alias = compile error.
 
 ## What works today
 
