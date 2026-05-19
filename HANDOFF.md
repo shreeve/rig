@@ -284,6 +284,16 @@ Violating any of them will silently corrupt the substrate.
   glue, so `Cell(*User)` (where the BASE Cell symbol isn't
   flagged but the INSTANTIATED type is) is caught. Move (`<x`)
   is the only V1 multi-binding shape; user Clone is deferred.
+- **Resource-typed expression-statements are rejected (M26.1).**
+  An expression at statement position whose synthesized type
+  carries drop glue (per `typeHasDropGlue`) is a leak — the
+  result has no binding and no auto-drop guard installed.
+  Concrete cases: `cell.replace(<new)` for Drop T, `make_user()`-
+  shaped calls returning a resource, `vec.pop()` returning
+  resource T?. Fix: bind to a name (auto-drop at scope exit)
+  or `-name` to discharge. Implemented in `ExprChecker.checkStmt`'s
+  catch-all `else` branch via the unified `typeHasDropGlue`
+  predicate.
 - **Cell(T) accepts Copy primitives OR drop-glue T (M26).**
   `isValidCellElementType` is the gate: Copy primitives, plus
   any T where `typeHasDropGlue(T)` returns true (`*T` / `~T` /

@@ -1,0 +1,23 @@
+# M26.1: `cell.replace(<new)` for Drop T must not be ignored.
+# The discarded result carries drop glue; without binding it,
+# the old value's `__rig_drop` never fires and the resource
+# leaks. Rig rejects this at sema time per GPT-5.5's M26
+# post-implementation review.
+#
+# The same rule applies to ANY expression-statement whose type
+# carries drop glue — `make_user()`, `vec.pop()` (when it
+# returns a resource T?), etc. — but the typical M26 case is
+# `cell.replace(<new)` ignored.
+#
+# Fix: bind to a name (auto-drop fires at scope exit), or
+# move/discharge with `-old`.
+
+struct User
+  age: Int
+
+sub main()
+  ua: *User = *User(age: 30)
+  ub: *User = *User(age: 99)
+  c: Cell(*User) = Cell(value: <ua)
+  c.replace(<ub)
+  print(0)

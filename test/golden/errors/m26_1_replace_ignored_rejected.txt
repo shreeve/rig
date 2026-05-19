@@ -1,0 +1,1 @@
+examples/m26_1_replace_ignored_rejected.rig:22:3: error: expression result of type `*User` carries drop glue and would leak as a discarded statement; bind it to a name (`old = c.replace(<new)`), explicitly drop with `-name`, or move into a receiver. Anonymous resource temporaries are rejected by V1's resource-temp rule.

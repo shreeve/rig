@@ -5232,7 +5232,44 @@ const ExprChecker = struct {
             },
             // Everything else (call, propagate, member, infix, etc.)
             // is an expression. Synth and discard the result.
-            else => _ = try self.synthExpr(stmt),
+            //
+            // M26.1 per GPT-5.5's M26 post-implementation review: if
+            // the discarded result's type carries drop glue, the
+            // resource is leaked. The most concrete case is
+            // `cell.replace(<new)` for Drop T — without this rejection,
+            // the old value's `__rig_drop` never fires. Same hazard
+            // applies to any `make_user()`-shaped call returning a
+            // resource at statement position.
+            //
+            // The check fires AFTER synthExpr so the inner expression
+            // gets its own type-level diagnostics first; then the
+            // discard-of-resource hazard is reported on top.
+            else => {
+                const ty = try self.synthExpr(stmt);
+                if (typeHasDropGlue(self.ctx, ty)) {
+                    const pos: u32 = firstSrcPos(stmt);
+                    const ty_str = try formatType(self.ctx, ty);
+                    try self.err(pos, "expression result of type `{s}` carries drop glue and would leak as a discarded statement; bind it to a name (`old = {s}.replace(<new)`), explicitly drop with `-name`, or move into a receiver. Anonymous resource temporaries are rejected by V1's resource-temp rule.", .{
+                        ty_str,
+                        // Heuristic: name the receiver if the stmt is
+                        // a call on a member access, else "expr".
+                        blk: {
+                            if (stmt == .list and stmt.list.len >= 2 and
+                                stmt.list[0] == .tag and stmt.list[0].tag == .@"call")
+                            {
+                                const callee = stmt.list[1];
+                                if (callee == .list and callee.list.len >= 2 and
+                                    callee.list[0] == .tag and callee.list[0].tag == .@"member")
+                                {
+                                    const obj = callee.list[1];
+                                    if (obj == .src) break :blk identAt(self.ctx.source, obj) orelse "expr";
+                                }
+                            }
+                            break :blk "expr";
+                        },
+                    });
+                }
+            },
         }
     }
 

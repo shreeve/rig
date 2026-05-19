@@ -3048,6 +3048,33 @@ userland LIBRARY (the explicit `Reactor` / `Memo` / `Effect`
 work) was blocked on Cell-non-Copy + user Drop. M25 is the
 first half of that unblock; M26 (Cell-non-Copy) is the second.
 
+### M26.1 — Reject discarded resource-typed expression-statements ✅
+
+Closes the one must-fix from GPT-5.5's M26 post-implementation
+review. The hazard: `cell.replace(<new)` ignored at statement
+position leaked the old resource — Rig wasn't catching the
+leak; only Zig's "value of type X ignored" diagnostic fired
+(an M22.1-class fake-surface hazard, since the user-visible
+language was silently allowing a leak through to the backend).
+
+**Fix:** `ExprChecker.checkStmt`'s catch-all `else` branch now
+synthesizes the expression's type, and if `typeHasDropGlue`
+returns true, fires a Rig-level diagnostic naming the type and
+suggesting the bind / discharge / move alternatives. The check
+is general — covers `cell.replace(<new)`, `make_user()` at
+statement position, future `vec.pop() -> T?` for resource T,
+and any other discarded-resource hazard.
+
+**Runtime comment** added per GPT-5.5's optional suggestion:
+`Cell.replace`'s trusted byte-move now documents that the
+copy-then-overwrite is invisible to user code (no drop fires
+between the two assignments), and that M26.1 sema enforces the
+caller always binds the returned T.
+
+Regression: `examples/m26_1_replace_ignored_rejected.rig`.
+
+Tests: 1093 → 1097 passing.
+
 ### M26 — Cell-non-Copy + replace/take ✅
 
 Closes the second half of the userland-Reactor unblock. M25

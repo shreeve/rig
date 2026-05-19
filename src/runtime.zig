@@ -292,6 +292,16 @@ pub const source =
     \\        }
     \\
     \\        pub fn replace(self: *Self, value: T) T {
+    \\            // Trusted byte-move: Rig treats this as a transfer
+    \\            // of ownership of `old` from the cell's storage to
+    \\            // the returned value. No drop fires between the
+    \\            // copy and overwrite (this is straight-line Zig
+    \\            // with no allocator interaction or method calls),
+    \\            // so the temporary `old` and `self.value` aliasing
+    \\            // each holding the same handle is invisible to user
+    \\            // code. M26.1 sema rejects discarded `replace`
+    \\            // results, so the caller always binds and drops
+    \\            // the returned T deterministically.
     \\            const old = self.value;
     \\            self.value = value;
     \\            return old;
