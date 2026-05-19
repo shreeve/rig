@@ -114,7 +114,7 @@ Everything in Rig follows from two design rules:
 
 2. **Visible source effects survive as visible semantic Tags through
    lowering.** The semantic IR (a normalized S-expression tree
-   documented in [`docs/SEMANTIC-SEXP.md`](docs/SEMANTIC-SEXP.md))
+   documented in [`docs/IR.md`](docs/IR.md))
    carries each effect as a first-class node that the checkers and
    emitter consume by name. Tools that read the IR see the same facts
    the compiler does, without speculation.
@@ -124,26 +124,40 @@ language feature is graded against them.
 
 ## Visible effects
 
+Ownership sigils. Most are zero-cost; refcounting only kicks in
+when you ask for shared ownership with `*x`. The default idiom —
+owned values, borrows, and moves — has the same cost story as
+Rust.
+
+| Syntax | Meaning | Runtime cost | Rust analog |
+|---|---|---|---|
+| `<x` | move (transfer of ownership) | zero | move / `std::move` |
+| `?x` / `?T` | read borrow | zero (statically checked) | `&T` |
+| `!x` / `!T` | write borrow | zero (statically checked) | `&mut T` |
+| `+x` | clone (refcount bump on shared) | type-defined; free for `Copy` | `Clone::clone` |
+| `-x` | drop now (early release) | one destructor call | `drop(x)` |
+| `*x` / `*T` | shared `Rc` allocation / type | refcount bump (non-atomic V1) | `Rc::new` / `.clone()` |
+| `~x` / `~T` | weak handle (paired with `*T`) | weak-count bump | `Rc::downgrade` |
+| `%x` (in `raw`) | raw pointer access | zero — it's a raw pointer | `*const T` / `*mut T` |
+
+Other visible effects — control flow, compile-time, captures, and
+the audit boundary:
+
 | Syntax | Meaning |
 |---|---|
-| `<x` | move `x` (transfer of ownership) |
-| `?x` | read borrow |
-| `!x` | write borrow |
-| `+x` | clone (refcount bump for shared handles) |
-| `-x` | drop now (early release, before scope exit) |
-| `*x` / `*T` | shared `Rc` allocation / shared-handle type |
-| `~x` / `~T` | weak handle / paired with `*T` |
 | `expr!` | propagate failure (postfix `!` on a `T!` type) |
 | `pre` | compile-time execution / specialization |
-| `\|+x\| body` | closure capturing `x` by clone |
-| `\|<x\| body` | closure capturing `x` by move |
-| `\|~x\| body` | closure capturing `x` weakly |
-| `raw` block | raw / unsafe escape boundary (block-only) |
+| `\|+x\| body` / `\|<x\| body` / `\|~x\| body` | closure capturing `x` by clone / move / weak |
+| `raw` block | unsafe escape boundary (block-only); guards `%x` and unaudited builtins / extern calls |
 
-Each is enforced by the ownership checker, the effects checker, or
-both. Each appears in the IR as an explicit node — `(move src)`,
-`(clone src)`, `(drop x)`, `(propagate expr)`, `(raw_block body)` —
-that downstream tools can recognize without re-deriving intent.
+Each effect is enforced by the ownership checker, the effects
+checker, or both, and appears in the IR as an explicit node —
+`(move src)`, `(clone src)`, `(drop x)`, `(propagate expr)`,
+`(raw_block body)` — that downstream tools can read without re-
+deriving intent. Borrows and moves lower to plain Zig; the safety
+is in the checker, not the codegen. Refcounted handles compile to
+a small `RcBox(T)` / `WeakHandle(T)` runtime; everything else goes
+straight to Zig's optimizer.
 
 ## Pipeline
 
@@ -202,7 +216,7 @@ feature — it is ordinary Rig code, run through Cell, Closure, the
 subscriber Vec, multi-capture closures, and structural drop glue.
 
 The Phase B reactive design is sketched in
-[`docs/REACTIVITY-DESIGN.md`](docs/REACTIVITY-DESIGN.md).
+[`docs/REACTIVITY.md`](docs/REACTIVITY.md).
 
 ## Powered by Nexus
 
@@ -331,8 +345,8 @@ src/
 docs/
   ROADMAP.md             milestone history (M0 → M30)
   CHECKLIST.md           per-milestone implementation tracking
-  SEMANTIC-SEXP.md       IR shape and the lowering invariant
-  REACTIVITY-DESIGN.md   Phase B reactive substrate design
+  IR.md       IR shape and the lowering invariant
+  REACTIVITY.md   Phase B reactive substrate design
   INFLUENCES.md          design lineage and the substrate ladder
 examples/                runnable Rig programs (~226 fixtures)
 test/                    test harness, golden files, module tests
@@ -342,7 +356,7 @@ AGENTS.md                compass for AI sessions working on Rig
 ```
 
 For deeper reading: [`SPEC.md`](SPEC.md) (canonical syntax / semantics
-reference), [`docs/SEMANTIC-SEXP.md`](docs/SEMANTIC-SEXP.md) (IR
+reference), [`docs/IR.md`](docs/IR.md) (IR
 shape), [`docs/INFLUENCES.md`](docs/INFLUENCES.md) (design lineage and
 the substrate ladder), [`HANDOFF.md`](HANDOFF.md) (current state and
 forward arcs), [`docs/ROADMAP.md`](docs/ROADMAP.md) (milestone
