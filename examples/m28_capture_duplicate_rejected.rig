@@ -1,0 +1,10 @@
+# M28: duplicate capture names are rejected, regardless of mode.
+# The check fires on the source name alone — even if the modes
+# differ (`+a` clone vs `~a` weak), the same name appearing
+# twice in a capture list is ambiguous (which `a` does the body
+# see? which gets dropped first?). Reject at sema time.
+
+sub main()
+  a: *Cell(Int) = *Cell(value: 1)
+  cb: *Closure() = *Closure(fn |+a, ~a| print(a.get()))
+  cb()

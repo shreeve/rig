@@ -3048,6 +3048,97 @@ userland LIBRARY (the explicit `Reactor` / `Memo` / `Effect`
 work) was blocked on Cell-non-Copy + user Drop. M25 is the
 first half of that unblock; M26 (Cell-non-Copy) is the second.
 
+### M28 — Multi-capture closures ✅
+
+The substrate gap that rrlib v0 surfaced when scaling to a
+cross-source cascade canary (`count → total → print`). M20g
+shipped single-capture only; M28 lifted the restriction to
+comma-separated multi-capture.
+
+**The discovery.** The downstream pipeline was already
+multi-capture-ready by design. Reconnaissance found:
+
+- `SymbolResolver.bindCaptures` loops `for (captures.list[1..]) |cap|`
+  with a defensive comment noting "V1 grammar is single-capture
+  so this only fires under a future multi-capture grammar rev"
+  + duplicate-name detection.
+- `ExprChecker.validateCaptures` loops + per-capture
+  mode-vs-type validation.
+- `Emitter.emitClosureFields` / `emitClosureInvoke` /
+  `emitClosureInit` / `emitClosureCaptureGuards` (the four
+  emit-side iterators) all loop.
+- `Checker.applyCaptureEffects` / `bindCapturesLocal`
+  (ownership) loop.
+
+The single-capture limitation was purely grammatical.
+
+**Three small fixes:**
+
+- **`rig.grammar`** — `captures` rule changed from
+  `BAR_CAPTURE capture BAR_CAPTURE` to
+  `BAR_CAPTURE L(capture) BAR_CAPTURE` using the standard
+  Nexus comma-separated-list combinator. IR shape unchanged
+  (`(captures cap1 cap2 ...)` — just N children instead of 1).
+- **`src/rig.zig` lexer** — `isCaptureContentCat` extended
+  to accept `.@"comma"` so the multi-capture comma doesn't
+  prematurely clear `pending_close_bar`.
+- **`src/rig.zig` lexer** — `isCapturePipe` rewritten to
+  probe ahead through multiple captures (bounded at 32
+  defensively): `[sigil]? ident ( , [sigil]? ident )* |`.
+
+**Conflict count unchanged at 69.** No grammar ambiguities
+introduced.
+
+**Verified end-to-end.** `examples/m28_multi_capture_cascade.rig`
+chains two IntSources via `fn |+count, +total| ...`:
+
+```rig
+body_a: *Closure() = *Closure(fn |+count, +total| total.set(count.get() * 10))
+count.subscribe(+body_a)
+
+body_b: *Closure() = *Closure(fn |+total| print(total.get()))
+total.subscribe(+body_b)
+
+count.set(1)        # → total becomes 10 → prints 10
+count.set(7)        # → total becomes 70 → prints 70
+print(total.get())  # → 70
+```
+
+Output: `10\n70\n70`.
+
+The emitted env struct correctly carries N capture fields
+(`cap_count`, `cap_total`), per-capture clone refcount bumps
+at construction, per-capture `dropStrong` in the rigDrop
+thunk. M27's auto-deref fires correctly inside the multi-
+capture body (`self.cap_count.value.get()` etc.).
+
+**Negative regression**: `examples/m28_capture_duplicate_rejected.rig`
+locks the duplicate-name rejection (`fn |+a, ~a|` — same name,
+different modes — still rejected by `bindCaptures`). Diagnostic
+points at the second occurrence with a note at the first.
+
+Tests: 1103 → 1113 passing.
+
+**Layer 7.x now complete.** With M25 (user Drop) + M25.1
+(drop-body restrictions + has_drop_glue fixed-point) + M26
+(Cell-non-Copy + replace) + M26.1 (reject discarded resource
+expression-statements) + M27 (auto-deref through member-access)
++ M28 (multi-capture) all shipped, the substrate has proven
+end-to-end on:
+
+- single-source reactive (rrlib v0 monomorphic IntSource)
+- cross-source reactive cascade (M28 canary)
+
+Remaining substrate-completion gaps for full userland reactive
+ergonomics:
+
+- **M29: kwarg expected-type-propagation** — workaround
+  exists (typed locals before nested constructors).
+- **M30: generic `Source(T)` / generic member-chain
+  substitution** — workaround is monomorphic structs.
+
+Neither blocks the substrate; both are ergonomic improvements.
+
 ### M27 — Auto-deref through member-access in method bodies ✅
 
 The substrate gap that the userland reactive library exposed in

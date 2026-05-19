@@ -681,11 +681,17 @@ lambda   = FN captures params block         → (lambda 2 3 returns:_ 4)
 # (e.g., `count.set(count.get() + 1)`, `print(count.get())`).
 inline_body = call                          → (block 1)
 
-# M20g capture list. SINGLE-capture only in V1; multi-capture
-# (comma-separated) is a follow-up. The outer (captures ...) wrap
-# is built via a sub-rule because Nexus grammar actions don't
-# support inline nested list construction.
-captures = BAR_CAPTURE capture BAR_CAPTURE  → (captures 2)
+# M20g + M28: capture list. M20g shipped single-capture only;
+# M28 lifted that restriction to comma-separated multi-capture
+# via the standard Nexus `L(...)` list combinator. The IR shape
+# `(captures cap1 cap2 ...)` is unchanged from M20g — the
+# downstream walkers (SymbolResolver.bindCaptures,
+# ExprChecker.validateCaptures, Emitter.emitClosureFields /
+# emitClosureInit / emitClosureCaptureGuards, and
+# Checker.applyCaptureEffects / bindCapturesLocal) were all
+# loop-shaped over `captures.list[1..]` from M20g onward, so the
+# only change M28 needed was this grammar rule.
+captures = BAR_CAPTURE L(capture) BAR_CAPTURE  → (captures ...2)
 
 capture  = name                             → (cap_copy 1)
          | CLONE_PFX name                   → (cap_clone 2)

@@ -1055,20 +1055,33 @@ pub const Lexer = struct {
     /// to accept the sigil-prefixed lambda capture forms while
     /// keeping the catch / for-each single-ident pattern intact.
     fn isCapturePipe(self: *const Lexer) bool {
+        // Probe ahead for the multi-capture pattern (M28):
+        //
+        //   `|` (here)  [sigil]? ident  ( `,` [sigil]? ident )*  `|`
+        //
+        // M20g shipped single-capture only; M28 extended to comma-
+        // separated. Each capture is `[+|<|~]? ident` (the sigil is a
+        // raw `plus` / `lt` / `tilde` token here — full sigil
+        // classification fires AFTER this probe runs). Bounded at 32
+        // captures defensively (real captures lists are ~2-5).
         var probe = self.base;
-        const tok1 = probe.matchRules();
-        const has_sigil = switch (tok1.cat) {
-            // Raw tokens before lexer sigil-classification: `+` is
-            // `plus`, `<` is `lt`, `~` is `tilde`. After the opening
-            // bar_capture they'll be reclassified as
-            // clone_pfx / move_pfx / kept-as-tilde respectively.
-            .plus, .lt, .tilde => true,
-            else => false,
-        };
-        const ident_tok = if (has_sigil) probe.matchRules() else tok1;
-        if (ident_tok.cat != .ident) return false;
-        const close_tok = probe.matchRules();
-        return close_tok.cat == .bar;
+        var captures: u8 = 0;
+        while (captures < 32) : (captures += 1) {
+            const sigil_tok = probe.matchRules();
+            const has_sigil = switch (sigil_tok.cat) {
+                .plus, .lt, .tilde => true,
+                else => false,
+            };
+            const ident_tok = if (has_sigil) probe.matchRules() else sigil_tok;
+            if (ident_tok.cat != .ident) return false;
+            const sep_tok = probe.matchRules();
+            switch (sep_tok.cat) {
+                .bar => return true,
+                .@"comma" => continue,
+                else => return false,
+            }
+        }
+        return false;
     }
 
     /// M20g: token categories that may appear inside a `|...|`
@@ -1085,6 +1098,11 @@ pub const Lexer = struct {
             // Raw forms (in case classification didn't fire by the time
             // we check — defensive):
             .plus,
+            // M28: comma is the multi-capture separator. Without
+            // this, `fn |+a, +b|` cleared `pending_close_bar` at
+            // the comma and the closing `|` was misclassified as
+            // a binary OR operator instead of bar_capture.
+            .@"comma",
             => true,
             else => false,
         };

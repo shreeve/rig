@@ -1,7 +1,7 @@
-# Rig — Session Handoff (M27 + rrlib v0 — userland reactive library running)
+# Rig — Session Handoff (M28 multi-capture — cross-source reactive cascade running)
 
-**You are picking up a Rig compiler session at the M27 boundary —
-the userland reactive library is now live.**
+**You are picking up a Rig compiler session at the M28 boundary —
+multi-capture closures unlock the full reactive cascade pattern.**
 **Phase B + the raw-escape boundary (M22) + the fake-surface
 floor-raising audit (M22.1) + the M22.1.1 runtime rename + the
 M15b cross-module sema (module honesty) + M15b.1 sema-time
@@ -21,8 +21,10 @@ retractions) + M25 (user `drop self: !Self` + auto-generated
 structural drop glue + "any drop glue is non-Copy" alias rule)
 + M26 (`Cell(T)` for non-Copy resource T + `replace`
 swap-and-yield primitive + unified `dropElement` dispatch) +
-**M27 (auto-deref through member-access in method bodies +
-`rig-reactive` v0 userland library running end-to-end)**
+M27 (auto-deref through member-access in method bodies +
+`rig-reactive` v0 userland library running end-to-end) +
+**M28 (multi-capture closures — the cross-source reactive
+cascade canary `count → total → print` runs end-to-end)**
 all shipped end-to-end. The reactive canary
 (`examples/reactive_canary.rig`) demonstrates the full Cell +
 closure + Vec-iteration + Signal chain producing
@@ -33,21 +35,27 @@ demonstrate Cell-non-Copy + replace + the userland Reactor
 shape `*Cell(Vec(*Closure()))`; M27's canary
 (`examples/rig_reactive.rig`) is the first userland reactive
 library — a monomorphic `IntSource` with subscribe / set /
-notify, end-to-end on the substrate. **1103 tests passing, 0 failing.
+notify, end-to-end on the substrate; M28's canary
+(`examples/m28_multi_capture_cascade.rig`) demonstrates a
+two-source reactive cascade (`count → total → print`) using
+multi-capture closures. **1113 tests passing, 0 failing.
 Clean tree on `main`.** The substrate ladder Layers 0–7 + the cross-cutting Drop +
 Cell-non-Copy work (Layers 7.5 and 7.6) are all complete, the
 reactive primitive is in its V1 final form, the safety boundary
 uses a clean Rig-native `raw` block syntax, every accepted V1
 surface form has enforced semantics or a clean Rig sema
 rejection, AND the userland reactive library v0 is running.
-The substrate has proven itself end-to-end for the canary use
-case. The next concrete action is **scaling rrlib past v0** —
-multi-capture closures (M28-class, blocks the cross-source
-cascade canary), kwarg expected-type-propagation
-(M29-class, blocks nested-resource constructors), generic
-`Source(T)` (depends on safe generic-method-body lowering)
-— OR another **Steve-driven choice from the forward-arc menu**
-in §13.
+The substrate has proven itself end-to-end for both single-source
+and cross-source reactive patterns. **All Layer 7.x's are now
+complete** (7 reactivity substrate, 7.5 user Drop, 7.6
+Cell-non-Copy, 7.7 auto-deref through member-access + rrlib v0,
+7.8 multi-capture closures + cascade canary). The remaining
+substrate gaps for full userland reactive ergonomics are
+**M29 (kwarg expected-type-propagation)** and **M30 (generic
+`Source(T)` / generic member-chain substitution)** — neither
+is a hard blocker; both have workarounds documented inline.
+The next concrete action is **Steve's choice from the forward-
+arc menu** in §13.
 
 ---
 

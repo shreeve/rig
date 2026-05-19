@@ -1,0 +1,54 @@
+# M28: cross-source reactive cascade. The canary that rrlib v0
+# deferred — chains two IntSources via a multi-capture closure.
+# When `count` changes, body_a fires (captured count + total),
+# updates total to count*10, which fires body_b (captured total),
+# which prints. Demonstrates the full count→total→print pattern.
+#
+# Inlines a minimal IntSource (same shape as
+# `examples/rig_reactive.rig`) to keep this single-file. The
+# IntSource shape is unchanged from rrlib v0; M28's contribution
+# is the multi-capture closure body that previously parsed-error'd.
+
+struct IntSource
+  value: *Cell(Int)
+  subs: *Cell(Vec(*Closure()))
+
+  fun new(initial: Int) -> *IntSource
+    val: *Cell(Int) = *Cell(value: initial)
+    empty: Vec(*Closure()) = Vec()
+    subs_cell: *Cell(Vec(*Closure())) = *Cell(value: <empty)
+    *IntSource(value: <val, subs: <subs_cell)
+
+  fun get(self: ?IntSource) -> Int
+    self.value.get()
+
+  sub subscribe(self: ?IntSource, cb: *Closure())
+    empty: Vec(*Closure()) = Vec()
+    current: Vec(*Closure()) = self.subs.replace(<empty)
+    (!current).push(+cb)
+    discarded: Vec(*Closure()) = self.subs.replace(<current)
+
+  sub set(self: ?IntSource, v: Int)
+    self.value.set(v)
+    empty: Vec(*Closure()) = Vec()
+    current: Vec(*Closure()) = self.subs.replace(<empty)
+    for cb in ?current
+      cb()
+    discarded: Vec(*Closure()) = self.subs.replace(<current)
+
+sub main()
+  count = IntSource.new(0)
+  total = IntSource.new(0)
+
+  # M28-unlocked: multi-capture closure. Body sees both `count`
+  # and `total` via cloned shared handles.
+  body_a: *Closure() = *Closure(fn |+count, +total| total.set(count.get() * 10))
+  count.subscribe(+body_a)
+
+  body_b: *Closure() = *Closure(fn |+total| print(total.get()))
+  total.subscribe(+body_b)
+
+  count.set(1)        # → total becomes 10 → prints 10
+  count.set(7)        # → total becomes 70 → prints 70
+  print(total.get())  # → 70 (read after set)
+  # Expected output: 10\n70\n70
