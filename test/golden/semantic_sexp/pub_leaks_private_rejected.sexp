@@ -1,0 +1,1 @@
+(module (struct Secret (: value Int)) (pub (generic_type Box (T) (: inner T))) (pub (fun make_secret () Secret (block (call Secret (kwarg value 42))))) (pub (sub take_secret ((: s Secret)) _ (block (call print (member s value))))) (pub (fun wrap_secret ((: x Int)) (generic_inst Box Secret) (block (call Box (kwarg inner (call Secret (kwarg value x))))))))

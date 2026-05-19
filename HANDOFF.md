@@ -879,13 +879,28 @@ NOT promises to ship.
       for value-position bare-name and unknown-callee.
       `synthBlock` scope-tracking fixed. `walkDecl` missing
       `.@"generic_enum"` arm fixed. 13 test fixtures updated.
-    - **M15b.2: public-API-leaks-private-type rejection**
-      (foreign-side decl check). Reject `pub fun foo() ->
-      Secret` where `Secret` is non-pub. Probably highest
-      remaining priority before feature work.
+    - ~~**M15b.2: public-API-leaks-private-type rejection**~~
+      ✅ **Landed in M15b.2.** Decl-time check on every
+      `pub fun` / `pub sub`: the return type, every parameter
+      type, and every `parameterized_nominal` argument is
+      walked recursively, and any same-module non-`pub`
+      nominal leaf fires a diagnostic anchored at the
+      function's name position. `imported_nominal` and
+      runtime-registered builtins (Cell/Closure/Vec/Signal)
+      are exempt; `type_var` is exempt (substituted at use
+      sites). 5 new regression tests
+      (`examples/pub_leaks_private_rejected.rig` covers
+      return-type / param-type / `Box(Secret)` shapes;
+      `test/modules/cross_pub_leaks_private_rejected/` is
+      the cross-module integration). 982 → 987 tests.
+      Implementation: `TypeResolver.collectPrivateNominalLeaks`
+      + `TypeResolver.checkPublicSignatureLeaks` in
+      `src/types.zig`, called from `resolveFun` after the
+      function symbol's `is_public` flag and `ty` field are
+      stamped.
     - **Legacy global name-scan retirement** in `emit.zig`
-      (M20a.2 + M20e.1 partial). Internal cleanup; can
-      ride alongside M15b.2 or be its own arc.
+      (M20a.2 + M20e.1 partial). Internal cleanup; standalone
+      arc now that M15b.2 is shipped.
     - **Body-less `extern fun`/`extern sub` declarations**
       (M23). Per GPT-5.5 entry 39: "a more urgent FFI hole
       than raw-fn, honestly. `extern puts: fn(String) Int`

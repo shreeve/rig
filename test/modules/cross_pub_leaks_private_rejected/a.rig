@@ -1,0 +1,10 @@
+# M15b.2 cross-module canary: a `pub fun` whose return type is a
+# non-`pub` same-module nominal must error at the defining module's
+# decl time, BEFORE any importer touches the symbol. The diagnostic
+# fires here in `a.rig` (not at the call site in `main.rig`).
+
+struct Secret
+  value: Int
+
+pub fun make_secret() -> Secret
+  Secret(value: 42)

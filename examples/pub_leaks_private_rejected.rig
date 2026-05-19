@@ -1,0 +1,33 @@
+# M15b.2: public-API-leaks-private-type rejection.
+#
+# A `pub fun` / `pub sub` whose signature mentions a non-`pub`
+# same-module nominal is a category error: importers can hold the
+# value but cannot construct or destructure it through any public
+# path. The check fires at decl time on the defining module, not
+# at the importer's call site, so the module author sees the leak
+# immediately.
+#
+# Three offenders below:
+#   1. `make_secret` — leaks `Secret` through the return type.
+#   2. `take_secret` — leaks `Secret` through a parameter type.
+#   3. `wrap_secret` — leaks `Secret` through a parameterized
+#                      `pub` generic (`Box(Secret)`).
+#
+# Fix shapes (NOT in this file): mark `Secret` `pub`, OR remove
+# the `pub` from the offending function (keep it private), OR
+# return/accept a `pub` wrapper type that doesn't expose `Secret`.
+
+struct Secret
+  value: Int
+
+pub type Box(T)
+  inner: T
+
+pub fun make_secret() -> Secret
+  Secret(value: 42)
+
+pub sub take_secret(s: Secret)
+  print(s.value)
+
+pub fun wrap_secret(x: Int) -> Box(Secret)
+  Box(inner: Secret(value: x))

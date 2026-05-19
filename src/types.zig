@@ -2725,6 +2725,18 @@ const TypeResolver = struct {
         if (identAt(self.ctx.source, name_node)) |nm| {
             if (self.ctx.lookup(parent_scope, nm)) |sym_id| {
                 self.ctx.symbols.items[sym_id].ty = fn_ty;
+
+                // M15b.2: public-API-leaks-private-type rejection. A
+                // `pub fun` / `pub sub` whose signature mentions a
+                // non-pub same-module nominal is a category error:
+                // importers can hold the value but can't reach it
+                // through any public path. Fire at decl time so the
+                // module author sees the leak immediately, not when
+                // a foreign caller stumbles into it.
+                if (self.ctx.symbols.items[sym_id].flags.is_public) {
+                    const fn_name_pos: u32 = if (name_node == .src) name_node.src.pos else 0;
+                    try self.checkPublicSignatureLeaks(sym_id, fn_name_pos, return_ty, param_types.items);
+                }
             }
         }
 
@@ -3084,6 +3096,130 @@ const TypeResolver = struct {
             .pos = pos,
             .message = msg,
         });
+    }
+
+    /// M15b.2: walk a type and append any non-public same-module nominal
+    /// leaves into `leaks`. Used to enforce that public declarations
+    /// don't expose private nominal types in their signatures across
+    /// module boundaries — `pub fun make_secret() -> Secret` where
+    /// `Secret` is non-pub is a category error: importers can hold a
+    /// `Secret` value but cannot construct or destructure it through
+    /// any public path.
+    ///
+    /// What counts as a "leak":
+    ///   - `nominal{sym}` where `sym` is same-module and not `pub`
+    ///     and not a built-in (Cell/Closure/Vec/Signal).
+    ///
+    /// What does NOT leak:
+    ///   - `imported_nominal{module, sym}` — already validated visible
+    ///     in its origin module by the M15b cross-module call paths;
+    ///     the importer's local TypeStore can carry it without a
+    ///     visibility opinion.
+    ///   - `parameterized_nominal{base, args}` where `base` is the
+    ///     same-module nominal — the base itself is checked, then each
+    ///     arg recursively. (If a generic constructor is `pub Box(T)`
+    ///     and someone writes `pub fun foo() -> Box(Secret)`, the
+    ///     `Box` is fine but `Secret` leaks.)
+    ///   - `type_var{sym}` — generic parameter; substituted at use
+    ///     sites, doesn't itself leak.
+    ///   - structural variants (optional, fallible, borrow_*, slice,
+    ///     array, function, shared, weak) — recurse into children.
+    ///   - primitives (int, bool, float, string, void, etc.) — visible
+    ///     by construction.
+    fn collectPrivateNominalLeaks(
+        self: *TypeResolver,
+        ty: TypeId,
+        leaks: *std.ArrayListUnmanaged(SymbolId),
+    ) std.mem.Allocator.Error!void {
+        if (ty == self.ctx.types.invalid_id or ty == self.ctx.types.unknown_id) return;
+        const t = self.ctx.types.get(ty);
+        switch (t) {
+            .invalid, .unknown,
+            .void, .bool, .string,
+            .int, .float, .int_literal, .float_literal,
+            .imported_nominal, .type_var,
+            => {},
+
+            .optional, .fallible, .borrow_read, .borrow_write,
+            .shared, .weak,
+            => |inner| try self.collectPrivateNominalLeaks(inner, leaks),
+
+            .slice => |s| try self.collectPrivateNominalLeaks(s.elem, leaks),
+            .array => |a| try self.collectPrivateNominalLeaks(a.elem, leaks),
+
+            .function => |f| {
+                for (f.params) |p| try self.collectPrivateNominalLeaks(p, leaks);
+                try self.collectPrivateNominalLeaks(f.returns, leaks);
+            },
+
+            .nominal => |sym_id| {
+                const sym = self.ctx.symbols.items[sym_id];
+                // Built-in nominals (Cell/Closure/Vec/Signal) are visible
+                // by construction; same-module pub nominals are visible
+                // by their decoration; everything else is a leak.
+                if (sym.decl_pos == builtin_decl_pos) return;
+                if (sym.flags.is_public) return;
+                // Avoid reporting the same private symbol twice in a
+                // single signature (e.g., `pub fun f(x: Secret) -> Secret`
+                // should produce one diagnostic, not two).
+                for (leaks.items) |existing| if (existing == sym_id) return;
+                try leaks.append(self.ctx.allocator, sym_id);
+            },
+
+            .parameterized_nominal => |pn| {
+                // The base generic must be visible, AND each argument
+                // must independently be visible. `Box(Secret)` leaks
+                // `Secret` even when `Box` is `pub`.
+                const base_sym = self.ctx.symbols.items[pn.sym];
+                if (base_sym.decl_pos != builtin_decl_pos and !base_sym.flags.is_public) {
+                    var seen = false;
+                    for (leaks.items) |existing| if (existing == pn.sym) { seen = true; break; };
+                    if (!seen) try leaks.append(self.ctx.allocator, pn.sym);
+                }
+                for (pn.args) |arg| try self.collectPrivateNominalLeaks(arg, leaks);
+            },
+        }
+    }
+
+    /// M15b.2: enforce that a `pub fun` / `pub sub` declaration does
+    /// not leak private same-module nominals through its signature.
+    /// Called from `resolveFun` when the function symbol carries
+    /// `is_public = true`. Fires one diagnostic per offending private
+    /// nominal, anchored at the function's name position.
+    fn checkPublicSignatureLeaks(
+        self: *TypeResolver,
+        fn_sym_id: SymbolId,
+        fn_name_pos: u32,
+        return_ty: TypeId,
+        param_types: []const TypeId,
+    ) std.mem.Allocator.Error!void {
+        var leaks: std.ArrayListUnmanaged(SymbolId) = .empty;
+        defer leaks.deinit(self.ctx.allocator);
+
+        try self.collectPrivateNominalLeaks(return_ty, &leaks);
+        for (param_types) |pt| try self.collectPrivateNominalLeaks(pt, &leaks);
+
+        if (leaks.items.len == 0) return;
+
+        const fn_sym = self.ctx.symbols.items[fn_sym_id];
+        for (leaks.items) |private_sym_id| {
+            const private_sym = self.ctx.symbols.items[private_sym_id];
+            try self.err(fn_name_pos, "public {s} `{s}` leaks private type `{s}`; either mark `{s}` `pub` so importers can construct/destructure it, or remove `{s}` from the public API", .{
+                if (fn_sym.kind == .function) blk: {
+                    // Distinguish fun vs sub for clearer diagnostics. The
+                    // FunctionType carries `is_sub`; look it up.
+                    const fn_ty = self.ctx.types.get(fn_sym.ty);
+                    break :blk if (fn_ty == .function and fn_ty.function.is_sub)
+                        "sub"
+                    else
+                        "function";
+                } else "function",
+                fn_sym.name,
+                private_sym.name,
+                private_sym.name,
+                fn_sym.name,
+            });
+        }
     }
 };
 

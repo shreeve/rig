@@ -2478,9 +2478,20 @@ Per the M22.1 fake-surface invariant lifted to module scope:
 
 ## Deferred to M15b.2+ (under active follow-up)
 
-- Public-API-leaks-private-type rejection (`pub fun
+- ~~Public-API-leaks-private-type rejection (`pub fun
   make_secret() -> Secret` where `Secret` is non-pub) —
-  M15b.2.
+  M15b.2.~~ ✅ **Shipped in M15b.2.** A `pub fun` / `pub sub`
+  whose signature mentions a non-`pub` same-module nominal —
+  return type, parameter type, or as a `parameterized_nominal`
+  argument (`Box(Secret)`) — fires a decl-time diagnostic
+  anchored at the function's name position. Importers see the
+  same diagnostic when the cross-module compilation chain
+  pulls in the offending module's sema. Imported nominals
+  (`imported_nominal{module, sym}`) are exempt — they're
+  validated visible in their origin module by the existing
+  M15b cross-module call paths. Built-in nominals
+  (Cell/Closure/Vec/Signal) are exempt. `type_var`s are
+  exempt (they're parameters, substituted at use sites).
 - `pub extern <name>: <type>` grammar (`extvar` isn't
   pub-wrappable today; private extern + `pub` safe wrapper
   is the V1 idiom).

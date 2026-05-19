@@ -1,0 +1,8 @@
+# Importer side. The diagnostic doesn't actually fire at this call
+# site — it fires in `a.rig`'s decl-time sema, but the cross-module
+# compilation chain surfaces it through `bin/rig run main.rig`.
+use a
+
+sub main()
+  s = a.make_secret()
+  print(s.value)

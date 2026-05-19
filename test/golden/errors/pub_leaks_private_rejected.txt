@@ -1,0 +1,3 @@
+examples/pub_leaks_private_rejected.rig:26:9: error: public function `make_secret` leaks private type `Secret`; either mark `Secret` `pub` so importers can construct/destructure it, or remove `make_secret` from the public API
+examples/pub_leaks_private_rejected.rig:29:9: error: public sub `take_secret` leaks private type `Secret`; either mark `Secret` `pub` so importers can construct/destructure it, or remove `take_secret` from the public API
+examples/pub_leaks_private_rejected.rig:32:9: error: public function `wrap_secret` leaks private type `Secret`; either mark `Secret` `pub` so importers can construct/destructure it, or remove `wrap_secret` from the public API

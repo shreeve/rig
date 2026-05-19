@@ -2829,6 +2829,73 @@ behavior).
 - "Value-position block locals are invisible at their use
   sites." Closed.
 
+### M15b.2 — public-API-leaks-private-type rejection ✅
+
+Closes the highest-priority M15b deferred item per HANDOFF §13
+Category A. A `pub fun` / `pub sub` whose signature mentions a
+non-`pub` same-module nominal is a category error: importers can
+hold the value but cannot construct or destructure it through
+any public path. M15b.2 fires a decl-time diagnostic at the
+defining module, not the importer's call site, so the module
+author sees the leak immediately.
+
+**What's covered:**
+
+- Return type contains a same-module non-`pub` nominal.
+- Parameter type contains a same-module non-`pub` nominal.
+- `parameterized_nominal{base, args}` recursion: `Box(Secret)`
+  where `Box` is `pub` and `Secret` is non-`pub` leaks `Secret`.
+- Structural recursion through `optional` / `fallible` /
+  `borrow_read` / `borrow_write` / `slice` / `array` /
+  `function` / `shared` / `weak`.
+
+**What's exempt (intentionally):**
+
+- `imported_nominal{module, sym}` — already validated visible
+  in its origin module by the existing M15b cross-module call
+  paths; the importer carries it transparently.
+- Built-in nominals (Cell/Closure/Vec/Signal) — visible by
+  construction via `registerBuiltins`.
+- `type_var` — generic parameter; substituted at use sites.
+
+**Implementation:**
+
+- `TypeResolver.collectPrivateNominalLeaks(ty, leaks)` —
+  walks a `TypeId` and appends any non-public same-module
+  nominal leaves into `leaks` (deduplicated).
+- `TypeResolver.checkPublicSignatureLeaks(fn_sym, pos, ret, params)` —
+  invokes the walker for return + each param, fires one
+  diagnostic per offending private symbol anchored at the
+  function's name position. Distinguishes `function` vs `sub`
+  in the diagnostic.
+- Wired into `resolveFun` after the fn symbol's `is_public`
+  flag and `ty` are stamped — only fires for public decls,
+  no overhead for private functions.
+
+**Tests:**
+
+- `examples/pub_leaks_private_rejected.rig` — single-file
+  fixture covering all three offender shapes (return type
+  leak, param type leak, `Box(Secret)` parameterized leak).
+- `test/modules/cross_pub_leaks_private_rejected/` — cross-
+  module integration proving the diagnostic propagates
+  through `bin/rig run main.rig` when the importer pulls in
+  the offending module.
+- 982 → 987 tests passing, 0 failing.
+
+**Deferred to later arcs (per the M15b.2 spec scope):**
+
+- `pub extern <name>: <type>` grammar (extern is currently
+  not pub-wrappable; private extern + `pub` safe wrapper is
+  the V1 idiom).
+- Qualified resource types in type position (`b: *a.Box`)
+  — parse-gap; users use type inference today.
+- Cross-module user-defined generics (`pub type Box(T)` is
+  not yet importable as parameterized).
+
+These remain on the M15b.2+ follow-up list in
+[`SPEC.md`](../SPEC.md#deferred-to-m15b2-under-active-follow-up).
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note
