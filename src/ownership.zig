@@ -1354,14 +1354,22 @@ pub const Checker = struct {
             // No `+x` clone form yet for user-defined Drop types in
             // V1 (user Clone is its own deferred arc); only `<x`
             // move is suggested.
+            // M25(3/5) + M26(3/5): the unified "any type with drop
+            // glue is non-Copy" rule. M25(3/5) covered nominals
+            // and (base-flagged) parameterized_nominals. M26(3/5)
+            // generalizes the parameterized branch to any whole
+            // type with drop glue, so `Cell(*User)` etc. (where
+            // the BASE symbol Cell isn't itself flagged but the
+            // INSTANTIATED type carries drop glue via M26's
+            // recursion) gets caught too.
             const drop_glue_sym: ?types.SymbolId = switch (ty) {
                 .nominal => |s| blk: {
                     const target = sema.symbols.items[s];
                     break :blk if (target.flags.has_drop_glue) s else null;
                 },
                 .parameterized_nominal => |pn| blk: {
-                    const base = sema.symbols.items[pn.sym];
-                    break :blk if (base.flags.has_drop_glue) pn.sym else null;
+                    if (types.typeHasDropGlue(sema, sym.ty)) break :blk pn.sym;
+                    break :blk null;
                 },
                 else => null,
             };

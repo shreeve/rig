@@ -72,7 +72,7 @@ between each.
 | 6 | **Resource-aware containers** | Collections that handle `*T` / `~T` element ownership correctly (no memcpy of refcount handles, drops cascade properly) | M20i (resource-aware Vec / container) | ✅ shipped (1-5/5 — runtime + sema + ownership + emit + tests) |
 | 7 | **Reactivity (substrate)** | Push/pull dependency tracking; subscriber notification; Cell → Effect | PB2 + PB3 + PB4 (Phase B) | ✅ substrate complete (Signal multi-subscriber + R2 reentrancy + library/substrate boundary locked in userland) |
 | 7.5 | **User-defined Drop (cross-cutting)** | Plain-struct user `drop self: !Self` + auto-generated structural drop glue for any struct with resource fields; "any type with drop glue is non-Copy" alias rule | M25 | ✅ shipped (1-5/5 — grammar + sema + ownership + emit + tests + docs) |
-| 7.6 | **Cell-non-Copy + replace/take** | Cell over resource T (drop-old-on-set, take primitive, optional-resource semantics); the second half of the userland-reactive-library unblock | M26 | 🚧 next, post-M25 |
+| 7.6 | **Cell-non-Copy + replace** | Cell over resource T (drop-old-on-set, replace swap-and-yield primitive, unified `dropElement` dispatch); the second half of the userland-reactive-library unblock. `take` and `borrow` deferred. | M26 | ✅ shipped (1-5/5 — sema + runtime + ownership + emit + tests + docs) |
 | 8 | **Structured concurrency** | Scope-bound tasks, automatic cancellation propagation, no orphan tasks (Trio/Anyio-style) | post-Phase B | deferred |
 | 9 | **Async** | Multi-suspension state machines; poll/wake; pin discipline; executor; should be paired with Layer 8 cancellation discipline | post-structured-concurrency | deferred |
 

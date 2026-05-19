@@ -1,0 +1,1 @@
+examples/m26_cell_get_rejected.rig:15:12: error: `Cell.get` returns `T` by value but `T = *User` has drop glue (resource handle, `Vec(T)`, `*Closure()`, struct with resource fields or user `drop`); a copy would alias the cell's owned value and cause a double-drop. Use `cell.replace(<new)` to swap-and-yield the old value, or borrow-read access (deferred beyond M26).

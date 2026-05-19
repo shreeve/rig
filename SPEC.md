@@ -303,7 +303,7 @@ scope exit; they do NOT run on `@panic` / `unreachable`. Programs
 that panic with live resource handles leak those handles (the
 process is dying anyway). Document for clarity, not for change.
 
-### Interior mutability via `Cell(T)` (M20f)
+### Interior mutability via `Cell(T)` (M20f + M26)
 
 The M20d rules reject write-receiver and consume-receiver methods
 through `*T` — shared ownership cannot grant unique mutable access.
@@ -318,31 +318,68 @@ print(rc.get())            # 5
 
 `Cell(T)` is a built-in generic nominal (registered alongside
 primitives at sema init; runtime implementation lives in
-`_runtime.zig`). It provides:
+`_runtime.zig`).
 
-- `get(self: ?Cell(T)) -> T` — returns the current value by copy
-- `set(self: ?Cell(T), value: T)` — interior mutation; trusted
-  runtime implementation does the actual write
+**M26 extended `Cell(T)` to non-Copy resource T**, so the
+canonical userland Reactor cell shape `*Cell(Vec(*Closure()))`
+is now constructible. The accept rule: `Cell(T)` accepts `T`
+when `T` is a Copy primitive OR `typeHasDropGlue(T)` is true
+(`*T` shared, `~T` weak, `Vec(T)`, `*Closure()`, structs with
+resource fields or user `drop`, recursively `Cell(drop_T)`).
+Bare nominals without drop glue (e.g., a struct of only Copy
+fields) are still rejected — V1 doesn't yet track Copy for
+user types.
+
+**Cell's API:**
+
 - `value: T` — synthetic data field for the constructor sugar
-  `Cell(value: ...)`
+  `Cell(value: ...)`. Direct read access (`cell.value`) is
+  rejected for Drop T (would alias-double-drop).
+- `get(self: ?Cell(T)) -> T` — returns the current value by
+  copy. **Rejected for Drop T** (alias-double-drop). For Copy
+  T it returns by value as before.
+- `set(self: ?Cell(T), value: T)` — interior mutation. For
+  Copy T it overwrites; for Drop T the runtime calls
+  `dropElement(T, &self.value)` to release the old value
+  first, then stores `new`. The visible-effects rule still
+  applies at the call site: `cell.set(<new)` for resource T
+  (move) or `cell.set(+rc)` (clone), never bare alias.
+- `replace(self: ?Cell(T), value: T) -> T` — atomic
+  swap-and-yield primitive (M26). Stores `new` and returns
+  the old value as owned T. The caller must bind it; the
+  bound `old` gets the standard M20e auto-drop guard.
+  Anonymous results from `replace` are sema-rejected by the
+  M22.1 resource-temporary rule.
 
-Both methods take `?self` (read borrow) so M20d's auto-deref
-permits them through any access path (bare value, `?Cell(T)`
-borrow, `*Cell(T)` shared handle). The interior mutation is
-guaranteed safe by Cell's contract: single-threaded V1 has no
-concurrency, and Cell's only methods are the trusted runtime
-ones.
+All three methods take `?self` (read borrow) so M20d's
+auto-deref permits them through any access path (bare value,
+`?Cell(T)`, `*Cell(T)`). The interior mutation is guaranteed
+safe by Cell's contract — single-threaded V1, Cell's only
+methods are the trusted runtime ones.
 
-**V1 restriction: `T` must be a Copy type.** Allowed: `Int`,
-`Bool`, `Float`, `String`, the literal pseudo-types. Rejected:
-nominal structs, resource handles (`*U` / `~U`), slices,
-generic instantiations of non-Copy types. Non-Copy `Cell(T)`
-would let `Cell.set` corrupt ownership (overwriting a `*User`
-without dropping the previous handle, etc.); deferred until V1
-grows replace/take/Drop semantics.
+**Cell(T) carries drop glue when T does.** A stack-local
+`Cell(*User)` binding gets a scope-exit `__rig_drop` defer
+just like Vec; the heap-owned `*Cell(T)` form dispatches
+through the standard `dropStrong` → `__rig_drop` chain.
+Bare alias of a Drop-bearing Cell value is rejected by the
+generalized "any type with drop glue is non-Copy" rule.
+
+**M26-deferred:**
+- `take()` (yields-and-empties) — needs an empty-state
+  representation; deferred until a use case forces the design.
+- `cell.borrow()` read-access shape for Drop T — needs
+  lifetime rules through `*Cell` interior mutation; deferred.
+- User-defined `Clone` for Drop T (so users could opt into a
+  `+x` form for their Drop types).
 
 ```rig
-c: Cell(*User) = ...     # error: Cell(T) in V1 requires Copy T
+# Old M20f-era restriction (still applies to bare nominals):
+c: Cell(Pair) = ...      # error: bare nominal without drop glue
+
+# M26-unlocked shapes (all valid):
+c: Cell(*User) = ...
+c: Cell(Vec(*Closure())) = ...
+c: *Cell(*Cell(Int)) = ...
 ```
 
 ### Resource-aware containers via `Vec(T)` (M20i)

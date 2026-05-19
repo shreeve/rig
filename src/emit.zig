@@ -2590,10 +2590,18 @@ pub const Emitter = struct {
             return switch (ty) {
                 .shared => .shared,
                 .weak => .weak,
-                // M20i: Vec(T) stack-local bindings get a scope-exit
-                // defer that calls `__rig_drop()`. The destructor
-                // walks elements (LIFO) + frees the backing buffer.
-                .parameterized_nominal => |pn| if (pn.sym == sema.vec_sym_id)
+                // M20i + M26(2/5): parameterized-nominal value-type
+                // bindings get a scope-exit `__rig_drop` defer when
+                // the type has drop glue. Vec(T), Cell(Drop T), and
+                // any future drop-glue-bearing parameterized type
+                // route through the same `.vec_value` branch — all
+                // three rely on the runtime's `pub fn __rig_drop`
+                // hook. The dispatch is `typeHasDropGlue` because
+                // Cell's drop-glue depends on its element T (M26's
+                // Cell-non-Copy unlock). This keeps the predicate
+                // unified instead of growing per-builtin special
+                // cases.
+                .parameterized_nominal => if (types.typeHasDropGlue(sema, sym.ty))
                     @as(?ResourceKind, .vec_value)
                 else
                     null,

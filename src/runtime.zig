@@ -235,19 +235,43 @@ pub const source =
     \\    };
     \\}
     \\
-    \\/// Cell(T) — interior mutability for Copy T. M20f.
+    \\/// Cell(T) — interior mutability. M20f shipped Copy T;
+    \\/// M26 extended to any T where `dropElement(T, &value)` is
+    \\/// non-no-op (shared / weak / Vec / Closure / nominals with
+    \\/// drop glue).
     \\///
-    \\/// `set(self: *Self, value: T)` mutates through a mutable pointer.
-    \\/// Bindings of type `Cell(T)` are emitted as Zig `var` so the
-    \\/// pointer is valid. For `*Cell(T)` (shared cell), the `RcBox`'s
-    \\/// `.value` field is mutable through the strong handle, so the
-    \\/// pointer-to-mutable path works through M20d's auto-deref.
+    \\/// `set(self: *Self, value: T)` mutates through a mutable
+    \\/// pointer. Bindings of type `Cell(T)` are emitted as Zig
+    \\/// `var` so the pointer is valid. For `*Cell(T)` (shared
+    \\/// cell), the `RcBox`'s `.value` field is mutable through
+    \\/// the strong handle, so the pointer-to-mutable path works
+    \\/// through M20d's auto-deref.
     \\///
-    \\/// V1 restricts `T` to Copy types (Int, Bool, Float, String,
-    \\/// literal pseudo-types) at the sema layer. Non-Copy T would
-    \\/// allow ownership corruption (`Cell(*User).set` would overwrite
-    \\/// without dropping the previous handle); revisit when V1 grows
-    \\/// proper replace/take semantics + user Drop.
+    \\/// **M26 set/replace semantics** (per GPT-5.5's M26 design
+    \\/// lock):
+    \\///
+    \\///   - `set(new)` calls `dropElement(T, &self.value)` first
+    \\///     to release the old, then stores new. For Copy T the
+    \\///     dropElement call is comptime-elided to nothing, so
+    \\///     `set` reduces to a byte overwrite (the M20f shape).
+    \\///     For Drop T it cascades to `dropStrong` / `dropWeak`
+    \\///     / `__rig_drop` as appropriate.
+    \\///
+    \\///   - `replace(new) -> T` byte-moves the old value out,
+    \\///     stores new, and returns the old. The caller
+    \\///     receives ownership of the old; M20e auto-drop fires
+    \\///     when the bound `old` goes out of scope. Anonymous
+    \\///     `replace` results are sema-rejected by the existing
+    \\///     resource-temporary rules.
+    \\///
+    \\///   - `__rig_drop` calls `dropElement(T, &self.value)`,
+    \\///     so a stack-local `Cell(T)` with Drop T cascades its
+    \\///     auto-drop to the contained value when the binding
+    \\///     leaves scope.
+    \\///
+    \\/// `get(self: Self) T` is sema-rejected for Drop T (would
+    \\/// alias-double-drop); for Copy T it returns by value as
+    \\/// before.
     \\pub fn Cell(comptime T: type) type {
     \\    return struct {
     \\        value: T,
@@ -263,7 +287,18 @@ pub const source =
     \\        }
     \\
     \\        pub fn set(self: *Self, value: T) void {
+    \\            dropElement(T, &self.value);
     \\            self.value = value;
+    \\        }
+    \\
+    \\        pub fn replace(self: *Self, value: T) T {
+    \\            const old = self.value;
+    \\            self.value = value;
+    \\            return old;
+    \\        }
+    \\
+    \\        pub fn __rig_drop(self: *Self) void {
+    \\            dropElement(T, &self.value);
     \\        }
     \\    };
     \\}

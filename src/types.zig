@@ -936,7 +936,27 @@ fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.E
         .function = .{ .params = set_params, .returns = ctx.types.void_id, .is_sub = true },
     });
 
-    const fields = try ctx.arena.allocator().alloc(Field, 3);
+    // M26(1/5): replace(self: ?Cell(T), value: T) -> T
+    // The primary mutation primitive for Drop T — atomically
+    // swaps the new value in and yields the old as an owned T.
+    // Caller must bind the result (anonymous resource temps are
+    // rejected by the existing M22.1 rule); the bound `old` then
+    // gets the M20e auto-drop guard naturally.
+    //
+    // For Copy T, `replace` is functionally redundant with
+    // `get + set` but ships symmetrically — refusing Copy T from
+    // `replace` would force users to know which T classification
+    // they're working with at the call site, which the M26 lock
+    // explicitly avoided ("ergonomic set-and-discard without
+    // hiding effects" — GPT-5.5 entry on M26 lock).
+    const replace_params = try ctx.arena.allocator().alloc(TypeId, 2);
+    replace_params[0] = self_ty_id;
+    replace_params[1] = t_type_id;
+    const replace_fn_ty = try ctx.types.intern(ctx.allocator, .{
+        .function = .{ .params = replace_params, .returns = t_type_id, .is_sub = false },
+    });
+
+    const fields = try ctx.arena.allocator().alloc(Field, 4);
     fields[0] = .{
         .name = "value",
         .ty = t_type_id,
@@ -952,6 +972,13 @@ fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.E
     fields[2] = .{
         .name = "set",
         .ty = set_fn_ty,
+        .decl_pos = builtin_decl_pos,
+        .is_method = true,
+        .receiver = .read,
+    };
+    fields[3] = .{
+        .name = "replace",
+        .ty = replace_fn_ty,
         .decl_pos = builtin_decl_pos,
         .is_method = true,
         .receiver = .read,
@@ -1312,14 +1339,74 @@ fn isReservedBuiltinName(name: []const u8) bool {
 /// restricts Cell to Copy T (primitives + literal pseudo-types).
 /// Non-Copy T (nominal structs, resource handles, slices, etc.)
 /// would let `Cell.set` corrupt ownership semantics — overwriting
-/// a `*User` without dropping it, etc. Defer until V1 grows
-/// replace/take/Drop semantics.
+/// a `*User` without dropping it, etc.
+///
+/// M26(1/5) update: this predicate now identifies the COPY HALF
+/// of Cell's accepted T types. The full Cell-element rule is
+/// `isValidCellElementType` — Copy primitives OR drop-needing.
+/// Drop-needing T is handled at runtime via `dropElement` +
+/// `replace` / `set-with-drop-old`.
 fn isCopyTypeForCell(ctx: *const SemContext, ty_id: TypeId) bool {
     const ty = ctx.types.get(ty_id);
     return switch (ty) {
         .bool, .int, .float, .string, .int_literal, .float_literal => true,
         else => false,
     };
+}
+
+/// M26(1/5): if `receiver_ty` resolves to a Cell-shaped receiver
+/// (bare `Cell(T)`, `?Cell(T)`, `!Cell(T)`, or `*Cell(T)`),
+/// extract and return the element type T. Returns null for
+/// non-Cell receivers.
+///
+/// Used by the `cell.get` and `cell.value` Drop-T rejection guards
+/// to determine whether the rejection should fire — the receiver
+/// shape may have any of the borrow / shared wrappers around the
+/// `parameterized_nominal{Cell, [T]}` core, and we want to inspect
+/// T regardless of the wrapping.
+fn cellElementType(ctx: *const SemContext, receiver_ty: TypeId) ?TypeId {
+    var ty = receiver_ty;
+    var depth: u8 = 0;
+    while (depth < 8) : (depth += 1) {
+        const t = ctx.types.get(ty);
+        switch (t) {
+            .borrow_read => |inner| ty = inner,
+            .borrow_write => |inner| ty = inner,
+            .shared => |inner| ty = inner,
+            .parameterized_nominal => |pn| {
+                if (pn.sym == ctx.cell_sym_id and pn.args.len == 1) return pn.args[0];
+                return null;
+            },
+            else => return null,
+        }
+    }
+    return null;
+}
+
+/// M26(1/5): is a TypeId a valid element type for `Cell(T)` after
+/// the Cell-non-Copy substrate unlock?
+///
+/// True for:
+///   - Copy primitives (existing M20f-era behavior)
+///   - any T where `typeHasDropGlue(T)` returns true — covers
+///     `*T` shared, `~T` weak, `Vec(T)`, `*Closure()`, and
+///     nominals with drop glue.
+///
+/// False for:
+///   - bare nominals without drop glue (e.g., a struct of only
+///     Copy fields — these are conceptually Copy-ish, but the
+///     V1 type system doesn't yet track `Copy` for nominals;
+///     defer until a real use case appears or Copy traits land).
+///   - other shapes (slice, array, fn, optional, fallible,
+///     borrow_*) — neither Copy primitives nor drop-needing.
+///
+/// Per GPT-5.5's M26 design lock: "Cell accepts Copy or Drop.
+/// Reject neither-copy-nor-drop." The "Copy or Drop" set is
+/// what the runtime can correctly handle: Copy via byte
+/// overwrite, Drop via `dropElement(T, &value)` then store.
+fn isValidCellElementType(ctx: *const SemContext, ty_id: TypeId) bool {
+    if (isCopyTypeForCell(ctx, ty_id)) return true;
+    return typeHasDropGlue(ctx, ty_id);
 }
 
 /// M20i: is a TypeId a valid element type for Vec(T) in V1?
@@ -1391,7 +1478,11 @@ fn isCopyTypeForCapture(ctx: *const SemContext, ty_id: TypeId) bool {
 /// contexts (V1 restriction) but is itself a leaf value with no
 /// drop glue when T is Copy. The drop-glue question is specifically
 /// "does this field need __rig_drop to walk it on the parent's drop?"
-fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
+///
+/// Exposed publicly so ownership.zig and emit.zig can dispatch on
+/// the same predicate (the load-bearing "any type with drop glue
+/// is non-Copy" rule from M25(3/5) generalized in M26(3/5)).
+pub fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
     if (ty_id == ctx.types.invalid_id or ty_id == ctx.types.unknown_id) return false;
     const ty = ctx.types.get(ty_id);
     return switch (ty) {
@@ -1399,13 +1490,23 @@ fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
         .parameterized_nominal => |pn| blk: {
             if (pn.sym == ctx.vec_sym_id) break :blk true;
             if (pn.sym == ctx.closure_sym_id) break :blk true;
-            // Other parameterized builtins (Cell, Signal) aren't
-            // value-resources at the field level: Cell holds a Copy T
-            // (V1 restriction), Signal owns a subscriber Vec but the
-            // owning shape is heap-only (`*Signal(T)`), so any field
-            // typed `*Signal(_)` falls into the `.shared` branch above.
-            // Bare-value `Signal(T)` in field position is rejected at
-            // sema time elsewhere.
+            // M26(1/5): `Cell(T)` carries drop glue iff T does.
+            // Pre-M26 Cell was Copy-T-only so this recursion was a
+            // no-op (always false); after M26's relaxation,
+            // `*Cell(Vec(...))` and `Cell(*User)` etc. become valid
+            // and their auto-drop must walk the inner T. The
+            // runtime's `Cell.__rig_drop` calls `dropElement(T, &value)`
+            // which handles all of: Copy T (no-op), shared/weak,
+            // Vec, nominal-with-drop-glue.
+            if (pn.sym == ctx.cell_sym_id) {
+                if (pn.args.len == 1) break :blk typeHasDropGlue(ctx, pn.args[0]);
+                break :blk false;
+            }
+            // Other parameterized builtins: Signal owns a subscriber
+            // Vec but the owning shape is heap-only (`*Signal(T)`),
+            // so any field typed `*Signal(_)` falls into the
+            // `.shared` branch above. Bare-value `Signal(T)` in
+            // field position is rejected at sema time elsewhere.
             //
             // For user-defined generics, `has_drop_glue` only flows
             // through if the BASE struct is flagged. Type-args (`pn.args`)
@@ -3557,12 +3658,18 @@ const TypeResolver = struct {
                             arg_ids.appendAssumeCapacity(try self.resolveType(arg, scope));
                         }
 
-                        // M20f: Cell(T) is a built-in nominal with a
-                        // hard V1 restriction — T must be a Copy type.
-                        // Non-Copy T would let `Cell.set` corrupt
-                        // ownership (overwriting a `*User` without
-                        // dropping the previous handle, etc.).
-                        // Deferred until V1 grows replace/take/Drop.
+                        // M20f → M26(1/5): Cell(T) accepts Copy T OR
+                        // any T with drop glue (`*T` / `~T` / `Vec(T)` /
+                        // `*Closure()` / nominals with drop glue, plus
+                        // recursively `Cell(drop_T)`). The runtime's
+                        // `Cell.__rig_drop` and `set` use
+                        // `dropElement(T, &value)` so the dispatch is
+                        // sound across all accepted T. Bare nominals
+                        // without drop glue (e.g., struct of only Copy
+                        // fields) are still rejected — V1's type system
+                        // doesn't yet track Copy for nominals; this is
+                        // a conservative gate that can relax further
+                        // when Copy traits / derives land.
                         if (sym_id == self.ctx.cell_sym_id and supplied.len == 1) {
                             const arg_ty = arg_ids.items[0];
                             // Allow unknown/invalid to slide silently
@@ -3570,9 +3677,9 @@ const TypeResolver = struct {
                             // double-fault).
                             const is_known = arg_ty != self.ctx.types.unknown_id and
                                 arg_ty != self.ctx.types.invalid_id;
-                            if (is_known and !isCopyTypeForCell(self.ctx, arg_ty)) {
+                            if (is_known and !isValidCellElementType(self.ctx, arg_ty)) {
                                 const ty_str = try formatType(self.ctx, arg_ty);
-                                try self.err(pos, "`Cell(T)` in V1 requires `T` to be a Copy type (Int, Bool, Float, String); got `{s}`. Non-Copy `Cell(T)` requires replace/take/Drop semantics and is deferred to a later milestone.", .{ty_str});
+                                try self.err(pos, "`Cell(T)` requires `T` to be a Copy primitive (Int, Bool, Float, String) OR a type with drop glue (`*T`, `~T`, `Vec(T)`, `*Closure()`, struct with resource fields or user `drop`); got `{s}`. Bare nominals without drop glue are deferred until V1 tracks Copy for user types.", .{ty_str});
                                 return self.ctx.types.invalid_id;
                             }
                         }
@@ -6346,6 +6453,32 @@ const ExprChecker = struct {
             }
         }
 
+        // M26(1/5): `cell.get()` is rejected when T has drop glue.
+        // `get` returns T by value; for Drop T that aliases the
+        // Cell's owned value (the same handle exists both in
+        // `cell.value` and in the returned T), so the next time
+        // either side drops the result is a use-after-free or a
+        // double-drop. Direct future workarounds: `cell.replace(<new)`
+        // (yields the old as owned T), or borrow-read access (deferred
+        // beyond M26 per the design lock).
+        //
+        // Same rejection applies to `cell.replace` for Drop T at the
+        // emit / runtime level (it MUST consume the new arg) — but
+        // the call-site rejection there is the existing alias-discipline
+        // rule on the arg position; not a Cell-method-specific guard.
+        if (resolved.nominal_sym == self.ctx.cell_sym_id and
+            std.mem.eql(u8, method_name, "get"))
+        {
+            if (cellElementType(self.ctx, receiver_ty_id)) |t_ty| {
+                if (typeHasDropGlue(self.ctx, t_ty)) {
+                    const ty_str = try formatType(self.ctx, t_ty);
+                    try self.err(name_pos, "`Cell.get` returns `T` by value but `T = {s}` has drop glue (resource handle, `Vec(T)`, `*Closure()`, struct with resource fields or user `drop`); a copy would alias the cell's owned value and cause a double-drop. Use `cell.replace(<new)` to swap-and-yield the old value, or borrow-read access (deferred beyond M26).", .{ty_str});
+                    for (args) |a| _ = try self.synthExpr(a);
+                    return self.ctx.types.unknown_id;
+                }
+            }
+        }
+
         // M20a.2: dispatch on the receiver metadata established at
         // decl-time, NOT on `params.len > 0`. Otherwise associated/
         // static methods with parameters silently dispatch as
@@ -6739,6 +6872,22 @@ const ExprChecker = struct {
                 identAt(self.ctx.source, obj.list[1]) orelse "fn",
             });
             return self.ctx.types.unknown_id;
+        }
+
+        // M26(1/5): `cell.value` for Drop T is rejected — same
+        // rationale as `cell.get`: reading the field by value
+        // aliases the Cell's owned T and creates a double-drop
+        // path. The check fires BEFORE the generic data-field
+        // lookup so the diagnostic is Cell-specific (not the
+        // generic "field exists" success path returning Drop T).
+        if (std.mem.eql(u8, field_name, "value")) {
+            if (cellElementType(self.ctx, obj_ty_id)) |t_ty| {
+                if (typeHasDropGlue(self.ctx, t_ty)) {
+                    const ty_str = try formatType(self.ctx, t_ty);
+                    try self.err(pos, "`cell.value` reads `T` by value but `T = {s}` has drop glue (resource handle, `Vec(T)`, `*Closure()`, struct with resource fields or user `drop`); a copy would alias the cell's owned value and cause a double-drop. Use `cell.replace(<new)` to swap-and-yield the old value.", .{ty_str});
+                    return self.ctx.types.unknown_id;
+                }
+            }
         }
 
         // M20b(1/5): unified data-field lookup via helper. Peels

@@ -1,0 +1,1 @@
+(module (sub main () _ (block (set _ v (generic_inst Vec (shared (generic_inst Closure))) (call Vec)) (set _ c (shared (generic_inst Cell (generic_inst Vec (shared (generic_inst Closure))))) (share (call Cell (kwarg value (move v))))) (call print 0))))

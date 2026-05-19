@@ -1,0 +1,1 @@
+examples/m26_cell_alias_rejected.rig:13:21: error: bare use of `Cell` value `c1` in binding would alias an owning value; `Cell` carries drop glue (resource fields or a user `drop` declaration), so two bindings would each run the destructor on scope exit. Use `<c1` to move ownership

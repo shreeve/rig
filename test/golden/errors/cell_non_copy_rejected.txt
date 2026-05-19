@@ -1,2 +1,2 @@
-examples/cell_non_copy_rejected.rig:15:6: error: `Cell(T)` in V1 requires `T` to be a Copy type (Int, Bool, Float, String); got `User`. Non-Copy `Cell(T)` requires replace/take/Drop semantics and is deferred to a later milestone.
+examples/cell_non_copy_rejected.rig:15:6: error: `Cell(T)` requires `T` to be a Copy primitive (Int, Bool, Float, String) OR a type with drop glue (`*T`, `~T`, `Vec(T)`, `*Closure()`, struct with resource fields or user `drop`); got `User`. Bare nominals without drop glue are deferred until V1 tracks Copy for user types.
 examples/cell_non_copy_rejected.rig:15:19: error: generic constructor `Cell` requires an expected type; write `b: Cell(T) = Cell(...)`

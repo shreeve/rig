@@ -1,0 +1,12 @@
+# M26: `cell.value` direct field access is rejected for Drop T.
+# Same rationale as `cell.get()`: reading by value aliases the
+# Cell's owned T and creates a double-drop hazard.
+
+struct User
+  age: Int
+
+sub main()
+  u: *User = *User(age: 30)
+  c: Cell(*User) = Cell(value: <u)
+  view = c.value
+  print(0)

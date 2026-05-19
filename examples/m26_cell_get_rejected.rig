@@ -1,0 +1,16 @@
+# M26: `cell.get()` is rejected for Drop T. Reading by value
+# would alias the Cell's owned T (the same handle would exist
+# both inside the Cell's storage and in the returned copy),
+# leading to a double-drop when both go out of scope.
+#
+# V1 alternative: `cell.replace(<new)` for set-and-yield. Borrow-
+# read access (a `cell.borrow()` shape) is deferred beyond M26.
+
+struct User
+  age: Int
+
+sub main()
+  u: *User = *User(age: 30)
+  c: Cell(*User) = Cell(value: <u)
+  copy = c.get()
+  print(0)

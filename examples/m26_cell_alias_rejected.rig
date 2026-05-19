@@ -1,0 +1,14 @@
+# M26: bare alias of `Cell(Drop T)` is rejected by the
+# generalized "any type with drop glue is non-Copy" ownership
+# rule. Two `Cell(*User)` bindings would each fire `__rig_drop`
+# at scope exit, producing two `dropStrong` calls on the same
+# inner *User — a double-drop. Move (`<x`) is the only V1 path.
+
+struct User
+  age: Int
+
+sub main()
+  u: *User = *User(age: 30)
+  c1: Cell(*User) = Cell(value: <u)
+  c2: Cell(*User) = c1
+  print(0)

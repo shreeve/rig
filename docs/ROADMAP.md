@@ -3048,6 +3048,112 @@ userland LIBRARY (the explicit `Reactor` / `Memo` / `Effect`
 work) was blocked on Cell-non-Copy + user Drop. M25 is the
 first half of that unblock; M26 (Cell-non-Copy) is the second.
 
+### M26 — Cell-non-Copy + replace/take ✅
+
+Closes the second half of the userland-Reactor unblock. M25
+shipped user Drop on plain structs; M26 shipped `Cell(T)` for
+non-Copy resource T plus the `replace` swap primitive. With
+both arcs landed, the userland reactive library shape
+`*Cell(Vec(*Closure()))` is constructible end-to-end.
+
+Per GPT-5.5's M26 design lock + post-checkpoint refinements
+(conversation `c_5c1d09d53ebe2f62`, M26 checkpoint):
+
+**M26(1/5) — sema type classification.**
+
+- New `isValidCellElementType(ctx, ty_id)` — Cell accepts
+  Copy primitives OR `typeHasDropGlue(T)`. Bare nominals
+  without drop glue are still rejected.
+- `typeHasDropGlue` extended to recurse `parameterized_nominal{Cell, [T]}`
+  → has drop glue iff T has drop glue. M25.1's fixed-point
+  pass propagates the flag through enclosing structs.
+- `typeHasDropGlue` made `pub` so ownership.zig and emit.zig
+  can dispatch on the same predicate.
+- New `cellElementType(ctx, receiver_ty)` helper — extracts T
+  from `Cell(T)` / `?Cell(T)` / `!Cell(T)` / `*Cell(T)` shapes
+  for the `get` / `value` rejection guards.
+- `cell.get()` rejected at the method-call site for Drop T
+  (would alias-double-drop). Diagnostic suggests `replace`.
+- `cell.value` field access rejected at the member-access
+  site for Drop T. Same rationale.
+- New synthetic method `replace(self: ?Cell(T), value: T) -> T`
+  registered on Cell alongside `get` and `set`.
+
+**M26(2/5) — runtime.**
+
+`_runtime.zig`'s `Cell(T)` updated:
+
+- `set(self: *Self, value: T)` now calls `dropElement(T, &self.value)`
+  before storing. For Copy T, `dropElement` is comptime-elided
+  to nothing (zero overhead). For Drop T, it cascades to
+  `dropStrong` / `dropWeak` / `__rig_drop` via the existing
+  M20i hybrid dispatch.
+- `replace(self: *Self, value: T) T` byte-moves the old value
+  out, stores new, returns old. Caller takes ownership; M20e
+  auto-drop fires at the bound `old`'s scope exit.
+- `__rig_drop(self: *Self) void` calls `dropElement(T, &self.value)`
+  so a stack-local Cell with Drop T cascades cleanup to the
+  contained value.
+
+Per GPT-5.5's M26 design correction: use `dropElement(T, &value)`
+everywhere, NOT `hasRigDrop(T)` alone. `hasRigDrop` returns
+false for pointer types like `*RcBox(U)`; only `dropElement`
+correctly dispatches `dropStrong` for shared handles.
+
+**M26(3/5) — ownership.**
+
+- `Checker.checkSharedHandleAlias` extended: `parameterized_nominal`
+  receivers route through `types.typeHasDropGlue(sema, ty)` for
+  the bare-alias rejection. M25(3/5) covered nominals and
+  base-flagged parameterized_nominals; M26(3/5) generalizes to
+  any whole type carrying drop glue, so `Cell(*User)` (where
+  the BASE Cell symbol isn't itself flagged but the
+  INSTANTIATED type is) gets caught.
+
+**M26(4/5) — emit.**
+
+- `Emitter.resourceKindOfBinding`'s `parameterized_nominal`
+  branch now dispatches through `types.typeHasDropGlue(sema, sym.ty)`
+  to install M20e auto-drop guards on Cell(Drop T) bindings.
+  Vec(T), Cell(Drop T), and any future drop-glue parameterized
+  type all route through `.vec_value` (the `__rig_drop`-method
+  branch).
+- `Emitter.isInteriorMutableBinding` already covered Cell-base
+  parameterized_nominals (M20f + M25 layered correctly); no
+  additional work needed for `var` storage.
+
+**M26(5/5) — tests + docs.**
+
+End-to-end fixtures:
+
+| Fixture | Validates |
+|---|---|
+| `examples/m26_cell_shared.rig` | `Cell(*User)` with auto-drop cascade |
+| `examples/m26_cell_reactor.rig` | `*Cell(Vec(*Closure()))` — userland Reactor target |
+| `examples/m26_cell_replace.rig` | `cell.replace(<new) -> T` with caller-binding auto-drop |
+| `examples/m26_cell_get_rejected.rig` | `Cell.get` on Drop T rejected |
+| `examples/m26_cell_value_rejected.rig` | `cell.value` on Drop T rejected |
+| `examples/m26_cell_alias_rejected.rig` | Bare alias of `Cell(Drop T)` rejected |
+
+Tests: 1063 → 1093 passing, 0 failing.
+
+**V1-deferred (per the M26 lock):**
+
+- `Cell.take()` — needs an empty-state representation
+  (Optional, default value, sentinel); deferred until a real
+  use case appears.
+- `cell.borrow()` read-access shape for Drop T — needs
+  lifetime rules through `*Cell` interior mutation; deferred.
+- User-defined `Clone` for Drop T (would let users opt into a
+  `+x` form for their Drop types). Requires its own design pass.
+- Optional-resource auto-drop (`Vec.pop() -> T?` for resource
+  T, etc.) — separate substrate topic.
+- Cell.replace using `std.mem.swap` or a more careful explicit
+  move helper. The current byte-copy implementation is correct
+  for straight-line code (no drops fire between the two
+  assignments); a future polish arc could harden against
+  panic-aware drop ordering if it becomes a concern.
+
 ### M25.1 — Drop-body restrictions + has_drop_glue fixed-point ✅
 
 Closes the post-implementation review hazards GPT-5.5 flagged

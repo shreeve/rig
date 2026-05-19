@@ -131,10 +131,10 @@ passing). The next forward arcs are listed in `HANDOFF.md` §13:
   `Closure1<T>` / `Closure2<A,B>` arity, legacy global
   name-scan retirement.
 - **Category B — Optional substrate extensions**:
-  M26 `Cell`-non-`Copy` (the natural next arc, completes
-  the userland-reactive-library unblock alongside M25),
-  Layer 8 structured concurrency, Phase C reactive sugar,
-  `pre` AST extraction, persistent collections (conditional).
+  M26 `Cell`-non-`Copy` ✅ shipped (completed the userland-
+  reactive-library unblock alongside M25), Layer 8 structured
+  concurrency, Phase C reactive sugar, `pre` AST extraction,
+  persistent collections (conditional).
 - **Category C — V1.x tooling**: `rig sema --json` v0
   (stable, versioned semantic export). Smaller scope, no
   design checkpoint required (it's a projection over

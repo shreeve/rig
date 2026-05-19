@@ -1,12 +1,12 @@
-# Rig — Session Handoff (M25 user-defined Drop complete)
+# Rig — Session Handoff (M26 Cell-non-Copy complete)
 
-**You are picking up a Rig compiler session at the M25 boundary.**
+**You are picking up a Rig compiler session at the M26 boundary.**
 **Phase B + the raw-escape boundary (M22) + the fake-surface
 floor-raising audit (M22.1) + the M22.1.1 runtime rename + the
 M15b cross-module sema (module honesty) + M15b.1 sema-time
 unbound-name detection + scope-correctness fixes + M15b.2
 public-API-leaks-private-type rejection + M25 user-defined
-Drop are all shipped.** M20h (owned
+Drop + M26 Cell-non-Copy are all shipped.** M20h (owned
 escaping closures) + M20i (resource-aware Vec) + M20i.1
 (resource-Vec iteration via `for x in ?vec`) + M20i.1.1 (sema
 attribution table) + PB2 (single-subscriber Signal) + PB3(1/5)
@@ -16,24 +16,28 @@ set; library/substrate boundary locked) + M21 (`%T` unsafe /
 raw effect boundary) + M22 (rename `unsafe` → `raw`; drop
 fn-modifier; block-only enforcement) + M22.1 (fake-surface
 audit: H1 resource-temp leak fix + 5 reserved-surface
-retractions) + **M25 (user `drop self: !Self` + auto-generated
-structural drop glue + "any drop glue is non-Copy" alias rule)**
+retractions) + M25 (user `drop self: !Self` + auto-generated
+structural drop glue + "any drop glue is non-Copy" alias rule)
++ **M26 (`Cell(T)` for non-Copy resource T + `replace`
+swap-and-yield primitive + unified `dropElement` dispatch)**
 all shipped end-to-end. The reactive canary
 (`examples/reactive_canary.rig`) demonstrates the full Cell +
 closure + Vec-iteration + Signal chain producing
 `1\n3\n13\n7\n99\n111\n111`; M25's canaries
 (`examples/struct_drop_basic.rig` and friends) demonstrate
-user Drop end-to-end. **1035 tests passing, 0 failing.
-Clean tree on `main`.** The substrate ladder Layers 0–7 are
-all complete, the reactive primitive is in its V1 final form,
-the safety boundary uses a clean Rig-native `raw` block
-syntax, every accepted V1 surface form has enforced semantics
-or a clean Rig sema rejection, AND user-defined Drop closes
-the substrate-unlock half-step that gates a userland reactive
-library. The next concrete action is **M26 (Cell-non-Copy +
-replace/take)** — the second half of the userland Reactor
-unblock — or another **Steve-driven choice from the forward-
-arc menu** in §13.
+user Drop end-to-end; M26's canaries (`examples/m26_cell_*.rig`)
+demonstrate Cell-non-Copy + replace + the userland Reactor
+shape `*Cell(Vec(*Closure()))`. **1093 tests passing, 0 failing.
+Clean tree on `main`.** The substrate ladder Layers 0–7 + the cross-cutting Drop +
+Cell-non-Copy work (Layers 7.5 and 7.6) are all complete, the
+reactive primitive is in its V1 final form, the safety boundary
+uses a clean Rig-native `raw` block syntax, every accepted V1
+surface form has enforced semantics or a clean Rig sema
+rejection, AND the substrate is now sufficient to BUILD the
+userland reactive library directly. The next concrete action
+is **the userland `rig-reactive` library** (Phase B's actual
+deliverable per `docs/REACTIVITY-DESIGN.md`) OR another
+**Steve-driven choice from the forward-arc menu** in §13.
 
 ---
 
@@ -270,15 +274,30 @@ Violating any of them will silently corrupt the substrate.
   `enforceDropBodyRestrictions`. Without them, safe Rig had
   a direct double-drop path. Drop bodies CAN read fields,
   mutate Copy fields, and use raw cleanup.
-- **Any type with drop glue is non-Copy (M25).** Bare alias /
-  assignment / call-arg of a `nominal` or `parameterized_nominal`
-  whose symbol carries `has_drop_glue` is rejected at the
-  ownership layer. This generalizes the M20d alias-discipline
-  rule from the hardcoded resource set (`*T` / `~T` / `Vec` /
-  `*Closure()`) to the substrate-classified set (anything the
-  compiler tracks as having drop glue). Move (`<x`) is the
-  only V1 multi-binding shape; user Clone + `+x` shape is
-  deferred.
+- **Any type with drop glue is non-Copy (M25 + M26).** Bare
+  alias / assignment / call-arg of a `nominal` or
+  `parameterized_nominal` carrying drop glue is rejected at the
+  ownership layer. The check uses the `pub typeHasDropGlue`
+  predicate exposed from `types.zig`. M25 covered nominals and
+  base-flagged parameterized_nominals (Vec); M26 generalized
+  the parameterized branch to any whole type carrying drop
+  glue, so `Cell(*User)` (where the BASE Cell symbol isn't
+  flagged but the INSTANTIATED type is) is caught. Move (`<x`)
+  is the only V1 multi-binding shape; user Clone is deferred.
+- **Cell(T) accepts Copy primitives OR drop-glue T (M26).**
+  `isValidCellElementType` is the gate: Copy primitives, plus
+  any T where `typeHasDropGlue(T)` returns true (`*T` / `~T` /
+  `Vec(T)` / `*Closure()` / nominals with drop glue / Cell of
+  drop-glue T recursively). Bare nominals without drop glue
+  are still rejected — V1 doesn't yet track Copy for user
+  types. Cell's runtime API for Drop T:
+    - `set(<new)` calls `dropElement(T, &self.value)` first,
+      then stores;
+    - `replace(<new) -> T` byte-moves the old out, stores
+      new, returns old (caller binds + auto-drops);
+    - `__rig_drop` calls `dropElement` on the contained T;
+    - `get()` and `cell.value` are sema-rejected (would
+      alias-double-drop).
 - **No parsed-but-not-enforced surfaces (M22.1 invariant).**
   Every accepted V1 form has enforced semantics + working
   Rig lowering, OR is rejected at sema time with a Rig
@@ -1003,19 +1022,22 @@ NOT promises to ship.
 
   **B. Optional substrate extensions** — these add language
        surface but aren't V1-blockers:
-    - **`Cell`-non-`Copy` (M26)** — replace/take semantics
-      for resource-typed Cells. **Now the natural next arc
-      post-M25.** With user Drop in place, the userland
-      reactive library only needs the second half (Cell.set
-      that drops the old value, Cell.take that yields and
-      empties, Cell.replace that swaps and returns) to
-      become buildable. Per GPT-5.5's M25 design lock: this
-      is its own arc with its own design checkpoint —
-      `Cell.set(v)` for resource T, the optional-resource
-      semantics for `take`, the empty / taken state model,
-      the interaction with `*Cell(T)` interior mutation
-      through shared. Open the M26 design checkpoint with
-      GPT-5.5 before opening M26(1/n).
+    - ~~**`Cell`-non-`Copy` (M26)** — replace/take semantics
+      for resource-typed Cells.~~ ✅ **Landed in M26.** Cell
+      now accepts Copy primitives OR any T with drop glue.
+      `Cell.set(<new)` calls `dropElement` on the old value
+      first; `Cell.replace(<new) -> T` byte-moves the old
+      out and yields it as owned T. `Cell.__rig_drop`
+      cascades to `dropElement(T, &value)`. `get` and
+      `cell.value` are sema-rejected for Drop T (would
+      alias-double-drop). The unified `dropElement` dispatch
+      covers shared / weak / Vec / Closure / nominals with
+      drop glue uniformly. `Cell.take` (yields-and-empties)
+      is V1-deferred — needs an empty-state representation.
+      The userland `*Cell(Vec(*Closure()))` shape — the
+      canonical Reactor cell — is now constructible end-to-
+      end. With M25 + M26 shipped, the userland reactive
+      library is fully unblocked.
     - **Layer 8 (structured concurrency)** — scope-bound
       tasks, cancellation discipline. Prerequisite for safe
       async per INFLUENCES §1. PB3 + PB4 shapes generalize
