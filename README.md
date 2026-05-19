@@ -3,11 +3,12 @@
 Rig is a systems language that compiles to Zig while keeping
 important effects visible in the source. Moves, borrows, clones,
 drops, shared ownership, failure propagation, compile-time
-execution, closure captures, and raw escape all have explicit
-forms — and the semantic IR preserves them as first-class nodes
-through every compiler phase. The aim is small, readable code with
-Rust-like resource discipline: when ownership moves, failure
-propagates, or mutation happens, you can see it where it happens.
+execution, closure captures, and raw escape boundaries all have
+explicit forms — and the semantic IR preserves them as first-class
+nodes through checking and lowering. The aim is small, readable
+code with Rust-like resource discipline: when ownership moves,
+failure propagates, or mutation happens, you can see it where it
+happens.
 
 > **Status: pre-release compiler prototype.** Rig has a working V1
 > ownership / resource substrate and synchronous reactive canaries.
@@ -41,11 +42,11 @@ fun label(user: ?User) -> String
   user.name
 
 sub main()
-  u = User(name: "Steve")
+  u = User(name: "Ada")
   print(label(?u))
 ```
 
-Output: `Steve`
+Output: `Ada`
 
 `fun` is a function that returns a value; `sub` doesn't. The `?`
 in `?User` says `label` only borrows the user for reading — it
@@ -119,26 +120,28 @@ Everything in Rig follows from two design rules:
    emitter consume by name. Tools that read the IR see the same facts
    the compiler does, without speculation.
 
-These two rules are what `docs/AGENTS.md` calls "the thesis." Every
+These two rules are what [`AGENTS.md`](AGENTS.md) calls "the thesis." Every
 language feature is graded against them.
 
 ## Visible effects
 
-Ownership sigils. Most are zero-cost; refcounting only kicks in
-when you ask for shared ownership with `*x`. The default idiom —
-owned values, borrows, and moves — has the same cost story as
-Rust.
+Ownership sigils. Most add no runtime ownership bookkeeping;
+checking is static. Reference-count allocation and bumps only
+appear when you opt into shared ownership with `*T` / `*x` and
+explicit clones. The default idiom — owned values, borrows, and
+explicit moves — has the same cost shape as Rust/Zig: large value
+moves may still copy bits, but there is no hidden lifetime runtime.
 
 | Syntax | Meaning | Runtime cost | Rust analog |
 |---|---|---|---|
-| `<x` | move (transfer of ownership) | zero | move / `std::move` |
-| `?x` / `?T` | read borrow | zero (statically checked) | `&T` |
-| `!x` / `!T` | write borrow | zero (statically checked) | `&mut T` |
-| `+x` | clone (refcount bump on shared) | type-defined; free for `Copy` | `Clone::clone` |
-| `-x` | drop now (early release) | one destructor call | `drop(x)` |
-| `*x` / `*T` | shared `Rc` allocation / type | refcount bump (non-atomic V1) | `Rc::new` / `.clone()` |
-| `~x` / `~T` | weak handle (paired with `*T`) | weak-count bump | `Rc::downgrade` |
-| `%x` (in `raw`) | raw pointer access | zero — it's a raw pointer | `*const T` / `*mut T` |
+| `<x` | move (transfer of ownership) | no ownership bookkeeping; value move may copy bits | move / `std::move` |
+| `?x` / `?T` | read borrow | no runtime bookkeeping; statically checked | `&T` |
+| `!x` / `!T` | write borrow | no runtime bookkeeping; statically checked | `&mut T` |
+| `+x` | clone | type-defined; refcount bump for shared handles; no clone glue for `Copy` | `Clone::clone` |
+| `-x` | drop now (early release) | runs destructor / drop glue immediately | `drop(x)` |
+| `*x` / `*T` | shared `Rc` construction / type | allocation on construction; explicit `+` clones bump the non-atomic V1 refcount | `Rc::new` / `.clone()` |
+| `~x` / `~T` | weak handle construction / type | weak-count bump on construction / clone | `Rc::downgrade` |
+| `%x` (in `raw`) | raw pointer access | no ownership bookkeeping; safety is inside the raw boundary | `*const T` / `*mut T` |
 
 Other visible effects — control flow, compile-time, captures, and
 the audit boundary:
@@ -182,9 +185,9 @@ without a garbage collector and without language-level reactivity
 built in. The reactive canaries are ordinary Rig code built from
 lower-level primitives:
 
-- `Cell(T)` for interior mutation,
+- `Cell(T)` for interior mutation (typically held as `*Cell(T)` when shared),
 - `*T` / `~T` for shared / weak ownership graphs,
-- `*Closure()` for retained subscriber callbacks,
+- `*Closure()` for retained zero-argument subscriber callbacks,
 - `Vec(*Closure())` for subscriber lists,
 - user-defined `drop self: !Self` for resource cleanup,
 - multi-capture closures (`|+a, +b| body`) for cross-source
@@ -212,8 +215,8 @@ sub main()
 ```
 
 The `count → total → print` cascade is not a special language
-feature — it is ordinary Rig code, run through Cell, Closure, the
-subscriber Vec, multi-capture closures, and structural drop glue.
+feature — it is ordinary Rig code built from `Cell(T)`, `*Closure()`,
+`Vec(*Closure())`, multi-capture closures, and structural drop glue.
 
 The Phase B reactive design is sketched in
 [`docs/REACTIVITY.md`](docs/REACTIVITY.md).
@@ -280,7 +283,7 @@ In progress / deferred:
 - Real standard library (V1 ships with a small trusted runtime, not
   a stdlib).
 - Body-less `extern fun` / `extern sub` declarations for ergonomic
-  FFI; closures with arguments (`Closure1<T>`, `Closure2<A,B>`).
+  FFI; closures with arguments (`Closure1(T)`, `Closure2(A, B)`).
 - Async, structured concurrency, executor (Layers 8–9 of the
   substrate ladder; intentionally deferred until the substrate is
   mature enough to support them safely).
@@ -298,7 +301,7 @@ of these:
 |---|---|
 | **Rust** | Ownership system, sigil-based borrow modes, `enum`/`match`, fallibility-as-effect, resource cleanup discipline, the lesson that "any type with drop glue is non-Copy." |
 | **Zig** | The backend itself (Rig lowers to Zig 0.16). Compile-time execution (`comptime` → `pre`), error unions, no garbage collector, low-level pragmatism. |
-| **Rip** | Steve's CoffeeScript-to-JS sister project. Reactive ergonomics (`:=` / `~>`) deferred to a Phase C surface; Rig currently implements the lower-level substrate that future Rip-style sugar would lower into. |
+| **Rip** | A CoffeeScript-to-JS sister project. Reactive ergonomics (`:=` / `~>`) deferred to a Phase C surface; Rig currently implements the lower-level substrate that future Rip-style sugar would lower into. |
 | **Ruby** | Readability-first surface: paren-less calls (`puts "hi"`, `f arg1, arg2`), indentation-aware blocks, short keywords (`fun`, `sub`, `pre`, `raw`, `new`, `pub`). |
 | **Lisp** | Not the syntax — the IR. Rig's normalized semantic representation is S-expression-shaped, and that shape is treated as a project contract: every grammar action emits a specific node, and every later phase walks the tree by tag. |
 
@@ -353,14 +356,15 @@ test/                    test harness, golden files, module tests
 SPEC.md                  language specification
 HANDOFF.md               session state, non-negotiable invariants, forward arcs
 AGENTS.md                compass for AI sessions working on Rig
+FAQ.md                   common questions and pointed skeptical ones
 ```
 
 For deeper reading: [`SPEC.md`](SPEC.md) (canonical syntax / semantics
-reference), [`docs/IR.md`](docs/IR.md) (IR
-shape), [`docs/INFLUENCES.md`](docs/INFLUENCES.md) (design lineage and
-the substrate ladder), [`HANDOFF.md`](HANDOFF.md) (current state and
+reference), [`docs/IR.md`](docs/IR.md) (IR shape),
+[`docs/INFLUENCES.md`](docs/INFLUENCES.md) (design lineage and the
+substrate ladder), [`HANDOFF.md`](HANDOFF.md) (current state and
 forward arcs), [`docs/ROADMAP.md`](docs/ROADMAP.md) (milestone
-history).
+history), [`FAQ.md`](FAQ.md) (skeptical questions answered honestly).
 
 ## Roadmap
 
@@ -369,7 +373,7 @@ history).
 - A polished userland `rig-reactive` library on top of the v0 canary.
 - A small stdlib seed (`String` polish, basic IO, allocator surface).
 - Body-less `extern fun` / `extern sub` for FFI ergonomics.
-- `Closure1<T>` / `Closure2<A,B>` for callbacks that take arguments.
+- `Closure1(T)` / `Closure2(A, B)` for callbacks that take arguments.
 
 **Longer-term:**
 
@@ -390,10 +394,10 @@ substrate ladder that orders this work is in
   current use cases.
 - **Trait / interface system in V1** — deferred until concrete use
   cases force the design.
-- **Marketing as "the AI language."** Rig is a contract for human and
-  tool consumption. The visible-effects thesis is what makes Rig
-  legible to AI workflows; the language itself is a systems language,
-  not a generation target.
+- **Marketing as "the AI language."** Rig's visible-effects design
+  makes it easier for tools, including AI assistants, to read and
+  reason about code. That is a byproduct of designing a serious
+  systems language for humans — not the goal.
 
 ## Caveats
 

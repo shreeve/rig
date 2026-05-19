@@ -49,44 +49,42 @@ a hidden cost; it shows up in source as `*T` like everything else.
 ## What's the deal with AI? The Zig community is pretty hostile to it.
 
 The concern is legitimate. Generated code can look plausible while
-hallucinating APIs, missing invariants, or bypassing review. Rig does
-not treat AI output as code authority.
+hallucinating APIs, missing invariants, or bypassing review.
 
-Rig uses AI tools as design-review peers, not as an unchecked code
-generation pipeline. GPT-5.5 and Claude have been used the way a
-senior language-design reviewer might be used over email: propose a
-design, get pushback, decide what survives. The surviving decisions
-are recorded in [`docs/ROADMAP.md`](docs/ROADMAP.md),
-[`docs/INFLUENCES.md`](docs/INFLUENCES.md), and
-[`HANDOFF.md`](HANDOFF.md).
+The honest description of how this project uses AI: GPT-5.5 and
+Claude are used both as design-review peers — the way a senior
+language-design reviewer might be consulted over email — and as
+code, commit-message, and documentation drafters. AI output gets
+merged. This FAQ entry was drafted by an AI, reviewed and revised by
+a human maintainer, then committed. That's representative.
 
-The gates are the same regardless of where an idea came from:
+What makes that workable rather than the slop pipeline you're
+worried about:
 
-- the grammar must parse with the reviewed conflict count,
-- sema / effects / ownership checks must accept it,
-- the Zig backend must emit working code,
-- the test suite must pass,
-- Steve approves the milestone and writes the commits.
+- **Hard gates that don't care where an idea came from.** The
+  grammar must parse at the reviewed conflict count. Sema, effects,
+  and ownership checks must accept it. The Zig backend must emit
+  working code. The test suite must pass (1113 tests, 0 failing).
+  A human maintainer approves every milestone and every commit.
+- **A public audit trail.** Every milestone has a retrospective in
+  [`docs/ROADMAP.md`](docs/ROADMAP.md). Every design checkpoint with
+  GPT-5.5 is referenced by conversation ID in
+  [`docs/INFLUENCES.md`](docs/INFLUENCES.md) and
+  [`HANDOFF.md`](HANDOFF.md). AI suggestions that got rejected or
+  reversed are recorded too — read them.
+- **The language itself is structured against hidden effects.**
+  Moves, clones, drops, captures, raw escapes, and failure
+  propagation are explicit in the source and in the semantic IR. A
+  proposal that quietly leaks a resource or aliases a non-Copy
+  value has fewer places to hide than the same proposal in C or
+  vanilla Zig.
 
-AI suggestions are often rejected or revised. The retrospectives
-record those cases too. The process is auditable.
-
-Rig's visible-effects thesis also makes AI-assisted work easier to
-review: moves, clones, drops, captures, raw escapes, and failure
-propagation remain explicit in the source and in the semantic IR. A
-proposal that hides a resource leak or aliases a non-Copy value has
-fewer places to hide.
-
-What Rig does not do:
-
-- merge generated code because an AI produced it,
-- treat AI output as authoritative,
-- skip review because "the AI checked it,"
-- market Rig as an "AI language."
+Rig is not marketed as an "AI language." That framing reverses
+cause and effect: the visible-effects thesis was the goal; AI
+legibility falls out of it.
 
 Judge the artifact: read the code, tests, grammar, IR, and
-retrospectives. If those do not hold up, the project does not
-hold up.
+retrospectives. If those don't hold up, the project doesn't hold up.
 
 ---
 
@@ -165,9 +163,9 @@ The longer answer:
   the contract every later phase walks. Hand-written parsers and
   most generator outputs don't preserve that shape — they emit an AST
   type tree that needs translation.
-- Nexus was already Steve's project before Rig. Building Rig on top of
-  Nexus was strictly less work than picking another generator and
-  bridging it to a hand-rolled IR layer.
+- Nexus already existed before Rig as a sibling project. Building
+  Rig on top of Nexus was strictly less work than picking another
+  generator and bridging it to a hand-rolled IR layer.
 - The tooling stays in one language family. Rig is in Zig; Nexus is in
   Zig; the generated parser is Zig. No C++ parser-generator runtime to
   vendor and no separate AST-walker code generator.

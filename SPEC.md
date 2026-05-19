@@ -250,9 +250,8 @@ Single-threaded reference-counted shared ownership. V1 semantics:
 - `+rc` increments the strong count (`cloneStrong`); the original
   handle stays valid alongside the new one.
 - `-rc` decrements the strong count (`dropStrong`); when the count
-  reaches zero, the value's slot is released. **V1 does NOT yet run
-  a user-defined destructor on the inner T** (no user `Drop` infra
-  yet; see M20+ roadmap).
+  reaches zero, the inner value's drop glue runs synchronously if
+  `T` has drop glue, then the value's slot is released.
 - NOT `Send`, NOT `Sync` (no atomics — single-threaded V1).
 - Cycles leak by default; document loudly and lint where possible.
 
@@ -423,12 +422,14 @@ init; its runtime lives in `_runtime.zig`. The V1 API:
 
 Rejected:
 
-- Arbitrary nominal `T` (e.g., user-defined structs) —
-  deferred until V1 grows user-defined `Drop`.
+- Arbitrary nominal `T` without drop glue remains rejected in V1.
+  Nominals with compiler-recognized drop glue participate in the
+  resource/drop-glue path.
 - Nested `Vec(Vec(T))` — recursive resource semantics
   deferred.
-- `Cell(T)` elements — since `Cell` is Copy-only, the
-  natural shape is `Vec(*Cell(T))` instead.
+- `Cell(T)` elements follow the same drop-glue/non-Copy rules as
+  other resource-bearing values. `Vec(*Cell(T))` remains the
+  common shared-interior-mutability shape.
 
 **Resource-value ownership rules.** Because `Vec(T)` owns
 its buffer, the M2 / M20d alias-footgun discipline applies
@@ -489,9 +490,9 @@ sub main()
   M20j after PB3 exposes whether the ergonomics matter.
 - Persistent / CHAMP-backed Vec — see `docs/INFLUENCES.md`
   §8 for the conditional roadmap entry.
-- `*Cell(Vec(T))` — Cell-non-Copy is its own deferred sub-
-  arc; PB2 may not need it (Reactor can be modeled as an
-  owned mutable object).
+- `*Cell(Vec(T))` — shipped via M26 Cell-non-Copy support when
+  `Vec(T)` has drop glue. Remaining Cell deferred items are
+  `take()`, borrowed access to Drop `T`, and user-defined `Clone`.
 
 ### Vec iteration via `for x in ?vec` (M20i.1)
 
@@ -641,7 +642,8 @@ their own PB3 / PB4 checkpoints.
 
 ### Reactive primitive: `Signal(T)` (PB2 / PB3 / PB4)
 
-`Signal(T)` is Rig's **canary reactive primitive** — NOT a
+`Signal(T)` is Rig's built-in reactive primitive used to force the
+substrate to compose correctly — NOT a
 long-term reactive API. Per GPT-5.5 entry 33 (PB4 design pass):
 Rust and Zig deliberately keep reactivity in libraries
 (Leptos / Dioxus / etc. on Rust; no ecosystem on Zig). Rig
@@ -687,11 +689,11 @@ sema init (parallel to `Cell` and `Vec`); its runtime lives in
   Vec. Multiple subscribes accumulate; there is no `unsubscribe`
   in V1 (deferred — see below).
 
-**V1 restriction: `T` must be a Copy type** (`Int`, `Bool`,
-`Float`, `String`, the literal pseudo-types) — same restriction
-as `Cell`. Non-Copy `T` would need the same replace/take/Drop
-machinery deferred from Cell-non-Copy; will arrive together if
-either lands.
+**V1 restriction: `Signal(T)` remains Copy-only** (`Int`, `Bool`,
+`Float`, `String`, and literal pseudo-types). Cell-non-Copy and
+`replace` shipped in M26, but non-Copy `Signal(T)` still needs
+its own `value` / `pending_value` drop and replacement semantics
+before lifting the restriction.
 
 **Reentrancy policy (PB3 R2 baseline, PB4 set-relaxation).**
 The runtime's `notifying: bool` flag tracks whether a
@@ -834,7 +836,9 @@ Rig holds the same position: substrate in the language,
 reactive library in userland. The reactive library shape
 (`Reactor` / `Memo` / `Effect`) does NOT belong as future
 builtins; it belongs as userland code built on Cell + Vec +
-Closure + Signal, once Cell-non-Copy lands and unblocks the
+Closure + Signal. Cell-non-Copy and `replace` shipped in M26;
+remaining Reactor / Memo / Effect work is library design, not new
+builtin surface. The userland
 natural shape.
 
 ### Resource temporaries (named-binding RAII boundary)
@@ -898,8 +902,8 @@ rc.field = X          # error: field-target assign through `*T`
 ```
 
 The user-facing escape hatch for controlled mutation through shared
-ownership is interior mutability (`Cell(T)` / `RefCell(T)`, planned
-as M20+ item #7).
+ownership is the shipped built-in `Cell(T)` interior-mutability
+container.
 
 ### Type-position precedence: `*T?` vs `(*T)?`
 
@@ -919,15 +923,13 @@ inside the prefix.
 
 ### Drop Order
 
-When the last `*T` strong handle is dropped, the value's destructor
-**will run** synchronously before the `*T` handle itself is gone
-(see the V1 caveat above — V1 currently has no user-defined
-destructors; the synchronous-run-before-handle-loss guarantee is the
-contract once user `Drop` lands). Any `~T` weak handles to the same
-value upgrade to `none` after this point. Destructors during a
-callback dispatch (reactive flush, observer notify, etc.) are
-allowed; re-entrant destruction is the calling library's policy to
-handle.
+When the last `*T` strong handle is dropped, the value's drop glue
+runs synchronously before the allocation is released. If `T` has a
+user `drop`, that body runs before the compiler-generated structural
+field cleanup (M25). Any `~T` weak handles to the same value upgrade
+to `none` after this point. Destructors during a callback dispatch
+(reactive flush, observer notify, etc.) are allowed; re-entrant
+destruction is the calling library's policy to handle.
 
 ---
 
@@ -1010,10 +1012,10 @@ cases (self-referential structs, subscribe-in-init callbacks) are
 workable via `alloc.create` returning a `*Self` with a stable heap
 address.
 
-The `@x` sigil parses but is not enforced in V1; use it sparingly
-until V2 lands the real discipline. (`@` also prefixes Zig builtin
-calls — `@sizeOf(T)` etc. — which is a separate, unrelated use of
-the symbol.)
+The `@x` sigil parses in V1 but sema rejects it. Pinning is
+reserved for V2; there is no accepted V1 pin operation. (`@` also
+prefixes Zig builtin calls — `@sizeOf(T)` etc. — which is a
+separate, unrelated use of the symbol.)
 
 ---
 
@@ -1209,7 +1211,7 @@ safe-wrapper pattern above; for V1 there is no separate
   declarations. Currently extern callable surface is limited
   to extern variables with `fun(...)` type annotations
   (`extern puts: fun(String) Int`).
-- **Cross-module signature import.** ✅ **Shipped in M15b.**
+- **Cross-module signature import.** Shipped in M15b; not deferred.
   Every cross-module reference now carries the same checked
   contract it would have carried in the defining file:
   fallibility, arity, kwargs, borrow-mode obligations, extern
@@ -1571,7 +1573,7 @@ sub main()
 The construction shape is fixed: `*Closure(|...| body)` —
 exactly one argument, which MUST be a lambda. Bare `Closure(fn
 ...)` (no `*`), `*Closure(42)` (non-lambda), `*Closure()` (no
-arg), and `*Closure(fn ..., fn ...)` (multiple args) all
+arg), and `*Closure(|...| body, |...| body)` (multiple args) all
 produce tailored sema diagnostics.
 
 `*Closure()` is itself an ordinary `*T` shared handle:
@@ -1596,7 +1598,7 @@ jump). Auto-drop at scope exit cascades through
 drop thunk that releases each captured resource and frees the
 heap-allocated env.
 
-**ABI: type erasure via Closure0.** Each `*Closure(fn ...)`
+**ABI: type erasure via Closure0.** Each `*Closure(|...| body)`
 literal generates a unique anonymous env struct holding its
 captures plus an `invoke`/`drop` thunk pair tailored to that
 layout. The env pointer is type-erased through `ctx: *anyopaque`
@@ -1624,7 +1626,7 @@ cb2()` safe.
   deferred until typed `Closure()` arities ship.
 - Multi-line closure bodies require pre-binding into a named
   helper (the grammar accepts inline-call bodies via a
-  narrow `FN captures call` form; multi-stmt bodies need
+  narrow closure-literal call form; multi-stmt bodies need
   `INDENT/OUTDENT` which doesn't compose inside `(...)`
   parens).
 - `*Closure()` doesn't replace the M20g non-escaping closures —
@@ -1782,7 +1784,10 @@ against the patterns above using the struct's resolved
 Per the M25 design lock (GPT-5.5 conversation
 `c_5c1d09d53ebe2f62`):
 
-- **Cell-non-Copy and `replace` / `take` semantics** — split
+- **`Cell.take()` semantics** — still deferred; it needs an
+  empty/taken state. Cell-non-Copy and `replace` shipped in M26.
+
+Previously deferred and now shipped (kept for context): split
   to a separate M26 arc. `Cell.set(v)` for resource T needs
   to drop the old value before storing the new; the natural
   `take` primitive needs an "empty / taken" state. That's
@@ -1796,11 +1801,9 @@ Per the M25 design lock (GPT-5.5 conversation
 - **Generic Drop** (`drop` on `type Box(T)` etc.) — needs
   bounds / monomorphized resource analysis.
 - **Enum / errors Drop** — needs per-variant payload drop.
-- **Auto-deref through member-access in method bodies.**
-  Calling `self.cell.get()` inside a drop body currently
-  requires manual `.value` insertion at the auto-deref
-  point; emit's auto-deref logic for member-of-member
-  expressions is a follow-up.
+- **Auto-deref through member-access in method bodies** shipped
+  in M27 — `self.cell.get()` inside a method body resolves the
+  shared-handle deref automatically.
 
 ---
 
@@ -1813,7 +1816,7 @@ Rig allows Ruby-style omitted parentheses.
 ```rig
 send <packet
 print ?user
-rename !user, "Steve"
+rename !user, "Ada"
 ```
 
 ---
@@ -1839,7 +1842,7 @@ Rig should prefer readability over clever omission.
 Rig uses:
 
 ```rig
-User(name: "Steve")
+User(name: "Ada")
 ```
 
 instead of:
@@ -1957,7 +1960,11 @@ called with `f()!` to propagate.
 
 ## Multi-Line Fallible Blocks
 
-Rig supports value-producing `try/catch` blocks.
+Value-producing multi-line `try/catch` blocks parse but are
+reserved in V1 and sema-rejected per M22.1. V1 fallibility
+supports `expr!` propagation and `expr catch |err| recovery`.
+
+(Future-spec design sketch follows.)
 
 ```rig
 view = try
@@ -2161,29 +2168,37 @@ This generates separate specialized versions.
 
 ---
 
-## Compile-Time Block
+## Compile-Time Block (reserved in V1)
 
 ```rig
 pre
   assert(sizeOf(Header) == 32)
 ```
 
+`pre INDENT body OUTDENT` parses but is reserved in V1 and
+sema-rejected per M22.1.
+
 ---
 
-## Compile-Time Function
+## Compile-Time Function (reserved in V1)
 
 ```rig
 pre fun buildTable() -> Table
   ...
 ```
 
+`pre fun` declarations are reserved alongside `pre <expr>` and
+`pre` blocks. V1 ships `pre`-parameter shape only (see above).
+
 ---
 
-## Compile-Time Condition
+## Compile-Time Condition (reserved in V1)
 
 ```rig
 if pre mode == .strict
 ```
+
+`pre <expr>` modifiers are reserved in V1.
 
 ---
 
@@ -2198,12 +2213,10 @@ for user in ?users
   print ?user
 ```
 
-Equivalent composable form:
-
-```rig
-?users.each |user|
-  print ?user
-```
+(Callback-style `.each` iteration is not V1 surface — V1 ships
+only the external `for x in <source>` form. Internal-callback
+iteration is deferred per the M20i `Vec(T)` deferred-features
+list.)
 
 ---
 
@@ -2214,26 +2227,12 @@ for user in !users
   normalize !user
 ```
 
-Equivalent:
-
-```rig
-!users.each |user|
-  normalize !user
-```
-
 ---
 
 ## Consuming Iteration
 
 ```rig
 for packet in <queue
-  send <packet
-```
-
-Equivalent:
-
-```rig
-<queue.each |packet|
   send <packet
 ```
 
@@ -2350,7 +2349,7 @@ Illegal:
 
 ```rig
 fun bad() -> ?String
-  user = User(name: "Steve")
+  user = User(name: "Ada")
   ?user.name
 ```
 
@@ -2396,13 +2395,23 @@ Rig ownership analysis should operate on semantic S-expressions.
 
 (share expr)
 (weak expr)
-(pin expr)
+(pin expr)      ; parsed for `@x`, reserved in V1; sema rejects per M22.1
 (raw expr)
 
 (call callee args...)
 (return expr)
 (if cond then else)
 (for mode binding collection body)
+
+(lambda
+  (captures
+    (cap_copy name)            ; bare `|x|`
+    (cap_clone name)           ; `|+x|`
+    (cap_move name)            ; `|<x|`
+    (cap_weak name))           ; `|~x|`
+  params
+  returns
+  body)
 ```
 
 ---
@@ -2495,7 +2504,7 @@ Must error.
 
 ```rig
 fun bad() -> ?String
-  user = User(name: "Steve")
+  user = User(name: "Ada")
   ?user.name
 ```
 
@@ -2590,13 +2599,14 @@ Rig V1 should fully support:
 - clone / drop
 - binding rules
 - generics
-- pre / comptime
+- `pre` parameters for compile-time specialization (`pre <expr>`
+  and `pre` blocks are reserved per M22.1)
 - error propagation
 - iteration ownership
 - Zig lowering
 - ownership checking
 - single-threaded reference-counted shared ownership (`*T` as `Rc<T>`)
-- weak references (`~T` as `Weak<T>`) with `upgrade() -> *T?`
+- weak references (`~T` as `Weak<T>`) with `upgrade() -> (*T)?`
 - raw context (`raw INDENT body OUTDENT` block ONLY; required
   for `%x` raw access and non-whitelisted `@builtin(...)`. M22
   dropped the M19 `unsafe` keyword and the `unsafe sub`/`unsafe
