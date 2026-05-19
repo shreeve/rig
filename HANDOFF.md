@@ -359,9 +359,10 @@ Violating any of them will silently corrupt the substrate.
   M22.1 "no parsed-but-not-enforced" invariant is the syntax-
   level corollary of this rule; this invariant is the
   semantic-level statement.
-- **Grammar conflict count: 69** (was 38 pre-M20h; +31 from
-  the M20h(2/5) inline-call lambda body). All benign S/R with
-  prefer-shift; reviewed and accepted.
+- **Grammar conflict count: 75** (was 38 pre-M20h; +31 from
+  the M20h(2/5) inline-call lambda body; +6 from M29 drop-fn
+  bare-bars BAR_CAPTURE shift-prefer; was 69 pre-M29). All
+  benign S/R with prefer-shift; reviewed and accepted.
 - **Never edit `src/parser.zig` by hand** — it's generated
   from `rig.grammar` via `zig build parser`.
 - **Always run GPT-5.5 design checkpoints** before starting a

@@ -160,7 +160,7 @@ warranted, raise it as a discussion item with GPT-5.5 first.
 | `docs/REACTIVITY-DESIGN.md` | Phase B design north star |
 | `docs/INFLUENCES.md` | Design lineage; substrate ladder; strategic rules |
 | `docs/INHERITED-FROM-ZAG.md` | Grammar/lexer surface inherited from Nexus |
-| `rig.grammar` | Nexus grammar (current conflict count: 69) |
+| `rig.grammar` | Nexus grammar (current conflict count: 75) |
 | `src/rig.zig` | Lexer rewriter + Tag enum |
 | `src/parser.zig` | **GENERATED** — do not edit by hand |
 | `src/types.zig` | Sema (SymbolResolver, TypeResolver, ExprChecker, builtins) |

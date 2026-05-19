@@ -56,8 +56,8 @@ pub const Binding = struct {
     borrow_root_index: ?usize = null,
     borrow_kind: enum { none, read, write } = .none,
 
-    /// M20g(2/5): set when the binding was created by `f = fn |...|
-    /// body`. Closures are non-copyable and non-escaping in V1 per
+    /// M20g(2/5) + M29 (drop-fn): set when the binding was created
+    /// by `f = |...| body`. Closures are non-copyable and non-escaping in V1 per
     /// GPT-5.5's M20g design: such a binding may only appear in
     /// call-receiver position (`f()` / `if cond then f() else g()`)
     /// and cannot be reassigned, returned, stored, or passed as a
@@ -153,9 +153,9 @@ pub const Checker = struct {
     /// passed as arguments still fail.
     in_call_callee: bool = false,
 
-    /// M20g(2/5) + M20h.1: true while walking a lambda literal that
-    /// IS the direct RHS of a `(set ...)` form (`f = fn |...|
-    /// body`). The flag is set EXACTLY for the lambda walk —
+    /// M20g(2/5) + M20h.1 + M29 (drop-fn): true while walking a
+    /// lambda literal that IS the direct RHS of a `(set ...)` form
+    /// (`f = |...| body`). The flag is set EXACTLY for the lambda walk —
     /// `walkSet` checks `isLambdaLiteral(rhs)` before setting it.
     ///
     /// Pre-M20h.1, this flag was set for the entire RHS walk, which
