@@ -1,0 +1,23 @@
+## M22: extern call wrapped in a `raw` block is allowed.
+##
+## The "safe wrapper" pattern around an FFI function: the
+## public `safe_puts` Rig fn has a safe contract; internally
+## it wraps the extern call in a `raw` block. Callers of
+## `safe_puts` don't need to know about the FFI boundary.
+##
+## (Per GPT-5.5 entry 38: M22 intentionally lacks a Rust-style
+## `unsafe sub`/`raw sub` precondition-marker. APIs with
+## unchecked caller obligations are deferred until a future
+## trusted/raw-function design pass forced by a real use case.
+## V1 raw blocks support safe wrappers over raw internals;
+## they don't support exposing raw preconditions through the
+## public API.)
+
+extern puts: fn(String) Int
+
+sub safe_puts(s: String)
+  raw
+    puts(s)        # OK: inside `raw` block
+
+sub main()
+  safe_puts("hi")  # OK: safe_puts has a safe contract

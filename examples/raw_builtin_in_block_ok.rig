@@ -1,0 +1,11 @@
+## M22: unsafe builtins are allowed inside a `raw` block.
+##
+## Per GPT-5.5 entry 35: the same `inRawContext()` predicate
+## that gates `%x` raw access also gates unsafe builtins.
+## The block IS the audit boundary.
+
+sub main()
+  x = 42
+  raw
+    y = @ptrCast(x)          # OK: inside `raw` block
+    print(y)

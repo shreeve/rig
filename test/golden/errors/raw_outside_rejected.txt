@@ -1,0 +1,1 @@
+examples/raw_outside_rejected.rig:10:8: error: raw access `%x` requires `raw` block; wrap the operation in `raw INDENT body OUTDENT`

@@ -1,0 +1,13 @@
+## M22: raw `%x` access inside a `raw` block is allowed.
+##
+## Per GPT-5.5 entry 35 (M21 design) + entry 38 (M22 cleanup):
+## the `raw` block is the statement-level audit boundary for
+## unsafe operations. Renamed from M19's `unsafe` keyword for
+## sigil-alignment with the existing `%x` raw-prefix sigil
+## (3 letters; reads as a noun; less Rust-imported).
+
+sub main()
+  x = 7
+  raw
+    r = %x         # `(raw x)` — raw access, requires raw block
+    print(r)

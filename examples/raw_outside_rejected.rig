@@ -1,0 +1,10 @@
+## M22: raw `%x` access outside a `raw` block is rejected.
+##
+## Per GPT-5.5 entries 35 + 38: raw access is the archetypal
+## unsafe operation. Without an enclosing `raw` block, the
+## operation is sema-rejected with a tailored diagnostic
+## pointing the user at the fix.
+
+sub main()
+  x = 7
+  r = %x           # error: raw access outside `raw` block

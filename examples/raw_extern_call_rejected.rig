@@ -1,0 +1,14 @@
+## M22: calling an extern function outside a `raw` block is rejected.
+##
+## Per GPT-5.5 entry 35 (M21 design): "all extern calls require
+## a raw context even if the extern declaration is not
+## syntactically marked." Extern declarations are the FFI
+## boundary and bypass Rig's ownership / effect contracts.
+## Calling an extern from a safe context would silently treat
+## a C/Zig API as ownership-safe; the `raw` wrapping
+## requirement forces the caller to acknowledge the bargain.
+
+extern puts: fn(String) Int
+
+sub main()
+  puts("hi")       # error: extern call requires `raw` block

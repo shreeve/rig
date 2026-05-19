@@ -965,67 +965,53 @@ the symbol.)
 
 ---
 
-## Unsafe / Raw (M19)
+## Raw escape (M22)
 
 ```rig
-unsafe
+raw
   ptr = %buffer.ptr
 ```
 
 Escape hatch from ownership guarantees. `%` intentionally looks
 visually dangerous, but the sigil alone is not enough — `%x`,
-dangerous `@builtin(...)` calls, calls to `unsafe` functions, and
-calls to `extern` functions all require an **unsafe context**:
-either an `unsafe` block, or a function declared with the
-`unsafe` modifier.
+non-whitelisted `@builtin(...)` calls, and calls to `extern`
+functions all require a `raw` **block**. The block is the
+statement-level audit boundary; making it visually heavy is
+the point.
+
+(Renamed from M19's `unsafe` keyword for sigil-alignment with
+the existing `%x` raw-prefix sigil — 3 letters, reads as a
+noun rather than a Rust-imported scarlet letter.)
 
 ### Syntax
 
-**Unsafe block** (statement-level audit boundary):
+**Block-only form.** There is no `raw expr` single-statement
+shortcut, and no `raw sub`/`raw fun` fn-modifier in V1 (per
+the M22 cleanup, GPT-5.5 entry 38). The block is the only
+construct:
 
 ```rig
 sub safe_wrapper()
-  unsafe
+  raw
     ptr = %buffer.ptr
     raw_op(ptr)
 ```
 
-Block-only form. There is intentionally no single-statement
-`unsafe expr` shortcut — the block IS the audit boundary, and
-making it visually heavy is the point.
+**There is no raw/unsafe function modifier in V1.** Users who
+want a whole fn body in a raw context wrap it as the first
+statement (one extra line of indentation). This is the V1
+intentional limitation — see "V1 deferred features" below.
 
-**Unsafe function** (declaration modifier, prefix):
-
-```rig
-unsafe sub raw_op(ptr: RawPtr)
-  do_something_with(%ptr)
-
-unsafe fun parse_raw(data: Bytes) -> Result
-  ...
-```
-
-The `unsafe` modifier is a **prefix** (parallel to `pub` /
-`extern` / `packed` / `callconv`), NOT a suffix. Per the
-GPT-5.5 M19 design pass (entry 36): suffix form would have
-doubled the `fun`/`sub` grammar productions AND changed the IR
-shape — the prefix shape matches the existing decl-modifier
-pattern with a single grammar line. The body of an `unsafe`
-function is treated as an unsafe context by default
-(Rust-style — no redundant inner `unsafe` block needed for
-unsafe operations inside an unsafe fn body).
-
-### What requires unsafe context
+### What requires a `raw` block
 
 | Operation | Diagnostic |
 |---|---|
-| `%x` (raw access) | `raw access \`%x\` requires unsafe context` |
+| `%x` (raw access) | `raw access \`%x\` requires \`raw\` block` |
 | `@builtin(...)` not in safe whitelist | `builtin \`@ptrCast\` is not in the safe whitelist` |
-| Call to `unsafe sub/fun` | `call to unsafe function \`foo\` requires unsafe context` |
-| Call to `extern` symbol | `call to extern function \`puts\` requires unsafe context` |
+| Call to `extern` symbol | `call to extern function \`puts\` requires \`raw\` block` |
 
-Each diagnostic names the specific operation AND lists the two
-fixes (wrap in `unsafe` block / call from an `unsafe` fn) so
-users don't have to grep the source.
+Each diagnostic names the specific operation so users don't
+have to grep the source.
 
 ### Builtin classification (default-unsafe + safe whitelist)
 
@@ -1040,7 +1026,7 @@ whitelist. Currently safe:
 All are pure compile-time queries or ownership-safe operations.
 Everything else (`@ptrCast`, `@intFromPtr`, `@ptrFromInt`,
 `@memcpy`, `@bitCast`, `@as`, `@field`, `@frame`, etc.)
-requires unsafe context.
+requires a `raw` block.
 
 Adding a new safe builtin requires explicit audit for:
 
@@ -1054,47 +1040,63 @@ Adding a new safe builtin requires explicit audit for:
 extern puts: fn(String) Int
 
 sub main()
-  puts("hi")       # error: extern call requires unsafe context
+  puts("hi")       # error: extern call requires `raw` block
 
 sub safe_puts(s: String)
-  unsafe
+  raw
     puts(s)        # OK: caller acknowledges the FFI bargain
 ```
 
-Per GPT-5.5 entry 35: "all extern calls require unsafe even
-if the extern declaration is not syntactically marked unsafe."
+Per GPT-5.5 entry 35: all extern calls require a raw context.
 Extern declarations bypass Rig's ownership / effect contracts;
-the unsafe wrapping requirement forces the caller to
+the `raw` wrapping requirement forces the caller to
 acknowledge the FFI bargain explicitly.
 
 ### The safe-wrapper pattern
 
-The canonical idiom for exposing unsafe internals through a
+The canonical idiom for exposing raw internals through a
 safe public API:
 
 ```rig
 extern raw_alloc: fn(Int) RawPtr
 
 sub safe_alloc(n: Int) -> *Buffer
-  unsafe
+  raw
     p = raw_alloc(n)
     Buffer{ ptr: %p, len: n }
 ```
 
 The public `safe_alloc` declares a Rig-visible ownership
-contract (`-> *Buffer`); the internal `unsafe` block opts into
-the unsafe context where needed. Callers of `safe_alloc` are
-not required to be in unsafe context — the safe wrapper
+contract (`-> *Buffer`); the internal `raw` block opts into
+the raw context where needed. Callers of `safe_alloc` are
+NOT required to be in a raw context — the safe wrapper
 upholds the contract.
+
+### What V1 raw blocks DO support
+
+Safe wrappers over raw internals via the pattern above.
+Callers of the wrapper get the Rig-visible safe contract; the
+wrapper's body audit-boundary is the `raw` block.
+
+### What V1 raw blocks DO NOT support
+
+**APIs with unchecked caller obligations.** Rust-style
+`unsafe fn slice_get_unchecked(i)` — where the BODY is safe
+but the CALLER must uphold "i < len" or else UB — has no V1
+expression. The caller-precondition-marker is deferred until
+a real stdlib use case forces a fresh design pass. Per
+GPT-5.5 entry 38: "raw preconditions are contained inside
+the implementation block; public APIs are safe or not
+expressible yet."
 
 ### Safety bargain
 
 Rig's safety guarantee applies to safe Rig code and to calls
-whose contracts are known to the Rig checker. Raw Zig, raw
-pointers, unchecked builtins, and unsafe externs are outside
-the guarantee and require explicit unsafe context. Safe APIs
-MAY wrap unsafe implementations only by declaring and
-upholding Rig-visible ownership / effect contracts.
+whose contracts are known to the Rig checker. Raw pointers,
+unchecked builtins, and unsafe externs are outside the
+guarantee and require an explicit `raw` block. Safe APIs MAY
+wrap raw implementations only by declaring and upholding
+Rig-visible ownership / effect contracts.
 
 ### Trusted runtime is out-of-band
 
@@ -1107,26 +1109,31 @@ is verified by code review and by the absence of regressions
 in the canary suite, not by Rig's checker. User-defined
 trusted-runtime patterns (writing your own Cell-like primitive
 in Rig source with unsafe internals) compose via the
-`safe_wrapper` pattern above; for V1 there is no separate
+safe-wrapper pattern above; for V1 there is no separate
 `trusted` decoration.
 
 ### V1 deferred features
 
-- **`zig "..."` raw Zig blocks** for inline FFI. Parsed by the
-  grammar but not yet wired through emit; M19+ extension.
-  Will inherit the same unsafe-context requirement when it
-  lands.
+- **No raw/unsafe function modifier.** Dropped in M22 per
+  GPT-5.5 entry 38; can return as a `raw sub`/`raw fun` form
+  with a fresh design pass when a real stdlib API needs
+  caller-precondition marking. Future sessions: do NOT
+  resurrect the M19 `unsafe sub` form without an explicit
+  reset; it had no V1 use case and the machinery wasn't
+  worth carrying.
+- **`zig "..."` raw Zig blocks** for inline FFI. Parsed by
+  the grammar but not yet wired through emit; M22+
+  extension. Will inherit the same raw-block requirement
+  when it lands.
+- **Body-less `extern fun`/`extern sub` declarations** (no
+  block, just a signature). Required for real FFI ergonomics
+  but blocked on a grammar extension to allow body-less fn
+  declarations. Currently extern callable surface is limited
+  to extern variables with fn-typed annotations
+  (`extern puts: fn(String) Int`).
 - **Cross-module extern signatures.** Same M15b gap as
   fallibility checking — cross-module call signatures aren't
-  yet tracked, so an extern declared in module A and called
-  from module B without import resolution silently slips
-  past the checker. Documented, not yet solved.
-- **`unsafe extern` composition.** `extern decl` and
-  `unsafe decl` compose at the wrapper level (`unsafe extern
-  sub foo()` is valid), but extern is already unsafe-by-
-  default at the call site, so the explicit `unsafe`
-  modifier is informational. May get its own diagnostic
-  signal in M19+.
+  yet tracked.
 - **User-defined `trusted` decoration** for writing custom
   trusted-runtime types in Rig source. Not in V1; the
   safe-wrapper pattern is the V1 substitute.

@@ -2455,6 +2455,100 @@ cover" — needed for real FFI ergonomics but blocked on a
 grammar extension to allow body-less fn declarations.
 Deferred to M21.x.
 
+### M22 — Unsafe surface cleanup (`unsafe` → `raw`, drop fn-modifier) ✅
+
+Pure cleanup arc. Steve flagged the M21 `unsafe` keyword as
+aesthetically off — heavy, Rust-imported, and shipping a lot
+of machinery (fn-modifier + decl-modifier-wrap + Symbol flag
++ global mutable bridge state + parallel walker arms + the
+M21.1 reject-unsafe-on-non-fn rule) for a feature with zero
+V1 use cases. GPT-5.5 entry 38 confirmed: cleanup is worth
+shipping.
+
+**Locked design (GPT-5.5 entry 38):**
+
+- **Rename keyword: `unsafe` → `raw`.** Three letters; matches
+  the existing `%x` raw-prefix sigil; reads as a noun
+  ("raw context") rather than a Rust-imported scarlet letter.
+- **Drop the fn-modifier entirely.** No `unsafe sub`/`unsafe
+  fun` (or `raw sub`/`raw fun`) in V1. Users who need a whole
+  fn body in a raw context wrap the body in a `raw` block as
+  the first statement.
+- **Block-only enforcement** — the `raw` block is the
+  statement-level audit boundary. No fn-level marker.
+- **Two IR tags merged into one.** `(unsafe_decl ...)` deleted;
+  `(unsafe_block ...)` renamed to `(raw_block ...)`.
+
+**Why drop the fn-modifier**: it shipped substantial
+machinery (`SymbolFlags.is_unsafe`, three transparent walker
+arms across SymbolResolver/TypeResolver/ExprChecker,
+`pending_fn_unsafe` global mutable bridge, `current_fn_is_unsafe`
+checker state, `lookupIsUnsafe` helper, unsafe-fn-call diagnostic,
+the M21.1 "reject unsafe on non-fn" sema rule, "unsafe pub vs
+pub unsafe" composition test surface) — all to support a
+feature (Rust-style `unsafe fn` precondition-marker) that has
+zero V1 use cases. The whole class of `pending_fn_unsafe`
+leak hazards GPT-5.5 caught in entry 37 ceases to exist
+(not just gets patched) by dropping the fn-modifier.
+
+**Sub-commits:**
+
+| Commit | What it shipped |
+|---|---|
+| `acb367d` M22(1-2/3) | Grammar + lexer rename + sema/effects strip combined. Grammar: dropped `UNSAFE decl` modifier-wrap line; renamed `unsafe = UNSAFE block` to `raw = RAW block`; updated `expr` alternation. Lexer: `UNSAFE` -> `RAW` keyword; `unsafe_decl` + `unsafe_block` tags merged to single `raw_block`. Parser regenerated, conflict count stayed at 69. Sema: `SymbolFlags.is_unsafe` removed; three transparent walker arms removed; M21.1 reject-unsafe-on-non-fn rule removed (became irrelevant). Effects: `unsafe_depth` -> `raw_depth`; `inUnsafeContext` -> `inRawContext`; `current_fn_is_unsafe` + `pending_fn_unsafe` + `lookupIsUnsafe` + unsafe-fn-call diagnostic all removed. The whole global-mutable-bridge hazard class is gone. |
+| M22(3/3) | Examples + goldens + docs (this entry). Deleted 7 fn-modifier-only examples + 21 goldens. Renamed 7 examples (`unsafe_*` -> `raw_*`) and updated their `unsafe` keyword + diagnostic strings to the new `raw` shape. Updated `spacing.rig`'s `unsafe` wrap to `raw`. SPEC §"Unsafe / Raw (M19)" rewritten as §"Raw escape (M22)" — trimmed substantially; added explicit "no raw/unsafe function modifier in V1" note (per GPT-5.5 entry 38) to prevent future sessions from accidentally resurrecting the fn-modifier. ROADMAP M22 entry (this one) + HANDOFF refresh. |
+
+**Tests across M22 (1-3/3): 936 → 908 (-28).** The reduction
+is from the 7 deleted examples × 3 goldens each + the 7
+removed unsafe-fn enforcement tests; no other tests broke.
+Canary unchanged at `1\n3\n13\n7\n99\n111\n111`.
+
+**Measured impact of the cleanup:**
+
+- **Source code removed**: ~120 lines across `types.zig` +
+  `effects.zig` + `rig.zig` (the deletion side is ~1100
+  lines combined with the parser regen; the substantive
+  language-side reduction is ~120).
+- **Conceptual surface removed:**
+  - Two enforcement contexts (block + fn-modifier) → one
+    (block only).
+  - Two IR tags (`unsafe_decl` + `unsafe_block`) → one
+    (`raw_block`).
+  - Three transparent walker arms across 3 sema passes → zero.
+  - `SymbolFlags.is_unsafe` flag → removed.
+  - Global mutable bridge `pending_fn_unsafe` → removed
+    entirely (the class of leak hazards GPT-5.5 flagged in
+    entry 37 ceases to exist).
+  - `lookupIsUnsafe` helper → removed (effects.zig lookup
+    helpers reduced from 3 to 2).
+  - "Call to unsafe function" diagnostic category → removed.
+  - "Unsafe pub vs pub unsafe" composition test surface →
+    removed.
+  - M21.1's "reject unsafe on non-fn" sema rule → irrelevant.
+- **Aesthetic alignment**: `raw` is 3 chars, matches `%x`
+  sigil naming. The Rust-imported feel is gone.
+
+**What stays (unchanged enforcement)**:
+
+- Raw `%x` outside `raw` block fires diagnostic.
+- Non-whitelisted `@builtin(...)` outside `raw` block fires.
+- Extern call outside `raw` block fires.
+
+**What's intentionally lost (per GPT-5.5 entry 38)**:
+
+- `unsafe sub`/`unsafe fun` fn-modifier syntax.
+- The Rust-style `unsafe fn slice_get_unchecked(i)` pattern
+  (caller-must-uphold-precondition-marker). Can return when
+  a real stdlib seed use case forces a fresh design pass.
+
+**Hazards retired**:
+
+- "M19 vs M21 vs M22 naming collision" — collapses into the
+  M22 final shape. The historic ROADMAP entries are preserved
+  (M19 = old Typed Mutable Binding; M21 = old `unsafe`
+  boundary; M22 = current `raw` cleanup) with cross-references
+  for the conversation log.
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note

@@ -1,2 +1,0 @@
-examples/unsafe_no_leak_to_sibling_fn.rig:25:15: error: `unsafe` may only modify `fun`, `sub`, or `extern` declarations; got `struct`
-examples/unsafe_no_leak_to_sibling_fn.rig:29:8: error: raw access `%x` requires unsafe context; wrap in an `unsafe` block or call from an `unsafe` function

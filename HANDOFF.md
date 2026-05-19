@@ -1,26 +1,25 @@
-# Rig — Session Handoff (M21 unsafe boundary complete)
+# Rig — Session Handoff (M22 raw cleanup complete)
 
-**You are picking up a Rig compiler session at the M21 boundary.**
-**Phase B + the unsafe-effect boundary are both shipped.**
-M20h (owned escaping closures) + M20i (resource-aware Vec) +
-M20i.1 (resource-Vec iteration via `for x in ?vec`) + M20i.1.1
-(sema attribution table) + PB2 (single-subscriber Signal) +
-PB3(1/5) (captured-resource audit fix) + PB3 (multi-subscriber
-`Signal(T)` with R2 reentrancy policy) + PB4 (R2 relaxed for
-set; library/substrate boundary locked) + **M21 — `%T` unsafe /
-raw effect boundary** (block-only `unsafe`, prefix `unsafe
-sub`/`unsafe fun`, default-unsafe builtin classification,
-extern call sites are unsafe-by-default at the FFI boundary)
-all shipped end-to-end. The reactive canary
+**You are picking up a Rig compiler session at the M22 boundary.**
+**Phase B + the raw-escape boundary (M22 simplification of
+M21) are both shipped.** M20h (owned escaping closures) + M20i
+(resource-aware Vec) + M20i.1 (resource-Vec iteration via
+`for x in ?vec`) + M20i.1.1 (sema attribution table) + PB2
+(single-subscriber Signal) + PB3(1/5) (captured-resource audit
+fix) + PB3 (multi-subscriber `Signal(T)` with R2 reentrancy
+policy) + PB4 (R2 relaxed for set; library/substrate boundary
+locked) + M21 (`%T` unsafe / raw effect boundary) + **M22
+(rename `unsafe` → `raw`; drop fn-modifier; block-only
+enforcement)** all shipped end-to-end. The reactive canary
 (`examples/reactive_canary.rig`) demonstrates the full Cell +
 closure + Vec-iteration + Signal chain producing
-`1\n3\n13\n7\n99\n111\n111`. **924 tests passing, 0 failing.
+`1\n3\n13\n7\n99\n111\n111`. **908 tests passing, 0 failing.
 Clean tree on `main`.** The substrate ladder Layers 0–7 are
 all complete, the reactive primitive is in its V1 final form,
-AND the safety boundary that gates real stdlib work is now
-enforced. The next concrete action is a **Steve-driven choice
-from the remaining V1-blockers** — see §13 for the updated
-forward-arc menu.
+the safety boundary that gates real stdlib work is enforced
+AND uses a clean Rig-native `raw` block syntax. The next
+concrete action is a **Steve-driven choice from the remaining
+V1-blockers** — see §13 for the forward-arc menu.
 
 ---
 
@@ -31,24 +30,28 @@ forward-arc menu.
   `/Users/shreeve/Data/Code/rig`.
 - **Where we are**: Substrate ladder Layers 0–7 ✅. **Phase B
   complete + reactivity-in-library boundary locked + M21
-  unsafe-effect boundary shipped.** Multi-subscriber
-  `Signal(T)` with PB4-relaxed R2 semantics (reentrant set
-  queues + coalesces; reentrant subscribe still panics). Per
-  GPT-5.5 entry 33 + Steve's "Rust/Zig don't ship reactivity"
-  cue: Rig holds the same position — substrate in the
-  language, reactive library in userland. M21 ships the
-  safety lattice that gates real stdlib work: `unsafe` block,
-  `unsafe sub`/`unsafe fun` prefix modifier, default-unsafe
-  builtin classification, extern call sites are unsafe-by-
-  default at the FFI boundary.
+  raw-escape boundary shipped + M22 simplification applied.**
+  Multi-subscriber `Signal(T)` with PB4-relaxed R2 semantics
+  (reentrant set queues + coalesces; reentrant subscribe
+  still panics). Per GPT-5.5 entry 33 + Steve's "Rust/Zig
+  don't ship reactivity" cue: Rig holds the same position —
+  substrate in the language, reactive library in userland.
+  M22 ships the simplified raw-escape lattice: **`raw` block
+  ONLY** (no fn-modifier; the M19 `unsafe sub`/`unsafe fun`
+  form was dropped per GPT-5.5 entry 38 because no V1 use
+  case required it and the machinery was substantial).
+  Default-unsafe builtin classification + extern-call-FFI-
+  boundary enforcement preserved.
 - **Next concrete action**: **Steve-driven choice from the
-  remaining V1-blockers** in §13. With M21 done, the
+  remaining V1-blockers** in §13. With M22 done, the
   remaining "must-have before credible V1" items per
   GPT-5.5 entry 32 are: `try_block` emit (currently
   `@compileError` placeholder), M15b cross-module signature
   import, closure-with-args (`Closure1<T>`, `Closure2<A,B>`),
-  legacy global name-scan cleanup. Plus Cell-non-Copy /
-  Layer 8 / Phase C as optional substrate extensions.
+  body-less `extern fun` declarations (M22+ extension for
+  real FFI ergonomics), legacy global name-scan cleanup.
+  Plus Cell-non-Copy / Layer 8 / Phase C as optional
+  substrate extensions.
 - **Cadence (non-negotiable)**: design checkpoint with GPT-5.5
   via `user-ai` MCP → implement in 3–5 sub-commits (M5-style:
   `Mxx(n/total)`) → post-implementation review → commit.
@@ -62,11 +65,11 @@ forward-arc menu.
 
 ```bash
 git pull --ff-only
-git log -1 --format='%h %s'        # most recent commit; at/after M21(6/6)
-./test/run 2>&1 | tail -3          # should say "924 passed, 0 failed"
+git log -1 --format='%h %s'        # most recent commit; at/after M22(3/3)
+./test/run 2>&1 | tail -3          # should say "908 passed, 0 failed"
 bin/rig run examples/reactive_canary.rig    # 1\n3\n13\n7\n99\n111\n111
 bin/rig run examples/signal_multi_subscriber.rig  # 0\n111\n222
-bin/rig check examples/unsafe_raw_outside_rejected.rig  # error msg
+bin/rig check examples/raw_outside_rejected.rig   # error msg
 ```
 
 **Then read** (in order):
@@ -149,20 +152,18 @@ Violating any of them will silently corrupt the substrate.
   builtins.** Locked in PB4 (GPT-5.5 entry 33) — matches
   Rust/Zig position. Blocked on `Cell`-non-`Copy` for the
   natural shape.
-- **`%x` raw access requires unsafe context.** `unsafe`
-  block OR `unsafe sub`/`unsafe fun`. Diagnostic names
-  the operation. M21.
+- **`%x` raw access requires a `raw` block.** Block-only;
+  no fn-modifier. Diagnostic names the operation. M22.
 - **`@builtin(...)` is default-unsafe.** Only the explicit
   safe whitelist (`@sizeOf`, `@alignOf`, `@TypeOf`,
   `@typeName`, `@hasDecl`, `@hasField`, `@len`, `@This`)
-  works outside unsafe context. M21.
-- **`unsafe sub f()` / `unsafe fun f()`** declares an
-  unsafe function. Callers from safe context must wrap.
-  Function body is unsafe context by default (Rust-style).
-  M21. Modifier is PREFIX, not suffix.
-- **`extern` symbols are unsafe-by-default at call sites**
-  regardless of whether the declaration has an explicit
-  `unsafe` modifier. M21.
+  works outside `raw` block. M22.
+- **No raw/unsafe function modifier in V1.** Dropped in
+  M22 per GPT-5.5 entry 38. Users wrap their fn body's
+  first statement in a `raw` block if needed.
+- **`extern` symbols are raw-by-default at call sites.**
+  Any call to an extern requires wrapping in a `raw`
+  block. M22.
 - **Captured resources (`+x` / `~x` / `<x` in a closure
   capture list) are non-consumable inside the closure body.**
   `<cap` / `-cap` / `return cap` / bare-alias-as-arg are all
@@ -242,7 +243,8 @@ Codebase highlights:
 | M20i.1.1 | Sema attribution table + non-bare source rejection | ✅ | commit `2c33c63` |
 | PB3 | Multi-subscriber Signal + R2 reentrancy + capture audit | ✅ | commits `b0c0861..b735c71` |
 | PB4 | Reentrant-set queue + library/substrate boundary lock | ✅ | commits `e1b09dc..be48696` |
-| M21 | `%T` unsafe / raw effect boundary | ✅ | commits `5859f5e..` (this arc) |
+| M21 | `%T` unsafe / raw effect boundary | ✅ | commits `5859f5e..219f6b7` |
+| M22 | Rename `unsafe` → `raw`; drop fn-modifier; block-only | ✅ | commits `acb367d..` (this arc) |
 | **Phase B** | **complete** | ✅ | reactive substrate solid; reactive library is userland |
 | **Next** | **Steve picks** | **🚧** | **see §13 forward-arc menu** |
 
@@ -534,7 +536,9 @@ arcs). Each numbered entry is a logical exchange:
 33. **PB4 design (refined by Steve's two cues)** — Steve surfaced two inputs that reshaped PB4: (a) "Rust and Zig don't support reactivity" — implicit pushback on accumulating reactive builtins; (b) type-inference ergonomics — verbose `reactor: *Reactor = *Reactor()` is unnecessary ceremony, `rc = *User(name: "x")` works for non-generic. GPT-5.5 changed their recommendation from a new `*Reactor` builtin to a **minimal per-Signal queued reentrancy relaxation**. Reactive library (Reactor / Memo / Effect / batching) is now explicitly **userland** work, blocked on `Cell`-non-`Copy` for the natural shape — matches Rust/Zig "substrate in language, library in userland" position. PB4 ships only the `set` reentry relaxation (queue + coalesce to latest); `subscribe` stays strict (panics) because list-mutation during iteration is subtler. Iterative drain loop, NOT recursive, avoids stack growth on cascade chains. Bad user logic (infinite cascade) acceptable as V1 contract.
 34. **PB4 post-implementation review** — confirmed PB4 sound; no must-fix. Three small follow-ups in PB4.1: Copy-T-only invariant comment on `pending_value`; "last-value Signal, not event stream" SPEC distinction; soften "permanently userland" to "for V1, no more without design reset" (escape hatch for V2 thread-safe `Arc<Signal>`).
 35. **M21 design (`%T` unsafe / raw effect boundary)** — locked block-only `unsafe`; SUFFIX `sub raw_op() unsafe` for SPEC ergonomics. Effect model A: unsafe fn body IS unsafe context (Rust-style); safe fn calling unsafe wraps in `unsafe` block. Builtins: default-unsafe with small safe whitelist (`@sizeOf` / `@alignOf` / `@TypeOf` / `@typeName` / `@hasDecl` / `@hasField`). Scope X + extern enforcement (raw `zig "..."` blocks deferred). Trusted runtime boundary is out-of-band; user-trusted-types are M21+ via safe-wrapper pattern.
-36. **M21 tactical (prefix vs suffix)** — locked PREFIX `unsafe sub` over the suffix form from entry 35. Reason: suffix would have doubled `fun`/`sub` grammar productions (+6 lines) AND changed the `(fun ...)` IR shape, requiring walker updates in sema/ownership/emit. Prefix matches existing `pub`/`extern`/`packed`/`callconv` wrapper with 1 new grammar line. Distinct IR tags `unsafe_decl` (decl-modifier wrap) and `unsafe_block` (statement form) — avoids context-dependent walker dispatch. SPEC updated to prefix shape.
+36. **M21 tactical (prefix vs suffix)** — locked PREFIX `unsafe sub` over the suffix form from entry 35. Reason: suffix would have doubled `fun`/`sub` grammar productions (+6 lines) AND changed the `(fun ...)` IR shape, requiring walker updates in sema/ownership/emit. Prefix matches existing `pub`/`extern`/`packed`/`callconv` wrapper with 1 new grammar line. Distinct IR tags `unsafe_decl` (decl-modifier wrap) and `unsafe_block` (statement form) — avoids context-dependent walker dispatch. SPEC updated to prefix shape. *(M22 later dropped the prefix-decl-modifier entirely; see entry 38.)*
+37. **M21 post-implementation review** — confirmed M21 sound; one must-fix (the `pending_fn_unsafe` propagation hazard that could leak the flag from `unsafe_decl` of a non-fn to a sibling fn walked after). Shipped as M21.1: removed the `walkFun` consume; the wrapper's defer/restore exclusively owns the flag's lifetime. Companion fix: reject `unsafe struct`/`unsafe enum`/etc. with a tailored diagnostic. GPT-5.5 flagged the global-mutable-bridge pattern as long-term tech debt: "Longer-term, symbol collection should also use a `DeclCtx` instead of before/after stamping." *(M22 later rendered this whole hazard class obsolete by dropping the fn-modifier; the `pending_fn_unsafe` state ceases to exist.)*
+38. **M22 cleanup design (`unsafe` → `raw`, drop fn-modifier)** — Steve flagged the M21 `unsafe` keyword as aesthetically off (heavy, Rust-imported, against Rig's sigil-heavy aesthetic). Triggered a cleanup pass. Locked: rename `unsafe` keyword → `raw` (3 letters, matches `%x` raw-prefix sigil); DROP the `unsafe sub`/`unsafe fun` fn-modifier ENTIRELY (no V1 use case justifies the ~120 lines of machinery + the global-mutable-bridge hazard); block-only enforcement; distinct `RAW` keyword token (don't reuse `RAW_PFX`); single IR tag `raw_block` (drop `unsafe_decl`). Rip-and-replace (Rig is pre-release; no deprecation). SPEC §"Unsafe / Raw (M19)" rewritten as §"Raw escape (M22)" with explicit "no raw/unsafe function modifier in V1" note to prevent future sessions from resurrecting the fn-modifier without an explicit reset.
 
 To continue the thread, pass `conversation_id` and `model`
 as above. MCP tool descriptors live at:
@@ -673,38 +677,39 @@ NOT promises to ship.
     non-regression. Add a Zig-level runtime unit test as
     a small infrastructure task when one of those grammar
     extensions lands.
-19. **M21 `unsafe` prefix is mandatory** (not SPEC's earlier
-    suffix shape). `unsafe sub f()` parses; `sub f() unsafe`
-    does NOT. SPEC has been updated to match. If anyone
-    "fixes" SPEC back to suffix, the grammar will need 6+
-    new productions AND the `(fun ...)` IR shape needs a new
-    slot. Stick with prefix.
-20. **M21 IR uses two distinct tags** — `(unsafe_decl ...)`
-    for decl-modifier wraps (parallel to `(pub decl)`) and
-    `(unsafe_block ...)` for statement-level audit
-    boundaries (parallel to `(defer block)`). Walkers MUST
-    dispatch on the specific tag; conflating them via a
-    single `(unsafe ...)` tag would force context-dependent
-    walker logic that GPT-5.5 entry 36 specifically rejected.
-21. **M21 safe-builtin whitelist is in `effects.zig`**:
+19. **M22 keyword: `raw` (NOT `unsafe`)**. M19 shipped
+    `unsafe`; M22 renamed to `raw` for sigil-alignment with
+    `%x`. If anyone "restores" the old `unsafe` keyword:
+    revert. The rename is intentional and SPEC §"Raw escape
+    (M22)" documents why.
+20. **M22: NO raw/unsafe function modifier in V1**. The M19
+    `unsafe sub`/`unsafe fun` form was dropped per GPT-5.5
+    entry 38 because no V1 use case justified the
+    machinery (Symbol flag, three transparent walker arms,
+    `pending_fn_unsafe` global bridge, etc.). If a future
+    session proposes `raw sub`/`raw fun` (or any
+    fn-precondition-marker shape): require an explicit
+    design reset + a concrete stdlib use case. Don't
+    accidentally resurrect M19 via incremental "small
+    addition."
+21. **M22 safe-builtin whitelist is in `effects.zig`**:
     `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`,
     `@hasDecl`, `@hasField`, `@len`, `@This`. Each addition
     requires explicit audit (see runtime-comment criteria
     in `isSafeBuiltin`). Default-unsafe means a new builtin
-    silently becomes unsafe-at-call-site until reviewed.
-22. **M21 extern is unsafe-by-default at call sites** even
-    WITHOUT an explicit `unsafe` modifier on the extern
+    silently becomes raw-block-required-at-call-site until
+    reviewed.
+22. **M22 extern is raw-by-default at call sites** even
+    WITHOUT any explicit annotation on the extern
     declaration. Per GPT-5.5 entry 35: "extern declarations
     are the FFI boundary." If anyone proposes a "safe
-    extern" mechanism, require a fresh design pass — the
-    smallest hole at the FFI surface is a memory-safety
-    hazard.
-23. **M21 grammar comment hazard**: Nexus's grammar-file
-    parser fails on em-dashes (U+2014) and similar non-ASCII
-    in `#` comments. Stick to ASCII in `rig.grammar`. ASCII
-    hyphen-minus (`-`) is fine. Found during M19(1/6); if
-    a future Nexus version supports Unicode comments, this
-    hazard can be retired.
+    extern" mechanism, require a fresh design pass.
+23. **M22 grammar comment hazard**: Nexus's grammar-file
+    parser fails on INLINE comments after a continuation-
+    alternation line in `@parser` section (`| raw  # this
+    breaks`). Place comments BEFORE the rule definition or
+    in dedicated comment lines. Em-dashes in `@lexer`
+    section comments are fine. Found during M22(1/3).
 
 ### Pre-existing fragilities not yet addressed
 
@@ -764,9 +769,10 @@ NOT promises to ship.
        credible V1")** — these are the items that gate real
        stdlib / library development:
     - ~~**`%T` unsafe / effect boundary**~~ ✅ **Landed in
-      M21** above. The trusted-runtime boundary is now a
-      declared part of the language; stdlib seed work can
-      proceed via the safe-wrapper pattern.
+      M21**, simplified in **M22** (`raw` block only). The
+      trusted-runtime boundary is now a declared part of the
+      language; stdlib seed work can proceed via the safe-
+      wrapper pattern.
     - **`try_block` emit** (currently `@compileError`
       placeholder). Required for any code that wants to
       `try` a multi-statement block. **Probably highest
@@ -783,9 +789,12 @@ NOT promises to ship.
     - **Cleanup of legacy global name-scan paths** in
       safety-critical code (M20a.2 + M20e.1 partially done;
       audit remaining).
+    - **Body-less `extern fun`/`extern sub` declarations**
+      (M22+ extension). Required for real FFI ergonomics —
+      currently only `extern var: fn(...) Type` is callable.
     - **`zig "..."` raw Zig blocks** (parsed but not wired
-      through emit; M21+ extension). Inherits M21's unsafe-
-      context requirement when it lands.
+      through emit; M22+ extension). Inherits the `raw`
+      block requirement when it lands.
 
   **B. Optional substrate extensions** — these add language
        surface but aren't V1-blockers:

@@ -1,0 +1,1 @@
+examples/raw_builtin_unsafe_rejected.rig:12:8: error: builtin `@ptrCast` is not in the safe whitelist; wrap in a `raw` block. Safe builtins in V1: `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`, `@hasDecl`, `@hasField`, `@len`, `@This`.

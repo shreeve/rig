@@ -1,0 +1,1 @@
+examples/raw_extern_call_rejected.rig:14:3: error: call to extern function `puts` requires `raw` block; wrap the call in `raw INDENT body OUTDENT`. Extern declarations are the FFI boundary and bypass Rig's ownership / effect contracts.

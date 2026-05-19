@@ -1,0 +1,12 @@
+## M22: unsafe builtins outside a `raw` block are rejected.
+##
+## Per GPT-5.5 entry 35 (M21 design): builtin classification is
+## default-unsafe with a small safe whitelist. Pointer
+## manipulation (`@ptrCast`, `@intFromPtr`, `@ptrFromInt`,
+## `@memcpy`, `@bitCast`, etc.) is unsafe by default — any of
+## these outside a `raw` block fires a tailored diagnostic
+## naming the specific builtin and listing the safe whitelist.
+
+sub main()
+  x = 42
+  y = @ptrCast(x)            # error: unsafe builtin outside `raw` block

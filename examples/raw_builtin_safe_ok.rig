@@ -1,0 +1,20 @@
+## M22: safe-whitelist builtins are usable outside a `raw` block.
+##
+## Per GPT-5.5 entry 35 (M21 design): pure compile-time type
+## queries and meta operations don't require a raw context.
+## The V1 safe whitelist covers:
+##
+##   @sizeOf / @alignOf       - type size / alignment queries
+##   @TypeOf / @typeName      - type introspection
+##   @hasDecl / @hasField     - meta queries
+##   @len                     - array / slice length
+##   @This                    - current containing type (generics)
+##
+## All are pure, ownership-safe, and don't manipulate pointers.
+## Adding a new safe builtin requires explicit audit per the
+## runtime-comment-encoded criteria.
+
+sub main()
+  arr = [1, 2, 3]
+  n = @len(arr)              # OK: @len is safe
+  print(n)

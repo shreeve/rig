@@ -23,12 +23,12 @@ sub main()
   m = <x             # move: (move x)
   s = *x             # share: (share x)
   k = +x             # clone: (clone x)
-  # M19: `%x` raw access now requires an unsafe context. The
+  # M22: `%x` raw access requires a `raw` block. The
   # tokenization test still applies (this file's purpose is
-  # sigil classification); wrap in `unsafe` so the example
-  # passes the M19(2/6) effects check while preserving the
+  # sigil classification); wrap in `raw` so the example
+  # passes the M22 effects check while preserving the
   # raw-prefix tokenization signal.
-  unsafe
+  raw
     r = %x           # raw: (raw x)
   p = @x             # pin: (pin x)
   rb = ?x            # read borrow: (read x)
