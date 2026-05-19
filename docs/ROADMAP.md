@@ -899,12 +899,12 @@ closure capture).
   `weakRef`, `cloneWeak`, `dropWeak`, `upgrade` (per GPT-5.5: avoids
   ambiguity with library-defined `clone`/`drop` patterns; makes
   emitted Zig readable). `rcNew(anytype)` is the constructor helper.
-- Driver (`src/main.zig`): `emitProjectToTmp` writes `_rig_runtime.zig`
+- Driver (`src/main.zig`): `emitProjectToTmp` writes `_runtime.zig`
   to the same tmpdir as the module .zig files. Single-file and
   multi-file `run` / `build` both get the runtime co-located so the
-  per-module `@import("_rig_runtime.zig")` resolves uniformly.
+  per-module `@import("_runtime.zig")` resolves uniformly.
 - Emitter (`src/emit.zig`): prelude includes `const rig =
-  @import("_rig_runtime.zig");` unconditionally (top-level unused
+  @import("_runtime.zig");` unconditionally (top-level unused
   namespace imports are permitted in Zig 0.16).
 - All 38 existing emit goldens regenerated with the new prelude.
 

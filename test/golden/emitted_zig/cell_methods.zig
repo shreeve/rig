@@ -1,5 +1,5 @@
 const std = @import("std");
-const rig = @import("_rig_runtime.zig");
+const rig = @import("_runtime.zig");
 
 pub fn main() void {
     var c: rig.Cell(i32) = .{ .value = 0 }; _ = &c;

@@ -235,7 +235,7 @@ Codebase highlights:
 | `src/emit.zig` | ~4260 | Zig codegen. `tryEmitVecConstruction`, `emitOwnedClosureConstruction`, `ResourceKind` (.shared/.weak/.vec_value), interior-mutable binding detection. |
 | `src/ownership.zig` | ~1600 | M2-era borrow/move checker. Context flags: `in_call_callee`, `in_set_rhs` (narrow to direct lambda RHS post-M20h.1), `in_owned_closure_constructor_arg`. |
 | `src/runtime.zig` | ~510 | V1 runtime as a Zig string constant. Contains `RcBox`, `WeakHandle`, `Cell`, `Closure0`, `Vec`, `Signal`, `dropElement` hybrid-dispatch helper, RcBox/WeakHandle/Vec markers (`__rig_rcbox_marker` etc.). |
-| `src/main.zig` | ~700 | CLI driver. Writes `_rig_runtime.zig` sibling file per emitted module. |
+| `src/main.zig` | ~700 | CLI driver. Writes `_runtime.zig` sibling file per emitted module. |
 | `build.zig` | ~70 | `zig build`, `zig build parser`, `zig build test`. |
 | `test/run` | ~270 | Test driver. `EMIT_TARGETS` array names the end-to-end runnable examples. |
 
@@ -786,7 +786,7 @@ NOT promises to ship.
 - **Zig compile error in emitted code**: `bin/rig run
   path/to/file.rig` shows path + Zig error. For shared/weak:
   inspect both `/tmp/rig_<name>/<name>.zig` AND
-  `/tmp/rig_<name>/_rig_runtime.zig`.
+  `/tmp/rig_<name>/_runtime.zig`.
 - **Closure/Vec/Signal-specific**: check the emitted Zig for
   the `cap_<n>` fields, `__rig_alive_<binding>` guards, and
   `__rig_drop` calls. The body of a closure should reference

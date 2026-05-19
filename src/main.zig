@@ -287,7 +287,7 @@ fn emitProjectToTmp(
     };
 
     // M20d: write the Rig runtime as a sibling file. Every emitted
-    // module's prelude includes `const rig = @import("_rig_runtime.zig");`
+    // module's prelude includes `const rig = @import("_runtime.zig");`
     // so they all resolve relative to this directory. Per GPT-5.5's
     // M20d design pass: keep it as a plain sibling file, no package
     // machinery. Unconditional write — top-level unused namespace

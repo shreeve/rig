@@ -1,5 +1,5 @@
 const std = @import("std");
-const rig = @import("_rig_runtime.zig");
+const rig = @import("_runtime.zig");
 
 pub fn main() void {
     const count: *rig.RcBox(rig.Cell(i32)) = (rig.rcNew(rig.Cell(i32){ .value = 100 }) catch @panic("Rig Rc allocation failed"));

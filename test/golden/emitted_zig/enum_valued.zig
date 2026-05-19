@@ -1,5 +1,5 @@
 const std = @import("std");
-const rig = @import("_rig_runtime.zig");
+const rig = @import("_runtime.zig");
 
 pub const Status = enum(u32) {
     ok = 0,

@@ -1,5 +1,5 @@
 const std = @import("std");
-const rig = @import("_rig_runtime.zig");
+const rig = @import("_runtime.zig");
 
 pub fn main() void {
     var v: rig.Vec(i32) = rig.Vec(i32).init(rig.defaultAllocator());

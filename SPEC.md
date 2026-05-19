@@ -303,7 +303,7 @@ print(rc.get())            # 5
 
 `Cell(T)` is a built-in generic nominal (registered alongside
 primitives at sema init; runtime implementation lives in
-`_rig_runtime.zig`). It provides:
+`_runtime.zig`). It provides:
 
 - `get(self: ?Cell(T)) -> T` — returns the current value by copy
 - `set(self: ?Cell(T), value: T)` — interior mutation; trusted
@@ -350,7 +350,7 @@ sub main()
 ```
 
 `Vec(T)` is registered as a built-in generic type at sema
-init; its runtime lives in `_rig_runtime.zig`. The V1 API:
+init; its runtime lives in `_runtime.zig`. The V1 API:
 
 - `Vec()` — construct empty.
 - `Vec(capacity: N)` — pre-allocate N elements of room.
@@ -620,7 +620,7 @@ sub main()
 
 `Signal(T)` is registered as a one-arg built-in generic type at
 sema init (parallel to `Cell` and `Vec`); its runtime lives in
-`_rig_runtime.zig`. V1 API:
+`_runtime.zig`. V1 API:
 
 - `*Signal(value: T)` — constructor. Lowers to
   `rig.rcNew(rig.Signal(T).init(V))` via the emit-side
@@ -1100,7 +1100,7 @@ Rig-visible ownership / effect contracts.
 
 ### Trusted runtime is out-of-band
 
-The runtime Zig (`_rig_runtime.zig` — Cell, Vec, Signal,
+The runtime Zig (`_runtime.zig` — Cell, Vec, Signal,
 Closure, RcBox, WeakHandle, etc.) lives outside Rig source
 entirely. It uses unsafe Zig patterns (`@ptrCast`,
 `@alignCast`, `@hasDecl`, etc.) internally; that's the

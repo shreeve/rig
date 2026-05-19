@@ -1,5 +1,5 @@
 const std = @import("std");
-const rig = @import("_rig_runtime.zig");
+const rig = @import("_runtime.zig");
 
 pub fn Result(comptime T: type, comptime E: type) type {
     return union(enum) {

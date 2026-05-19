@@ -1,5 +1,5 @@
 const std = @import("std");
-const rig = @import("_rig_runtime.zig");
+const rig = @import("_runtime.zig");
 
 pub fn main() void {
     const rv: *rig.RcBox(rig.Vec(i32)) = (rig.rcNew(rig.Vec(i32).init(rig.defaultAllocator())) catch @panic("Rig Rc allocation failed"));

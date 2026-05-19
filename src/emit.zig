@@ -184,14 +184,18 @@ pub const Emitter = struct {
     pub fn emit(self: *Emitter, sexp: Sexp) Error!void {
         try self.w.writeAll("const std = @import(\"std\");\n");
         // M20d: every emitted module imports the Rig runtime as a
-        // sibling file (`_rig_runtime.zig`), regardless of whether
-        // it uses `*T`/`~T`. Top-level unused namespace imports are
+        // sibling file (`_runtime.zig`), regardless of whether it
+        // uses `*T`/`~T`. Top-level unused namespace imports are
         // permitted by Zig, so an unused `rig` reference is harmless.
         // The driver writes the runtime to the same dir for `run` /
         // multi-file `build`; single-file `build` emits to stdout and
         // the runtime file is the caller's responsibility (`bin/rig
         // run` is the supported execution path).
-        try self.w.writeAll("const rig = @import(\"_rig_runtime.zig\");\n");
+        //
+        // M22.1.1: renamed from `_rig_runtime.zig` per Steve — the
+        // `_` prefix already says "internal"; the `rig_` was
+        // redundant inside an output dir literally named `rig_<name>/`.
+        try self.w.writeAll("const rig = @import(\"_runtime.zig\");\n");
         if (sexp == .list and sexp.list.len > 0 and sexp.list[0] == .tag and
             sexp.list[0].tag == .@"module")
         {
@@ -4021,7 +4025,7 @@ pub const Emitter = struct {
 // =============================================================================
 
 /// M20f: is `name` one of Rig's built-in nominal types whose Zig
-/// implementation lives in `_rig_runtime.zig`? Used for the
+/// implementation lives in `_runtime.zig`? Used for the
 /// `rig.` namespace prefix decision in type emission.
 fn isBuiltinNominalName(name: []const u8) bool {
     return std.mem.eql(u8, name, "Cell") or
