@@ -1034,10 +1034,14 @@ NOT promises to ship.
       INFLUENCES §6.
 
   **C. V1.x tooling layer** — see `docs/ROADMAP.md` §V1.x.
-       Smaller scope than Category A or B; no design checkpoint
-       required (it's a projection over the existing
-       `SemContext` + IR Tags, not a new IR). Reasonable to
-       interleave between Category A items.
+       **Status: documented future work, not actively scheduled.**
+       Substrate priorities (M26, userland reactive library,
+       Layer 8 / 9) take precedence in V1. The design intent is
+       locked so the arc lands cleanly when an external tool
+       materially needs a stable contract; Steve's current AI-
+       tooling workflows go through the existing `bin/rig parse`
+       / `bin/rig normalize` outputs without needing a versioned
+       external schema yet.
     - **`rig sema --json` v0** (V1.x(1)) — stable, versioned,
       AI/tool-facing JSON projection of `SemContext`. Surface:
       module / decl IDs with source spans, symbol table,

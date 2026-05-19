@@ -3262,6 +3262,17 @@ library that exercises the substrate end-to-end. If anything in
 
 ## V1.x — Tooling and semantic-export layer
 
+**Status: documented future work, not actively scheduled.** The
+substrate priorities (M26 Cell-non-Copy, then userland reactive
+library validation, then Layer 8 / 9) take precedence in V1.
+This section captures the design intent so the work is locked
+when a real use case pulls it in — Steve's current AI-tooling
+workflows go through the existing `bin/rig parse` / `bin/rig
+normalize` (S-expression IR) and direct sema inspection without
+needing a versioned external schema yet. Land this when an
+external tool (editor integration, audit harness, AI peer-review
+SDK) materially needs a stable contract.
+
 Once the V1 substrate is locked, the next priority is making the
 language's existing semantic facts *consumable* by external tools
 (editors, audit harnesses, doc / test / canary generators, AI
