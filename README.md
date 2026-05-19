@@ -1,117 +1,372 @@
 # Rig
 
-A systems programming language with **Zig-level performance**,
-**Rust-inspired ownership safety**, and a **small, expressive
-surface syntax** — designed so the effects that matter for reliable
-systems code are visible in the source and preserved as first-class
-facts through the entire compiler pipeline.
+Rig is a systems programming language where important effects are
+visible in the syntax and preserved in a semantic S-expression IR
+before lowering to Zig.
 
-## Thesis
+Ownership transfer, borrowing, cloning, dropping, sharing, failure
+propagation, compile-time execution, closure capture modes, and raw
+escape boundaries all have explicit source forms. The compiler keeps
+those effects visible through parsing, checking, and emission rather
+than letting them disappear into convention.
 
-Rig is built around two complementary invariants:
+> **Status: pre-release compiler prototype.** Rig has a working V1
+> ownership / resource substrate and synchronous reactive canaries.
+> A standard library, async, structured concurrency, package
+> ergonomics, and full FFI ergonomics are still in progress. **1113
+> tests passing, 0 failing** on `main` as of M30. Expect breaking
+> changes.
 
-1. **Important effects are visible directly in the syntax.**
-   Ownership transfer (`<x`), borrowing (`?x` / `!x`), cloning
-   (`+x`), dropping (`-x`), shared / weak handles (`*x` / `~x`),
-   failure propagation (`expr!`), compile-time specialization
-   (`pre`), capture modes (`|+x|` / `|<x|` / `|~x|`), and the
-   raw-escape boundary (`raw` block) are all spelled in the source.
+## A small example
 
-2. **Visible source effects survive as visible semantic Tags
-   through lowering.** The IR (`docs/SEMANTIC-SEXP.md`) carries
-   each effect as a first-class node the checkers and emitter
-   consume by name. Tools that read Rig's semantic IR see the
-   same facts the compiler does, without speculation.
+```rig
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
 
-The combination — a small systems language where ownership,
-mutation, failure, compile-time, capture, and unsafe boundaries
-are all syntactic *and* semantic facts, lowered to a real Zig
-backend — is what Rig is for.
+  bump: *Closure() = *Closure(|+count| count.set(count.get() + 1))
+  bump()
+  bump()
+  bump()
+
+  print(count.get())   # 3
+```
+
+In one screen of code: a reference-counted handle to an interior-
+mutable `Cell(Int)` (`*Cell(Int)`); a heap-owned closure
+(`*Closure()`) that captures `count` by clone (`|+count|` — the
+`+` makes the refcount bump visible at the source); three
+invocations; and an automatic drop at scope exit that releases both
+references in the right order. No garbage collector, no `raw` block
+in user code, no manual `free`.
+
+## Why Rig exists
+
+- **Rust** proved that ownership can work as a mainstream systems
+  discipline, but many effects are visible primarily in signatures
+  and trait implementations rather than locally at the call site.
+- **Zig** provides low-level control and excellent compilation,
+  but it intentionally leaves aliasing and lifetime discipline to
+  programmer convention.
+- **Reactive and dynamic languages** are expressive about state
+  change and dependency tracking, but they hide mutation, lifetime,
+  and scheduling under runtime machinery.
+
+Rig's bet: **make the effects that matter cheap to write and hard
+to miss.** The checker enforces them. The IR preserves them. The
+Zig backend lowers them.
+
+## The two invariants
+
+Everything in Rig follows from two design rules:
+
+1. **Important effects are visible directly in the syntax.** No
+   inferred ownership transfers, no hidden refcount bumps, no
+   silent compile-time evaluation, no unmarked raw regions. Each
+   effect has a short marker — usually a sigil, sometimes a small
+   keyword.
+
+2. **Visible source effects survive as visible semantic Tags through
+   lowering.** The semantic IR (a normalized S-expression tree
+   documented in [`docs/SEMANTIC-SEXP.md`](docs/SEMANTIC-SEXP.md))
+   carries each effect as a first-class node that the checkers and
+   emitter consume by name. Tools that read the IR see the same facts
+   the compiler does, without speculation.
+
+These two rules are what `docs/AGENTS.md` calls "the thesis." Every
+language feature is graded against them.
+
+## Visible effects
+
+| Syntax | Meaning |
+|---|---|
+| `<x` | move `x` (transfer of ownership) |
+| `?x` | read borrow |
+| `!x` | write borrow |
+| `+x` | clone (refcount bump for shared handles) |
+| `-x` | drop now (early release, before scope exit) |
+| `*x` / `*T` | shared `Rc` allocation / shared-handle type |
+| `~x` / `~T` | weak handle / paired with `*T` |
+| `expr!` | propagate failure (postfix `!` on a `T!` type) |
+| `pre` | compile-time execution / specialization |
+| `\|+x\| body` | closure capturing `x` by clone |
+| `\|<x\| body` | closure capturing `x` by move |
+| `\|~x\| body` | closure capturing `x` weakly |
+| `raw` block | raw / unsafe escape boundary (block-only) |
+
+Each is enforced by the ownership checker, the effects checker, or
+both. Each appears in the IR as an explicit node — `(move src)`,
+`(clone src)`, `(drop x)`, `(propagate expr)`, `(raw_block body)` —
+that downstream tools can recognize without re-deriving intent.
 
 ## Pipeline
 
 ```
 Rig source
-  → Parser                 (rig.grammar + src/rig.zig)
-  → semantic IR            (S-expressions; effects as first-class Tags)
-  → effects checker        (src/effects.zig)
-  → ownership checker      (src/ownership.zig)
-  → Zig emitter            (src/emit.zig)
-  → zig build              (Zig 0.16 toolchain)
+  → Nexus-generated parser     (rig.grammar → src/parser.zig)
+  → semantic IR                (S-expressions; effects as first-class Tags)
+  → semantic checks            (types/sema, effects, ownership)
+  → Zig emitter                (src/emit.zig)
+  → zig build                  (Zig 0.16 toolchain)
+  → native binary
 ```
 
 Rig owns lexing, parsing, normalization, semantic checking, and
 lowering. Zig owns the optimizer, codegen, linker, and platform
-support.
+support. Rig does not compete with Zig's backend; it uses it.
 
-## Status
+## Reactive substrate
 
-V1 substrate is complete through Phase B (Layers 0–7 of the
-substrate ladder in `docs/INFLUENCES.md` §1). The reactive
-primitive `Signal(T)` ships with PB4-relaxed reentrancy semantics.
-The reactive canary (`examples/reactive_canary.rig`) exercises the
-full Cell + closure + Vec-iteration + Signal chain end-to-end.
-**982 tests passing, 0 failing.**
+Rig's substrate is strong enough to implement reactive systems
+without a garbage collector and without language-level reactivity
+built in. The reactive canaries are ordinary Rig code built from
+lower-level primitives:
 
-See `HANDOFF.md` for current state and non-negotiable invariants,
-`docs/ROADMAP.md` for milestone history, and `docs/CHECKLIST.md`
-for per-milestone tracking.
+- `Cell(T)` for interior mutation,
+- `*T` / `~T` for shared / weak ownership graphs,
+- `*Closure()` for retained subscriber callbacks,
+- `Vec(*Closure())` for subscriber lists,
+- user-defined `drop self: !Self` for resource cleanup,
+- multi-capture closures (`|+a, +b| body`) for cross-source
+  dependencies.
 
-## Quick example
+Working canary (compiles and runs today; full source in
+[`examples/m28_multi_capture_cascade.rig`](examples/m28_multi_capture_cascade.rig),
+including the `IntSource` definition):
 
 ```rig
 sub main()
-  count: *Cell(Int) = *Cell(value: 0)
-  bump = |+count|
-    count.set(count.get() + 1)
-  bump()
-  bump()
-  print(count.get())                # 2
+  count = IntSource.new(0)
+  total = IntSource.new(0)
+
+  body_a: *Closure() = *Closure(|+count, +total|
+    total.set(count.get() * 10))
+  count.subscribe(+body_a)
+
+  body_b: *Closure() = *Closure(|+total| print(total.get()))
+  total.subscribe(+body_b)
+
+  count.set(1)         # total becomes 10, prints 10
+  count.set(7)         # total becomes 70, prints 70
+  print(total.get())   # 70
 ```
 
-`*Cell(Int)` is a heap-allocated, reference-counted, interior-
-mutable Int cell. `|+count| body` is a stack-local closure that
-captures `count` by clone (the `+` makes the refcount bump
-visible). The closure is invoked twice; auto-drop at scope exit
-releases both references.
+The `count → total → print` cascade is not a special language
+feature — it is ordinary Rig code, run through Cell, Closure, the
+subscriber Vec, multi-capture closures, and structural drop glue.
 
-## Documentation
+The Phase B reactive design is sketched in
+[`docs/REACTIVITY-DESIGN.md`](docs/REACTIVITY-DESIGN.md).
 
-| File | Purpose |
+## Powered by Nexus
+
+The parser is generated by [Nexus](https://github.com/shreeve/nexus), a
+sister project — a self-hosting LR parser generator that emits a single
+self-contained Zig module from a `.grammar` file. The grammar is the
+source of truth for both syntax and IR shape:
+
+```
+# rig.grammar (excerpt)
+fun_type = FUN "(" L(type) ")" type    → (fun_type 3 5)
+         | FUN "(" ")" type             → (fun_type _ 4)
+```
+
+Each grammar rule emits an explicit S-expression node, and the
+emitted shape is what the rest of the compiler walks. There is no
+hand-written parser, no parser runtime dependency, and no separate
+AST type definition. For syntax-level changes, the first step is
+usually a grammar edit plus sema and emit arms — not a hand-rolled
+parser change.
+
+This matters for two reasons:
+
+- **The grammar stays honest.** Conflict count is tracked
+  explicitly with `@conflicts = 75`; any grammar edit that drifts
+  the count gets inspected.
+- **The IR stays first-class.** The Zig side of the compiler reads
+  `(fun_type ...)`, `(lambda captures params returns body)`,
+  `(call callee args...)` etc. directly — the same tree future
+  tools (linters, doc generators, semantic exporters, editor
+  integrations) can consume without reimplementing the parser.
+
+## Quick example: a struct with explicit cleanup
+
+```rig
+struct Owner
+  cell: *Cell(Int)
+
+  drop self: !Owner
+    print(99)
+
+sub main()
+  c: *Cell(Int) = *Cell(value: 42)
+  o: Owner = Owner(cell: <c)
+  print(0)
+  # scope exit: prints 99 (user drop body), then *Cell handle
+  # releases its strong refcount.
+```
+
+The `drop self: !Self` declaration is user-authored; the compiler
+generates the structural drop glue that walks `Owner`'s resource
+fields after the user body runs. Any type with drop glue becomes
+non-`Copy` automatically — bare alias = compile error.
+
+## What works today
+
+Implemented and tested end-to-end:
+
+- Static types, generics, generic enums, pattern matching.
+- Ownership / borrow checking (moves, borrows, clones, drops) and
+  auto-drop on scope exit via compiler-inserted defer guards.
+- Reference-counted shared handles (`*T` ≈ `Rc<T>`) and weak handles
+  (`~T` ≈ `Weak<T>`) with `upgrade()`.
+- Interior mutability via `Cell(T)`, including `Cell` over non-Copy
+  resource `T` with `replace` / drop-old-on-set semantics.
+- Closures with explicit capture modes — both stack-local non-escaping
+  and heap-owned `*Closure()` (zero-arg) — with multi-capture support.
+- Resource-aware `Vec(T)` with iteration via `for x in ?vec` /
+  `for x in <vec`.
+- User-defined `drop self: !Self` with auto-generated structural drop
+  glue; any type with drop glue is non-Copy by sema rule.
+- Compile-time execution via `pre`. Failure propagation (`expr!` on
+  `T!`) and option types (`T?`). `raw INDENT body OUTDENT` escape
+  blocks. `extern` FFI declarations callable only from `raw` context.
+- Reactive substrate (`Signal(T)` + a userland `IntSource` library
+  running the multi-capture cascade canary).
+- Cross-module sema honesty: `pub` is real; cross-module signature
+  imports carry the same checked contracts as same-file.
+- Zig 0.16 emission and `zig build` integration.
+
+In progress / deferred:
+
+- Real standard library (V1 ships with a small trusted runtime, not
+  a stdlib).
+- Body-less `extern fun` / `extern sub` declarations for ergonomic
+  FFI; closures with arguments (`Closure1<T>`, `Closure2<A,B>`).
+- Async, structured concurrency, executor (Layers 8–9 of the
+  substrate ladder; intentionally deferred until the substrate is
+  mature enough to support them safely).
+- Trait / interface system; persistent collections; mature
+  module/package model.
+- Stable semantic export (`rig sema --json`) for tooling, not yet
+  scheduled.
+
+## Influences
+
+Rig is its own language, but it borrows specific patterns from each
+of these:
+
+| Influence | What Rig takes |
 |---|---|
-| [`AGENTS.md`](AGENTS.md) | Compass for AI sessions working on Rig — read first |
-| [`HANDOFF.md`](HANDOFF.md) | Current state, non-negotiable invariants, forward-arc menu |
-| [`SPEC.md`](SPEC.md) | Language spec — the canonical reference for syntax and semantics |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Milestone history (M0 → PB4 done), V1.x tooling, forward arcs |
-| [`docs/CHECKLIST.md`](docs/CHECKLIST.md) | Per-milestone implementation checklists |
-| [`docs/SEMANTIC-SEXP.md`](docs/SEMANTIC-SEXP.md) | IR shape and the lowering invariant |
-| [`docs/REACTIVITY-DESIGN.md`](docs/REACTIVITY-DESIGN.md) | Phase B design north star (`Cell` / `Memo` / `Effect`) |
-| [`docs/INFLUENCES.md`](docs/INFLUENCES.md) | Design lineage, substrate ladder, and strategic rules |
+| **Rust** | Ownership system, sigil-based borrow modes, `enum`/`match`, fallibility-as-effect, resource cleanup discipline, the lesson that "any type with drop glue is non-Copy." |
+| **Zig** | The backend itself (Rig lowers to Zig 0.16). Compile-time execution (`comptime` → `pre`), error unions, no garbage collector, low-level pragmatism. |
+| **Rip** | Steve's CoffeeScript-to-JS sister project. Reactive ergonomics (`:=` / `~>`) deferred to a Phase C surface; Rig currently implements the lower-level substrate that future Rip-style sugar would lower into. |
+| **Ruby** | Readability-first surface: paren-less calls (`puts "hi"`, `f arg1, arg2`), indentation-aware blocks, short keywords (`fun`, `sub`, `pre`, `raw`, `new`, `pub`). |
+| **Lisp** | Not the syntax — the IR. Rig's normalized semantic representation is S-expression-shaped, and that shape is treated as a project contract: every grammar action emits a specific node, and every later phase walks the tree by tag. |
 
-## Building and running
+The Rust and Zig influences are deepest. Rip's contribution is
+forward-looking. Ruby is aesthetic. Lisp's influence is structural:
+the semantic IR is S-expression shaped, which keeps compiler phases
+and tooling aligned.
+
+## Build and run
 
 ```bash
-zig build                                   # builds bin/rig
-./test/run                                  # full test suite
+zig build                                   # build bin/rig (Zig 0.16)
+zig build test                              # Zig unit tests
+./test/run                                  # full Rig test suite
+
 bin/rig parse     examples/hello.rig        # raw S-expressions
-bin/rig normalize examples/hello.rig        # semantic IR
-bin/rig check     examples/hello.rig        # effects + ownership
-bin/rig build     examples/hello.rig        # emit Zig
-bin/rig run       examples/hello.rig        # build + execute
+bin/rig normalize examples/hello.rig        # normalized semantic IR
+bin/rig check     examples/hello.rig        # effects + ownership + types
+bin/rig build     examples/hello.rig        # emit Zig source
+bin/rig run       examples/hello.rig        # build + zig run
 ```
+
+Nexus must be built first:
+
+```bash
+(cd ../nexus && zig build -Doptimize=ReleaseSafe)
+zig build parser                            # regenerate src/parser.zig
+```
+
+## Repository map
+
+```
+rig.grammar              surface syntax + IR action declarations
+src/
+  rig.zig                lexer, Tag enum, KeywordId, hand-written rewrites
+  parser.zig             generated by Nexus from rig.grammar
+  modules.zig            module loading, cross-module signature import
+  types.zig              symbol resolution + type checker + sema walks
+  effects.zig            fallibility / raw-context / extern-call enforcement
+  ownership.zig          move / borrow / clone / drop / capture checking
+  emit.zig               Zig backend
+  runtime.zig            small trusted runtime (Rc, Weak, Cell, Vec, Closure, Signal)
+  main.zig               CLI entry (parse / normalize / check / build / run)
+docs/
+  ROADMAP.md             milestone history (M0 → M30)
+  CHECKLIST.md           per-milestone implementation tracking
+  SEMANTIC-SEXP.md       IR shape and the lowering invariant
+  REACTIVITY-DESIGN.md   Phase B reactive substrate design
+  INFLUENCES.md          design lineage and the substrate ladder
+examples/                runnable Rig programs (~226 fixtures)
+test/                    test harness, golden files, module tests
+SPEC.md                  language specification
+HANDOFF.md               session state, non-negotiable invariants, forward arcs
+AGENTS.md                compass for AI sessions working on Rig
+```
+
+For deeper reading: [`SPEC.md`](SPEC.md) (canonical syntax / semantics
+reference), [`docs/SEMANTIC-SEXP.md`](docs/SEMANTIC-SEXP.md) (IR
+shape), [`docs/INFLUENCES.md`](docs/INFLUENCES.md) (design lineage and
+the substrate ladder), [`HANDOFF.md`](HANDOFF.md) (current state and
+forward arcs), [`docs/ROADMAP.md`](docs/ROADMAP.md) (milestone
+history).
+
+## Roadmap
+
+**Near-term** (no schedule; driven by what the substrate proves it needs):
+
+- A polished userland `rig-reactive` library on top of the v0 canary.
+- A small stdlib seed (`String` polish, basic IO, allocator surface).
+- Body-less `extern fun` / `extern sub` for FFI ergonomics.
+- `Closure1<T>` / `Closure2<A,B>` for callbacks that take arguments.
+
+**Longer-term:**
+
+- Structured concurrency.
+- Async / poll-based futures (Layer 9 of the substrate ladder).
+- A stable AI-consumable semantic export (`rig sema --json`).
+- Persistent collections (Clojure-style, but without GC).
+
+The full forward-arc menu lives in [`HANDOFF.md`](HANDOFF.md) §13. The
+substrate ladder that orders this work is in
+[`docs/INFLUENCES.md`](docs/INFLUENCES.md) §1.
 
 ## Non-goals
 
 - **LLVM backend** — Zig handles it.
-- **Garbage collection** — ownership replaces it. (`docs/INFLUENCES.md` §10 rule 4: "No GC, ever.")
-- **Macro system** — `pre` plus library design covers the V1 use cases.
-- **Trait system V1** — deferred.
-- **Marketing as "the AI language"** — Rig is a contract for human and tool consumption. The visible-effects thesis is what makes Rig useful to AI workflows; the language remains a systems language, not a generation target.
+- **Garbage collection** — ownership replaces it.
+- **Macro system in V1** — `pre` plus library design covers the
+  current use cases.
+- **Trait / interface system in V1** — deferred until concrete use
+  cases force the design.
+- **Marketing as "the AI language."** Rig is a contract for human and
+  tool consumption. The visible-effects thesis is what makes Rig
+  legible to AI workflows; the language itself is a systems language,
+  not a generation target.
 
-## Status of this repo
+## Caveats
 
-Rig is in active design and implementation. The substrate is
-locked through Phase B; the next forward arcs are Steve-driven
-and tracked in `HANDOFF.md` §13. Design checkpoints with GPT-5.5
-(via the `user-ai` MCP) are part of the cadence — see
-`docs/INFLUENCES.md` for the design conversation provenance.
+Rig is in active design and implementation; surface and semantics are
+expected to change. The substrate is locked through Phase B (Layer 7
+of the substrate ladder) plus the cross-cutting Drop / Cell-non-Copy
+work (Layers 7.5–7.8); above that line, things may move. Read
+[`SPEC.md`](SPEC.md) and [`HANDOFF.md`](HANDOFF.md) before depending
+on anything.
+
+## Notes
+
+Development notes, including design discussions with AI assistants,
+live in [`docs/INFLUENCES.md`](docs/INFLUENCES.md) and
+[`HANDOFF.md`](HANDOFF.md).
