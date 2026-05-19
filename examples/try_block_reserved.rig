@@ -1,0 +1,30 @@
+## M22.1(5/8): value-yielding `try INDENT body OUTDENT` block is reserved in V1.
+##
+## Per GPT-5.5 entry 39 (M22.1 "fake-surface audit"): the block-
+## form fallibility construct (`r = try INDENT body OUTDENT
+## catch |e| INDENT body OUTDENT`) parsed cleanly and walked
+## through sema/ownership, but emit had no handler — it fell
+## through to a default arm producing
+## `@compileError("rig: emitter does not yet support
+## try_block")`. The user saw a Zig compile error inside Rig-
+## generated code, not a Rig diagnostic. That's exactly the
+## fake-surface anti-pattern M22.1 closes.
+##
+## V1 fallibility surface (kept):
+##   - `expr!`        — propagate (lowers to Zig `try expr`)
+##   - `expr catch |e| recovery`  — inline single-expression catch
+##
+## The block form needs a real design pass (value-position vs
+## statement, catch-binding scoping, resource-aware drop on
+## error path, interaction with M20e auto-drop guards) and is
+## deferred to a future arc. Until then, V1 rejects it cleanly.
+
+fun may_fail() -> Int!
+  return 42
+
+sub main()
+  r = try               # error: value-yielding try block reserved
+    may_fail()!
+  catch |e|
+    0
+  print(r)

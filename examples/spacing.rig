@@ -7,7 +7,7 @@
 #   +x   clone prefix     vs    a + b   plus infix
 #   %x   raw prefix       vs    a % b   modulo infix
 #   ?x   read prefix      vs    expr?   propagate (postfix)
-#   @x   pin prefix       vs    @len(x) builtin call
+#   @x   pin prefix       vs    @len(x) builtin call (pin RESERVED in V1)
 #   a.*  deref            vs    *x      share prefix
 #   y = -x  expr negation vs    -x      drop statement (at stmt-start)
 
@@ -30,7 +30,12 @@ sub main()
   # raw-prefix tokenization signal.
   raw
     r = %x           # raw: (raw x)
-  p = @x             # pin: (pin x)
+  # M22.1: `@x` lexer still tokenizes as pin_pfx (preserved so the
+  # disambiguation from `@len(x)` keeps working), but sema rejects
+  # the resulting `(pin x)` IR — pinning is reserved for V2. The
+  # line stays so the tokenization signal is exercised; the sema
+  # error becomes part of the spacing.rig errors-golden.
+  p = @x             # pin: (pin x)  (errors: V1 rejects pin)
   rb = ?x            # read borrow: (read x)
   wb = !x            # write borrow: (write x)
   y = -x             # negation in expr position: (neg x)

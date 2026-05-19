@@ -1,0 +1,25 @@
+## M22.1(3/8): `for *x in v` (by-reference loop binding) is reserved in V1.
+##
+## Per GPT-5.5 entry 39 (M22.1 "fake-surface audit"): the M20i.1
+## grammar accepted `for *x in v` as a "pointer/slot iteration"
+## mode, but for Copy Vec elements the emit was IDENTICAL to bare
+## `for x in v` (the `*` was silently ignored). That's the
+## fake-surface hazard — a sigil in the surface with no enforced
+## semantics. Resource Vec already rejected `*` mode at sema, so
+## V1 now rejects it everywhere.
+##
+## V1 has one iteration spelling per element kind:
+##   - Copy Vec:     `for x in v`        # bare value iteration
+##   - Resource Vec: `for x in ?v`       # read-borrow over each slot
+##
+## If by-reference iteration returns in a future arc, the Rig-
+## native spelling is more likely borrow-shaped (`for ?x in v` /
+## `for !x in v`) than pointer-shaped — `*x` already means shared
+## ownership in the rest of the sigil grid, so reusing it here
+## would muddy the algebra.
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  for *x in v        # error: by-reference loop binding reserved
+    print(x)

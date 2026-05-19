@@ -1,0 +1,1 @@
+examples/resource_temp_member_rejected.rig:18:9: error: resource allocation `*User` used as an anonymous temporary; bind it to a name first so an auto-drop guard installs. V1 has no hidden-temporary lifetime management — write `tmp = *Ctor(...); use(tmp.field)`.

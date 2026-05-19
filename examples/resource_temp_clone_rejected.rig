@@ -1,0 +1,10 @@
+## M22.1(1/8): resource-producing temporary cloned with `+` is rejected.
+##
+## Per GPT-5.5 entry 39: `+(*Cell(...))` bumps the refcount on a
+## fresh Rc but the original strong handle never gets installed
+## into a binding; its M20e guard is missing. The clone keeps the
+## allocation alive while the original strong slot leaks.
+
+sub main()
+  c = +(*Cell(value: 0))    # error: anonymous *Cell temporary leaks
+  print(c.get())

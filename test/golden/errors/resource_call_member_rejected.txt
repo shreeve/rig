@@ -1,0 +1,1 @@
+examples/resource_call_member_rejected.rig:25:7: error: resource-valued call result used as an anonymous temporary; bind it to a name first so an auto-drop guard installs. V1 has no hidden-temporary lifetime management — write `tmp = make_user(...); use(tmp.field)`.

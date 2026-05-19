@@ -1,0 +1,1 @@
+(module (struct User (: age Int)) (fun make_user () (shared User) (block (return (share (call User (kwarg age 7)))))) (sub main () _ (block (set _ u (shared User) (share (call User (kwarg age 5)))) (call print (member u age)) (set _ m _ (call make_user)) (call print (member m age)))))

@@ -1,3 +1,4 @@
+examples/spacing.rig:38:8: error: pinning sigil `@x` is reserved for V2; V1 does not support pinned/stable-address semantics. Remove the `@` prefix, or use a supported builtin form (e.g. `@sizeOf(T)`, `@TypeOf(x)`) if you meant a compile-time builtin call.
 examples/spacing.rig:23:8: error: use of unbound name `x`
-examples/spacing.rig:34:9: error: use of unbound name `x`
-examples/spacing.rig:35:9: error: use of unbound name `x`
+examples/spacing.rig:39:9: error: use of unbound name `x`
+examples/spacing.rig:40:9: error: use of unbound name `x`

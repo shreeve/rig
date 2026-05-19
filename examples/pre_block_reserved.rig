@@ -1,0 +1,22 @@
+## M22.1(4/8): `pre` block (multi-line `pre INDENT body OUTDENT`) is reserved in V1.
+##
+## Per GPT-5.5 entry 39 (M22.1 "fake-surface audit"): the M19-era
+## grammar accepted both `pre <expr>` (expression-modifier) and
+## `pre INDENT body OUTDENT` (statement block) shapes, but emit
+## had no handler for either — they fell through to a default
+## arm that produced `@compileError("rig: emitter does not yet
+## support pre_block")`. The user got a confusing Zig compile
+## error rather than a clean Rig diagnostic.
+##
+## V1 policy: only `pre_param` (compile-time function parameters
+## via `sub f(pre x: Int, y: Int)`) is supported. That form is
+## fully wired through sema + emit (lowers to Zig
+## `comptime x: i32`) and is used in real examples. The
+## expression / block forms remain reserved for a future
+## compile-time computation arc; surfacing them as Rig errors
+## prevents misuse and preserves the design space.
+
+sub main()
+  pre                  # error: `pre` block reserved
+    x = 42
+    print(x)

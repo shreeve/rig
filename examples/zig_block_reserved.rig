@@ -1,0 +1,28 @@
+## M22.1(6/8): inline `zig "..."` raw-Zig escape is reserved in V1.
+##
+## Per GPT-5.5 entry 39 (M22.1 "fake-surface audit"): the grammar
+## accepted `zig "..."` (a string literal interpreted as raw Zig
+## source to splice into emit), parser built `(zig "...")` IR,
+## sema walked it cleanly — but emit had no handler. It fell
+## through to `@compileError("rig: emitter does not yet support
+## zig")`. Same fake-surface anti-pattern as `try_block` and
+## `pre_block`: the user sees a Zig compile error inside Rig-
+## generated code instead of a Rig diagnostic.
+##
+## V1 escape-valves (kept):
+##   - `raw INDENT body OUTDENT` — audit boundary for `%x` raw
+##     access + non-whitelisted builtins
+##   - `extern` declarations       — FFI boundary at the symbol
+##     level; calls require `raw` block at call site
+##   - `@builtin(...)` calls       — default-unsafe + safe-list
+##     for compile-time type introspection
+##
+## Inline Zig text is qualitatively different — it embeds a
+## second language in the first, with no story for scope
+## capture, symbol hygiene, ownership effects, or audit
+## boundaries. If it returns in V2+, it needs a serious design
+## pass and probably a different syntactic surface (e.g., a
+## dedicated `extern` body form).
+
+sub main()
+  zig "const x = 42; std.debug.print(\"{any}\\n\", .{x});"

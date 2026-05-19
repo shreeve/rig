@@ -1,0 +1,1 @@
+examples/for_ptr_binding_reserved.rig:24:13: error: by-reference for-loop binding `for *x in ...` is reserved in V1; write `for x in vec` for value iteration instead. The `*` loop binding has no enforced semantics yet and the M22.1 fake-surface audit retracts it.

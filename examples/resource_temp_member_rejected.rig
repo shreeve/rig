@@ -1,0 +1,19 @@
+## M22.1(1/8): resource-producing temporary `*Foo(...).field` is rejected.
+##
+## Per GPT-5.5 entry 39 (M22.1 "fake-surface audit"): a fresh
+## resource allocation `*Foo(...)` allocates a strong Rc, but the
+## M20e auto-drop guard only attaches to NAMED bindings. Used as
+## an anonymous temporary inside a member access, the Rc leaks
+## (strong count stays at 1 forever, allocation never freed).
+##
+## V1 policy: reject leak-shaped resource rvalues at sema time.
+## Hidden-temporary lifetime management is deferred (no V1 use
+## case justifies the machinery yet); users bind to a name so the
+## M20e guard installs cleanly.
+
+struct User
+  age: Int
+
+sub main()
+  a = (*User(age: 5)).age   # error: anonymous *User temporary leaks
+  print(a)

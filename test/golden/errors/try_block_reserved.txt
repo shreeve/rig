@@ -1,0 +1,1 @@
+examples/try_block_reserved.rig:27:5: error: value-yielding `try INDENT body OUTDENT [catch |e| ...]` block is reserved in V1. Use `expr!` for propagation or `expr catch |e| handler` for inline recovery.

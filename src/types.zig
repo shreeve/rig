@@ -4286,11 +4286,34 @@ const ExprChecker = struct {
             const is_closure = self.elemIsOwnedClosure(info.elem_ty);
             const source_is_bare = (source == .src);
 
+            // M22.1(3/8) per GPT-5.5 entry 39: `for *x in v` (ptr mode)
+            // is rejected for ALL Vec(T) sources in V1. The previous
+            // M20i.1 code rejected ptr-iteration for resource Vec but
+            // silently accepted it for Copy Vec and emitted IDENTICALLY
+            // to bare `for x in v` — a no-op `*` sigil in the loop
+            // binding is exactly the fake-surface hazard M22.1 closes.
+            //
+            // V1 has one iteration spelling per element kind:
+            //   - Copy Vec:     `for x in v`
+            //   - Resource Vec: `for x in ?v` (read borrow over slot)
+            //
+            // If by-reference / slot-pointer iteration returns in a
+            // future arc, the Rig-native spelling is more likely
+            // borrow-shaped (`for ?x in v` / `for !x in v`) than
+            // pointer-shaped — `*x` already means shared ownership
+            // everywhere else in the sigil grid, so reusing it here
+            // muddies the algebra (GPT-5.5 entry 39 audit note).
+            if (mode_tag == .ptr) {
+                try self.err(source_pos, "by-reference for-loop binding `for *x in ...` is reserved in V1; write {s} instead. The `*` loop binding has no enforced semantics yet and the M22.1 fake-surface audit retracts it.", .{
+                    if (is_resource) "`for x in ?vec` to read-iterate" else "`for x in vec` for value iteration",
+                });
+            }
+
             if (is_resource) {
                 switch (mode_tag orelse .iter) {
                     .@"read" => {},
                     .iter => try self.err(source_pos, "resource Vec(T) iteration requires an explicit read borrow; write `for x in ?vec`", .{}),
-                    .@"write", .@"move", .ptr => try self.err(source_pos, "iteration mode not supported for resource Vec(T) in V1; use `for x in ?vec` to read-iterate", .{}),
+                    .@"write", .@"move" => try self.err(source_pos, "iteration mode not supported for resource Vec(T) in V1; use `for x in ?vec` to read-iterate", .{}),
                     else => {},
                 }
                 // M20i.1.1: resource Vec iteration requires the
@@ -4305,9 +4328,9 @@ const ExprChecker = struct {
                     try self.err(source_pos, "resource Vec(T) iteration in V1 requires a bare local Vec binding as the source; got an expression. Bind the result to a `Vec(T)` local first.", .{});
                 }
             } else {
-                // Copy element T. Any mode is fine (default `iter`
-                // is bare-value iteration; explicit `?vec` also OK
-                // for consistency with the resource case).
+                // Copy element T: default `iter` mode is bare-value
+                // iteration; explicit `?vec` is also OK. The `ptr`
+                // case is now diagnosed above (M22.1(3/8)).
             }
 
             // M20i.1.1: attribute the Vec source for the emitter.
@@ -4713,7 +4736,22 @@ const ExprChecker = struct {
             // Reference.
             .@"weak" => {
                 if (items.len < 2) return self.ctx.types.unknown_id;
+                // M22.1(1/8): reject `~(*Foo(...))` — converts a fresh
+                // strong handle into a weak, but the strong has no owner.
+                if (isFreshResourceAlloc(items[1])) {
+                    try self.err(firstSrcPos(items[1]), "resource allocation `*{s}` used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{
+                        identCallName(self.ctx.source, items[1]) orelse "Ctor",
+                    });
+                    return self.ctx.types.unknown_id;
+                }
                 const inner = try self.synthExpr(items[1]);
+                // M22.1(1/8): type-aware leak check — `~make_user()`
+                // converts a resource-returning call result to weak;
+                // the strong handle is orphaned.
+                if (isCallExpr(items[1]) and isResourceOwningType(self.ctx, inner)) {
+                    try self.err(firstSrcPos(items[1]), "resource-valued call result used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{});
+                    return self.ctx.types.unknown_id;
+                }
                 if (inner == self.ctx.types.unknown_id or inner == self.ctx.types.invalid_id) return inner;
                 const inner_ty = self.ctx.types.get(inner);
                 switch (inner_ty) {
@@ -4726,8 +4764,45 @@ const ExprChecker = struct {
                     },
                 }
             },
-            .@"clone", .@"pin", .@"raw" => {
-                if (items.len >= 2) return self.synthExpr(items[1]);
+            .@"clone", .@"raw" => {
+                if (items.len >= 2) {
+                    // M22.1(1/8): reject `+(*Foo(...))` / `%(*Foo(...))` —
+                    // the wrapper consumes/borrows the fresh Rc but the
+                    // strong handle has no guard.
+                    if (isFreshResourceAlloc(items[1])) {
+                        try self.err(firstSrcPos(items[1]), "resource allocation `*{s}` used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{
+                            identCallName(self.ctx.source, items[1]) orelse "Ctor",
+                        });
+                        return self.ctx.types.unknown_id;
+                    }
+                    const inner_ty = try self.synthExpr(items[1]);
+                    // M22.1(1/8): type-aware leak check — `+make_user()` /
+                    // `%make_user()` consumes/borrows a resource-returning
+                    // call result; the strong handle has no owner.
+                    if (isCallExpr(items[1]) and isResourceOwningType(self.ctx, inner_ty)) {
+                        try self.err(firstSrcPos(items[1]), "resource-valued call result used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{});
+                        return self.ctx.types.unknown_id;
+                    }
+                    return inner_ty;
+                }
+                return self.ctx.types.unknown_id;
+            },
+            // M22.1(2/8) per GPT-5.5 entry 39: bare `@x` pin sigil is
+            // reserved for V2. M19 left `(pin x)` in the IR as a
+            // semantic no-op (emitter just emits the inner expression),
+            // which made `p = @x` look like it pinned `x` but actually
+            // produced identity. Per the fake-surface audit: any sigil
+            // in the ownership grid must have enforced semantics, or
+            // it does not belong in V1.
+            //
+            // Diagnose at sema time so the lexer/parser keep accepting
+            // the syntax (the `@builtin(...)` form shares the `@`
+            // sigil and is unaffected — it goes through the `builtin`
+            // IR tag, not `pin`). Pinning semantics return in V2 with
+            // a real lifetime/address-stability story.
+            .@"pin" => {
+                const pos: u32 = if (items.len >= 2) firstSrcPos(items[1]) else 0;
+                try self.err(pos, "pinning sigil `@x` is reserved for V2; V1 does not support pinned/stable-address semantics. Remove the `@` prefix, or use a supported builtin form (e.g. `@sizeOf(T)`, `@TypeOf(x)`) if you meant a compile-time builtin call.", .{});
                 return self.ctx.types.unknown_id;
             },
             // Arithmetic / comparison / logical infixes.
@@ -4753,6 +4828,68 @@ const ExprChecker = struct {
             // captures against outer-scope types and walks the body for
             // nested type-checking.
             .@"lambda" => try self.synthLambda(items),
+            // M22.1(4/8) per GPT-5.5 entry 39: `pre`-modified expression
+            // (`x = pre 42`) and `pre`-block statement (`pre INDENT body
+            // OUTDENT`) are reserved in V1. The expression / statement
+            // forms parsed cleanly but emit produced `@compileError`,
+            // exactly the fake-surface anti-pattern M22.1 closes.
+            //
+            // `pre_param` (compile-time function parameter — `sub f(pre
+            // x: Int, ...)`) STAYS: it lowers to Zig `comptime x: i32`,
+            // is fully wired through sema + emit, and is used in real
+            // examples.
+            .@"pre", .@"pre_block" => {
+                const pos: u32 = if (items.len >= 2) firstSrcPos(items[1]) else 0;
+                try self.err(pos, "`pre` expression / block is reserved in V1; only `pre_param` (compile-time function parameters) is supported. Remove the `pre` modifier or use a regular binding.", .{});
+                return self.ctx.types.unknown_id;
+            },
+            // M22.1(5/8) per GPT-5.5 entry 39: value-yielding `try`
+            // block is reserved in V1. The expression form
+            //   `r = try INDENT body OUTDENT catch |e| INDENT body OUTDENT`
+            // parsed and walked through sema/ownership, but emit fell
+            // through to a default arm that produced
+            // `@compileError("rig: emitter does not yet support
+            // try_block")`. Users got a Zig compile error inside
+            // Rig-generated code, not a Rig diagnostic.
+            //
+            // V1 fallibility surface: `expr!` propagation and
+            // `expr catch |e| expr` (single-expression catch). The
+            // multi-line block form needs a real design pass
+            // (value-position vs statement, catch binding scoping,
+            // resource-aware drop on error) and will be picked up in
+            // a future arc.
+            .@"try_block" => {
+                const pos: u32 = if (items.len >= 2) firstSrcPos(items[1]) else 0;
+                try self.err(pos, "value-yielding `try INDENT body OUTDENT [catch |e| ...]` block is reserved in V1. Use `expr!` for propagation or `expr catch |e| handler` for inline recovery.", .{});
+                return self.ctx.types.unknown_id;
+            },
+            // M22.1(6/8) per GPT-5.5 entry 39: `zig "..."` inline-Zig
+            // raw-escape block is reserved in V1. Grammar accepted
+            // it and the parser built `(zig "...")` IR, but emit
+            // fell through to `@compileError("rig: emitter does not
+            // yet support zig")`. Same fake-surface anti-pattern as
+            // `try_block` and `pre_block`.
+            //
+            // V1 escape-valves (kept):
+            //   - `raw INDENT body OUTDENT` block — audit boundary
+            //     for `%x` raw access + non-whitelisted builtins
+            //   - `extern` declarations — FFI boundary at the
+            //     symbol level
+            //   - `@builtin(...)` calls (default-unsafe; safe-list
+            //     for type-introspection)
+            //
+            // Inline Zig text is qualitatively different — it
+            // embeds a second language in the first, with no
+            // scope-capture / symbol-hygiene / ownership-effect
+            // story. If it returns, it needs a serious design
+            // pass and probably a different syntactic surface
+            // (e.g., a dedicated `extern` body form). Reserved
+            // until then.
+            .@"zig" => {
+                const pos: u32 = if (items.len >= 2) firstSrcPos(items[1]) else 0;
+                try self.err(pos, "inline `zig \"...\"` raw-Zig escape is reserved in V1; the audit boundary is `raw INDENT body OUTDENT` and the FFI boundary is `extern`. Inline Zig text needs a real V2+ design pass for scope capture, symbol hygiene, and ownership effects.", .{});
+                return self.ctx.types.unknown_id;
+            },
             else => self.ctx.types.unknown_id,
         };
     }
@@ -5436,6 +5573,16 @@ const ExprChecker = struct {
         const field_name = identAt(self.ctx.source, field_node) orelse return self.ctx.types.unknown_id;
         const pos: u32 = if (field_node == .src) field_node.src.pos else 0;
 
+        // M22.1(1/8): reject `(*Foo(...)).field` and friends. Such an
+        // anonymous Rc temporary has no M20e auto-drop guard installed,
+        // so the strong count never reaches zero. See `isFreshResourceAlloc`.
+        if (isFreshResourceAlloc(obj)) {
+            try self.err(firstSrcPos(obj), "resource allocation `*{s}` used as an anonymous temporary; bind it to a name first so an auto-drop guard installs. V1 has no hidden-temporary lifetime management — write `tmp = *Ctor(...); use(tmp.field)`.", .{
+                identCallName(self.ctx.source, obj) orelse "Ctor",
+            });
+            return self.ctx.types.unknown_id;
+        }
+
         // Flavor 1: type-qualified access (e.g., `Color.red`, `User.greet`).
         if (obj == .src) {
             const oname = self.ctx.source[obj.src.pos..][0..obj.src.len];
@@ -5471,6 +5618,20 @@ const ExprChecker = struct {
             return self.ctx.types.unknown_id;
         }
 
+        // M22.1(1/8) per GPT-5.5 post-impl review entry 39: type-aware
+        // leak check. `make_user().age` (a resource-returning function
+        // call accessed as an anonymous temporary) leaks the same way
+        // `(*User(...)).age` does — the Rc has no M20e auto-drop guard
+        // because the temporary has no name. The structural check above
+        // catches `(*Foo(...))`; this catches the post-synth case where
+        // the receiver is a call returning `shared(_)`.
+        if (isCallExpr(obj) and isResourceOwningType(self.ctx, obj_ty_id)) {
+            try self.err(firstSrcPos(obj), "resource-valued call result used as an anonymous temporary; bind it to a name first so an auto-drop guard installs. V1 has no hidden-temporary lifetime management — write `tmp = {s}(...); use(tmp.field)`.", .{
+                identAt(self.ctx.source, obj.list[1]) orelse "fn",
+            });
+            return self.ctx.types.unknown_id;
+        }
+
         // M20b(1/5): unified data-field lookup via helper. Peels
         // borrows and returns the (possibly substituted) field type.
         if (try lookupDataField(self.ctx, obj_ty_id, field_name)) |resolved| {
@@ -5502,7 +5663,20 @@ const ExprChecker = struct {
     fn synthIndex(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
         // (index expr idx) — for slice/array T, returns T; otherwise unknown.
         if (items.len < 3) return self.ctx.types.unknown_id;
+        // M22.1(1/8): reject `(*Foo(...))[i]` — same leak shape as member.
+        if (isFreshResourceAlloc(items[1])) {
+            try self.err(firstSrcPos(items[1]), "resource allocation `*{s}` used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{
+                identCallName(self.ctx.source, items[1]) orelse "Ctor",
+            });
+            return self.ctx.types.unknown_id;
+        }
         const obj_ty = try self.synthExpr(items[1]);
+        // M22.1(1/8): type-aware leak check — `make_xs()[i]` where
+        // make_xs returns a resource type leaks the strong handle.
+        if (isCallExpr(items[1]) and isResourceOwningType(self.ctx, obj_ty)) {
+            try self.err(firstSrcPos(items[1]), "resource-valued call result used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{});
+            return self.ctx.types.unknown_id;
+        }
         _ = try self.synthExpr(items[2]); // walk idx for nested errors
         const ty = self.ctx.types.get(obj_ty);
         return switch (ty) {
@@ -5564,7 +5738,22 @@ const ExprChecker = struct {
 
     fn synthBorrow(self: *ExprChecker, items: []const Sexp, comptime kind: std.meta.Tag(Type)) std.mem.Allocator.Error!TypeId {
         if (items.len < 2) return self.ctx.types.unknown_id;
+        // M22.1(1/8): reject `?(*Foo(...))` / `!(*Foo(...))` — borrowing
+        // a fresh Rc temporary leaves the strong handle ownerless.
+        if (isFreshResourceAlloc(items[1])) {
+            try self.err(firstSrcPos(items[1]), "resource allocation `*{s}` used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{
+                identCallName(self.ctx.source, items[1]) orelse "Ctor",
+            });
+            return self.ctx.types.unknown_id;
+        }
         const inner = try self.synthExpr(items[1]);
+        // M22.1(1/8): type-aware leak check — `?make_user()` /
+        // `!make_user()` borrows a resource-returning call result;
+        // the strong handle escapes the borrow with no owner.
+        if (isCallExpr(items[1]) and isResourceOwningType(self.ctx, inner)) {
+            try self.err(firstSrcPos(items[1]), "resource-valued call result used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{});
+            return self.ctx.types.unknown_id;
+        }
         if (inner == self.ctx.types.unknown_id or inner == self.ctx.types.invalid_id) return inner;
         return switch (kind) {
             .borrow_read => self.ctx.types.intern(self.ctx.allocator, .{ .borrow_read = inner }) catch self.ctx.types.invalid_id,
@@ -6419,6 +6608,88 @@ fn firstSrcPos(sexp: Sexp) u32 {
         },
         else => 0,
     };
+}
+
+/// M22.1(1/8) per GPT-5.5 entry 39 + Steve's M22.1 "fake-surface audit":
+/// detect a fresh resource allocation used as an anonymous temporary.
+///
+/// The canonical leak shape is `(share (call NominalCtor ...))` —
+/// i.e., `*Foo(...)`. This allocates a strong Rc whose lifetime
+/// guard is installed by M20e ONLY for named bindings. Used as an
+/// anonymous temporary (`(*User(...)).field`, `(*Cell(...)).get()`,
+/// `+(*Foo(...))`, etc.) it leaks: the Rc's strong count stays at 1
+/// forever and the heap allocation is never freed.
+///
+/// V1 policy (M22.1(1/8) per GPT-5.5 entry 39): reject every
+/// projection/borrow/consume that has a fresh resource allocation
+/// as its target. The fix is conservative — users must bind to a
+/// name first so the M20e auto-drop guard can install. Hidden
+/// guarded temporaries are deferred until a real use case appears.
+///
+/// Installing contexts (NOT detected here; allowed) are:
+///   - RHS of `(set ...)`        — M20e installs the guard
+///   - Direct child of `return`  — caller takes ownership
+///   - Direct positional/kwarg argument of `(call ...)` — callee
+///     parameter consumes
+///   - Implicit last-expression return from a block body
+///
+/// Non-installing contexts (REJECTED via this helper at the parent
+/// sema site): `(member ...)` object, `(index ...)` object, the
+/// receiver of a method call, and the ownership-wrapper arms
+/// (`(share/weak/clone/read/write/pin/raw ...)`).
+fn isFreshResourceAlloc(sexp: Sexp) bool {
+    if (sexp != .list or sexp.list.len == 0) return false;
+    if (sexp.list[0] != .tag) return false;
+    if (sexp.list[0].tag != .@"share") return false;
+    if (sexp.list.len < 2) return false;
+    const inner = sexp.list[1];
+    if (inner != .list or inner.list.len == 0) return false;
+    if (inner.list[0] != .tag) return false;
+    return inner.list[0].tag == .@"call";
+}
+
+/// Best-effort extraction of the constructor name from a fresh
+/// resource allocation `(share (call <name> ...))` — used for
+/// diagnostic spelling in M22.1(1/8) errors. Returns null if the
+/// shape doesn't have an identifier in the call head slot.
+fn identCallName(source: []const u8, sexp: Sexp) ?[]const u8 {
+    if (!isFreshResourceAlloc(sexp)) return null;
+    const inner = sexp.list[1];
+    if (inner.list.len < 2) return null;
+    return identAt(source, inner.list[1]);
+}
+
+/// True if `sexp` is structurally a `(call ...)` (function or
+/// constructor invocation). Companion to `isFreshResourceAlloc`
+/// for the M22.1(1/8) type-aware leak check: a `(call ...)`
+/// whose return type is `shared(_)` is a resource-returning
+/// function call (`fun make_user() -> *User`), which leaks the
+/// same way `*User(...)` does when used as an anonymous
+/// temporary. The type check happens at the parent site after
+/// the obj's type is synthesized.
+fn isCallExpr(sexp: Sexp) bool {
+    if (sexp != .list or sexp.list.len == 0) return false;
+    if (sexp.list[0] != .tag) return false;
+    return sexp.list[0].tag == .@"call";
+}
+
+/// True if `ty_id` represents a fresh-allocation-owning type —
+/// i.e., one that the M20e auto-drop guard tracks for named
+/// bindings. Used by the M22.1(1/8) type-aware leak check to
+/// detect resource-returning function calls used as anonymous
+/// temporaries.
+///
+/// Conservative: only `shared(T)` (strong Rc) is included; `weak`
+/// is excluded because weak handles don't own and don't leak the
+/// allocation by themselves (a leaked weak just means a weak slot
+/// goes unreleased; the strong owner still drives the allocation
+/// lifetime). Vec/Cell/Signal value-types and *Closure() are
+/// covered by `shared` peeling — they're all `shared(_)` at the
+/// type level when constructed via `*Ctor(...)` or returned via
+/// `fun -> *T`.
+fn isResourceOwningType(ctx: *SemContext, ty_id: TypeId) bool {
+    const ty = ctx.types.get(ty_id);
+    return ty == .shared;
 }
 
 /// Render a `TypeId` as a short human-readable string in the sema arena.

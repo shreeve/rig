@@ -1,0 +1,1 @@
+examples/pre_expr_reserved.rig:9:11: error: `pre` expression / block is reserved in V1; only `pre_param` (compile-time function parameters) is supported. Remove the `pre` modifier or use a regular binding.

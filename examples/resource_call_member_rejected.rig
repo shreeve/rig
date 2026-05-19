@@ -1,0 +1,26 @@
+## M22.1(1/8): resource-RETURNING call result used as anonymous temporary is rejected.
+##
+## Per GPT-5.5 entry 39 post-implementation review: the
+## structural-only check (`(share (call ...))`) caught the
+## canonical `*Foo(...)` shape but missed function calls whose
+## return type is a resource handle (`fun make_user() -> *User`).
+## Same leak class — the Rc is allocated by the called function,
+## its `.age` is extracted, then the Rc is dropped on the floor
+## (strong count stays at 1, allocation never freed).
+##
+## V1 policy: the M22.1 leak check is two-tiered. The structural
+## tier (`isFreshResourceAlloc`) gives a precise diagnostic
+## naming the constructor; the type-aware tier (post-synth
+## `isResourceOwningType` on a `(call ...)` result) covers
+## resource-returning functions with a generic diagnostic.
+## Both reject the same hazard.
+
+struct User
+  age: Int
+
+fun make_user() -> *User
+  return *User(age: 5)
+
+sub main()
+  a = make_user().age   # error: resource-valued call result anonymous
+  print(a)

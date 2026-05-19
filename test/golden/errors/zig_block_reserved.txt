@@ -1,0 +1,1 @@
+examples/zig_block_reserved.rig:28:7: error: inline `zig "..."` raw-Zig escape is reserved in V1; the audit boundary is `raw INDENT body OUTDENT` and the FFI boundary is `extern`. Inline Zig text needs a real V2+ design pass for scope capture, symbol hygiene, and ownership effects.

@@ -1,0 +1,1 @@
+examples/pin_sigil_reserved.rig:24:8: error: pinning sigil `@x` is reserved for V2; V1 does not support pinned/stable-address semantics. Remove the `@` prefix, or use a supported builtin form (e.g. `@sizeOf(T)`, `@TypeOf(x)`) if you meant a compile-time builtin call.

@@ -1,0 +1,25 @@
+## M22.1(2/8): bare `@x` pin sigil is rejected in V1.
+##
+## Per GPT-5.5 entry 39 (M22.1 "fake-surface audit"): the M19/M21
+## ownership grid included `@x` as a pin sigil, but pinning was
+## explicitly deferred to V2 — emit was a semantic no-op (`@x`
+## lowered to plain `x`). A sigil with no enforced semantics is
+## exactly the "fake surface" Rig is supposed to avoid; it
+## promises a guarantee the compiler does not deliver.
+##
+## V1 policy: reject `(pin <expr>)` at sema time with a clear
+## "reserved for V2" diagnostic. The lexer still classifies `@x`
+## as a pin prefix (so `@x` vs `@len(x)` disambiguation works),
+## but the resulting IR is rejected. When V2 grows real
+## pinning/stable-address semantics, this sigil is the natural
+## spelling — preserving the lexer tokenization keeps the design
+## space open without keeping the false promise.
+##
+## The `@builtin(...)` form is unaffected: `@sizeOf(T)`,
+## `@TypeOf(x)`, etc. go through the `builtin` IR tag (separate
+## parse path), not `pin`.
+
+sub main()
+  x = 42
+  p = @x             # error: pinning sigil reserved for V2
+  print(p)
