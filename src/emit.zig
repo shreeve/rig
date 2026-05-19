@@ -1112,6 +1112,19 @@ pub const Emitter = struct {
             .@"for" => try self.emitFor(items),
             .@"match" => try self.emitMatch(items, false),
             .@"block" => try self.emitBlock(sexp),
+            // M22: `raw` block is a sema-level audit boundary, not a
+            // Zig construct. Emit the inner block as-is — sema/effects
+            // have already validated that any `%x` / unsafe-builtin /
+            // extern call inside is permitted by virtue of being in
+            // raw context. (Fixes a M22 emit hole: pre-M15b post-impl
+            // review, `raw_block` fell through to the catch-all
+            // `@compileError("rig: emitter does not yet support
+            // raw_block")` — never caught because the M22 test suite
+            // only golden-tested the parse + sema rejection examples,
+            // not the positive `raw_block_ok.rig` end-to-end run.)
+            .@"raw_block" => {
+                if (items.len >= 2) try self.emitStmt(items[1]);
+            },
             .@"break" => try self.w.writeAll("break;"),
             .@"continue" => try self.w.writeAll("continue;"),
             .@"defer" => {

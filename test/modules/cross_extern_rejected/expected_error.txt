@@ -1,1 +1,0 @@
-call to extern function `a.puts` requires `raw` block

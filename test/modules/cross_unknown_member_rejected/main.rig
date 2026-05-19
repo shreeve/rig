@@ -1,0 +1,10 @@
+# M15b canary per GPT-5.5 post-impl review: qualified access to a
+# name that doesn't exist in the foreign module must fire a clean
+# Rig diagnostic, NOT silently type as unknown and fall through
+# to a Zig compile error. Closes the "unknown is silent success"
+# invariant violation at the cross-module lookup site.
+use a
+
+sub main()
+  z = a.no_such_fn(1, 2)
+  print(z)

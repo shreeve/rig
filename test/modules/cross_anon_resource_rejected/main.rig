@@ -1,0 +1,11 @@
+# M15b canary per GPT-5.5 post-impl review: the M22.1 anonymous-
+# resource-temp rule must fire for cross-module resource-returning
+# calls. `a.make_box()` returns `*Box`; using `.value` on it
+# anonymously would leak the Rc the same way `(*Box(...)).value`
+# does (no M20e auto-drop guard, since guards key off named
+# bindings). The type-aware tier of `isResourceOwningType`
+# inspects the imported function's return type and fires.
+use a
+
+sub main()
+  print(a.make_box().value)

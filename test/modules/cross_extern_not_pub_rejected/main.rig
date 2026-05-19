@@ -1,0 +1,12 @@
+# M15b canary per GPT-5.5 post-impl review: `extern` does NOT
+# bypass `pub` cross-module. A private extern with a `pub`
+# safe-wrapper is the V1 pattern; calling the extern directly
+# from another module must error with the visibility diagnostic
+# (not the extern-needs-raw diagnostic). This preserves the
+# safe-wrapper contract: outside callers reach `a.safe_puts`,
+# never `a.puts` directly.
+use a
+
+sub main()
+  raw
+    a.puts("hi")

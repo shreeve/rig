@@ -3443,22 +3443,30 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
     };
 }
 
-/// M15b(3/5) per GPT-5.5 entry 39: cross-module visibility predicate.
-/// A foreign symbol is visible to importers if either:
+/// M15b(3/5) per GPT-5.5 entry 39 + post-impl review: cross-module
+/// visibility predicate. A foreign symbol is visible to importers
+/// if either:
 ///   - it carries the `is_public` flag (declared with `pub`); or
-///   - it's an `extern` declaration (the FFI boundary is visible by
-///     virtue of being an extern; the safety bargain is enforced at
-///     the call site via the `raw` block requirement, not at the
-///     visibility layer); or
 ///   - it's a runtime-registered builtin (Cell/Closure/Vec/Signal),
 ///     which are visible in every module's scope by construction
 ///     (`registerBuiltins`) and don't need `pub` to be reachable.
 ///
 /// Per-module-built-in symbols are detected via their sentinel
 /// `decl_pos = builtin_decl_pos` (set by `registerBuiltins`).
+///
+/// **`extern` does NOT bypass `pub`.** Linkage (which symbols Zig
+/// resolves at link time) and Rig visibility (which symbols are
+/// reachable cross-module) are separate concerns. A private
+/// `extern puts: fn(String) Int` in module A is the right way to
+/// expose a safe wrapper: A declares the extern privately, wraps
+/// it in `pub sub safe_puts(s) { raw { puts(s) } }`, and callers
+/// reach `a.safe_puts` (not `a.puts`). Per the M15b post-impl
+/// review: "A module should be able to write a private extern
+/// binding and expose a safe public wrapper." Marking the extern
+/// itself `pub extern` is the explicit opt-in for direct cross-
+/// module FFI access.
 fn isCrossModuleVisible(sym: Symbol) bool {
     if (sym.flags.is_public) return true;
-    if (sym.kind == .@"extern") return true;
     if (sym.decl_pos == builtin_decl_pos) return true;
     return false;
 }
@@ -4348,6 +4356,22 @@ const ExprChecker = struct {
             },
             .@"break", .@"continue" => {},
             .@"defer", .@"errdefer" => {
+                if (items.len >= 2) try self.checkStmt(items[1]);
+            },
+            // M22 / M15b: `raw INDENT body OUTDENT` is an
+            // effects-level audit boundary (handled by `effects.zig`'s
+            // `raw_depth` tracking). At the sema/type-checking layer
+            // it's transparent — walk the inner block so cross-module
+            // calls, type checks, M22.1 leak rules, etc. all fire
+            // inside `raw` exactly as they would outside.
+            //
+            // Pre-M15b post-impl review, `raw_block` had no sema arm
+            // and silently fell through `synthExpr`-as-discard,
+            // meaning every check inside a `raw` block was skipped
+            // (including cross-module visibility — discovered when
+            // the M15b extern-not-pub canary unexpectedly passed
+            // sema). Fix: walk the inner block here.
+            .@"raw_block" => {
                 if (items.len >= 2) try self.checkStmt(items[1]);
             },
             // Everything else (call, propagate, member, infix, etc.)

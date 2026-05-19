@@ -1,0 +1,1 @@
+no member `no_such_fn` in module `a`
