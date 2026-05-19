@@ -10,7 +10,7 @@
 # invocations confirm the captured weak survives across calls.
 #
 # Verifies:
-#   - `fn |~rc| ...` typechecks; captured slot is `~T`
+#   - `|~rc| ...` typechecks; captured slot is `~T`
 #   - Outer `*T` is not consumed (cap_weak is non-mutating)
 #   - Weak capture survives multiple invocations because the
 #     closure-instance guard (M20g(4/5)) drops only at the
@@ -21,7 +21,7 @@
 
 sub main()
   rc: *Cell(Int) = *Cell(value: 1)
-  watch = fn |~rc|
+  watch = |~rc|
     print('observing weak')
   watch()
   watch()

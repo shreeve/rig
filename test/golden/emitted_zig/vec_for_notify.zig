@@ -68,12 +68,12 @@ pub fn main() void {
     subs.push(cb1.cloneStrong());
     subs.push(cb2.cloneStrong());
     subs.push(cb3.cloneStrong());
-    if (subs.buf) |__rig_p_1832| {
-        var __rig_i_1832: usize = 0;
-        while (__rig_i_1832 < subs.len) : (__rig_i_1832 += 1) {
-            const __rig_elem_1832 = &__rig_p_1832[__rig_i_1832];
+    if (subs.buf) |__rig_p_1823| {
+        var __rig_i_1823: usize = 0;
+        while (__rig_i_1823 < subs.len) : (__rig_i_1823 += 1) {
+            const __rig_elem_1823 = &__rig_p_1823[__rig_i_1823];
             {
-                __rig_elem_1832.*.value.invoke();
+                __rig_elem_1823.*.value.invoke();
             }
         }
     }

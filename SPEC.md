@@ -662,8 +662,8 @@ invoked synchronously in subscription order.
 ```rig
 sub main()
   sig: *Signal(Int) = *Signal(value: 0)
-  log_a: *Closure() = *Closure(fn |+sig| print(sig.get() + 1000))
-  log_b: *Closure() = *Closure(fn |+sig| print(sig.get() + 2000))
+  log_a: *Closure() = *Closure(|+sig| print(sig.get() + 1000))
+  log_b: *Closure() = *Closure(|+sig| print(sig.get() + 2000))
   sig.subscribe(+log_a)
   sig.subscribe(+log_b)
   sig.set(7)                      # prints 1007 then 2007
@@ -1363,29 +1363,42 @@ has no enclosing type to resolve to).
 
 ## Lambdas
 
-A `fn` expression is a lambda — an anonymous function value bound
-to a local, then invoked via call-receiver syntax:
+A closure literal in Rig is an anonymous callable value that
+starts with a capture list `|...|` — no leading keyword. The
+bars are the marker; bitwise `|` and logical `||` are infix
+operators (need a left operand), so `|...|` in expression-start
+position is unambiguously a closure capture list.
 
 ```rig
 sub main()
   n =! 7
-  add = fn |n|
+  add = |n|
     n * 2
   print(add())            # 14
 ```
 
-The body is an indented block (or a single expression). The
-lambda has no name; its `fn` keyword stands alone (contrast `fun
-name(...)`).
+The body is an indented block (or a single inline-call
+expression for the M20h owned-closure shape). The closure has
+no name (contrast `fun name(...)`); the bars + capture sigils
+provide all the visual signal needed to distinguish it from
+named declarations.
 
-**Bare lambda values are non-escaping in V1.** A `fn |...|
+Per the M29 design lock (drop-fn arc): captures are MANDATORY
+in V1. Empty-capture closures (`|| body`) are deferred —
+they'd need lexer-probe work to distinguish from logical-or.
+In practice, every V1 closure has at least one capture by
+construction, since the only useful closure-as-value patterns
+(retained subscribers, owned closures, deferred work) all
+need to capture state.
+
+**Bare closure values are non-escaping in V1.** A `|...|
 body` literal may appear ONLY as:
 
 - the DIRECT right-hand side of a `(set ...)` binding
-  (`f = fn |...| body`), OR
+  (`f = |...| body`), OR
 - the callee of a `(call ...)` form (the inline-invoke shape),
   OR
-- the lambda argument of an `*Closure(fn |...| body)`
+- the lambda argument of an `*Closure(|...| body)`
   construction (M20h, below).
 
 Every other position — nested inside an array literal, a
@@ -1396,25 +1409,30 @@ rejected by the ownership checker. Closure values are also
 binding is implicitly fixed so reassignment is disallowed.
 
 To retain a closure beyond its defining scope, wrap the
-lambda in an owned closure handle using `*Closure(...)` —
+literal in an owned closure handle using `*Closure(...)` —
 see §Owned Closures (M20h) below. The wrap is the visible
 opt-in; the compiler does not infer escape.
 
 ### Capture modes
 
-A lambda may capture exactly ONE outer name in V1, prefixed by
-a mode sigil between the `fn` keyword and the params:
+A closure may capture one or more outer names. Each capture
+is prefixed by a mode sigil between the bars; multiple
+captures are comma-separated (M28):
 
 ```rig
-fn |x|   body            # cap_copy  — Copy-only; rejects *T / ~T
-fn |+x|  body            # cap_clone — refcount-bump for shared/weak
-fn |~x|  body            # cap_weak  — requires *T; captures ~T
-fn |<x|  body            # cap_move  — transfers ownership; disarms outer
+|x|         body         # cap_copy  — Copy-only; rejects *T / ~T
+|+x|        body         # cap_clone — refcount-bump for shared/weak
+|~x|        body         # cap_weak  — requires *T; captures ~T
+|<x|        body         # cap_move  — transfers ownership; disarms outer
+|+a, +b|    body         # M28: multi-capture, comma-separated
+|+count, ~total| body    # M28: mixed modes per capture
 ```
 
 The mode sigils mirror the M20d ownership family (`+x` clone,
-`<x` move, `~x` weak). Multi-capture (`|+rc, n|`) is a follow-up;
-V1 grammar accepts a single capture node.
+`<x` move, `~x` weak). Each capture's mode is validated
+independently against the outer name's type; duplicate names
+in the capture list (regardless of mode) are rejected at
+sema time.
 
 Per the visible-effects thesis, the default `|x|` form requires a
 Copy type (`Int` / `Bool` / `Float` / `String` and the literal
@@ -1454,7 +1472,7 @@ exactly once at the closure binding's scope exit.
 ```rig
 sub main()
   rc: *Cell(Int) = *Cell(value: 0)
-  read = fn |+rc|              # cloneStrong: rc strong refcount 1 → 2
+  read = |+rc|              # cloneStrong: rc strong refcount 1 → 2
     rc.get()
   print(read())                # closure body uses cloned handle
   print(read())                # multiple invocations: handle still alive
@@ -1472,7 +1490,7 @@ recipe; the closure-instance guard takes ownership from there.
 A capture and a parameter with the same name are rejected:
 
 ```rig
-f = fn |x|(x: Int)
+f = |x|(x: Int)
   x
 # error: lambda parameter `x` conflicts with captured variable `x`
 #   note: captured here
@@ -1488,8 +1506,8 @@ A lambda nested inside another lambda's body cannot capture a
 name from the OUTER lambda's body scope in V1:
 
 ```rig
-outer = fn |+rc|
-  inner = fn |+rc|     # error: nested closure capture of `rc` is
+outer = |+rc|
+  inner = |+rc|     # error: nested closure capture of `rc` is
     rc.get()           #        not supported in V1; lift the
   inner()              #        capture to the outer scope or
                        #        refactor
@@ -1503,12 +1521,12 @@ flat closure.
 
 ### Inline-invoke grammar limitation
 
-The conceptual `(fn |...| body)()` shape — invoking an inline
+The conceptual `(|...| body)()` shape — invoking an inline
 lambda literal without binding it to a name — is accepted by
 the ownership checker (call-receiver position is allowed) but
 currently rejected by the parser due to the indented-block /
 suffix-call composition. For V1, use the
-`f = fn |...| body; f()` shape.
+`f = |...| body; f()` shape.
 
 ### Owned Closures (M20h)
 
@@ -1520,13 +1538,13 @@ heap and tracks the lifetime through a refcounted handle:
 ```rig
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  cb: *Closure() = *Closure(fn |+count| count.set(count.get() + 1))
+  cb: *Closure() = *Closure(|+count| count.set(count.get() + 1))
   cb()
   cb()
   print(count.get())                # 2
 ```
 
-The construction shape is fixed: `*Closure(fn |...| body)` —
+The construction shape is fixed: `*Closure(|...| body)` —
 exactly one argument, which MUST be a lambda. Bare `Closure(fn
 ...)` (no `*`), `*Closure(42)` (non-lambda), `*Closure()` (no
 arg), and `*Closure(fn ..., fn ...)` (multiple args) all
@@ -1537,7 +1555,7 @@ produce tailored sema diagnostics.
 ```rig
 fun make_counter() -> *Closure()
   count: *Cell(Int) = *Cell(value: 0)
-  *Closure(fn |+count| count.set(count.get() + 1))
+  *Closure(|+count| count.set(count.get() + 1))
 
 sub main()
   cb = make_counter()       # returned, alive past defining scope
@@ -1586,7 +1604,7 @@ cb2()` safe.
   `INDENT/OUTDENT` which doesn't compose inside `(...)`
   parens).
 - `*Closure()` doesn't replace the M20g non-escaping closures —
-  use the bare `f = fn |...| body; f()` form for stack-local
+  use the bare `f = |...| body; f()` form for stack-local
   callbacks (cheaper: no heap allocation, no refcount, no
   vtable indirection). Reach for `*Closure()` only when the
   closure needs to outlive its defining scope.

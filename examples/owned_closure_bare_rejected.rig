@@ -8,4 +8,4 @@
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  cb = Closure(fn |+count| count.set(count.get() + 1))
+  cb = Closure(|+count| count.set(count.get() + 1))

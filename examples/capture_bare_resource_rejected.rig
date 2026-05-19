@@ -18,5 +18,5 @@
 
 sub main()
   sig: *Signal(Int) = *Signal(value: 0)
-  cb: *Closure() = *Closure(fn |sig| sig.get())
+  cb: *Closure() = *Closure(|sig| sig.get())
   cb()

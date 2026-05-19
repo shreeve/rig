@@ -1,7 +1,7 @@
 # M20h(5/5): owned-closure basic.
 #
 # A stack-local `*Closure()` constructed inline via
-# `*Closure(fn |+count| body)`. The closure clones the shared
+# `*Closure(|+count| body)`. The closure clones the shared
 # `*Cell(Int)` strong handle on construction, so the captured
 # Cell stays alive for every invocation. Auto-drop at scope
 # exit cascades through `RcBox.dropStrong` → `Closure0.__rig_drop`
@@ -9,7 +9,7 @@
 # capture and frees the heap-allocated env.
 #
 # Per the M20h(1-4/5) design (entry 17 with GPT-5.5):
-#   - Surface: `cb: *Closure() = *Closure(fn |+count| body)`
+#   - Surface: `cb: *Closure() = *Closure(|+count| body)`
 #   - Type spelling: `Closure()` zero-arity builtin
 #   - Lowering: type-erased Closure0 + per-literal env struct
 #   - Invocation: `cb()` → `cb.value.invoke()`
@@ -21,7 +21,7 @@
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  cb: *Closure() = *Closure(fn |+count| count.set(count.get() + 1))
+  cb: *Closure() = *Closure(|+count| count.set(count.get() + 1))
   cb()
   cb()
   cb()

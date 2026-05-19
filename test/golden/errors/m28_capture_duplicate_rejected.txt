@@ -1,2 +1,2 @@
-examples/m28_capture_duplicate_rejected.rig:9:38: error: duplicate capture name `a`
-examples/m28_capture_duplicate_rejected.rig:9:34:   note: first captured here
+examples/m28_capture_duplicate_rejected.rig:9:35: error: duplicate capture name `a`
+examples/m28_capture_duplicate_rejected.rig:9:31:   note: first captured here

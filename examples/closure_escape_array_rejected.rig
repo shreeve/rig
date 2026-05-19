@@ -10,5 +10,5 @@
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  xs = [fn |+count| count.set(count.get() + 1)]
+  xs = [|+count| count.set(count.get() + 1)]
   _ = xs

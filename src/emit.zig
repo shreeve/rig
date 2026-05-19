@@ -58,7 +58,7 @@ const SymbolEntry = struct {
     /// disarm missed). Per GPT-5.5's M20e post-implementation review:
     /// scoped emitter metadata is the correct phase to carry this.
     resource_kind: ?ResourceKind = null,
-    /// M20g(3/5): set on a binding produced by `f = fn |...| body`.
+    /// M20g(3/5): set on a binding produced by `f = |...| body`.
     /// `emitCall` consults this when the callee resolves to such a
     /// binding and emits `<zig_name>.invoke(args)` instead of the
     /// regular `<zig_name>(args)`. Closure bindings emit as Zig
@@ -68,7 +68,7 @@ const SymbolEntry = struct {
     is_closure: bool = false,
 
     /// M20h(4/5): set on a binding produced by
-    /// `cb = *Closure(fn |...| body)`. Distinct from `is_closure`:
+    /// `cb = *Closure(|...| body)`. Distinct from `is_closure`:
     /// the binding is an ordinary `*T` shared handle (auto-drop,
     /// clone, weak-ref all flow through the usual `*T` paths), but
     /// the call rewrite is different (`cb()` → `cb.value.invoke()`
@@ -107,7 +107,7 @@ pub const Emitter = struct {
     block_label_counter: u32 = 0,
 
     /// M20h(4/5): counter for owned-closure construction sites. Each
-    /// `*Closure(fn |...| body)` literal generates a unique anonymous
+    /// `*Closure(|...| body)` literal generates a unique anonymous
     /// env struct + a labeled block to construct + initialize it. The
     /// counter prevents label / type-name collisions when multiple
     /// closure literals appear in the same function.
@@ -1617,7 +1617,7 @@ pub const Emitter = struct {
         //
         // Defer ordering is LIFO — the closure's capture defers
         // fire BEFORE the outer's bare-binding defers, so e.g.
-        // `rc = *Cell(...); f = fn |+rc| ...` cleanly drops the
+        // `rc = *Cell(...); f = |+rc| ...` cleanly drops the
         // closure's cloned strong handle before the outer's
         // original handle at scope exit.
         try self.emitClosureCaptureGuards(captures, zig_name);
@@ -1969,7 +1969,7 @@ pub const Emitter = struct {
         // case where the body never reads any capture (Zig also
         // forbids a `_ = self;` discard when self IS used — so
         // we must scan first). Without this, a void-body lambda
-        // like `fn |+rc| print('alive')` would fail Zig compile
+        // like `|+rc| print('alive')` would fail Zig compile
         // with "unused function parameter" on the synthesized
         // `self: *@This()` slot.
         const captures = lambda.list[1];
@@ -3668,7 +3668,7 @@ pub const Emitter = struct {
             // resulting `*RcBox(synthetic_struct)` mismatches the
             // expected `*RcBox(rig.Cell(i32))`.
             //
-            // M20h(4/5): `*Closure(fn |...| body)` is the owned-
+            // M20h(4/5): `*Closure(|...| body)` is the owned-
             // closure construction shape — special-cased before the
             // generic share path because the value being boxed is a
             // synthesized `rig.Closure0` (vtable) wrapping a per-

@@ -1,6 +1,6 @@
 # M20h.1: lambda literal inside a record/struct constructor
 # argument is rejected as escape. Same M20g rule that rejects
-# `foo(fn |...| ...)` as a regular call arg now applies through
+# `foo(|...| ...)` as a regular call arg now applies through
 # the constructor-call shape too, after the M20h.1
 # `in_set_rhs` tightening.
 #
@@ -14,5 +14,5 @@ struct Holder
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  h = Holder(cb: fn |+count| count.set(count.get() + 1))
+  h = Holder(cb: |+count| count.set(count.get() + 1))
   _ = h

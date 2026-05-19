@@ -9,5 +9,5 @@
 # builtin path).
 
 fun make() -> Int
-  return fn |x|
+  return |x|
     x + 1

@@ -2,7 +2,7 @@
 ##
 ## Per GPT-5.5 entry 31 (PB3 post-impl review): a nested lambda
 ## that re-captures a name from the outer body's capture list
-## (`fn |+sig| inner = fn |+sig| sig.get()`) is rejected in V1.
+## (`|+sig| inner = |+sig| sig.get()`) is rejected in V1.
 ## The case is nontrivial — inner capture from `self.cap_<n>`,
 ## clone from capture field, inner env drop, possible nested
 ## retained closure — and Steve has deliberately deferred it
@@ -17,7 +17,7 @@
 
 sub main()
   sig: *Signal(Int) = *Signal(value: 0)
-  outer = fn |+sig|
-    inner = fn |+sig| sig.get()
+  outer = |+sig|
+    inner = |+sig| sig.get()
     inner()
   outer()

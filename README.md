@@ -62,7 +62,7 @@ for per-milestone tracking.
 ```rig
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  bump = fn |+count|
+  bump = |+count|
     count.set(count.get() + 1)
   bump()
   bump()
@@ -70,7 +70,7 @@ sub main()
 ```
 
 `*Cell(Int)` is a heap-allocated, reference-counted, interior-
-mutable Int cell. `fn |+count| body` is a stack-local closure that
+mutable Int cell. `|+count| body` is a stack-local closure that
 captures `count` by clone (the `+` makes the refcount bump
 visible). The closure is invoked twice; auto-drop at scope exit
 releases both references.

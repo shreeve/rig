@@ -1717,7 +1717,7 @@ const SymbolResolver = struct {
     /// a name collision with an already-bound capture (which we
     /// inserted into the body scope before walking params). Emits a
     /// dedicated diagnostic when a param shadows a capture so users
-    /// don't accidentally write `fn |x| (x: Int) ...` and have the
+    /// don't accidentally write `|x| (x: Int) ...` and have the
     /// param silently win.
     fn bindParamWithCaptureCollision(
         self: *SymbolResolver,
@@ -6130,7 +6130,7 @@ const ExprChecker = struct {
                         // as if it were a type). Tailored diagnostic
                         // keeps the user pointed at the right shape.
                         if (sym_id == self.ctx.closure_sym_id) {
-                            try self.err(callee.src.pos, "owned closure must be wrapped with `*`; write `*Closure(fn |...| body)`", .{});
+                            try self.err(callee.src.pos, "owned closure must be wrapped with `*`; write `*Closure(|...| body)`", .{});
                             for (items[2..]) |arg| _ = try self.synthExpr(arg);
                             return self.ctx.types.unknown_id;
                         }
@@ -7413,7 +7413,7 @@ const ExprChecker = struct {
         // Validate exactly one lambda arg. Diagnose other shapes but
         // still return the closure type so cascade errors stay quiet.
         if (call_args.len == 0) {
-            try self.err(callee_pos, "owned closure `*Closure(...)` requires a lambda argument; write `*Closure(fn |...| body)`", .{});
+            try self.err(callee_pos, "owned closure `*Closure(...)` requires a lambda argument; write `*Closure(|...| body)`", .{});
         } else if (call_args.len > 1) {
             try self.err(callee_pos, "owned closure `*Closure(...)` takes exactly one lambda argument; got {d}", .{call_args.len});
             // Best-effort synth of extra args so nested errors fire.
@@ -7421,7 +7421,7 @@ const ExprChecker = struct {
         } else {
             const arg = call_args[0];
             if (!isLambdaSexp(arg)) {
-                try self.err(firstSrcPos(arg), "owned closure `*Closure(...)` argument must be a lambda `fn |...| body`", .{});
+                try self.err(firstSrcPos(arg), "owned closure `*Closure(...)` argument must be a lambda `|...| body`", .{});
                 _ = try self.synthExpr(arg);
             } else {
                 // Synth the lambda so its body is type-checked and

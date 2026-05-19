@@ -6,5 +6,5 @@
 
 sub main()
   a: *Cell(Int) = *Cell(value: 1)
-  cb: *Closure() = *Closure(fn |+a, ~a| print(a.get()))
+  cb: *Closure() = *Closure(|+a, ~a| print(a.get()))
   cb()

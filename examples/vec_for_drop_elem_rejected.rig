@@ -10,7 +10,7 @@
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  cb1: *Closure() = *Closure(fn |+count| count.set(count.get() + 1))
+  cb1: *Closure() = *Closure(|+count| count.set(count.get() + 1))
 
   subs: Vec(*Closure()) = Vec()
   (!subs).push(+cb1)

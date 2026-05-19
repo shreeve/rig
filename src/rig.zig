@@ -1099,7 +1099,7 @@ pub const Lexer = struct {
             // we check — defensive):
             .plus,
             // M28: comma is the multi-capture separator. Without
-            // this, `fn |+a, +b|` cleared `pending_close_bar` at
+            // this, `|+a, +b|` cleared `pending_close_bar` at
             // the comma and the closing `|` was misclassified as
             // a binary OR operator instead of bar_capture.
             .@"comma",

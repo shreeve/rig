@@ -1,8 +1,8 @@
 # rig-reactive v0 — userland reactive library on M25 + M26 + M27
-# substrate. Per GPT-5.5's design lock (conversation
-# c_5c1d09d53ebe2f62, M27 + rrlib checkpoints): brutally explicit
-# and monomorphic. v0 proves the substrate composes; it is NOT
-# the final reactive API.
+# + M28 + M29 (drop-fn) substrate. Per GPT-5.5's design lock
+# (conversation c_5c1d09d53ebe2f62, M27 + rrlib checkpoints):
+# brutally explicit and monomorphic. v0 proves the substrate
+# composes; it is NOT the final reactive API.
 #
 # v0 surface:
 #   - `IntSource` only (Copy Int). Generic Source(T) is v1.
@@ -31,7 +31,7 @@
 #     inside another constructor's kwarg loses the expected type;
 #     workaround = bind to typed locals first. Visible in `new`
 #     below.
-#   - Multi-capture closures (`fn |+a, +b| ...`). Blocks the
+#   - Multi-capture closures (`|+a, +b| ...`). Blocks the
 #     cross-source cascade canary (count→total→print). v0 ships
 #     with single-capture-only canary.
 
@@ -75,13 +75,12 @@ struct IntSource
     discarded: Vec(*Closure()) = self.subs.replace(<current)
 
 # v0 canary — single source, single subscriber, prints on set.
-# Multi-capture (`fn |+a, +b| ...`) is the next substrate gap;
-# the cross-source cascade canary (count → total → print) is
-# blocked until that lands.
+# (Multi-capture closures shipped in M28; the cross-source cascade
+# version of this canary lives in `examples/m28_multi_capture_cascade.rig`.)
 
 sub main()
   count = IntSource.new(0)
-  body: *Closure() = *Closure(fn |+count| print(count.get()))
+  body: *Closure() = *Closure(|+count| print(count.get()))
   count.subscribe(+body)
   count.set(1)
   count.set(7)

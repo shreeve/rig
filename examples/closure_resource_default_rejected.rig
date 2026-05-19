@@ -11,6 +11,6 @@
 
 sub main()
   rc: *Cell(Int) = *Cell(value: 0)
-  f = fn |rc|
+  f = |rc|
     rc.get()
   print(f())

@@ -30,8 +30,8 @@
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  cb1: *Closure() = *Closure(fn |+count| count.set(count.get() + 1))
-  cb2: *Closure() = *Closure(fn |+count| count.set(count.get() + 10))
+  cb1: *Closure() = *Closure(|+count| count.set(count.get() + 1))
+  cb2: *Closure() = *Closure(|+count| count.set(count.get() + 10))
 
   subs: Vec(*Closure()) = Vec()
   (!subs).push(+cb1)

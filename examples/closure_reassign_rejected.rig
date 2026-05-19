@@ -5,8 +5,8 @@
 
 sub main()
   n =! 7
-  f = fn |n|
+  f = |n|
     n
-  f = fn |n|
+  f = |n|
     n + 1
   print(f())

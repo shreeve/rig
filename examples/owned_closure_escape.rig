@@ -15,7 +15,7 @@
 
 fun make_counter() -> *Closure()
   count: *Cell(Int) = *Cell(value: 0)
-  *Closure(fn |+count| count.set(count.get() + 1))
+  *Closure(|+count| count.set(count.get() + 1))
 
 sub main()
   cb = make_counter()

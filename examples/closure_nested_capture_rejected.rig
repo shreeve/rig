@@ -10,8 +10,8 @@
 
 sub main()
   rc: *Cell(Int) = *Cell(value: 0)
-  outer = fn |+rc|
-    inner = fn |+rc|
+  outer = |+rc|
+    inner = |+rc|
       rc.get()
     inner()
   outer()

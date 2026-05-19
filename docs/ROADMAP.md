@@ -3048,6 +3048,85 @@ userland LIBRARY (the explicit `Reactor` / `Memo` / `Effect`
 work) was blocked on Cell-non-Copy + user Drop. M25 is the
 first half of that unblock; M26 (Cell-non-Copy) is the second.
 
+### M29 — Drop `fn` keyword from closure literals ✅
+
+A surface-cleanup arc: closure literals no longer require the
+leading `fn` keyword. The bars + capture sigils ARE the marker.
+
+**Why.** Steve flagged that `fn` was a 2-letter outlier in
+Rig's 3-letter-keyword family (`fun` / `sub` / `pre` / `raw` /
+`new` / `use` / `try` / `for` / `pub`). Per INFLUENCES rule 1
+(*"Add features only when they make an existing semantic effect
+explicit OR unify multiple ad-hoc mechanisms"*) — the
+contrapositive applies: `fn` didn't make anything more explicit
+(the bars do), didn't unify anything, and wasn't load-bearing
+for the parser (the `isCapturePipe` lexer probe doesn't depend
+on it). It was redundant noise in front of every closure literal.
+
+GPT-5.5 evaluated three candidate replacements (`lam` / `pro` /
+no keyword); Steve picked no-keyword (Rust-style bare bars).
+
+**Before:**
+
+```rig
+body: *Closure() = *Closure(fn |+count| print(count.get()))
+add = fn |n|
+  n * 2
+*Closure(fn |+a, +b| total.set(count.get() * 10))
+```
+
+**After:**
+
+```rig
+body: *Closure() = *Closure(|+count| print(count.get()))
+add = |n|
+  n * 2
+*Closure(|+a, +b| total.set(count.get() * 10))
+```
+
+**Implementation:**
+
+- `rig.grammar`: lambda rule changed from
+  `FN captures params block | FN captures block | FN params block | FN block | FN captures inline_body`
+  to `captures params block | captures block | captures inline_body`.
+  No-capture forms (`FN params block`, `FN block`) dropped — V1
+  doesn't use them, and `|| body` (empty captures) would need
+  lexer probe work to disambiguate from logical-or. IR shape
+  `(lambda CAPTURES PARAMS RETURNS BODY)` unchanged from M20g —
+  every downstream walker (sema / ownership / emit) sees the
+  exact same tree.
+- `src/rig.zig`: NO change to keyword map. The `FN` token stays
+  in the lexer because the function-type spelling `fn(Int) Int`
+  (used in `extern` declarations) still uses it. Only the
+  LAMBDA grammar rule no longer requires it.
+- 45 fixtures swept (`fn |` → `|` via mechanical perl). All
+  goldens regenerated (positional drift only — IR shape
+  unchanged, emit shape unchanged at the Rig surface; columns
+  shifted by 3 chars in error messages because source got
+  shorter).
+- Diagnostic strings in `src/types.zig` (4 sites) updated to
+  reference the new bare-bars syntax in their suggested fixes.
+
+**Conflict count.** Went from 69 → 75 (+6). All 6 are
+`<context> vs BAR_CAPTURE` shift-prefer conflicts in
+expression-start positions (after `return`, `break`,
+`unary`, internal `capture`). Shift-prefer means the parser
+treats `|` as starting a closure capture list — exactly
+what we want. Verified by the full test suite passing
+unchanged (1113 → 1113).
+
+**Verified end-to-end.** All three reactive canaries
+(`reactive_canary`, `rig_reactive`, `m28_multi_capture_cascade`)
+produce identical output to pre-M29 (`1\n3\n13\n7\n99\n111\n111`,
+`1\n7`, and `10\n70\n70` respectively).
+
+**The `FN` token is still load-bearing for function types.**
+Extern declarations like `extern puts: fn(String) Int` still
+parse via the function-type rule. Don't accidentally remove
+the `FN` keyword from the lexer.
+
+Tests: 1113 → 1113 (unchanged — pure surface rename).
+
 ### M28 — Multi-capture closures ✅
 
 The substrate gap that rrlib v0 surfaced when scaling to a

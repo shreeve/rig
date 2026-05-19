@@ -1,7 +1,9 @@
-# Rig — Session Handoff (M28 multi-capture — cross-source reactive cascade running)
+# Rig — Session Handoff (M29 drop-fn — closure literals are now bare-bars)
 
-**You are picking up a Rig compiler session at the M28 boundary —
-multi-capture closures unlock the full reactive cascade pattern.**
+**You are picking up a Rig compiler session at the M29 boundary —
+closure literals dropped the `fn` keyword; capture bars `|...|`
+are the only marker, matching Rig's 3-letter-keyword family by
+removing the 2-letter outlier.**
 **Phase B + the raw-escape boundary (M22) + the fake-surface
 floor-raising audit (M22.1) + the M22.1.1 runtime rename + the
 M15b cross-module sema (module honesty) + M15b.1 sema-time
@@ -23,8 +25,11 @@ structural drop glue + "any drop glue is non-Copy" alias rule)
 swap-and-yield primitive + unified `dropElement` dispatch) +
 M27 (auto-deref through member-access in method bodies +
 `rig-reactive` v0 userland library running end-to-end) +
-**M28 (multi-capture closures — the cross-source reactive
-cascade canary `count → total → print` runs end-to-end)**
+M28 (multi-capture closures — the cross-source reactive
+cascade canary `count → total → print` runs end-to-end) +
+**M29 (drop the `fn` keyword from closure literals — bare-bars
+syntax `|+x| body`; the `FN` token stays in the lexer for
+function-type spellings `fn(Int) Int` in extern declarations)**
 all shipped end-to-end. The reactive canary
 (`examples/reactive_canary.rig`) demonstrates the full Cell +
 closure + Vec-iteration + Signal chain producing
@@ -471,14 +476,14 @@ Locked at the PB2 design checkpoint:
 count: *Cell(Int) = *Cell(value: 0)
 count.set(1); print(count.get())                # 1   — PB0 Cell
 
-bump = fn |+count| count.set(count.get() + 1)
+bump = |+count| count.set(count.get() + 1)
 bump(); bump(); print(count.get())              # 3   — M20g stack-local closure
 
-eff: *Closure() = *Closure(fn |+count| count.set(count.get() + 10))
+eff: *Closure() = *Closure(|+count| count.set(count.get() + 10))
 eff(); print(count.get())                       # 13  — M20h retained closure
 
 sig: *Signal(Int) = *Signal(value: 0)
-log: *Closure() = *Closure(fn |+sig| print(sig.get()))
+log: *Closure() = *Closure(|+sig| print(sig.get()))
 sig.subscribe(+log); sig.set(7); sig.set(99)   # 7, 99 — PB2 Signal
 ```
 
@@ -538,7 +543,7 @@ sig.subscribe(+log); sig.set(7); sig.set(99)   # 7, 99 — PB2 Signal
 
 ### Design lock (GPT-5.5 entry 17)
 
-1. **Surface**: `*Closure(fn |+count| body)`. Mirrors
+1. **Surface**: `*Closure(|+count| body)`. Mirrors
    `*Cell(value: 0)`. Explicit `*` for visible heap alloc.
 2. **Type spelling**: `Closure()` only — zero arity. Arity-
    bearing variants (Closure1<T>) deferred.
@@ -578,7 +583,7 @@ sig.subscribe(+log); sig.set(7); sig.set(99)   # 7, 99 — PB2 Signal
 
 - Arity-bearing closures (`Closure1<T>`, `Closure2<A, B>`).
 - Multi-statement closure bodies inside `*Closure(...)`.
-- `fn || expr` empty-capture inline form.
+- `|| expr` empty-capture inline form.
 - Method-value form (`Effect(count.changed)`).
 
 ---
@@ -861,7 +866,7 @@ NOT promises to ship.
     design — don't accidentally turn Signal into a stream.
 18. **Test gap: PB4 queued reentrant-set semantics lacks a
     Rig-source regression** until V1 grows multi-capture
-    (`fn |+sig, +cb|`) OR conditional inline-body grammar.
+    (`|+sig, +cb|`) OR conditional inline-body grammar.
     The runtime contract is enforced by code review,
     documented in SPEC + `runtime.zig`, and verified by
     non-regression. Add a Zig-level runtime unit test as
@@ -1125,7 +1130,7 @@ NOT promises to ship.
   more than running it.
 - **Closing PB3(1/5) hazards on the radar**:
   - The non-escaping-closure consume-from-capture path
-    (`bump = fn |+sig| -sig`) was the second case PB3(1/5)
+    (`bump = |+sig| -sig`) was the second case PB3(1/5)
     closed. Same `is_capture_resource` flag fires. Future
     extensions to non-escaping-closure body shapes need to
     keep this hook live.

@@ -10,18 +10,18 @@
 ## alongside the M20i.1 `rejectLoopBorrowOp` machinery.
 ##
 ## Without this rejection, capturing the loop-borrow into an
-## escaping closure (`f: *Closure() = *Closure(fn |+cb| cb())`)
+## escaping closure (`f: *Closure() = *Closure(|+cb| cb())`)
 ## would smuggle the borrowed handle past the loop boundary,
 ## defeating the entire purpose of binding the element as a
 ## borrowed view.
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  cb1: *Closure() = *Closure(fn |+count| count.set(count.get() + 1))
+  cb1: *Closure() = *Closure(|+count| count.set(count.get() + 1))
 
   subs: Vec(*Closure()) = Vec()
   (!subs).push(+cb1)
 
   for cb in ?subs
-    f = fn |+cb| cb()
+    f = |+cb| cb()
     f()

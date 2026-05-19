@@ -160,7 +160,7 @@ pub const Checker = struct {
     ///
     /// Pre-M20h.1, this flag was set for the entire RHS walk, which
     /// silently permitted nested lambda literals to escape (e.g.,
-    /// `xs = [fn |+x| ...]` would pass ownership because the array
+    /// `xs = [|+x| ...]` would pass ownership because the array
     /// walk preserved `in_set_rhs = true`, and the lambda inside
     /// the array element passed its escape check). GPT-5.5's M20h
     /// post-implementation review caught this; the M20h(3/5)
@@ -509,7 +509,7 @@ pub const Checker = struct {
         // child of `(call ...)`, so this single check covers all
         // escape shapes uniformly.
         if (b.is_closure and !self.in_call_callee) {
-            try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased in V1; bind it once with `{s} = fn |...| ...` and invoke it directly as `{s}()`", .{ name, name, name });
+            try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased in V1; bind it once with `{s} = |...| ...` and invoke it directly as `{s}()`", .{ name, name, name });
             return;
         }
 
@@ -713,7 +713,7 @@ pub const Checker = struct {
             !self.in_owned_closure_constructor_arg)
         {
             const pos = firstSrcPosOwn(.{ .list = items });
-            try self.err(pos, "closures cannot escape their defining scope in V1; bind to a local with `f = fn |...| ...` and call `f()`, or invoke inline `(fn |...| ...)()`", .{});
+            try self.err(pos, "closures cannot escape their defining scope in V1; bind to a local with `f = |...| ...` and call `f()`, or invoke inline `(|...| ...)()`", .{});
         }
 
         // 2. Apply capture effects on the OUTER scope.
@@ -965,7 +965,7 @@ pub const Checker = struct {
         //
         // Pre-M20h.1, this code set the flag unconditionally for
         // the whole RHS walk. GPT-5.5's M20h post-implementation
-        // review surfaced the leak (`xs = [fn |+x| ...]` silently
+        // review surfaced the leak (`xs = [|+x| ...]` silently
         // passed). The owned-closure case is handled by the
         // separate `in_owned_closure_constructor_arg` flag set by
         // `walkShare` when the share-inner is the exact owned-

@@ -6,6 +6,6 @@
 
 sub main()
   x =! 10
-  f = fn |x|(x)
+  f = |x|(x)
     x
   print(f(99))

@@ -4,7 +4,7 @@
 # at the bottom would error).
 #
 # Verifies:
-#   - `fn |<rc| ...` typechecks; captured `rc` keeps `*T`
+#   - `|<rc| ...` typechecks; captured `rc` keeps `*T`
 #   - Outer `rc` is marked `.moved` after the lambda construction
 #   - The closure can be invoked while inside the same scope
 #
@@ -13,6 +13,6 @@
 
 sub main()
   rc: *Cell(Int) = *Cell(value: 42)
-  owned = fn |<rc|
+  owned = |<rc|
     rc.get()
   print(owned())

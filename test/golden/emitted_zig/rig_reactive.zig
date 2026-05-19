@@ -43,12 +43,12 @@ pub const IntSource = struct {
         var current: rig.Vec(*rig.RcBox(rig.Closure0)) = self.subs.value.replace(rig_mv_5: { __rig_alive_empty = false; break :rig_mv_5 empty; });
         var __rig_alive_current: bool = true;
         defer if (__rig_alive_current) { __rig_alive_current = false; current.__rig_drop(); }; _ = &current;
-        if (current.buf) |__rig_p_3338| {
-            var __rig_i_3338: usize = 0;
-            while (__rig_i_3338 < current.len) : (__rig_i_3338 += 1) {
-                const __rig_elem_3338 = &__rig_p_3338[__rig_i_3338];
+        if (current.buf) |__rig_p_3357| {
+            var __rig_i_3357: usize = 0;
+            while (__rig_i_3357 < current.len) : (__rig_i_3357 += 1) {
+                const __rig_elem_3357 = &__rig_p_3357[__rig_i_3357];
                 {
-                    __rig_elem_3338.*.value.invoke();
+                    __rig_elem_3357.*.value.invoke();
                 }
             }
         }

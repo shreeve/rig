@@ -263,7 +263,7 @@ tokens
 # = "shared handle to optional User". The optional-shared shape
 # returned by `WeakHandle.upgrade()` is spelled `(*User)?` — see
 # SPEC §Shared Ownership for the user-facing precedence rule.
-@conflicts = 69
+@conflicts = 75
 
 @as ident = [keyword]
 
@@ -654,23 +654,37 @@ record   = name "{" L(pair) "}"             → (record 1 ...3)
 pair     = name ":" expr                    → (kwarg 1 3)
 dotpair  = "." name "=" expr                → (kwarg 2 4)
 
-# M20g: lambdas optionally have a capture list `|...|` between FN
-# and the params. The IR shape becomes `(lambda CAPTURES PARAMS
-# RETURNS BODY)` — CAPTURES is `_` (nil) for non-capturing lambdas
-# or a `(captures cap_node...)` list. Per GPT-5.5's M20g design
-# pass: V1 supports SINGLE capture only; multi-capture (comma-
-# separated) is a follow-up.
+# M20g + M28 + M29 (drop-fn arc): closure literals start directly
+# with a capture list `|...|` — no leading keyword. The bars
+# themselves are the marker; bitwise `|` and logical `||` are infix
+# operators (need a LHS), so `|...|` in expression-start position
+# is unambiguously a closure capture list.
+#
+# Per the M29 design lock: V1 makes captures MANDATORY (no `|| body`
+# empty-capture form yet — would need lexer probe work to
+# distinguish from logical-or). Multi-capture `|+a, +b|` shipped
+# in M28; this arc removes the `fn` keyword from lambda forms,
+# which was a 2-letter outlier in Rig's 3-letter-keyword family
+# (`fun`/`sub`/`pre`/`raw`/`new`/`use`/...) and didn't carry semantic
+# weight (the bars + capture sigils ARE the closure marker).
 #
 # Capture-mode prefixes mirror the M20d sigil family:
 #   `|x|`   bare (Copy-only)
 #   `|+x|`  clone (cap_clone)   — refcount-bump for *T/~T
 #   `|~x|`  weak (cap_weak)     — requires *T receiver
 #   `|<x|`  move (cap_move)     — disarms outer guard
-lambda   = FN captures params block         → (lambda 2 3 returns:_ 4)
-         | FN captures        block         → (lambda 2 params:_ returns:_ 3)
-         | FN          params block         → (lambda captures:_ 2 returns:_ 3)
-         | FN                 block         → (lambda captures:_ params:_ returns:_ 2)
-         | FN captures inline_body          → (lambda 2 params:_ returns:_ 3)   # M20h: inline-call body for owned-closure construction
+#
+# IR shape unchanged: `(lambda CAPTURES PARAMS RETURNS BODY)` —
+# downstream sema/ownership/emit see the exact same tree shape as
+# pre-M29.
+#
+# The `FN` keyword token stays in the lexer's keywordMap because
+# the function-type spelling `fn(Int) Int` (used in `extern`
+# declarations etc.) uses it. Only the LAMBDA rule no longer
+# requires it.
+lambda   = captures params block            → (lambda 1 2 returns:_ 3)
+         | captures        block            → (lambda 1 params:_ returns:_ 2)
+         | captures inline_body             → (lambda 1 params:_ returns:_ 2)   # M20h: inline-call body for owned-closure construction
 
 # M20h: synthesize a `(block ...)` wrapper around an inline-call
 # lambda body so sema/ownership/emit's existing `(lambda ... (block ...))`

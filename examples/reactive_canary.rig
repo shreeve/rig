@@ -43,7 +43,7 @@ sub main()
   # through the captured Rc. The retained-Effect case (M20h)
   # generalizes this to closures that outlive their defining
   # scope.
-  bump = fn |+count|
+  bump = |+count|
     count.set(count.get() + 1)
   bump()
   bump()
@@ -53,7 +53,7 @@ sub main()
   # library needs a closure value that can be stored in an Effect
   # (or Reactor subscriber list) and invoked after the defining
   # scope exits. M20g closures were strictly non-escaping; M20h
-  # introduced `*Closure(fn |...| body)` — a heap-owned closure
+  # introduced `*Closure(|...| body)` — a heap-owned closure
   # with type-erased ABI (rig.Closure0 vtable + per-literal env
   # struct) and last-strong-drop capture cleanup via __rig_drop.
   #
@@ -61,7 +61,7 @@ sub main()
   # captures the Cell, retain it past the defining scope, and
   # invoke it explicitly. PB2 will add Cell → Effect notification
   # (Reactor.flush); for now PB1 demonstrates the substrate.
-  eff: *Closure() = *Closure(fn |+count| count.set(count.get() + 10))
+  eff: *Closure() = *Closure(|+count| count.set(count.get() + 10))
   eff()
   print(count.get())                # 13
 
@@ -80,7 +80,7 @@ sub main()
   # multi-subscriber until the actual gap (Vec iteration)
   # is designed under real use pressure.
   sig: *Signal(Int) = *Signal(value: 0)
-  log: *Closure() = *Closure(fn |+sig| print(sig.get()))
+  log: *Closure() = *Closure(|+sig| print(sig.get()))
   sig.subscribe(+log)
   sig.set(7)                        # 7  (set triggers log)
   sig.set(99)                       # 99 (same)
@@ -103,9 +103,9 @@ sub main()
   #     conflict rule — the loop installs a scope-bound read
   #     borrow on the source.
   notes: *Cell(Int) = *Cell(value: 0)
-  one:   *Closure() = *Closure(fn |+notes| notes.set(notes.get() + 1))
-  ten:   *Closure() = *Closure(fn |+notes| notes.set(notes.get() + 10))
-  cent:  *Closure() = *Closure(fn |+notes| notes.set(notes.get() + 100))
+  one:   *Closure() = *Closure(|+notes| notes.set(notes.get() + 1))
+  ten:   *Closure() = *Closure(|+notes| notes.set(notes.get() + 10))
+  cent:  *Closure() = *Closure(|+notes| notes.set(notes.get() + 100))
   subs: Vec(*Closure()) = Vec()
   (!subs).push(+one)
   (!subs).push(+ten)
@@ -133,9 +133,9 @@ sub main()
   #     equivalent; the Signal builtin packages "value cell +
   #     subscriber list + notify-on-set" for ergonomics.
   tally: *Cell(Int) = *Cell(value: 0)
-  add_a: *Closure() = *Closure(fn |+tally| tally.set(tally.get() + 1))
-  add_b: *Closure() = *Closure(fn |+tally| tally.set(tally.get() + 10))
-  add_c: *Closure() = *Closure(fn |+tally| tally.set(tally.get() + 100))
+  add_a: *Closure() = *Closure(|+tally| tally.set(tally.get() + 1))
+  add_b: *Closure() = *Closure(|+tally| tally.set(tally.get() + 10))
+  add_c: *Closure() = *Closure(|+tally| tally.set(tally.get() + 100))
   multi: *Signal(Int) = *Signal(value: 0)
   multi.subscribe(+add_a)
   multi.subscribe(+add_b)

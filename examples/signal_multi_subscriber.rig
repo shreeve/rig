@@ -28,9 +28,9 @@
 
 sub main()
   notes: *Cell(Int) = *Cell(value: 0)
-  one:   *Closure() = *Closure(fn |+notes| notes.set(notes.get() + 1))
-  ten:   *Closure() = *Closure(fn |+notes| notes.set(notes.get() + 10))
-  cent:  *Closure() = *Closure(fn |+notes| notes.set(notes.get() + 100))
+  one:   *Closure() = *Closure(|+notes| notes.set(notes.get() + 1))
+  ten:   *Closure() = *Closure(|+notes| notes.set(notes.get() + 10))
+  cent:  *Closure() = *Closure(|+notes| notes.set(notes.get() + 100))
 
   sig: *Signal(Int) = *Signal(value: 0)
   sig.subscribe(+one)

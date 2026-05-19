@@ -47,22 +47,22 @@ pub fn main() void {
     var __rig_alive_subs: bool = true;
     defer if (__rig_alive_subs) { __rig_alive_subs = false; subs.__rig_drop(); }; _ = &subs;
     subs.push(cb1.cloneStrong());
-    if (subs.buf) |__rig_p_945| {
-        var __rig_i_945: usize = 0;
-        while (__rig_i_945 < subs.len) : (__rig_i_945 += 1) {
-            const __rig_elem_945 = &__rig_p_945[__rig_i_945];
+    if (subs.buf) |__rig_p_939| {
+        var __rig_i_939: usize = 0;
+        while (__rig_i_939 < subs.len) : (__rig_i_939 += 1) {
+            const __rig_elem_939 = &__rig_p_939[__rig_i_939];
             {
-                __rig_elem_945.*.value.invoke();
+                __rig_elem_939.*.value.invoke();
             }
         }
     }
     subs.push(cb2.cloneStrong());
-    if (subs.buf) |__rig_p_1059| {
-        var __rig_i_1059: usize = 0;
-        while (__rig_i_1059 < subs.len) : (__rig_i_1059 += 1) {
-            const __rig_elem_1059 = &__rig_p_1059[__rig_i_1059];
+    if (subs.buf) |__rig_p_1053| {
+        var __rig_i_1053: usize = 0;
+        while (__rig_i_1053 < subs.len) : (__rig_i_1053 += 1) {
+            const __rig_elem_1053 = &__rig_p_1053[__rig_i_1053];
             {
-                __rig_elem_1059.*.value.invoke();
+                __rig_elem_1053.*.value.invoke();
             }
         }
     }

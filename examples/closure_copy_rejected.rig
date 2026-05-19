@@ -9,7 +9,7 @@
 
 sub main()
   n =! 5
-  f = fn |n|
+  f = |n|
     n + 1
   g = f
   g()

@@ -7,7 +7,7 @@
 # is visible at the construction site via the `+` sigil.
 #
 # Verifies:
-#   - `fn |+rc| ...` typechecks; captured `rc` binds with `*T`
+#   - `|+rc| ...` typechecks; captured `rc` binds with `*T`
 #   - The outer `rc` is NOT consumed (cap_clone is non-mutating)
 #   - The closure can be invoked multiple times
 #
@@ -17,7 +17,7 @@
 
 sub main()
   rc: *Cell(Int) = *Cell(value: 0)
-  read = fn |+rc|
+  read = |+rc|
     rc.get()
   print(read())
   print(read())

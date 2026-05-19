@@ -23,6 +23,6 @@
 
 sub main()
   sig: *Signal(Int) = *Signal(value: 0)
-  bump = fn |+sig|
+  bump = |+sig|
     -sig
   bump()

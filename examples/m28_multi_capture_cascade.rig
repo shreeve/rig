@@ -42,10 +42,10 @@ sub main()
 
   # M28-unlocked: multi-capture closure. Body sees both `count`
   # and `total` via cloned shared handles.
-  body_a: *Closure() = *Closure(fn |+count, +total| total.set(count.get() * 10))
+  body_a: *Closure() = *Closure(|+count, +total| total.set(count.get() * 10))
   count.subscribe(+body_a)
 
-  body_b: *Closure() = *Closure(fn |+total| print(total.get()))
+  body_b: *Closure() = *Closure(|+total| print(total.get()))
   total.subscribe(+body_b)
 
   count.set(1)        # → total becomes 10 → prints 10
