@@ -3048,6 +3048,107 @@ userland LIBRARY (the explicit `Reactor` / `Memo` / `Effect`
 work) was blocked on Cell-non-Copy + user Drop. M25 is the
 first half of that unblock; M26 (Cell-non-Copy) is the second.
 
+### M27 — Auto-deref through member-access in method bodies ✅
+
+The substrate gap that the userland reactive library exposed in
+its first compile attempt. Per Phase B Q1 canary discipline:
+"the library is the canary; fix the language, not the library."
+
+**The gap.** Method bodies that read shared-handle fields
+through `self` failed at emit:
+
+```rig
+struct IntSource
+  value: *Cell(Int)
+  fun get(self: ?IntSource) -> Int
+    self.value.get()    # error at Zig: only one auto-deref level
+```
+
+For bare-name receivers (`rc.set(5)` where `rc: *Cell(Int)`),
+emit's `.@"member"` arm transformed to `rc.value.set(5)` —
+inserting the runtime's `.value` field deref through the RcBox.
+For member-access receivers (`self.value.set(5)`), the
+transformation didn't fire because `handleKindOf` returned
+`.other` for `.@"member"` shapes.
+
+**Fix.** Two new emit-side helpers + extended `handleKindOf`:
+
+- `Emitter.handleKindOfMember` — looks up the field on obj's
+  nominal Symbol; returns `.shared` for shared-typed fields
+  (triggering the existing `.value` insertion path).
+- `Emitter.nominalSymForExpr` — recovers the nominal SymbolId
+  of an expression's type. Handles bare `self` (via
+  `current_nominal_name`), bare locals (via `decl_pos` + name
+  lookup, sound under shadowing), and recursive
+  `(member <obj> <field>)` chains.
+- `Emitter.peelTypeToNominal` — walks `borrow_read` /
+  `borrow_write` / `shared` wrappers down to a nominal
+  symbol. Crucially does NOT peel `weak` (auto-deref through
+  weak would silently dereference a potentially dangling
+  handle).
+
+The recursion handles deep chains (`a.b.c.method()` where
+multiple links are shared) — each level looks up the next
+field on the prior level's nominal.
+
+**Verified end-to-end.** `examples/rig_reactive.rig` —
+the smallest userland reactive library — compiles + runs:
+
+```rig
+struct IntSource
+  value: *Cell(Int)
+  subs: *Cell(Vec(*Closure()))
+
+  fun new(initial: Int) -> *IntSource ...
+  fun get(self: ?IntSource) -> Int
+    self.value.get()         # M27 unblocks this
+  sub subscribe(self: ?IntSource, cb: *Closure())
+    ...
+    current = self.subs.replace(<empty)   # M27 unblocks this
+  sub set(self: ?IntSource, v: Int)
+    self.value.set(v)        # M27 unblocks this
+    ...
+
+sub main()
+  count = IntSource.new(0)
+  body: *Closure() = *Closure(fn |+count| print(count.get()))
+  count.subscribe(+body)
+  count.set(1)               # → 1
+  count.set(7)               # → 7
+```
+
+This is the first userland Rig program that composes M25 +
+M26 + M27 substrate into a working reactive library. Per
+GPT-5.5's design lock: monomorphic `IntSource` only, no
+`Reactor`, no `Effect` wrapper, synchronous notify, no flush.
+The library is brutally explicit by design — its job was to
+PROVE the substrate composes, not to ship a polished API.
+
+**V1-deferred (revealed by rrlib v0):**
+
+- **M28: kwarg expected-type-propagation.** `*Cell(value: ...)`
+  inside an outer constructor's kwarg loses the expected type
+  at emit (lowers to anonymous struct literal). Workaround:
+  typed locals before the outer constructor (used in
+  `IntSource.new`).
+- **Multi-capture closures** (`fn |+a, +b| ...`). Parse error
+  in V1 grammar — single capture node only. Blocks the
+  cross-source cascade canary (`count → total → print`).
+- **Generic struct field substitution.** Emit's M27 helpers
+  use raw `f.ty` lookup (no substitution). Generic structs
+  with `type_var` field types (`Holder(T)` with `value: T`)
+  lose precision; userland workaround is monomorphic structs.
+  M20b's `lookupDataField` handles substitution via mutable
+  sema reference — emit can't use it without const-cast or
+  a refactor.
+- **Generic `self` resolution.** Inside generic method bodies,
+  `current_nominal_name` is "Self" — M27 doesn't try to
+  resolve that to a specific instantiation. Userland code in
+  generic method bodies that touches shared fields through
+  self may need workarounds.
+
+Tests: 1097 → 1103 passing.
+
 ### M26.1 — Reject discarded resource-typed expression-statements ✅
 
 Closes the one must-fix from GPT-5.5's M26 post-implementation
