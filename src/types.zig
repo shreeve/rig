@@ -3443,6 +3443,26 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
     };
 }
 
+/// M15b(3/5) per GPT-5.5 entry 39: cross-module visibility predicate.
+/// A foreign symbol is visible to importers if either:
+///   - it carries the `is_public` flag (declared with `pub`); or
+///   - it's an `extern` declaration (the FFI boundary is visible by
+///     virtue of being an extern; the safety bargain is enforced at
+///     the call site via the `raw` block requirement, not at the
+///     visibility layer); or
+///   - it's a runtime-registered builtin (Cell/Closure/Vec/Signal),
+///     which are visible in every module's scope by construction
+///     (`registerBuiltins`) and don't need `pub` to be reachable.
+///
+/// Per-module-built-in symbols are detected via their sentinel
+/// `decl_pos = builtin_decl_pos` (set by `registerBuiltins`).
+fn isCrossModuleVisible(sym: Symbol) bool {
+    if (sym.flags.is_public) return true;
+    if (sym.kind == .@"extern") return true;
+    if (sym.decl_pos == builtin_decl_pos) return true;
+    return false;
+}
+
 /// M15b per GPT-5.5 entry 39: re-intern a foreign TypeId into the
 /// local TypeStore. Walks the foreign type recursively; primitive /
 /// structural variants intern locally with mapped children; nominal
@@ -5971,6 +5991,13 @@ const ExprChecker = struct {
             const fsym = foreign.symbols.items[fsym_id];
             if (!std.mem.eql(u8, fsym.name, method_name)) continue;
 
+            // M15b(3/5): visibility enforcement at the call site.
+            if (!isCrossModuleVisible(fsym)) {
+                try self.err(name_pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module_name, method_name, module_name });
+                for (args) |a| _ = try self.synthExpr(a);
+                return self.ctx.types.unknown_id;
+            }
+
             switch (fsym.kind) {
                 .function => {
                     const foreign_fn_ty = foreign.types.get(fsym.ty);
@@ -6133,6 +6160,23 @@ const ExprChecker = struct {
         for (module_scope.symbols.items) |fsym_id| {
             const fsym = foreign.symbols.items[fsym_id];
             if (!std.mem.eql(u8, fsym.name, field_name)) continue;
+
+            // M15b(3/5) per GPT-5.5 entry 39: `pub` enforcement.
+            // Non-public symbols are invisible across module
+            // boundaries. The `is_public` flag is stamped by
+            // SymbolResolver when `(pub child)` wraps a decl;
+            // before M15b(3/5), the flag was set but never read.
+            //
+            // Visibility rule excludes a few categories that are
+            // implicitly visible: `extern` declarations (which
+            // expose the FFI boundary; visibility is enforced via
+            // the raw-block requirement instead), and builtins
+            // registered via `registerBuiltins` (which appear in
+            // every module's scope by construction).
+            if (!isCrossModuleVisible(fsym)) {
+                try self.err(pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module_name, field_name, module_name });
+                return self.ctx.types.unknown_id;
+            }
 
             // Nominal types: return `imported_nominal` with origin
             // tagging. The importer never confuses `a.Box` with a

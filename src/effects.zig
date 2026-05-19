@@ -456,6 +456,13 @@ pub const Checker = struct {
             const fsym = foreign.symbols.items[fsym_id];
             if (!std.mem.eql(u8, fsym.name, method_name)) continue;
 
+            // M15b(3/5): visibility precedes effect checks. If the
+            // foreign symbol isn't public (and isn't extern / built-
+            // in), the sema visibility diagnostic already fired;
+            // skip the effect checks to avoid double-diagnostics
+            // with conflicting wording.
+            if (!fsym.flags.is_public and fsym.kind != .@"extern") return;
+
             // Fallibility: walk the foreign function's return type for
             // the `.fallible` variant.
             if (fsym.kind == .function and !self.in_handle_context) {

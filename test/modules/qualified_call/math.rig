@@ -1,2 +1,2 @@
-fun add(a: Int, b: Int) -> Int
+pub fun add(a: Int, b: Int) -> Int
   a + b

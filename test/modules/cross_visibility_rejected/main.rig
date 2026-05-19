@@ -1,0 +1,10 @@
+# M15b(3/5) cross-module visibility canary. `a.internal_helper` is
+# NOT marked `pub`; calling it from another module must error.
+# Pre-M15b(3/5), the `is_public` flag was stamped at sema time but
+# never read by the lookup paths — `pub` was decorative across
+# module boundaries. This canary pins the fix.
+use a
+
+sub main()
+  y = a.internal_helper(5)
+  print(y)
