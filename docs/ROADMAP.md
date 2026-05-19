@@ -2896,6 +2896,158 @@ author sees the leak immediately.
 These remain on the M15b.2+ follow-up list in
 [`SPEC.md`](../SPEC.md#deferred-to-m15b2-under-active-follow-up).
 
+### M25 — User-defined Drop ✅
+
+Closes the substrate-unlock arc per GPT-5.5's M25 design lock
+(conversation `c_5c1d09d53ebe2f62`, M25 checkpoint). Plain-struct
+user `drop self: !Self` declarations are now fully wired end-to-
+end: sema validation, ownership generalization, and emit produce
+a working user-Drop pipeline that maintains the M22.1 fake-surface
+invariant at every committed sub-commit.
+
+**Why M25 is the substrate unlock.** Before M25, every struct
+that owned a `*Cell`, `Vec(T)`, or `*Closure()` either needed
+a manual cleanup call somewhere or silently leaked. The
+userland reactive library that Phase B is building toward
+(Reactor / Memo / Effect / batching / topology — see
+`docs/REACTIVITY-DESIGN.md`) needs structs with retained
+subscriber lists. Without user Drop OR auto-generated
+structural drop glue, those structs would leak.
+
+GPT-5.5's design correction during the M25 checkpoint named
+the structural drop glue specifically as load-bearing: a
+"user body only" implementation would not actually unlock the
+userland substrate. The combination — user body + compiler-
+generated `__rig_drop` that walks resource fields in reverse
+declaration order — is what makes M25 a real unlock.
+
+**Sub-commit ordering (locked by GPT-5.5 + shipped):**
+
+| Sub-commit | Scope | Commit |
+|---|---|---|
+| M25(1/5) | Grammar + IR scaffold (`drop` keyword, `(drop_decl ...)` Tag, parse + reserved-surface sema rejection) | `3dec94f` |
+| M25(2-4/5) | Sema validation + drop metadata, ownership generalization, emit (combined to maintain M22.1 invariant during the multi-sub-commit landing) | `5b5b3f8` |
+| M25(5/5) | Tests + docs sweep (this entry) | _this commit_ |
+
+**M25(2/5) — sema validation + drop metadata.**
+
+- New `SymbolFlags.has_drop_glue: bool` — substrate-level
+  classification. Set on a struct symbol when EITHER it has
+  a user `drop` decl OR any field has a resource type
+  (`shared`, `weak`, `Vec(T)`, `*Closure()`, or another
+  nominal already flagged).
+- New `Field.is_drop_method: bool` — distinguishes the user's
+  drop body from ordinary methods on the same `fields[]`
+  slice.
+- New `TypeResolver.resolveDropDecl` — validates the drop
+  declaration (exactly one per struct, `self: !Self`, no
+  other params, no return, no fallibility, structs only).
+- New `SymbolResolver.walkDropDecl` — opens body scope +
+  binds `self` so `self.field` reads inside the drop body
+  type-check correctly.
+- New `ExprChecker.walkDropDecl` — walks the body with
+  proper `NominalContext` + void return.
+- New `typeHasDropGlue(ctx, ty_id)` helper — recursive
+  resource-type predicate covering all the listed cases.
+- After resolving fields, set `has_drop_glue` on the struct
+  symbol if any field is resource-shaped or a user drop is
+  present.
+
+**M25(3/5) — ownership generalization.**
+
+- `Checker.checkSharedHandleAlias` extended: any `nominal`
+  or `parameterized_nominal` whose symbol carries
+  `has_drop_glue` triggers the bare-alias rejection.
+  Generalizes the existing M20d alias-discipline from the
+  hardcoded resource set to the substrate-classified set —
+  the load-bearing rule per GPT-5.5: "any type with drop
+  glue is non-Copy."
+- Diagnostic names the user struct and explains the failure
+  mode (two bindings would each run the destructor on scope
+  exit). Suggests `<x` move (no clone shape for user-Drop
+  types in V1; user Clone is its own deferred arc).
+
+**M25(4/5) — emit.**
+
+- `Emitter.emitStruct` calls `emitGeneratedDropIfNeeded`
+  after fields and methods. The generated body shape:
+  ```zig
+  pub fn __rig_drop(self: *Self) void {
+      self.__rig_user_drop();      // if user drop_decl
+      self.field_n.{drop_method}();  // reverse declaration
+      ...                            // order
+      self.field_1.{drop_method}();
+  }
+  ```
+- `Emitter.emitNominalMethods` handles `drop_decl` members,
+  emitting them as `pub fn __rig_user_drop(self: *Self) void`.
+  Body emission auto-discards `self` only when the body
+  doesn't reference it (Zig rejects both unused and
+  pointless-discarded params).
+- `Emitter.resourceKindOfBinding` recognizes nominals with
+  `has_drop_glue` and classifies them as `.vec_value` — the
+  existing ResourceKind already maps to `__rig_drop()` + the
+  M20e auto-drop machinery, so user-Drop structs ride the
+  existing path unchanged at the binding level.
+- `Emitter.isInteriorMutableBinding` extended so user-Drop
+  struct locals emit as `var` (the auto-drop defer takes
+  `*Self`, which requires a mutable binding).
+- New `dropMethodForResourceType` + `lookupFieldTypeByDeclPos`
+  helpers for the generated drop body.
+
+**M25(5/5) — tests + docs.**
+
+End-to-end regression coverage:
+
+| Fixture | Validates |
+|---|---|
+| `examples/drop_decl_reserved.rig` | User drop with `self.field` read in body |
+| `examples/struct_drop_basic.rig` | User drop + 1 resource field; full pipeline |
+| `examples/struct_drop_auto_glue.rig` | NO user drop; struct with resource field gets compiler-generated drop |
+| `examples/struct_drop_multi_field.rig` | Reverse-order field drops with multiple resources |
+| `examples/struct_drop_glue_alias_rejected.rig` | M25(3/5) bare-alias rule fires |
+| `examples/drop_decl_invalid_self_rejected.rig` | Receiver shape validation |
+| `examples/drop_decl_extra_param_rejected.rig` | Param-count validation |
+| `examples/drop_decl_duplicate_rejected.rig` | "Exactly one per struct" rule |
+| `examples/drop_decl_on_enum_rejected.rig` | V1-deferred enum Drop |
+| `examples/drop_decl_on_generic_rejected.rig` | V1-deferred generic Drop |
+
+Tests: 991 → 1035 passing, 0 failing.
+
+**Cell-non-Copy splits to M26.** Per GPT-5.5's design lock,
+`Cell(T)` for non-Copy T (the `Cell.set` replace semantics +
+`take` primitive) is its own arc with its own design
+checkpoint. M25 covers user-defined Drop on plain structs;
+M26 covers the Cell-non-Copy substrate that the userland
+reactive library needs alongside Drop.
+
+**V1 deferred from the M25 lock:**
+
+- Drop-body restrictions on consume-of-self / drop-of-resource-
+  field / assignment-to-resource-field. Requires ownership.zig
+  to walk struct method bodies (which it currently doesn't).
+  The load-bearing "any drop glue is non-Copy" rule already
+  prevents the most common footgun (cross-binding double-
+  drop); the in-body restrictions are a follow-up arc.
+- User-defined `Clone`. Lets users opt into a `+x` form for
+  their Drop types.
+- Optional-resource auto-drop (`Vec.pop() -> T?` for resource
+  T, etc.) — separate substrate topic.
+- Generic Drop (struct templates with type-var-resource
+  fields) — needs bounds analysis.
+- Enum / errors Drop — needs per-variant payload drop.
+- Auto-deref through member-access in method bodies — calling
+  `self.cell.get()` inside a drop body requires manual `.value`
+  insertion at the auto-deref point.
+
+**Substrate ladder impact** (`docs/INFLUENCES.md` §1): user
+Drop is a cross-cutting infrastructure piece that didn't fit
+neatly into the original layer model. Layer 7 (reactivity
+substrate) was already complete via `Signal(T)`; Layer 7's
+userland LIBRARY (the explicit `Reactor` / `Memo` / `Effect`
+work) was blocked on Cell-non-Copy + user Drop. M25 is the
+first half of that unblock; M26 (Cell-non-Copy) is the second.
+
 ### M20+ — V1 Substrate (reactivity-driven ordering)
 
 The remaining V1 substrate work is sequenced by the design note

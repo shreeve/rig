@@ -1,0 +1,23 @@
+# M25(5/5): auto-generated drop glue without a user `drop` body.
+#
+# `Reactor`-shaped struct that owns a `*Cell(Int)` field but has
+# no user-authored drop. The compiler still flips `has_drop_glue`
+# (the field is a resource), so emit generates a `__rig_drop`
+# that walks the field with `dropStrong()`. Without M25's auto-
+# generated glue, this struct would silently leak the cell.
+#
+# This is the "M25 unlock" half: every struct with resource fields
+# becomes drop-correct without the user having to write a manual
+# Drop body. Per GPT-5.5's design correction during the M25
+# checkpoint: auto-generated structural drop glue is what makes
+# M25 a real substrate unlock for userland reactive libraries.
+
+struct Reactor
+  count: *Cell(Int)
+
+sub main()
+  c: *Cell(Int) = *Cell(value: 0)
+  r: Reactor = Reactor(count: <c)
+  print(0)
+  # scope exit: r.__rig_drop() runs (compiler-generated;
+  # no user body), drops r.count via dropStrong(). Cell freed.

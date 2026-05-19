@@ -104,6 +104,13 @@ These are guardrails. Each has caused or threatened real harm.
   locked the position: `Reactor` / `Memo` / `Effect` / batching
   / topology are userland work. Substrate goes in the language;
   libraries go in user code. Matches Rust and Zig position.
+- **Don't bypass the "any type with drop glue is non-Copy"
+  rule (M25).** A struct with resource fields OR a user `drop`
+  declaration is non-Copy at the ownership layer. Bare alias /
+  assignment / call-arg is rejected; only `<x` move is the V1
+  multi-binding shape. New language features that introduce a
+  way to silently alias such values would re-open the double-
+  free hazard the rule prevents.
 - **Don't edit `src/parser.zig` by hand.** It's generated from
   `rig.grammar` via `zig build parser`.
 - **Don't skip the GPT-5.5 design checkpoint.** Rationale above.
@@ -119,14 +126,15 @@ These are guardrails. Each has caused or threatened real harm.
 Phase B is shipped (substrate ladder Layers 0–7, 982 tests
 passing). The next forward arcs are listed in `HANDOFF.md` §13:
 
-- **Category A — Substrate cleanup**: M15b.2, body-less
-  `extern fun`, `Closure1<T>` / `Closure2<A,B>` arity,
-  user-defined `Drop` / non-Copy resource values, legacy
-  global name-scan retirement.
+- **Category A — Substrate cleanup**: M15b.2 ✅ shipped,
+  M25 user-defined Drop ✅ shipped, body-less `extern fun`,
+  `Closure1<T>` / `Closure2<A,B>` arity, legacy global
+  name-scan retirement.
 - **Category B — Optional substrate extensions**:
-  `Cell`-non-`Copy`, Layer 8 structured concurrency,
-  Phase C reactive sugar, `pre` AST extraction,
-  persistent collections (conditional).
+  M26 `Cell`-non-`Copy` (the natural next arc, completes
+  the userland-reactive-library unblock alongside M25),
+  Layer 8 structured concurrency, Phase C reactive sugar,
+  `pre` AST extraction, persistent collections (conditional).
 - **Category C — V1.x tooling**: `rig sema --json` v0
   (stable, versioned semantic export). Smaller scope, no
   design checkpoint required (it's a projection over

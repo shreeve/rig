@@ -1,0 +1,1 @@
+(module (struct Reactor (: count (shared (generic_inst Cell Int)))) (sub main () _ (block (set _ c (shared (generic_inst Cell Int)) (share (call Cell (kwarg value 0)))) (set _ r Reactor (call Reactor (kwarg count (move c)))) (call print 0))))

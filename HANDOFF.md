@@ -1,11 +1,12 @@
-# Rig — Session Handoff (M15b.1 sema-honesty + scope correctness complete)
+# Rig — Session Handoff (M25 user-defined Drop complete)
 
-**You are picking up a Rig compiler session at the M15b.1 boundary.**
+**You are picking up a Rig compiler session at the M25 boundary.**
 **Phase B + the raw-escape boundary (M22) + the fake-surface
 floor-raising audit (M22.1) + the M22.1.1 runtime rename + the
 M15b cross-module sema (module honesty) + M15b.1 sema-time
-unbound-name detection + scope-correctness fixes are all
-shipped.** M20h (owned
+unbound-name detection + scope-correctness fixes + M15b.2
+public-API-leaks-private-type rejection + M25 user-defined
+Drop are all shipped.** M20h (owned
 escaping closures) + M20i (resource-aware Vec) + M20i.1
 (resource-Vec iteration via `for x in ?vec`) + M20i.1.1 (sema
 attribution table) + PB2 (single-subscriber Signal) + PB3(1/5)
@@ -13,20 +14,26 @@ attribution table) + PB2 (single-subscriber Signal) + PB3(1/5)
 `Signal(T)` with R2 reentrancy policy) + PB4 (R2 relaxed for
 set; library/substrate boundary locked) + M21 (`%T` unsafe /
 raw effect boundary) + M22 (rename `unsafe` → `raw`; drop
-fn-modifier; block-only enforcement) + **M22.1 (fake-surface
+fn-modifier; block-only enforcement) + M22.1 (fake-surface
 audit: H1 resource-temp leak fix + 5 reserved-surface
-retractions)** all shipped end-to-end. The reactive canary
+retractions) + **M25 (user `drop self: !Self` + auto-generated
+structural drop glue + "any drop glue is non-Copy" alias rule)**
+all shipped end-to-end. The reactive canary
 (`examples/reactive_canary.rig`) demonstrates the full Cell +
 closure + Vec-iteration + Signal chain producing
-`1\n3\n13\n7\n99\n111\n111`. **982 tests passing, 0 failing.
+`1\n3\n13\n7\n99\n111\n111`; M25's canaries
+(`examples/struct_drop_basic.rig` and friends) demonstrate
+user Drop end-to-end. **1035 tests passing, 0 failing.
 Clean tree on `main`.** The substrate ladder Layers 0–7 are
 all complete, the reactive primitive is in its V1 final form,
 the safety boundary uses a clean Rig-native `raw` block
-syntax, AND every accepted V1 surface form now has enforced
-semantics or a clean Rig sema rejection — no more
-parsed-but-not-enforced affordances. The next concrete action
-is a **Steve-driven choice from the remaining V1-blockers** —
-see §13 for the forward-arc menu.
+syntax, every accepted V1 surface form has enforced semantics
+or a clean Rig sema rejection, AND user-defined Drop closes
+the substrate-unlock half-step that gates a userland reactive
+library. The next concrete action is **M26 (Cell-non-Copy +
+replace/take)** — the second half of the userland Reactor
+unblock — or another **Steve-driven choice from the forward-
+arc menu** in §13.
 
 ---
 
@@ -236,6 +243,31 @@ Violating any of them will silently corrupt the substrate.
   if shaped identically. Sub-invariant: `unknown` may only exist
   as poison after a diagnostic, never as a silent success type.
   Bare-identifier use-site enforcement deferred to M15b.1.
+- **User Drop is plain-struct only in V1 (M25).** A struct's
+  `drop self: !Self` body is sema-validated for exactly-one-
+  per-struct, write-borrow receiver, no other params, no
+  return, no fallibility. The compiler ALSO emits auto-
+  generated structural drop glue for any struct that owns a
+  resource field (regardless of whether a user body is
+  present). Drop on `enum` / `errors` / `generic_type` /
+  `generic_enum` is V1-deferred (per-variant payload drop
+  and bounds analysis are separate substrate arcs). Drop-body
+  restrictions on consume-of-self / drop-of-resource-field /
+  assignment-to-resource-field are deferred — the load-bearing
+  "any drop glue is non-Copy" rule prevents cross-binding
+  double-free; the in-body restrictions need ownership.zig to
+  walk struct method bodies (a follow-up arc). User-defined
+  `Clone` for Drop types is also deferred; V1 has only `<x`
+  move and explicit `-x` discharge for has_drop_glue values.
+- **Any type with drop glue is non-Copy (M25).** Bare alias /
+  assignment / call-arg of a `nominal` or `parameterized_nominal`
+  whose symbol carries `has_drop_glue` is rejected at the
+  ownership layer. This generalizes the M20d alias-discipline
+  rule from the hardcoded resource set (`*T` / `~T` / `Vec` /
+  `*Closure()`) to the substrate-classified set (anything the
+  compiler tracks as having drop glue). Move (`<x`) is the
+  only V1 multi-binding shape; user Clone + `+x` shape is
+  deferred.
 - **No parsed-but-not-enforced surfaces (M22.1 invariant).**
   Every accepted V1 form has enforced semantics + working
   Rig lowering, OR is rejected at sema time with a Rig
@@ -926,12 +958,26 @@ NOT promises to ship.
     - **Closure-with-args** (M24: `Closure1<T>`,
       `Closure2<A,B>`) beyond no-arg `Closure()`. Required
       for any callback-based API that takes arguments.
-    - **User-defined `Drop` / non-Copy resource values**
-      (M25). Per GPT-5.5 entry 39: "the big one." Until
-      this lands, Vec resource get/pop, Cell-non-Copy,
-      Signal stack-local, and many other "honest
-      restrictions" stay deferred. They all point at the
-      same missing substrate layer.
+    - ~~**User-defined `Drop` / non-Copy resource values**
+      (M25)~~ ✅ **Landed in M25.** User `drop self: !Self`
+      declarations on plain structs work end-to-end:
+      sema validation (`resolveDropDecl` enforces the
+      receiver shape, exactly-one-per-struct, no return,
+      no fallibility, structs only); ownership generalizes
+      the M20d alias-discipline to all `has_drop_glue`
+      types ("any type with drop glue is non-Copy"); emit
+      produces a compiler-generated `__rig_drop` that calls
+      the user body (if any) then walks resource fields in
+      reverse declaration order. Auto-generated drop glue
+      fires even without a user body when the struct owns
+      resource fields — that's what makes M25 a real
+      substrate unlock for the userland reactive library.
+      See `docs/ROADMAP.md` §M25 for the full retrospective
+      and the V1-deferred follow-ups (drop-body restrictions,
+      user Clone, optional-resource auto-drop, generic /
+      enum Drop, auto-deref through member-access in method
+      bodies). Cell-non-Copy split to M26 per GPT-5.5's
+      design lock.
 
     Reserved (M22.1 retracted; sema-rejected with reserved
     diagnostic, design space preserved for V2+):
@@ -946,10 +992,19 @@ NOT promises to ship.
 
   **B. Optional substrate extensions** — these add language
        surface but aren't V1-blockers:
-    - **`Cell`-non-`Copy`** — replace/take/Drop semantics
-      for resource-typed Cells. Blocks userland Reactor /
-      Memo / Effect implementation; should land before users
-      build production reactive libraries on Rig.
+    - **`Cell`-non-`Copy` (M26)** — replace/take semantics
+      for resource-typed Cells. **Now the natural next arc
+      post-M25.** With user Drop in place, the userland
+      reactive library only needs the second half (Cell.set
+      that drops the old value, Cell.take that yields and
+      empties, Cell.replace that swaps and returns) to
+      become buildable. Per GPT-5.5's M25 design lock: this
+      is its own arc with its own design checkpoint —
+      `Cell.set(v)` for resource T, the optional-resource
+      semantics for `take`, the empty / taken state model,
+      the interaction with `*Cell(T)` interior mutation
+      through shared. Open the M26 design checkpoint with
+      GPT-5.5 before opening M26(1/n).
     - **Layer 8 (structured concurrency)** — scope-bound
       tasks, cancellation discipline. Prerequisite for safe
       async per INFLUENCES §1. PB3 + PB4 shapes generalize

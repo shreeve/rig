@@ -1568,6 +1568,141 @@ See `docs/INFLUENCES.md` §2 for the full mapping.
 
 ---
 
+# User-Defined Drop (M25)
+
+A struct may declare a single `drop` body that runs when an
+instance is destroyed. This is Rig's substrate-level cleanup
+hook: the user authors what happens *before* the struct's
+resource fields release, and the compiler walks resource
+fields automatically *after* the user body returns. The
+combination — user body + auto-generated structural drop glue
+— is the M25 substrate unlock; without it, every struct that
+owned a `*Cell`, `Vec`, or `*Closure()` would either need
+manual cleanup or leak.
+
+```rig
+struct File
+  fd: Int
+
+  drop self: !File
+    raw
+      close_fd(self.fd)
+```
+
+Surface rules (V1, locked per the M25 design checkpoint):
+
+- Exactly one `drop` declaration per struct.
+- Receiver must be `self: !Self` (write-borrow). Other
+  receiver shapes — `?Self`, by-value `Self`, missing `self`,
+  extra parameters — are rejected at sema time.
+- No return type (drop is total).
+- No fallibility on the body (drop cannot fail; cleanup that
+  *can* fail wraps internals in `raw` and panics or logs).
+- Cannot be marked `pub` / `extern` (drop is implicit in the
+  type's contract; visibility doesn't apply).
+- Plain structs only. `enum` / `errors` / `generic_type` /
+  `generic_enum` Drop is V1-deferred (per-variant payload
+  drop and bounds-aware monomorphized resource analysis are
+  separate substrate arcs).
+
+## Auto-generated structural drop glue
+
+A struct gets compiler-generated drop glue when EITHER it has
+a user `drop` declaration OR any of its data fields has a
+resource type. Resource fields include:
+
+- `*T` shared handles → released via `dropStrong()`.
+- `~T` weak handles → released via `dropWeak()`.
+- `Vec(T)` resource values → released via `__rig_drop()`.
+- `*Closure()` owned closures → released via `dropStrong()`
+  (since `*Closure` is a `*T` shared handle).
+- nominal structs already flagged with drop glue → released
+  via `__rig_drop()` (recursive case).
+
+The generated method has shape:
+
+```zig
+pub fn __rig_drop(self: *Self) void {
+    self.__rig_user_drop();      // only if user `drop` exists
+    self.field_n.{drop_method}();   // reverse declaration
+    ...                             // order — Rust's discipline
+    self.field_1.{drop_method}();
+}
+```
+
+Reverse declaration order ensures fields are released in the
+opposite order they were initialized — the last-constructed
+resource is the first-released, matching the natural
+acquire-then-release shape.
+
+## "Any type with drop glue is non-Copy" rule
+
+A struct flagged `has_drop_glue` is non-Copy. Bare alias /
+assignment / call-arg of such a value is rejected — two
+bindings would each run the destructor on scope exit
+(double-free). Move (`<x`) is required:
+
+```rig
+o1: Owner = Owner(cell: <c)
+o2: Owner = o1                # error: bare alias of `Owner`
+o2: Owner = <o1               # OK: explicit move
+```
+
+This generalizes the existing M20d alias-discipline rule from
+the hardcoded resource set (`*T` / `~T` / `Vec(T)`) to the
+substrate-classified set (anything with drop glue). Per the
+M25 design lock, this is the load-bearing ownership rule —
+without it, M25's auto-generated drop glue would let users
+silently corrupt refcounts.
+
+User-defined `Clone` is its own deferred arc; V1 has no `+x`
+clone shape for user-Drop types.
+
+## Auto-drop discipline
+
+A named binding of a `has_drop_glue` struct gets the M20e
+auto-drop guard: a `var __rig_alive_x: bool = true;` flag plus
+a scope-exit `defer` that calls `x.__rig_drop()` if the flag
+is still armed. Explicit discharges (`-x`, `<x`, `return x`)
+disarm the flag before the defer fires. Reassignment drops
+the previous handle and re-arms the flag for the new one.
+Same machinery as Vec / `*T` / `~T`; the user-Drop struct
+just rides the existing path.
+
+## What's deferred
+
+Per the M25 design lock (GPT-5.5 conversation
+`c_5c1d09d53ebe2f62`):
+
+- **Cell-non-Copy and `replace` / `take` semantics** — split
+  to a separate M26 arc. `Cell.set(v)` for resource T needs
+  to drop the old value before storing the new; the natural
+  `take` primitive needs an "empty / taken" state. That's
+  its own design checkpoint.
+- **Drop-body restrictions on consume-of-self / drop-of-
+  resource-field / assignment-to-resource-field.** The
+  load-bearing "any drop glue is non-Copy" rule prevents
+  cross-binding double-free; the in-body restrictions
+  (preventing `<self`, `-self.field`, `self.resource = X`)
+  are a follow-up arc that requires `ownership.zig` to walk
+  struct method bodies.
+- **User `Clone`.** Lets users opt into a `+x` form for
+  their Drop types. Without it, `<x` move is the only V1
+  multi-binding shape.
+- **Optional-resource auto-drop** (`Vec.pop() -> T?` for
+  resource T, `*T?` upgrades, etc.) — separate substrate
+  topic.
+- **Generic Drop** (`drop` on `type Box(T)` etc.) — needs
+  bounds / monomorphized resource analysis.
+- **Enum / errors Drop** — needs per-variant payload drop.
+- **Auto-deref through member-access in method bodies.**
+  Calling `self.cell.get()` inside a drop body currently
+  requires manual `.value` insertion at the auto-deref
+  point; emit's auto-deref logic for member-of-member
+  expressions is a follow-up.
+
+---
+
 # Function Calls
 
 Rig allows Ruby-style omitted parentheses.
