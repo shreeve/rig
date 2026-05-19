@@ -2,7 +2,7 @@
 
 **What this document is.** A snapshot of the external ideas and
 internal observations that have shaped — and continue to shape —
-Rig's design at the M20h/Phase B boundary. NOT a roadmap (that's
+Rig's design lineage as understood after the M20h closure substrate and updated through the post-PB4 / M30 shape. NOT a roadmap (that's
 `ROADMAP.md`), NOT a spec (that's `SPEC.md`), NOT a checklist
 (that's `CHECKLIST.md`). This file answers: *"Why does Rig lean
 the way it does?"*
@@ -42,9 +42,9 @@ the former is healthy, the latter would be drift.
    (Spoiler: Nexis solves that by bringing its own GC. Rig
    can't.)
 
-This file should be re-read before the M20i checkpoint, the
-eventual async-design milestone, and any "should we bring in
-persistent collections?" conversation.
+This file should be re-read before any async-design milestone,
+any persistent-collections design conversation, or any proposal
+that would weaken Rig's visible-effects / ownership-first thesis.
 
 ---
 
@@ -126,24 +126,33 @@ sitting in the hierarchy:
   be audited at every layer; not a foundation rung.
 - **`@` / pin** (currently reserved) — side prerequisite to
   async; will become load-bearing alongside Layer 9.
-- **User-defined `Drop`** — M20d/M20e implement
-  resource-specific drop for Rig-owned runtime handles.
-  General Drop remains deferred and will matter before
-  arbitrary non-Copy resources become first-class.
+- **User-defined `Drop`** — M25 made plain-struct
+  `drop self: !Self` real, with generated structural drop
+  glue for structs containing resource fields. Drop remains
+  cross-cutting rather than a ladder rung because every
+  ownership-aware feature must preserve exactly-once cleanup.
 
 ### Where we are now
 
-Layer 5 shipped (M20h, commits `f4b448c..1c86aca`). Layer 6
-shipped (M20i, commits `4675fca..d6d6c83`). Layer 7 is
-**half-shipped**: PB2 single-subscriber `Signal(T)`
-primitive landed (commits `5918a15..ea91145` + docs);
-multi-subscriber generalization (PB3) is gated on resource-
-Vec iteration (M20i.1 / M20j), which is the next concrete
-substrate frontier. The reactive canary now demonstrates
-the full PB0 + M20g + M20h + PB2 chain end-to-end
-(`examples/reactive_canary.rig`, output `1\n3\n13\n7\n99`).
-Layers 8 and 9 are deferred — they're designed only after
-Phase B exposes what they actually need to solve.
+Layers 0–7 are shipped through the Phase B substrate: ownership,
+Rc/Weak, auto-drop, Cell, explicit closure captures, heap-owned
+closures, resource-aware Vec, and the reactive substrate are all
+present. The PB4 userland/substrate boundary is locked: the core
+runtime provides the small primitives, while the reactive library
+builds the higher-level Source / Effect shape in userland.
+
+The post-M20h follow-on substrate also shipped: user-defined Drop
+(M25), Cell over resource values plus `replace` (M26),
+member-access auto-deref for shared handles in method bodies
+(M27), multi-capture closures (M28), closure literals without
+the leading `fn` (M29), and `fun(...)` as the unified function
+type spelling with `fn` removed from Rig (M30).
+
+The reactive cascade canary is running, including the
+cross-source `count → total → print` shape that originally
+motivated the M28–M30 cleanup. Layers 8 and 9 remain deferred:
+structured concurrency and async are still future design arcs,
+not Phase B commitments.
 
 ### A note about "lifetimes"
 
@@ -279,8 +288,9 @@ ABI (`Closure0` vtable, type erasure via `*anyopaque`,
 `__rig_drop`-on-last-strong) is a solid foundation to extend,
 not a sketch to throw away.
 
-**Action**: add a short retrospective paragraph to SPEC §Owned
-Closures noting the stored-partial-execution framing.
+The SPEC consequence is narrow: owned closures should be
+understood as the zero-suspension case of stored execution
+context. That is design rationale, not an async commitment.
 
 ---
 
@@ -357,13 +367,13 @@ Clojure principle is just to lean on it.
 ### Defer — interesting, NOT in immediate scope
 
 **Persistent collections (CHAMP / radix trie).** See §7 below
-for the long form. Short version: these are a target, NOT
-M20i. The path from "we want Vec for subscribers" to "we ship
-CHAMP-backed PersistentVec" goes through a non-trivial design
-(Cell non-Copy relaxation, refcount-aware node lifetime,
-element drop discipline). M20i should design the
-**minimal resource-aware container** for Phase B first;
-persistent collections can be M20j+ or never.
+for the long form. Short version: these remain a possible future
+target, not part of the shipped Phase B substrate. The path from
+"subscriber lists work" to "Rig ships CHAMP-backed persistent
+collections" still requires a real ownership design: refcounted
+nodes or another explicit lifetime model, element-drop discipline,
+and a performance story that beats the simpler mutable Vec shape
+for real Rig workloads.
 
 **Lazy sequences / transducers.** Post-V1. They compose
 beautifully with persistent collections, but neither one is a
@@ -402,7 +412,7 @@ boundaries (`!x`, `<x`, `Cell.set`, `-x`).
 
 | Clojure / Nexis influence | Rig action |
 |---|---|
-| Persistent collections (CHAMP, plain trie) | Target for M20j+, after resource-aware Vec ships and Phase B exposes the actual need |
+| Persistent collections (CHAMP, plain trie) | Future target only if Phase B/userland patterns justify the ownership and refcount cost |
 | Transients / builders | Consider alongside persistent collections |
 | Immutability culture | Style + idiom now; no surface flip |
 | `seq` as central abstraction | Defer; revisit if persistent collections land |
@@ -583,60 +593,35 @@ take/adapt/reject discipline is worth keeping.
 
 ---
 
-## 8. The M20i pivot (the most concrete consequence)
+## 8. The M20i pivot, in retrospect
 
 Pre-digest, Claude's M20i lean was: "builtin mutable `Vec(T)`
-parallel to Cell, for subscriber lists." The digest pushed
-toward "persistent Vec first."
+parallel to Cell, for subscriber lists." The digest pushed toward
+"persistent Vec first."
 
-**Post-review position: persistent first is wrong. M20i remains
-resource-aware mutable Vec.**
+The post-review decision was correct: **M20i shipped the minimal
+resource-aware mutable Vec**, not CHAMP or PersistentVec. That
+kept Phase B focused on the concrete substrate it needed:
+subscriber storage with correct handling for resource elements,
+rather than importing the full Clojure persistent-collection
+problem before Rig had evidence that structural sharing mattered.
 
-GPT-5.5's pushback on the "PersistentVec first" lean was
-detailed and persuasive (and confirmed by the Nexis review):
+The lesson is still useful beyond M20i:
 
-1. **PersistentVec drags in too much.** CHAMP + vector trie
-   code + Cell-non-Copy relaxation + per-node refcount + element
-   drop discipline. Phase B doesn't need any of that yet.
-2. **The performance constants are bad for small lists.** A
-   subscriber list with 3 effects doesn't benefit from
-   structural sharing. The trie overhead dominates.
-3. **It conflicts with Cell-Copy-only.** Putting a
-   PersistentVec inside `*Cell(...)` requires relaxing Cell to
-   non-Copy types, which is itself a substantial substrate
-   change (needs replace/take/drop semantics).
-4. **The "no memcpy on resize" claim is misleading.**
-   Persistent collections still drop element handles when
-   their containing node hits refcount zero. We've replaced
-   "memcpy on resize" with "graph-walk on drop". Different
-   work, not less work.
+```text
+Ask: "What is the smallest ownership-correct substrate needed
+for the current semantic pressure?"
 
-**The cleaner M20i shape**:
-
-```
-M20i = resource-aware mutable Vec(T)
-       with a narrow API: push / pop / len / get / clear / iter
-       and explicit policies for what push consumes
-       (move-into vs clone-into) and how drop cascades.
+Not: "What mature external abstraction could eventually cover
+this whole design space?"
 ```
 
-GPT-5.5's framing for the M20i checkpoint:
-
-> **Ask: "What is the smallest resource-aware container needed
-> for subscriber lists?"**
->
-> **Not: "Do we implement Clojure collections now?"**
-
-Persistent collections can be M20j or M21 — after the mutable
-Vec ships and we've inspected whether the structural-sharing
-benefit is actually visible in Phase B's notification path.
-
-**Open question for the M20i checkpoint**: weak vs strong
-storage of subscribers. `Vec(~Effect)` (weak) lets the
-subscriber's owner control its lifetime; `Vec(*Effect)`
-(strong) keeps subscribers alive as long as the publisher
-exists. Phase B's design likely wants weak — explore at the
-checkpoint.
+Persistent collections remain an influence, not a commitment.
+If Rig eventually wants snapshot-safe notification or immutable
+collection ergonomics, that design starts from Rig's ownership
+constraints — node ownership, element drop, sharing cost, and
+possibly region/epoch lifetimes — not from directly porting
+Nexis's GC-backed implementation.
 
 ---
 
@@ -649,20 +634,20 @@ From the digest's closing five:
 **Yes, conditionally.** The condition is that each layer must
 be honest about what it permits:
 
-- **Ownership** (done through M20h) is solid. Rc + Weak + scope
-  defers + owned closures form a coherent substrate.
-- **Reactivity** (M20i + PB2/PB3) must stay **strictly
-  synchronous**. Push-based notification, no deferred
-  callbacks, no async-shaped subscribers. The moment
-  reactivity smuggles in async-flavored callbacks, the
-  safety story splinters because async safety hasn't been
-  designed yet.
-- **Structured concurrency** is the next layer above reactivity:
-  scope-bound tasks, automatic cancellation propagation,
-  no orphan tasks. This can be designed before async (Trio /
-  Anyio model from Python; structured nurseries).
-- **Async** ships LAST. The four problems below it (ownership,
-  reactivity, structured concurrency) must be done first.
+- **Ownership** is solid through the current substrate arc:
+  Rc + Weak + scope defers + owned closures + user Drop +
+  resource-aware containers form a coherent base.
+- **Reactivity** is intentionally **synchronous** in the shipped
+  Phase B shape. The cascade canary validates push-based
+  notification without smuggling in async-shaped callbacks.
+- **Structured concurrency** remains the next conceptual layer
+  above reactivity: scope-bound tasks, automatic cancellation
+  propagation, no orphan tasks. This is still deferred design
+  work.
+- **Async** still ships last. The problems below it — ownership,
+  cancellation structure, suspension-state layout, poll/wake,
+  pinning, and per-state drop — must be designed honestly before
+  Rig commits to async syntax or ABI.
 
 Skipping a layer = importing complexity prematurely.
 
@@ -682,10 +667,9 @@ the union for the frame.
 
 ### Q3. What's the minimum viable CHAMP-backed persistent collections needed before reactivity becomes pleasant?
 
-**Zero.** Phase B can be built on resource-aware mutable Vec
-(M20i). The persistent-collection question is "do we want
-snapshot-safe notification?" — and the answer is "maybe,
-later, after we've seen Phase B's actual notification path."
+**Zero.** Phase B has been built without CHAMP-backed persistent
+collections. Resource-aware mutable Vec was sufficient for the
+reactive substrate and the cascade canary.
 
 If we ever do want them:
 
@@ -751,9 +735,10 @@ These are the rules INFLUENCES.md is committing to memory:
 
 6. **STM never.** No exceptions.
 
-7. **Persistent collections are post-M20i and conditional.**
-   Only ship them if Phase B's actual notification pattern
-   shows snapshot-iteration is worth the per-node refcount cost.
+7. **Persistent collections are future-only and conditional.**
+   Only ship them if real Rig code shows snapshot iteration,
+   immutable collection ergonomics, or structural sharing is
+   worth the node-ownership and refcount/drop cost.
 
 8. **A sigil may be reused across positions only if each
    position has one unambiguous meaning.** This preserves the
@@ -785,39 +770,48 @@ These are the rules INFLUENCES.md is committing to memory:
 
 ---
 
-## 11. What this means for the current arc
+## 11. What carried forward
 
-Concrete actions falling out of this document:
+The durable consequence of the M20h–PB4 arc is not a TODO list;
+it is a design bias:
 
-| Action | Where | Status |
-|---|---|---|
-| Add stored-partial-execution retrospective paragraph | `SPEC.md` §Owned Closures (M20h) | TODO when SPEC next touches |
-| M20i checkpoint focuses on minimal resource-aware container, NOT CHAMP | `HANDOFF.md` Minute-2 block + M20i checkpoint scope | TODO at checkpoint |
-| Future async arc preview (deferred, NOT roadmap commitment) | `HANDOFF.md` "Future arcs" section | TODO this commit |
-| Style-guide leans toward `=!` for non-mutated bindings | Future style guide doc | TODO post-Phase B |
-| Persistent collections explicitly demoted to M20j+ in roadmap | `ROADMAP.md` M20+ list | TODO this commit |
+- Prefer the smallest substrate that makes the relevant effect
+  explicit.
+- Treat external systems as evidence, not destiny.
+- Keep reactivity synchronous until async has its own ownership,
+  cancellation, suspension, and pinning story.
+- Let userland libraries validate pressure before promoting a
+  pattern into core language or runtime substrate.
+- Preserve Rig's visible-effects thesis even when borrowing
+  ideas from languages with very different runtime assumptions.
 
 ---
 
-## 12. Zag and Nexus — the grammar substrate
+## 12. Zag and Nexus — the grammar substrate, not the runtime model
 
 Rig's V1 surface is not a clean-room design. The grammar
 plumbing — indentation-aware lexing, the rewriter machinery,
 token shapes, the basic parser scaffolding for declarations,
 control flow, expressions, and patterns — was inherited from
 **Zag**, Steve's prior systems-language work, generated through
-**Nexus**, the sister LR parser generator project. The grammar
-file (`rig.grammar`) is the authoritative source for what parses;
-the lexer (`src/rig.zig`) is authoritative for token
-classification; `SPEC.md` is authoritative for the novel Rig
-layer (sigils, bindings, `pre`, propagation, ownership-aware
-iteration, ownership / effects checking). If the grammar and
-SPEC ever drift, SPEC wins.
+**Nexus**, the sister LR parser generator project. Nexus here is
+the parser-generator lineage, not Nexis, the Clojure-on-Zig
+runtime discussed in §7. The grammar file (`rig.grammar`) is the
+authoritative source for what parses; the lexer (`src/rig.zig`)
+is authoritative for token classification; `SPEC.md` is
+authoritative for the novel Rig layer (sigils, bindings, `pre`,
+propagation, ownership-aware iteration, ownership / effects
+checking). If the grammar, lexer, and SPEC ever drift, the drift
+is a bug: the grammar/lexer define what currently parses, while
+SPEC defines the intended Rig language facts that should drive
+the fix.
 
 Rig's contribution sits on top of the inherited surface:
 
-- The nine ownership sigils (`<x`, `?x`, `!x`, `+x`, `-x`, `*x`,
-  `~x`, `@x`, `%x`).
+- The visible effect / ownership sigil family (`<x`, `?x`, `!x`,
+  `+x`, `-x`, `*x`, `~x`, `@x`, `%x`), including ownership,
+  borrow, clone, drop, shared/weak, pin-reserved, and raw/unsafe
+  access forms.
 - `pre` replacing Zag's `comptime` keyword.
 - `<-` move-assign sugar.
 - `new x = ...` explicit-shadow form.
@@ -825,13 +819,13 @@ Rig's contribution sits on top of the inherited surface:
   versus `T?` / `T!` optional / fallible suffix types — the
   `?` / `!` triangle that disambiguates Zag's overloaded use.
 
-Things deliberately stripped from Zag, so a Rig reader doesn't
-look for them and wonder:
+Things not inherited or deliberately not adopted, so a Rig reader
+doesn't look for them and wonder:
 
-- `var` / `const` / `let` / `:=` binding keywords — never existed
-  in Zag's grammar; Rig didn't add them. Rig uses `name = expr`
-  for default binding, `name =! expr` for fixed, and
-  `new name = expr` for explicit shadow.
+- `var` / `const` / `let` / `:=` binding keywords — not part of
+  the inherited Zag grammar and not added by Rig. Rig uses
+  `name = expr` for default binding, `name =! expr` for fixed,
+  and `new name = expr` for explicit shadow.
 - `comptime` keyword — renamed to `pre`, no alias.
 - Trailing-`?` predicate identifiers (`valid?`) — would collide
   with the `T?` optional-suffix; convention is `is_valid`.
@@ -873,42 +867,45 @@ captures the lineage and the deltas without the maintenance tax.
 
 These are not answered above; they are deliberately left open.
 
-1. **When does the M20i decision get revisited as "we DO want
-   persistent collections"?** Answer probably comes from Phase
-   B's actual notification path (PB2/PB3). Watch for: cases
-   where mid-iteration mutation in the subscriber list causes
-   real bugs vs. theoretical ones.
+1. **When, if ever, do persistent collections become worth their
+   ownership cost?** Phase B did not require them. Future evidence
+   would need to come from real snapshot-iteration bugs,
+   immutable collection ergonomics, or structural-sharing wins
+   large enough to justify refcounted nodes or another explicit
+   lifetime model.
 
-2. **How does Cell relax to non-Copy without breaking M20f's
-   V1 contract?** This is a near-term substrate question
-   (GPT-5.5 flagged it). Needs replace/take/drop semantics.
-   May be a precondition for persistent collections, or may
-   ship independently when an example demands it.
+2. **What's the right structured-concurrency model?** Trio-style
+   nurseries? Kotlin-style coroutine scopes? Go's bare goroutines
+   plus `context.Context`? This is the layer between synchronous
+   reactivity and async. It deserves a dedicated design checkpoint
+   after the current userland-reactive-library pressure is better
+   understood.
 
-3. **What's the right structured-concurrency model?** Trio-style
-   nurseries? Kotlin-style coroutine scopes? Go's bare
-   goroutines + context.Context? This is the layer between
-   reactivity and async. Worth a dedicated design checkpoint
-   when Phase B is done.
+3. **Should `pre` ever grow into a macro system?** Clojure-style
+   macros operate on Forms. Rig doesn't have a Form-level reader;
+   it has a grammar and typed lowering. A macro system would be
+   a substantial design milestone, not a small extension of
+   `pre`.
 
-4. **Should `pre` (compile-time evaluation) ever grow into a
-   macro system?** Clojure-style macros operate on Forms. Rig
-   doesn't have a Form-level reader — it has a grammar. A
-   macro system would be a substantial design milestone.
-   INFLUENCES.md flags it; no commitment.
+4. **What exact pin model does `@` eventually encode?** It is
+   reserved today. Async or self-referential frame work would
+   make it load-bearing, but the language should not commit to
+   pin semantics until the suspension-state design exists.
 
-5. **What's Rig's story for `Drop`?** Currently auto-drop fires
-   via M20e defer-guards on `*T` / `~T`. User-defined Drop
-   (run code at last-strong-drop on a user-defined type) is
-   deferred. The `__rig_drop` runtime hook from M20h is
-   already extensible to user Drop when we get there.
+5. **What should tool-facing semantic export look like?** The
+   AI/tooling claim depends on exposing Rig's semantic Tags
+   cleanly, not on repositioning Rig as an "AI language."
+   `rig sema --json`-style output remains the natural direction,
+   but the exact boundary belongs in a future tooling design.
 
 ---
 
-*Document version: 1.0 — 2026-05-17. Reviewed with GPT-5.5
+*Document version: post-PB4 / post-M30 refresh. Original
+lineage pass: 2026-05-17, reviewed with GPT-5.5
 (`c_5c1d09d53ebe2f62` entry 21). Nexis review pass: file walk
 through `champ.zig` / `vector.zig` / `transient.zig` /
-`gc.zig` / `CLOJURE-REVIEW.md` / `PLAN.md` (intro).*
+`gc.zig` / `CLOJURE-REVIEW.md` / `PLAN.md` (intro). Zag/Nexus
+lineage summary added after retiring `docs/INHERITED-FROM-ZAG.md`.*
 
 *Companion to `SPEC.md` (language facts), `ROADMAP.md`
 (commitments), `CHECKLIST.md` (milestone tracking),

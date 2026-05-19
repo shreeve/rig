@@ -1,9 +1,10 @@
-# Rig — Session Handoff (M29 drop-fn — closure literals are now bare-bars)
+# Rig — Session Handoff (post-M30 / PB4 — `fn` fully removed)
 
-**You are picking up a Rig compiler session at the M29 boundary —
-closure literals dropped the `fn` keyword; capture bars `|...|`
-are the only marker, matching Rig's 3-letter-keyword family by
-removing the 2-letter outlier.**
+**You are picking up a Rig compiler session after M30 and PB4.
+Closure literals are bare bars (`|...| body`), function-type
+expressions use `fun`, and `fn` is fully removed from Rig. PB4
+ships reentrant `Signal.set` queueing/coalescing and locks the
+V1 boundary: reactive libraries stay in userland.**
 **Phase B + the raw-escape boundary (M22) + the fake-surface
 floor-raising audit (M22.1) + the M22.1.1 runtime rename + the
 M15b cross-module sema (module honesty) + M15b.1 sema-time
@@ -51,16 +52,12 @@ uses a clean Rig-native `raw` block syntax, every accepted V1
 surface form has enforced semantics or a clean Rig sema
 rejection, AND the userland reactive library v0 is running.
 The substrate has proven itself end-to-end for both single-source
-and cross-source reactive patterns. **All Layer 7.x's are now
+and cross-source reactive patterns. **All Layer 7.x work is now
 complete** (7 reactivity substrate, 7.5 user Drop, 7.6
 Cell-non-Copy, 7.7 auto-deref through member-access + rrlib v0,
-7.8 multi-capture closures + cascade canary). The remaining
-substrate gaps for full userland reactive ergonomics are
-**M29 (kwarg expected-type-propagation)** and **M30 (generic
-`Source(T)` / generic member-chain substitution)** — neither
-is a hard blocker; both have workarounds documented inline.
-The next concrete action is **Steve's choice from the forward-
-arc menu** in §13.
+7.8 multi-capture closures + cascade canary, plus M29/M30 syntax
+cleanup). The next concrete action is **Steve's choice from the
+forward-arc menu** in §13.
 
 ---
 
@@ -88,17 +85,15 @@ arc menu** in §13.
   builtin classification + extern-call-FFI-boundary
   enforcement preserved.
 - **Next concrete action**: **Steve-driven choice from the
-  remaining V1-blockers** in §13. With M22.1 done, the
-  "fake-surface" hazard class is closed; the remaining
-  must-have V1 items per GPT-5.5 entry 32 (+ entry 39's
-  capability-hole audit) are: M15b cross-module signature
-  import, body-less `extern fun` declarations (real FFI
-  ergonomics), closure-with-args (`Closure1<T>`,
-  `Closure2<A,B>`), user-defined `Drop` / non-Copy resource
-  values, legacy global name-scan cleanup. Plus Cell-non-Copy
-  / Layer 8 / Phase C as optional substrate extensions.
-  `try_block` is now an explicit V2+ deferral (sema-rejected
-  with a clean diagnostic), not a placeholder.
+  remaining forward-arc menu** in §13. The remaining Category A
+  cleanup items are body-less `extern fun` / `extern sub`
+  declarations, closure arity (`Closure1(T)`, `Closure2(A, B)`),
+  and legacy global name-scan retirement. Category B contains
+  optional substrate extensions such as Layer 8 structured
+  concurrency, Phase C reactive sugar, `pre` AST extraction,
+  and conditional persistent collections. Category C is the
+  V1.x tooling/export layer. `try_block` remains an explicit
+  V2+ deferral, sema-rejected with a clean diagnostic.
 - **Cadence (non-negotiable)**: design checkpoint with GPT-5.5
   via `user-ai` MCP → implement in 3–5 sub-commits (M5-style:
   `Mxx(n/total)`) → post-implementation review → commit.
@@ -112,8 +107,8 @@ arc menu** in §13.
 
 ```bash
 git pull --ff-only
-git log -1 --format='%h %s'        # most recent commit; at/after M22.1
-./test/run 2>&1 | tail -3          # should say "982 passed, 0 failed"
+git log -1 --format='%h %s'        # most recent commit; at/after M30/PB4
+./test/run 2>&1 | tail -3          # should say "1113 passed, 0 failed"
 bin/rig run examples/reactive_canary.rig    # 1\n3\n13\n7\n99\n111\n111
 bin/rig run examples/signal_multi_subscriber.rig  # 0\n111\n222
 bin/rig check examples/raw_outside_rejected.rig   # error msg
@@ -136,8 +131,8 @@ bin/rig check examples/raw_outside_rejected.rig   # error msg
 1. This file's TL;DR + Non-negotiable invariants below (~5 min)
 2. `docs/INFLUENCES.md` §1 (the substrate ladder — the
    conceptual map of where every milestone fits) (~5 min)
-3. ROADMAP.md most-recent entries (PB3, M20i.1.1, M20i.1, PB2)
-   (~10 min)
+3. `docs/ROADMAP.md` most-recent entries (M30, PB4, M29,
+   M28, M27, M26) (~10 min)
 4. `docs/REACTIVITY.md` (Phase B design north star)
    (~15 min)
 5. `examples/reactive_canary.rig` + `signal_multi_subscriber.rig`
@@ -147,27 +142,19 @@ bin/rig check examples/raw_outside_rejected.rig   # error msg
 **Then do**:
 
 - Wait for canary pressure or a Steve-driven design decision
-  before opening the next arc. Phase B is complete; the three
-  forward paths (PB4 / Phase C / Layer 8) are all unblocked,
-  but Q1-Q5's "canary first" discipline says don't pre-empt
-  the design space.
-- If Steve picks **PB4** (Reactor / Memo / Effect / batching),
-  the design checkpoint will need to cover: Reactor as runtime
-  type vs ambient context (D9 of REACTIVITY was "defer
-  language mechanism, libraries pass explicitly"); Memo's
-  deps-list shape (explicit vs `pre`-extracted per D8); Effect
-  lifecycle (unregister-on-drop needs the unsubscribe primitive
-  PB3 deferred); batching policy (snapshot vs queue — the R3/R4
-  alternatives GPT-5.5 set aside in PB3 entry 29 may resurface).
-- If Steve picks **Phase C** (sugar `:=` / `~=` / `~>`), the
-  lowering is locked per REACTIVITY's sugar mapping; the
-  open questions are `pre`-time AST extraction (D8) and whether
-  scoped-context (D9 Reactor) lands at the language level.
-- If Steve picks **Layer 8 / async**, the open question is pin
-  discipline (M20+ deferred per INFLUENCES §1's lifetime note)
-  and how `Future<T>` derives from PB3's shape — same waiter-
-  list + value slot + notify-once shape, with resolve-once
-  semantics instead of repeated set.
+  before opening the next arc. Phase B is complete, PB4 is
+  shipped, and the V1 boundary is locked: substrate in the
+  language, reactive library in userland.
+- If Steve picks **Category A substrate cleanup**, scope the
+  design checkpoint around one narrow item: body-less
+  `extern fun` / `extern sub`, closure arity, or legacy
+  global name-scan retirement.
+- If Steve picks **Category B substrate extension**, the live
+  choices are Layer 8 structured concurrency, Phase C reactive
+  sugar, `pre` AST extraction, or conditional persistent
+  collections. Async remains downstream of structured
+  concurrency, state-machine lowering, poll/wake ABI, pin
+  discipline, cancellation, and executor design.
 
 ---
 
@@ -182,8 +169,12 @@ Violating any of them will silently corrupt the substrate.
 - **`*T` auto-deref is read-only.** Write-through-shared
   requires an interior-mutability primitive (Cell-style or
   Signal-style trusted runtime).
-- **Cell(T) is Copy-only.** Non-Copy `Cell(T)` is deferred
-  until replace/take/Drop semantics land.
+- **Cell(T) accepts Copy primitives OR drop-glue T (M26).**
+  For drop-glue T, `set(<new)` drops the old value before
+  storing, `replace(<new) -> T` byte-moves the old value out
+  and yields it to the caller, `__rig_drop` cascades through
+  `dropElement`, and `get()` / `cell.value` are rejected
+  because they would alias a resource.
 - **Owned closures are `*Closure()` no-arg void only.**
   Arity-bearing closures (`Closure1<T>`, etc.), return types,
   and fallible callbacks are all deferred.
@@ -209,8 +200,9 @@ Violating any of them will silently corrupt the substrate.
 - **Reactive library (`Reactor` / `Memo` / `Effect` /
   batching / topology) is USERLAND work, NOT future
   builtins.** Locked in PB4 (GPT-5.5 entry 33) — matches
-  Rust/Zig position. Blocked on `Cell`-non-`Copy` for the
-  natural shape.
+  Rust/Zig position. M26 removed the `Cell`-non-`Copy`
+  blocker, and M27/M28 proved the userland reactive-library
+  shape end-to-end.
 - **`%x` raw access requires a `raw` block.** Block-only;
   no function-modifier. Diagnostic names the operation. M22.
 - **`@builtin(...)` is default-unsafe.** Only the explicit
@@ -383,7 +375,7 @@ Authoritative project docs, in order of importance:
 | `SPEC.md` | Language spec. §Owned Closures (M20h), §Resource-aware containers via Vec(T) (M20i), §Reactive primitive Signal (PB2), §Cell, §Lambdas. |
 | `docs/ROADMAP.md` | Milestone history (M0 → PB2 done). Each shipped milestone has a dedicated section with sub-commit table + locked design decisions. |
 | `docs/IR.md` | Sema IR shape. What the grammar emits, what the checker walks. |
-| `rig.grammar` | Nexus grammar. **Conflict count: 69.** |
+| `rig.grammar` | Nexus grammar. **Conflict count: 75.** |
 
 Codebase highlights:
 
@@ -689,8 +681,9 @@ review → commit. Polish from the review ships as `Mxx.1`.
 
 Persistent conversation ID: **`c_5c1d09d53ebe2f62`**
 
-Compressed history (25 entries; ~$20 total spend across all
-arcs). Each numbered entry is a logical exchange:
+Compressed history (40+ logical entries across the M20+,
+Phase B, raw-boundary, module-honesty, Drop/Cell, and syntax-
+cleanup arcs). Each numbered entry is a logical exchange:
 
 1. **M20a thesis review** — Rig's three philosophical tensions
 2. **Reactivity design discussion** — Q1-Q5 Phase B scoping pre-locked
@@ -749,14 +742,14 @@ NOT promises to ship.
 
 - **Async via `^` sigil**. Plausible spellings: `^expr`
   (await), `^T` (Future<T>). NOT `expr^`. See INFLUENCES §4.
-- **Structured concurrency**. Layer 8. Designed after Phase B.
-- **CHAMP-backed persistent collections**. Nexis project shows
-  what this costs on Zig (requires GC, which Rig doesn't have).
-  Conditional on PB3 actually needing snapshot-iteration.
-- **User-defined `Drop`**. The M20h `__rig_drop` runtime hook
-  is already extensible to user types.
-- **Cell-non-Copy relaxation**. Conditional — may never be
-  needed if Reactor stays an owned mutable object.
+- **Structured concurrency**. Layer 8. Designed before safe
+  async, with scope-bound tasks and cancellation discipline.
+- **CHAMP-backed persistent collections**. Conditional only if
+  they can be designed without violating Rig's no-GC rule.
+- **Phase C reactive sugar**. Optional Rip-style ergonomics
+  over the shipped userland-reactivity substrate.
+- **`pre` AST extraction**. Optional compile-time substrate for
+  derive-style tooling / auto-tracking experiments.
 
 ---
 
@@ -779,7 +772,7 @@ NOT promises to ship.
    built-in types.
 7. **Don't skip the GPT-5.5 review loop.** It catches real
    bugs (UAFs, leaks) that would otherwise ship.
-8. **Conflict count 69 is intentional.** If it changes,
+8. **Conflict count 75 is intentional.** If it changes,
    revert and reconsider.
 
 ### Closure / Vec / Signal-specific
@@ -816,11 +809,12 @@ NOT promises to ship.
 9. **`vec_for_notify.rig` is the M20i.1 exit gate.** Don't
    break it without checkpoint approval — it's the multi-
    subscriber PB3 substrate test.
-10. **PB3 Signal is non-reentrant (R2 strict).** Calling
-    `set` or `subscribe` during an active notification
-    panics. The `notifying: bool` flag is the runtime
-    guard. Lift only in PB4 with a locked queue/snapshot
-    policy — don't sneak in silent reentrant behavior.
+10. **Signal uses PB4 mixed reentrancy.** Reentrant `set`
+    during notification queues and coalesces to the latest
+    value, then the outer iterative drain loop delivers it.
+    Reentrant `subscribe` during notification still panics.
+    Do not replace this with recursive delivery, silent list
+    mutation during iteration, or event-stream semantics.
 11. **PB3 captured-resource flag `is_capture_resource` is set
     by `bindCapturesLocal` for `cap_clone`/`cap_weak`/
     `cap_move`.** Unified with `is_loop_borrow` behind
@@ -865,14 +859,13 @@ NOT promises to ship.
     need a different primitive (Event / Channel / Queue).
     This distinction matters for future async/channel
     design — don't accidentally turn Signal into a stream.
-18. **Test gap: PB4 queued reentrant-set semantics lacks a
-    Rig-source regression** until V1 grows multi-capture
-    (`|+sig, +cb|`) OR conditional inline-body grammar.
-    The runtime contract is enforced by code review,
-    documented in SPEC + `runtime.zig`, and verified by
-    non-regression. Add a Zig-level runtime unit test as
-    a small infrastructure task when one of those grammar
-    extensions lands.
+18. **PB4 queued reentrant-set semantics should have source
+    regression coverage.** M28 multi-capture makes the
+    relevant Rig-source shape expressible; if no dedicated
+    regression exists, add one before changing Signal
+    reentrancy again. The runtime contract is documented in
+    SPEC + `runtime.zig`: last-value coalescing, iterative
+    drain, reentrant `subscribe` still panics.
 19. **M22 keyword: `raw` (NOT `unsafe`)**. M19 shipped
     `unsafe`; M22 renamed to `raw` for sigil-alignment with
     `%x`. If anyone "restores" the old `unsafe` keyword:
@@ -945,7 +938,7 @@ NOT promises to ship.
   verify with `git diff test/golden/` and
   `./test/run --update` if intentional.
 - **Grammar conflict count changed**: revert and reconsider.
-  The 69 conflicts are reviewed and intentional.
+  The 75 conflicts are reviewed and intentional.
 - **Sema diagnostic isn't firing**: check the IR shape via
   `bin/rig normalize path/to/file.rig`.
 - **Zig compile error in emitted code**: `bin/rig run
@@ -1094,8 +1087,8 @@ NOT promises to ship.
 
   **C. V1.x tooling layer** — see `docs/ROADMAP.md` §V1.x.
        **Status: documented future work, not actively scheduled.**
-       Substrate priorities (M26, userland reactive library,
-       Layer 8 / 9) take precedence in V1. The design intent is
+       Remaining substrate priorities and Steve's current use
+       case take precedence in V1. The design intent is
        locked so the arc lands cleanly when an external tool
        materially needs a stable contract; Steve's current AI-
        tooling workflows go through the existing `bin/rig parse`

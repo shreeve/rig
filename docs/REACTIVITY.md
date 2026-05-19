@@ -2,60 +2,60 @@
 
 ## Purpose
 
-This note records the substrate decisions Rig needs to make in order to
-support a future reactive library (Rip-style `Cell` / `Memo` / `Effect`).
-The library itself is deferred until the prerequisite M20+ items land.
-This note is the **forcing function for those prerequisites**: each
-decision below identifies a use case that is broader than reactivity
-but where reactivity provides the clearest stress test.
+This note records the substrate decisions Rig needs in order to support
+a reactive library/userland substrate in the style of Rip
+(`Cell` / `Memo` / `Effect`).
 
-The library is the eventual deliverable. The substrate is the immediate
-one.
+This is a **north-star semantic architecture note**, not a claim that
+reactivity is built into the language. The shipped Phase B canary proves
+that reactive cascades can be expressed as ordinary Rig composition:
+ownership handles, cells/signals, method calls, closures, and explicit
+queueing. The eventual library remains userland; language work is only
+justified where the canary exposes a general substrate gap.
 
 ## Status
 
-D1, D2, D3, D4, D5 have landed in SPEC.md (§Shared Ownership,
-§Weak Reference, §Pin, §Unsafe / Raw, §V1 Scope, §V2/V3 Ideas).
-D6, D7, D8, D9 remain design proposals; they land alongside the
-implementation work in their respective M20+ items per
-`docs/ROADMAP.md`.
+This document is a north-star design note. It mixes three statuses and
+labels them explicitly:
 
-M20+ now-blocking items #1 (instance methods + `self`
-semantics + receiver-style calls) and #5 (methods on enums)
-landed in M20a per ROADMAP. The receiver-mode rules in this
-note (D6's Cell sketch + the "Why this is a substrate question"
-table) now have real syntax in the language — `cell.set(2)`
-auto-borrows `?cell`, `(!cell).set(2)` is required for write
-receivers, `(<cell).consume()` is required for consuming
-receivers.
+- **Shipped substrate:** language features already available and used by
+  the canaries.
+- **Phase B canary work:** userland reactive substrate proving the
+  composition model.
+- **Future library/design work:** production `rig-reactive`, optional
+  sugar, and deferred language mechanisms.
 
-M20a.1 added the `?self` / `!self` sigil-on-name sugar for the
-common borrow-receiver case, validated to only fire on `self`
-inside a nominal body. The library sketches below now use the
-sugar form (`fun get(?self)` instead of `fun get(self: ?Self)`).
+Shipped substrate:
 
-M20a.2 hardened receiver semantics with `MethodReceiver` metadata,
-decl-time self validation, and consume-through-borrow rejection
-(per two rounds of GPT-5.5 review).
+- M20a landed instance methods, `self` semantics, receiver-style calls,
+  and the `?self` / `!self` receiver sugar.
+- M20b landed real generic-instance member typing and generic methods
+  on generic types.
+- M20c landed generic enum types.
+- M28 landed explicit closure capture modes, including multi-capture
+  closures such as `|+a, +b|`; the multi-capture cascade canary runs.
+- M30 removed the `fn` keyword. Closures are bare-bars
+  `|...| body`; function-type expressions use `fun(...)`.
 
-M20+ now-blocking items #2 (real generic-instance member typing)
-and #3 (generic methods on generic types) landed in M20b. The
-`Cell(T)` / `Memo(T)` / `Effect` library sketch below is now
-mechanically buildable — `Cell(Int).get()`-style calls type
-correctly, generic methods substitute T at lookup time, and
-emit produces clean Zig `struct { const Self = @This(); ... }`
-patterns.
+Phase B status:
 
-M20c landed item #4: generic enum types. `Option(T)` /
-`Result(T, E)` are now declarable, type-check end-to-end (with
-substitution at lookup), and emit as Zig `union(enum)`. This
-unblocks library signatures like `Weak.upgrade() -> Option(*T)`
-and `Cell.try_get() -> Result(T, AccessError)` — though SPEC
-still uses `T?` / `T!` directly and the desugar to user-defined
-`Option`/`Result` is intentionally deferred.
+- PB4 has shipped: `Signal` multi-subscriber fanout, R2 reentrant
+  queueing, and the reactive canary run end-to-end.
+- The canonical shipped canary is
+  `examples/m28_multi_capture_cascade.rig`.
+- PB4 is still a userland substrate/canary, not built-in reactivity and
+  not a production `rig-reactive` API.
 
-Remaining V1 work: real `*T` / `~T` (item #6), interior
-mutability (item #7), closure capture mode (item #8).
+Still future or library-level:
+
+- Production `Cell` / `Memo` / `Effect` / `Reactor` API shape.
+- Real `*T` / `~T` runtime ownership semantics where not already
+  implemented by a library handle.
+- Production interior-mutability policy and unsafe-effect boundaries.
+- `pre` AST extraction.
+- Optional reactive sugar (`:=` / `~=` / `~>`).
+- Any scheduler, async integration, GC/cycle collection, or ambient
+  reactor context mechanism.
 
 ## Motivating use case
 
@@ -72,18 +72,29 @@ be the same `:=` / `~=` / `~>` sugar (Phase C, optional, V2+); the
 substrate underneath must lower to explicit constructs that real users
 can write today (once prerequisites land).
 
-The explicit V1 form — what the sugar lowers to, what users write
-without sugar:
+A target explicit library form — what future sugar could lower to, and
+what users should be able to write without sugar once the library API
+exists:
 
 ```rig
 reactor = Reactor()
 
-count  = *Cell(Int, value: 1, reactor: reactor)
-double = *Memo(Int, deps: [count], reactor: reactor)
-  count.get() * 2
+count = *Cell(Int, value: 1, reactor: reactor)
 
-eff = *Effect(deps: [double], reactor: reactor)
-  print(double.get())
+double = *Memo(
+  Int,
+  deps: [count],
+  reactor: reactor,
+  compute: |+count|
+    count.get() * 2
+)
+
+eff = *Effect(
+  deps: [double],
+  reactor: reactor,
+  run: |+double|
+    print(double.get())
+)
 
 count.set(2)
 reactor.flush()
@@ -184,7 +195,7 @@ until V2. The fake middle creates false-promise APIs that calcify.
 **Unblocks.** `defer` / `errdefer` interaction with shared values;
 reactive subscriber cleanup; any RAII pattern over shared state.
 
-### D4. `@T` (pin) — explicitly deferred to V2
+### D4. `@` pin — explicitly deferred to V2
 
 **Decision.** Demote `@T` from V1 sigil to V2 reserved.
 
@@ -196,8 +207,9 @@ pin (pin projection, `Unpin` taxonomy, move-while-pinned errors) is
 too high for V1's benefit. Reconsider when async / futures / intrusive
 lists land.
 
-**SPEC update.** §V1 Scope: move `@x` from "parsed but lightly
-enforced" to V2/V3 Ideas.
+**SPEC update.** §V1 Scope: keep `@` reserved, and where the parser
+still accepts it, treat it only as a parsed `(pin ...)` marker with no
+V1 semantic or emitter contract.
 
 ### D5. `%T` (raw) — unsafe-tainting effect
 
@@ -232,13 +244,13 @@ signatures); the broader safety story.
 **Two options, not mutually exclusive:**
 
 **Option A — `Cell(T)` library type.** The mutation lives in the type,
-not the sigil. `Cell.set(self: ?Cell(T), value: T)` is a method that
-internally uses `unsafe` to update behind the shared handle. The
-method takes a *read* borrow of the handle (`?self`) — the handle
-itself is not exclusive — and mutates the cell's value through a
-controlled `unsafe` block. Caller writes `count.set(2)` (the `?`
-auto-borrow is implicit at method call sites). Mirrors Rust's `Cell<T>`
-/ `RefCell<T>`.
+not the sigil. `Cell.set(?self, value: T)` is a method that internally
+uses a controlled unsafe/interior-mutable implementation to update
+behind the shared handle. The method takes a *read* receiver borrow
+(`?self`) — the handle itself is not exclusive — and mutates the cell's
+value through the type's contract. Caller writes `count.set(2)`; the
+receiver auto-borrow is implicit at method call sites. Mirrors Rust's
+`Cell<T>` / `RefCell<T>`.
 
 **Option B — `mutates(self)` effect annotation.** Method signatures
 declare visible mutation as an effect:
@@ -265,38 +277,50 @@ silently undermine the ownership model.
 
 ### D7. Closure capture mode — visible in syntax
 
-**Decision.** Add explicit closure capture syntax. Today Rig has
-lambdas (`fn params block`) and bar-capture in iteration / catch
-(`|user|`, `|err|`), but no way to declare whether a captured outer
-name is held strongly, weakly, by-value, or by move inside the closure
-body.
+**Status.** Shipped in M28. Multi-capture closures such as
+`|+a, +b| body` are supported, and the multi-capture cascade canary
+runs end-to-end.
 
-**Proposed syntax (one option, not a final pick):**
+**Decision.** Closure capture mode is explicit syntax, not an inferred
+side table. A closure that stores or reuses outer values must say how
+each captured name is held.
+
+Example:
 
 ```rig
-eff = *Effect(deps: [double]) |double|
-  print(double.get())                # strong capture (default for *T): leaks the cycle
-
-eff = *Effect(deps: [double]) |~double|
-  if double.upgrade() catch null as *d
-    print(d.get())                   # weak capture: cycle broken
+eff = *Effect(deps: [double], reactor: reactor, run: |+double|
+  print(double.get())
+)
 ```
 
-Capture modes match the sigil family: `<name` move-capture, `?name` /
-`!name` borrow-capture (lifetime-bounded), `+name` clone-capture,
-`~name` weak-capture, default = strong-clone for `*`-handles, value-copy
-for `Copy` types, error for owned non-`Copy` types.
+Capture modes follow the ownership sigil family:
 
-**Rationale.** This is the single most important critique GPT-5.5
-raised in the design conversation. Without explicit capture, weak dep
-lists become **decorative** — the closure body silently re-captures the
-value strongly and leaks the cycle the weak dep was meant to break.
-This is **independent of reactivity**; it affects every callback-storing
-API.
+```rig
+|<x|   # move-capture
+|?x|   # read-borrow capture, lifetime-bounded
+|!x|   # write-borrow capture, lifetime-bounded
+|+x|   # clone-capture
+|*x|   # shared strong capture
+|~x|   # weak capture
+```
 
-**Unblocks.** Async (eventually), callback-based stdlib APIs, defer
-bodies that close over moved values, iterator adapters that store
-their fn.
+Multi-capture form composes these directly:
+
+```rig
+cascade = |+source, +middle, +sink|
+  source.set(1)
+  middle.flush()
+  sink.get()
+```
+
+**Rationale.** Without explicit capture, weak dep lists become
+decorative: the closure body can silently re-capture a dependency
+strongly and recreate the cycle the weak edge was meant to break. This
+is independent of reactivity and affects every callback-storing API.
+
+**Unblocks.** Reactive callbacks, async/event callbacks eventually,
+callback-based stdlib APIs, deferred bodies that close over values, and
+iterator adapters that store closures.
 
 ### D8. `pre`-time AST extraction
 
@@ -364,12 +388,12 @@ sub Cell.set(?self, value: T)                 # dirty-mark + maybe queue
 
 type Memo(T)
 
-sub Memo.new(deps: [?Reactive], compute: fun() T, reactor: ?Reactor) -> *Memo(T)
+sub Memo.new(deps: [*Reactive], compute: fun() T, reactor: ?Reactor) -> *Memo(T)
 sub Memo.get(?self) -> T                      # lazy pull; recomputes if dirty
 
 type Effect
 
-sub Effect.new(deps: [?Reactive], run: fun() Void, reactor: ?Reactor) -> *Effect
+sub Effect.new(deps: [*Reactive], run: fun() Void, reactor: ?Reactor) -> *Effect
 # Effect detaches on drop; weak-stored in dep subscriber lists
 ```
 
@@ -398,11 +422,12 @@ whether Rig grows traits / interfaces.)
   `*Memo(T!)`; consumers handle with `catch` or propagate. No invisible
   global error handler.
 
-## What changes in M20+ ordering
+## Historical M20+ substrate ordering
 
-Based on the decisions above, the M20+ items reorder as follows. **This
-is the concrete deliverable of this design note** and is mirrored in
-`docs/ROADMAP.md` §M20+.
+This section records the historical ordering pressure that led to the
+current substrate. It is no longer the live Phase B status source;
+consult `docs/ROADMAP.md` and the PB canaries for current shipped
+state.
 
 **Now-blocking (required for any non-trivial library, reactive or
 otherwise):**
@@ -427,7 +452,8 @@ otherwise):**
    SPEC; runtime implementation TBD)
 7. Interior mutability (D6, Option A: `Cell(T)` library type;
    depends on 1+4+6)
-8. Closure capture mode syntax (D7)
+8. Closure capture mode syntax (D7) — landed in M28; multi-capture form
+   `|+a, +b|` is validated by `examples/m28_multi_capture_cascade.rig`
 
 **Soon (substrate maturity):**
 
@@ -446,20 +472,23 @@ otherwise):**
 
 ## Phase plan
 
-**Phase A — this note.** Decisions captured. SPEC additions
-recommended (D1, D2, D3, D4, D5 each need SPEC language updates;
-proposed wording is in this doc). Steve reviews and approves SPEC
-changes separately.
+**Phase A — design note.** Decisions captured and SPEC-facing language
+identified. This document remains north-star architecture; SPEC and
+implementation win when they disagree.
 
-**Phase B — after now-blocking items 1–7 land.** Build `rig-reactive`
-in a branch as the substrate validation. Goal: ~500-line library that
-supports the explicit V1 form above end-to-end (Cell / Memo / Effect /
-Reactor with push-invalidate, pull-recompute, batching, weak-subscriber
-back-edges, typed errors). If anything in items 1–7 doesn't compose,
-**fix the language, not the library** — the library is the canary.
+**Phase B — shipped canary substrate through PB4.** The current canary
+is userland reactive composition, not built-in reactivity:
+`Signal`-style cells, multi-subscriber fanout, explicit closures with
+capture modes, and R2 reentrant queueing. The end-to-end canary is
+`examples/m28_multi_capture_cascade.rig`.
+
+**Phase B remaining/library hardening.** Turn the canary lessons into a
+production library shape if desired: stable `Cell` / `Memo` / `Effect`
+/ `Reactor` APIs, explicit ownership policy, weak subscriber back-edges,
+typed errors, and unsafe/interior-mutability boundaries.
 
 **Phase C — V2+, optional, possibly never.** Reactive sugar as
-parser-level desugar (the mapping below). Defer indefinitely until the
+parser-level desugar (`:=` / `~=` / `~>`). Defer indefinitely until the
 library is mature and someone actually wants the syntax. The library
 must be ergonomic enough on its own that sugar is a luxury, not a
 necessity.

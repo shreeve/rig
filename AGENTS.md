@@ -123,22 +123,22 @@ These are guardrails. Each has caused or threatened real harm.
 
 ## What "complete the Rig language" means
 
-Phase B is shipped (substrate ladder Layers 0–7, 982 tests
-passing). The next forward arcs are listed in `HANDOFF.md` §13:
+Phase B is shipped (substrate ladder Layers 0–7 plus the Layer
+7.x follow-ons through M30; 1113 tests passing). The next
+forward arcs are listed in `HANDOFF.md` §13:
 
-- **Category A — Substrate cleanup**: M15b.2 ✅ shipped,
-  M25 user-defined Drop ✅ shipped, body-less `extern fun`,
-  `Closure1<T>` / `Closure2<A,B>` arity, legacy global
-  name-scan retirement.
-- **Category B — Optional substrate extensions**:
-  M26 `Cell`-non-`Copy` ✅ shipped (completed the userland-
-  reactive-library unblock alongside M25), Layer 8 structured
-  concurrency, Phase C reactive sugar, `pre` AST extraction,
-  persistent collections (conditional).
+- **Category A — Substrate cleanup**: body-less `extern fun` /
+  `extern sub`, `Closure1(T)` / `Closure2(A, B)` arity, legacy
+  global name-scan retirement. M15b.2, M25, M26, M27, M28,
+  M29, and M30 are shipped.
+- **Category B — Optional substrate extensions**: Layer 8
+  structured concurrency, Phase C reactive sugar, `pre` AST
+  extraction, persistent collections (conditional).
 - **Category C — V1.x tooling**: `rig sema --json` v0
-  (stable, versioned semantic export). Smaller scope, no
-  design checkpoint required (it's a projection over
-  existing `SemContext`). See `docs/ROADMAP.md` §V1.x.
+  (stable, versioned semantic export). Smaller scope, but still
+  follows the normal checkpoint cadence unless Steve explicitly
+  scopes it as a docs/projection-only maintenance task. See
+  `docs/ROADMAP.md` §V1.x.
 
 The forward arc is Steve-driven. Your job is to execute the
 chosen arc cleanly under the cadence above, not to invent a new
