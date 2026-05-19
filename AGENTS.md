@@ -66,7 +66,7 @@ In order, with rough budgets:
    The conceptual map of where every milestone fits.
 3. **`docs/ROADMAP.md`** most recent entries (~10 min) —
    commit-by-commit history.
-4. **`docs/REACTIVITY-DESIGN.md`** (~15 min) — Phase B north star.
+4. **`docs/REACTIVITY.md`** (~15 min) — Phase B north star.
 5. **`SPEC.md`** §Overview + the section relevant to your arc
    (~10 min depending on scope).
 6. **`docs/SEMANTIC-SEXP.md`** (~5 min) — IR shape and the
@@ -115,7 +115,7 @@ These are guardrails. Each has caused or threatened real harm.
   `rig.grammar` via `zig build parser`.
 - **Don't skip the GPT-5.5 design checkpoint.** Rationale above.
 - **Don't fix the library when the language is wrong.** The
-  canary discipline (`docs/REACTIVITY-DESIGN.md` Phase B Q1):
+  canary discipline (`docs/REACTIVITY.md` Phase B Q1):
   the library is the canary; if it doesn't compose, fix the
   language.
 
@@ -157,9 +157,8 @@ warranted, raise it as a discussion item with GPT-5.5 first.
 | `docs/ROADMAP.md` | Milestone history (M0 → PB4 done) and V1.x tooling layer |
 | `docs/CHECKLIST.md` | Per-milestone checklists |
 | `docs/SEMANTIC-SEXP.md` | IR shape + lowering invariant |
-| `docs/REACTIVITY-DESIGN.md` | Phase B design north star |
-| `docs/INFLUENCES.md` | Design lineage; substrate ladder; strategic rules |
-| `docs/INHERITED-FROM-ZAG.md` | Grammar/lexer surface inherited from Nexus |
+| `docs/REACTIVITY.md` | Phase B design north star |
+| `docs/INFLUENCES.md` | Design lineage; substrate ladder; strategic rules (§12 covers the Zag / Nexus grammar substrate) |
 | `rig.grammar` | Nexus grammar (current conflict count: 75) |
 | `src/rig.zig` | Lexer rewriter + Tag enum |
 | `src/parser.zig` | **GENERATED** — do not edit by hand |

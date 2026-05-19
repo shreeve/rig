@@ -799,7 +799,58 @@ Concrete actions falling out of this document:
 
 ---
 
-## 12. Sources cited
+## 12. Zag and Nexus — the grammar substrate
+
+Rig's V1 surface is not a clean-room design. The grammar
+plumbing — indentation-aware lexing, the rewriter machinery,
+token shapes, the basic parser scaffolding for declarations,
+control flow, expressions, and patterns — was inherited from
+**Zag**, Steve's prior systems-language work, generated through
+**Nexus**, the sister LR parser generator project. The grammar
+file (`rig.grammar`) is the authoritative source for what parses;
+the lexer (`src/rig.zig`) is authoritative for token
+classification; `SPEC.md` is authoritative for the novel Rig
+layer (sigils, bindings, `pre`, propagation, ownership-aware
+iteration, ownership / effects checking). If the grammar and
+SPEC ever drift, SPEC wins.
+
+Rig's contribution sits on top of the inherited surface:
+
+- The nine ownership sigils (`<x`, `?x`, `!x`, `+x`, `-x`, `*x`,
+  `~x`, `@x`, `%x`).
+- `pre` replacing Zag's `comptime` keyword.
+- `<-` move-assign sugar.
+- `new x = ...` explicit-shadow form.
+- `expr!` propagation suffix; `?T` / `!T` borrow-prefix types
+  versus `T?` / `T!` optional / fallible suffix types — the
+  `?` / `!` triangle that disambiguates Zag's overloaded use.
+
+Things deliberately stripped from Zag, so a Rig reader doesn't
+look for them and wonder:
+
+- `var` / `const` / `let` / `:=` binding keywords — never existed
+  in Zag's grammar; Rig didn't add them. Rig uses `name = expr`
+  for default binding, `name =! expr` for fixed, and
+  `new name = expr` for explicit shadow.
+- `comptime` keyword — renamed to `pre`, no alias.
+- Trailing-`?` predicate identifiers (`valid?`) — would collide
+  with the `T?` optional-suffix; convention is `is_valid`.
+- Raw pointer type forms (`*T`, `* const T`, `* volatile T`,
+  `[*]T`, `[*:s]T`) — pruned in M4.5b. The `*` prefix in Rig
+  means shared ownership (`Rc<T>`-like); raw pointers come back
+  via `raw` blocks and `%x` raw access, not as a type-form.
+
+This section replaces the long-form `docs/INHERITED-FROM-ZAG.md`
+that catalogued every inherited grammar shape — that catalog
+predated M22 (`raw` block / `zig "..."` retraction), M29
+(closure-literal `fn` dropped), and M30 (`fn(...)` type-spelling
+folded into `fun(...)`), and most of it duplicated information
+already in `rig.grammar`, `src/rig.zig`, or `SPEC.md`. The above
+captures the lineage and the deltas without the maintenance tax.
+
+---
+
+## 13. Sources cited
 
 - **ChatGPT-5 digest** (2026-05-17, forwarded by Steve) — the
   initial impetus.
@@ -818,7 +869,7 @@ Concrete actions falling out of this document:
 
 ---
 
-## 13. Open questions for future sessions
+## 14. Open questions for future sessions
 
 These are not answered above; they are deliberately left open.
 

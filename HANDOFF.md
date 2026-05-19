@@ -138,7 +138,7 @@ bin/rig check examples/raw_outside_rejected.rig   # error msg
    conceptual map of where every milestone fits) (~5 min)
 3. ROADMAP.md most-recent entries (PB3, M20i.1.1, M20i.1, PB2)
    (~10 min)
-4. `docs/REACTIVITY-DESIGN.md` (Phase B design north star)
+4. `docs/REACTIVITY.md` (Phase B design north star)
    (~15 min)
 5. `examples/reactive_canary.rig` + `signal_multi_subscriber.rig`
    (~3 min — the regression tests that capture the full Phase B
@@ -153,14 +153,14 @@ bin/rig check examples/raw_outside_rejected.rig   # error msg
   the design space.
 - If Steve picks **PB4** (Reactor / Memo / Effect / batching),
   the design checkpoint will need to cover: Reactor as runtime
-  type vs ambient context (D9 of REACTIVITY-DESIGN was "defer
+  type vs ambient context (D9 of REACTIVITY was "defer
   language mechanism, libraries pass explicitly"); Memo's
   deps-list shape (explicit vs `pre`-extracted per D8); Effect
   lifecycle (unregister-on-drop needs the unsubscribe primitive
   PB3 deferred); batching policy (snapshot vs queue — the R3/R4
   alternatives GPT-5.5 set aside in PB3 entry 29 may resurface).
 - If Steve picks **Phase C** (sugar `:=` / `~=` / `~>`), the
-  lowering is locked per REACTIVITY-DESIGN's sugar mapping; the
+  lowering is locked per REACTIVITY's sugar mapping; the
   open questions are `pre`-time AST extraction (D8) and whether
   scoped-context (D9 Reactor) lands at the language level.
 - If Steve picks **Layer 8 / async**, the open question is pin
@@ -379,11 +379,10 @@ Authoritative project docs, in order of importance:
 | File | Purpose |
 |---|---|
 | `docs/INFLUENCES.md` | **The substrate ladder + design lineage.** §1 is the conceptual map; everything else is design-rationale for why Rig leans the way it does. |
-| `docs/REACTIVITY-DESIGN.md` | Phase B design north star — what `Cell` / `Memo` / `Effect` are eventually supposed to look like. Useful when designing PB3 / PB4. |
+| `docs/REACTIVITY.md` | Phase B design north star — what `Cell` / `Memo` / `Effect` are eventually supposed to look like. Useful when designing PB3 / PB4. |
 | `SPEC.md` | Language spec. §Owned Closures (M20h), §Resource-aware containers via Vec(T) (M20i), §Reactive primitive Signal (PB2), §Cell, §Lambdas. |
 | `docs/ROADMAP.md` | Milestone history (M0 → PB2 done). Each shipped milestone has a dedicated section with sub-commit table + locked design decisions. |
 | `docs/SEMANTIC-SEXP.md` | Sema IR shape. What the grammar emits, what the checker walks. |
-| `docs/INHERITED-FROM-ZAG.md` | Grammar/lexer surface inherited from the Zag/Nexus stack. |
 | `rig.grammar` | Nexus grammar. **Conflict count: 69.** |
 
 Codebase highlights:
@@ -1088,7 +1087,7 @@ NOT promises to ship.
       "do not do sugar before PB4 semantics stabilize"
       (PB4 is now stable, so this is unblocked, but it's
       still last-priority luxury).
-    - **`pre` AST extraction** (REACTIVITY-DESIGN D8) — for
+    - **`pre` AST extraction** (REACTIVITY D8) — for
       derive-style macros. Would unlock auto-tracking Memo.
     - **Persistent / CHAMP-backed collections** — see
       INFLUENCES §6.
