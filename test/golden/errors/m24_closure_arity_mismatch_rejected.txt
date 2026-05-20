@@ -1,0 +1,2 @@
+examples/m24_closure_arity_mismatch_rejected.rig:10:3: error: owned closure `cb` invocation expects 1 argument(s); got 0
+examples/m24_closure_arity_mismatch_rejected.rig:11:3: error: owned closure `cb` invocation expects 1 argument(s); got 2

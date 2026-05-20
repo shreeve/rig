@@ -1,0 +1,11 @@
+## M24: arity mismatch at the call site is rejected at sema time.
+##
+## `cb: *Closure1(Int)` declares a one-arg callback; calling it
+## with zero or two args fires a tailored arity diagnostic before
+## the Zig backend ever sees the call.
+
+sub main()
+  v: *Cell(Int) = *Cell(value: 0)
+  cb: *Closure1(Int) = *Closure1(Int)(|+v| (a: Int) v.set(a))
+  cb()                        # error: expects 1 argument(s); got 0
+  cb(1, 2)                    # error: expects 1 argument(s); got 2

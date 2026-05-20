@@ -1,14 +1,14 @@
-# Rig — Session Handoff (post-M23 — body-less `extern fun` / `extern sub`)
+# Rig — Session Handoff (post-M24 — arity-bearing owned closures)
 
-**You are picking up a Rig compiler session after M23. Body-less
-extern function and sub declarations are the natural FFI shape now:
-`extern fun puts(s: String) -> Int` and `extern sub log_msg(msg:
-String)` declare external symbols at module scope without a body
-block, and lower to Zig `extern fn ...` declarations. The M21 raw-
-at-call-site enforcement fires uniformly for both this form and the
-legacy `extvar` form. Closure literals are bare bars (`|...|
-body`), function-type expressions use `fun`, and the `fn` keyword
-is gone from Rig.**
+**You are picking up a Rig compiler session after M24. Arity-1
+and arity-2 owned closures (`*Closure1(T)` and `*Closure2(A, B)`)
+are now first-class — the substrate unblock for any reactive
+library callback that takes arguments. Construction is a chained
+call shape `*Closure1(Int)(|+v| (a: Int) body)`; invocation
+lowers to `cb.value.invoke(arg)`. M23 (body-less `extern fun` /
+`extern sub`) shipped just before. Closure literals are bare
+bars (`|...| body`), function-type expressions use `fun`, and
+the `fn` keyword is gone from Rig.**
 **Phase B + the raw-escape boundary (M22) + the fake-surface
 floor-raising audit (M22.1) + the M22.1.1 runtime rename + the
 M15b cross-module sema (module honesty) + M15b.1 sema-time
@@ -37,8 +37,11 @@ syntax `|+x| body`)** + **M30 (fold the `fn` keyword for
 function-type expressions into `fun`; `extern puts: fun(String)
 Int` — `fn` is fully removed from Rig)** + **M23 (body-less
 `extern fun` / `extern sub` declarations — the natural FFI shape
-that was a known V1 ergonomics gap, now closed)** all shipped
-end-to-end. The reactive canary
+that was a known V1 ergonomics gap, now closed)** + **M24
+(arity-bearing owned closures `Closure1(T)` and `Closure2(A, B)`
+— the substrate unblock for any callback API that takes
+arguments, e.g. reactive `Memo` / `Effect` library shapes)** all
+shipped end-to-end. The reactive canary
 (`examples/reactive_canary.rig`) demonstrates the full Cell +
 closure + Vec-iteration + Signal chain producing
 `1\n3\n13\n7\n99\n111\n111`; M25's canaries
@@ -51,7 +54,7 @@ library — a monomorphic `IntSource` with subscribe / set /
 notify, end-to-end on the substrate; M28's canary
 (`examples/m28_multi_capture_cascade.rig`) demonstrates a
 two-source reactive cascade (`count → total → print`) using
-multi-capture closures. **1125 tests passing, 0 failing.
+multi-capture closures. **1145 tests passing, 0 failing.
 Clean tree on `main`.** The substrate ladder Layers 0–7 + the cross-cutting Drop +
 Cell-non-Copy work (Layers 7.5 and 7.6) are all complete, the
 reactive primitive is in its V1 final form, the safety boundary
@@ -115,7 +118,7 @@ forward-arc menu** in §13.
 ```bash
 git pull --ff-only
 git log -1 --format='%h %s'        # most recent commit; at/after M30/PB4
-./test/run 2>&1 | tail -3          # should say "1125 passed, 0 failed"
+./test/run 2>&1 | tail -3          # should say "1145 passed, 0 failed"
 bin/rig run examples/reactive_canary.rig    # 1\n3\n13\n7\n99\n111\n111
 bin/rig run examples/signal_multi_subscriber.rig  # 0\n111\n222
 bin/rig check examples/raw_outside_rejected.rig   # error msg
@@ -1028,45 +1031,28 @@ NOT promises to ship.
       calling-convention syntax, and FFI-friendly parameter-type
       lowering (e.g., `String → [*:0]const u8` for extern
       signatures).
-    - **Closure-with-args** (M24: `Closure1(T)`,
-      `Closure2(A, B)`) beyond no-arg `Closure()`. Required
-      for any callback-based API that takes arguments.
-      **M24(1/5) prep landed:** runtime types
-      `Closure1(T)` / `Closure2(A, B)` are present in
-      `src/runtime.zig` as compile-verified Zig (currently
-      inert — unreachable from user code until sema /
-      ownership / emit are wired up). The `Closure0` family's
-      design discipline (per-literal env struct + type-erased
-      `*anyopaque` ctx + invoke/drop thunks + allocator) is
-      preserved verbatim with one extra arg threaded through
-      the invoke signature. **Grammar verified** — the
-      existing `captures params block` form already accepts
-      arity-bearing closure literals (probe parses
-      `|+x| (a)\n  body` to `(lambda (captures (cap_clone x))
-      (a) _ (block ...))`). **Next-session continuation
-      point:**
-        - M24(2/5) sema: register `Closure1` and `Closure2`
-          as builtin parameterized nominals (parallel to
-          `Cell` / `Vec` / `Closure`); add
-          `closure1_sym_id` / `closure2_sym_id` fields on
-          `SemContext`; thread them through every predicate
-          that keys off `closure_sym_id` (search-and-grep
-          pattern). Enforce Copy-only arg types and
-          void-only body per GPT-5.5's design lock.
-        - M24(3/5) ownership: generalize the M20h escape
-          whitelist `*Closure(...)` to also accept
-          `*Closure1(T)(...)` and `*Closure2(A, B)(...)`
-          constructor shapes.
-        - M24(4/5) emit: extend `emitClosure*` to take a
-          declared-arity parameter, emit the env struct's
-          `rigInvoke` with the right arg types, and
-          construct the right runtime type (`rig.Closure1(T)`
-          / `rig.Closure2(A, B)`) at the
-          `*Closure1(...)(|+x| (a) body)` shape.
-        - M24(5/5) tests + canary: a `Memo`-shaped fixture
-          showing `*Closure1(Int)(|+x| (a) ...)` end-to-
-          end. Higher arity (`Closure3+`) deferred until a
-          real fixture forces it.
+    - ~~**Closure-with-args** (M24: `Closure1(T)`,
+      `Closure2(A, B)`)~~ ✅ **Landed in M24.** Arity-1 and
+      arity-2 owned closures shipped end-to-end with a fresh
+      grammar form (`captures "(" L(field) ")" inline_body`,
+      conflict count UNCHANGED at 75 via the constrained-paren
+      design that bypasses `params`'s broader alternation),
+      sema (registers `Closure1` / `Closure2` as builtin
+      parameterized nominals; `detectOwnedClosureConstruction`
+      and `isOwnedClosureHandleType` generalized; Copy-only
+      arg types enforced; explicit param annotations required),
+      ownership (escape whitelist generalized to
+      `*Closure1(T)(...)` and `*Closure2(A, B)(...)` shapes),
+      and emit (`classifyOwnedClosureConstruction` + arity-
+      switching runtime-type spelling + invoke-thunk
+      signature with threaded args). The Memo canary
+      (`examples/m24_memo_canary.rig`) demonstrates a
+      `*Closure1(Int)` subscriber callback that receives the
+      source's new value as an argument — the shape pre-M24
+      `*Closure()` couldn't express. Resource argument types,
+      higher arities, non-void return types, and inferred
+      param annotations all deferred (see ROADMAP M24
+      retrospective for the full out-of-scope list).
     - ~~**User-defined `Drop` / non-Copy resource values**
       (M25)~~ ✅ **Landed in M25.** User `drop self: !Self`
       declarations on plain structs work end-to-end:

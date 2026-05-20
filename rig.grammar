@@ -713,6 +713,7 @@ dotpair  = "." name "=" expr                → (kwarg 2 4)
 lambda   = captures params block            → (lambda 1 2 returns:_ 3)
          | captures        block            → (lambda 1 params:_ returns:_ 2)
          | captures inline_body             → (lambda 1 params:_ returns:_ 2)   # M20h: inline-call body for owned-closure construction
+         | captures "(" L(field) ")" inline_body → (lambda 1 3 returns:_ 5) # M24: captures + paren-required non-empty params + inline body for arity-bearing owned-closure construction
 
 # M20h: synthesize a `(block ...)` wrapper around an inline-call
 # lambda body so sema/ownership/emit's existing `(lambda ... (block ...))`

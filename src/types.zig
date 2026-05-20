@@ -537,6 +537,17 @@ pub const SemContext = struct {
     /// emit to recognize `*Closure(...)` construction.
     closure_sym_id: SymbolId = symbol_invalid,
 
+    /// M24: built-in `Closure1(T)` and `Closure2(A, B)` generic_type
+    /// SymbolIds (one and two type parameters respectively — these
+    /// are arity-bearing void-return closure handles). Set by
+    /// `registerBuiltins` during `check`. Used the same way as
+    /// `closure_sym_id` (ownership escape whitelist, emit
+    /// construction recognition, type-spelling lowering) but for
+    /// arity-1 and arity-2 surfaces. V1 restriction: argument types
+    /// must be Copy.
+    closure1_sym_id: SymbolId = symbol_invalid,
+    closure2_sym_id: SymbolId = symbol_invalid,
+
     /// M20i: built-in `Vec(T)` generic_type SymbolId. Set by
     /// `registerBuiltins`. Used by `resolveType` to enforce V1
     /// element-type restrictions (Copy, `*T`, `~T`, `*Closure()`
@@ -1022,6 +1033,81 @@ fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.E
     // computes `expected_count = 0` cleanly via `tps.len`.
     const closure_type_params = try ctx.arena.allocator().alloc(SymbolId, 0);
     ctx.symbols.items[closure_sym_id].type_params = closure_type_params;
+
+    // M24: register `Closure1(T)` and `Closure2(A, B)` as one- and
+    // two-arg builtin generic types. Argument-type restrictions
+    // (Copy-only for V1) are enforced at instantiation time in
+    // `resolveType`. The runtime types `rig.Closure1` / `rig.Closure2`
+    // are emitted from `runtime.zig`'s baked text.
+    const closure1_sym_id = blk: {
+        const id: SymbolId = @intCast(ctx.symbols.items.len);
+        try ctx.symbols.append(ctx.allocator, .{
+            .name = "Closure1",
+            .kind = .generic_type,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_decl_pos,
+            .scope = module_scope,
+        });
+        try ctx.scopes.items[module_scope].symbols.append(ctx.allocator, id);
+        break :blk id;
+    };
+    ctx.closure1_sym_id = closure1_sym_id;
+
+    const closure1_t_sym_id = blk: {
+        const id: SymbolId = @intCast(ctx.symbols.items.len);
+        try ctx.symbols.append(ctx.allocator, .{
+            .name = "T",
+            .kind = .generic_param,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_decl_pos,
+            .scope = module_scope,
+        });
+        break :blk id;
+    };
+    const closure1_type_params = try ctx.arena.allocator().alloc(SymbolId, 1);
+    closure1_type_params[0] = closure1_t_sym_id;
+    ctx.symbols.items[closure1_sym_id].type_params = closure1_type_params;
+
+    const closure2_sym_id = blk: {
+        const id: SymbolId = @intCast(ctx.symbols.items.len);
+        try ctx.symbols.append(ctx.allocator, .{
+            .name = "Closure2",
+            .kind = .generic_type,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_decl_pos,
+            .scope = module_scope,
+        });
+        try ctx.scopes.items[module_scope].symbols.append(ctx.allocator, id);
+        break :blk id;
+    };
+    ctx.closure2_sym_id = closure2_sym_id;
+
+    const closure2_a_sym_id = blk: {
+        const id: SymbolId = @intCast(ctx.symbols.items.len);
+        try ctx.symbols.append(ctx.allocator, .{
+            .name = "A",
+            .kind = .generic_param,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_decl_pos,
+            .scope = module_scope,
+        });
+        break :blk id;
+    };
+    const closure2_b_sym_id = blk: {
+        const id: SymbolId = @intCast(ctx.symbols.items.len);
+        try ctx.symbols.append(ctx.allocator, .{
+            .name = "B",
+            .kind = .generic_param,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_decl_pos,
+            .scope = module_scope,
+        });
+        break :blk id;
+    };
+    const closure2_type_params = try ctx.arena.allocator().alloc(SymbolId, 2);
+    closure2_type_params[0] = closure2_a_sym_id;
+    closure2_type_params[1] = closure2_b_sym_id;
+    ctx.symbols.items[closure2_sym_id].type_params = closure2_type_params;
 
     // M20i: register `Vec(T)` as a one-arg builtin generic type.
     // Element-type restrictions (Copy / `*T` / `~T` / `*Closure()`)
@@ -5672,15 +5758,18 @@ const ExprChecker = struct {
     /// reach here; the substitution from Vec(T)'s T to the
     /// concrete T was already done at instantiation.
     fn elemIsOwnedClosure(self: *const ExprChecker, elem_ty_id: TypeId) bool {
-        if (self.ctx.closure_sym_id == symbol_invalid) return false;
         const elem_ty = self.ctx.types.get(elem_ty_id);
         if (elem_ty != .shared) return false;
         const inner = self.ctx.types.get(elem_ty.shared);
-        return switch (inner) {
-            .nominal => |s| s == self.ctx.closure_sym_id,
-            .parameterized_nominal => |pn| pn.sym == self.ctx.closure_sym_id,
-            else => false,
+        const sym_id: SymbolId = switch (inner) {
+            .nominal => |s| s,
+            .parameterized_nominal => |pn| pn.sym,
+            else => return false,
         };
+        if (sym_id == symbol_invalid) return false;
+        return (self.ctx.closure_sym_id != symbol_invalid and sym_id == self.ctx.closure_sym_id) or
+            (self.ctx.closure1_sym_id != symbol_invalid and sym_id == self.ctx.closure1_sym_id) or
+            (self.ctx.closure2_sym_id != symbol_invalid and sym_id == self.ctx.closure2_sym_id);
     }
 
     /// `(match scrutinee arm...)` at statement position.
@@ -6241,11 +6330,20 @@ const ExprChecker = struct {
                     // future M20h+ milestone could add a typed
                     // `Closure1`/`Closure2` family).
                     .local, .param, .capture => {
-                        if (isOwnedClosureHandleType(self.ctx, sym.ty)) {
-                            if (items.len > 2) {
-                                try self.err(callee.src.pos, "owned closure `{s}` invocation takes no arguments; got {d}", .{ name, items.len - 2 });
-                                for (items[2..]) |a| _ = try self.synthExpr(a);
+                        if (ownedClosureHandleArity(self.ctx, sym.ty)) |arity| {
+                            const arg_count: usize = items.len - 2;
+                            if (arg_count != arity) {
+                                try self.err(callee.src.pos, "owned closure `{s}` invocation expects {d} argument(s); got {d}", .{ name, arity, arg_count });
                             }
+                            // M24: synth args so nested type-errors fire.
+                            // Strict per-arg type-check is deferred — Zig's
+                            // own type-checker catches signature mismatches
+                            // at the emitted `cb.value.invoke(arg)` site,
+                            // which runs after `bin/rig build`. A future
+                            // M24.x can add Rig-side type-mismatch
+                            // diagnostics if the deferred error messages
+                            // prove too cryptic.
+                            for (items[2..]) |a| _ = try self.synthExpr(a);
                             return self.ctx.types.void_id;
                         }
                     },
@@ -7476,50 +7574,154 @@ const ExprChecker = struct {
         self: *ExprChecker,
         inner: Sexp,
     ) std.mem.Allocator.Error!?TypeId {
-        if (self.ctx.closure_sym_id == symbol_invalid) return null;
         if (inner != .list) return null;
         const items = inner.list;
         if (items.len < 2) return null;
         if (items[0] != .tag or items[0].tag != .@"call") return null;
+
+        // Two recognized shapes:
+        //   (call Closure (lambda ...))                         M20h
+        //   (call (call Closure1 T) (lambda ...))              M24
+        //   (call (call Closure2 A B) (lambda ...))            M24
+        //
+        // For Closure0: callee is a bare name `Closure`.
+        // For Closure1/2: callee is itself a `(call ClosureN T...)` shape
+        // produced by Rig's chained-call grammar (`*Closure1(Int)(...)` →
+        // `(share (call (call Closure1 Int) (lambda ...)))`).
+
         const callee = items[1];
-        if (callee != .src) return null;
-        const callee_name = self.ctx.source[callee.src.pos..][0..callee.src.len];
-        const sym_id = self.ctx.lookup(self.current_scope, callee_name) orelse return null;
-        if (sym_id != self.ctx.closure_sym_id) return null;
+        const ClosureKind = enum { c0, c1, c2 };
+        var kind: ClosureKind = undefined;
+        var type_args: []const Sexp = &[_]Sexp{};
+        var callee_pos: u32 = 0;
+        var callee_name_for_diag: []const u8 = "Closure";
+
+        if (callee == .src) {
+            // Bare-name callee: must be `Closure` (M20h shape).
+            const callee_name = self.ctx.source[callee.src.pos..][0..callee.src.len];
+            if (self.ctx.closure_sym_id == symbol_invalid) return null;
+            const sym_id = self.ctx.lookup(self.current_scope, callee_name) orelse return null;
+            if (sym_id != self.ctx.closure_sym_id) return null;
+            kind = .c0;
+            callee_pos = callee.src.pos;
+            callee_name_for_diag = "Closure";
+        } else if (callee == .list) {
+            // Chained-call callee: must be `(call Closure1 T)` or `(call Closure2 A B)`.
+            const inner_items = callee.list;
+            if (inner_items.len < 2) return null;
+            if (inner_items[0] != .tag or inner_items[0].tag != .@"call") return null;
+            const inner_callee = inner_items[1];
+            if (inner_callee != .src) return null;
+            const inner_name = self.ctx.source[inner_callee.src.pos..][0..inner_callee.src.len];
+            const inner_sym = self.ctx.lookup(self.current_scope, inner_name) orelse return null;
+            if (inner_sym == self.ctx.closure1_sym_id and self.ctx.closure1_sym_id != symbol_invalid) {
+                kind = .c1;
+                callee_name_for_diag = "Closure1";
+            } else if (inner_sym == self.ctx.closure2_sym_id and self.ctx.closure2_sym_id != symbol_invalid) {
+                kind = .c2;
+                callee_name_for_diag = "Closure2";
+            } else {
+                return null;
+            }
+            type_args = inner_items[2..];
+            callee_pos = inner_callee.src.pos;
+        } else {
+            return null;
+        }
+
+        // Validate type-arg count matches the closure arity.
+        const expected_arity: usize = switch (kind) {
+            .c0 => 0,
+            .c1 => 1,
+            .c2 => 2,
+        };
+        if (type_args.len != expected_arity) {
+            try self.err(callee_pos, "`{s}` requires {d} type argument(s); got {d}", .{
+                callee_name_for_diag, expected_arity, type_args.len,
+            });
+        }
 
         const call_args = items[2..];
-        const callee_pos = callee.src.pos;
-
-        // Validate exactly one lambda arg. Diagnose other shapes but
-        // still return the closure type so cascade errors stay quiet.
         if (call_args.len == 0) {
-            try self.err(callee_pos, "owned closure `*Closure(...)` requires a lambda argument; write `*Closure(|...| body)`", .{});
+            try self.err(callee_pos, "owned closure `*{s}(...)` requires a lambda argument; write `*{s}(...)(|...| body)`", .{ callee_name_for_diag, callee_name_for_diag });
         } else if (call_args.len > 1) {
-            try self.err(callee_pos, "owned closure `*Closure(...)` takes exactly one lambda argument; got {d}", .{call_args.len});
-            // Best-effort synth of extra args so nested errors fire.
+            try self.err(callee_pos, "owned closure `*{s}(...)` takes exactly one lambda argument; got {d}", .{ callee_name_for_diag, call_args.len });
             for (call_args) |a| _ = try self.synthExpr(a);
         } else {
             const arg = call_args[0];
             if (!isLambdaSexp(arg)) {
-                try self.err(firstSrcPos(arg), "owned closure `*Closure(...)` argument must be a lambda `|...| body`", .{});
+                try self.err(firstSrcPos(arg), "owned closure `*{s}(...)` argument must be a lambda `|...| body`", .{callee_name_for_diag});
                 _ = try self.synthExpr(arg);
             } else {
-                // Synth the lambda so its body is type-checked and
-                // its return type is recorded in lambda_return_types
-                // for the emit path.
+                // Validate lambda's params match closure arity, then synth.
+                if (kind == .c1 or kind == .c2) {
+                    try self.validateClosureLambdaParams(arg, type_args, expected_arity, callee_name_for_diag);
+                }
                 _ = try self.synthExpr(arg);
             }
         }
 
-        // Build `shared(parameterized_nominal(Closure, []))`.
-        const empty_args = try self.ctx.arena.allocator().alloc(TypeId, 0);
+        // Resolve type args (parameterized closures).
+        const resolved_args = try self.ctx.arena.allocator().alloc(TypeId, type_args.len);
+        var local_resolver = TypeResolver{ .ctx = self.ctx };
+        for (type_args, 0..) |targ, i| {
+            const ty = try local_resolver.resolveType(targ, self.current_scope);
+            // M24: enforce Copy-only type args for V1.
+            if (kind != .c0 and !isCopyTypeForCell(self.ctx, ty)) {
+                try self.err(firstSrcPos(targ), "`{s}` argument types must be Copy in V1 (Int/Float/Bool/String/sized primitives); resource arguments are not yet supported", .{callee_name_for_diag});
+            }
+            resolved_args[i] = ty;
+        }
+
+        const closure_sym = switch (kind) {
+            .c0 => self.ctx.closure_sym_id,
+            .c1 => self.ctx.closure1_sym_id,
+            .c2 => self.ctx.closure2_sym_id,
+        };
         const inner_ty = self.ctx.types.intern(self.ctx.allocator, .{
-            .parameterized_nominal = .{ .sym = self.ctx.closure_sym_id, .args = empty_args },
+            .parameterized_nominal = .{ .sym = closure_sym, .args = resolved_args },
         }) catch return self.ctx.types.unknown_id;
         const outer_ty = self.ctx.types.intern(self.ctx.allocator, .{ .shared = inner_ty }) catch
             return self.ctx.types.unknown_id;
         return outer_ty;
     }
+
+    /// M24: validate that a closure literal's params slot has the
+    /// expected arity and that each param has an explicit type
+    /// annotation matching the closure's type argument. Per GPT-5.5's
+    /// design lock, V1 requires explicit annotations rather than
+    /// inferring from the ClosureN type — keeps the implementation
+    /// simple and the source self-documenting.
+    fn validateClosureLambdaParams(
+        self: *ExprChecker,
+        lambda: Sexp,
+        type_args: []const Sexp,
+        expected_arity: usize,
+        closure_name: []const u8,
+    ) std.mem.Allocator.Error!void {
+        if (lambda != .list or lambda.list.len < 5) return;
+        const params_node = lambda.list[2];
+        const lambda_pos = firstSrcPos(lambda);
+        if (params_node == .nil) {
+            try self.err(lambda_pos, "`{s}` closure body needs {d} param(s) `(name: T)`; got 0", .{ closure_name, expected_arity });
+            return;
+        }
+        if (params_node != .list) return;
+        const params = params_node.list;
+        if (params.len != expected_arity) {
+            try self.err(lambda_pos, "`{s}` closure body needs {d} param(s); got {d}", .{ closure_name, expected_arity, params.len });
+        }
+        const compare_count = @min(params.len, type_args.len);
+        var i: usize = 0;
+        while (i < compare_count) : (i += 1) {
+            const param = params[i];
+            if (param != .list or param.list.len < 3 or param.list[0] != .tag or param.list[0].tag != .@":") {
+                const ppos = firstSrcPos(param);
+                try self.err(ppos, "`{s}` closure params require explicit type annotations in V1; write `(name: T)`", .{closure_name});
+            }
+        }
+    }
+
 
     /// M20h: does the symbol's type slot describe a `*Closure()`
     /// handle? Used by `synthCall` to recognize closure invocation
@@ -7534,18 +7736,47 @@ const ExprChecker = struct {
     /// ownership layer enforces the consume restrictions; the type
     /// classifier just decides whether `cb()` is a closure invocation.
     fn isOwnedClosureHandleType(ctx: *const SemContext, ty_id: TypeId) bool {
-        if (ctx.closure_sym_id == symbol_invalid) return false;
+        return ownedClosureHandleArity(ctx, ty_id) != null;
+    }
+
+    /// M24: classify the closure-handle arity of `ty_id`. Returns
+    /// 0 for `*Closure()`, 1 for `*Closure1(T)`, 2 for `*Closure2(A, B)`,
+    /// null for non-closure types. Borrow wrappers are peeled per
+    /// the existing M20i.1 rule.
+    fn ownedClosureHandleArity(ctx: *const SemContext, ty_id: TypeId) ?u8 {
         const peeled = unwrapBorrows(ctx, ty_id);
         const ty = ctx.types.get(peeled);
         const inner_id = switch (ty) {
             .shared => |t| t,
-            else => return false,
+            else => return null,
+        };
+        const inner_ty = ctx.types.get(inner_id);
+        const sym_id: SymbolId = switch (inner_ty) {
+            .nominal => |s| s,
+            .parameterized_nominal => |pn| pn.sym,
+            else => return null,
+        };
+        if (sym_id == symbol_invalid) return null;
+        if (ctx.closure_sym_id != symbol_invalid and sym_id == ctx.closure_sym_id) return 0;
+        if (ctx.closure1_sym_id != symbol_invalid and sym_id == ctx.closure1_sym_id) return 1;
+        if (ctx.closure2_sym_id != symbol_invalid and sym_id == ctx.closure2_sym_id) return 2;
+        return null;
+    }
+
+    /// M24: extract the Closure1/Closure2 type-arg list from the
+    /// handle type. Returns the args slice for the parameterized
+    /// nominal, or null when the type is the bare zero-arg form.
+    fn ownedClosureHandleArgs(ctx: *const SemContext, ty_id: TypeId) ?[]const TypeId {
+        const peeled = unwrapBorrows(ctx, ty_id);
+        const ty = ctx.types.get(peeled);
+        const inner_id = switch (ty) {
+            .shared => |t| t,
+            else => return null,
         };
         const inner_ty = ctx.types.get(inner_id);
         return switch (inner_ty) {
-            .nominal => |s| s == ctx.closure_sym_id,
-            .parameterized_nominal => |pn| pn.sym == ctx.closure_sym_id,
-            else => false,
+            .parameterized_nominal => |pn| pn.args,
+            else => null,
         };
     }
 

@@ -1,0 +1,2 @@
+examples/m24_closure_resource_arg_rejected.rig:12:43: error: `Closure1` argument types must be Copy in V1 (Int/Float/Bool/String/sized primitives); resource arguments are not yet supported
+examples/m24_closure_resource_arg_rejected.rig:12:33: error: type mismatch: expected `*Closure1(*Cell(Int))`, got `*Closure1(invalid)`

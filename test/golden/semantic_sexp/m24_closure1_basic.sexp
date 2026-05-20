@@ -1,0 +1,1 @@
+(module (sub main () _ (block (set _ v (shared (generic_inst Cell Int)) (share (call Cell (kwarg value 0)))) (set _ cb (shared (generic_inst Closure1 Int)) (share (call (call Closure1 Int) (lambda (captures (cap_clone v)) ((: a Int)) _ (block (call (member v set) a)))))) (call cb 7) (call print (call (member v get))) (call cb 42) (call print (call (member v get))))))

@@ -82,6 +82,9 @@ That's it. Everything else passes through unchanged.
 (sub name params body)
 (lambda captures params returns body)    ; bare-bar closure `|...| body`
                                          ; captures shape documented below
+                                         ; M24: `|+v| (a: Int) call_expr` shape
+                                         ; uses `captures "(" L(field) ")" inline_body`
+                                         ; lambda form for arity-bearing owned closures
 (type name typeexpr)             ; type alias
 (generic_type name params? members)
 (struct name members)

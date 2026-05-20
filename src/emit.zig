@@ -1694,54 +1694,71 @@ pub const Emitter = struct {
         self: *Emitter,
         call_items: []const Sexp,
     ) Error!void {
-        // call_items: (call Closure (lambda CAPTURES PARAMS RETURNS BODY))
-        const lambda = call_items[2];
+        // call_items: (call Closure (lambda ...))                      M20h
+        //          or (call (call Closure1 T)    (lambda ...))         M24
+        //          or (call (call Closure2 A B)  (lambda ...))         M24
+        const inner: Sexp = .{ .list = call_items };
+        const info = classifyOwnedClosureConstruction(self.source, inner) orelse return;
+
+        const lambda = info.lambda;
         const lambda_items = lambda.list;
         const captures = lambda_items[1];
+        const params = lambda_items[2];
         const body = lambda_items[4];
 
         const env_id = self.closure_env_counter;
         self.closure_env_counter += 1;
 
-        // Labeled block: `rig_closure_<n>: { ... }` so nested
-        // construction sites don't collide on the break-out label.
         try self.w.print("rig_closure_{d}: {{\n", .{env_id});
         self.indent += 1;
 
-        // 1. Inline anonymous env struct, scoped to this block.
         try self.indentSpaces();
         try self.w.writeAll("const Env = struct {\n");
         self.indent += 1;
         try self.emitClosureFields(captures);
-        try self.emitOwnedClosureInvokeThunk(captures, body, lambda);
+        try self.emitOwnedClosureInvokeThunk(captures, body, lambda, params, info.type_args);
         try self.emitOwnedClosureDropThunk(captures);
         self.indent -= 1;
         try self.indentSpaces();
         try self.w.writeAll("};\n");
 
-        // 2. Allocate the env on the heap.
         try self.indentSpaces();
         try self.w.writeAll("const __rig_env = rig.defaultAllocator().create(Env) catch @panic(\"Rig closure env allocation failed\");\n");
 
-        // 3. Initialize env's capture fields. Mode-aware (clone /
-        //    weakRef / move / copy) — reuses M20g's helper. The
-        //    leading `.` makes it an inferred struct literal whose
-        //    type Zig grabs from the LHS pointer (`*Env`).
         try self.indentSpaces();
         try self.w.writeAll("__rig_env.* = .");
         try self.emitClosureInit(captures);
         try self.w.writeAll(";\n");
 
-        // 4. Wrap in Closure0 + rcNew, break out with the handle.
         try self.indentSpaces();
-        try self.w.print(
-            "break :rig_closure_{d} (rig.rcNew(rig.Closure0{{ .ctx = __rig_env, .invoke_fn = Env.rigInvoke, .drop_fn = Env.rigDrop, .allocator = rig.defaultAllocator() }}) catch @panic(\"Rig Rc allocation failed\"));\n",
-            .{env_id},
-        );
+        try self.w.print("break :rig_closure_{d} (rig.rcNew(", .{env_id});
+        try self.emitClosureRuntimeType(info);
+        try self.w.writeAll("{ .ctx = __rig_env, .invoke_fn = Env.rigInvoke, .drop_fn = Env.rigDrop, .allocator = rig.defaultAllocator() }) catch @panic(\"Rig Rc allocation failed\"));\n");
 
         self.indent -= 1;
         try self.indentSpaces();
         try self.w.writeAll("}");
+    }
+
+    /// M24: write the runtime closure type spelling
+    /// (`rig.Closure0` for the no-arg form, `rig.Closure1(T)` /
+    /// `rig.Closure2(A, B)` for arity-bearing) into the output.
+    fn emitClosureRuntimeType(self: *Emitter, info: ClosureCtorInfo) Error!void {
+        switch (info.kind) {
+            .c0 => try self.w.writeAll("rig.Closure0"),
+            .c1 => {
+                try self.w.writeAll("rig.Closure1(");
+                try self.emitType(info.type_args[0]);
+                try self.w.writeAll(")");
+            },
+            .c2 => {
+                try self.w.writeAll("rig.Closure2(");
+                try self.emitType(info.type_args[0]);
+                try self.w.writeAll(", ");
+                try self.emitType(info.type_args[1]);
+                try self.w.writeAll(")");
+            },
+        }
     }
 
     /// M20h(4/5): emit the `rigInvoke(ctx: *anyopaque) void` thunk.
@@ -1754,9 +1771,30 @@ pub const Emitter = struct {
         captures: Sexp,
         body: Sexp,
         lambda: Sexp,
+        params: Sexp,
+        type_args: []const Sexp,
     ) Error!void {
         try self.indentSpaces();
-        try self.w.writeAll("fn rigInvoke(ctx: *anyopaque) void {\n");
+        try self.w.writeAll("fn rigInvoke(ctx: *anyopaque");
+        // M24: thread declared params through the thunk signature.
+        // Each param's type comes from the closure's type-arg slot
+        // (validated at sema time to be Copy + match the param's
+        // explicit annotation). Param NAMES come from the lambda's
+        // params list so the body's references resolve.
+        if (params == .list and type_args.len > 0) {
+            const param_count = @min(params.list.len, type_args.len);
+            var i: usize = 0;
+            while (i < param_count) : (i += 1) {
+                const param = params.list[i];
+                const pname = paramNameNode(param) orelse continue;
+                const name_text = identText(self.source, pname) orelse continue;
+                try self.w.writeAll(", ");
+                try self.w.writeAll(name_text);
+                try self.w.writeAll(": ");
+                try self.emitType(type_args[i]);
+            }
+        }
+        try self.w.writeAll(") void {\n");
         self.indent += 1;
         try self.indentSpaces();
         try self.w.writeAll("const self: *@This() = @ptrCast(@alignCast(ctx));\n");
@@ -3911,8 +3949,20 @@ pub const Emitter = struct {
                 return;
             }
             if (self.lookupIsOwnedClosure(cn)) {
+                // M20h: `cb()` → `cb.value.invoke()` for `*Closure()`.
+                // M24:  `cb1(7)` → `cb1.value.invoke(7)` for `*Closure1(T)`.
+                //       `cb2(3, 4)` → `cb2.value.invoke(3, 4)` for `*Closure2(A, B)`.
+                // The arity is enforced by sema at call time; emit
+                // simply passes through whatever args the IR carries.
                 const zig_name = self.lookup(cn) orelse cn;
-                try self.w.print("{s}.value.invoke()", .{zig_name});
+                try self.w.print("{s}.value.invoke(", .{zig_name});
+                var first = true;
+                for (items[2..]) |arg| {
+                    if (!first) try self.w.writeAll(", ");
+                    first = false;
+                    try self.emitExpr(arg);
+                }
+                try self.w.writeAll(")");
                 return;
             }
         }
@@ -4416,21 +4466,39 @@ pub const Emitter = struct {
 fn isBuiltinNominalName(name: []const u8) bool {
     return std.mem.eql(u8, name, "Cell") or
         std.mem.eql(u8, name, "Closure") or
+        std.mem.eql(u8, name, "Closure1") or
+        std.mem.eql(u8, name, "Closure2") or
         std.mem.eql(u8, name, "Vec") or
         std.mem.eql(u8, name, "Signal");
 }
 
-/// M20h(4/5): does the Sexp look like `(call Closure (lambda ...))`?
-/// Pure structural check — same predicate sema and ownership use.
+/// M20h(4/5) + M24: does the Sexp look like an owned-closure
+/// construction? Pure structural check — same predicate sema and
+/// ownership use. Recognized shapes:
+///   M20h:  `(call Closure (lambda ...))`
+///   M24:   `(call (call Closure1 T) (lambda ...))`
+///   M24:   `(call (call Closure2 A B) (lambda ...))`
 fn isOwnedClosureConstruction(source: []const u8, inner: Sexp) bool {
     if (inner != .list) return false;
     const items = inner.list;
     if (items.len < 3) return false;
     if (items[0] != .tag or items[0].tag != .@"call") return false;
     const callee = items[1];
-    if (callee != .src) return false;
-    const callee_name = source[callee.src.pos..][0..callee.src.len];
-    if (!std.mem.eql(u8, callee_name, "Closure")) return false;
+    if (callee == .src) {
+        const callee_name = source[callee.src.pos..][0..callee.src.len];
+        if (!std.mem.eql(u8, callee_name, "Closure")) return false;
+    } else if (callee == .list) {
+        const inner_items = callee.list;
+        if (inner_items.len < 2) return false;
+        if (inner_items[0] != .tag or inner_items[0].tag != .@"call") return false;
+        const inner_callee = inner_items[1];
+        if (inner_callee != .src) return false;
+        const inner_name = source[inner_callee.src.pos..][0..inner_callee.src.len];
+        if (!std.mem.eql(u8, inner_name, "Closure1") and
+            !std.mem.eql(u8, inner_name, "Closure2")) return false;
+    } else {
+        return false;
+    }
     const args = items[2..];
     if (args.len != 1) return false;
     const arg = args[0];
@@ -4438,10 +4506,40 @@ fn isOwnedClosureConstruction(source: []const u8, inner: Sexp) bool {
         arg.list[0].tag == .@"lambda";
 }
 
-/// M20h(4/5): does the type annotation IR Sexp look like
-/// `(shared (generic_inst Closure))`? Used by `emitSetOrBind` to
-/// recognize bindings declared as `*Closure()` even when the RHS
-/// isn't an immediate construction (e.g., `cb: *Closure() = +other`).
+/// M24: classify the closure arity of an `isOwnedClosureConstruction`-
+/// shaped Sexp. Returns null when the shape isn't recognized;
+/// otherwise returns an enum tag plus, for arity > 0, the slice of
+/// type-arg Sexps from the inner `(call ClosureN T...)` shape.
+const ClosureKind = enum { c0, c1, c2 };
+
+const ClosureCtorInfo = struct {
+    kind: ClosureKind,
+    type_args: []const Sexp,
+    lambda: Sexp,
+};
+
+fn classifyOwnedClosureConstruction(source: []const u8, inner: Sexp) ?ClosureCtorInfo {
+    if (!isOwnedClosureConstruction(source, inner)) return null;
+    const items = inner.list;
+    const callee = items[1];
+    const lambda = items[2];
+    if (callee == .src) {
+        return .{ .kind = .c0, .type_args = &[_]Sexp{}, .lambda = lambda };
+    }
+    const inner_items = callee.list;
+    const inner_callee = inner_items[1];
+    const inner_name = source[inner_callee.src.pos..][0..inner_callee.src.len];
+    const kind: ClosureKind = if (std.mem.eql(u8, inner_name, "Closure1")) .c1 else .c2;
+    return .{ .kind = kind, .type_args = inner_items[2..], .lambda = lambda };
+}
+
+/// M20h(4/5) + M24: does the type annotation IR Sexp look like
+/// `(shared (generic_inst Closure))` / `(shared (generic_inst
+/// Closure1 T))` / `(shared (generic_inst Closure2 A B))`?
+/// Used by `emitSetOrBind` to recognize bindings declared as
+/// `*Closure()` / `*Closure1(T)` / `*Closure2(A, B)` even when the
+/// RHS isn't an immediate construction (e.g., `cb: *Closure() =
+/// +other`).
 fn isOwnedClosureTypeNode(source: []const u8, type_node: Sexp) bool {
     if (type_node != .list) return false;
     const items = type_node.list;
@@ -4455,7 +4553,9 @@ fn isOwnedClosureTypeNode(source: []const u8, type_node: Sexp) bool {
     const name_node = inner_items[1];
     if (name_node != .src) return false;
     const name = source[name_node.src.pos..][0..name_node.src.len];
-    return std.mem.eql(u8, name, "Closure");
+    return std.mem.eql(u8, name, "Closure") or
+        std.mem.eql(u8, name, "Closure1") or
+        std.mem.eql(u8, name, "Closure2");
 }
 
 /// M20h(4/5): does the sema-side TypeId describe `*Closure()` —
@@ -4463,7 +4563,6 @@ fn isOwnedClosureTypeNode(source: []const u8, type_node: Sexp) bool {
 /// emit's sema reference is `*const SemContext`; this keeps the
 /// callsite ergonomic without smuggling state into Emitter.
 fn semaTypeIsOwnedClosure(sema: *const types.SemContext, ty_id: types.TypeId) bool {
-    if (sema.closure_sym_id == types.symbol_invalid) return false;
     const ty = sema.types.get(ty_id);
     const inner_id = switch (ty) {
         .shared => |t| t,
@@ -4471,10 +4570,17 @@ fn semaTypeIsOwnedClosure(sema: *const types.SemContext, ty_id: types.TypeId) bo
     };
     const inner_ty = sema.types.get(inner_id);
     return switch (inner_ty) {
-        .nominal => |s| s == sema.closure_sym_id,
-        .parameterized_nominal => |pn| pn.sym == sema.closure_sym_id,
+        .nominal => |s| symIsAnyClosure(sema, s),
+        .parameterized_nominal => |pn| symIsAnyClosure(sema, pn.sym),
         else => false,
     };
+}
+
+fn symIsAnyClosure(sema: *const types.SemContext, sym_id: types.SymbolId) bool {
+    if (sym_id == types.symbol_invalid) return false;
+    return (sema.closure_sym_id != types.symbol_invalid and sym_id == sema.closure_sym_id) or
+        (sema.closure1_sym_id != types.symbol_invalid and sym_id == sema.closure1_sym_id) or
+        (sema.closure2_sym_id != types.symbol_invalid and sym_id == sema.closure2_sym_id);
 }
 
 /// M20h: built-in nominal types whose Rig-surface name differs

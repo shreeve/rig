@@ -64,7 +64,7 @@ worried about:
 - **Hard gates that don't care where an idea came from.** The
   grammar must parse at the reviewed conflict count. Sema, effects,
   and ownership checks must accept it. The Zig backend must emit
-  working code. The test suite must pass (1125 tests, 0 failing).
+  working code. The test suite must pass (1145 tests, 0 failing).
   A human maintainer approves every milestone and every commit.
 - **A public audit trail.** Every milestone has a retrospective in
   [`docs/ROADMAP.md`](docs/ROADMAP.md). Every design checkpoint with

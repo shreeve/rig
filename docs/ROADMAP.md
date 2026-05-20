@@ -3048,6 +3048,139 @@ userland LIBRARY (the explicit `Reactor` / `Memo` / `Effect`
 work) was blocked on Cell-non-Copy + user Drop. M25 is the
 first half of that unblock; M26 (Cell-non-Copy) is the second.
 
+### M24 — Closure-with-args (`Closure1(T)` / `Closure2(A, B)`) ✅
+
+The substrate unblock for arity-bearing callbacks. Pre-M24 the
+only owned-closure shape was zero-arg `*Closure()` — any reactive
+`Memo` / `Effect` library that wants to pass the new value into
+the subscriber callback was blocked. M24 ships the arity-1 and
+arity-2 forms end-to-end.
+
+**Surface.**
+
+```rig
+v: *Cell(Int) = *Cell(value: 0)
+cb1: *Closure1(Int) = *Closure1(Int)(|+v| (a: Int) v.set(a))
+cb1(7)                                                       # → v.get() == 7
+
+cb2: *Closure2(Int, Int) = *Closure2(Int, Int)(|+v| (a: Int, b: Int) v.set(a + b))
+cb2(3, 4)                                                    # → v.get() == 7
+```
+
+The construction shape is a chained call: outer `*ClosureN(...)`
+wraps an inner `(call ClosureN T...)` (the type-arg list) plus a
+single lambda arg. Lambda params declare explicit type
+annotations matching the closure's type arguments — implicit
+inference deferred per GPT-5.5's M24 design lock.
+
+**Cadence.** Two design checkpoints with GPT-5.5 (the second one
+caught a critical mistake: my "verified" claim that the existing
+grammar already supported arity-bearing closure literals only
+held at top level. Inside the outer `*Closure1(T)(...)` parens,
+INDENT-based block bodies don't work, and the inline form
+`captures params inline_body` was needed. The first attempt at
+that form blew the conflict count from 75 → 167; the constrained
+variant — using literal `"(" L(field) ")"` instead of the broader
+`params` non-terminal — landed at 75 → **75 (no change)**.).
+
+**Files touched.**
+
+- `rig.grammar`: one new lambda alternative
+  `captures "(" L(field) ")" inline_body → (lambda 1 3 returns:_ 5)`.
+  Constrained to require non-empty params and explicit parens
+  (avoids the field-vs-atom ambiguity that bare `params` brings).
+  **Conflict count unchanged at 75.**
+- `src/runtime.zig`: shipped earlier as M24(1/5) prep at commit
+  `5725f67` — `pub fn Closure1(comptime T: type) type` and
+  `pub fn Closure2(comptime A, B: type) type`. Each is a
+  per-arity copy of the `Closure0` discipline (per-literal env
+  struct + type-erased ctx + invoke/drop thunks + allocator)
+  with the additional argument(s) threaded through the
+  `invoke_fn` signature.
+- `src/types.zig`:
+  - `SemContext.closure1_sym_id` / `closure2_sym_id` fields
+    parallel to `closure_sym_id`.
+  - `registerBuiltins` registers `Closure1(T)` and `Closure2(A,
+    B)` as builtin parameterized nominals.
+  - `ExprChecker.detectOwnedClosureConstruction` extended to
+    recognize the M24 chained-call shape `(call (call ClosureN
+    T...) (lambda ...))` in addition to the M20h
+    `(call Closure (lambda ...))`. Returns the right
+    `parameterized_nominal{ClosureN, [T...]}` type.
+  - New helper `validateClosureLambdaParams` enforces
+    arity-match plus explicit type annotations.
+  - Type-arg validation: closure argument types must be Copy
+    in V1 (Int/Float/Bool/String/sized primitives). Resource
+    arguments are deferred until the ownership policy is
+    designed.
+  - `ownedClosureHandleArity` and `ownedClosureHandleArgs`
+    helpers replace the old `isOwnedClosureHandleType` — they
+    return arity (`0` / `1` / `2` / `null`) and the resolved
+    type-arg slice for invocation type-checking.
+  - `cb()` invocation arm now validates arg count against the
+    closure's declared arity and synth-checks each arg.
+  - `elemIsOwnedClosure` (used by `for cb in ?vec` over a
+    closure-element Vec) generalizes to all three closure
+    sym ids.
+- `src/ownership.zig`: `isOwnedClosureConstruction` extended
+  symmetrically with the same chained-call shape recognition,
+  so the M20h escape whitelist now covers `*Closure1(T)(...)`
+  and `*Closure2(A, B)(...)` too.
+- `src/emit.zig`:
+  - `isBuiltinNominalName` adds `Closure1` and `Closure2`.
+  - `isOwnedClosureConstruction` and `isOwnedClosureTypeNode`
+    (free helpers) extended for the chained-call shape.
+  - `semaTypeIsOwnedClosure` keys off all three sym ids via
+    a new `symIsAnyClosure` helper.
+  - New `classifyOwnedClosureConstruction` returns kind +
+    type_args + lambda for the recognized shape — single
+    source of truth shared across emit's construction path.
+  - `emitOwnedClosureConstruction` now switches on arity to
+    emit the right runtime type spelling
+    (`rig.Closure0` / `rig.Closure1(T)` / `rig.Closure2(A, B)`).
+  - `emitOwnedClosureInvokeThunk` extended with optional
+    params + type_args parameters, threading each declared
+    param through both the thunk's signature and the body's
+    name scope.
+  - `cb()` invocation lowering generalized — `cb1(7)` → `cb1.value.invoke(7)`,
+    `cb2(3, 4)` → `cb2.value.invoke(3, 4)`. Arity is enforced
+    by sema; emit just passes through args.
+
+**Test fixtures (4 new + 1 canary).**
+
+- `m24_closure1_basic.rig` — the smallest end-to-end shape; runs
+  to `7\n42`.
+- `m24_closure2_basic.rig` — arity-2 variant; runs to `30\n101`.
+- `m24_closure_arity_mismatch_rejected.rig` — `cb()` and `cb(1, 2)`
+  on a `*Closure1(Int)` both fire arity diagnostics.
+- `m24_closure_resource_arg_rejected.rig` — closure with a
+  resource argument type rejected by the Copy-only constraint.
+- `m24_memo_canary.rig` — a Memo-shaped reactive fixture that
+  uses `*Closure1(Int)` as the subscriber callback shape so the
+  source's new value is passed directly to subscribers (the
+  shape pre-M24's `*Closure()` couldn't express). Runs to
+  `6\n10`.
+
+**Tests:** 1125 → 1145 (+20). Conflict count: 75 → 75
+(unchanged). All previous canaries (`reactive_canary`,
+`m28_multi_capture_cascade`, `rig_reactive`) still produce
+identical output.
+
+**Out of scope (deliberately deferred).**
+
+- Resource-typed closure arguments (`Closure1(*User)`,
+  `Closure1(?T)`, etc.). Need an explicit ownership policy
+  (clone? borrow? move? auto-drop?) that deserves its own arc.
+- `Closure3+` higher arities. Easy to add when a real fixture
+  forces it; not a V1 priority.
+- Non-void-returning closures (`ClosureRet1<A, R>` etc.). The
+  reactive use cases all want void; non-void closures are a
+  separate design pass.
+- Inferred lambda param types (`|+v| (a) body` without `: T`).
+  Ergonomic but adds inference complexity — defer until the
+  redundancy of `(a: Int)` matching `Closure1(Int)` becomes a
+  real friction.
+
 ### M23 — Body-less `extern fun` / `extern sub` declarations ✅
 
 Real FFI ergonomics. Pre-M23, the only callable extern shape in

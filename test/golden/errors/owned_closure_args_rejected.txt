@@ -1,1 +1,1 @@
-examples/owned_closure_args_rejected.rig:12:3: error: owned closure `cb` invocation takes no arguments; got 2
+examples/owned_closure_args_rejected.rig:11:3: error: owned closure `cb` invocation expects 0 argument(s); got 2

@@ -1,0 +1,12 @@
+## M24: arity-2 owned closures via `*Closure2(A, B)`.
+##
+## Same shape as `Closure1` with two arguments. Lowers to
+## `rig.Closure2(i32, i32)` with `rigInvoke(ctx, a, b)` thunk.
+
+sub main()
+  v: *Cell(Int) = *Cell(value: 0)
+  cb: *Closure2(Int, Int) = *Closure2(Int, Int)(|+v| (a: Int, b: Int) v.set(a + b))
+  cb(10, 20)
+  print(v.get())            # 30
+  cb(100, 1)
+  print(v.get())            # 101

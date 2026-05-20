@@ -1,0 +1,19 @@
+## M24: arity-1 owned closures via `*Closure1(T)`.
+##
+## Surface: `*Closure1(Int)(|+v| (a: Int) body)` constructs a heap-
+## owned closure that takes one `Int` argument and returns Void.
+## Captures use the existing M20h sigil family (`+v` clones the
+## shared handle into the env). Lambda params declare explicit
+## annotations matching the closure's type argument.
+##
+## Lowers to a per-literal anonymous env struct + `rig.Closure1(i32)`
+## vtable. Invocation `cb(7)` becomes `cb.value.invoke(7)` at the
+## emit layer.
+
+sub main()
+  v: *Cell(Int) = *Cell(value: 0)
+  cb: *Closure1(Int) = *Closure1(Int)(|+v| (a: Int) v.set(a))
+  cb(7)
+  print(v.get())            # 7
+  cb(42)
+  print(v.get())            # 42

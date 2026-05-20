@@ -677,22 +677,39 @@ pub const Checker = struct {
         }
     }
 
-    /// M20h(3/5): does this Sexp look like `(call Closure (lambda
-    /// ...))` — the owned-closure construction shape? Sema's
-    /// `detectOwnedClosureConstruction` runs an identical check at
-    /// type-check time; the duplication is intentional (ownership
-    /// runs without sema in unit tests, and the structural check is
-    /// cheap and self-contained).
+    /// M20h(3/5) + M24: does this Sexp look like an owned-closure
+    /// construction shape? Sema's `detectOwnedClosureConstruction`
+    /// runs the equivalent check at type-check time; the duplication
+    /// is intentional (ownership runs without sema in unit tests,
+    /// and the structural check is cheap and self-contained).
+    ///
+    /// Recognized shapes:
+    ///   M20h:  `(call Closure (lambda ...))`
+    ///   M24:   `(call (call Closure1 T)    (lambda ...))`
+    ///   M24:   `(call (call Closure2 A B)  (lambda ...))`
     fn isOwnedClosureConstruction(self: *const Checker, inner: Sexp) bool {
         if (inner != .list) return false;
         const items = inner.list;
         if (items.len < 3) return false;
         if (items[0] != .tag or items[0].tag != .@"call") return false;
         const callee = items[1];
-        if (callee != .src) return false;
-        const callee_name = self.source[callee.src.pos..][0..callee.src.len];
-        if (!std.mem.eql(u8, callee_name, "Closure")) return false;
-        // Args must include at least one item, and that item must be a lambda.
+        // Bare-name callee (M20h shape) — must literally be `Closure`.
+        if (callee == .src) {
+            const callee_name = self.source[callee.src.pos..][0..callee.src.len];
+            if (!std.mem.eql(u8, callee_name, "Closure")) return false;
+        } else if (callee == .list) {
+            // Chained-call callee (M24 shape) — `(call ClosureN T...)`.
+            const inner_items = callee.list;
+            if (inner_items.len < 2) return false;
+            if (inner_items[0] != .tag or inner_items[0].tag != .@"call") return false;
+            const inner_callee = inner_items[1];
+            if (inner_callee != .src) return false;
+            const inner_name = self.source[inner_callee.src.pos..][0..inner_callee.src.len];
+            if (!std.mem.eql(u8, inner_name, "Closure1") and
+                !std.mem.eql(u8, inner_name, "Closure2")) return false;
+        } else {
+            return false;
+        }
         const args = items[2..];
         if (args.len != 1) return false;
         const arg = args[0];

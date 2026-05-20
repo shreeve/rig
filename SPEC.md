@@ -1106,6 +1106,39 @@ Extern declarations bypass Rig's ownership / effect contracts;
 the `raw` wrapping requirement forces the caller to
 acknowledge the FFI bargain explicitly.
 
+### Arity-bearing owned closures (M24)
+
+`Closure1(T)` and `Closure2(A, B)` are heap-owned closures with
+explicit argument types. They sit alongside the no-arg `Closure()`
+and follow the same construction discipline (`*ClosureN(...)(|...| body)`),
+escape rule (only the exact constructor shape may escape), and
+runtime cleanup (per-literal env struct + type-erased
+ctx/invoke/drop thunks).
+
+```rig
+v: *Cell(Int) = *Cell(value: 0)
+
+cb1: *Closure1(Int) = *Closure1(Int)(|+v| (a: Int) v.set(a))
+cb1(7)                                    # → v.get() == 7
+
+cb2: *Closure2(Int, Int) = *Closure2(Int, Int)(|+v| (a: Int, b: Int) v.set(a + b))
+cb2(3, 4)                                 # → v.get() == 7
+```
+
+Surface rules (V1):
+
+- Type arguments must be Copy primitives (Int / Float / Bool /
+  String / sized integer/float types). Resource arguments are
+  deferred until the ownership policy is designed.
+- Lambda params declare explicit type annotations matching the
+  closure's type arguments (`(a: Int)` for `Closure1(Int)`,
+  `(a: Int, b: Int)` for `Closure2(Int, Int)`). Implicit
+  inference deferred.
+- Closure body returns Void. Non-void return types are a
+  separate design pass.
+- Higher arities (`Closure3+`) deferred until a real use case
+  forces them.
+
 ### Body-less `extern fun` / `extern sub` declarations (M23)
 
 The natural FFI shape: declare an external symbol's signature

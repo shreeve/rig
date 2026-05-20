@@ -1,0 +1,50 @@
+## M24 canary — a Memo-shaped fixture that uses Closure1 to demonstrate
+## the substrate unblock. A `Memo` here is the smallest reactive
+## abstraction that needs an arity-bearing callback: subscribe to a
+## source's set events, recompute a derived value whenever the source
+## changes, and push the new value into a cell.
+##
+## This fixture inlines a minimal `IntSource` (same shape as
+## `examples/rig_reactive.rig`) and uses `*Closure1(Int)` as the
+## subscriber callback shape so the new value of the source is
+## passed directly to each subscriber rather than being read via
+## `source.get()`. That's what `Closure1` unblocks.
+
+struct IntSource
+  value: *Cell(Int)
+  subs: *Cell(Vec(*Closure1(Int)))
+
+  fun new(initial: Int) -> *IntSource
+    val: *Cell(Int) = *Cell(value: initial)
+    empty: Vec(*Closure1(Int)) = Vec()
+    subs_cell: *Cell(Vec(*Closure1(Int))) = *Cell(value: <empty)
+    *IntSource(value: <val, subs: <subs_cell)
+
+  fun get(self: ?IntSource) -> Int
+    self.value.get()
+
+  sub subscribe(self: ?IntSource, cb: *Closure1(Int))
+    empty: Vec(*Closure1(Int)) = Vec()
+    current: Vec(*Closure1(Int)) = self.subs.replace(<empty)
+    (!current).push(+cb)
+    discarded: Vec(*Closure1(Int)) = self.subs.replace(<current)
+
+  sub set(self: ?IntSource, v: Int)
+    self.value.set(v)
+    empty: Vec(*Closure1(Int)) = Vec()
+    current: Vec(*Closure1(Int)) = self.subs.replace(<empty)
+    for cb in ?current
+      cb(v)
+    discarded: Vec(*Closure1(Int)) = self.subs.replace(<current)
+
+sub main()
+  src = IntSource.new(0)
+  doubled: *Cell(Int) = *Cell(value: 0)
+
+  body: *Closure1(Int) = *Closure1(Int)(|+doubled| (a: Int) doubled.set(a * 2))
+  src.subscribe(+body)
+
+  src.set(3)            # body fires with a=3 → doubled becomes 6
+  print(doubled.get())  # 6
+  src.set(5)            # body fires with a=5 → doubled becomes 10
+  print(doubled.get())  # 10

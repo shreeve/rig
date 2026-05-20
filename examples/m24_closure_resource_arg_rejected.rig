@@ -1,0 +1,12 @@
+## M24: closure argument types must be Copy in V1.
+##
+## Per GPT-5.5's design lock: passing a resource type (`*T`, `~T`,
+## `Vec`, `*Closure()`, struct-with-drop-glue) as a closure
+## argument needs an explicit ownership policy (clone? borrow?
+## move? auto-drop?). That policy is out of scope for M24's
+## initial ship; the V1 surface restricts arg types to Copy
+## primitives. Resource args land in a follow-up arc.
+
+sub main()
+  v: *Cell(Int) = *Cell(value: 0)
+  bad: *Closure1(*Cell(Int)) = *Closure1(*Cell(Int))(|+v| (cell: *Cell(Int)) v.set(0))
