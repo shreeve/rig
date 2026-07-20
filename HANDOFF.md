@@ -385,6 +385,7 @@ Authoritative project docs, in order of importance:
 | `SPEC.md` | Language spec. §Owned Closures (M20h), §Resource-aware containers via Vec(T) (M20i), §Reactive primitive Signal (PB2), §Cell, §Lambdas. |
 | `docs/ROADMAP.md` | Milestone history (M0 → PB2 done). Each shipped milestone has a dedicated section with sub-commit table + locked design decisions. |
 | `docs/IR.md` | Sema IR shape. What the grammar emits, what the checker walks. |
+| `docs/LANGUAGE-SUMMARY.md` | Comprehensive language overview synthesized from founding chats. |
 | `rig.grammar` | Nexus grammar. **Conflict count: 75.** |
 
 Codebase highlights:

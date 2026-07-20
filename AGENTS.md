@@ -160,6 +160,7 @@ warranted, raise it as a discussion item with GPT-5.5 first.
 | `docs/IR.md` | IR shape + lowering invariant |
 | `docs/REACTIVITY.md` | Phase B design north star |
 | `docs/INFLUENCES.md` | Design lineage; substrate ladder; strategic rules (§12 covers the Zag / Nexus grammar substrate) |
+| `docs/LANGUAGE-SUMMARY.md` | Comprehensive language overview synthesized from founding chats |
 | `rig.grammar` | Nexus grammar (current conflict count: 75) |
 | `src/rig.zig` | Lexer rewriter + Tag enum |
 | `src/parser.zig` | **GENERATED** — do not edit by hand |

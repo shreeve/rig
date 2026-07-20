@@ -351,6 +351,7 @@ docs/
   IR.md       IR shape and the lowering invariant
   REACTIVITY.md   Phase B reactive substrate design
   INFLUENCES.md          design lineage and the substrate ladder
+  LANGUAGE-SUMMARY.md    comprehensive language overview synthesized from founding chats
 examples/                runnable Rig programs (~226 fixtures)
 test/                    test harness, golden files, module tests
 SPEC.md                  language specification
