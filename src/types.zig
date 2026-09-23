@@ -36,7 +36,8 @@
 //! method callee `(member obj m)` the resolved method signature with the
 //! receiver's generic arguments applied. The name leaf of every `fun` /
 //! `sub` declaration, method or not, carries its function type. Binding
-//! facts live on the Symbol: `flags.reassigned`, `flags.fixed`,
+//! facts live on the Symbol: `flags.reassigned`, `flags.written`,
+//! `flags.fixed`,
 //! `flags.comptime_known`, `flags.pattern_bound`, `kind` (local / param /
 //! capture / ...), and for a capture the `origin` binding it captures.
 //!
@@ -347,7 +348,7 @@ pub const SymbolKind = enum {
     capture,
 };
 
-pub const SymbolFlags = packed struct(u8) {
+pub const SymbolFlags = packed struct(u16) {
     /// `=!` binding: cannot be reassigned.
     fixed: bool = false,
     is_public: bool = false,
@@ -366,6 +367,10 @@ pub const SymbolFlags = packed struct(u8) {
     /// Assigned again after its declaration (`=`, `<-`, `+=`, ...):
     /// lowers to a Zig `var`.
     reassigned: bool = false,
+    /// Written through: write-borrowed (`!x`), or a field or element of
+    /// it assigned. Also lowers to a Zig `var`.
+    written: bool = false,
+    _: u7 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.

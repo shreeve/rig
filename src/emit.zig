@@ -103,8 +103,6 @@ const Nominal = struct {
 const Usage = struct {
     /// Referenced somewhere after the declaration.
     used: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
-    /// Written through a pointer (`!x`, `x.f = ...`, `x[i] = ...`).
-    mutated: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     /// May be moved, dropped, or returned: a resource binding with this
     /// fact needs an alive flag.
     consumed: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
@@ -113,7 +111,6 @@ const Usage = struct {
 
     fn deinit(self: *Usage, a: std.mem.Allocator) void {
         self.used.deinit(a);
-        self.mutated.deinit(a);
         self.consumed.deinit(a);
         self.views.deinit(a);
     }
@@ -892,7 +889,7 @@ pub const Emitter = struct {
 
         const needs_ptr_self = local.kind == .value or local.kind == .optional or
             (ty != null and self.isCellTy(ty.?));
-        const is_var = s.flags.reassigned or (!holds_ptr and (self.usage.mutated.contains(sym) or needs_ptr_self));
+        const is_var = s.flags.reassigned or (!holds_ptr and (s.flags.written or needs_ptr_self));
 
         // Evaluate the value before the new name is visible, so a shadow
         // (`new x = x + 1`) reads the old binding.
@@ -2755,27 +2752,13 @@ pub const Emitter = struct {
 // =============================================================================
 
 /// One walk over the module that records, per symbol, what the emitter
-/// needs before it writes a binding: whether it is used, written through,
-/// or consumed, and which match bindings view which scrutinee.
+/// needs before it writes a binding: whether it is used or consumed, and
+/// which match bindings view which scrutinee.
 const Scan = struct {
     e: *Emitter,
 
     fn put(s: *Scan, set: *std.AutoHashMapUnmanaged(SymbolId, void), sym: SymbolId) Error!void {
         try set.put(s.e.allocator, sym, {});
-    }
-
-    /// The symbol a place is rooted in: `x`, `x.f`, `x[i]`, `?x`, ...
-    fn root(s: *Scan, place: Sexp) ?SymbolId {
-        var p = place;
-        while (headOf(p)) |h| switch (h) {
-            .@"member", .@"index", .@"read", .@"write", .@"move" => p = p.list[1],
-            else => return null,
-        };
-        return s.e.sema.symbolOf(p);
-    }
-
-    fn mutate(s: *Scan, place: Sexp) Error!void {
-        if (s.root(place)) |sym| try s.put(&s.e.usage.mutated, sym);
     }
 
     fn consume(s: *Scan, node: Sexp) Error!void {
@@ -2817,12 +2800,7 @@ const Scan = struct {
         const items = sexp.list;
         const head = headOf(sexp) orelse return;
         switch (head) {
-            .@"set" => {
-                const kind = try rig.bindingKindOf(items[1]);
-                if (kind == .move) try s.consume(items[4]);
-                if (items[2] != .src) try s.mutate(items[2]);
-            },
-            .@"write" => try s.mutate(items[1]),
+            .@"set" => if (try rig.bindingKindOf(items[1]) == .move) try s.consume(items[4]),
             .@"move" => try s.consume(items[1]),
             .@"drop" => {
                 // Dropping plain data or a borrow emits nothing: not a use.

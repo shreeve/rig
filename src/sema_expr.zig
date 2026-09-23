@@ -345,7 +345,6 @@ const Checker = struct {
         if (!is_decl and sym.kind == .capture) {
             try self.err(target.src.pos, "cannot assign to captured `{s}`; captures are fixed when the closure is created", .{name});
         }
-        if (!is_decl) sym.flags.reassigned = true;
         if (!is_decl and sym.flags.pattern_bound) {
             try self.err(target.src.pos, "cannot assign to `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ name, name, name });
         }

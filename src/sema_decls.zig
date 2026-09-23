@@ -79,6 +79,10 @@ const SymbolResolver = struct {
             },
             .@"for" => try self.walkFor(sexp),
             .@"if" => try self.walkConditional(items[1], items[2..3], items[3..]),
+            .@"write" => {
+                try self.markWritten(items[1]);
+                try self.walk(items[1]);
+            },
             .@"while" => try self.walkConditional(items[1], items[2..4], items[4..]),
             .@"arm" => try self.walkArm(sexp),
             .@"catch_block" => try self.walkCatchBlock(sexp),
@@ -371,6 +375,7 @@ const SymbolResolver = struct {
         const target = items[2];
         try self.walk(items[4]);
         if (target != .src) {
+            try self.markWritten(target);
             try self.walk(target);
             return;
         }
@@ -380,6 +385,7 @@ const SymbolResolver = struct {
             .default, .@"move" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     try self.ctx.recordName(target, existing);
+                    self.ctx.symbols.items[existing].flags.reassigned = true;
                     return;
                 }
                 try self.checkNewLocal(target);
@@ -399,8 +405,25 @@ const SymbolResolver = struct {
                 _ = try self.declare(target, .local, .{ .fixed = true });
             },
             .shadow => _ = try self.declare(target, .local, .{}),
-            .@"+=", .@"-=", .@"*=", .@"/=" => {},
+            .@"+=", .@"-=", .@"*=", .@"/=" => {
+                if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
+                    self.ctx.symbols.items[existing].flags.reassigned = true;
+                }
+            },
         }
+    }
+
+    /// `!x`, `!x.f`, and assignments to `x.f` / `x[i]` write the binding
+    /// `x` is: it cannot be a constant.
+    fn markWritten(self: *SymbolResolver, place: Sexp) Error!void {
+        var p = place;
+        while (headOf(p)) |h| {
+            if (h != .@"member" and h != .@"index") return;
+            p = p.list[1];
+        }
+        const name = identAt(self.ctx.source, p) orelse return;
+        const id = self.ctx.lookup(self.scope, name) orelse return;
+        self.ctx.symbols.items[id].flags.written = true;
     }
 
     /// The existing binding `x = ...` assigns to: a local or parameter of
