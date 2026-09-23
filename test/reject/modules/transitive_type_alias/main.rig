@@ -1,0 +1,11 @@
+# A value of a type reached only through an import still owns its
+# resources: copying it is rejected.
+
+use lib
+
+sub main()
+  p = lib.plain(3)
+  q = p
+  print(q.n)
+
+# error: bare use of `B` value `p` in binding would alias an owning value

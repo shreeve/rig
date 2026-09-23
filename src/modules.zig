@@ -227,8 +227,29 @@ pub const ModuleGraph = struct {
             try entries.append(self.allocator, .{ .local_name = imp.local_name, .sema = self.get(imp.target).sema, .module_id = imp.target });
         }
 
+        // Modules the imports reach in turn.
+        var reached: std.ArrayListUnmanaged(types.ImportEntry) = .empty;
+        defer reached.deinit(self.allocator);
+        var work: std.ArrayListUnmanaged(ModuleId) = .empty;
+        defer work.deinit(self.allocator);
+        for (m.imports.items) |imp| try work.append(self.allocator, imp.target);
+        while (work.pop()) |mid| {
+            for (self.get(mid).imports.items) |imp| {
+                if (imp.target == id) continue;
+                const seen = for (entries.items) |e| {
+                    if (e.module_id == imp.target) break true;
+                } else for (reached.items) |e| {
+                    if (e.module_id == imp.target) break true;
+                } else false;
+                if (seen) continue;
+                const t = self.get(imp.target);
+                try reached.append(self.allocator, .{ .local_name = t.name, .sema = t.sema, .module_id = imp.target });
+                try work.append(self.allocator, imp.target);
+            }
+        }
+
         m.sema.deinit();
-        m.sema.* = try types.checkWithImports(self.allocator, m.source, m.ir, entries.items, id);
+        m.sema.* = try types.checkWithImports(self.allocator, m.source, m.ir, entries.items, reached.items, id);
 
         var eff = try effects.Checker.initWithSema(self.allocator, m.source, m.sema);
         defer eff.deinit();

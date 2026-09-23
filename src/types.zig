@@ -543,6 +543,9 @@ pub const SemContext = struct {
     /// Assigned by the module graph; 0 for a lone file.
     module_id: u32 = 0,
     imports: []const ImportEntry = &.{},
+    /// Modules reached only through imports; `local_name` is the module's
+    /// file name.
+    transitive: []const ImportEntry = &.{},
     /// `use NAME` symbol -> origin module id.
     module_refs: std.AutoHashMapUnmanaged(SymbolId, u32) = .empty,
     /// Origin module id -> its SemContext.
@@ -783,7 +786,7 @@ pub const SemContext = struct {
 
 /// Check a single module with no imports.
 pub fn check(allocator: std.mem.Allocator, source: []const u8, ir: Sexp) !SemContext {
-    return checkWithImports(allocator, source, ir, &.{}, 0);
+    return checkWithImports(allocator, source, ir, &.{}, &.{}, 0);
 }
 
 /// Check a module whose `use` declarations resolve to `imports`.
@@ -792,6 +795,9 @@ pub fn checkWithImports(
     source: []const u8,
     ir: Sexp,
     imports: []const ImportEntry,
+    /// Modules the imports reach in turn: their types can appear here
+    /// (`lib.make()` returning an `a.P`) without being named.
+    transitive: []const ImportEntry,
     module_id: u32,
 ) !SemContext {
     var ctx = try SemContext.init(allocator, source);
@@ -801,6 +807,8 @@ pub fn checkWithImports(
     // The caller's slice is temporary; the emitter reads the imports later.
     ctx.imports = try ctx.arena.allocator().dupe(ImportEntry, imports);
     for (imports) |imp| try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
+    ctx.transitive = try ctx.arena.allocator().dupe(ImportEntry, transitive);
+    for (transitive) |imp| try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
 
     const module_scope = try ctx.pushScopeKind(scope_invalid, .module);
     try builtins.register(&ctx, module_scope);
@@ -1643,6 +1651,9 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
             const name = foreign.symbols.items[in.sym_id].name;
             // Spelled the way this module names it: `other.Point`.
             for (ctx.imports) |imp| {
+                if (imp.module_id == in.module_id) break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ imp.local_name, name });
+            }
+            for (ctx.transitive) |imp| {
                 if (imp.module_id == in.module_id) break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ imp.local_name, name });
             }
             break :blk name;

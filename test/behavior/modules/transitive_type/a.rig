@@ -1,0 +1,12 @@
+pub struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+  fun get(?self) -> Int
+    self.n
+
+pub enum Slot
+  full(b: *B)
+  empty

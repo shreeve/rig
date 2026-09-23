@@ -2916,10 +2916,15 @@ pub const Emitter = struct {
             .nominal => |sym_id| try self.writeNominalName(sema.symbols.items[sym_id].name),
             .imported_nominal => |in| {
                 const foreign = sema.foreign_semas.get(in.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
-                const module_name = for (sema.imports) |imp| {
-                    if (imp.module_id == in.module_id) break imp.local_name;
-                } else return self.unsupported(.nil, "a type from an unimported module");
-                try self.w.print("{f}.{f}", .{ self.ident(module_name), self.ident(foreign.symbols.items[in.sym_id].name) });
+                const type_name = foreign.symbols.items[in.sym_id].name;
+                for (sema.imports) |imp| {
+                    if (imp.module_id == in.module_id) return self.w.print("{f}.{f}", .{ self.ident(imp.local_name), self.ident(type_name) });
+                }
+                // A module reached only through an import.
+                for (sema.transitive) |t| {
+                    if (t.module_id == in.module_id) return self.w.print("@import(\"{s}.zig\").{f}", .{ t.local_name, self.ident(type_name) });
+                }
+                return self.unsupported(.nil, "a type from an unimported module");
             },
             .parameterized_nominal => |pn| {
                 const name = sema.symbols.items[pn.sym].name;
