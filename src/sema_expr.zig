@@ -1044,10 +1044,42 @@ const Checker = struct {
         };
     }
 
+    /// A string's escapes: `\n`, `\r`, `\t`, `\\`, `\'`, `\"`, `\xNN`,
+    /// and `\u{N...}`.
+    fn checkEscapes(self: *Checker, s: []const u8, pos: u32) Error!void {
+        var i: usize = 1;
+        while (i + 1 < s.len) : (i += 1) {
+            if (s[i] != '\\') continue;
+            const c = s[i + 1];
+            const ok = switch (c) {
+                'n', 'r', 't', '\\', '\'', '"' => true,
+                'x' => i + 3 < s.len and std.ascii.isHex(s[i + 2]) and std.ascii.isHex(s[i + 3]),
+                'u' => blk: {
+                    if (i + 2 >= s.len or s[i + 2] != '{') break :blk false;
+                    var j = i + 3;
+                    var digits: usize = 0;
+                    while (j < s.len and std.ascii.isHex(s[j])) : (j += 1) digits += 1;
+                    if (j >= s.len or s[j] != '}' or digits == 0 or digits > 6) break :blk false;
+                    const v = std.fmt.parseInt(u32, s[i + 3 .. j], 16) catch break :blk false;
+                    break :blk v <= 0x10FFFF and !(v >= 0xD800 and v <= 0xDFFF);
+                },
+                else => false,
+            };
+            if (!ok) {
+                try self.err(pos + @as(u32, @intCast(i)), "invalid escape `\\{c}` in a string; the escapes are `\\n`, `\\r`, `\\t`, `\\\\`, `\\'`, `\\\"`, `\\xNN`, and `\\u{{N}}`", .{c});
+                return;
+            }
+            i += 1;
+        }
+    }
+
     fn synthLeaf(self: *Checker, leaf: Sexp) Error!TypeId {
         const s = self.text(leaf);
         if (s.len == 0) return self.t().invalid_id;
-        if (s[0] == '"' or s[0] == '\'') return self.t().string_id;
+        if (s[0] == '"' or s[0] == '\'') {
+            try self.checkEscapes(s, leaf.src.pos);
+            return self.t().string_id;
+        }
         if (std.mem.eql(u8, s, "true") or std.mem.eql(u8, s, "false")) return self.t().bool_id;
         if (std.mem.eql(u8, s, "none")) return self.t().none_id;
         if (types.isFloatLiteralText(s)) return self.t().float_literal_id;
