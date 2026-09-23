@@ -51,10 +51,9 @@ allocation, no hidden refcount traffic, no silent control flow.
 5. **Substrate in the language, libraries in userland.** No GC, no
    macros, no built-in reactive framework.
 6. **Never edit `src/parser.zig` by hand.** Edit `rig.grammar` and
-   run `zig build parser` (needs Nexus 1.0: `-Dnexus=path/to/nexus`,
-   or `../nexus/bin/nexus`; run the suite with `NEXUS=` set to the same
-   binary). The grammar's `@schema` declares every IR node and its
-   roles; the compiler reads the tree through the generated accessors
+   run `zig build parser` (Nexus 1.0.0 or later; see Workflow). The
+   grammar's `@schema` declares every IR node and its roles; the
+   compiler reads the tree through the generated accessors
    (`parser.ir`), by role, never by position. Grammar conflicts must
    be understood: every conflict that remains is listed and justified
    in `docs/INTERNALS.md`.
@@ -73,6 +72,13 @@ bin/rig build --release -o prog file.rig   # optimized executable (ReleaseSafe)
 RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 ```
 
+- Nexus: `zig build parser` and `./test/run` (whose parser check
+  regenerates `src/parser.zig` and compares) use `nexus/bin/nexus` in
+  the nearest parent directory, normally `../nexus/bin/nexus` beside
+  this checkout. It must be Nexus 1.0.0 or later; an older build there
+  fails generation or the parser check. To use another binary, name it
+  in both places: `zig build parser -Dnexus=PATH` and
+  `NEXUS=PATH ./test/run`.
 - Fixing a bug starts with a failing test that reproduces it.
 - Every change keeps `./test/run` green.
 - Commit messages are short, imperative, and describe the change.
