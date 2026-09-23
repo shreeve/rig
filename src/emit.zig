@@ -2483,6 +2483,21 @@ pub const Emitter = struct {
     // Types
     // =========================================================================
 
+    /// What a `*T` / `~T` handle points at; for an owned closure
+    /// (`*fun(A) R`) that is the type-erased closure.
+    fn emitHandleTarget(self: *Emitter, t: Sexp) Error!void {
+        if (!isTagged(t, .@"fun_type")) return self.emitType(t);
+        const ft = t.list;
+        try self.w.writeAll("rig.Closure(&.{");
+        if (ft[1] == .list) for (ft[1].list, 0..) |p, i| {
+            try self.w.writeAll(if (i == 0) " " else ", ");
+            try self.emitType(p);
+        };
+        try self.w.writeAll(if (ft[1] == .list and ft[1].list.len > 0) " }, " else "}, ");
+        if (ft[2] != .nil) try self.emitType(ft[2]) else try self.w.writeAll("void");
+        try self.w.writeAll(")");
+    }
+
     /// A type expression from the IR.
     fn emitType(self: *Emitter, t: Sexp) Error!void {
         switch (t) {
@@ -2510,23 +2525,12 @@ pub const Emitter = struct {
                 },
                 .@"shared" => {
                     try self.w.writeAll("*rig.RcBox(");
-                    if (isTagged(items[1], .@"fun_type")) {
-                        // An owned closure: `*fun(A) R`.
-                        const ft = items[1].list;
-                        try self.w.writeAll("rig.Closure(&.{");
-                        if (ft[1] == .list) for (ft[1].list, 0..) |p, i| {
-                            try self.w.writeAll(if (i == 0) " " else ", ");
-                            try self.emitType(p);
-                        };
-                        try self.w.writeAll(if (ft[1] == .list and ft[1].list.len > 0) " }, " else "}, ");
-                        if (ft[2] != .nil) try self.emitType(ft[2]) else try self.w.writeAll("void");
-                        try self.w.writeAll(")");
-                    } else try self.emitType(items[1]);
+                    try self.emitHandleTarget(items[1]);
                     try self.w.writeAll(")");
                 },
                 .@"weak" => {
                     try self.w.writeAll("rig.WeakHandle(");
-                    try self.emitType(items[1]);
+                    try self.emitHandleTarget(items[1]);
                     try self.w.writeAll(")");
                 },
                 .@"slice" => {
@@ -2597,7 +2601,10 @@ pub const Emitter = struct {
             },
             .weak => |inner| {
                 try self.w.writeAll("rig.WeakHandle(");
-                try self.emitTypeTy(inner);
+                switch (sema.types.get(inner)) {
+                    .function => |f| try self.emitClosureTy(f),
+                    else => try self.emitTypeTy(inner),
+                }
                 try self.w.writeAll(")");
             },
             .slice => |s| {
