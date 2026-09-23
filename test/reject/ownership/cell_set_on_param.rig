@@ -9,11 +9,17 @@ struct Counter
   sub hit(?self)
     self.hits.set(self.hits.get() + 1)
 
+struct Wrap
+  c: Counter
+
 sub bump(c: Cell(Int))
   c.set(1)
 
 fun swap(c: Cell(Int)) -> Int
   c.replace(2)
+
+fun made() -> Counter
+  Counter(hits: Cell(value: 0))
 
 fun fresh() -> Cell(Int)
   Cell(value: 3)
@@ -32,10 +38,16 @@ sub main()
   counters = [Counter(hits: Cell(value: 0))]
   for k in counters
     k.hit()
+  wrapped: [1]Wrap = [Wrap(c: Counter(hits: Cell(value: 0)))]
+  for w in wrapped
+    touch(?w.c.hits)
   fresh().set(4)
+  made().hit()
 
 # error: `Cell.set` needs a Cell that has a place
 # error: `Cell.replace` needs a Cell that has a place
-# error: cannot borrow `x`: it holds a Cell
-# error: cannot call `hit` on `k`: it holds a Cell the method may change
+# error: cannot borrow this: it holds a Cell, and `x` is a loop or match binding
+# error: cannot call `hit` here: the value holds a Cell the method may change, and `k` is a loop or match binding
+# error: cannot borrow this: it holds a Cell, and `w` is a loop or match binding
+# error: cannot call `hit` on a temporary that holds a Cell
 # error: `Cell.set` needs a Cell that has a place

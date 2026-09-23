@@ -1581,11 +1581,15 @@ const Checker = struct {
         if (kind == .write) try self.checkWritable(items[1], "write-borrow");
         // A borrow of a value holding a Cell can change the Cell, which a
         // loop or match binding only copies.
-        if (kind == .read and items[1] == .src and types.holdsCellByValue(self.ctx, inner)) {
-            if (self.ctx.symbolOf(items[1])) |id| if (self.ctx.symbols.items[id].flags.pattern_bound) {
-                try self.err(firstSrcPos(items[1]), "cannot borrow `{s}`: it holds a Cell, and a loop or match binding is a copy, so changes through the borrow would be lost", .{self.text(items[1])});
+        if (kind == .read and types.holdsCellByValue(self.ctx, inner)) {
+            if (self.copiedBindingRoot(items[1])) |root| {
+                try self.err(firstSrcPos(items[1]), "cannot borrow this: it holds a Cell, and `{s}` is a loop or match binding, a copy, so changes through the borrow would be lost", .{self.text(root)});
                 return self.t().invalid_id;
-            };
+            }
+            if (!isPlaceExpr(items[1])) {
+                try self.err(firstSrcPos(items[1]), "cannot borrow a temporary that holds a Cell: a change through the borrow would have no place; bind it to a name first", .{});
+                return self.t().invalid_id;
+            }
         }
         switch (self.ctx.types.get(inner)) {
             .borrow_read => {
@@ -2548,10 +2552,12 @@ const Checker = struct {
 
         // A `?self` method may change a Cell the value holds; a loop or
         // match binding is only a copy of it.
-        if (resolved.nominal_sym != self.ctx.cell_sym_id and resolved.receiver == .read and obj == .src and types.holdsCellByValue(self.ctx, obj_ty)) {
-            if (self.ctx.symbolOf(obj)) |id| if (self.ctx.symbols.items[id].flags.pattern_bound) {
-                try self.err(firstSrcPos(obj), "cannot call `{s}` on `{s}`: it holds a Cell the method may change, and a loop or match binding is a copy, so the change would be lost", .{ method, self.text(obj) });
-            };
+        if (resolved.nominal_sym != self.ctx.cell_sym_id and resolved.receiver == .read and types.holdsCellByValue(self.ctx, obj_ty)) {
+            if (self.copiedBindingRoot(obj)) |root| {
+                try self.err(firstSrcPos(obj), "cannot call `{s}` here: the value holds a Cell the method may change, and `{s}` is a loop or match binding, a copy, so the change would be lost", .{ method, self.text(root) });
+            } else if (!isPlaceExpr(obj)) {
+                try self.err(firstSrcPos(obj), "cannot call `{s}` on a temporary that holds a Cell the method may change; bind it to a name first", .{method});
+            }
         }
         if (resolved.nominal_sym == self.ctx.cell_sym_id) {
             const stores = std.mem.eql(u8, method, "set") or std.mem.eql(u8, method, "replace");
@@ -2830,6 +2836,28 @@ const Checker = struct {
         try self.err(pos, "no method `{s}` on type `{s}`", .{ method, sym.name });
         try self.synthArgs(args);
         return self.t().invalid_id;
+    }
+
+    /// The loop or match binding a place is a part of, when the path to
+    /// it stays inside that binding (a copy of the value it came from)
+    /// rather than going through a borrow or handle.
+    fn copiedBindingRoot(self: *Checker, place: Sexp) ?Sexp {
+        var p = place;
+        while (headOf(p)) |h| {
+            if (h != .@"member" and h != .@"index") return null;
+            const obj = p.list[1];
+            if (self.ctx.typeOf(obj)) |ty| switch (self.ctx.types.get(ty)) {
+                .borrow_read, .borrow_write, .shared => return null,
+                else => {},
+            };
+            p = obj;
+        }
+        if (p != .src) return null;
+        const id = self.ctx.symbolOf(p) orelse return null;
+        const sym = self.ctx.symbols.items[id];
+        if (!sym.flags.pattern_bound) return null;
+        if (self.ctx.types.get(sym.ty) == .borrow_write or self.ctx.types.get(sym.ty) == .borrow_read) return null;
+        return p;
     }
 
     /// A Cell is interior-mutable: `set` and `replace` change it through
