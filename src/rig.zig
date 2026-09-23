@@ -11,7 +11,8 @@
 //! so `parser.Parser.init(allocator, source).parseProgram()` returns the
 //! semantic IR described in docs/INTERNALS.md.
 //!
-//! Also here: the IR `Tag` enum, `BindingKind`, and the identifier
+//! Also here: `Tag` (re-exported from the generated parser), IR helpers
+//! over the generated accessors, `BindingKind`, and the identifier
 //! escaping that emit needs (`writeZigIdent`).
 
 const std = @import("std");
@@ -25,7 +26,7 @@ const TokenCat = parser.TokenCat;
 const Sexp = parser.Sexp;
 
 // =============================================================================
-// Tag — IR node heads and marker tags
+// Tag and IR helpers
 // =============================================================================
 
 /// Every node kind and marker tag of the IR, generated from the `@schema`
@@ -46,10 +47,10 @@ pub fn children(node: Sexp) []const Sexp {
 }
 
 // =============================================================================
-// BindingKind — the kind slot of (set <kind> ...)
+// BindingKind — the op slot of (set <op> ...)
 // =============================================================================
 
-/// Exhaustive view of the kind slot, so dispatch sites must handle every
+/// Exhaustive view of the op slot, so dispatch sites must handle every
 /// kind: `_` → default, `fixed` (`=!`), `shadow` (`new x =`), `move`
 /// (`<-`), and the compound assignments (`x op= e`, one per binary
 /// arithmetic, bitwise, and shift operator).
@@ -90,7 +91,7 @@ pub const BindingKind = enum {
 
 pub const BindingKindError = error{InvalidBindingKind};
 
-/// Decode the kind slot of `(set <kind> ...)`. An unknown kind means the
+/// Decode the op slot of `(set <op> ...)`. An unknown op means the
 /// IR is corrupt, so it is an error rather than a silent default.
 pub fn bindingKindOf(kind_slot: Sexp) BindingKindError!BindingKind {
     if (kind_slot == .nil) return .default;
