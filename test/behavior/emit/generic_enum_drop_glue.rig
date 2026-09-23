@@ -1,5 +1,5 @@
-# Known bug (D10): generic enums get no drop glue, so a `Maybe(*Noisy)`
-# holding a handle never drops it: the Noisy is never dropped and leaks.
+# A generic enum instantiated with a handle (`Maybe(*Noisy)`) drops the
+# handle it holds.
 
 enum Maybe(T)
   some(value: T)

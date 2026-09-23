@@ -1,5 +1,5 @@
-# Known bug (D10): generic structs get no drop glue, so a `Holder(*Noisy)`
-# never drops the handle it holds: the Noisy is never dropped and leaks.
+# A generic struct instantiated with a handle (`Holder(*Noisy)`) drops the
+# handle it holds.
 
 type Holder(T)
   value: T

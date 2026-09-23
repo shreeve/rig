@@ -1,6 +1,5 @@
-# Known bug (D16): a method call on a match-payload binding of shared type
-# (`cell.get()`) is not auto-dereferenced, so the Zig fails to compile
-# (no `get` on `RcBox`).
+# A method call on a match-payload binding of shared type (`cell.get()`)
+# auto-dereferences the handle.
 
 enum Slot
   full(cell: *Cell(Int))

@@ -1,0 +1,16 @@
+# A parenthesized shared type `*(*T)` in an annotation.
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+sub main()
+  inner = *Noisy(id: 4)
+  outer: *(*Noisy) = *(<inner)
+  print("wrapped")
+
+# expect:
+# wrapped
+# 4

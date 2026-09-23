@@ -1659,13 +1659,16 @@ pub const Emitter = struct {
             },
             .@"share" => try self.emitShare(items[1]),
             .@"clone" => {
-                const ty = self.typeOf(items[1]);
+                const kind: ?ResourceKind = if (self.typeOf(items[1])) |t| self.kindOf(t) else null;
+                if (kind == .optional) {
+                    try self.w.writeAll("rig.cloneOptional(");
+                    try self.emitBare(items[1]);
+                    return self.w.writeAll(")");
+                }
+                if (kind == .value) return self.unsupported(sexp, "a clone of a value with drop glue");
                 try self.emitExpr(items[1]);
-                if (ty) |t| switch (self.sema.?.types.get(self.resolve(t).id)) {
-                    .shared => try self.w.writeAll(".cloneStrong()"),
-                    .weak => try self.w.writeAll(".cloneWeak()"),
-                    else => {},
-                };
+                if (kind == .shared) try self.w.writeAll(".cloneStrong()");
+                if (kind == .weak) try self.w.writeAll(".cloneWeak()");
             },
             .@"weak" => {
                 try self.emitExpr(items[1]);
@@ -1969,13 +1972,14 @@ pub const Emitter = struct {
     /// True when `inner` lowers to an expression whose Zig type comes
     /// from its result location (an anonymous or decl literal, a number).
     fn needsTypedPayload(self: *Emitter, inner: Sexp) bool {
-        if (inner == .src) return isLiteralText(self.srcText(inner)) or self.srcText(inner)[0] == '\'';
-        if (!isTagged(inner, .@"call") or inner.list[1] != .src) return true;
-        const name = self.srcText(inner.list[1]);
-        if (isBuiltinNominalName(name)) return true;
-        const sema = self.sema orelse return false;
-        const id = sema.lookup(1, name) orelse return false;
-        return sema.symbols.items[id].kind == .generic_type;
+        if (inner == .src) return isLiteralText(self.srcText(inner));
+        if (isTagged(inner, .@"enum_lit") or isTagged(inner, .@"anon_init") or isTagged(inner, .@"array")) return true;
+        if (!isTagged(inner, .@"call")) return false;
+        const callee = inner.list[1];
+        if (isTagged(callee, .@"enum_lit")) return true;
+        if (callee != .src) return false;
+        const name = self.srcText(callee);
+        return std.mem.eql(u8, name, "Vec") or std.mem.eql(u8, name, "Signal");
     }
 
     // -------------------------------------------------------------------------
@@ -2189,7 +2193,15 @@ pub const Emitter = struct {
         const sema = self.sema.?;
         const sym = sema.symbols.items[sym_id];
         const is_generic = sym.kind == .generic_type;
-        try self.w.writeAll(if (is_generic) ".{" else "{");
+        if (!is_generic) {
+            try self.w.writeAll("{");
+        } else if (self.expected != null and self.substOf(self.peelBorrows(self.expected.?)).sym == sym_id) {
+            // A typed literal reads better than an anonymous one.
+            try self.emitTypeTy(self.peelBorrows(self.expected.?));
+            try self.w.writeAll("{");
+        } else {
+            try self.w.writeAll(".{");
+        }
         for (args, 0..) |a, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
             if (isTagged(a, .@"kwarg")) {
@@ -2325,7 +2337,8 @@ pub const Emitter = struct {
     const Capture = struct {
         mode: Tag,
         name: []const u8,
-        outer: ?*Local,
+        /// The captured binding, copied: scope storage moves as locals are added.
+        outer: ?Local,
         /// Resource kind of the captured value inside the closure.
         kind: ?ResourceKind,
         ty: ?Ty,
@@ -2337,7 +2350,7 @@ pub const Emitter = struct {
         for (captures.list[1..]) |cap| {
             const name_node = captureNameSrc(cap) orelse continue;
             const name = self.srcText(name_node);
-            const outer = self.lookup(name);
+            const outer: ?Local = if (self.lookup(name)) |l| l.* else null;
             const mode = cap.list[0].tag;
             var ty: ?Ty = if (outer) |o| o.ty else null;
             if (ty == null) ty = self.findOuterCaptureType(name, name_node.src.pos);
@@ -2385,7 +2398,7 @@ pub const Emitter = struct {
         for (caps, 0..) |c, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
             try self.w.print(".cap_{s} = ", .{c.name});
-            const outer_name = if (c.outer) |o| try self.placeText(o) else c.name;
+            const outer_name = if (c.outer) |o| try self.placeText(&o) else c.name;
             const outer_kind: ?ResourceKind = if (c.outer) |o| o.kind else null;
             switch (c.mode) {
                 .@"cap_clone" => {
@@ -2398,7 +2411,7 @@ pub const Emitter = struct {
                 },
                 .@"cap_weak" => try self.w.print("{s}.weakRef()", .{outer_name}),
                 .@"cap_move" => if (c.outer) |o| {
-                    if (o.guard == .flag) try self.writeTake(o) else try self.w.writeAll(outer_name);
+                    if (o.guard == .flag) try self.writeTake(&o) else try self.w.writeAll(outer_name);
                 } else try self.w.writeAll(outer_name),
                 else => try self.w.writeAll(outer_name),
             }
@@ -3310,7 +3323,7 @@ const Scan = struct {
                 try inner.declareParams(items[2]);
                 try inner.walk(items[4]);
                 const stmts = try s.e.stmtsOf(items[4]);
-                if (stmts.len > 0) try inner.consumeAll(stmts[stmts.len - 1]);
+                if (stmts.len > 0 and s.e.lambdaReturn(sexp) != null) try inner.consumeAll(stmts[stmts.len - 1]);
             },
             else => for (items[1..]) |c| try s.walk(c),
         }
@@ -3550,6 +3563,8 @@ fn usesName(source: []const u8, node: Sexp, name: []const u8) bool {
                 .@"member" => return items.len >= 2 and usesName(source, items[1], name),
                 .@"kwarg" => return items.len >= 3 and usesName(source, items[2], name),
                 .@"enum_lit", .@"enum_pattern" => return false,
+                // Ending a borrow early is not a read of it.
+                .@"drop" => return false,
                 .@"variant_pattern" => return false,
                 .@"lambda" => return items.len >= 2 and usesName(source, items[1], name),
                 .@"block" => return usesNameInStmts(source, items[1..], name),

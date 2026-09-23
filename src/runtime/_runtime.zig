@@ -194,6 +194,12 @@ pub fn WeakHandle(comptime T: type) type {
     };
 }
 
+/// `+x` for an optional handle: another handle to the same box, or null.
+pub fn cloneOptional(value: anytype) @TypeOf(value) {
+    const h = value orelse return null;
+    return if (comptime isStrongHandle(@TypeOf(h))) h.cloneStrong() else h.cloneWeak();
+}
+
 /// Allocate a new `*T` holding `value`.
 pub fn rcNew(value: anytype) *RcBox(@TypeOf(value)) {
     return RcBox(@TypeOf(value)).new(defaultAllocator(), value) catch oom();

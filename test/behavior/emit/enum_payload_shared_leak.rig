@@ -1,6 +1,5 @@
-# Known bug (C6): an enum variant carrying a shared handle has no drop
-# glue, so the `*Box` payload is never released. Today the output is
-# right but the leak check fails.
+# An enum variant carrying a shared handle owns it: the enum drops the
+# handle when it goes.
 
 struct Box
   payload: Int

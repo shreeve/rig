@@ -1401,6 +1401,8 @@ pub const Checker = struct {
             const kind: ?[]const u8 = switch (ty) {
                 .shared => "shared (`*T`)",
                 .weak => "weak (`~T`)",
+                // `(*T)?` from `upgrade()` owns a strong handle.
+                .optional => if (types.typeHasDropGlue(sema, sym.ty)) "optional" else null,
                 else => null,
             };
             const handle_kind = kind orelse return;

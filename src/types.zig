@@ -824,8 +824,12 @@ pub fn checkWithImports(
                         changed = true;
                         break;
                     }
-                    if (f.is_method or f.is_variant) continue;
-                    if (typeHasDropGlue(&ctx, f.ty)) {
+                    if (f.is_method) continue;
+                    const owns = if (f.is_variant) blk: {
+                        for (f.payload orelse &.{}) |pf| if (typeHasDropGlue(&ctx, pf.ty)) break :blk true;
+                        break :blk false;
+                    } else typeHasDropGlue(&ctx, f.ty);
+                    if (owns) {
                         sym.flags.has_drop_glue = true;
                         changed = true;
                         break;
@@ -1545,14 +1549,16 @@ fn isCopyTypeForCapture(ctx: *const SemContext, ty_id: TypeId) bool {
 ///   - `parameterized_nominal{Vec, _}` — Vec owns its buffer;
 ///   - `parameterized_nominal{Closure, _}` — owned closure handle;
 ///   - `nominal{sym}` where `sym.flags.has_drop_glue` — recursive
-///     case (struct with resource fields or user `drop`).
+///     case (struct or enum with resource fields or payloads, or a
+///     user `drop`);
+///   - `optional(T)` when `T` has glue (`(*T)?` from `upgrade()`);
+///   - an instance of a user generic whose fields or payloads have
+///     glue under its type arguments (`Holder(*T)`).
 ///
 /// False for:
 ///   - primitives (int, bool, float, string, literal pseudo-types,
 ///     void, etc.) — Copy by definition;
-///   - `optional` / `fallible` / `borrow_*` — V1 doesn't yet support
-///     resource Optionals (deferred per GPT-5.5 M25 lock); borrows
-///     don't own the value;
+///   - `fallible` / `borrow_*` — borrows don't own the value;
 ///   - `slice` / `array` / `function` — not first-class resources
 ///     in V1 (slices to resource elements are a follow-up arc);
 ///   - `imported_nominal` — V1 cross-module Drop is deferred (the
@@ -1569,10 +1575,33 @@ fn isCopyTypeForCapture(ctx: *const SemContext, ty_id: TypeId) bool {
 /// the same predicate (the load-bearing "any type with drop glue
 /// is non-Copy" rule from M25(3/5) generalized in M26(3/5)).
 pub fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
+    return hasDropGlueUnder(ctx, ty_id, null, 0);
+}
+
+/// Type arguments in effect while looking inside a generic instance.
+const GlueSubst = struct {
+    params: []const SymbolId,
+    args: []const TypeId,
+    outer: ?*const GlueSubst,
+};
+
+/// `typeHasDropGlue` inside generic instances: a type parameter has
+/// glue when its argument does, and an instance of a user generic has
+/// glue when any field or variant payload does under its arguments.
+fn hasDropGlueUnder(ctx: *const SemContext, ty_id: TypeId, subst: ?*const GlueSubst, depth: u8) bool {
     if (ty_id == ctx.types.invalid_id or ty_id == ctx.types.unknown_id) return false;
+    if (depth > 16) return false;
     const ty = ctx.types.get(ty_id);
     return switch (ty) {
         .shared, .weak => true,
+        .optional => |inner| hasDropGlueUnder(ctx, inner, subst, depth + 1),
+        .type_var => |sym| blk: {
+            const s = subst orelse break :blk false;
+            for (s.params, 0..) |p, i| {
+                if (p == sym and i < s.args.len) break :blk hasDropGlueUnder(ctx, s.args[i], s.outer, depth + 1);
+            }
+            break :blk false;
+        },
         .parameterized_nominal => |pn| blk: {
             if (pn.sym == ctx.vec_sym_id) break :blk true;
             if (pn.sym == ctx.closure_sym_id) break :blk true;
@@ -1585,7 +1614,7 @@ pub fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
             // which handles all of: Copy T (no-op), shared/weak,
             // Vec, nominal-with-drop-glue.
             if (pn.sym == ctx.cell_sym_id) {
-                if (pn.args.len == 1) break :blk typeHasDropGlue(ctx, pn.args[0]);
+                if (pn.args.len == 1) break :blk hasDropGlueUnder(ctx, pn.args[0], subst, depth + 1);
                 break :blk false;
             }
             // Other parameterized builtins: Signal owns a subscriber
@@ -1593,14 +1622,21 @@ pub fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
             // so any field typed `*Signal(_)` falls into the
             // `.shared` branch above. Bare-value `Signal(T)` in
             // field position is rejected at sema time elsewhere.
-            //
-            // For user-defined generics, `has_drop_glue` only flows
-            // through if the BASE struct is flagged. Type-args (`pn.args`)
-            // could carry resources, but field-level recursion happens
-            // when the field IS the type-arg-bearing nominal — the
-            // parameterized base must declare what it owns.
             const base_sym = ctx.symbols.items[pn.sym];
-            break :blk base_sym.flags.has_drop_glue;
+            if (base_sym.flags.has_drop_glue) break :blk true;
+            // A user generic owns what its fields and payloads own under
+            // this instance's arguments (`Holder(*T)` holds a `*T`).
+            const inner: GlueSubst = .{ .params = base_sym.type_params orelse &.{}, .args = pn.args, .outer = subst };
+            const fields = base_sym.fields orelse break :blk false;
+            for (fields) |f| {
+                if (f.is_method) continue;
+                if (f.is_variant) {
+                    for (f.payload orelse &.{}) |pf| if (hasDropGlueUnder(ctx, pf.ty, &inner, depth + 1)) break :blk true;
+                    continue;
+                }
+                if (hasDropGlueUnder(ctx, f.ty, &inner, depth + 1)) break :blk true;
+            }
+            break :blk false;
         },
         .nominal => |s| blk: {
             const sym = ctx.symbols.items[s];
