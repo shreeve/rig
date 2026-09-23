@@ -81,7 +81,7 @@ pub const Checker = struct {
     /// `handled`: `sexp` is the direct operand of `!` or `catch`.
     fn walk(self: *Checker, sexp: Sexp, handled: bool) Error!void {
         const head = headOf(sexp) orelse return;
-        const items = sexp.list;
+        const items = sexp.items();
         switch (head) {
             .@"fun", .@"sub" => try self.walkFunction(sexp),
             .@"drop_decl" => {
@@ -148,7 +148,7 @@ pub const Checker = struct {
     }
 
     fn walkFunction(self: *Checker, node: Sexp) Error!void {
-        const items = node.list;
+        const items = node.items();
         const saved = self.save();
         defer self.restore(saved);
         const is_sub = items[0].tag == .@"sub";
@@ -183,7 +183,7 @@ pub const Checker = struct {
     }
 
     fn walkCall(self: *Checker, node: Sexp, handled: bool) Error!void {
-        const items = node.list;
+        const items = node.items();
         const callee = items[1];
 
         if (!handled) {
@@ -212,8 +212,8 @@ pub const Checker = struct {
     fn calleeName(self: *Checker, callee: Sexp) Error![]const u8 {
         if (callee == .src) return self.text(callee);
         if (isHead(callee, .@"member")) {
-            const obj = callee.list[1];
-            const name = self.text(callee.list[2]);
+            const obj = callee.items()[1];
+            const name = self.text(callee.items()[2]);
             if (obj == .src) return std.fmt.allocPrint(self.arena.allocator(), "{s}.{s}", .{ self.text(obj), name });
             return name;
         }
@@ -228,13 +228,13 @@ pub const Checker = struct {
             return if (self.sema.symbols.items[id].kind == .@"extern") self.text(callee) else null;
         }
         if (!isHead(callee, .@"member")) return null;
-        const obj = callee.list[1];
+        const obj = callee.items()[1];
         const id = self.sema.symbolOf(obj) orelse return null;
         if (self.sema.symbols.items[id].kind != .module) return null;
         const origin = self.sema.module_refs.get(id) orelse return null;
         const foreign = self.sema.foreign_semas.get(origin) orelse return null;
         if (foreign.scopes.items.len < 2) return null;
-        const name = self.text(callee.list[2]);
+        const name = self.text(callee.items()[2]);
         const fid = foreign.lookupInScopeOnly(1, name) orelse return null;
         const fsym = foreign.symbols.items[fid];
         if (fsym.kind != .@"extern" or !fsym.flags.is_public) return null;

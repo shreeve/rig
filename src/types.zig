@@ -1773,7 +1773,8 @@ pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?i128 {
             const id = ctx.symbolOf(e) orelse return null;
             return ctx.const_ints.get(id);
         },
-        .list => |items| {
+        .list => |items_list| {
+            const items = items_list.items();
             const h = headOf(e) orelse return null;
             if (h == .@"neg") return std.math.negate(constIntOf(ctx, items[1]) orelse return null) catch null;
             // `a if c else b` with a constant condition: Zig picks the
@@ -1819,7 +1820,8 @@ pub fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
             if (std.mem.eql(u8, word, "false")) return false;
             return null;
         },
-        .list => |items| {
+        .list => |items_list| {
+            const items = items_list.items();
             const h = headOf(e) orelse return null;
             switch (h) {
                 .@"not" => return !(constBoolOf(ctx, items[1]) orelse return null),
@@ -1845,8 +1847,8 @@ pub fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
 }
 
 pub fn headOf(sexp: Sexp) ?Tag {
-    if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return null;
-    return sexp.list[0].tag;
+    if (sexp != .list or sexp.items().len == 0 or sexp.items()[0] != .tag) return null;
+    return sexp.items()[0].tag;
 }
 
 pub fn isHead(sexp: Sexp, tag: Tag) bool {
@@ -1858,7 +1860,8 @@ pub fn isHead(sexp: Sexp, tag: Tag) bool {
 pub fn paramNameNode(param: Sexp) ?Sexp {
     return switch (param) {
         .src => param,
-        .list => |items| blk: {
+        .list => |items_list| blk: {
+            const items = items_list.items();
             if (items.len < 2 or items[0] != .tag) break :blk null;
             break :blk switch (items[0].tag) {
                 .@":", .@"pre_param", .@"read", .@"write", .@"default" => items[1],
@@ -1887,7 +1890,7 @@ pub const CaptureMode = enum { cap_clone, cap_weak, cap_move };
 
 pub fn captureModeOf(cap: Sexp) ?CaptureMode {
     const h = headOf(cap) orelse return null;
-    if (cap.list.len < 2) return null;
+    if (cap.items().len < 2) return null;
     return switch (h) {
         .@"cap_clone" => .cap_clone,
         .@"cap_weak" => .cap_weak,
@@ -1898,13 +1901,13 @@ pub fn captureModeOf(cap: Sexp) ?CaptureMode {
 
 pub fn captureNameNode(cap: Sexp) ?Sexp {
     _ = captureModeOf(cap) orelse return null;
-    return cap.list[1];
+    return cap.items()[1];
 }
 
 /// Items of a `(captures ...)` node, or empty.
 pub fn captureList(captures: Sexp) []const Sexp {
     if (!isHead(captures, .@"captures")) return &.{};
-    return captures.list[1..];
+    return captures.items()[1..];
 }
 
 pub fn parseIntegerLiteral(source: []const u8, sexp: Sexp) ?u64 {
@@ -2055,7 +2058,7 @@ fn factsRun(source: []const u8) !FactsRun {
 fn findNode(node: Sexp, tag: Tag) ?Sexp {
     if (headOf(node) == tag) return node;
     if (node != .list) return null;
-    for (node.list) |c| {
+    for (node.items()) |c| {
         if (findNode(c, tag)) |n| return n;
     }
     return null;
@@ -2152,9 +2155,9 @@ test "facts: a match covering every value without a default is exhaustive" {
         \\
     );
     defer r.deinit();
-    const body = r.ir.list[1].list[4];
-    try std.testing.expect(r.ctx.isExhaustive(body.list[2]));
-    try std.testing.expect(!r.ctx.isExhaustive(body.list[4]));
+    const body = r.ir.items()[1].items()[4];
+    try std.testing.expect(r.ctx.isExhaustive(body.items()[2]));
+    try std.testing.expect(!r.ctx.isExhaustive(body.items()[4]));
 }
 
 test "facts: literals record the type their context gives them" {
@@ -2188,7 +2191,7 @@ test "facts: expression nodes carry their types" {
         \\
     );
     defer r.deinit();
-    const call = findNode(r.ir.list[2], .@"call").?;
+    const call = findNode(r.ir.items()[2], .@"call").?;
     const add = findNode(call, .@"+").?;
     try std.testing.expectEqual(r.ctx.types.float_id, r.ctx.typeOf(add).?);
     const half_call = findNode(add, .@"call").?;
@@ -2267,10 +2270,10 @@ test "facts: scopes are keyed by the node that opens them" {
         \\
     );
     defer r.deinit();
-    const main_fn = r.ir.list[2];
+    const main_fn = r.ir.items()[2];
     const fn_scope = r.ctx.scopeOf(main_fn).?;
     try std.testing.expectEqual(ScopeKind.function, r.ctx.scopes.items[fn_scope].kind);
-    const body = main_fn.list[4];
+    const body = main_fn.items()[4];
     const body_scope = r.ctx.scopeOf(body).?;
     try std.testing.expectEqual(fn_scope, r.ctx.scopes.items[body_scope].parent.?);
     const x = r.sym("x", 0).?;
@@ -2326,12 +2329,12 @@ test "facts: keyword and omitted arguments record their slots" {
         \\
     );
     defer r.deinit();
-    const main_fn = r.ir.list[2];
-    const first = findNode(main_fn.list[4].list[1], .@"call").?;
-    const inner1 = findNode(first.list[2], .@"call").?;
+    const main_fn = r.ir.items()[2];
+    const first = findNode(main_fn.items()[4].items()[1], .@"call").?;
+    const inner1 = findNode(first.items()[2], .@"call").?;
     try std.testing.expect(r.ctx.callSlotsOf(inner1) == null);
-    const second = findNode(main_fn.list[4].list[2], .@"call").?;
-    const inner2 = findNode(second.list[2], .@"call").?;
+    const second = findNode(main_fn.items()[4].items()[2], .@"call").?;
+    const inner2 = findNode(second.items()[2], .@"call").?;
     const slots = r.ctx.callSlotsOf(inner2).?;
     try std.testing.expectEqual(@as(usize, 3), slots.len);
     try std.testing.expectEqual(@as(u32, 1), slots[0].arg);
@@ -2483,7 +2486,8 @@ const Coverage = struct {
                 self.expectName(e);
                 if (!std.mem.eql(u8, self.r.source[e.src.pos..][0..e.src.len], "print")) self.expectType(e);
             },
-            .list => |items| {
+            .list => |items_list| {
+                const items = items_list.items();
                 const h = headOf(e) orelse return;
                 switch (h) {
                     .@"set" => {
@@ -2519,9 +2523,9 @@ const Coverage = struct {
                     .@"match" => {
                         self.expr(items[1]);
                         for (items[2..]) |arm| {
-                            const pat = arm.list[1];
-                            if (isHead(pat, .@"variant_pattern")) for (pat.list[2..]) |b| self.expectName(b);
-                            self.expr(arm.list[arm.list.len - 1]);
+                            const pat = arm.items()[1];
+                            if (isHead(pat, .@"variant_pattern")) for (pat.items()[2..]) |b| self.expectName(b);
+                            self.expr(arm.items()[arm.items().len - 1]);
                         }
                         return;
                     },
@@ -2541,7 +2545,7 @@ const Coverage = struct {
                             self.expectName(items[1]);
                         } else self.expr(items[1]);
                         for (items[2..]) |a| {
-                            if (isHead(a, .@"kwarg")) self.expr(a.list[2]) else self.expr(a);
+                            if (isHead(a, .@"kwarg")) self.expr(a.items()[2]) else self.expr(a);
                         }
                         return;
                     },
@@ -2567,10 +2571,10 @@ const Coverage = struct {
         const h = headOf(d) orelse return;
         switch (h) {
             .@"fun", .@"sub" => {
-                if (d.list[2] == .list) for (d.list[2].list) |p| self.expectName(paramNameNode(p).?);
-                self.expr(d.list[d.list.len - 1]);
+                if (d.items()[2] == .list) for (d.items()[2].items()) |p| self.expectName(paramNameNode(p).?);
+                self.expr(d.items()[d.items().len - 1]);
             },
-            .@"struct", .@"enum", .@"generic_type" => for (d.list[2..]) |m| self.decl(m),
+            .@"struct", .@"enum", .@"generic_type" => for (d.items()[2..]) |m| self.decl(m),
             else => {},
         }
     }
@@ -2641,7 +2645,7 @@ test "facts: every name and expression in a program has a fact" {
     );
     defer r.deinit();
     var cov: Coverage = .{ .r = &r };
-    for (r.ir.list[1..]) |d| cov.decl(d);
+    for (r.ir.items()[1..]) |d| cov.decl(d);
     try std.testing.expectEqual(@as(usize, 0), cov.missing);
 }
 
@@ -2667,7 +2671,7 @@ test "facts: optional bindings, index bindings, defaults, and shadows have facts
     );
     defer r.deinit();
     var cov: Coverage = .{ .r = &r };
-    for (r.ir.list[1..]) |d| cov.decl(d);
+    for (r.ir.items()[1..]) |d| cov.decl(d);
     try std.testing.expectEqual(@as(usize, 0), cov.missing);
     try std.testing.expectEqual(r.ctx.types.int_id, r.leafType("v", 0).?);
     try std.testing.expectEqual(r.ctx.types.int_id, r.leafType("i", 0).?);

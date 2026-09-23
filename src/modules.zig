@@ -167,9 +167,9 @@ pub const ModuleGraph = struct {
         if (ir != .list) return true;
         var ok = true;
 
-        for (ir.list[1..]) |decl| {
-            if (decl != .list or decl.list.len < 2 or decl.list[0] != .tag or decl.list[0].tag != .@"use") continue;
-            const name_node = decl.list[1];
+        for (ir.items()[1..]) |decl| {
+            if (decl != .list or decl.items().len < 2 or decl.items()[0] != .tag or decl.items()[0].tag != .@"use") continue;
+            const name_node = decl.items()[1];
             if (name_node != .src) continue;
             const m = self.get(id);
             const local_name = m.source[name_node.src.pos..][0..name_node.src.len];

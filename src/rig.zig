@@ -17,7 +17,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const diag = @import("diag.zig");
-const ir = @import("ir.zig");
+const ir = parser.ir;
 const BaseLexer = parser.BaseLexer;
 const BaseParser = parser.BaseParser;
 const Token = parser.Token;
@@ -28,138 +28,9 @@ const Sexp = parser.Sexp;
 // Tag — IR node heads and marker tags
 // =============================================================================
 
-/// Node shapes are defined in `ir.zig`; an absent optional slot is `_`.
-pub const Tag = enum(u8) {
-    // Declarations
-    @"module",
-    @"use",
-    @"fun",
-    @"sub",
-    @"lambda",
-    @"struct",
-    @"enum",
-    @"errors",
-    @"type",            // type alias: (type Name T)
-    @"generic_type",    // (generic_type Name params-or-_ members...)
-    @"generic_enum",    // (generic_enum Name params members...)
-    @"test",
-    @"pub",
-    @"extern",          // (extern _ name T): extern variable
-    @"extern_fun",      // (extern_fun name params returns)
-    @"extern_sub",      // (extern_sub name params)
-    @"drop_decl",       // (drop_decl (param) block): user-defined drop
-    @"zig",             // reserved: rejected by sema
-    @"labeled",         // (labeled name stmt)
-
-    // Members and parameters
-    @":",               // (: name T)
-    @"default",         // (default name T expr)
-    @"valued",          // enum member with a value: (valued name expr)
-    @"variant",         // payload variant: (variant name params)
-    @"pre_param",       // (pre_param name T)
-
-    // Bindings: (set <kind> target type-or-_ expr); see BindingKind.
-    @"set",
-    @"fixed",
-    @"shadow",
-    @"+=",
-    @"-=",
-    @"*=",
-    @"/=",
-    @"%=",
-    @"&=",
-    @"|=",
-    @"^=",
-    @"<<=",
-    @">>=",
-    @"drop",            // (drop name): `-name` statement
-
-    // Control flow
-    @"if",              // (if cond then else): block if, ternary, guard
-    @"as",              // (as expr name): optional binding in an if/while condition
-    @"while",           // (while cond step body else)
-    @"for",             // (for mode binding index source body else)
-    @"iter",            // for modes
-    @"ptr",
-    @"match",
-    @"arm",             // (arm pattern body)
-    @"range_pattern",
-    @"variant_pattern", // .circle(r)
-    @"enum_lit",        // .red
-    @"return",
-    @"break",           // (break value label)
-    @"continue",        // (continue label)
-    @"defer",
-    @"errdefer",
-    @"raw_block",
-    @"pre_block",       // reserved: rejected by sema
-    @"pre",             // reserved: rejected by sema
-    @"try_block",       // reserved: rejected by sema
-    @"catch_block",
-    @"catch",           // (catch expr name handler)
-    @"propagate",       // expr!
-    @"block",
-
-    // Closures
-    @"captures",
-    @"cap_clone",       // |+x|
-    @"cap_weak",        // |~x|
-    @"cap_move",        // |<x|
-
-    // Calls and access
-    @"call",
-    @"builtin",         // @name(args)
-    @"member",
-    @"index",
-    @"array",
-    @"kwarg",
-
-    // Operators
-    @"+",
-    @"-",
-    @"*",
-    @"/",
-    @"%",
-    @"neg",
-    @"not",
-    @"and",
-    @"or",
-    @"==",
-    @"!=",
-    @"<",
-    @">",
-    @"<=",
-    @">=",
-    @"&",
-    @"|",
-    @"^",
-    @"<<",
-    @">>",
-    @"??",
-    @"..",
-
-    // Ownership sigils in expression position
-    @"move",            // <x
-    @"read",            // ?x
-    @"write",           // !x
-    @"clone",           // +x
-    @"share",           // *x
-    @"weak",            // ~x (also ~T in type position)
-    @"pin",             // @x, reserved
-
-    // Types
-    @"optional",        // T?
-    @"error_union",     // T!
-    @"borrow_read",     // ?T
-    @"borrow_write",    // !T
-    @"shared",          // *T
-    @"generic_inst",    // Box(Int)
-    @"slice",           // []T
-    @"array_type",      // [N]T
-    @"fun_type",        // fun(A, B) R
-
-    _,
-};
+/// Every node kind and marker tag of the IR, generated from the `@schema`
+/// in rig.grammar (which also gives each kind's roles).
+pub const Tag = parser.Tag;
 
 // =============================================================================
 // BindingKind — the kind slot of (set <kind> ...)
@@ -993,13 +864,6 @@ pub const Parser = struct {
 
     /// Parse without the IR rewrites: the grammar's own output.
     pub fn parseTree(self: *Parser) !Sexp {
-        // A file with no statements is an empty module; the grammar's
-        // `program` needs at least one.
-        if (self.base.current.cat == .eof) {
-            const empty = try self.allocator().alloc(Sexp, 1);
-            empty[0] = .{ .tag = .@"module" };
-            return .{ .list = empty };
-        }
         const tree = try self.base.parseProgram();
         if (tooDeep(tree, 0)) |pos| {
             self.failure = .{ .severity = .@"error", .pos = pos, .message = "expression is nested too deeply" };
@@ -1008,15 +872,17 @@ pub const Parser = struct {
         return tree;
     }
 
+    /// The source span of a node (see `BaseParser.span`).
+    pub fn span(self: *const Parser, sexp: Sexp) parser.Span {
+        return self.base.span(sexp);
+    }
+
     /// Position inside the first subtree nested deeper than
     /// `max_tree_depth`, or null.
     fn tooDeep(sexp: Sexp, depth: u32) ?u32 {
-        const items = switch (sexp) {
-            .list => |l| l,
-            else => return null,
-        };
+        if (sexp != .list) return null;
         if (depth == max_tree_depth) return firstPos(sexp);
-        for (items) |item| if (tooDeep(item, depth + 1)) |pos| return pos;
+        for (sexp.items()) |item| if (tooDeep(item, depth + 1)) |pos| return pos;
         return null;
     }
 
@@ -1025,8 +891,8 @@ pub const Parser = struct {
     fn firstPos(sexp: Sexp) u32 {
         var node = sexp;
         descend: while (node == .list) {
-            for (node.list) |item| if (item == .src) return item.src.pos;
-            for (node.list) |item| if (item == .list) {
+            for (node.items()) |item| if (item == .src) return item.src.pos;
+            for (node.items()) |item| if (item == .list) {
                 node = item;
                 continue :descend;
             };
@@ -1068,15 +934,16 @@ pub const Parser = struct {
     // -------------------------------------------------------------------------
     // Rewrites that need to inspect the tree:
     //
-    //   * every node gets all the slots its schema (`ir.zig`) gives it:
-    //     absent trailing optional slots become `_`;
+    //   * a closure's bar list (the grammar's `params`) splits into its
+    //     captures and parameters:
+    //       (lambda _ ((cap_clone v) a) _ body)  →  (lambda (captures (cap_clone v)) (a) _ body)
     //   * `for` source sigils move into the mode slot:
-    //       (for iter x _ (read xs) body)  →  (for read x _ xs body)
-    //   * a closure's bar list splits into its captures and parameters:
-    //       (lambda ((cap_clone v) a) ...)  →  (lambda (captures (cap_clone v)) (a) ...)
+    //       (for iter x _ (read xs) body _)  →  (for read x _ xs body _)
     //   * a `-name` statement whose value is used is negation, not a drop:
     //     the last statement of a `fun` body, or of a branch or arm whose
     //     value is used, becomes (neg name).
+    //
+    // Every rewritten node keeps its node id, and so its span.
     // -------------------------------------------------------------------------
 
     pub fn rewrite(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
@@ -1084,38 +951,35 @@ pub const Parser = struct {
     }
 
     fn walk(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
-        const items = switch (sexp) {
-            .list => |l| l,
-            else => return sexp,
-        };
+        if (sexp != .list) return sexp;
+        const items = sexp.items();
         const walked = try self.allocator().alloc(Sexp, items.len);
         for (items, 0..) |child, i| walked[i] = try self.walk(child);
-        if (walked.len >= 2 and walked[0] == .tag and walked[0].tag == .@"lambda") try self.splitBars(walked);
-        const out = try ir.pad(self.allocator(), walked);
-        if (out.len == 0 or out[0] != .tag) return .{ .list = out };
-        switch (out[0].tag) {
-            .@"for" => normFor(out),
-            // (fun name params returns body): the body's value is returned.
-            .@"fun" => if (out.len >= 5 and out[3] != .nil) valueTail(out[4]),
-            // (set kind target type expr): the expression's value is bound.
-            .@"set" => if (out.len >= 5) valueTail(out[4]),
+        const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
+        switch (out.kind() orelse return out) {
+            .@"lambda" => try self.splitBars(out, walked),
+            .@"for" => normFor(walked),
+            // The body's value is returned.
+            .@"fun" => if (ir.Fun.returns(out) != .nil) valueTail(ir.Fun.body(out)),
+            // The expression's value is bound.
+            .@"set" => valueTail(ir.Set.value(out)),
             else => {},
         }
-        return .{ .list = out };
+        return out;
     }
 
-    /// `(lambda entries ...)`: sigiled entries are captures, the rest
-    /// parameters. Captures come first.
-    fn splitBars(self: *Parser, items: []Sexp) std.mem.Allocator.Error!void {
-        const entries: []const Sexp = if (items[1] == .list) items[1].list else &.{};
+    /// `(lambda _ entries _ body)`: sigiled entries are captures, the
+    /// rest parameters. Captures come first.
+    fn splitBars(self: *Parser, node: Sexp, items: []Sexp) std.mem.Allocator.Error!void {
+        const bars = ir.Lambda.params(node);
         var caps: std.ArrayListUnmanaged(Sexp) = .empty;
         var params: std.ArrayListUnmanaged(Sexp) = .empty;
         try caps.append(self.allocator(), .{ .tag = .@"captures" });
-        for (entries) |e| {
-            const is_capture = e == .list and e.list.len > 0 and e.list[0] == .tag and switch (e.list[0].tag) {
+        for (bars.items()) |e| {
+            const is_capture = if (e.kind()) |k| switch (k) {
                 .@"cap_clone", .@"cap_move", .@"cap_weak" => true,
                 else => false,
-            };
+            } else false;
             if (!is_capture) {
                 try params.append(self.allocator(), e);
                 continue;
@@ -1125,39 +989,56 @@ pub const Parser = struct {
             }
             try caps.append(self.allocator(), e);
         }
-        items[1] = if (caps.items.len > 1) .{ .list = caps.items } else .nil;
-        if (items.len >= 3) items[2] = if (params.items.len > 0) .{ .list = params.items } else .nil;
+        items[slot(.@"lambda", .captures)] = if (caps.items.len > 1) Sexp.listOf(caps.items) else .nil;
+        items[slot(.@"lambda", .params)] = if (params.items.len > 0) .{ .list = parser.List.withId(params.items, bars.list.id) } else .nil;
     }
 
     /// `sexp` (already walked, so its lists are freshly allocated) is in
     /// value position: a trailing `(drop x)` there is `(neg x)`.
     fn valueTail(sexp: Sexp) void {
-        if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return;
-        const items = @constCast(sexp.list);
-        switch (items[0].tag) {
+        const kind = sexp.kind() orelse return;
+        const items = @constCast(sexp.items());
+        switch (kind) {
             .@"drop" => items[0] = .{ .tag = .@"neg" },
-            .@"block" => if (items.len >= 2) valueTail(items[items.len - 1]),
-            .@"if" => {
-                valueTail(items[2]);
-                valueTail(items[3]);
+            .@"block" => {
+                const stmts = ir.Block.stmts(sexp);
+                if (stmts.len > 0) valueTail(stmts[stmts.len - 1]);
             },
-            .@"match" => for (items[2..]) |arm| valueTail(arm.list[2]),
+            .@"if" => {
+                valueTail(ir.If.then(sexp));
+                valueTail(ir.If.@"else"(sexp));
+            },
+            .@"match" => for (ir.Match.arms(sexp)) |arm| valueTail(ir.Arm.body(arm)),
             else => {},
         }
     }
 
     /// Promote the source's `?xs` / `!xs` / `<xs` wrapper into the mode.
     fn normFor(items: []Sexp) void {
-        if (items[1] != .tag or items[1].tag != .iter) return;
-        const source = items[4];
-        if (source != .list or source.list.len < 2 or source.list[0] != .tag) return;
-        switch (source.list[0].tag) {
+        const node = Sexp.listOf(items);
+        if (ir.For.mode(node).tag != .iter) return;
+        const source = ir.For.source(node);
+        const kind = source.kind() orelse return;
+        switch (kind) {
             .@"read", .@"write", .@"move" => {
-                items[1] = source.list[0];
-                items[4] = source.list[1];
+                items[slot(.@"for", .mode)] = .{ .tag = kind };
+                items[slot(.@"for", .source)] = ir.get(source, .operand);
             },
             else => {},
         }
+    }
+
+    /// Index of slot role `role` in the items of a node of `kind`: the
+    /// generated accessors read slots but do not export their indices, so
+    /// this asks `ir.get` at compile time which item of a probe node it
+    /// reads.
+    fn slot(comptime kind: Tag, comptime role: parser.Role) usize {
+        return comptime blk: {
+            var probe: [16]Sexp = undefined;
+            probe[0] = .{ .tag = kind };
+            for (probe[1..], 1..) |*p, i| p.* = .{ .src = .{ .pos = i, .len = 0, .id = 0 } };
+            break :blk ir.get(Sexp.listOf(&probe), role).src.pos;
+        };
     }
 };
 
@@ -1257,14 +1138,25 @@ test "writeZigIdent escapes Zig keywords and emitter names" {
 }
 
 test "parser: for-source sigil moves into the mode slot" {
-    var read_items = [_]Sexp{ .{ .tag = .@"read" }, .{ .str = "xs" } };
-    var raw_items = [_]Sexp{
-        .{ .tag = .@"for" },  .{ .tag = .iter }, .{ .str = "x" }, .nil,
-        .{ .list = &read_items }, .{ .str = "body" },
-    };
-    var p = Parser.init(testing.allocator, "");
+    var p = Parser.init(testing.allocator, "for x in ?xs\n  print(x)\n");
     defer p.deinit();
-    const out = try p.rewrite(.{ .list = &raw_items });
-    try testing.expectEqual(Tag.@"read", out.list[1].tag);
-    try testing.expect(out.list[4] == .str);
+    const tree = try p.parseProgram();
+    const loop = ir.Module.decls(tree)[0];
+    try testing.expectEqual(Tag.@"read", ir.For.mode(loop).tag);
+    try testing.expectEqualStrings("xs", ir.For.source(loop).getText(p.base.source));
+}
+
+test "parser: bar lists split into captures and parameters; rewrites keep node ids" {
+    const source = "f = |+c, a| a + c\n";
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    const raw = try p.parseTree();
+    const tree = try p.rewrite(raw);
+    const set = ir.Module.decls(tree)[0];
+    try testing.expectEqual(ir.Module.decls(raw)[0].list.id, set.list.id);
+    const lambda = ir.Set.value(set);
+    try testing.expect(ir.Lambda.captures(lambda).isKind(.@"captures"));
+    try testing.expectEqual(@as(usize, 1), ir.Lambda.params(lambda).items().len);
+    const s = p.span(lambda);
+    try testing.expectEqualStrings("|+c, a| a + c", source[s.start..s.end]);
 }

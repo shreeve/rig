@@ -339,12 +339,12 @@ fn runZig(io: std.Io, argv: []const []const u8) !u8 {
 
 fn declaresMain(m: *const modules.Module) bool {
     if (m.ir != .list) return false;
-    for (m.ir.list[1..]) |top| {
+    for (m.ir.items()[1..]) |top| {
         var decl = top;
-        if (decl == .list and decl.list.len == 2 and decl.list[0] == .tag and decl.list[0].tag == .@"pub") decl = decl.list[1];
-        if (decl != .list or decl.list.len < 2 or decl.list[0] != .tag) continue;
-        if (decl.list[0].tag != .@"sub" and decl.list[0].tag != .@"fun") continue;
-        if (std.mem.eql(u8, decl.list[1].getText(m.source), "main")) return true;
+        if (decl == .list and decl.items().len == 2 and decl.items()[0] == .tag and decl.items()[0].tag == .@"pub") decl = decl.items()[1];
+        if (decl != .list or decl.items().len < 2 or decl.items()[0] != .tag) continue;
+        if (decl.items()[0].tag != .@"sub" and decl.items()[0].tag != .@"fun") continue;
+        if (std.mem.eql(u8, decl.items()[1].getText(m.source), "main")) return true;
     }
     return false;
 }
