@@ -1,0 +1,29 @@
+# A read borrow cannot be upgraded to a write borrow of a part of the
+# value: a field reached through `?T` cannot be write-borrowed, given to
+# a `!self` method, or write-iterated.
+
+struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+struct Holder
+  c: Counter
+  xs: [2]Int
+
+sub inc(c: !Counter)
+  c.n += 1
+
+sub f(p: ?Holder)
+  (!p.c).bump()
+  inc(!p.c)
+  for x in !p.xs
+    x += 1
+
+sub main()
+  h = Holder(c: Counter(n: 0), xs: [1, 2])
+  f(?h)
+
+# error: cannot write-borrow through a read borrow
+# error: cannot write-iterate through a read borrow

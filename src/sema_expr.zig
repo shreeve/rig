@@ -770,6 +770,8 @@ const Checker = struct {
             try self.err(firstSrcPos(source), "`for x in !xs` writes each element in place; `xs` must be a binding or a field of one", .{});
         } else if (try self.placeThroughShared(inner_source)) {
             try self.err(firstSrcPos(source), "cannot write-iterate through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell(T)` for mutation through shared ownership.", .{});
+        } else if (try self.placeThroughReadBorrow(inner_source)) |p| {
+            try self.err(p, "cannot write-iterate through a read borrow (`?T`); take a write borrow (`!T`) to mutate", .{});
         } else try self.checkWritable(inner_source, "write-iterate");
         return self.ctx.intern(.{ .borrow_write = elem });
     }
@@ -1584,6 +1586,10 @@ const Checker = struct {
         if (kind == .write) {
             if (try self.placeThroughShared(items[1])) {
                 try self.err(firstSrcPos(items[1]), "cannot write-borrow through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell(T)` for mutation through shared ownership.", .{});
+                return self.t().invalid_id;
+            }
+            if (try self.placeThroughReadBorrow(items[1])) |pos| {
+                try self.err(pos, "cannot write-borrow through a read borrow (`?T`); take a write borrow (`!T`) to mutate", .{});
                 return self.t().invalid_id;
             }
             try self.checkWritable(items[1], "write-borrow");
