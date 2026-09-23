@@ -1,9 +1,7 @@
 # The original language showcase. Sema accepts it (fallible functions
 # return plain values; `?input` reborrows a borrowed parameter).
-# Known bugs: `print user.name` parses as `(print user).name` (front end,
-# paren-free call with a member argument); emit maps a user type named
-# `Bytes` to `[]const u8`, and leaves unused parameters and locals that
-# Zig rejects.
+# Known bugs (emit): a user type named `Bytes` is mapped to `[]const u8`,
+# and unused parameters and locals are left for Zig to reject.
 
 struct User
   name: String
