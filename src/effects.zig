@@ -107,12 +107,10 @@ pub const Checker = struct {
                 for (items[1..]) |c| try self.walk(c, false);
             },
             .@"propagate" => {
-                if (items.len < 2) return;
                 try self.checkPropagate(items[1]);
                 try self.walk(items[1], true);
             },
             .@"catch" => {
-                if (items.len < 2) return;
                 try self.walk(items[1], true);
                 for (items[2..]) |c| try self.walk(c, false);
             },
@@ -129,7 +127,7 @@ pub const Checker = struct {
                 for (items[1..]) |c| try self.walk(c, false);
             },
             .@"builtin" => {
-                if (items.len >= 2 and items[1] == .src) {
+                if (items[1] == .src) {
                     const name = self.text(items[1]);
                     if (!isSafeBuiltin(name) and self.raw_depth == 0) {
                         try self.err(items[1].src.pos, "builtin `@{s}` is not in the safe whitelist; wrap in a `raw` block. Safe builtins: `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`.", .{name});
@@ -157,7 +155,6 @@ pub const Checker = struct {
 
     fn walkFunction(self: *Checker, node: Sexp) Error!void {
         const items = node.list;
-        if (items.len < 5) return;
         const saved = self.save();
         defer self.restore(saved);
         const is_sub = items[0].tag == .@"sub";
@@ -193,7 +190,6 @@ pub const Checker = struct {
 
     fn walkCall(self: *Checker, node: Sexp, handled: bool) Error!void {
         const items = node.list;
-        if (items.len < 2) return;
         const callee = items[1];
 
         if (!handled) {
@@ -221,7 +217,7 @@ pub const Checker = struct {
     /// How the callee is spelled, for messages: `f`, `a.f`, or `.m`.
     fn calleeName(self: *Checker, callee: Sexp) Error![]const u8 {
         if (callee == .src) return self.text(callee);
-        if (isHead(callee, .@"member") and callee.list.len >= 3) {
+        if (isHead(callee, .@"member")) {
             const obj = callee.list[1];
             const name = self.text(callee.list[2]);
             if (obj == .src) return std.fmt.allocPrint(self.arena.allocator(), "{s}.{s}", .{ self.text(obj), name });
@@ -237,7 +233,7 @@ pub const Checker = struct {
             const id = self.sema.symbolOf(callee) orelse return null;
             return if (self.sema.symbols.items[id].kind == .@"extern") self.text(callee) else null;
         }
-        if (!isHead(callee, .@"member") or callee.list.len < 3) return null;
+        if (!isHead(callee, .@"member")) return null;
         const obj = callee.list[1];
         const id = self.sema.symbolOf(obj) orelse return null;
         if (self.sema.symbols.items[id].kind != .module) return null;

@@ -945,7 +945,6 @@ pub const Parser = struct {
 
     /// Promote the source's `?xs` / `!xs` / `<xs` wrapper into the mode.
     fn normFor(items: []Sexp) void {
-        if (items.len < 6) return;
         if (items[1] != .tag or items[1].tag != .iter) return;
         const source = items[4];
         if (source != .list or source.list.len < 2 or source.list[0] != .tag) return;

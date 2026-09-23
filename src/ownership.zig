@@ -582,13 +582,13 @@ pub const Checker = struct {
         const items = sexp.list;
         switch (items[0].tag) {
             .@"module" => for (items[1..]) |c| try self.walkDecl(c),
-            .@"fun", .@"sub" => if (items.len >= 4) try self.walkFun(items[1], items[2], items[3], items[4..]),
-            .@"drop_decl" => if (items.len >= 3) try self.walkFun(.nil, items[1], .nil, items[2..3]),
+            .@"fun", .@"sub" => try self.walkFun(items[1], items[2], items[3], items[4..]),
+            .@"drop_decl" => try self.walkFun(.nil, items[1], .nil, items[2..3]),
             .@"struct", .@"enum", .@"errors", .@"generic_type" => for (items[1..]) |c| try self.walkDecl(c),
             .@"pub", .@"extern" => {
                 if (items.len >= 2) try self.walkDecl(items[items.len - 1]);
             },
-            .@"test" => if (items.len >= 2) try self.walkFun(.nil, .nil, .nil, items[items.len - 1 ..]),
+            .@"test" => try self.walkFun(.nil, .nil, .nil, items[2..]),
             .@"use", .@"type", .@"extern_fun", .@"extern_sub", .@"variant", .@":" => {},
             else => try self.walkStmt(sexp),
         }
@@ -763,11 +763,11 @@ pub const Checker = struct {
                 try self.walkDrop(items);
                 break :blk .{};
             },
-            .@"move" => if (items.len >= 2) self.walkMove(items[1], .move) else .{},
-            .@"read" => if (items.len >= 2) self.walkBorrow(items[1], .read) else .{},
-            .@"write" => if (items.len >= 2) self.walkBorrow(items[1], .write) else .{},
+            .@"move" => self.walkMove(items[1], .move),
+            .@"read" => self.walkBorrow(items[1], .read),
+            .@"write" => self.walkBorrow(items[1], .write),
             .@"clone", .@"weak" => self.walkCloneWeak(items),
-            .@"pin", .@"raw" => if (items.len >= 2) self.walk(items[1]) else .{},
+            .@"pin", .@"raw" => self.walk(items[1]),
             .@"share" => self.walkShare(items),
             .@"lambda" => self.walkLambda(items),
             .@"if" => self.walkIf(items),
@@ -809,13 +809,13 @@ pub const Checker = struct {
             .@"call" => self.walkCall(items),
             .@"member" => self.walkMember(sexp),
             .@"index" => self.walkMember(sexp),
-            .@"kwarg" => if (items.len >= 3) self.walkConsumed(items[2], .argument) else .{},
+            .@"kwarg" => self.walkConsumed(items[2], .argument),
             .@"array" => blk: {
                 var v: Value = .{};
                 for (items[1..]) |e| v = try self.valueUnion(v, try self.walkConsumed(e, .element));
                 break :blk v;
             },
-            .@"raw_block" => if (items.len >= 2) self.walk(items[1]) else .{},
+            .@"raw_block" => self.walk(items[1]),
             .@"enum_lit", .@"use", .@"type", .@"generic_type", .@"generic_inst" => .{},
             // Operators on values produce fresh Copy results.
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"neg", .@"not", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
@@ -934,7 +934,6 @@ pub const Checker = struct {
 
     fn walkMember(self: *Checker, e: Sexp) Error!Value {
         const items = e.list;
-        if (items.len < 2) return .{};
         const obj = try self.walk(items[1]);
         if (items[0].tag == .@"index") for (items[2..]) |i| {
             _ = try self.walk(i);
@@ -1141,7 +1140,6 @@ pub const Checker = struct {
     }
 
     fn walkCloneWeak(self: *Checker, items: []const Sexp) Error!Value {
-        if (items.len < 2) return .{};
         const inner = items[1];
         if (inner == .src) {
             if (try self.lookup(inner.src.pos, self.text(inner))) |id| {
@@ -1157,7 +1155,6 @@ pub const Checker = struct {
     }
 
     fn walkDrop(self: *Checker, items: []const Sexp) Error!void {
-        if (items.len < 2) return;
         const target = items[1];
         if (target != .src) {
             _ = try self.walk(target);
@@ -1247,14 +1244,14 @@ pub const Checker = struct {
                     // A value returned through a branch moves out, like a bare return.
                     .@"if" => for (items[2..]) |b| try self.checkNoImplicitCopy(tailOf(b), sink, top_return),
                     .@"match" => for (items[2..]) |arm| {
-                        if (isTag(arm, .@"arm") and arm.list.len >= 2) {
+                        if (isTag(arm, .@"arm")) {
                             try self.checkNoImplicitCopy(tailOf(arm.list[arm.list.len - 1]), sink, top_return);
                         }
                     },
                     .@"block" => if (items.len >= 2) try self.checkNoImplicitCopy(tailOf(expr), sink, top_return),
                     // Operators that yield one of their operands.
                     .@"??" => for (items[1..]) |c| try self.checkNoImplicitCopy(c, sink, false),
-                    .@"catch" => if (items.len >= 3) {
+                    .@"catch" => {
                         try self.checkNoImplicitCopy(items[1], sink, false);
                         try self.checkNoImplicitCopy(tailOf(items[items.len - 1]), sink, false);
                     },
@@ -1295,7 +1292,6 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn walkSet(self: *Checker, items: []const Sexp) Error!void {
-        if (items.len < 5) return;
         const kind = try rig.bindingKindOf(items[1]);
         const target = items[2];
         const expr = items[4];
@@ -1436,7 +1432,6 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn walkCall(self: *Checker, items: []const Sexp) Error!Value {
-        if (items.len < 2) return .{};
         const callee = items[1];
         const args = items[2..];
         var result: Value = .{};
@@ -1447,10 +1442,10 @@ pub const Checker = struct {
         var recv_root: ?VarId = null;
         var recv_mode: types.MethodReceiver = .read;
         var reservation: usize = 0;
-        if (isTag(callee, .@"member") and callee.list.len >= 3) {
+        if (isTag(callee, .@"member")) {
             var obj = callee.list[1];
             var explicit_write = false;
-            if ((isTag(obj, .@"write") or isTag(obj, .@"read")) and obj.list.len >= 2) {
+            if (isTag(obj, .@"write") or isTag(obj, .@"read")) {
                 explicit_write = isTag(obj, .@"write");
                 obj = obj.list[1];
             }
@@ -1494,7 +1489,7 @@ pub const Checker = struct {
                 if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, innerPos(obj));
             }
             for (args) |a| {
-                const arg = if (isTag(a, .@"kwarg") and a.list.len >= 3) a.list[2] else a;
+                const arg = if (isTag(a, .@"kwarg")) a.list[2] else a;
                 if (try self.containerRoot(arg)) |id| try self.absorbLoans(id, stored, innerPos(arg));
             }
         }
@@ -1529,7 +1524,7 @@ pub const Checker = struct {
     fn containerRoot(self: *Checker, arg: Sexp) Error!?VarId {
         var inner = arg;
         const explicit_write = isTag(arg, .@"write");
-        if ((explicit_write or isTag(arg, .@"clone")) and arg.list.len >= 2) inner = arg.list[1];
+        if (explicit_write or isTag(arg, .@"clone")) inner = arg.list[1];
         const place = (try self.resolvePlace(inner)) orelse return null;
         const ty = self.exprType(inner);
         if (!self.mayCarryBorrow(ty)) return null;
@@ -1575,7 +1570,6 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn walkShare(self: *Checker, items: []const Sexp) Error!Value {
-        if (items.len < 2) return .{};
         const inner = items[1];
         if (ownedClosureLambda(self, inner)) |lambda| {
             self.lambda_ok = true;
@@ -1591,7 +1585,7 @@ pub const Checker = struct {
         const callee = inner.list[1];
         const name = if (callee == .src)
             self.text(callee)
-        else if (isTag(callee, .@"call") and callee.list.len >= 2 and callee.list[1] == .src)
+        else if (isTag(callee, .@"call") and callee.list[1] == .src)
             self.text(callee.list[1])
         else
             return null;
@@ -1604,7 +1598,6 @@ pub const Checker = struct {
     }
 
     fn walkLambda(self: *Checker, items: []const Sexp) Error!Value {
-        if (items.len < 5) return .{};
         const captures = items[1];
         const params = items[2];
         const body = items[4];
@@ -1748,7 +1741,6 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn walkIf(self: *Checker, items: []const Sexp) Error!Value {
-        if (items.len < 3) return .{};
         const else_b: ?Sexp = if (items[3] != .nil) items[3] else null;
         if (isTag(items[1], .@"as")) return self.walkIfAs(items[1], items[2], else_b);
         _ = try self.walk(items[1]);
@@ -1794,12 +1786,11 @@ pub const Checker = struct {
 
     /// `(catch expr name? handler)`: the handler runs when `expr` fails.
     fn walkCatch(self: *Checker, items: []const Sexp) Error!Value {
-        if (items.len < 3) return .{};
         const v1 = try self.walk(items[1]);
         const base = try self.snapshot();
         const handler = items[items.len - 1];
         try self.pushScope(.block);
-        if (items.len >= 4 and items[2] == .src) {
+        if (items[2] != .nil) {
             _ = try self.addVar(.{ .name = self.text(items[2]), .decl = items[2].src.pos, .ty = self.symType(items[2].src.pos) }, .{});
         }
         var v2 = try self.walk(handler);
@@ -1815,11 +1806,10 @@ pub const Checker = struct {
     };
 
     fn walkMatch(self: *Checker, items: []const Sexp) Error!Value {
-        if (items.len < 2) return .{};
         const scrut = items[1];
         var info: Scrutinee = .{};
         var node = scrut;
-        if ((isTag(scrut, .@"read") or isTag(scrut, .@"write")) and scrut.list.len >= 2) {
+        if (isTag(scrut, .@"read") or isTag(scrut, .@"write")) {
             node = scrut.list[1];
             info.via = .borrowed;
         }
@@ -1840,7 +1830,7 @@ pub const Checker = struct {
         var value: Value = .{};
         var catch_all = false;
         for (items[2..]) |arm| {
-            if (!isTag(arm, .@"arm") or arm.list.len < 3) continue;
+            if (!isTag(arm, .@"arm")) continue;
             const pattern = arm.list[1];
             const body = arm.list[arm.list.len - 1];
             try self.restore(base);
@@ -1872,7 +1862,7 @@ pub const Checker = struct {
                 return true;
             },
             .list => |items| {
-                if (items.len >= 2 and items[0] == .tag and items[0].tag == .@"variant_pattern") {
+                if (items[0].tag == .@"variant_pattern") {
                     const binds = items[2..];
                     for (binds, 0..) |b, i| {
                         if (b == .src and !std.mem.eql(u8, self.text(b), "_")) {
@@ -1939,7 +1929,6 @@ pub const Checker = struct {
     };
 
     fn walkWhile(self: *Checker, items: []const Sexp) Error!void {
-        if (items.len < 4) return;
         const as_cond = isTag(items[1], .@"as");
         const cond = if (as_cond) items[1].list[1] else items[1];
         try self.walkLoop(.{
@@ -1954,7 +1943,6 @@ pub const Checker = struct {
 
     fn walkFor(self: *Checker, items: []const Sexp) Error!void {
         // (for mode binding1 binding2 source body else?)
-        if (items.len < 6) return;
         const mode: Tag = if (items[1] == .tag) items[1].tag else .iter;
         const source = items[4];
         var spec: LoopSpec = .{
@@ -2124,7 +2112,7 @@ pub const Checker = struct {
     /// `e!`: on failure, control leaves for the enclosing `catch` or the
     /// caller.
     fn walkPropagate(self: *Checker, items: []const Sexp) Error!Value {
-        const v = if (items.len >= 2) try self.walk(items[1]) else Value{};
+        const v = try self.walk(items[1]);
         if (!self.reachable) return v;
         if (self.try_ctx) |t| {
             const s = try self.exitState(t.depth, t.scope_depth);
@@ -2137,7 +2125,6 @@ pub const Checker = struct {
 
     fn walkTryBlock(self: *Checker, items: []const Sexp) Error!void {
         // (try_block body (catch_block name body)?)
-        if (items.len < 2) return;
         var ctx: TryCtx = .{ .depth = @intCast(self.vars.items.len), .scope_depth = self.scopes.items.len };
         const saved = self.try_ctx;
         self.try_ctx = &ctx;
@@ -2145,7 +2132,7 @@ pub const Checker = struct {
         self.try_ctx = saved;
         const after = try self.snapshot();
         const fail = ctx.fail orelse try self.unreachableState();
-        if (items.len >= 3 and isTag(items[2], .@"catch_block") and items[2].list.len >= 3) {
+        if (items[2] != .nil) {
             const cb = items[2].list;
             try self.restore(fail);
             try self.pushScope(.block);
@@ -2166,7 +2153,6 @@ pub const Checker = struct {
     /// written (and may not change outer state), then again at each exit
     /// of its scope against the state there.
     fn walkDefer(self: *Checker, items: []const Sexp) Error!void {
-        if (items.len < 2) return;
         const body = items[1];
         try self.checkDeferBody(body, true);
         try self.scopes.items[self.scopes.items.len - 1].defers.append(self.gpa, body);

@@ -119,7 +119,7 @@ const Checker = struct {
         const head = headOf(sexp) orelse return;
         const items = sexp.list;
         switch (head) {
-            .@"pub" => if (items.len >= 2) try self.checkDecl(items[1]),
+            .@"pub" => try self.checkDecl(items[1]),
             .@"extern" => if (items.len == 2) {
                 try self.err(firstSrcPos(sexp), "an `extern` declaration with a body is not supported; declare the signature only (`extern fun f(x: Int) -> Int`)", .{});
             },
@@ -131,7 +131,7 @@ const Checker = struct {
             .@"test" => {
                 const prev_scope = self.enter(sexp);
                 defer self.scope = prev_scope;
-                if (items.len >= 3) try self.checkBody(items[2], self.t().void_id, true);
+                try self.checkBody(items[2], self.t().void_id, true);
             },
             .@"set" => {
                 try self.err(firstSrcPos(sexp), "module-level bindings are not supported yet; bind values inside a function", .{});
@@ -143,7 +143,6 @@ const Checker = struct {
     }
 
     fn checkNominal(self: *Checker, items: []const Sexp) Error!void {
-        if (items.len < 2) return;
         const sym_id = self.ctx.symbolOf(items[1]) orelse return;
         const prev = self.nominal;
         self.nominal = try types.makeNominalContext(self.ctx, sym_id);
@@ -162,7 +161,6 @@ const Checker = struct {
                     try self.checkFunction(m, fn_ty);
                 },
                 .@"drop_decl" => {
-                    if (m.list.len < 3) continue;
                     const prev_scope = self.enter(m);
                     defer self.scope = prev_scope;
                     const prev_ret = self.fn_return;
@@ -182,7 +180,6 @@ const Checker = struct {
 
     fn checkFunction(self: *Checker, node: Sexp, fn_ty_id: TypeId) Error!void {
         const items = node.list;
-        if (items.len < 5) return;
         const is_sub = items[0].tag == .@"sub";
         const fn_ty = self.ctx.types.get(fn_ty_id);
         const ret = if (fn_ty == .function) fn_ty.function.returns else self.t().unknown_id;
@@ -204,7 +201,7 @@ const Checker = struct {
     /// A parameter's default value is a literal of the parameter's type:
     /// it is written at each call site that omits the argument.
     fn checkDefault(self: *Checker, param: Sexp) Error!void {
-        if (!isHead(param, .@"default") or param.list.len < 4) return;
+        if (!isHead(param, .@"default")) return;
         const value = param.list[3];
         const ty = self.ctx.bindingTypeOf(param.list[1]) orelse self.t().unknown_id;
         if (!isDefaultLiteral(self.ctx.source, value)) {
@@ -264,13 +261,13 @@ const Checker = struct {
                 defer self.scope = prev;
                 for (items[1..]) |c| try self.checkStmt(c);
             },
-            .@"drop" => if (items.len >= 2) {
+            .@"drop" => {
                 _ = try self.synthExpr(items[1]);
             },
             .@"break", .@"continue" => try self.checkJump(items),
-            .@"defer", .@"errdefer" => if (items.len >= 2) try self.checkStmt(items[1]),
-            .@"raw_block" => if (items.len >= 2) try self.checkStmt(items[1]),
-            .@"labeled" => if (items.len >= 3) try self.checkStmt(items[2]),
+            .@"defer", .@"errdefer" => try self.checkStmt(items[1]),
+            .@"raw_block" => try self.checkStmt(items[1]),
+            .@"labeled" => try self.checkStmt(items[2]),
             .@"fun", .@"sub", .@"struct", .@"enum", .@"errors", .@"type", .@"generic_type", .@"generic_enum", .@"use", .@"extern", .@"extern_fun", .@"extern_sub", .@"test", .@"pub" => {
                 try self.err(firstSrcPos(stmt), "declarations are only allowed at module level", .{});
             },
@@ -286,7 +283,7 @@ const Checker = struct {
     }
 
     fn discardedReceiverName(self: *Checker, stmt: Sexp) []const u8 {
-        if (isHead(stmt, .@"call") and stmt.list.len >= 2 and isHead(stmt.list[1], .@"member")) {
+        if (isHead(stmt, .@"call") and isHead(stmt.list[1], .@"member")) {
             const obj = stmt.list[1].list[1];
             if (obj == .src) return self.text(obj);
         }
@@ -295,13 +292,13 @@ const Checker = struct {
 
     /// `(break value-or-_ label?)` / `(continue label?)`.
     fn checkJump(self: *Checker, items: []const Sexp) Error!void {
-        if (items[0].tag == .@"break" and items.len >= 2 and items[1] != .nil) {
+        if (items[0].tag == .@"break" and items[1] != .nil) {
             try self.err(firstSrcPos(items[1]), "`break` with a value is not supported yet", .{});
         }
     }
 
     fn checkReturn(self: *Checker, items: []const Sexp) Error!void {
-        const value: Sexp = if (items.len >= 2) items[1] else .{ .nil = {} };
+        const value = items[1];
         const ret = self.fn_return;
         if (value == .nil) {
             if (!self.is_sub and ret != self.t().void_id and !self.isPoison(ret)) {
@@ -320,7 +317,6 @@ const Checker = struct {
     // ---- bindings and assignment --------------------------------------------
 
     fn checkSet(self: *Checker, items: []const Sexp) Error!void {
-        if (items.len < 5) return;
         const kind = rig.bindingKindOf(items[1]) catch return;
         const target = items[2];
         const type_node = items[3];
@@ -536,7 +532,6 @@ const Checker = struct {
     /// Returns the if's type in value position.
     fn checkIfValue(self: *Checker, node: Sexp, expected: ?TypeId, position: Position) Error!TypeId {
         const items = node.list;
-        if (items.len < 3) return self.t().invalid_id;
         const cond = items[1];
         const then_node = items[2];
         const else_node = items[3];
@@ -602,7 +597,6 @@ const Checker = struct {
 
     fn checkWhile(self: *Checker, node: Sexp) Error!void {
         const items = node.list;
-        if (items.len < 3) return;
         const prev = self.scope;
         try self.checkCondition(items[1]);
         // (while cond step body else)
@@ -614,7 +608,6 @@ const Checker = struct {
 
     fn checkFor(self: *Checker, node: Sexp) Error!void {
         const items = node.list;
-        if (items.len < 6) return;
         const mode: ?Tag = if (items[1] == .tag) items[1].tag else null;
         const binding = items[2];
         const index_binding = items[3];
@@ -665,8 +658,7 @@ const Checker = struct {
 
     /// `a..b` as a loop source: both bounds integers of one type.
     fn checkRange(self: *Checker, range: Sexp) Error!TypeId {
-        if (range.list.len < 3) return self.t().invalid_id;
-        const ty = try self.checkNumericOperands(range.list, "..", .integer);
+                const ty = try self.checkNumericOperands(range.list, "..", .integer);
         const elem = if (ty == self.t().int_literal_id) self.t().int_id else ty;
         if (ty == self.t().int_literal_id) {
             try self.checkLiteralFits(range.list[1], elem);
@@ -713,7 +705,6 @@ const Checker = struct {
 
     fn checkMatch(self: *Checker, node: Sexp, position: Position, expected: ?TypeId) Error!TypeId {
         const items = node.list;
-        if (items.len < 2) return self.t().invalid_id;
         const scrutinee = try self.synthExpr(items[1]);
         const scrut_pos = firstSrcPos(items[1]);
         switch (self.ctx.types.get(types.unwrapBorrows(self.ctx, scrutinee))) {
@@ -729,7 +720,7 @@ const Checker = struct {
         var result: ?TypeId = expected;
 
         for (items[2..]) |arm| {
-            if (!isHead(arm, .@"arm") or arm.list.len < 3) continue;
+            if (!isHead(arm, .@"arm")) continue;
             const prev = self.enter(arm);
             defer self.scope = prev;
             try self.checkPattern(arm.list[1], scrutinee, &covered, &has_default);
@@ -784,13 +775,12 @@ const Checker = struct {
                 const h = headOf(pattern) orelse return;
                 switch (h) {
                     .@"enum_lit" => {
-                        if (items.len < 2) return;
                         try self.checkVariantName(items[1], scrutinee);
                         try self.ctx.recordType(pattern, scrutinee);
                         try self.recordCovered(self.text(items[1]), firstSrcPos(pattern), covered);
                     },
                     .@"variant_pattern" => try self.checkVariantPattern(items, scrutinee, covered),
-                    .@"range_pattern" => if (items.len >= 3) {
+                    .@"range_pattern" => {
                         try self.checkExpr(items[1], scrutinee);
                         try self.checkExpr(items[2], scrutinee);
                     },
@@ -966,10 +956,10 @@ const Checker = struct {
             .@"if" => self.checkIfValue(e, null, .value),
             .@"match" => self.checkMatch(e, .value, null),
             .@"block" => self.synthBlock(e, null),
-            .@"raw_block" => if (items.len >= 2) self.synthExpr(items[1]) else self.t().void_id,
+            .@"raw_block" => self.synthExpr(items[1]),
             .@"read" => self.synthBorrow(items, .read),
             .@"write" => self.synthBorrow(items, .write),
-            .@"move" => if (items.len >= 2) self.synthExpr(items[1]) else self.t().invalid_id,
+            .@"move" => self.synthExpr(items[1]),
             .@"share" => self.synthShare(items),
             .@"weak" => self.synthWeak(items),
             .@"clone" => self.synthClone(items),
@@ -991,7 +981,7 @@ const Checker = struct {
                 break :blk self.t().bool_id;
             },
             .@"not" => blk: {
-                if (items.len >= 2) try self.checkExpr(items[1], self.t().bool_id);
+                try self.checkExpr(items[1], self.t().bool_id);
                 break :blk self.t().bool_id;
             },
             .@"neg" => self.synthNeg(items),
@@ -1048,7 +1038,6 @@ const Checker = struct {
     /// Both operands numeric (or integer) and of one type. Literals adapt
     /// to the other operand; generic parameters record a requirement.
     fn checkNumericOperands(self: *Checker, items: []const Sexp, op: []const u8, req: Requirement) Error!TypeId {
-        if (items.len < 3) return self.t().invalid_id;
         const a = readValue(self.ctx, try self.synthExpr(items[1]));
         const b = readValue(self.ctx, try self.synthExpr(items[2]));
         const pos = firstSrcPos(items[1]);
@@ -1101,7 +1090,6 @@ const Checker = struct {
     }
 
     fn synthNeg(self: *Checker, items: []const Sexp) Error!TypeId {
-        if (items.len < 2) return self.t().invalid_id;
         const ty = readValue(self.ctx, try self.synthExpr(items[1]));
         if (self.isPoison(ty)) return ty;
         switch (self.ctx.types.get(ty)) {
@@ -1120,7 +1108,6 @@ const Checker = struct {
     }
 
     fn synthEquality(self: *Checker, items: []const Sexp) Error!TypeId {
-        if (items.len < 3) return self.t().bool_id;
         const op = @tagName(items[0].tag);
         const l = items[1];
         const r = items[2];
@@ -1208,7 +1195,6 @@ const Checker = struct {
 
     /// `a ?? b`: the value inside optional `a`, or `b` when `a` is `none`.
     fn synthCoalesce(self: *Checker, items: []const Sexp, expected: ?TypeId) Error!TypeId {
-        if (items.len < 3) return self.t().invalid_id;
         const opt = try self.synthExpr(items[1]);
         if (self.isPoison(opt)) {
             _ = try self.synthExpr(items[2]);
@@ -1236,8 +1222,7 @@ const Checker = struct {
 
     /// `expr catch handler`: the value of fallible `expr`, or `handler`.
     fn synthCatch(self: *Checker, items: []const Sexp, expected: ?TypeId) Error!TypeId {
-        if (items.len < 3) return self.t().invalid_id;
-        if (items.len >= 4 and items[2] != .nil) {
+        if (items[2] != .nil) {
             try self.err(srcPos(items[2], firstSrcPos(.{ .list = items })), "naming the error in `catch |err|` is not supported yet; write `expr catch fallback`", .{});
             return self.t().invalid_id;
         }
@@ -1261,7 +1246,6 @@ const Checker = struct {
     }
 
     fn synthPropagate(self: *Checker, items: []const Sexp) Error!TypeId {
-        if (items.len < 2) return self.t().invalid_id;
         const ty = try self.synthExpr(items[1]);
         // Propagating a value that cannot fail is reported by effects.
         return switch (self.ctx.types.get(ty)) {
@@ -1277,7 +1261,6 @@ const Checker = struct {
     /// `?x` / `!x`. Borrowing a borrowed value reborrows it rather than
     /// nesting (`?b` with `b: ?B` is `?B`).
     fn synthBorrow(self: *Checker, items: []const Sexp, kind: BorrowKind) Error!TypeId {
-        if (items.len < 2) return self.t().invalid_id;
         const inner = try self.synthOperand(items[1]);
         if (self.isPoison(inner)) return inner;
         switch (self.ctx.types.get(inner)) {
@@ -1295,7 +1278,6 @@ const Checker = struct {
     }
 
     fn synthShare(self: *Checker, items: []const Sexp) Error!TypeId {
-        if (items.len < 2) return self.t().invalid_id;
         if (try self.ownedClosureConstruction(items[1])) |ty| return ty;
         const inner = try self.synthExpr(items[1]);
         if (self.isPoison(inner)) return inner;
@@ -1307,7 +1289,6 @@ const Checker = struct {
     }
 
     fn synthWeak(self: *Checker, items: []const Sexp) Error!TypeId {
-        if (items.len < 2) return self.t().invalid_id;
         const inner = try self.synthOperand(items[1]);
         if (self.isPoison(inner)) return inner;
         switch (self.ctx.types.get(inner)) {
@@ -1320,7 +1301,6 @@ const Checker = struct {
     }
 
     fn synthClone(self: *Checker, items: []const Sexp) Error!TypeId {
-        if (items.len < 2) return self.t().invalid_id;
         const inner = try self.synthOperand(items[1]);
         if (self.isPoison(inner)) return inner;
         const value = types.unwrapBorrows(self.ctx, inner);
@@ -1341,7 +1321,6 @@ const Checker = struct {
     }
 
     fn synthRawAccess(self: *Checker, items: []const Sexp) Error!TypeId {
-        if (items.len < 2) return self.t().invalid_id;
         return self.synthOperand(items[1]);
     }
 
@@ -1363,16 +1342,13 @@ const Checker = struct {
 
     fn freshAllocName(self: *Checker, operand: Sexp) []const u8 {
         const call = operand.list[1];
-        if (call.list.len >= 2) {
-            if (call.list[1] == .src) return self.text(call.list[1]);
-        }
+        if (call.list[1] == .src) return self.text(call.list[1]);
         return "Ctor";
     }
 
     // ---- member access and indexing -------------------------------------------
 
     fn synthMember(self: *Checker, items: []const Sexp) Error!TypeId {
-        if (items.len < 3) return self.t().invalid_id;
         const obj = items[1];
         const field_node = items[2];
         const field = self.text(field_node);
@@ -1525,7 +1501,6 @@ const Checker = struct {
     }
 
     fn synthIndex(self: *Checker, items: []const Sexp) Error!TypeId {
-        if (items.len < 3) return self.t().invalid_id;
         const obj_ty = try self.synthOperand(items[1]);
         if (isHead(items[2], .@"..")) {
             try self.err(firstSrcPos(items[2]), "slicing `xs[a..b]` is not supported yet", .{});
@@ -1601,7 +1576,6 @@ const Checker = struct {
 
     fn synthCallInner(self: *Checker, node: Sexp) Error!TypeId {
         const items = node.list;
-        if (items.len < 2) return self.t().invalid_id;
         const callee = items[1];
         const args = items[2..];
 
@@ -1654,7 +1628,7 @@ const Checker = struct {
             }
         }
 
-        if (isHead(callee, .@"member") and callee.list.len >= 3) return self.synthMemberCall(callee.list, args);
+        if (isHead(callee, .@"member")) return self.synthMemberCall(callee.list, args);
 
         if (isHead(callee, .@"enum_lit")) {
             try self.err(firstSrcPos(callee), "variant `.{s}(...)` needs a known enum type; annotate the binding", .{self.text(callee.list[1])});
@@ -1695,7 +1669,7 @@ const Checker = struct {
 
     fn synthArgs(self: *Checker, args: []const Sexp) Error!void {
         for (args) |a| {
-            if (isHead(a, .@"kwarg") and a.list.len >= 3) {
+            if (isHead(a, .@"kwarg")) {
                 _ = try self.synthExpr(a.list[2]);
             } else _ = try self.synthExpr(a);
         }
@@ -1849,9 +1823,9 @@ const Checker = struct {
                 const h = headOf(e) orelse return false;
                 return switch (h) {
                     .@"enum_lit" => true,
-                    .@"neg", .@"not" => items.len >= 2 and self.isComptimeKnown(items[1]),
-                    .@"+", .@"-", .@"*", .@"/", .@"%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => items.len >= 3 and self.isComptimeKnown(items[1]) and self.isComptimeKnown(items[2]),
-                    .@"member" => items.len >= 3 and items[1] == .src and blk: {
+                    .@"neg", .@"not" => self.isComptimeKnown(items[1]),
+                    .@"+", .@"-", .@"*", .@"/", .@"%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => self.isComptimeKnown(items[1]) and self.isComptimeKnown(items[2]),
+                    .@"member" => items[1] == .src and blk: {
                         const id = self.lookupQuiet(self.text(items[1])) orelse break :blk false;
                         break :blk self.ctx.symbols.items[id].kind == .nominal_type;
                     },
@@ -2312,7 +2286,7 @@ const Checker = struct {
         const head = headOf(e) orelse return false;
         switch (head) {
             .@"neg" => {
-                if (items.len >= 2 and items[1] == .src and types.isIntLiteralText(self.text(items[1])) and types.isInteger(self.ctx, target)) {
+                if (items[1] == .src and types.isIntLiteralText(self.text(items[1])) and types.isInteger(self.ctx, target)) {
                     try self.checkLiteralFits(e, target);
                     try self.ctx.recordType(items[1], target);
                     try self.ctx.recordType(e, target);
@@ -2321,19 +2295,18 @@ const Checker = struct {
                 return false;
             },
             .@"enum_lit" => {
-                if (items.len < 2) return true;
                 try self.checkEnumLit(items[1], target);
                 try self.ctx.recordType(e, target);
                 return true;
             },
             .@"call" => {
-                if (items.len >= 2 and isHead(items[1], .@"enum_lit")) {
+                if (isHead(items[1], .@"enum_lit")) {
                     try self.checkPayloadVariant(items, target);
                     try self.ctx.recordType(items[1], target);
                     try self.ctx.recordType(e, target);
                     return true;
                 }
-                if (items.len >= 2 and items[1] == .src) {
+                if (items[1] == .src) {
                     const tt = self.ctx.types.get(target);
                     if (tt == .parameterized_nominal) {
                         if (self.lookupQuiet(self.text(items[1]))) |id| {
@@ -2351,7 +2324,6 @@ const Checker = struct {
                         }
                     }
                 }
-                if (items.len >= 2 and isHead(items[1], .@"builtin")) return false;
                 return false;
             },
             .@"builtin" => {
@@ -2359,7 +2331,6 @@ const Checker = struct {
                 return true;
             },
             .@"share" => {
-                if (items.len < 2) return false;
                 if (try self.ownedClosureConstruction(items[1])) |ty| {
                     try self.ctx.recordType(e, ty);
                     if (!compatible(self.ctx, ty, expected)) {
@@ -2392,7 +2363,7 @@ const Checker = struct {
                 return true;
             },
             .@"raw_block" => {
-                if (items.len >= 2) try self.checkExpr(items[1], expected);
+                try self.checkExpr(items[1], expected);
                 try self.ctx.recordType(e, expected);
                 return true;
             },
@@ -2452,7 +2423,7 @@ const Checker = struct {
         if (tt != .int) return;
         var negative = false;
         var lit = e;
-        if (isHead(e, .@"neg") and e.list.len >= 2) {
+        if (isHead(e, .@"neg")) {
             negative = true;
             lit = e.list[1];
         }
@@ -2564,7 +2535,6 @@ const Checker = struct {
 
     fn synthBuiltin(self: *Checker, node: Sexp, expected: ?TypeId) Error!TypeId {
         const items = node.list;
-        if (items.len < 2) return self.t().invalid_id;
         const name = self.text(items[1]);
         const pos = srcPos(items[1], firstSrcPos(node));
         const args = items[2..];
@@ -2641,7 +2611,6 @@ const Checker = struct {
     /// match the declared parameter types.
     fn checkLambda(self: *Checker, node: Sexp, expected_params: ?[]const TypeId) Error!TypeId {
         const items = node.list;
-        if (items.len < 5) return self.t().invalid_id;
         const outer = self.scope;
         const prev = self.enter(node);
         const prev_ret = self.fn_return;
@@ -2758,7 +2727,7 @@ const Checker = struct {
     /// `*Closure2(A, B)(...)`: the owned-closure constructions. `inner`
     /// is the operand of `*`. Returns null for any other shape.
     fn ownedClosureConstruction(self: *Checker, inner: Sexp) Error!?TypeId {
-        if (!isHead(inner, .@"call") or inner.list.len < 2) return null;
+        if (!isHead(inner, .@"call")) return null;
         const items = inner.list;
         const callee = items[1];
         var sym: SymbolId = types.symbol_invalid;
@@ -2768,7 +2737,7 @@ const Checker = struct {
             const id = self.lookupQuiet(self.text(callee)) orelse return null;
             if (id != self.ctx.closure_sym_id) return null;
             sym = id;
-        } else if (isHead(callee, .@"call") and callee.list.len >= 2 and callee.list[1] == .src) {
+        } else if (isHead(callee, .@"call") and callee.list[1] == .src) {
             const id = self.lookupQuiet(self.text(callee.list[1])) orelse return null;
             if (id != self.ctx.closure1_sym_id and id != self.ctx.closure2_sym_id) return null;
             sym = id;
@@ -2943,7 +2912,7 @@ fn isPlainEnum(ctx: *const SemContext, sym_id: SymbolId) bool {
 }
 
 fn isFreshResourceAlloc(sexp: Sexp) bool {
-    return isHead(sexp, .@"share") and sexp.list.len >= 2 and isHead(sexp.list[1], .@"call");
+    return isHead(sexp, .@"share") and isHead(sexp.list[1], .@"call");
 }
 
 /// Forms whose type comes from the other operand: `.variant`, `none`.

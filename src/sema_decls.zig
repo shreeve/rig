@@ -55,7 +55,7 @@ const SymbolResolver = struct {
         const items = sexp.list;
         switch (head) {
             .@"module" => for (items[1..]) |c| try self.walk(c),
-            .@"pub" => if (items.len >= 2) {
+            .@"pub" => {
                 const before = self.ctx.symbols.items.len;
                 try self.walk(items[1]);
                 if (self.ctx.symbols.items.len > before) self.ctx.symbols.items[before].flags.is_public = true;
@@ -67,7 +67,7 @@ const SymbolResolver = struct {
             .@"generic_type", .@"generic_enum" => try self.walkGenericType(items),
             .@"struct", .@"enum", .@"errors" => try self.walkNominalType(items),
             .@"extern" => try self.walkExtern(items),
-            .@"extern_fun", .@"extern_sub" => if (items.len >= 2) {
+            .@"extern_fun", .@"extern_sub" => {
                 _ = try self.declare(items[1], .@"extern", .{});
             },
             .@"test" => try self.walkTest(sexp),
@@ -189,7 +189,6 @@ const SymbolResolver = struct {
 
     fn walkFun(self: *SymbolResolver, node: Sexp, add_symbol: bool) Error!void {
         const items = node.list;
-        if (items.len < 3) return;
         if (add_symbol) _ = try self.declare(items[1], .function, .{});
         const prev = try self.enter(node, .function);
         defer self.scope = prev;
@@ -206,7 +205,6 @@ const SymbolResolver = struct {
 
     fn walkLambda(self: *SymbolResolver, node: Sexp) Error!void {
         const items = node.list;
-        if (items.len < 5) return;
         const prev = try self.enter(node, .lambda);
         defer self.scope = prev;
         // Captures first, so a parameter that reuses a capture's name is caught.
@@ -282,7 +280,6 @@ const SymbolResolver = struct {
     }
 
     fn walkUse(self: *SymbolResolver, items: []const Sexp) Error!void {
-        if (items.len < 2) return;
         const id = (try self.declare(items[1], .module, .{})) orelse return;
         const name = identAt(self.ctx.source, items[1]).?;
         for (self.ctx.imports) |imp| {
@@ -294,7 +291,6 @@ const SymbolResolver = struct {
     }
 
     fn walkTypeAlias(self: *SymbolResolver, items: []const Sexp) Error!void {
-        if (items.len < 3) return;
         const id = (try self.declare(items[1], .type_alias, .{})) orelse return;
         try self.ctx.alias_targets.put(self.ctx.allocator, id, items[2]);
     }
@@ -307,7 +303,6 @@ const SymbolResolver = struct {
     }
 
     fn walkGenericType(self: *SymbolResolver, items: []const Sexp) Error!void {
-        if (items.len < 3) return;
         if (try self.checkReserved(items[1])) return;
         const id = (try self.declare(items[1], .generic_type, .{})) orelse return;
         const name = self.ctx.symbols.items[id].name;
@@ -345,7 +340,6 @@ const SymbolResolver = struct {
     }
 
     fn walkNominalType(self: *SymbolResolver, items: []const Sexp) Error!void {
-        if (items.len < 2) return;
         if (try self.checkReserved(items[1])) return;
         _ = try self.declare(items[1], .nominal_type, .{});
         if (items.len > 2) try self.walkMembers(items[2..]);
@@ -357,7 +351,6 @@ const SymbolResolver = struct {
             switch (h) {
                 .@"fun", .@"sub" => try self.walkFun(m, false),
                 .@"drop_decl" => {
-                    if (m.list.len < 3) continue;
                     const prev = try self.enter(m, .function);
                     defer self.scope = prev;
                     try self.bindParams(m.list[1], &.{});
@@ -372,13 +365,11 @@ const SymbolResolver = struct {
         // `(extern kind name type)` declares an extern variable;
         // `(extern decl)` marks a declaration with a body as extern.
         if (items.len == 2) return self.walk(items[1]);
-        if (items.len < 4) return;
         const fixed = items[1] == .tag and items[1].tag == .fixed;
         _ = try self.declare(items[2], .@"extern", .{ .fixed = fixed });
     }
 
     fn walkSet(self: *SymbolResolver, items: []const Sexp) Error!void {
-        if (items.len < 5) return;
         const kind = rig.bindingKindOf(items[1]) catch return;
         const target = items[2];
         try self.walk(items[4]);
@@ -451,7 +442,6 @@ const SymbolResolver = struct {
 
     fn walkFor(self: *SymbolResolver, node: Sexp) Error!void {
         const items = node.list;
-        if (items.len < 6) return;
         try self.walk(items[4]);
         {
             const prev = try self.enter(node, .block);
@@ -482,7 +472,6 @@ const SymbolResolver = struct {
 
     fn walkCatchBlock(self: *SymbolResolver, node: Sexp) Error!void {
         const items = node.list;
-        if (items.len < 3) return;
         const prev = try self.enter(node, .block);
         defer self.scope = prev;
         _ = try self.bindFresh(items[1], "`catch` binding");
@@ -492,9 +481,8 @@ const SymbolResolver = struct {
     /// `(catch expr name-or-_ handler)`.
     fn walkCatch(self: *SymbolResolver, node: Sexp) Error!void {
         const items = node.list;
-        if (items.len < 3) return;
         try self.walk(items[1]);
-        if (items.len >= 4 and items[2] != .nil) {
+        if (items[2] != .nil) {
             const prev = try self.enter(node, .block);
             defer self.scope = prev;
             _ = try self.bindFresh(items[2], "`catch` binding");
@@ -506,7 +494,6 @@ const SymbolResolver = struct {
 
     fn walkArm(self: *SymbolResolver, node: Sexp) Error!void {
         const items = node.list;
-        if (items.len < 2) return;
         const prev = try self.enter(node, .block);
         defer self.scope = prev;
         const pattern = items[1];
@@ -543,15 +530,14 @@ pub const TypeResolver = struct {
         const head = headOf(sexp) orelse return;
         const items = sexp.list;
         switch (head) {
-            .@"pub" => if (items.len >= 2) try self.resolveDecl(items[1], is_extern),
+            .@"pub" => try self.resolveDecl(items[1], is_extern),
             .@"fun", .@"sub" => _ = try self.resolveFunction(sexp, types.symbol_invalid),
-            .@"type" => if (items.len >= 2) {
+            .@"type" => {
                 const id = self.ctx.symbolOf(items[1]) orelse return;
                 _ = try self.resolveAlias(id);
             },
             .@"extern" => {
                 if (items.len == 2) return self.resolveDecl(items[1], true);
-                if (items.len < 4) return;
                 const ty = try self.resolveType(items[3]);
                 const id = self.ctx.symbolOf(items[2]) orelse return;
                 self.ctx.symbols.items[id].ty = ty;
@@ -570,7 +556,6 @@ pub const TypeResolver = struct {
     /// Top-level functions also get the type on their symbol.
     fn resolveFunction(self: *TypeResolver, node: Sexp, nominal_sym: SymbolId) Error!TypeId {
         const items = node.list;
-        if (items.len < 5) return self.ctx.types.invalid_id;
         const is_sub = items[0].tag == .@"sub";
         const params = items[2];
         const return_ty = if (is_sub or items[3] == .nil)
@@ -617,7 +602,7 @@ pub const TypeResolver = struct {
         var any = false;
         const out = try self.ctx.arena.allocator().alloc(?Sexp, params.list.len);
         for (params.list, 0..) |p, i| {
-            out[i] = if (isHead(p, .@"default") and p.list.len >= 4) p.list[3] else null;
+            out[i] = if (isHead(p, .@"default")) p.list[3] else null;
             if (out[i] != null) any = true;
         }
         return if (any) out else null;
@@ -633,7 +618,7 @@ pub const TypeResolver = struct {
     /// Only a function's return type may be fallible (`T!`); Zig error
     /// unions with inferred error sets exist only there.
     fn resolveReturnType(self: *TypeResolver, node: Sexp) Error!TypeId {
-        if (isHead(node, .@"error_union") and node.list.len >= 2) {
+        if (isHead(node, .@"error_union")) {
             const inner = try self.resolveType(node.list[1]);
             return self.ctx.intern(.{ .fallible = inner });
         }
@@ -654,8 +639,7 @@ pub const TypeResolver = struct {
             .list => |items| {
                 const h = headOf(param) orelse return self.ctx.types.invalid_id;
                 switch (h) {
-                    .@":", .@"pre_param" => if (items.len >= 3) return self.resolveType(items[2]),
-                    .@"default" => if (items.len >= 3) return self.resolveType(items[2]),
+                    .@":", .@"pre_param", .@"default" => return self.resolveType(items[2]),
                     .@"read", .@"write" => {
                         const name = identAt(self.ctx.source, items[1]) orelse return self.ctx.types.invalid_id;
                         const pos = srcPos(items[1], 0);
@@ -682,7 +666,6 @@ pub const TypeResolver = struct {
     }
 
     fn resolveExternFun(self: *TypeResolver, items: []const Sexp) Error!void {
-        if (items.len < 2) return;
         const is_sub = items[0].tag == .@"extern_sub";
         const params = items[2];
         const returns: Sexp = if (is_sub) .nil else items[3];
@@ -754,7 +737,6 @@ pub const TypeResolver = struct {
     // ---- nominal types ------------------------------------------------------
 
     fn resolveNominal(self: *TypeResolver, items: []const Sexp) Error!void {
-        if (items.len < 2) return;
         const sym_id = self.ctx.symbolOf(items[1]) orelse return;
         const head = items[0].tag;
         const generic = head == .@"generic_type" or head == .@"generic_enum";
@@ -851,7 +833,7 @@ pub const TypeResolver = struct {
             }
             self.ctx.symbols.items[sym_id].flags.has_drop_glue = glue;
             for (members) |m| {
-                if (isHead(m, .@"drop_decl") and m.list.len >= 3) {
+                if (isHead(m, .@"drop_decl")) {
                     try self.enforceDropBody(m.list[2], owned);
                 }
             }
@@ -901,7 +883,6 @@ pub const TypeResolver = struct {
 
     fn resolveMethod(self: *TypeResolver, node: Sexp, nominal_sym: SymbolId, fields: *std.ArrayListUnmanaged(Field)) Error!void {
         const items = node.list;
-        if (items.len < 5) return;
         const mname = identAt(self.ctx.source, items[1]) orelse return;
         const mpos = srcPos(items[1], 0);
         const owner = self.ctx.symbols.items[nominal_sym].name;
@@ -964,7 +945,6 @@ pub const TypeResolver = struct {
 
     fn resolveDropDecl(self: *TypeResolver, node: Sexp, nominal_sym: SymbolId, fields: *std.ArrayListUnmanaged(Field)) Error!void {
         const items = node.list;
-        if (items.len < 3) return;
         const pos = dropPos(node);
         for (fields.items) |f| {
             if (f.is_drop_method) {
@@ -1025,18 +1005,18 @@ pub const TypeResolver = struct {
         const head = headOf(body) orelse return;
         const items = body.list;
         switch (head) {
-            .@"drop" => if (items.len >= 2 and self.isSelf(items[1])) {
+            .@"drop" => if (self.isSelf(items[1])) {
                 try self.ctx.err(items[1].src.pos, "cannot drop `self` inside its own drop body; the binding is being destroyed by the runtime", .{});
             },
-            .@"move" => if (items.len >= 2) {
+            .@"move" => {
                 if (self.isSelf(items[1])) {
                     try self.ctx.err(items[1].src.pos, "cannot move `self` out of its own drop body; the binding is being destroyed by the runtime", .{});
                 } else try self.checkDropBodyField(items[1], fields, "move");
             },
-            .@"return" => if (items.len >= 2 and self.isSelf(items[1])) {
+            .@"return" => if (self.isSelf(items[1])) {
                 try self.ctx.err(items[1].src.pos, "cannot return `self` from its own drop body", .{});
             },
-            .@"set" => if (items.len >= 5) try self.checkDropBodyField(items[2], fields, "reassign"),
+            .@"set" => try self.checkDropBodyField(items[2], fields, "reassign"),
             else => {},
         }
         for (items[1..]) |c| try self.enforceDropBody(c, fields);
@@ -1047,7 +1027,7 @@ pub const TypeResolver = struct {
     }
 
     fn checkDropBodyField(self: *TypeResolver, member: Sexp, fields: []const Field, op: []const u8) Error!void {
-        if (!isHead(member, .@"member") or member.list.len < 3) return;
+        if (!isHead(member, .@"member")) return;
         if (!self.isSelf(member.list[1])) return;
         const fname = identAt(self.ctx.source, member.list[2]) orelse return;
         for (fields) |f| {
@@ -1133,7 +1113,6 @@ pub const TypeResolver = struct {
                     .@"weak" => return self.ctx.intern(.{ .weak = try self.resolveType(items[1]) }),
                     .@"slice" => return self.ctx.intern(.{ .slice = .{ .elem = try self.resolveType(items[1]) } }),
                     .@"array_type" => {
-                        if (items.len < 3) return t.invalid_id;
                         const len = types.parseIntegerLiteral(self.ctx.source, items[1]) orelse {
                             try self.ctx.err(firstSrcPos(items[1]), "array length must be an integer literal", .{});
                             return t.invalid_id;
@@ -1167,7 +1146,6 @@ pub const TypeResolver = struct {
     fn resolveGenericInst(self: *TypeResolver, sexp: Sexp) Error!TypeId {
         const items = sexp.list;
         const t = &self.ctx.types;
-        if (items.len < 2) return t.invalid_id;
         const name = identAt(self.ctx.source, items[1]) orelse return t.invalid_id;
         const pos = srcPos(items[1], 0);
         const sym_id = self.ctx.lookup(self.scope, name) orelse {
