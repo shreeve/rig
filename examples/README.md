@@ -1,31 +1,22 @@
-# Rig Examples
+# Rig examples
 
-Each `.rig` file's leading comment block describes its intent. The
-suite is intentionally flat — one `.rig` per scenario, paired with
-goldens in `test/golden/{raw_sexp,semantic_sexp,errors,emitted_zig}/`.
+Short programs that show what Rig looks like, from the smallest program
+to a small reactive library. Each file ends with the output it prints,
+in an `# expect:` block, and `./test/run` runs every one of them
+leak-checked. Run one with:
 
-Implicit categories (read the header to tell which is which):
+```bash
+bin/rig run examples/ownership_tour.rig
+```
 
-- **Working / clean** — should pass `rig check` cleanly. May or may not
-  also lower to Zig (some only exercise the front-end). E.g.:
-  - `hello.rig`, `shadow.rig`, `spacing.rig`
-  - `borrow_release.rig`, `shadow_lookup.rig` (M4.5a positive checks)
-  - `branch_independent.rig` (M4.5b positive check)
+| File | Shows |
+|---|---|
+| [hello.rig](hello.rig) | the smallest program: a `sub main` and a paren-free `print` |
+| [ownership_tour.rig](ownership_tour.rig) | the ownership sigils at work: move `<x`, read borrow `?x`, shared `*x`, clone `+x`, drop `-x`, and automatic drop at the end of scope |
+| [shapes.rig](shapes.rig) | data modeling: an enum with payload variants, exhaustive `match`, a struct method with a `?self` receiver, and a generic `Pair(T)` |
+| [resources.rig](resources.rig) | a user-defined `drop` body, followed by the compiler-generated drop glue that releases a shared field |
+| [counter_closure.rig](counter_closure.rig) | closures over a shared `Cell`: a stack closure, and an owned closure `*fun(Int) Int` returned from a factory function |
+| [memo_canary.rig](memo_canary.rig) | a reactive source with derived values, built only from `Cell`, `Vec`, and owned closures; each derived source is held weakly by its listener, so the chain frees itself |
 
-- **Negative** — must produce a specific diagnostic. The error text is
-  the golden, not the emitted Zig. E.g.:
-  - `move.rig`, `borrow.rig`, `drop.rig`, `escape.rig`, `fixed.rig`
-    (SPEC §V1 test cases)
-  - `plain_after_move.rig`, `plain_after_drop.rig`,
-    `plain_during_write.rig`, `missing_bang.rig` (M4.5a)
-  - `escape_nested.rig`, `branch_merged_move.rig` (M4.5b)
-
-- **Surface preview** — exercises the broader Rig surface; not all
-  features are fully lowered yet. Flagged in the file header.
-  - `showcase.rig`
-
-The `test/run` script doesn't care about category — it runs raw_sexp
-+ semantic_sexp + determinism on every example, and runs the
-ownership/effects checker on every example to capture the `errors/`
-golden (which is empty for the clean ones). Emitted-Zig tests run
-only for `EMIT_TARGETS` listed in `test/run`.
+The language reference is [SPEC.md](../SPEC.md); the full test suite
+lives in [test/](../test/README.md).

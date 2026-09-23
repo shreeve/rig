@@ -1,0 +1,8 @@
+type Box(T)
+  v: T
+
+pub struct Holder
+  b: Box(Int)
+
+pub fun make() -> Holder
+  Holder(b: Box(v: 4))

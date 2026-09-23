@@ -1,0 +1,25 @@
+# Drop glue nests: `Outer` owns an `Inner` value that owns a `*Noisy`
+# handle, so dropping `o` at scope exit drops the Noisy (its drop body
+# prints the id).
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+struct Inner
+  r: *Noisy
+
+struct Outer
+  inner: Inner
+
+sub main()
+  n = *Noisy(id: 5)
+  i: Inner = Inner(r: <n)
+  o: Outer = Outer(inner: <i)
+  print("built")
+
+# expect:
+# built
+# 5

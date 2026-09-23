@@ -1,0 +1,29 @@
+# `<x` ends `x` whatever its type: a number, a Bool, a String, or a
+# borrow is done after it is moved, even though the value was copied.
+
+struct Box
+  n: Int
+
+sub take(b: ?Box)
+  print(b.n)
+
+sub main()
+  n = 1
+  m = <n
+  print(n)
+  flag = true
+  f = |<flag| print(flag)
+  f()
+  print(flag)
+  s = "text"
+  t <- s
+  print(s)
+  box = Box(n: 2)
+  r = ?box
+  take(<r)
+  take(r)
+
+# error: use of `n` after move
+# error: use of `flag` after move
+# error: use of `s` after move
+# error: use of `r` after move

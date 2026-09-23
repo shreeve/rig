@@ -1,0 +1,9 @@
+# A `sub` returns no value.
+
+sub f()
+  return 1
+
+sub main()
+  f()
+
+# error: a `sub` returns no value

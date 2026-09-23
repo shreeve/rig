@@ -1,0 +1,13 @@
+# `rc2 = rc` on a shared handle is rejected: it would alias the handle
+# without a refcount bump. Use `<rc` or `+rc`.
+
+struct Box
+  value: Int
+
+sub main()
+  rc = *Box(value: 1)
+  rc2 = rc
+  -rc2
+  -rc
+
+# error: bare use of shared (`*T`) handle `rc` in binding would alias the handle

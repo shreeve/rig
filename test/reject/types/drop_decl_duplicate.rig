@@ -1,0 +1,12 @@
+# A struct may declare at most one `drop`.
+
+struct File
+  fd: Int
+
+  drop self: !File
+    print(self.fd)
+
+  drop self: !File
+    print(self.fd + 1)
+
+# error: duplicate `drop` declaration on this struct

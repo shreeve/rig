@@ -1,0 +1,29 @@
+# Two nominal types each have a `self` method with a different return
+# type; each call's result is formatted by its own type.
+
+struct User
+  name: String
+
+  fun greet(?self) -> String
+    self.name
+
+enum Color
+  red
+  green
+  blue
+
+  fun code(?self) -> Int
+    match self
+      .red => 1
+      .green => 2
+      .blue => 3
+
+sub main()
+  u = User(name: "Steve")
+  c = Color.green
+  print(u.greet())
+  print(c.code())
+
+# expect:
+# Steve
+# 2

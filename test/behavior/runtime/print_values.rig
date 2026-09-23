@@ -1,0 +1,44 @@
+# `print` writes Rig values readably: text as is (quoted inside other
+# values), `none` for an absent optional, structs as `Name(field: value)`,
+# enums as `.variant`, and Vecs and arrays as `[a, b]`.
+
+struct User
+  name: String
+  age: Int
+
+enum Color
+  red
+  green
+
+enum Shape
+  circle(radius: Int)
+  rect(w: Int, h: Int)
+
+sub main()
+  u = User(name: "ada", age: 36)
+  print(u)
+  m: String? = "hi"
+  n: Int? = none
+  print(m, n)
+  print(["a", "b"], [1, 2])
+  v: Vec(Int) = Vec()
+  (!v).push(3)
+  (!v).push(4)
+  print(?v)
+  c: Color = .green
+  print(c)
+  s: Shape = .rect(w: 2, h: 3)
+  print(s)
+  b = *User(name: "bo", age: 5)
+  print(b)
+  print(true, 2.5, -3)
+
+# expect:
+# User(name: "ada", age: 36)
+# hi none
+# ["a", "b"] [1, 2]
+# [3, 4]
+# .green
+# .rect(w: 2, h: 3)
+# User(name: "bo", age: 5)
+# true 2.5 -3

@@ -1,0 +1,17 @@
+# The cast builtins available in `raw` are checked like Zig checks them,
+# so an accepted cast compiles.
+
+sub main()
+  x: I64 = 300
+  f = 1.5
+  i: I32 = 1
+  raw
+    a: U8 = @truncate(x)
+    b: U64 = @bitCast(i)
+    c: U8 = @intCast(f)
+    d: F32 = @floatFromInt(f)
+
+# error: `@truncate` cannot turn `Int` into `U8`: both must be signed, or both unsigned
+# error: `@bitCast` cannot turn `I32` into `U64`: both must have the same size
+# error: `@intCast` cannot turn `Float` into `U8`: it converts one integer type to another
+# error: `@floatFromInt` cannot turn `Float` into `F32`: it converts an integer to a float

@@ -1,0 +1,10 @@
+# `*Cell(Int)`: mutation through a shared handle goes through the cell's
+# `set`, and `get` reads the stored value back.
+
+sub main()
+  rc: *Cell(Int) = *Cell(value: 0)
+  rc.set(5)
+  print(rc.get())
+
+# expect:
+# 5

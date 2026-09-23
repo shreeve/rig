@@ -1,0 +1,12 @@
+# A nested lambda cannot re-capture a name captured by its enclosing
+# lambda.
+
+sub main()
+  rc: *Cell(Int) = *Cell(value: 0)
+  outer = |+rc|
+    inner = |+rc|
+      rc.get()
+    inner()
+  outer()
+
+# error: nested closure capture of `rc` is not supported

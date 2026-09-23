@@ -1,0 +1,22 @@
+# Enums get instance methods with the same receiver rules as structs.
+
+enum Color
+  red
+  green
+  blue
+
+  fun is_red(?self) -> Bool
+    match self
+      .red => true
+      .green => false
+      .blue => false
+
+sub main()
+  c1 = Color.red
+  c2 = Color.blue
+  print(c1.is_red())
+  print(c2.is_red())
+
+# expect:
+# true
+# false

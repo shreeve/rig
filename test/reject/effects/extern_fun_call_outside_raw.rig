@@ -1,0 +1,8 @@
+# Calling a body-less `extern fun` outside a `raw` block is rejected.
+
+extern fun abs(n: Int) -> Int
+
+sub main()
+  print(abs(-1))
+
+# error: call to extern function `abs` requires `raw` block

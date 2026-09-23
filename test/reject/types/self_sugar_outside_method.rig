@@ -1,0 +1,9 @@
+# `?self` has no meaning in a free function: there is no enclosing type.
+
+fun lonely(?self) -> Int
+  42
+
+sub main()
+  print(lonely(1))
+
+# error: `?self` is only allowed in a method body

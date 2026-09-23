@@ -1,0 +1,9 @@
+# A `pre` block is reserved; only `pre` function parameters are
+# supported compile-time forms.
+
+sub main()
+  pre
+    x = 42
+    print(x)
+
+# error: `pre` expression / block is reserved

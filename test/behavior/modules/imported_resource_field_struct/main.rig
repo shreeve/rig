@@ -1,0 +1,13 @@
+# An imported struct holding a shared handle of another imported type is
+# built with `*lib.Noisy(...)` and dropped with its field.
+
+use lib
+
+sub main()
+  h = lib.Holder(b: *lib.Noisy(n: 1))
+  k = +h.b
+  print(k.n, h.b.n)
+
+# expect:
+# 1 1
+# drop 1

@@ -1,0 +1,7 @@
+# `print` is only special as a direct call; as a value it is unbound.
+
+sub main()
+  x = print
+  x(42)
+
+# error: use of unbound name `print`

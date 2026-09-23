@@ -1,0 +1,16 @@
+# `==` needs both operands of one type; values of two different enums
+# cannot be compared.
+
+enum Color
+  red
+
+enum Shape
+  red
+
+sub main()
+  c: Color = .red
+  s: Shape = .red
+  if c == s
+    print("same")
+
+# error: `Shape`

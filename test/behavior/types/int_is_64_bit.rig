@@ -1,0 +1,17 @@
+# `Int` is a 64-bit signed integer and `Float` a 64-bit float.
+
+sub main()
+  big = 9223372036854775807
+  print(big)
+  small = -9223372036854775808
+  print(small)
+  print(@sizeOf(Int), @sizeOf(Float))
+  a = 0.1
+  f = a + 0.2
+  print(f == 0.30000000000000004)
+
+# expect:
+# 9223372036854775807
+# -9223372036854775808
+# 8 8
+# true

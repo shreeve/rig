@@ -1,0 +1,17 @@
+# A value-position `if` branch that returns early has no value; the
+# other branch supplies the binding.
+
+fun safe_mul(a: Int, b: Int) -> Int
+  result = if b == 0
+    return 0
+  else
+    a * b
+  result + 1
+
+sub main()
+  print(safe_mul(10, 2))
+  print(safe_mul(10, 0))
+
+# expect:
+# 21
+# 0

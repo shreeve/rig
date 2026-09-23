@@ -1,0 +1,13 @@
+# A returned borrow must come from a borrowed parameter, not a local.
+
+struct User
+  name: String
+
+fun bad() -> ?String
+  user = User(name: "Steve")
+  ?user.name
+
+fun name(user: ?User) -> ?String
+  ?user.name
+
+# error: returned borrow of `user` does not originate from a borrowed parameter

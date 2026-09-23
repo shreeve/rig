@@ -1,0 +1,17 @@
+# Enum values compare with `==` against values and variant literals.
+
+enum Color
+  red
+  green
+
+sub main()
+  a: Color = .red
+  b = Color.green
+  print(a == .red)
+  print(a == b)
+  print(b != .red)
+
+# expect:
+# true
+# false
+# true

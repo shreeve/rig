@@ -1,0 +1,13 @@
+# `*` makes an owned closure only from a closure literal, not from a
+# function or a closure binding.
+
+fun twice(n: Int) -> Int
+  n * 2
+
+sub main()
+  a = *twice
+  f = |n: Int| n + 1
+  b = *f
+
+# error: `*` makes an owned closure only from a closure literal: `*|...| body`
+# error: `*` makes an owned closure only from a closure literal: `*|...| body`

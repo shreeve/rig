@@ -1,0 +1,14 @@
+# A public struct from another module is constructed as `geo.Point(...)`,
+# returned from its functions, and used through its methods and fields.
+
+use geo
+
+sub main()
+  p = geo.Point(x: 1, y: 2)
+  print(p.sum(), p.x)
+  o = geo.origin()
+  print(o.sum())
+
+# expect:
+# 3 1
+# 0

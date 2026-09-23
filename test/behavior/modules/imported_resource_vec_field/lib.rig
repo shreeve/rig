@@ -1,0 +1,13 @@
+pub struct B
+  n: Int
+  drop self: !B
+    print("drop", self.n)
+
+pub struct H
+  items: Vec(*B)
+
+  sub add(!self, b: *B)
+    (!self.items).push(<b)
+
+  fun count(?self) -> Int
+    self.items.length()

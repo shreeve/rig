@@ -1,0 +1,23 @@
+# A borrow a function returns borrows every borrowed argument, until
+# its last use.
+
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  drop self: !Box
+    print("drop", self.n)
+
+fun first(a: ?Box, b: ?Box) -> ?Box
+  a
+
+sub main()
+  x = Box(n: 1)
+  y = Box(n: 2)
+  r = first(?x, ?y)
+  -y
+  print(r.n)
+
+# error: cannot drop `y` while borrows are live

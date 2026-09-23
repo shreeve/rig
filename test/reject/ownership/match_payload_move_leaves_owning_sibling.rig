@@ -1,0 +1,23 @@
+# Moving one payload field out of a matched value consumes the value, so
+# no other field of the variant may own a resource: it would never be
+# dropped.
+
+struct Box
+  payload: Int
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+enum Slot
+  pair(a: *Box, b: *Box)
+  empty
+
+sub main()
+  x = *Box(payload: 1)
+  y = *Box(payload: 2)
+  s: Slot = .pair(a: <x, b: <y)
+  match s
+    .pair(a, b) => eat(<a)
+    .empty => print(0)
+
+# error: cannot move `a` out of `s`: another field of the variant owns a resource

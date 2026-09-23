@@ -1,0 +1,79 @@
+# The original language showcase: fallible functions return plain
+# values, `?input` reborrows a borrowed parameter, `pre` specializes at
+# compile time, and a user type may be named `Bytes`.
+
+struct User
+  name: String
+  id: U64
+
+struct Profile
+  name: String
+
+struct UserView
+  user: ?User
+  profile: ?Profile
+
+enum ParseMode
+  strict
+  loose
+
+struct Ast
+  ok: Bool
+
+struct Bytes
+  data: Int
+
+fun parseStrict(input: ?Bytes) -> Ast
+  Ast(ok: input.data > 0)
+
+fun parseLoose(input: ?Bytes) -> Ast
+  Ast(ok: true)
+
+fun add(a: Int, b: Int) -> Int
+  a + b
+
+fun loadUser(id: U64) -> User!
+  User(name: "Steve", id: id)
+
+fun loadProfile(id: U64) -> Profile!
+  Profile(name: "Steve")
+
+# Compile-time specialization: `pre` replaces Zig's `comptime`.
+fun parse(pre mode: ParseMode, input: ?Bytes) -> Ast
+  if mode == .strict
+    parseStrict ?input
+  else
+    parseLoose ?input
+
+type Box(T)
+  value: T
+
+sub main()
+  total = add(1, 2)
+  print total
+
+  user =! loadUser(1)!         # fixed binding of a propagated result
+  print user.name
+
+  other <- user                # move-assignment: `other = <user`
+
+  u = loadUser(7)!
+  p = loadProfile(u.id)!
+  view = UserView(user: ?u, profile: ?p)
+  print u.id
+
+  bytes = Bytes(data: 0)
+  ast = parse(.strict, ?bytes)
+  print ast.ok
+
+  b: Box(Int) = Box(value: 5)
+  print b.value
+
+  -other                       # drop now
+
+# expect:
+# 3
+# Steve
+# 7
+# false
+# 5

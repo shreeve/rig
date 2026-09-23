@@ -1,0 +1,11 @@
+# Reading a field of a fresh `*User(...)` without binding it first is
+# rejected: the anonymous handle would leak.
+
+struct User
+  age: Int
+
+sub main()
+  a = (*User(age: 5)).age
+  print(a)
+
+# error: bind it to a name first

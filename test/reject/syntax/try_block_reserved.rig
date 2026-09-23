@@ -1,0 +1,14 @@
+# The value-yielding `try` block (with an indented `catch |e|` block) is
+# reserved; use `expr!` to propagate or `expr catch |e| handler` inline.
+
+fun may_fail() -> Int!
+  return 42
+
+sub main()
+  r = try
+    may_fail()!
+  catch |e|
+    0
+  print(r)
+
+# error: value-yielding `try INDENT body OUTDENT [catch |e| ...]` block is reserved

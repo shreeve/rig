@@ -1,0 +1,20 @@
+# A borrow chosen by an if-expression borrows from every candidate, so
+# `h` stays borrowed while `r` is live.
+
+struct Box
+  payload: Int
+
+struct Holder
+  inner: *Box
+
+sub main()
+  h = Holder(inner: *Box(payload: 5))
+  r = if true
+    ?h
+  else
+    ?h
+  -h
+  x = +r.inner
+  print(x.payload)
+
+# error: cannot drop `h` while borrows are live

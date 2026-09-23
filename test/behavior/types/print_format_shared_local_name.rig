@@ -1,0 +1,18 @@
+# `print` formats by the type of the binding in scope: two functions
+# with a local `s` of different types print each correctly.
+
+sub b()
+  s = 42
+  print(s)
+
+sub a()
+  s = "hello"
+  print(s)
+
+sub main()
+  a()
+  b()
+
+# expect:
+# hello
+# 42

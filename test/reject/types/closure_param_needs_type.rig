@@ -1,0 +1,9 @@
+# A bare closure parameter takes its type from context; with no type to
+# take, it must be annotated.
+
+sub main()
+  add = |a, b| a + b
+  print(add(1, 2))
+
+# error: closure parameter `a` needs a type: annotate it (`|a: Int|`) or write the closure where its type is known
+# error: closure parameter `b` needs a type

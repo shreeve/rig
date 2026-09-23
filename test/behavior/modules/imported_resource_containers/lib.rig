@@ -1,0 +1,12 @@
+pub struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+pub enum E
+  one(b: *B)
+  two(k: Int)
+
+pub fun mke(n: Int) -> E
+  .one(b: *B(n: n))

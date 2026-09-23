@@ -1,0 +1,15 @@
+# Reading a field through the element of `for n in ?xs`, where `xs` holds
+# `*Node` handles, auto-derefs the handle.
+
+struct Node
+  v: Int
+
+sub main()
+  xs: Vec(*Node) = Vec()
+  a = *Node(v: 7)
+  (!xs).push(<a)
+  for n in ?xs
+    print(n.v)
+
+# expect:
+# 7

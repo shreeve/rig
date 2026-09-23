@@ -1,0 +1,9 @@
+# Calling an extern declared in the `name: fun(...)` form outside a
+# `raw` block is rejected too.
+
+extern abs: fun(Int) Int
+
+sub main()
+  print(abs(-1))
+
+# error: call to extern function `abs` requires `raw` block

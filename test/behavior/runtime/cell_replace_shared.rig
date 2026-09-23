@@ -1,0 +1,16 @@
+# `Cell(*User).replace(<new)` stores the new handle and returns the old
+# one as an owned value. Each handle is dropped exactly once: `old` at
+# scope exit, the stored one by the cell's drop glue.
+
+struct User
+  age: Int
+
+sub main()
+  ua: *User = *User(age: 30)
+  ub: *User = *User(age: 99)
+  c: Cell(*User) = Cell(value: <ua)
+  old: *User = c.replace(<ub)
+  print(old.age)                    # 30
+
+# expect:
+# 30

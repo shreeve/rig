@@ -1,0 +1,20 @@
+# Nested `if`/`else` in value position selects among three results.
+
+fun classify(x: Int) -> Int
+  if x > 0
+    1
+  else
+    if x < 0
+      -1
+    else
+      0
+
+sub main()
+  print(classify(5))
+  print(classify(-5))
+  print(classify(0))
+
+# expect:
+# 1
+# -1
+# 0

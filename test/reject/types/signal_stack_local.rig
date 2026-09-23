@@ -1,0 +1,7 @@
+# A stack-local `Signal(T)` is rejected; signals must be heap-owned
+# (`*Signal(T)`).
+
+sub main()
+  sig: Signal(Int) = Signal(value: 0)
+
+# error: stack-local `Signal(T)` is not supported

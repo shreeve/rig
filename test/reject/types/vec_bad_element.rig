@@ -1,0 +1,15 @@
+# `Vec(T)` holds plain data or handles: not a struct holding a borrow,
+# and not a Vec by value.
+
+struct View
+  n: ?Int
+
+sub takeVec(v: Vec(View))
+  print("placeholder")
+
+sub main()
+  w: Vec(Vec(Int)) = Vec()
+
+# error: requires `T` to be a Copy type (Int, Bool, Float, String), a shared handle
+# error: got `View`
+# error: got `Vec(Int)`

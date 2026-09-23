@@ -1,0 +1,21 @@
+# The read borrow a `for cb in ?subs` loop holds on `subs` ends with the
+# loop, so pushing to `subs` afterwards is allowed.
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  cb1: *sub() = *|+count| count.set(count.get() + 1)
+  cb2: *sub() = *|+count| count.set(count.get() + 10)
+
+  subs: Vec(*sub()) = Vec()
+  (!subs).push(+cb1)
+
+  for cb in ?subs
+    cb()
+  (!subs).push(+cb2)
+  for cb in ?subs
+    cb()
+
+  print(count.get())                # 1 + (1 + 10) = 12
+
+# expect:
+# 12

@@ -1,0 +1,15 @@
+# A by-value receiver (`self: User`) consumes the value; the call site
+# must spell the move as `(<u).consume()`.
+
+struct User
+  name: String
+
+  sub consume(self: User)
+    print(self.name)
+
+sub main()
+  u = User(name: "Steve")
+  (<u).consume()
+
+# expect:
+# Steve

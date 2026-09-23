@@ -1,0 +1,10 @@
+# `|+m|` captures a copy of an optional Copy value.
+
+sub main()
+  m: Int? = 3
+  f = |+m|
+    print(m ?? 0)
+  f()
+
+# expect:
+# 3

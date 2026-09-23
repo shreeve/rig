@@ -1,0 +1,10 @@
+# Value-position `if` branches must unify into one type.
+
+sub main()
+  x = if true
+    1
+  else
+    "no"
+  print x
+
+# error: incompatible types `Int` and `String`

@@ -1,0 +1,11 @@
+# Moving a captured resource out is rejected in an owned closure that
+# takes parameters too.
+
+sub takes_owned(c: *Cell(Int))
+  c.set(0)
+
+sub main()
+  sig: *Cell(Int) = *Cell(value: 0)
+  bad: *sub(Int) = *|+sig, a: Int| takes_owned(<sig)
+
+# error: cannot move captured resource `sig`

@@ -1,1 +1,0 @@
-(module (struct User (: name String) (sub rename ((write self) (: new_name String)) _ (block (call print new_name)))) (sub main () _ (block (set _ u _ (call User (kwarg name "Steve"))) (call (member u rename) "Bob"))))

@@ -1,0 +1,21 @@
+# A call may store the borrows it is given into its `!` arguments, so
+# after `put(!v, ?b)` the view keeps `b` borrowed.
+
+struct Box
+  payload: Int
+
+struct View
+  box: ?Box
+
+sub put(v: !View, b: ?Box)
+  v.box = b
+
+sub main()
+  a = Box(payload: 1)
+  b = Box(payload: 2)
+  v = View(box: ?a)
+  put(!v, ?b)
+  -b
+  print(v.box.payload)
+
+# error: cannot drop `b` while borrows are live

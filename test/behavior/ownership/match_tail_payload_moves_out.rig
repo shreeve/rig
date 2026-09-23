@@ -1,0 +1,38 @@
+# A match on an owned value may yield a payload as its value, returned
+# or bound: the payload moves out and the scrutinee is consumed.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+enum Opt
+  some(v: *B)
+  nothing
+
+fun get(o: Opt, d: *B) -> *B
+  match o
+    .some(v) => v
+    .nothing => <d
+
+fun get2(o: Opt, d: *B) -> *B
+  x = match o
+    .some(v) => v
+    .nothing => <d
+  <x
+
+sub main()
+  o: Opt = .some(v: *B(n: 1))
+  x = get(<o, *B(n: 2))
+  print(x.n)
+  p: Opt = .nothing
+  y = get2(<p, *B(n: 3))
+  print(y.n)
+
+# expect:
+# drop 2
+# 1
+# 3
+# drop 3
+# drop 1

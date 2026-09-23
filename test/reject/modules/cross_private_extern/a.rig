@@ -1,0 +1,7 @@
+# Not `pub`: a private extern behind a `pub` safe wrapper is the
+# idiom; the extern itself is invisible to importers.
+extern abs: fun(Int) Int
+
+pub fun safe_abs(n: Int) -> Int
+  raw
+    abs(n)

@@ -1,4 +1,4 @@
-# M17: `if` used as expression without an `else` branch. Sema
+# `if` used as expression without an `else` branch. Sema
 # rejects with "if expression used as a value requires an else
 # branch". The emitter also has an `@compileError` safety net for
 # defense in depth.

@@ -4,9 +4,10 @@
 //!   zig build              — build bin/rig
 //!   zig build parser       — regenerate src/parser.zig from rig.grammar via Nexus
 //!   zig build run -- ...   — run bin/rig with args
-//!   zig build test         — run tests
+//!   zig build test         — run the Zig unit tests (./test/run runs these too)
 //!
-//! Nexus must be built first: (cd ../nexus && zig build -Doptimize=ReleaseSafe)
+//! `zig build parser` runs Nexus: `-Dnexus=PATH`, else nexus/bin/nexus in the
+//! nearest parent directory (build it with `zig build -Doptimize=ReleaseSafe`).
 
 const std = @import("std");
 
@@ -21,11 +22,8 @@ pub fn build(b: *std.Build) void {
     // -----------------------------------------------------------------
 
     const parser_step = b.step("parser", "Regenerate src/parser.zig from rig.grammar");
-    const gen_cmd = b.addSystemCommand(&.{
-        "../nexus/bin/nexus",
-        "rig.grammar",
-        "src/parser.zig",
-    });
+    const nexus = b.option([]const u8, "nexus", "Path to the Nexus binary") orelse findNexus(b);
+    const gen_cmd = b.addSystemCommand(&.{ nexus, "rig.grammar", "src/parser.zig" });
     parser_step.dependOn(&gen_cmd.step);
 
     // -----------------------------------------------------------------
@@ -37,6 +35,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const options = b.addOptions();
+    options.addOption([]const u8, "version", version);
+    main_mod.addOptions("build_options", options);
 
     const exe = b.addExecutable(.{
         .name = "rig",
@@ -60,59 +61,37 @@ pub fn build(b: *std.Build) void {
     // tests
     // -----------------------------------------------------------------
 
-    const test_step = b.step("test", "Run tests");
+    const test_step = b.step("test", "Run the Zig unit tests in every compiler module");
+    const test_roots = [_][]const u8{
+        "src/rig.zig",
+        "src/ir.zig",
+        "src/modules.zig",
+        "src/types.zig",
+        "src/effects.zig",
+        "src/ownership.zig",
+        "src/emit.zig",
+        "src/runtime.zig",
+    };
+    for (test_roots) |root| {
+        const mod = b.createModule(.{
+            .root_source_file = b.path(root),
+            .target = target,
+            .optimize = optimize,
+        });
+        const tests = b.addTest(.{ .root_module = mod });
+        test_step.dependOn(&b.addRunArtifact(tests).step);
+    }
+}
 
-    const rig_test_mod = b.createModule(.{
-        .root_source_file = b.path("src/rig.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const rig_tests = b.addTest(.{ .root_module = rig_test_mod });
-    const run_rig_tests = b.addRunArtifact(rig_tests);
-    test_step.dependOn(&run_rig_tests.step);
-
-    const ownership_test_mod = b.createModule(.{
-        .root_source_file = b.path("src/ownership.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const ownership_tests = b.addTest(.{ .root_module = ownership_test_mod });
-    const run_ownership_tests = b.addRunArtifact(ownership_tests);
-    test_step.dependOn(&run_ownership_tests.step);
-
-    const emit_test_mod = b.createModule(.{
-        .root_source_file = b.path("src/emit.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const emit_tests = b.addTest(.{ .root_module = emit_test_mod });
-    const run_emit_tests = b.addRunArtifact(emit_tests);
-    test_step.dependOn(&run_emit_tests.step);
-
-    const effects_test_mod = b.createModule(.{
-        .root_source_file = b.path("src/effects.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const effects_tests = b.addTest(.{ .root_module = effects_test_mod });
-    const run_effects_tests = b.addRunArtifact(effects_tests);
-    test_step.dependOn(&run_effects_tests.step);
-
-    const types_test_mod = b.createModule(.{
-        .root_source_file = b.path("src/types.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const types_tests = b.addTest(.{ .root_module = types_test_mod });
-    const run_types_tests = b.addRunArtifact(types_tests);
-    test_step.dependOn(&run_types_tests.step);
-
-    const modules_test_mod = b.createModule(.{
-        .root_source_file = b.path("src/modules.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const modules_tests = b.addTest(.{ .root_module = modules_test_mod });
-    const run_modules_tests = b.addRunArtifact(modules_tests);
-    test_step.dependOn(&run_modules_tests.step);
+/// `nexus/bin/nexus` in the nearest parent directory of the build root
+/// that has one (the checkout's sibling, also from nested git worktrees).
+fn findNexus(b: *std.Build) []const u8 {
+    const root = b.build_root.path orelse ".";
+    var dir: []const u8 = b.pathResolve(&.{root});
+    while (std.fs.path.dirname(dir)) |parent| : (dir = parent) {
+        const candidate = b.pathJoin(&.{ parent, "nexus", "bin", "nexus" });
+        std.Io.Dir.cwd().access(b.graph.io, candidate, .{}) catch continue;
+        return candidate;
+    }
+    return "../nexus/bin/nexus";
 }

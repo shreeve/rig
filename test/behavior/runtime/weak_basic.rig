@@ -1,0 +1,17 @@
+# `~rc` makes a weak handle from a shared one. Dropping the strong
+# handle first and the weak one second frees the box exactly once.
+
+struct Node
+  value: Int
+
+sub main()
+  rc = *Node(value: 7)
+  w  = ~rc
+  print(rc.value)
+  -rc
+  -w
+  print "done"
+
+# expect:
+# 7
+# done

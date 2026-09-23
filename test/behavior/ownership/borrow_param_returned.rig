@@ -1,0 +1,20 @@
+# A function may return one of its borrowed parameters, chosen by an
+# if-expression; the result borrows from both arguments.
+
+struct Box
+  payload: Int
+
+fun pick(a: ?Box, b: ?Box, first: Bool) -> ?Box
+  if first
+    a
+  else
+    b
+
+sub main()
+  x = Box(payload: 1)
+  y = Box(payload: 2)
+  r = pick(?x, ?y, false)
+  print(r.payload)
+
+# expect:
+# 2

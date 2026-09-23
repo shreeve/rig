@@ -1,0 +1,12 @@
+# Iterating a Vec of resources needs a Vec binding (or a field of one) as
+# the source, not a call result.
+
+fun makeSubs() -> Vec(*sub())
+  v: Vec(*sub()) = Vec()
+  <v
+
+sub main()
+  for cb in ?makeSubs()
+    cb()
+
+# error: requires a Vec binding or a field of one as the source

@@ -1,0 +1,10 @@
+# A function's implicit return value must match its declared type.
+
+fun bad() -> Int
+  "not an int"
+
+sub main()
+  x = bad()
+  print x
+
+# error: type mismatch: expected `Int`, got `String`

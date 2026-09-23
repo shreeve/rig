@@ -1,0 +1,12 @@
+# A closure body cannot move a captured resource out (here as a call
+# argument inside an owned closure).
+
+fun consume_sig(s: *Signal(Int)) -> Int
+  s.get()
+
+sub main()
+  sig: *Signal(Int) = *Signal(value: 0)
+  cb: *sub() = *|+sig| consume_sig(<sig)
+  cb()
+
+# error: cannot move captured resource `sig`

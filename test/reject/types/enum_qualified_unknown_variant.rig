@@ -1,0 +1,9 @@
+# `Color.purple` must name a real variant of `Color`.
+
+enum Color
+  red
+
+sub main()
+  c: Color = Color.purple
+
+# error: no member `purple` on type `Color`

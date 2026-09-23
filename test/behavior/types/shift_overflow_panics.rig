@@ -1,0 +1,15 @@
+# A left shift that loses bits overflows, like `+` and `*`: here at run
+# time, as a panic.
+
+fun rt(x: Int) -> Int
+  x
+
+sub main()
+  x = rt(1)
+  print(x << 62)
+  print(x << 63)
+
+# expect-panic: left shift overflowed bits
+
+# expect:
+# 4611686018427387904

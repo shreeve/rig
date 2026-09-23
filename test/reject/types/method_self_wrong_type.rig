@@ -1,0 +1,16 @@
+# A method's `self` must have the enclosing type (or `Self`).
+
+struct Order
+  id: Int
+
+struct User
+  name: String
+
+  fun bad(self: ?Order) -> Int
+    42
+
+sub main()
+  u = User(name: "x")
+  print(u.bad())
+
+# error: `self` receiver type must be `?Self` or `?User`

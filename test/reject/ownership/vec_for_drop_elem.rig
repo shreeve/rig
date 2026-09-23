@@ -1,0 +1,13 @@
+# Dropping the borrowed element of `for cb in ?subs` is rejected.
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  cb1: *sub() = *|+count| count.set(count.get() + 1)
+
+  subs: Vec(*sub()) = Vec()
+  (!subs).push(+cb1)
+
+  for cb in ?subs
+    -cb
+
+# error: cannot drop loop-borrow alias `cb`

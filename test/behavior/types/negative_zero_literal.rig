@@ -1,0 +1,9 @@
+# Negating the literal zero, in any base, is zero.
+
+sub main()
+  x = 5 + -0
+  y: U8 = -0
+  print(-0, x, y, -(0), -0x0, -0b0 * 3)
+
+# expect:
+# 0 5 0 0 0 0

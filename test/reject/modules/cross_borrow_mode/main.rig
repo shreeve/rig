@@ -1,0 +1,9 @@
+# `a.log_box` takes a read borrow `?Box`; passing a bare `Box` violates
+# the imported parameter's borrow mode.
+use a
+
+sub main()
+  b = a.make_box(42)
+  a.log_box(b)
+
+# error: type mismatch: expected `?a.Box`, got `a.Box`

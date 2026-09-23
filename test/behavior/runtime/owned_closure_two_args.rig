@@ -1,0 +1,14 @@
+# `*sub(Int, Int)` is an owned closure taking two arguments. Its
+# parameters may repeat the types its annotation gives them.
+
+sub main()
+  v: *Cell(Int) = *Cell(value: 0)
+  cb: *sub(Int, Int) = *|+v, a: Int, b: Int| v.set(a + b)
+  cb(10, 20)
+  print(v.get())            # 30
+  cb(100, 1)
+  print(v.get())            # 101
+
+# expect:
+# 30
+# 101

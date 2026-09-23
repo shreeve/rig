@@ -1,0 +1,11 @@
+# A `-> Int` function must end with a value; a trailing `while` produces
+# none.
+
+fun f() -> Int
+  while false
+    print(1)
+
+sub main()
+  print(f())
+
+# error: `Int`

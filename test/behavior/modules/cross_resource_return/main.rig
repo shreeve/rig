@@ -1,0 +1,10 @@
+# An imported function returning `*Box` gives the caller a named binding
+# with an auto-drop guard, and `b.value` auto-derefs through the Rc.
+use a
+
+sub main()
+  b = a.make_box(42)
+  print(b.value)
+
+# expect:
+# 42

@@ -1,0 +1,10 @@
+# A label that no `break` or `continue` names is allowed.
+
+sub main()
+  i = 0
+  :outer while i < 2
+    i += 1
+  print(i)
+
+# expect:
+# 2

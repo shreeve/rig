@@ -1,0 +1,25 @@
+# `Signal.subscribe` takes the handle the caller passes (`+cb` keeps
+# the caller's own); every subscriber runs on `set`, and all are freed
+# with the signal.
+
+sub main()
+  notes: *Cell(Int) = *Cell(value: 0)
+  one:   *sub() = *|+notes| notes.set(notes.get() + 1)
+  ten:   *sub() = *|+notes| notes.set(notes.get() + 10)
+  cent:  *sub() = *|+notes| notes.set(notes.get() + 100)
+
+  sig: *Signal(Int) = *Signal(value: 0)
+  sig.subscribe(+one)
+  sig.subscribe(+ten)
+  sig.subscribe(+cent)
+
+  print(notes.get())                # 0: no notification yet
+  sig.set(1)                        # calls all three: 0 -> 111
+  print(notes.get())                # 111
+  sig.set(2)                        # again: 111 -> 222
+  print(notes.get())                # 222
+
+# expect:
+# 0
+# 111
+# 222

@@ -1,0 +1,7 @@
+# A capture must name a binding in scope.
+
+sub main()
+  f = |+x| 1
+  print(1)
+
+# error: captured name `x` is not in scope

@@ -1,0 +1,22 @@
+# `|<n|` moves a handle into an owned closure's environment. The closure
+# is then the only owner; the Noisy is dropped (printing its id) when the
+# closure's last handle drops at scope exit.
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+sub main()
+  n = *Noisy(id: 100)
+  cb: *sub() = *|<n| print(n.id + 1)
+  cb()
+  cb()
+  print("end")
+
+# expect:
+# 101
+# 101
+# end
+# 100

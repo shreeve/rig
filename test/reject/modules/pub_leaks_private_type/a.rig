@@ -1,0 +1,7 @@
+# `Secret` is private, but the public `make_secret` returns it.
+
+struct Secret
+  value: Int
+
+pub fun make_secret() -> Secret
+  Secret(value: 42)

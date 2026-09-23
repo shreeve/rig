@@ -1,0 +1,7 @@
+# `and` and `or` require Bool operands.
+
+sub main()
+  x = true and 1
+  print x
+
+# error: type mismatch: expected `Bool`, got `Int`

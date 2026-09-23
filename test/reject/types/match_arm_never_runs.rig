@@ -1,0 +1,20 @@
+# An arm that follows arms covering every value, or follows a catch-all
+# arm, never runs and is rejected.
+
+enum Color
+  red
+  green
+
+sub show(c: Color, n: U8)
+  match c
+    .red => print("red")
+    .green => print("green")
+    other => print("other")
+  match n
+    _ => print("any")
+    1 => print("one")
+
+sub main()
+  show(.green, 1)
+
+# error: this arm never runs: the arms before it cover every value

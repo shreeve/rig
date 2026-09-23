@@ -1,0 +1,13 @@
+# Method bodies are type-checked against the declared return type.
+
+struct User
+  name: String
+
+  fun greet(?self) -> String
+    42
+
+sub main()
+  u = User(name: "Steve")
+  print(u.greet())
+
+# error: type mismatch: expected `String`, got `Int`

@@ -1,0 +1,26 @@
+# `if w.upgrade() as n` binds a strong handle while the value is alive;
+# the binding owns the handle and drops it when the branch ends.
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print("drop", self.id)
+
+sub show(w: ?~Noisy)
+  if w.upgrade() as n
+    print("alive", n.id)
+  else
+    print("gone")
+
+sub main()
+  rc = *Noisy(id: 7)
+  w = ~rc
+  show(?w)
+  -rc
+  show(?w)
+
+# expect:
+# alive 7
+# drop 7
+# gone

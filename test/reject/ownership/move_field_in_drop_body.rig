@@ -1,0 +1,10 @@
+# A drop body cannot move a resource field out: fields are dropped
+# automatically after the body returns.
+
+struct Owner
+  cell: *Cell(Int)
+
+  drop self: !Owner
+    stash = <self.cell
+
+# error: cannot move resource field `self.cell` inside drop body

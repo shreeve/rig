@@ -1,0 +1,39 @@
+# Scopes are entered through the node that opens them, so blocks nested
+# in methods, match arms, and lambdas earlier in the file leave later
+# functions' locals intact.
+
+enum Color
+  red
+  green
+
+struct P
+  n: Int
+
+  fun describe(?self) -> Int
+    if self.n > 0
+      m = self.n * 2
+      m
+    else
+      0
+
+fun pick(c: Color) -> Int
+  match c
+    .red => 1
+    .green
+      k = 2
+      k
+
+sub main()
+  n = 5
+  p = P(n: 3)
+  f = |+n|
+    x = n + 1
+    print(x)
+  f()
+  print(p.describe())
+  print(pick(.green) + n)
+
+# expect:
+# 6
+# 6
+# 7

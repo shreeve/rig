@@ -1,0 +1,9 @@
+# The name bound by `as` is a new local and may not reuse a visible name.
+
+sub main()
+  y = 1
+  m: Int? = 3
+  if m as y
+    print(y)
+
+# error: optional binding `y` shadows the local `y`

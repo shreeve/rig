@@ -1,0 +1,12 @@
+# An argument for a `pre` (compile-time) parameter must be known at
+# compile time.
+
+sub show(pre n: Int)
+  print(n)
+
+sub main()
+  k = 0
+  k += 3
+  show(k)
+
+# error: `pre`

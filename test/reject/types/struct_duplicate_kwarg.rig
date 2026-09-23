@@ -1,0 +1,10 @@
+# A constructor may not name the same field twice.
+
+struct User
+  name: String
+  age: Int
+
+sub main()
+  u = User(name: "Steve", name: "Other", age: 30)
+
+# error: duplicate field `name` in constructor of `User`

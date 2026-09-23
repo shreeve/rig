@@ -1,0 +1,21 @@
+# A `Vec(*sub())` holding clones of two closures: the originals stay
+# callable, and at scope exit the Vec's clones, the closures, and the
+# captured cell are all released.
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  cb1: *sub() = *|+count| count.set(count.get() + 1)
+  cb2: *sub() = *|+count| count.set(count.get() + 10)
+
+  subs: Vec(*sub()) = Vec()
+  (!subs).push(+cb1)
+  (!subs).push(+cb2)
+
+  cb1()
+  cb2()
+  print(count.get())                # 11
+  print(subs.length())              # 2
+
+# expect:
+# 11
+# 2

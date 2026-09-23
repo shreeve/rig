@@ -1,0 +1,14 @@
+# Iterating a Vec of resources needs an explicit read borrow of the
+# source (`for x in ?vec`).
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  cb1: *sub() = *|+count| count.set(count.get() + 1)
+
+  subs: Vec(*sub()) = Vec()
+  (!subs).push(+cb1)
+
+  for cb in subs
+    cb()
+
+# error: resource Vec(T) iteration requires an explicit read borrow

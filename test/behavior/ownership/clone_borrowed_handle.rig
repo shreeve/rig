@@ -1,0 +1,30 @@
+# `+b` on a borrowed shared handle makes a new strong handle; the caller's
+# handle stays valid.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+sub f(b: ?*B)
+  k = +b
+  print("k", k.n)
+
+sub g(b: !*B)
+  b = +b
+  print("g", b.n)
+
+sub main()
+  c = *B(n: 1)
+  f(?c)
+  g(!c)
+  r = ?c
+  k = +r
+  print("after", c.n, k.n)
+
+# expect:
+# k 1
+# g 1
+# after 1 1
+# drop 1

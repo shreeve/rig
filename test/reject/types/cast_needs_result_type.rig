@@ -1,0 +1,9 @@
+# A cast builtin needs a known result type.
+
+sub main()
+  x: I64 = 5
+  raw
+    y = @intCast(x)
+    print(y)
+
+# error: `@intCast` needs a known result type

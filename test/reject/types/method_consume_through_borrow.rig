@@ -1,0 +1,17 @@
+# A consuming method cannot be called on a borrowed value, even when the
+# borrow comes from a call's `?User` result.
+
+struct User
+  name: String
+
+  sub consume(self: User)
+    print(self.name)
+
+fun get_ref(u: ?User) -> ?User
+  u
+
+sub main()
+  u = User(name: "Steve")
+  get_ref(?u).consume()
+
+# error: cannot consume through a borrowed value

@@ -1,0 +1,18 @@
+# Field reads and read-receiver method calls auto-deref through a shared
+# `*User` handle.
+
+struct User
+  age: Int
+
+  fun read_age(self: ?User) -> Int
+    self.age
+
+sub main()
+  rc = *User(age: 42)
+  print(rc.age)
+  print(rc.read_age())
+  -rc
+
+# expect:
+# 42
+# 42

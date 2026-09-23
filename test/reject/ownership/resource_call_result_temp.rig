@@ -1,0 +1,14 @@
+# Reading a field of a resource-returning call without binding it first
+# is rejected: the anonymous handle would leak.
+
+struct User
+  age: Int
+
+fun make_user() -> *User
+  return *User(age: 5)
+
+sub main()
+  a = make_user().age
+  print(a)
+
+# error: bind it to a name first

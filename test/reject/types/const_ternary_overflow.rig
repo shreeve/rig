@@ -1,0 +1,10 @@
+# A choice with a constant condition is constant too, so its arithmetic
+# is checked.
+
+sub main()
+  x: U8 = 255
+  print(x + (1 if true else 0))
+  y: U8 = 255 + (1 if 2 > 1 else 0)
+  print(y)
+
+# error: integer value `256` does not fit in `U8` (0..255)

@@ -1,0 +1,17 @@
+# `+rc` bumps the strong count; each handle is dropped explicitly with
+# `-`, and the clone reads the same value as the original.
+
+struct Counter
+  value: Int
+
+sub main()
+  rc = *Counter(value: 1)
+  rc2 = +rc
+  print(rc2.value)
+  -rc2
+  -rc
+  print "ok"
+
+# expect:
+# 1
+# ok

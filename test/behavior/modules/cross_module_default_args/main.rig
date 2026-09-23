@@ -1,0 +1,12 @@
+# Keyword arguments and default parameter values work across modules;
+# a default is the literal written in the declaring module.
+
+use lib
+
+sub main()
+  print(lib.scale(2))
+  print(lib.scale(off: 5, n: 3))
+
+# expect:
+# 19
+# 35

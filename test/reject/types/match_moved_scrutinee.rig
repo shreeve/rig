@@ -1,0 +1,20 @@
+# A match reads its scrutinee; moving one in would leave nothing to drop
+# it. Match the binding itself.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+enum S
+  one(a: *B)
+  empty
+
+sub main()
+  s: S = .one(a: *B(n: 1))
+  match <s
+    .one(a) => print("in", a.n)
+    .empty => print(0)
+
+# error: match the binding itself

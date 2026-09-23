@@ -1,0 +1,14 @@
+# Two arms for the same variant are rejected.
+
+enum Color
+  red
+  green
+
+sub main()
+  c: Color = .red
+  match c
+    .red => print(1)
+    .red => print(2)
+    .green => print(3)
+
+# error: duplicate arm for variant `red`

@@ -1,0 +1,12 @@
+# Closure bindings are fixed; rebinding one is rejected with a
+# closure-specific diagnostic.
+
+sub main()
+  n =! 7
+  f = |+n|
+    n
+  f = |+n|
+    n + 1
+  print(f())
+
+# error: cannot reassign closure binding `f`

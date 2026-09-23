@@ -1,0 +1,18 @@
+# `if` as the right-hand side of a binding; the binding's type comes
+# from the unified branch type.
+
+sub main()
+  x = if true
+    1
+  else
+    2
+  y = if x > 0
+    100
+  else
+    -100
+  print(x)
+  print(y)
+
+# expect:
+# 1
+# 100

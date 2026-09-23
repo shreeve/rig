@@ -1,0 +1,9 @@
+# Arithmetic operands must have one type; `I32 + I64` is rejected
+# (`I64` is `Int`).
+
+sub main()
+  a: I32 = 1
+  b: I64 = 2
+  print(a + b)
+
+# error: operands have different types `I32` and `Int`

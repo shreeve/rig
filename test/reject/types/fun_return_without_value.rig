@@ -1,0 +1,9 @@
+# `return` in a `fun` needs a value.
+
+fun f() -> Int
+  return
+
+sub main()
+  print(f())
+
+# error: `return` needs a value of type `Int`

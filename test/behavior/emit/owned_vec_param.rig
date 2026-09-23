@@ -1,0 +1,13 @@
+# An owned value parameter (`v: Vec(Int)`) belongs to the callee, which
+# drops it on return.
+
+sub eat(v: Vec(Int))
+  print(v.length())
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  eat(<v)
+
+# expect:
+# 1

@@ -1,7 +1,0 @@
-# NOT pub. Private extern + safe wrapper is the V1 pattern; the
-# extern itself should be invisible cross-module.
-extern puts: fun(String) Int
-
-pub sub safe_puts(s: String)
-  raw
-    puts(s)

@@ -1,0 +1,9 @@
+# Constructing a payload variant must supply every payload field.
+
+enum Shape
+  triangle(a: Int, b: Int)
+
+sub main()
+  s: Shape = .triangle(a: 1)
+
+# error: variant `triangle` is missing field `b`

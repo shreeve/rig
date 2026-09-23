@@ -1,0 +1,14 @@
+# An expression statement whose value has drop glue (here the old value
+# from `c.replace`) cannot be discarded.
+
+struct User
+  age: Int
+
+sub main()
+  ua: *User = *User(age: 30)
+  ub: *User = *User(age: 99)
+  c: Cell(*User) = Cell(value: <ua)
+  c.replace(<ub)
+  print(0)
+
+# error: carries drop glue and would leak as a discarded statement

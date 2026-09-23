@@ -1,0 +1,21 @@
+# The `(*T)?` returned by `w.upgrade()` owns a strong handle: `m` keeps
+# the Noisy alive after `-rc` and drops it at scope exit.
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+sub main()
+  rc = *Noisy(id: 1)
+  w  = ~rc
+  m = w.upgrade()
+  -rc
+  print("rc dropped")               # `m` still holds the Noisy
+  -w
+  # scope exit drops `m`, the last strong handle: prints 1
+
+# expect:
+# rc dropped
+# 1

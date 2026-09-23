@@ -1,0 +1,16 @@
+# A statement-position match need not cover every variant; the handled
+# variant runs its arm.
+
+enum Color
+  red
+  green
+  blue
+
+sub main()
+  c: Color = .red
+  match c
+    .red => print "R"
+    .green => print "G"
+
+# expect:
+# R

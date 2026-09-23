@@ -1,0 +1,15 @@
+# Shifts take an Int amount at run time or a constant one; the shifted
+# value keeps the expression's type.
+
+fun amount(n: Int) -> Int
+  n + 1
+
+sub main()
+  k = amount(2)
+  print(1 << k, k << 2, 256 >> k, 7 & k, 1 << 4)
+  u: U8 = 1
+  print(u << 3)
+
+# expect:
+# 8 12 32 3 16
+# 8

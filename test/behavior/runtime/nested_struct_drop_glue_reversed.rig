@@ -1,0 +1,24 @@
+# Drop glue nests even when `Outer` is declared before the `Inner` it
+# contains: dropping `o` still reaches the `*Noisy` inside `Inner`.
+
+struct Outer
+  inner: Inner
+
+struct Inner
+  r: *Noisy
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+sub main()
+  n = *Noisy(id: 5)
+  i: Inner = Inner(r: <n)
+  o: Outer = Outer(inner: <i)
+  print("built")
+
+# expect:
+# built
+# 5

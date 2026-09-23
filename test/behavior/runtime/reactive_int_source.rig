@@ -1,0 +1,42 @@
+# A userland reactive source: a `*Cell` value plus a list of subscriber
+# closures, notified on every `set`. The subscriber holds the source
+# weakly (`|~count|`), so the source's list and the closure do not keep
+# each other alive.
+
+type Subscribers = Vec(*sub())
+
+struct IntSource
+  value: *Cell(Int)
+  subs: *Cell(Subscribers)
+
+  fun new(initial: Int) -> *IntSource
+    *IntSource(value: *Cell(value: initial), subs: *Cell(value: Vec()))
+
+  fun get(self: ?IntSource) -> Int
+    self.value.get()
+
+  # A Cell gives no borrowed access to the Vec inside it, so the list is
+  # swapped out, changed, and swapped back.
+  sub subscribe(self: ?IntSource, cb: *sub())
+    subs = self.subs.replace(Vec())
+    (!subs).push(<cb)
+    _ = self.subs.replace(<subs)
+
+  sub set(self: ?IntSource, v: Int)
+    self.value.set(v)
+    subs = self.subs.replace(Vec())
+    for notify in ?subs
+      notify()
+    _ = self.subs.replace(<subs)
+
+sub main()
+  count = IntSource.new(0)
+  count.subscribe(*|~count|
+    if count.upgrade() as c
+      print(c.get()))
+  count.set(1)
+  count.set(7)
+
+# expect:
+# 1
+# 7

@@ -1,0 +1,13 @@
+# Reading a value while a write borrow of it is live (used later) is
+# rejected.
+
+struct User
+  name: String
+
+sub main()
+  user = User(name: "Steve")
+  w = !user
+  print user
+  w.name = "Bob"
+
+# error: use of `user` while a write borrow is live

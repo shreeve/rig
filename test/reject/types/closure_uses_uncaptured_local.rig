@@ -1,0 +1,11 @@
+# A closure reaches the enclosing function's locals only through the
+# captures in its bar list.
+
+sub main()
+  n = 1
+  m = 2
+  f = |+n|
+    print(n + m)
+  f()
+
+# error: `m` is a local of the enclosing function; capture it

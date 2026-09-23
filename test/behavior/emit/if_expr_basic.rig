@@ -1,0 +1,15 @@
+# `if` as the value of a function body with single-expression branches.
+
+fun pick(c: Bool) -> Int
+  if c
+    10
+  else
+    20
+
+sub main()
+  print(pick(true))
+  print(pick(false))
+
+# expect:
+# 10
+# 20

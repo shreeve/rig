@@ -1,0 +1,15 @@
+# A drop body cannot replace `self`: the replaced value would be dropped
+# by running the same body again.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+    if self.n < 3
+      self = B(n: self.n + 1)
+
+sub main()
+  b = B(n: 1)
+
+# error: cannot reassign `self` inside its own drop body

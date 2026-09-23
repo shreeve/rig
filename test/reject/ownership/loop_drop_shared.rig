@@ -1,0 +1,14 @@
+# A drop inside a `while` body is seen by the next iteration's read.
+
+struct Box
+  payload: Int
+
+sub main()
+  rc = *Box(payload: 42)
+  i = 0
+  while i < 2
+    print(rc.payload)
+    -rc
+    i += 1
+
+# error: use of `rc` after drop

@@ -1,0 +1,13 @@
+# An array's length is part of its type, so a constant index outside it
+# is rejected (including through a constant binding).
+
+sub main()
+  xs = [1, 2, 3]
+  print(xs[3])
+  i = 5
+  print(xs[i])
+  print(xs[-1])
+
+# error: index `3` is out of bounds for an array of length 3
+# error: index `5` is out of bounds for an array of length 3
+# error: index `-1` is out of bounds for an array of length 3

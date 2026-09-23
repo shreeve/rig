@@ -1,0 +1,9 @@
+# Constructing an imported struct checks its field list: `Box` has no
+# field `does_not_exist`.
+use a
+
+sub main()
+  b = a.Box(does_not_exist: 5)
+  print(b.value)
+
+# error: no field `does_not_exist` on type `Box`

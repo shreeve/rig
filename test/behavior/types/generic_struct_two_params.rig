@@ -1,0 +1,15 @@
+# A generic struct with two type parameters; each field gets its own
+# substituted type.
+
+type Pair(T, U)
+  first: T
+  second: U
+
+sub main()
+  p: Pair(Int, String) = Pair(first: 42, second: "answer")
+  print(p.first)
+  print(p.second)
+
+# expect:
+# 42
+# answer

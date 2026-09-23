@@ -1,0 +1,9 @@
+# A `pub fun` whose return type is a private struct is rejected where it
+# is declared (in a.rig), and importing that module surfaces the error.
+use a
+
+sub main()
+  s = a.make_secret()
+  print(s.value)
+
+# error: public function `make_secret` leaks private type `Secret`

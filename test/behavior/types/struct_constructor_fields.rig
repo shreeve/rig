@@ -1,0 +1,15 @@
+# A struct constructor with keyword fields; member access types each
+# field from the declaration.
+
+struct User
+  name: String
+  age: Int
+
+sub main()
+  u = User(name: "Steve", age: 30)
+  print(u.name)
+  print(u.age + 1)
+
+# expect:
+# Steve
+# 31

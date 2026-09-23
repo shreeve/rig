@@ -1,0 +1,13 @@
+# A closure body cannot propagate with `!`: the closure returns Void, even
+# inside a function that may fail.
+
+fun g() -> Int!
+  3
+
+sub main()
+  n = 1
+  c = |+n|
+    print(g()! + n)
+  c()
+
+# error: use of `!` propagation requires

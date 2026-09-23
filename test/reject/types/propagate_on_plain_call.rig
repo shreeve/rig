@@ -1,0 +1,11 @@
+# `!` needs a fallible operand; applying it to a call that cannot fail is
+# rejected.
+
+fun one() -> Int
+  1
+
+sub main()
+  n = one()!
+  print(n)
+
+# error: fallible

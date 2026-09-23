@@ -1,0 +1,10 @@
+# A local may not reuse the name of a module-level function.
+
+fun total() -> Int
+  1
+
+sub main()
+  total = 5
+  print(total)
+
+# error: local `total` has the same name as the module-level declaration `total`

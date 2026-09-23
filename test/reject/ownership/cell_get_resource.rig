@@ -1,0 +1,13 @@
+# `Cell.get` on a Cell of shared handles is rejected: the copy would
+# alias the owned handle.
+
+struct User
+  age: Int
+
+sub main()
+  u: *User = *User(age: 30)
+  c: Cell(*User) = Cell(value: <u)
+  copy = c.get()
+  print(0)
+
+# error: `Cell.get` returns `T` by value but `T = *User` has drop glue

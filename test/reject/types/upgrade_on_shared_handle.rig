@@ -1,0 +1,12 @@
+# `upgrade` is a built-in only on weak handles; calling it on a shared
+# handle (whose type has no `upgrade` method) points at `~rc`.
+
+struct User
+  name: String
+
+sub main()
+  rc = *User(name: "x")
+  m  = rc.upgrade()
+  -rc
+
+# error: `upgrade` is only available on weak handles (`~T`)

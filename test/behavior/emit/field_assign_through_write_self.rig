@@ -1,0 +1,26 @@
+# Assigning a field through `!self` drops the old value and keeps the new
+# one in the caller's struct.
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+struct Slot
+  held: *Noisy
+
+  sub put(!self, n: *Noisy)
+    self.held = <n
+
+sub main()
+  s = Slot(held: *Noisy(id: 1))
+  (!s).put(*Noisy(id: 2))
+  print(s.held.id)
+  print("end")
+
+# expect:
+# 1
+# 2
+# end
+# 2

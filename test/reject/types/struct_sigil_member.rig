@@ -1,0 +1,12 @@
+# Sigil-prefixed names (`?x`) are sugar for `self` parameters only, not
+# struct members.
+
+struct S
+  name: String
+  ?x
+
+sub main()
+  s = S(name: "a", x: 5)
+  print(s.name)
+
+# error: sigil-prefixed member (`?x` / `!x`) is not allowed in a nominal body

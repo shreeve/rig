@@ -1,487 +1,498 @@
 #!/bin/bash
-# Rig test runner.
-#
-# Runs:
-#   1. Golden raw_sexp tests — parse each example, byte-diff against snapshot
-#   2. Compile checks — verify generated parser.zig compiles
-#   3. Determinism — same input, two runs, identical output
-#   4. zig build test — Zig-native unit tests in src/rig.zig
+# Rig test suite. See test/README.md for the test file formats.
 #
 # Usage:
-#   ./test/run            run all tests
-#   ./test/run --update   regenerate goldens (review diffs before committing)
+#   ./test/run [options] [filter...]
+#
+#   filter      only run tests whose id contains one of these substrings;
+#               ids look like behavior/ownership/move_into_fn, known/emit/...,
+#               reject/types/..., examples/hello, ir/..., torture/..., cli/..., unit,
+#               parser, doc/SPEC/L120 (the ```rig block at SPEC.md line 120).
+#               A bare kind name (`known`, `doc`, ...) selects that kind.
+#   -v          also list passing and known-failing tests
+#   -j N        parallel jobs (default: CPU count)
+#   --update    rewrite test/ir snapshots from the current compiler
+#
+# Exit status is non-zero if any test fails or a known-failing test
+# starts passing (move it out of test/known/ when that happens).
 
-set -euo pipefail
+set -uo pipefail
 
 cd "$(dirname "$0")/.."
+ROOT=$(pwd)
+RIG="$ROOT/bin/rig"
+# Nexus: $NEXUS, else nexus/bin/nexus next to this checkout or any parent
+# directory (so git worktrees nested inside the checkout find it too).
+find_nexus() {
+    local dir=$ROOT
+    while [[ "$dir" != "/" ]]; do
+        dir=$(dirname "$dir")
+        [[ -x "$dir/nexus/bin/nexus" ]] && { echo "$dir/nexus/bin/nexus"; return; }
+    done
+    echo "$ROOT/../nexus/bin/nexus"
+}
+NEXUS=${NEXUS:-$(find_nexus)}
+PANIC_RE='Segmentation fault|panic:|panic at|reached unreachable|index out of bounds|General protection|GENERAL PROTECTION|Bus error|Illegal instruction'
+POS_RE='\.rig:[0-9]+:[0-9]+'
+LEAK_RE='rig: memory leak detected'
+TIMEOUT=${RIG_TEST_TIMEOUT:-120}
 
-RIG=bin/rig
-TMPDIR=$(mktemp -d)
-trap "rm -rf $TMPDIR" EXIT
+# -----------------------------------------------------------------------------
+# Worker: run one test, write a result file. Invoked through xargs.
+#   result line: <status>\t<id>\t<one-line reason>
+#   status: pass | fail | known | fixed
+# Details (captured output) go to <result>.log.
+# -----------------------------------------------------------------------------
 
-UPDATE=false
-if [[ "${1:-}" == "--update" ]]; then
-    UPDATE=true
+# Expected stdout: the `# expect:` block, one `# line` per output line.
+expected_stdout() {
+    awk '
+        inblock && /^#/ { sub(/^# ?/, ""); print; next }
+        inblock { exit }
+        /^# expect:[[:space:]]*$/ { inblock = 1 }
+    ' "$1"
+}
+
+directive() { # directive <name> <file>  → all values of `# name: value`
+    sed -n "s/^# $1:[[:space:]]*//p" "$2"
+}
+
+has_expect_block() { grep -qE '^# expect:[[:space:]]*$' "$1"; }
+
+# check_behavior <entry> <outdir> <logfile> → sets REASON, returns 0 on pass
+check_behavior() {
+    local entry=$1 outdir=$2 log=$3
+    local out="$outdir.stdout" err="$outdir.stderr"
+    mkdir -p "$outdir"
+    # The braces keep bash's own "Abort trap" job notice out of the output.
+    { RIG_OUT_DIR="$outdir" timeout "$TIMEOUT" "$RIG" run "$entry" >"$out" 2>"$err" </dev/null; } 2>/dev/null
+    local rc=$?
+    local panic_want
+    panic_want=$(directive expect-panic "$entry" | head -1)
+
+    { echo "--- stdout"; cat "$out"; echo "--- stderr"; cat "$err"; } >"$log"
+
+    if [[ $rc -eq 124 ]]; then REASON="timed out after ${TIMEOUT}s"; return 1; fi
+
+    if [[ -n "$panic_want" ]]; then
+        if [[ $rc -eq 0 ]]; then REASON="expected panic \"$panic_want\", exited 0"; return 1; fi
+        if ! grep -qF -- "$panic_want" "$err"; then
+            REASON=$(classify_failure "$err" "$rc")
+            REASON="expected panic \"$panic_want\"; got: $REASON"
+            return 1
+        fi
+    elif [[ $rc -ne 0 ]]; then
+        REASON=$(classify_failure "$err" "$rc")
+        return 1
+    fi
+
+    if [[ -z "$panic_want" ]] || has_expect_block "$entry"; then
+        if ! diff <(expected_stdout "$entry") "$out" >"$outdir.diff" 2>&1; then
+            REASON="stdout differs from # expect block"
+            { echo "--- diff (expected vs actual)"; cat "$outdir.diff"; } >>"$log"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+classify_failure() { # <stderr file> <rc>
+    local err=$1 rc=$2 line
+    if grep -qE "$LEAK_RE" "$err"; then echo "memory leak"; return; fi
+    if line=$(grep -m1 -E '\.rig:[0-9]+:[0-9]+: error' "$err"); then echo "rejected: ${line#*: error: }"; return; fi
+    if grep -qE 'parse error|unexpected' "$err" && ! grep -q '\.zig:' "$err"; then echo "rejected: $(head -1 "$err")"; return; fi
+    if line=$(grep -m1 -E '\.zig:[0-9]+:[0-9]+: error' "$err"); then echo "zig compile error: ${line#*: error: }"; return; fi
+    if grep -qE 'Double free|Invalid free' "$err"; then echo "double free"; return; fi
+    if grep -qE 'Segmentation fault|General protection|GENERAL PROTECTION|Bus error' "$err"; then echo "crash (segfault)"; return; fi
+    if line=$(grep -m1 -E 'panic' "$err"); then echo "panic: ${line#*panic: }"; return; fi
+    echo "exit $rc: $(head -1 "$err")"
+}
+
+# check_reject <entry> <logfile> → sets REASON
+check_reject() {
+    local entry=$1 log=$2
+    local out
+    out=$(timeout "$TIMEOUT" "$RIG" check "$entry" 2>&1 </dev/null)
+    local rc=$?
+    echo "$out" >"$log"
+    if [[ $rc -eq 124 ]]; then REASON="timed out"; return 1; fi
+    if [[ $rc -gt 128 ]] || grep -qE "$PANIC_RE" <<<"$out"; then REASON="compiler crashed"; return 1; fi
+    if [[ $rc -eq 0 ]]; then REASON="accepted (expected rejection)"; return 1; fi
+    # Match `# error:` text against messages only, not the file paths.
+    local want msgs
+    msgs=$(sed -E 's/^[^ ]*\.rig:[0-9]+:[0-9]+: //' <<<"$out")
+    while IFS= read -r want; do
+        [[ -z "$want" ]] && continue
+        if ! grep -qF -- "$want" <<<"$msgs"; then
+            REASON="diagnostic lacks \"$want\"; got: $(head -1 <<<"$out")"
+            return 1
+        fi
+    done < <(directive error "$entry")
+    if ! grep -qE "$POS_RE" <<<"$out"; then
+        REASON="diagnostic has no file:line:col: $(head -1 <<<"$out")"
+        return 1
+    fi
+    return 0
+}
+
+check_torture() {
+    local entry=$1 outdir=$2 log=$3
+    mkdir -p "$outdir"
+    local out
+    out=$(RIG_OUT_DIR="$outdir" timeout 20 "$RIG" run "$entry" 2>&1 </dev/null)
+    local rc=$?
+    echo "$out" >"$log"
+    if [[ $rc -gt 128 ]] || grep -qE "$PANIC_RE" <<<"$out"; then REASON="compiler panic on bad input"; return 1; fi
+    if [[ $rc -eq 124 ]]; then REASON="timed out"; return 1; fi
+    if [[ $rc -eq 0 ]]; then REASON="bad input was accepted and ran"; return 1; fi
+    if [[ -z "$out" ]]; then REASON="rejected without a diagnostic"; return 1; fi
+    return 0
+}
+
+# check_accept <entry> <logfile>: `rig check` accepts the program.
+check_accept() {
+    local out
+    out=$(timeout "$TIMEOUT" "$RIG" check "$1" 2>&1 </dev/null)
+    local rc=$?
+    echo "$out" >"$2"
+    if [[ $rc -eq 0 ]]; then return 0; fi
+    if [[ $rc -eq 124 ]]; then REASON="timed out"; return 1; fi
+    if [[ $rc -gt 128 ]] || grep -qE "$PANIC_RE" <<<"$out"; then REASON="compiler crashed"; return 1; fi
+    REASON="rejected: $(head -1 <<<"$out")"
+    return 1
+}
+
+# check_parse <entry> <logfile>: the file parses.
+check_parse() {
+    local out
+    out=$(timeout "$TIMEOUT" "$RIG" parse "$1" 2>&1 >/dev/null </dev/null)
+    local rc=$?
+    echo "$out" >"$2"
+    if [[ $rc -eq 0 ]]; then return 0; fi
+    REASON="does not parse: $(head -1 <<<"$out")"
+    return 1
+}
+
+# A doc example: a directory extracted from a ```rig block, with its
+# mode in `mode` (see extract_docs).
+check_doc() {
+    local dir=$1 entry=$2 outdir=$3 log=$4 mode ok
+    mode=$(cat "$dir/mode")
+    case $mode in
+        run)      check_behavior "$entry" "$outdir" "$log" ;;
+        check)    check_accept "$entry" "$log" ;;
+        reject)   check_reject "$entry" "$log" ;;
+        fragment) check_parse "$entry" "$log" ;;
+        *)        REASON=$mode; return 1 ;;
+    esac
+    ok=$?
+    # Report positions relative to the example, not the scratch directory.
+    REASON=${REASON//$dir\//}
+    [[ -f "$log" ]] && sed "s|$dir/||g" "$log" >"$log.tmp" && mv "$log.tmp" "$log"
+    return $ok
+}
+
+# check_cli <script> <outdir> <logfile>: the script exits 0. It runs in an
+# empty directory with RIG, ROOT, and RIG_OUT_DIR set (test/cli/_lib.sh).
+check_cli() {
+    local script=$1 outdir=$2 log=$3
+    mkdir -p "$outdir/work"
+    (cd "$outdir/work" && RIG_OUT_DIR="$outdir/pkg" timeout "$TIMEOUT" bash "$ROOT/$script") >"$log" 2>&1 </dev/null
+    local rc=$?
+    if [[ $rc -eq 124 ]]; then REASON="timed out"; return 1; fi
+    if [[ $rc -ne 0 ]]; then REASON=$(grep -m1 '^FAIL' "$log" || echo "exit $rc: $(tail -1 "$log")"); return 1; fi
+    return 0
+}
+
+check_ir() {
+    local entry=$1 log=$2
+    local base=${entry%.rig} ok=0 kind cmd
+    for kind in raw sem; do
+        [[ $kind == raw ]] && cmd=parse || cmd=normalize
+        local snap="$base.$kind.sexp" got
+        got=$("$RIG" $cmd "$entry" 2>&1)
+        if [[ -n "$UPDATE" ]]; then
+            printf '%s\n' "$got" >"$snap"
+        elif [[ ! -f "$snap" ]]; then
+            REASON="missing snapshot $(basename "$snap") (run with --update)"; ok=1
+        elif ! diff "$snap" <(printf '%s\n' "$got") >>"$log" 2>&1; then
+            REASON="$kind IR differs from $(basename "$snap") (review, then --update)"; ok=1
+        fi
+    done
+    return $ok
+}
+
+worker() {
+    local id=$1 path=$2
+    local res="$RESULTS/${id//\//__}"
+    local log="$res.log" outdir="$OUTROOT/$id"
+    local entry=$path
+    [[ -d "$path" ]] && entry="$path/main.rig"
+    REASON=""
+    rm -rf "$outdir"
+
+    local kind=${id%%/*} ok
+    case $kind in
+        behavior|examples) check_behavior "$entry" "$outdir" "$log"; ok=$? ;;
+        reject)            check_reject "$entry" "$log"; ok=$? ;;
+        torture)           check_torture "$entry" "$outdir" "$log"; ok=$? ;;
+        ir)                check_ir "$entry" "$log"; ok=$? ;;
+        cli)               check_cli "$path" "$outdir" "$log"; ok=$? ;;
+        doc)               check_doc "$path" "$entry" "$outdir" "$log"; ok=$? ;;
+        known)
+            if grep -qE '^# error:' "$entry"; then check_reject "$entry" "$log"
+            else check_behavior "$entry" "$outdir" "$log"; fi
+            ok=$?
+            if [[ $ok -eq 0 ]]; then
+                printf 'fixed\t%s\tnow passes; move it to test/%s/\n' "$id" \
+                    "$(grep -qE '^# error:' "$entry" && echo reject || echo behavior)/${id#known/}" >"$res"
+            else
+                printf 'known\t%s\t%s\n' "$id" "$REASON" >"$res"
+            fi
+            return
+            ;;
+    esac
+    if [[ $ok -eq 0 ]]; then printf 'pass\t%s\t\n' "$id" >"$res"
+    else printf 'fail\t%s\t%s\n' "$id" "$REASON" >"$res"; fi
+}
+
+if [[ "${1:-}" == "--worker" ]]; then
+    worker "$2" "$3"
+    exit 0
 fi
 
-if [[ ! -x "$RIG" ]]; then
-    echo "Building rig..."
-    zig build
-fi
+# -----------------------------------------------------------------------------
+# Driver
+# -----------------------------------------------------------------------------
+
+UPDATE="" VERBOSE="" JOBS=$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+FILTERS=()
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --update) UPDATE=1 ;;
+        -v) VERBOSE=1 ;;
+        -j) JOBS=$2; shift ;;
+        -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -*) echo "unknown option $1" >&2; exit 2 ;;
+        *) FILTERS+=("$1") ;;
+    esac
+    shift
+done
 
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
-    C_GREEN=$'\033[32m'
-    C_RED=$'\033[31m'
-    C_YELLOW=$'\033[33m'
-    C_DIM=$'\033[2m'
-    C_BOLD=$'\033[1m'
-    C_RESET=$'\033[0m'
+    G=$'\033[32m' R=$'\033[31m' Y=$'\033[33m' D=$'\033[2m' B=$'\033[1m' X=$'\033[0m'
 else
-    C_GREEN='' C_RED='' C_YELLOW='' C_DIM='' C_BOLD='' C_RESET=''
+    G='' R='' Y='' D='' B='' X=''
 fi
 
-PASS=0
-FAIL=0
-ERRORS=""
+START=$SECONDS
+printf '%sbuilding rig%s\n' "$D" "$X"
+if ! zig build 2>&1; then
+    printf '%sbuild failed%s\n' "$R" "$X"
+    exit 1
+fi
 
-say_pass()   { printf "  %sPASS%s  %s\n"   "$C_GREEN"  "$C_RESET" "$*"; }
-say_fail()   { printf "  %sFAIL%s  %s\n"   "$C_RED"    "$C_RESET" "$*"; }
-say_update() { printf "  %sUPDATE%s  %s\n" "$C_GREEN"  "$C_RESET" "$*"; }
-section()    { printf "%s=== %s ===%s\n\n" "$C_BOLD" "$*" "$C_RESET"; }
-section_done() { local e=$1; (( e > 0 )) && printf "  %s(%ds)%s\n\n" "$C_DIM" "$e" "$C_RESET" || printf "\n"; }
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/rig-test.XXXXXX")
+RESULTS="$WORK/results"
+OUTROOT="$ROOT/.zig-cache/rig-test"
+mkdir -p "$RESULTS" "$OUTROOT"
+trap 'rm -rf "$WORK"' EXIT
+export ROOT RIG RESULTS OUTROOT UPDATE TIMEOUT PANIC_RE POS_RE LEAK_RE
 
-SUITE_START=$SECONDS
-
-# -----------------------------------------------------------------------------
-# 1. Golden Sexp tests (raw + semantic)
-# -----------------------------------------------------------------------------
-
-run_golden() {
-    local rig_file=$1
-    local subcmd=$2          # parse | normalize
-    local kind=$3            # raw_sexp | semantic_sexp
-    local name=$(basename "$rig_file" .rig)
-    local golden="test/golden/${kind}/${name}.sexp"
-    local out="$TMPDIR/${kind}_${name}.sexp"
-
-    if ! $RIG "$subcmd" "$rig_file" > "$out" 2>&1; then
-        FAIL=$((FAIL + 1))
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  ${kind}/$name — $subcmd failed: $(cat "$out")"
-        return
-    fi
-
-    if $UPDATE; then
-        mkdir -p "$(dirname "$golden")"
-        cp "$out" "$golden"
-        say_update "${kind}/$name"
-        PASS=$((PASS + 1))
-        return
-    fi
-
-    if [[ ! -f "$golden" ]]; then
-        FAIL=$((FAIL + 1))
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  ${kind}/$name — no golden (run with --update)"
-        return
-    fi
-
-    if diff -q "$golden" "$out" >/dev/null 2>&1; then
-        say_pass "${kind}/$name"
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        local lines=$(diff "$golden" "$out" | grep -c '^[<>]' || true)
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  ${kind}/$name — $lines lines differ"
-    fi
+selected() {
+    [[ ${#FILTERS[@]} -eq 0 ]] && return 0
+    local f
+    for f in "${FILTERS[@]}"; do
+        case $f in # a bare kind name selects that kind only
+            behavior|reject|known|examples|ir|torture|cli|unit|parser|doc)
+                [[ "$1" == "$f" || "$1" == "$f/"* ]] && return 0 ;;
+            *) [[ "$1" == *"$f"* ]] && return 0 ;;
+        esac
+    done
+    return 1
 }
 
-section "Golden raw_sexp"
-SECTION_START=$SECONDS
-for f in examples/*.rig; do
-    [[ -e "$f" ]] || continue
-    run_golden "$f" parse raw_sexp
-done
-section_done $(( SECONDS - SECTION_START ))
-
-section "Golden semantic_sexp"
-SECTION_START=$SECONDS
-for f in examples/*.rig; do
-    [[ -e "$f" ]] || continue
-    run_golden "$f" normalize semantic_sexp
-done
-section_done $(( SECONDS - SECTION_START ))
-
-# -----------------------------------------------------------------------------
-# 1c. Golden ownership errors
-# -----------------------------------------------------------------------------
-
-run_golden_errors() {
-    local rig_file=$1
-    local name=$(basename "$rig_file" .rig)
-    local golden="test/golden/errors/${name}.txt"
-    local out="$TMPDIR/errors_${name}.txt"
-
-    # `rig check` exits 1 when there are errors; capture both ways.
-    $RIG check "$rig_file" > "$out" 2>&1 || true
-
-    if $UPDATE; then
-        mkdir -p "$(dirname "$golden")"
-        cp "$out" "$golden"
-        say_update "errors/$name"
-        PASS=$((PASS + 1))
-        return
-    fi
-
-    if [[ ! -f "$golden" ]]; then
-        FAIL=$((FAIL + 1))
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  errors/$name — no golden (run with --update)"
-        return
-    fi
-
-    if diff -q "$golden" "$out" >/dev/null 2>&1; then
-        say_pass "errors/$name"
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        local lines=$(diff "$golden" "$out" | grep -c '^[<>]' || true)
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  errors/$name — $lines lines differ"
-    fi
-}
-
-section "Golden errors"
-SECTION_START=$SECONDS
-for f in examples/*.rig; do
-    [[ -e "$f" ]] || continue
-    run_golden_errors "$f"
-done
-section_done $(( SECONDS - SECTION_START ))
-
-# -----------------------------------------------------------------------------
-# 1d. Golden emitted Zig (only for examples that pass the checker cleanly)
-# -----------------------------------------------------------------------------
-
-EMIT_TARGETS=(hello shadow struct_basic enum_basic enum_valued match_basic match_default payload_enum match_destructure match_value_position qualified_enum struct_method match_range generic_box generic_pair if_expr_basic if_expr_chain if_expr_block if_expr_binding if_expr_early_return if_expr_enum_variant match_expr_block match_expr_binding match_expr_mixed match_expr_early_return typed_counter typed_accumulator method_self_read method_self_write method_self_consume method_associated_return method_enum method_two_self_methods generic_member_typed generic_method generic_string_field generic_enum_option generic_enum_result generic_enum_method shared_basic shared_move_into_fn weak_basic shared_auto_deref shared_alias_shadowing weak_upgrade auto_drop_basic factory_returns_rc reassign_rc auto_drop_if_else auto_drop_early_return auto_drop_in_loop auto_drop_shadow_across_fns move_assign_rc cell_basic cell_methods cell_shared cell_shared_move_assign closure_capture_copy closure_capture_clone closure_capture_move closure_capture_weak owned_closure_basic owned_closure_escape owned_closure_clone owned_closure_move vec_basic vec_capacity vec_shared vec_move_handle vec_subscribers vec_for_copy vec_for_notify vec_for_post_loop_mutation capture_methods_ok signal_multi_subscriber reactive_canary drop_decl_reserved struct_drop_basic struct_drop_auto_glue struct_drop_multi_field m25_1_nested_struct_basic m25_1_nested_struct_reversed m26_cell_shared m26_cell_reactor m26_cell_replace rig_reactive m28_multi_capture_cascade)
-
-run_golden_emit() {
-    local name=$1
-    local rig_file="examples/${name}.rig"
-    local golden="test/golden/emitted_zig/${name}.zig"
-    local out="$TMPDIR/emit_${name}.zig"
-
-    if ! $RIG build "$rig_file" > "$out" 2>&1; then
-        FAIL=$((FAIL + 1))
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  emit/$name — build failed"
-        return
-    fi
-
-    if $UPDATE; then
-        mkdir -p "$(dirname "$golden")"
-        cp "$out" "$golden"
-        say_update "emit/$name"
-        PASS=$((PASS + 1))
-        return
-    fi
-
-    if [[ ! -f "$golden" ]]; then
-        FAIL=$((FAIL + 1))
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  emit/$name — no golden (run with --update)"
-        return
-    fi
-
-    if diff -q "$golden" "$out" >/dev/null 2>&1; then
-        say_pass "emit/$name"
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        local lines=$(diff "$golden" "$out" | grep -c '^[<>]' || true)
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  emit/$name — $lines lines differ"
-    fi
-}
-
-run_emit_compile_check() {
-    local name=$1
-    local rig_file="examples/${name}.rig"
-    local out="$TMPDIR/compile_${name}.zig"
-    $RIG build "$rig_file" > "$out" 2>&1 || true
-    if zig ast-check "$out" >/dev/null 2>&1; then
-        say_pass "emit-compiles/$name"
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  emit-compiles/$name — emitted Zig fails ast-check"
-    fi
-}
-
-section "Golden emitted_zig"
-SECTION_START=$SECONDS
-for name in "${EMIT_TARGETS[@]}"; do
-    run_golden_emit "$name"
-done
-section_done $(( SECONDS - SECTION_START ))
-
-section "Emitted Zig compiles"
-SECTION_START=$SECONDS
-for name in "${EMIT_TARGETS[@]}"; do
-    run_emit_compile_check "$name"
-done
-section_done $(( SECONDS - SECTION_START ))
-
-# -----------------------------------------------------------------------------
-# 1e. End-to-end run check
-# -----------------------------------------------------------------------------
-
-run_end_to_end() {
-    local name=$1
-    local expected_substr=$2
-    local rig_file="examples/${name}.rig"
-    local out
-    out=$($RIG run "$rig_file" 2>&1 || true)
-    if echo "$out" | grep -q "$expected_substr"; then
-        say_pass "$name runs and prints expected output"
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  $name run — expected substring \"$expected_substr\", got:"$'\n'"$(echo "$out" | sed 's/^/    /')"
-    fi
-}
-
-# PB3.1 per GPT-5.5 entry 31: expected-panic harness. Runs the
-# example, expects a non-zero exit AND the panic message
-# substring to appear in stderr. Prevents accidental removal of
-# runtime contracts (like the R2 reentrancy guard) from going
-# unnoticed because the example otherwise type-checks cleanly.
-run_expected_panic() {
-    local name=$1
-    local expected_msg=$2
-    local rig_file="examples/${name}.rig"
-    local out
-    set +e
-    out=$($RIG run "$rig_file" 2>&1)
-    local exit=$?
-    set -e
-    if [[ $exit -ne 0 ]] && echo "$out" | grep -q "$expected_msg"; then
-        say_pass "$name panics with expected message"
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  $name panic — expected non-zero exit with \"$expected_msg\", got exit=$exit:"$'\n'"$(echo "$out" | sed 's/^/    /')"
-    fi
-}
-
-section "End-to-end run"
-SECTION_START=$SECONDS
-run_end_to_end hello "hello, rig"
-# PB3 exit gate: multi-subscriber Signal regression. Subscriber-
-# shaped end-to-end check that the runtime + emit composes
-# correctly. Per GPT-5.5 PB3 design pass (entry 29): expect
-# `0\n111\n222` from cb_one + cb_ten + cb_cent driving a shared
-# Cell counter via `signal.set(...)` twice.
-run_end_to_end signal_multi_subscriber "222"
-# Phase B chain check: canary covers PB0 → PB2 → M20i.1 → PB3.
-# Final line should be `111` (PB3 builtin Signal walk) after
-# the M20i.1 user-written `for cb in ?subs` line (also `111`).
-run_end_to_end reactive_canary "111"
-# PB4 reentrant-subscribe contract: reentrant `subscribe`
-# during notification panics in V1 (reentrant `set` was
-# relaxed to a queued+coalesced drain loop per GPT-5.5
-# entry 33; subscribe stays strict because list mutation
-# during iteration is subtler than queued value). The
-# contract is documented in `runtime.zig` and SPEC §Signal;
-# a Rig-source test for it requires multi-capture (single-
-# capture V1 can't express "capture both sig and the
-# closure-to-subscribe"), so the panic itself is verified
-# at code-review time, not via the test harness.
-section_done $(( SECONDS - SECTION_START ))
-
-# -----------------------------------------------------------------------------
-# 1f. Multi-file module tests (M15)
-# -----------------------------------------------------------------------------
-#
-# Each subdir of test/modules/ is a self-contained multi-file project.
-# Convention: `main.rig` (or `a.rig` for cycle tests) is the entry
-# point. If `expected.txt` exists, the test runs the project and
-# compares output. If `expected_error.txt` exists, the test expects
-# `rig run` to fail and the error output to contain the file's text.
-
-run_module_project() {
-    local dir=$1
-    local name=$(basename "$dir")
-    local entry="$dir/main.rig"
-    [[ -f "$entry" ]] || entry="$dir/a.rig"
-    [[ -f "$entry" ]] || { say_fail "modules/$name (no entry main.rig or a.rig)"; FAIL=$((FAIL + 1)); return; }
-
-    local out="$TMPDIR/mod_${name}.out"
-    set +e
-    $RIG run "$entry" > "$out" 2>&1
-    local exit=$?
-    set -e
-
-    if [[ -f "$dir/expected.txt" ]]; then
-        local want=$(cat "$dir/expected.txt")
-        if [[ $exit -eq 0 ]] && grep -qF "$want" "$out"; then
-            say_pass "modules/$name"
-            PASS=$((PASS + 1))
-        else
-            FAIL=$((FAIL + 1))
-            ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  modules/$name — exit=$exit, expected output containing \"$want\":"$'\n'"$(sed 's/^/    /' "$out")"
+# Discover tests: test/<kind>/<area>/<name>.rig or <name>/main.rig,
+# plus examples/, test/ir/, test/torture/.
+LIST="$WORK/list"
+: >"$LIST"
+add() { selected "$1" && printf '%s\t%s\n' "$1" "$2" >>"$LIST"; }
+for kind in behavior reject known; do
+    for p in test/$kind/*/*; do
+        [[ -e "$p" ]] || continue
+        area=$(basename "$(dirname "$p")")
+        if [[ -d "$p" && -f "$p/main.rig" ]]; then add "$kind/$area/$(basename "$p")" "$p"
+        elif [[ "$p" == *.rig ]]; then add "$kind/$area/$(basename "$p" .rig)" "$p"
         fi
-    elif [[ -f "$dir/expected_error.txt" ]]; then
-        local want=$(cat "$dir/expected_error.txt")
-        if [[ $exit -ne 0 ]] && grep -qF "$want" "$out"; then
-            say_pass "modules/$name (expected error)"
-            PASS=$((PASS + 1))
+    done
+done
+for p in examples/*.rig; do [[ -e "$p" ]] && add "examples/$(basename "$p" .rig)" "$p"; done
+for p in test/ir/*.rig; do [[ -e "$p" ]] && add "ir/$(basename "$p" .rig)" "$p"; done
+for p in test/torture/*.rig; do [[ -e "$p" ]] && add "torture/$(basename "$p" .rig)" "$p"; done
+for p in test/cli/[!_]*.sh; do [[ -e "$p" ]] && add "cli/$(basename "$p" .sh)" "$p"; done
+
+# Doc examples: every ```rig block in the Markdown docs is a test. The
+# info string after `rig` sets the contract (see test/README.md):
+#
+#   ```rig             a program `rig check` accepts; followed by an
+#                      ```output block, it is run like a behavior test
+#   ```rig reject      `rig check` rejects it; a following ```error block
+#                      lists text each diagnostic must contain, one a line
+#   ```rig fragment    only parsed
+#   ```rig file=m.rig  module `m.rig`, imported by the next example
+#
+# Each example becomes a directory holding main.rig (the directives
+# appended) and its `mode`; the id names the line of the opening fence.
+extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
+    local name=${1%.md}
+    name=${name#docs/}
+    name=${name//\//-}
+    awk -v doc="$name" -v out="$2/$name" '
+        function fail(msg) { mode = "doc convention: " msg }
+        function emit(    dir, f, k, n, ls) {
+            dir = out "/L" start
+            system("mkdir -p \"" dir "\"")
+            printf "%s", body > (dir "/main.rig")
+            if (mode == "run" || mode == "reject") {
+                n = split(extra, ls, "\n")
+                printf "\n%s\n", (mode == "run" ? "# expect:" : "") > (dir "/main.rig")
+                for (k = 1; k < n; k++) {
+                    if (mode == "run") printf "%s\n", (ls[k] == "" ? "#" : "# " ls[k]) > (dir "/main.rig")
+                    else printf "# error: %s\n", ls[k] > (dir "/main.rig")
+                }
+            }
+            close(dir "/main.rig")
+            for (f in pending) { printf "%s", pending[f] > (dir "/" f); close(dir "/" f); delete pending[f] }
+            print mode > (dir "/mode"); close(dir "/mode")
+            printf "doc/%s/L%d\t%s\n", doc, start, dir
+        }
+        { line[NR] = $0 }
+        END {
+            i = 1
+            while (i <= NR) {
+                if (line[i] !~ /^```rig([ \t]|$)/) { i++; continue }
+                start = i; mode = "check"; fname = ""
+                n = split(substr(line[i], 7), words, /[ \t]+/)
+                for (k = 1; k <= n; k++) {
+                    w = words[k]
+                    if (w == "") continue
+                    if (w == "reject" || w == "fragment") mode = w
+                    else if (w ~ /^file=[A-Za-z_][A-Za-z0-9_]*\.rig$/) fname = substr(w, 6)
+                    else fail("unknown word `" w "` after ```rig")
+                }
+                body = ""
+                for (i++; i <= NR && line[i] != "```"; i++) body = body line[i] "\n"
+                if (i > NR) fail("unterminated ```rig block")
+                i++
+                j = i
+                while (j <= NR && line[j] ~ /^[ \t]*$/) j++
+                kind = ""; extra = ""
+                if (j <= NR && (line[j] == "```output" || line[j] == "```error")) {
+                    kind = substr(line[j], 4)
+                    for (j++; j <= NR && line[j] != "```"; j++) extra = extra line[j] "\n"
+                    i = j + 1
+                }
+                if (fname != "") {
+                    if (kind != "" || mode != "check") fail("a file= block stands alone")
+                    else { pending[fname] = body; pending_at[fname] = start; continue }
+                }
+                if (kind == "output") { if (mode == "check") mode = "run"; else fail("```output follows a program") }
+                else if (kind == "error") { if (mode != "reject") fail("```error follows a ```rig reject block") }
+                else if (mode == "reject") fail("```rig reject needs an ```error block")
+                emit()
+            }
+            for (f in pending) { start = pending_at[f]; body = ""; fail("file=" f " is not followed by a program"); emit(); break }
+        }
+    ' "$1"
+}
+for md in *.md docs/*.md examples/*.md test/*.md; do
+    [[ -e "$md" ]] || continue
+    while IFS=$'\t' read -r id dir; do add "$id" "$dir"; done < <(extract_docs "$md" "$WORK/doc")
+done
+
+# Whole-program checks run alongside the per-file tests.
+UNIT_LOG="$WORK/unit.log" UNIT_PID=""
+if selected unit; then
+    zig build test >"$UNIT_LOG" 2>&1 &
+    UNIT_PID=$!
+fi
+if selected parser; then
+    if [[ -x "$NEXUS" ]]; then
+        if "$NEXUS" rig.grammar "$WORK/parser.zig" >"$WORK/parser.log" 2>&1 &&
+            cmp -s "$WORK/parser.zig" src/parser.zig; then
+            printf 'pass\tparser\t\n' >"$RESULTS/parser"
         else
-            FAIL=$((FAIL + 1))
-            ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  modules/$name — expected error containing \"$want\", got exit=$exit:"$'\n'"$(sed 's/^/    /' "$out")"
+            printf 'fail\tparser\tsrc/parser.zig is stale or hand-edited; run zig build parser\n' >"$RESULTS/parser"
         fi
     else
-        say_fail "modules/$name (no expected.txt or expected_error.txt)"
-        FAIL=$((FAIL + 1))
+        printf '%snote: %s not built; skipping parser freshness check%s\n' "$Y" "$NEXUS" "$X"
     fi
+fi
+
+TOTAL=$(wc -l <"$LIST" | tr -d ' ')
+printf '%srunning %s tests (-j %s)%s\n' "$D" "$TOTAL" "$JOBS" "$X"
+tr '\t' '\n' <"$LIST" | xargs -n 2 -P "$JOBS" "$0" --worker
+
+if [[ -n "$UNIT_PID" ]]; then
+    if wait "$UNIT_PID"; then printf 'pass\tunit\t\n' >"$RESULTS/unit"
+    else printf 'fail\tunit\tzig build test failed\n' >"$RESULTS/unit"; cp "$UNIT_LOG" "$RESULTS/unit.log"; fi
+fi
+
+# -----------------------------------------------------------------------------
+# Report
+# -----------------------------------------------------------------------------
+
+ALL="$WORK/all"
+cat "$RESULTS"/* 2>/dev/null | grep -E '^(pass|fail|known|fixed)'$'\t' | sort -t$'\t' -k2 >"$ALL"
+
+show_log() {
+    local log="$RESULTS/${1//\//__}.log"
+    [[ -s "$log" ]] && head -40 "$log" | sed 's/^/        /'
 }
 
-if [[ -d test/modules ]]; then
-    section "Multi-file modules"
-    SECTION_START=$SECONDS
-    for d in test/modules/*/; do
-        [[ -d "$d" ]] || continue
-        run_module_project "$d"
-    done
-    section_done $(( SECONDS - SECTION_START ))
+if [[ -n "$VERBOSE" ]]; then
+    while IFS=$'\t' read -r st id why; do
+        case $st in
+            pass)  printf '  %spass%s   %s\n' "$G" "$X" "$id" ;;
+            known) printf '  %sknown%s  %s %s— %s%s\n' "$Y" "$X" "$id" "$D" "$why" "$X" ;;
+        esac
+    done <"$ALL"
 fi
 
-# -----------------------------------------------------------------------------
-# 1g. Torture corpus (M16) — bad inputs must produce diagnostics, never crash
-# -----------------------------------------------------------------------------
-#
-# Universal contract for every test/torture/*.rig:
-#   1. `rig run` exits non-zero (bad input → clean rejection).
-#   2. stderr is non-empty (some kind of diagnostic).
-#   3. stderr NEVER contains panic phrases (segfault, panic, reached
-#      unreachable, index out of bounds, general protection).
-#
-# Any panic phrase = compiler robustness regression = test failure.
+FAILED=0
+while IFS=$'\t' read -r st id why; do
+    case $st in
+        fail)
+            FAILED=1
+            printf '\n  %sFAIL%s   %s — %s\n' "$R" "$X" "$id" "$why"
+            show_log "$id" ;;
+        fixed)
+            FAILED=1
+            printf '\n  %sFIXED%s  %s — %s\n' "$Y" "$X" "$id" "$why" ;;
+    esac
+done <"$ALL"
 
-PANIC_RE='Segmentation fault|panic:|panic at|reached unreachable|index out of bounds|general protection|GENERAL PROTECTION'
+# Per-area table: kind/area → pass / fail / known
+printf '\n%s%-26s %6s %6s %6s%s\n' "$B" "area" "pass" "fail" "known" "$X"
+awk -F'\t' '
+    {
+        n = split($2, p, "/")
+        key = (p[1] == "behavior" || p[1] == "reject" || p[1] == "known" || p[1] == "doc") && n >= 3 ? p[1] "/" p[2] : p[1]
+        if ($1 == "pass") pass[key]++
+        else if ($1 == "known") known[key]++
+        else fail[key]++
+        keys[key] = 1
+    }
+    END { for (k in keys) printf "%-26s %6d %6d %6d\n", k, pass[k], fail[k], known[k] }
+' "$ALL" | sort
 
-run_torture() {
-    local rig_file=$1
-    local name=$(basename "$rig_file" .rig)
-    local out="$TMPDIR/torture_${name}.out"
-
-    set +e
-    timeout 10 $RIG run "$rig_file" > "$out" 2>&1
-    local exit=$?
-    set -e
-
-    if grep -qE "$PANIC_RE" "$out"; then
-        FAIL=$((FAIL + 1))
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  torture/$name — COMPILER PANIC on bad input (rc=$exit):"$'\n'"$(sed 's/^/    /' "$out" | head -8)"
-        return
-    fi
-
-    if [[ $exit -eq 124 ]]; then
-        FAIL=$((FAIL + 1))
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  torture/$name — timed out (likely infinite loop on bad input)"
-        return
-    fi
-
-    if [[ $exit -eq 0 ]]; then
-        FAIL=$((FAIL + 1))
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  torture/$name — bad input compiled+ran successfully (rc=0); did the language accept this?"
-        return
-    fi
-
-    if [[ ! -s "$out" ]]; then
-        FAIL=$((FAIL + 1))
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  torture/$name — exited rc=$exit but printed no diagnostic"
-        return
-    fi
-
-    say_pass "torture/$name (rc=$exit, diagnostic ok)"
-    PASS=$((PASS + 1))
-}
-
-if [[ -d test/torture ]]; then
-    section "Torture corpus (must not panic)"
-    SECTION_START=$SECONDS
-    for f in test/torture/*.rig; do
-        [[ -e "$f" ]] || continue
-        run_torture "$f"
-    done
-    section_done $(( SECONDS - SECTION_START ))
-fi
-
-# -----------------------------------------------------------------------------
-# 2. Compile check — generated parser.zig is syntactically valid Zig
-# -----------------------------------------------------------------------------
-
-section "Compile checks"
-SECTION_START=$SECONDS
-if zig ast-check src/parser.zig >/dev/null 2>&1; then
-    say_pass "src/parser.zig (valid zig)"
-    PASS=$((PASS + 1))
+PASS=$(grep -c '^pass' "$ALL")
+FAIL=$(grep -cE '^(fail|fixed)' "$ALL")
+KNOWN=$(grep -c '^known' "$ALL")
+ELAPSED=$((SECONDS - START))
+if [[ $FAILED -eq 0 ]]; then
+    printf '\n%s%d passed%s, 0 failed, %s%d known%s  %s(%ds)%s\n' "$G" "$PASS" "$X" "$Y" "$KNOWN" "$X" "$D" "$ELAPSED" "$X"
 else
-    say_fail "src/parser.zig (zig ast-check failed)"
-    FAIL=$((FAIL + 1))
-fi
-section_done $(( SECONDS - SECTION_START ))
-
-# -----------------------------------------------------------------------------
-# 3. Determinism — same input, two runs, identical output
-# -----------------------------------------------------------------------------
-
-run_determinism() {
-    local rig_file=$1
-    local name=$(basename "$rig_file" .rig)
-    local a="$TMPDIR/${name}_a.sexp"
-    local b="$TMPDIR/${name}_b.sexp"
-    $RIG parse "$rig_file" > "$a" 2>&1 || true
-    $RIG parse "$rig_file" > "$b" 2>&1 || true
-    if diff -q "$a" "$b" >/dev/null 2>&1; then
-        say_pass "$name (deterministic)"
-        PASS=$((PASS + 1))
-    else
-        FAIL=$((FAIL + 1))
-        ERRORS+=$'\n'"  ${C_RED}FAIL${C_RESET}  $name — nondeterministic"
-    fi
-}
-
-section "Determinism"
-SECTION_START=$SECONDS
-for f in examples/*.rig; do
-    [[ -e "$f" ]] || continue
-    run_determinism "$f"
-done
-section_done $(( SECONDS - SECTION_START ))
-
-# -----------------------------------------------------------------------------
-# 4. zig build test — unit tests in src/rig.zig
-# -----------------------------------------------------------------------------
-
-section "Zig unit tests"
-SECTION_START=$SECONDS
-if zig build test 2>&1 | tee "$TMPDIR/zig_test_log" >/dev/null; then
-    say_pass "src/rig.zig (zig build test)"
-    PASS=$((PASS + 1))
-else
-    say_fail "src/rig.zig (zig build test)"
-    FAIL=$((FAIL + 1))
-    ERRORS+=$'\n'"  $(cat "$TMPDIR/zig_test_log")"
-fi
-section_done $(( SECONDS - SECTION_START ))
-
-# -----------------------------------------------------------------------------
-# Summary
-# -----------------------------------------------------------------------------
-
-SUITE_ELAPSED=$(( SECONDS - SUITE_START ))
-section "Results"
-if (( FAIL == 0 )); then
-    printf "  %s%d passed%s, %d failed  %s(total %ds)%s\n\n" \
-        "$C_GREEN" "$PASS" "$C_RESET" "$FAIL" "$C_DIM" "$SUITE_ELAPSED" "$C_RESET"
-else
-    printf "  %d passed, %s%d failed%s  %s(total %ds)%s\n" \
-        "$PASS" "$C_RED" "$FAIL" "$C_RESET" "$C_DIM" "$SUITE_ELAPSED" "$C_RESET"
-    printf "%b\n\n" "$ERRORS"
+    printf '\n%d passed, %s%d failed%s, %s%d known%s  %s(%ds)%s\n' "$PASS" "$R" "$FAIL" "$X" "$Y" "$KNOWN" "$X" "$D" "$ELAPSED" "$X"
     exit 1
 fi

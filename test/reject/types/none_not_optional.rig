@@ -1,0 +1,7 @@
+# `none` only fits an optional type.
+
+sub main()
+  x: Int = none
+  print(x)
+
+# error: `none` needs an optional type

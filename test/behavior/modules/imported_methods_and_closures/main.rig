@@ -1,0 +1,23 @@
+# An imported type's methods take their receivers as declared (read,
+# write, consuming), and an imported function may return an owned
+# closure.
+
+use lib
+
+sub main()
+  b = lib.B(n: 1)
+  (!b).bump()
+  print(b.get(), lib.peek(?b))
+  f = lib.mkcl(10)
+  print(f(5))
+  c = lib.B(n: 7)
+  print((<c).take())
+  print("end")
+
+# expect:
+# 2 2
+# 15
+# drop 7
+# 7
+# end
+# drop 2

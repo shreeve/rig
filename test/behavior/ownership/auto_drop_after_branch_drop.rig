@@ -1,0 +1,29 @@
+# One branch drops the handle explicitly, the other does not; either
+# way the handle is dropped exactly once (the auto-drop is path-aware).
+
+struct C
+  v: Int
+
+  drop self: !C
+    print("drop")
+
+sub run(cond: Bool)
+  rc = *C(v: 7)
+  if cond
+    -rc
+    print("dropped early")
+  else
+    print(rc.v)
+  print("end")
+
+sub main()
+  run(true)
+  run(false)
+
+# expect:
+# drop
+# dropped early
+# end
+# 7
+# end
+# drop

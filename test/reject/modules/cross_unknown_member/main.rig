@@ -1,0 +1,9 @@
+# Qualified access to a name that module `a` does not define is a Rig
+# diagnostic, not a fall-through to the Zig compiler.
+use a
+
+sub main()
+  z = a.no_such_fn(1, 2)
+  print(z)
+
+# error: no member `no_such_fn` in module `a`

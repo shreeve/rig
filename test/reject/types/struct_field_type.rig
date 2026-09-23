@@ -1,0 +1,10 @@
+# Each constructor keyword's value must match the field's declared type.
+
+struct User
+  name: String
+  age: Int
+
+sub main()
+  u = User(name: 42, age: 30)
+
+# error: type mismatch: expected `String`, got `Int`

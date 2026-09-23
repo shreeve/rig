@@ -1,0 +1,14 @@
+# `Color.red` names a variant through its enum; sema checks the variant
+# exists.
+
+enum Color
+  red
+  green
+  blue
+
+sub main()
+  c: Color = Color.green
+  print(c)
+
+# expect:
+# .green

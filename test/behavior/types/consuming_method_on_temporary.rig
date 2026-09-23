@@ -1,0 +1,21 @@
+# A method that consumes its receiver (`self: Self`) may take a
+# temporary: the method owns it and drops it.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+  fun take(self: B) -> Int
+    self.n * 2
+
+fun mk(n: Int) -> B
+  B(n: n)
+
+sub main()
+  print(mk(4).take())
+
+# expect:
+# drop 4
+# 8

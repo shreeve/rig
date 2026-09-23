@@ -1,0 +1,20 @@
+# A function may return a write borrow it was given; writes through the
+# returned borrow reach the caller's value.
+
+struct C
+  n: Int
+
+fun pick(c: !C) -> !C
+  c
+
+sub set_through(c: !C)
+  r = pick(c)
+  r.n = 5
+
+sub main()
+  c = C(n: 1)
+  set_through(!c)
+  print(c.n)
+
+# expect:
+# 5

@@ -1,0 +1,15 @@
+# A generic body's operations on `T` are requirements on every
+# instantiation: `self.value + 1` needs a numeric `T`, so `Box(String)` is
+# rejected.
+
+type Box(T)
+  value: T
+
+  fun bump(?self) -> T
+    self.value + 1
+
+sub main()
+  b: Box(String) = Box(value: "a")
+  print(b.bump())
+
+# error: `String`

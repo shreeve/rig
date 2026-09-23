@@ -1,0 +1,18 @@
+# The state at `break :outer` flows to the end of the outer loop: a value
+# moved before it may be gone there.
+
+struct Box
+  payload: Int
+
+sub eat(b: *Box)
+  print(b.payload)
+
+sub main()
+  rc = *Box(payload: 1)
+  :outer while true
+    while true
+      eat(<rc)
+      break :outer
+  print(rc.payload)
+
+# error: use of `rc` after move

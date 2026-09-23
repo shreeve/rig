@@ -1,0 +1,6 @@
+# Using an undeclared name as a value is a Rig diagnostic.
+
+sub main()
+  print(nope)
+
+# error: use of unbound name `nope`

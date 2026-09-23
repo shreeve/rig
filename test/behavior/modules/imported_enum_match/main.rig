@@ -1,0 +1,33 @@
+# Enums from another module work like local ones: `.variant` literals
+# and payload variants against the qualified type, `==` on plain enums,
+# and exhaustive `match` with payload bindings.
+
+use colors
+
+fun name(c: colors.Color) -> String
+  match c
+    .red => "red"
+    .green => "green"
+    .blue => "blue"
+
+fun area(s: ?colors.Shape) -> Int
+  match s
+    .circle(r) => 3 * r * r
+    .rect(w, h) => w * h
+    .dot => 0
+
+sub main()
+  print(name(colors.favorite()))
+  c: colors.Color = .blue
+  print(name(c))
+  if c == .blue
+    print("is blue")
+  sq: colors.Shape = .rect(w: 2, h: 5)
+  ci: colors.Shape = .circle(2)
+  print(area(?sq), area(?ci))
+
+# expect:
+# green
+# blue
+# is blue
+# 10 12

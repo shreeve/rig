@@ -1,8 +1,8 @@
 # Torture Corpus
 
-Bad inputs that previously crashed (or could plausibly crash) the compiler.
+Bad inputs that could plausibly crash the compiler.
 
-**Contract enforced by `test/run`:**
+**Contract enforced by `test/run`** (also: the compiler must not die from a signal):
 
 For every `*.rig` file in this directory, `bin/rig run <file>` MUST:
 
@@ -19,7 +19,6 @@ If any of those phrases appear in stderr, the compiler panicked instead of produ
 Each file should be a minimal reduction of a real failure mode (or a class of
 failures). New entries belong here whenever a panic/segfault is discovered.
 
-The original M16 trigger was [`match_with_keyword_variant.rig`](match_with_keyword_variant.rig):
-combining a `match` body with an enum whose variant happened to be a Rig
-keyword (`sub`) caused parse failure to leave `Module.sema = undefined`, which
-the diagnostic writer then dereferenced → SIGSEGV.
+Example: [`01_match_with_keyword_variant.rig`](01_match_with_keyword_variant.rig)
+combines a `match` with an enum whose variant is a Rig keyword (`sub`); the
+parse error must still reach the diagnostic writer.

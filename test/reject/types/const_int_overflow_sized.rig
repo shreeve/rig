@@ -1,0 +1,11 @@
+# A constant expression of a sized type must fit it, and so must
+# arithmetic on constant bindings.
+
+sub main()
+  a: U8 = 200 + 100
+  b: U8 = 250
+  c = b + 10
+  print(a, c)
+
+# error: `300` does not fit in `U8`
+# error: `260` does not fit in `U8`

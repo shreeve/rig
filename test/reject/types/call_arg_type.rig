@@ -1,0 +1,10 @@
+# Call arguments must match the parameter types.
+
+fun consume(a: Int) -> Int
+  a
+
+sub main()
+  x = consume("nope")
+  print x
+
+# error: type mismatch: expected `Int`, got `String`

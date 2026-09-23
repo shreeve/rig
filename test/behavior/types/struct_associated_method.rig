@@ -1,0 +1,14 @@
+# A `fun` declared in a struct body without `self` is called through the
+# type name.
+
+struct User
+  name: String
+
+  fun greet() -> String
+    "hi"
+
+sub main()
+  print(User.greet())
+
+# expect:
+# hi

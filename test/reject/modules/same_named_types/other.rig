@@ -1,0 +1,9 @@
+pub struct Point
+  x: Int
+  y: Int
+
+pub fun sumP(p: Point) -> Int
+  p.x + p.y
+
+pub fun make() -> Point
+  Point(x: 1, y: 2)

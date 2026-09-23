@@ -1,0 +1,29 @@
+# A resource moved in a loop body and reassigned before the next
+# iteration is live again at the top of the loop; each value is dropped
+# once.
+
+struct Box
+  payload: Int
+
+  drop self: !Box
+    print(self.payload)
+
+sub eat(rc: *Box)
+  print(rc.payload + 100)
+
+sub main()
+  rc = *Box(payload: 1)
+  i = 0
+  while i < 2
+    eat(<rc)
+    rc = *Box(payload: i + 10)
+    i += 1
+  print("end")
+
+# expect:
+# 101
+# 1
+# 110
+# 10
+# end
+# 11

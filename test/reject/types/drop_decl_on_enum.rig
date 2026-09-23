@@ -1,0 +1,11 @@
+# `drop` declarations on enums are not supported.
+
+enum Color
+  red
+  green
+  blue
+
+  drop self: !Color
+    print(1)
+
+# error: `drop` declarations on enums are deferred

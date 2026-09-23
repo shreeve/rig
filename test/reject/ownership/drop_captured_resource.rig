@@ -1,0 +1,10 @@
+# A closure body cannot drop a captured resource: the capture belongs to
+# the closure env, and a retained closure may be called again.
+
+sub main()
+  sig: *Signal(Int) = *Signal(value: 0)
+  bump = |+sig|
+    -sig
+  bump()
+
+# error: cannot drop captured resource `sig`

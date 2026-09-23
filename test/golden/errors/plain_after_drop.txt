@@ -1,2 +1,0 @@
-examples/plain_after_drop.rig:11:9: error: use of `user` after drop
-examples/plain_after_drop.rig:10:4:   note: `user` was dropped here

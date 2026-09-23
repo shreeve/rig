@@ -1,0 +1,82 @@
+# A borrow held by a binding, or by a view holding one, ends at its
+# last use, not at the end of the block: after that the value can be
+# written, moved, dropped, or reassigned.
+
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  drop self: !Box
+    print("drop", self.n)
+
+struct View
+  box: ?Box
+
+sub eat(b: Box)
+  print("eat", b.n)
+
+sub discard(s: Slot)
+  print("discard")
+
+enum Slot
+  full(b: Box)
+  empty
+
+sub main()
+  x = Box(n: 1)
+  r = ?x
+  print("read", r.n)
+  (!x).bump()
+  w = !x
+  w.bump()
+  print("x", x.n)
+  v = View(box: ?x)
+  print("view", v.box.n)
+  x = Box(n: 10)
+
+  flag = x.n > 5
+  if flag
+    b = Box(n: 2)
+    r2 = ?b
+    print("inner", r2.n)
+
+  nums: Vec(Int) = Vec()
+  i = 0
+  while i < 3 : i += 1
+    seen = ?nums
+    print("len", seen.length())
+    (!nums).push(i)
+
+  s: Slot = .full(Box(n: 7))
+  match s
+    .full(p)
+      print("payload", p.n)
+      discard(<s)
+    .empty => print("empty")
+
+  y = Box(n: 20)
+  ry = ?y
+  print("y", ry.n)
+  eat(<y)
+  print("end")
+
+# expect:
+# read 1
+# x 3
+# view 3
+# drop 3
+# inner 2
+# drop 2
+# len 0
+# len 1
+# len 2
+# payload 7
+# discard
+# drop 7
+# y 20
+# eat 20
+# drop 20
+# end
+# drop 10

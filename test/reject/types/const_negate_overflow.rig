@@ -1,0 +1,10 @@
+# Negating a constant is computed now, so the result must fit its type.
+
+sub main()
+  x: I8 = -128
+  print(-x)
+  m = -9223372036854775807 - 1
+  print(-m)
+
+# error: integer value `128` does not fit in `I8` (-128..127)
+# error: integer value `9223372036854775808` does not fit in `Int`

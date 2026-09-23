@@ -1,0 +1,8 @@
+# `a.internal_helper` is not `pub`, so importers cannot call it.
+use a
+
+sub main()
+  y = a.internal_helper(5)
+  print(y)
+
+# error: `a.internal_helper` is not public; mark it `pub` in module `a`

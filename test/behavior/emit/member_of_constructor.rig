@@ -1,0 +1,10 @@
+# A field can be read straight off a constructed value.
+
+struct B
+  n: Int
+
+sub main()
+  print(B(n: 7).n)
+
+# expect:
+# 7

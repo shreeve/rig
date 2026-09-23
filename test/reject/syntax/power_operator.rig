@@ -1,0 +1,6 @@
+# Rig has no `**` operator.
+
+sub main()
+  print(2 ** 3)
+
+# error: `**` is not a Rig operator

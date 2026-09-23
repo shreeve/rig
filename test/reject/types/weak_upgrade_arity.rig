@@ -1,0 +1,13 @@
+# The built-in `upgrade` on a weak handle takes no arguments.
+
+struct User
+  name: String
+
+sub main()
+  rc = *User(name: "x")
+  w  = ~rc
+  m  = w.upgrade(42)
+  -rc
+  -w
+
+# error: weak `upgrade` takes no arguments

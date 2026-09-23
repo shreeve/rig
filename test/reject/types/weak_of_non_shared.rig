@@ -1,0 +1,10 @@
+# `~x` needs a shared handle `*T`; a plain struct value has no weak form.
+
+struct User
+  name: String
+
+sub main()
+  u = User(name: "x")
+  w = ~u
+
+# error: `~` weak reference requires a shared handle `*T`

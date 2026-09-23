@@ -1,0 +1,26 @@
+# Enum variants may carry payload fields; `.variant(field: value)`
+# constructs them and a value-position match reads the payload back.
+
+enum Shape
+  circle(radius: Int)
+  square(side: Int)
+  origin
+
+fun measure(s: Shape) -> Int
+  match s
+    .circle(r) => r * 10
+    .square(side) => side * side
+    .origin => 0
+
+sub main()
+  s1: Shape = .circle(radius: 5)
+  s2: Shape = .square(side: 3)
+  s3: Shape = .origin
+  print(measure(s1))
+  print(measure(s2))
+  print(measure(s3))
+
+# expect:
+# 50
+# 9
+# 0

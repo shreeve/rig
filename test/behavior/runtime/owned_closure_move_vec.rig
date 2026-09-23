@@ -1,0 +1,17 @@
+# An owned closure that move-captures a Vec frees it when the last handle
+# to the closure drops.
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  (!v).push(2)
+  (!v).push(3)
+  cb: *sub() = *|<v| print(v.length())
+  cb()
+  again = +cb
+  -cb
+  again()
+
+# expect:
+# 3
+# 3

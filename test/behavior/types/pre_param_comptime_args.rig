@@ -1,0 +1,23 @@
+# A `pre` parameter accepts literals, enum values, and `=!` bindings of
+# compile-time values.
+
+enum Mode
+  fast
+  safe
+
+sub show(pre n: Int)
+  print(n)
+
+sub mode(pre m: Mode)
+  print(m == .safe)
+
+sub main()
+  show(3)
+  k =! 4
+  show(k)
+  mode(.safe)
+
+# expect:
+# 3
+# 4
+# true

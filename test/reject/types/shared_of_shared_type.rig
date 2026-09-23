@@ -1,0 +1,12 @@
+# A shared handle cannot itself be shared: `*(*T)` adds a second
+# refcount for nothing. Clone the handle with `+x` instead.
+
+struct Noisy
+  id: Int
+
+sub main()
+  inner = *Noisy(id: 4)
+  outer: *(*Noisy) = *(<inner)
+  print("wrapped")
+
+# error: nested shared type

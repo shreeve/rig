@@ -1,0 +1,28 @@
+# Members of an imported type are named through the module:
+# associated functions (`lib.P.at(3, 4)`, with a write-borrowed
+# parameter too) and enum variants, bare or with a payload.
+
+use lib
+
+sub main()
+  p = lib.P.at(3, 4)
+  q = lib.P.at(y: 1, x: 2)
+  print(p.sum(), q.x)
+  s = lib.Shape.circle(r: 2)
+  d = lib.Shape.dot
+  match s
+    .circle(r) => print("r", r)
+    .dot => print("dot")
+  match d
+    .dot => print(true)
+    _ => print(false)
+
+  q2 = lib.Q(n: 1)
+  lib.Q.grow(!q2, 5)
+  print(q2.n)
+
+# expect:
+# 7 2
+# r 2
+# true
+# 6

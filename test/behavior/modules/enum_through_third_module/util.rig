@@ -1,0 +1,8 @@
+pub enum Shape
+  circle(r: Int)
+  sq(s: Int)
+
+pub fun area(s: ?Shape) -> Int
+  match s
+    .circle(r) => 3 * r * r
+    .sq(x) => x * x

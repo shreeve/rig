@@ -1,0 +1,21 @@
+# Assigning a field through a `!T` parameter updates the caller's value;
+# compound assignment works on fields too.
+
+struct Counter
+  hits: Int
+  label: String
+
+sub bump(c: !Counter)
+  c.hits += 1
+  c.label = "bumped"
+
+sub main()
+  c = Counter(hits: 0, label: "new")
+  bump(!c)
+  bump(!c)
+  print(c.hits)
+  print(c.label)
+
+# expect:
+# 2
+# bumped

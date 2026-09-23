@@ -1,0 +1,21 @@
+# A `pub` function whose signature mentions a private type leaks it:
+# through a return type, a parameter type, or a generic argument.
+
+struct Secret
+  value: Int
+
+pub type Box(T)
+  inner: T
+
+pub fun make_secret() -> Secret
+  Secret(value: 42)
+
+pub sub take_secret(s: Secret)
+  print(s.value)
+
+pub fun wrap_secret(x: Int) -> Box(Secret)
+  Box(inner: Secret(value: x))
+
+# error: public function `make_secret` leaks private type `Secret`
+# error: public sub `take_secret` leaks private type `Secret`
+# error: public function `wrap_secret` leaks private type `Secret`

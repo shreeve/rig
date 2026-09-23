@@ -1,0 +1,14 @@
+# A write receiver (`!self`) needs an explicit write borrow at the call
+# site: `(!u).rename(...)`.
+
+struct User
+  name: String
+
+  sub rename(!self, new_name: String)
+    print(new_name)
+
+sub main()
+  u = User(name: "Steve")
+  u.rename("Bob")
+
+# error: method `rename` requires a write-borrowed receiver

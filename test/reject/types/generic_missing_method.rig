@@ -1,0 +1,11 @@
+# Calling a method that doesn't exist on a generic receiver names the
+# generic type.
+
+type Box(T)
+  value: T
+
+sub main()
+  b: Box(Int) = Box(value: 5)
+  print(b.missing())
+
+# error: no method `missing` on type `Box`

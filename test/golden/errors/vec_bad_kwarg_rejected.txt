@@ -1,1 +1,0 @@
-examples/vec_bad_kwarg_rejected.rig:8:21: error: `Vec` constructor accepts only `capacity` as a kwarg; got `size`

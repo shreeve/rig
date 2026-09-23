@@ -1,0 +1,13 @@
+# A closure's body must produce what its type returns: a value of the
+# return type for `fun(...) R`, nothing for `sub(...)`.
+
+sub main()
+  f: fun(Int) Int = |a| "text"
+  g: *fun() Int = *||
+    print("no value")
+  h: sub(Int) = |a|
+    return a
+
+# error: type mismatch: expected `Int`, got `String`
+# error: type mismatch: expected `Int`, got `Void`
+# error: a `sub` returns no value

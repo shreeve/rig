@@ -1,0 +1,17 @@
+# Keyword arguments given out of order still run in source order, also
+# when the call is a statement.
+
+sub show(a: Int, b: Int)
+  print(a, b)
+
+fun g(n: Int) -> Int
+  print("g", n)
+  n
+
+sub main()
+  show(b: g(2), a: g(1))
+
+# expect:
+# g 2
+# g 1
+# 1 2

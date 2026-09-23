@@ -1,0 +1,14 @@
+# A method without a `self` receiver can't be called on an instance.
+
+struct User
+  name: String
+
+  fun make(default: String) -> User
+    User(name: default)
+
+sub main()
+  u = User(name: "Steve")
+  v = u.make()
+  print(v.name)
+
+# error: method `make` has no `self` receiver; call as `User.make(...)`

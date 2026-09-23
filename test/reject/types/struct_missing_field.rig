@@ -1,0 +1,10 @@
+# A constructor must supply every declared field.
+
+struct User
+  name: String
+  age: Int
+
+sub main()
+  u = User(name: "Steve")
+
+# error: constructor of `User` is missing field `age`

@@ -1,0 +1,11 @@
+# A match on an Int selects the arm whose literal equals the value.
+
+sub main()
+  n = 2
+  match n
+    1 => print "one"
+    2 => print "two"
+    else => print "other"
+
+# expect:
+# two

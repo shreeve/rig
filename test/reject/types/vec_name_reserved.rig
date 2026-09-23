@@ -1,0 +1,9 @@
+# `Vec` is a built-in nominal name and cannot be redefined.
+
+struct Vec
+  x: Int
+
+sub main()
+  print("hi")
+
+# error: `Vec` is a reserved built-in nominal name

@@ -1,0 +1,8 @@
+# `[a, b, c]` is an array literal; `xs[i]` reads an element (bounds-checked).
+
+sub main()
+  xs = [10, 20, 30]
+  print(xs[1])
+
+# expect:
+# 20

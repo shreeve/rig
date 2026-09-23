@@ -1,0 +1,15 @@
+# A local holding a borrow can be rebound to borrow something else.
+
+sub main()
+  a = 1
+  b = 2
+  r = ?a
+  print(r)
+  r = ?b
+  print(r)
+  print(a, b)
+
+# expect:
+# 1
+# 2
+# 1 2

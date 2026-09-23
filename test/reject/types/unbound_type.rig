@@ -1,0 +1,7 @@
+# An undeclared type name in an annotation is a Rig diagnostic.
+
+sub main()
+  x: NopeType = 1
+  print(x)
+
+# error: use of unbound type `NopeType`

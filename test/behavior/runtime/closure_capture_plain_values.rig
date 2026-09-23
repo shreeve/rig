@@ -1,0 +1,21 @@
+# `|+x|` copies any plain value into a closure: a struct of numbers, an
+# enum, an array. Later changes to the original are not seen.
+
+struct Box
+  n: Int
+
+enum Color
+  red
+  green
+
+sub main()
+  b = Box(n: 1)
+  c: Color = .green
+  arr = [1, 2]
+  f = |+b, +c, +arr| b.n + arr[1] + (1 if c == .green else 0)
+  g: *fun() Int = *|+b| b.n * 10
+  b.n = 5
+  print(f(), g(), b.n)
+
+# expect:
+# 4 10 5

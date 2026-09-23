@@ -1,0 +1,15 @@
+# A shared handle chosen by a match expression is still a bare copy of
+# the handle: each arm must write `<rc` or `+rc`.
+
+struct Box
+  payload: Int
+
+sub main()
+  rc = *Box(payload: 5)
+  n = 1
+  x = match n
+    1 => rc
+    _ => rc
+  print(x.payload)
+
+# error: would alias the handle

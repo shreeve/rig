@@ -1,0 +1,15 @@
+# Writing to a Vec while iterating over it is rejected (the loop holds a
+# read borrow).
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  cb1: *sub() = *|+count| count.set(count.get() + 1)
+
+  subs: Vec(*sub()) = Vec()
+  (!subs).push(+cb1)
+
+  for cb in ?subs
+    cb()
+    (!subs).push(+cb1)
+
+# error: cannot write-borrow `subs` while a read borrow is live

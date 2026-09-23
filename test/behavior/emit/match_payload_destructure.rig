@@ -1,0 +1,17 @@
+# Match arms bind payload fields: `.circle(r)` binds the single field,
+# `.triangle(a, b)` binds both fields.
+
+enum Shape
+  circle(radius: Int)
+  triangle(a: Int, b: Int)
+  origin
+
+sub main()
+  s: Shape = .triangle(a: 3, b: 4)
+  match s
+    .circle(r) => print(r)
+    .triangle(a, b) => print(a + b)
+    .origin => print(0)
+
+# expect:
+# 7

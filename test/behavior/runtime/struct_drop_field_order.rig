@@ -1,0 +1,23 @@
+# Generated drop glue drops resource fields in reverse declaration
+# order: `b` (declared second) is dropped before `a`.
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+struct Pair
+  a: *Noisy
+  b: *Noisy
+
+sub main()
+  na = *Noisy(id: 1)
+  nb = *Noisy(id: 2)
+  p: Pair = Pair(a: <na, b: <nb)
+  print("built")
+
+# expect:
+# built
+# 2
+# 1

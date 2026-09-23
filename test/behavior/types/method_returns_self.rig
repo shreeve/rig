@@ -1,0 +1,15 @@
+# An associated method (no `self`) returning `Self`; `User.make(...)`
+# types as `User`.
+
+struct User
+  name: String
+
+  fun make(default: String) -> Self
+    User(name: default)
+
+sub main()
+  u: User = User.make("guest")
+  print(u.name)
+
+# expect:
+# guest

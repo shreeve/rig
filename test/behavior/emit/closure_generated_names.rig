@@ -1,0 +1,22 @@
+# Closure parameters and captures may use names the emitted code uses
+# internally (`self`, `ctx`, `allocator`).
+
+sub stack()
+  ctx = 2
+  allocator = 3
+  f = |+ctx, +allocator, self: Int| self + ctx + allocator
+  print(f(1))
+
+sub owned()
+  c: *Cell(Int) = *Cell(value: 0)
+  g: *sub(Int) = *|+c, ctx: Int| c.set(ctx)
+  g(5)
+  print(c.get())
+
+sub main()
+  stack()
+  owned()
+
+# expect:
+# 6
+# 5

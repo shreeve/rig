@@ -1,0 +1,14 @@
+# `c: Color = .red` checks the enum literal against the declared type
+# and confirms `red` is a variant of `Color`.
+
+enum Color
+  red
+  green
+  blue
+
+sub main()
+  c: Color = .red
+  print(c)
+
+# expect:
+# .red

@@ -1,1 +1,0 @@
-(module (generic_type Pair (T U) (: first T) (: second U)) (sub main () _ (block (set _ p (generic_inst Pair Int String) (call Pair (kwarg first 42) (kwarg second "answer"))) (call print (member p first)))))

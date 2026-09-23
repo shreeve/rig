@@ -1,0 +1,12 @@
+# A lambda literal passed as a struct constructor argument escapes its
+# scope and is rejected.
+
+struct Holder
+  cb: Int
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  h = Holder(cb: |+count| count.set(count.get() + 1))
+  _ = h
+
+# error: closures cannot escape their defining scope

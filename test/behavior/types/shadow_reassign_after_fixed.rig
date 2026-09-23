@@ -1,0 +1,11 @@
+# `x =! 1` is fixed, but `new x = 2` introduces a fresh mutable `x`;
+# name lookup finds the newest binding, so `x = 3` reassigns it.
+
+sub main()
+  x =! 1
+  new x = 2
+  x = 3
+  print(x)
+
+# expect:
+# 3

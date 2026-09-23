@@ -1,0 +1,18 @@
+# If either branch moves a value, using it after the `if` is rejected.
+
+struct Packet
+  payload: Int
+
+sub send(p: Packet)
+  print(p.payload)
+
+sub main()
+  cond = true
+  x = Packet(payload: 42)
+  if cond
+    send <x
+  else
+    print(x.payload)
+  print(x.payload)
+
+# error: use of `x` after move

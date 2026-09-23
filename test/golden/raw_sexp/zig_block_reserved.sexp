@@ -1,1 +1,0 @@
-(module (sub main () _ (block (zig "const x = 42; std.debug.print(\"{any}\\n\", .{x});"))))

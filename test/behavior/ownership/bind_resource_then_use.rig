@@ -1,0 +1,19 @@
+# Binding a fresh resource (constructor or resource-returning call) to
+# a name first, then reading its fields, is the supported form.
+
+struct User
+  age: Int
+
+fun make_user() -> *User
+  return *User(age: 7)
+
+sub main()
+  u: *User = *User(age: 5)
+  print(u.age)
+
+  m = make_user()
+  print(m.age)
+
+# expect:
+# 5
+# 7

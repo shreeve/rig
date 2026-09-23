@@ -1,0 +1,23 @@
+# `break` and `continue` must name an enclosing loop (or, for `break`, a
+# labeled block); a closure body cannot leave a loop around it.
+
+sub main()
+  for i in 0..3
+    f = ||
+      break
+    f()
+  :outer for i in 0..3
+    g = ||
+      for j in 0..3
+        continue :outer
+    g()
+  while true
+    break :nowhere
+
+sub stray()
+  continue
+
+# error: `break` is not inside a loop (a closure body cannot leave a loop around it)
+# error: `continue :outer` names no enclosing loop or block (a closure body cannot leave a loop around it)
+# error: `break :nowhere` names no enclosing loop or block
+# error: `continue` is not inside a loop

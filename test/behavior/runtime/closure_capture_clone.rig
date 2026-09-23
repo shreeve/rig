@@ -1,0 +1,15 @@
+# `|+rc|` clone-captures a shared handle: the closure owns its own
+# strong handle, and the outer `rc` stays usable.
+
+sub main()
+  rc: *Cell(Int) = *Cell(value: 0)
+  read = |+rc|
+    rc.get()
+  print(read())
+  print(read())
+  print(rc.get())
+
+# expect:
+# 0
+# 0
+# 0

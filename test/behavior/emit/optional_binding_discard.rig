@@ -1,0 +1,24 @@
+# `if e as _` tests for a value without binding it; a resource inside is
+# dropped at once.
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print("drop", self.id)
+
+sub main()
+  m: Int? = 3
+  if m as _
+    print("some")
+  rc = *Noisy(id: 1)
+  w = ~rc
+  if w.upgrade() as _
+    print("alive")
+  print("end")
+
+# expect:
+# some
+# alive
+# end
+# drop 1

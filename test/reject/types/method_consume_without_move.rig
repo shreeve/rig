@@ -1,0 +1,14 @@
+# A consuming receiver (`self: User`) needs an explicit move at the call
+# site: `(<u).consume()`, not `u.consume()`.
+
+struct User
+  name: String
+
+  sub consume(self: User)
+    print(self.name)
+
+sub main()
+  u = User(name: "Steve")
+  u.consume()
+
+# error: method `consume` consumes the receiver; use `(<receiver).consume(...)`

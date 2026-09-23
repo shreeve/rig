@@ -1,0 +1,13 @@
+# Enum variants may carry explicit integer values (`ok = 0`).
+
+enum Status
+  ok = 0
+  warn = 1
+  err = 2
+
+sub main()
+  s: Status = .warn
+  print(s)
+
+# expect:
+# .warn

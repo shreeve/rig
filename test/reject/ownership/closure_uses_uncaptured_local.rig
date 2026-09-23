@@ -1,0 +1,16 @@
+# A closure body can only use outer locals it captures.
+
+struct Box
+  payload: Int
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub main()
+  rc = *Box(payload: 1)
+  n = 5
+  f = |+n|
+    eat(<rc)
+  f()
+
+# error: closure body uses `rc` without capturing it

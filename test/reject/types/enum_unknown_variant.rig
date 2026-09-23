@@ -1,0 +1,11 @@
+# An enum literal must name a variant of the expected enum.
+
+enum Color
+  red
+  green
+  blue
+
+sub main()
+  c: Color = .purple
+
+# error: no variant `purple` on enum `Color`

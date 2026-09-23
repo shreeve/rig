@@ -1,0 +1,6 @@
+# Calling an undeclared function is a Rig diagnostic.
+
+sub main()
+  print(nonexistent_fn())
+
+# error: use of unbound name `nonexistent_fn`

@@ -1,0 +1,19 @@
+# `Shape.point` names a bare variant of an enum whose other variants
+# carry payloads; bound without an annotation it is a `Shape`, so its
+# methods can be called.
+
+enum Shape
+  circle(radius: Int)
+  point
+
+  fun area(?self) -> Int
+    match self
+      .circle(r) => 3 * r * r
+      .point => 0
+
+sub main()
+  c = Shape.point
+  print(c.area(), c)
+
+# expect:
+# 0 .point

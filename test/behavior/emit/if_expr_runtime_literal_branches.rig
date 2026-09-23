@@ -1,0 +1,15 @@
+# An `if` expression whose branches are literals, chosen at run time,
+# binds an `Int`.
+
+fun big(n: Int) -> Bool
+  n > 1
+
+sub main()
+  x = if big(3)
+    10
+  else
+    20
+  print(x)
+
+# expect:
+# 10

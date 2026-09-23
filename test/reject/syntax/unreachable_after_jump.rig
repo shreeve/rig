@@ -1,0 +1,18 @@
+# A statement right after `return`, `break`, or `continue` never runs.
+
+fun f() -> Int
+  return 1
+  2
+
+sub main()
+  for i in 0..3
+    break
+    print(i)
+  while true
+    continue
+    print("x")
+  print(f())
+
+# error: unreachable code: this statement follows a `return`
+# error: unreachable code: this statement follows a `break`
+# error: unreachable code: this statement follows a `continue`

@@ -1,0 +1,16 @@
+# A match on a Bool with both `true` and `false` arms covers every value.
+
+fun name(b: Bool) -> String
+  match b
+    true => "yes"
+    false => "no"
+
+sub main()
+  match 1 > 0
+    true => print("t")
+    false => print("f")
+  print(name(false))
+
+# expect:
+# t
+# no

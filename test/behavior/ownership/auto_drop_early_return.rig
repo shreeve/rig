@@ -1,0 +1,24 @@
+# An early return from inside a conditional still drops the local
+# shared handle, and so does the fall-through return.
+
+struct C
+  v: Int
+
+  drop self: !C
+    print(self.v)
+
+fun pick(cond: Bool) -> Int
+  rc = *C(v: 99)
+  if cond
+    return 1
+  return 2
+
+sub main()
+  print(pick(true))
+  print(pick(false))
+
+# expect:
+# 99
+# 1
+# 99
+# 2

@@ -1,0 +1,11 @@
+# `|<rc|` moves a shared handle into a stack closure; the closure can
+# be invoked and drops the handle when it goes out of scope.
+
+sub main()
+  rc: *Cell(Int) = *Cell(value: 42)
+  owned = |<rc|
+    rc.get()
+  print(owned())
+
+# expect:
+# 42

@@ -1,0 +1,17 @@
+# `!self` is sugar for `self: !Self`; the call site must write the
+# borrow explicitly as `(!u).modify(...)`. The body may read fields.
+
+struct User
+  name: String
+
+  sub modify(!self, new_name: String)
+    print(self.name)
+    print(new_name)
+
+sub main()
+  u = User(name: "Steve")
+  (!u).modify("Bob")
+
+# expect:
+# Steve
+# Bob

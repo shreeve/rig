@@ -1,0 +1,6 @@
+pub fun visible_helper(x: Int) -> Int
+  x + 1
+
+# Not `pub`: invisible to importers.
+fun internal_helper(x: Int) -> Int
+  x * 2

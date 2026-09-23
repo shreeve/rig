@@ -1,0 +1,25 @@
+# A handle declared inside a loop body is dropped at the end of each
+# iteration.
+
+struct C
+  v: Int
+
+  drop self: !C
+    print(self.v + 100)
+
+sub main()
+  i = 0
+  while i < 3
+    rc = *C(v: i)
+    print(rc.v)
+    i += 1
+  print("done")
+
+# expect:
+# 0
+# 100
+# 1
+# 101
+# 2
+# 102
+# done

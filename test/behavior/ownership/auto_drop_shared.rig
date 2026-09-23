@@ -1,0 +1,16 @@
+# A shared handle with no explicit `-rc` is dropped automatically at
+# scope exit, exactly once (the drop body runs after the last use).
+
+struct Counter
+  value: Int
+
+  drop self: !Counter
+    print("drop")
+
+sub main()
+  rc = *Counter(value: 7)
+  print(rc.value)
+
+# expect:
+# 7
+# drop

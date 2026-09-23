@@ -1,0 +1,8 @@
+# A closure parameter cannot share a name with one of its captures.
+
+sub main()
+  x =! 10
+  f = |+x, x: Int| x
+  print(f(99))
+
+# error: closure parameter `x` has the name of the capture `x`

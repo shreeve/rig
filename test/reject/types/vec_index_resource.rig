@@ -1,0 +1,13 @@
+# Indexing a Vec of handles would copy an owning handle out of it.
+
+struct N
+  v: Int
+
+sub main()
+  xs: Vec(*N) = Vec()
+  a = *N(v: 1)
+  (!xs).push(<a)
+  b = xs[0]
+  print(b.v)
+
+# error: indexing a `Vec(*N)` would copy an owning handle

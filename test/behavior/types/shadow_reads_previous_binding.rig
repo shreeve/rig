@@ -1,0 +1,9 @@
+# In `new x = x + 10` the right side reads the previous `x`.
+
+sub main()
+  x = 1
+  new x = x + 10
+  print x
+
+# expect:
+# 11

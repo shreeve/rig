@@ -1,4 +1,0 @@
-use math
-
-sub main()
-  print(math.add(1, 2))

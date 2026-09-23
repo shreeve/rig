@@ -1,0 +1,9 @@
+# A cross-module call is checked against the imported signature:
+# `a.add` takes two arguments.
+use a
+
+sub main()
+  x = a.add(1, 2, 3, 4, 5)
+  print(x)
+
+# error: call to `a.add` expects 2 arguments, got 5

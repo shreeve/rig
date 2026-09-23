@@ -1,0 +1,14 @@
+# A bare `self` parameter needs an explicit receiver type: `?self`,
+# `!self`, or `self: Self`.
+
+struct User
+  name: String
+
+  fun greet(self) -> String
+    "hi"
+
+sub main()
+  u = User(name: "Steve")
+  print(u.greet())
+
+# error: `self` parameter requires an explicit receiver type

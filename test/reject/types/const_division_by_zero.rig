@@ -1,0 +1,8 @@
+# Dividing by a constant zero is a compile-time error.
+
+sub main()
+  n = 7
+  print(n / 0)
+  print(n % 0)
+
+# error: division by zero

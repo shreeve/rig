@@ -1,0 +1,19 @@
+# A bare identifier pattern is a catch-all arm for unhandled variants.
+
+enum Color
+  red
+  green
+  blue
+
+sub show(c: Color)
+  match c
+    .red => print "red"
+    other => print "not red"
+
+sub main()
+  show(.red)
+  show(.blue)
+
+# expect:
+# red
+# not red

@@ -1,0 +1,33 @@
+# A numeric type's name converts a number to it: `I32(x)`, `U8(x)`,
+# `Float(n)`, `Int(f)`. Integer conversions keep the value (they panic
+# when it does not fit); a float becomes an integer by truncating toward
+# zero; `F32(x)` rounds, to an infinity when `x` is too large. `Int` is
+# `I64` and `Float` is `F64`: the same types.
+
+fun half(n: !Int) -> Float
+  Float(n) / 2.0
+
+sub main()
+  big: Int = 300
+  small = U8(big - 100)
+  wide: I64 = big
+  print(small, wide, I32(small) * 2)
+  f = 7.9
+  print(Int(f), Int(-f), I8(-2.5), U16(65535.9))
+  n = 3
+  print(Float(n) / 2.0, F32(n), F32(1.25), Float(F32(0.5)))
+  x: F64 = 1.5
+  y: Float = x
+  print(y, half(!n))
+  print(U64(0), I64(-9223372036854775807), Int(U32(4000000000)))
+  print(U8(255), I16(-32768), Float(2))
+  print(F32(1e300), F32(2.5e-3))
+
+# expect:
+# 200 300 400
+# 7 -7 -2 65535
+# 1.5 3 1.25 0.5
+# 1.5 1.5
+# 0 -9223372036854775807 4000000000
+# 255 -32768 2
+# inf 0.0025

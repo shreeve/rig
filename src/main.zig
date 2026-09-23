@@ -1,426 +1,411 @@
-//! Rig Compiler — CLI Driver
+//! Rig compiler CLI. `usage` below is the reference; docs/INTERNALS.md
+//! describes the pipeline behind each command.
 //!
-//! Subcommands:
-//!   rig parse     <file.rig>  — print raw S-expression tree (BaseParser only, no rewrites)
-//!   rig tokens    <file.rig>  — dump token stream (debug)
-//!   rig normalize <file.rig>  — print fully-normalized semantic IR
-//!   rig check     <file.rig>  — run ownership / borrow / effects checks; exit 1 on errors
-//!   rig build     <file.rig>  — check + emit Zig source to stdout
-//!   rig run       <file.rig>  — check + emit Zig + spawn `zig run`
-//!
-//! `build` and `run` always run the full checker pipeline first; if any
-//! diagnostics are produced the process exits 1 BEFORE emit. Bypassing
-//! the checker is intentionally not exposed (see SPEC §"visible effects").
+//! `run`, `build`, `test`, and `emit` never emit a program the checkers
+//! reject. They write the emitted package (one `.zig` file per module
+//! plus the runtime in `rig/`) to the output directory, then hand it to
+//! the Zig toolchain.
 
 const std = @import("std");
+const build_options = @import("build_options");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
-const types = @import("types.zig");
-const effects = @import("effects.zig");
-const ownership = @import("ownership.zig");
+const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const modules = @import("modules.zig");
+const ir = @import("ir.zig");
 const runtime = @import("runtime.zig");
 
-const Mode = enum {
-    parse,
-    tokens,
-    normalize,
-    check,
-    build,
-    run,
-};
-
 const usage =
-    \\Rig — a systems language with explicit ownership, transpiling to Zig.
+    \\Rig: a systems language with visible ownership, compiled to Zig.
     \\
-    \\Usage:
-    \\  rig <subcommand> <file.rig>
+    \\Usage: rig <command> [options] <file.rig>
     \\
-    \\Subcommands:
-    \\  parse      Print raw S-expression tree (BaseParser only)
-    \\  tokens     Dump token stream (debug)
-    \\  normalize  Print fully-normalized semantic IR
-    \\  check      Run ownership / borrow / effects checks
-    \\  build      check + emit Zig source to stdout
-    \\  run        check + emit Zig + zig run
+    \\Commands:
+    \\  check     Check the program and its imports
+    \\  run       Check, build, and run the program
+    \\  build     Check and build a native executable
+    \\  test      Check, build, and run the program's `test` blocks
+    \\  emit      Check, then print the root module's Zig to stdout
     \\
     \\Options:
-    \\  -h, --help  Show this message
+    \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
+    \\                         `--release=safe` are ReleaseSafe, which keeps
+    \\                         overflow and bounds checks; `--release=fast`
+    \\                         is ReleaseFast. Default: Debug, leak-checked.
+    \\  -o <path>              Executable to write (build; default ./<name>)
+    \\  -h, --help             Show this help
+    \\  --version              Show the version
+    \\
+    \\Debugging the compiler:
+    \\  tokens     Dump the token stream
+    \\  parse      Print the parse tree
+    \\  normalize  Print the semantic IR
+    \\
+    \\Environment:
+    \\  RIG_OUT_DIR      Directory for the emitted package (default: a
+    \\                   per-project directory under $XDG_CACHE_HOME/rig,
+    \\                   or ~/.cache/rig, emptied before each build)
+    \\  RIG_LEAK_TRACE   Set to 1 when building to report each leaked
+    \\                   allocation with its stack trace (slower)
+    \\  ZIG              The Zig 0.16 executable (default: zig on PATH)
     \\
 ;
+
+const Command = enum { tokens, parse, normalize, check, run, build, @"test", emit };
+
+/// Zig's optimize mode for the program being built.
+const Mode = enum {
+    debug,
+    safe,
+    fast,
+
+    fn zigFlag(mode: Mode) []const u8 {
+        return switch (mode) {
+            .debug => "-ODebug",
+            .safe => "-OReleaseSafe",
+            .fast => "-OReleaseFast",
+        };
+    }
+};
+
+const Options = struct {
+    command: Command,
+    path: []const u8,
+    mode: Mode = .debug,
+    out_path: ?[]const u8 = null,
+};
+
+const Env = struct {
+    map: *const std.process.Environ.Map,
+
+    fn get(env: Env, name: []const u8) ?[]const u8 {
+        const value = env.map.get(name) orelse return null;
+        return if (value.len > 0) value else null;
+    }
+
+    fn zig(env: Env) []const u8 {
+        return env.get("ZIG") orelse "zig";
+    }
+
+    fn leakTrace(env: Env) bool {
+        const value = env.get("RIG_LEAK_TRACE") orelse return false;
+        return !std.mem.eql(u8, value, "0");
+    }
+};
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.arena.allocator();
     const io = init.io;
-
+    const env: Env = .{ .map = init.environ_map };
     const args = try init.minimal.args.toSlice(allocator);
+    const opts = parseArgs(args[1..]);
 
-    if (args.len < 2) {
-        std.debug.print("{s}", .{usage});
-        std.process.exit(1);
-    }
-
-    const sub = args[1];
-    if (std.mem.eql(u8, sub, "-h") or std.mem.eql(u8, sub, "--help") or std.mem.eql(u8, sub, "help")) {
-        std.debug.print("{s}", .{usage});
-        return;
-    }
-
-    const mode: Mode = blk: {
-        if (std.mem.eql(u8, sub, "parse")) break :blk .parse;
-        if (std.mem.eql(u8, sub, "tokens")) break :blk .tokens;
-        if (std.mem.eql(u8, sub, "normalize")) break :blk .normalize;
-        if (std.mem.eql(u8, sub, "check")) break :blk .check;
-        if (std.mem.eql(u8, sub, "build")) break :blk .build;
-        if (std.mem.eql(u8, sub, "run")) break :blk .run;
-        std.debug.print("Unknown subcommand: {s}\n\n{s}", .{ sub, usage });
-        std.process.exit(1);
-    };
-
-    if (args.len < 3) {
-        std.debug.print("Subcommand `{s}` requires a file path.\n", .{sub});
-        std.process.exit(1);
-    }
-
-    const file_path = args[2];
-
-    const source = std.Io.Dir.cwd().readFileAlloc(io, file_path, allocator, .limited(16 * 1024 * 1024)) catch |err| {
-        std.debug.print("error reading {s}: {}\n", .{ file_path, err });
-        std.process.exit(1);
-    };
-
-    switch (mode) {
-        .parse => try parseAndPrint(allocator, io, source),
-        .tokens => dumpTokens(source),
-        .normalize => try normalizeAndPrint(allocator, io, source),
-        .check => try checkAndReport(allocator, io, source, file_path),
-        .build => try buildAndEmit(allocator, io, file_path),
-        .run => try buildAndRun(allocator, io, file_path),
-    }
-}
-
-fn parseAndPrint(allocator: std.mem.Allocator, io: std.Io, source: []const u8) !void {
-    // Debug path: print the RAW parse tree (before rig.Parser rewriting).
-    // Uses BaseParser explicitly to skip the wrapper.
-    var p = parser.BaseParser.init(allocator, source);
-    defer p.deinit();
-
-    const result = p.parseProgram() catch {
-        p.printError();
-        std.process.exit(1);
-    };
-
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
-    const w: *std.Io.Writer = &stdout_writer.interface;
-    try result.write(source, w);
-    try w.writeAll("\n");
-    try w.flush();
-}
-
-fn normalizeAndPrint(allocator: std.mem.Allocator, io: std.Io, source: []const u8) !void {
-    // `parser.Parser` auto-wires to `rig.Parser`, so `parseProgram()`
-    // returns the fully-rewritten semantic IR in one call.
-    var p = parser.Parser.init(allocator, source);
-    defer p.deinit();
-
-    const out = p.parseProgram() catch {
-        p.printError();
-        std.process.exit(1);
-    };
-
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
-    const w: *std.Io.Writer = &stdout_writer.interface;
-    try out.write(source, w);
-    try w.writeAll("\n");
-    try w.flush();
-}
-
-fn checkAndReport(allocator: std.mem.Allocator, io: std.Io, source: []const u8, file_path: []const u8) !void {
-    // M15b per GPT-5.5 entry 39: `check` now uses the ModuleGraph so
-    // multi-file projects are checked transitively + cross-module
-    // sema/effects/ownership errors surface in `bin/rig check` (not
-    // just `build` / `run`). Pre-M15b, `check` only ran the
-    // single-file pipeline, which silently passed cross-module
-    // contract violations — the M22.1 fake-surface anti-pattern at
-    // the driver level.
-    //
-    // `source` is read but unused here; kept in the signature to
-    // avoid disturbing the call site. The ModuleGraph re-reads the
-    // root file via its own I/O path (same shape as `build`/`run`).
-    _ = source;
-
-    var graph = modules.ModuleGraph.init(allocator, io);
-    defer graph.deinit();
-
-    _ = graph.loadRoot(file_path) catch |err| {
-        std.debug.print("error: failed to load `{s}`: {}\n", .{ file_path, err });
-        std.process.exit(1);
-    };
-
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
-    const w: *std.Io.Writer = &stdout_writer.interface;
-    try graph.writeAllDiagnostics(w);
-    try w.flush();
-
-    if (graph.hasErrors()) std.process.exit(1);
-}
-
-/// Bundle returned from `parseAndCheckOrExit`. The caller owns both
-/// the IR (lives in the parser's arena, which lives as long as the
-/// caller's allocator) and the SemContext (caller MUST `sema.deinit()`).
-/// Both are needed by emit so we return them as a unit instead of
-/// forcing each call site to re-run sema.
-const CheckedProgram = struct {
-    ir: parser.Sexp,
-    sema: types.SemContext,
-};
-
-/// Parse + run the full checker pipeline (sema → effects → ownership)
-/// and abort the process with exit 1 if any errors are emitted. Used
-/// by `build` and `run` so they never lower a program the checker
-/// rejects.
-///
-/// Diagnostics go to stderr so callers can pipe emit to stdout.
-fn parseAndCheckOrExit(
-    allocator: std.mem.Allocator,
-    io: std.Io,
-    source: []const u8,
-    file_path: []const u8,
-) !CheckedProgram {
-    var p = parser.Parser.init(allocator, source);
-    // NOTE: we intentionally do NOT deinit `p` here — the returned IR
-    // is allocated in its arena and must outlive this function. The
-    // caller's arena (in main) owns the parser's lifetime via the same
-    // top-level allocator.
-    const ir = p.parseProgram() catch {
-        p.printError();
-        std.process.exit(1);
-    };
-
-    var sema = try types.check(allocator, source, ir);
-    errdefer sema.deinit();
-
-    var eff = try effects.Checker.initWithSema(allocator, source, &sema);
-    defer eff.deinit();
-    try eff.check(ir);
-
-    var checker = try ownership.Checker.initWithSema(allocator, source, &sema);
-    defer checker.deinit();
-    try checker.check(ir);
-
-    if (sema.hasErrors() or eff.hasErrors() or checker.hasErrors()) {
-        var stderr_buffer: [4096]u8 = undefined;
-        var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
-        const ew: *std.Io.Writer = &stderr_writer.interface;
-        try sema.writeDiagnostics(file_path, ew);
-        try eff.writeDiagnostics(file_path, ew);
-        try checker.writeDiagnostics(file_path, ew);
-        try ew.flush();
-        std.process.exit(1);
-    }
-
-    return .{ .ir = ir, .sema = sema };
-}
-
-/// Load + check the project rooted at `file_path` via the module
-/// graph driver. Aborts with exit 1 if any error diagnostics are
-/// produced (parse, sema, effects, ownership, cycles, missing files).
-/// Returns the loaded graph; caller must `deinit`.
-fn loadProjectOrExit(
-    allocator: std.mem.Allocator,
-    io: std.Io,
-    file_path: []const u8,
-) !modules.ModuleGraph {
-    // M15 v1: paths are kept as-given. The root file's path is used
-    // verbatim; imports are resolved as `dirname(importer) + name.rig`
-    // via `std.fs.path.resolve`. Same-dir-only imports + same-string
-    // dedup is enough for the simple case. (Zig 0.16's stdlib doesn't
-    // expose a portable `realpath` / `getcwd`; M15b can canonicalize
-    // once we settle on an OS-portable approach.)
-    var graph = modules.ModuleGraph.init(allocator, io);
-    errdefer graph.deinit();
-
-    _ = graph.loadRoot(file_path) catch |err| {
-        std.debug.print("error: failed to load `{s}`: {}\n", .{ file_path, err });
-        std.process.exit(1);
-    };
-
-    if (graph.hasErrors()) {
-        var stderr_buffer: [4096]u8 = undefined;
-        var stderr_writer = std.Io.File.stderr().writer(io, &stderr_buffer);
-        const ew: *std.Io.Writer = &stderr_writer.interface;
-        try graph.writeAllDiagnostics(ew);
-        try ew.flush();
-        std.process.exit(1);
-    }
-
-    return graph;
-}
-
-/// Emit all modules in the graph to a temp directory. Returns the
-/// path to the ROOT module's emitted .zig (suitable for `zig run`).
-fn emitProjectToTmp(
-    allocator: std.mem.Allocator,
-    io: std.Io,
-    graph: *modules.ModuleGraph,
-) ![]const u8 {
-    // Pick a temp dir based on the root module's name.
-    const root = &graph.modules.items[1]; // module 1 is always root
-    var tmpdir_buf: [256]u8 = undefined;
-    const tmpdir = std.fmt.bufPrint(&tmpdir_buf, "/tmp/rig_{s}", .{root.name}) catch "/tmp/rig_out";
-
-    // Make the dir (best-effort; exists is fine).
-    std.Io.Dir.cwd().createDir(io, tmpdir, .default_dir) catch |e| switch (e) {
-        error.PathAlreadyExists => {},
-        else => {
-            std.debug.print("error: cannot create {s}: {}\n", .{ tmpdir, e });
-            std.process.exit(1);
+    switch (opts.command) {
+        .tokens, .parse, .normalize => {
+            const source = std.Io.Dir.cwd().readFileAlloc(io, opts.path, allocator, .limited(modules.max_source_bytes)) catch |err|
+                fatal("error: cannot read `{s}`: {s}", .{ opts.path, @errorName(err) });
+            switch (opts.command) {
+                .tokens => dumpTokens(source),
+                .parse => try printTree(allocator, io, opts.path, source, .raw),
+                .normalize => try printTree(allocator, io, opts.path, source, .semantic),
+                else => unreachable,
+            }
         },
-    };
-
-    // M20d: write the Rig runtime as a sibling file. Every emitted
-    // module's prelude includes `const rig = @import("_runtime.zig");`
-    // so they all resolve relative to this directory. Per GPT-5.5's
-    // M20d design pass: keep it as a plain sibling file, no package
-    // machinery. Unconditional write — top-level unused namespace
-    // imports are fine in Zig.
-    {
-        const runtime_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ tmpdir, runtime.filename });
-        const rf = std.Io.Dir.cwd().createFile(io, runtime_path, .{}) catch |err| {
-            std.debug.print("error creating {s}: {}\n", .{ runtime_path, err });
-            std.process.exit(1);
-        };
-        defer rf.close(io);
-
-        var rt_buffer: [4096]u8 = undefined;
-        var rt_writer = rf.writer(io, &rt_buffer);
-        const rw: *std.Io.Writer = &rt_writer.interface;
-        try rw.writeAll(runtime.source);
-        try rw.flush();
-    }
-
-    var root_path: []const u8 = "";
-
-    for (graph.modules.items[1..]) |*m| {
-        // Defensive: only emit modules that actually loaded. Callers
-        // gate on `graph.hasErrors()` before reaching here, but skip
-        // failed modules so a regression in that gate can't crash emit.
-        if (m.state != .loaded) continue;
-        const sema = m.sema orelse continue;
-
-        const out_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ tmpdir, m.out_basename });
-
-        const f = std.Io.Dir.cwd().createFile(io, out_path, .{}) catch |err| {
-            std.debug.print("error creating {s}: {}\n", .{ out_path, err });
-            std.process.exit(1);
-        };
-        defer f.close(io);
-
-        var file_buffer: [4096]u8 = undefined;
-        var file_writer = f.writer(io, &file_buffer);
-        const w: *std.Io.Writer = &file_writer.interface;
-
-        var em = emit.Emitter.initWithSema(allocator, m.source, w, sema);
-        defer em.deinit();
-        try em.emit(m.ir);
-        try w.flush();
-
-        if (m.id == 1) root_path = out_path;
-    }
-
-    return root_path;
-}
-
-fn buildAndEmit(allocator: std.mem.Allocator, io: std.Io, file_path: []const u8) !void {
-    var graph = try loadProjectOrExit(allocator, io, file_path);
-    defer graph.deinit();
-
-    // Single-file project: emit to stdout (preserves M0–M14 behavior).
-    // Multi-file project: emit all to a temp dir AND echo the root's
-    // Zig to stdout, with a note pointing at the dir.
-    const root = &graph.modules.items[1];
-    const has_imports = root.imports.items.len > 0;
-
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
-    const w: *std.Io.Writer = &stdout_writer.interface;
-
-    if (!has_imports) {
-        const sema = root.sema orelse {
-            std.debug.print("internal error: root module missing sema\n", .{});
-            std.process.exit(1);
-        };
-        var em = emit.Emitter.initWithSema(allocator, root.source, w, sema);
-        defer em.deinit();
-        try em.emit(root.ir);
-    } else {
-        // Multi-module: emit all to a tmp dir; print the root path so
-        // the user can find it. (Single-file behavior — emitting to
-        // stdout — doesn't generalize to a multi-file project.)
-        const root_path = try emitProjectToTmp(allocator, io, &graph);
-        std.debug.print("project emitted to {s}\nroot: {s}\n", .{
-            std.fs.path.dirname(root_path) orelse "/tmp",
-            root_path,
-        });
-    }
-    try w.flush();
-}
-
-fn buildAndRun(allocator: std.mem.Allocator, io: std.Io, file_path: []const u8) !void {
-    var graph = try loadProjectOrExit(allocator, io, file_path);
-    defer graph.deinit();
-
-    const root_path = try emitProjectToTmp(allocator, io, &graph);
-
-    const argv = [_][]const u8{ "zig", "run", root_path };
-    var child = try std.process.spawn(io, .{
-        .argv = &argv,
-        .stdin = .inherit,
-        .stdout = .inherit,
-        .stderr = .inherit,
-    });
-    const term = try child.wait(io);
-    switch (term) {
-        .exited => |code| if (code != 0) {
-            std.debug.print("note: project emitted to {s}\n", .{std.fs.path.dirname(root_path) orelse "/tmp"});
-            std.process.exit(code);
+        .check => {
+            var graph = try loadProject(allocator, io, opts.path);
+            defer graph.deinit();
         },
-        else => std.process.exit(1),
+        .emit => try emitCommand(allocator, io, env, opts.path),
+        .run => try runCommand(allocator, io, env, opts),
+        .build => try buildCommand(allocator, io, env, opts),
+        .@"test" => try testCommand(allocator, io, env, opts),
     }
 }
 
-fn makeTmpPath(buf: []u8, rig_path: []const u8) []const u8 {
-    var start: usize = 0;
-    for (rig_path, 0..) |c, i| {
-        if (c == '/' or c == '\\') start = i + 1;
+fn parseArgs(args: []const []const u8) Options {
+    var command: ?Command = null;
+    var path: ?[]const u8 = null;
+    var mode: Mode = .debug;
+    var out_path: ?[]const u8 = null;
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (eql(arg, "-h") or eql(arg, "--help") or eql(arg, "help")) {
+            std.debug.print("{s}", .{usage});
+            std.process.exit(0);
+        } else if (eql(arg, "--version") or eql(arg, "version")) {
+            std.debug.print("rig {s}\n", .{build_options.version});
+            std.process.exit(0);
+        } else if (eql(arg, "--release") or eql(arg, "--release=safe")) {
+            mode = .safe;
+        } else if (eql(arg, "--release=fast")) {
+            mode = .fast;
+        } else if (eql(arg, "-o")) {
+            i += 1;
+            if (i == args.len) usageError("-o needs a path", .{});
+            out_path = args[i];
+        } else if (arg.len > 1 and arg[0] == '-') {
+            usageError("unknown option `{s}`", .{arg});
+        } else if (command == null) {
+            command = std.meta.stringToEnum(Command, arg) orelse usageError("unknown command `{s}`", .{arg});
+        } else if (path == null) {
+            path = arg;
+        } else {
+            usageError("unexpected argument `{s}`", .{arg});
+        }
     }
-    var base = rig_path[start..];
-    if (base.len > 4 and std.mem.eql(u8, base[base.len - 4 ..], ".rig")) {
-        base = base[0 .. base.len - 4];
-    }
-    const prefix = "/tmp/rig_";
-    const suffix = ".zig";
-    if (prefix.len + base.len + suffix.len > buf.len) return "/tmp/_rig_out.zig";
-    @memcpy(buf[0..prefix.len], prefix);
-    @memcpy(buf[prefix.len..][0..base.len], base);
-    @memcpy(buf[prefix.len + base.len ..][0..suffix.len], suffix);
-    return buf[0 .. prefix.len + base.len + suffix.len];
+    const cmd = command orelse {
+        std.debug.print("{s}", .{usage});
+        std.process.exit(2);
+    };
+    if (mode != .debug and cmd != .run and cmd != .build and cmd != .@"test")
+        usageError("`--release` applies to run, build, and test", .{});
+    if (out_path != null and cmd != .build) usageError("`-o` applies to build", .{});
+    return .{
+        .command = cmd,
+        .path = path orelse usageError("`rig {s}` needs a .rig file", .{@tagName(cmd)}),
+        .mode = mode,
+        .out_path = out_path,
+    };
+}
+
+fn eql(a: []const u8, b: []const u8) bool {
+    return std.mem.eql(u8, a, b);
+}
+
+fn usageError(comptime fmt: []const u8, args: anytype) noreturn {
+    std.debug.print("error: " ++ fmt ++ "\nRun `rig --help` for usage.\n", args);
+    std.process.exit(2);
+}
+
+fn fatal(comptime fmt: []const u8, args: anytype) noreturn {
+    std.debug.print(fmt ++ "\n", args);
+    std.process.exit(1);
 }
 
 fn dumpTokens(source: []const u8) void {
     var lexer = rig.Lexer.init(source);
     var i: u32 = 0;
-    while (true) {
+    while (true) : (i += 1) {
         const tok = lexer.next();
-        const text = if (tok.len > 0) source[tok.pos..][0..tok.len] else "";
-        std.debug.print("{d:3}: {s:15} pre={d} pos={d} len={d} \"{s}\"\n", .{
-            i, @tagName(tok.cat), tok.pre, tok.pos, tok.len, text,
-        });
-        if (tok.cat == .eof) break;
-        i += 1;
+        const lc = diag.lineCol(source, tok.pos);
+        std.debug.print("{d:4} {d}:{d} {s:15} \"{s}\"\n", .{ i, lc.line, lc.col, @tagName(tok.cat), lexer.text(tok) });
+        if (tok.cat == .eof or tok.cat == .err) break;
     }
+}
+
+/// Print the parse tree (`raw`: grammar output only) or the semantic IR.
+fn printTree(allocator: std.mem.Allocator, io: std.Io, path: []const u8, source: []const u8, stage: enum { raw, semantic }) !void {
+    var p = parser.Parser.init(allocator, source);
+    defer p.deinit();
+    const tree = switch (stage) {
+        .raw => p.parseTree(),
+        .semantic => p.parseProgram(),
+    } catch |err| switch (err) {
+        error.ParseError => {
+            const d = p.diagnostic();
+            const lc = diag.lineCol(source, d.pos);
+            fatal("{s}:{d}:{d}: error: {s}", .{ path, lc.line, lc.col, d.message });
+        },
+        else => return err,
+    };
+
+    if (stage == .semantic) ir.assertValid(tree, source, path);
+
+    var buffer: [4096]u8 = undefined;
+    var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
+    try tree.write(source, &writer.interface);
+    try writer.interface.writeAll("\n");
+    try writer.interface.flush();
+}
+
+/// Load and check the project rooted at `path`; print every diagnostic
+/// and exit 1 if there are errors.
+fn loadProject(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !modules.ModuleGraph {
+    var graph = modules.ModuleGraph.init(allocator, io);
+    errdefer graph.deinit();
+    try graph.loadRoot(path);
+
+    var buffer: [4096]u8 = undefined;
+    var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
+    try graph.writeAllDiagnostics(&writer.interface);
+    try writer.interface.flush();
+    if (graph.hasErrors()) std.process.exit(1);
+    return graph;
+}
+
+/// `rig emit`: the root module's Zig on stdout; the whole package
+/// (imports and runtime) is written to the output directory.
+fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const u8) !void {
+    var graph = try loadProject(allocator, io, path);
+    defer graph.deinit();
+    const pkg = try emitPackage(allocator, io, env, &graph);
+
+    var buffer: [4096]u8 = undefined;
+    var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
+    try writer.interface.writeAll(pkg.root_source);
+    try writer.interface.flush();
+    std.debug.print("note: the package (every module and the runtime, {s}) is in {s}\n", .{ runtime.filename, pkg.dir });
+}
+
+fn runCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options) !void {
+    var graph = try loadProject(allocator, io, opts.path);
+    defer graph.deinit();
+    requireMain(&graph);
+    const pkg = try emitPackage(allocator, io, env, &graph);
+    const code = try runZig(io, &.{ env.zig(), "run", opts.mode.zigFlag(), pkg.root_zig });
+    if (code != 0) {
+        std.debug.print("note: emitted Zig is in {s}\n", .{pkg.dir});
+        std.process.exit(code);
+    }
+}
+
+fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options) !void {
+    var graph = try loadProject(allocator, io, opts.path);
+    defer graph.deinit();
+    requireMain(&graph);
+    const pkg = try emitPackage(allocator, io, env, &graph);
+    const out = opts.out_path orelse try std.fmt.allocPrint(allocator, "{s}", .{graph.root().name});
+    const emit_bin = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{out});
+    const code = try runZig(io, &.{ env.zig(), "build-exe", opts.mode.zigFlag(), pkg.root_zig, emit_bin });
+    if (code != 0) {
+        std.debug.print("note: emitted Zig is in {s}\n", .{pkg.dir});
+        std.process.exit(code);
+    }
+}
+
+/// `rig test`: a driver module next to the emitted ones runs the
+/// `__rig_tests` table of every module (see `rig.runTests`).
+fn testCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options) !void {
+    var graph = try loadProject(allocator, io, opts.path);
+    defer graph.deinit();
+    const pkg = try emitPackage(allocator, io, env, &graph);
+
+    var driver: std.Io.Writer.Allocating = .init(allocator);
+    const w = &driver.writer;
+    try w.print(
+        \\const rig = @import("{s}");
+        \\
+        \\pub const panic = rig.panic;
+        \\
+    , .{runtime.filename});
+    if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
+    try w.writeAll(
+        \\
+        \\fn testsOf(comptime module: type) []const rig.Test {
+        \\    return if (@hasDecl(module, "__rig_tests")) &module.__rig_tests else &.{};
+        \\}
+        \\
+        \\pub fn main() void {
+        \\    rig.runTests(&.{
+        \\
+    );
+    for (graph.modules.items, 0..) |m, i| {
+        try w.print("        .{{ .module = \"{s}\", .tests = testsOf(@import(\"{s}\")) }},\n", .{ if (i == 0) "" else m.name, m.out_basename });
+    }
+    try w.writeAll("    });\n}\n");
+    const driver_path = try std.fs.path.join(allocator, &.{ pkg.dir, test_driver });
+    try writeFile(io, driver_path, driver.written());
+
+    const code = try runZig(io, &.{ env.zig(), "run", opts.mode.zigFlag(), driver_path });
+    if (code != 0) std.process.exit(code);
+}
+
+const test_driver = "__rig_test.zig";
+
+fn requireMain(graph: *modules.ModuleGraph) void {
+    if (!declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
+}
+
+/// Run the Zig toolchain with inherited stdio; return its exit code
+/// (128 + the signal number if a signal ended it).
+fn runZig(io: std.Io, argv: []const []const u8) !u8 {
+    var child = std.process.spawn(io, .{
+        .argv = argv,
+        .stdin = .inherit,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    }) catch |err| switch (err) {
+        error.FileNotFound => fatal("error: cannot run `{s}`: install Zig 0.16 and put it on PATH, or set ZIG", .{argv[0]}),
+        else => return err,
+    };
+    return switch (try child.wait(io)) {
+        .exited => |code| code,
+        .signal => |sig| 128 +| @as(u8, @truncate(@intFromEnum(sig))),
+        else => 1,
+    };
+}
+
+fn declaresMain(m: *const modules.Module) bool {
+    if (m.ir != .list) return false;
+    for (m.ir.list[1..]) |top| {
+        var decl = top;
+        if (decl == .list and decl.list.len == 2 and decl.list[0] == .tag and decl.list[0].tag == .@"pub") decl = decl.list[1];
+        if (decl != .list or decl.list.len < 2 or decl.list[0] != .tag) continue;
+        if (decl.list[0].tag != .@"sub" and decl.list[0].tag != .@"fun") continue;
+        if (std.mem.eql(u8, decl.list[1].getText(m.source), "main")) return true;
+    }
+    return false;
+}
+
+const Package = struct {
+    /// The output directory.
+    dir: []const u8,
+    /// The root module's `.zig` file, and its contents.
+    root_zig: []const u8,
+    root_source: []const u8,
+};
+
+/// Write the runtime and every module to the output directory. With
+/// `RIG_LEAK_TRACE` set, the root module asks the runtime for
+/// stack-trace leak reports.
+fn emitPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *modules.ModuleGraph) !Package {
+    const dir = try outputDir(allocator, io, env, graph.root());
+
+    try writeFile(io, try std.fs.path.join(allocator, &.{ dir, runtime.filename }), runtime.source);
+
+    var root_source: []const u8 = "";
+    for (graph.modules.items, 0..) |*m, i| {
+        var file_buffer: std.Io.Writer.Allocating = .init(allocator);
+        var em = emit.Emitter.init(allocator, m.source, &file_buffer.writer, m.sema);
+        defer em.deinit();
+        try em.emit(m.ir);
+        if (i == 0 and env.leakTrace()) try file_buffer.writer.writeAll("\npub const __rig_leak_trace = true;\n");
+        try writeFile(io, try std.fs.path.join(allocator, &.{ dir, m.out_basename }), file_buffer.written());
+        if (i == 0) root_source = file_buffer.written();
+    }
+    return .{
+        .dir = dir,
+        .root_zig = try std.fs.path.join(allocator, &.{ dir, graph.root().out_basename }),
+        .root_source = root_source,
+    };
+}
+
+fn writeFile(io: std.Io, path: []const u8, contents: []const u8) !void {
+    const cwd = std.Io.Dir.cwd();
+    if (std.fs.path.dirname(path)) |parent| {
+        cwd.createDirPath(io, parent) catch |err| fatal("error: cannot create `{s}`: {s}", .{ parent, @errorName(err) });
+    }
+    cwd.writeFile(io, .{ .sub_path = path, .data = contents }) catch |err|
+        fatal("error: cannot write `{s}`: {s}", .{ path, @errorName(err) });
+}
+
+/// `$RIG_OUT_DIR` when set (used as is). Otherwise a directory private to
+/// this user and project under the cache home, emptied before each emit
+/// so it holds exactly the current program.
+fn outputDir(allocator: std.mem.Allocator, io: std.Io, env: Env, root: *const modules.Module) ![]const u8 {
+    if (env.get("RIG_OUT_DIR")) |dir| return dir;
+
+    const base = if (env.get("XDG_CACHE_HOME")) |x|
+        try std.fs.path.join(allocator, &.{ x, "rig" })
+    else if (env.get("HOME")) |home|
+        try std.fs.path.join(allocator, &.{ home, ".cache", "rig" })
+    else
+        fatal("error: set RIG_OUT_DIR, XDG_CACHE_HOME, or HOME for emitted Zig", .{});
+
+    const project = try std.fmt.allocPrint(allocator, "{s}-{x:0>16}", .{ root.name, std.hash.Wyhash.hash(0, root.path) });
+    const dir = try std.fs.path.join(allocator, &.{ base, project });
+    std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    return dir;
 }

@@ -1,0 +1,24 @@
+# A value-position match mixing single-expression and multi-statement arms.
+
+enum Op
+  zero
+  square
+  cube
+
+fun apply(op: Op, x: Int) -> Int
+  match op
+    .zero => 0
+    .square => x * x
+    .cube
+      sq: Int = x * x
+      sq * x
+
+sub main()
+  print(apply(.zero, 5))
+  print(apply(.square, 5))
+  print(apply(.cube, 3))
+
+# expect:
+# 0
+# 25
+# 27

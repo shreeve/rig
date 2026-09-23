@@ -1,0 +1,13 @@
+# Module-level bindings are not supported yet: values are bound inside
+# functions.
+
+k = if true
+  1
+else
+  2
+
+sub main()
+  n = 5
+  print(n)
+
+# error: module-level bindings are not supported yet

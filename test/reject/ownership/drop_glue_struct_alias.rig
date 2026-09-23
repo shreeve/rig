@@ -1,0 +1,12 @@
+# A struct with a resource field has drop glue, so a bare alias
+# (`o2 = o1`) is rejected: both bindings would run the destructor.
+
+struct Owner
+  cell: *Cell(Int)
+
+sub main()
+  o1 = Owner(cell: *Cell(value: 0))
+  o2 = o1
+  print(o2.cell.get())
+
+# error: bare use of `Owner` value `o1` in binding would alias an owning value

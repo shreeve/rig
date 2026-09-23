@@ -1,0 +1,30 @@
+# An inferred instance is checked like a spelled one: each type
+# parameter needs a value to come from, the values must agree, and the
+# instance must meet the generic body's requirements and the built-in
+# generics' element rules.
+
+type Same(T)
+  a: T
+  b: T
+
+type Adder(T)
+  v: T
+
+  fun next(?self) -> T
+    self.v + 1
+
+struct Plain
+  n: Int
+
+sub main()
+  x = Same(a: none, b: none)
+  v = Vec()
+  y = Same(a: 1, b: "two")
+  z = Adder(v: "s")
+  c = Cell(value: Plain(n: 1))
+
+# error: cannot infer `T` for `Same` from the arguments
+# error: `Vec()` needs its element type from where it goes
+# error: type mismatch: expected `Int`, got `String`
+# error: `Adder(String)` cannot use `T = String`
+# error: `Cell(T)` requires `T` to be a Copy primitive

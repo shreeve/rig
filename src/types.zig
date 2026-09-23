@@ -1,53 +1,79 @@
-//! Rig Sema / Type Checker (M5).
+//! Semantic analysis: names, types, and expression checking.
 //!
-//! Pipeline slot: parse → normalize → **sema (this file)** → ownership/effects → emit.
+//! `check` runs four passes over the normalized IR and returns a
+//! `SemContext`, which every later pass (effects, ownership, emit)
+//! reads:
 //!
-//! `SemContext` is the central semantic structure produced by `check()`
-//! and consumed by every later pass. Stable IDs (`SymbolId`, `ScopeId`,
-//! `TypeId`) replace name-based lookup so:
+//!   1. builtins     `sema_builtins.zig`  Cell, Vec, Signal
+//!   2. symbols      `sema_decls.zig`     every declaration gets a Symbol in
+//!                                        a Scope; scopes are keyed by the IR
+//!                                        node that opens them
+//!   3. declarations `sema_decls.zig`     type expressions become TypeIds;
+//!                                        signatures, fields, variants, aliases
+//!   4. expressions  `sema_expr.zig`      bodies are type-checked; every
+//!                                        expression's type is recorded
 //!
-//!   - ownership tracks `SymbolId`s, not name strings (no more shadow
-//!     ambiguity in lookup);
-//!   - emitter consults symbol facts (no more name-based mutation scan);
-//!   - diagnostics can point at both use site and declaration;
-//!   - M5/M6 modules and generics won't require reshaping the data.
+//! ## The facts table
 //!
-//! M5 v1 scope (per GPT-5.5 design pass):
+//! Sema records what it learned about each IR node so later passes can
+//! ask instead of re-deriving it by name:
 //!
-//!   1. Symbol resolution — functions / params / locals / type aliases.
-//!   2. Type expression resolution — `(error_union T)` / `(optional T)`
-//!      / `(borrow_read T)` / `(slice T)` etc. Sexp → `TypeId`.
-//!   3. Conservative local synthesis for expressions. Function
-//!      boundaries authoritative. `if` arms must unify exactly. Numeric
-//!      literals default to canonical `Int` / `Float`. No
-//!      Hindley-Milner, no bidirectional, no coercion lattice.
-//!   4. Annotations required for ambiguous untyped bindings
-//!      (`x = []`, `x = none`, `x = .Foo` all error without context).
+//!   ctx.symbolOf(leaf)   -> ?SymbolId  the symbol an identifier leaf names,
+//!                                      at its declaration or any use site
+//!   ctx.typeOf(node)     -> ?TypeId    the type of an expression node
+//!                                      (literals get the type their context
+//!                                      gave them, e.g. `U8` in `x: U8 = 5`)
+//!   ctx.bindingTypeOf(leaf) -> ?TypeId the declared/inferred type of the
+//!                                      symbol a leaf names
+//!   ctx.scopeOf(node)    -> ?ScopeId   the scope a fun/sub/method/lambda/
+//!                                      block/for/arm/catch node opens
+//!   ctx.isExhaustive(match) -> bool   the match's arms cover every value
+//!                                      without a default arm
+//!   ctx.callSlotsOf(call) -> ?[]ArgSlot for a call with keyword or
+//!                                      omitted arguments: which argument
+//!                                      (or default value) fills each
+//!                                      parameter, in parameter order
 //!
-//! THIS COMMIT: skeleton only. Defines all the IDs / enums / context
-//! shape and lands `pub fn check(allocator, source, ir) !SemContext`
-//! that does nothing (returns an empty context). Subsequent commits
-//! fill in the passes.
+//! A call's callee gets a type too: a function name its signature, and a
+//! method callee `(member obj m)` the resolved method signature with the
+//! receiver's generic arguments applied. The name leaf of every `fun` /
+//! `sub` declaration, method or not, carries its function type. Binding
+//! facts live on the Symbol: `flags.reassigned`, `flags.written`,
+//! `flags.fixed`,
+//! `flags.comptime_known`, `flags.pattern_bound`, `kind` (local / param /
+//! capture / ...), and for a capture the `origin` binding it captures.
+//!
+//! Leaves are keyed by source position (`src.pos`); list nodes by the
+//! identity of their item slice (`NodeKey`), which is stable because
+//! every pass walks the same IR tree that was passed to `check`. A node
+//! that sema never reached (dead code after an error, type positions)
+//! has no entry; callers treat `null` as "no information".
+//!
+//! Types are interned in `TypeStore`, so two TypeIds are the same type
+//! iff they are equal. `unknown` and `invalid` are poison: they appear
+//! only after a diagnostic has been reported and are compatible with
+//! everything so one mistake doesn't cascade.
 
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+pub const diag = @import("diag.zig");
+const builtins = @import("sema_builtins.zig");
+const decls = @import("sema_decls.zig");
+const exprs = @import("sema_expr.zig");
 
 const Sexp = parser.Sexp;
 const Tag = rig.Tag;
 
 // =============================================================================
-// Stable IDs
+// IDs
 // =============================================================================
-//
-// `u32` everywhere — we'll never have 4G symbols/types/scopes in a single
-// compilation unit, and `u32` keeps SemContext compact. `0` is reserved
-// for "invalid / sentinel" so callers can use `id != 0` as a quick check.
 
 pub const SymbolId = u32;
 pub const ScopeId = u32;
 pub const TypeId = u32;
 
+/// Slot 0 of every table is a sentinel, so `id != 0` means "valid".
 pub const symbol_invalid: SymbolId = 0;
 pub const scope_invalid: ScopeId = 0;
 pub const type_invalid: TypeId = 0;
@@ -57,34 +83,35 @@ pub const type_invalid: TypeId = 0;
 // =============================================================================
 
 pub const IntInfo = struct {
-    /// `0` for unsized / arch-default `Int`. Specific widths use 8/16/32/64.
+    /// 0 for `Int` (64-bit signed); otherwise 8/16/32/64.
     bits: u8 = 0,
     signed: bool = true,
 };
 
 pub const FloatInfo = struct {
-    /// `0` for unsized / arch-default `Float`. Specific widths use 32/64.
+    /// 0 for `Float` (64-bit); otherwise 32/64.
     bits: u8 = 0,
 };
 
 pub const FunctionType = struct {
-    /// Slice into `SemContext.fn_param_types` — borrowed, not owned.
     params: []const TypeId,
     returns: TypeId,
-    is_sub: bool, // sub: no return value (returns == void)
+    is_sub: bool,
+    /// Bit i set: parameter i is a `pre` (compile-time) parameter.
+    pre_mask: u32 = 0,
+
+    pub fn isPre(self: FunctionType, i: usize) bool {
+        return i < 32 and (self.pre_mask >> @intCast(i)) & 1 == 1;
+    }
 };
 
 pub const SliceType = struct { elem: TypeId };
 pub const ArrayType = struct { elem: TypeId, len: u64 };
 
-/// Tagged union of all Rig types. Sized intentionally small — heavier
-/// data (function param lists) lives in side-tables in `SemContext`.
 pub const Type = union(enum) {
-    /// Sentinel for "type checking failed here" — propagates without
-    /// further error spam at downstream use sites.
+    /// A type error was reported here.
     invalid,
-    /// Used for placeholders during inference / declaration ordering.
-    /// Should never escape the checker.
+    /// Not known; only ever produced after a diagnostic.
     unknown,
 
     void,
@@ -93,157 +120,122 @@ pub const Type = union(enum) {
     int: IntInfo,
     float: FloatInfo,
 
-    /// Pseudo-types for unconstrained numeric literals (`1`, `2.5`).
-    /// Adapt to a concrete `int`/`float` at known use sites (assignment
-    /// to declared type, call arg to typed param, return value, etc.).
-    /// Without context, default to canonical `Int` / `Float`.
-    ///
-    /// This is the M5 v1 minimum that makes `x: U8 = 0` work without
-    /// adding a general coercion lattice — only literals adapt; named
-    /// values don't widen across sized integer types.
+    /// Unsuffixed numeric literals. They take the numeric type their
+    /// context expects and default to `Int` / `Float` otherwise.
     int_literal,
     float_literal,
+    /// `none` before its context gives it an optional type.
+    none_literal,
+    /// Expressions that never complete: `return`, `break`, `continue`.
+    noreturn,
+    /// Any error value: what `catch |err|` binds. Functions do not
+    /// declare which errors they fail with, so the error a failed call
+    /// produced may belong to any error set.
+    any_error,
 
-    optional: TypeId,      // T?  → optional T
-    fallible: TypeId,      // T!  → error_union T
-    borrow_read: TypeId,   // ?T  → read-borrowed T
-    borrow_write: TypeId,  // !T  → write-borrowed T
-
-    /// M20d: `*T` shared / `Rc<T>` handle. Strict structural equality
-    /// per GPT-5.5's design pass — `*User != User`, `*User != *Owner`,
-    /// `*User != ~User`. No wildcard or coercion behavior; the only way
-    /// to bridge `*T → T`-shaped APIs is the read-only auto-deref that
-    /// lands in M20d(4/5), and even then write/value receivers are
-    /// rejected (interior mutation belongs in `Cell(T)`, M20+ item #7).
-    shared: TypeId,        // *T  → shared T (Rc<T>)
-    /// M20d: `~T` weak handle paired with `*T`. Strict structural
-    /// equality. The runtime `.upgrade()` method returns
-    /// `optional(shared(T))` i.e. `*T?` (built-in optional, NOT the
-    /// user-defined `Option(*T)` — that desugar is a separate, strongly
-    /// deferred milestone). At sema-typing time `(weak x)` in expression
-    /// position requires `x: shared(T)` and types as `weak(T)`.
-    weak: TypeId,          // ~T  → weak T (Weak<T>)
+    optional: TypeId, // T?
+    fallible: TypeId, // T!
+    borrow_read: TypeId, // ?T
+    borrow_write: TypeId, // !T
+    shared: TypeId, // *T
+    weak: TypeId, // ~T
 
     slice: SliceType,
     array: ArrayType,
+    /// `a..b`: a half-open range of the element integer type. Only valid
+    /// as a `for` source.
+    range: TypeId,
 
     function: FunctionType,
-    /// Reference to a named declaration (struct, enum, type alias,
-    /// generic-type DECLARATION). The actual definition lives at
-    /// `SemContext.symbols[symbol]`.
+    /// A struct, enum, error set, or opaque declared in this module.
     nominal: SymbolId,
-
-    /// M15b: an imported nominal from another module. Carries the
-    /// origin module's id + the foreign symbol id. Per GPT-5.5 entry
-    /// 39's M15b architecture call: nominal identity is `{module_id,
-    /// sym_id}`, not structural — `a.Box` and `b.Box` are different
-    /// types even if their fields are identical (nominal-by-name is
-    /// not nominal-by-shape). Imported nominals are accessed by
-    /// helpers that walk `ctx.foreign_semas` to read the foreign
-    /// symbol's fields/methods.
+    /// A nominal declared in another module. Identity is the origin
+    /// module plus the symbol there, never the shape.
     imported_nominal: ImportedNominal,
-
-    /// M20b(2/5): a fully-applied generic type instantiation. `sym`
-    /// points at the generic_type Symbol (e.g., `Box`); `args` are
-    /// the type arguments in declaration order (e.g., `[Int]` for
-    /// `Box(Int)`). The interner deduplicates by structure so
-    /// `Box(Int)` always returns the same TypeId. `args` is owned
-    /// by the SemContext arena.
+    /// A generic type applied to arguments: `Box(Int)`.
     parameterized_nominal: ParamNominal,
-
-    /// M20b(2/5): a generic type parameter reference. `SymbolId`
-    /// points at a `.generic_param` Symbol bound by SymbolResolver
-    /// when walking a generic type's body. Substituted away by
-    /// `substituteType` at use sites; should never escape into
-    /// resolved expression types after substitution.
+    /// A generic parameter (`T` inside `type Box(T)`).
     type_var: SymbolId,
 };
 
-/// M20b(2/5): a fully-applied generic type instantiation.
 pub const ParamNominal = struct {
     sym: SymbolId,
     args: []const TypeId,
 };
 
-/// M15b per GPT-5.5 entry 39: identity for a nominal type imported
-/// from another module. `module_id` is the origin module's id (as
-/// assigned by the ModuleGraph driver); `sym_id` is the foreign
-/// symbol id of the nominal declaration in the origin module's
-/// SemContext. Type equality is `(module_id, sym_id)` pairwise —
-/// `a.Box` and `b.Box` never compare equal, and the importer never
-/// loses track of which file declared a type. Foreign field/method
-/// lookup goes through `ctx.foreign_semas[module_id]`.
 pub const ImportedNominal = struct {
     module_id: u32,
     sym_id: SymbolId,
 };
 
-/// M15b: imported-module descriptor passed from the ModuleGraph to
-/// `types.checkWithImports`. The driver builds one `ImportEntry`
-/// per resolved `use NAME` declaration in the importing module.
-///
-/// The `sema` pointer must outlive the importer's SemContext (the
-/// ModuleGraph allocates per-module SemContexts on the heap with
-/// pointer stability per `modules.zig:97-128`). `module_id` is the
-/// origin module's stable id, used as the canonical nominal-origin
-/// key (see `ImportedNominal`).
+/// One resolved `use NAME` of the module being checked. `sema` must
+/// outlive the importing SemContext.
 pub const ImportEntry = struct {
     local_name: []const u8,
     sema: *SemContext,
     module_id: u32,
 };
 
-/// Type interner. Ensures structural equality for atomic types
-/// (`int{32, true}` is always the same `TypeId`) and gives us O(1) lookup
-/// from id to definition. Composite types (function, slice, array,
-/// optional, fallible, borrow_*) are also interned by structure so
-/// identity comparison suffices for unification.
-///
-/// Backed by a `std.ArrayListUnmanaged(Type)` plus an inverse-lookup
-/// `std.AutoHashMapUnmanaged(TypeKey, TypeId)`. Since `Type` includes
-/// slices (function params), we hash the canonicalized representation
-/// when interning.
-///
-/// THIS COMMIT: empty store with primitives pre-interned at construction.
+/// Interns types so structural equality is TypeId equality. Lookup is
+/// a hash map keyed by the type's structure.
 pub const TypeStore = struct {
     items: std.ArrayListUnmanaged(Type) = .empty,
+    map: std.HashMapUnmanaged(TypeId, void, IdContext, std.hash_map.default_max_load_percentage) = .empty,
 
-    /// Pre-interned primitive `TypeId`s. Set by `init`; valid for the
-    /// store's lifetime. `0` is reserved as the invalid sentinel.
     invalid_id: TypeId = type_invalid,
     unknown_id: TypeId = type_invalid,
     void_id: TypeId = type_invalid,
     bool_id: TypeId = type_invalid,
     string_id: TypeId = type_invalid,
-    int_id: TypeId = type_invalid,           // unsized Int (arch default)
-    float_id: TypeId = type_invalid,         // unsized Float (arch default)
-    int_literal_id: TypeId = type_invalid,   // unconstrained int literal pseudo-type
-    float_literal_id: TypeId = type_invalid, // unconstrained float literal pseudo-type
+    int_id: TypeId = type_invalid,
+    float_id: TypeId = type_invalid,
+    int_literal_id: TypeId = type_invalid,
+    float_literal_id: TypeId = type_invalid,
+    none_id: TypeId = type_invalid,
+    noreturn_id: TypeId = type_invalid,
+    any_error_id: TypeId = type_invalid,
+
+    const IdContext = struct {
+        items: []const Type,
+        pub fn hash(self: IdContext, id: TypeId) u64 {
+            return hashType(self.items[id]);
+        }
+        pub fn eql(_: IdContext, a: TypeId, b: TypeId) bool {
+            return a == b;
+        }
+    };
+
+    const TypeContext = struct {
+        items: []const Type,
+        pub fn hash(_: TypeContext, t: Type) u64 {
+            return hashType(t);
+        }
+        pub fn eql(self: TypeContext, t: Type, id: TypeId) bool {
+            return typeEqual(t, self.items[id]);
+        }
+    };
 
     pub fn init(allocator: std.mem.Allocator) !TypeStore {
         var s: TypeStore = .{};
-        // Slot 0 is the invalid sentinel.
-        try s.items.append(allocator, .invalid);
-        s.invalid_id = 0;
-        s.unknown_id = try s.appendType(allocator, .unknown);
-        s.void_id = try s.appendType(allocator, .void);
-        s.bool_id = try s.appendType(allocator, .bool);
-        s.string_id = try s.appendType(allocator, .string);
-        s.int_id = try s.appendType(allocator, .{ .int = .{ .bits = 0, .signed = true } });
-        s.float_id = try s.appendType(allocator, .{ .float = .{ .bits = 0 } });
-        s.int_literal_id = try s.appendType(allocator, .int_literal);
-        s.float_literal_id = try s.appendType(allocator, .float_literal);
+        s.invalid_id = try s.intern(allocator, .invalid);
+        std.debug.assert(s.invalid_id == type_invalid);
+        s.unknown_id = try s.intern(allocator, .unknown);
+        s.void_id = try s.intern(allocator, .void);
+        s.bool_id = try s.intern(allocator, .bool);
+        s.string_id = try s.intern(allocator, .string);
+        s.int_id = try s.intern(allocator, .{ .int = .{} });
+        s.float_id = try s.intern(allocator, .{ .float = .{} });
+        s.int_literal_id = try s.intern(allocator, .int_literal);
+        s.float_literal_id = try s.intern(allocator, .float_literal);
+        s.none_id = try s.intern(allocator, .none_literal);
+        s.noreturn_id = try s.intern(allocator, .noreturn);
+        s.any_error_id = try s.intern(allocator, .any_error);
         return s;
     }
 
     pub fn deinit(self: *TypeStore, allocator: std.mem.Allocator) void {
+        self.map.deinit(allocator);
         self.items.deinit(allocator);
-    }
-
-    fn appendType(self: *TypeStore, allocator: std.mem.Allocator, ty: Type) !TypeId {
-        const id: TypeId = @intCast(self.items.items.len);
-        try self.items.append(allocator, ty);
-        return id;
     }
 
     pub fn get(self: *const TypeStore, id: TypeId) Type {
@@ -251,364 +243,345 @@ pub const TypeStore = struct {
         return self.items.items[id];
     }
 
-    /// Intern a composite type (or return existing id). Atomic types
-    /// (void, bool, string, etc.) should use the pre-interned `*_id`
-    /// fields directly, not this method, for hot-path efficiency.
-    ///
-    /// THIS COMMIT: simple linear-scan dedupe. Future commit will swap
-    /// to a hash-keyed lookup once we have a stable canonical hash.
+    /// Return the id of `ty`, adding it if new. Slices inside `ty`
+    /// (function params, generic args) must outlive the store.
     pub fn intern(self: *TypeStore, allocator: std.mem.Allocator, ty: Type) !TypeId {
-        for (self.items.items, 0..) |existing, i| {
-            if (typeEqual(existing, ty)) return @intCast(i);
+        const gop = try self.map.getOrPutContextAdapted(
+            allocator,
+            ty,
+            TypeContext{ .items = self.items.items },
+            IdContext{ .items = self.items.items },
+        );
+        if (gop.found_existing) return gop.key_ptr.*;
+        const id: TypeId = @intCast(self.items.items.len);
+        self.items.append(allocator, ty) catch |e| {
+            self.map.removeByPtr(gop.key_ptr);
+            return e;
+        };
+        gop.key_ptr.* = id;
+        return id;
+    }
+
+    fn hashType(t: Type) u64 {
+        var h = std.hash.Wyhash.init(0);
+        const tag: u8 = @intFromEnum(std.meta.activeTag(t));
+        h.update(&.{tag});
+        switch (t) {
+            .invalid, .unknown, .void, .bool, .string, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => {},
+            .int => |i| h.update(&.{ i.bits, @intFromBool(i.signed) }),
+            .float => |f| h.update(&.{f.bits}),
+            .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner| hashId(&h, inner),
+            .slice => |s| hashId(&h, s.elem),
+            .array => |a| {
+                hashId(&h, a.elem);
+                h.update(std.mem.asBytes(&a.len));
+            },
+            .function => |f| {
+                for (f.params) |p| hashId(&h, p);
+                hashId(&h, f.returns);
+                h.update(&.{@intFromBool(f.is_sub)});
+                h.update(std.mem.asBytes(&f.pre_mask));
+            },
+            .nominal, .type_var => |s| hashId(&h, s),
+            .imported_nominal => |n| {
+                hashId(&h, n.module_id);
+                hashId(&h, n.sym_id);
+            },
+            .parameterized_nominal => |pn| {
+                hashId(&h, pn.sym);
+                for (pn.args) |a| hashId(&h, a);
+            },
         }
-        return self.appendType(allocator, ty);
+        return h.final();
+    }
+
+    fn hashId(h: *std.hash.Wyhash, id: u32) void {
+        h.update(std.mem.asBytes(&id));
     }
 
     fn typeEqual(a: Type, b: Type) bool {
-        if (@as(std.meta.Tag(Type), a) != @as(std.meta.Tag(Type), b)) return false;
+        if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
         return switch (a) {
-            .invalid, .unknown, .void, .bool, .string,
-            .int_literal, .float_literal,
-            => true,
+            .invalid, .unknown, .void, .bool, .string, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => true,
             .int => |ai| ai.bits == b.int.bits and ai.signed == b.int.signed,
             .float => |af| af.bits == b.float.bits,
-            .optional => |ao| ao == b.optional,
-            .fallible => |af| af == b.fallible,
-            .borrow_read => |abr| abr == b.borrow_read,
-            .borrow_write => |abw| abw == b.borrow_write,
-            .shared => |as| as == b.shared,
-            .weak => |aw| aw == b.weak,
-            .slice => |as| as.elem == b.slice.elem,
-            .array => |aa| aa.elem == b.array.elem and aa.len == b.array.len,
-            .function => |af| blk: {
-                const bf = b.function;
-                if (af.is_sub != bf.is_sub) break :blk false;
-                if (af.returns != bf.returns) break :blk false;
-                if (af.params.len != bf.params.len) break :blk false;
-                for (af.params, bf.params) |ap, bp| if (ap != bp) break :blk false;
-                break :blk true;
-            },
-            .nominal => |an| an == b.nominal,
-            // M15b: imported nominals compare by (module_id, sym_id).
-            // Different modules with same-shaped types are NOT equal —
-            // nominal-by-name, not nominal-by-shape.
-            .imported_nominal => |an| blk: {
-                const bn = b.imported_nominal;
-                break :blk an.module_id == bn.module_id and an.sym_id == bn.sym_id;
-            },
-            .parameterized_nominal => |an| blk: {
-                const bn = b.parameterized_nominal;
-                if (an.sym != bn.sym) break :blk false;
-                if (an.args.len != bn.args.len) break :blk false;
-                for (an.args, bn.args) |ap, bp| if (ap != bp) break :blk false;
-                break :blk true;
-            },
-            .type_var => |an| an == b.type_var,
+            .optional => |x| x == b.optional,
+            .fallible => |x| x == b.fallible,
+            .borrow_read => |x| x == b.borrow_read,
+            .borrow_write => |x| x == b.borrow_write,
+            .shared => |x| x == b.shared,
+            .weak => |x| x == b.weak,
+            .range => |x| x == b.range,
+            .slice => |s| s.elem == b.slice.elem,
+            .array => |x| x.elem == b.array.elem and x.len == b.array.len,
+            .function => |af| af.is_sub == b.function.is_sub and
+                af.returns == b.function.returns and
+                af.pre_mask == b.function.pre_mask and
+                std.mem.eql(TypeId, af.params, b.function.params),
+            .nominal => |x| x == b.nominal,
+            .type_var => |x| x == b.type_var,
+            .imported_nominal => |x| x.module_id == b.imported_nominal.module_id and x.sym_id == b.imported_nominal.sym_id,
+            .parameterized_nominal => |x| x.sym == b.parameterized_nominal.sym and
+                std.mem.eql(TypeId, x.args, b.parameterized_nominal.args),
         };
     }
 };
 
 // =============================================================================
-// Symbols + Scopes
+// Symbols and scopes
 // =============================================================================
 
 pub const SymbolKind = enum {
-    /// Top-level fun/sub/lambda.
+    /// Top-level `fun` / `sub`.
     function,
-    /// Function parameter binding.
     param,
-    /// Block-local binding (`x = ...`, `new x = ...`, etc.).
+    /// Block-local binding: `x = ...`, `new x = ...`, loop and pattern
+    /// bindings, and `catch` names.
     local,
-    /// Type alias (`type UserId = Int`).
+    /// `type UserId = Int`. Transparent: the alias's `ty` is its target.
     type_alias,
-    /// Generic type declaration (`type Box(T) = ...`).
+    /// `type Box(T)` / `enum Option(T)` and the built-in generics.
     generic_type,
-    /// M20b(2/5): a generic type parameter (`T` in `type Box(T)`).
-    /// Bound by SymbolResolver when walking the generic type body.
-    /// Referenced as a `type_var(SymbolId)` Type variant. Lives in
-    /// the type namespace only — using `T` as a value-position name
-    /// must fail to resolve.
+    /// `T` in `type Box(T)`. Detached: not in any scope; reached through
+    /// the owning type's `type_params`.
     generic_param,
-    /// Struct / enum / errors / opaque declaration.
+    /// struct / enum / error set / opaque.
     nominal_type,
-    /// Module imported via `use`.
+    /// A module imported with `use`.
     module,
-    /// Extern var / const declaration.
+    /// `extern` variable or body-less `extern fun` / `extern sub`.
     @"extern",
-    /// M20g(2/5): closure capture binding. Lives in the lambda's
-    /// body scope (bound by `SymbolResolver.walkLambda`) and carries
-    /// the per-mode type assigned by `ExprChecker.synthLambda` from
-    /// the outer-scope source binding. Inside the closure body the
-    /// name behaves like a local of the captured type; outside the
-    /// closure it is invisible. Per GPT-5.5's M20g design pass:
-    /// captures are bound BEFORE params so a name collision between
-    /// capture and param fires a clean diagnostic, and the body
-    /// scope sees the capture rather than the outer symbol so
-    /// reference-by-name uniformly reads the captured slot.
+    /// A closure capture, bound in the lambda's scope with the type the
+    /// capture mode gives it.
     capture,
 };
 
-pub const SymbolFlags = packed struct {
-    /// `=!` or extern-const: re-binding is forbidden.
+pub const SymbolFlags = packed struct(u16) {
+    /// `=!` binding: cannot be reassigned.
     fixed: bool = false,
-    /// `pub` decoration applied.
     is_public: bool = false,
-    /// Function parameter declared with a borrowed type (`?T` / `!T`),
-    /// relevant to the borrow-escape rule.
+    /// Parameter declared with a borrowed type (`?T` / `!T`).
     borrowed_param: bool = false,
-    /// M25(2/5): the nominal type has compiler-generated or user-
-    /// authored drop glue. Set on a struct symbol when EITHER:
-    ///   - the struct has a user `drop self: !Self` declaration
-    ///     (one of its fields has `is_drop_method = true`), OR
-    ///   - any of its data fields has a resource type (shared,
-    ///     weak, Vec, Closure, or another struct already flagged
-    ///     `has_drop_glue`).
-    /// Drives:
-    ///   - "any type with drop glue is non-Copy" (M20d alias-
-    ///     discipline generalization, M25(3/5));
-    ///   - generated `__rig_drop` emission with reverse-order
-    ///     field drops (M25(4/5));
-    ///   - auto-drop guard (M20e) installation for named bindings
-    ///     of the type (M25(3/5)).
+    /// Struct with a user `drop` or a field whose type has drop glue.
+    /// Such values are non-Copy and get a generated `__rig_drop`.
     has_drop_glue: bool = false,
-    _padding: u4 = 0,
-    // (M22 removed M19's `is_unsafe` flag — the fn-level raw
-    // marker `unsafe sub`/`unsafe fun` was dropped because there
-    // was no V1 use case per GPT-5.5 entry 38; the block-only
-    // enforcement in `effects.zig` is sufficient.)
+    /// `pre` parameter.
+    is_pre: bool = false,
+    /// Value known at compile time: a `pre` parameter, or a `=!` binding
+    /// initialized with a compile-time-known expression.
+    comptime_known: bool = false,
+    /// Bound by a `for` loop or a match pattern: not assignable.
+    pattern_bound: bool = false,
+    /// Assigned again after its declaration (`=`, `<-`, `+=`, ...):
+    /// lowers to a Zig `var`.
+    reassigned: bool = false,
+    /// Written through: write-borrowed (`!x`), or a field or element of
+    /// it assigned. Also lowers to a Zig `var`.
+    written: bool = false,
+    /// An `error` declaration: its variants are error values.
+    error_set: bool = false,
+    _: u6 = 0,
 };
 
-/// A field in a nominal type (struct/enum/errors). Stored on the
-/// owning Symbol's `fields` slice when the symbol is a `nominal_type`.
-/// Slice memory is owned by `SemContext.arena`.
-///
-/// For struct fields: `ty` holds the declared type; `payload` is null.
-/// For enum/errors variants:
-///   - bare `red`            → `ty = void_id`, `payload = null`
-///   - valued `ok = 0`       → `ty = void_id`, `payload = null` (value
-///                              passes through to emit verbatim)
-///   - payload `circle(r:Int)` → `ty = void_id`, `payload = [{r, Int}]`
-///                              (M9a: declared, lowers to Zig union(enum);
-///                              construction lands in M9b+).
-/// M20a.2: describes how a method receives its receiver. Computed
-/// at decl-time by `resolveNominalMethod` from the syntactic first
-/// parameter, *not* inferred at call sites from `params.len > 0`
-/// (that was the M20a soundness bug: associated/static methods
-/// with parameters silently dispatched as instance methods).
-///
-///   .none       method has NO `self` parameter (associated/static)
-///   .read       `self: ?Self` / `self: ?User` / `?self` sugar
-///   .write      `self: !Self` / `self: !User` / `!self` sugar
-///   .value      `self: Self` / `self: User` (by-value, consuming)
+/// How a method takes its receiver, from the declared first parameter.
 pub const MethodReceiver = enum { none, read, write, value };
 
+/// A member of a nominal type: data field, method, or enum variant.
 pub const Field = struct {
-    name: []const u8, // borrowed slice into source
+    name: []const u8,
     ty: TypeId,
     decl_pos: u32,
+    /// Payload fields of a payload-bearing enum variant.
     payload: ?[]const Field = null,
-
-    /// M12: when true, this `Field` represents a method declared on
-    /// the owning nominal type, not a data field. `ty` is then the
-    /// method's `function` Type. Method body type-checking landed in
-    /// M20a (`ExprChecker.walkMethod`).
+    /// A method; `ty` is its function type.
     is_method: bool = false,
-
-    /// M20a.2: receiver mode for methods. `.none` for both data
-    /// fields and associated/static methods (`fun make(...)` with
-    /// no `self` param). Populated alongside `is_method` by
-    /// `TypeResolver.resolveNominalMethod`.
     receiver: MethodReceiver = .none,
-
-    /// M20c: when true, this `Field` represents an enum variant
-    /// (bare like `red`, valued like `ok = 0`, or payload-bearing
-    /// like `circle(r: Int)`). Variants live in the same `fields`
-    /// slice as data fields and methods, but are NOT data fields
-    /// (so `lookupDataField` must filter them out) and NOT methods
-    /// (so `lookupMethod` must filter them out). Use `lookupVariant`
-    /// for enum-literal / match-arm resolution. Per GPT-5.5 M20c
-    /// design pass.
+    /// An enum / error-set variant (not a data field).
     is_variant: bool = false,
-
-    /// M25(2/5): when true, this `Field` is the user-authored
-    /// `drop self: !Self` declaration for the enclosing struct.
-    /// Stored in the same `fields[]` slice as ordinary methods
-    /// (`is_method = true`, `name = "drop"`, `receiver = .write`),
-    /// distinguished by this flag so:
-    ///   - method lookup (`lookupMethod`) can filter it out (drop
-    ///     is implicit; users cannot call `instance.drop()`);
-    ///   - emit (M25(4/5)) can find the user body without scanning
-    ///     by name;
-    ///   - the "exactly one drop per struct" rule has a clean
-    ///     primary key.
+    /// The struct's user `drop self: !Self` body. Not callable.
     is_drop_method: bool = false,
+    /// A data field declared with a default value (`name: T = expr`).
+    has_default: bool = false,
+    /// Parameter names of a method, for keyword arguments.
+    param_names: ?[]const []const u8 = null,
+    /// Default values of a method's parameters (null where none).
+    param_defaults: ?[]const ?Sexp = null,
 };
 
 pub const Symbol = struct {
-    name: []const u8,            // borrowed slice into source
+    name: []const u8,
     kind: SymbolKind,
-    ty: TypeId,                  // resolved declared type, or `unknown_id`
-    decl_pos: u32,               // source pos of declaration name
-    scope: ScopeId,              // owning scope
+    ty: TypeId,
+    decl_pos: u32,
+    scope: ScopeId,
     flags: SymbolFlags = .{},
-
-    /// For `nominal_type` symbols (struct/enum/errors), the field list
-    /// declared in the body. `null` until M6 type resolution populates
-    /// it (or for non-nominal kinds). Empty slice means "explicitly no
-    /// fields" (e.g., a marker struct).
-    ///
-    /// Member access (`obj.name`) and constructor checking
-    /// (`User(name: ...)`) consult this list.
-    ///
-    /// M20b(3/5): also populated for `generic_type` symbols with the
-    /// type-var-bearing symbolic field types (e.g., for `type Box(T)
-    /// value: T`, the `value` field's `ty` is `type_var(T_sym)`).
+    /// Members of a nominal or generic type; null for other kinds and
+    /// for opaque types.
     fields: ?[]const Field = null,
-
-    /// M20b(3/5): for `generic_type` symbols, the SymbolIds of this
-    /// type's generic parameters (in declaration order). `null` for
-    /// non-generic symbols. Used by `NominalContext` and by
-    /// `TypeResolver.resolveType` to map a bare identifier `T` to
-    /// `type_var(T_sym)` without depending on the original lexical
-    /// scope being active (per GPT-5.5: more robust than scope-only
-    /// lookup, which fails when `ExprChecker.checkSet` constructs an
-    /// on-the-fly TypeResolver for a body annotation).
+    /// Generic parameters of a generic type, in declaration order.
     type_params: ?[]const SymbolId = null,
+    /// Parameter names of a function, for keyword arguments.
+    param_names: ?[]const []const u8 = null,
+    /// Default values of a function's parameters (null where none).
+    param_defaults: ?[]const ?Sexp = null,
+    /// A capture: the enclosing binding it captures.
+    origin: SymbolId = symbol_invalid,
+    /// The previous symbol of the same name in the same scope, if any.
+    prev_in_scope: SymbolId = symbol_invalid,
 };
+
+pub const ScopeKind = enum { module, function, lambda, block };
 
 pub const Scope = struct {
     parent: ?ScopeId,
-    /// SymbolIds visible in this scope (in declaration order).
+    /// In declaration order. Add with `SemContext.addToScope`.
     symbols: std.ArrayListUnmanaged(SymbolId) = .empty,
+    /// Name -> the latest symbol of that name; earlier ones are chained
+    /// through `Symbol.prev_in_scope`.
+    by_name: std.StringHashMapUnmanaged(SymbolId) = .empty,
+    kind: ScopeKind = .block,
 };
 
+pub const Diagnostic = diag.Diagnostic;
+
+/// How a receiver expression is written, and what kind of value it is,
+/// for the method receiver-mode rules.
+pub const ReceiverShape = exprs.ReceiverShape;
+pub const ReceiverTypeKind = exprs.ReceiverTypeKind;
+pub const compatible = exprs.compatible;
+
 // =============================================================================
-// Diagnostics (mirrors ownership/effects shape)
+// Facts
 // =============================================================================
 
-pub const Severity = enum { @"error", note };
+/// Identity of an IR list node: the address and length of its item
+/// slice.
+pub const NodeKey = struct { addr: usize, len: usize };
 
-pub const Diagnostic = struct {
-    severity: Severity,
+pub fn nodeKey(node: Sexp) ?NodeKey {
+    return switch (node) {
+        .list => |items| .{ .addr = @intFromPtr(items.ptr), .len = items.len },
+        else => null,
+    };
+}
+
+pub const Facts = struct {
+    /// Identifier leaf position -> the symbol it names.
+    names: std.AutoHashMapUnmanaged(u32, SymbolId) = .empty,
+    /// Leaf expression position -> type.
+    leaf_types: std.AutoHashMapUnmanaged(u32, TypeId) = .empty,
+    /// List expression node -> type.
+    node_types: std.AutoHashMapUnmanaged(NodeKey, TypeId) = .empty,
+    /// Scope-opening node -> the scope it opens.
+    scopes: std.AutoHashMapUnmanaged(NodeKey, ScopeId) = .empty,
+    /// Call node -> how its arguments fill the parameters, for calls
+    /// with keyword arguments or omitted (defaulted) parameters.
+    call_slots: std.AutoHashMapUnmanaged(NodeKey, []const ArgSlot) = .empty,
+    /// Match nodes whose non-default arms cover every value.
+    exhaustive: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+
+    fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
+        self.names.deinit(allocator);
+        self.leaf_types.deinit(allocator);
+        self.node_types.deinit(allocator);
+        self.scopes.deinit(allocator);
+        self.call_slots.deinit(allocator);
+        self.exhaustive.deinit(allocator);
+    }
+};
+
+/// What fills one parameter of a call: the argument at an index of the
+/// call's argument list (a `(kwarg ...)` stands for its value), or the
+/// parameter's default value, a literal from the declaring module.
+pub const ArgSlot = union(enum) {
+    arg: u32,
+    default: DefaultValue,
+};
+
+pub const DefaultValue = struct {
+    expr: Sexp,
+    /// Source of the module that declares the parameter.
+    source: []const u8,
+};
+
+/// An operation a generic body applies to a type parameter. Checked
+/// against every instantiation of the generic type.
+pub const Requirement = enum {
+    numeric,
+    ordered,
+    equatable,
+    integer,
+    /// Owns no resource: the body copies, discards, or leaves a
+    /// temporary of the parameter's value.
+    plain,
+
+    pub fn describe(self: Requirement) []const u8 {
+        return switch (self) {
+            .numeric => "arithmetic",
+            .ordered => "ordering comparison",
+            .equatable => "`==` / `!=`",
+            .integer => "integer operators",
+            .plain => "a value that owns no resource",
+        };
+    }
+};
+
+pub const GenericRequirement = struct {
+    param: SymbolId,
+    req: Requirement,
     pos: u32,
-    message: []const u8,
+    op: []const u8,
 };
 
 // =============================================================================
-// SemContext — the output of `check`
+// SemContext
 // =============================================================================
 
 pub const SemContext = struct {
     allocator: std.mem.Allocator,
     source: []const u8,
-
-    /// All allocations owned by this context (Symbol names, Diagnostic
-    /// messages, fn param-type slices) live in this arena. `deinit`
-    /// reclaims them in one call.
+    /// Owns symbol names, messages, and every slice inside a Type.
     arena: std.heap.ArenaAllocator,
 
-    /// SymbolId 0 is the invalid sentinel.
     symbols: std.ArrayListUnmanaged(Symbol) = .empty,
-
-    /// ScopeId 0 is the invalid sentinel; ScopeId 1 is the module scope.
+    /// Scope 1 is the module scope.
     scopes: std.ArrayListUnmanaged(Scope) = .empty,
-
     types: TypeStore,
-
     diagnostics: std.ArrayListUnmanaged(Diagnostic) = .empty,
+    facts: Facts = .{},
 
-    /// M20f: built-in `Cell(T)` generic_type SymbolId. Set by
-    /// `registerBuiltins` during `check`; `symbol_invalid` if
-    /// builtins haven't been registered (defensive). Used by
-    /// `resolveType` to detect `Cell(T)` instantiations and enforce
-    /// the V1 Copy-only restriction.
     cell_sym_id: SymbolId = symbol_invalid,
-
-    /// M20h: built-in `Closure()` generic_type SymbolId (zero
-    /// type parameters — the type is "no-arg, void-return closure
-    /// handle"). Set by `registerBuiltins` during `check`. Used by
-    /// `resolveType` to:
-    ///   - tailor the diagnostic when a user writes bare `Closure`
-    ///     (the "write `Closure(T)`" message is wrong for the
-    ///     zero-arity case; we say "write `Closure()`" instead);
-    ///   - tailor the diagnostic for non-empty args (`Closure(Int)`
-    ///     should hint that V1 closures are no-arg only).
-    /// Future M20h+ sub-commits also consult this from sema /
-    /// emit to recognize `*Closure(...)` construction.
-    closure_sym_id: SymbolId = symbol_invalid,
-
-    /// M24: built-in `Closure1(T)` and `Closure2(A, B)` generic_type
-    /// SymbolIds (one and two type parameters respectively — these
-    /// are arity-bearing void-return closure handles). Set by
-    /// `registerBuiltins` during `check`. Used the same way as
-    /// `closure_sym_id` (ownership escape whitelist, emit
-    /// construction recognition, type-spelling lowering) but for
-    /// arity-1 and arity-2 surfaces. V1 restriction: argument types
-    /// must be Copy.
-    closure1_sym_id: SymbolId = symbol_invalid,
-    closure2_sym_id: SymbolId = symbol_invalid,
-
-    /// M20i: built-in `Vec(T)` generic_type SymbolId. Set by
-    /// `registerBuiltins`. Used by `resolveType` to enforce V1
-    /// element-type restrictions (Copy, `*T`, `~T`, `*Closure()`
-    /// only — arbitrary nominal T deferred). Later M20i sub-commits
-    /// also consult this for method dispatch (push/pop/len/clear/get)
-    /// and for the resource-value ownership rules (no bare copy,
-    /// move-only transfer, auto-drop guard).
     vec_sym_id: SymbolId = symbol_invalid,
-
-    /// PB2: built-in `Signal(T)` generic_type SymbolId. Set by
-    /// `registerBuiltins`. PB2 reactive primitive — single
-    /// retained subscriber slot + a `*Cell(T)` value. Methods:
-    /// `get`/`set`/`subscribe`. V1 restriction: T must be Copy
-    /// (same as Cell). PB3 generalizes to multi-subscriber once
-    /// resource-Vec iteration is designed.
     signal_sym_id: SymbolId = symbol_invalid,
 
-    /// M20g(2/5): per-lambda body-return TypeId. Keyed by the
-    /// `(lambda ...)` IR node's first `.src` position (recovered
-    /// at emit time via the same helper). Populated by
-    /// `ExprChecker.synthLambda` from the body's last-expression
-    /// synth. Read by `Emitter.emitClosureBinding` to produce a
-    /// concrete Zig return type on the synthesized `invoke`
-    /// method (V1 has no inferred-return slot, and lambdas have
-    /// no source-level return annotation in the M20g grammar).
-    /// Absent entry → unknown / void.
-    lambda_return_types: std.AutoHashMapUnmanaged(u32, TypeId) = .empty,
-
-    /// M20i.1.1: per-`for` Vec-source attribution table. Keyed by
-    /// the for-source Sexp's `.src.pos` (M20i.1 restricts resource
-    /// Vec iteration to bare-name sources, so the source is always
-    /// a `.src` leaf). Populated by `ExprChecker.checkForStmt` when
-    /// it recognizes a `Vec(T)` source; read by `Emitter.emitFor`
-    /// to drive Shape X / Shape Y selection without re-scanning
-    /// sema.symbols (fixes the GPT-5.5 review hazard around the
-    /// global reverse-scan being fragile under cross-function
-    /// shadowing).
-    for_source_vec_info: std.AutoHashMapUnmanaged(u32, VecIterInfo) = .empty,
-
-    /// M15b per GPT-5.5 entry 39: this module's stable id, assigned
-    /// by the `ModuleGraph` driver. `0` for single-file builds
-    /// (`bin/rig check` of a lone file with no imports).
+    /// Assigned by the module graph; 0 for a lone file.
     module_id: u32 = 0,
-
-    /// M15b: descriptors for modules imported via `use NAME` in this
-    /// module's source. Populated by `checkWithImports`; consulted by
-    /// `SymbolResolver.walkUse` to populate `module_refs`.
     imports: []const ImportEntry = &.{},
-
-    /// M15b: per-`use NAME` symbol → origin module id. Populated by
-    /// `SymbolResolver.walkUse` when a `(use NAME)` declaration
-    /// resolves to a real entry in `ctx.imports`. Used by
-    /// `synthMember` to dispatch qualified access (`a.foo`) into
-    /// the imported module's SemContext.
+    /// Modules reached only through imports; `local_name` is the module's
+    /// file name.
+    transitive: []const ImportEntry = &.{},
+    /// `use NAME` symbol -> origin module id.
     module_refs: std.AutoHashMapUnmanaged(SymbolId, u32) = .empty,
-
-    /// M15b: origin module_id → foreign SemContext pointer. Maintained
-    /// in parallel with `imports` for O(1) cross-module sema lookups
-    /// from helpers that only have a `module_id` (e.g., reading a
-    /// foreign nominal's field list from an `imported_nominal` Type).
+    /// Origin module id -> its SemContext.
     foreign_semas: std.AutoHashMapUnmanaged(u32, *SemContext) = .empty,
+
+    /// Type alias symbol -> its target type expression, resolved on
+    /// first use (aliases may be used before they are declared).
+    alias_targets: std.AutoHashMapUnmanaged(SymbolId, Sexp) = .empty,
+    /// Aliases currently being resolved, to report cycles.
+    alias_in_progress: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    /// Operations generic bodies apply to their type parameters.
+    generic_requirements: std.ArrayListUnmanaged(GenericRequirement) = .empty,
+    /// Instantiated generic type -> position of its first spelling.
+    instantiation_sites: std.AutoHashMapUnmanaged(TypeId, u32) = .empty,
+    /// Instances of user generics spelled with type parameters, inside
+    /// generic declarations (`Opt(T)` in `Box(T)`'s methods). See
+    /// `expandInstantiations`.
+    generic_uses: std.ArrayListUnmanaged(TypeId) = .empty,
+    /// Integer constants: bindings never reassigned or written whose
+    /// value is a constant expression. The emitted Zig computes these at
+    /// compile time, so sema checks their arithmetic.
+    const_ints: std.AutoHashMapUnmanaged(SymbolId, i128) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
@@ -617,7 +590,6 @@ pub const SemContext = struct {
             .arena = std.heap.ArenaAllocator.init(allocator),
             .types = try TypeStore.init(allocator),
         };
-        // Slot 0 = invalid sentinel for both symbols and scopes.
         try ctx.symbols.append(allocator, .{
             .name = "",
             .kind = .local,
@@ -626,3581 +598,635 @@ pub const SemContext = struct {
             .scope = scope_invalid,
         });
         try ctx.scopes.append(allocator, .{ .parent = null });
-        // Slot 1 = the module scope (created lazily on first symbol add).
         return ctx;
     }
 
     pub fn deinit(self: *SemContext) void {
-        for (self.scopes.items) |*s| s.symbols.deinit(self.allocator);
+        for (self.scopes.items) |*s| {
+            s.symbols.deinit(self.allocator);
+            s.by_name.deinit(self.allocator);
+        }
         self.scopes.deinit(self.allocator);
         self.symbols.deinit(self.allocator);
         self.types.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
-        self.lambda_return_types.deinit(self.allocator);
-        self.for_source_vec_info.deinit(self.allocator);
+        self.facts.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.foreign_semas.deinit(self.allocator);
+        self.alias_targets.deinit(self.allocator);
+        self.alias_in_progress.deinit(self.allocator);
+        self.generic_requirements.deinit(self.allocator);
+        self.instantiation_sites.deinit(self.allocator);
+        self.generic_uses.deinit(self.allocator);
+        self.const_ints.deinit(self.allocator);
         self.arena.deinit();
     }
 
     pub fn hasErrors(self: *const SemContext) bool {
-        for (self.diagnostics.items) |d| {
-            if (d.severity == .@"error") return true;
-        }
-        return false;
+        return diag.hasErrorsIn(self.diagnostics.items);
     }
 
-    /// Stream all diagnostics to `w`. Defensive against missing/empty
-    /// `file_path`, missing/empty `source`, empty messages, and pos
-    /// values beyond `source.len`. Diagnostic printing is the last
-    /// line of defense — it must never crash, even when upstream
-    /// passes left the context partially populated.
     pub fn writeDiagnostics(self: *const SemContext, file_path: []const u8, w: anytype) !void {
-        const path = if (file_path.len == 0) "<unknown>" else file_path;
-        for (self.diagnostics.items) |d| {
-            const tag = switch (d.severity) {
-                .@"error" => "error",
-                .note => "  note",
-            };
-            const msg = if (d.message.len == 0) "(no message)" else d.message;
-            if (self.source.len == 0) {
-                try w.print("{s}: {s}: {s}\n", .{ path, tag, msg });
-            } else {
-                const lc = lineCol(self.source, d.pos);
-                try w.print("{s}:{d}:{d}: {s}: {s}\n", .{ path, lc.line, lc.col, tag, msg });
-            }
-        }
+        try diag.write(self.diagnostics.items, self.source, file_path, w);
     }
 
-    /// Append a new scope and return its id.
+    pub fn err(self: *SemContext, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
+        // The same finding reached twice is reported once.
+        for (self.diagnostics.items) |d| {
+            if (d.severity == .@"error" and d.pos == pos and std.mem.eql(u8, d.message, msg)) return;
+        }
+        try self.diagnostics.append(self.allocator, .{ .severity = .@"error", .pos = pos, .message = msg });
+    }
+
+    pub fn note(self: *SemContext, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
+        try self.diagnostics.append(self.allocator, .{ .severity = .note, .pos = pos, .message = msg });
+    }
+
     pub fn pushScope(self: *SemContext, parent: ScopeId) !ScopeId {
+        return self.pushScopeKind(parent, .block);
+    }
+
+    pub fn pushScopeKind(self: *SemContext, parent: ScopeId, kind: ScopeKind) !ScopeId {
         const id: ScopeId = @intCast(self.scopes.items.len);
         try self.scopes.append(self.allocator, .{
             .parent = if (parent == scope_invalid) null else parent,
+            .kind = kind,
         });
         return id;
     }
 
-    /// Look up a name visible from `from_scope`, walking up the chain.
-    /// Returns the most recent (latest-declared) match in the innermost
-    /// scope that contains it — this matches the ownership checker's
-    /// reverse-order lookup so shadowed names resolve correctly.
-    /// M20e(3/5): scope-local name lookup. Unlike `lookup`, does NOT
-    /// walk parent scopes — only matches symbols declared in the given
-    /// scope. Used by `SymbolResolver.walkSet` to detect reassignment
-    /// vs fresh shadowing within the same scope.
-    pub fn lookupInScopeOnly(self: *const SemContext, scope_id: ScopeId, name: []const u8) ?SymbolId {
-        if (scope_id == scope_invalid or scope_id >= self.scopes.items.len) return null;
+    /// Declare the symbol `id` in `scope_id`, after its earlier ones.
+    pub fn addToScope(self: *SemContext, scope_id: ScopeId, id: SymbolId) std.mem.Allocator.Error!void {
         const scope = &self.scopes.items[scope_id];
-        var i = scope.symbols.items.len;
-        while (i > 0) {
-            i -= 1;
-            const sym_id = scope.symbols.items[i];
-            if (std.mem.eql(u8, self.symbols.items[sym_id].name, name)) {
-                return sym_id;
-            }
-        }
-        return null;
+        try scope.symbols.append(self.allocator, id);
+        const latest = try scope.by_name.getOrPut(self.allocator, self.symbols.items[id].name);
+        self.symbols.items[id].prev_in_scope = if (latest.found_existing) latest.value_ptr.* else symbol_invalid;
+        latest.value_ptr.* = id;
     }
 
+    /// The latest symbol named `name` declared directly in `scope_id`.
+    pub fn lookupInScopeOnly(self: *const SemContext, scope_id: ScopeId, name: []const u8) ?SymbolId {
+        if (scope_id == scope_invalid or scope_id >= self.scopes.items.len) return null;
+        return self.scopes.items[scope_id].by_name.get(name);
+    }
+
+    /// The symbol `name` resolves to from `from_scope`: the latest
+    /// declaration in the innermost enclosing scope that has one.
     pub fn lookup(self: *const SemContext, from_scope: ScopeId, name: []const u8) ?SymbolId {
         var sid: ?ScopeId = from_scope;
         while (sid) |s| {
             if (s == scope_invalid or s >= self.scopes.items.len) break;
-            const scope = &self.scopes.items[s];
-            var i = scope.symbols.items.len;
-            while (i > 0) {
-                i -= 1;
-                const sym_id = scope.symbols.items[i];
-                if (std.mem.eql(u8, self.symbols.items[sym_id].name, name)) {
-                    return sym_id;
-                }
-            }
+            if (self.lookupInScopeOnly(s, name)) |id| return id;
+            sid = self.scopes.items[s].parent;
+        }
+        return null;
+    }
+
+    /// Like `lookup`, but stops at the nearest function or lambda
+    /// scope: finds only names local to the current body.
+    pub fn lookupLocal(self: *const SemContext, from_scope: ScopeId, name: []const u8) ?SymbolId {
+        var sid: ?ScopeId = from_scope;
+        while (sid) |s| {
+            if (s == scope_invalid or s >= self.scopes.items.len) break;
+            if (self.lookupInScopeOnly(s, name)) |id| return id;
+            const scope = self.scopes.items[s];
+            if (scope.kind == .function or scope.kind == .lambda or scope.kind == .module) break;
             sid = scope.parent;
         }
         return null;
     }
+
+    /// The nearest enclosing function or lambda scope of `scope_id`.
+    pub fn bodyRoot(self: *const SemContext, scope_id: ScopeId) ?ScopeId {
+        var sid: ?ScopeId = scope_id;
+        while (sid) |s| {
+            if (s == scope_invalid or s >= self.scopes.items.len) break;
+            const scope = self.scopes.items[s];
+            if (scope.kind == .function or scope.kind == .lambda) return s;
+            sid = scope.parent;
+        }
+        return null;
+    }
+
+    // ---- facts: queries ---------------------------------------------------
+
+    /// The symbol an identifier leaf names (declaration or use).
+    pub fn symbolOf(self: *const SemContext, node: Sexp) ?SymbolId {
+        return switch (node) {
+            .src => |s| self.facts.names.get(s.pos),
+            else => null,
+        };
+    }
+
+    /// The symbol named by the identifier at source position `pos`.
+    pub fn symbolAt(self: *const SemContext, pos: u32) ?SymbolId {
+        return self.facts.names.get(pos);
+    }
+
+    /// The type of an expression node.
+    pub fn typeOf(self: *const SemContext, node: Sexp) ?TypeId {
+        return switch (node) {
+            .src => |s| self.facts.leaf_types.get(s.pos),
+            .list => self.facts.node_types.get(nodeKey(node).?),
+            else => null,
+        };
+    }
+
+    /// The type of the symbol an identifier leaf names.
+    pub fn bindingTypeOf(self: *const SemContext, node: Sexp) ?TypeId {
+        const id = self.symbolOf(node) orelse return null;
+        return self.symbols.items[id].ty;
+    }
+
+    /// The scope a scope-opening node opens.
+    pub fn scopeOf(self: *const SemContext, node: Sexp) ?ScopeId {
+        const key = nodeKey(node) orelse return null;
+        return self.facts.scopes.get(key);
+    }
+
+    /// Whether a match's arms, without a default arm, cover every value
+    /// of its scrutinee.
+    pub fn isExhaustive(self: *const SemContext, match: Sexp) bool {
+        const key = nodeKey(match) orelse return false;
+        return self.facts.exhaustive.contains(key);
+    }
+
+    /// Parameter-order argument slots of a call with keyword arguments
+    /// or omitted parameters; null when the arguments are positional
+    /// and complete.
+    pub fn callSlotsOf(self: *const SemContext, call: Sexp) ?[]const ArgSlot {
+        const key = nodeKey(call) orelse return null;
+        return self.facts.call_slots.get(key);
+    }
+
+    // ---- facts: recording (sema passes only) -----------------------------
+
+    pub fn recordName(self: *SemContext, node: Sexp, sym: SymbolId) !void {
+        if (node != .src or sym == symbol_invalid) return;
+        try self.facts.names.put(self.allocator, node.src.pos, sym);
+    }
+
+    pub fn recordType(self: *SemContext, node: Sexp, ty: TypeId) !void {
+        switch (node) {
+            .src => |s| try self.facts.leaf_types.put(self.allocator, s.pos, ty),
+            .list => try self.facts.node_types.put(self.allocator, nodeKey(node).?, ty),
+            else => {},
+        }
+    }
+
+    pub fn recordScope(self: *SemContext, node: Sexp, scope: ScopeId) !void {
+        const key = nodeKey(node) orelse return;
+        try self.facts.scopes.put(self.allocator, key, scope);
+    }
+
+    pub fn recordExhaustive(self: *SemContext, match: Sexp) !void {
+        const key = nodeKey(match) orelse return;
+        try self.facts.exhaustive.put(self.allocator, key, {});
+    }
+
+    pub fn recordCallSlots(self: *SemContext, call: Sexp, slots: []const ArgSlot) !void {
+        const key = nodeKey(call) orelse return;
+        try self.facts.call_slots.put(self.allocator, key, slots);
+    }
+
+    pub fn intern(self: *SemContext, ty: Type) std.mem.Allocator.Error!TypeId {
+        return self.types.intern(self.allocator, ty);
+    }
+
+    pub fn dupeIds(self: *SemContext, ids: []const TypeId) std.mem.Allocator.Error![]const TypeId {
+        return self.arena.allocator().dupe(TypeId, ids);
+    }
 };
 
 // =============================================================================
-// Entry point
+// Entry points
 // =============================================================================
 
-/// Run sema on the normalized IR. Returns a populated `SemContext`.
-///
-/// Passes (in order):
-///   1. Symbol resolution — collect every fun/sub/lambda, params,
-///      type aliases, externs, use's, and locals into the symbol
-///      table with proper scope nesting. Types start as `unknown_id`.
-///   2. Type expression resolution — for every declaration that has
-///      a declared type (param, return, alias, extern), convert the
-///      type Sexp to a `TypeId` and write it back into the symbol's
-///      `ty` slot. Function symbols get a `function` Type.
-///   3. Expression typing — for each function body, walk statements
-///      with statement-vs-value context. Synthesize types for
-///      expressions, check declared bindings against their RHS, check
-///      return values against the function's declared return type,
-///      enforce `if` arm unification (in value position) and condition
-///      types (Bool). Numeric literals adapt to context; otherwise
-///      default to canonical `Int` / `Float`.
-///
-/// Caller owns the returned `SemContext` and must call `deinit`.
-pub fn check(
-    allocator: std.mem.Allocator,
-    source: []const u8,
-    ir: Sexp,
-) !SemContext {
-    return checkWithImports(allocator, source, ir, &.{}, 0);
+/// Check a single module with no imports.
+pub fn check(allocator: std.mem.Allocator, source: []const u8, ir: Sexp) !SemContext {
+    return checkWithImports(allocator, source, ir, &.{}, &.{}, 0);
 }
 
-/// M15b per GPT-5.5 entry 39: cross-module-aware sema entry. The
-/// ModuleGraph driver constructs the `imports` slice (one entry per
-/// resolved `use NAME` in this module's source) BEFORE calling this
-/// function. The SymbolResolver consults `imports` to bind each
-/// `(use NAME)` symbol to its origin module id, enabling qualified
-/// member access (`a.foo`) to dispatch into the imported module's
-/// SemContext via `ctx.foreign_semas`.
-///
-/// Single-file callers (e.g., `bin/rig check foo.rig` with no module
-/// graph) call `check` instead, which forwards to this with
-/// `imports = &.{}` and `module_id = 0`.
+/// Check a module whose `use` declarations resolve to `imports`.
 pub fn checkWithImports(
     allocator: std.mem.Allocator,
     source: []const u8,
     ir: Sexp,
     imports: []const ImportEntry,
+    /// Modules the imports reach in turn: their types can appear here
+    /// (`lib.make()` returning an `a.P`) without being named.
+    transitive: []const ImportEntry,
     module_id: u32,
 ) !SemContext {
     var ctx = try SemContext.init(allocator, source);
     errdefer ctx.deinit();
 
     ctx.module_id = module_id;
-    ctx.imports = imports;
-    for (imports) |imp| {
-        try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
-    }
+    // The caller's slice is temporary; the emitter reads the imports later.
+    ctx.imports = try ctx.arena.allocator().dupe(ImportEntry, imports);
+    for (imports) |imp| try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
+    ctx.transitive = try ctx.arena.allocator().dupe(ImportEntry, transitive);
+    for (transitive) |imp| try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
 
-    // Pass 1: symbol resolution.
-    const module_scope = try ctx.pushScope(scope_invalid);
-
-    // M20f: register built-in nominal types (Cell, etc.) BEFORE
-    // walking user IR, so user code referencing them finds the
-    // symbol via the normal lookup path. Stays parallel to how the
-    // type interner pre-registers primitive Type IDs in TypeStore.init.
-    try registerBuiltins(&ctx, module_scope);
-
-    var resolver: SymbolResolver = .{ .ctx = &ctx, .current_scope = module_scope };
-    try resolver.walk(ir);
-
-    // Pass 2: type expression resolution.
-    var type_resolver: TypeResolver = .{ .ctx = &ctx };
-    try type_resolver.walk(ir, module_scope);
-
-    // M25.1: fixed-point pass for `has_drop_glue` propagation. The
-    // single-pass `resolveStructFields` flips the flag based on the
-    // CURRENT state of referenced nominals' flags — so a struct
-    // declared BEFORE its Drop-bearing nested-field type misses the
-    // propagation (`struct Outer { inner: Inner }` declared before
-    // `struct Inner { r: *Cell(Int) }`). The fixed point iterates
-    // until quiescence; convergence is bounded by the longest
-    // nominal-field chain. Per GPT-5.5's M25 post-implementation
-    // review: needed because forward nominal field references work
-    // and produce real silent-leak hazards otherwise.
-    {
-        var changed = true;
-        var rounds: u32 = 0;
-        while (changed) {
-            if (rounds > 256) break; // defensive bound; pathological cases
-            rounds += 1;
-            changed = false;
-            for (ctx.symbols.items, 0..) |*sym, i| {
-                _ = i;
-                if (sym.kind != .nominal_type) continue;
-                if (sym.flags.has_drop_glue) continue;
-                const fields = sym.fields orelse continue;
-                for (fields) |f| {
-                    if (f.is_drop_method) {
-                        sym.flags.has_drop_glue = true;
-                        changed = true;
-                        break;
-                    }
-                    if (f.is_method or f.is_variant) continue;
-                    if (typeHasDropGlue(&ctx, f.ty)) {
-                        sym.flags.has_drop_glue = true;
-                        changed = true;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    // Pass 3: expression typing.
-    var expr_checker: ExprChecker = .{
-        .ctx = &ctx,
-        .current_scope = module_scope,
-        .current_fn_return = ctx.types.void_id,
-    };
-    try expr_checker.walkModule(ir, module_scope);
-
+    const module_scope = try ctx.pushScopeKind(scope_invalid, .module);
+    try builtins.register(&ctx, module_scope);
+    try decls.resolveSymbols(&ctx, ir, module_scope);
+    try decls.resolveDeclarations(&ctx, ir, module_scope);
+    propagateDropGlue(&ctx);
+    try checkInfiniteTypes(&ctx);
+    try exprs.checkModule(&ctx, ir, module_scope);
+    try expandInstantiations(&ctx);
+    try exprs.checkGenericInstantiations(&ctx);
     return ctx;
 }
 
-// =============================================================================
-// Built-in nominal registration (M20f)
-// =============================================================================
-
-/// M20f.1 per GPT-5.5: a source-position sentinel for built-in
-/// symbols (Cell, etc.). Real `.src` positions can't reach this
-/// value (source files don't span 4GB). Using a real value like
-/// 0 collides with user bindings that start at byte 0, which
-/// silently poisons emit's `(name, decl_pos)` bridge helpers
-/// (`isInteriorMutableBinding`, `resourceKindOfBinding`) — they
-/// would return the builtin's classification instead of the
-/// user binding's.
-pub const builtin_decl_pos: u32 = std.math.maxInt(u32);
-
-/// M20f: pre-register built-in nominal types in the module scope
-/// BEFORE the user's IR is walked. Currently registers `Cell(T)`;
-/// future built-in stdlib types live here too.
-///
-/// Cell registration shape:
-///   - Cell symbol (kind = .generic_type, scope = module_scope)
-///   - Detached `T` generic_param symbol (kind = .generic_param)
-///   - Cell.type_params = [T_sym_id]
-///   - Synthetic `value: T` field (for `Cell(Int)(value: 0)`
-///     constructor syntax)
-///   - Synthetic `get` / `set` methods (M20f(2/4))
-fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.Error!void {
-    // Cell symbol.
-    const cell_sym_id = blk: {
-        const id: SymbolId = @intCast(ctx.symbols.items.len);
-        try ctx.symbols.append(ctx.allocator, .{
-            .name = "Cell",
-            .kind = .generic_type,
-            .ty = ctx.types.unknown_id,
-            .decl_pos = builtin_decl_pos,
-            .scope = module_scope,
-        });
-        try ctx.scopes.items[module_scope].symbols.append(ctx.allocator, id);
-        break :blk id;
-    };
-    ctx.cell_sym_id = cell_sym_id;
-
-    // T parameter (detached — lives in ctx.symbols + on
-    // Cell.type_params, but NOT in module_scope's symbol list).
-    const t_sym_id = blk: {
-        const id: SymbolId = @intCast(ctx.symbols.items.len);
-        try ctx.symbols.append(ctx.allocator, .{
-            .name = "T",
-            .kind = .generic_param,
-            .ty = ctx.types.unknown_id,
-            .decl_pos = builtin_decl_pos,
-            .scope = module_scope,
-        });
-        break :blk id;
-    };
-
-    // Cell.type_params = [T]
-    const type_params = try ctx.arena.allocator().alloc(SymbolId, 1);
-    type_params[0] = t_sym_id;
-    ctx.symbols.items[cell_sym_id].type_params = type_params;
-
-    // Synthetic field: `value: T` (T as type_var(t_sym_id)).
-    const t_type_id = try ctx.types.intern(ctx.allocator, .{ .type_var = t_sym_id });
-
-    // M20f(2/4): synthetic methods `get(?self) -> T` and
-    // `set(?self, value: T)`. Per GPT-5.5's M20f design pass:
-    // model Cell's methods as ordinary read-receiver methods on
-    // a generic nominal. M20b's generic-method substitution
-    // machinery handles the per-call-site `T → Int` rewrite, and
-    // M20d's read-only auto-deref accepts the receivers through
-    // shared without any ad-hoc intercept. The trusted-runtime
-    // implementation does the actual interior mutation.
-    //
-    // The Cell instance type used as the self-receiver:
-    //   borrow_read(parameterized_nominal(Cell, [type_var(T)]))
-    const cell_inst_id = try ctx.types.intern(ctx.allocator, .{
-        .parameterized_nominal = .{
-            .sym = cell_sym_id,
-            .args = blk: {
-                const a = try ctx.arena.allocator().alloc(TypeId, 1);
-                a[0] = t_type_id;
-                break :blk a;
-            },
-        },
-    });
-    const self_ty_id = try ctx.types.intern(ctx.allocator, .{ .borrow_read = cell_inst_id });
-
-    // get(self: ?Cell(T)) -> T
-    const get_params = try ctx.arena.allocator().alloc(TypeId, 1);
-    get_params[0] = self_ty_id;
-    const get_fn_ty = try ctx.types.intern(ctx.allocator, .{
-        .function = .{ .params = get_params, .returns = t_type_id, .is_sub = false },
-    });
-
-    // set(self: ?Cell(T), value: T) -> Void
-    const set_params = try ctx.arena.allocator().alloc(TypeId, 2);
-    set_params[0] = self_ty_id;
-    set_params[1] = t_type_id;
-    const set_fn_ty = try ctx.types.intern(ctx.allocator, .{
-        .function = .{ .params = set_params, .returns = ctx.types.void_id, .is_sub = true },
-    });
-
-    // M26(1/5): replace(self: ?Cell(T), value: T) -> T
-    // The primary mutation primitive for Drop T — atomically
-    // swaps the new value in and yields the old as an owned T.
-    // Caller must bind the result (anonymous resource temps are
-    // rejected by the existing M22.1 rule); the bound `old` then
-    // gets the M20e auto-drop guard naturally.
-    //
-    // For Copy T, `replace` is functionally redundant with
-    // `get + set` but ships symmetrically — refusing Copy T from
-    // `replace` would force users to know which T classification
-    // they're working with at the call site, which the M26 lock
-    // explicitly avoided ("ergonomic set-and-discard without
-    // hiding effects" — GPT-5.5 entry on M26 lock).
-    const replace_params = try ctx.arena.allocator().alloc(TypeId, 2);
-    replace_params[0] = self_ty_id;
-    replace_params[1] = t_type_id;
-    const replace_fn_ty = try ctx.types.intern(ctx.allocator, .{
-        .function = .{ .params = replace_params, .returns = t_type_id, .is_sub = false },
-    });
-
-    const fields = try ctx.arena.allocator().alloc(Field, 4);
-    fields[0] = .{
-        .name = "value",
-        .ty = t_type_id,
-        .decl_pos = builtin_decl_pos,
-    };
-    fields[1] = .{
-        .name = "get",
-        .ty = get_fn_ty,
-        .decl_pos = builtin_decl_pos,
-        .is_method = true,
-        .receiver = .read,
-    };
-    fields[2] = .{
-        .name = "set",
-        .ty = set_fn_ty,
-        .decl_pos = builtin_decl_pos,
-        .is_method = true,
-        .receiver = .read,
-    };
-    fields[3] = .{
-        .name = "replace",
-        .ty = replace_fn_ty,
-        .decl_pos = builtin_decl_pos,
-        .is_method = true,
-        .receiver = .read,
-    };
-    ctx.symbols.items[cell_sym_id].fields = fields;
-
-    // M20h: register `Closure()` as a zero-arity built-in generic
-    // type. The surface syntax `cb: *Closure() = *Closure(fn ...)`
-    // gives users an explicit, namespace-clean handle for escaping
-    // closures (mirrors `*Cell(value: 0)` — explicit constructor,
-    // visible Rc allocation). Subsequent M20h sub-commits will
-    // teach sema/ownership/emit how to recognize the
-    // `*Closure(fn ...)` construction shape and lower it through
-    // a per-literal env struct + type-erased `Closure0` vtable.
-    //
-    // For (1/5) we only need the symbol so type-position
-    // `cb: *Closure()` parses + resolves and emit lowers the
-    // type spelling to `*rig.RcBox(rig.Closure0)`. Construction
-    // and invocation come in (2/5)-(4/5).
-    //
-    // No type parameters: a future M20h+ might add no-arg-only
-    // generics over capture lists or return types, but V1 keeps
-    // `Closure()` as a single uniform handle type.
-    const closure_sym_id = blk: {
-        const id: SymbolId = @intCast(ctx.symbols.items.len);
-        try ctx.symbols.append(ctx.allocator, .{
-            .name = "Closure",
-            .kind = .generic_type,
-            .ty = ctx.types.unknown_id,
-            .decl_pos = builtin_decl_pos,
-            .scope = module_scope,
-        });
-        try ctx.scopes.items[module_scope].symbols.append(ctx.allocator, id);
-        break :blk id;
-    };
-    ctx.closure_sym_id = closure_sym_id;
-
-    // Closure has zero type_params. Allocate an empty slice (rather
-    // than leaving `type_params = null`) so the arity check in
-    // `TypeResolver.resolveType` (`if (supplied.len != expected_count)`)
-    // computes `expected_count = 0` cleanly via `tps.len`.
-    const closure_type_params = try ctx.arena.allocator().alloc(SymbolId, 0);
-    ctx.symbols.items[closure_sym_id].type_params = closure_type_params;
-
-    // M24: register `Closure1(T)` and `Closure2(A, B)` as one- and
-    // two-arg builtin generic types. Argument-type restrictions
-    // (Copy-only for V1) are enforced at instantiation time in
-    // `resolveType`. The runtime types `rig.Closure1` / `rig.Closure2`
-    // are emitted from `runtime.zig`'s baked text.
-    const closure1_sym_id = blk: {
-        const id: SymbolId = @intCast(ctx.symbols.items.len);
-        try ctx.symbols.append(ctx.allocator, .{
-            .name = "Closure1",
-            .kind = .generic_type,
-            .ty = ctx.types.unknown_id,
-            .decl_pos = builtin_decl_pos,
-            .scope = module_scope,
-        });
-        try ctx.scopes.items[module_scope].symbols.append(ctx.allocator, id);
-        break :blk id;
-    };
-    ctx.closure1_sym_id = closure1_sym_id;
-
-    const closure1_t_sym_id = blk: {
-        const id: SymbolId = @intCast(ctx.symbols.items.len);
-        try ctx.symbols.append(ctx.allocator, .{
-            .name = "T",
-            .kind = .generic_param,
-            .ty = ctx.types.unknown_id,
-            .decl_pos = builtin_decl_pos,
-            .scope = module_scope,
-        });
-        break :blk id;
-    };
-    const closure1_type_params = try ctx.arena.allocator().alloc(SymbolId, 1);
-    closure1_type_params[0] = closure1_t_sym_id;
-    ctx.symbols.items[closure1_sym_id].type_params = closure1_type_params;
-
-    const closure2_sym_id = blk: {
-        const id: SymbolId = @intCast(ctx.symbols.items.len);
-        try ctx.symbols.append(ctx.allocator, .{
-            .name = "Closure2",
-            .kind = .generic_type,
-            .ty = ctx.types.unknown_id,
-            .decl_pos = builtin_decl_pos,
-            .scope = module_scope,
-        });
-        try ctx.scopes.items[module_scope].symbols.append(ctx.allocator, id);
-        break :blk id;
-    };
-    ctx.closure2_sym_id = closure2_sym_id;
-
-    const closure2_a_sym_id = blk: {
-        const id: SymbolId = @intCast(ctx.symbols.items.len);
-        try ctx.symbols.append(ctx.allocator, .{
-            .name = "A",
-            .kind = .generic_param,
-            .ty = ctx.types.unknown_id,
-            .decl_pos = builtin_decl_pos,
-            .scope = module_scope,
-        });
-        break :blk id;
-    };
-    const closure2_b_sym_id = blk: {
-        const id: SymbolId = @intCast(ctx.symbols.items.len);
-        try ctx.symbols.append(ctx.allocator, .{
-            .name = "B",
-            .kind = .generic_param,
-            .ty = ctx.types.unknown_id,
-            .decl_pos = builtin_decl_pos,
-            .scope = module_scope,
-        });
-        break :blk id;
-    };
-    const closure2_type_params = try ctx.arena.allocator().alloc(SymbolId, 2);
-    closure2_type_params[0] = closure2_a_sym_id;
-    closure2_type_params[1] = closure2_b_sym_id;
-    ctx.symbols.items[closure2_sym_id].type_params = closure2_type_params;
-
-    // M20i: register `Vec(T)` as a one-arg builtin generic type.
-    // Element-type restrictions (Copy / `*T` / `~T` / `*Closure()`)
-    // are enforced at instantiation time in `resolveType`. The
-    // resource-value rules (no bare copy/alias, move-only transfer,
-    // auto-drop guard) live in ownership.zig (later sub-commits).
-    //
-    // Synthetic methods come in M20i(2/5). For (1/5), only the
-    // type symbol + type_params slot are populated so type position
-    // (`v: Vec(Int)`) parses + resolves + emits correctly.
-    const vec_sym_id = blk: {
-        const id: SymbolId = @intCast(ctx.symbols.items.len);
-        try ctx.symbols.append(ctx.allocator, .{
-            .name = "Vec",
-            .kind = .generic_type,
-            .ty = ctx.types.unknown_id,
-            .decl_pos = builtin_decl_pos,
-            .scope = module_scope,
-        });
-        try ctx.scopes.items[module_scope].symbols.append(ctx.allocator, id);
-        break :blk id;
-    };
-    ctx.vec_sym_id = vec_sym_id;
-
-    // Vec's T type-param symbol (detached — analogous to Cell's T).
-    const vec_t_sym_id = blk: {
-        const id: SymbolId = @intCast(ctx.symbols.items.len);
-        try ctx.symbols.append(ctx.allocator, .{
-            .name = "T",
-            .kind = .generic_param,
-            .ty = ctx.types.unknown_id,
-            .decl_pos = builtin_decl_pos,
-            .scope = module_scope,
-        });
-        break :blk id;
-    };
-    const vec_type_params = try ctx.arena.allocator().alloc(SymbolId, 1);
-    vec_type_params[0] = vec_t_sym_id;
-    ctx.symbols.items[vec_sym_id].type_params = vec_type_params;
-
-    // Vec methods registration — must stay in `registerBuiltins`
-    // because it uses the locally-bound `vec_sym_id` /
-    // `vec_t_sym_id`. (PB2's `Signal` registration follows AFTER
-    // Vec methods are set up.)
-    try registerVecMethods(ctx, vec_sym_id, vec_t_sym_id);
-
-    // PB2: register `Signal(T)` as a one-arg builtin generic type
-    // (parallel to Cell). Single-subscriber reactive primitive
-    // with `get`/`set`/`subscribe` methods. Read-receiver methods
-    // (matches Cell's interior-mutability pattern — the trusted
-    // runtime mutates through `*Self`). V1 restricts T to Copy
-    // types at instantiation time, same as Cell. Multi-subscriber
-    // generalization waits for Vec(*Closure()) iteration design.
-    try registerSignal(ctx, module_scope);
-}
-
-fn registerSignal(ctx: *SemContext, module_scope: ScopeId) std.mem.Allocator.Error!void {
-    const signal_sym_id = blk: {
-        const id: SymbolId = @intCast(ctx.symbols.items.len);
-        try ctx.symbols.append(ctx.allocator, .{
-            .name = "Signal",
-            .kind = .generic_type,
-            .ty = ctx.types.unknown_id,
-            .decl_pos = builtin_decl_pos,
-            .scope = module_scope,
-        });
-        try ctx.scopes.items[module_scope].symbols.append(ctx.allocator, id);
-        break :blk id;
-    };
-    ctx.signal_sym_id = signal_sym_id;
-
-    // Detached T type-param.
-    const t_sym_id = blk: {
-        const id: SymbolId = @intCast(ctx.symbols.items.len);
-        try ctx.symbols.append(ctx.allocator, .{
-            .name = "T",
-            .kind = .generic_param,
-            .ty = ctx.types.unknown_id,
-            .decl_pos = builtin_decl_pos,
-            .scope = module_scope,
-        });
-        break :blk id;
-    };
-    const type_params = try ctx.arena.allocator().alloc(SymbolId, 1);
-    type_params[0] = t_sym_id;
-    ctx.symbols.items[signal_sym_id].type_params = type_params;
-
-    const t_type_id = try ctx.types.intern(ctx.allocator, .{ .type_var = t_sym_id });
-    const signal_inst_id = try ctx.types.intern(ctx.allocator, .{
-        .parameterized_nominal = .{
-            .sym = signal_sym_id,
-            .args = blk: {
-                const a = try ctx.arena.allocator().alloc(TypeId, 1);
-                a[0] = t_type_id;
-                break :blk a;
-            },
-        },
-    });
-    const self_ty_id = try ctx.types.intern(ctx.allocator, .{ .borrow_read = signal_inst_id });
-
-    // `Closure()` builtin type for the `subscribe` argument. PB2
-    // takes a `*Closure()` strong handle and clones it internally.
-    const closure_inst_id = blk: {
-        if (ctx.closure_sym_id == symbol_invalid) {
-            // Defensive: Closure registered before Signal in
-            // `registerBuiltins`, so this branch shouldn't fire.
-            break :blk ctx.types.unknown_id;
-        }
-        const empty_args = try ctx.arena.allocator().alloc(TypeId, 0);
-        break :blk try ctx.types.intern(ctx.allocator, .{
-            .parameterized_nominal = .{ .sym = ctx.closure_sym_id, .args = empty_args },
-        });
-    };
-    const closure_handle_ty = try ctx.types.intern(ctx.allocator, .{ .shared = closure_inst_id });
-
-    // get(self: ?Signal(T)) -> T
-    const get_params = try ctx.arena.allocator().alloc(TypeId, 1);
-    get_params[0] = self_ty_id;
-    const get_fn_ty = try ctx.types.intern(ctx.allocator, .{
-        .function = .{ .params = get_params, .returns = t_type_id, .is_sub = false },
-    });
-
-    // set(self: ?Signal(T), value: T)
-    const set_params = try ctx.arena.allocator().alloc(TypeId, 2);
-    set_params[0] = self_ty_id;
-    set_params[1] = t_type_id;
-    const set_fn_ty = try ctx.types.intern(ctx.allocator, .{
-        .function = .{ .params = set_params, .returns = ctx.types.void_id, .is_sub = true },
-    });
-
-    // subscribe(self: ?Signal(T), cb: *Closure())
-    const sub_params = try ctx.arena.allocator().alloc(TypeId, 2);
-    sub_params[0] = self_ty_id;
-    sub_params[1] = closure_handle_ty;
-    const sub_fn_ty = try ctx.types.intern(ctx.allocator, .{
-        .function = .{ .params = sub_params, .returns = ctx.types.void_id, .is_sub = true },
-    });
-
-    // Synthetic `value` field for `Signal(value: 0)` constructor
-    // sugar. Matches Cell's pattern — the runtime initializes the
-    // inner cell with this value.
-    const fields = try ctx.arena.allocator().alloc(Field, 4);
-    fields[0] = .{
-        .name = "value",
-        .ty = t_type_id,
-        .decl_pos = builtin_decl_pos,
-    };
-    fields[1] = .{
-        .name = "get",
-        .ty = get_fn_ty,
-        .decl_pos = builtin_decl_pos,
-        .is_method = true,
-        .receiver = .read,
-    };
-    fields[2] = .{
-        .name = "set",
-        .ty = set_fn_ty,
-        .decl_pos = builtin_decl_pos,
-        .is_method = true,
-        .receiver = .read,
-    };
-    fields[3] = .{
-        .name = "subscribe",
-        .ty = sub_fn_ty,
-        .decl_pos = builtin_decl_pos,
-        .is_method = true,
-        .receiver = .read,
-    };
-    ctx.symbols.items[signal_sym_id].fields = fields;
-}
-
-fn registerVecMethods(ctx: *SemContext, vec_sym_id: SymbolId, vec_t_sym_id: SymbolId) std.mem.Allocator.Error!void {
-    // M20i(2/5): synthetic methods for Vec(T).
-    //
-    // Receiver discipline (per GPT-5.5's M20i design pass, D3+):
-    //   - push / clear / pop: write-receiver (`!Vec(T)`). Vec is a
-    //     resource value; mutating it requires explicit write
-    //     access. Users invoke as `(!vec).push(...)` or similar
-    //     (M20i(3/5) extends the ownership pass to make this
-    //     ergonomic for stack-local Vec bindings).
-    //   - length / get: read-receiver (`?Vec(T)`).
-    //
-    // Copy-T-only restrictions on `get` and `pop`:
-    //   Returning a resource T from `get`/`pop` would either silently
-    //   clone (visibility violation) or produce an optional resource
-    //   value `(*T)?` that Rig's V1 optional-handling can't auto-drop
-    //   correctly. The methods are REGISTERED for all T (so syntax
-    //   parses), but sema at the call site rejects them when T is a
-    //   resource handle. Use `push` + `clear` + scope drop for
-    //   resource T; future M20i.x or M20j adds non-consuming access.
-    const t_type_id_v = try ctx.types.intern(ctx.allocator, .{ .type_var = vec_t_sym_id });
-    const vec_inst_id = try ctx.types.intern(ctx.allocator, .{
-        .parameterized_nominal = .{
-            .sym = vec_sym_id,
-            .args = blk: {
-                const a = try ctx.arena.allocator().alloc(TypeId, 1);
-                a[0] = t_type_id_v;
-                break :blk a;
-            },
-        },
-    });
-    const vec_read_self_id = try ctx.types.intern(ctx.allocator, .{ .borrow_read = vec_inst_id });
-    const vec_write_self_id = try ctx.types.intern(ctx.allocator, .{ .borrow_write = vec_inst_id });
-
-    // push(self: !Vec(T), value: T) -> Void
-    const vec_push_params = try ctx.arena.allocator().alloc(TypeId, 2);
-    vec_push_params[0] = vec_write_self_id;
-    vec_push_params[1] = t_type_id_v;
-    const vec_push_fn_ty = try ctx.types.intern(ctx.allocator, .{
-        .function = .{ .params = vec_push_params, .returns = ctx.types.void_id, .is_sub = true },
-    });
-
-    // length(self: ?Vec(T)) -> Int
-    const vec_length_params = try ctx.arena.allocator().alloc(TypeId, 1);
-    vec_length_params[0] = vec_read_self_id;
-    const vec_length_fn_ty = try ctx.types.intern(ctx.allocator, .{
-        .function = .{ .params = vec_length_params, .returns = ctx.types.int_id, .is_sub = false },
-    });
-
-    // clear(self: !Vec(T)) -> Void
-    const vec_clear_params = try ctx.arena.allocator().alloc(TypeId, 1);
-    vec_clear_params[0] = vec_write_self_id;
-    const vec_clear_fn_ty = try ctx.types.intern(ctx.allocator, .{
-        .function = .{ .params = vec_clear_params, .returns = ctx.types.void_id, .is_sub = true },
-    });
-
-    // get(self: ?Vec(T), i: Int) -> T?
-    //   Copy-T-only at call site.
-    const t_optional_id = try ctx.types.intern(ctx.allocator, .{ .optional = t_type_id_v });
-    const vec_get_params = try ctx.arena.allocator().alloc(TypeId, 2);
-    vec_get_params[0] = vec_read_self_id;
-    vec_get_params[1] = ctx.types.int_id;
-    const vec_get_fn_ty = try ctx.types.intern(ctx.allocator, .{
-        .function = .{ .params = vec_get_params, .returns = t_optional_id, .is_sub = false },
-    });
-
-    // pop(self: !Vec(T)) -> T?
-    //   Copy-T-only at call site.
-    const vec_pop_params = try ctx.arena.allocator().alloc(TypeId, 1);
-    vec_pop_params[0] = vec_write_self_id;
-    const vec_pop_fn_ty = try ctx.types.intern(ctx.allocator, .{
-        .function = .{ .params = vec_pop_params, .returns = t_optional_id, .is_sub = true },
-    });
-
-    const vec_fields = try ctx.arena.allocator().alloc(Field, 5);
-    vec_fields[0] = .{
-        .name = "push",
-        .ty = vec_push_fn_ty,
-        .decl_pos = builtin_decl_pos,
-        .is_method = true,
-        .receiver = .write,
-    };
-    vec_fields[1] = .{
-        .name = "length",
-        .ty = vec_length_fn_ty,
-        .decl_pos = builtin_decl_pos,
-        .is_method = true,
-        .receiver = .read,
-    };
-    vec_fields[2] = .{
-        .name = "clear",
-        .ty = vec_clear_fn_ty,
-        .decl_pos = builtin_decl_pos,
-        .is_method = true,
-        .receiver = .write,
-    };
-    vec_fields[3] = .{
-        .name = "get",
-        .ty = vec_get_fn_ty,
-        .decl_pos = builtin_decl_pos,
-        .is_method = true,
-        .receiver = .read,
-    };
-    vec_fields[4] = .{
-        .name = "pop",
-        .ty = vec_pop_fn_ty,
-        .decl_pos = builtin_decl_pos,
-        .is_method = true,
-        .receiver = .write,
-    };
-    ctx.symbols.items[vec_sym_id].fields = vec_fields;
-}
-
-/// M20i.1.1: per-`for` Vec-source attribution stored in
-/// `SemContext.for_source_vec_info`. Populated by
-/// `ExprChecker.checkForStmt` when a Vec source is recognized;
-/// read by `Emitter.emitFor` to drive the Shape X / Shape Y
-/// lowering without re-scanning sema.symbols.
-///
-/// Fixes the GPT-5.5 post-impl review hazard around the global
-/// reverse-scan in the emit-side `vecSourceForEmit`, which was
-/// the M20e-legacy "first-match-wins" pattern and would
-/// mis-classify the loop element under cross-function shadowing
-/// when two Vecs share a name across functions.
-pub const VecIterInfo = struct {
-    elem_ty: TypeId,
-    is_resource: bool,
-    is_closure: bool,
-};
-
-/// M20f.1 per GPT-5.5: names reserved for built-in nominal types
-/// (Cell, etc.). User declarations of these names are rejected at
-/// sema time so the emit-side `isBuiltinNominalName` check stays
-/// sound (it's a string-equality test, so a user-redefined `Cell`
-/// would be mis-classified as built-in and emit would prefix
-/// `rig.` to a user type).
-fn isReservedBuiltinName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "Cell") or
-        std.mem.eql(u8, name, "Closure") or
-        std.mem.eql(u8, name, "Vec") or
-        std.mem.eql(u8, name, "Signal");
-}
-
-/// M20f: is a TypeId a Copy type for Cell(T) instantiation? V1
-/// restricts Cell to Copy T (primitives + literal pseudo-types).
-/// Non-Copy T (nominal structs, resource handles, slices, etc.)
-/// would let `Cell.set` corrupt ownership semantics — overwriting
-/// a `*User` without dropping it, etc.
-///
-/// M26(1/5) update: this predicate now identifies the COPY HALF
-/// of Cell's accepted T types. The full Cell-element rule is
-/// `isValidCellElementType` — Copy primitives OR drop-needing.
-/// Drop-needing T is handled at runtime via `dropElement` +
-/// `replace` / `set-with-drop-old`.
-fn isCopyTypeForCell(ctx: *const SemContext, ty_id: TypeId) bool {
-    const ty = ctx.types.get(ty_id);
-    return switch (ty) {
-        .bool, .int, .float, .string, .int_literal, .float_literal => true,
-        else => false,
-    };
-}
-
-/// M26(1/5): if `receiver_ty` resolves to a Cell-shaped receiver
-/// (bare `Cell(T)`, `?Cell(T)`, `!Cell(T)`, or `*Cell(T)`),
-/// extract and return the element type T. Returns null for
-/// non-Cell receivers.
-///
-/// Used by the `cell.get` and `cell.value` Drop-T rejection guards
-/// to determine whether the rejection should fire — the receiver
-/// shape may have any of the borrow / shared wrappers around the
-/// `parameterized_nominal{Cell, [T]}` core, and we want to inspect
-/// T regardless of the wrapping.
-fn cellElementType(ctx: *const SemContext, receiver_ty: TypeId) ?TypeId {
-    var ty = receiver_ty;
-    var depth: u8 = 0;
-    while (depth < 8) : (depth += 1) {
-        const t = ctx.types.get(ty);
-        switch (t) {
-            .borrow_read => |inner| ty = inner,
-            .borrow_write => |inner| ty = inner,
-            .shared => |inner| ty = inner,
-            .parameterized_nominal => |pn| {
-                if (pn.sym == ctx.cell_sym_id and pn.args.len == 1) return pn.args[0];
-                return null;
-            },
-            else => return null,
-        }
-    }
-    return null;
-}
-
-/// M26(1/5): is a TypeId a valid element type for `Cell(T)` after
-/// the Cell-non-Copy substrate unlock?
-///
-/// True for:
-///   - Copy primitives (existing M20f-era behavior)
-///   - any T where `typeHasDropGlue(T)` returns true — covers
-///     `*T` shared, `~T` weak, `Vec(T)`, `*Closure()`, and
-///     nominals with drop glue.
-///
-/// False for:
-///   - bare nominals without drop glue (e.g., a struct of only
-///     Copy fields — these are conceptually Copy-ish, but the
-///     V1 type system doesn't yet track `Copy` for nominals;
-///     defer until a real use case appears or Copy traits land).
-///   - other shapes (slice, array, fn, optional, fallible,
-///     borrow_*) — neither Copy primitives nor drop-needing.
-///
-/// Per GPT-5.5's M26 design lock: "Cell accepts Copy or Drop.
-/// Reject neither-copy-nor-drop." The "Copy or Drop" set is
-/// what the runtime can correctly handle: Copy via byte
-/// overwrite, Drop via `dropElement(T, &value)` then store.
-fn isValidCellElementType(ctx: *const SemContext, ty_id: TypeId) bool {
-    if (isCopyTypeForCell(ctx, ty_id)) return true;
-    return typeHasDropGlue(ctx, ty_id);
-}
-
-/// M20i: is a TypeId a valid element type for Vec(T) in V1?
-///
-/// Allowed:
-///   - Copy primitives (Int, Bool, Float, String, literal pseudo)
-///   - `*T` shared handles (drop via `dropElement`'s strong arm)
-///   - `~T` weak handles (drop via `WeakHandle.__rig_drop`)
-///
-/// Rejected:
-///   - Nested `Vec(Vec(T))` — recursive resource semantics deferred
-///   - `Cell(T)` elements — non-Copy Cell isn't supported, so the
-///     `*Cell(T)` form must be used instead (which is allowed via
-///     the `*T` branch)
-///   - Arbitrary nominal T — needs user-defined Drop
-///   - Slices, arrays, fn types — not yet first-class resources
-fn isValidVecElementType(ctx: *const SemContext, ty_id: TypeId) bool {
-    const ty = ctx.types.get(ty_id);
-    return switch (ty) {
-        // Copy primitives.
-        .bool, .int, .float, .string, .int_literal, .float_literal => true,
-        // Shared / weak handles — both have known drop discipline.
-        .shared, .weak => true,
-        // Everything else: rejected for V1.
-        else => false,
-    };
-}
-
-/// M20g(2/5): Copy classification for `|x|` (cap_copy) lambda
-/// captures. Same conservative primitive-only set as
-/// `isCopyTypeForCell` and `ownership.isCopyType` — keeps the three
-/// Copy/non-Copy boundaries aligned. Resources (`shared`/`weak`) are
-/// explicitly NOT Copy here, but the cap_copy validation in
-/// `ExprChecker.validateOneCapture` fires a dedicated diagnostic
-/// for them (mentioning `|+x|`/`|<x|`/`|~x|`) so users get the
-/// visible-effects guidance instead of a generic "not Copy".
-fn isCopyTypeForCapture(ctx: *const SemContext, ty_id: TypeId) bool {
-    const ty = ctx.types.get(ty_id);
-    return switch (ty) {
-        .bool, .int, .float, .string, .int_literal, .float_literal => true,
-        else => false,
-    };
-}
-
-/// M25(2/5): does a TypeId represent a value-shaped resource — one
-/// that requires drop glue when held by a struct field?
-///
-/// True for:
-///   - `shared(T)` / `weak(T)` — refcount handles release on drop;
-///   - `parameterized_nominal{Vec, _}` — Vec owns its buffer;
-///   - `parameterized_nominal{Closure, _}` — owned closure handle;
-///   - `nominal{sym}` where `sym.flags.has_drop_glue` — recursive
-///     case (struct with resource fields or user `drop`).
-///
-/// False for:
-///   - primitives (int, bool, float, string, literal pseudo-types,
-///     void, etc.) — Copy by definition;
-///   - `optional` / `fallible` / `borrow_*` — V1 doesn't yet support
-///     resource Optionals (deferred per GPT-5.5 M25 lock); borrows
-///     don't own the value;
-///   - `slice` / `array` / `function` — not first-class resources
-///     in V1 (slices to resource elements are a follow-up arc);
-///   - `imported_nominal` — V1 cross-module Drop is deferred (the
-///     foreign nominal's drop glue lives in its origin module's
-///     emit; a follow-up arc threads `has_drop_glue` through
-///     `importType`).
-///
-/// **NOT** equivalent to "non-Copy" — `Cell(T)` is non-Copy in some
-/// contexts (V1 restriction) but is itself a leaf value with no
-/// drop glue when T is Copy. The drop-glue question is specifically
-/// "does this field need __rig_drop to walk it on the parent's drop?"
-///
-/// Exposed publicly so ownership.zig and emit.zig can dispatch on
-/// the same predicate (the load-bearing "any type with drop glue
-/// is non-Copy" rule from M25(3/5) generalized in M26(3/5)).
-pub fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
-    if (ty_id == ctx.types.invalid_id or ty_id == ctx.types.unknown_id) return false;
-    const ty = ctx.types.get(ty_id);
-    return switch (ty) {
-        .shared, .weak => true,
-        .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.vec_sym_id) break :blk true;
-            if (pn.sym == ctx.closure_sym_id) break :blk true;
-            // M26(1/5): `Cell(T)` carries drop glue iff T does.
-            // Pre-M26 Cell was Copy-T-only so this recursion was a
-            // no-op (always false); after M26's relaxation,
-            // `*Cell(Vec(...))` and `Cell(*User)` etc. become valid
-            // and their auto-drop must walk the inner T. The
-            // runtime's `Cell.__rig_drop` calls `dropElement(T, &value)`
-            // which handles all of: Copy T (no-op), shared/weak,
-            // Vec, nominal-with-drop-glue.
-            if (pn.sym == ctx.cell_sym_id) {
-                if (pn.args.len == 1) break :blk typeHasDropGlue(ctx, pn.args[0]);
-                break :blk false;
-            }
-            // Other parameterized builtins: Signal owns a subscriber
-            // Vec but the owning shape is heap-only (`*Signal(T)`),
-            // so any field typed `*Signal(_)` falls into the
-            // `.shared` branch above. Bare-value `Signal(T)` in
-            // field position is rejected at sema time elsewhere.
-            //
-            // For user-defined generics, `has_drop_glue` only flows
-            // through if the BASE struct is flagged. Type-args (`pn.args`)
-            // could carry resources, but field-level recursion happens
-            // when the field IS the type-arg-bearing nominal — the
-            // parameterized base must declare what it owns.
-            const base_sym = ctx.symbols.items[pn.sym];
-            break :blk base_sym.flags.has_drop_glue;
-        },
-        .nominal => |s| blk: {
-            const sym = ctx.symbols.items[s];
-            break :blk sym.flags.has_drop_glue;
-        },
-        else => false,
-    };
-}
-
-// =============================================================================
-// Symbol Resolution
-// =============================================================================
-
-const SymbolResolver = struct {
-    ctx: *SemContext,
-    current_scope: ScopeId,
-
-    fn walk(self: *SymbolResolver, sexp: Sexp) std.mem.Allocator.Error!void {
-        if (sexp != .list or sexp.list.len == 0) return;
-        const items = sexp.list;
-        if (items[0] != .tag) return;
-
-        switch (items[0].tag) {
-            .@"module" => {
-                for (items[1..]) |child| try self.walk(child);
-            },
-            .@"pub" => {
-                // `(pub child)` decoration. Mark the inner declaration as public.
-                if (items.len >= 2) {
-                    const before = self.ctx.symbols.items.len;
-                    try self.walk(items[1]);
-                    const after = self.ctx.symbols.items.len;
-                    if (after > before) {
-                        // The wrapped decl appended exactly one symbol at
-                        // the front of its run; flag it public. Inner
-                        // recursion (params, locals) added more after,
-                        // but those are scope-internal and don't need the
-                        // pub flag.
-                        self.ctx.symbols.items[before].flags.is_public = true;
-                    }
-                }
-            },
-            // (M22 removed M19's `.@"unsafe_decl"` arm — the
-            // fn-level raw marker `unsafe sub`/`unsafe fun` was
-            // dropped per GPT-5.5 entry 38. The associated M21.1
-            // "reject `unsafe` on non-callable decl" sema rule
-            // (rejected `unsafe struct` etc.) became irrelevant
-            // and was removed too.)
-            .@"fun", .@"sub" => try self.walkFun(items),
-            .@"lambda" => try self.walkLambda(items),
-            .@"use" => try self.walkUse(items),
-            .@"type" => try self.walkTypeAlias(items),
-            // M20b: `type Box(T)` — generic struct shape.
-            // M20c: `enum Option(T)` — generic enum shape. Same
-            // pass-1 work (bind detached params, walk methods); the
-            // struct-vs-enum distinction lives in the IR head, not
-            // in SymbolKind (both kind as `.generic_type` per
-            // GPT-5.5's M20c design pass). Pass 2 dispatches on
-            // the IR head for field/variant resolution.
-            .@"generic_type", .@"generic_enum" => try self.walkGenericType(items),
-            .@"struct", .@"enum", .@"errors", .@"opaque" => try self.walkNominalType(items),
-            .@"extern" => try self.walkExtern(items),
-            // M23: body-less extern function declarations register
-            // the same way as extern variables: `Symbol.kind =
-            // .@"extern"`, function-typed; the M21 extern-call-from-
-            // safe-context check already keys off `Symbol.kind`.
-            .@"extern_fun", .@"extern_sub" => try self.walkExternFun(items),
-            .@"set" => try self.walkSet(items),
-            .@"block" => try self.walkBlock(items[1..]),
-            .@"for" => try self.walkFor(items),
-            .@"if", .@"while", .@"match", .@"return", .@"try_block",
-            .@"propagate", .@"try", .@"call", .@"member", .@"kwarg",
-            .@"drop",
-            => for (items[1..]) |child| try self.walk(child),
-            .@"catch_block" => try self.walkCatchBlock(items),
-            .@"arm" => try self.walkArm(items),
-            else => for (items[1..]) |child| try self.walk(child),
-        }
-    }
-
-    /// `(fun name params returns body)` or `(sub name params body)`.
-    /// Adds the function symbol to the CURRENT scope, then opens a fresh
-    /// child scope for params + body.
-    fn walkFun(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        if (items.len < 3) return;
-        const name_node = items[1];
-        const is_sub = items[0].tag == .@"sub";
-        const params = items[2];
-        const body = items[items.len - 1];
-
-        if (identAt(self.ctx.source, name_node)) |name| {
-            const decl_pos = if (name_node == .src) name_node.src.pos else 0;
-            _ = try self.addSymbol(.{
-                .name = name,
-                .kind = .function,
-                .ty = self.ctx.types.unknown_id,
-                .decl_pos = decl_pos,
-                .scope = self.current_scope,
-            });
-        }
-
-        // Function body opens a fresh scope (params + locals).
-        const fn_scope = try self.ctx.pushScope(self.current_scope);
-        const prev_scope = self.current_scope;
-        self.current_scope = fn_scope;
-        defer self.current_scope = prev_scope;
-
-        // Bind parameters.
-        if (params == .list) {
-            for (params.list) |p| try self.bindParam(p);
-        }
-
-        // Walk body for locals / nested fns.
-        try self.walk(body);
-
-        _ = is_sub; // kept for future kind-distinction (e.g., return-type defaulting)
-    }
-
-    /// `(lambda CAPTURES PARAMS RETURNS BODY)` — anonymous function.
-    /// CAPTURES is `_` (nil) for non-capturing lambdas, otherwise
-    /// `(captures cap_node)` wrapping a single capture node (V1).
-    /// Each capture node is `(cap_copy NAME)` / `(cap_clone NAME)` /
-    /// `(cap_weak NAME)` / `(cap_move NAME)`. Per GPT-5.5's M20g
-    /// design pass, captures are bound BEFORE params so a name
-    /// collision between capture and param produces a clean
-    /// diagnostic and the body scope sees the capture (not the
-    /// outer) when the name is referenced.
-    fn walkLambda(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        if (items.len < 5) return;
-        const captures = items[1];
-        const params = items[2];
-        const body = items[4];
-
-        const fn_scope = try self.ctx.pushScope(self.current_scope);
-        const prev_scope = self.current_scope;
-        self.current_scope = fn_scope;
-        defer self.current_scope = prev_scope;
-
-        // M20g(2/5): bind capture names into the lambda body scope
-        // FIRST. ExprChecker.synthLambda fills in each capture's
-        // `.ty` per the mode-vs-outer-type validation table.
-        try self.bindCaptures(captures);
-
-        if (params == .list) {
-            for (params.list) |p| try self.bindParamWithCaptureCollision(p, captures);
-        }
-
-        try self.walk(body);
-    }
-
-    /// M20g(2/5): bind each capture node `(cap_xxx NAME)` as a
-    /// `.capture` symbol in the current (lambda body) scope. Type
-    /// stays `unknown_id` here — ExprChecker.synthLambda assigns the
-    /// per-mode type once outer-scope symbols are resolved.
-    /// V1 grammar produces at most one capture (`captures = BAR
-    /// capture BAR`); we still iterate defensively in case a future
-    /// multi-capture grammar lands without touching this site.
-    fn bindCaptures(self: *SymbolResolver, captures: Sexp) std.mem.Allocator.Error!void {
-        if (captures != .list) return;
-        if (captures.list.len < 2 or captures.list[0] != .tag) return;
-        if (captures.list[0].tag != .@"captures") return;
-        for (captures.list[1..]) |cap| {
-            const name_node = captureNameNode(cap) orelse continue;
-            const name = identAt(self.ctx.source, name_node) orelse continue;
-            const decl_pos = if (name_node == .src) name_node.src.pos else 0;
-            // Reject duplicate captures (defensive; V1 grammar is
-            // single-capture so this only fires under a future
-            // multi-capture grammar rev — better to error here than
-            // silently shadow).
-            if (self.ctx.lookupInScopeOnly(self.current_scope, name)) |prev_id| {
-                const prev = self.ctx.symbols.items[prev_id];
-                const msg = try std.fmt.allocPrint(
-                    self.ctx.arena.allocator(),
-                    "duplicate capture name `{s}`",
-                    .{name},
-                );
-                try self.ctx.diagnostics.append(self.ctx.allocator, .{
-                    .severity = .@"error",
-                    .pos = decl_pos,
-                    .message = msg,
-                });
-                const note = try std.fmt.allocPrint(
-                    self.ctx.arena.allocator(),
-                    "first captured here",
-                    .{},
-                );
-                try self.ctx.diagnostics.append(self.ctx.allocator, .{
-                    .severity = .note,
-                    .pos = prev.decl_pos,
-                    .message = note,
-                });
-                continue;
-            }
-            _ = try self.addSymbol(.{
-                .name = name,
-                .kind = .capture,
-                .ty = self.ctx.types.unknown_id,
-                .decl_pos = decl_pos,
-                .scope = self.current_scope,
-            });
-        }
-    }
-
-    /// M20g(2/5): bind a lambda parameter, additionally checking for
-    /// a name collision with an already-bound capture (which we
-    /// inserted into the body scope before walking params). Emits a
-    /// dedicated diagnostic when a param shadows a capture so users
-    /// don't accidentally write `|x| (x: Int) ...` and have the
-    /// param silently win.
-    fn bindParamWithCaptureCollision(
-        self: *SymbolResolver,
-        param: Sexp,
-        captures: Sexp,
-    ) std.mem.Allocator.Error!void {
-        if (captures == .list and captures.list.len >= 2 and
-            captures.list[0] == .tag and captures.list[0].tag == .@"captures")
-        {
-            const pname = paramName(self.ctx.source, param);
-            if (pname) |name| {
-                for (captures.list[1..]) |cap| {
-                    const cap_name_node = captureNameNode(cap) orelse continue;
-                    const cap_name = identAt(self.ctx.source, cap_name_node) orelse continue;
-                    if (std.mem.eql(u8, cap_name, name)) {
-                        const ppos = firstSrcPos(param);
-                        const msg = try std.fmt.allocPrint(
-                            self.ctx.arena.allocator(),
-                            "lambda parameter `{s}` conflicts with captured variable `{s}`",
-                            .{ name, name },
-                        );
-                        try self.ctx.diagnostics.append(self.ctx.allocator, .{
-                            .severity = .@"error",
-                            .pos = ppos,
-                            .message = msg,
-                        });
-                        const cap_pos: u32 = if (cap_name_node == .src) cap_name_node.src.pos else 0;
-                        const note_msg = try std.fmt.allocPrint(
-                            self.ctx.arena.allocator(),
-                            "captured here",
-                            .{},
-                        );
-                        try self.ctx.diagnostics.append(self.ctx.allocator, .{
-                            .severity = .note,
-                            .pos = cap_pos,
-                            .message = note_msg,
-                        });
-                        return;
-                    }
-                }
-            }
-        }
-        try self.bindParam(param);
-    }
-
-    /// Add a parameter binding to the current (function) scope. Param
-    /// shapes vary: `(: name type)`, `(: name type default)`, `name`
-    /// (untyped), `(pre_param name type)`, etc. We extract the name and
-    /// flag `borrowed_param` if the type is `(borrow_read T)` /
-    /// `(borrow_write T)`.
-    fn bindParam(self: *SymbolResolver, param: Sexp) std.mem.Allocator.Error!void {
-        var name_node: Sexp = .{ .nil = {} };
-        var type_node: Sexp = .{ .nil = {} };
-
-        switch (param) {
-            .src => name_node = param,
-            .list => |items| {
-                if (items.len == 0 or items[0] != .tag) return;
-                switch (items[0].tag) {
-                    .@":" => {
-                        // (: name type) or (: name type default)
-                        if (items.len >= 3) {
-                            name_node = items[1];
-                            type_node = items[2];
-                        }
-                    },
-                    .@"pre_param" => {
-                        // (pre_param name type)
-                        if (items.len >= 3) {
-                            name_node = items[1];
-                            type_node = items[2];
-                        }
-                    },
-                    // M20a.1: `?self` / `!self` sugar — `(read NAME)` /
-                    // `(write NAME)` at param position. Treat as a
-                    // borrowed param; type-resolution happens in
-                    // TypeResolver where the enclosing nominal is known.
-                    .@"read", .@"write" => {
-                        if (items.len >= 2) {
-                            name_node = items[1];
-                            // type_node stays nil; the borrowed-param
-                            // flag below is set unconditionally for
-                            // these shapes.
-                        }
-                    },
-                    else => return,
-                }
-            },
-            else => return,
-        }
-
-        const name = identAt(self.ctx.source, name_node) orelse return;
-        const decl_pos = if (name_node == .src) name_node.src.pos else 0;
-        // M20a.1: `?self` / `!self` sugar — the `read`/`write` head
-        // signals a borrow without an explicit type_node, so mark as
-        // borrowed unconditionally.
-        const borrowed = blk: {
-            if (param == .list and param.list.len >= 1 and param.list[0] == .tag) {
-                switch (param.list[0].tag) {
-                    .@"read", .@"write" => break :blk true,
-                    else => {},
-                }
-            }
-            break :blk isBorrowedTypeNode(type_node);
+/// Add the instances a program reaches through generic bodies: when
+/// `Box(*B)` is spelled and `Box(T)`'s methods use `Opt(T)`, `Opt(*B)` is
+/// instantiated too, at the same site. The requirement checks then see
+/// every instantiation.
+fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
+    if (ctx.generic_uses.items.len == 0) return;
+    const Item = struct { inst: TypeId, root: TypeId };
+    var work: std.ArrayListUnmanaged(Item) = .empty;
+    defer work.deinit(ctx.allocator);
+    var it = ctx.instantiation_sites.keyIterator();
+    while (it.next()) |k| try work.append(ctx.allocator, .{ .inst = k.*, .root = k.* });
+    while (work.pop()) |item| {
+        const pn = switch (ctx.types.get(item.inst)) {
+            .parameterized_nominal => |pn| pn,
+            else => continue,
         };
-        _ = try self.addSymbol(.{
-            .name = name,
-            .kind = .param,
-            .ty = self.ctx.types.unknown_id,
-            .decl_pos = decl_pos,
-            .scope = self.current_scope,
-            .flags = .{ .borrowed_param = borrowed },
-        });
+        const params = ctx.symbols.items[pn.sym].type_params orelse continue;
+        const site = ctx.instantiation_sites.get(item.inst) orelse continue;
+        const subst: TypeSubst = .{ .params = params, .args = pn.args };
+        for (ctx.generic_uses.items) |use| {
+            if (!usesParams(ctx, use, params)) continue;
+            const concrete = try substituteType(ctx, use, subst);
+            if (containsTypeVar(ctx, concrete)) continue;
+            // A generic whose body uses ever-deeper instances of itself
+            // (`Box(T)` using `Box(Box(T))`) would expand forever.
+            if (typeDepth(ctx, concrete, 0) > max_instance_depth) {
+                try ctx.err(site, "`{s}` leads to ever deeper instances of generic types (through `{s}`); a generic type's body cannot nest itself in its own type arguments", .{ try formatType(ctx, item.root), try formatType(ctx, use) });
+                return;
+            }
+            const gop = try ctx.instantiation_sites.getOrPut(ctx.allocator, concrete);
+            if (gop.found_existing) continue;
+            gop.value_ptr.* = site;
+            try work.append(ctx.allocator, .{ .inst = concrete, .root = item.root });
+        }
     }
+}
 
-    fn walkUse(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        if (items.len < 2) return;
-        const name = identAt(self.ctx.source, items[1]) orelse return;
-        const decl_pos = if (items[1] == .src) items[1].src.pos else 0;
-        const sym_id = try self.addSymbol(.{
-            .name = name,
-            .kind = .module,
-            .ty = self.ctx.types.unknown_id,
-            .decl_pos = decl_pos,
-            .scope = self.current_scope,
-        });
-        // M15b: bind the `(use NAME)` symbol to its origin module id
-        // by matching `NAME` against `ctx.imports` (populated by the
-        // ModuleGraph driver before `checkWithImports` runs). If no
-        // match, the import either wasn't resolved or this is a
-        // single-file build with no module graph — leave `module_refs`
-        // empty and the qualified-access path in `synthMember` will
-        // fall through to its legacy "type as unknown" behavior.
-        // M15b(4/5) will close the remaining hole via an unbound-name
-        // diagnostic for unresolved cross-module references.
-        for (self.ctx.imports) |imp| {
-            if (std.mem.eql(u8, imp.local_name, name)) {
-                try self.ctx.module_refs.put(self.ctx.allocator, sym_id, imp.module_id);
+const max_instance_depth = 24;
+
+/// How deeply generic instances nest in `ty` (capped).
+fn typeDepth(ctx: *const SemContext, ty: TypeId, depth: u8) u8 {
+    if (depth > max_instance_depth) return depth;
+    return switch (ctx.types.get(ty)) {
+        .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range => |i| typeDepth(ctx, i, depth + 1),
+        .array => |a| typeDepth(ctx, a.elem, depth + 1),
+        .slice => |sl| typeDepth(ctx, sl.elem, depth + 1),
+        .parameterized_nominal => |pn| blk: {
+            var most = depth + 1;
+            for (pn.args) |a| most = @max(most, typeDepth(ctx, a, depth + 1));
+            break :blk most;
+        },
+        else => depth,
+    };
+}
+
+/// Whether `ty` mentions any of `params`.
+fn usesParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) bool {
+    return switch (ctx.types.get(ty)) {
+        .type_var => |sym| for (params) |p| {
+            if (p == sym) break true;
+        } else false,
+        .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range => |i| usesParams(ctx, i, params),
+        .array => |a| usesParams(ctx, a.elem, params),
+        .slice => |sl| usesParams(ctx, sl.elem, params),
+        .parameterized_nominal => |pn| for (pn.args) |a| {
+            if (usesParams(ctx, a, params)) break true;
+        } else false,
+        else => false,
+    };
+}
+
+/// `has_drop_glue` depends on field types, which may name structs
+/// declared later; iterate until no flag changes.
+fn propagateDropGlue(ctx: *SemContext) void {
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (ctx.symbols.items) |*sym| {
+            if (sym.kind != .nominal_type or sym.flags.has_drop_glue) continue;
+            if (fieldsHaveDropGlue(ctx, sym.fields orelse continue)) {
+                sym.flags.has_drop_glue = true;
+                changed = true;
+            }
+        }
+    }
+}
+
+/// Whether a nominal type with these members has drop glue, given the
+/// `has_drop_glue` flags known so far: it declares `drop`, or a field or
+/// variant payload has drop glue.
+pub fn fieldsHaveDropGlue(ctx: *const SemContext, fields: []const Field) bool {
+    for (fields) |f| {
+        if (f.is_drop_method) return true;
+        if (f.is_method) continue;
+        if (if (f.is_variant) payloadHasDropGlue(ctx, f) else typeHasDropGlue(ctx, f.ty)) return true;
+    }
+    return false;
+}
+
+/// A struct or enum may not contain itself by value (directly or through
+/// other types held by value): it would have no finite size.
+fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
+    for (ctx.symbols.items, 0..) |sym, i| {
+        if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
+        if (sym.decl_pos == builtin_decl_pos) continue;
+        const root: SymbolId = @intCast(i);
+        for (sym.fields orelse &.{}) |f| {
+            if (f.is_method) continue;
+            const hit = if (f.is_variant) blk: {
+                for (f.payload orelse &.{}) |pf| if (containsByValue(ctx, pf.ty, root, null, 0)) break :blk true;
+                break :blk false;
+            } else containsByValue(ctx, f.ty, root, null, 0);
+            if (hit) {
+                const shown = if (sym.kind == .generic_type) try std.fmt.allocPrint(ctx.arena.allocator(), "{s}(...)", .{sym.name}) else sym.name;
+                try ctx.err(f.decl_pos, "`{s}` contains itself by value through `{s}`, so it would have no finite size; hold it through a shared handle (`*{s}`)", .{ shown, f.name, shown });
                 break;
             }
         }
     }
-
-    fn walkTypeAlias(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        // (type name typeexpr)
-        if (items.len < 2) return;
-        const name = identAt(self.ctx.source, items[1]) orelse return;
-        const decl_pos = if (items[1] == .src) items[1].src.pos else 0;
-        _ = try self.addSymbol(.{
-            .name = name,
-            .kind = .type_alias,
-            .ty = self.ctx.types.unknown_id,
-            .decl_pos = decl_pos,
-            .scope = self.current_scope,
-        });
-    }
-
-    fn walkGenericType(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        // (generic_type name (param...) member...)         — M20b
-        // (generic_enum name (param...) member...)         — M20c
-        // Shared pass-1 work: bind detached params + walk methods.
-        if (items.len < 3) return;
-        const name = identAt(self.ctx.source, items[1]) orelse return;
-        const decl_pos = if (items[1] == .src) items[1].src.pos else 0;
-        // M20f.1 per GPT-5.5: reject user redefinition of reserved
-        // built-in nominal names (`Cell`, etc.). Without this, a
-        // user `type Cell(T)` would shadow the M20f builtin and
-        // emit's `isBuiltinNominalName` (string-based check) would
-        // mis-prefix the user's type with `rig.`. The reservation
-        // is enforced at sema time so the user gets a clean
-        // diagnostic instead of confused emit output.
-        if (isReservedBuiltinName(name)) {
-            const msg = try std.fmt.allocPrint(
-                self.ctx.arena.allocator(),
-                "`{s}` is a reserved built-in nominal name and cannot be redefined",
-                .{name},
-            );
-            try self.ctx.diagnostics.append(self.ctx.allocator, .{
-                .severity = .@"error",
-                .pos = decl_pos,
-                .message = msg,
-            });
-            return;
-        }
-        const generic_sym_id = try self.addSymbol(.{
-            .name = name,
-            .kind = .generic_type,
-            .ty = self.ctx.types.unknown_id,
-            .decl_pos = decl_pos,
-            .scope = self.current_scope,
-        });
-
-        // M20b(3/5): bind each type parameter as a `.generic_param`
-        // symbol AND record the param SymbolIds on the generic type
-        // symbol (via `Symbol.type_params`). NominalContext later uses
-        // these to resolve bare `T` → `type_var(T_sym)` even when the
-        // generic body scope isn't lexically active.
-        const params_node = items[2];
-
-        // M20c per GPT-5.5: reject zero-param generic declarations
-        // (`type Box()` / `enum Foo()`) — a generic with no type
-        // parameters is degenerate; the user almost certainly meant
-        // a plain `type Box` / `enum Foo`.
-        const empty_params = (params_node == .nil) or
-            (params_node == .list and params_node.list.len == 0);
-        if (empty_params) {
-            const kind_label = if (items[0].tag == .@"generic_enum") @as([]const u8, "enum") else "type";
-            const msg = try std.fmt.allocPrint(
-                self.ctx.arena.allocator(),
-                "generic {s} `{s}` must declare at least one type parameter; for a non-generic {s}, drop the `()`",
-                .{ kind_label, name, kind_label },
-            );
-            try self.ctx.diagnostics.append(self.ctx.allocator, .{
-                .severity = .@"error",
-                .pos = decl_pos,
-                .message = msg,
-            });
-            // Continue with empty type_params so subsequent passes
-            // don't double-fault on the half-constructed symbol.
-        }
-        var param_ids: std.ArrayListUnmanaged(SymbolId) = .empty;
-        defer param_ids.deinit(self.ctx.allocator);
-
-        // Generic-param symbols live in the surrounding (module) scope
-        // so that nested-method-body lookups can reach them via the
-        // ordinary lexical chain too — but the primary resolution path
-        // goes through `Symbol.type_params` + NominalContext, NOT scope.
-        if (params_node == .list) {
-            // Detect duplicate generic params: `type Pair(T, T)` should
-            // error rather than silently shadowing.
-            for (params_node.list, 0..) |p, i| {
-                const pname = identAt(self.ctx.source, p) orelse continue;
-                for (params_node.list[0..i]) |earlier| {
-                    const ename = identAt(self.ctx.source, earlier) orelse continue;
-                    if (std.mem.eql(u8, pname, ename)) {
-                        // Duplicate. We don't have err() here in
-                        // SymbolResolver — fire a diagnostic via the
-                        // ctx's append path.
-                        const ppos: u32 = if (p == .src) p.src.pos else decl_pos;
-                        const msg = try std.fmt.allocPrint(
-                            self.ctx.arena.allocator(),
-                            "duplicate generic parameter `{s}` on `{s}`",
-                            .{ pname, name },
-                        );
-                        try self.ctx.diagnostics.append(self.ctx.allocator, .{
-                            .severity = .@"error",
-                            .pos = ppos,
-                            .message = msg,
-                        });
-                    }
-                }
-            }
-            // M20b(5/5) per GPT-5.5: generic params are DETACHED —
-            // they live in `ctx.symbols` and on the generic type's
-            // `type_params` slice, but are NOT inserted into the
-            // module scope. Otherwise `T` from `type Box(T)` would
-            // collide with `T` from `type Pair(T)` AND would be
-            // resolvable by ordinary lexical lookup at module scope,
-            // both of which are wrong. NominalContext.type_params is
-            // the canonical resolution path.
-            //
-            // Track seen-this-decl names to skip duplicates (we still
-            // diagnosed them above; not adding the duplicate keeps
-            // type_params clean and avoids later confusion).
-            var added_names: std.StringHashMapUnmanaged(void) = .empty;
-            defer added_names.deinit(self.ctx.allocator);
-            for (params_node.list) |p| {
-                const pname = identAt(self.ctx.source, p) orelse continue;
-                if (added_names.contains(pname)) continue;
-                try added_names.put(self.ctx.allocator, pname, {});
-                const ppos: u32 = if (p == .src) p.src.pos else 0;
-                const param_sym_id = try self.addDetachedSymbol(.{
-                    .name = pname,
-                    .kind = .generic_param,
-                    .ty = self.ctx.types.unknown_id,
-                    .decl_pos = ppos,
-                    .scope = self.current_scope,
-                });
-                try param_ids.append(self.ctx.allocator, param_sym_id);
-            }
-        }
-
-        const owned_params = try self.ctx.arena.allocator().dupe(SymbolId, param_ids.items);
-        self.ctx.symbols.items[generic_sym_id].type_params = owned_params;
-
-        // M20b(3/5): walk members for `fun`/`sub` methods to open their
-        // body scopes (same machinery as nominal `walkNominalType`).
-        // Data fields don't push scopes; they're typed at pass 2.
-        // Sigil-prefixed members (`?x`) are diagnosed at pass 2.
-        for (items[3..]) |member| {
-            if (member != .list or member.list.len == 0 or member.list[0] != .tag) continue;
-            switch (member.list[0].tag) {
-                .@"fun", .@"sub" => try self.walkMethod(member.list),
-                else => {},
-            }
-        }
-    }
-
-    fn walkNominalType(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        // (struct name members) / (enum name members) / (errors name members) / (opaque name)
-        if (items.len < 2) return;
-        const name = identAt(self.ctx.source, items[1]) orelse return;
-        const decl_pos = if (items[1] == .src) items[1].src.pos else 0;
-        // M20f.1: reservation check (see walkGenericType for the
-        // rationale).
-        if (isReservedBuiltinName(name)) {
-            const msg = try std.fmt.allocPrint(
-                self.ctx.arena.allocator(),
-                "`{s}` is a reserved built-in nominal name and cannot be redefined",
-                .{name},
-            );
-            try self.ctx.diagnostics.append(self.ctx.allocator, .{
-                .severity = .@"error",
-                .pos = decl_pos,
-                .message = msg,
-            });
-            return;
-        }
-        _ = try self.addSymbol(.{
-            .name = name,
-            .kind = .nominal_type,
-            .ty = self.ctx.types.unknown_id,
-            .decl_pos = decl_pos,
-            .scope = self.current_scope,
-        });
-
-        // M20a: walk methods (fun/sub members) to open their function
-        // body scopes and bind their params (including `self`). This
-        // applies to all nominal forms (struct, enum, errors) so
-        // receiver-style calls can find self-bound symbols. The methods
-        // themselves are NOT added as module-scope function symbols —
-        // they're recorded as `is_method = true` entries on the
-        // nominal's `Symbol.fields` slice by `TypeResolver`.
-        //
-        // M25(2/5): drop_decl members get the same scope+param
-        // treatment so the body can type-check `self.field` reads.
-        // The shape differs (`(drop_decl params block)` — no name,
-        // no return slot), so it has its own walker.
-        if (items.len > 2) {
-            for (items[2..]) |member| {
-                if (member != .list or member.list.len == 0 or member.list[0] != .tag) continue;
-                switch (member.list[0].tag) {
-                    .@"fun", .@"sub" => try self.walkMethod(member.list),
-                    .@"drop_decl" => try self.walkDropDecl(member.list),
-                    else => {},
-                }
-            }
-        }
-    }
-
-    /// Like `walkFun` but for methods inside a nominal body: opens the
-    /// body scope and binds params without adding a module-level
-    /// function symbol. The method's signature lives in `Symbol.fields`
-    /// (with `is_method = true`) populated by `TypeResolver`.
-    fn walkMethod(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        if (items.len < 3) return;
-        const params = items[2];
-        const body = items[items.len - 1];
-
-        const fn_scope = try self.ctx.pushScope(self.current_scope);
-        const prev_scope = self.current_scope;
-        self.current_scope = fn_scope;
-        defer self.current_scope = prev_scope;
-
-        if (params == .list) {
-            for (params.list) |p| try self.bindParam(p);
-        }
-        try self.walk(body);
-    }
-
-    /// M25(2/5): walk a `(drop_decl params block)` member of a struct
-    /// body. Same shape as `walkMethod` but with positions shifted
-    /// (params at items[1], body at items[2]) since drop has no
-    /// user-supplied name or return type. Opens a body scope, binds
-    /// `self`, walks the body. The TypeResolver's drop-decl branch
-    /// fills in the param symbol's resolved type and the method
-    /// signature on the enclosing struct's `fields[]`.
-    fn walkDropDecl(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        if (items.len < 3) return;
-        const params = items[1];
-        const body = items[2];
-
-        const fn_scope = try self.ctx.pushScope(self.current_scope);
-        const prev_scope = self.current_scope;
-        self.current_scope = fn_scope;
-        defer self.current_scope = prev_scope;
-
-        if (params == .list) {
-            for (params.list) |p| try self.bindParam(p);
-        }
-        try self.walk(body);
-    }
-
-    fn walkExtern(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        // (extern <kind> name type) — kind ∈ { _, fixed }
-        if (items.len < 4) return;
-        const kind_slot = items[1];
-        const name = identAt(self.ctx.source, items[2]) orelse return;
-        const decl_pos = if (items[2] == .src) items[2].src.pos else 0;
-        const fixed = kind_slot == .tag and kind_slot.tag == .fixed;
-        _ = try self.addSymbol(.{
-            .name = name,
-            .kind = .@"extern",
-            .ty = self.ctx.types.unknown_id,
-            .decl_pos = decl_pos,
-            .scope = self.current_scope,
-            .flags = .{ .fixed = fixed },
-        });
-    }
-
-    /// M23: body-less extern function/sub declarations.
-    /// IR shapes:
-    ///   (extern_fun name params returns)  — params and/or returns may be `_` (nil)
-    ///   (extern_sub name params)            — params may be `_` (nil); returns is implicit Void
-    /// Symbol kind matches the extern-variable form so the M21
-    /// extern-call-from-safe-context enforcement key (`Symbol.kind
-    /// == .@"extern"`) fires uniformly. Type resolution happens in
-    /// the TypeResolver pass; this pass only registers the symbol.
-    fn walkExternFun(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        if (items.len < 2) return;
-        const name_node = items[1];
-        const name = identAt(self.ctx.source, name_node) orelse return;
-        const decl_pos = if (name_node == .src) name_node.src.pos else 0;
-        _ = try self.addSymbol(.{
-            .name = name,
-            .kind = .@"extern",
-            .ty = self.ctx.types.unknown_id,
-            .decl_pos = decl_pos,
-            .scope = self.current_scope,
-        });
-    }
-
-    /// `(set <kind> name type-or-_ expr)` — local binding. Only
-    /// `default`, `fixed`, `shadow` introduce new locals; compound
-    /// assigns and move-assign reuse an existing slot. The expression
-    /// itself is walked for nested decls (e.g., a lambda inside RHS).
-    fn walkSet(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        if (items.len < 5) return;
-        const kind = rig.bindingKindOf(items[1]) catch return;
-        const target = items[2];
-        const expr = items[4];
-
-        // Always walk the expression first (RHS-first, matches ownership).
-        try self.walk(expr);
-
-        switch (kind) {
-            .default => {
-                // M20e(3/5): dedup. The original M5-era behavior added a
-                // fresh symbol on every `rc = X` (relying on lookup's
-                // reverse iteration to find the newest one). That works
-                // for sema's own queries but produces an orphan (untyped)
-                // first-symbol that downstream consumers (emit's
-                // forward `handleKindOf` scan, print polish, etc.) trip
-                // over. Reassignment in Rig source — `rc = X; rc = Y`
-                // — semantically updates the existing slot, so the
-                // resolver should reflect that.
-                //
-                // If a same-name symbol already exists in the current
-                // scope, REUSE it. Outer-scope shadowing via `default`
-                // kind is still possible (the inner scope's lookup
-                // returns null for outer-only names → fresh symbol),
-                // matching the M5/M20a semantics.
-                const name = identAt(self.ctx.source, target) orelse return;
-                if (self.ctx.lookupInScopeOnly(self.current_scope, name) != null) return;
-                const decl_pos = if (target == .src) target.src.pos else 0;
-                _ = try self.addSymbol(.{
-                    .name = name,
-                    .kind = .local,
-                    .ty = self.ctx.types.unknown_id,
-                    .decl_pos = decl_pos,
-                    .scope = self.current_scope,
-                    .flags = .{},
-                });
-            },
-            .fixed, .shadow => {
-                // `=!` declares a fixed binding (Rig errors on
-                // reassignment to it); `new x = ...` explicitly creates
-                // a fresh slot that shadows any outer-scope name. Both
-                // unconditionally add a new symbol — no dedup.
-                const name = identAt(self.ctx.source, target) orelse return;
-                const decl_pos = if (target == .src) target.src.pos else 0;
-                const fixed = kind == .fixed;
-                _ = try self.addSymbol(.{
-                    .name = name,
-                    .kind = .local,
-                    .ty = self.ctx.types.unknown_id,
-                    .decl_pos = decl_pos,
-                    .scope = self.current_scope,
-                    .flags = .{ .fixed = fixed },
-                });
-            },
-            // `<-` move and compound assigns mutate an existing slot —
-            // no new symbol introduced.
-            .@"move", .@"+=", .@"-=", .@"*=", .@"/=" => {},
-        }
-    }
-
-    fn walkBlock(self: *SymbolResolver, stmts: []const Sexp) std.mem.Allocator.Error!void {
-        const block_scope = try self.ctx.pushScope(self.current_scope);
-        const prev = self.current_scope;
-        self.current_scope = block_scope;
-        defer self.current_scope = prev;
-        for (stmts) |s| try self.walk(s);
-    }
-
-    fn walkFor(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        // (for <mode> binding1 binding2-or-_ source body else?)
-        if (items.len < 6) return;
-        const binding1 = items[2];
-        const binding2 = items[3];
-        const source = items[4];
-        const body = items[5];
-
-        try self.walk(source);
-
-        const for_scope = try self.ctx.pushScope(self.current_scope);
-        const prev = self.current_scope;
-        self.current_scope = for_scope;
-        defer self.current_scope = prev;
-
-        if (identAt(self.ctx.source, binding1)) |name| {
-            _ = try self.addSymbol(.{
-                .name = name,
-                .kind = .local,
-                .ty = self.ctx.types.unknown_id,
-                .decl_pos = if (binding1 == .src) binding1.src.pos else 0,
-                .scope = self.current_scope,
-            });
-        }
-        if (identAt(self.ctx.source, binding2)) |name| {
-            _ = try self.addSymbol(.{
-                .name = name,
-                .kind = .local,
-                .ty = self.ctx.types.unknown_id,
-                .decl_pos = if (binding2 == .src) binding2.src.pos else 0,
-                .scope = self.current_scope,
-            });
-        }
-
-        try self.walk(body);
-        if (items.len > 6) try self.walk(items[6]);
-    }
-
-    fn walkCatchBlock(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        // (catch_block err_name body)
-        if (items.len < 3) return;
-        const catch_scope = try self.ctx.pushScope(self.current_scope);
-        const prev = self.current_scope;
-        self.current_scope = catch_scope;
-        defer self.current_scope = prev;
-        if (identAt(self.ctx.source, items[1])) |name| {
-            _ = try self.addSymbol(.{
-                .name = name,
-                .kind = .local,
-                .ty = self.ctx.types.unknown_id,
-                .decl_pos = if (items[1] == .src) items[1].src.pos else 0,
-                .scope = self.current_scope,
-            });
-        }
-        try self.walk(items[2]);
-    }
-
-    fn walkArm(self: *SymbolResolver, items: []const Sexp) std.mem.Allocator.Error!void {
-        // (arm pattern binding? body) — body is the last child.
-        if (items.len < 2) return;
-        const arm_scope = try self.ctx.pushScope(self.current_scope);
-        const prev = self.current_scope;
-        self.current_scope = arm_scope;
-        defer self.current_scope = prev;
-
-        // M10: extract pattern bindings into the arm scope so they're
-        // visible in the body. Types start as `unknown_id` and are
-        // refined by `ExprChecker.checkMatchStmt` against the
-        // scrutinee's variant payload.
-        //
-        //   (variant_pattern circle r)        → binds `r`
-        //   (variant_pattern triangle a b)    → binds `a` and `b`
-        //   bare ident pattern (default arm)  → binds the ident
-        //   (enum_lit X) / (enum_pattern X)   → no bindings
-        const pattern = items[1];
-        try self.bindPatternNames(pattern);
-
-        try self.walk(items[items.len - 1]);
-    }
-
-    fn bindPatternNames(self: *SymbolResolver, pattern: Sexp) std.mem.Allocator.Error!void {
-        switch (pattern) {
-            .src => |s| {
-                // Bare ident pattern → default arm with the ident as
-                // the catch-all binding. Avoid binding `_` (which
-                // conventionally means "ignore"); future range/literal
-                // patterns will skip this branch via their list shape.
-                const name = self.ctx.source[s.pos..][0..s.len];
-                if (std.mem.eql(u8, name, "_")) return;
-                _ = try self.addSymbol(.{
-                    .name = name,
-                    .kind = .local,
-                    .ty = self.ctx.types.unknown_id,
-                    .decl_pos = s.pos,
-                    .scope = self.current_scope,
-                });
-            },
-            .list => |items| {
-                if (items.len < 2 or items[0] != .tag) return;
-                if (items[0].tag != .@"variant_pattern") return;
-                // (variant_pattern Name binding...). items[1] is the
-                // variant name (a literal, not a binding); items[2..]
-                // are the destructured payload bindings.
-                for (items[2..]) |b| {
-                    if (b != .src) continue;
-                    const name = self.ctx.source[b.src.pos..][0..b.src.len];
-                    if (std.mem.eql(u8, name, "_")) continue;
-                    _ = try self.addSymbol(.{
-                        .name = name,
-                        .kind = .local,
-                        .ty = self.ctx.types.unknown_id,
-                        .decl_pos = b.src.pos,
-                        .scope = self.current_scope,
-                    });
-                }
-            },
-            else => {},
-        }
-    }
-
-    fn addSymbol(self: *SymbolResolver, sym: Symbol) std.mem.Allocator.Error!SymbolId {
-        const id: SymbolId = @intCast(self.ctx.symbols.items.len);
-        try self.ctx.symbols.append(self.ctx.allocator, sym);
-        try self.ctx.scopes.items[sym.scope].symbols.append(self.ctx.allocator, id);
-        return id;
-    }
-
-    /// M20b(5/5): like `addSymbol` but does NOT insert into the lexical
-    /// scope's symbol list. Used for generic-param symbols
-    /// (`.generic_param` kind) which are referenced by `Symbol.type_params`
-    /// on the owning generic-type symbol and resolved via
-    /// `NominalContext.type_params` — never via ordinary scope lookup.
-    /// Per GPT-5.5 M20b post-implementation review: detaching prevents
-    /// `T` from `type Box(T)` polluting module scope and colliding with
-    /// `T` from `type Pair(T)`.
-    fn addDetachedSymbol(self: *SymbolResolver, sym: Symbol) std.mem.Allocator.Error!SymbolId {
-        const id: SymbolId = @intCast(self.ctx.symbols.items.len);
-        try self.ctx.symbols.append(self.ctx.allocator, sym);
-        return id;
-    }
-};
-
-// =============================================================================
-// Type Resolution
-// =============================================================================
-//
-// After symbol resolution, walk the IR a second time to resolve every
-// declared type Sexp into a `TypeId`. Updates `Symbol.ty` in place for
-// each function (full function type), parameter (declared type), type
-// alias (aliased type), and extern declaration (declared type).
-//
-// `resolveType(sexp, scope)` is the workhorse: walks a type Sexp and
-// returns its interned `TypeId`. Recognizes:
-//
-//   - primitive type names → pre-interned ids in TypeStore
-//     - `Int` / `Float` / `Bool` / `String` / `Void`
-//     - sized: `I8`/`I16`/`I32`/`I64`/`U8`/`U16`/`U32`/`U64`/`F32`/`F64`
-//   - nominal type names → `nominal(SymbolId)` if found in scope
-//   - `(optional T)` / `(error_union T)` → wrap recursively
-//   - `(borrow_read T)` / `(borrow_write T)` → wrap recursively
-//   - `(slice T)` → slice
-//   - `(array_type N T)` → fixed-size array (N parsed as u64)
-//   - `(fun_type params returns)` → function type
-//
-// Unknown names produce a sema diagnostic and return `invalid_id` so
-// downstream synthesis fails fast without cascading.
-
-const TypeResolver = struct {
-    ctx: *SemContext,
-
-    /// M20a / M20b(3/5): enclosing nominal context when resolving
-    /// method signatures or body annotations. Empty (`.none`) at
-    /// module scope. For plain nominals, holds `{sym, nominal(sym),
-    /// &.{}}`. For generic types, holds `{sym, parameterized_nominal(
-    /// sym, [type_var(T_i)]), [T_i...]}` so `Self` and bare `T`
-    /// resolve correctly inside the body.
-    current_nominal: NominalContext = NominalContext.none,
-
-    /// Walk top-level decls in the module scope and populate types.
-    fn walk(self: *TypeResolver, ir: Sexp, module_scope: ScopeId) std.mem.Allocator.Error!void {
-        if (ir != .list or ir.list.len == 0 or ir.list[0] != .tag) return;
-        if (ir.list[0].tag != .@"module") return;
-
-        // Walk each top-level declaration. The fn-scope cursor advances
-        // alongside the symbol resolver did — we re-use scope ordering
-        // to find each fn's body scope.
-        var scope_cursor: ScopeId = module_scope + 1;
-        for (ir.list[1..]) |child| {
-            scope_cursor = try self.resolveDecl(child, module_scope, scope_cursor);
-        }
-    }
-
-    /// Resolve a single top-level decl, advancing `scope_cursor` past
-    /// any sub-scopes the decl owns. Returns the new cursor.
-    fn resolveDecl(self: *TypeResolver, sexp: Sexp, parent_scope: ScopeId, scope_cursor: ScopeId) std.mem.Allocator.Error!ScopeId {
-        if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return scope_cursor;
-        const items = sexp.list;
-        switch (items[0].tag) {
-            .@"pub" => {
-                if (items.len >= 2) return self.resolveDecl(items[1], parent_scope, scope_cursor);
-                return scope_cursor;
-            },
-            // (M22 removed M19's `.@"unsafe_decl"` transparent arm —
-            // see SymbolResolver above for the cleanup rationale.)
-            .@"fun", .@"sub" => return self.resolveFun(items, parent_scope, scope_cursor),
-            .@"type" => {
-                try self.resolveTypeAlias(items, parent_scope);
-                return scope_cursor;
-            },
-            .@"extern" => {
-                try self.resolveExtern(items, parent_scope);
-                return scope_cursor;
-            },
-            // M23: body-less extern function declarations.
-            .@"extern_fun", .@"extern_sub" => {
-                try self.resolveExternFun(items, parent_scope);
-                return scope_cursor;
-            },
-            .@"struct" => {
-                // M20a: returns cursor advanced past method body scopes
-                // pushed by SymbolResolver.walkMethod.
-                return self.resolveStructFields(items, parent_scope, scope_cursor);
-            },
-            .@"enum", .@"errors" => {
-                // IR shapes are identical: `(enum Name v...)` /
-                // `(errors Name v...)`. Reuse the same variant
-                // resolver so error-set declarations get fields too.
-                // M20a: returns cursor advanced past method body scopes.
-                return self.resolveEnumVariants(items, parent_scope, scope_cursor);
-            },
-            .@"generic_type" => {
-                // M20b(3/5): generic type body resolution. Populates
-                // `.fields` with type_var-bearing symbolic types and
-                // advances cursor past method body scopes pushed by
-                // SymbolResolver.walkGenericType.
-                return self.resolveGenericTypeFields(items, parent_scope, scope_cursor);
-            },
-            .@"generic_enum" => {
-                // M20c: generic enum body resolution. Reuses
-                // `resolveEnumVariants` (which now branches on the
-                // IR head to position variants at items[3..] and
-                // set NominalContext for type_var resolution in
-                // payload field types).
-                return self.resolveEnumVariants(items, parent_scope, scope_cursor);
-            },
-            else => return scope_cursor,
-        }
-    }
-
-    /// Walk a `(struct name members...)` / `(enum ...)` / `(errors ...)`
-    /// declaration, resolving each `(: name type)` member into a `Field`
-    /// and storing the field list on the nominal symbol.
-    ///
-    /// M6 v1 scope: structs only — enums and errors get an empty field
-    /// list for now (their member shapes differ enough to deserve their
-    /// own resolver in M7+).
-    fn resolveStructFields(
-        self: *TypeResolver,
-        items: []const Sexp,
-        parent_scope: ScopeId,
-        scope_cursor: ScopeId,
-    ) std.mem.Allocator.Error!ScopeId {
-        if (items.len < 2) return scope_cursor;
-        const name = identAt(self.ctx.source, items[1]) orelse return scope_cursor;
-        const sym_id = self.ctx.lookup(parent_scope, name) orelse return scope_cursor;
-
-        // Only structs get fields populated for now.
-        if (items[0].tag != .@"struct") return scope_cursor;
-
-        var fields: std.ArrayListUnmanaged(Field) = .empty;
-        defer fields.deinit(self.ctx.allocator);
-
-        var cursor = scope_cursor;
-        for (items[2..]) |member| {
-            if (member != .list or member.list.len < 2 or member.list[0] != .tag) continue;
-            switch (member.list[0].tag) {
-                // Data field: (: name type) or (: name type default)
-                .@":" => {
-                    if (member.list.len < 3) continue;
-                    const fname_node = member.list[1];
-                    const ftype_node = member.list[2];
-                    const fname = identAt(self.ctx.source, fname_node) orelse continue;
-                    const ftype = try self.resolveType(ftype_node, parent_scope);
-                    try fields.append(self.ctx.allocator, .{
-                        .name = fname,
-                        .ty = ftype,
-                        .decl_pos = if (fname_node == .src) fname_node.src.pos else 0,
-                    });
-                },
-                // M12/M20a: method declaration. Resolve its function
-                // type and record it as a method-flagged Field on the
-                // struct symbol. M20a: write each param symbol's `ty`
-                // back so the method body's `self.name`-style accesses
-                // type correctly, and advance the cursor past the
-                // method body's scope (pushed by SymbolResolver in
-                // M20a).
-                .@"fun", .@"sub" => {
-                    cursor = try self.resolveNominalMethod(member.list, parent_scope, sym_id, cursor, &fields);
-                },
-                // M20a.2: sigil-prefixed sugar (`?name` / `!name`) is
-                // ONLY valid as a method's `self` parameter. The
-                // grammar's `field` production is reused for nominal
-                // members, so `struct S { ?x }` parses to a `(read x)`
-                // member that the prior `else => {}` silently dropped.
-                // Diagnose it cleanly instead.
-                .@"read", .@"write" => {
-                    try self.err(
-                        paramPos(member, 0),
-                        "sigil-prefixed member (`?{s}` / `!{s}`) is not allowed in a nominal body; sigil-prefix sugar is only valid for the `self` parameter of a method",
-                        .{
-                            if (member.list.len >= 2) identAt(self.ctx.source, member.list[1]) orelse "name" else "name",
-                            if (member.list.len >= 2) identAt(self.ctx.source, member.list[1]) orelse "name" else "name",
-                        },
-                    );
-                },
-                // M25(1/5): user-defined `drop` declaration is parse-
-                // accepted but sema-rejected. The full design (auto-
-                // generated structural drop glue, reverse-order field
-                // drops, write-borrow `self` validation, ownership
-                // generalization, emit) lands in M25(2/5)–(5/5) per
-                // GPT-5.5's M25 design lock (conversation
-                // c_5c1d09d53ebe2f62, M25 checkpoint). Until then,
-                // shipping the surface without semantics would violate
-                // the M22.1 fake-surface invariant — this diagnostic
-                // is the explicit "reserved" branch.
-                //
-                // SymbolResolver / ExprChecker silently skip this tag
-                // via their `else => {}` branches, so no body scope is
-                // opened and the cursor stays consistent — drop the
-                // diagnostic and continue iterating other members.
-                .@"drop_decl" => {
-                    // M25(2/5): validate the user-defined Drop
-                    // declaration and register it as a hidden method
-                    // on the enclosing struct. Per GPT-5.5's M25
-                    // design lock:
-                    //   - structs only (enum / generic_type /
-                    //     generic_enum reject in their own resolvers
-                    //     below);
-                    //   - exactly one `drop` per struct;
-                    //   - receiver MUST be `self: !Self` (write-borrow);
-                    //   - no other params;
-                    //   - no return type;
-                    //   - cannot be marked `pub` (drop is implicit
-                    //     in the type's contract; visibility doesn't
-                    //     apply).
-                    cursor = try self.resolveDropDecl(member.list, parent_scope, sym_id, cursor, &fields);
-                },
-                else => {},
-            }
-        }
-
-        const owned = try self.ctx.arena.allocator().dupe(Field, fields.items);
-        self.ctx.symbols.items[sym_id].fields = owned;
-
-        // M25(2/5): compute `has_drop_glue` after fields are
-        // resolved. The flag is true if EITHER a user `drop` decl
-        // is present OR any data field has a resource-shaped type.
-        // `typeHasDropGlue` recurses through nominal fields. The
-        // single-pass result here is the "lower bound" — a struct
-        // that references a not-yet-flagged nominal field misses
-        // the propagation. The fixed-point pass at the top of
-        // `check` (post-`type_resolver.walk`) converges the flag
-        // across declaration-order-independent references.
-        var has_glue = false;
-        for (owned) |f| {
-            if (f.is_drop_method) { has_glue = true; break; }
-            if (f.is_method or f.is_variant) continue;
-            if (typeHasDropGlue(self.ctx, f.ty)) { has_glue = true; break; }
-        }
-        self.ctx.symbols.items[sym_id].flags.has_drop_glue = has_glue;
-
-        // M25.1: drop-body restrictions. Walk every `drop_decl`
-        // member's body and reject patterns that would create
-        // double-drop / use-after-free hazards in safe Rig:
-        //   - consume / drop / move / return of `self`
-        //   - move / drop / reassignment of resource fields of self
-        // The auto-generated `__rig_drop` runs the user body THEN
-        // walks resource fields in reverse declaration order; if
-        // the body has already moved/dropped/replaced one of those
-        // fields, the auto-generated call double-drops or accesses
-        // freed memory. Per GPT-5.5's M25 post-implementation
-        // review: this is a ship-blocker for the substrate, not
-        // a follow-up — without it M25 creates a direct double-
-        // drop path in safe code.
-        for (items[2..]) |member| {
-            if (member != .list or member.list.len < 3 or member.list[0] != .tag) continue;
-            if (member.list[0].tag != .@"drop_decl") continue;
-            // Derive the anchor pos (matches resolveDropDecl's logic).
-            const params = member.list[1];
-            const body = member.list[2];
-            const drop_pos: u32 = blk: {
-                if (params == .list) {
-                    for (params.list) |p| {
-                        const pp = paramPos(p, 0);
-                        if (pp != 0) break :blk pp;
-                    }
-                }
-                break :blk 0;
-            };
-            try self.enforceDropBodyRestrictions(body, owned, drop_pos);
-        }
-
-        return cursor;
-    }
-
-    /// M25.1: walk a `drop` body and reject patterns that would
-    /// create a double-drop or use-after-free hazard with the
-    /// auto-generated structural drop glue. Specifically:
-    ///   - `-self` / `<self` / `return self` — the binding is
-    ///     being destroyed by the runtime; consuming it from the
-    ///     body would corrupt the caller's drop chain.
-    ///   - `<self.field` where field is a resource — the auto-
-    ///     generated `__rig_drop` walks resource fields after the
-    ///     user body returns, so moving the field out earlier
-    ///     would either leave a partially-moved slot for the
-    ///     auto-generated drop (use-after-free) or, if the move
-    ///     transferred ownership, the auto-generated drop would
-    ///     fire on a freed handle.
-    ///   - `self.field = X` where field is a resource — same
-    ///     concern: the new value's destructor races the
-    ///     auto-generated walk.
-    ///
-    /// Recurses through ALL child positions so the patterns get
-    /// caught even when nested inside calls, conditionals, etc.
-    /// Field-resource detection consults the struct's resolved
-    /// `fields[]` to ask `typeHasDropGlue` of each field's type.
-    fn enforceDropBodyRestrictions(
-        self: *TypeResolver,
-        body: Sexp,
-        fields: []const Field,
-        drop_pos: u32,
-    ) std.mem.Allocator.Error!void {
-        if (body != .list) return;
-        if (body.list.len == 0 or body.list[0] != .tag) return;
-
-        switch (body.list[0].tag) {
-            .@"drop" => {
-                // `(drop name)` from `-name`. Reject `-self`.
-                if (body.list.len >= 2 and body.list[1] == .src) {
-                    const nm = identAt(self.ctx.source, body.list[1]) orelse "";
-                    if (std.mem.eql(u8, nm, "self")) {
-                        try self.err(body.list[1].src.pos, "cannot drop `self` inside its own drop body; the binding is being destroyed by the runtime", .{});
-                    }
-                }
-            },
-            .@"move" => {
-                // `(move expr)` from `<expr`. Reject `<self` and
-                // `<self.field` where field has drop glue.
-                if (body.list.len >= 2) {
-                    const inner = body.list[1];
-                    if (inner == .src) {
-                        const nm = identAt(self.ctx.source, inner) orelse "";
-                        if (std.mem.eql(u8, nm, "self")) {
-                            try self.err(inner.src.pos, "cannot move `self` out of its own drop body; the binding is being destroyed by the runtime", .{});
-                        }
-                    } else if (inner == .list and inner.list.len >= 3 and inner.list[0] == .tag and inner.list[0].tag == .@"member") {
-                        try self.checkDropBodyResourceFieldOp(inner, fields, drop_pos, "move");
-                    }
-                }
-            },
-            .@"return" => {
-                // `(return value)` — drop body is sub-shaped (void
-                // return) so `return self` is already a type
-                // mismatch, but reject explicitly for clarity.
-                if (body.list.len >= 2 and body.list[1] == .src) {
-                    const nm = identAt(self.ctx.source, body.list[1]) orelse "";
-                    if (std.mem.eql(u8, nm, "self")) {
-                        try self.err(body.list[1].src.pos, "cannot return `self` from its own drop body", .{});
-                    }
-                }
-            },
-            .@"set" => {
-                // `(set kind target type-or-_ rhs)`. Reject
-                // assignment to `self.field` where field has drop
-                // glue. The shadow / fixed kinds are also assignment-
-                // shaped at sema; the same hazard applies.
-                if (body.list.len >= 5) {
-                    const target = body.list[2];
-                    if (target == .list and target.list.len >= 3 and target.list[0] == .tag and target.list[0].tag == .@"member") {
-                        try self.checkDropBodyResourceFieldOp(target, fields, drop_pos, "reassign");
-                    }
-                }
-            },
-            else => {},
-        }
-
-        // Recurse into all children. Bad patterns nested inside
-        // `if` / `match` / call args / etc. still fire.
-        for (body.list[1..]) |child| try self.enforceDropBodyRestrictions(child, fields, drop_pos);
-    }
-
-    /// M25.1 helper: validate that a `(member self field)` access
-    /// in a drop body's move / set target slot doesn't reference a
-    /// resource field. `op_kind` is "move" or "reassign" for the
-    /// diagnostic. Silent on non-self objects, member chains
-    /// (`self.foo.bar`), unknown fields, and Copy fields.
-    fn checkDropBodyResourceFieldOp(
-        self: *TypeResolver,
-        member_expr: Sexp,
-        fields: []const Field,
-        fallback_pos: u32,
-        op_kind: []const u8,
-    ) std.mem.Allocator.Error!void {
-        if (member_expr != .list or member_expr.list.len < 3) return;
-        if (member_expr.list[0] != .tag or member_expr.list[0].tag != .@"member") return;
-        const obj = member_expr.list[1];
-        const field_node = member_expr.list[2];
-        if (obj != .src) return;
-        const obj_name = identAt(self.ctx.source, obj) orelse return;
-        if (!std.mem.eql(u8, obj_name, "self")) return;
-        const field_name = identAt(self.ctx.source, field_node) orelse return;
-        const fpos: u32 = if (field_node == .src) field_node.src.pos else fallback_pos;
-        for (fields) |f| {
-            if (f.is_method or f.is_variant) continue;
-            if (!std.mem.eql(u8, f.name, field_name)) continue;
-            if (typeHasDropGlue(self.ctx, f.ty)) {
-                try self.err(fpos, "cannot {s} resource field `self.{s}` inside drop body; fields are dropped automatically after the user drop body returns, so a manual {s} would race the auto-generated drop and double-free", .{ op_kind, field_name, op_kind });
-            }
-            return;
-        }
-    }
-
-    /// M25(2/5): resolve a `(drop_decl params block)` member of a
-    /// struct body. Validates the signature per GPT-5.5's M25 design
-    /// lock, registers the drop body as a hidden method on the
-    /// enclosing struct's `fields[]` (with `is_drop_method = true`),
-    /// and advances the scope cursor past the body scope opened by
-    /// `SymbolResolver.walkDropDecl`.
-    ///
-    /// Validation rules (per the lock):
-    ///   - exactly one drop_decl per struct (counted via existing
-    ///     `is_drop_method` field in `fields[]`);
-    ///   - first (and only) param must be named `self`;
-    ///   - param type must be `!Self` (write-borrow);
-    ///   - no other params;
-    ///   - no return type (drop is total);
-    ///   - cannot be `pub` / `extern` (handled by the grammar — there
-    ///     is no `pub drop` production);
-    ///   - cannot reference itself (drop is implicit; no `instance.drop()`
-    ///     call shape — emit will lower to `__rig_drop` directly).
-    ///
-    /// The body's ownership-discipline rules (reject consume of self,
-    /// reject drop/move of resource fields, reject reassignment of
-    /// resource fields) land in M25(3/5).
-    fn resolveDropDecl(
-        self: *TypeResolver,
-        items: []const Sexp,
-        parent_scope: ScopeId,
-        nominal_sym: SymbolId,
-        scope_cursor: ScopeId,
-        fields: *std.ArrayListUnmanaged(Field),
-    ) std.mem.Allocator.Error!ScopeId {
-        if (items.len < 3) return scope_cursor;
-        const params = items[1];
-        // Anchor diagnostics at the first src node we can find inside
-        // the params list (the `self` binding's name); fall back to 0.
-        const drop_pos: u32 = blk: {
-            if (params == .list) {
-                for (params.list) |p| {
-                    const pp = paramPos(p, 0);
-                    if (pp != 0) break :blk pp;
-                }
-            }
-            break :blk 0;
-        };
-
-        // M25(2/5): "exactly one drop per struct" — reject the second
-        // and subsequent decls. Anchor at the duplicate; the first one
-        // already registered.
-        for (fields.items) |f| {
-            if (f.is_drop_method) {
-                try self.err(drop_pos, "duplicate `drop` declaration on this struct; M25 V1 allows exactly one user-defined Drop per struct", .{});
-                // Still advance the cursor past the duplicate's body
-                // scope so downstream methods stay aligned.
-                return scopeAfter(self.ctx, scope_cursor);
-            }
-        }
-
-        // The body scope was pushed by SymbolResolver.walkDropDecl
-        // (M25(2/5)); it's the next cursor.
-        const fn_scope = scope_cursor;
-
-        // Set NominalContext so `Self` and field-name resolution work
-        // inside the body. Same pattern as `resolveNominalMethod`.
-        const prev_nominal = self.current_nominal;
-        self.current_nominal = try makeNominalContext(self.ctx, nominal_sym);
-        defer self.current_nominal = prev_nominal;
-
-        // Resolve params (should be exactly one: `self: !Self`).
-        var param_types: std.ArrayListUnmanaged(TypeId) = .empty;
-        defer param_types.deinit(self.ctx.allocator);
-        var param_count: usize = 0;
-        if (params == .list) {
-            param_count = params.list.len;
-            for (params.list) |p| {
-                const ptype = try self.resolveParamType(p, parent_scope);
-                try param_types.append(self.ctx.allocator, ptype);
-                // Write the resolved type back into the symbol the
-                // SymbolResolver bound in the body scope. Without this,
-                // `self` types as `unknown` and `self.field` collapses.
-                const pname = paramName(self.ctx.source, p);
-                if (pname) |nm| {
-                    if (self.ctx.lookup(fn_scope, nm)) |bound| {
-                        self.ctx.symbols.items[bound].ty = ptype;
-                    }
-                }
-            }
-        }
-
-        // Validation: exactly one param.
-        if (param_count != 1) {
-            try self.err(drop_pos, "`drop` declaration must take exactly one parameter `self: !Self`; got {d} parameter(s)", .{param_count});
-            return scopeAfter(self.ctx, fn_scope);
-        }
-
-        // Validation: param must be named `self` and typed `!Self`.
-        const first_param = params.list[0];
-        const first_name = paramName(self.ctx.source, first_param);
-        const named_self = if (first_name) |nm| std.mem.eql(u8, nm, "self") else false;
-        if (!named_self) {
-            try self.err(paramPos(first_param, drop_pos), "`drop` declaration's parameter must be named `self`", .{});
-            return scopeAfter(self.ctx, fn_scope);
-        }
-
-        // The resolved param type must be `borrow_write(nominal(Self))`
-        // or `borrow_write(parameterized_nominal(Self, ...))`. The
-        // M20a.1 sugar `!self` resolves to exactly that. Reject
-        // anything else (including `?self`, `<self`, bare `self: Self`).
-        const ptype = param_types.items[0];
-        const ptype_resolved = self.ctx.types.get(ptype);
-        const valid_self_ty = blk: {
-            if (ptype_resolved != .borrow_write) break :blk false;
-            const inner = self.ctx.types.get(ptype_resolved.borrow_write);
-            switch (inner) {
-                .nominal => |s| break :blk s == nominal_sym,
-                .parameterized_nominal => |pn| break :blk pn.sym == nominal_sym,
-                else => break :blk false,
-            }
-        };
-        if (!valid_self_ty) {
-            try self.err(paramPos(first_param, drop_pos), "`drop` declaration must use `self: !Self` (write-borrow); other receiver shapes are rejected", .{});
-            return scopeAfter(self.ctx, fn_scope);
-        }
-
-        // Build the function type: (self: !Self) -> void.
-        const owned_params = try self.ctx.arena.allocator().dupe(TypeId, param_types.items);
-        const fn_ty = try self.ctx.types.intern(self.ctx.allocator, .{ .function = .{
-            .params = owned_params,
-            .returns = self.ctx.types.void_id,
-            .is_sub = true,
-        } });
-
-        // Register on the struct's fields list. Name = "drop" for
-        // diagnostics; receiver = .write; is_method = true so generic
-        // method-walking machinery picks it up; is_drop_method = true
-        // so lookupMethod can filter it out and emit (M25(4/5)) can
-        // find it without a name scan.
-        try fields.append(self.ctx.allocator, .{
-            .name = "drop",
-            .ty = fn_ty,
-            .decl_pos = drop_pos,
-            .is_method = true,
-            .receiver = .write,
-            .is_drop_method = true,
-        });
-
-        return scopeAfter(self.ctx, fn_scope);
-    }
-
-    /// M20b(3/5): walk a `(generic_type Name (T...) members...)`
-    /// declaration. Populates `.fields` with type-var-bearing symbolic
-    /// types (data fields get their declared type with `T` resolved
-    /// to `type_var(T_sym)`; methods get their function type with the
-    /// same symbolic types in params/return). Advances scope_cursor
-    /// past method body scopes pushed by `SymbolResolver.walkGenericType`.
-    fn resolveGenericTypeFields(
-        self: *TypeResolver,
-        items: []const Sexp,
-        parent_scope: ScopeId,
-        scope_cursor: ScopeId,
-    ) std.mem.Allocator.Error!ScopeId {
-        if (items.len < 3) return scope_cursor;
-        const name = identAt(self.ctx.source, items[1]) orelse return scope_cursor;
-        const sym_id = self.ctx.lookup(parent_scope, name) orelse return scope_cursor;
-
-        // Set NominalContext so resolveType in field/method signatures
-        // resolves `T` → type_var(T_sym) and `Self` → parameterized_nominal.
-        const prev_nominal = self.current_nominal;
-        self.current_nominal = try makeNominalContext(self.ctx, sym_id);
-        defer self.current_nominal = prev_nominal;
-
-        var fields: std.ArrayListUnmanaged(Field) = .empty;
-        defer fields.deinit(self.ctx.allocator);
-
-        var cursor = scope_cursor;
-        // Members start at items[3] for generic_type
-        // (items[0]=tag, items[1]=name, items[2]=params, items[3..]=members).
-        for (items[3..]) |member| {
-            if (member != .list or member.list.len < 2 or member.list[0] != .tag) continue;
-            switch (member.list[0].tag) {
-                // Data field: (: name type) or (: name type default)
-                .@":" => {
-                    if (member.list.len < 3) continue;
-                    const fname_node = member.list[1];
-                    const ftype_node = member.list[2];
-                    const fname = identAt(self.ctx.source, fname_node) orelse continue;
-                    const ftype = try self.resolveType(ftype_node, parent_scope);
-                    try fields.append(self.ctx.allocator, .{
-                        .name = fname,
-                        .ty = ftype,
-                        .decl_pos = if (fname_node == .src) fname_node.src.pos else 0,
-                    });
-                },
-                // M20b(3/5): generic methods. Same resolveNominalMethod
-                // machinery — it already threads current_nominal for
-                // Self / type-var resolution.
-                .@"fun", .@"sub" => {
-                    cursor = try self.resolveNominalMethod(member.list, parent_scope, sym_id, cursor, &fields);
-                },
-                // M20a.2: sigil-prefixed sugar at member position is
-                // rejected for nominals; same for generic types.
-                .@"read", .@"write" => {
-                    try self.err(
-                        paramPos(member, 0),
-                        "sigil-prefixed member (`?{s}` / `!{s}`) is not allowed in a generic type body; sigil-prefix sugar is only valid for the `self` parameter of a method",
-                        .{
-                            if (member.list.len >= 2) identAt(self.ctx.source, member.list[1]) orelse "name" else "name",
-                            if (member.list.len >= 2) identAt(self.ctx.source, member.list[1]) orelse "name" else "name",
-                        },
-                    );
-                },
-                // M25(2/5): user `drop` on generic types is V1-deferred
-                // per GPT-5.5's design lock. Emit a clean diagnostic
-                // and advance the cursor past the body scope opened by
-                // SymbolResolver.walkDropDecl.
-                .@"drop_decl" => {
-                    const drop_pos: u32 = blk: {
-                        if (member.list.len >= 2 and member.list[1] == .list) {
-                            for (member.list[1].list) |p| {
-                                const pp = paramPos(p, 0);
-                                if (pp != 0) break :blk pp;
-                            }
-                        }
-                        break :blk 0;
-                    };
-                    try self.err(drop_pos, "`drop` declarations on generic types are deferred in V1 (M25 ships plain-struct Drop only); generic Drop requires bounds / monomorphized resource analysis", .{});
-                    cursor = scopeAfter(self.ctx, cursor);
-                },
-                else => {},
-            }
-        }
-
-        const owned = try self.ctx.arena.allocator().dupe(Field, fields.items);
-        self.ctx.symbols.items[sym_id].fields = owned;
-        return cursor;
-    }
-
-    /// Resolve a `fun`/`sub` method member of a nominal (struct or
-    /// enum) body. Interns the function type, writes each param
-    /// symbol's `ty` back into the method body's scope (so `self.name`
-    /// inside the body types correctly), and advances the scope cursor
-    /// past the method body's scopes. Used by both `resolveStructFields`
-    /// and `resolveEnumVariants` (M20a).
-    fn resolveNominalMethod(
-        self: *TypeResolver,
-        items: []const Sexp,
-        parent_scope: ScopeId,
-        nominal_sym: SymbolId,
-        scope_cursor: ScopeId,
-        fields: *std.ArrayListUnmanaged(Field),
-    ) std.mem.Allocator.Error!ScopeId {
-        if (items.len < 5) return scope_cursor;
-        const is_sub = items[0].tag == .@"sub";
-        const name_node = items[1];
-        const params = items[2];
-        const returns_node: Sexp = if (is_sub) .{ .nil = {} } else items[3];
-        const mname = identAt(self.ctx.source, name_node) orelse return scope_cursor;
-        const mpos: u32 = if (name_node == .src) name_node.src.pos else 0;
-
-        // Enclosing nominal is in scope for `Self` and (for generics)
-        // `T` resolution. M20b(3/5): NominalContext is now a struct
-        // carrying both the SymbolId AND the precomputed self_type
-        // and type_params, so generic methods see the right Self.
-        const prev_nominal = self.current_nominal;
-        self.current_nominal = try makeNominalContext(self.ctx, nominal_sym);
-        defer self.current_nominal = prev_nominal;
-
-        // The method body scope was pushed by SymbolResolver.walkMethod
-        // (M20a); it's the next cursor.
-        const fn_scope = scope_cursor;
-
-        const return_ty: TypeId = if (is_sub or returns_node == .nil)
-            self.ctx.types.void_id
-        else
-            try self.resolveType(returns_node, parent_scope);
-
-        var param_types: std.ArrayListUnmanaged(TypeId) = .empty;
-        defer param_types.deinit(self.ctx.allocator);
-        if (params == .list) {
-            for (params.list) |p| {
-                const ptype = try self.resolveParamType(p, parent_scope);
-                try param_types.append(self.ctx.allocator, ptype);
-                // M20a: write the resolved param type back into the
-                // symbol the SymbolResolver bound in the body scope.
-                // Without this, `self` inside the body types as
-                // `unknown` and `self.name` collapses to unknown.
-                const pname = paramName(self.ctx.source, p);
-                if (pname) |nm| {
-                    if (self.ctx.lookup(fn_scope, nm)) |sym_id| {
-                        self.ctx.symbols.items[sym_id].ty = ptype;
-                    }
-                }
-            }
-        }
-
-        // M20a.2: determine MethodReceiver from params[0] and validate
-        // self position + type. Without this, `synthInstanceCall` would
-        // (incorrectly) treat any first-param method as an instance
-        // method, silently dispatching associated/static methods called
-        // with receiver-style syntax.
-        var receiver_mode: MethodReceiver = .none;
-        if (params == .list and params.list.len > 0) {
-            for (params.list, 0..) |p, i| {
-                const pname = paramName(self.ctx.source, p);
-                const is_named_self = if (pname) |nm| std.mem.eql(u8, nm, "self") else false;
-                const is_sugar = blk: {
-                    if (p == .list and p.list.len >= 1 and p.list[0] == .tag) {
-                        switch (p.list[0].tag) {
-                            .@"read", .@"write" => break :blk true,
-                            else => {},
-                        }
-                    }
-                    break :blk false;
-                };
-
-                // M20a.2: `self` only allowed at param[0].
-                if (is_named_self and i != 0) {
-                    try self.err(
-                        paramPos(p, mpos),
-                        "`self` must be the first parameter of a method",
-                        .{},
-                    );
-                }
-
-                // M20a.2: `?self` / `!self` sugar only allowed at
-                // param[0]. (resolveParamType already rejected non-self
-                // names; this catches `?self` / `!self` in second+
-                // position.)
-                if (is_sugar and i != 0) {
-                    try self.err(
-                        paramPos(p, mpos),
-                        "sigil-prefixed parameter sugar (`?self` / `!self`) is only allowed at the first parameter position",
-                        .{},
-                    );
-                }
-            }
-
-            // Classify receiver from param[0] if it's `self`.
-            const first = params.list[0];
-            const first_pname = paramName(self.ctx.source, first);
-            const first_is_self = if (first_pname) |nm| std.mem.eql(u8, nm, "self") else false;
-            if (first_is_self) {
-                const ptype_id = param_types.items[0];
-                const ptype = self.ctx.types.get(ptype_id);
-                const nom_name = self.ctx.symbols.items[nominal_sym].name;
-                switch (ptype) {
-                    .borrow_read => |inner| {
-                        if (isSelfTypeId(self.ctx, inner, self.current_nominal)) {
-                            receiver_mode = .read;
-                        } else {
-                            try self.err(mpos, "`self` receiver type must be `?Self` or `?{s}`", .{nom_name});
-                        }
-                    },
-                    .borrow_write => |inner| {
-                        if (isSelfTypeId(self.ctx, inner, self.current_nominal)) {
-                            receiver_mode = .write;
-                        } else {
-                            try self.err(mpos, "`self` receiver type must be `!Self` or `!{s}`", .{nom_name});
-                        }
-                    },
-                    .nominal => {
-                        if (isSelfTypeId(self.ctx, ptype_id, self.current_nominal)) {
-                            receiver_mode = .value;
-                        } else {
-                            try self.err(mpos, "`self` receiver type must be `Self` or `{s}`", .{nom_name});
-                        }
-                    },
-                    .parameterized_nominal => {
-                        // M20b(3/5): for generic methods, `self: Self`
-                        // resolves to `parameterized_nominal(sym, [type_var(T)])`
-                        // — that's an isSelfType match for a by-value receiver.
-                        if (isSelfTypeId(self.ctx, ptype_id, self.current_nominal)) {
-                            receiver_mode = .value;
-                        } else {
-                            try self.err(mpos, "`self` receiver type must be `Self` or `{s}`", .{nom_name});
-                        }
-                    },
-                    .unknown, .invalid => {
-                        // M20a.2 (per GPT-5.5 pre-commit review):
-                        // distinguish bare untyped `self` (`fun foo(self)`)
-                        // from `self: T` where T didn't resolve. Bare
-                        // untyped `self` in first position is a hard
-                        // error — once `self` is special enough to power
-                        // receiver metadata, it must not silently become
-                        // an ordinary associated-method param. Users
-                        // wanting a by-value receiver should write
-                        // `self: Self` or `self: <Nominal>` explicitly;
-                        // bare-`self` sugar is deliberately deferred.
-                        if (first == .src) {
-                            try self.err(
-                                paramPos(first, mpos),
-                                "`self` parameter requires an explicit receiver type; use `?self`, `!self`, or `self: Self`",
-                                .{},
-                            );
-                        }
-                        // For `self: SomeUnresolvedType`, leave
-                        // receiver_mode = .none silently — the type
-                        // resolver already fired a diagnostic for the
-                        // unresolved name (or will, when M5 v1's
-                        // deferred-diagnostic policy tightens).
-                    },
-                    else => {
-                        try self.err(mpos, "`self` receiver type must be `?Self`, `!Self`, `Self`, or an explicit `{s}` form", .{nom_name});
-                    },
-                }
-            }
-        }
-
-        const owned_params = try self.ctx.arena.allocator().dupe(TypeId, param_types.items);
-        const fn_ty = try self.ctx.types.intern(self.ctx.allocator, .{ .function = .{
-            .params = owned_params,
-            .returns = return_ty,
-            .is_sub = is_sub,
-        } });
-
-        try fields.append(self.ctx.allocator, .{
-            .name = mname,
-            .ty = fn_ty,
-            .decl_pos = mpos,
-            .is_method = true,
-            .receiver = receiver_mode,
-        });
-
-        // Advance past this method's body scopes — same machinery
-        // `resolveFun` uses for top-level functions.
-        return scopeAfter(self.ctx, fn_scope);
-    }
-
-    /// Walk an enum or errors declaration and store one `Field` per
-    /// variant. Variant shapes:
-    ///
-    ///   bare `red`               → ty=void_id, payload=null
-    ///   valued `ok = 0`          → ty=void_id, payload=null (value
-    ///                              propagates verbatim through emit)
-    ///   payload `circle(r: Int)` → ty=void_id, payload=[Field{r, Int}]
-    ///                              (M9a: declared + lowered;
-    ///                              construction in M9b+)
-    fn resolveEnumVariants(
-        self: *TypeResolver,
-        items: []const Sexp,
-        parent_scope: ScopeId,
-        scope_cursor: ScopeId,
-    ) std.mem.Allocator.Error!ScopeId {
-        if (items.len < 2) return scope_cursor;
-        const name = identAt(self.ctx.source, items[1]) orelse return scope_cursor;
-        const sym_id = self.ctx.lookup(parent_scope, name) orelse return scope_cursor;
-
-        // M20c: `(generic_enum Name (params) variants...)` has its
-        // variants at items[3..] (after name and params). Plain
-        // `(enum/errors Name variants...)` has them at items[2..].
-        // Set NominalContext for the generic case so payload field
-        // types with bare `T` resolve to `type_var(T_sym)` and
-        // `Self` resolves to `parameterized_nominal(sym, [type_var(T)])`.
-        const head = items[0].tag;
-        const is_generic = head == .@"generic_enum";
-        const variants_start: usize = if (is_generic) 3 else 2;
-        if (items.len <= variants_start) {
-            // No variants — empty enum body. Still populate `.fields`
-            // with `&.{}` so downstream lookups don't mistake this
-            // for an opaque (unresolved) nominal.
-            const owned = try self.ctx.arena.allocator().dupe(Field, &.{});
-            self.ctx.symbols.items[sym_id].fields = owned;
-            return scope_cursor;
-        }
-
-        const prev_nominal = self.current_nominal;
-        if (is_generic) {
-            self.current_nominal = try makeNominalContext(self.ctx, sym_id);
-        }
-        defer self.current_nominal = prev_nominal;
-
-        var fields: std.ArrayListUnmanaged(Field) = .empty;
-        defer fields.deinit(self.ctx.allocator);
-
-        var cursor = scope_cursor;
-        for (items[variants_start..]) |variant| {
-            // M20a: enum methods (fun/sub members) get the same
-            // `is_method = true` Field treatment as struct methods.
-            // M20a.2: also catch sigil-prefixed sugar at member
-            // position (which the grammar's reused `field` production
-            // accepts; without this diagnostic the member is silently
-            // dropped).
-            if (variant == .list and variant.list.len > 0 and variant.list[0] == .tag) {
-                switch (variant.list[0].tag) {
-                    .@"fun", .@"sub" => {
-                        cursor = try self.resolveNominalMethod(variant.list, parent_scope, sym_id, cursor, &fields);
-                        continue;
-                    },
-                    .@"read", .@"write" => {
-                        try self.err(
-                            paramPos(variant, 0),
-                            "sigil-prefixed member (`?{s}` / `!{s}`) is not allowed in a nominal body; sigil-prefix sugar is only valid for the `self` parameter of a method",
-                            .{
-                                if (variant.list.len >= 2) identAt(self.ctx.source, variant.list[1]) orelse "name" else "name",
-                                if (variant.list.len >= 2) identAt(self.ctx.source, variant.list[1]) orelse "name" else "name",
-                            },
-                        );
-                        continue;
-                    },
-                    // M25(2/5): `drop` on enum / errors / generic_enum
-                    // is V1-deferred per GPT-5.5's design lock — enum
-                    // drop glue requires switch-over-active-variant +
-                    // payload drop, which is its own substrate arc.
-                    // Plain-struct Drop unlocks the important V1 cases.
-                    .@"drop_decl" => {
-                        const drop_pos: u32 = blk: {
-                            if (variant.list.len >= 2 and variant.list[1] == .list) {
-                                for (variant.list[1].list) |p| {
-                                    const pp = paramPos(p, 0);
-                                    if (pp != 0) break :blk pp;
-                                }
-                            }
-                            break :blk 0;
-                        };
-                        try self.err(drop_pos, "`drop` declarations on {s} are deferred in V1 (M25 ships plain-struct Drop only); enum Drop requires per-variant payload drop, designed in a future arc", .{
-                            if (head == .@"errors") "error sets" else "enums",
-                        });
-                        cursor = scopeAfter(self.ctx, cursor);
-                        continue;
-                    },
-                    else => {},
-                }
-            }
-            switch (variant) {
-                .src => |s| {
-                    // M20c: mark bare-variant Fields with is_variant=true.
-                    try fields.append(self.ctx.allocator, .{
-                        .name = self.ctx.source[s.pos..][0..s.len],
-                        .ty = self.ctx.types.void_id,
-                        .decl_pos = s.pos,
-                        .is_variant = true,
-                    });
-                },
-                .list => |sub| {
-                    if (sub.len < 2 or sub[0] != .tag) continue;
-                    switch (sub[0].tag) {
-                        // (valued name expr) — keep the variant name;
-                        // ignore the value (emit handles it verbatim).
-                        .@"valued" => {
-                            const vname_node = sub[1];
-                            if (identAt(self.ctx.source, vname_node)) |vname| {
-                                try fields.append(self.ctx.allocator, .{
-                                    .name = vname,
-                                    .ty = self.ctx.types.void_id,
-                                    .decl_pos = if (vname_node == .src) vname_node.src.pos else 0,
-                                    .is_variant = true,
-                                });
-                            }
-                        },
-                        // (variant name params) — payload variant.
-                        // Resolve each param to a Field and store as
-                        // the variant's payload.
-                        .@"variant" => {
-                            if (sub.len < 3) continue;
-                            const vname_node = sub[1];
-                            const params_node = sub[2];
-                            const vname = identAt(self.ctx.source, vname_node) orelse continue;
-                            const vpos: u32 = if (vname_node == .src) vname_node.src.pos else 0;
-
-                            var payload: std.ArrayListUnmanaged(Field) = .empty;
-                            defer payload.deinit(self.ctx.allocator);
-                            if (params_node == .list) {
-                                for (params_node.list) |p| {
-                                    // Each param is `(: name type)` etc.
-                                    if (p != .list or p.list.len < 3 or p.list[0] != .tag) continue;
-                                    if (p.list[0].tag != .@":") continue;
-                                    const fname_node = p.list[1];
-                                    const ftype_node = p.list[2];
-                                    const fname = identAt(self.ctx.source, fname_node) orelse continue;
-                                    const ftype = try self.resolveType(ftype_node, parent_scope);
-                                    try payload.append(self.ctx.allocator, .{
-                                        .name = fname,
-                                        .ty = ftype,
-                                        .decl_pos = if (fname_node == .src) fname_node.src.pos else 0,
-                                    });
-                                }
-                            }
-                            const owned_payload = try self.ctx.arena.allocator().dupe(Field, payload.items);
-                            try fields.append(self.ctx.allocator, .{
-                                .name = vname,
-                                .ty = self.ctx.types.void_id,
-                                .decl_pos = vpos,
-                                .payload = owned_payload,
-                                .is_variant = true,
-                            });
-                        },
-                        else => {},
-                    }
-                },
-                else => {},
-            }
-        }
-
-        const owned = try self.ctx.arena.allocator().dupe(Field, fields.items);
-        self.ctx.symbols.items[sym_id].fields = owned;
-        return cursor;
-    }
-
-    fn resolveFun(self: *TypeResolver, items: []const Sexp, parent_scope: ScopeId, scope_cursor: ScopeId) std.mem.Allocator.Error!ScopeId {
-        if (items.len < 5) return scope_cursor;
-        const is_sub = items[0].tag == .@"sub";
-        const name_node = items[1];
-        const params = items[2];
-        const returns_node: Sexp = if (is_sub) .{ .nil = {} } else items[3];
-
-        // The fn's own body scope was the next one created by symbol
-        // resolution. Use it for nominal lookups in the signature too,
-        // so generic params (when added later) resolve correctly.
-        const fn_scope = scope_cursor;
-
-        // Resolve return type.
-        const return_ty: TypeId = if (is_sub)
-            self.ctx.types.void_id
-        else if (returns_node == .nil)
-            self.ctx.types.void_id
-        else
-            try self.resolveType(returns_node, parent_scope);
-
-        // Resolve param types and write each back into its symbol's `ty`.
-        const param_count: usize = if (params == .list) params.list.len else 0;
-        var param_types: std.ArrayListUnmanaged(TypeId) = .empty;
-        defer param_types.deinit(self.ctx.allocator);
-        try param_types.ensureTotalCapacity(self.ctx.allocator, param_count);
-
-        if (params == .list) {
-            for (params.list) |p| {
-                const ptype = try self.resolveParamType(p, parent_scope);
-                param_types.appendAssumeCapacity(ptype);
-                // Find the symbol for this param in fn_scope and update.
-                const pname = paramName(self.ctx.source, p);
-                if (pname) |nm| {
-                    if (self.ctx.lookup(fn_scope, nm)) |sym_id| {
-                        self.ctx.symbols.items[sym_id].ty = ptype;
-                    }
-                }
-            }
-        }
-
-        // Build the function type and update the fn symbol.
-        const owned_params = try self.ctx.arena.allocator().dupe(TypeId, param_types.items);
-        const fn_ty = try self.ctx.types.intern(self.ctx.allocator, .{ .function = .{
-            .params = owned_params,
-            .returns = return_ty,
-            .is_sub = is_sub,
-        } });
-        if (identAt(self.ctx.source, name_node)) |nm| {
-            if (self.ctx.lookup(parent_scope, nm)) |sym_id| {
-                self.ctx.symbols.items[sym_id].ty = fn_ty;
-
-                // M15b.2: public-API-leaks-private-type rejection. A
-                // `pub fun` / `pub sub` whose signature mentions a
-                // non-pub same-module nominal is a category error:
-                // importers can hold the value but can't reach it
-                // through any public path. Fire at decl time so the
-                // module author sees the leak immediately, not when
-                // a foreign caller stumbles into it.
-                if (self.ctx.symbols.items[sym_id].flags.is_public) {
-                    const fn_name_pos: u32 = if (name_node == .src) name_node.src.pos else 0;
-                    try self.checkPublicSignatureLeaks(sym_id, fn_name_pos, return_ty, param_types.items);
-                }
-            }
-        }
-
-        // Skip past this fn's scopes. Counting is fragile in general,
-        // but symbol resolution opens scopes in a deterministic order,
-        // so we advance `scope_cursor` to the next module-level decl
-        // by counting scopes opened during this fn's walk.
-        return scopeAfter(self.ctx, fn_scope);
-    }
-
-    fn resolveTypeAlias(self: *TypeResolver, items: []const Sexp, parent_scope: ScopeId) std.mem.Allocator.Error!void {
-        // (type name typeexpr)
-        if (items.len < 3) return;
-        const name = identAt(self.ctx.source, items[1]) orelse return;
-        const ty = try self.resolveType(items[2], parent_scope);
-        if (self.ctx.lookup(parent_scope, name)) |sym_id| {
-            self.ctx.symbols.items[sym_id].ty = ty;
-        }
-    }
-
-    fn resolveExtern(self: *TypeResolver, items: []const Sexp, parent_scope: ScopeId) std.mem.Allocator.Error!void {
-        // (extern <kind> name type)
-        if (items.len < 4) return;
-        const name = identAt(self.ctx.source, items[2]) orelse return;
-        const ty = try self.resolveType(items[3], parent_scope);
-        if (self.ctx.lookup(parent_scope, name)) |sym_id| {
-            self.ctx.symbols.items[sym_id].ty = ty;
-        }
-    }
-
-    /// M23: resolve a body-less extern function/sub declaration.
-    /// IR shapes:
-    ///   (extern_fun name params returns)
-    ///   (extern_sub name params)
-    /// Builds a `.function` type from params + returns and stamps it
-    /// on the symbol. Mirrors `resolveFun`'s signature-building
-    /// path but without the body-scope walk.
-    fn resolveExternFun(self: *TypeResolver, items: []const Sexp, parent_scope: ScopeId) std.mem.Allocator.Error!void {
-        if (items.len < 2) return;
-        const is_sub = items[0].tag == .@"extern_sub";
-        const name_node = items[1];
-        const params: Sexp = if (items.len >= 3) items[2] else .{ .nil = {} };
-        const returns_node: Sexp = if (is_sub)
-            .{ .nil = {} }
-        else if (items.len >= 4) items[3] else .{ .nil = {} };
-
-        const return_ty: TypeId = if (is_sub)
-            self.ctx.types.void_id
-        else if (returns_node == .nil)
-            self.ctx.types.void_id
-        else
-            try self.resolveType(returns_node, parent_scope);
-
-        const param_count: usize = if (params == .list) params.list.len else 0;
-        var param_types: std.ArrayListUnmanaged(TypeId) = .empty;
-        defer param_types.deinit(self.ctx.allocator);
-        try param_types.ensureTotalCapacity(self.ctx.allocator, param_count);
-
-        if (params == .list) {
-            for (params.list) |p| {
-                const ptype = try self.resolveParamType(p, parent_scope);
-                param_types.appendAssumeCapacity(ptype);
-            }
-        }
-
-        const owned_params = try self.ctx.arena.allocator().dupe(TypeId, param_types.items);
-        const fn_ty = try self.ctx.types.intern(self.ctx.allocator, .{ .function = .{
-            .params = owned_params,
-            .returns = return_ty,
-            .is_sub = is_sub,
-        } });
-        if (identAt(self.ctx.source, name_node)) |nm| {
-            if (self.ctx.lookup(parent_scope, nm)) |sym_id| {
-                self.ctx.symbols.items[sym_id].ty = fn_ty;
-            }
-        }
-    }
-
-    /// Resolve the declared type of a parameter Sexp. Returns
-    /// `unknown_id` for untyped params (`name` only) — declared params
-    /// without an explicit type are an error in V1, but we report that
-    /// from the symbol resolver, not here.
-    fn resolveParamType(self: *TypeResolver, param: Sexp, scope: ScopeId) std.mem.Allocator.Error!TypeId {
-        switch (param) {
-            .src => return self.ctx.types.unknown_id, // bare name, untyped
-            .list => |items| {
-                if (items.len == 0 or items[0] != .tag) return self.ctx.types.unknown_id;
-                switch (items[0].tag) {
-                    .@":" => if (items.len >= 3) return self.resolveType(items[2], scope),
-                    .@"pre_param" => if (items.len >= 3) return self.resolveType(items[2], scope),
-                    // M20a.1: `?self` / `!self` sugar. Type resolves to
-                    // `(borrow_read|borrow_write) nominal(current_nominal)`.
-                    // Validate that the wrapped name is literally `self`
-                    // and that we're inside a nominal body. Otherwise
-                    // fire a diagnostic and return invalid.
-                    .@"read", .@"write" => {
-                        if (items.len < 2) return self.ctx.types.invalid_id;
-                        const name = identAt(self.ctx.source, items[1]) orelse return self.ctx.types.invalid_id;
-                        const pos: u32 = if (items[1] == .src) items[1].src.pos else 0;
-                        if (!std.mem.eql(u8, name, "self")) {
-                            try self.err(pos, "sigil-prefixed parameter is only allowed for `self`; for other parameters use `{s}: ?Type` / `{s}: !Type`", .{ name, name });
-                            return self.ctx.types.invalid_id;
-                        }
-                        if (self.current_nominal.isEmpty()) {
-                            try self.err(pos, "`{s}self` is only allowed in a method body (inside a struct, enum, or errors declaration)", .{
-                                if (items[0].tag == .@"read") "?" else "!",
-                            });
-                            return self.ctx.types.invalid_id;
-                        }
-                        // M20b(3/5): use NominalContext.self_type so
-                        // generic methods get `?Box(T)` rather than the
-                        // bare nominal — keeps `?self` symbolic for
-                        // generic-body checking.
-                        const self_ty = self.current_nominal.self_type;
-                        const wrap_payload = if (items[0].tag == .@"read")
-                            Type{ .borrow_read = self_ty }
-                        else
-                            Type{ .borrow_write = self_ty };
-                        return try self.ctx.types.intern(self.ctx.allocator, wrap_payload);
-                    },
-                    else => {},
-                }
-                return self.ctx.types.unknown_id;
-            },
-            else => return self.ctx.types.unknown_id,
-        }
-    }
-
-    /// The workhorse: type Sexp → `TypeId`.
-    fn resolveType(self: *TypeResolver, sexp: Sexp, scope: ScopeId) std.mem.Allocator.Error!TypeId {
-        switch (sexp) {
-            .nil => return self.ctx.types.void_id,
-            .src => |s| {
-                const name = self.ctx.source[s.pos..][0..s.len];
-                if (primitiveTypeId(self.ctx, name)) |id| return id;
-                if (sizedIntTypeId(self.ctx, name)) |id| return id;
-                if (sizedFloatTypeId(self.ctx, name)) |id| return id;
-                // M20a / M20b(3/5): `Self` inside a nominal context
-                // resolves to the context's cached self_type
-                // (`nominal(sym)` for plain, `parameterized_nominal(
-                // sym, [type_var(T)])` for generics).
-                if (!self.current_nominal.isEmpty()) {
-                    if (std.mem.eql(u8, name, "Self")) {
-                        return self.current_nominal.self_type;
-                    }
-                    // M20b(3/5): bare generic param `T` inside the
-                    // generic body resolves to `type_var(T_sym)`.
-                    // Looked up via NominalContext.type_params rather
-                    // than the lexical scope so on-the-fly
-                    // TypeResolvers (e.g., constructed by checkSet for
-                    // body annotations) still find them.
-                    for (self.current_nominal.type_params) |tp_sym| {
-                        const tp = self.ctx.symbols.items[tp_sym];
-                        if (std.mem.eql(u8, tp.name, name)) {
-                            return self.ctx.types.intern(self.ctx.allocator, .{ .type_var = tp_sym });
-                        }
-                    }
-                }
-                if (self.ctx.lookup(scope, name)) |sym_id| {
-                    const sym = self.ctx.symbols.items[sym_id];
-                    if (sym.kind == .nominal_type or sym.kind == .type_alias) {
-                        return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = sym_id });
-                    }
-                    // M20b(5/5) per GPT-5.5: bare `Box` (a generic_type)
-                    // in type position requires type arguments —
-                    // `x: Box` should error, only `x: Box(Int)` is
-                    // valid. Return invalid_id; the use site fires
-                    // the diagnostic.
-                    //
-                    // M20h: special-case zero-arity built-in
-                    // generics (`Closure`) since the "write `T(T)`"
-                    // hint is wrong for them. Bare `Closure` should
-                    // hint `Closure()` — the no-arg, void-return
-                    // closure handle type spelling.
-                    if (sym.kind == .generic_type) {
-                        const expects_args = if (sym.type_params) |tps| tps.len > 0 else false;
-                        if (expects_args) {
-                            try self.err(s.pos, "generic type `{s}` requires type arguments; write `{s}(T)`", .{ name, name });
-                        } else {
-                            try self.err(s.pos, "generic type `{s}` must be written with empty parentheses; write `{s}()`", .{ name, name });
-                        }
-                        return self.ctx.types.invalid_id;
-                    }
-                    // Generic-param symbols are detached (per M20b(5/5)
-                    // post-implementation review) — they're resolved
-                    // via NominalContext.type_params above, not via
-                    // ordinary lexical lookup. If we reach here with
-                    // a generic_param symbol, it's a code-path bug.
-                }
-                // M15b.1 per GPT-5.5 post-impl review: unbound type
-                // name. Per the hardened "unknown is poison after a
-                // diagnostic, never silent success" invariant, type-
-                // position unbound names must error at sema time. Pre-
-                // M15b.1 this silently returned `invalid_id` and let
-                // downstream type-checking error at the use site (or
-                // not at all). The original deferral note read: "M5
-                // v1 doesn't have a module system / forward
-                // declarations / generic-param scope yet, so
-                // undeclared names are common in idiomatic Rig" —
-                // but with M15b shipped and module-aware scoping in
-                // place, that defense is no longer warranted.
-                try self.err(s.pos, "use of unbound type `{s}`", .{name});
-                return self.ctx.types.invalid_id;
-            },
-            .list => |items| {
-                if (items.len == 0 or items[0] != .tag) return self.ctx.types.invalid_id;
-                switch (items[0].tag) {
-                    .@"optional" => {
-                        if (items.len < 2) return self.ctx.types.invalid_id;
-                        const inner = try self.resolveType(items[1], scope);
-                        return self.ctx.types.intern(self.ctx.allocator, .{ .optional = inner });
-                    },
-                    .@"error_union" => {
-                        if (items.len < 2) return self.ctx.types.invalid_id;
-                        const inner = try self.resolveType(items[1], scope);
-                        return self.ctx.types.intern(self.ctx.allocator, .{ .fallible = inner });
-                    },
-                    .@"borrow_read" => {
-                        if (items.len < 2) return self.ctx.types.invalid_id;
-                        const inner = try self.resolveType(items[1], scope);
-                        return self.ctx.types.intern(self.ctx.allocator, .{ .borrow_read = inner });
-                    },
-                    .@"borrow_write" => {
-                        if (items.len < 2) return self.ctx.types.invalid_id;
-                        const inner = try self.resolveType(items[1], scope);
-                        return self.ctx.types.intern(self.ctx.allocator, .{ .borrow_write = inner });
-                    },
-                    // M20d: `*T` and `~T` in type position. Distinct
-                    // tags from the expression-position `(share x)`
-                    // form (which keeps the M3 `share` tag) — see
-                    // src/rig.zig's Tag enum for the rationale.
-                    //
-                    // M20d(4/5) per GPT-5.5: reject nested shared
-                    // (`**T`) — two layers of refcount indirection
-                    // serve no V1 use case and the type would be a
-                    // surprise to read. Single `*T` is always what the
-                    // user meant. `*?T` (shared-of-borrow) and `*T?`
-                    // (shared-of-optional) are NOT rejected; both are
-                    // structurally meaningful.
-                    .@"shared" => {
-                        if (items.len < 2) return self.ctx.types.invalid_id;
-                        const inner = try self.resolveType(items[1], scope);
-                        const inner_ty = self.ctx.types.get(inner);
-                        if (inner_ty == .shared) {
-                            // Best-effort pos: the inner tag node or the wrapper's first src.
-                            const pos = firstSrcPos(items[1]);
-                            try self.err(pos, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
-                            return self.ctx.types.invalid_id;
-                        }
-                        return self.ctx.types.intern(self.ctx.allocator, .{ .shared = inner });
-                    },
-                    .@"weak" => {
-                        if (items.len < 2) return self.ctx.types.invalid_id;
-                        const inner = try self.resolveType(items[1], scope);
-                        return self.ctx.types.intern(self.ctx.allocator, .{ .weak = inner });
-                    },
-                    .@"slice" => {
-                        if (items.len < 2) return self.ctx.types.invalid_id;
-                        const elem = try self.resolveType(items[1], scope);
-                        return self.ctx.types.intern(self.ctx.allocator, .{ .slice = .{ .elem = elem } });
-                    },
-                    .@"array_type" => {
-                        // (array_type N T)
-                        if (items.len < 3) return self.ctx.types.invalid_id;
-                        const len = parseIntegerLiteral(self.ctx.source, items[1]) orelse 0;
-                        const elem = try self.resolveType(items[2], scope);
-                        return self.ctx.types.intern(self.ctx.allocator, .{ .array = .{
-                            .elem = elem,
-                            .len = len,
-                        } });
-                    },
-                    .@"fun_type" => {
-                        // (fun_type params returns) — params is a list of types.
-                        if (items.len < 3) return self.ctx.types.invalid_id;
-                        var ps: std.ArrayListUnmanaged(TypeId) = .empty;
-                        defer ps.deinit(self.ctx.allocator);
-                        if (items[1] == .list) {
-                            for (items[1].list) |p| {
-                                try ps.append(self.ctx.allocator, try self.resolveType(p, scope));
-                            }
-                        }
-                        const ret = try self.resolveType(items[2], scope);
-                        const owned = try self.ctx.arena.allocator().dupe(TypeId, ps.items);
-                        return self.ctx.types.intern(self.ctx.allocator, .{ .function = .{
-                            .params = owned,
-                            .returns = ret,
-                            .is_sub = false,
-                        } });
-                    },
-                    // M20b(4/5): `(generic_inst Name T1 T2 ...)` — a
-                    // fully-applied generic type instantiation. Resolve
-                    // `Name` to a `generic_type` Symbol, recursively
-                    // resolve each type arg, intern as
-                    // `parameterized_nominal{sym, args}`. The interner
-                    // guarantees `Box(Int)` is always the same TypeId.
-                    //
-                    // Arity validation: error if the supplied count
-                    // doesn't match the generic's declared type_params.
-                    .@"generic_inst" => {
-                        if (items.len < 2) return self.ctx.types.invalid_id;
-                        const name_node = items[1];
-                        const name = identAt(self.ctx.source, name_node) orelse return self.ctx.types.invalid_id;
-                        const pos: u32 = if (name_node == .src) name_node.src.pos else 0;
-                        const sym_id = self.ctx.lookup(scope, name) orelse {
-                            try self.err(pos, "unknown type `{s}`", .{name});
-                            return self.ctx.types.invalid_id;
-                        };
-                        const sym = self.ctx.symbols.items[sym_id];
-                        if (sym.kind != .generic_type) {
-                            try self.err(pos, "`{s}` is not a generic type", .{name});
-                            return self.ctx.types.invalid_id;
-                        }
-                        const expected_count = if (sym.type_params) |tps| tps.len else 0;
-                        const supplied = items[2..];
-                        if (supplied.len != expected_count) {
-                            try self.err(pos, "generic type `{s}` expects {d} type argument{s}, got {d}", .{
-                                name,
-                                expected_count,
-                                if (expected_count == 1) @as([]const u8, "") else "s",
-                                supplied.len,
-                            });
-                            return self.ctx.types.invalid_id;
-                        }
-                        var arg_ids: std.ArrayListUnmanaged(TypeId) = .empty;
-                        defer arg_ids.deinit(self.ctx.allocator);
-                        try arg_ids.ensureTotalCapacity(self.ctx.allocator, supplied.len);
-                        for (supplied) |arg| {
-                            arg_ids.appendAssumeCapacity(try self.resolveType(arg, scope));
-                        }
-
-                        // M20f → M26(1/5): Cell(T) accepts Copy T OR
-                        // any T with drop glue (`*T` / `~T` / `Vec(T)` /
-                        // `*Closure()` / nominals with drop glue, plus
-                        // recursively `Cell(drop_T)`). The runtime's
-                        // `Cell.__rig_drop` and `set` use
-                        // `dropElement(T, &value)` so the dispatch is
-                        // sound across all accepted T. Bare nominals
-                        // without drop glue (e.g., struct of only Copy
-                        // fields) are still rejected — V1's type system
-                        // doesn't yet track Copy for nominals; this is
-                        // a conservative gate that can relax further
-                        // when Copy traits / derives land.
-                        if (sym_id == self.ctx.cell_sym_id and supplied.len == 1) {
-                            const arg_ty = arg_ids.items[0];
-                            // Allow unknown/invalid to slide silently
-                            // (some upstream resolution failed; don't
-                            // double-fault).
-                            const is_known = arg_ty != self.ctx.types.unknown_id and
-                                arg_ty != self.ctx.types.invalid_id;
-                            if (is_known and !isValidCellElementType(self.ctx, arg_ty)) {
-                                const ty_str = try formatType(self.ctx, arg_ty);
-                                try self.err(pos, "`Cell(T)` requires `T` to be a Copy primitive (Int, Bool, Float, String) OR a type with drop glue (`*T`, `~T`, `Vec(T)`, `*Closure()`, struct with resource fields or user `drop`); got `{s}`. Bare nominals without drop glue are deferred until V1 tracks Copy for user types.", .{ty_str});
-                                return self.ctx.types.invalid_id;
-                            }
-                        }
-
-                        // M20i: Vec(T) is a built-in resource-aware
-                        // container. V1 element kinds:
-                        //   - Copy primitives (Int, Bool, Float, String)
-                        //   - `*T` shared handles (drop via dropStrong)
-                        //   - `~T` weak handles (drop via dropWeak)
-                        // Rejected at sema:
-                        //   - arbitrary nominal T (no user Drop yet)
-                        //   - nested Vec(Vec(T)) (recursive resource
-                        //     semantics deferred per GPT-5.5 M20i pass)
-                        //   - Cell(T) elements (would need non-Copy Cell)
-                        if (sym_id == self.ctx.vec_sym_id and supplied.len == 1) {
-                            const arg_ty = arg_ids.items[0];
-                            const is_known = arg_ty != self.ctx.types.unknown_id and
-                                arg_ty != self.ctx.types.invalid_id;
-                            if (is_known and !isValidVecElementType(self.ctx, arg_ty)) {
-                                const ty_str = try formatType(self.ctx, arg_ty);
-                                try self.err(pos, "`Vec(T)` in V1 requires `T` to be a Copy type (Int, Bool, Float, String), a shared handle (`*T`), or a weak handle (`~T`); got `{s}`. Nested `Vec(Vec(T))` and arbitrary nominal element types are deferred until V1 grows user-defined Drop.", .{ty_str});
-                                return self.ctx.types.invalid_id;
-                            }
-                        }
-
-                        // PB2: Signal(T) — same Copy-only T restriction
-                        // as Cell. Non-Copy T would need replace/take
-                        // semantics on `Signal.set` (Cell's deferred
-                        // problem); deferred until Cell-non-Copy
-                        // lands as its own sub-arc.
-                        if (sym_id == self.ctx.signal_sym_id and supplied.len == 1) {
-                            const arg_ty = arg_ids.items[0];
-                            const is_known = arg_ty != self.ctx.types.unknown_id and
-                                arg_ty != self.ctx.types.invalid_id;
-                            if (is_known and !isCopyTypeForCell(self.ctx, arg_ty)) {
-                                const ty_str = try formatType(self.ctx, arg_ty);
-                                try self.err(pos, "`Signal(T)` in V1 requires `T` to be a Copy type (Int, Bool, Float, String); got `{s}`. Non-Copy `Signal(T)` would need the same replace/take/Drop semantics as non-Copy `Cell(T)` and is deferred until that substrate lands.", .{ty_str});
-                                return self.ctx.types.invalid_id;
-                            }
-                        }
-
-                        const owned = try self.ctx.arena.allocator().dupe(TypeId, arg_ids.items);
-                        return self.ctx.types.intern(self.ctx.allocator, .{ .parameterized_nominal = .{
-                            .sym = sym_id,
-                            .args = owned,
-                        } });
-                    },
-                    else => return self.ctx.types.invalid_id,
-                }
-            },
-            else => return self.ctx.types.invalid_id,
-        }
-    }
-
-    fn err(self: *TypeResolver, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
-        const msg = try std.fmt.allocPrint(self.ctx.arena.allocator(), fmt, args);
-        try self.ctx.diagnostics.append(self.ctx.allocator, .{
-            .severity = .@"error",
-            .pos = pos,
-            .message = msg,
-        });
-    }
-
-    /// M15b.2: walk a type and append any non-public same-module nominal
-    /// leaves into `leaks`. Used to enforce that public declarations
-    /// don't expose private nominal types in their signatures across
-    /// module boundaries — `pub fun make_secret() -> Secret` where
-    /// `Secret` is non-pub is a category error: importers can hold a
-    /// `Secret` value but cannot construct or destructure it through
-    /// any public path.
-    ///
-    /// What counts as a "leak":
-    ///   - `nominal{sym}` where `sym` is same-module and not `pub`
-    ///     and not a built-in (Cell/Closure/Vec/Signal).
-    ///
-    /// What does NOT leak:
-    ///   - `imported_nominal{module, sym}` — already validated visible
-    ///     in its origin module by the M15b cross-module call paths;
-    ///     the importer's local TypeStore can carry it without a
-    ///     visibility opinion.
-    ///   - `parameterized_nominal{base, args}` where `base` is the
-    ///     same-module nominal — the base itself is checked, then each
-    ///     arg recursively. (If a generic constructor is `pub Box(T)`
-    ///     and someone writes `pub fun foo() -> Box(Secret)`, the
-    ///     `Box` is fine but `Secret` leaks.)
-    ///   - `type_var{sym}` — generic parameter; substituted at use
-    ///     sites, doesn't itself leak.
-    ///   - structural variants (optional, fallible, borrow_*, slice,
-    ///     array, function, shared, weak) — recurse into children.
-    ///   - primitives (int, bool, float, string, void, etc.) — visible
-    ///     by construction.
-    fn collectPrivateNominalLeaks(
-        self: *TypeResolver,
-        ty: TypeId,
-        leaks: *std.ArrayListUnmanaged(SymbolId),
-    ) std.mem.Allocator.Error!void {
-        if (ty == self.ctx.types.invalid_id or ty == self.ctx.types.unknown_id) return;
-        const t = self.ctx.types.get(ty);
-        switch (t) {
-            .invalid, .unknown,
-            .void, .bool, .string,
-            .int, .float, .int_literal, .float_literal,
-            .imported_nominal, .type_var,
-            => {},
-
-            .optional, .fallible, .borrow_read, .borrow_write,
-            .shared, .weak,
-            => |inner| try self.collectPrivateNominalLeaks(inner, leaks),
-
-            .slice => |s| try self.collectPrivateNominalLeaks(s.elem, leaks),
-            .array => |a| try self.collectPrivateNominalLeaks(a.elem, leaks),
-
-            .function => |f| {
-                for (f.params) |p| try self.collectPrivateNominalLeaks(p, leaks);
-                try self.collectPrivateNominalLeaks(f.returns, leaks);
-            },
-
-            .nominal => |sym_id| {
-                const sym = self.ctx.symbols.items[sym_id];
-                // Built-in nominals (Cell/Closure/Vec/Signal) are visible
-                // by construction; same-module pub nominals are visible
-                // by their decoration; everything else is a leak.
-                if (sym.decl_pos == builtin_decl_pos) return;
-                if (sym.flags.is_public) return;
-                // Avoid reporting the same private symbol twice in a
-                // single signature (e.g., `pub fun f(x: Secret) -> Secret`
-                // should produce one diagnostic, not two).
-                for (leaks.items) |existing| if (existing == sym_id) return;
-                try leaks.append(self.ctx.allocator, sym_id);
-            },
-
-            .parameterized_nominal => |pn| {
-                // The base generic must be visible, AND each argument
-                // must independently be visible. `Box(Secret)` leaks
-                // `Secret` even when `Box` is `pub`.
-                const base_sym = self.ctx.symbols.items[pn.sym];
-                if (base_sym.decl_pos != builtin_decl_pos and !base_sym.flags.is_public) {
-                    var seen = false;
-                    for (leaks.items) |existing| if (existing == pn.sym) { seen = true; break; };
-                    if (!seen) try leaks.append(self.ctx.allocator, pn.sym);
-                }
-                for (pn.args) |arg| try self.collectPrivateNominalLeaks(arg, leaks);
-            },
-        }
-    }
-
-    /// M15b.2: enforce that a `pub fun` / `pub sub` declaration does
-    /// not leak private same-module nominals through its signature.
-    /// Called from `resolveFun` when the function symbol carries
-    /// `is_public = true`. Fires one diagnostic per offending private
-    /// nominal, anchored at the function's name position.
-    fn checkPublicSignatureLeaks(
-        self: *TypeResolver,
-        fn_sym_id: SymbolId,
-        fn_name_pos: u32,
-        return_ty: TypeId,
-        param_types: []const TypeId,
-    ) std.mem.Allocator.Error!void {
-        var leaks: std.ArrayListUnmanaged(SymbolId) = .empty;
-        defer leaks.deinit(self.ctx.allocator);
-
-        try self.collectPrivateNominalLeaks(return_ty, &leaks);
-        for (param_types) |pt| try self.collectPrivateNominalLeaks(pt, &leaks);
-
-        if (leaks.items.len == 0) return;
-
-        const fn_sym = self.ctx.symbols.items[fn_sym_id];
-        for (leaks.items) |private_sym_id| {
-            const private_sym = self.ctx.symbols.items[private_sym_id];
-            try self.err(fn_name_pos, "public {s} `{s}` leaks private type `{s}`; either mark `{s}` `pub` so importers can construct/destructure it, or remove `{s}` from the public API", .{
-                if (fn_sym.kind == .function) blk: {
-                    // Distinguish fun vs sub for clearer diagnostics. The
-                    // FunctionType carries `is_sub`; look it up.
-                    const fn_ty = self.ctx.types.get(fn_sym.ty);
-                    break :blk if (fn_ty == .function and fn_ty.function.is_sub)
-                        "sub"
-                    else
-                        "function";
-                } else "function",
-                fn_sym.name,
-                private_sym.name,
-                private_sym.name,
-                fn_sym.name,
-            });
-        }
-    }
-};
-
-fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
-    if (std.mem.eql(u8, name, "Int")) return ctx.types.int_id;
-    if (std.mem.eql(u8, name, "Float")) return ctx.types.float_id;
-    if (std.mem.eql(u8, name, "Bool")) return ctx.types.bool_id;
-    if (std.mem.eql(u8, name, "String")) return ctx.types.string_id;
-    if (std.mem.eql(u8, name, "Void")) return ctx.types.void_id;
-    return null;
 }
 
-fn sizedIntTypeId(ctx: *SemContext, name: []const u8) ?TypeId {
-    const Pair = struct { name: []const u8, bits: u8, signed: bool };
-    const pairs = [_]Pair{
-        .{ .name = "I8", .bits = 8, .signed = true },
-        .{ .name = "I16", .bits = 16, .signed = true },
-        .{ .name = "I32", .bits = 32, .signed = true },
-        .{ .name = "I64", .bits = 64, .signed = true },
-        .{ .name = "U8", .bits = 8, .signed = false },
-        .{ .name = "U16", .bits = 16, .signed = false },
-        .{ .name = "U32", .bits = 32, .signed = false },
-        .{ .name = "U64", .bits = 64, .signed = false },
+/// Whether a value of type `ty` holds a `root` inline (not behind a
+/// handle, a borrow, or a Vec's heap buffer).
+fn containsByValue(ctx: *const SemContext, ty: TypeId, root: SymbolId, subst: ?*const GlueSubst, depth: u8) bool {
+    if (depth > 64) return false;
+    return switch (ctx.types.get(ty)) {
+        .optional, .fallible => |inner| containsByValue(ctx, inner, root, subst, depth + 1),
+        .array => |a| containsByValue(ctx, a.elem, root, subst, depth + 1),
+        .type_var => |sym| blk: {
+            const sb = subst orelse break :blk false;
+            for (sb.params, 0..) |p, i| {
+                if (p == sym and i < sb.args.len) break :blk containsByValue(ctx, sb.args[i], root, sb.outer, depth + 1);
+            }
+            break :blk false;
+        },
+        .nominal => |sym| sym == root or nominalContains(ctx, sym, root, null, depth),
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
+            if (pn.sym == root) break :blk true;
+            const base = ctx.symbols.items[pn.sym];
+            const inner: GlueSubst = .{ .params = base.type_params orelse &.{}, .args = pn.args, .outer = subst };
+            if (pn.sym == ctx.cell_sym_id) break :blk pn.args.len == 1 and containsByValue(ctx, pn.args[0], root, subst, depth + 1);
+            break :blk nominalContains(ctx, pn.sym, root, &inner, depth);
+        },
+        else => false,
     };
-    for (pairs) |p| {
-        if (std.mem.eql(u8, name, p.name)) {
-            return ctx.types.intern(ctx.allocator, .{ .int = .{ .bits = p.bits, .signed = p.signed } }) catch null;
-        }
+}
+
+fn nominalContains(ctx: *const SemContext, sym_id: SymbolId, root: SymbolId, subst: ?*const GlueSubst, depth: u8) bool {
+    for (ctx.symbols.items[sym_id].fields orelse &.{}) |f| {
+        if (f.is_method) continue;
+        if (f.is_variant) {
+            for (f.payload orelse &.{}) |pf| if (containsByValue(ctx, pf.ty, root, subst, depth + 1)) return true;
+        } else if (containsByValue(ctx, f.ty, root, subst, depth + 1)) return true;
     }
-    return null;
+    return false;
 }
 
-fn sizedFloatTypeId(ctx: *SemContext, name: []const u8) ?TypeId {
-    if (std.mem.eql(u8, name, "F32")) return ctx.types.intern(ctx.allocator, .{ .float = .{ .bits = 32 } }) catch null;
-    if (std.mem.eql(u8, name, "F64")) return ctx.types.intern(ctx.allocator, .{ .float = .{ .bits = 64 } }) catch null;
-    return null;
+fn payloadHasDropGlue(ctx: *const SemContext, f: Field) bool {
+    for (f.payload orelse &.{}) |pf| if (typeHasDropGlue(ctx, pf.ty)) return true;
+    return false;
 }
 
-/// Find the next scope id at or above `from_scope` whose parent is the
-/// module scope (i.e., the next top-level decl's scope). Used by
-/// `resolveFun` to skip over a function's nested scopes when walking
-/// module-level decls in order.
-fn scopeAfter(ctx: *const SemContext, from_scope: ScopeId) ScopeId {
-    const total: ScopeId = @intCast(ctx.scopes.items.len);
-    var s: ScopeId = from_scope + 1;
-    while (s < total) : (s += 1) {
-        const scope = &ctx.scopes.items[s];
-        if (scope.parent) |p| {
-            // Module scope is 1; its children are top-level decl scopes.
-            if (p == 1) return s;
-        }
-    }
-    return total;
+// =============================================================================
+// Type queries
+// =============================================================================
+
+pub const builtin_decl_pos: u32 = std.math.maxInt(u32);
+
+/// Does a value of this type need its destructor run: a `*T` / `~T`
+/// handle, a Vec, an owned closure, a Cell holding such a value, or a
+/// struct flagged `has_drop_glue`. Types with drop glue are non-Copy.
+pub fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
+    return hasDropGlueUnder(ctx, ty_id, null, 0);
 }
 
-/// M20a / M20a.2: classify a receiver expression's "shape" at the call
-/// site, used by `checkReceiverMode` to enforce visible-effects rules.
-///
-/// Per GPT-5.5's M20a.2 design pass: "false negatives are okay; false
-/// positives are not." A false negative (treating an rvalue as lvalue)
-/// just annoys the user with an unnecessary explicit move/borrow. A
-/// false positive (treating an lvalue as rvalue) silently permits
-/// invalid moves/writes. So this is intentionally conservative — only
-/// confidently-fresh-value expression heads are classified as rvalue.
-pub const ReceiverShape = enum {
-    read_explicit, // (read X)   — `?u.method()` form
-    write_explicit, // (write X) — `(!u).method()` form
-    move_explicit, // (move X)   — `(<u).method()` form
-    rvalue, // expressions that produce a fresh value (no place to borrow)
-    lvalue_bare, // bare identifier or any other place expression
+/// Type arguments in effect while looking inside a generic instance.
+const GlueSubst = struct {
+    params: []const SymbolId,
+    args: []const TypeId,
+    outer: ?*const GlueSubst,
 };
 
-/// M20a.2 (per GPT-5.5 pre-commit review): receiver expression's
-/// *type* classification, complementing the syntactic shape. Without
-/// this, expressions like `get_ref().consume()` — where `get_ref`
-/// returns `?User` (read borrow) — would be silently accepted by a
-/// `MethodReceiver.value` method because the syntactic shape is
-/// `rvalue`. The fix: also check that the receiver expression's
-/// TYPE is compatible with the receiver mode (owned vs read-borrow
-/// vs write-borrow), not just its syntactic shape.
-pub const ReceiverTypeKind = enum {
-    owned_nominal, // T (matching the enclosing nominal)
-    read_borrow, // ?T (matching the enclosing nominal)
-    write_borrow, // !T (matching the enclosing nominal)
-    shared, // M20d: *T (shared Rc handle to the enclosing nominal)
-    other, // doesn't unwrap to the expected nominal, or unknown
-};
-
-fn classifyReceiverType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: SymbolId) ReceiverTypeKind {
-    const ty = ctx.types.get(ty_id);
-    switch (ty) {
-        .nominal => |s| return if (s == nominal_sym) .owned_nominal else .other,
-        // M20b(4/5): a parameterized_nominal whose base symbol matches
-        // the expected nominal counts as owned for receiver-mode rules
-        // — the type args don't affect mode classification (substitution
-        // is handled in the lookup helper).
-        .parameterized_nominal => |pn| return if (pn.sym == nominal_sym) .owned_nominal else .other,
-        .borrow_read => |inner| {
-            const inner_ty = ctx.types.get(inner);
-            if (inner_ty == .nominal and inner_ty.nominal == nominal_sym) return .read_borrow;
-            if (inner_ty == .parameterized_nominal and inner_ty.parameterized_nominal.sym == nominal_sym) return .read_borrow;
-            return .other;
+/// `typeHasDropGlue` inside generic instances: a type parameter has glue
+/// when its argument does, and an instance of a user generic has glue
+/// when any field or variant payload does under its arguments.
+fn hasDropGlueUnder(ctx: *const SemContext, ty_id: TypeId, subst: ?*const GlueSubst, depth: u8) bool {
+    if (ty_id == ctx.types.invalid_id or ty_id == ctx.types.unknown_id) return false;
+    // Past any real nesting depth, assume glue: treating a Copy type as
+    // owning only costs a rejected copy, the reverse would leak.
+    if (depth > 64) return true;
+    return switch (ctx.types.get(ty_id)) {
+        .shared, .weak => true,
+        .optional => |inner| hasDropGlueUnder(ctx, inner, subst, depth + 1),
+        .type_var => |sym| blk: {
+            const sb = subst orelse break :blk false;
+            for (sb.params, 0..) |p, i| {
+                if (p == sym and i < sb.args.len) break :blk hasDropGlueUnder(ctx, sb.args[i], sb.outer, depth + 1);
+            }
+            break :blk false;
         },
-        .borrow_write => |inner| {
-            const inner_ty = ctx.types.get(inner);
-            if (inner_ty == .nominal and inner_ty.nominal == nominal_sym) return .write_borrow;
-            if (inner_ty == .parameterized_nominal and inner_ty.parameterized_nominal.sym == nominal_sym) return .write_borrow;
-            return .other;
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.vec_sym_id) break :blk true;
+            if (pn.sym == ctx.cell_sym_id) break :blk pn.args.len == 1 and hasDropGlueUnder(ctx, pn.args[0], subst, depth + 1);
+            const base = ctx.symbols.items[pn.sym];
+            if (base.flags.has_drop_glue) break :blk true;
+            const inner: GlueSubst = .{ .params = base.type_params orelse &.{}, .args = pn.args, .outer = subst };
+            const fields = base.fields orelse break :blk false;
+            for (fields) |f| {
+                if (f.is_method) continue;
+                if (f.is_variant) {
+                    for (f.payload orelse &.{}) |pf| if (hasDropGlueUnder(ctx, pf.ty, &inner, depth + 1)) break :blk true;
+                    continue;
+                }
+                if (hasDropGlueUnder(ctx, f.ty, &inner, depth + 1)) break :blk true;
+            }
+            break :blk false;
         },
-        // M20d(4/5): shared(T) receiver. Match against the enclosing
-        // nominal exactly like borrow kinds so `checkReceiverMode` can
-        // reject `.write` / `.value` methods through shared. Auto-deref
-        // is already permitted by `unwrapReadAccess` in the lookup
-        // helpers; this is the safety check that turns "method found"
-        // into "method callable."
-        .shared => |inner| {
-            const inner_ty = ctx.types.get(inner);
-            if (inner_ty == .nominal and inner_ty.nominal == nominal_sym) return .shared;
-            if (inner_ty == .parameterized_nominal and inner_ty.parameterized_nominal.sym == nominal_sym) return .shared;
-            return .other;
+        .nominal => |sym| ctx.symbols.items[sym].flags.has_drop_glue,
+        .imported_nominal => |in| blk: {
+            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk false;
+            if (in.sym_id >= foreign.symbols.items.len) break :blk false;
+            break :blk foreign.symbols.items[in.sym_id].flags.has_drop_glue;
         },
-        else => return .other,
-    }
+        else => false,
+    };
 }
 
-fn classifyReceiverShape(receiver_expr: Sexp) ReceiverShape {
-    if (receiver_expr == .list and receiver_expr.list.len >= 1 and
-        receiver_expr.list[0] == .tag)
-    {
-        switch (receiver_expr.list[0].tag) {
-            .@"read" => return .read_explicit,
-            .@"write" => return .write_explicit,
-            .@"move" => return .move_explicit,
+/// The signature of an owned closure handle `*fun(...) R` / `*sub(...)`
+/// (possibly borrowed), or null.
+pub fn ownedClosureFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
+    return switch (ctx.types.get(unwrapBorrows(ctx, ty))) {
+        .shared => |inner| switch (ctx.types.get(inner)) {
+            .function => |f| f,
+            else => null,
+        },
+        else => null,
+    };
+}
 
-            // Confidently-fresh-value expression heads:
-            .@"call", // function / method / constructor call result
-            .@"builtin", // @sizeOf(...) etc.
-            .@"record", // Type{...} struct literal
-            .@"anon_init", // .{...} anonymous literal
-            .@"array", // [a, b, c] array literal
-            .@"clone", // +x — explicit fresh clone
-            .@"share", // *x — fresh shared handle
-            .@"weak", // ~x — fresh weak handle
-            .@"if", // value-position if produces a fresh value
-            .@"match", // value-position match produces a fresh value
-            .@"ternary", // postfix-if expression
-            .@"catch", // expr catch ... — yields a value
-            .@"try", // try expr — wraps a value
-            .@"try_block", // value-yielding try / catch block
-            .@"propagate", // x! — yields T from T!, fresh value
-            => return .rvalue,
+/// A value an owned closure can take or return: its runtime form is
+/// type-erased, so only plain Copy data crosses it (a Copy primitive, a
+/// plain enum, or an optional of one).
+pub fn isClosureValue(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .invalid, .unknown => true,
+        .optional => |inner| isCopyPrimitive(ctx, inner) or isPlainEnum(ctx, inner),
+        .nominal, .imported_nominal => isPlainEnum(ctx, ty),
+        else => isCopyPrimitive(ctx, ty),
+    };
+}
 
-            // Place expressions (lvalue): member access, index, deref,
-            // bare identifiers reached through `.src` below, and the
-            // unsafe escape hatches (`@x` pin, `%x` raw) which are
-            // views over existing storage rather than fresh values.
-            else => return .lvalue_bare,
+/// A value of an error set, or any error: what a fallible function
+/// fails with.
+pub fn isErrorValue(ctx: *const SemContext, ty: TypeId) bool {
+    if (ctx.types.get(ty) == .any_error) return true;
+    return isErrorSet(ctx, ty);
+}
+
+/// A type declared with `error`.
+pub fn isErrorSet(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .nominal, .imported_nominal => (nominalDecl(ctx, ty) orelse return false).symbol().flags.error_set,
+        else => false,
+    };
+}
+
+/// Whether some error set this module can see (its own, or one declared
+/// in a module it imports) has a member named `name`.
+pub fn errorNameExists(ctx: *const SemContext, name: []const u8) bool {
+    if (errorNameIn(ctx, name)) return true;
+    var it = ctx.foreign_semas.valueIterator();
+    while (it.next()) |f| if (errorNameIn(f.*, name)) return true;
+    return false;
+}
+
+fn errorNameIn(ctx: *const SemContext, name: []const u8) bool {
+    for (ctx.symbols.items) |sym| {
+        if (!sym.flags.error_set) continue;
+        for (sym.fields orelse &.{}) |f| {
+            if (f.is_variant and std.mem.eql(u8, f.name, name)) return true;
         }
     }
-    // `.src` (bare name) or other leaf — lvalue.
-    return .lvalue_bare;
+    return false;
 }
 
-/// M20b(2/5): substitution map for generic type-parameter resolution.
-/// `params` and `args` are parallel slices: index `i` maps `params[i]`
-/// (a `.generic_param` SymbolId) to `args[i]` (the supplied TypeId).
-///
-/// Constructed at lookup time from a receiver's `parameterized_nominal`
-/// args, then passed into `substituteType` to walk the field/method's
-/// stored symbolic type and produce the concrete substituted form.
+/// An enum all of whose variants are bare (no payloads): comparable
+/// with `==`.
+pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
+    const decl = nominalDecl(ctx, ty) orelse return false;
+    const fields = decl.symbol().fields orelse return false;
+    var any = false;
+    for (fields) |f| {
+        if (!f.is_variant) continue;
+        any = true;
+        if (f.payload != null and f.payload.?.len > 0) return false;
+    }
+    return any;
+}
+
+/// Primitive values that are copied freely.
+pub fn isCopyPrimitive(ctx: *const SemContext, ty_id: TypeId) bool {
+    return switch (ctx.types.get(ty_id)) {
+        .bool, .int, .float, .string, .int_literal, .float_literal => true,
+        else => false,
+    };
+}
+
+pub fn isNumeric(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .int, .float, .int_literal, .float_literal => true,
+        else => false,
+    };
+}
+
+pub fn isInteger(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .int, .int_literal => true,
+        else => false,
+    };
+}
+
+/// Peel `?T` / `!T`.
+pub fn unwrapBorrows(ctx: *const SemContext, ty_id: TypeId) TypeId {
+    var id = ty_id;
+    while (true) {
+        switch (ctx.types.get(id)) {
+            .borrow_read, .borrow_write => |inner| id = inner,
+            else => return id,
+        }
+    }
+}
+
+/// Peel `?T`, `!T`, and `*T`: the view read-only member access sees.
+/// Weak handles and optionals are not peeled; they must be upgraded or
+/// unwrapped explicitly.
+pub fn unwrapReadAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
+    var id = ty_id;
+    while (true) {
+        switch (ctx.types.get(id)) {
+            .borrow_read, .borrow_write, .shared => |inner| id = inner,
+            else => return id,
+        }
+    }
+}
+
+/// The nominal symbol behind a receiver type, after peeling borrows.
+pub fn nominalSymOfReceiver(ctx: *const SemContext, ty_id: TypeId) ?SymbolId {
+    return switch (ctx.types.get(unwrapBorrows(ctx, ty_id))) {
+        .nominal => |s| s,
+        .parameterized_nominal => |pn| pn.sym,
+        else => null,
+    };
+}
+
+/// Where a nominal type is declared: the module's context and the
+/// symbol there. A type imported from another module resolves to that
+/// module's declaration.
+pub const NominalDecl = struct {
+    ctx: *const SemContext,
+    sym: SymbolId,
+    /// The origin module of an imported nominal; null for a local one.
+    module_id: ?u32 = null,
+
+    pub fn symbol(self: NominalDecl) Symbol {
+        return self.ctx.symbols.items[self.sym];
+    }
+};
+
+/// The declaration behind a (possibly borrowed) nominal type, local or
+/// imported.
+pub fn nominalDecl(ctx: *const SemContext, ty_id: TypeId) ?NominalDecl {
+    return switch (ctx.types.get(unwrapBorrows(ctx, ty_id))) {
+        .nominal => |s| .{ .ctx = ctx, .sym = s },
+        .parameterized_nominal => |pn| .{ .ctx = ctx, .sym = pn.sym },
+        .imported_nominal => |in| blk: {
+            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk null;
+            if (in.sym_id >= foreign.symbols.items.len) break :blk null;
+            break :blk .{ .ctx = foreign, .sym = in.sym_id, .module_id = in.module_id };
+        },
+        else => null,
+    };
+}
+
+/// Generic-parameter substitution: `params[i]` maps to `args[i]`.
 pub const TypeSubst = struct {
     params: []const SymbolId,
     args: []const TypeId,
@@ -4219,92 +1245,41 @@ pub const TypeSubst = struct {
     }
 };
 
-/// M20b(5/5) per GPT-5.5: extract the underlying nominal SymbolId
-/// from a receiver type, handling both `.nominal` (plain) and
-/// `.parameterized_nominal` (generic). Peels borrows first. Returns
-/// `null` if the receiver isn't anchored to a nominal at all.
-///
-/// Used in diagnostic paths so messages like "no method `missing` on
-/// type `Box`" work uniformly for plain and generic receivers — without
-/// this, the parameterized case fell through to "(unknown)" or
-/// silent-unknown.
-pub fn nominalSymOfReceiver(ctx: *const SemContext, ty_id: TypeId) ?SymbolId {
-    const peeled = unwrapBorrows(ctx, ty_id);
-    return switch (ctx.types.get(peeled)) {
-        .nominal => |s| s,
-        .parameterized_nominal => |pn| pn.sym,
-        else => null,
-    };
-}
-
-/// M20b(2/5): walk a type and substitute generic-param references
-/// (`type_var(T_sym)`) with the corresponding TypeId from `subst`.
-/// Recurses through every Type variant that can contain a TypeId
-/// (`borrow_read`/`borrow_write`/`optional`/`fallible`/`slice`/`array`/
-/// `function`/`parameterized_nominal`). Returns the input unchanged if
-/// no substitution applies (including when `subst` is empty — fast
-/// path for plain nominals).
-///
-/// Per GPT-5.5: unbound type_vars left unchanged (`type_var(U)` not
-/// in `subst` returns `type_var(U)`) — matters for future method-local
-/// generics where outer-scope and inner-scope substitutions stage
-/// separately.
-/// M20b(5/5) per GPT-5.5: const, non-allocating comparison helper.
-/// Does `substituteType(ty_id, subst) == target` *as if* substitution
-/// had been performed — but without actually interning anything.
-/// Walks the type structure, substituting `type_var(T)` via `subst`
-/// at each leaf, comparing against the corresponding slot in `target`.
-///
-/// Used by the emitter's print polish (which lives in a `*const
-/// SemContext` context) to test "does this field's substituted type
-/// equal String?" without mutating sema's interner via `@constCast`.
-/// Phase discipline: emit must not allocate into sema.
-pub fn typeEqualsAfterSubst(
-    ctx: *const SemContext,
-    ty_id: TypeId,
-    subst: TypeSubst,
-    target: TypeId,
-) bool {
-    // Fast path: when no substitution is in play, interner structural
-    // equality is sound. Per GPT-5.5 review: NOT sound with a non-
-    // empty subst — a composite like `Box(T)` would short-circuit
-    // against `Box(T)` even though subst says T → Int.
+/// Would `substituteType(ty_id, subst)` equal `target`? Does not
+/// intern, so it works on a const context.
+pub fn typeEqualsAfterSubst(ctx: *const SemContext, ty_id: TypeId, subst: TypeSubst, target: TypeId) bool {
     if (subst.isEmpty() and ty_id == target) return true;
-
     const ty = ctx.types.get(ty_id);
-    // Resolve any leaf type_var via subst. The recursive comparison
-    // uses `TypeSubst.empty` so substitution is simultaneous (one-
-    // pass), not transitive — matches `substituteType`'s semantics.
     if (ty == .type_var) {
         const resolved = subst.lookup(ty.type_var) orelse return ty_id == target;
         return typeEqualsAfterSubst(ctx, resolved, TypeSubst.empty, target);
     }
-    // Composite recursion: target must also be the composite form.
     const tgt = ctx.types.get(target);
     return switch (ty) {
-        .borrow_read => |inner| tgt == .borrow_read and typeEqualsAfterSubst(ctx, inner, subst, tgt.borrow_read),
-        .borrow_write => |inner| tgt == .borrow_write and typeEqualsAfterSubst(ctx, inner, subst, tgt.borrow_write),
-        .shared => |inner| tgt == .shared and typeEqualsAfterSubst(ctx, inner, subst, tgt.shared),
-        .weak => |inner| tgt == .weak and typeEqualsAfterSubst(ctx, inner, subst, tgt.weak),
-        .optional => |inner| tgt == .optional and typeEqualsAfterSubst(ctx, inner, subst, tgt.optional),
-        .fallible => |inner| tgt == .fallible and typeEqualsAfterSubst(ctx, inner, subst, tgt.fallible),
+        .borrow_read => |i| tgt == .borrow_read and typeEqualsAfterSubst(ctx, i, subst, tgt.borrow_read),
+        .borrow_write => |i| tgt == .borrow_write and typeEqualsAfterSubst(ctx, i, subst, tgt.borrow_write),
+        .shared => |i| tgt == .shared and typeEqualsAfterSubst(ctx, i, subst, tgt.shared),
+        .weak => |i| tgt == .weak and typeEqualsAfterSubst(ctx, i, subst, tgt.weak),
+        .optional => |i| tgt == .optional and typeEqualsAfterSubst(ctx, i, subst, tgt.optional),
+        .fallible => |i| tgt == .fallible and typeEqualsAfterSubst(ctx, i, subst, tgt.fallible),
+        .range => |i| tgt == .range and typeEqualsAfterSubst(ctx, i, subst, tgt.range),
         .slice => |s| tgt == .slice and typeEqualsAfterSubst(ctx, s.elem, subst, tgt.slice.elem),
-        .array => |arr| tgt == .array and arr.len == tgt.array.len and typeEqualsAfterSubst(ctx, arr.elem, subst, tgt.array.elem),
-        .function => |fn_ty| blk: {
+        .array => |a| tgt == .array and a.len == tgt.array.len and typeEqualsAfterSubst(ctx, a.elem, subst, tgt.array.elem),
+        .function => |f| blk: {
             if (tgt != .function) break :blk false;
-            if (fn_ty.is_sub != tgt.function.is_sub) break :blk false;
-            if (fn_ty.params.len != tgt.function.params.len) break :blk false;
-            if (!typeEqualsAfterSubst(ctx, fn_ty.returns, subst, tgt.function.returns)) break :blk false;
-            for (fn_ty.params, tgt.function.params) |p, tp| {
+            const tf = tgt.function;
+            if (f.is_sub != tf.is_sub or f.pre_mask != tf.pre_mask or f.params.len != tf.params.len) break :blk false;
+            if (!typeEqualsAfterSubst(ctx, f.returns, subst, tf.returns)) break :blk false;
+            for (f.params, tf.params) |p, tp| {
                 if (!typeEqualsAfterSubst(ctx, p, subst, tp)) break :blk false;
             }
             break :blk true;
         },
         .parameterized_nominal => |pn| blk: {
             if (tgt != .parameterized_nominal) break :blk false;
-            if (pn.sym != tgt.parameterized_nominal.sym) break :blk false;
-            if (pn.args.len != tgt.parameterized_nominal.args.len) break :blk false;
-            for (pn.args, tgt.parameterized_nominal.args) |a, ta| {
+            const tpn = tgt.parameterized_nominal;
+            if (pn.sym != tpn.sym or pn.args.len != tpn.args.len) break :blk false;
+            for (pn.args, tpn.args) |a, ta| {
                 if (!typeEqualsAfterSubst(ctx, a, subst, ta)) break :blk false;
             }
             break :blk true;
@@ -4313,161 +1288,187 @@ pub fn typeEqualsAfterSubst(
     };
 }
 
+/// Replace every `type_var` in `ty_id` that `subst` maps.
 pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem.Allocator.Error!TypeId {
     if (subst.isEmpty()) return ty_id;
     const ty = ctx.types.get(ty_id);
-    return switch (ty) {
-        .type_var => |sym| subst.lookup(sym) orelse ty_id,
-        .borrow_read => |inner| blk: {
+    switch (ty) {
+        .type_var => |sym| return subst.lookup(sym) orelse ty_id,
+        inline .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range => |inner, tag| {
             const new_inner = try substituteType(ctx, inner, subst);
-            if (new_inner == inner) break :blk ty_id;
-            break :blk try ctx.types.intern(ctx.allocator, .{ .borrow_read = new_inner });
+            if (new_inner == inner) return ty_id;
+            return ctx.intern(@unionInit(Type, @tagName(tag), new_inner));
         },
-        .borrow_write => |inner| blk: {
-            const new_inner = try substituteType(ctx, inner, subst);
-            if (new_inner == inner) break :blk ty_id;
-            break :blk try ctx.types.intern(ctx.allocator, .{ .borrow_write = new_inner });
+        .slice => |s| {
+            const e = try substituteType(ctx, s.elem, subst);
+            if (e == s.elem) return ty_id;
+            return ctx.intern(.{ .slice = .{ .elem = e } });
         },
-        .shared => |inner| blk: {
-            const new_inner = try substituteType(ctx, inner, subst);
-            if (new_inner == inner) break :blk ty_id;
-            break :blk try ctx.types.intern(ctx.allocator, .{ .shared = new_inner });
+        .array => |a| {
+            const e = try substituteType(ctx, a.elem, subst);
+            if (e == a.elem) return ty_id;
+            return ctx.intern(.{ .array = .{ .elem = e, .len = a.len } });
         },
-        .weak => |inner| blk: {
-            const new_inner = try substituteType(ctx, inner, subst);
-            if (new_inner == inner) break :blk ty_id;
-            break :blk try ctx.types.intern(ctx.allocator, .{ .weak = new_inner });
-        },
-        .optional => |inner| blk: {
-            const new_inner = try substituteType(ctx, inner, subst);
-            if (new_inner == inner) break :blk ty_id;
-            break :blk try ctx.types.intern(ctx.allocator, .{ .optional = new_inner });
-        },
-        .fallible => |inner| blk: {
-            const new_inner = try substituteType(ctx, inner, subst);
-            if (new_inner == inner) break :blk ty_id;
-            break :blk try ctx.types.intern(ctx.allocator, .{ .fallible = new_inner });
-        },
-        .slice => |s| blk: {
-            const new_elem = try substituteType(ctx, s.elem, subst);
-            if (new_elem == s.elem) break :blk ty_id;
-            break :blk try ctx.types.intern(ctx.allocator, .{ .slice = .{ .elem = new_elem } });
-        },
-        .array => |arr| blk: {
-            const new_elem = try substituteType(ctx, arr.elem, subst);
-            if (new_elem == arr.elem) break :blk ty_id;
-            break :blk try ctx.types.intern(ctx.allocator, .{ .array = .{ .elem = new_elem, .len = arr.len } });
-        },
-        .function => |fn_ty| blk: {
-            var changed = false;
-            const new_ret = try substituteType(ctx, fn_ty.returns, subst);
-            if (new_ret != fn_ty.returns) changed = true;
-            var new_params_buf: std.ArrayListUnmanaged(TypeId) = .empty;
-            defer new_params_buf.deinit(ctx.allocator);
-            try new_params_buf.ensureTotalCapacity(ctx.allocator, fn_ty.params.len);
-            for (fn_ty.params) |p| {
-                const np = try substituteType(ctx, p, subst);
-                if (np != p) changed = true;
-                new_params_buf.appendAssumeCapacity(np);
+        .function => |f| {
+            const ret = try substituteType(ctx, f.returns, subst);
+            var changed = ret != f.returns;
+            const params = try ctx.arena.allocator().alloc(TypeId, f.params.len);
+            for (f.params, 0..) |p, i| {
+                params[i] = try substituteType(ctx, p, subst);
+                if (params[i] != p) changed = true;
             }
-            if (!changed) break :blk ty_id;
-            const owned = try ctx.arena.allocator().dupe(TypeId, new_params_buf.items);
-            break :blk try ctx.types.intern(ctx.allocator, .{ .function = .{
-                .params = owned,
-                .returns = new_ret,
-                .is_sub = fn_ty.is_sub,
-            } });
+            if (!changed) return ty_id;
+            return ctx.intern(.{ .function = .{ .params = params, .returns = ret, .is_sub = f.is_sub, .pre_mask = f.pre_mask } });
+        },
+        .parameterized_nominal => |pn| {
+            var changed = false;
+            const args = try ctx.arena.allocator().alloc(TypeId, pn.args.len);
+            for (pn.args, 0..) |a, i| {
+                args[i] = try substituteType(ctx, a, subst);
+                if (args[i] != a) changed = true;
+            }
+            if (!changed) return ty_id;
+            return ctx.intern(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args } });
+        },
+        else => return ty_id,
+    }
+}
+
+/// Does `ty_id` mention a generic parameter anywhere?
+pub fn containsTypeVar(ctx: *const SemContext, ty_id: TypeId) bool {
+    return switch (ctx.types.get(ty_id)) {
+        .type_var => true,
+        .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range => |i| containsTypeVar(ctx, i),
+        .slice => |s| containsTypeVar(ctx, s.elem),
+        .array => |a| containsTypeVar(ctx, a.elem),
+        .function => |f| blk: {
+            for (f.params) |p| if (containsTypeVar(ctx, p)) break :blk true;
+            break :blk containsTypeVar(ctx, f.returns);
         },
         .parameterized_nominal => |pn| blk: {
-            var changed = false;
-            var new_args_buf: std.ArrayListUnmanaged(TypeId) = .empty;
-            defer new_args_buf.deinit(ctx.allocator);
-            try new_args_buf.ensureTotalCapacity(ctx.allocator, pn.args.len);
-            for (pn.args) |a| {
-                const na = try substituteType(ctx, a, subst);
-                if (na != a) changed = true;
-                new_args_buf.appendAssumeCapacity(na);
-            }
-            if (!changed) break :blk ty_id;
-            const owned = try ctx.arena.allocator().dupe(TypeId, new_args_buf.items);
-            break :blk try ctx.types.intern(ctx.allocator, .{ .parameterized_nominal = .{ .sym = pn.sym, .args = owned } });
+            for (pn.args) |a| if (containsTypeVar(ctx, a)) break :blk true;
+            break :blk false;
         },
-        else => ty_id,
+        else => false,
     };
 }
 
-/// M15b.1 per GPT-5.5 entry 39 + post-impl review: call-callee-only
-/// whitelist for legacy non-symbol-table builtin call names. Used
-/// ONLY by `synthCall`'s unknown-callee branch (NOT by leaf-position
-/// `synthLeafSrc` per the M15b.1 post-impl review): bare `print` as
-/// a value, `print.foo`, or `print` passed as a callback should
-/// produce "use of unbound name" — only the direct call shape
-/// `print(...)` is accepted.
-///
-/// V1 whitelist:
-///   `print`  — lowers to `std.debug.print(...)` in `emitCall`.
-///
-/// Built-in nominal types (`Cell`, `Closure`, `Vec`, `Signal`) are
-/// NOT in this whitelist because `registerBuiltins` adds them to
-/// the symbol table — they resolve through the normal lookup path.
-fn isCalleeBuiltinWhitelisted(name: []const u8) bool {
-    return std.mem.eql(u8, name, "print");
+/// Whether a value of `ty` holds a `Cell` inline (not behind a handle,
+/// a borrow, or a Vec's buffer). A read borrow of such a value is held as
+/// a pointer, since the cell can change while it is borrowed.
+pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
+    return cellUnder(ctx, ty, 0);
 }
 
-/// M15b(3/5) per GPT-5.5 entry 39 + post-impl review: cross-module
-/// visibility predicate. A foreign symbol is visible to importers
-/// if either:
-///   - it carries the `is_public` flag (declared with `pub`); or
-///   - it's a runtime-registered builtin (Cell/Closure/Vec/Signal),
-///     which are visible in every module's scope by construction
-///     (`registerBuiltins`) and don't need `pub` to be reachable.
-///
-/// Per-module-built-in symbols are detected via their sentinel
-/// `decl_pos = builtin_decl_pos` (set by `registerBuiltins`).
-///
-/// **`extern` does NOT bypass `pub`.** Linkage (which symbols Zig
-/// resolves at link time) and Rig visibility (which symbols are
-/// reachable cross-module) are separate concerns. A private
-/// `extern puts: fun(String) Int` in module A is the right way to
-/// expose a safe wrapper: A declares the extern privately, wraps
-/// it in `pub sub safe_puts(s) { raw { puts(s) } }`, and callers
-/// reach `a.safe_puts` (not `a.puts`). Per the M15b post-impl
-/// review: "A module should be able to write a private extern
-/// binding and expose a safe public wrapper." Marking the extern
-/// itself `pub extern` is the explicit opt-in for direct cross-
-/// module FFI access.
-fn isCrossModuleVisible(sym: Symbol) bool {
-    if (sym.flags.is_public) return true;
-    if (sym.decl_pos == builtin_decl_pos) return true;
+fn cellUnder(ctx: *const SemContext, ty: TypeId, depth: u8) bool {
+    if (depth > 32) return false;
+    return switch (ctx.types.get(ty)) {
+        .optional, .fallible => |i| cellUnder(ctx, i, depth + 1),
+        .array => |a| cellUnder(ctx, a.elem, depth + 1),
+        .nominal => |sym| symHoldsCell(ctx, sym, depth),
+        .imported_nominal => |in| blk: {
+            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk false;
+            break :blk symHoldsCell(foreign, in.sym_id, depth);
+        },
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.cell_sym_id) break :blk true;
+            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
+            for (pn.args) |a| if (cellUnder(ctx, a, depth + 1)) break :blk true;
+            break :blk symHoldsCell(ctx, pn.sym, depth);
+        },
+        else => false,
+    };
+}
+
+pub fn symHoldsCell(ctx: *const SemContext, sym: SymbolId, depth: u8) bool {
+    for (ctx.symbols.items[sym].fields orelse &.{}) |f| {
+        if (f.is_method) continue;
+        if (f.is_variant) {
+            for (f.payload orelse &.{}) |pf| if (cellUnder(ctx, pf.ty, depth + 1)) return true;
+        } else if (cellUnder(ctx, f.ty, depth + 1)) return true;
+    }
     return false;
 }
 
-/// M15b per GPT-5.5 entry 39: re-intern a foreign TypeId into the
-/// local TypeStore. Walks the foreign type recursively; primitive /
-/// structural variants intern locally with mapped children; nominal
-/// leaves map to `imported_nominal` carrying the foreign module's id
-/// + the foreign symbol id (canonical nominal origin identity, NOT
-/// structural equality).
-///
-/// `origin_module_id` is the module_id of the SemContext that owns
-/// the foreign TypeId. Nominal types declared there get tagged with
-/// that id so `a.Box` and `b.Box` remain distinct types in the
-/// importer even if their fields happen to match.
-///
-/// Limitations (V1):
-///   - `type_var` is preserved as-is (foreign symbol id is opaque to
-///     the importer; type_vars should not escape a generic body's
-///     resolved use sites in practice). If a foreign generic body
-///     leaks a type_var into a public signature, M15b(3/5)'s public-
-///     API legality check should reject that signature; until then
-///     the importer carries the foreign-sym-id type_var which is
-///     locally meaningless but doesn't crash.
-///   - Parameterized nominals (`Vec(T)`) inherit the imported-nominal
-///     treatment via `imported_param_nominal` (separate variant for
-///     V1 simplicity — adding now would be a bigger architecture
-///     change; M15b(2/5) deals with builtin parameterized nominals
-///     specially since they share `sym_id` across modules via
-///     `registerBuiltins`).
+/// A value that owns nothing and holds no borrow or type parameter: it
+/// can be copied freely, like a number.
+pub fn isPlainData(ctx: *const SemContext, ty: TypeId) bool {
+    return plainUnder(ctx, ty, false, 0) and !typeHasDropGlue(ctx, ty);
+}
+
+/// A type parameter is plain only inside the fields of an instance whose
+/// arguments were checked (`Box(Int)`, `in_fields`); on its own it may be
+/// anything.
+fn plainUnder(ctx: *const SemContext, ty: TypeId, in_fields: bool, depth: u8) bool {
+    if (depth > 32) return false;
+    return switch (ctx.types.get(ty)) {
+        .bool, .int, .float, .string, .any_error => true,
+        .optional => |i| plainUnder(ctx, i, in_fields, depth + 1),
+        .array => |a| plainUnder(ctx, a.elem, in_fields, depth + 1),
+        .nominal => |sym| fieldsPlain(ctx, ctx.symbols.items[sym].fields orelse return false, depth),
+        .imported_nominal => |in| blk: {
+            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk false;
+            break :blk fieldsPlain(foreign, foreign.symbols.items[in.sym_id].fields orelse break :blk false, depth);
+        },
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
+            for (pn.args) |a| if (!plainUnder(ctx, a, in_fields, depth + 1)) break :blk false;
+            break :blk fieldsPlain(ctx, ctx.symbols.items[pn.sym].fields orelse break :blk false, depth);
+        },
+        .type_var => in_fields,
+        else => false,
+    };
+}
+
+fn fieldsPlain(ctx: *const SemContext, fields: []const Field, depth: u8) bool {
+    for (fields) |f| {
+        if (f.is_method) continue;
+        if (f.is_variant) {
+            for (f.payload orelse &.{}) |pf| if (!plainUnder(ctx, pf.ty, true, depth + 1)) return false;
+        } else if (!plainUnder(ctx, f.ty, true, depth + 1)) return false;
+    }
+    return true;
+}
+
+/// Whether a value of `ty` owns a resource depends on type parameters
+/// that `ty` holds by value (a `T`, `T?`, `Box(T)` inside a generic
+/// body): it has no drop glue of its own, but an instantiation may. Such
+/// values are moved and dropped like resources.
+pub fn maybeDropGlue(ctx: *const SemContext, ty: TypeId) bool {
+    if (typeHasDropGlue(ctx, ty)) return false;
+    return holdsTypeVar(ctx, ty, 0);
+}
+
+/// The type parameters `ty` holds by value, appended to `out`.
+pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnmanaged(SymbolId), a: std.mem.Allocator) std.mem.Allocator.Error!void {
+    switch (ctx.types.get(ty)) {
+        .type_var => |sym| {
+            for (out.items) |x| if (x == sym) return;
+            try out.append(a, sym);
+        },
+        .optional, .fallible => |i| try heldTypeVars(ctx, i, out, a),
+        .array => |arr| try heldTypeVars(ctx, arr.elem, out, a),
+        .parameterized_nominal => |pn| for (pn.args) |arg| try heldTypeVars(ctx, arg, out, a),
+        else => {},
+    }
+}
+
+fn holdsTypeVar(ctx: *const SemContext, ty: TypeId, depth: u8) bool {
+    if (depth > 64) return true;
+    return switch (ctx.types.get(ty)) {
+        .type_var => true,
+        .optional, .fallible => |i| holdsTypeVar(ctx, i, depth + 1),
+        .array => |a| holdsTypeVar(ctx, a.elem, depth + 1),
+        .parameterized_nominal => |pn| blk: {
+            for (pn.args) |arg| if (holdsTypeVar(ctx, arg, depth + 1)) break :blk true;
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
+/// Copy a type from another module's store into `local_ctx`. Nominals
+/// declared there become `imported_nominal` tagged with their origin.
 pub fn importType(
     local_ctx: *SemContext,
     foreign_ctx: *SemContext,
@@ -4475,4191 +1476,419 @@ pub fn importType(
     origin_module_id: u32,
 ) std.mem.Allocator.Error!TypeId {
     const ty = foreign_ctx.types.get(foreign_ty_id);
-    return switch (ty) {
-        // Primitives + sentinels: identical interning locally.
-        .invalid, .unknown, .void, .bool, .string,
-        .int_literal, .float_literal,
-        => local_ctx.types.intern(local_ctx.allocator, ty),
-        .int, .float,
-        => local_ctx.types.intern(local_ctx.allocator, ty),
-
-        // Wrappers: recursively import the inner.
-        .optional => |inner| blk: {
+    switch (ty) {
+        .invalid, .unknown, .void, .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => return local_ctx.intern(ty),
+        inline .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
-            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .optional = local_inner });
+            return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
         },
-        .fallible => |inner| blk: {
-            const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
-            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .fallible = local_inner });
+        .slice => |s| return local_ctx.intern(.{ .slice = .{ .elem = try importType(local_ctx, foreign_ctx, s.elem, origin_module_id) } }),
+        .array => |a| return local_ctx.intern(.{ .array = .{ .elem = try importType(local_ctx, foreign_ctx, a.elem, origin_module_id), .len = a.len } }),
+        .function => |f| {
+            const params = try local_ctx.arena.allocator().alloc(TypeId, f.params.len);
+            for (f.params, 0..) |p, i| params[i] = try importType(local_ctx, foreign_ctx, p, origin_module_id);
+            const ret = try importType(local_ctx, foreign_ctx, f.returns, origin_module_id);
+            return local_ctx.intern(.{ .function = .{ .params = params, .returns = ret, .is_sub = f.is_sub, .pre_mask = f.pre_mask } });
         },
-        .borrow_read => |inner| blk: {
-            const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
-            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .borrow_read = local_inner });
+        .nominal => |sym_id| return local_ctx.intern(.{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
+        .imported_nominal => |n| return local_ctx.intern(.{ .imported_nominal = n }),
+        // Built-in generics (Vec, Cell, ...) have the same symbol ids in
+        // every module, so their ids carry over unchanged.
+        .parameterized_nominal => |pn| {
+            const args = try local_ctx.arena.allocator().alloc(TypeId, pn.args.len);
+            for (pn.args, 0..) |a, i| args[i] = try importType(local_ctx, foreign_ctx, a, origin_module_id);
+            return local_ctx.intern(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args } });
         },
-        .borrow_write => |inner| blk: {
-            const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
-            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .borrow_write = local_inner });
-        },
-        .shared => |inner| blk: {
-            const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
-            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .shared = local_inner });
-        },
-        .weak => |inner| blk: {
-            const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
-            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .weak = local_inner });
-        },
-
-        .slice => |s| blk: {
-            const local_elem = try importType(local_ctx, foreign_ctx, s.elem, origin_module_id);
-            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .slice = .{ .elem = local_elem } });
-        },
-        .array => |arr| blk: {
-            const local_elem = try importType(local_ctx, foreign_ctx, arr.elem, origin_module_id);
-            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .array = .{ .elem = local_elem, .len = arr.len } });
-        },
-
-        .function => |fn_ty| blk: {
-            const local_returns = try importType(local_ctx, foreign_ctx, fn_ty.returns, origin_module_id);
-            var local_params_buf: std.ArrayListUnmanaged(TypeId) = .empty;
-            defer local_params_buf.deinit(local_ctx.allocator);
-            try local_params_buf.ensureTotalCapacity(local_ctx.allocator, fn_ty.params.len);
-            for (fn_ty.params) |p| {
-                const lp = try importType(local_ctx, foreign_ctx, p, origin_module_id);
-                local_params_buf.appendAssumeCapacity(lp);
-            }
-            const owned = try local_ctx.arena.allocator().dupe(TypeId, local_params_buf.items);
-            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .function = .{
-                .params = owned,
-                .returns = local_returns,
-                .is_sub = fn_ty.is_sub,
-            } });
-        },
-
-        // Nominal (struct/enum/errors/opaque) declared in the foreign
-        // module: tag with `(origin_module_id, foreign_sym_id)`.
-        .nominal => |sym_id| local_ctx.types.intern(local_ctx.allocator, .{ .imported_nominal = .{
-            .module_id = origin_module_id,
-            .sym_id = sym_id,
-        } }),
-
-        // Imported nominal in the foreign module (rare: A imports
-        // from B, then C imports A's re-export). Preserve original
-        // origin tagging.
-        .imported_nominal => |in| local_ctx.types.intern(local_ctx.allocator, .{ .imported_nominal = .{
-            .module_id = in.module_id,
-            .sym_id = in.sym_id,
-        } }),
-
-        // Parameterized nominal (`Vec(T)`, `Box(Int)`, etc.). Built-in
-        // sym_ids are stable across modules (registerBuiltins assigns
-        // them in the same order in every SemContext), so for V1 we
-        // keep the sym_id as-is. User-defined generic types from other
-        // modules would need their own imported-parameterized variant;
-        // deferred until a real use case appears (V1 user code doesn't
-        // expose user-defined generics across modules).
-        .parameterized_nominal => |pn| blk: {
-            var local_args_buf: std.ArrayListUnmanaged(TypeId) = .empty;
-            defer local_args_buf.deinit(local_ctx.allocator);
-            try local_args_buf.ensureTotalCapacity(local_ctx.allocator, pn.args.len);
-            for (pn.args) |a| {
-                const la = try importType(local_ctx, foreign_ctx, a, origin_module_id);
-                local_args_buf.appendAssumeCapacity(la);
-            }
-            const owned = try local_ctx.arena.allocator().dupe(TypeId, local_args_buf.items);
-            break :blk try local_ctx.types.intern(local_ctx.allocator, .{ .parameterized_nominal = .{
-                .sym = pn.sym,
-                .args = owned,
-            } });
-        },
-
-        // type_var: opaque foreign symbol id. Should not appear in
-        // resolved public signatures; preserved as-is to avoid crash.
-        .type_var => |sym| local_ctx.types.intern(local_ctx.allocator, .{ .type_var = sym }),
-    };
+        .type_var => |sym| return local_ctx.intern(.{ .type_var = sym }),
+    }
 }
 
-/// M20b(3/5): does the given TypeId match the enclosing nominal's
-/// `self_type` (modulo identity comparison via the interner)? For
-/// plain nominals this is `ty_id == nominal(sym)`. For generic types
-/// this is `ty_id == parameterized_nominal(sym, [type_var(T_i)])` —
-/// i.e., `Self` as it appears symbolically in the body.
-///
-/// Used by `resolveNominalMethod` to validate that `self: ?Self`
-/// inside `struct User` resolves to `?User` (and inside `type Box(T)`
-/// resolves to `?Box(T)`). The interner gives us structural equality
-/// for free, so this is just a TypeId compare against the cached
-/// self_type.
-pub fn isSelfTypeId(ctx: *const SemContext, ty_id: TypeId, nominal_ctx: NominalContext) bool {
-    if (nominal_ctx.isEmpty()) return false;
-    if (ty_id == nominal_ctx.self_type) return true;
-    // Allow the explicit form (`self: User` matching nominal(User))
-    // for plain nominals — already covered by interner equality above
-    // since `self_type` for plain nominals IS `nominal(sym)`.
-    // For generics, the parameterized form is checked the same way.
-    _ = ctx;
-    return false;
-}
+/// The enclosing nominal while resolving a method signature or body:
+/// what `Self` means, and which names are generic parameters.
+pub const NominalContext = struct {
+    sym: SymbolId,
+    self_type: TypeId,
+    type_params: []const SymbolId,
 
-/// M20b(3/5): construct the canonical `NominalContext` for a given
-/// nominal Symbol. For plain nominals (struct/enum/errors), returns
-/// `{sym, nominal(sym), &.{}}`. For generic types, returns
-/// `{sym, parameterized_nominal(sym, [type_var(T)]), [T...]}` —
-/// `self_type` is the parameterized form whose args are the generic
-/// params themselves (so `Self` inside `type Box(T)` is `Box(T)`,
-/// not `Box`).
+    pub const none: NominalContext = .{ .sym = symbol_invalid, .self_type = type_invalid, .type_params = &.{} };
+
+    pub fn isEmpty(self: NominalContext) bool {
+        return self.sym == symbol_invalid;
+    }
+};
+
+/// `Self` is `nominal(sym)` for plain types and `Box(T)` (applied to
+/// its own parameters) for generic ones.
 pub fn makeNominalContext(ctx: *SemContext, sym_id: SymbolId) std.mem.Allocator.Error!NominalContext {
     const sym = ctx.symbols.items[sym_id];
     switch (sym.kind) {
-        .nominal_type => {
-            const self_type = try ctx.types.intern(ctx.allocator, .{ .nominal = sym_id });
-            return .{ .sym = sym_id, .self_type = self_type, .type_params = &.{} };
-        },
+        .nominal_type => return .{ .sym = sym_id, .self_type = try ctx.intern(.{ .nominal = sym_id }), .type_params = &.{} },
         .generic_type => {
             const tparams = sym.type_params orelse &.{};
-            // Build args = [type_var(T_i) ...] for self_type = Box(T).
-            var args_buf: std.ArrayListUnmanaged(TypeId) = .empty;
-            defer args_buf.deinit(ctx.allocator);
-            try args_buf.ensureTotalCapacity(ctx.allocator, tparams.len);
-            for (tparams) |tp_sym| {
-                const tv = try ctx.types.intern(ctx.allocator, .{ .type_var = tp_sym });
-                args_buf.appendAssumeCapacity(tv);
-            }
-            const owned = try ctx.arena.allocator().dupe(TypeId, args_buf.items);
-            const self_type = try ctx.types.intern(ctx.allocator, .{ .parameterized_nominal = .{
-                .sym = sym_id,
-                .args = owned,
-            } });
+            const args = try ctx.arena.allocator().alloc(TypeId, tparams.len);
+            for (tparams, 0..) |tp, i| args[i] = try ctx.intern(.{ .type_var = tp });
+            const self_type = try ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args } });
             return .{ .sym = sym_id, .self_type = self_type, .type_params = tparams };
         },
         else => return NominalContext.none,
     }
 }
 
-/// M20b(2/5): the enclosing nominal context for type resolution and
-/// body checking. Replaces the simpler `current_nominal: ?SymbolId`
-/// used in M20a/M20a.2 — generic types need to carry their type-param
-/// list (so `T` inside `type Box(T)` resolves) AND a precomputed
-/// `self_type` so `Self` always resolves to the right `(parameterized_)
-/// nominal` consistently.
-///
-/// For plain nominals (struct/enum/errors):
-///   `{ sym, self_type = nominal(sym), type_params = &.{} }`.
-///
-/// For generic types (`type Box(T)`):
-///   `{ sym, self_type = parameterized_nominal(sym, [type_var(T)]),
-///      type_params = [T_sym] }`.
-///
-/// `resolveType` uses `type_params` to resolve bare identifier `T` to
-/// `type_var(T_sym)` even when the original generic body scope is no
-/// longer active (e.g., when `ExprChecker.checkSet` constructs an
-/// on-the-fly TypeResolver for a body annotation). Per GPT-5.5: do
-/// not rely solely on lexical scope binding.
-pub const NominalContext = struct {
-    sym: SymbolId,
-    self_type: TypeId,
-    type_params: []const SymbolId,
-
-    /// Empty context — for top-level resolution outside any nominal.
-    pub const none: NominalContext = .{
-        .sym = symbol_invalid,
-        .self_type = type_invalid,
-        .type_params = &.{},
-    };
-
-    pub fn isEmpty(self: NominalContext) bool {
-        return self.sym == symbol_invalid;
-    }
-    // Note: NominalContext does NOT carry a "selfSubst" — for generic
-    // body symbolic resolution, `resolveType` stores `type_var(T)`
-    // directly via NominalContext.type_params lookup, so no identity
-    // substitution is needed. Concrete substitution at use sites uses
-    // `TypeSubst{params=ctx.type_params, args=parameterized_nominal.args}`
-    // constructed by the lookup helpers (M20b(4/5)).
-};
-
-/// M20b: result of resolving a data-field reference on a receiver
-/// type. Carries the matched `Field`, the (possibly substituted) field
-/// type, and the owning nominal Symbol — useful for diagnostics and
-/// for emit/codegen needs that want to know which type the field came
-/// from.
-///
-/// For plain nominals (M20b(1/5)), `ty == field.ty` always.
-/// For parameterized nominals (M20b(4/5)), `ty` is `field.ty` with
-/// the generic-param substitution applied.
 pub const ResolvedField = struct {
     field: Field,
+    /// The field's type with the receiver's generic arguments applied.
     ty: TypeId,
     nominal_sym: SymbolId,
 };
 
-/// M20b: result of resolving a method reference on a receiver type.
-/// Carries the matched `Field`, the receiver mode (so call-site
-/// dispatch doesn't have to re-derive it), the function type
-/// (possibly substituted), and the owning nominal Symbol.
 pub const ResolvedMethod = struct {
     field: Field,
     receiver: MethodReceiver,
+    /// The method's signature with the receiver's generic arguments applied.
     fn_ty: FunctionType,
     nominal_sym: SymbolId,
 };
 
-/// M20b(1/5): look up a data field by name on a receiver type. Peels
-/// borrow_read / borrow_write via `unwrapBorrows` before searching the
-/// underlying nominal's `Symbol.fields`. Methods (`is_method = true`)
-/// are intentionally skipped — use `lookupMethod` for those.
-///
-/// Returns `null` if the receiver doesn't unwrap to a nominal, the
-/// nominal has no `fields` (opaque or unresolved), or no matching
-/// non-method field exists. Callers produce their own diagnostics
-/// (with field-vs-method-collision handling, etc.).
-///
-/// M20b(4/5) will extend this to handle `parameterized_nominal` and
-/// substitute the returned `ty` against the receiver's type arguments.
-pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedField {
-    // M20d(4/5): use `unwrapReadAccess` (peels shared too) so `rc.field`
-    // reaches the nominal's fields. Read-only access is always safe
-    // through a shared handle; field WRITE through shared is rejected
-    // separately in `checkSet` (also M20d(4/5)).
-    const peeled = unwrapReadAccess(ctx, receiver_ty);
-    const ty = ctx.types.get(peeled);
-
-    // Classify the receiver: plain nominal vs parameterized.
-    var sym_id: SymbolId = symbol_invalid;
-    var subst: TypeSubst = TypeSubst.empty;
-    switch (ty) {
-        .nominal => |s| {
-            sym_id = s;
-        },
-        .parameterized_nominal => |pn| {
-            sym_id = pn.sym;
-            const sym = ctx.symbols.items[pn.sym];
-            const tparams = sym.type_params orelse &.{};
-            subst = .{ .params = tparams, .args = pn.args };
-        },
-        else => return null,
-    }
-
-    const sym = ctx.symbols.items[sym_id];
-    const fields = sym.fields orelse return null;
-    for (fields) |f| {
-        // M20a: skip methods. M20c per GPT-5.5: also skip variants
-        // (an enum's variants live in `fields` but are NOT data
-        // fields — use `lookupVariant` for those).
-        if (f.is_method or f.is_variant) continue;
-        if (std.mem.eql(u8, f.name, name)) {
-            // M20b(4/5): substitute the field's stored type against
-            // the receiver's type arguments. For plain nominals,
-            // `subst` is empty so `substituteType` returns the
-            // original TypeId unchanged. For parameterized receivers,
-            // `type_var(T)` → concrete arg.
-            // M20b(5/5) per GPT-5.5: propagate allocator errors;
-            // never silently fall back to unsubstituted f.ty.
-            const sub_ty = try substituteType(ctx, f.ty, subst);
-            return .{ .field = f, .ty = sub_ty, .nominal_sym = sym_id };
-        }
-    }
-    return null;
-}
-
-/// M20b(1/5): look up a method by name on a receiver type. Peels
-/// borrows; searches the underlying nominal's `Symbol.fields` for an
-/// `is_method = true` entry whose name matches. Data fields are
-/// intentionally skipped.
-///
-/// Returns `null` on no match. M20b(4/5) will substitute the returned
-/// `fn_ty` (params + return) against the receiver's type arguments
-/// for parameterized nominals.
-pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedMethod {
-    // M20d(4/5): use `unwrapReadAccess` (peels shared too). Method
-    // lookup matches; the receiver-mode check (`checkReceiverMode`)
-    // is then responsible for rejecting `.write` / `.value` receivers
-    // when the actual receiver type is `shared`. Auto-deref reaches
-    // the declaration; the receiver-mode rule enforces safety.
-    const peeled = unwrapReadAccess(ctx, receiver_ty);
-    const ty = ctx.types.get(peeled);
-
-    var sym_id: SymbolId = symbol_invalid;
-    var subst: TypeSubst = TypeSubst.empty;
-    switch (ty) {
-        .nominal => |s| {
-            sym_id = s;
-        },
-        .parameterized_nominal => |pn| {
-            sym_id = pn.sym;
-            const sym = ctx.symbols.items[pn.sym];
-            const tparams = sym.type_params orelse &.{};
-            subst = .{ .params = tparams, .args = pn.args };
-        },
-        else => return null,
-    }
-
-    const sym = ctx.symbols.items[sym_id];
-    const fields = sym.fields orelse return null;
-    for (fields) |f| {
-        if (!f.is_method) continue;
-        if (std.mem.eql(u8, f.name, name)) {
-            const fn_ty_val = ctx.types.get(f.ty);
-            if (fn_ty_val != .function) continue;
-            // M20b(4/5): substitute the function type against the
-            // receiver's type arguments. For plain nominals subst is
-            // empty (no-op). For generics, T inside the signature
-            // becomes the concrete arg.
-            // M20b(5/5) per GPT-5.5: propagate allocator errors.
-            const sub_fn_ty_id = try substituteType(ctx, f.ty, subst);
-            const sub_fn_ty_val = ctx.types.get(sub_fn_ty_id);
-            const sub_fn_ty: FunctionType = if (sub_fn_ty_val == .function) sub_fn_ty_val.function else fn_ty_val.function;
-            return .{
-                .field = f,
-                .receiver = f.receiver,
-                .fn_ty = sub_fn_ty,
-                .nominal_sym = sym_id,
-            };
-        }
-    }
-    return null;
-}
-
-/// M20c: result of resolving an enum-variant reference on a receiver
-/// type. Per GPT-5.5 M20c design pass: variants are NOT fields; enum-
-/// literal / match-arm dispatch goes through this helper rather than
-/// poking through `Symbol.fields` directly.
-///
-/// `payload` is the variant's payload field list with `type_var`s
-/// substituted against the receiver's type arguments (for parameterized
-/// enums) — so a match arm on `Option(Int).some(value: ...)` sees
-/// `value: Int`, not `value: T`. For plain nominals, substitution is
-/// empty and payload comes through unchanged.
 pub const ResolvedVariant = struct {
     field: Field,
-    payload: []const Field, // substituted; empty slice when variant has no payload
+    /// Payload fields with generic arguments applied; empty if none.
+    payload: []const Field,
+    /// The enum's symbol; `symbol_invalid` for an imported enum.
     nominal_sym: SymbolId,
+    owner_name: []const u8,
 };
 
-/// M20c: look up an enum variant by name on a receiver type. Peels
-/// borrows; handles `nominal` (plain enum) and `parameterized_nominal`
-/// (generic enum). Substitutes `type_var` in payload field types
-/// against the receiver's type args.
-///
-/// Returns `null` if the receiver isn't an enum/errors nominal or
-/// the named variant doesn't exist. Use the `nominal_sym` from the
-/// result for callee-side diagnostics.
-pub fn lookupVariant(
-    ctx: *SemContext,
-    receiver_ty: TypeId,
-    name: []const u8,
-) std.mem.Allocator.Error!?ResolvedVariant {
-    const peeled = unwrapBorrows(ctx, receiver_ty);
-    const ty = ctx.types.get(peeled);
+const Members = struct {
+    sym: SymbolId,
+    fields: []const Field,
+    subst: TypeSubst,
+};
 
-    var sym_id: SymbolId = symbol_invalid;
-    var subst: TypeSubst = TypeSubst.empty;
-    switch (ty) {
-        .nominal => |s| sym_id = s,
+fn membersOf(ctx: *const SemContext, peeled: TypeId) ?Members {
+    switch (ctx.types.get(peeled)) {
+        .nominal => |s| return .{ .sym = s, .fields = ctx.symbols.items[s].fields orelse return null, .subst = TypeSubst.empty },
         .parameterized_nominal => |pn| {
-            sym_id = pn.sym;
             const sym = ctx.symbols.items[pn.sym];
-            const tparams = sym.type_params orelse &.{};
-            subst = .{ .params = tparams, .args = pn.args };
+            return .{
+                .sym = pn.sym,
+                .fields = sym.fields orelse return null,
+                .subst = .{ .params = sym.type_params orelse &.{}, .args = pn.args },
+            };
         },
         else => return null,
     }
+}
 
-    const sym = ctx.symbols.items[sym_id];
-    const fields = sym.fields orelse return null;
-    for (fields) |f| {
-        if (!f.is_variant) continue;
-        if (!std.mem.eql(u8, f.name, name)) continue;
-        // Substitute payload field types if any.
-        const orig_payload = f.payload orelse &.{};
-        if (orig_payload.len == 0 or subst.isEmpty()) {
-            return .{ .field = f, .payload = orig_payload, .nominal_sym = sym_id };
+/// A data field of the receiver's nominal (auto-deref through borrows
+/// and `*T`).
+pub fn lookupDataField(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedField {
+    const m = membersOf(ctx, unwrapReadAccess(ctx, receiver_ty)) orelse return null;
+    for (m.fields) |f| {
+        if (f.is_method or f.is_variant) continue;
+        if (std.mem.eql(u8, f.name, name)) {
+            return .{ .field = f, .ty = try substituteType(ctx, f.ty, m.subst), .nominal_sym = m.sym };
         }
-        // Build a substituted payload slice in the arena.
-        const sub_payload = try ctx.arena.allocator().alloc(Field, orig_payload.len);
-        for (orig_payload, 0..) |pf, i| {
-            sub_payload[i] = .{
-                .name = pf.name,
-                .ty = try substituteType(ctx, pf.ty, subst),
-                .decl_pos = pf.decl_pos,
-                .payload = pf.payload,
-                .is_method = pf.is_method,
-                .receiver = pf.receiver,
-                .is_variant = pf.is_variant,
-            };
-        }
-        return .{ .field = f, .payload = sub_payload, .nominal_sym = sym_id };
     }
     return null;
 }
 
-/// M20b(1/5) / M20b(5/5): check whether a method by `name` exists on
-/// the receiver's nominal (method-vs-field collision detection). Used
-/// by `synthMember` to produce a targeted "bare method reference not
-/// supported" diagnostic. Per GPT-5.5: this is a non-substituting,
-/// non-allocating boolean existence check — does NOT call
-/// `lookupMethod` (which substitutes and may allocate).
+/// A callable method of the receiver's nominal (auto-deref through
+/// borrows and `*T`). The user `drop` body is not callable.
+pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedMethod {
+    const m = membersOf(ctx, unwrapReadAccess(ctx, receiver_ty)) orelse return null;
+    for (m.fields) |f| {
+        if (!f.is_method or f.is_drop_method) continue;
+        if (!std.mem.eql(u8, f.name, name)) continue;
+        const sub_id = try substituteType(ctx, f.ty, m.subst);
+        const sub = ctx.types.get(sub_id);
+        if (sub != .function) continue;
+        return .{ .field = f, .receiver = f.receiver, .fn_ty = sub.function, .nominal_sym = m.sym };
+    }
+    return null;
+}
+
+/// An enum variant of the receiver's nominal.
+pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedVariant {
+    if (ctx.types.get(unwrapBorrows(ctx, receiver_ty)) == .imported_nominal) {
+        const decl = nominalDecl(ctx, receiver_ty) orelse return null;
+        const foreign: *SemContext = @constCast(decl.ctx);
+        for (decl.symbol().fields orelse return null) |f| {
+            if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
+            const orig = f.payload orelse &.{};
+            const payload = try ctx.arena.allocator().alloc(Field, orig.len);
+            for (orig, 0..) |pf, i| {
+                payload[i] = pf;
+                payload[i].ty = try importType(ctx, foreign, pf.ty, decl.module_id.?);
+            }
+            return .{ .field = f, .payload = payload, .nominal_sym = symbol_invalid, .owner_name = decl.symbol().name };
+        }
+        return null;
+    }
+    const m = membersOf(ctx, unwrapBorrows(ctx, receiver_ty)) orelse return null;
+    for (m.fields) |f| {
+        if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
+        const orig = f.payload orelse &.{};
+        const owner = ctx.symbols.items[m.sym].name;
+        if (orig.len == 0 or m.subst.isEmpty()) return .{ .field = f, .payload = orig, .nominal_sym = m.sym, .owner_name = owner };
+        const payload = try ctx.arena.allocator().alloc(Field, orig.len);
+        for (orig, 0..) |pf, i| {
+            payload[i] = pf;
+            payload[i].ty = try substituteType(ctx, pf.ty, m.subst);
+        }
+        return .{ .field = f, .payload = payload, .nominal_sym = m.sym, .owner_name = owner };
+    }
+    return null;
+}
+
 pub fn hasMethodNamed(ctx: *const SemContext, receiver_ty: TypeId, name: []const u8) bool {
-    // M20d(4/5): peel shared too (read-only access auto-deref).
-    const peeled = unwrapReadAccess(ctx, receiver_ty);
-    const ty = ctx.types.get(peeled);
-    const sym_id = switch (ty) {
-        .nominal => |s| s,
-        .parameterized_nominal => |pn| pn.sym,
-        else => return false,
-    };
-    const sym = ctx.symbols.items[sym_id];
-    const fields = sym.fields orelse return false;
-    for (fields) |f| {
-        if (!f.is_method) continue;
-        if (std.mem.eql(u8, f.name, name)) return true;
+    const m = membersOf(ctx, unwrapReadAccess(ctx, receiver_ty)) orelse return false;
+    for (m.fields) |f| {
+        if (f.is_method and !f.is_drop_method and std.mem.eql(u8, f.name, name)) return true;
     }
     return false;
 }
 
-/// M20a.2: peel `borrow_read` / `borrow_write` wrappers from a type
-/// to reach the underlying nominal (or whatever). Used by member
-/// lookup, instance-call dispatch, exhaustiveness checks, and the
-/// emitter's print polish — anywhere "I have a value of type T or
-/// a borrow of T; find the underlying nominal" semantics applies.
-///
-/// Per GPT-5.5: deliberately does NOT unwrap optional, fallible,
-/// shared, weak, raw, or anything else — those have member-access
-/// semantics that haven't been decided yet. Adding silent unwrap
-/// here would reintroduce null-deref-style hazards.
-pub fn unwrapBorrows(ctx: *const SemContext, ty_id: TypeId) TypeId {
-    var id = ty_id;
-    while (true) {
-        const ty = ctx.types.get(id);
-        switch (ty) {
-            .borrow_read => |inner| id = inner,
-            .borrow_write => |inner| id = inner,
-            else => return id,
-        }
-    }
-}
-
-/// M20d(4/5): read-only access unwrap. Peels `borrow_read` /
-/// `borrow_write` AND `shared` — but NOT `weak`, NOT `optional`, NOT
-/// `fallible`, NOT `raw`. Used by `lookupDataField` / `lookupMethod` /
-/// `hasMethodNamed` so a `*T` receiver can reach `T`'s fields and
-/// methods for read-only access (`rc.field`, `rc.method()` where the
-/// method takes `?self`).
-///
-/// This is the cornerstone of M20d's read-only auto-deref. Per
-/// GPT-5.5's M20d design pass: deliberately separated from
-/// `unwrapBorrows` so the existing write-borrow / consume paths
-/// don't accidentally compose with `shared` (which would silently
-/// permit write-through-shared, breaking the aliasing model).
-///
-/// Critically, `checkReceiverMode` must STILL classify the receiver
-/// via `classifyReceiverType` to detect shared-typed receivers and
-/// reject `.write` / `.value` methods — auto-deref reaches the method
-/// declaration, the receiver-mode check enforces it's safe to call.
-///
-/// `weak` is NOT peeled: weak handles must be `.upgrade()`'d
-/// explicitly. Auto-deref of weak would silently dereference a
-/// potentially dangling handle.
-pub fn unwrapReadAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
-    var id = ty_id;
-    while (true) {
-        const ty = ctx.types.get(id);
-        switch (ty) {
-            .borrow_read => |inner| id = inner,
-            .borrow_write => |inner| id = inner,
-            .shared => |inner| id = inner,
-            else => return id,
-        }
-    }
-}
-
-/// M20a.2: best-effort source position for a parameter Sexp, falling
-/// back to the supplied default if the shape doesn't carry one.
-fn paramPos(param: Sexp, fallback: u32) u32 {
-    return switch (param) {
-        .src => |s| s.pos,
-        .list => |items| blk: {
-            if (items.len >= 2 and items[0] == .tag) {
-                switch (items[0].tag) {
-                    .@":", .@"pre_param", .@"read", .@"write" => {
-                        if (items[1] == .src) break :blk items[1].src.pos;
-                    },
-                    else => {},
-                }
-            }
-            break :blk fallback;
-        },
-        else => fallback,
-    };
-}
-
-/// Extract the name of a parameter Sexp, regardless of shape.
-fn paramName(source: []const u8, param: Sexp) ?[]const u8 {
-    return switch (param) {
-        .src => identAt(source, param),
-        .list => |items| blk: {
-            if (items.len == 0 or items[0] != .tag) break :blk null;
-            switch (items[0].tag) {
-                .@":", .@"pre_param" => {
-                    if (items.len >= 2) break :blk identAt(source, items[1]);
-                },
-                // M20a.1: `?self` / `!self` sugar emits `(read self)` /
-                // `(write self)` at param position — extract the name.
-                .@"read", .@"write" => {
-                    if (items.len >= 2) break :blk identAt(source, items[1]);
-                },
-                else => {},
-            }
-            break :blk null;
-        },
-        else => null,
-    };
-}
-
-fn parseIntegerLiteral(source: []const u8, sexp: Sexp) ?u64 {
-    if (sexp != .src) return null;
-    const text = source[sexp.src.pos..][0..sexp.src.len];
-    return std.fmt.parseInt(u64, text, 0) catch null;
-}
-
-// =============================================================================
-// Expression Typing
-// =============================================================================
-//
-// Pass 3: walk function bodies with statement-vs-value context.
-//
-// Two entry points (per GPT-5.5's design pass for M5(3/n)):
-//
-//   synthExpr(expr) -> TypeId
-//     Bottom-up synthesis. Returns the type of the expression. Used in
-//     both statement and value contexts; the caller decides what to do
-//     with the result.
-//
-//   checkExpr(expr, expected) -> void
-//     Synth + compatibility-check against `expected`. Emits a
-//     diagnostic on mismatch; otherwise silent. Used at every "the
-//     value is consumed somewhere with a known expected type" site
-//     (typed binding RHS, call arg position, return value, etc.).
-//
-//   checkStmt(stmt) -> void
-//     Walks a statement-position form. `if` / `while` etc. don't
-//     require arm unification here. Calls synth/checkExpr as needed
-//     for embedded expressions.
-//
-// Compatibility rules (M5 v1):
-//
-//   same type                                ok
-//   int_literal   → integer type             ok (no range check yet)
-//   float_literal → float type               ok
-//   anything      → invalid                  ok (errors don't cascade)
-//   invalid       → anything                 ok
-//   unknown       → anything                 ok (deferred resolution)
-//   anything      → unknown                  ok (rare but harmless)
-//   T → T?                                   no  (must be wrapped)
-//   T! → T                                   no  (must be `!` propagated)
-//   ?T / !T cross-mix                        no  (exact match only)
-//   nominal A → nominal B                    only if A == B
-//
-// Errors point at use sites with a `note:` at the relevant declaration.
-
-const ExprChecker = struct {
-    ctx: *SemContext,
-    /// Innermost scope when typing an expression. Updated as we descend
-    /// into function bodies / blocks / for / catch / arm scopes — same
-    /// nesting order the symbol resolver established. We don't push
-    /// new scopes (pass 1 did that); we just advance into the existing
-    /// scope ids in lockstep via `next_scope_cursor`.
-    current_scope: ScopeId,
-
-    /// The next available scope id we'll enter when a scope-introducing
-    /// form is walked. Advances in the same order the SymbolResolver
-    /// pushed scopes during pass 1 so `current_scope` always matches
-    /// the bindings the resolver actually populated.
-    next_scope_cursor: ScopeId = 0,
-
-    /// Declared return type of the function whose body we're currently
-    /// inside. `void_id` at module scope; updated when entering a fn.
-    /// Used by `(return value)` and the implicit-return final
-    /// expression of a function with a non-void return.
-    current_fn_return: TypeId,
-
-    /// M20a.2 / M20b(3/5): enclosing nominal context when type-checking
-    /// inside a method body. Plumbed into any `TypeResolver` instance
-    /// constructed by `ExprChecker` (e.g., for `x: Self = ...`
-    /// annotations in body) so `Self` and (for generics) `T` resolve
-    /// correctly in expression-position type annotations as well as
-    /// method signatures.
-    current_nominal: NominalContext = NominalContext.none,
-
-    /// Enter the next scope in the resolver's creation order. Saves the
-    /// previous scope so the caller can restore via `leaveScope`.
-    fn enterNextScope(self: *ExprChecker) ScopeId {
-        const prev = self.current_scope;
-        self.current_scope = self.next_scope_cursor;
-        self.next_scope_cursor += 1;
-        return prev;
-    }
-
-    fn leaveScope(self: *ExprChecker, prev: ScopeId) void {
-        self.current_scope = prev;
-    }
-
-    fn err(self: *ExprChecker, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
-        const msg = try std.fmt.allocPrint(self.ctx.arena.allocator(), fmt, args);
-        try self.ctx.diagnostics.append(self.ctx.allocator, .{
-            .severity = .@"error",
-            .pos = pos,
-            .message = msg,
-        });
-    }
-
-    fn note(self: *ExprChecker, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
-        const msg = try std.fmt.allocPrint(self.ctx.arena.allocator(), fmt, args);
-        try self.ctx.diagnostics.append(self.ctx.allocator, .{
-            .severity = .note,
-            .pos = pos,
-            .message = msg,
-        });
-    }
-
-    /// Top-level walk: visit each module-level decl, advancing the
-    /// scope cursor in lockstep with the SymbolResolver pass.
-    fn walkModule(self: *ExprChecker, ir: Sexp, module_scope: ScopeId) std.mem.Allocator.Error!void {
-        if (ir != .list or ir.list.len == 0 or ir.list[0] != .tag) return;
-        if (ir.list[0].tag != .@"module") return;
-
-        // Pass 1 created the module scope first, then began creating
-        // child scopes from `module_scope + 1` onward.
-        self.current_scope = module_scope;
-        self.next_scope_cursor = module_scope + 1;
-
-        for (ir.list[1..]) |child| {
-            try self.walkDecl(child);
-        }
-    }
-
-    fn walkDecl(self: *ExprChecker, sexp: Sexp) std.mem.Allocator.Error!void {
-        if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return;
-        const items = sexp.list;
-        switch (items[0].tag) {
-            .@"pub" => {
-                if (items.len >= 2) try self.walkDecl(items[1]);
-            },
-            // (M22 removed M19's `.@"unsafe_decl"` transparent arm —
-            // see SymbolResolver / TypeResolver above.)
-            .@"fun", .@"sub" => try self.walkFun(items),
-            // M20a / M20b(3/5): descend into nominal bodies so method
-            // bodies are type-checked. Each method's body scope was
-            // pushed by the SymbolResolver (walkMethod /
-            // walkGenericType); we must enter them in the same order
-            // to stay in lockstep with the scope cursor.
-            //
-            // M15b.1 per GPT-5.5 post-impl review: `.@"generic_enum"`
-            // was MISSING here pre-M15b.1, which meant ExprChecker
-            // silently skipped generic-enum method bodies — their
-            // body/arm scopes were created by SymbolResolver but
-            // never entered by ExprChecker, leaving the scope cursor
-            // misaligned for EVERY subsequent top-level decl. The
-            // bug was invisible because all symbol lookups in the
-            // misaligned scopes silently returned `unknown` (the
-            // pre-M15b.1 fake-surface anti-pattern). Discovered
-            // when M15b.1's unbound-name detection in `synthLeafSrc`
-            // fired on `o1`/`o2` in `examples/generic_enum_method.rig`
-            // — they were "unbound" because the lookup was using
-            // the wrong scope (the generic enum's body scope, not
-            // sub main's body scope). Adding the missing arm fixes
-            // both the cursor drift and the cascading false-positive
-            // unbound diagnostics.
-            .@"struct", .@"enum", .@"errors", .@"generic_type", .@"generic_enum" => try self.walkNominalDecl(items),
-            // type aliases / extern / use have no body to type-check.
-            else => {},
-        }
-    }
-
-    /// M20a / M20b(3/5): walk a nominal declaration (`(struct ...)` /
-    /// `(enum ...)` / `(errors ...)` / `(generic_type ...)`),
-    /// descending into each `fun`/`sub` member so its body is
-    /// type-checked. Sets `current_nominal` so `Self` (and, for
-    /// generic types, `T`) in body local type annotations resolves
-    /// correctly.
-    fn walkNominalDecl(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
-        if (items.len < 2) return;
-        const name = identAt(self.ctx.source, items[1]) orelse return;
-        const nominal_sym_id = self.ctx.lookup(self.current_scope, name) orelse return;
-
-        const prev_nominal = self.current_nominal;
-        self.current_nominal = try makeNominalContext(self.ctx, nominal_sym_id);
-        defer self.current_nominal = prev_nominal;
-
-        // For generic_type, members are at items[3..] (after name and
-        // params list); for plain struct/enum/errors, items[2..].
-        const head = items[0].tag;
-        // M15b.1: `.generic_enum` follows the same `(name (params) members...)`
-        // shape as `.generic_type`. Members live at index 3+; data
-        // (struct fields / enum variants) and methods are mixed.
-        const member_start: usize = if (head == .@"generic_type" or head == .@"generic_enum") 3 else 2;
-        if (items.len <= member_start) return;
-        for (items[member_start..]) |member| {
-            if (member != .list or member.list.len == 0 or member.list[0] != .tag) continue;
-            switch (member.list[0].tag) {
-                .@"fun", .@"sub" => try self.walkMethod(member.list, nominal_sym_id),
-                // M25(2/5): walk drop body so `self.field` reads inside
-                // the drop type-check correctly. Same scope-entry +
-                // current_fn_return discipline as ordinary methods, but
-                // shifted positions (params at items[1], body at items[2]).
-                .@"drop_decl" => try self.walkDropDecl(member.list, nominal_sym_id),
-                else => {},
-            }
-        }
-    }
-
-    /// M25(2/5): walk a `(drop_decl params block)` body. The drop is
-    /// a void-returning sub with `self: !Self` receiver; type-checking
-    /// its body uses the same discipline as `walkMethod` but with the
-    /// drop_decl's IR positions and a guaranteed void return.
-    fn walkDropDecl(self: *ExprChecker, items: []const Sexp, nominal_sym_id: SymbolId) std.mem.Allocator.Error!void {
-        if (items.len < 3) return;
-        const body = items[2];
-
-        // Set NominalContext so `self.field` resolution + Self lookups
-        // inside the body work the same way as for ordinary methods.
-        const prev_nominal = self.current_nominal;
-        self.current_nominal = try makeNominalContext(self.ctx, nominal_sym_id);
-        defer self.current_nominal = prev_nominal;
-
-        const fn_return = self.ctx.types.void_id;
-        const prev_scope = self.enterNextScope();
-        const prev_return = self.current_fn_return;
-        defer {
-            self.leaveScope(prev_scope);
-            self.current_fn_return = prev_return;
-        }
-        self.current_fn_return = fn_return;
-
-        try self.walkBody(body, fn_return, true);
-    }
-
-    /// M20a: walk a method body. Mirrors `walkFun` but pulls the
-    /// declared return type from the nominal's `Symbol.fields` (where
-    /// `TypeResolver.resolveNominalMethod` stored the method's function
-    /// type) rather than from a top-level function symbol — methods
-    /// don't get module-scope function symbols.
-    fn walkMethod(self: *ExprChecker, items: []const Sexp, nominal_sym_id: SymbolId) std.mem.Allocator.Error!void {
-        if (items.len < 5) return;
-        const is_sub = items[0].tag == .@"sub";
-        const name_node = items[1];
-        const body = items[items.len - 1];
-
-        // Find the method's return type from the nominal's fields list.
-        const method_name = identAt(self.ctx.source, name_node) orelse return;
-        const nominal_sym = self.ctx.symbols.items[nominal_sym_id];
-        var fn_return: TypeId = if (is_sub) self.ctx.types.void_id else self.ctx.types.unknown_id;
-        if (nominal_sym.fields) |fields| {
-            for (fields) |f| {
-                if (f.is_method and std.mem.eql(u8, f.name, method_name)) {
-                    const fn_ty = self.ctx.types.get(f.ty);
-                    if (fn_ty == .function) fn_return = fn_ty.function.returns;
-                    break;
-                }
-            }
-        }
-
-        // Enter the method body scope (matches SymbolResolver.walkMethod's pushScope).
-        const prev_scope = self.enterNextScope();
-        const prev_return = self.current_fn_return;
-        defer {
-            self.leaveScope(prev_scope);
-            self.current_fn_return = prev_return;
-        }
-        self.current_fn_return = fn_return;
-
-        try self.walkBody(body, fn_return, is_sub);
-    }
-
-    fn walkFun(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
-        if (items.len < 5) return;
-        const is_sub = items[0].tag == .@"sub";
-        const name_node = items[1];
-        const body = items[items.len - 1];
-
-        // Look up our declared signature to find return type.
-        const fn_return: TypeId = blk: {
-            if (identAt(self.ctx.source, name_node)) |nm| {
-                if (self.ctx.lookup(scope_invalid + 1, nm)) |fn_sym| {
-                    const fn_ty = self.ctx.types.get(self.ctx.symbols.items[fn_sym].ty);
-                    if (fn_ty == .function) break :blk fn_ty.function.returns;
-                }
-            }
-            break :blk if (is_sub) self.ctx.types.void_id else self.ctx.types.unknown_id;
-        };
-
-        // Enter the fn body scope (matches resolver's pushScope in walkFun).
-        const prev_scope = self.enterNextScope();
-        const prev_return = self.current_fn_return;
-        defer {
-            self.leaveScope(prev_scope);
-            self.current_fn_return = prev_return;
-        }
-        self.current_fn_return = fn_return;
-
-        try self.walkBody(body, fn_return, is_sub);
-    }
-
-    /// Walk a function body. The body is either a `(block stmt...)` or
-    /// a single expression. For `fun` (non-void return), the LAST
-    /// statement is checked against the return type as the implicit
-    /// return value; all others are statement-position. For `sub`, all
-    /// statements are statement-position (return values would be void).
-    ///
-    /// IMPORTANT: when the body is a `(block ...)`, the SymbolResolver
-    /// pushed a fresh scope for it (separate from the fn scope) — so
-    /// we must enter that scope here for binding lookups to resolve.
-    fn walkBody(self: *ExprChecker, body: Sexp, fn_return: TypeId, is_sub: bool) std.mem.Allocator.Error!void {
-        const is_block = body == .list and body.list.len > 0 and
-            body.list[0] == .tag and body.list[0].tag == .@"block";
-
-        const stmts: []const Sexp = if (is_block)
-            body.list[1..]
-        else if (body == .list)
-            (&[_]Sexp{body})[0..]
-        else
-            return;
-
-        // Enter the body's block scope to mirror the resolver. Single-
-        // expression bodies (no surrounding block) don't have one.
-        var prev_scope: ScopeId = self.current_scope;
-        const entered = is_block;
-        if (entered) {
-            prev_scope = self.enterNextScope();
-        }
-        defer if (entered) self.leaveScope(prev_scope);
-
-        const want_implicit_return = !is_sub and !typeIsVoid(self.ctx, fn_return);
-
-        for (stmts, 0..) |stmt, i| {
-            const is_last = i == stmts.len - 1;
-            if (is_last and want_implicit_return) {
-                // Implicit return: the last expression must be
-                // assignable to the declared return type.
-                try self.checkExpr(stmt, fn_return);
-            } else {
-                try self.checkStmt(stmt);
-            }
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Statement walker
-    // -------------------------------------------------------------------------
-
-    fn checkStmt(self: *ExprChecker, stmt: Sexp) std.mem.Allocator.Error!void {
-        if (stmt != .list or stmt.list.len == 0 or stmt.list[0] != .tag) {
-            // Bare `.src` or other leaf at statement position — synth
-            // and discard. (Drives plain-name lookup so unbound names
-            // can be diagnosed in the future, but currently noop.)
-            _ = try self.synthExpr(stmt);
-            return;
-        }
-        const items = stmt.list;
-        switch (items[0].tag) {
-            .@"set" => try self.checkSet(items),
-            .@"return" => try self.checkReturn(items),
-            .@"if" => try self.checkIfStmt(items),
-            .@"while" => try self.checkWhileStmt(items),
-            .@"for" => try self.checkForStmt(items),
-            .@"match" => try self.checkMatchStmt(items),
-            .@"block" => {
-                // Enter the block scope created by the SymbolResolver.
-                const prev = self.enterNextScope();
-                defer self.leaveScope(prev);
-                for (items[1..]) |c| try self.checkStmt(c);
-            },
-            .@"drop" => {
-                // (drop name) — no type effects; ownership pass handles it.
-            },
-            .@"break", .@"continue" => {},
-            .@"defer", .@"errdefer" => {
-                if (items.len >= 2) try self.checkStmt(items[1]);
-            },
-            // M22 / M15b: `raw INDENT body OUTDENT` is an
-            // effects-level audit boundary (handled by `effects.zig`'s
-            // `raw_depth` tracking). At the sema/type-checking layer
-            // it's transparent — walk the inner block so cross-module
-            // calls, type checks, M22.1 leak rules, etc. all fire
-            // inside `raw` exactly as they would outside.
-            //
-            // Pre-M15b post-impl review, `raw_block` had no sema arm
-            // and silently fell through `synthExpr`-as-discard,
-            // meaning every check inside a `raw` block was skipped
-            // (including cross-module visibility — discovered when
-            // the M15b extern-not-pub canary unexpectedly passed
-            // sema). Fix: walk the inner block here.
-            .@"raw_block" => {
-                if (items.len >= 2) try self.checkStmt(items[1]);
-            },
-            // Everything else (call, propagate, member, infix, etc.)
-            // is an expression. Synth and discard the result.
-            //
-            // M26.1 per GPT-5.5's M26 post-implementation review: if
-            // the discarded result's type carries drop glue, the
-            // resource is leaked. The most concrete case is
-            // `cell.replace(<new)` for Drop T — without this rejection,
-            // the old value's `__rig_drop` never fires. Same hazard
-            // applies to any `make_user()`-shaped call returning a
-            // resource at statement position.
-            //
-            // The check fires AFTER synthExpr so the inner expression
-            // gets its own type-level diagnostics first; then the
-            // discard-of-resource hazard is reported on top.
-            else => {
-                const ty = try self.synthExpr(stmt);
-                if (typeHasDropGlue(self.ctx, ty)) {
-                    const pos: u32 = firstSrcPos(stmt);
-                    const ty_str = try formatType(self.ctx, ty);
-                    try self.err(pos, "expression result of type `{s}` carries drop glue and would leak as a discarded statement; bind it to a name (`old = {s}.replace(<new)`), explicitly drop with `-name`, or move into a receiver. Anonymous resource temporaries are rejected by V1's resource-temp rule.", .{
-                        ty_str,
-                        // Heuristic: name the receiver if the stmt is
-                        // a call on a member access, else "expr".
-                        blk: {
-                            if (stmt == .list and stmt.list.len >= 2 and
-                                stmt.list[0] == .tag and stmt.list[0].tag == .@"call")
-                            {
-                                const callee = stmt.list[1];
-                                if (callee == .list and callee.list.len >= 2 and
-                                    callee.list[0] == .tag and callee.list[0].tag == .@"member")
-                                {
-                                    const obj = callee.list[1];
-                                    if (obj == .src) break :blk identAt(self.ctx.source, obj) orelse "expr";
-                                }
-                            }
-                            break :blk "expr";
-                        },
-                    });
-                }
-            },
-        }
-    }
-
-    /// M20d.1: walk an assignment LHS chain and return true if any
-    /// segment's obj type unwraps borrows to `shared(_)`. Catches
-    /// the chained cases GPT-5.5 flagged in the post-M20d review:
-    ///
-    ///   rc.field = X            # immediate: obj=rc, type=shared(_)
-    ///   rc.inner.field = X      # chained:   obj=(member rc inner) is Inner;
-    ///                           #   recurse: obj=rc is shared(_) → reject
-    ///   rc.items[0] = X         # via index: same pattern through array slot
-    ///   (!rc).name = X          # wrapped:   obj=(write rc) is borrow_write(shared(_))
-    ///                           #   unwrapBorrows peels → shared(_) → reject
-    ///
-    /// Uses `unwrapBorrows` (NOT `unwrapReadAccess`) so the shared
-    /// layer is detected. Stops at any non-place expression (calls,
-    /// rvalues, etc. — those can't be assigned to anyway).
-    fn assignmentChainPassesThroughShared(self: *ExprChecker, lhs: Sexp) std.mem.Allocator.Error!bool {
-        if (lhs != .list or lhs.list.len < 2 or lhs.list[0] != .tag) return false;
-        const head = lhs.list[0].tag;
-        if (head != .@"member" and head != .@"index") return false;
-        const obj = lhs.list[1];
-        const obj_ty = self.synthExpr(obj) catch self.ctx.types.unknown_id;
-        const peeled = unwrapBorrows(self.ctx, obj_ty);
-        if (self.ctx.types.get(peeled) == .shared) return true;
-        return self.assignmentChainPassesThroughShared(obj);
-    }
-
-    fn checkSet(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
-        // (set <kind> name type-or-_ expr).
-        if (items.len < 5) return;
-        const target = items[2];
-        const type_node = items[3];
-        const expr = items[4];
-
-        // M20d(4/5) + M20d.1: reject any assignment whose target
-        // chain passes through a shared handle. `rc.field = X` and
-        // `rc.inner.field = X` and `rc.items[0] = X` all mutate
-        // storage inside the RcBox, which other `*T` handles can
-        // observe — breaking the aliasing model. The Cell(T) /
-        // RefCell(T) pattern (M20+ item #7) is the user-facing
-        // answer for controlled mutation through shared ownership.
-        //
-        // Walks the target chain via `.member` and `.index` segments.
-        // At each segment, synth the obj and check whether its type
-        // unwraps borrows to `shared(_)`. The recursion uses
-        // `unwrapBorrows` (NOT `unwrapReadAccess`) so the shared
-        // layer is detected; if we peeled shared during the check
-        // we'd silently accept the very thing we're trying to catch.
-        if (try self.assignmentChainPassesThroughShared(target)) {
-            const pos = firstSrcPos(target);
-            try self.err(pos, "cannot assign through shared handle (`*T`); other handles may exist. Use an interior-mutable type (planned `Cell(T)` in M20+ item #7) for mutation through shared ownership.", .{});
-            _ = self.synthExpr(expr) catch self.ctx.types.unknown_id;
-            return;
-        }
-
-        // Find the symbol, if any. Compound assigns / move-assign reuse
-        // an existing slot — they don't introduce a new symbol but we
-        // still need to type-check against the existing one.
-        const sym_id = blk: {
-            const nm = identAt(self.ctx.source, target) orelse break :blk symbol_invalid;
-            break :blk self.ctx.lookup(self.current_scope, nm) orelse symbol_invalid;
-        };
-
-        // Resolve the explicit type annotation, if any. M20a.2: plumb
-        // `current_nominal` so `Self` resolves correctly inside method
-        // bodies (e.g., `x: Self = User(...)`).
-        var declared_ty: TypeId = self.ctx.types.unknown_id;
-        if (type_node != .nil) {
-            var tr: TypeResolver = .{ .ctx = self.ctx, .current_nominal = self.current_nominal };
-            declared_ty = try tr.resolveType(type_node, self.current_scope);
-        } else if (sym_id != symbol_invalid) {
-            const existing = self.ctx.symbols.items[sym_id].ty;
-            if (existing != self.ctx.types.unknown_id) declared_ty = existing;
-        }
-
-        // PB3(3/5): stack-local `Signal(T)` is rejected in V1 per
-        // GPT-5.5 entry 29. Signal owns a `Vec(*Closure())` which
-        // requires the M20e-style scope-exit defer-guard that
-        // currently only wires through `Vec(T)` value bindings
-        // (via `resourceKindOfBinding -> .vec_value`). Wiring
-        // Signal into the same machinery is possible but bigger
-        // than the smallest-safe-path rejection. The user-facing
-        // shape is always `*Signal(T)` per the PB2 + PB3 design;
-        // diagnostics point them at the fix.
-        //
-        // PB3.1 per GPT-5.5 entry 31: skip RHS synth on this path
-        // because synthing `Signal(value: 0)` without an LHS
-        // expected type fires a SECOND diagnostic ("generic
-        // constructor `Signal` requires an expected type; write
-        // `b: Signal(T) = Signal(...)`") that contradicts the
-        // first one (telling the user to do exactly what they
-        // just did). Single-error semantics keep the diagnostic
-        // actionable.
-        if (declared_ty != self.ctx.types.unknown_id and
-            self.ctx.signal_sym_id != symbol_invalid)
-        {
-            const ty = self.ctx.types.get(declared_ty);
-            if (ty == .parameterized_nominal and
-                ty.parameterized_nominal.sym == self.ctx.signal_sym_id)
-            {
-                try self.err(firstSrcPos(target), "stack-local `Signal(T)` is not supported in V1; Signal owns a subscriber `Vec` that requires heap ownership. Use `*Signal(T)` (heap-owned) instead: `{s}: *Signal(...) = *Signal(value: ...)`.", .{
-                    identAt(self.ctx.source, target) orelse "x",
-                });
-                return;
-            }
-        }
-
-        // Check or synth the RHS.
-        const rhs_ty = if (declared_ty == self.ctx.types.unknown_id)
-            try self.synthExpr(expr)
-        else blk: {
-            try self.checkExpr(expr, declared_ty);
-            break :blk declared_ty;
-        };
-
-        // Promote literal pseudo-types to their canonical concrete forms
-        // when stored on a symbol — downstream uses will see `Int`/`Float`,
-        // not the unconstrained pseudo-type.
-        const final_ty = self.canonicalize(rhs_ty);
-
-        if (sym_id != symbol_invalid) {
-            const sym = &self.ctx.symbols.items[sym_id];
-            if (sym.ty == self.ctx.types.unknown_id) {
-                sym.ty = final_ty;
-            }
-        }
-    }
-
-    fn checkReturn(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
-        // (return value? if?)
-        if (items.len >= 2 and items[1] != .nil) {
-            try self.checkExpr(items[1], self.current_fn_return);
-        }
-    }
-
-    fn checkIfStmt(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
-        // (if cond then else?). At statement position we check cond is
-        // Bool but DON'T unify branch arms (branches at stmt position
-        // discard their results, so mismatched arm value-types aren't
-        // a problem unless the if is used as a value).
-        if (items.len >= 2) try self.checkExpr(items[1], self.ctx.types.bool_id);
-        if (items.len >= 3) try self.checkStmt(items[2]);
-        if (items.len >= 4 and items[3] != .nil) try self.checkStmt(items[3]);
-    }
-
-    fn checkWhileStmt(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
-        // (while cond body else?) or (while cond cont body else?).
-        if (items.len >= 2) try self.checkExpr(items[1], self.ctx.types.bool_id);
-        for (items[2..]) |c| try self.checkStmt(c);
-    }
-
-    fn checkForStmt(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
-        // (for <mode> binding1 binding2-or-_ source body else?).
-        //
-        // M20i.1: when the source is a `Vec(T)`, validate the mode and
-        // type the loop element. Per GPT-5.5's M20i.1 design pass
-        // (Option B, external `for x in vec`):
-        //   - Copy T: any mode OK; element binds as `T`.
-        //   - Resource T (`*T`, `~T`, `*Closure()`): require `read`
-        //     mode (user wrote `for x in ?vec`). Element binds as
-        //     `borrow_read(T)` — a borrowed view of the element slot.
-        //     Write / move iteration over resource Vec is rejected in
-        //     M20i.1 (would require resource-T `pop`/`get` or take/swap
-        //     primitives that don't exist yet).
-        //   - Mode `iter` over resource Vec emits a tailored
-        //     diagnostic pointing the user at `?vec`.
-        //
-        // M20i.1.1 per GPT-5.5 post-impl review:
-        //   - Resource Vec iteration is restricted to BARE LOCAL
-        //     bindings (`for cb in ?subs`). Member access
-        //     (`for cb in ?signal.subs`) and call results
-        //     (`for cb in ?makeSubs()`) are rejected because the
-        //     ownership-layer loop-source borrow only fires for bare
-        //     names; iterating over a temporary Vec could free the
-        //     buffer mid-loop without the read-borrow enforcement.
-        //   - Per-`for` Vec attribution is stored in the SemContext
-        //     side table `for_source_vec_info` so the emitter can
-        //     look up the element classification by source-position
-        //     (avoids the M20e-legacy global name scan that's
-        //     fragile under cross-function shadowing).
-        //
-        // For non-Vec sources, retain the pre-M20i.1 behavior
-        // (synth + discard, walk body) so existing iteration over
-        // borrowed slices etc. keeps working.
-        if (items.len < 6) return;
-        const mode = items[1];
-        const binding1 = items[2];
-        const source = items[4];
-
-        const source_ty = try self.synthExpr(source);
-        const elem_info = self.vecElementForIteration(source_ty);
-
-        if (elem_info) |info| {
-            // Source is a Vec(T). Validate mode + bind element type.
-            const mode_tag: ?Tag = if (mode == .tag) mode.tag else null;
-            const source_pos = firstSrcPos(source);
-            const is_resource = info.is_resource;
-            const is_closure = self.elemIsOwnedClosure(info.elem_ty);
-            const source_is_bare = (source == .src);
-
-            // M22.1(3/8) per GPT-5.5 entry 39: `for *x in v` (ptr mode)
-            // is rejected for ALL Vec(T) sources in V1. The previous
-            // M20i.1 code rejected ptr-iteration for resource Vec but
-            // silently accepted it for Copy Vec and emitted IDENTICALLY
-            // to bare `for x in v` — a no-op `*` sigil in the loop
-            // binding is exactly the fake-surface hazard M22.1 closes.
-            //
-            // V1 has one iteration spelling per element kind:
-            //   - Copy Vec:     `for x in v`
-            //   - Resource Vec: `for x in ?v` (read borrow over slot)
-            //
-            // If by-reference / slot-pointer iteration returns in a
-            // future arc, the Rig-native spelling is more likely
-            // borrow-shaped (`for ?x in v` / `for !x in v`) than
-            // pointer-shaped — `*x` already means shared ownership
-            // everywhere else in the sigil grid, so reusing it here
-            // muddies the algebra (GPT-5.5 entry 39 audit note).
-            if (mode_tag == .ptr) {
-                try self.err(source_pos, "by-reference for-loop binding `for *x in ...` is reserved in V1; write {s} instead. The `*` loop binding has no enforced semantics yet and the M22.1 fake-surface audit retracts it.", .{
-                    if (is_resource) "`for x in ?vec` to read-iterate" else "`for x in vec` for value iteration",
-                });
-            }
-
-            if (is_resource) {
-                switch (mode_tag orelse .iter) {
-                    .@"read" => {},
-                    .iter => try self.err(source_pos, "resource Vec(T) iteration requires an explicit read borrow; write `for x in ?vec`", .{}),
-                    .@"write", .@"move" => try self.err(source_pos, "iteration mode not supported for resource Vec(T) in V1; use `for x in ?vec` to read-iterate", .{}),
-                    else => {},
-                }
-                // M20i.1.1: resource Vec iteration requires the
-                // source to be a bare local binding. The ownership-
-                // layer loop-source read borrow can only attach to a
-                // bare name; member access / call temporaries would
-                // iterate over an un-borrowed Vec, defeating the
-                // mutation-during-iteration rejection AND risking
-                // a buffer free mid-loop if the source is a
-                // function-result temporary.
-                if (!source_is_bare) {
-                    try self.err(source_pos, "resource Vec(T) iteration in V1 requires a bare local Vec binding as the source; got an expression. Bind the result to a `Vec(T)` local first.", .{});
-                }
-            } else {
-                // Copy element T: default `iter` mode is bare-value
-                // iteration; explicit `?vec` is also OK. The `ptr`
-                // case is now diagnosed above (M22.1(3/8)).
-            }
-
-            // M20i.1.1: attribute the Vec source for the emitter.
-            // Only valid bare-name sources get recorded — the emit
-            // path falls back to legacy `for (source) |x| body` when
-            // attribution is absent (which only happens for non-bare
-            // sources, which sema has already rejected for resource T).
-            if (source_is_bare) {
-                self.ctx.for_source_vec_info.put(self.ctx.allocator, source.src.pos, .{
-                    .elem_ty = info.elem_ty,
-                    .is_resource = is_resource,
-                    .is_closure = is_closure,
-                }) catch {};
-            }
-
-            // Bind the element symbol's type. We must enter the scope
-            // briefly to find the symbol the resolver added.
-            const prev_scope = self.enterNextScope();
-            const elem_ty: TypeId = if (is_resource)
-                (self.ctx.types.intern(self.ctx.allocator, .{ .borrow_read = info.elem_ty }) catch info.elem_ty)
-            else
-                info.elem_ty;
-            if (binding1 == .src) {
-                const name = self.ctx.source[binding1.src.pos..][0..binding1.src.len];
-                if (self.ctx.lookupInScopeOnly(self.current_scope, name)) |sid| {
-                    self.ctx.symbols.items[sid].ty = elem_ty;
-                }
-            }
-
-            try self.checkStmt(items[5]);
-            self.leaveScope(prev_scope);
-        } else {
-            const prev = self.enterNextScope();
-            try self.checkStmt(items[5]);
-            self.leaveScope(prev);
-        }
-        if (items.len > 6 and items[6] != .nil) try self.checkStmt(items[6]);
-    }
-
-    /// M20i.1: classify a `for` source as Vec(T) iteration if its type
-    /// peels to `parameterized_nominal{Vec, [T]}`. Returns the element
-    /// TypeId and a resource-ness flag. Resource elements are `*T`,
-    /// `~T`, or `*Closure()`; everything else (Copy primitives) is
-    /// treated as non-resource. The caller uses `is_resource` to drive
-    /// mode validation and element-binding shape.
-    const VecElemInfo = struct {
-        elem_ty: TypeId,
-        is_resource: bool,
-    };
-    fn vecElementForIteration(self: *ExprChecker, ty_id: TypeId) ?VecElemInfo {
-        if (self.ctx.vec_sym_id == symbol_invalid) return null;
-        const peeled = unwrapBorrows(self.ctx, ty_id);
-        const ty = self.ctx.types.get(peeled);
-        const pn = switch (ty) {
-            .parameterized_nominal => |x| x,
-            else => return null,
-        };
-        if (pn.sym != self.ctx.vec_sym_id) return null;
-        if (pn.args.len != 1) return null;
-        const elem_ty = pn.args[0];
-        const elem = self.ctx.types.get(elem_ty);
-        const is_resource = switch (elem) {
-            .shared, .weak => true,
-            else => false,
-        };
-        return .{ .elem_ty = elem_ty, .is_resource = is_resource };
-    }
-
-    /// M20i.1.1: does this Vec element type spell `*Closure()`?
-    /// Drives the emit-side `markOwnedClosure` decision so `cb()`
-    /// lowers to the M20h `cb.value.invoke()` shape when the
-    /// element is a closure handle. Pre-substitution element types
-    /// from the Vec's `parameterized_nominal.args[0]` are what
-    /// reach here; the substitution from Vec(T)'s T to the
-    /// concrete T was already done at instantiation.
-    fn elemIsOwnedClosure(self: *const ExprChecker, elem_ty_id: TypeId) bool {
-        const elem_ty = self.ctx.types.get(elem_ty_id);
-        if (elem_ty != .shared) return false;
-        const inner = self.ctx.types.get(elem_ty.shared);
-        const sym_id: SymbolId = switch (inner) {
-            .nominal => |s| s,
-            .parameterized_nominal => |pn| pn.sym,
-            else => return false,
-        };
-        if (sym_id == symbol_invalid) return false;
-        return (self.ctx.closure_sym_id != symbol_invalid and sym_id == self.ctx.closure_sym_id) or
-            (self.ctx.closure1_sym_id != symbol_invalid and sym_id == self.ctx.closure1_sym_id) or
-            (self.ctx.closure2_sym_id != symbol_invalid and sym_id == self.ctx.closure2_sym_id);
-    }
-
-    /// `(match scrutinee arm...)` at statement position.
-    /// Implementation shared with `synthMatchExpr` via `walkMatchArms`.
-    fn checkMatchStmt(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!void {
-        if (items.len < 2) return;
-        _ = try self.walkMatchArms(items, .statement);
-    }
-
-    /// `(match scrutinee arm...)` at value position. Per GPT-5.5's
-    /// design pass for M5(3/n): arms must unify into a single result
-    /// type; missing default in a non-exhaustive match is an error.
-    fn synthMatchExpr(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        if (items.len < 2) return self.ctx.types.unknown_id;
-        return try self.walkMatchArms(items, .value) orelse self.ctx.types.unknown_id;
-    }
-
-    const MatchPosition = enum { statement, value };
-
-    /// Walk a match expression, applying the M10 rules:
-    ///
-    ///   - Synth the scrutinee's type.
-    ///   - For each `(arm pattern binding-or-_ body)`:
-    ///     * Validate pattern against scrutinee (variant exists, payload
-    ///       binding count matches the variant's payload arity).
-    ///     * Bind the pattern's captured names with the right types
-    ///       (variant payload field types, OR scrutinee type for
-    ///       default-bare-ident arms).
-    ///     * Walk the body — `checkStmt` for statement-position match,
-    ///       `synthExpr` for value-position match (with arm-result
-    ///       unification).
-    ///   - Detect duplicate arm patterns (same `.X` arm twice).
-    ///   - Track exhaustiveness: when the scrutinee's enum has known
-    ///     fields and the arms cover every variant, no diagnostic.
-    ///     Non-exhaustive without a default arm fires for value-position
-    ///     match; statement-position is permissive (emit appends
-    ///     `else => unreachable`).
-    fn walkMatchArms(self: *ExprChecker, items: []const Sexp, position: MatchPosition) std.mem.Allocator.Error!?TypeId {
-        const scrutinee_ty = try self.synthExpr(items[1]);
-
-        // Track which variants the arms cover (for exhaustiveness +
-        // duplicate detection). Keys are variant names; values are
-        // source positions of the FIRST arm that covered them.
-        var covered: std.StringHashMapUnmanaged(u32) = .empty;
-        defer covered.deinit(self.ctx.allocator);
-        var has_default = false;
-
-        // For value-position match: unified result type across all arms.
-        var result_ty: TypeId = self.ctx.types.unknown_id;
-        var result_pos: u32 = 0;
-
-        for (items[2..]) |arm| {
-            if (arm != .list or arm.list.len < 4 or arm.list[0] != .tag or
-                arm.list[0].tag != .@"arm")
-            {
-                continue;
-            }
-
-            const prev = self.enterNextScope();
-            defer self.leaveScope(prev);
-
-            const pattern = arm.list[1];
-            const body = arm.list[arm.list.len - 1];
-
-            // Pattern checking + binding-type refinement.
-            try self.checkArmPattern(pattern, scrutinee_ty, &covered, &has_default);
-
-            // Walk the body. Value position synthesizes + unifies; the
-            // statement path just walks for side effects.
-            switch (position) {
-                .statement => try self.checkStmt(body),
-                .value => {
-                    const arm_ty = try self.synthExpr(body);
-                    const arm_pos = firstSrcPos(body);
-                    if (result_ty == self.ctx.types.unknown_id) {
-                        result_ty = arm_ty;
-                        result_pos = arm_pos;
-                    } else {
-                        if (try self.unifyOrErr(result_ty, arm_ty, arm_pos)) |unified| {
-                            result_ty = unified;
-                        }
-                    }
-                },
-            }
-        }
-
-        // Value-position exhaustiveness: must have a default OR cover
-        // every variant of a known enum.
-        if (position == .value and !has_default) {
-            const expected_variants = enumVariantCount(self.ctx, scrutinee_ty);
-            if (expected_variants) |total| {
-                if (covered.count() < total) {
-                    try self.err(firstSrcPos(items[1]), "value-position `match` is not exhaustive (covered {d} of {d} variants and no default arm)", .{ covered.count(), total });
-                }
-            }
-        }
-
-        return if (position == .value) result_ty else null;
-    }
-
-    /// Validate one arm's pattern against the scrutinee's type, set the
-    /// pattern's captured-binding types, and update coverage tracking.
-    fn checkArmPattern(
-        self: *ExprChecker,
-        pattern: Sexp,
-        scrutinee_ty: TypeId,
-        covered: *std.StringHashMapUnmanaged(u32),
-        has_default: *bool,
-    ) std.mem.Allocator.Error!void {
-        switch (pattern) {
-            .src => |s| {
-                // Bare ident — catch-all default with binding.
-                has_default.* = true;
-                const name = self.ctx.source[s.pos..][0..s.len];
-                if (!std.mem.eql(u8, name, "_")) {
-                    if (self.ctx.lookup(self.current_scope, name)) |sym_id| {
-                        // Default-bind takes the scrutinee's type.
-                        self.ctx.symbols.items[sym_id].ty = scrutinee_ty;
-                    }
-                }
-            },
-            .list => |items| {
-                if (items.len < 2 or items[0] != .tag) return;
-                switch (items[0].tag) {
-                    .@"enum_lit" => {
-                        // No payload destructure; just validate the variant.
-                        try self.checkEnumLit(items, scrutinee_ty);
-                        if (identAt(self.ctx.source, items[1])) |vname| {
-                            try self.recordCovered(vname, firstSrcPos(pattern), covered);
-                        }
-                    },
-                    .@"variant_pattern" => {
-                        try self.checkVariantPattern(items, scrutinee_ty, covered);
-                    },
-                    .@"enum_pattern" => {
-                        // (enum_pattern name) — semi-deprecated alias for enum_lit.
-                        if (items.len >= 2 and identAt(self.ctx.source, items[1]) != null) {
-                            try self.recordCovered(identAt(self.ctx.source, items[1]).?, firstSrcPos(pattern), covered);
-                        }
-                    },
-                    .@"range_pattern" => {
-                        // M13: (range_pattern lo hi). Bounds must be
-                        // numeric AND assignable to the scrutinee.
-                        // Range patterns count as a coverage of an
-                        // (unbounded) span — they never satisfy
-                        // exhaustiveness for an enum-typed match,
-                        // but they're fine for integer scrutinees.
-                        if (items.len >= 3) {
-                            try self.checkExpr(items[1], scrutinee_ty);
-                            try self.checkExpr(items[2], scrutinee_ty);
-                        }
-                    },
-                    else => {},
-                }
-            },
-            else => {},
-        }
-    }
-
-    fn recordCovered(
-        self: *ExprChecker,
-        name: []const u8,
-        pos: u32,
-        covered: *std.StringHashMapUnmanaged(u32),
-    ) std.mem.Allocator.Error!void {
-        if (covered.get(name)) |first_pos| {
-            try self.err(pos, "duplicate arm for variant `{s}`", .{name});
-            try self.note(first_pos, "first arm here", .{});
-            return;
-        }
-        try covered.put(self.ctx.allocator, name, pos);
-    }
-
-    fn checkVariantPattern(
-        self: *ExprChecker,
-        items: []const Sexp,
-        scrutinee_ty: TypeId,
-        covered: *std.StringHashMapUnmanaged(u32),
-    ) std.mem.Allocator.Error!void {
-        const variant_name = identAt(self.ctx.source, items[1]) orelse return;
-        const variant_pos: u32 = if (items[1] == .src) items[1].src.pos else 0;
-        try self.recordCovered(variant_name, variant_pos, covered);
-
-        // M20c per GPT-5.5: route through `lookupVariant` so both
-        // `nominal(Shape)` (plain) and `parameterized_nominal(
-        // Option, [Int])` (generic) scrutinees work uniformly. The
-        // returned payload field types are already substituted, so
-        // pattern bindings on `.some(value)` against `Option(Int)`
-        // get `value: Int` rather than `value: T`.
-        const resolved = (try lookupVariant(self.ctx, scrutinee_ty, variant_name)) orelse {
-            const owner_id_opt = nominalSymOfReceiver(self.ctx, scrutinee_ty);
-            const sym_id = owner_id_opt orelse return;
-            const enum_sym = self.ctx.symbols.items[sym_id];
-            if (enum_sym.fields == null) return; // opaque
-            try self.err(variant_pos, "no variant `{s}` on enum `{s}`", .{ variant_name, enum_sym.name });
-            if (enum_sym.decl_pos > 0) try self.note(enum_sym.decl_pos, "`{s}` declared here", .{enum_sym.name});
-            return;
-        };
-
-        // Bind each captured payload name with the matching (substituted)
-        // field type.
-        const bindings = items[2..];
-        const payload = resolved.payload;
-        if (payload.len == 0) {
-            if (bindings.len > 0) {
-                try self.err(variant_pos, "variant `{s}` has no payload to destructure", .{variant_name});
-            }
-            return;
-        }
-        if (bindings.len != payload.len) {
-            try self.err(variant_pos, "variant `{s}` has {d} payload field{s}, pattern destructures {d}", .{
-                variant_name,
-                payload.len,
-                if (payload.len == 1) @as([]const u8, "") else "s",
-                bindings.len,
-            });
-            return;
-        }
-        for (bindings, payload) |b, f| {
-            if (b != .src) continue;
-            const bname = self.ctx.source[b.src.pos..][0..b.src.len];
-            if (std.mem.eql(u8, bname, "_")) continue;
-            if (self.ctx.lookup(self.current_scope, bname)) |sym_id| {
-                self.ctx.symbols.items[sym_id].ty = f.ty;
-            }
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Expression synth
-    // -------------------------------------------------------------------------
-
-    fn synthExpr(self: *ExprChecker, expr: Sexp) std.mem.Allocator.Error!TypeId {
-        switch (expr) {
-            .nil => return self.ctx.types.void_id,
-            .src => |s| return self.synthLeafSrc(s.pos, self.ctx.source[s.pos..][0..s.len]),
-            .str => return self.ctx.types.string_id,
-            .tag => return self.ctx.types.unknown_id,
-            .list => |items| {
-                if (items.len == 0 or items[0] != .tag) return self.ctx.types.unknown_id;
-                return self.synthList(items);
-            },
-        }
-    }
-
-    fn synthLeafSrc(self: *ExprChecker, pos: u32, text: []const u8) std.mem.Allocator.Error!TypeId {
-        if (text.len == 0) return self.ctx.types.unknown_id;
-        // Literals (parser leaves these as raw .src slices).
-        if (text[0] == '"' or text[0] == '\'') return self.ctx.types.string_id;
-        if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) {
-            return self.ctx.types.bool_id;
-        }
-        if (std.mem.eql(u8, text, "null") or std.mem.eql(u8, text, "undefined")) {
-            return self.ctx.types.unknown_id;
-        }
-        if (isFloatLiteral(text)) return self.ctx.types.float_literal_id;
-        if (isIntLiteral(text)) return self.ctx.types.int_literal_id;
-        // Identifier — resolve via symbol table.
-        if (self.ctx.lookup(self.current_scope, text)) |sym_id| {
-            return self.ctx.symbols.items[sym_id].ty;
-        }
-        // M15b.1 per GPT-5.5 entry 39 + post-impl review: unbound-
-        // name detection. Per the hardened invariant: "`unknown` may
-        // only exist as poison after a diagnostic, never as a silent
-        // success type". Pre-M15b.1 this site silently returned
-        // `unknown` for unbound names, letting `nonexistent_fn()` /
-        // `print(nope)` flow through sema and only error at Zig
-        // compile time.
-        //
-        // NO leaf whitelist. The legacy `print` builtin is special-
-        // cased ONLY in `synthCall`'s unknown-callee branch (direct
-        // call shape), per GPT-5.5 post-impl review entry 41: bare
-        // `print` as a value, `print.foo`, or `print` as a callback
-        // should NOT silently flow through as unknown. Builtin
-        // nominals (Cell/Closure/Vec/Signal) resolve via the
-        // symbol table normally because `registerBuiltins` adds them.
-        try self.err(pos, "use of unbound name `{s}`", .{text});
-        return self.ctx.types.unknown_id;
-    }
-
-    fn synthList(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        const head = items[0].tag;
-        return switch (head) {
-            .@"call" => try self.synthCall(items),
-            .@"member" => try self.synthMember(items),
-            .@"index" => try self.synthIndex(items),
-            .@"propagate" => try self.synthPropagate(items),
-            .@"try" => try self.synthPropagate(items),
-            .@"if" => try self.synthIfExpr(items),
-            .@"match" => try self.synthMatchExpr(items),
-            .@"ternary" => try self.synthTernary(items),
-            .@"block" => try self.synthBlock(items),
-            // Borrow wrappers — return borrow_read/borrow_write of the
-            // inner value's type. Read borrows of `T` are `?T` for sema
-            // purposes; ownership pass enforces lifetime separately.
-            .@"read" => try self.synthBorrow(items, .borrow_read),
-            .@"write" => try self.synthBorrow(items, .borrow_write),
-            .@"move" => {
-                if (items.len >= 2) return self.synthExpr(items[1]);
-                return self.ctx.types.unknown_id;
-            },
-            // M20d: `*x` (expression position) constructs a shared
-            // handle wrapping `typeOf(x)`. Per GPT-5.5: the operand is
-            // CONSUMED into the Rc; if the user wants to keep `x`, they
-            // write `*(+x)`. That consumption is enforced by the
-            // ownership pass (M2-era), not here. This commit only
-            // changes the *type* attribution from `unknown` to
-            // `shared(T)`; emit lowering lands in M20d(3/5).
-            //
-            // M20h: `*Closure(fn ...)` is the owned-closure
-            // construction shape — the only construction shape for
-            // escaping closures (bare `Closure(fn ...)` is rejected
-            // in synthCall). We intercept it here so the result type
-            // is `shared(parameterized_nominal(Closure, []))` even
-            // though the inner `(call Closure ...)` would synth as
-            // `unknown` otherwise.
-            .@"share" => {
-                if (items.len < 2) return self.ctx.types.unknown_id;
-                if (try self.detectOwnedClosureConstruction(items[1])) |closure_ty| {
-                    return closure_ty;
-                }
-                const inner = try self.synthExpr(items[1]);
-                if (inner == self.ctx.types.unknown_id or inner == self.ctx.types.invalid_id) return inner;
-                return self.ctx.types.intern(self.ctx.allocator, .{ .shared = inner }) catch self.ctx.types.invalid_id;
-            },
-            // M20d: `~x` (expression position) constructs a weak
-            // handle from an existing shared handle. The operand MUST
-            // be `shared(T)` — diagnose otherwise. Weak refs don't
-            // exist independently of a strong ref, per SPEC §Weak
-            // Reference.
-            .@"weak" => {
-                if (items.len < 2) return self.ctx.types.unknown_id;
-                // M22.1(1/8): reject `~(*Foo(...))` — converts a fresh
-                // strong handle into a weak, but the strong has no owner.
-                if (isFreshResourceAlloc(items[1])) {
-                    try self.err(firstSrcPos(items[1]), "resource allocation `*{s}` used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{
-                        identCallName(self.ctx.source, items[1]) orelse "Ctor",
-                    });
-                    return self.ctx.types.unknown_id;
-                }
-                const inner = try self.synthExpr(items[1]);
-                // M22.1(1/8): type-aware leak check — `~make_user()`
-                // converts a resource-returning call result to weak;
-                // the strong handle is orphaned.
-                if (isCallExpr(items[1]) and isResourceOwningType(self.ctx, inner)) {
-                    try self.err(firstSrcPos(items[1]), "resource-valued call result used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{});
-                    return self.ctx.types.unknown_id;
-                }
-                if (inner == self.ctx.types.unknown_id or inner == self.ctx.types.invalid_id) return inner;
-                const inner_ty = self.ctx.types.get(inner);
-                switch (inner_ty) {
-                    .shared => |t| return self.ctx.types.intern(self.ctx.allocator, .{ .weak = t }) catch self.ctx.types.invalid_id,
-                    else => {
-                        try self.err(firstSrcPos(items[1]), "`~` weak reference requires a shared handle `*T`; got `{s}`", .{
-                            try formatType(self.ctx, inner),
-                        });
-                        return self.ctx.types.invalid_id;
-                    },
-                }
-            },
-            .@"clone", .@"raw" => {
-                if (items.len >= 2) {
-                    // M22.1(1/8): reject `+(*Foo(...))` / `%(*Foo(...))` —
-                    // the wrapper consumes/borrows the fresh Rc but the
-                    // strong handle has no guard.
-                    if (isFreshResourceAlloc(items[1])) {
-                        try self.err(firstSrcPos(items[1]), "resource allocation `*{s}` used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{
-                            identCallName(self.ctx.source, items[1]) orelse "Ctor",
-                        });
-                        return self.ctx.types.unknown_id;
-                    }
-                    const inner_ty = try self.synthExpr(items[1]);
-                    // M22.1(1/8): type-aware leak check — `+make_user()` /
-                    // `%make_user()` consumes/borrows a resource-returning
-                    // call result; the strong handle has no owner.
-                    if (isCallExpr(items[1]) and isResourceOwningType(self.ctx, inner_ty)) {
-                        try self.err(firstSrcPos(items[1]), "resource-valued call result used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{});
-                        return self.ctx.types.unknown_id;
-                    }
-                    return inner_ty;
-                }
-                return self.ctx.types.unknown_id;
-            },
-            // M22.1(2/8) per GPT-5.5 entry 39: bare `@x` pin sigil is
-            // reserved for V2. M19 left `(pin x)` in the IR as a
-            // semantic no-op (emitter just emits the inner expression),
-            // which made `p = @x` look like it pinned `x` but actually
-            // produced identity. Per the fake-surface audit: any sigil
-            // in the ownership grid must have enforced semantics, or
-            // it does not belong in V1.
-            //
-            // Diagnose at sema time so the lexer/parser keep accepting
-            // the syntax (the `@builtin(...)` form shares the `@`
-            // sigil and is unaffected — it goes through the `builtin`
-            // IR tag, not `pin`). Pinning semantics return in V2 with
-            // a real lifetime/address-stability story.
-            .@"pin" => {
-                const pos: u32 = if (items.len >= 2) firstSrcPos(items[1]) else 0;
-                try self.err(pos, "pinning sigil `@x` is reserved for V2; V1 does not support pinned/stable-address semantics. Remove the `@` prefix, or use a supported builtin form (e.g. `@sizeOf(T)`, `@TypeOf(x)`) if you meant a compile-time builtin call.", .{});
-                return self.ctx.types.unknown_id;
-            },
-            // Arithmetic / comparison / logical infixes.
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"**" => try self.synthArith(items),
-            .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => try self.synthCompare(items),
-            .@"&&", .@"||", .@"not" => try self.synthLogical(items),
-            .@"neg" => {
-                if (items.len >= 2) return self.synthExpr(items[1]);
-                return self.ctx.types.unknown_id;
-            },
-            // Constructor sugar / record literals — see Q4. With sema we
-            // know if the callee is a nominal type; for M5(3/n) we just
-            // return `nominal(Sym)` and let downstream emit decide.
-            .@"record" => try self.synthRecord(items),
-            // Anonymous init, array literal — best-effort unknown.
-            .@"anon_init", .@"array" => self.ctx.types.unknown_id,
-            // Enum literal `.name` — context-dependent; unknown for now.
-            .@"enum_lit" => self.ctx.types.unknown_id,
-            // M20g(2/5): lambda expression. Returns `unknown_id` for the
-            // closure value itself (V1 has no `Type.closure` variant per
-            // GPT-5.5's M20g tactical checkpoint — ownership recognizes
-            // closures structurally via the lambda IR head). Validates
-            // captures against outer-scope types and walks the body for
-            // nested type-checking.
-            .@"lambda" => try self.synthLambda(items),
-            // M22.1(4/8) per GPT-5.5 entry 39: `pre`-modified expression
-            // (`x = pre 42`) and `pre`-block statement (`pre INDENT body
-            // OUTDENT`) are reserved in V1. The expression / statement
-            // forms parsed cleanly but emit produced `@compileError`,
-            // exactly the fake-surface anti-pattern M22.1 closes.
-            //
-            // `pre_param` (compile-time function parameter — `sub f(pre
-            // x: Int, ...)`) STAYS: it lowers to Zig `comptime x: i32`,
-            // is fully wired through sema + emit, and is used in real
-            // examples.
-            .@"pre", .@"pre_block" => {
-                const pos: u32 = if (items.len >= 2) firstSrcPos(items[1]) else 0;
-                try self.err(pos, "`pre` expression / block is reserved in V1; only `pre_param` (compile-time function parameters) is supported. Remove the `pre` modifier or use a regular binding.", .{});
-                return self.ctx.types.unknown_id;
-            },
-            // M22.1(5/8) per GPT-5.5 entry 39: value-yielding `try`
-            // block is reserved in V1. The expression form
-            //   `r = try INDENT body OUTDENT catch |e| INDENT body OUTDENT`
-            // parsed and walked through sema/ownership, but emit fell
-            // through to a default arm that produced
-            // `@compileError("rig: emitter does not yet support
-            // try_block")`. Users got a Zig compile error inside
-            // Rig-generated code, not a Rig diagnostic.
-            //
-            // V1 fallibility surface: `expr!` propagation and
-            // `expr catch |e| expr` (single-expression catch). The
-            // multi-line block form needs a real design pass
-            // (value-position vs statement, catch binding scoping,
-            // resource-aware drop on error) and will be picked up in
-            // a future arc.
-            .@"try_block" => {
-                const pos: u32 = if (items.len >= 2) firstSrcPos(items[1]) else 0;
-                try self.err(pos, "value-yielding `try INDENT body OUTDENT [catch |e| ...]` block is reserved in V1. Use `expr!` for propagation or `expr catch |e| handler` for inline recovery.", .{});
-                return self.ctx.types.unknown_id;
-            },
-            // M22.1(6/8) per GPT-5.5 entry 39: `zig "..."` inline-Zig
-            // raw-escape block is reserved in V1. Grammar accepted
-            // it and the parser built `(zig "...")` IR, but emit
-            // fell through to `@compileError("rig: emitter does not
-            // yet support zig")`. Same fake-surface anti-pattern as
-            // `try_block` and `pre_block`.
-            //
-            // V1 escape-valves (kept):
-            //   - `raw INDENT body OUTDENT` block — audit boundary
-            //     for `%x` raw access + non-whitelisted builtins
-            //   - `extern` declarations — FFI boundary at the
-            //     symbol level
-            //   - `@builtin(...)` calls (default-unsafe; safe-list
-            //     for type-introspection)
-            //
-            // Inline Zig text is qualitatively different — it
-            // embeds a second language in the first, with no
-            // scope-capture / symbol-hygiene / ownership-effect
-            // story. If it returns, it needs a serious design
-            // pass and probably a different syntactic surface
-            // (e.g., a dedicated `extern` body form). Reserved
-            // until then.
-            .@"zig" => {
-                const pos: u32 = if (items.len >= 2) firstSrcPos(items[1]) else 0;
-                try self.err(pos, "inline `zig \"...\"` raw-Zig escape is reserved in V1; the audit boundary is `raw INDENT body OUTDENT` and the FFI boundary is `extern`. Inline Zig text needs a real V2+ design pass for scope capture, symbol hygiene, and ownership effects.", .{});
-                return self.ctx.types.unknown_id;
-            },
-            else => self.ctx.types.unknown_id,
-        };
-    }
-
-    fn synthCall(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        // (call callee args...)
-        if (items.len < 2) return self.ctx.types.unknown_id;
-        const callee = items[1];
-
-        // If the callee is a known symbol, dispatch on its KIND (not on
-        // the symbol's `ty` slot — for nominal types the ty slot is the
-        // self-referential type which we don't pre-intern).
-        if (callee == .src) {
-            const name = self.ctx.source[callee.src.pos..][0..callee.src.len];
-            if (self.ctx.lookup(self.current_scope, name)) |sym_id| {
-                const sym = self.ctx.symbols.items[sym_id];
-                switch (sym.kind) {
-                    .function => {
-                        const fn_ty = self.ctx.types.get(sym.ty);
-                        if (fn_ty == .function) {
-                            try self.checkCallArgs(items[2..], fn_ty.function, name, callee.src.pos);
-                            return fn_ty.function.returns;
-                        }
-                    },
-                    .nominal_type, .type_alias => {
-                        // Constructor call (e.g., `User(name: "Steve")`).
-                        // The result is an instance of the nominal type.
-                        try self.checkConstructorArgs(items[2..], sym_id, name, callee.src.pos);
-                        return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = sym_id }) catch self.ctx.types.unknown_id;
-                    },
-                    .generic_type => {
-                        // M20h: bare `Closure(fn ...)` (no `*`) is
-                        // rejected — the owned-closure construction
-                        // shape requires `*` to make the heap
-                        // allocation visible and to thread the lambda
-                        // through `rcNew`. Without `*`, the user has
-                        // a non-escaping closure (which the M20g
-                        // rules handle differently) AND a generic-
-                        // constructor mismatch (Closure takes zero
-                        // type args, the user is supplying a lambda
-                        // as if it were a type). Tailored diagnostic
-                        // keeps the user pointed at the right shape.
-                        if (sym_id == self.ctx.closure_sym_id) {
-                            try self.err(callee.src.pos, "owned closure must be wrapped with `*`; write `*Closure(|...| body)`", .{});
-                            for (items[2..]) |arg| _ = try self.synthExpr(arg);
-                            return self.ctx.types.unknown_id;
-                        }
-                        // M20b(5/5) per GPT-5.5: unannotated generic
-                        // construction (e.g., `Box(value: 5)` with no
-                        // LHS type annotation) requires expected-type
-                        // inference, which V1 does not provide. The
-                        // `checkExpr` path (with expected type) handles
-                        // the annotated case via `checkGenericConstructorCall`;
-                        // reaching `synthCall` for a generic_type
-                        // callee means no expected was provided.
-                        //
-                        // Diagnose and synth args for cascade
-                        // suppression.
-                        try self.err(callee.src.pos, "generic constructor `{s}` requires an expected type; write `b: {s}(T) = {s}(...)`", .{
-                            name, name, name,
-                        });
-                        for (items[2..]) |arg| _ = try self.synthExpr(arg);
-                        return self.ctx.types.unknown_id;
-                    },
-                    // M20h: closure invocation `cb()` when
-                    // `cb: *Closure()`. The callee binding lives in
-                    // `.local` / `.param` / `.capture` symbol slots
-                    // (depending on where it was bound). Validate
-                    // arity (closures take no args in M20h) and
-                    // return `void` — the body's return type isn't
-                    // tracked through Closure0's type erasure (a
-                    // future M20h+ milestone could add a typed
-                    // `Closure1`/`Closure2` family).
-                    .local, .param, .capture => {
-                        if (ownedClosureHandleArity(self.ctx, sym.ty)) |arity| {
-                            const arg_count: usize = items.len - 2;
-                            if (arg_count != arity) {
-                                try self.err(callee.src.pos, "owned closure `{s}` invocation expects {d} argument(s); got {d}", .{ name, arity, arg_count });
-                            }
-                            // M24: synth args so nested type-errors fire.
-                            // Strict per-arg type-check is deferred — Zig's
-                            // own type-checker catches signature mismatches
-                            // at the emitted `cb.value.invoke(arg)` site,
-                            // which runs after `bin/rig build`. A future
-                            // M24.x can add Rig-side type-mismatch
-                            // diagnostics if the deferred error messages
-                            // prove too cryptic.
-                            for (items[2..]) |a| _ = try self.synthExpr(a);
-                            return self.ctx.types.void_id;
-                        }
-                    },
-                    else => {},
-                }
-            }
-        }
-
-        // M20a: dispatch on `(call (member obj name) args)` callees.
-        // Three cases (module / nominal-type / value-receiver) per the
-        // M20a design — see docs/REACTIVITY.md and the M20
-        // conversation summary.
-        if (callee == .list and callee.list.len >= 3 and
-            callee.list[0] == .tag and callee.list[0].tag == .@"member")
-        {
-            return self.synthMemberCall(callee.list, items[2..]);
-        }
-
-        // M15b.1: unbound callee detection. The known-callee branch
-        // above falls through when the name doesn't resolve to a
-        // symbol. Per the hardened invariant: bare-name calls to
-        // unresolved identifiers are Rig errors at sema time.
-        //
-        // Skip the callee leaf in the args-synth loop below — it'd
-        // re-fire as "use of unbound name" from `synthLeafSrc`,
-        // producing a double diagnostic.
-        if (callee == .src) {
-            const name = self.ctx.source[callee.src.pos..][0..callee.src.len];
-            if (!isCalleeBuiltinWhitelisted(name) and
-                self.ctx.lookup(self.current_scope, name) == null)
-            {
-                try self.err(callee.src.pos, "use of unbound name `{s}`", .{name});
-            }
-            // Synth ARGS only (skip callee at items[1]).
-            for (items[2..]) |arg| _ = try self.synthExpr(arg);
-        } else {
-            // Non-bare callee (e.g., `(member ...)`): nothing extra to
-            // diagnose at this site; synth everything for cascading
-            // nested errors.
-            for (items[1..]) |arg| _ = try self.synthExpr(arg);
-        }
-        return self.ctx.types.unknown_id;
-    }
-
-    /// M20a: type a `(call (member obj name) args)` form. Three cases:
-    ///
-    ///   1. `foo.bar()` where `foo` is a `use`d module.
-    ///      Cross-module signatures aren't tracked until M15b lands;
-    ///      return `unknown` deliberately (NOT a diagnostic).
-    ///   2. `Type.method(args)` (associated/static call).
-    ///      Look up `method` on `Type`'s `is_method` fields, check
-    ///      args, return the declared return type.
-    ///   3. `value.method(args)` (instance method call).
-    ///      Look up `method` on `value`'s nominal type, validate the
-    ///      receiver mode at the call site, check the remaining args
-    ///      against `params[1..]`, return the declared return type.
-    fn synthMemberCall(
-        self: *ExprChecker,
-        callee_items: []const Sexp,
-        args: []const Sexp,
-    ) std.mem.Allocator.Error!TypeId {
-        const obj = callee_items[1];
-        const name_node = callee_items[2];
-        const method_name = identAt(self.ctx.source, name_node) orelse {
-            for (args) |a| _ = try self.synthExpr(a);
-            return self.ctx.types.unknown_id;
-        };
-        const name_pos: u32 = if (name_node == .src) name_node.src.pos else 0;
-
-        // Cases 1 + 2: obj is a bare name resolving to a module or nominal type.
-        if (obj == .src) {
-            const oname = self.ctx.source[obj.src.pos..][0..obj.src.len];
-            if (self.ctx.lookup(self.current_scope, oname)) |sym_id| {
-                const sym = self.ctx.symbols.items[sym_id];
-                switch (sym.kind) {
-                    .module => {
-                        // M15b per GPT-5.5 entry 39: cross-module call
-                        // `a.foo(...)`. Look up the foreign function's
-                        // type, import it, and dispatch through the
-                        // normal call-checking path so arity / arg
-                        // types / fallibility / extern-raw / etc. all
-                        // fire uniformly with same-file calls.
-                        //
-                        // Replaces the M15-era silent-unknown
-                        // fall-through that bypassed every contract
-                        // check at the module boundary.
-                        if (self.ctx.module_refs.get(sym_id)) |origin_module_id| {
-                            if (self.ctx.foreign_semas.get(origin_module_id)) |foreign| {
-                                return try self.dispatchCrossModuleCall(foreign, origin_module_id, method_name, name_pos, sym.name, args);
-                            }
-                        }
-                        // No resolved import (already-reported load
-                        // failure or single-file context): synth args
-                        // and degrade silently. M15b(4/5) tightens.
-                        for (args) |a| _ = try self.synthExpr(a);
-                        return self.ctx.types.unknown_id;
-                    },
-                    .nominal_type, .generic_type => {
-                        // Case 2: associated call. All args are
-                        // user-supplied; no receiver injection.
-                        return self.synthAssociatedCall(sym, method_name, name_pos, args);
-                    },
-                    else => {},
-                }
-            }
-        }
-
-        // Case 3: instance method call.
-        const obj_ty_id = try self.synthExpr(obj);
-
-        // M20d.1 + M20d.2: built-in `.upgrade()` on weak handles.
-        //
-        // The runtime ships `WeakHandle.upgrade()`, but it's not
-        // declared on any Rig nominal — without this special-case,
-        // source-level `w.upgrade()` would error with "no method on
-        // type `weak(...)`" because `lookupMethod` uses
-        // `unwrapReadAccess` which deliberately does NOT peel weak
-        // (weak auto-deref would be unsafe).
-        //
-        // Per the joint M20d.2 design pass with GPT-5.5: `upgrade` is
-        // a **built-in method** on `~T`, with the same status as
-        // array `.len` or future built-in optional methods. It's
-        // NOT a sigil (`^w` was considered and rejected for V1 — see
-        // HANDOFF §3); a sigil would be the first one whose normal
-        // contract includes failure, and the totality invariant of
-        // Rig's sigil family is more valuable than the symmetry win.
-        //
-        // The returned type is built-in `optional(shared(T))` — NOT
-        // user-defined `Option(*T)`. The `T? → Option(T)` desugar
-        // is a separate (deferred) milestone.
-        //
-        // Precedence: built-in `upgrade` on `~T` takes precedence
-        // over user-defined `.upgrade()` methods — but only when the
-        // receiver is actually weak. If the user has `.upgrade()` on
-        // their own type and calls it via `value.upgrade()`, the
-        // normal dispatch path handles it. The "rc.upgrade() on a
-        // shared handle (not weak)" footgun gets a targeted
-        // diagnostic so users who reach for upgrade in the wrong
-        // place see an actionable message.
-        if (std.mem.eql(u8, method_name, "upgrade")) {
-            // Peel borrow wrappers so `(?w).upgrade()` / `(!w).upgrade()`
-            // also hit the built-in. We do NOT peel `shared` here —
-            // that's the wrong-receiver case below.
-            const peeled = unwrapBorrows(self.ctx, obj_ty_id);
-            const peeled_ty = self.ctx.types.get(peeled);
-            switch (peeled_ty) {
-                .weak => |inner| {
-                    if (args.len != 0) {
-                        try self.err(name_pos, "weak `upgrade` takes no arguments; got {d}", .{args.len});
-                        for (args) |a| _ = try self.synthExpr(a);
-                    }
-                    const shared_id = self.ctx.types.intern(self.ctx.allocator, .{ .shared = inner }) catch
-                        return self.ctx.types.unknown_id;
-                    return self.ctx.types.intern(self.ctx.allocator, .{ .optional = shared_id }) catch
-                        self.ctx.types.unknown_id;
-                },
-                .shared => {
-                    // `rc.upgrade()` where `rc: *T`. If T has its own
-                    // `.upgrade()` method, the normal dispatch path
-                    // will find it via auto-deref — fall through.
-                    // Otherwise fire a targeted diagnostic instead of
-                    // the generic "no method" message — users who
-                    // reach for `.upgrade()` here almost certainly
-                    // meant a weak handle.
-                    if (!hasMethodNamed(self.ctx, peeled, method_name)) {
-                        try self.err(name_pos, "`upgrade` is only available on weak handles (`~T`); receiver here is a shared handle (`*T`). Use `~rc` to obtain a weak reference, then `.upgrade()` on the weak.", .{});
-                        for (args) |a| _ = try self.synthExpr(a);
-                        return self.ctx.types.unknown_id;
-                    }
-                },
-                else => {},
-            }
-        }
-
-        return self.synthInstanceCall(obj, obj_ty_id, method_name, name_pos, args);
-    }
-
-    /// Case 2 helper: `Type.method(args)`. The method's full param list
-    /// (including any explicit `self`) is matched against the user's
-    /// args verbatim — no receiver injection.
-    fn synthAssociatedCall(
-        self: *ExprChecker,
-        nominal_sym: Symbol,
-        method_name: []const u8,
-        name_pos: u32,
-        args: []const Sexp,
-    ) std.mem.Allocator.Error!TypeId {
-        const fields = nominal_sym.fields orelse {
-            // Opaque / unresolved nominal — synth args and return unknown.
-            for (args) |a| _ = try self.synthExpr(a);
-            return self.ctx.types.unknown_id;
-        };
-
-        for (fields) |f| {
-            if (!f.is_method) continue;
-            if (!std.mem.eql(u8, f.name, method_name)) continue;
-            const fn_ty_val = self.ctx.types.get(f.ty);
-            if (fn_ty_val != .function) continue;
-            try self.checkCallArgs(args, fn_ty_val.function, method_name, name_pos);
-            return fn_ty_val.function.returns;
-        }
-
-        try self.err(name_pos, "no method `{s}` on type `{s}`", .{ method_name, nominal_sym.name });
-        if (nominal_sym.decl_pos > 0) try self.note(nominal_sym.decl_pos, "`{s}` declared here", .{nominal_sym.name});
-        for (args) |a| _ = try self.synthExpr(a);
-        return self.ctx.types.unknown_id;
-    }
-
-    /// M20f.1: receiver-addressability check for `Cell.set`. A
-    /// receiver is "addressable" in the Zig sense — i.e., `&recv`
-    /// produces a mutable pointer suitable for the runtime's
-    /// `set(self: *Self, value: T)` — when it's one of:
-    ///   - A bare local Cell binding (sema kind = .local; emit
-    ///     forces `var` storage for Cell bindings via
-    ///     `isInteriorMutableBinding`).
-    ///   - A shared Cell handle (`*Cell(T)`): the strong pointer
-    ///     gives access to the mutable RcBox value via M20d's
-    ///     auto-deref `.value` bridge.
-    /// Anything else (function params, rvalue temporaries, borrows)
-    /// would compile to a Zig const that can't be mutated.
-    fn isAddressableCellReceiver(self: *ExprChecker, receiver_expr: Sexp, receiver_ty_id: TypeId) bool {
-        const ty = self.ctx.types.get(receiver_ty_id);
-        // Shared Cell handle — always OK.
-        if (ty == .shared) {
-            const inner = self.ctx.types.get(ty.shared);
-            if (inner == .parameterized_nominal and inner.parameterized_nominal.sym == self.ctx.cell_sym_id) return true;
-            if (inner == .nominal and inner.nominal == self.ctx.cell_sym_id) return true;
-        }
-        // Borrow of Cell — NOT addressable (Rig borrows lower to
-        // bare `T` in Zig).
-        if (ty == .borrow_read or ty == .borrow_write) return false;
-        // Bare nominal Cell as receiver — addressable iff the
-        // binding kind is `.local`. Function parameters
-        // (`.param`) and other shapes are not.
-        if (receiver_expr == .src) {
-            const name = self.ctx.source[receiver_expr.src.pos..][0..receiver_expr.src.len];
-            if (self.ctx.lookup(self.current_scope, name)) |sym_id| {
-                const sym = self.ctx.symbols.items[sym_id];
-                if (sym.kind == .local) return true;
-                if (sym.kind == .param) return false;
-            }
-        }
-        // Rvalue / unknown shape — NOT addressable.
-        return false;
-    }
-
-    /// Case 3 helper: `value.method(args)`. Looks up the method on the
-    /// receiver's nominal type (unwrapping one level of `?T` / `!T`
-    /// borrow), validates the receiver mode at the call site per the
-    /// M20a rules (auto-`?`, explicit `!`, explicit `<`), and checks
-    /// the remaining args against `params[1..]`.
-    fn synthInstanceCall(
-        self: *ExprChecker,
-        receiver_expr: Sexp,
-        receiver_ty_id: TypeId,
-        method_name: []const u8,
-        name_pos: u32,
-        args: []const Sexp,
-    ) std.mem.Allocator.Error!TypeId {
-        // M20b(1/5): unified method lookup via helper. Peels borrows,
-        // matches by name + is_method, returns ResolvedMethod with
-        // receiver mode + nominal_sym pre-extracted. M20b(4/5) extends
-        // the helper to substitute generic type params.
-        const resolved = (try lookupMethod(self.ctx, receiver_ty_id, method_name)) orelse {
-            // M20b(5/5) per GPT-5.5: nominalSymOfReceiver handles both
-            // plain and parameterized nominals. Distinguish "receiver
-            // isn't nominal" (silent unknown, matches the
-            // unknown-callee policy) from "no such method on this
-            // nominal" (diagnostic).
-            const owner_id_opt = nominalSymOfReceiver(self.ctx, receiver_ty_id);
-            const nom_sym_id = owner_id_opt orelse {
-                for (args) |a| _ = try self.synthExpr(a);
-                return self.ctx.types.unknown_id;
-            };
-            const nom_sym = self.ctx.symbols.items[nom_sym_id];
-            // Opaque nominal (no fields) also stays silent.
-            if (nom_sym.fields == null) {
-                for (args) |a| _ = try self.synthExpr(a);
-                return self.ctx.types.unknown_id;
-            }
-            try self.err(name_pos, "no method `{s}` on type `{s}`", .{ method_name, nom_sym.name });
-            if (nom_sym.decl_pos > 0) try self.note(nom_sym.decl_pos, "`{s}` declared here", .{nom_sym.name});
-            for (args) |a| _ = try self.synthExpr(a);
-            return self.ctx.types.unknown_id;
-        };
-
-        const nominal_sym = self.ctx.symbols.items[resolved.nominal_sym];
-
-        // M20f.1 (per GPT-5.5's M20f post-implementation review):
-        // `Cell.set` mutates through a `*Self` pointer at the
-        // runtime. If the receiver's Zig storage is `const` (a Zig
-        // function parameter, an rvalue temporary, or a borrowed
-        // value whose borrow strips mutability in lowering), the
-        // Zig compile fails with "cast discards const qualifier".
-        // Sema accepts these shapes today via the standard read-
-        // receiver auto-borrow rule, so the failure manifests as
-        // Zig errors instead of a clean Rig diagnostic.
-        //
-        // Reject Cell.set early when the receiver isn't an
-        // addressable Cell place. Addressable shapes:
-        //   - bare local `c: Cell(Int)` (sema kind = .local; emit
-        //     forces `var`).
-        //   - shared `*Cell(T)` (heap-allocated, mutable through
-        //     the strong pointer; M20d auto-deref bridges via
-        //     `.value`).
-        //
-        // Rejected:
-        //   - Cell-typed function parameters (Zig params are const).
-        //   - rvalue receivers (call result, anon_init, etc.).
-        //   - borrow_read / borrow_write of Cell (Rig borrows
-        //     lower to bare `T` in Zig, losing mutability info).
-        //
-        // Cell.get is unaffected — it returns a copy and doesn't
-        // need an addressable receiver.
-        if (resolved.nominal_sym == self.ctx.cell_sym_id and
-            std.mem.eql(u8, method_name, "set"))
-        {
-            if (!self.isAddressableCellReceiver(receiver_expr, receiver_ty_id)) {
-                try self.err(name_pos, "`Cell.set` requires an addressable Cell receiver: either a local Cell binding or a shared Cell handle (`*Cell(T)`). Cell-typed function parameters, borrows, and rvalue temporaries are not mutable in Zig — `Cell.set` would fail to lower. Bind the value to a local first or pass `*Cell(T)` if you need cross-function mutation.", .{});
-                for (args) |a| _ = try self.synthExpr(a);
-                return self.ctx.types.void_id;
-            }
-        }
-
-        // M26(1/5): `cell.get()` is rejected when T has drop glue.
-        // `get` returns T by value; for Drop T that aliases the
-        // Cell's owned value (the same handle exists both in
-        // `cell.value` and in the returned T), so the next time
-        // either side drops the result is a use-after-free or a
-        // double-drop. Direct future workarounds: `cell.replace(<new)`
-        // (yields the old as owned T), or borrow-read access (deferred
-        // beyond M26 per the design lock).
-        //
-        // Same rejection applies to `cell.replace` for Drop T at the
-        // emit / runtime level (it MUST consume the new arg) — but
-        // the call-site rejection there is the existing alias-discipline
-        // rule on the arg position; not a Cell-method-specific guard.
-        if (resolved.nominal_sym == self.ctx.cell_sym_id and
-            std.mem.eql(u8, method_name, "get"))
-        {
-            if (cellElementType(self.ctx, receiver_ty_id)) |t_ty| {
-                if (typeHasDropGlue(self.ctx, t_ty)) {
-                    const ty_str = try formatType(self.ctx, t_ty);
-                    try self.err(name_pos, "`Cell.get` returns `T` by value but `T = {s}` has drop glue (resource handle, `Vec(T)`, `*Closure()`, struct with resource fields or user `drop`); a copy would alias the cell's owned value and cause a double-drop. Use `cell.replace(<new)` to swap-and-yield the old value, or borrow-read access (deferred beyond M26).", .{ty_str});
-                    for (args) |a| _ = try self.synthExpr(a);
-                    return self.ctx.types.unknown_id;
-                }
-            }
-        }
-
-        // M20a.2: dispatch on the receiver metadata established at
-        // decl-time, NOT on `params.len > 0`. Otherwise associated/
-        // static methods with parameters silently dispatch as
-        // instance methods — the M20a soundness bug GPT-5.5 caught.
-        if (resolved.receiver == .none) {
-            try self.err(name_pos, "method `{s}` has no `self` receiver; call as `{s}.{s}(...)`", .{
-                method_name, nominal_sym.name, method_name,
-            });
-            for (args) |a| _ = try self.synthExpr(a);
-            return resolved.fn_ty.returns;
-        }
-
-        // Validate receiver mode at the call site using the method's
-        // declared receiver mode (decl-time, authoritative). M20a.2:
-        // also pass the receiver expression's TYPE classification so
-        // we catch e.g. `get_ref().consume()` where the rvalue is
-        // actually a read borrow (would be silently accepted on shape
-        // alone).
-        const recv_type_kind = classifyReceiverType(self.ctx, receiver_ty_id, resolved.nominal_sym);
-        try self.checkReceiverMode(receiver_expr, resolved.receiver, recv_type_kind, method_name, name_pos);
-
-        // Check the remaining args against `params[1..]`. (Instance
-        // methods always have at least one param — `self` — by
-        // construction of resolved.receiver != .none.)
-        const non_self_fn = FunctionType{
-            .params = resolved.fn_ty.params[1..],
-            .returns = resolved.fn_ty.returns,
-            .is_sub = resolved.fn_ty.is_sub,
-        };
-        try self.checkCallArgs(args, non_self_fn, method_name, name_pos);
-        return resolved.fn_ty.returns;
-    }
-
-    /// M20a receiver-mode rules (per GPT-5.5):
-    ///
-    ///   self param  | call-site requirement
-    ///   ------------|----------------------------------------------------
-    ///   ?Self       | auto-borrow OK from bare lvalue; explicit ? OK;
-    ///               | explicit ! OK (write coerces to read); cannot move
-    ///   !Self       | require explicit (!receiver); cannot pass bare,
-    ///               | cannot pass read borrow, cannot move; rvalue OK
-    ///   Self        | require explicit (<receiver) for named lvalue;
-    ///               | rvalue (call result) OK; borrow forms rejected
-    ///
-    /// Visible-effects principle: write borrow and move are dramatic
-    /// effects and must be visible at the call site. Read borrow is
-    /// lightweight enough to auto-insert.
-    fn checkReceiverMode(
-        self: *ExprChecker,
-        receiver_expr: Sexp,
-        receiver: MethodReceiver,
-        recv_type_kind: ReceiverTypeKind,
-        method_name: []const u8,
-        name_pos: u32,
-    ) std.mem.Allocator.Error!void {
-        const shape = classifyReceiverShape(receiver_expr);
-
-        switch (receiver) {
-            .read => {
-                // ?Self — auto-borrow OK. Any receiver-type kind that
-                // resolves to the enclosing nominal is fine; `other`
-                // typed receivers (different nominal, unknown, etc.)
-                // also slide silently — sema has likely already fired
-                // a more useful diagnostic elsewhere.
-                switch (shape) {
-                    .move_explicit => {
-                        try self.err(name_pos, "method `{s}` takes a read borrow of receiver; cannot move", .{method_name});
-                    },
-                    else => return,
-                }
-            },
-            .write => {
-                // !Self — require explicit write borrow OR a write-
-                // borrowed type at call site OR an owned rvalue.
-                // Reject: read borrow (type or shape), bare lvalue
-                // without explicit !, explicit move.
-                if (recv_type_kind == .read_borrow) {
-                    try self.err(name_pos, "method `{s}` requires a write-borrowed receiver; cannot upgrade a read borrow to a write borrow", .{method_name});
-                    return;
-                }
-                // M20d(4/5): write-receiver methods are not callable
-                // through a shared (`*T`) handle. `*T` is shared
-                // ownership — other handles may exist, so we cannot
-                // hand out unique mutable access. The user-facing
-                // pattern for mutation through `*T` is interior
-                // mutability (`Cell(T)` / `RefCell(T)`, M20+ item #7).
-                if (recv_type_kind == .shared) {
-                    try self.err(name_pos, "cannot call write-receiver method `{s}` through a shared handle (`*T`); other handles may exist. Use an interior-mutable type (planned `Cell(T)` in M20+ item #7) for mutation through shared ownership.", .{method_name});
-                    return;
-                }
-                switch (shape) {
-                    .write_explicit => return, // explicit (!u)
-                    .rvalue => {
-                        // OK only if the rvalue's type is owned or
-                        // already write-borrowed. (Read-borrow rvalue
-                        // already rejected above.) `.other` slides —
-                        // sema has likely fired a more useful error
-                        // elsewhere, and we don't want to compound it.
-                        if (recv_type_kind == .owned_nominal or
-                            recv_type_kind == .write_borrow or
-                            recv_type_kind == .other) return;
-                        try self.err(name_pos, "method `{s}` requires a write-borrowed receiver; this expression yields a borrowed value, not an owned one", .{method_name});
-                    },
-                    .read_explicit => try self.err(name_pos, "method `{s}` requires a write-borrowed receiver; got `?...`; use `(!receiver).{s}(...)`", .{ method_name, method_name }),
-                    .move_explicit => try self.err(name_pos, "method `{s}` requires a write-borrowed receiver; cannot move; use `(!receiver).{s}(...)`", .{ method_name, method_name }),
-                    .lvalue_bare => try self.err(name_pos, "method `{s}` requires a write-borrowed receiver; use `(!receiver).{s}(...)`", .{ method_name, method_name }),
-                }
-            },
-            .value => {
-                // By-value Self — require explicit move OR owned
-                // rvalue. Reject any borrow (read or write), bare
-                // lvalue without explicit `<`.
-                switch (recv_type_kind) {
-                    .read_borrow, .write_borrow => {
-                        try self.err(name_pos, "method `{s}` consumes the receiver; cannot consume through a borrowed value", .{method_name});
-                        return;
-                    },
-                    // M20d(4/5): consuming the inner T through a
-                    // shared handle is impossible — other handles
-                    // would dangle. Pattern: explicitly `.upgrade()` a
-                    // weak or `+rc` clone, but for consuming inner T
-                    // you need exclusive ownership which `*T` cannot
-                    // provide. Reject cleanly.
-                    .shared => {
-                        try self.err(name_pos, "method `{s}` consumes the receiver; cannot consume the inner value through a shared handle (`*T`) — other handles may still reference it", .{method_name});
-                        return;
-                    },
-                    else => {},
-                }
-                switch (shape) {
-                    .move_explicit => return,
-                    .rvalue => {
-                        // OK only if owned. (Borrow returned from
-                        // a call was rejected above on type kind.)
-                        if (recv_type_kind == .owned_nominal or recv_type_kind == .other) return;
-                        try self.err(name_pos, "method `{s}` consumes the receiver; this expression yields a borrowed value, not an owned one", .{method_name});
-                    },
-                    .read_explicit, .write_explicit => try self.err(name_pos, "method `{s}` consumes the receiver; borrow forms not allowed; use `(<receiver).{s}(...)`", .{ method_name, method_name }),
-                    .lvalue_bare => try self.err(name_pos, "method `{s}` consumes the receiver; use `(<receiver).{s}(...)`", .{ method_name, method_name }),
-                }
-            },
-            .none => {
-                // Should never reach here — synthInstanceCall errors
-                // for `none` receivers before calling checkReceiverMode.
-                // Belt-and-suspenders guard.
-            },
-        }
-    }
-
-    /// Constructor invocation `T(name: value, ...)` against a nominal
-    /// type's declared fields. M6 v1 rules:
-    ///   - Each kwarg must reference a real field (else: unknown-field error)
-    ///   - Each kwarg's value must be assignable to the field's type
-    ///   - Duplicate kwargs are rejected
-    ///   - Missing fields are reported (per missing field, with the
-    ///     struct's decl pos as a note)
-    ///   - Positional args inside a kwarg-bearing call are V1-disallowed
-    ///     (constructor must be all-kwarg or all-positional; mixed is
-    ///     undefined surface and we just synth-and-discard those args).
-    /// If the nominal has no resolved fields (opaque / undeclared
-    /// struct), we synth args and discard — same behavior as M5.
-    fn checkConstructorArgs(
-        self: *ExprChecker,
-        args: []const Sexp,
-        nominal_sym: SymbolId,
-        callee_name: []const u8,
-        callee_pos: u32,
-    ) std.mem.Allocator.Error!void {
-        try self.checkConstructorArgsSubst(args, nominal_sym, callee_name, callee_pos, TypeSubst.empty);
-    }
-
-    /// M20b(4/5): generic-aware constructor checking. When `subst` is
-    /// non-empty, each declared field type is substituted (T → arg)
-    /// before being compared against the supplied kwarg's value type.
-    /// For plain nominals, callers pass `TypeSubst.empty` (or use the
-    /// `checkConstructorArgs` convenience wrapper above).
-    fn checkConstructorArgsSubst(
-        self: *ExprChecker,
-        args: []const Sexp,
-        nominal_sym: SymbolId,
-        callee_name: []const u8,
-        callee_pos: u32,
-        subst: TypeSubst,
-    ) std.mem.Allocator.Error!void {
-        const sym = self.ctx.symbols.items[nominal_sym];
-        const fields = sym.fields orelse {
-            // No field metadata — opaque nominal. Synth args, return.
-            for (args) |a| _ = try self.synthExpr(a);
-            return;
-        };
-
-        // Track which fields were supplied so we can report missing ones.
-        var seen: std.StringHashMapUnmanaged(u32) = .empty;
-        defer seen.deinit(self.ctx.allocator);
-
-        var has_positional = false;
-        for (args) |arg| {
-            if (arg == .list and arg.list.len >= 3 and arg.list[0] == .tag and
-                arg.list[0].tag == .@"kwarg")
-            {
-                const fname = identAt(self.ctx.source, arg.list[1]) orelse continue;
-                const fpos: u32 = if (arg.list[1] == .src) arg.list[1].src.pos else callee_pos;
-
-                // Duplicate kwarg?
-                if (seen.contains(fname)) {
-                    try self.err(fpos, "duplicate field `{s}` in constructor of `{s}`", .{ fname, callee_name });
-                    if (seen.get(fname)) |first_pos| try self.note(first_pos, "first `{s}` here", .{fname});
-                    continue;
-                }
-                try seen.put(self.ctx.allocator, fname, fpos);
-
-                // Find the DATA field in the declared list. M20a:
-                // methods (is_method=true) share the same `fields`
-                // slice but aren't constructor-targetable, so skip them.
-                const field = blk: {
-                    for (fields) |f| {
-                        if (f.is_method) continue;
-                        if (std.mem.eql(u8, f.name, fname)) break :blk f;
-                    }
-                    try self.err(fpos, "no field `{s}` on type `{s}`", .{ fname, callee_name });
-                    if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{callee_name});
-                    _ = try self.synthExpr(arg.list[2]);
-                    break :blk null;
-                } orelse continue;
-
-                // M20b(4/5): substitute the field's declared type
-                // against the expected-type's args (T → Int for
-                // `Box(Int)`). For plain nominals subst is empty so
-                // this is a no-op. M20b(5/5) per GPT-5.5: propagate
-                // allocator errors. No `type_var` skip — `compatible`
-                // does the right thing (`type_var(T)` equals itself
-                // and nothing else), so symbolic generic-body
-                // constructor checking now correctly catches
-                // `b: Self = Box(value: "wrong type")` inside a
-                // generic body.
-                const substituted_field_ty = try substituteType(self.ctx, field.ty, subst);
-                try self.checkExpr(arg.list[2], substituted_field_ty);
-            } else {
-                has_positional = true;
-                _ = try self.synthExpr(arg);
-            }
-        }
-
-        // Missing-field check (only when the call was all-kwarg —
-        // mixed/positional constructors are undefined surface in V1).
-        // M20a: skip methods (is_method=true) — they're not
-        // constructor-targetable.
-        if (!has_positional and fields.len > 0) {
-            for (fields) |f| {
-                if (f.is_method) continue;
-                if (!seen.contains(f.name)) {
-                    try self.err(callee_pos, "constructor of `{s}` is missing field `{s}`", .{ callee_name, f.name });
-                    if (f.decl_pos > 0) try self.note(f.decl_pos, "field `{s}` declared here", .{f.name});
-                }
-            }
-        }
-    }
-
-    fn checkCallArgs(
-        self: *ExprChecker,
-        args: []const Sexp,
-        fn_ty: FunctionType,
-        callee_name: []const u8,
-        callee_pos: u32,
-    ) std.mem.Allocator.Error!void {
-        // V1: only positional args are type-checked. Skip arity/type
-        // check entirely if any arg is a `(kwarg ...)` — constructor
-        // sugar uses kwargs and we can't map them to params yet without
-        // struct field metadata.
-        for (args) |a| {
-            if (a == .list and a.list.len > 0 and a.list[0] == .tag and
-                a.list[0].tag == .@"kwarg")
-            {
-                for (args) |aa| _ = try self.synthExpr(aa);
-                return;
-            }
-        }
-
-        if (args.len != fn_ty.params.len) {
-            try self.err(callee_pos, "call to `{s}` expects {d} argument{s}, got {d}", .{
-                callee_name,
-                fn_ty.params.len,
-                if (fn_ty.params.len == 1) @as([]const u8, "") else "s",
-                args.len,
-            });
-            for (args) |a| _ = try self.synthExpr(a);
-            return;
-        }
-        for (args, fn_ty.params) |arg, param_ty| {
-            try self.checkExpr(arg, param_ty);
-        }
-    }
-
-    fn synthMember(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        // (member obj name). Two flavors:
-        //
-        //   1. Type-qualified access: obj is a `.src` whose name
-        //      resolves to a `nominal_type` symbol (typically an
-        //      enum/errors). `Color.red` is then equivalent to
-        //      `.red` in a `Color`-expecting context — return
-        //      `nominal(Color)`. Unknown variant fires.
-        //
-        //   2. Value member access: obj's TYPE is `nominal(SymId)`
-        //      (struct instance). Look up the field on the symbol;
-        //      return its declared type. Unknown field fires.
-        //
-        //   3. Anything else (opaque nominal, primitive, unresolved)
-        //      returns `unknown` silently so downstream typing keeps
-        //      flowing without spurious errors.
-        if (items.len < 3) return self.ctx.types.unknown_id;
-
-        const obj = items[1];
-        const field_node = items[2];
-        const field_name = identAt(self.ctx.source, field_node) orelse return self.ctx.types.unknown_id;
-        const pos: u32 = if (field_node == .src) field_node.src.pos else 0;
-
-        // M22.1(1/8): reject `(*Foo(...)).field` and friends. Such an
-        // anonymous Rc temporary has no M20e auto-drop guard installed,
-        // so the strong count never reaches zero. See `isFreshResourceAlloc`.
-        if (isFreshResourceAlloc(obj)) {
-            try self.err(firstSrcPos(obj), "resource allocation `*{s}` used as an anonymous temporary; bind it to a name first so an auto-drop guard installs. V1 has no hidden-temporary lifetime management — write `tmp = *Ctor(...); use(tmp.field)`.", .{
-                identCallName(self.ctx.source, obj) orelse "Ctor",
-            });
-            return self.ctx.types.unknown_id;
-        }
-
-        // Flavor 1: type-qualified access (e.g., `Color.red`, `User.greet`).
-        if (obj == .src) {
-            const oname = self.ctx.source[obj.src.pos..][0..obj.src.len];
-            if (self.ctx.lookup(self.current_scope, oname)) |sym_id| {
-                const sym = self.ctx.symbols.items[sym_id];
-                if (sym.kind == .nominal_type) {
-                    if (sym.fields) |members| {
-                        for (members) |m| {
-                            if (!std.mem.eql(u8, m.name, field_name)) continue;
-                            if (m.is_method) {
-                                // M12: `Type.method` — return the
-                                // method's function type so the
-                                // surrounding call can dispatch.
-                                return m.ty;
-                            }
-                            // Variant — return `nominal(Type)` (the
-                            // enum instance type).
-                            return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = sym_id }) catch self.ctx.types.unknown_id;
-                        }
-                        try self.err(pos, "no member `{s}` on type `{s}`", .{ field_name, sym.name });
-                        if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
-                        return self.ctx.types.unknown_id;
-                    }
-                    // Opaque nominal — accept silently.
-                    return self.ctx.types.intern(self.ctx.allocator, .{ .nominal = sym_id }) catch self.ctx.types.unknown_id;
-                }
-                // M15b per GPT-5.5 entry 39: qualified cross-module
-                // access (`a.foo`). When `obj` is a `.module`-kinded
-                // symbol with a resolved import, look up `field_name`
-                // in the imported SemContext, import its type, and
-                // return it. Replaces the M15-era silent-unknown
-                // fall-through that bypassed every Rig check at the
-                // module boundary.
-                if (sym.kind == .module) {
-                    if (self.ctx.module_refs.get(sym_id)) |origin_module_id| {
-                        if (self.ctx.foreign_semas.get(origin_module_id)) |foreign| {
-                            return try self.lookupCrossModule(foreign, origin_module_id, field_name, pos, sym.name);
-                        }
-                    }
-                    // No resolved import for this `use NAME` — the
-                    // import either failed to load (already reported
-                    // by the ModuleGraph) or this is single-file
-                    // sema. Fall through to `unknown`. M15b(4/5)
-                    // tightens this case with a cleaner diagnostic.
-                    return self.ctx.types.unknown_id;
-                }
-            }
-        }
-
-        // Flavor 2: value member access on a struct instance.
-        const obj_ty_id = try self.synthExpr(obj);
-        if (obj_ty_id == self.ctx.types.invalid_id or obj_ty_id == self.ctx.types.unknown_id) {
-            return self.ctx.types.unknown_id;
-        }
-
-        // M22.1(1/8) per GPT-5.5 post-impl review entry 39: type-aware
-        // leak check. `make_user().age` (a resource-returning function
-        // call accessed as an anonymous temporary) leaks the same way
-        // `(*User(...)).age` does — the Rc has no M20e auto-drop guard
-        // because the temporary has no name. The structural check above
-        // catches `(*Foo(...))`; this catches the post-synth case where
-        // the receiver is a call returning `shared(_)`.
-        if (isCallExpr(obj) and isResourceOwningType(self.ctx, obj_ty_id)) {
-            try self.err(firstSrcPos(obj), "resource-valued call result used as an anonymous temporary; bind it to a name first so an auto-drop guard installs. V1 has no hidden-temporary lifetime management — write `tmp = {s}(...); use(tmp.field)`.", .{
-                identAt(self.ctx.source, obj.list[1]) orelse "fn",
-            });
-            return self.ctx.types.unknown_id;
-        }
-
-        // M26(1/5): `cell.value` for Drop T is rejected — same
-        // rationale as `cell.get`: reading the field by value
-        // aliases the Cell's owned T and creates a double-drop
-        // path. The check fires BEFORE the generic data-field
-        // lookup so the diagnostic is Cell-specific (not the
-        // generic "field exists" success path returning Drop T).
-        if (std.mem.eql(u8, field_name, "value")) {
-            if (cellElementType(self.ctx, obj_ty_id)) |t_ty| {
-                if (typeHasDropGlue(self.ctx, t_ty)) {
-                    const ty_str = try formatType(self.ctx, t_ty);
-                    try self.err(pos, "`cell.value` reads `T` by value but `T = {s}` has drop glue (resource handle, `Vec(T)`, `*Closure()`, struct with resource fields or user `drop`); a copy would alias the cell's owned value and cause a double-drop. Use `cell.replace(<new)` to swap-and-yield the old value.", .{ty_str});
-                    return self.ctx.types.unknown_id;
-                }
-            }
-        }
-
-        // M20b(1/5): unified data-field lookup via helper. Peels
-        // borrows and returns the (possibly substituted) field type.
-        if (try lookupDataField(self.ctx, obj_ty_id, field_name)) |resolved| {
-            return resolved.ty;
-        }
-
-        // No data field by that name — was it a method? If so, give a
-        // targeted "must be called" error. Otherwise fall through to
-        // the generic "no field on type" diagnostic.
-        // M20b(5/5) per GPT-5.5: nominalSymOfReceiver handles both
-        // plain and parameterized nominals uniformly.
-        const owner_id_opt = nominalSymOfReceiver(self.ctx, obj_ty_id);
-        if (hasMethodNamed(self.ctx, obj_ty_id, field_name)) {
-            const nom_name = if (owner_id_opt) |id| self.ctx.symbols.items[id].name else "(unknown)";
-            try self.err(pos, "method `{s}` on type `{s}` must be called; bare method reference not supported in V1", .{ field_name, nom_name });
-            return self.ctx.types.unknown_id;
-        }
-
-        // No-such-field diagnostic. Skip silently if the receiver
-        // didn't resolve to any nominal — sema has likely already
-        // diagnosed the upstream issue.
-        const sym_id = owner_id_opt orelse return self.ctx.types.unknown_id;
-        const sym = self.ctx.symbols.items[sym_id];
-        try self.err(pos, "no field `{s}` on type `{s}`", .{ field_name, sym.name });
-        if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
-        return self.ctx.types.unknown_id;
-    }
-
-    /// M15b per GPT-5.5 entry 39: cross-module call dispatch. Looks
-    /// up `method_name` in the foreign SemContext's module scope, and
-    /// if it resolves to a function/sub/extern, dispatches through
-    /// the normal `checkCallArgs` / fallibility / extern-raw paths so
-    /// arity, arg types, and call-site contracts all fire uniformly
-    /// with same-file calls. Nominal-type / generic-type / constructor
-    /// callees through a module-prefix are handled similarly to the
-    /// same-file flavors (constructors get `checkConstructorArgs`).
-    ///
-    /// Returns the imported return type (re-interned via `importType`).
-    fn dispatchCrossModuleCall(
-        self: *ExprChecker,
-        foreign: *SemContext,
-        origin_module_id: u32,
-        method_name: []const u8,
-        name_pos: u32,
-        module_name: []const u8,
-        args: []const Sexp,
-    ) std.mem.Allocator.Error!TypeId {
-        if (foreign.scopes.items.len < 2) {
-            for (args) |a| _ = try self.synthExpr(a);
-            return self.ctx.types.unknown_id;
-        }
-        const module_scope = foreign.scopes.items[1];
-        for (module_scope.symbols.items) |fsym_id| {
-            const fsym = foreign.symbols.items[fsym_id];
-            if (!std.mem.eql(u8, fsym.name, method_name)) continue;
-
-            // M15b(3/5): visibility enforcement at the call site.
-            if (!isCrossModuleVisible(fsym)) {
-                try self.err(name_pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module_name, method_name, module_name });
-                for (args) |a| _ = try self.synthExpr(a);
-                return self.ctx.types.unknown_id;
-            }
-
-            switch (fsym.kind) {
-                .function => {
-                    const foreign_fn_ty = foreign.types.get(fsym.ty);
-                    if (foreign_fn_ty != .function) {
-                        for (args) |a| _ = try self.synthExpr(a);
-                        return self.ctx.types.unknown_id;
-                    }
-                    // Import the function's signature into the local
-                    // TypeStore so `checkCallArgs` (which uses the
-                    // local `Type` representation) sees real types.
-                    var local_params_buf: std.ArrayListUnmanaged(TypeId) = .empty;
-                    defer local_params_buf.deinit(self.ctx.allocator);
-                    try local_params_buf.ensureTotalCapacity(self.ctx.allocator, foreign_fn_ty.function.params.len);
-                    for (foreign_fn_ty.function.params) |p| {
-                        const lp = try importType(self.ctx, foreign, p, origin_module_id);
-                        local_params_buf.appendAssumeCapacity(lp);
-                    }
-                    const local_returns = try importType(self.ctx, foreign, foreign_fn_ty.function.returns, origin_module_id);
-                    const local_fn_ty: FunctionType = .{
-                        .params = local_params_buf.items,
-                        .returns = local_returns,
-                        .is_sub = foreign_fn_ty.function.is_sub,
-                    };
-                    // Synthesize a qualified name for diagnostics: `a.foo`.
-                    const qualified = std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ module_name, method_name }) catch method_name;
-                    try self.checkCallArgs(args, local_fn_ty, qualified, name_pos);
-                    return local_returns;
-                },
-                .nominal_type => {
-                    // Cross-module constructor call (`a.Box(v: 5)`).
-                    // Import the nominal type as `imported_nominal`
-                    // and check args against the foreign symbol's
-                    // field list.
-                    try self.checkConstructorArgsCrossModule(args, foreign, fsym_id, fsym.name, name_pos);
-                    return self.ctx.types.intern(self.ctx.allocator, .{ .imported_nominal = .{
-                        .module_id = origin_module_id,
-                        .sym_id = fsym_id,
-                    } }) catch self.ctx.types.unknown_id;
-                },
-                else => {
-                    // Variables, externs, type_aliases via module
-                    // call form: V1 doesn't define these. Synth args
-                    // and degrade.
-                    for (args) |a| _ = try self.synthExpr(a);
-                    return self.ctx.types.unknown_id;
-                },
-            }
-        }
-        // Not found.
-        try self.err(name_pos, "no member `{s}` in module `{s}`", .{ method_name, module_name });
-        for (args) |a| _ = try self.synthExpr(a);
-        return self.ctx.types.unknown_id;
-    }
-
-    /// M15b: thin wrapper around `checkConstructorArgs` that reads
-    /// fields from a foreign SemContext's nominal symbol. The field
-    /// metadata (`Field` slices on `Symbol.fields`) is interpreted
-    /// against the foreign type store; field types get imported via
-    /// `importType` before the arg-vs-field type check fires locally.
-    fn checkConstructorArgsCrossModule(
-        self: *ExprChecker,
-        args: []const Sexp,
-        foreign: *SemContext,
-        foreign_sym_id: SymbolId,
-        nom_name: []const u8,
-        callee_pos: u32,
-    ) std.mem.Allocator.Error!void {
-        const foreign_sym = foreign.symbols.items[foreign_sym_id];
-        const foreign_fields = foreign_sym.fields orelse {
-            // Opaque foreign nominal — accept silently (no fields to
-            // check). Synth args for nested-error coverage.
-            for (args) |a| _ = try self.synthExpr(a);
-            return;
-        };
-
-        var seen: std.StringHashMapUnmanaged(u32) = .empty;
-        defer seen.deinit(self.ctx.allocator);
-        var has_positional = false;
-        for (args) |arg| {
-            if (arg == .list and arg.list.len >= 3 and arg.list[0] == .tag and
-                arg.list[0].tag == .@"kwarg")
-            {
-                const fname = identAt(self.ctx.source, arg.list[1]) orelse continue;
-                const fpos: u32 = if (arg.list[1] == .src) arg.list[1].src.pos else callee_pos;
-                if (seen.contains(fname)) {
-                    try self.err(fpos, "duplicate field `{s}` in constructor of `{s}`", .{ fname, nom_name });
-                    continue;
-                }
-                try seen.put(self.ctx.allocator, fname, fpos);
-
-                // Find the foreign data field.
-                const found = blk: {
-                    for (foreign_fields) |f| {
-                        if (f.is_method) continue;
-                        if (std.mem.eql(u8, f.name, fname)) break :blk f;
-                    }
-                    try self.err(fpos, "no field `{s}` on type `{s}`", .{ fname, nom_name });
-                    _ = try self.synthExpr(arg.list[2]);
-                    break :blk null;
-                } orelse continue;
-                // Import the foreign field type and check the arg.
-                const local_field_ty = try importType(self.ctx, foreign, found.ty, foreign.module_id);
-                try self.checkExpr(arg.list[2], local_field_ty);
-            } else {
-                has_positional = true;
-                _ = try self.synthExpr(arg);
-            }
-        }
-        // Missing-field check for all-kwarg constructors.
-        if (!has_positional and foreign_fields.len > 0) {
-            for (foreign_fields) |f| {
-                if (f.is_method) continue;
-                if (!seen.contains(f.name)) {
-                    try self.err(callee_pos, "constructor of `{s}` is missing field `{s}`", .{ nom_name, f.name });
-                }
-            }
-        }
-    }
-
-    /// M15b per GPT-5.5 entry 39: cross-module symbol lookup. Given a
-    /// foreign SemContext + an origin module id + a `field_name` to
-    /// look up, find the foreign module-scope symbol with that name
-    /// and return its TypeId re-interned into the local TypeStore (so
-    /// downstream typing works uniformly with local types).
-    ///
-    /// For nominal types: returns `imported_nominal(module_id, sym_id)`
-    /// — the canonical origin identity per GPT-5.5's M15b architecture
-    /// call (no structural equality across modules).
-    ///
-    /// For functions / variables: returns the imported function type
-    /// or variable type via `importType`. Subsequent `synthCall` /
-    /// member access proceeds normally with the imported type.
-    ///
-    /// `module_name` is the importer's local name for the module
-    /// (e.g., the `a` in `use a; a.foo`); used for diagnostic
-    /// spelling so the error reads naturally from the user's
-    /// perspective.
-    ///
-    /// Diagnostic on missing name: "no member `{field_name}` in module
-    /// `{module_name}`" with a note at the foreign module's source
-    /// (deferred — V1 emits without the note to keep diagnostic
-    /// machinery cross-module-clean; can add a foreign-pos diagnostic
-    /// channel in a follow-up).
-    fn lookupCrossModule(
-        self: *ExprChecker,
-        foreign: *SemContext,
-        origin_module_id: u32,
-        field_name: []const u8,
-        pos: u32,
-        module_name: []const u8,
-    ) std.mem.Allocator.Error!TypeId {
-        // Foreign module scope is scope id 1 (`pushScope(scope_invalid)`
-        // in `checkWithImports`). Walk that scope's symbols looking
-        // for `field_name`. Same name-lookup rule as same-file lookup:
-        // first match wins.
-        if (foreign.scopes.items.len < 2) {
-            return self.ctx.types.unknown_id;
-        }
-        const module_scope = foreign.scopes.items[1];
-        for (module_scope.symbols.items) |fsym_id| {
-            const fsym = foreign.symbols.items[fsym_id];
-            if (!std.mem.eql(u8, fsym.name, field_name)) continue;
-
-            // M15b(3/5) per GPT-5.5 entry 39: `pub` enforcement.
-            // Non-public symbols are invisible across module
-            // boundaries. The `is_public` flag is stamped by
-            // SymbolResolver when `(pub child)` wraps a decl;
-            // before M15b(3/5), the flag was set but never read.
-            //
-            // Visibility rule excludes a few categories that are
-            // implicitly visible: `extern` declarations (which
-            // expose the FFI boundary; visibility is enforced via
-            // the raw-block requirement instead), and builtins
-            // registered via `registerBuiltins` (which appear in
-            // every module's scope by construction).
-            if (!isCrossModuleVisible(fsym)) {
-                try self.err(pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module_name, field_name, module_name });
-                return self.ctx.types.unknown_id;
-            }
-
-            // Nominal types: return `imported_nominal` with origin
-            // tagging. The importer never confuses `a.Box` with a
-            // local `Box`.
-            if (fsym.kind == .nominal_type) {
-                return self.ctx.types.intern(self.ctx.allocator, .{ .imported_nominal = .{
-                    .module_id = origin_module_id,
-                    .sym_id = fsym_id,
-                } }) catch self.ctx.types.unknown_id;
-            }
-
-            // Functions/vars/externs/aliases: import the type via
-            // recursive re-interning.
-            return importType(self.ctx, foreign, fsym.ty, origin_module_id);
-        }
-        // Not found in the foreign module's top scope.
-        try self.err(pos, "no member `{s}` in module `{s}`", .{ field_name, module_name });
-        return self.ctx.types.unknown_id;
-    }
-
-    fn synthIndex(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        // (index expr idx) — for slice/array T, returns T; otherwise unknown.
-        if (items.len < 3) return self.ctx.types.unknown_id;
-        // M22.1(1/8): reject `(*Foo(...))[i]` — same leak shape as member.
-        if (isFreshResourceAlloc(items[1])) {
-            try self.err(firstSrcPos(items[1]), "resource allocation `*{s}` used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{
-                identCallName(self.ctx.source, items[1]) orelse "Ctor",
-            });
-            return self.ctx.types.unknown_id;
-        }
-        const obj_ty = try self.synthExpr(items[1]);
-        // M22.1(1/8): type-aware leak check — `make_xs()[i]` where
-        // make_xs returns a resource type leaks the strong handle.
-        if (isCallExpr(items[1]) and isResourceOwningType(self.ctx, obj_ty)) {
-            try self.err(firstSrcPos(items[1]), "resource-valued call result used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{});
-            return self.ctx.types.unknown_id;
-        }
-        _ = try self.synthExpr(items[2]); // walk idx for nested errors
-        const ty = self.ctx.types.get(obj_ty);
-        return switch (ty) {
-            .slice => |s| s.elem,
-            .array => |a| a.elem,
-            .optional => |inner| inner, // unwrap T? to T (ish) for indexing
-            else => self.ctx.types.unknown_id,
-        };
-    }
-
-    fn synthPropagate(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        // (propagate expr) / (try expr) — unwrap one fallible layer.
-        if (items.len < 2) return self.ctx.types.unknown_id;
-        const inner = try self.synthExpr(items[1]);
-        const ty = self.ctx.types.get(inner);
-        return switch (ty) {
-            .fallible => |t| t,
-            // Effects checker fires its own diagnostic if propagation
-            // is applied to a non-fallible value; here we just let the
-            // type flow through unchanged.
-            else => inner,
-        };
-    }
-
-    fn synthIfExpr(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        // Value-position `if`. Per GPT-5.5: condition must be Bool, an
-        // else IS required, then-arm and else-arm types must unify.
-        if (items.len < 2) return self.ctx.types.unknown_id;
-        try self.checkExpr(items[1], self.ctx.types.bool_id);
-
-        if (items.len < 4 or items[3] == .nil) {
-            // Missing else in value position. Find a position to point at.
-            const pos = firstSrcPos(items[2]);
-            try self.err(pos, "`if` expression used as a value requires an `else` branch", .{});
-            return self.ctx.types.unknown_id;
-        }
-
-        const then_ty = if (items[2] == .nil) self.ctx.types.void_id else try self.synthExpr(items[2]);
-        const else_ty = try self.synthExpr(items[3]);
-        return (try self.unifyOrErr(then_ty, else_ty, firstSrcPos(items[2]))) orelse self.ctx.types.unknown_id;
-    }
-
-    fn synthTernary(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        // (ternary cond then else)
-        if (items.len < 4) return self.ctx.types.unknown_id;
-        try self.checkExpr(items[1], self.ctx.types.bool_id);
-        const then_ty = try self.synthExpr(items[2]);
-        const else_ty = try self.synthExpr(items[3]);
-        return (try self.unifyOrErr(then_ty, else_ty, firstSrcPos(items[2]))) orelse self.ctx.types.unknown_id;
-    }
-
-    fn synthBlock(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        // (block stmts...) — value-position block returns the type of
-        // its last expression. Walk all but the last as statements.
-        //
-        // M15b.1 per GPT-5.5 post-impl review: enter the block scope
-        // created by `SymbolResolver.walkBlock`. Pre-M15b.1 this site
-        // didn't push the block scope, so local bindings inside a
-        // value-position block (if-expr arms, match-expr arms, etc.)
-        // were invisible to the use-site lookup — `tmp + 1` resolved
-        // to `unknown` and silently passed type-checking, with later
-        // sibling-scope lookups potentially aliasing the wrong scope's
-        // bindings due to the next-scope cursor staying mis-aligned.
-        // This was hidden until the unbound-name diagnostic was
-        // attempted in M15b(4/5) and surfaced the cursor drift as
-        // false-positive "use of unbound name `doubled`" inside a
-        // legitimate `if cond INDENT doubled = n*2; doubled + 1`
-        // branch. Fixing the scope entry here both fixes the
-        // existing latent bug AND clears the runway for M15b.1's
-        // unbound-name detection.
-        if (items.len <= 1) return self.ctx.types.void_id;
-        const prev = self.enterNextScope();
-        defer self.leaveScope(prev);
-        for (items[1 .. items.len - 1]) |s| try self.checkStmt(s);
-        return self.synthExpr(items[items.len - 1]);
-    }
-
-    fn synthBorrow(self: *ExprChecker, items: []const Sexp, comptime kind: std.meta.Tag(Type)) std.mem.Allocator.Error!TypeId {
-        if (items.len < 2) return self.ctx.types.unknown_id;
-        // M22.1(1/8): reject `?(*Foo(...))` / `!(*Foo(...))` — borrowing
-        // a fresh Rc temporary leaves the strong handle ownerless.
-        if (isFreshResourceAlloc(items[1])) {
-            try self.err(firstSrcPos(items[1]), "resource allocation `*{s}` used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{
-                identCallName(self.ctx.source, items[1]) orelse "Ctor",
-            });
-            return self.ctx.types.unknown_id;
-        }
-        const inner = try self.synthExpr(items[1]);
-        // M22.1(1/8): type-aware leak check — `?make_user()` /
-        // `!make_user()` borrows a resource-returning call result;
-        // the strong handle escapes the borrow with no owner.
-        if (isCallExpr(items[1]) and isResourceOwningType(self.ctx, inner)) {
-            try self.err(firstSrcPos(items[1]), "resource-valued call result used as an anonymous temporary; bind it to a name first so an auto-drop guard installs.", .{});
-            return self.ctx.types.unknown_id;
-        }
-        if (inner == self.ctx.types.unknown_id or inner == self.ctx.types.invalid_id) return inner;
-        return switch (kind) {
-            .borrow_read => self.ctx.types.intern(self.ctx.allocator, .{ .borrow_read = inner }) catch self.ctx.types.invalid_id,
-            .borrow_write => self.ctx.types.intern(self.ctx.allocator, .{ .borrow_write = inner }) catch self.ctx.types.invalid_id,
-            else => self.ctx.types.unknown_id,
-        };
-    }
-
-    fn synthArith(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        // (op a b) — both args must be numeric, result is unified type.
-        if (items.len < 3) return self.ctx.types.unknown_id;
-        const a = try self.synthExpr(items[1]);
-        const b = try self.synthExpr(items[2]);
-        // Don't error on numeric mismatch yet — V1 lets users mix
-        // unsized literals freely, and we have no coercion for sized
-        // numerics. Just pick the first non-literal type if available.
-        if (isNumeric(self.ctx, a) and isNumeric(self.ctx, b)) {
-            return (try self.unifyOrErr(a, b, firstSrcPos(items[1]))) orelse self.ctx.types.unknown_id;
-        }
-        return self.ctx.types.unknown_id;
-    }
-
-    fn synthCompare(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        if (items.len >= 3) {
-            _ = try self.synthExpr(items[1]);
-            _ = try self.synthExpr(items[2]);
-        }
-        return self.ctx.types.bool_id;
-    }
-
-    fn synthLogical(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        if (items.len >= 2) try self.checkExpr(items[1], self.ctx.types.bool_id);
-        if (items.len >= 3) try self.checkExpr(items[2], self.ctx.types.bool_id);
-        return self.ctx.types.bool_id;
-    }
-
-    fn synthRecord(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        // (record TypeName members...) — V1 doesn't track fields.
-        if (items.len < 2) return self.ctx.types.unknown_id;
-        const name_node = items[1];
-        if (identAt(self.ctx.source, name_node)) |nm| {
-            if (self.ctx.lookup(self.current_scope, nm)) |sym_id| {
-                const sym = self.ctx.symbols.items[sym_id];
-                if (sym.kind == .nominal_type or sym.kind == .type_alias) return sym.ty;
-            }
-        }
-        return self.ctx.types.unknown_id;
-    }
-
-    // -------------------------------------------------------------------------
-    // M20g(2/5): lambda body checking + capture validation
-    // -------------------------------------------------------------------------
-
-    /// `(lambda CAPTURES PARAMS RETURNS BODY)` — type the lambda
-    /// expression. Validates each capture against the outer-scope
-    /// source-binding's type per the M20g capture-mode table, fills
-    /// in the body-scope capture symbol's `.ty`, then walks the
-    /// body for nested type-checking.
-    ///
-    /// Returns `unknown_id` — V1 has no `Type.closure` variant per
-    /// GPT-5.5's M20g tactical checkpoint. The ownership pass
-    /// recognizes closure bindings structurally via the lambda IR
-    /// head; that's sufficient for V1 non-escaping enforcement.
-    ///
-    /// Scope discipline: Pass 1 (`SymbolResolver.walkLambda`) created
-    /// the lambda body scope and bound captures + params into it.
-    /// We must enter it via `enterNextScope` to stay in lockstep
-    /// with the scope cursor; missing this would silently mis-bind
-    /// any scopes lexically following the lambda.
-    /// M20h: detect `(share (call Closure (lambda ...)))` — the
-    /// owned-closure construction shape — at synth time and produce
-    /// the precise type `shared(parameterized_nominal(Closure, []))`
-    /// instead of the generic `shared(unknown)` the fall-through
-    /// path would yield.
-    ///
-    /// `inner` is the `(share ...)` operand (i.e., items[1] of the
-    /// share node). Returns the synthesized type if this is owned-
-    /// closure construction; null otherwise (caller falls through
-    /// to the generic share-synth path).
-    ///
-    /// Validation performed here:
-    ///   - the call's callee is the `Closure` symbol
-    ///   - exactly one argument, which must be a lambda
-    ///   - the lambda's body is walked through synthExpr so nested
-    ///     type errors fire (and the body's last-expression type
-    ///     gets recorded for emit consumption)
-    ///
-    /// Malformed shapes (wrong arg count, non-lambda arg, etc.) get
-    /// a tailored diagnostic and still return the closure type so
-    /// downstream sema/ownership see the construction in the
-    /// expected shape and don't cascade misleading errors.
-    fn detectOwnedClosureConstruction(
-        self: *ExprChecker,
-        inner: Sexp,
-    ) std.mem.Allocator.Error!?TypeId {
-        if (inner != .list) return null;
-        const items = inner.list;
-        if (items.len < 2) return null;
-        if (items[0] != .tag or items[0].tag != .@"call") return null;
-
-        // Two recognized shapes:
-        //   (call Closure (lambda ...))                         M20h
-        //   (call (call Closure1 T) (lambda ...))              M24
-        //   (call (call Closure2 A B) (lambda ...))            M24
-        //
-        // For Closure0: callee is a bare name `Closure`.
-        // For Closure1/2: callee is itself a `(call ClosureN T...)` shape
-        // produced by Rig's chained-call grammar (`*Closure1(Int)(...)` →
-        // `(share (call (call Closure1 Int) (lambda ...)))`).
-
-        const callee = items[1];
-        const ClosureKind = enum { c0, c1, c2 };
-        var kind: ClosureKind = undefined;
-        var type_args: []const Sexp = &[_]Sexp{};
-        var callee_pos: u32 = 0;
-        var callee_name_for_diag: []const u8 = "Closure";
-
-        if (callee == .src) {
-            // Bare-name callee: must be `Closure` (M20h shape).
-            const callee_name = self.ctx.source[callee.src.pos..][0..callee.src.len];
-            if (self.ctx.closure_sym_id == symbol_invalid) return null;
-            const sym_id = self.ctx.lookup(self.current_scope, callee_name) orelse return null;
-            if (sym_id != self.ctx.closure_sym_id) return null;
-            kind = .c0;
-            callee_pos = callee.src.pos;
-            callee_name_for_diag = "Closure";
-        } else if (callee == .list) {
-            // Chained-call callee: must be `(call Closure1 T)` or `(call Closure2 A B)`.
-            const inner_items = callee.list;
-            if (inner_items.len < 2) return null;
-            if (inner_items[0] != .tag or inner_items[0].tag != .@"call") return null;
-            const inner_callee = inner_items[1];
-            if (inner_callee != .src) return null;
-            const inner_name = self.ctx.source[inner_callee.src.pos..][0..inner_callee.src.len];
-            const inner_sym = self.ctx.lookup(self.current_scope, inner_name) orelse return null;
-            if (inner_sym == self.ctx.closure1_sym_id and self.ctx.closure1_sym_id != symbol_invalid) {
-                kind = .c1;
-                callee_name_for_diag = "Closure1";
-            } else if (inner_sym == self.ctx.closure2_sym_id and self.ctx.closure2_sym_id != symbol_invalid) {
-                kind = .c2;
-                callee_name_for_diag = "Closure2";
-            } else {
-                return null;
-            }
-            type_args = inner_items[2..];
-            callee_pos = inner_callee.src.pos;
-        } else {
-            return null;
-        }
-
-        // Validate type-arg count matches the closure arity.
-        const expected_arity: usize = switch (kind) {
-            .c0 => 0,
-            .c1 => 1,
-            .c2 => 2,
-        };
-        if (type_args.len != expected_arity) {
-            try self.err(callee_pos, "`{s}` requires {d} type argument(s); got {d}", .{
-                callee_name_for_diag, expected_arity, type_args.len,
-            });
-        }
-
-        const call_args = items[2..];
-        if (call_args.len == 0) {
-            try self.err(callee_pos, "owned closure `*{s}(...)` requires a lambda argument; write `*{s}(...)(|...| body)`", .{ callee_name_for_diag, callee_name_for_diag });
-        } else if (call_args.len > 1) {
-            try self.err(callee_pos, "owned closure `*{s}(...)` takes exactly one lambda argument; got {d}", .{ callee_name_for_diag, call_args.len });
-            for (call_args) |a| _ = try self.synthExpr(a);
-        } else {
-            const arg = call_args[0];
-            if (!isLambdaSexp(arg)) {
-                try self.err(firstSrcPos(arg), "owned closure `*{s}(...)` argument must be a lambda `|...| body`", .{callee_name_for_diag});
-                _ = try self.synthExpr(arg);
-            } else {
-                // Validate lambda's params match closure arity, then synth.
-                if (kind == .c1 or kind == .c2) {
-                    try self.validateClosureLambdaParams(arg, type_args, expected_arity, callee_name_for_diag);
-                }
-                _ = try self.synthExpr(arg);
-            }
-        }
-
-        // Resolve type args (parameterized closures).
-        const resolved_args = try self.ctx.arena.allocator().alloc(TypeId, type_args.len);
-        var local_resolver = TypeResolver{ .ctx = self.ctx };
-        for (type_args, 0..) |targ, i| {
-            const ty = try local_resolver.resolveType(targ, self.current_scope);
-            // M24: enforce Copy-only type args for V1.
-            if (kind != .c0 and !isCopyTypeForCell(self.ctx, ty)) {
-                try self.err(firstSrcPos(targ), "`{s}` argument types must be Copy in V1 (Int/Float/Bool/String/sized primitives); resource arguments are not yet supported", .{callee_name_for_diag});
-            }
-            resolved_args[i] = ty;
-        }
-
-        const closure_sym = switch (kind) {
-            .c0 => self.ctx.closure_sym_id,
-            .c1 => self.ctx.closure1_sym_id,
-            .c2 => self.ctx.closure2_sym_id,
-        };
-        const inner_ty = self.ctx.types.intern(self.ctx.allocator, .{
-            .parameterized_nominal = .{ .sym = closure_sym, .args = resolved_args },
-        }) catch return self.ctx.types.unknown_id;
-        const outer_ty = self.ctx.types.intern(self.ctx.allocator, .{ .shared = inner_ty }) catch
-            return self.ctx.types.unknown_id;
-        return outer_ty;
-    }
-
-    /// M24: validate that a closure literal's params slot has the
-    /// expected arity and that each param has an explicit type
-    /// annotation matching the closure's type argument. Per GPT-5.5's
-    /// design lock, V1 requires explicit annotations rather than
-    /// inferring from the ClosureN type — keeps the implementation
-    /// simple and the source self-documenting.
-    fn validateClosureLambdaParams(
-        self: *ExprChecker,
-        lambda: Sexp,
-        type_args: []const Sexp,
-        expected_arity: usize,
-        closure_name: []const u8,
-    ) std.mem.Allocator.Error!void {
-        if (lambda != .list or lambda.list.len < 5) return;
-        const params_node = lambda.list[2];
-        const lambda_pos = firstSrcPos(lambda);
-        if (params_node == .nil) {
-            try self.err(lambda_pos, "`{s}` closure body needs {d} param(s) `(name: T)`; got 0", .{ closure_name, expected_arity });
-            return;
-        }
-        if (params_node != .list) return;
-        const params = params_node.list;
-        if (params.len != expected_arity) {
-            try self.err(lambda_pos, "`{s}` closure body needs {d} param(s); got {d}", .{ closure_name, expected_arity, params.len });
-        }
-        const compare_count = @min(params.len, type_args.len);
-        var i: usize = 0;
-        while (i < compare_count) : (i += 1) {
-            const param = params[i];
-            if (param != .list or param.list.len < 3 or param.list[0] != .tag or param.list[0].tag != .@":") {
-                const ppos = firstSrcPos(param);
-                try self.err(ppos, "`{s}` closure params require explicit type annotations in V1; write `(name: T)`", .{closure_name});
-            }
-        }
-    }
-
-
-    /// M20h: does the symbol's type slot describe a `*Closure()`
-    /// handle? Used by `synthCall` to recognize closure invocation
-    /// `cb()` when `cb: *Closure()`.
-    ///
-    /// M20i.1: borrows are peeled first so a borrowed closure handle
-    /// (e.g., the element binding of `for cb in ?subs` where
-    /// `subs: Vec(*Closure())`) is recognized as callable. Per GPT-5.5's
-    /// design pass: a borrowed `*Closure()` is still callable — invoke
-    /// is a read operation on the underlying handle — even though it
-    /// cannot be cloned/moved/dropped via the borrowed binding. The
-    /// ownership layer enforces the consume restrictions; the type
-    /// classifier just decides whether `cb()` is a closure invocation.
-    fn isOwnedClosureHandleType(ctx: *const SemContext, ty_id: TypeId) bool {
-        return ownedClosureHandleArity(ctx, ty_id) != null;
-    }
-
-    /// M24: classify the closure-handle arity of `ty_id`. Returns
-    /// 0 for `*Closure()`, 1 for `*Closure1(T)`, 2 for `*Closure2(A, B)`,
-    /// null for non-closure types. Borrow wrappers are peeled per
-    /// the existing M20i.1 rule.
-    fn ownedClosureHandleArity(ctx: *const SemContext, ty_id: TypeId) ?u8 {
-        const peeled = unwrapBorrows(ctx, ty_id);
-        const ty = ctx.types.get(peeled);
-        const inner_id = switch (ty) {
-            .shared => |t| t,
-            else => return null,
-        };
-        const inner_ty = ctx.types.get(inner_id);
-        const sym_id: SymbolId = switch (inner_ty) {
-            .nominal => |s| s,
-            .parameterized_nominal => |pn| pn.sym,
-            else => return null,
-        };
-        if (sym_id == symbol_invalid) return null;
-        if (ctx.closure_sym_id != symbol_invalid and sym_id == ctx.closure_sym_id) return 0;
-        if (ctx.closure1_sym_id != symbol_invalid and sym_id == ctx.closure1_sym_id) return 1;
-        if (ctx.closure2_sym_id != symbol_invalid and sym_id == ctx.closure2_sym_id) return 2;
-        return null;
-    }
-
-    /// M24: extract the Closure1/Closure2 type-arg list from the
-    /// handle type. Returns the args slice for the parameterized
-    /// nominal, or null when the type is the bare zero-arg form.
-    fn ownedClosureHandleArgs(ctx: *const SemContext, ty_id: TypeId) ?[]const TypeId {
-        const peeled = unwrapBorrows(ctx, ty_id);
-        const ty = ctx.types.get(peeled);
-        const inner_id = switch (ty) {
-            .shared => |t| t,
-            else => return null,
-        };
-        const inner_ty = ctx.types.get(inner_id);
-        return switch (inner_ty) {
-            .parameterized_nominal => |pn| pn.args,
-            else => null,
-        };
-    }
-
-    fn synthLambda(self: *ExprChecker, items: []const Sexp) std.mem.Allocator.Error!TypeId {
-        if (items.len < 5) return self.ctx.types.unknown_id;
-        const captures = items[1];
-        const body = items[4];
-
-        // Enter the lambda body scope in lockstep with Pass 1.
-        const prev_scope = self.enterNextScope();
-        defer self.leaveScope(prev_scope);
-
-        // M20g(2/5): nested-closure-capture rejection. If we're
-        // already inside a lambda scope (the outer scope chain
-        // includes a `.capture` symbol), capturing from there is
-        // not supported in V1 — emit would have to clone the
-        // enclosing closure's `self.<field>`, which (3/5) does
-        // not handle. Per GPT-5.5: reject loudly rather than slip
-        // through and produce wrong emit later.
-        try self.rejectNestedLambdaCaptures(captures, prev_scope);
-
-        // Validate each capture and fill in its body-scope `.ty`.
-        try self.validateCaptures(captures, prev_scope);
-
-        // Walk the body. Lambdas don't declare an explicit return
-        // type in V1 (returns slot is `_`); we typecheck statements
-        // without an implicit-return constraint. ownership.zig's
-        // walkFun handles return-escape separately.
-        const body_ret = try self.walkLambdaBody(body);
-
-        // M20g(3/5) hook: stash the body's last-expression type so
-        // emit can produce a concrete Zig return type on the
-        // synthesized `invoke` method. Keyed by the lambda's first
-        // src pos (emit recovers the same key via `firstSrcPos`).
-        const pos = firstSrcPos(.{ .list = items });
-        if (pos != 0 and body_ret != self.ctx.types.invalid_id) {
-            self.ctx.lambda_return_types.put(self.ctx.allocator, pos, body_ret) catch {};
-        }
-
-        return self.ctx.types.unknown_id;
-    }
-
-    /// Walk the lambda body. Returns the TypeId of the implicit-
-    /// return expression (the last statement of a `(block ...)`
-    /// body, or the body itself if it's a single expression),
-    /// which (3/5) emit uses to synthesize the `invoke` method's
-    /// Zig return type. For statement-form last expressions (calls
-    /// returning `void`, etc.) the synthesized type may itself be
-    /// `void` — that's fine; emit lowers it to `void`.
-    fn walkLambdaBody(self: *ExprChecker, body: Sexp) std.mem.Allocator.Error!TypeId {
-        const is_block = body == .list and body.list.len > 0 and
-            body.list[0] == .tag and body.list[0].tag == .@"block";
-        if (is_block) {
-            // Body is a `(block ...)` — Pass 1 pushed a fresh scope
-            // for it. Enter that scope before walking statements.
-            const prev = self.enterNextScope();
-            defer self.leaveScope(prev);
-            const stmts = body.list[1..];
-            if (stmts.len == 0) return self.ctx.types.void_id;
-            for (stmts[0 .. stmts.len - 1]) |stmt| try self.checkStmt(stmt);
-            // Synth the last statement's type. We deliberately use
-            // `synthExpr` (not `checkStmt`) so the implicit-return
-            // type flows back. For genuine statement positions (e.g.,
-            // a trailing `print(...)` call that returns void) this
-            // still returns `void` cleanly.
-            return try self.synthExpr(stmts[stmts.len - 1]);
-        } else {
-            return try self.synthExpr(body);
-        }
-    }
-
-    fn rejectNestedLambdaCaptures(
-        self: *ExprChecker,
-        captures: Sexp,
-        outer_scope: ScopeId,
-    ) std.mem.Allocator.Error!void {
-        if (captures != .list) return;
-        if (captures.list.len < 2 or captures.list[0] != .tag) return;
-        if (captures.list[0].tag != .@"captures") return;
-        if (!self.scopeIsInsideLambda(outer_scope)) return;
-        for (captures.list[1..]) |cap| {
-            const name_node = captureNameNode(cap) orelse continue;
-            const name = identAt(self.ctx.source, name_node) orelse continue;
-            const pos: u32 = if (name_node == .src) name_node.src.pos else 0;
-            try self.err(pos, "nested closure capture of `{s}` is not supported in V1; lift the capture to the outer scope or refactor", .{name});
-        }
-    }
-
-    /// Does any scope in `scope`'s parent chain contain a `.capture`
-    /// symbol? Cheap check: a `.capture` symbol exists only inside
-    /// a lambda body scope, so finding one means we're nested.
-    fn scopeIsInsideLambda(self: *ExprChecker, scope: ScopeId) bool {
-        var sid: ?ScopeId = scope;
-        while (sid) |s| {
-            if (s == scope_invalid or s >= self.ctx.scopes.items.len) break;
-            const sc = &self.ctx.scopes.items[s];
-            for (sc.symbols.items) |sym_id| {
-                if (self.ctx.symbols.items[sym_id].kind == .capture) return true;
-            }
-            sid = sc.parent;
-        }
-        return false;
-    }
-
-    fn validateCaptures(
-        self: *ExprChecker,
-        captures: Sexp,
-        outer_scope: ScopeId,
-    ) std.mem.Allocator.Error!void {
-        if (captures != .list) return;
-        if (captures.list.len < 2 or captures.list[0] != .tag) return;
-        if (captures.list[0].tag != .@"captures") return;
-        for (captures.list[1..]) |cap| try self.validateOneCapture(cap, outer_scope);
-    }
-
-    fn validateOneCapture(
-        self: *ExprChecker,
-        cap: Sexp,
-        outer_scope: ScopeId,
-    ) std.mem.Allocator.Error!void {
-        const mode = captureModeOf(cap) orelse return;
-        const name_node = captureNameNode(cap) orelse return;
-        const name = identAt(self.ctx.source, name_node) orelse return;
-        const pos: u32 = if (name_node == .src) name_node.src.pos else 0;
-
-        // Look up the OUTER symbol (parent scope and up). The capture
-        // symbol itself lives in the lambda body scope so we
-        // explicitly walk from `outer_scope`.
-        const outer_id = self.ctx.lookup(outer_scope, name) orelse {
-            try self.err(pos, "captured name `{s}` is not in scope", .{name});
-            try self.assignCaptureType(name, self.ctx.types.invalid_id);
-            return;
-        };
-        const outer_sym = self.ctx.symbols.items[outer_id];
-        // M20g(2/5): closures are non-copyable in V1, so capturing a
-        // closure binding by any mode is rejected here. (Closure
-        // bindings have kind `.local` from `checkSet`; ownership
-        // marks them `is_closure`. Sema does not currently track
-        // closure-ness on the Symbol, so we lean on the ownership
-        // pass for the full diagnostic. This branch handles the
-        // explicit `.capture` case — capturing an outer capture is
-        // already rejected by `rejectNestedLambdaCaptures` above.)
-        const outer_ty = outer_sym.ty;
-        const outer_ty_resolved = self.ctx.types.get(outer_ty);
-
-        const bound_ty: TypeId = switch (mode) {
-            .cap_copy => blk: {
-                // Resources (shared/weak) must use an explicit
-                // capture mode so the refcount-bump / move is
-                // visible at the closure-construction site.
-                switch (outer_ty_resolved) {
-                    .shared => {
-                        try self.err(pos, "bare capture `|{s}|` of shared handle `*T` would hide a refcount bump; use `|+{s}|` to clone, `|<{s}|` to move, or `|~{s}|` to capture a weak ref", .{ name, name, name, name });
-                        break :blk self.ctx.types.invalid_id;
-                    },
-                    .weak => {
-                        try self.err(pos, "bare capture `|{s}|` of weak handle `~T` would hide a refcount bump; use `|+{s}|` to clone or `|<{s}|` to move", .{ name, name, name });
-                        break :blk self.ctx.types.invalid_id;
-                    },
-                    else => {
-                        // Non-resource: must be Copy. V1 uses the
-                        // conservative primitive-only check (same as
-                        // ownership.zig's `isCopyType`).
-                        if (!isCopyTypeForCapture(self.ctx, outer_ty)) {
-                            const fmt_outer = formatType(self.ctx, outer_ty) catch "?";
-                            try self.err(pos, "bare capture `|{s}|` requires a Copy type; got `{s}`; use `|+{s}|` to explicitly clone (if cloning is defined), `|<{s}|` to move, or refactor", .{ name, fmt_outer, name, name });
-                            break :blk self.ctx.types.invalid_id;
-                        }
-                        break :blk outer_ty;
-                    },
-                }
-            },
-            .cap_clone => blk: {
-                // Refcount-bump for resources; copy for Copy types.
-                // Other types (non-Copy non-resource) rejected per
-                // GPT-5.5: cap_clone has no defined semantics for a
-                // nominal value type until V1 grows a Clone trait.
-                switch (outer_ty_resolved) {
-                    .shared, .weak => break :blk outer_ty,
-                    else => {
-                        if (isCopyTypeForCapture(self.ctx, outer_ty)) break :blk outer_ty;
-                        const fmt_outer = formatType(self.ctx, outer_ty) catch "?";
-                        try self.err(pos, "clone-capture `|+{s}|` requires a shared `*T`, weak `~T`, or Copy type; got `{s}`", .{ name, fmt_outer });
-                        break :blk self.ctx.types.invalid_id;
-                    },
-                }
-            },
-            .cap_weak => blk: {
-                // Must be shared(T); produces weak(T).
-                switch (outer_ty_resolved) {
-                    .shared => |inner| {
-                        const wt = self.ctx.types.intern(self.ctx.allocator, .{ .weak = inner }) catch {
-                            break :blk self.ctx.types.invalid_id;
-                        };
-                        break :blk wt;
-                    },
-                    else => {
-                        const fmt_outer = formatType(self.ctx, outer_ty) catch "?";
-                        try self.err(pos, "weak-capture `|~{s}|` requires a shared handle `*T`; got `{s}`", .{ name, fmt_outer });
-                        break :blk self.ctx.types.invalid_id;
-                    },
-                }
-            },
-            .cap_move => outer_ty,
-        };
-
-        try self.assignCaptureType(name, bound_ty);
-    }
-
-    /// Find the `.capture` symbol named `name` in the current
-    /// (lambda body) scope and assign its type. The capture was
-    /// bound by `SymbolResolver.bindCaptures` before any params, so
-    /// it lives at the head of the current scope's symbol list.
-    fn assignCaptureType(self: *ExprChecker, name: []const u8, ty: TypeId) std.mem.Allocator.Error!void {
-        if (self.ctx.lookupInScopeOnly(self.current_scope, name)) |sym_id| {
-            const sym = &self.ctx.symbols.items[sym_id];
-            if (sym.kind == .capture) sym.ty = ty;
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // checkExpr — synth + compatibility-check
-    // -------------------------------------------------------------------------
-
-    fn checkExpr(self: *ExprChecker, expr: Sexp, expected: TypeId) std.mem.Allocator.Error!void {
-        // M20f(3/4): propagate expected type through `(share x)`. The
-        // pattern `*Cell(value: 0)` with expected `*Cell(Int)` parses
-        // as `(share (call Cell (kwarg value 0)))` and the inner
-        // `Cell(...)` constructor needs the expected `Cell(Int)` to
-        // drive its expected-type-based generic substitution
-        // (otherwise it fires the "unannotated generic constructor"
-        // diagnostic). The simplest fix is to unwrap the shared
-        // wrapper from the expected type and recursively check the
-        // inner expression. The result-type compatibility check is
-        // automatic — if inner produces `Cell(Int)`, the outer
-        // `(share ...)` produces `shared(Cell(Int))` which matches
-        // the original expected.
-        if (expr == .list and expr.list.len >= 2 and expr.list[0] == .tag and
-            expr.list[0].tag == .@"share")
-        {
-            // M20h: owned-closure construction takes precedence over
-            // the generic Cell-style share-unwrap. `*Closure(fn ...)`
-            // is its own construction shape — routing through
-            // `checkGenericConstructorCall` (which expects a struct-
-            // like field list) would mis-classify the lambda arg.
-            // Synth handles construction; we just verify the
-            // expected matches and return.
-            if (try self.detectOwnedClosureConstruction(expr.list[1])) |closure_ty| {
-                if (compatible(self.ctx, closure_ty, expected)) return;
-                const pos = firstSrcPos(expr);
-                try self.err(pos, "type mismatch: expected `{s}`, got `{s}`", .{
-                    try formatType(self.ctx, expected),
-                    try formatType(self.ctx, closure_ty),
-                });
-                return;
-            }
-            const expected_ty = self.ctx.types.get(expected);
-            if (expected_ty == .shared) {
-                try self.checkExpr(expr.list[1], expected_ty.shared);
-                return;
-            }
-        }
-
-        // M7: enum literal `.red` is intrinsically context-typed —
-        // synth would return `unknown` (no enum is named in the
-        // expression itself). When the expected type is a nominal
-        // enum, validate the variant against the enum's field list
-        // here instead of falling through to `synthExpr` and silently
-        // accepting unknown.
-        if (expr == .list and expr.list.len >= 2 and expr.list[0] == .tag and
-            expr.list[0].tag == .@"enum_lit")
-        {
-            try self.checkEnumLit(expr.list, expected);
-            return;
-        }
-
-        // M9b: payload-bearing variant construction `.circle(radius: 5)`
-        // parses as `(call (enum_lit circle) (kwarg radius 5))` — same
-        // contextual typing pattern. When the expected type is a nominal
-        // enum and the call's callee is `(enum_lit name)`, validate the
-        // variant + check args against the variant's payload fields.
-        if (expr == .list and expr.list.len >= 2 and expr.list[0] == .tag and
-            expr.list[0].tag == .@"call" and expr.list[1] == .list and
-            expr.list[1].list.len >= 2 and expr.list[1].list[0] == .tag and
-            expr.list[1].list[0].tag == .@"enum_lit")
-        {
-            try self.checkPayloadVariantCall(expr.list, expected);
-            return;
-        }
-
-        // M20b(4/5): generic constructor with expected parameterized_nominal.
-        // `Box(value: 5)` with expected `Box(Int)` should check the value
-        // against the substituted field type (T → Int). Without this
-        // expected-type-driven substitution, `synthCall` returns
-        // `nominal(Box)` for the constructor (no inference) and the
-        // compatibility check fails with "expected Box(Int), got Box".
-        // Per GPT-5.5: "Design for expected-type-driven generic
-        // construction, not inference."
-        //
-        // M20i(2/5): Vec construction is special-cased BEFORE
-        // `checkGenericConstructorCall` because Vec doesn't have
-        // data fields — the kwarg `capacity` is a constructor
-        // hint, not a field-init. Routing through the generic
-        // constructor path would error "no field `capacity` on
-        // type `Vec`".
-        if (expr == .list and expr.list.len >= 2 and expr.list[0] == .tag and
-            expr.list[0].tag == .@"call" and expr.list[1] == .src)
-        {
-            const expected_ty = self.ctx.types.get(expected);
-            if (expected_ty == .parameterized_nominal) {
-                const callee_src = expr.list[1].src;
-                const callee_name = self.ctx.source[callee_src.pos..][0..callee_src.len];
-                if (self.ctx.lookup(self.current_scope, callee_name)) |sym_id| {
-                    if (sym_id == self.ctx.vec_sym_id and
-                        sym_id == expected_ty.parameterized_nominal.sym)
-                    {
-                        try self.checkVecConstruction(expr.list, expected_ty.parameterized_nominal, callee_src.pos);
-                        return;
-                    }
-                    if (sym_id == expected_ty.parameterized_nominal.sym) {
-                        try self.checkGenericConstructorCall(expr.list, expected_ty.parameterized_nominal, callee_name, callee_src.pos);
-                        return;
-                    }
-                }
-            }
-        }
-
-        const actual = try self.synthExpr(expr);
-        if (compatible(self.ctx, actual, expected)) return;
-        const pos = firstSrcPos(expr);
-        try self.err(pos, "type mismatch: expected `{s}`, got `{s}`", .{
-            try formatType(self.ctx, expected),
-            try formatType(self.ctx, actual),
-        });
-    }
-
-    /// M20i(2/5): `Vec()` / `Vec(capacity: N)` construction against
-    /// an expected `parameterized_nominal{Vec, [T]}` type. Routed
-    /// from `checkExpr` BEFORE the generic-constructor path because
-    /// Vec doesn't have data fields — the `capacity` kwarg is a
-    /// constructor hint, not a field-init.
-    ///
-    /// Accepted shapes:
-    ///   - `Vec()`                  zero args, default capacity
-    ///   - `Vec(capacity: N)`       int kwarg, pre-sized
-    ///
-    /// Rejected (with tailored diagnostics):
-    ///   - any positional argument
-    ///   - any kwarg other than `capacity`
-    ///   - duplicate `capacity` kwargs
-    ///   - non-integer `capacity` value
-    fn checkVecConstruction(
-        self: *ExprChecker,
-        items: []const Sexp,
-        pn: ParamNominal,
-        callee_pos: u32,
-    ) std.mem.Allocator.Error!void {
-        const args = items[2..];
-        var seen_capacity = false;
-        var seen_capacity_pos: u32 = 0;
-        for (args) |arg| {
-            // Kwarg form: `(kwarg name expr)`.
-            if (arg == .list and arg.list.len >= 3 and arg.list[0] == .tag and
-                arg.list[0].tag == .@"kwarg")
-            {
-                const name = identAt(self.ctx.source, arg.list[1]) orelse continue;
-                const name_pos: u32 = if (arg.list[1] == .src) arg.list[1].src.pos else callee_pos;
-                if (!std.mem.eql(u8, name, "capacity")) {
-                    try self.err(name_pos, "`Vec` constructor accepts only `capacity` as a kwarg; got `{s}`", .{name});
-                    _ = try self.synthExpr(arg.list[2]);
-                    continue;
-                }
-                if (seen_capacity) {
-                    try self.err(name_pos, "duplicate `capacity` kwarg in `Vec` constructor", .{});
-                    try self.note(seen_capacity_pos, "first `capacity` here", .{});
-                    _ = try self.synthExpr(arg.list[2]);
-                    continue;
-                }
-                seen_capacity = true;
-                seen_capacity_pos = name_pos;
-                // Check the capacity value against Int.
-                try self.checkExpr(arg.list[2], self.ctx.types.int_id);
-            } else {
-                // Positional argument — not allowed.
-                const pos = firstSrcPos(arg);
-                try self.err(pos, "`Vec` constructor takes no positional arguments; use `Vec()` (empty) or `Vec(capacity: N)`", .{});
-                _ = try self.synthExpr(arg);
-            }
-        }
-        _ = pn; // The expected nominal is implicit in the return shape;
-        // the caller already established `sym_id == vec_sym_id` so
-        // T-inference works through the LHS type annotation.
-    }
-
-    /// M20b(4/5): `Box(value: 5)` with expected `Box(Int)` — the
-    /// expected-type's args become the substitution for field-type
-    /// checking. Called by `checkExpr` when the constructor's callee
-    /// matches the expected `parameterized_nominal`'s sym.
-    fn checkGenericConstructorCall(
-        self: *ExprChecker,
-        items: []const Sexp,
-        pn: ParamNominal,
-        callee_name: []const u8,
-        callee_pos: u32,
-    ) std.mem.Allocator.Error!void {
-        // items: (call <name> args...)
-        const args = items[2..];
-        const sym = self.ctx.symbols.items[pn.sym];
-        const tparams = sym.type_params orelse &.{};
-        const subst: TypeSubst = .{ .params = tparams, .args = pn.args };
-        try self.checkConstructorArgsSubst(args, pn.sym, callee_name, callee_pos, subst);
-    }
-
-    /// `(call (enum_lit name) args...)` — payload-variant construction
-    /// against an `expected` nominal enum. Errors if the variant
-    /// doesn't exist; otherwise checks args against the variant's
-    /// payload field list.
-    ///
-    /// Arg matching mirrors `checkConstructorArgs` for structs:
-    ///   - all-kwarg: each kwarg names a real payload field, types
-    ///     check, no duplicates, no missing
-    ///   - all-positional: arity must match payload field count, types
-    ///     checked positionally
-    ///   - mixed: V1-undefined, args synth-and-discarded
-    fn checkPayloadVariantCall(self: *ExprChecker, items: []const Sexp, expected: TypeId) std.mem.Allocator.Error!void {
-        const callee = items[1].list;
-        const variant_name = identAt(self.ctx.source, callee[1]) orelse return;
-        const variant_pos: u32 = if (callee[1] == .src) callee[1].src.pos else 0;
-
-        // M20c per GPT-5.5: route through `lookupVariant` so both
-        // plain `nominal(Shape)` and generic `parameterized_nominal(
-        // Option, [Int])` receivers work uniformly, with payload field
-        // types already substituted (T → Int).
-        const resolved = (try lookupVariant(self.ctx, expected, variant_name)) orelse {
-            // Not a known enum context — could be no expected type, or
-            // the expected isn't an enum at all. Distinguish silent vs
-            // diagnostic via the receiver's nominal classification.
-            const owner_id_opt = nominalSymOfReceiver(self.ctx, expected);
-            const sym_id = owner_id_opt orelse return;
-            const sym = self.ctx.symbols.items[sym_id];
-            if (sym.fields == null) return; // opaque
-            try self.err(variant_pos, "no variant `{s}` on enum `{s}`", .{ variant_name, sym.name });
-            if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
-            return;
-        };
-        const enum_sym = self.ctx.symbols.items[resolved.nominal_sym];
-
-        const args = items[2..];
-        if (resolved.payload.len == 0) {
-            // Bare variant called with args → mismatch.
-            if (args.len > 0) {
-                try self.err(variant_pos, "variant `{s}` of enum `{s}` takes no payload", .{ variant_name, enum_sym.name });
-            }
-            return;
-        }
-        const payload = resolved.payload;
-
-        // Decide arg style.
-        var has_kwarg = false;
-        var has_positional = false;
-        for (args) |a| {
-            if (a == .list and a.list.len > 0 and a.list[0] == .tag and a.list[0].tag == .@"kwarg") {
-                has_kwarg = true;
-            } else {
-                has_positional = true;
-            }
-        }
-
-        if (has_kwarg and !has_positional) {
-            try self.checkPayloadKwargs(args, payload, variant_name, enum_sym.name, variant_pos);
-        } else if (has_positional and !has_kwarg) {
-            try self.checkPayloadPositional(args, payload, variant_name, variant_pos);
-        } else {
-            // Mixed or empty — V1 doesn't define behavior; just synth.
-            for (args) |a| _ = try self.synthExpr(a);
-        }
-    }
-
-    fn checkPayloadKwargs(
-        self: *ExprChecker,
-        args: []const Sexp,
-        payload: []const Field,
-        variant_name: []const u8,
-        enum_name: []const u8,
-        variant_pos: u32,
-    ) std.mem.Allocator.Error!void {
-        var seen: std.StringHashMapUnmanaged(u32) = .empty;
-        defer seen.deinit(self.ctx.allocator);
-
-        for (args) |arg| {
-            if (arg != .list or arg.list.len < 3 or arg.list[0] != .tag or
-                arg.list[0].tag != .@"kwarg") continue;
-            const fname = identAt(self.ctx.source, arg.list[1]) orelse continue;
-            const fpos: u32 = if (arg.list[1] == .src) arg.list[1].src.pos else variant_pos;
-
-            if (seen.contains(fname)) {
-                try self.err(fpos, "duplicate field `{s}` in variant `{s}`", .{ fname, variant_name });
-                if (seen.get(fname)) |first_pos| try self.note(first_pos, "first `{s}` here", .{fname});
-                continue;
-            }
-            try seen.put(self.ctx.allocator, fname, fpos);
-
-            const field = blk: {
-                for (payload) |f| if (std.mem.eql(u8, f.name, fname)) break :blk f;
-                try self.err(fpos, "no field `{s}` on variant `{s}` of `{s}`", .{ fname, variant_name, enum_name });
-                _ = try self.synthExpr(arg.list[2]);
-                break :blk null;
-            } orelse continue;
-
-            try self.checkExpr(arg.list[2], field.ty);
-        }
-
-        for (payload) |f| {
-            if (!seen.contains(f.name)) {
-                try self.err(variant_pos, "variant `{s}` is missing field `{s}`", .{ variant_name, f.name });
-            }
-        }
-    }
-
-    fn checkPayloadPositional(
-        self: *ExprChecker,
-        args: []const Sexp,
-        payload: []const Field,
-        variant_name: []const u8,
-        variant_pos: u32,
-    ) std.mem.Allocator.Error!void {
-        if (args.len != payload.len) {
-            try self.err(variant_pos, "variant `{s}` expects {d} payload field{s}, got {d}", .{
-                variant_name,
-                payload.len,
-                if (payload.len == 1) @as([]const u8, "") else "s",
-                args.len,
-            });
-            for (args) |a| _ = try self.synthExpr(a);
-            return;
-        }
-        for (args, payload) |arg, f| {
-            try self.checkExpr(arg, f.ty);
-        }
-    }
-
-    /// Validate `(enum_lit name)` against an `expected` nominal enum
-    /// type. M7 v1 rules:
-    ///   - Expected must be `nominal(SymId)` where the symbol is a
-    ///     `nominal_type` with `fields` populated (i.e., a known enum).
-    ///     Anything else: silently accept (unknown context, deferred).
-    ///   - The variant name must appear in the enum's fields.
-    ///     Otherwise: `error: no variant 'red' on type 'Color'`.
-    fn checkEnumLit(self: *ExprChecker, items: []const Sexp, expected: TypeId) std.mem.Allocator.Error!void {
-        const variant_node = items[1];
-        const variant_name = identAt(self.ctx.source, variant_node) orelse return;
-        const variant_pos: u32 = if (variant_node == .src) variant_node.src.pos else 0;
-
-        // M20c per GPT-5.5: route through `lookupVariant` so both
-        // `nominal(Color)` (plain) and `parameterized_nominal(Option,
-        // [Int])` (generic) receivers work uniformly.
-        if (try lookupVariant(self.ctx, expected, variant_name)) |_| return;
-
-        // No match — either the expected type isn't an enum at all
-        // (accept silently — no useful context), or it is but the
-        // variant doesn't exist (diagnose).
-        const owner_id_opt = nominalSymOfReceiver(self.ctx, expected);
-        const sym_id = owner_id_opt orelse return;
-        const sym = self.ctx.symbols.items[sym_id];
-        if (sym.fields == null) return; // opaque nominal — accept silently
-        try self.err(variant_pos, "no variant `{s}` on enum `{s}`", .{ variant_name, sym.name });
-        if (sym.decl_pos > 0) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
-    }
-
-    /// Best-effort unification: returns the unified type id, or null
-    /// after emitting a diagnostic. Literal pseudo-types adapt to
-    /// matching numeric concrete types.
-    fn unifyOrErr(self: *ExprChecker, a: TypeId, b: TypeId, pos: u32) std.mem.Allocator.Error!?TypeId {
-        if (a == b) return a;
-        if (a == self.ctx.types.unknown_id or a == self.ctx.types.invalid_id) return b;
-        if (b == self.ctx.types.unknown_id or b == self.ctx.types.invalid_id) return a;
-
-        // Literal pseudo-types adapt to concrete numeric.
-        if (compatible(self.ctx, a, b)) return b;
-        if (compatible(self.ctx, b, a)) return a;
-
-        try self.err(pos, "incompatible types `{s}` and `{s}`", .{
-            try formatType(self.ctx, a),
-            try formatType(self.ctx, b),
-        });
-        return null;
-    }
-
-    /// Promote literal pseudo-types to canonical concrete forms (used
-    /// when storing on a symbol so downstream uses see `Int`/`Float`).
-    fn canonicalize(self: *ExprChecker, ty: TypeId) TypeId {
-        if (ty == self.ctx.types.int_literal_id) return self.ctx.types.int_id;
-        if (ty == self.ctx.types.float_literal_id) return self.ctx.types.float_id;
-        return ty;
-    }
-};
-
-/// Compatibility: is `actual` acceptable where `expected` is required?
-/// See the rule table at the top of "Expression Typing".
-fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
-    if (actual == expected) return true;
-    // Sentinel propagation — unknown / invalid never produce a mismatch.
-    if (actual == ctx.types.invalid_id or expected == ctx.types.invalid_id) return true;
-    if (actual == ctx.types.unknown_id or expected == ctx.types.unknown_id) return true;
-
-    const a = ctx.types.get(actual);
-    const e = ctx.types.get(expected);
-
-    // Literal pseudo-types adapt to matching numeric concrete types.
-    if (a == .int_literal) {
-        return switch (e) {
-            .int, .int_literal => true,
-            else => false,
-        };
-    }
-    if (a == .float_literal) {
-        return switch (e) {
-            .float, .float_literal => true,
-            else => false,
-        };
-    }
-    return false;
-}
-
-fn typeIsVoid(ctx: *const SemContext, ty: TypeId) bool {
-    return ty == ctx.types.void_id;
-}
-
-/// If `ty` resolves to a nominal enum/errors with declared variants,
-/// returns the variant count. Used by match exhaustiveness checking.
-fn enumVariantCount(ctx: *const SemContext, ty: TypeId) ?usize {
-    // M20c per GPT-5.5: handle both `nominal` (plain enum) and
-    // `parameterized_nominal` (generic enum like `Option(Int)`) via
-    // the shared `nominalSymOfReceiver` helper.
-    const sym_id = nominalSymOfReceiver(ctx, ty) orelse return null;
-    const sym = ctx.symbols.items[sym_id];
-    if (sym.kind != .nominal_type and sym.kind != .generic_type) return null;
-    const fields = sym.fields orelse return null;
-    // M20a: methods (is_method=true) live in the same `fields` slice
-    // as variants but aren't variants. M20c: only count actual variants
-    // (is_variant=true).
+/// Number of variants of an enum type, or null if not an enum.
+pub fn enumVariantCount(ctx: *const SemContext, ty: TypeId) ?usize {
+    const decl = nominalDecl(ctx, ty) orelse return null;
+    const fields = decl.symbol().fields orelse return null;
     var count: usize = 0;
     for (fields) |f| {
         if (f.is_variant) count += 1;
     }
-    return count;
+    return if (count == 0) null else count;
 }
 
-fn isNumeric(ctx: *const SemContext, ty: TypeId) bool {
-    const t = ctx.types.get(ty);
-    return switch (t) {
-        .int, .float, .int_literal, .float_literal => true,
-        else => false,
-    };
+/// Render a type the way it is spelled in Rig source, allocating in the
+/// context's arena.
+pub fn formatType(ctx: *SemContext, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
+    return formatTypeIn(ctx, ctx.arena.allocator(), ty_id);
 }
 
-fn isIntLiteral(text: []const u8) bool {
-    if (text.len == 0) return false;
-    const c = text[0];
-    if (c == '0' and text.len > 1 and (text[1] == 'x' or text[1] == 'b' or text[1] == 'o')) return true;
-    if (c < '0' or c > '9') return false;
-    for (text) |ch| {
-        if (ch == '.') return false;
-    }
-    return true;
-}
-
-fn isFloatLiteral(text: []const u8) bool {
-    if (text.len == 0) return false;
-    const c = text[0];
-    if (c < '0' or c > '9') return false;
-    for (text) |ch| {
-        if (ch == '.') return true;
-    }
-    return false;
-}
-
-fn firstSrcPos(sexp: Sexp) u32 {
-    return switch (sexp) {
-        .src => |s| s.pos,
-        .list => |items| blk: {
-            for (items) |c| {
-                const p = firstSrcPos(c);
-                if (p > 0) break :blk p;
-            }
-            break :blk 0;
-        },
-        else => 0,
-    };
-}
-
-/// M22.1(1/8) per GPT-5.5 entry 39 + Steve's M22.1 "fake-surface audit":
-/// detect a fresh resource allocation used as an anonymous temporary.
-///
-/// The canonical leak shape is `(share (call NominalCtor ...))` —
-/// i.e., `*Foo(...)`. This allocates a strong Rc whose lifetime
-/// guard is installed by M20e ONLY for named bindings. Used as an
-/// anonymous temporary (`(*User(...)).field`, `(*Cell(...)).get()`,
-/// `+(*Foo(...))`, etc.) it leaks: the Rc's strong count stays at 1
-/// forever and the heap allocation is never freed.
-///
-/// V1 policy (M22.1(1/8) per GPT-5.5 entry 39): reject every
-/// projection/borrow/consume that has a fresh resource allocation
-/// as its target. The fix is conservative — users must bind to a
-/// name first so the M20e auto-drop guard can install. Hidden
-/// guarded temporaries are deferred until a real use case appears.
-///
-/// Installing contexts (NOT detected here; allowed) are:
-///   - RHS of `(set ...)`        — M20e installs the guard
-///   - Direct child of `return`  — caller takes ownership
-///   - Direct positional/kwarg argument of `(call ...)` — callee
-///     parameter consumes
-///   - Implicit last-expression return from a block body
-///
-/// Non-installing contexts (REJECTED via this helper at the parent
-/// sema site): `(member ...)` object, `(index ...)` object, the
-/// receiver of a method call, and the ownership-wrapper arms
-/// (`(share/weak/clone/read/write/pin/raw ...)`).
-fn isFreshResourceAlloc(sexp: Sexp) bool {
-    if (sexp != .list or sexp.list.len == 0) return false;
-    if (sexp.list[0] != .tag) return false;
-    if (sexp.list[0].tag != .@"share") return false;
-    if (sexp.list.len < 2) return false;
-    const inner = sexp.list[1];
-    if (inner != .list or inner.list.len == 0) return false;
-    if (inner.list[0] != .tag) return false;
-    return inner.list[0].tag == .@"call";
-}
-
-/// Best-effort extraction of the constructor name from a fresh
-/// resource allocation `(share (call <name> ...))` — used for
-/// diagnostic spelling in M22.1(1/8) errors. Returns null if the
-/// shape doesn't have an identifier in the call head slot.
-fn identCallName(source: []const u8, sexp: Sexp) ?[]const u8 {
-    if (!isFreshResourceAlloc(sexp)) return null;
-    const inner = sexp.list[1];
-    if (inner.list.len < 2) return null;
-    return identAt(source, inner.list[1]);
-}
-
-/// True if `sexp` is structurally a `(call ...)` (function or
-/// constructor invocation). Companion to `isFreshResourceAlloc`
-/// for the M22.1(1/8) type-aware leak check: a `(call ...)`
-/// whose return type is `shared(_)` is a resource-returning
-/// function call (`fun make_user() -> *User`), which leaks the
-/// same way `*User(...)` does when used as an anonymous
-/// temporary. The type check happens at the parent site after
-/// the obj's type is synthesized.
-fn isCallExpr(sexp: Sexp) bool {
-    if (sexp != .list or sexp.list.len == 0) return false;
-    if (sexp.list[0] != .tag) return false;
-    return sexp.list[0].tag == .@"call";
-}
-
-/// True if `ty_id` represents a fresh-allocation-owning type —
-/// i.e., one that the M20e auto-drop guard tracks for named
-/// bindings. Used by the M22.1(1/8) type-aware leak check to
-/// detect resource-returning function calls used as anonymous
-/// temporaries.
-///
-/// Conservative: only `shared(T)` (strong Rc) is included; `weak`
-/// is excluded because weak handles don't own and don't leak the
-/// allocation by themselves (a leaked weak just means a weak slot
-/// goes unreleased; the strong owner still drives the allocation
-/// lifetime). Vec/Cell/Signal value-types and *Closure() are
-/// covered by `shared` peeling — they're all `shared(_)` at the
-/// type level when constructed via `*Ctor(...)` or returned via
-/// `fun -> *T`.
-fn isResourceOwningType(ctx: *SemContext, ty_id: TypeId) bool {
-    const ty = ctx.types.get(ty_id);
-    return ty == .shared;
-}
-
-/// Render a `TypeId` as a short human-readable string in the sema arena.
-/// Returned slice lives until `SemContext.deinit`.
-fn formatType(ctx: *SemContext, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
-    const a = ctx.arena.allocator();
-    const t = ctx.types.get(ty_id);
-    return switch (t) {
+/// `formatType` with a caller-chosen allocator.
+pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
+    return switch (ctx.types.get(ty_id)) {
         .invalid => "invalid",
         .unknown => "unknown",
         .void => "Void",
         .bool => "Bool",
         .string => "String",
-        .int => |info| if (info.bits == 0) "Int" else try std.fmt.allocPrint(a, "{c}{d}", .{
-            @as(u8, if (info.signed) 'I' else 'U'),
-            info.bits,
-        }),
+        .int => |info| if (info.bits == 0) "Int" else try std.fmt.allocPrint(a, "{c}{d}", .{ @as(u8, if (info.signed) 'I' else 'U'), info.bits }),
         .float => |info| if (info.bits == 0) "Float" else try std.fmt.allocPrint(a, "F{d}", .{info.bits}),
-        .int_literal => "<int literal>",
-        .float_literal => "<float literal>",
-        // M20d.1: parenthesize prefix-type operands of optional /
-        // fallible so `optional(shared(T))` renders as `(*T)?` and
-        // not `*T?` — the latter spelling is `shared(optional(T))`
-        // per Rig's grammar precedence (suffix binds tighter than
-        // prefix). Without the parens, formatType collapses both
-        // shapes to the same string and type-mismatch diagnostics
-        // become "expected `*T?`, got `*T?`" — useless.
-        .optional => |inner| blk: {
-            const inner_ty = ctx.types.get(inner);
-            const needs_parens = inner_ty == .shared or inner_ty == .weak or
-                inner_ty == .borrow_read or inner_ty == .borrow_write;
-            const inner_str = try formatType(ctx, inner);
-            break :blk if (needs_parens)
-                try std.fmt.allocPrint(a, "({s})?", .{inner_str})
-            else
-                try std.fmt.allocPrint(a, "{s}?", .{inner_str});
+        .int_literal => "Int",
+        .float_literal => "Float",
+        .none_literal => "none",
+        .any_error => "error",
+        .noreturn => "NoReturn",
+        .optional => |inner| try formatSuffixed(ctx, a, inner, '?'),
+        .fallible => |inner| try formatSuffixed(ctx, a, inner, '!'),
+        .borrow_read => |inner| try std.fmt.allocPrint(a, "?{s}", .{try formatTypeIn(ctx, a, inner)}),
+        .borrow_write => |inner| try std.fmt.allocPrint(a, "!{s}", .{try formatTypeIn(ctx, a, inner)}),
+        .shared => |inner| try std.fmt.allocPrint(a, "*{s}", .{try formatTypeIn(ctx, a, inner)}),
+        .weak => |inner| try std.fmt.allocPrint(a, "~{s}", .{try formatTypeIn(ctx, a, inner)}),
+        .slice => |s| try std.fmt.allocPrint(a, "[]{s}", .{try formatTypeIn(ctx, a, s.elem)}),
+        .array => |arr| try std.fmt.allocPrint(a, "[{d}]{s}", .{ arr.len, try formatTypeIn(ctx, a, arr.elem) }),
+        .range => |e| try std.fmt.allocPrint(a, "range of {s}", .{try formatTypeIn(ctx, a, e)}),
+        .function => |f| blk: {
+            var buf: std.ArrayListUnmanaged(u8) = .empty;
+            try buf.appendSlice(a, if (f.is_sub) "sub(" else "fun(");
+            for (f.params, 0..) |p, i| {
+                if (i > 0) try buf.appendSlice(a, ", ");
+                try buf.appendSlice(a, try formatTypeIn(ctx, a, p));
+            }
+            try buf.append(a, ')');
+            if (!f.is_sub) {
+                try buf.appendSlice(a, " ");
+                try buf.appendSlice(a, try formatTypeIn(ctx, a, f.returns));
+            }
+            break :blk buf.items;
         },
-        .fallible => |inner| blk: {
-            const inner_ty = ctx.types.get(inner);
-            const needs_parens = inner_ty == .shared or inner_ty == .weak or
-                inner_ty == .borrow_read or inner_ty == .borrow_write;
-            const inner_str = try formatType(ctx, inner);
-            break :blk if (needs_parens)
-                try std.fmt.allocPrint(a, "({s})!", .{inner_str})
-            else
-                try std.fmt.allocPrint(a, "{s}!", .{inner_str});
-        },
-        .borrow_read => |inner| try std.fmt.allocPrint(a, "?{s}", .{try formatType(ctx, inner)}),
-        .borrow_write => |inner| try std.fmt.allocPrint(a, "!{s}", .{try formatType(ctx, inner)}),
-        .shared => |inner| try std.fmt.allocPrint(a, "*{s}", .{try formatType(ctx, inner)}),
-        .weak => |inner| try std.fmt.allocPrint(a, "~{s}", .{try formatType(ctx, inner)}),
-        .slice => |s| try std.fmt.allocPrint(a, "[]{s}", .{try formatType(ctx, s.elem)}),
-        .array => |arr| try std.fmt.allocPrint(a, "[{d}]{s}", .{ arr.len, try formatType(ctx, arr.elem) }),
-        .function => "fun(...)",
         .nominal => |sym| ctx.symbols.items[sym].name,
-        // M15b: imported nominal — look up the name in the foreign
-        // SemContext if available; otherwise render `<imported#sym>`.
         .imported_nominal => |in| blk: {
-            const foreign = ctx.foreign_semas.get(in.module_id) orelse {
-                break :blk try std.fmt.allocPrint(a, "<imported#{d}>", .{in.sym_id});
-            };
+            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk "<imported>";
             if (in.sym_id >= foreign.symbols.items.len) break :blk "<imported>";
-            break :blk foreign.symbols.items[in.sym_id].name;
+            const name = foreign.symbols.items[in.sym_id].name;
+            // Spelled the way this module names it: `other.Point`.
+            for (ctx.imports) |imp| {
+                if (imp.module_id == in.module_id) break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ imp.local_name, name });
+            }
+            for (ctx.transitive) |imp| {
+                if (imp.module_id == in.module_id) break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ imp.local_name, name });
+            }
+            break :blk name;
         },
         .parameterized_nominal => |pn| blk: {
-            // Render `Box(Int, String)` style.
-            const base_name = ctx.symbols.items[pn.sym].name;
-            if (pn.args.len == 0) break :blk try std.fmt.allocPrint(a, "{s}()", .{base_name});
-            // Build args list via repeated allocPrint — fine for the
-            // diagnostic path; not on the hot loop.
             var buf: std.ArrayListUnmanaged(u8) = .empty;
-            defer buf.deinit(a);
-            try buf.appendSlice(a, base_name);
+            try buf.appendSlice(a, ctx.symbols.items[pn.sym].name);
             try buf.append(a, '(');
             for (pn.args, 0..) |arg, i| {
                 if (i > 0) try buf.appendSlice(a, ", ");
-                try buf.appendSlice(a, try formatType(ctx, arg));
+                try buf.appendSlice(a, try formatTypeIn(ctx, a, arg));
             }
             try buf.append(a, ')');
-            break :blk try a.dupe(u8, buf.items);
+            break :blk buf.items;
         },
         .type_var => |sym| ctx.symbols.items[sym].name,
     };
 }
 
+/// `T?` / `T!`, parenthesizing prefix forms: `(*T)?` is an optional
+/// handle, while `*T?` would be a handle to an optional.
+fn formatSuffixed(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, suffix: u8) ![]const u8 {
+    const s = try formatTypeIn(ctx, a, inner);
+    const parens = switch (ctx.types.get(inner)) {
+        .shared, .weak, .borrow_read, .borrow_write => true,
+        else => false,
+    };
+    return if (parens)
+        std.fmt.allocPrint(a, "({s}){c}", .{ s, suffix })
+    else
+        std.fmt.allocPrint(a, "{s}{c}", .{ s, suffix });
+}
+
 // =============================================================================
-// Helpers
+// IR helpers shared by the sema passes
 // =============================================================================
 
-fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
+pub fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
     return switch (sexp) {
         .src => |s| source[s.pos..][0..s.len],
         else => null,
     };
 }
 
-/// M20g(2/5): the four capture-mode IR heads.
-const CaptureMode = enum { cap_copy, cap_clone, cap_weak, cap_move };
-
-/// M20h: is the given Sexp a lambda IR node `(lambda ...)`? Used
-/// by the owned-closure construction detector to validate the
-/// argument shape of `*Closure(fn ...)`.
-fn isLambdaSexp(sexp: Sexp) bool {
-    return sexp == .list and sexp.list.len >= 1 and sexp.list[0] == .tag and
-        sexp.list[0].tag == .@"lambda";
+pub fn srcPos(sexp: Sexp, fallback: u32) u32 {
+    return if (sexp == .src) sexp.src.pos else fallback;
 }
 
-/// M20g(2/5): extract the capture mode tag from a capture node.
-fn captureModeOf(cap: Sexp) ?CaptureMode {
-    if (cap != .list or cap.list.len < 2 or cap.list[0] != .tag) return null;
-    return switch (cap.list[0].tag) {
-        .@"cap_copy" => .cap_copy,
+/// Head tag of a list node, or null.
+/// The value of a constant integer expression: literals, constant
+/// bindings, and arithmetic on them. Null when not constant (or too
+/// large to compute).
+pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?i128 {
+    switch (e) {
+        .src => {
+            const text_ = identAt(ctx.source, e) orelse "";
+            if (isIntLiteralText(text_)) return std.fmt.parseInt(i128, text_, 0) catch null;
+            const id = ctx.symbolOf(e) orelse return null;
+            return ctx.const_ints.get(id);
+        },
+        .list => |items| {
+            const h = headOf(e) orelse return null;
+            if (h == .@"neg") return std.math.negate(constIntOf(ctx, items[1]) orelse return null) catch null;
+            // `a if c else b` with a constant condition: Zig picks the
+            // branch at compile time, so its value is constant.
+            if (h == .@"if" and items.len == 4 and items[3] != .nil) {
+                const c = constBoolOf(ctx, items[1]) orelse return null;
+                return constIntOf(ctx, if (c) items[2] else items[3]);
+            }
+            switch (h) {
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {},
+                else => return null,
+            }
+            const a = constIntOf(ctx, items[1]) orelse return null;
+            const b = constIntOf(ctx, items[2]) orelse return null;
+            return switch (h) {
+                .@"+" => std.math.add(i128, a, b) catch null,
+                .@"-" => std.math.sub(i128, a, b) catch null,
+                .@"*" => std.math.mul(i128, a, b) catch null,
+                .@"/" => if (b == 0) null else @divTrunc(a, b),
+                .@"%" => if (b == 0) null else @rem(a, b),
+                .@"<<" => if (b < 0 or b > 126) null else blk: {
+                    const r = a << @intCast(b);
+                    break :blk if (r >> @intCast(b) == a) r else null;
+                },
+                .@">>" => if (b < 0 or b > 127) null else a >> @intCast(b),
+                .@"&" => a & b,
+                .@"|" => a | b,
+                .@"^" => a ^ b,
+                else => null,
+            };
+        },
+        else => return null,
+    }
+}
+
+/// The value of a constant Bool expression: literals, `not`, `and`,
+/// `or`, and comparisons of constant integers.
+pub fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
+    switch (e) {
+        .src => {
+            const word = identAt(ctx.source, e) orelse "";
+            if (std.mem.eql(u8, word, "true")) return true;
+            if (std.mem.eql(u8, word, "false")) return false;
+            return null;
+        },
+        .list => |items| {
+            const h = headOf(e) orelse return null;
+            switch (h) {
+                .@"not" => return !(constBoolOf(ctx, items[1]) orelse return null),
+                .@"and" => return (constBoolOf(ctx, items[1]) orelse return null) and (constBoolOf(ctx, items[2]) orelse return null),
+                .@"or" => return (constBoolOf(ctx, items[1]) orelse return null) or (constBoolOf(ctx, items[2]) orelse return null),
+                .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
+                    const a = constIntOf(ctx, items[1]) orelse return null;
+                    const b = constIntOf(ctx, items[2]) orelse return null;
+                    return switch (h) {
+                        .@"==" => a == b,
+                        .@"!=" => a != b,
+                        .@"<" => a < b,
+                        .@">" => a > b,
+                        .@"<=" => a <= b,
+                        else => a >= b,
+                    };
+                },
+                else => return null,
+            }
+        },
+        else => return null,
+    }
+}
+
+pub fn headOf(sexp: Sexp) ?Tag {
+    if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return null;
+    return sexp.list[0].tag;
+}
+
+pub fn isHead(sexp: Sexp, tag: Tag) bool {
+    return headOf(sexp) == tag;
+}
+
+/// Name leaf of a parameter: `(: name T)`, `(pre_param name T)`,
+/// `(read self)`, `(write self)`, or a bare name.
+pub fn paramNameNode(param: Sexp) ?Sexp {
+    return switch (param) {
+        .src => param,
+        .list => |items| blk: {
+            if (items.len < 2 or items[0] != .tag) break :blk null;
+            break :blk switch (items[0].tag) {
+                .@":", .@"pre_param", .@"read", .@"write", .@"default" => items[1],
+                else => null,
+            };
+        },
+        else => null,
+    };
+}
+
+pub fn paramName(source: []const u8, param: Sexp) ?[]const u8 {
+    return identAt(source, paramNameNode(param) orelse return null);
+}
+
+pub fn paramPos(param: Sexp, fallback: u32) u32 {
+    const n = paramNameNode(param) orelse return fallback;
+    return srcPos(n, fallback);
+}
+
+pub fn isBorrowedTypeNode(t: Sexp) bool {
+    const h = headOf(t) orelse return false;
+    return h == .borrow_read or h == .borrow_write;
+}
+
+pub const CaptureMode = enum { cap_clone, cap_weak, cap_move };
+
+pub fn captureModeOf(cap: Sexp) ?CaptureMode {
+    const h = headOf(cap) orelse return null;
+    if (cap.list.len < 2) return null;
+    return switch (h) {
         .@"cap_clone" => .cap_clone,
         .@"cap_weak" => .cap_weak,
         .@"cap_move" => .cap_move,
@@ -8667,1084 +1896,779 @@ fn captureModeOf(cap: Sexp) ?CaptureMode {
     };
 }
 
-/// M20g(2/5): extract the NAME sub-node of a capture `(cap_xxx NAME)`.
-fn captureNameNode(cap: Sexp) ?Sexp {
-    if (cap != .list or cap.list.len < 2 or cap.list[0] != .tag) return null;
-    return switch (cap.list[0].tag) {
-        .@"cap_copy", .@"cap_clone", .@"cap_weak", .@"cap_move" => cap.list[1],
-        else => null,
-    };
+pub fn captureNameNode(cap: Sexp) ?Sexp {
+    _ = captureModeOf(cap) orelse return null;
+    return cap.list[1];
 }
 
-/// M20g(2/5): human-readable surface for diagnostics.
-fn captureModeLabel(m: CaptureMode) []const u8 {
-    return switch (m) {
-        .cap_copy => "|x|",
-        .cap_clone => "|+x|",
-        .cap_weak => "|~x|",
-        .cap_move => "|<x|",
-    };
+/// Items of a `(captures ...)` node, or empty.
+pub fn captureList(captures: Sexp) []const Sexp {
+    if (!isHead(captures, .@"captures")) return &.{};
+    return captures.list[1..];
 }
 
-/// Is the given type Sexp a `(borrow_read T)` or `(borrow_write T)`?
-fn isBorrowedTypeNode(t: Sexp) bool {
-    if (t != .list or t.list.len == 0 or t.list[0] != .tag) return false;
-    return switch (t.list[0].tag) {
-        .borrow_read, .borrow_write => true,
-        else => false,
-    };
+pub fn parseIntegerLiteral(source: []const u8, sexp: Sexp) ?u64 {
+    const text = identAt(source, sexp) orelse return null;
+    return std.fmt.parseInt(u64, text, 0) catch null;
 }
 
-const LineCol = struct { line: u32, col: u32 };
+pub fn isIntLiteralText(text: []const u8) bool {
+    if (text.len == 0 or text[0] < '0' or text[0] > '9') return false;
+    return !isFloatLiteralText(text);
+}
 
-fn lineCol(source: []const u8, pos: u32) LineCol {
-    var line: u32 = 1;
-    var col: u32 = 1;
-    var i: u32 = 0;
-    const end = @min(pos, source.len);
-    while (i < end) : (i += 1) {
-        if (source[i] == '\n') {
-            line += 1;
-            col = 1;
-        } else col += 1;
-    }
-    return .{ .line = line, .col = col };
+/// `3.14`, `.5`, `1.0e10`, `2e-3`. A hex literal's `e` is a digit.
+pub fn isFloatLiteralText(text: []const u8) bool {
+    if (text.len == 0) return false;
+    if ((text[0] < '0' or text[0] > '9') and text[0] != '.') return false;
+    if (text.len > 1 and text[0] == '0' and (text[1] == 'x' or text[1] == 'X')) return false;
+    return std.mem.indexOfAny(u8, text, ".eE") != null;
 }
 
 // =============================================================================
 // Tests
 // =============================================================================
 
-test "TypeStore: primitives pre-interned" {
+test {
+    _ = diag;
+    _ = builtins;
+    _ = decls;
+    _ = exprs;
+}
+
+test "TypeStore: primitives are pre-interned and distinct" {
     var store = try TypeStore.init(std.testing.allocator);
     defer store.deinit(std.testing.allocator);
-
-    try std.testing.expect(store.invalid_id == 0);
-    try std.testing.expect(store.unknown_id != type_invalid);
-    try std.testing.expect(store.void_id != type_invalid);
-    try std.testing.expect(store.bool_id != type_invalid);
-    try std.testing.expect(store.string_id != type_invalid);
-    try std.testing.expect(store.int_id != type_invalid);
-    try std.testing.expect(store.float_id != type_invalid);
-
-    // All primitive ids are distinct.
-    const ids = [_]TypeId{
-        store.unknown_id, store.void_id, store.bool_id,
-        store.string_id, store.int_id, store.float_id,
-    };
+    try std.testing.expectEqual(type_invalid, store.invalid_id);
+    const ids = [_]TypeId{ store.unknown_id, store.void_id, store.bool_id, store.string_id, store.int_id, store.float_id, store.none_id, store.noreturn_id };
     for (ids, 0..) |a, i| {
+        try std.testing.expect(a != type_invalid);
         for (ids[i + 1 ..]) |b| try std.testing.expect(a != b);
+    }
+    try std.testing.expectEqual(store.bool_id, try store.intern(std.testing.allocator, .bool));
+}
+
+test "TypeStore: composites intern by structure" {
+    const a = std.testing.allocator;
+    var store = try TypeStore.init(a);
+    defer store.deinit(a);
+    const opt = try store.intern(a, .{ .optional = store.int_id });
+    try std.testing.expectEqual(opt, try store.intern(a, .{ .optional = store.int_id }));
+    try std.testing.expect(opt != try store.intern(a, .{ .fallible = store.int_id }));
+    try std.testing.expect(opt != try store.intern(a, .{ .optional = opt }));
+
+    const p1 = [_]TypeId{ store.int_id, store.int_id };
+    const p2 = [_]TypeId{ store.int_id, store.int_id };
+    const p3 = [_]TypeId{ store.int_id, store.bool_id };
+    const f1 = try store.intern(a, .{ .function = .{ .params = &p1, .returns = store.int_id, .is_sub = false } });
+    const f2 = try store.intern(a, .{ .function = .{ .params = &p2, .returns = store.int_id, .is_sub = false } });
+    const f3 = try store.intern(a, .{ .function = .{ .params = &p3, .returns = store.int_id, .is_sub = false } });
+    const f4 = try store.intern(a, .{ .function = .{ .params = &p1, .returns = store.int_id, .is_sub = false, .pre_mask = 1 } });
+    try std.testing.expectEqual(f1, f2);
+    try std.testing.expect(f1 != f3);
+    try std.testing.expect(f1 != f4);
+}
+
+test "TypeStore: many distinct types stay distinct" {
+    const a = std.testing.allocator;
+    var store = try TypeStore.init(a);
+    defer store.deinit(a);
+    var prev = store.int_id;
+    var ids: [200]TypeId = undefined;
+    for (&ids) |*id| {
+        id.* = try store.intern(a, .{ .optional = prev });
+        prev = id.*;
+    }
+    prev = store.int_id;
+    for (ids) |id| {
+        try std.testing.expectEqual(id, try store.intern(a, .{ .optional = prev }));
+        prev = id;
     }
 }
 
-test "TypeStore: intern composites dedupes" {
-    var store = try TypeStore.init(std.testing.allocator);
-    defer store.deinit(std.testing.allocator);
-
-    const opt_int_a = try store.intern(std.testing.allocator, .{ .optional = store.int_id });
-    const opt_int_b = try store.intern(std.testing.allocator, .{ .optional = store.int_id });
-    try std.testing.expectEqual(opt_int_a, opt_int_b);
-
-    const fall_int = try store.intern(std.testing.allocator, .{ .fallible = store.int_id });
-    try std.testing.expect(fall_int != opt_int_a);
-
-    // Distinct nesting levels are distinct types.
-    const opt_opt_int = try store.intern(std.testing.allocator, .{ .optional = opt_int_a });
-    try std.testing.expect(opt_opt_int != opt_int_a);
-}
-
-test "TypeStore: function types compare by structure" {
-    const allocator = std.testing.allocator;
-    var store = try TypeStore.init(allocator);
-    defer store.deinit(allocator);
-
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const params_a = try a.dupe(TypeId, &.{ store.int_id, store.int_id });
-    const params_b = try a.dupe(TypeId, &.{ store.int_id, store.int_id });
-    const params_c = try a.dupe(TypeId, &.{ store.int_id, store.bool_id });
-
-    const fn_a = try store.intern(allocator, .{ .function = .{
-        .params = params_a, .returns = store.int_id, .is_sub = false,
-    } });
-    const fn_b = try store.intern(allocator, .{ .function = .{
-        .params = params_b, .returns = store.int_id, .is_sub = false,
-    } });
-    const fn_c = try store.intern(allocator, .{ .function = .{
-        .params = params_c, .returns = store.int_id, .is_sub = false,
-    } });
-
-    try std.testing.expectEqual(fn_a, fn_b); // same structure → same id
-    try std.testing.expect(fn_a != fn_c);
-}
-
-test "SemContext: init/deinit roundtrip" {
+test "SemContext: init/deinit" {
     var ctx = try SemContext.init(std.testing.allocator, "");
     defer ctx.deinit();
-
     try std.testing.expect(!ctx.hasErrors());
-    // Sentinels at slot 0.
     try std.testing.expectEqual(@as(usize, 1), ctx.symbols.items.len);
     try std.testing.expectEqual(@as(usize, 1), ctx.scopes.items.len);
 }
 
-test "check: returns empty context for any IR" {
+test "check: tolerates an empty IR" {
     var ctx = try check(std.testing.allocator, "", .{ .nil = {} });
     defer ctx.deinit();
     try std.testing.expect(!ctx.hasErrors());
 }
 
-// -----------------------------------------------------------------------------
-// Symbol resolution end-to-end tests (parse real Rig source through the
-// whole pipeline up to sema and verify the symbol table).
-// -----------------------------------------------------------------------------
+// ---- facts table ---------------------------------------------------------------
 
-fn checkSource(allocator: std.mem.Allocator, source: []const u8) !SemContext {
-    var p = parser.Parser.init(allocator, source);
-    defer p.deinit();
-    const ir = try p.parseProgram();
-    return check(allocator, source, ir);
-}
+const FactsRun = struct {
+    p: parser.Parser,
+    ir: Sexp,
+    ctx: SemContext,
+    source: []const u8,
 
-test "symbols: collects function + sub at module scope" {
-    const source =
-        \\fun add(a: Int, b: Int) -> Int
-        \\  a + b
-        \\
-        \\sub main()
-        \\  print 42
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-
-    try std.testing.expect(!ctx.hasErrors());
-    // Module scope is scope 1; we should see `add` and `main` in it.
-    try std.testing.expect(ctx.lookup(1, "add") != null);
-    try std.testing.expect(ctx.lookup(1, "main") != null);
-
-    const add_id = ctx.lookup(1, "add").?;
-    try std.testing.expectEqual(SymbolKind.function, ctx.symbols.items[add_id].kind);
-}
-
-test "symbols: parameters bound in fn scope, not module scope" {
-    const source =
-        \\fun greet(name: String) -> String
-        \\  name
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-
-    try std.testing.expect(ctx.lookup(1, "name") == null);
-
-    // Walk to the fn scope (it's the next scope after module).
-    // Module is scope 1; greet's body scope is scope 2.
-    const name_in_fn = ctx.lookup(2, "name");
-    try std.testing.expect(name_in_fn != null);
-    try std.testing.expectEqual(SymbolKind.param, ctx.symbols.items[name_in_fn.?].kind);
-}
-
-test "symbols: borrowed param flagged" {
-    const source =
-        \\fun read_name(user: ?User) -> ?String
-        \\  ?user.name
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-
-    const user_id = ctx.lookup(2, "user").?;
-    try std.testing.expect(ctx.symbols.items[user_id].flags.borrowed_param);
-}
-
-test "symbols: locals introduced by `set` (default/fixed/shadow only)" {
-    const source =
-        \\sub main()
-        \\  x = 1
-        \\  y =! 2
-        \\  new x = 3
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-
-    // Find main's body scope. main is in module scope (1); body is scope 2.
-    // Locals are bound in scope 3 (the inner block scope).
-    // Just verify the names appear somewhere reachable from leaf scopes.
-    const last_scope: ScopeId = @intCast(ctx.scopes.items.len - 1);
-    try std.testing.expect(ctx.lookup(last_scope, "x") != null);
-    try std.testing.expect(ctx.lookup(last_scope, "y") != null);
-
-    // The `y` symbol should be flagged fixed (`=!`).
-    const y_id = ctx.lookup(last_scope, "y").?;
-    try std.testing.expect(ctx.symbols.items[y_id].flags.fixed);
-}
-
-test "symbols: lookup walks scope chain" {
-    const source =
-        \\fun outer(x: Int) -> Int
-        \\  x
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-
-    // From any scope inside outer's body, looking up `outer` should find
-    // the function in module scope.
-    const inner_scope: ScopeId = @intCast(ctx.scopes.items.len - 1);
-    try std.testing.expect(ctx.lookup(inner_scope, "outer") != null);
-    try std.testing.expect(ctx.lookup(inner_scope, "x") != null);
-}
-
-test "symbols: shadow binding finds NEW binding via reverse lookup" {
-    const source =
-        \\sub main()
-        \\  x = 1
-        \\  new x = 2
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-
-    const last_scope: ScopeId = @intCast(ctx.scopes.items.len - 1);
-    const x_id = ctx.lookup(last_scope, "x").?;
-    // The shadowing `new x = 2` is the second `set` and should be the
-    // one returned by lookup. We can't easily check the source pos here
-    // without reaching deeper, but we can verify TWO `x` symbols exist.
-    var x_count: u32 = 0;
-    for (ctx.symbols.items) |s| {
-        if (std.mem.eql(u8, s.name, "x")) x_count += 1;
+    fn deinit(self: *FactsRun) void {
+        self.ctx.deinit();
+        self.p.deinit();
     }
-    try std.testing.expect(x_count == 2);
-    _ = x_id;
+
+    /// Position of the `nth` (0-based) occurrence of `needle` as a whole word.
+    fn at(self: *const FactsRun, needle: []const u8, nth: usize) u32 {
+        var count: usize = 0;
+        var i: usize = 0;
+        while (std.mem.indexOfPos(u8, self.source, i, needle)) |p| : (i = p + 1) {
+            const before_ok = p == 0 or !isWordChar(self.source[p - 1]);
+            const after = p + needle.len;
+            const after_ok = after >= self.source.len or !isWordChar(self.source[after]);
+            if (!before_ok or !after_ok) continue;
+            if (count == nth) return @intCast(p);
+            count += 1;
+        }
+        @panic("needle not found");
+    }
+
+    fn sym(self: *const FactsRun, needle: []const u8, nth: usize) ?SymbolId {
+        return self.ctx.symbolAt(self.at(needle, nth));
+    }
+
+    fn leafType(self: *const FactsRun, needle: []const u8, nth: usize) ?TypeId {
+        return self.ctx.facts.leaf_types.get(self.at(needle, nth));
+    }
+};
+
+fn isWordChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_';
 }
 
-test "symbols: pub flag set on wrapped declaration" {
-    const source =
-        \\pub fun greet() -> String
-        \\  "hi"
+fn factsRun(source: []const u8) !FactsRun {
+    var r: FactsRun = .{ .p = parser.Parser.init(std.testing.allocator, source), .ir = undefined, .ctx = undefined, .source = source };
+    errdefer r.p.deinit();
+    r.ir = try r.p.parseProgram();
+    r.ctx = try check(std.testing.allocator, source, r.ir);
+    for (r.ctx.diagnostics.items) |d| std.debug.print("unexpected diagnostic: {s}\n", .{d.message});
+    try std.testing.expect(!r.ctx.hasErrors());
+    return r;
+}
+
+/// Find the first list node with head `tag` (depth-first).
+fn findNode(node: Sexp, tag: Tag) ?Sexp {
+    if (headOf(node) == tag) return node;
+    if (node != .list) return null;
+    for (node.list) |c| {
+        if (findNode(c, tag)) |n| return n;
+    }
+    return null;
+}
+
+test "facts: same local name in two functions resolves per function" {
+    var r = try factsRun(
+        \\sub b()
+        \\  s = 42
+        \\  print(s)
         \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-
-    const greet_id = ctx.lookup(1, "greet").?;
-    try std.testing.expect(ctx.symbols.items[greet_id].flags.is_public);
+        \\sub a()
+        \\  s = "hello"
+        \\  print(s)
+        \\
+    );
+    defer r.deinit();
+    const b_decl = r.sym("s", 0).?;
+    const b_use = r.sym("s", 1).?;
+    const a_decl = r.sym("s", 2).?;
+    const a_use = r.sym("s", 3).?;
+    try std.testing.expectEqual(b_decl, b_use);
+    try std.testing.expectEqual(a_decl, a_use);
+    try std.testing.expect(a_decl != b_decl);
+    try std.testing.expectEqual(r.ctx.types.int_id, r.ctx.symbols.items[b_use].ty);
+    try std.testing.expectEqual(r.ctx.types.string_id, r.ctx.symbols.items[a_use].ty);
+    try std.testing.expectEqual(r.ctx.types.string_id, r.leafType("s", 3).?);
 }
 
-// -----------------------------------------------------------------------------
-// Type expression resolution tests
-// -----------------------------------------------------------------------------
+test "facts: reassignment names the existing binding" {
+    var r = try factsRun(
+        \\sub main()
+        \\  x = 1
+        \\  if true
+        \\    x = 2
+        \\  print(x)
+        \\
+    );
+    defer r.deinit();
+    const first = r.sym("x", 0).?;
+    try std.testing.expectEqual(first, r.sym("x", 1).?);
+    try std.testing.expectEqual(first, r.sym("x", 2).?);
+}
 
-test "type-resolve: fun signature populated with primitive types" {
-    const source =
+test "facts: a shadowing binding's value reads the previous binding" {
+    var r = try factsRun(
+        \\sub main()
+        \\  x = 1
+        \\  print(x)
+        \\  new x = x + 1
+        \\  print(x)
+        \\
+    );
+    defer r.deinit();
+    const first = r.sym("x", 0).?;
+    try std.testing.expectEqual(first, r.sym("x", 1).?);
+    const second = r.sym("x", 2).?;
+    try std.testing.expect(second != first);
+    try std.testing.expectEqual(first, r.sym("x", 3).?);
+    try std.testing.expectEqual(second, r.sym("x", 4).?);
+}
+
+test "facts: constant bindings keep their value; changed ones do not" {
+    var r = try factsRun(
+        \\sub main()
+        \\  a = 2 + 3
+        \\  b = a * 4
+        \\  c = 1
+        \\  c = 2
+        \\  d = 7
+        \\  e = !d
+        \\  print(a, b, c, e)
+        \\
+    );
+    defer r.deinit();
+    try std.testing.expectEqual(@as(?i128, 5), r.ctx.const_ints.get(r.sym("a", 0).?));
+    try std.testing.expectEqual(@as(?i128, 20), r.ctx.const_ints.get(r.sym("b", 0).?));
+    try std.testing.expect(r.ctx.symbols.items[r.sym("c", 0).?].flags.reassigned);
+    try std.testing.expect(r.ctx.const_ints.get(r.sym("c", 0).?) == null);
+    try std.testing.expect(r.ctx.const_ints.get(r.sym("d", 0).?) == null);
+    try std.testing.expect(r.ctx.symbols.items[r.sym("d", 0).?].flags.written);
+}
+
+test "facts: a match covering every value without a default is exhaustive" {
+    var r = try factsRun(
+        \\sub main()
+        \\  b = true
+        \\  match b
+        \\    true => print(1)
+        \\    false => print(2)
+        \\  n = 3
+        \\  match n
+        \\    1 => print(1)
+        \\
+    );
+    defer r.deinit();
+    const body = r.ir.list[1].list[4];
+    try std.testing.expect(r.ctx.isExhaustive(body.list[2]));
+    try std.testing.expect(!r.ctx.isExhaustive(body.list[4]));
+}
+
+test "facts: literals record the type their context gives them" {
+    var r = try factsRun(
+        \\sub main()
+        \\  a: U8 = 7
+        \\  b: I64? = 9
+        \\  c = 11
+        \\  print(a)
+        \\  print(b ?? 0)
+        \\  print(c)
+        \\
+    );
+    defer r.deinit();
+    const u8_ty = try r.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } });
+    // `I64` is `Int`.
+    const i64_ty = r.ctx.types.int_id;
+    try std.testing.expectEqual(u8_ty, r.leafType("7", 0).?);
+    try std.testing.expectEqual(i64_ty, r.leafType("9", 0).?);
+    try std.testing.expectEqual(r.ctx.types.int_id, r.leafType("11", 0).?);
+    try std.testing.expectEqual(i64_ty, r.leafType("0", 0).?);
+}
+
+test "facts: expression nodes carry their types" {
+    var r = try factsRun(
+        \\fun half(n: Int) -> Float
+        \\  1.5
+        \\
+        \\sub main()
+        \\  print(half(4) + 2.0)
+        \\
+    );
+    defer r.deinit();
+    const call = findNode(r.ir.list[2], .@"call").?;
+    const add = findNode(call, .@"+").?;
+    try std.testing.expectEqual(r.ctx.types.float_id, r.ctx.typeOf(add).?);
+    const half_call = findNode(add, .@"call").?;
+    try std.testing.expectEqual(r.ctx.types.float_id, r.ctx.typeOf(half_call).?);
+    try std.testing.expectEqual(r.ctx.types.void_id, r.ctx.typeOf(call).?);
+    const half_sym = r.sym("half", 1).?;
+    try std.testing.expectEqual(r.sym("half", 0).?, half_sym);
+    try std.testing.expectEqual(SymbolKind.function, r.ctx.symbols.items[half_sym].kind);
+}
+
+test "facts: captures, parameters, and self resolve to their symbols" {
+    var r = try factsRun(
+        \\struct P
+        \\  n: Int
+        \\
+        \\  fun get(?self) -> Int
+        \\    self.n
+        \\
+        \\sub main()
+        \\  s =! "hi"
+        \\  f = |+s|
+        \\    print(s)
+        \\  f()
+        \\  p = P(n: 2)
+        \\  print(p.get())
+        \\
+    );
+    defer r.deinit();
+    const self_decl = r.sym("self", 0).?;
+    try std.testing.expectEqual(self_decl, r.sym("self", 1).?);
+    try std.testing.expectEqual(SymbolKind.param, r.ctx.symbols.items[self_decl].kind);
+    const cap = r.sym("s", 1).?;
+    try std.testing.expectEqual(SymbolKind.capture, r.ctx.symbols.items[cap].kind);
+    try std.testing.expectEqual(cap, r.sym("s", 2).?);
+    try std.testing.expect(cap != r.sym("s", 0).?);
+    try std.testing.expectEqual(r.ctx.types.string_id, r.ctx.symbols.items[cap].ty);
+    const f_ty = r.ctx.types.get(r.ctx.symbols.items[r.sym("f", 0).?].ty);
+    try std.testing.expect(f_ty == .function);
+}
+
+test "facts: loop and pattern bindings" {
+    var r = try factsRun(
+        \\enum Shape
+        \\  circle(radius: Int)
+        \\  dot
+        \\
+        \\sub main()
+        \\  v: Vec(Int) = Vec()
+        \\  (!v).push(3)
+        \\  for x in v
+        \\    print(x)
+        \\  s: Shape = .circle(radius: 4)
+        \\  match s
+        \\    .circle(r) => print(r)
+        \\    .dot => print(0)
+        \\
+    );
+    defer r.deinit();
+    const x = r.sym("x", 0).?;
+    try std.testing.expectEqual(x, r.sym("x", 1).?);
+    try std.testing.expectEqual(r.ctx.types.int_id, r.ctx.symbols.items[x].ty);
+    const rr = r.sym("r", 0).?;
+    try std.testing.expectEqual(rr, r.sym("r", 1).?);
+    try std.testing.expectEqual(r.ctx.types.int_id, r.ctx.symbols.items[rr].ty);
+}
+
+test "facts: scopes are keyed by the node that opens them" {
+    var r = try factsRun(
+        \\test "first"
+        \\  a = 1
+        \\  print(a)
+        \\
+        \\sub main()
+        \\  x = "hi"
+        \\  print(x)
+        \\
+    );
+    defer r.deinit();
+    const main_fn = r.ir.list[2];
+    const fn_scope = r.ctx.scopeOf(main_fn).?;
+    try std.testing.expectEqual(ScopeKind.function, r.ctx.scopes.items[fn_scope].kind);
+    const body = main_fn.list[4];
+    const body_scope = r.ctx.scopeOf(body).?;
+    try std.testing.expectEqual(fn_scope, r.ctx.scopes.items[body_scope].parent.?);
+    const x = r.sym("x", 0).?;
+    try std.testing.expectEqual(body_scope, r.ctx.symbols.items[x].scope);
+    try std.testing.expectEqual(x, r.ctx.lookup(body_scope, "x").?);
+    try std.testing.expect(r.ctx.lookup(fn_scope, "a") == null);
+}
+
+test "facts: declaration names carry their function type" {
+    var r = try factsRun(
+        \\struct P
+        \\  n: Int
+        \\
+        \\  fun get(?self) -> Int
+        \\    self.n
+        \\
+        \\fun twice(x: Int) -> Int
+        \\  x * 2
+        \\
+    );
+    defer r.deinit();
+    const get = r.ctx.types.get(r.leafType("get", 0).?).function;
+    try std.testing.expectEqual(r.ctx.types.int_id, get.returns);
+    try std.testing.expectEqual(@as(usize, 1), get.params.len);
+    const twice = r.ctx.types.get(r.leafType("twice", 0).?).function;
+    try std.testing.expectEqual(r.ctx.types.int_id, twice.params[0]);
+}
+
+test "facts: a capture names the binding it captures" {
+    var r = try factsRun(
+        \\sub main()
+        \\  n = 3
+        \\  f = |+n|
+        \\    print(n)
+        \\  f()
+        \\
+    );
+    defer r.deinit();
+    const outer = r.sym("n", 0).?;
+    const cap = r.sym("n", 1).?;
+    try std.testing.expect(cap != outer);
+    try std.testing.expectEqual(outer, r.ctx.symbols.items[cap].origin);
+}
+
+test "facts: keyword and omitted arguments record their slots" {
+    var r = try factsRun(
+        \\fun scaled(n: Int, by: Int = 10, plus: Int = 0) -> Int
+        \\  n * by + plus
+        \\
+        \\sub main()
+        \\  print(scaled(1, 2, 3))
+        \\  print(scaled(plus: 5, n: 4))
+        \\
+    );
+    defer r.deinit();
+    const main_fn = r.ir.list[2];
+    const first = findNode(main_fn.list[4].list[1], .@"call").?;
+    const inner1 = findNode(first.list[2], .@"call").?;
+    try std.testing.expect(r.ctx.callSlotsOf(inner1) == null);
+    const second = findNode(main_fn.list[4].list[2], .@"call").?;
+    const inner2 = findNode(second.list[2], .@"call").?;
+    const slots = r.ctx.callSlotsOf(inner2).?;
+    try std.testing.expectEqual(@as(usize, 3), slots.len);
+    try std.testing.expectEqual(@as(u32, 1), slots[0].arg);
+    try std.testing.expectEqualStrings("10", r.source[slots[1].default.expr.src.pos..][0..2]);
+    try std.testing.expectEqual(@as(u32, 0), slots[2].arg);
+}
+
+// ---- symbols and declarations -----------------------------------------------
+
+test "symbols: functions at module scope, parameters in the function scope" {
+    var r = try factsRun(
         \\fun add(a: Int, b: Int) -> Int
         \\  a + b
         \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-
-    const add_id = ctx.lookup(1, "add").?;
-    const add_ty = ctx.types.get(ctx.symbols.items[add_id].ty);
-    try std.testing.expectEqual(@as(std.meta.Tag(Type), .function), @as(std.meta.Tag(Type), add_ty));
-    try std.testing.expectEqual(ctx.types.int_id, add_ty.function.returns);
-    try std.testing.expectEqual(@as(usize, 2), add_ty.function.params.len);
-    try std.testing.expectEqual(ctx.types.int_id, add_ty.function.params[0]);
-    try std.testing.expectEqual(ctx.types.int_id, add_ty.function.params[1]);
-    try std.testing.expect(!add_ty.function.is_sub);
-
-    // Param symbols also have their `ty` populated.
-    const a_id = ctx.lookup(2, "a").?;
-    try std.testing.expectEqual(ctx.types.int_id, ctx.symbols.items[a_id].ty);
-}
-
-test "type-resolve: sub return is Void" {
-    const source =
-        \\sub main()
-        \\  print 1
+        \\pub sub main()
+        \\  print(add(1, 2))
         \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-
-    const main_id = ctx.lookup(1, "main").?;
-    const main_ty = ctx.types.get(ctx.symbols.items[main_id].ty);
-    try std.testing.expect(main_ty.function.is_sub);
-    try std.testing.expectEqual(ctx.types.void_id, main_ty.function.returns);
+    );
+    defer r.deinit();
+    const add = r.ctx.lookup(1, "add").?;
+    try std.testing.expectEqual(SymbolKind.function, r.ctx.symbols.items[add].kind);
+    try std.testing.expect(r.ctx.lookup(1, "a") == null);
+    const a = r.sym("a", 0).?;
+    try std.testing.expectEqual(SymbolKind.param, r.ctx.symbols.items[a].kind);
+    try std.testing.expectEqual(r.ctx.types.int_id, r.ctx.symbols.items[a].ty);
+    try std.testing.expect(r.ctx.symbols.items[r.ctx.lookup(1, "main").?].flags.is_public);
+    const f = r.ctx.types.get(r.ctx.symbols.items[add].ty).function;
+    try std.testing.expectEqual(@as(usize, 2), f.params.len);
+    try std.testing.expectEqual(r.ctx.types.int_id, f.returns);
+    try std.testing.expect(!f.is_sub);
+    try std.testing.expectEqualStrings("b", r.ctx.symbols.items[add].param_names.?[1]);
 }
 
-test "type-resolve: T! / T? / ?T / !T wrappers" {
-    const source =
+test "symbols: binding flags" {
+    var r = try factsRun(
+        \\struct U
+        \\  n: Int
+        \\
+        \\fun read(u: ?U) -> Int
+        \\  u.n
+        \\
+        \\sub show(pre k: Int)
+        \\  print(k)
+        \\
+        \\sub main()
+        \\  y =! 2
+        \\  show(y)
+        \\  print(read(?U(n: y)))
+        \\
+    );
+    defer r.deinit();
+    try std.testing.expect(r.ctx.symbols.items[r.sym("u", 0).?].flags.borrowed_param);
+    const y = r.ctx.symbols.items[r.sym("y", 0).?];
+    try std.testing.expect(y.flags.fixed);
+    try std.testing.expect(y.flags.comptime_known);
+    const k = r.ctx.symbols.items[r.sym("k", 0).?];
+    try std.testing.expect(k.flags.is_pre);
+    const show = r.ctx.types.get(r.ctx.symbols.items[r.ctx.lookup(1, "show").?].ty).function;
+    try std.testing.expect(show.isPre(0));
+}
+
+test "declarations: wrapper, sized, and alias types" {
+    var r = try factsRun(
+        \\type UserId = U64
+        \\
         \\fun a() -> Int!
         \\  1
         \\
-        \\fun b() -> Int?
-        \\  1
+        \\fun b(x: ?I32, y: !UserId) -> F64?
+        \\  none
         \\
-        \\fun c(x: ?Int) -> Int
-        \\  1
-        \\
-        \\fun d(x: !Int) -> Int
-        \\  1
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-
-    const a_ret = ctx.symbols.items[ctx.lookup(1, "a").?].ty;
-    const a_ty = ctx.types.get(a_ret);
-    try std.testing.expectEqual(@as(std.meta.Tag(Type), .fallible), @as(std.meta.Tag(Type), ctx.types.get(a_ty.function.returns)));
-
-    const b_ret = ctx.symbols.items[ctx.lookup(1, "b").?].ty;
-    const b_ty = ctx.types.get(b_ret);
-    try std.testing.expectEqual(@as(std.meta.Tag(Type), .optional), @as(std.meta.Tag(Type), ctx.types.get(b_ty.function.returns)));
-
-    const c_id = ctx.lookup(1, "c").?;
-    const c_ty = ctx.types.get(ctx.symbols.items[c_id].ty);
-    try std.testing.expectEqual(@as(std.meta.Tag(Type), .borrow_read), @as(std.meta.Tag(Type), ctx.types.get(c_ty.function.params[0])));
-
-    const d_id = ctx.lookup(1, "d").?;
-    const d_ty = ctx.types.get(ctx.symbols.items[d_id].ty);
-    try std.testing.expectEqual(@as(std.meta.Tag(Type), .borrow_write), @as(std.meta.Tag(Type), ctx.types.get(d_ty.function.params[0])));
+    );
+    defer r.deinit();
+    const a = r.ctx.types.get(r.ctx.symbols.items[r.ctx.lookup(1, "a").?].ty).function;
+    try std.testing.expect(r.ctx.types.get(a.returns) == .fallible);
+    const b = r.ctx.types.get(r.ctx.symbols.items[r.ctx.lookup(1, "b").?].ty).function;
+    const x = r.ctx.types.get(b.params[0]);
+    try std.testing.expect(x == .borrow_read);
+    try std.testing.expectEqual(IntInfo{ .bits = 32, .signed = true }, r.ctx.types.get(x.borrow_read).int);
+    const u64_ty = try r.ctx.intern(.{ .int = .{ .bits = 64, .signed = false } });
+    try std.testing.expectEqual(try r.ctx.intern(.{ .borrow_write = u64_ty }), b.params[1]);
+    try std.testing.expectEqual(u64_ty, r.ctx.symbols.items[r.ctx.lookup(1, "UserId").?].ty);
+    const ret = r.ctx.types.get(b.returns);
+    // `F64` is `Float`.
+    try std.testing.expectEqual(r.ctx.types.float_id, ret.optional);
 }
 
-test "type-resolve: unknown type fires `use of unbound type` (M15b.1)" {
-    // M15b.1 per GPT-5.5 post-impl review: unbound type names in type
-    // position now error at sema time, matching the value-position
-    // unbound-name discipline. The pre-M15b.1 behavior (silent
-    // `invalid_id` return) was the type-side instance of the
-    // "unknown is silent success" anti-pattern that M22.1 + M15b
-    // closed elsewhere. M15 cross-module sema is now real, so the
-    // original M5 deferral rationale ("no module system; undeclared
-    // names common") no longer applies.
-    const source =
-        \\fun bad(x: NotAType) -> Int
-        \\  1
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-
-    // Exactly the unbound-type diagnostic fires.
-    try std.testing.expect(ctx.hasErrors());
-    var saw_unbound_type = false;
-    for (ctx.diagnostics.items) |d| {
-        if (std.mem.indexOf(u8, d.message, "unbound type `NotAType`") != null) {
-            saw_unbound_type = true;
-        }
-    }
-    try std.testing.expect(saw_unbound_type);
-
-    // The function still constructs (with invalid_id param) so
-    // downstream type-checking doesn't cascade.
-    const bad_id = ctx.lookup(1, "bad").?;
-    const bad_ty = ctx.types.get(ctx.symbols.items[bad_id].ty);
-    try std.testing.expectEqual(@as(std.meta.Tag(Type), .function), @as(std.meta.Tag(Type), bad_ty));
-    try std.testing.expectEqual(ctx.types.invalid_id, bad_ty.function.params[0]);
-}
-
-test "type-resolve: type alias resolves to its target" {
-    const source =
-        \\type UserId = Int
-        \\
-        \\fun lookup(id: UserId) -> UserId
-        \\  id
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-
-    try std.testing.expect(!ctx.hasErrors());
-
-    // Type alias's `ty` should be the int_id.
-    const alias_id = ctx.lookup(1, "UserId").?;
-    try std.testing.expectEqual(ctx.types.int_id, ctx.symbols.items[alias_id].ty);
-
-    // The fn's param type should be `nominal(UserId)` since user types
-    // resolve to nominal references rather than expanding the alias.
-    const fn_id = ctx.lookup(1, "lookup").?;
-    const fn_ty = ctx.types.get(ctx.symbols.items[fn_id].ty);
-    const param_ty = ctx.types.get(fn_ty.function.params[0]);
-    try std.testing.expectEqual(@as(std.meta.Tag(Type), .nominal), @as(std.meta.Tag(Type), param_ty));
-    try std.testing.expectEqual(alias_id, param_ty.nominal);
-}
-
-// -----------------------------------------------------------------------------
-// Expression typing tests
-// -----------------------------------------------------------------------------
-
-test "expr-typing: literal coerces to declared sized integer" {
-    const source =
-        \\sub main()
-        \\  x: U8 = 0
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(!ctx.hasErrors());
-}
-
-test "expr-typing: declared return type drives last-statement check" {
-    const source =
-        \\fun bad() -> Int
-        \\  "no"
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-    var found = false;
-    for (ctx.diagnostics.items) |d| {
-        if (std.mem.indexOf(u8, d.message, "expected `Int`") != null) {
-            found = true;
-            break;
-        }
-    }
-    try std.testing.expect(found);
-}
-
-test "expr-typing: if-arm value mismatch fires" {
-    const source =
-        \\sub main()
-        \\  x = if true
-        \\    1
-        \\  else
-        \\    "no"
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-}
-
-test "expr-typing: if condition must be Bool" {
-    const source =
-        \\sub main()
-        \\  if 42
-        \\    print "yes"
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-    var found = false;
-    for (ctx.diagnostics.items) |d| {
-        if (std.mem.indexOf(u8, d.message, "expected `Bool`") != null) {
-            found = true;
-            break;
-        }
-    }
-    try std.testing.expect(found);
-}
-
-test "expr-typing: call arg arity mismatch" {
-    const source =
-        \\fun add(a: Int, b: Int) -> Int
-        \\  a + b
-        \\
-        \\sub main()
-        \\  x = add(1)
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-    var found = false;
-    for (ctx.diagnostics.items) |d| {
-        if (std.mem.indexOf(u8, d.message, "expects 2 arguments") != null) {
-            found = true;
-            break;
-        }
-    }
-    try std.testing.expect(found);
-}
-
-test "expr-typing: matching if-arm types pass clean" {
-    const source =
-        \\sub main()
-        \\  x = if true
-        \\    1
-        \\  else
-        \\    2
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(!ctx.hasErrors());
-}
-
-// -----------------------------------------------------------------------------
-// M6: struct field typing tests
-// -----------------------------------------------------------------------------
-
-test "M6: struct fields populated on the nominal symbol" {
-    const source =
+test "declarations: struct fields, methods, and enum variants" {
+    var r = try factsRun(
         \\struct User
         \\  name: String
         \\  age: Int
         \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-
-    const user_id = ctx.lookup(1, "User").?;
-    const fields = ctx.symbols.items[user_id].fields.?;
-    try std.testing.expectEqual(@as(usize, 2), fields.len);
-    try std.testing.expectEqualStrings("name", fields[0].name);
-    try std.testing.expectEqual(ctx.types.string_id, fields[0].ty);
-    try std.testing.expectEqualStrings("age", fields[1].name);
-    try std.testing.expectEqual(ctx.types.int_id, fields[1].ty);
-}
-
-test "M6: member access fires `no field` for unknown name" {
-    const source =
-        \\struct User
-        \\  name: String
+        \\  fun greet(?self) -> String
+        \\    self.name
         \\
-        \\sub main()
-        \\  u = User(name: "Steve")
-        \\  print(u.zzz)
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-    var found = false;
-    for (ctx.diagnostics.items) |d| {
-        if (std.mem.indexOf(u8, d.message, "no field `zzz`") != null) found = true;
-    }
-    try std.testing.expect(found);
-}
-
-test "M6: constructor fires `missing field` per absent kwarg" {
-    const source =
-        \\struct Point
-        \\  x: Int
-        \\  y: Int
-        \\
-        \\sub main()
-        \\  p = Point(x: 1)
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-    var found = false;
-    for (ctx.diagnostics.items) |d| {
-        if (std.mem.indexOf(u8, d.message, "missing field `y`") != null) found = true;
-    }
-    try std.testing.expect(found);
-}
-
-test "M6: constructor wrong-type kwarg fires type mismatch" {
-    const source =
-        \\struct User
-        \\  name: String
-        \\
-        \\sub main()
-        \\  u = User(name: 42)
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-}
-
-test "M6: member access on a known struct returns the field's type" {
-    const source =
-        \\struct User
-        \\  name: String
-        \\
-        \\fun greet(u: User) -> String
-        \\  u.name
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    // The function returns String. If member typing works, the implicit
-    // return `u.name` is checked against `String` and passes — no
-    // diagnostic. If it returned `unknown` we'd silently pass too
-    // (compatible-with-anything sentinel), so we also positively check
-    // by inverting the type and ensuring the diagnostic DOES fire.
-    try std.testing.expect(!ctx.hasErrors());
-
-    const source_bad =
-        \\struct User
-        \\  name: String
-        \\
-        \\fun greet(u: User) -> Int
-        \\  u.name
-        \\
-    ;
-    var ctx2 = try checkSource(std.testing.allocator, source_bad);
-    defer ctx2.deinit();
-    try std.testing.expect(ctx2.hasErrors());
-}
-
-// -----------------------------------------------------------------------------
-// M7: enum / error-set typing tests
-// -----------------------------------------------------------------------------
-
-test "M7: enum variants populated as fields" {
-    const source =
-        \\enum Color
-        \\  red
-        \\  green
-        \\  blue
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    const id = ctx.lookup(1, "Color").?;
-    const fields = ctx.symbols.items[id].fields.?;
-    try std.testing.expectEqual(@as(usize, 3), fields.len);
-    try std.testing.expectEqualStrings("red", fields[0].name);
-    try std.testing.expectEqualStrings("green", fields[1].name);
-    try std.testing.expectEqualStrings("blue", fields[2].name);
-}
-
-test "M7: enum literal against expected enum is typed" {
-    const source =
-        \\enum Color
-        \\  red
-        \\  green
-        \\
-        \\sub main()
-        \\  c: Color = .red
-        \\  print(c)
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(!ctx.hasErrors());
-}
-
-test "M7: enum literal with unknown variant fires" {
-    const source =
-        \\enum Color
-        \\  red
-        \\  green
-        \\
-        \\sub main()
-        \\  c: Color = .purple
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-    var found = false;
-    for (ctx.diagnostics.items) |d| {
-        if (std.mem.indexOf(u8, d.message, "no variant `purple`") != null) found = true;
-    }
-    try std.testing.expect(found);
-}
-
-// -----------------------------------------------------------------------------
-// M8: match typing tests
-// -----------------------------------------------------------------------------
-
-test "M8: match arm `.variant` patterns are checked against scrutinee enum" {
-    const source =
-        \\enum Color
-        \\  red
-        \\  green
-        \\
-        \\sub main()
-        \\  c: Color = .red
-        \\  match c
-        \\    .red => print(c)
-        \\    .purple => print(c)
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-    var found = false;
-    for (ctx.diagnostics.items) |d| {
-        if (std.mem.indexOf(u8, d.message, "no variant `purple`") != null) found = true;
-    }
-    try std.testing.expect(found);
-}
-
-test "M8: match clean when all arm variants are valid" {
-    const source =
-        \\enum Color
-        \\  red
-        \\  green
-        \\
-        \\sub main()
-        \\  c: Color = .red
-        \\  match c
-        \\    .red => print(c)
-        \\    .green => print(c)
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(!ctx.hasErrors());
-}
-
-test "M9b: payload variant construction kwarg type-checks against payload" {
-    const source =
-        \\enum Shape
-        \\  circle(radius: Int)
-        \\
-        \\sub main()
-        \\  s: Shape = .circle(radius: "nope")
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-    var found = false;
-    for (ctx.diagnostics.items) |d| {
-        if (std.mem.indexOf(u8, d.message, "expected `Int`") != null) found = true;
-    }
-    try std.testing.expect(found);
-}
-
-test "M9b: payload variant construction with missing field fires" {
-    const source =
-        \\enum Shape
-        \\  triangle(a: Int, b: Int)
-        \\
-        \\sub main()
-        \\  s: Shape = .triangle(a: 1)
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-    var found = false;
-    for (ctx.diagnostics.items) |d| {
-        if (std.mem.indexOf(u8, d.message, "missing field `b`") != null) found = true;
-    }
-    try std.testing.expect(found);
-}
-
-test "M9b: clean payload variant construction passes" {
-    const source =
         \\enum Shape
         \\  circle(radius: Int)
         \\  origin
         \\
-        \\sub main()
-        \\  s1: Shape = .circle(radius: 5)
-        \\  s2: Shape = .origin
-        \\  print(s1)
-        \\  print(s2)
+        \\error NetError
+        \\  timeout
         \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(!ctx.hasErrors());
+    );
+    defer r.deinit();
+    const user = r.ctx.symbols.items[r.ctx.lookup(1, "User").?].fields.?;
+    try std.testing.expectEqual(@as(usize, 3), user.len);
+    try std.testing.expectEqualStrings("age", user[1].name);
+    try std.testing.expectEqual(r.ctx.types.int_id, user[1].ty);
+    try std.testing.expect(user[2].is_method);
+    try std.testing.expectEqual(MethodReceiver.read, user[2].receiver);
+    const shape = r.ctx.symbols.items[r.ctx.lookup(1, "Shape").?].fields.?;
+    try std.testing.expect(shape[0].is_variant);
+    try std.testing.expectEqualStrings("radius", shape[0].payload.?[0].name);
+    try std.testing.expect(shape[1].payload == null);
+    const net = r.ctx.symbols.items[r.ctx.lookup(1, "NetError").?].fields.?;
+    try std.testing.expectEqualStrings("timeout", net[0].name);
 }
 
-// -----------------------------------------------------------------------------
-// M10: pattern destructuring + bindings + value-position match + exhaustiveness
-// -----------------------------------------------------------------------------
+/// Walk every expression position of a body and report nodes sema left
+/// without a fact. Used to keep the facts table complete.
+const Coverage = struct {
+    r: *const FactsRun,
+    missing: usize = 0,
 
-test "M10: variant pattern binds payload field with the right type" {
-    // The arm body uses `r` against an Int-expecting print — if the
-    // binding's type is correctly set to Int (the payload field type),
-    // sema accepts; if it stays unknown, sema also accepts (compatible-
-    // with-anything sentinel). To prove the binding really has Int,
-    // pass it where a String is expected and watch the diagnostic fire.
-    const source =
+    fn expectName(self: *Coverage, leaf: Sexp) void {
+        if (leaf != .src) return;
+        const text = self.r.source[leaf.src.pos..][0..leaf.src.len];
+        if (std.mem.eql(u8, text, "print") or std.mem.eql(u8, text, "_")) return;
+        if (!std.ascii.isAlphabetic(text[0]) and text[0] != '_') return;
+        if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false") or std.mem.eql(u8, text, "none")) return;
+        if (self.r.ctx.symbolOf(leaf) == null) {
+            std.debug.print("no symbol for `{s}` at {d}\n", .{ text, leaf.src.pos });
+            self.missing += 1;
+        }
+    }
+
+    fn expectType(self: *Coverage, node: Sexp) void {
+        if (self.r.ctx.typeOf(node) == null) {
+            std.debug.print("no type for node at {d} ({s})\n", .{ diag.firstSrcPos(node), if (headOf(node)) |h| @tagName(h) else "leaf" });
+            self.missing += 1;
+        }
+    }
+
+    /// `e` is in expression position.
+    fn expr(self: *Coverage, e: Sexp) void {
+        switch (e) {
+            .src => {
+                self.expectName(e);
+                if (!std.mem.eql(u8, self.r.source[e.src.pos..][0..e.src.len], "print")) self.expectType(e);
+            },
+            .list => |items| {
+                const h = headOf(e) orelse return;
+                switch (h) {
+                    .@"set" => {
+                        self.expectName(items[2]);
+                        if (items[2] != .src) self.expr(items[2]);
+                        self.expr(items[4]);
+                        return;
+                    },
+                    .@"block" => {
+                        for (items[1..]) |c| self.expr(c);
+                        return;
+                    },
+                    .@"if", .@"while" => {
+                        for (items[1..]) |c| self.expr(c);
+                        return;
+                    },
+                    .@"as" => {
+                        self.expr(items[1]);
+                        self.expectName(items[2]);
+                        self.expectType(items[2]);
+                        return;
+                    },
+                    .@"for" => {
+                        self.expectName(items[2]);
+                        if (items[3] != .nil) {
+                            self.expectName(items[3]);
+                            self.expectType(items[3]);
+                        }
+                        self.expr(items[4]);
+                        self.expr(items[5]);
+                        return;
+                    },
+                    .@"match" => {
+                        self.expr(items[1]);
+                        for (items[2..]) |arm| {
+                            const pat = arm.list[1];
+                            if (isHead(pat, .@"variant_pattern")) for (pat.list[2..]) |b| self.expectName(b);
+                            self.expr(arm.list[arm.list.len - 1]);
+                        }
+                        return;
+                    },
+                    .@"lambda" => {
+                        for (captureList(items[1])) |cap| self.expectName(captureNameNode(cap).?);
+                        self.expr(items[4]);
+                        return;
+                    },
+                    .@"member" => {
+                        self.expectType(e);
+                        self.expr(items[1]);
+                        return;
+                    },
+                    .@"call" => {
+                        self.expectType(e);
+                        if (items[1] == .src) {
+                            self.expectName(items[1]);
+                        } else self.expr(items[1]);
+                        for (items[2..]) |a| {
+                            if (isHead(a, .@"kwarg")) self.expr(a.list[2]) else self.expr(a);
+                        }
+                        return;
+                    },
+                    .@"return", .@"drop", .@"defer" => {
+                        for (items[1..]) |c| self.expr(c);
+                        return;
+                    },
+                    .@"enum_lit" => {
+                        self.expectType(e);
+                        return;
+                    },
+                    else => {
+                        self.expectType(e);
+                        for (items[1..]) |c| if (c != .tag) self.expr(c);
+                    },
+                }
+            },
+            else => {},
+        }
+    }
+
+    fn decl(self: *Coverage, d: Sexp) void {
+        const h = headOf(d) orelse return;
+        switch (h) {
+            .@"fun", .@"sub" => {
+                if (d.list[2] == .list) for (d.list[2].list) |p| self.expectName(paramNameNode(p).?);
+                self.expr(d.list[d.list.len - 1]);
+            },
+            .@"struct", .@"enum", .@"generic_type" => for (d.list[2..]) |m| self.decl(m),
+            else => {},
+        }
+    }
+};
+
+test "facts: every name and expression in a program has a fact" {
+    var r = try factsRun(
+        \\struct Account
+        \\  owner: String
+        \\  balance: Int
+        \\
+        \\  fun doubled(?self) -> Int
+        \\    self.balance * 2
+        \\
+        \\  sub deposit(!self, n: Int)
+        \\    self.balance += n
+        \\
         \\enum Shape
         \\  circle(radius: Int)
+        \\  dot
         \\
-        \\fun stringify(s: String) -> String
-        \\  s
-        \\
-        \\sub main()
-        \\  s: Shape = .circle(radius: 5)
-        \\  match s
-        \\    .circle(r) => stringify(r)
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-    var found = false;
-    for (ctx.diagnostics.items) |d| {
-        if (std.mem.indexOf(u8, d.message, "expected `String`") != null) found = true;
-    }
-    try std.testing.expect(found);
-}
-
-test "M10: duplicate match arm fires" {
-    const source =
-        \\enum Color
-        \\  red
-        \\  green
-        \\
-        \\sub main()
-        \\  c: Color = .red
-        \\  match c
-        \\    .red => print(1)
-        \\    .red => print(2)
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-    var found = false;
-    for (ctx.diagnostics.items) |d| {
-        if (std.mem.indexOf(u8, d.message, "duplicate arm for variant `red`") != null) found = true;
-    }
-    try std.testing.expect(found);
-}
-
-test "M10: value-position match unifies arm types" {
-    const source =
-        \\enum Color
-        \\  red
-        \\  green
-        \\
-        \\sub main()
-        \\  c: Color = .red
-        \\  x = match c
-        \\    .red => 1
-        \\    .green => "no"
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-}
-
-test "M10: value-position match requires exhaustive coverage" {
-    const source =
-        \\enum Color
-        \\  red
-        \\  green
-        \\  blue
-        \\
-        \\sub main()
-        \\  c: Color = .red
-        \\  x = match c
-        \\    .red => 1
-        \\    .green => 2
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-    var found = false;
-    for (ctx.diagnostics.items) |d| {
-        if (std.mem.indexOf(u8, d.message, "not exhaustive") != null) found = true;
-    }
-    try std.testing.expect(found);
-}
-
-// -----------------------------------------------------------------------------
-// M11: qualified enum access tests
-// -----------------------------------------------------------------------------
-
-// -----------------------------------------------------------------------------
-// M14: generic type tests
-// -----------------------------------------------------------------------------
-
-test "M14: generic type declaration + instantiation + construction" {
-    const source =
         \\type Box(T)
         \\  value: T
         \\
-        \\sub main()
-        \\  b: Box(Int) = Box(value: 5)
-        \\  print(b.value)
+        \\  fun get(?self) -> T
+        \\    self.value
         \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(!ctx.hasErrors());
-}
-
-test "M14: multi-param generic" {
-    const source =
-        \\type Pair(T, U)
-        \\  first: T
-        \\  second: U
+        \\fun balance_of(a: ?Account) -> Int
+        \\  a.balance
         \\
-        \\sub main()
-        \\  p: Pair(Int, String) = Pair(first: 1, second: "hi")
-        \\  print(p.first)
+        \\fun area(s: Shape) -> Int
+        \\  match s
+        \\    .circle(r) => r * r * 3
+        \\    .dot => 0
         \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(!ctx.hasErrors());
-}
-
-// -----------------------------------------------------------------------------
-// M13: range pattern tests
-// -----------------------------------------------------------------------------
-
-test "M13: range pattern bounds are checked against scrutinee" {
-    const source =
-        \\sub main()
-        \\  x = 5
-        \\  match x
-        \\    1..3 => print(0)
-        \\    4..6 => print(1)
-        \\    other => print(2)
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(!ctx.hasErrors());
-}
-
-// -----------------------------------------------------------------------------
-// M12: struct method tests
-// -----------------------------------------------------------------------------
-
-test "M12: struct method registered as method-flagged Field" {
-    const source =
-        \\struct User
-        \\  name: String
-        \\
-        \\  fun greet() -> String
-        \\    "hi"
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    const id = ctx.lookup(1, "User").?;
-    const fields = ctx.symbols.items[id].fields.?;
-    // First member: name (data field, not method).
-    try std.testing.expectEqualStrings("name", fields[0].name);
-    try std.testing.expect(!fields[0].is_method);
-    // Second member: greet (method).
-    try std.testing.expectEqualStrings("greet", fields[1].name);
-    try std.testing.expect(fields[1].is_method);
-    const fn_ty = ctx.types.get(fields[1].ty);
-    try std.testing.expectEqual(@as(std.meta.Tag(Type), .function), @as(std.meta.Tag(Type), fn_ty));
-    try std.testing.expectEqual(ctx.types.string_id, fn_ty.function.returns);
-}
-
-test "M12: `Type.method` resolves to the method's function type" {
-    const source =
-        \\struct User
-        \\  fun greet() -> String
-        \\    "hi"
+        \\fun maybe(n: Int) -> Int?
+        \\  if n > 0
+        \\    n
+        \\  else
+        \\    none
         \\
         \\sub main()
-        \\  print(User.greet())
+        \\  acct = Account(owner: "ada", balance: 100)
+        \\  print(balance_of(?acct))
+        \\  (!acct).deposit(5)
+        \\  print(acct.doubled())
+        \\  moved = <acct
+        \\  shared = *Account(owner: "bob", balance: 7)
+        \\  other = +shared
+        \\  -shared
+        \\  print(other.balance)
+        \\  total = 0
+        \\  v: Vec(Int) = Vec()
+        \\  (!v).push(3)
+        \\  for x in v
+        \\    total += x
+        \\  print(total + moved.balance)
+        \\  b: Box(Int) = Box(value: 4)
+        \\  print(b.get())
+        \\  print(area(.circle(radius: 2)))
+        \\  print(maybe(-1) ?? 9)
+        \\  c: *Cell(Int) = *Cell(value: 1)
+        \\  f = |+c|
+        \\    c.set(c.get() + 1)
+        \\  f()
+        \\  print(c.get())
         \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(!ctx.hasErrors());
+    );
+    defer r.deinit();
+    var cov: Coverage = .{ .r = &r };
+    for (r.ir.list[1..]) |d| cov.decl(d);
+    try std.testing.expectEqual(@as(usize, 0), cov.missing);
 }
 
-test "M11: qualified `Color.red` types as the enum" {
-    const source =
-        \\enum Color
-        \\  red
-        \\  green
+test "facts: optional bindings, index bindings, defaults, and shadows have facts" {
+    var r = try factsRun(
+        \\fun scaled(n: Int, by: Int = 10) -> Int
+        \\  n * by
         \\
         \\sub main()
-        \\  c: Color = Color.red
-        \\  print(c)
+        \\  m: Int? = 4
+        \\  if m as v
+        \\    print(v, scaled(v))
+        \\  xs = [1, 2]
+        \\  for x, i in xs
+        \\    print(x + i)
+        \\  w: Vec(Int) = Vec()
+        \\  while (!w).pop() as y
+        \\    print(y)
+        \\  k = 1
+        \\  new k = k + 1
+        \\  print(k)
         \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(!ctx.hasErrors());
-}
-
-test "M11: qualified access with unknown variant fires" {
-    const source =
-        \\enum Color
-        \\  red
-        \\
-        \\sub main()
-        \\  c: Color = Color.purple
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(ctx.hasErrors());
-}
-
-test "M9a: payload-bearing enum variant carries field metadata" {
-    const source =
-        \\enum Shape
-        \\  circle(radius: Int)
-        \\  origin
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    const id = ctx.lookup(1, "Shape").?;
-    const fields = ctx.symbols.items[id].fields.?;
-    try std.testing.expectEqual(@as(usize, 2), fields.len);
-
-    // First variant: circle with one payload field `radius: Int`.
-    try std.testing.expectEqualStrings("circle", fields[0].name);
-    const payload = fields[0].payload.?;
-    try std.testing.expectEqual(@as(usize, 1), payload.len);
-    try std.testing.expectEqualStrings("radius", payload[0].name);
-    try std.testing.expectEqual(ctx.types.int_id, payload[0].ty);
-
-    // Second variant: origin (bare, no payload).
-    try std.testing.expectEqualStrings("origin", fields[1].name);
-    try std.testing.expect(fields[1].payload == null);
-}
-
-test "M7: error set declaration populates fields" {
-    const source =
-        \\error NetworkError
-        \\  timeout
-        \\  refused
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    const id = ctx.lookup(1, "NetworkError").?;
-    const fields = ctx.symbols.items[id].fields.?;
-    try std.testing.expectEqual(@as(usize, 2), fields.len);
-    try std.testing.expectEqualStrings("timeout", fields[0].name);
-}
-
-test "expr-typing: untyped binding gets canonical type from RHS" {
-    // After typing, `x` should have type `Int` (the canonical form),
-    // NOT `int_literal` (the raw RHS pseudo-type).
-    const source =
-        \\sub main()
-        \\  x = 1
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-    try std.testing.expect(!ctx.hasErrors());
-    const last_scope: ScopeId = @intCast(ctx.scopes.items.len - 1);
-    const x_id = ctx.lookup(last_scope, "x").?;
-    try std.testing.expectEqual(ctx.types.int_id, ctx.symbols.items[x_id].ty);
-}
-
-test "type-resolve: sized integer types intern distinctly" {
-    const source =
-        \\fun pair(a: I32, b: U64) -> I32
-        \\  a
-        \\
-    ;
-    var ctx = try checkSource(std.testing.allocator, source);
-    defer ctx.deinit();
-
-    const pair_id = ctx.lookup(1, "pair").?;
-    const pair_ty = ctx.types.get(ctx.symbols.items[pair_id].ty);
-    const i32_ty = ctx.types.get(pair_ty.function.params[0]);
-    const u64_ty = ctx.types.get(pair_ty.function.params[1]);
-
-    try std.testing.expectEqual(@as(u8, 32), i32_ty.int.bits);
-    try std.testing.expect(i32_ty.int.signed);
-    try std.testing.expectEqual(@as(u8, 64), u64_ty.int.bits);
-    try std.testing.expect(!u64_ty.int.signed);
+    );
+    defer r.deinit();
+    var cov: Coverage = .{ .r = &r };
+    for (r.ir.list[1..]) |d| cov.decl(d);
+    try std.testing.expectEqual(@as(usize, 0), cov.missing);
+    try std.testing.expectEqual(r.ctx.types.int_id, r.leafType("v", 0).?);
+    try std.testing.expectEqual(r.ctx.types.int_id, r.leafType("i", 0).?);
 }

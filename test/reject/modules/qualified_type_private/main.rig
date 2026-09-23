@@ -1,0 +1,23 @@
+# A qualified type must name a public type of an imported module.
+
+use geo
+
+fun a(h: geo.Hidden) -> Int
+  h.n
+
+fun b(h: geo.Missing) -> Int
+  1
+
+fun c(h: geo.make) -> Int
+  1
+
+fun d(h: nope.Thing) -> Int
+  1
+
+sub main()
+  print(1)
+
+# error: `geo.Hidden` is not public
+# error: no type `Missing` in module `geo`
+# error: `geo.make` is not a type
+# error: use of unbound module `nope`

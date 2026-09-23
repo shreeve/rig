@@ -1,0 +1,10 @@
+# A constructor keyword must name a declared field.
+
+struct User
+  name: String
+  age: Int
+
+sub main()
+  u = User(name: "Steve", lol: 30)
+
+# error: no field `lol` on type `User`

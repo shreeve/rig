@@ -1,0 +1,8 @@
+# A name may appear only once in a capture list, whatever the modes.
+
+sub main()
+  a: *Cell(Int) = *Cell(value: 1)
+  cb: *sub() = *|+a, ~a| print(a.get())
+  cb()
+
+# error: duplicate capture name `a`

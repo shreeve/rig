@@ -1,0 +1,20 @@
+# A bare use of a moved value is rejected.
+
+struct Packet
+  payload: Int
+
+fun make_packet() -> Packet
+  Packet(payload: 1)
+
+sub send(p: Packet)
+  print(p.payload)
+
+sub log(p: Packet)
+  print(p.payload)
+
+sub main()
+  packet = make_packet()
+  send <packet
+  log packet
+
+# error: use of `packet` after move

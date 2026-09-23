@@ -1,0 +1,21 @@
+# A generic enum can declare instance methods; `is_some` dispatches on
+# `Option(Int)` values.
+
+enum Option(T)
+  some(value: T)
+  none
+
+  fun is_some(?self) -> Bool
+    match self
+      .some => true
+      .none => false
+
+sub main()
+  o1: Option(Int) = .some(value: 1)
+  o2: Option(Int) = .none
+  print(o1.is_some())
+  print(o2.is_some())
+
+# expect:
+# true
+# false

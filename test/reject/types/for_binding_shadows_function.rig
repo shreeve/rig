@@ -1,0 +1,13 @@
+# Rig has no implicit shadowing: a local may not reuse the name of a
+# visible declaration, including a module-level function.
+
+fun total() -> Int
+  42
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  for total in v
+    print(total)
+
+# error: has the same name as the module-level declaration `total`

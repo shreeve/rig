@@ -1,0 +1,8 @@
+# Dedenting to a column that matches no enclosing block is an indentation
+# error reported at the offending line.
+
+sub main()
+    x = 1
+  print(x)
+
+# error: indentation

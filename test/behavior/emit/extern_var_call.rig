@@ -1,0 +1,16 @@
+# An extern declared in the `name: fun(...)` or `name: sub(...)` form is
+# callable inside `raw`.
+
+extern abs: fun(Int) Int
+extern srand: sub(U32)
+
+sub print_abs(n: Int)
+  raw
+    srand(7)
+    print(abs(n))
+
+sub main()
+  print_abs(-5)
+
+# expect:
+# 5

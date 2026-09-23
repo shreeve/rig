@@ -1,0 +1,14 @@
+# A call to a fallible function must be wrapped with `!` (propagate) or
+# `catch` (handle); a bare call would hide the failure path.
+
+struct User
+  name: String
+
+fun loadUser(id: U64) -> User!
+  User(name: "Steve")
+
+sub main()
+  x = loadUser(1)
+  print x.name
+
+# error: fallible call to `loadUser` must be wrapped with `!` (propagate) or `catch` (handle)

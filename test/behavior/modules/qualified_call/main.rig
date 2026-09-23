@@ -1,0 +1,9 @@
+# `use math` imports math.rig from the same directory; its `pub`
+# functions are called as `math.name(...)`.
+use math
+
+sub main()
+  print(math.add(1, 2))
+
+# expect:
+# 3

@@ -1,4 +1,0 @@
-use nope
-
-sub main()
-  print(0)

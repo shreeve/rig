@@ -1,0 +1,17 @@
+# A binding of an error-set type holds one of its members, and `match`
+# selects on it.
+
+error NetworkError
+  timeout
+  refused
+  reset
+
+sub main()
+  e: NetworkError = .timeout
+  match e
+    .timeout => print("timeout")
+    .refused => print("refused")
+    .reset => print("reset")
+
+# expect:
+# timeout

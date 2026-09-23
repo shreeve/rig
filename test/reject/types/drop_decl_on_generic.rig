@@ -1,0 +1,9 @@
+# `drop` declarations on generic types are not supported.
+
+type Box(T)
+  value: T
+
+  drop self: !Self
+    print(0)
+
+# error: `drop` declarations on generic types are deferred

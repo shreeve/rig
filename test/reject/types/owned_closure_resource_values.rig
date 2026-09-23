@@ -1,0 +1,19 @@
+# An owned closure is type-erased at run time, so only plain Copy values
+# cross it: a resource parameter or return type is rejected, whether it
+# is written in the closure's type or inferred from its body.
+
+sub take(cb: *sub(Vec(Int)))
+  print(1)
+
+sub main()
+  v: *Cell(Int) = *Cell(value: 0)
+  bad: *sub(*Cell(Int)) = *|+v, cell| v.set(0)
+  worse: *fun() *Cell(Int) = *|+v| +v
+  inferred = *|+v, cell: *Cell(Int)| v.set(0)
+  returns = *|+v| +v
+
+# error: an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `Vec(Int)` is not one
+# error: an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `*Cell(Int)` is not one
+# error: an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `*Cell(Int)` is not one
+# error: parameter `cell` is `*Cell(Int)`
+# error: an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); this one returns `*Cell(Int)`

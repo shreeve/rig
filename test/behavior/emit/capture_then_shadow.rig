@@ -1,0 +1,16 @@
+# A closure captures `x`; a later `new x = ...` in the same block is a
+# different binding and does not change what the closure captured.
+
+sub main()
+  x = 1
+  f = |+x|
+    print(x)
+  f()
+  new x = "two"
+  print(x)
+  f()
+
+# expect:
+# 1
+# two
+# 1

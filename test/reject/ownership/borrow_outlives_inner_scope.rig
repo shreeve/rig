@@ -1,0 +1,15 @@
+# A borrow stored in an outer binding may not outlive the inner-scope
+# value it borrows.
+
+struct Box
+  payload: Int
+
+sub main()
+  a = Box(payload: 1)
+  r = ?a
+  if true
+    b = Box(payload: 2)
+    r = ?b
+  print(r.payload)
+
+# error: `b` does not live long enough

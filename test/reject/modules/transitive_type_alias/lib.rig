@@ -1,0 +1,10 @@
+use a
+
+pub fun make(n: Int) -> *a.B
+  *a.B(n: n)
+
+pub fun slot(n: Int) -> a.Slot
+  .full(b: make(n))
+
+pub fun plain(n: Int) -> a.B
+  a.B(n: n)

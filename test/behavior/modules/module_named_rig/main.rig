@@ -1,0 +1,9 @@
+# A user module may be named `rig`; it is imported like any other.
+
+use rig
+
+sub main()
+  print(rig.helper())
+
+# expect:
+# 7

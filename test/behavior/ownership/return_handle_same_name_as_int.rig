@@ -1,0 +1,29 @@
+# Resource classification is per scope: `x` is an Int in one function
+# and a shared handle in another. Returning the handle `x` hands
+# ownership to the caller instead of dropping it at function exit.
+
+struct U
+  v: Int
+
+  drop self: !U
+    print("drop")
+
+sub take_int(x: Int)
+  print(x)
+
+fun make_rc() -> *U
+  x = *U(v: 99)
+  return x
+
+sub main()
+  take_int(5)
+  rc = make_rc()
+  print(rc.v)
+  -rc
+  print("end")
+
+# expect:
+# 5
+# 99
+# drop
+# end

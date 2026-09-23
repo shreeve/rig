@@ -1,0 +1,9 @@
+# `extern` does not bypass `pub`: a private extern in module `a` is
+# invisible to importers, who must go through the `pub` safe wrapper.
+use a
+
+sub main()
+  raw
+    print(a.abs(-1))
+
+# error: `a.abs` is not public; mark it `pub` in module `a`

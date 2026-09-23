@@ -1,0 +1,13 @@
+# A local closure cannot be passed as a call argument, where the callee
+# could retain it.
+
+sub consume(f)
+  print(f)
+
+sub main()
+  n =! 3
+  f = |+n|
+    n
+  consume(f)
+
+# error: closure `f` cannot be moved, returned, stored, or aliased

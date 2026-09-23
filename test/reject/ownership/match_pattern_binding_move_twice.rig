@@ -1,0 +1,24 @@
+# Moving a payload binding out consumes the matched value, so a second
+# match on `s` is a use after move.
+
+struct Box
+  payload: Int
+
+enum Slot
+  full(b: *Box)
+  empty
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub main()
+  rc = *Box(payload: 5)
+  s: Slot = .full(b: <rc)
+  match s
+    .full(b) => eat(<b)
+    .empty => print(0)
+  match s
+    .full(b) => eat(<b)
+    .empty => print(0)
+
+# error: after move

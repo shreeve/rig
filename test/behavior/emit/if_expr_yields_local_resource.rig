@@ -1,0 +1,28 @@
+# A block that yields a resource declared inside it moves the resource
+# out: the binding receives it and nothing is dropped at the block's end.
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+sub pick(flag: Bool)
+  y = if flag
+    x = *Noisy(id: 1)
+    x
+  else
+    *Noisy(id: 2)
+  print(y.id)
+
+sub main()
+  pick(true)
+  pick(false)
+  print("end")
+
+# expect:
+# 1
+# 1
+# 2
+# 2
+# end

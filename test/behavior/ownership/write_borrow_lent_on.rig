@@ -1,0 +1,23 @@
+# Passing a held write borrow (a local or a view's field) on to a call
+# or a constructor lends it: the result writes through it.
+
+struct Ed
+  t: !Vec(Int)
+
+fun id(t: !Vec(Int)) -> !Vec(Int)
+  t
+
+sub main()
+  v: Vec(Int) = Vec()
+  if true
+    w = !v
+    r = id(w)
+    (!r).push(4)
+    e = Ed(t: <r)
+    (!e.t).push(5)
+    f = Ed(t: e.t)
+    (!f.t).push(6)
+  print(v.length(), v[0], v[2])
+
+# expect:
+# 3 4 6

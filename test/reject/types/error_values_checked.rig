@@ -1,0 +1,39 @@
+# Only a fallible function fails with an error value. The error
+# `catch |err|` names may be any error: it is matched by the names of
+# error-set members, with a default arm where its value is used, and it
+# is not a number or the fallback value.
+
+error ParseError
+  empty
+
+fun plain(n: Int) -> Int
+  return ParseError.empty if n < 0
+  n
+
+fun parse(s: String) -> Int!
+  return ParseError.empty if s == ""
+  s.len
+
+fun kind(s: String) -> Int
+  parse(s) catch |err|
+    match err
+      .empty => 1
+      .missing => 2
+
+sub main()
+  a = parse("") catch |err| err
+  b = parse("") catch |err| err + 1
+  c = parse("") catch |err| 0 if err == 3 else 1
+  d = parse("") catch |err|
+    match err
+      .empty(n) => 1
+      else => 2
+  print(plain(1), kind("x"), a, b, c, d)
+
+# error: type mismatch: expected `Int`, got `ParseError`
+# error: no error set has a member `missing`
+# error: value-position `match` on `error` needs a default arm
+# error: type mismatch: expected `Int`, got `error`
+# error: operator `+` requires numeric operands; got `error`
+# error: cannot compare `error` with `Int`
+# error: an error has no payload to destructure; match it as `.empty`

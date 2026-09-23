@@ -1,0 +1,15 @@
+# `for n in nums` over a Copy-element Vec binds each element by value,
+# in insertion order.
+
+sub main()
+  nums: Vec(Int) = Vec()
+  (!nums).push(10)
+  (!nums).push(20)
+  (!nums).push(30)
+  for n in nums
+    print(n)
+
+# expect:
+# 10
+# 20
+# 30

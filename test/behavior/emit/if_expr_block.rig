@@ -1,0 +1,17 @@
+# A multi-statement `if` branch in value position yields its last
+# expression; its locals are visible inside the branch.
+
+fun summarize(n: Int) -> Int
+  if n > 0
+    doubled: Int = n * 2
+    doubled + 1
+  else
+    0
+
+sub main()
+  print(summarize(10))
+  print(summarize(0))
+
+# expect:
+# 21
+# 0

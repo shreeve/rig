@@ -1,1 +1,0 @@
-(module (struct User (: age Int)) (sub main () _ (block (set _ u (shared User) (share (call User (kwarg age 30)))) (set _ c (generic_inst Cell (shared User)) (call Cell (kwarg value (move u)))) (set _ copy _ (call (member c get))) (call print 0))))

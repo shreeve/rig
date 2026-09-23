@@ -1,0 +1,10 @@
+# Only `!T` parameters are assignable; a `?T` parameter is a read borrow.
+
+sub bump(c: ?Int)
+  c = c + 1
+
+sub main()
+  n = 1
+  bump(?n)
+
+# error: cannot assign to parameter `c`

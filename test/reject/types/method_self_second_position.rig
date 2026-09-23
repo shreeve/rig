@@ -1,0 +1,13 @@
+# `self` must be the first parameter of a method.
+
+struct User
+  name: String
+
+  fun bad(other: Int, ?self) -> Int
+    other
+
+sub main()
+  u = User(name: "x")
+  print(u.bad(42))
+
+# error: `self` must be the first parameter of a method

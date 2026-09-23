@@ -1,1 +1,0 @@
-examples/owned_closure_args_rejected.rig:11:3: error: owned closure `cb` invocation expects 0 argument(s); got 2

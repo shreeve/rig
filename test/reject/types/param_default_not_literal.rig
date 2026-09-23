@@ -1,0 +1,13 @@
+# A default parameter value is written at every call site that omits
+# the argument, so it must be a literal.
+
+fun base() -> Int
+  10
+
+fun scaled(n: Int, by: Int = base()) -> Int
+  n * by
+
+sub main()
+  print(scaled(3))
+
+# error: a default parameter value must be a literal

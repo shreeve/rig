@@ -1,0 +1,10 @@
+# A `drop` declaration's receiver must be `self: !Self`; a read borrow
+# is rejected.
+
+struct File
+  fd: Int
+
+  drop self: ?File
+    print(self.fd)
+
+# error: `drop` declaration must use `self: !Self`

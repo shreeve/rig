@@ -1,0 +1,8 @@
+# A bare copy of a `Vec` is rejected: both bindings would free the same
+# buffer.
+
+sub main()
+  v: Vec(Int) = Vec()
+  v2: Vec(Int) = v
+
+# error: bare use of `Vec` value `v` in binding would copy the buffer pointer

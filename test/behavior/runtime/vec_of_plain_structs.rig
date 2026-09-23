@@ -1,0 +1,49 @@
+# A Vec holds plain structs, enums (with payloads), and optionals like
+# numbers: pushed, indexed, assigned (whole or by field), iterated, and
+# popped by value.
+
+struct P
+  x: Int
+  y: Int
+
+enum Shape
+  circle(r: Int)
+  dot
+
+sub main()
+  v: Vec(P) = Vec()
+  (!v).push(P(x: 1, y: 2))
+  (!v).push(P(x: 3, y: 4))
+  print(v[0].x + v[1].y)
+  v[0] = P(x: 9, y: 9)
+  v[1].x = 7
+  for p in v
+    print(p.x, p.y)
+  if (!v).pop() as last
+    print("popped", last.x)
+  print(v.length(), v.get(1) == none)
+
+  shapes: Vec(Shape) = Vec()
+  (!shapes).push(.circle(r: 2))
+  (!shapes).push(.dot)
+  for s in shapes
+    match s
+      .circle(r) => print("circle", r)
+      .dot => print("dot")
+
+  maybe: Vec(Int?) = Vec()
+  (!maybe).push(3)
+  (!maybe).push(none)
+  for m in maybe
+    print(m ?? 0)
+
+# expect:
+# 5
+# 9 9
+# 7 4
+# popped 7
+# 1 true
+# circle 2
+# dot
+# 3
+# 0

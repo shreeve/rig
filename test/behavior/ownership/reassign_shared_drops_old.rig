@@ -1,0 +1,18 @@
+# Reassigning a shared-handle binding drops the previous handle at the
+# reassignment; the new one is dropped at scope exit.
+
+struct Counter
+  value: Int
+
+  drop self: !Counter
+    print(self.value + 100)
+
+sub main()
+  rc = *Counter(value: 11)
+  rc = *Counter(value: 22)
+  print(rc.value)
+
+# expect:
+# 111
+# 22
+# 122

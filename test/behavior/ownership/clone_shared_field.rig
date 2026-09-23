@@ -1,0 +1,21 @@
+# `+p.a` clones the shared handle held in a field: the clone and the
+# field each own a count, and the value is dropped once, when the last
+# handle goes.
+
+struct Box
+  payload: Int
+
+  drop self: !Box
+    print("drop")
+
+struct Pair
+  a: *Box
+
+sub main()
+  p = Pair(a: *Box(payload: 1))
+  x = +p.a
+  print(x.payload)
+
+# expect:
+# 1
+# drop

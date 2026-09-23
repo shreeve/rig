@@ -1,0 +1,17 @@
+# A borrow of a local stored in a returned struct escapes the function.
+
+struct User
+  age: Int
+
+struct View
+  user: ?User
+
+fun bad() -> View
+  user = User(age: 42)
+  View(user: ?user)
+
+sub main()
+  v = bad()
+  print(v.user.age)
+
+# error: returned borrow of `user` does not originate from a borrowed parameter

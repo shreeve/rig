@@ -1,0 +1,9 @@
+# A lambda literal inside an array literal escapes its scope and is
+# rejected.
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  xs = [|+count| count.set(count.get() + 1)]
+  _ = xs
+
+# error: closures cannot escape their defining scope

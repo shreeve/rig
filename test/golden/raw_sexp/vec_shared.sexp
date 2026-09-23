@@ -1,1 +1,0 @@
-(module (sub main () _ (block (set _ rv (shared (generic_inst Vec Int)) (share (call Vec))) (call (member (write rv) push) 100) (call (member (write rv) push) 200) (call print (call (member rv length))))))

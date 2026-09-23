@@ -1,0 +1,10 @@
+# `x = ...` inside a nested block assigns the enclosing binding.
+
+sub main()
+  x = 1
+  if x > 0
+    x = 2
+  print(x)
+
+# expect:
+# 2

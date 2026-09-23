@@ -1,0 +1,20 @@
+# A factory returns a local shared handle with a bare `return rc`; the
+# caller owns it and it is dropped once, at the caller's scope exit.
+
+struct Counter
+  value: Int
+
+  drop self: !Counter
+    print("drop")
+
+fun make_counter(n: Int) -> *Counter
+  rc = *Counter(value: n)
+  return rc
+
+sub main()
+  c = make_counter(42)
+  print(c.value)
+
+# expect:
+# 42
+# drop

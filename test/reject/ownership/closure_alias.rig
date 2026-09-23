@@ -1,0 +1,11 @@
+# A closure binding cannot be aliased (`g = f`): copying the closure
+# would duplicate its captures.
+
+sub main()
+  n =! 5
+  f = |+n|
+    n + 1
+  g = f
+  g()
+
+# error: closure `f` cannot be moved, returned, stored, or aliased

@@ -1,0 +1,15 @@
+# Inside a generic body, constructor fields are checked symbolically:
+# a String is not a `T`.
+
+type Box(T)
+  value: T
+
+  fun bad(?self) -> Self
+    b: Self = Box(value: "hello")
+    b
+
+sub main()
+  b: Box(Int) = Box(value: 5)
+  print(b.value)
+
+# error: type mismatch: expected `T`, got `String`

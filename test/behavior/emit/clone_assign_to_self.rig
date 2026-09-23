@@ -1,0 +1,13 @@
+# `a = +a` clones before the old handle is dropped, so the new value is
+# read from a live box.
+
+struct Box
+  n: Int
+
+sub main()
+  a = *Box(n: 3)
+  a = +a
+  print(a.n)
+
+# expect:
+# 3

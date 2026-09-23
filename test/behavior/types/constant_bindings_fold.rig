@@ -1,0 +1,14 @@
+# Arithmetic on constant bindings is checked like literal arithmetic, and
+# a reassigned binding is not a constant.
+
+sub main()
+  a: U8 = 250
+  b = a + 5
+  c: U8 = 250
+  c = 1
+  d = c + 10
+  e = 9223372036854775807 - 1
+  print(b, d, e)
+
+# expect:
+# 255 11 9223372036854775806

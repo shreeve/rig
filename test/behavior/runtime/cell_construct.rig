@@ -1,0 +1,9 @@
+# A stack-local `Cell(Int)` is built with the `value:` kwarg and its
+# Copy payload is readable through the `value` field.
+
+sub main()
+  c: Cell(Int) = Cell(value: 7)
+  print(c.value)
+
+# expect:
+# 7

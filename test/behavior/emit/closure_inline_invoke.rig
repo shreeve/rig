@@ -1,0 +1,12 @@
+# A closure literal can be called where it is written, as a statement or
+# for its value.
+
+sub main()
+  n = 3
+  (|+n| print n)()
+  m = (|+n, k: Int| n + k)(4)
+  print(m)
+
+# expect:
+# 3
+# 7

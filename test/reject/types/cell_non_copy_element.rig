@@ -1,0 +1,10 @@
+# `Cell(T)` needs a Copy `T` or a type with drop glue; a plain struct
+# without drop glue is rejected.
+
+struct User
+  name: String
+
+sub main()
+  c: Cell(User) = Cell(value: User(name: "x"))
+
+# error: `Cell(T)` requires `T` to be a Copy primitive

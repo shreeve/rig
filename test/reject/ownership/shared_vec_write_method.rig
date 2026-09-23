@@ -1,0 +1,18 @@
+# A shared handle is read-only, the built-in Vec included: `(!h).push`
+# through a `*Vec(T)` is rejected like any `!self` method, since other
+# handles may be reading it. Shared mutable state goes in a Cell.
+
+struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+sub main()
+  rv: *Vec(Int) = *Vec()
+  (!rv).push(100)
+  c = *Counter(n: 0)
+  (!c).bump()
+
+# error: cannot call write-receiver method `push` through a shared handle
+# error: cannot call write-receiver method `bump` through a shared handle

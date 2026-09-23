@@ -1,0 +1,14 @@
+# Arrays hold plain data; a collection of resources is a `Vec`.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+sub main()
+  a = *B(n: 1)
+  xs = [<a]
+  print(xs.len)
+
+# error: arrays cannot hold values that own resources

@@ -1,0 +1,16 @@
+# A resource nested deep inside generic wrappers still gives the whole
+# value drop glue, so copying it is rejected.
+
+struct P
+  n: Int
+
+type Box(T)
+  value: T
+
+sub main()
+  h: *P = *P(n: 5)
+  b: Box(Box(Box(Box(Box(Box(Box(Box(Box(Box(*P)))))))))) = Box(value: Box(value: Box(value: Box(value: Box(value: Box(value: Box(value: Box(value: Box(value: Box(value: <h))))))))))
+  c = b
+  print(c.value.value.value.value.value.value.value.value.value.value.n)
+
+# error: bare use of `Box` value `b` in binding would alias an owning value

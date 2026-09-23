@@ -1,0 +1,13 @@
+# Copying a write borrow into a second binding would give two live
+# mutable paths to the same value; move it with `<w` instead.
+
+struct Box
+  payload: Int
+
+sub main()
+  a = Box(payload: 1)
+  w = !a
+  w2 = w
+  print(w2.payload)
+
+# error: bare use of write borrow `w` in binding would duplicate a unique borrow

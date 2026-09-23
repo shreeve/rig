@@ -2,3 +2,6 @@
 
 sub main()
   print "hello, rig"
+
+# expect:
+# hello, rig

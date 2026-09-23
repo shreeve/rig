@@ -1,0 +1,15 @@
+# A parameter with a default value may be omitted; keyword arguments
+# fill the rest.
+
+fun scaled(n: Int, by: Int = 10) -> Int
+  n * by
+
+sub main()
+  print(scaled(3))
+  print(scaled(3, 2))
+  print(scaled(by: 4, n: 5))
+
+# expect:
+# 30
+# 6
+# 20

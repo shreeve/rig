@@ -1,0 +1,10 @@
+# An enum has no constructor; values are its variants.
+
+enum Color
+  red
+
+sub main()
+  c = Color()
+  print(1)
+
+# error: `Color` is an enum; construct a variant

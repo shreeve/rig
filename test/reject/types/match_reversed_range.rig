@@ -1,0 +1,9 @@
+# A range pattern runs from low to high.
+
+sub main()
+  n = 2
+  match n
+    5..1 => print("in")
+    else => print("out")
+
+# error: empty range

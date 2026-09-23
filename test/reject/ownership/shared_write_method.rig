@@ -1,0 +1,14 @@
+# A write-receiver method cannot be called through a shared handle.
+
+struct User
+  age: Int
+
+  sub set_age(self: !User, n: Int)
+    self.age = n
+
+sub main()
+  rc = *User(age: 1)
+  rc.set_age(5)
+  -rc
+
+# error: cannot call write-receiver method `set_age` through a shared handle

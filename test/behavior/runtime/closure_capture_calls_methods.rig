@@ -1,0 +1,13 @@
+# A closure that clone-captures a `*Cell(Int)` may call read and write
+# methods on the captured handle; each call sees the shared cell.
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  bump: *sub() = *|+count| count.set(count.get() + 1)
+  bump()
+  bump()
+  bump()
+  print(count.get())                # 3
+
+# expect:
+# 3

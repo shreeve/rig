@@ -1,0 +1,21 @@
+# A value-position match arm that returns early has no value; the other
+# arms supply the binding.
+
+enum Op
+  go
+  abort
+
+fun handle(op: Op, x: Int) -> Int
+  result: Int = match op
+    .go => x * 2
+    .abort
+      return -1
+  result + 1
+
+sub main()
+  print(handle(.go, 5))
+  print(handle(.abort, 5))
+
+# expect:
+# 11
+# -1

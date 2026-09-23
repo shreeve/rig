@@ -1,0 +1,17 @@
+# A closure capture takes the type of the binding in scope, not of a
+# same-named local elsewhere.
+
+sub other()
+  s = 3
+  print(s)
+
+sub main()
+  s =! "hello"
+  f = |+s|
+    print(s)
+  f()
+  other()
+
+# expect:
+# hello
+# 3

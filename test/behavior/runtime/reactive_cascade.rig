@@ -1,0 +1,51 @@
+# Two reactive sources chained by a subscriber that reads one and sets
+# the other (count -> total -> print). Subscribers hold their sources
+# weakly (`|~count, ~total|`), so no source is kept alive by its own
+# subscriber list.
+
+type Subscribers = Vec(*sub())
+
+struct IntSource
+  value: *Cell(Int)
+  subs: *Cell(Subscribers)
+
+  fun new(initial: Int) -> *IntSource
+    *IntSource(value: *Cell(value: initial), subs: *Cell(value: Vec()))
+
+  fun get(self: ?IntSource) -> Int
+    self.value.get()
+
+  # A Cell gives no borrowed access to the Vec inside it, so the list is
+  # swapped out, changed, and swapped back.
+  sub subscribe(self: ?IntSource, cb: *sub())
+    subs = self.subs.replace(Vec())
+    (!subs).push(<cb)
+    _ = self.subs.replace(<subs)
+
+  sub set(self: ?IntSource, v: Int)
+    self.value.set(v)
+    subs = self.subs.replace(Vec())
+    for notify in ?subs
+      notify()
+    _ = self.subs.replace(<subs)
+
+sub main()
+  count = IntSource.new(0)
+  total = IntSource.new(0)
+
+  count.subscribe(*|~count, ~total|
+    if count.upgrade() as c
+      if total.upgrade() as t
+        t.set(c.get() * 10))
+  total.subscribe(*|~total|
+    if total.upgrade() as t
+      print(t.get()))
+
+  count.set(1)        # total becomes 10, prints 10
+  count.set(7)        # total becomes 70, prints 70
+  print(total.get())  # 70
+
+# expect:
+# 10
+# 70
+# 70

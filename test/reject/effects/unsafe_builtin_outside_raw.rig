@@ -1,0 +1,9 @@
+# A builtin outside the safe whitelist needs a `raw` block; the
+# diagnostic names the builtin.
+
+sub main()
+  x: I32 = -1
+  y: U32 = @bitCast(x)
+  print(y)
+
+# error: builtin `@bitCast` is not in the safe whitelist
