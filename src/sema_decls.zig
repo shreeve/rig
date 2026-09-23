@@ -103,7 +103,7 @@ const SymbolResolver = struct {
     fn addSymbol(self: *SymbolResolver, sym: Symbol) Error!SymbolId {
         const id: SymbolId = @intCast(self.ctx.symbols.items.len);
         try self.ctx.symbols.append(self.ctx.allocator, sym);
-        try self.ctx.scopes.items[sym.scope].symbols.append(self.ctx.allocator, id);
+        try self.ctx.addToScope(sym.scope, id);
         return id;
     }
 

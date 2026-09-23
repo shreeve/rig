@@ -418,13 +418,19 @@ pub const Symbol = struct {
     param_defaults: ?[]const ?Sexp = null,
     /// A capture: the enclosing binding it captures.
     origin: SymbolId = symbol_invalid,
+    /// The previous symbol of the same name in the same scope, if any.
+    prev_in_scope: SymbolId = symbol_invalid,
 };
 
 pub const ScopeKind = enum { module, function, lambda, block };
 
 pub const Scope = struct {
     parent: ?ScopeId,
+    /// In declaration order. Add with `SemContext.addToScope`.
     symbols: std.ArrayListUnmanaged(SymbolId) = .empty,
+    /// Name -> the latest symbol of that name; earlier ones are chained
+    /// through `Symbol.prev_in_scope`.
+    by_name: std.StringHashMapUnmanaged(SymbolId) = .empty,
     kind: ScopeKind = .block,
 };
 
@@ -588,7 +594,10 @@ pub const SemContext = struct {
     }
 
     pub fn deinit(self: *SemContext) void {
-        for (self.scopes.items) |*s| s.symbols.deinit(self.allocator);
+        for (self.scopes.items) |*s| {
+            s.symbols.deinit(self.allocator);
+            s.by_name.deinit(self.allocator);
+        }
         self.scopes.deinit(self.allocator);
         self.symbols.deinit(self.allocator);
         self.types.deinit(self.allocator);
@@ -640,16 +649,19 @@ pub const SemContext = struct {
         return id;
     }
 
+    /// Declare the symbol `id` in `scope_id`, after its earlier ones.
+    pub fn addToScope(self: *SemContext, scope_id: ScopeId, id: SymbolId) std.mem.Allocator.Error!void {
+        const scope = &self.scopes.items[scope_id];
+        try scope.symbols.append(self.allocator, id);
+        const latest = try scope.by_name.getOrPut(self.allocator, self.symbols.items[id].name);
+        self.symbols.items[id].prev_in_scope = if (latest.found_existing) latest.value_ptr.* else symbol_invalid;
+        latest.value_ptr.* = id;
+    }
+
     /// The latest symbol named `name` declared directly in `scope_id`.
     pub fn lookupInScopeOnly(self: *const SemContext, scope_id: ScopeId, name: []const u8) ?SymbolId {
         if (scope_id == scope_invalid or scope_id >= self.scopes.items.len) return null;
-        const syms = self.scopes.items[scope_id].symbols.items;
-        var i = syms.len;
-        while (i > 0) {
-            i -= 1;
-            if (std.mem.eql(u8, self.symbols.items[syms[i]].name, name)) return syms[i];
-        }
-        return null;
+        return self.scopes.items[scope_id].by_name.get(name);
     }
 
     /// The symbol `name` resolves to from `from_scope`: the latest

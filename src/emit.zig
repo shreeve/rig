@@ -77,7 +77,11 @@ const Local = struct {
     /// A match payload binding: the scrutinee it views. Moving it out
     /// consumes the scrutinee.
     scrutinee: ?SymbolId = null,
+    /// The local of the same symbol this one hides until its scope ends.
+    shadowed: ?LocalRef = null,
 };
+
+const LocalRef = struct { scope: u32, index: u32 };
 
 const Scope = struct {
     locals: std.ArrayListUnmanaged(Local) = .empty,
@@ -126,6 +130,10 @@ pub const Emitter = struct {
     sema: *const types.SemContext,
 
     scopes: std.ArrayListUnmanaged(Scope) = .empty,
+    /// Symbol -> its innermost local in `scopes`.
+    local_by_sym: std.AutoHashMapUnmanaged(SymbolId, LocalRef) = .empty,
+    /// The Zig names of the locals in `scopes`, with how many locals use each.
+    local_names: std.StringHashMapUnmanaged(u32) = .empty,
     /// Suffix source for generated labels, temporaries, and renames.
     counter: u32 = 0,
     /// Every module-level Zig name, which locals must not shadow.
@@ -170,6 +178,8 @@ pub const Emitter = struct {
     pub fn deinit(self: *Emitter) void {
         for (self.scopes.items) |*s| s.locals.deinit(self.allocator);
         self.scopes.deinit(self.allocator);
+        self.local_by_sym.deinit(self.allocator);
+        self.local_names.deinit(self.allocator);
         self.module_names.deinit(self.allocator);
         self.error_sets.deinit(self.allocator);
         self.usage.deinit(self.allocator);
@@ -602,6 +612,19 @@ pub const Emitter = struct {
 
     fn popScope(self: *Emitter) Error!void {
         var top = self.scopes.pop() orelse return;
+        var i = top.locals.items.len;
+        while (i > 0) {
+            i -= 1;
+            const l = top.locals.items[i];
+            if (l.shadowed) |prev| {
+                self.local_by_sym.putAssumeCapacity(l.sym, prev);
+            } else {
+                _ = self.local_by_sym.remove(l.sym);
+            }
+            const uses = self.local_names.getPtr(l.zig_name).?;
+            uses.* -= 1;
+            if (uses.* == 0) _ = self.local_names.remove(l.zig_name);
+        }
         top.locals.deinit(self.allocator);
     }
 
@@ -618,9 +641,16 @@ pub const Emitter = struct {
         if (l.guard == .flag and l.flag.len == 0) {
             l.flag = try self.fmt("__rig_alive_{s}", .{if (isPlainIdent(l.zig_name)) l.zig_name else try self.fresh(rig_name)});
         }
-        const top = &self.scopes.items[self.scopes.items.len - 1];
+        const scope: u32 = @intCast(self.scopes.items.len - 1);
+        const top = &self.scopes.items[scope];
+        const ref: LocalRef = .{ .scope = scope, .index = @intCast(top.locals.items.len) };
+        const latest = try self.local_by_sym.getOrPut(self.allocator, l.sym);
+        l.shadowed = if (latest.found_existing) latest.value_ptr.* else null;
+        latest.value_ptr.* = ref;
+        const uses = try self.local_names.getOrPut(self.allocator, l.zig_name);
+        uses.value_ptr.* = if (uses.found_existing) uses.value_ptr.* + 1 else 1;
         try top.locals.append(self.allocator, l);
-        return &top.locals.items[top.locals.items.len - 1];
+        return &top.locals.items[ref.index];
     }
 
     /// The local an identifier leaf denotes, if it names one.
@@ -630,17 +660,8 @@ pub const Emitter = struct {
     }
 
     fn localBySym(self: *Emitter, sym: SymbolId) ?*Local {
-        var i = self.scopes.items.len;
-        while (i > 0) {
-            i -= 1;
-            const locals = self.scopes.items[i].locals.items;
-            var j = locals.len;
-            while (j > 0) {
-                j -= 1;
-                if (locals[j].sym == sym) return &locals[j];
-            }
-        }
-        return null;
+        const ref = self.local_by_sym.get(sym) orelse return null;
+        return &self.scopes.items[ref.scope].locals.items[ref.index];
     }
 
     /// A Zig name for a new binding: the Rig name (escaped if needed)
@@ -661,10 +682,7 @@ pub const Emitter = struct {
                 if (std.mem.eql(u8, self.srcText(m.list[1]), zig_name)) return true;
             }
         }
-        for (self.scopes.items) |s| for (s.locals.items) |l| {
-            if (std.mem.eql(u8, l.zig_name, zig_name)) return true;
-        };
-        return false;
+        return self.local_names.contains(zig_name);
     }
 
     fn fresh(self: *Emitter, base: []const u8) Error![]const u8 {

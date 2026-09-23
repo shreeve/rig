@@ -95,7 +95,7 @@ fn addGeneric(ctx: *SemContext, module_scope: ScopeId, name: []const u8, param_n
         .decl_pos = pos,
         .scope = module_scope,
     });
-    try ctx.scopes.items[module_scope].symbols.append(ctx.allocator, sym);
+    try ctx.addToScope(module_scope, sym);
 
     const arena = ctx.arena.allocator();
     const param_syms = try arena.alloc(SymbolId, param_names.len);
