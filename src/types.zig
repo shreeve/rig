@@ -1926,8 +1926,18 @@ const Coverage = struct {
                         for (items[1..]) |c| self.expr(c);
                         return;
                     },
+                    .@"as" => {
+                        self.expr(items[1]);
+                        self.expectName(items[2]);
+                        self.expectType(items[2]);
+                        return;
+                    },
                     .@"for" => {
                         self.expectName(items[2]);
+                        if (items[3] != .nil) {
+                            self.expectName(items[3]);
+                            self.expectType(items[3]);
+                        }
                         self.expr(items[4]);
                         self.expr(items[5]);
                         return;
@@ -2059,4 +2069,32 @@ test "facts: every name and expression in a program has a fact" {
     var cov: Coverage = .{ .r = &r };
     for (r.ir.list[1..]) |d| cov.decl(d);
     try std.testing.expectEqual(@as(usize, 0), cov.missing);
+}
+
+test "facts: optional bindings, index bindings, defaults, and shadows have facts" {
+    var r = try factsRun(
+        \\fun scaled(n: Int, by: Int = 10) -> Int
+        \\  n * by
+        \\
+        \\sub main()
+        \\  m: Int? = 4
+        \\  if m as v
+        \\    print(v, scaled(v))
+        \\  xs = [1, 2]
+        \\  for x, i in xs
+        \\    print(x + i)
+        \\  w: Vec(Int) = Vec()
+        \\  while (!w).pop() as y
+        \\    print(y)
+        \\  k = 1
+        \\  new k = k + 1
+        \\  print(k)
+        \\
+    );
+    defer r.deinit();
+    var cov: Coverage = .{ .r = &r };
+    for (r.ir.list[1..]) |d| cov.decl(d);
+    try std.testing.expectEqual(@as(usize, 0), cov.missing);
+    try std.testing.expectEqual(r.ctx.types.int_id, r.leafType("v", 0).?);
+    try std.testing.expectEqual(r.ctx.types.int_id, r.leafType("i", 0).?);
 }
