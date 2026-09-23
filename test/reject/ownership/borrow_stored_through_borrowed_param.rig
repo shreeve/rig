@@ -1,5 +1,5 @@
-# Storing a borrow into a struct reached through a borrowed parameter
-# could outlive what it borrows.
+# A function cannot store a borrow of its own local into a struct the
+# caller owns: the local dies when the function returns.
 
 struct Box
   payload: Int
@@ -7,10 +7,11 @@ struct Box
 struct View
   box: ?Box
 
-sub put(v: !View, b: ?Box)
-  v.box = b
+sub put(v: !View)
+  b = Box(payload: 1)
+  v.box = ?b
 
 sub main()
   print(1)
 
-# error: cannot store a borrow in `v.box`
+# error: cannot store a borrow of `b` in `v.box`: `v` outlives it

@@ -1429,8 +1429,13 @@ pub const Checker = struct {
             return;
         }
         if (value.loans.len == 0 or !self.mayCarryBorrow(self.exprType(target))) return;
-        if (v.ref != .none or place.through_borrow or place.through_shared) {
-            try self.err(pos, "cannot store a borrow in `{s}`: `{s}` is borrowed, so the stored borrow could outlive what it borrows", .{ try self.placeText(target), v.name });
+        if (v.ref != .none or place.through_borrow or place.through_shared or self.isGlobal(id)) {
+            // Stored into something the caller owns: only borrows the
+            // caller handed in may go there.
+            for (value.loans) |l| if (self.isLocalLoan(l)) {
+                try self.err(pos, "cannot store a borrow of `{s}` in `{s}`: `{s}` outlives it", .{ self.vars.items[l.root].name, try self.placeText(target), v.name });
+                return;
+            };
             return;
         }
         self.flows.items[id].loans = try self.unionLoans(self.flows.items[id].loans, value.loans);
@@ -1485,9 +1490,24 @@ pub const Checker = struct {
             _ = try self.walk(callee);
         }
 
+        var stored: Value = .{};
         for (args) |a| {
             const v = try self.walkConsumed(a, .argument);
-            result = try self.valueUnion(result, v);
+            stored = try self.valueUnion(stored, v);
+        }
+        result = try self.valueUnion(result, stored);
+
+        // The callee may store what its arguments borrow into anything it
+        // can mutate: the receiver, `!x` arguments, and shared handles.
+        if (stored.loans.len > 0) {
+            if (recv_root) |id| {
+                const obj = callee.list[1];
+                if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, innerPos(obj));
+            }
+            for (args) |a| {
+                const arg = if (isTag(a, .@"kwarg") and a.list.len >= 3) a.list[2] else a;
+                if (try self.containerRoot(arg)) |id| try self.absorbLoans(id, stored, innerPos(arg));
+            }
         }
 
         if (recv_root) |id| if (recv_mode == .write) {
@@ -1513,6 +1533,51 @@ pub const Checker = struct {
 
         if (!self.mayCarryBorrow(self.callResultType(items))) return .{};
         return result;
+    }
+
+    /// The var behind an argument the callee can store into: `!x`, or a
+    /// shared handle or write borrow passed by name (or cloned).
+    fn containerRoot(self: *Checker, arg: Sexp) Error!?VarId {
+        var inner = arg;
+        const explicit_write = isTag(arg, .@"write");
+        if ((explicit_write or isTag(arg, .@"clone")) and arg.list.len >= 2) inner = arg.list[1];
+        const place = (try self.resolvePlace(inner)) orelse return null;
+        const ty = self.exprType(inner);
+        if (!self.mayCarryBorrow(ty)) return null;
+        if (!explicit_write) {
+            const t = ty orelse return null;
+            const tag = self.typeOf(t);
+            if (tag != .shared and tag != .borrow_write) return null;
+        }
+        return place.root;
+    }
+
+    /// Record that var `id` may now hold the loans in `v`. A borrowed or
+    /// module-level container outlives this function's values: storing
+    /// any borrow into it is rejected.
+    fn absorbLoans(self: *Checker, id: VarId, v: Value, pos: u32) Error!void {
+        var out: std.ArrayListUnmanaged(Loan) = .empty;
+        for (v.loans) |l| if (l.root != id) try out.append(self.arena(), l);
+        if (out.items.len == 0) return;
+        const c = self.vars.items[id];
+        if (c.ref != .none or self.isGlobal(id)) {
+            // The caller accounts for borrows it passed in; only borrows
+            // of this function's own values cannot be stored.
+            for (out.items) |l| if (self.isLocalLoan(l)) {
+                try self.err(pos, "cannot let this call store a borrow of `{s}` in `{s}`: `{s}` outlives it", .{ self.vars.items[l.root].name, c.name, c.name });
+                return;
+            };
+            return;
+        }
+        self.flows.items[id].loans = try self.unionLoans(self.flows.items[id].loans, out.items);
+    }
+
+    /// A loan on a value owned by the current function (as opposed to one
+    /// the caller handed in through a borrowed parameter).
+    fn isLocalLoan(self: *const Checker, l: Loan) bool {
+        if (l.ext) return false;
+        const r = self.vars.items[l.root];
+        return !(r.kind == .param and r.ref != .none);
     }
 
     // -------------------------------------------------------------------------
@@ -1684,9 +1749,8 @@ pub const Checker = struct {
 
     fn checkEscape(self: *Checker, v: Value) Error!void {
         for (v.loans, 0..) |l, i| {
-            if (l.ext) continue;
+            if (!self.isLocalLoan(l)) continue;
             const r = self.vars.items[l.root];
-            if (r.kind == .param and r.ref != .none) continue;
             var seen = false;
             for (v.loans[0..i]) |p| if (p.root == l.root and !p.ext) {
                 seen = true;
@@ -2910,6 +2974,21 @@ test "a deferred body is checked against the state at scope exit" {
         \\  look(?rc)
         \\
     , "use of `rc` after move");
+}
+
+test "a borrowed parameter may store borrows the caller passed in" {
+    try expectClean(
+        \\sub put(v: !View, b: ?Box)
+        \\  v.box = b
+        \\  fill(!v, b)
+        \\
+    );
+    try expectError(
+        \\sub put(v: !View)
+        \\  b = make()
+        \\  fill(!v, ?b)
+        \\
+    , "cannot let this call store a borrow of `b` in `v`");
 }
 
 test "module-level bindings are visible in functions but cannot be consumed" {
