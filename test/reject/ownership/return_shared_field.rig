@@ -1,0 +1,16 @@
+# Returning a shared-handle field would copy the handle without a
+# refcount bump; clone it with `+o.inner`.
+
+struct Box
+  payload: Int
+
+struct Outer
+  inner: *Box
+
+fun take(o: Outer) -> *Box
+  o.inner
+
+sub main()
+  print(1)
+
+# error: bare use of shared (`*T`) handle `o.inner` in return value would alias the handle

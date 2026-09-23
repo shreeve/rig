@@ -1,0 +1,16 @@
+# Storing a borrow into a struct reached through a borrowed parameter
+# could outlive what it borrows.
+
+struct Box
+  payload: Int
+
+struct View
+  box: ?Box
+
+sub put(v: !View, b: ?Box)
+  v.box = b
+
+sub main()
+  print(1)
+
+# error: cannot store a borrow in `v.box`

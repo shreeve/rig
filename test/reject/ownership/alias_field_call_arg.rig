@@ -1,0 +1,19 @@
+# Passing a shared-handle field as an owned argument would copy the
+# handle without a refcount bump.
+
+struct Box
+  payload: Int
+
+struct Outer
+  inner: *Box
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub main()
+  b = *Box(payload: 7)
+  o = *Outer(inner: <b)
+  eat(o.inner)
+  eat(o.inner)
+
+# error: would alias the handle

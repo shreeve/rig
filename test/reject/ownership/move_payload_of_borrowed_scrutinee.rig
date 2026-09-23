@@ -1,0 +1,21 @@
+# A payload cannot be moved out of a borrowed value.
+
+struct Box
+  payload: Int
+
+enum Slot
+  full(b: *Box)
+  empty
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub look(s: ?Slot)
+  match s
+    .full(b) => eat(<b)
+    .empty => print(0)
+
+sub main()
+  print(1)
+
+# error: cannot move out of `b`: it is borrowed from `s`

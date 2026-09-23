@@ -1,0 +1,28 @@
+# A move in an `if` branch that ends in `return` does not affect the code
+# after the `if`.
+
+struct Box
+  payload: Int
+
+  drop self: !Box
+    print("drop")
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub go(c: Bool)
+  rc = *Box(payload: 1)
+  if c
+    eat(<rc)
+    return
+  print(rc.payload + 10)
+
+sub main()
+  go(true)
+  go(false)
+
+# expect:
+# 1
+# drop
+# 11
+# drop

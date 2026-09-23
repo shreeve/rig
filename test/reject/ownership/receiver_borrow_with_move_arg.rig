@@ -1,0 +1,19 @@
+# A method call borrows its receiver for the whole call, so
+# `rc.show(<rc)` is rejected like `show(?rc, <rc)`.
+
+struct Inner
+  x: Int
+
+struct Box
+  inner: *Inner
+
+  sub show(?self, other: *Box)
+    -other
+    y = +self.inner
+    print(y.x)
+
+sub main()
+  rc = *Box(inner: *Inner(x: 5))
+  rc.show(<rc)
+
+# error: cannot move `rc` while it is read-borrowed

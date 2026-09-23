@@ -1,0 +1,14 @@
+# A borrowed parameter cannot be dropped; the caller owns it.
+
+struct Box
+  payload: Int
+
+sub kill(rc: ?*Box)
+  -rc
+
+sub main()
+  rc = *Box(payload: 5)
+  kill(?rc)
+  print(rc.payload)
+
+# error: cannot drop borrowed

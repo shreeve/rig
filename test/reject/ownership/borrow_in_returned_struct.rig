@@ -1,0 +1,23 @@
+# A call whose result can hold a borrow borrows from its borrowed
+# arguments: `v` keeps `h` borrowed.
+
+struct Box
+  payload: Int
+
+struct Holder
+  inner: *Box
+
+struct View
+  h: ?Holder
+
+fun mk(h: ?Holder) -> View
+  View(h: h)
+
+sub main()
+  h = Holder(inner: *Box(payload: 5))
+  v = mk(?h)
+  -h
+  x = +v.h.inner
+  print(x.payload)
+
+# error: cannot drop `h` while borrows are live

@@ -1,0 +1,16 @@
+# A borrow stored in a struct field keeps its owner borrowed while the
+# struct is live.
+
+struct Box
+  payload: Int
+
+struct View
+  box: ?Box
+
+sub main()
+  b = Box(payload: 5)
+  v = View(box: ?b)
+  -b
+  print(v.box.payload)
+
+# error: cannot drop `b` while borrows are live

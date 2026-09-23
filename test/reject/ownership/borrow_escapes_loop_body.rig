@@ -1,0 +1,17 @@
+# A borrow of a loop-body local cannot survive into the next iteration or
+# past the loop.
+
+struct Box
+  payload: Int
+
+sub main()
+  a = Box(payload: 1)
+  r = ?a
+  i = 0
+  while i < 2
+    b = Box(payload: i)
+    r = ?b
+    i += 1
+  print(r.payload)
+
+# error: `b` does not live long enough

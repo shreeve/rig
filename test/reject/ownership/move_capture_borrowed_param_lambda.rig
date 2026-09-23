@@ -1,0 +1,17 @@
+# A local closure cannot move-capture a borrowed parameter; the caller
+# still owns it.
+
+struct Box
+  payload: Int
+
+sub f(rc: ?*Box)
+  g = |<rc|
+    print(rc.payload)
+  g()
+
+sub main()
+  rc = *Box(payload: 5)
+  f(?rc)
+  print(rc.payload)
+
+# error: cannot move-capture borrowed

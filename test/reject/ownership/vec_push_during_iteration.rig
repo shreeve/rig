@@ -1,0 +1,10 @@
+# Iterating a Vec (with or without `?`) borrows it for the whole loop; a
+# push could reallocate the buffer being iterated.
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  for x in v
+    (!v).push(x)
+
+# error: cannot write-borrow `v` while a read borrow is live

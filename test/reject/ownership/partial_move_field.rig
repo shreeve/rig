@@ -1,0 +1,23 @@
+# Moving a resource field out of an owned local struct is rejected: the
+# struct's drop glue would still drop the field at scope exit. Move the
+# struct whole, or clone a shared field with `+p.a`.
+
+struct Box
+  payload: Int
+
+  drop self: !Box
+    print(self.payload + 100)
+
+struct Pair
+  a: *Box
+  b: *Box
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub main()
+  p = Pair(a: *Box(payload: 1), b: *Box(payload: 2))
+  eat(<p.a)
+  print("after")
+
+# error: cannot move out of `p.a`: `p` would still drop it

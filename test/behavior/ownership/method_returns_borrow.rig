@@ -1,0 +1,18 @@
+# A `?self` method may return a borrow into `self`.
+
+struct Box
+  payload: Int
+
+struct Holder
+  inner: Box
+
+  fun get(?self) -> ?Box
+    ?self.inner
+
+sub main()
+  h = Holder(inner: Box(payload: 3))
+  b = h.get()
+  print(b.payload)
+
+# expect:
+# 3

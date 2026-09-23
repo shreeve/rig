@@ -1,0 +1,17 @@
+# A borrow returned through an if-expression must come from a borrowed
+# parameter on every branch.
+
+struct Box
+  payload: Int
+
+fun pick(a: ?Box, c: Bool) -> ?Box
+  b = Box(payload: 1)
+  if c
+    ?b
+  else
+    a
+
+sub main()
+  print(1)
+
+# error: returned borrow of `b` does not originate from a borrowed parameter
