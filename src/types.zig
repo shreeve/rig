@@ -1987,7 +1987,7 @@ test "check: tolerates an empty IR" {
 
 const FactsRun = struct {
     p: parser.Parser,
-    ir: Sexp,
+    tree: Sexp,
     ctx: SemContext,
     source: []const u8,
 
@@ -2025,10 +2025,10 @@ fn isWordChar(c: u8) bool {
 }
 
 fn factsRun(source: []const u8) !FactsRun {
-    var r: FactsRun = .{ .p = parser.Parser.init(std.testing.allocator, source), .ir = undefined, .ctx = undefined, .source = source };
+    var r: FactsRun = .{ .p = parser.Parser.init(std.testing.allocator, source), .tree = undefined, .ctx = undefined, .source = source };
     errdefer r.p.deinit();
-    r.ir = try r.p.parseProgram();
-    r.ctx = try check(std.testing.allocator, source, r.ir);
+    r.tree = try r.p.parseProgram();
+    r.ctx = try check(std.testing.allocator, source, r.tree);
     for (r.ctx.diagnostics.items) |d| std.debug.print("unexpected diagnostic: {s}\n", .{d.message});
     try std.testing.expect(!r.ctx.hasErrors());
     return r;
@@ -2135,9 +2135,9 @@ test "facts: a match covering every value without a default is exhaustive" {
         \\
     );
     defer r.deinit();
-    const body = r.ir.items()[1].items()[4];
-    try std.testing.expect(r.ctx.isExhaustive(body.items()[2]));
-    try std.testing.expect(!r.ctx.isExhaustive(body.items()[4]));
+    const body = ir.Block.stmts(ir.Sub.body(ir.Module.decls(r.tree)[0]));
+    try std.testing.expect(r.ctx.isExhaustive(body[1]));
+    try std.testing.expect(!r.ctx.isExhaustive(body[3]));
 }
 
 test "facts: literals record the type their context gives them" {
@@ -2171,7 +2171,7 @@ test "facts: expression nodes carry their types" {
         \\
     );
     defer r.deinit();
-    const call = findNode(r.ir.items()[2], .@"call").?;
+    const call = findNode(ir.Module.decls(r.tree)[1], .@"call").?;
     const add = findNode(call, .@"+").?;
     try std.testing.expectEqual(r.ctx.types.float_id, r.ctx.typeOf(add).?);
     const half_call = findNode(add, .@"call").?;
@@ -2250,10 +2250,10 @@ test "facts: scopes are keyed by the node that opens them" {
         \\
     );
     defer r.deinit();
-    const main_fn = r.ir.items()[2];
+    const main_fn = ir.Module.decls(r.tree)[1];
     const fn_scope = r.ctx.scopeOf(main_fn).?;
     try std.testing.expectEqual(ScopeKind.function, r.ctx.scopes.items[fn_scope].kind);
-    const body = main_fn.items()[4];
+    const body = ir.Sub.body(main_fn);
     const body_scope = r.ctx.scopeOf(body).?;
     try std.testing.expectEqual(fn_scope, r.ctx.scopes.items[body_scope].parent.?);
     const x = r.sym("x", 0).?;
@@ -2309,12 +2309,10 @@ test "facts: keyword and omitted arguments record their slots" {
         \\
     );
     defer r.deinit();
-    const main_fn = r.ir.items()[2];
-    const first = findNode(main_fn.items()[4].items()[1], .@"call").?;
-    const inner1 = findNode(first.items()[2], .@"call").?;
+    const main_body = ir.Block.stmts(ir.Sub.body(ir.Module.decls(r.tree)[1]));
+    const inner1 = ir.Call.args(main_body[0])[0];
     try std.testing.expect(r.ctx.callSlotsOf(inner1) == null);
-    const second = findNode(main_fn.items()[4].items()[2], .@"call").?;
-    const inner2 = findNode(second.items()[2], .@"call").?;
+    const inner2 = ir.Call.args(main_body[1])[0];
     const slots = r.ctx.callSlotsOf(inner2).?;
     try std.testing.expectEqual(@as(usize, 3), slots.len);
     try std.testing.expectEqual(@as(u32, 1), slots[0].arg);
@@ -2466,82 +2464,62 @@ const Coverage = struct {
                 self.expectName(e);
                 if (!std.mem.eql(u8, self.r.source[e.src.pos..][0..e.src.len], "print")) self.expectType(e);
             },
-            .list => |items_list| {
-                const items = items_list.items();
-                const h = e.kind() orelse return;
-                switch (h) {
-                    .@"set" => {
-                        self.expectName(items[2]);
-                        if (items[2] != .src) self.expr(items[2]);
-                        self.expr(items[4]);
-                        return;
-                    },
-                    .@"block" => {
-                        for (items[1..]) |c| self.expr(c);
-                        return;
-                    },
-                    .@"if", .@"while" => {
-                        for (items[1..]) |c| self.expr(c);
-                        return;
-                    },
-                    .@"as" => {
-                        self.expr(items[1]);
-                        self.expectName(items[2]);
-                        self.expectType(items[2]);
-                        return;
-                    },
-                    .@"for" => {
-                        self.expectName(items[2]);
-                        if (items[3] != .nil) {
-                            self.expectName(items[3]);
-                            self.expectType(items[3]);
-                        }
-                        self.expr(items[4]);
-                        self.expr(items[5]);
-                        return;
-                    },
-                    .@"match" => {
-                        self.expr(items[1]);
-                        for (items[2..]) |arm| {
-                            const pat = arm.items()[1];
-                            if (pat.isKind(.@"variant_pattern")) for (pat.items()[2..]) |b| self.expectName(b);
-                            self.expr(arm.items()[arm.items().len - 1]);
-                        }
-                        return;
-                    },
-                    .@"lambda" => {
-                        for (captureList(items[1])) |cap| self.expectName(captureNameNode(cap).?);
-                        self.expr(items[4]);
-                        return;
-                    },
-                    .@"member" => {
-                        self.expectType(e);
-                        self.expr(items[1]);
-                        return;
-                    },
-                    .@"call" => {
-                        self.expectType(e);
-                        if (items[1] == .src) {
-                            self.expectName(items[1]);
-                        } else self.expr(items[1]);
-                        for (items[2..]) |a| {
-                            if (a.isKind(.@"kwarg")) self.expr(a.items()[2]) else self.expr(a);
-                        }
-                        return;
-                    },
-                    .@"return", .@"drop", .@"defer" => {
-                        for (items[1..]) |c| self.expr(c);
-                        return;
-                    },
-                    .@"enum_lit" => {
-                        self.expectType(e);
-                        return;
-                    },
-                    else => {
-                        self.expectType(e);
-                        for (items[1..]) |c| if (c != .tag) self.expr(c);
-                    },
-                }
+            .list => switch (e.kind() orelse return) {
+                .@"set" => {
+                    const target = ir.Set.target(e);
+                    self.expectName(target);
+                    if (target != .src) self.expr(target);
+                    self.expr(ir.Set.value(e));
+                },
+                .@"block" => for (ir.Block.stmts(e)) |c| self.expr(c),
+                .@"if", .@"while" => for (e.items()[1..]) |c| self.expr(c),
+                .@"as" => {
+                    self.expr(ir.As.value(e));
+                    self.expectName(ir.As.name(e));
+                    self.expectType(ir.As.name(e));
+                },
+                .@"for" => {
+                    self.expectName(ir.For.@"var"(e));
+                    const index = ir.For.index(e);
+                    if (index != .nil) {
+                        self.expectName(index);
+                        self.expectType(index);
+                    }
+                    self.expr(ir.For.source(e));
+                    self.expr(ir.For.body(e));
+                },
+                .@"match" => {
+                    self.expr(ir.Match.subject(e));
+                    for (ir.Match.arms(e)) |arm| {
+                        const pat = ir.Arm.pattern(arm);
+                        if (pat.isKind(.@"variant_pattern")) for (ir.VariantPattern.bindings(pat)) |b| self.expectName(b);
+                        self.expr(ir.Arm.body(arm));
+                    }
+                },
+                .@"lambda" => {
+                    for (captureList(ir.Lambda.captures(e))) |cap| self.expectName(captureNameNode(cap).?);
+                    self.expr(ir.Lambda.body(e));
+                },
+                .@"member" => {
+                    self.expectType(e);
+                    self.expr(ir.Member.object(e));
+                },
+                .@"call" => {
+                    self.expectType(e);
+                    const callee = ir.Call.callee(e);
+                    if (callee == .src) {
+                        self.expectName(callee);
+                    } else self.expr(callee);
+                    for (ir.Call.args(e)) |a| {
+                        if (a.isKind(.@"kwarg")) self.expr(ir.Kwarg.value(a)) else self.expr(a);
+                    }
+                },
+                .@"return", .@"drop", .@"defer" => for (e.items()[1..]) |c| self.expr(c),
+                .@"enum_lit" => self.expectType(e),
+                else => {
+                    self.expectType(e);
+                    for (e.items()[1..]) |c| if (c != .tag) self.expr(c);
+                },
             },
             else => {},
         }
@@ -2551,10 +2529,10 @@ const Coverage = struct {
         const h = d.kind() orelse return;
         switch (h) {
             .@"fun", .@"sub" => {
-                if (d.items()[2] == .list) for (d.items()[2].items()) |p| self.expectName(paramNameNode(p).?);
-                self.expr(d.items()[d.items().len - 1]);
+                for (ir.get(d, .params).items()) |p| self.expectName(paramNameNode(p).?);
+                self.expr(ir.get(d, .body));
             },
-            .@"struct", .@"enum", .@"generic_type" => for (d.items()[2..]) |m| self.decl(m),
+            .@"struct", .@"enum", .@"generic_type" => for (ir.rest(d, .members)) |m| self.decl(m),
             else => {},
         }
     }
@@ -2625,7 +2603,7 @@ test "facts: every name and expression in a program has a fact" {
     );
     defer r.deinit();
     var cov: Coverage = .{ .r = &r };
-    for (r.ir.items()[1..]) |d| cov.decl(d);
+    for (ir.Module.decls(r.tree)) |d| cov.decl(d);
     try std.testing.expectEqual(@as(usize, 0), cov.missing);
 }
 
@@ -2651,7 +2629,7 @@ test "facts: optional bindings, index bindings, defaults, and shadows have facts
     );
     defer r.deinit();
     var cov: Coverage = .{ .r = &r };
-    for (r.ir.items()[1..]) |d| cov.decl(d);
+    for (ir.Module.decls(r.tree)) |d| cov.decl(d);
     try std.testing.expectEqual(@as(usize, 0), cov.missing);
     try std.testing.expectEqual(r.ctx.types.int_id, r.leafType("v", 0).?);
     try std.testing.expectEqual(r.ctx.types.int_id, r.leafType("i", 0).?);
