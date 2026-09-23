@@ -1,0 +1,14 @@
+# `panic`, `rig`, and `std` name things in the emitted root module (its
+# panic handler, the runtime, Zig's standard library), so Rig
+# declarations and locals with those names are renamed in the Zig.
+
+fun panic(n: Int) -> Int
+  n + 1
+
+sub main()
+  rig = panic(1)
+  std = rig * 10
+  print(rig, std)
+
+# expect:
+# 2 20
