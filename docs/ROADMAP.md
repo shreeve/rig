@@ -32,7 +32,7 @@ be checked as thoroughly as what exists.
 ## Tooling
 
 - **Assertions** for `test` blocks, and running one test by name.
-- **`rig check --facts`**: export sema's facts table (symbols, types, ownership operations, captures) as versioned JSON for tools.
+- **Sema facts in `rig check --facts`**: add sema's facts table (symbols, types, ownership operations, captures) to the syntax facts it prints today, in a versioned format for tools.
 - **A formatter.**
 - **A language server**: diagnostics, types on hover, go to definition, built on the facts table.
 - **C-ABI-friendly `extern` types.**

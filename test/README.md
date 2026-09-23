@@ -66,6 +66,7 @@ compiler. The word after `rig` on the opening fence sets the contract:
 | ```` ```rig ```` followed by ```` ```output ```` | run like a behavior test: stdout equals the output block, no leaks |
 | ```` ```rig reject ```` followed by ```` ```error ```` | `rig check` rejects it; each line of the error block appears in a diagnostic |
 | ```` ```rig fragment ```` | only parsed; for snippets that are not whole programs |
+| ```` ```rig facts ```` followed by ```` ```facts ```` | `rig check --facts` accepts it and prints exactly the facts block |
 | ```` ```rig file=name.rig ```` | module `name.rig`, written next to the next example, which can `use name` |
 
 Blank lines may separate a block from its `output` or `error` block. A

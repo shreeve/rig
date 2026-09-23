@@ -179,6 +179,7 @@ bin/rig build -o hello file.rig        # a native executable
 bin/rig build --release=fast file.rig  # ReleaseFast: no runtime safety checks
 bin/rig test file.rig                  # run the program's `test` blocks
 bin/rig check file.rig                 # check only
+bin/rig check --facts file.rig         # check, then print the IR as facts
 bin/rig emit file.rig                  # print the emitted Zig
 ./test/run                             # the whole test suite
 ```
@@ -188,10 +189,10 @@ leaks reports how many allocations it lost and exits 1; set
 `RIG_LEAK_TRACE=1` when building to see where each was allocated.
 `--release` builds keep Zig's safety checks (integer overflow, bounds);
 `--release=fast` drops them. `rig --help` lists every option. Changing
-the grammar needs
-[Nexus](https://github.com/shreeve/nexus), the parser generator, built
-next to this checkout (`cd ../nexus && zig build -Doptimize=ReleaseSafe`),
-then `zig build parser`.
+the grammar needs [Nexus](https://github.com/shreeve/nexus) 1.0, the
+parser generator: `zig build parser -Dnexus=path/to/nexus` (or build
+Nexus next to this checkout, `cd ../nexus && zig build
+-Doptimize=ReleaseSafe`, and run `zig build parser`).
 
 ## Status
 
