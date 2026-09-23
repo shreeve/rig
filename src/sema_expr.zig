@@ -2920,11 +2920,17 @@ const Checker = struct {
                     try self.synthArgs(args);
                     break :blk self.t().invalid_id;
                 }
-                _ = try self.synthExpr(args[0]);
+                const operand = readValue(self.ctx, try self.synthExpr(args[0]));
                 const target = expected orelse {
                     try self.err(pos, "`@{s}` needs a known result type; bind it to an annotated name (`y: T = @{s}(x)`)", .{ name, name });
                     break :blk self.t().invalid_id;
                 };
+                if (!self.isPoison(operand) and !self.isPoison(target)) {
+                    if (self.castProblem(name, operand, self.liftTarget(target))) |why| {
+                        try self.err(pos, "`@{s}` cannot turn `{s}` into `{s}`: {s}", .{ name, try self.tyName(operand), try self.tyName(target), why });
+                        break :blk self.t().invalid_id;
+                    }
+                }
                 break :blk target;
             }
             if (std.mem.eql(u8, name, "TypeOf")) {
@@ -2945,6 +2951,40 @@ const Checker = struct {
             try self.ctx.recordType(node, self.canonical(ty));
         }
         return ty;
+    }
+
+    /// Why Zig would reject the cast builtin `name` from `from` to `to`,
+    /// or null when it accepts it.
+    fn castProblem(self: *Checker, name: []const u8, from: TypeId, to: TypeId) ?[]const u8 {
+        const f = self.ctx.types.get(from);
+        const t_ = self.ctx.types.get(to);
+        const f_int = f == .int or f == .int_literal;
+        const f_float = f == .float or f == .float_literal;
+        const eq = std.mem.eql;
+        if (eq(u8, name, "intCast")) {
+            if (!f_int or t_ != .int) return "it converts one integer type to another";
+        } else if (eq(u8, name, "truncate")) {
+            if (!f_int or t_ != .int) return "it converts one integer type to another";
+            if (f == .int) {
+                const fb: u16 = if (f.int.bits == 0) 64 else f.int.bits;
+                const tb: u16 = if (t_.int.bits == 0) 64 else t_.int.bits;
+                if (f.int.signed != t_.int.signed) return "both must be signed, or both unsigned";
+                if (tb > fb) return "the result may not be wider";
+            }
+        } else if (eq(u8, name, "floatCast")) {
+            if (!f_float or t_ != .float) return "it converts one float type to another";
+        } else if (eq(u8, name, "intFromFloat")) {
+            if (!f_float or t_ != .int) return "it converts a float to an integer";
+        } else if (eq(u8, name, "floatFromInt")) {
+            if (!f_int or t_ != .float) return "it converts an integer to a float";
+        } else if (eq(u8, name, "enumFromInt")) {
+            if (!f_int or !types.isPlainEnum(self.ctx, to)) return "it converts an integer to a plain enum";
+        } else if (eq(u8, name, "bitCast")) {
+            const fb = numericBits(f) orelse return "it reinterprets a number of the same size";
+            const tb = numericBits(t_) orelse return "it reinterprets a number of the same size";
+            if (fb != tb) return "both must have the same size";
+        }
+        return null;
     }
 
     /// `@sizeOf(T)` / `@sizeOf(@TypeOf(x))`.
@@ -3279,6 +3319,14 @@ fn isPlaceExpr(e: Sexp) bool {
     return switch (h) {
         .@"member", .@"index", .@"read", .@"write" => true,
         else => false,
+    };
+}
+
+fn numericBits(t: types.Type) ?u16 {
+    return switch (t) {
+        .int => |i| if (i.bits == 0) 64 else i.bits,
+        .float => |f| if (f.bits == 0) 64 else f.bits,
+        else => null,
     };
 }
 
