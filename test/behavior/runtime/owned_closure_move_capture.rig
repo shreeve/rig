@@ -10,7 +10,7 @@ struct Noisy
 
 sub main()
   n = *Noisy(id: 100)
-  cb: *Closure() = *Closure(|<n| print(n.id + 1))
+  cb: *sub() = *|<n| print(n.id + 1)
   cb()
   cb()
   print("end")

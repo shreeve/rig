@@ -1037,7 +1037,7 @@ const Checker = struct {
                     try self.err(leaf.src.pos, "`{s}` is used before it has a value", .{name});
                 }
                 if (crossed_lambda and s != self.module_scope and (kind == .local or kind == .param or kind == .capture)) {
-                    try self.err(leaf.src.pos, "`{s}` is a local of the enclosing function; capture it to use it inside the closure (`|{s}|`, `|+{s}|`, or `|<{s}|`)", .{ name, name, name, name });
+                    try self.err(leaf.src.pos, "`{s}` is a local of the enclosing function; capture it to use it inside the closure (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|~{s}|` holds it weakly)", .{ name, name, name, name });
                 }
                 return id;
             }
@@ -1463,9 +1463,13 @@ const Checker = struct {
     }
 
     fn synthShare(self: *Checker, items: []const Sexp) Error!TypeId {
-        if (try self.ownedClosureConstruction(items[1])) |ty| return ty;
+        if (isHead(items[1], .@"lambda")) return self.ownedClosure(items[1], null);
         const inner = try self.synthExpr(items[1]);
         if (self.isPoison(inner)) return inner;
+        if (self.ctx.types.get(inner) == .function) {
+            try self.err(firstSrcPos(items[1]), "`*` makes an owned closure only from a closure literal: `*|...| body`", .{});
+            return self.t().invalid_id;
+        }
         if (self.ctx.types.get(inner) == .shared) {
             try self.err(firstSrcPos(items[1]), "this value is already a shared handle `{s}`; `*` would nest handles. Clone it with `+x` for another handle", .{try self.tyName(inner)});
             return self.t().invalid_id;
@@ -1812,11 +1816,7 @@ const Checker = struct {
                     return self.t().invalid_id;
                 },
                 .generic_type => {
-                    if (sym_id == self.ctx.closure_sym_id) {
-                        try self.err(callee.src.pos, "owned closure must be wrapped with `*`; write `*Closure(|...| body)`", .{});
-                    } else {
-                        try self.err(callee.src.pos, "generic constructor `{s}` requires an expected type; write `b: {s}(T) = {s}(...)`", .{ name, name, name });
-                    }
+                    try self.err(callee.src.pos, "generic constructor `{s}` requires an expected type; write `b: {s}(T) = {s}(...)`", .{ name, name, name });
                     try self.synthArgs(args);
                     return self.t().invalid_id;
                 },
@@ -1849,14 +1849,9 @@ const Checker = struct {
             try self.synthArgs(args);
             return self.t().invalid_id;
         }
-        if (ownedClosureArgs(self.ctx, ty)) |params| {
-            if (args.len != params.len) {
-                try self.err(pos, "owned closure `{s}` invocation expects {d} argument(s); got {d}", .{ name, params.len, args.len });
-                try self.synthArgs(args);
-            } else {
-                for (args, params) |a, p| try self.checkExpr(a, p);
-            }
-            return self.t().void_id;
+        if (types.ownedClosureFn(self.ctx, ty)) |f| {
+            try self.checkArgs(args, f, .{}, name, pos);
+            return f.returns;
         }
         const fty = self.ctx.types.get(types.unwrapBorrows(self.ctx, ty));
         if (fty == .function) {
@@ -2245,7 +2240,7 @@ const Checker = struct {
         const resolved = (try types.lookupMethod(self.ctx, obj_ty, method)) orelse {
             // A data field holding a closure handle is called like one.
             if (try types.lookupDataField(self.ctx, obj_ty, method)) |f| {
-                if (ownedClosureArgs(self.ctx, f.ty) != null) {
+                if (types.ownedClosureFn(self.ctx, f.ty) != null) {
                     try self.rejectResourceTemporary(obj, obj_ty);
                     try self.noteCalleeType(f.ty);
                     return self.callValue(.{ .list = callee }, f.ty, args, method);
@@ -2546,8 +2541,22 @@ const Checker = struct {
                 _ = try self.synthBuiltin(e, target);
                 return true;
             },
+            .@"lambda" => {
+                if (self.ctx.types.get(target) == .function) {
+                    try self.ctx.recordType(e, try self.checkLambda(e, target, false));
+                    return true;
+                }
+                if (types.ownedClosureFn(self.ctx, target) != null) {
+                    try self.err(firstSrcPos(e), "`{s}` is an owned closure; write `*|...| body` to make one", .{try self.tyName(target)});
+                    try self.ctx.recordType(e, try self.checkLambda(e, self.ctx.types.get(target).shared, false));
+                    return true;
+                }
+                return false;
+            },
             .@"share" => {
-                if (try self.ownedClosureConstruction(items[1])) |ty| {
+                if (isHead(items[1], .@"lambda")) {
+                    const fn_ty: ?TypeId = if (types.ownedClosureFn(self.ctx, target) != null) self.ctx.types.get(target).shared else null;
+                    const ty = try self.ownedClosure(items[1], fn_ty);
                     try self.ctx.recordType(e, ty);
                     if (!compatible(self.ctx, ty, expected)) {
                         try self.err(firstSrcPos(e), "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(expected), try self.tyName(ty) });
@@ -2804,18 +2813,28 @@ const Checker = struct {
     }
 
     // =========================================================================
-    // Lambdas and owned closures
+    // Closures
     // =========================================================================
 
     fn synthLambda(self: *Checker, node: Sexp) Error!TypeId {
-        return self.checkLambda(node, null);
+        return self.checkLambda(node, null, false);
     }
 
-    /// A lambda literal. Its type is a function type over its declared
-    /// parameters, returning the type of its body's last expression.
-    /// `expected_params`, from `*Closure1(T)` / `*Closure2(A, B)`, must
-    /// match the declared parameter types.
-    fn checkLambda(self: *Checker, node: Sexp, expected_params: ?[]const TypeId) Error!TypeId {
+    /// `*|...| body`: an owned closure; `expected` is the function type
+    /// its context gives it (`*fun(Int) Int` gives `fun(Int) Int`).
+    fn ownedClosure(self: *Checker, lambda: Sexp, expected: ?TypeId) Error!TypeId {
+        const lty = try self.checkLambda(lambda, expected, true);
+        try self.ctx.recordType(lambda, lty);
+        return self.ctx.intern(.{ .shared = lty });
+    }
+
+    /// A closure literal. Its type is a function type over its
+    /// parameters. With an `expected` function type from context, bare
+    /// parameters take its parameter types and the body is checked
+    /// against its return type; without one, every parameter must be
+    /// annotated and the return type is that of the body's last
+    /// expression. `owned` closures pass only plain Copy values.
+    fn checkLambda(self: *Checker, node: Sexp, expected: ?TypeId, owned: bool) Error!TypeId {
         const items = node.list;
         const outer = self.scope;
         const prev = self.enter(node);
@@ -2837,26 +2856,48 @@ const Checker = struct {
         }
         for (types.captureList(items[1])) |cap| try self.checkCapture(cap, outer);
 
+        const want: ?FunctionType = if (expected) |e| self.ctx.types.get(e).function else null;
+        const param_nodes: []const Sexp = if (items[2] == .list) items[2].list else &.{};
+        if (want) |w| if (param_nodes.len != w.params.len) {
+            try self.err(firstSrcPos(node), "this closure takes {d} parameter{s}, but its type `{s}` passes {d}", .{ param_nodes.len, plural(param_nodes.len), try self.tyName(expected.?), w.params.len });
+        };
+
         var params: std.ArrayListUnmanaged(TypeId) = .empty;
         defer params.deinit(self.ctx.allocator);
-        if (items[2] == .list) {
-            var r = self.resolver();
-            for (items[2].list, 0..) |p, i| {
-                const pty = try r.resolveParamType(p);
-                try params.append(self.ctx.allocator, pty);
-                const pn = types.paramNameNode(p) orelse continue;
-                if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
-                if (expected_params) |ep| {
-                    if (i < ep.len and !self.isPoison(pty) and pty != ep[i]) {
-                        try self.err(types.paramPos(p, firstSrcPos(p)), "closure parameter `{s}` is declared `{s}`, but the closure type passes `{s}`", .{ self.text(pn), try self.tyName(pty), try self.tyName(ep[i]) });
-                    }
-                }
+        var r = self.resolver();
+        for (param_nodes, 0..) |p, i| {
+            const pn = types.paramNameNode(p) orelse continue;
+            const name = self.text(pn);
+            const given: ?TypeId = if (want) |w| (if (i < w.params.len) w.params[i] else null) else null;
+            var pty = self.t().invalid_id;
+            if (isHead(p, .@":")) {
+                pty = try r.resolveType(p.list[2]);
+                if (given) |g| if (!self.isPoison(pty) and !self.isPoison(g) and pty != g) {
+                    try self.err(srcPos(pn, 0), "closure parameter `{s}` is declared `{s}`, but the closure's type passes `{s}`", .{ name, try self.tyName(pty), try self.tyName(g) });
+                };
+            } else if (given) |g| {
+                pty = g;
+            } else if (want == null and !self.namesOuterLocal(outer, name, srcPos(pn, 0))) {
+                try self.err(srcPos(pn, 0), "closure parameter `{s}` needs a type: annotate it (`|{s}: Int|`) or write the closure where its type is known (`f: fun(Int) Int = |{s}| ...`)", .{ name, name, name });
             }
+            if (owned and given == null and !types.isClosureValue(self.ctx, pty)) {
+                try self.err(srcPos(pn, 0), "an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); parameter `{s}` is `{s}`", .{ name, try self.tyName(pty) });
+            }
+            try params.append(self.ctx.allocator, pty);
+            if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
+            try self.ctx.recordType(pn, pty);
+        }
+
+        const body = items[4];
+        if (want) |w| {
+            self.fn_return = w.returns;
+            self.is_sub = w.is_sub;
+            try self.checkBody(body, w.returns, w.is_sub);
+            return expected.?;
         }
 
         self.fn_return = self.t().unknown_id;
         self.is_sub = false;
-        const body = items[4];
         var ret = self.t().void_id;
         if (isHead(body, .@"block")) {
             const bprev = self.enter(body);
@@ -2876,8 +2917,21 @@ const Checker = struct {
         } else ret = try self.synthExpr(body);
         ret = self.canonical(ret);
         if (ret == self.t().noreturn_id) ret = self.t().void_id;
+        if (owned and ret != self.t().void_id and !types.isClosureValue(self.ctx, ret)) {
+            try self.err(firstSrcPos(body), "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); this one returns `{s}`", .{try self.tyName(ret)});
+        }
 
         return self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params.items), .returns = ret, .is_sub = ret == self.t().void_id } });
+    }
+
+    /// `name` is a local of the function enclosing a closure. A closure
+    /// parameter with that name is already reported as a missing sigil.
+    fn namesOuterLocal(self: *Checker, outer: ScopeId, name: []const u8, pos: u32) bool {
+        const id = self.lookupAt(outer, name, pos) orelse return false;
+        return switch (self.ctx.symbols.items[id].kind) {
+            .local, .param, .capture => true,
+            else => false,
+        };
     }
 
     /// A Copy primitive, or an optional of one.
@@ -2905,24 +2959,10 @@ const Checker = struct {
         const outer_ty = self.ctx.symbols.items[outer_id].ty;
         const oty = self.ctx.types.get(outer_ty);
         const bound: TypeId = switch (mode) {
-            .cap_copy => switch (oty) {
-                .shared => blk: {
-                    try self.err(pos, "bare capture `|{s}|` of shared handle `*T` would hide a refcount bump; use `|+{s}|` to clone, `|<{s}|` to move, or `|~{s}|` to capture a weak ref", .{ name, name, name, name });
-                    break :blk self.t().invalid_id;
-                },
-                .weak => blk: {
-                    try self.err(pos, "bare capture `|{s}|` of weak handle `~T` would hide a refcount bump; use `|+{s}|` to clone or `|<{s}|` to move", .{ name, name, name });
-                    break :blk self.t().invalid_id;
-                },
-                else => if (self.isCopyValue(outer_ty) or self.isPoison(outer_ty)) outer_ty else blk: {
-                    try self.err(pos, "bare capture `|{s}|` requires a Copy type; got `{s}`; use `|+{s}|` to clone or `|<{s}|` to move", .{ name, try self.tyName(outer_ty), name, name });
-                    break :blk self.t().invalid_id;
-                },
-            },
             .cap_clone => switch (oty) {
                 .shared, .weak => outer_ty,
                 else => if (self.isCopyValue(outer_ty) or self.isPoison(outer_ty)) outer_ty else blk: {
-                    try self.err(pos, "clone-capture `|+{s}|` requires a shared `*T`, weak `~T`, or Copy type; got `{s}`", .{ name, try self.tyName(outer_ty) });
+                    try self.err(pos, "`|+{s}|` copies a Copy value or clones a `*T` / `~T` handle, but `{s}` is `{s}`; move it in with `|<{s}|`, or clone a handle into a local first and capture that", .{ name, name, try self.tyName(outer_ty), name });
                     break :blk self.t().invalid_id;
                 },
             },
@@ -2938,72 +2978,6 @@ const Checker = struct {
         self.ctx.symbols.items[cap_sym].ty = bound;
         self.ctx.symbols.items[cap_sym].origin = outer_id;
         try self.ctx.recordType(name_node, bound);
-    }
-
-    /// `*Closure(|...| body)`, `*Closure1(T)(|...| (a: T) body)`,
-    /// `*Closure2(A, B)(...)`: the owned-closure constructions. `inner`
-    /// is the operand of `*`. Returns null for any other shape.
-    fn ownedClosureConstruction(self: *Checker, inner: Sexp) Error!?TypeId {
-        if (!isHead(inner, .@"call")) return null;
-        const items = inner.list;
-        const callee = items[1];
-        var sym: SymbolId = types.symbol_invalid;
-        var type_args: []const Sexp = &.{};
-        var name_node: Sexp = callee;
-        if (callee == .src) {
-            const id = self.lookupQuiet(callee) orelse return null;
-            if (id != self.ctx.closure_sym_id) return null;
-            sym = id;
-        } else if (isHead(callee, .@"call") and callee.list[1] == .src) {
-            const id = self.lookupQuiet(callee.list[1]) orelse return null;
-            if (id != self.ctx.closure1_sym_id and id != self.ctx.closure2_sym_id) return null;
-            sym = id;
-            type_args = callee.list[2..];
-            name_node = callee.list[1];
-        } else return null;
-        try self.ctx.recordName(name_node, sym);
-
-        const cname = self.ctx.symbols.items[sym].name;
-        const pos = srcPos(name_node, 0);
-        const arity: usize = if (sym == self.ctx.closure_sym_id) 0 else if (sym == self.ctx.closure1_sym_id) 1 else 2;
-        if (type_args.len != arity) {
-            try self.err(pos, "`{s}` requires {d} type argument(s); got {d}", .{ cname, arity, type_args.len });
-        }
-        const args = try self.ctx.arena.allocator().alloc(TypeId, type_args.len);
-        var r = self.resolver();
-        for (type_args, 0..) |ta, i| {
-            args[i] = try r.resolveType(ta);
-            if (!self.isPoison(args[i]) and !types.isCopyPrimitive(self.ctx, args[i])) {
-                try self.err(firstSrcPos(ta), "`{s}` argument types must be Copy (Int, Float, Bool, String, or a sized number); got `{s}`", .{ cname, try self.tyName(args[i]) });
-            }
-        }
-
-        const call_args = items[2..];
-        if (call_args.len != 1) {
-            if (call_args.len == 0) {
-                try self.err(pos, "owned closure `*{s}(...)` requires a lambda argument; write `*{s}(...)(|...| body)`", .{ cname, cname });
-            } else {
-                try self.err(pos, "owned closure `*{s}(...)` takes exactly one lambda argument; got {d}", .{ cname, call_args.len });
-                try self.synthArgs(call_args);
-            }
-        } else if (!isHead(call_args[0], .@"lambda")) {
-            try self.err(firstSrcPos(call_args[0]), "owned closure `*{s}(...)` argument must be a lambda `|...| body`", .{cname});
-            _ = try self.synthExpr(call_args[0]);
-        } else {
-            const lambda = call_args[0];
-            const params = lambda.list[2];
-            const nparams: usize = if (params == .list) params.list.len else 0;
-            if (nparams != arity) {
-                try self.err(firstSrcPos(lambda), "`{s}` closure body needs {d} param(s); got {d}", .{ cname, arity, nparams });
-            }
-            const lty = try self.checkLambda(lambda, args);
-            try self.ctx.recordType(lambda, lty);
-        }
-
-        const closure = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym, .args = args } });
-        const ty = try self.ctx.intern(.{ .shared = closure });
-        try self.ctx.recordType(inner, closure);
-        return ty;
     }
 };
 
@@ -3099,21 +3073,6 @@ fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
     };
     if (pn.sym != ctx.cell_sym_id or pn.args.len != 1) return null;
     return pn.args[0];
-}
-
-/// Argument types of an owned closure handle `*Closure()`,
-/// `*Closure1(T)`, `*Closure2(A, B)` (possibly borrowed).
-fn ownedClosureArgs(ctx: *const SemContext, ty: TypeId) ?[]const TypeId {
-    const inner = switch (ctx.types.get(types.unwrapBorrows(ctx, ty))) {
-        .shared => |i| i,
-        else => return null,
-    };
-    const pn = switch (ctx.types.get(inner)) {
-        .parameterized_nominal => |pn| pn,
-        else => return null,
-    };
-    if (pn.sym == ctx.closure_sym_id or pn.sym == ctx.closure1_sym_id or pn.sym == ctx.closure2_sym_id) return pn.args;
-    return null;
 }
 
 /// Storage that already has an owner: a name, a field or element of

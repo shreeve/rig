@@ -3,13 +3,13 @@
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  cb1: *Closure() = *Closure(|+count| count.set(count.get() + 1))
+  cb1: *sub() = *|+count| count.set(count.get() + 1)
 
-  subs: Vec(*Closure()) = Vec()
+  subs: Vec(*sub()) = Vec()
   (!subs).push(+cb1)
 
   for cb in ?subs
     f = |+cb| cb()
     f()
 
-# error: clone-capture `|+cb|` requires a shared `*T`, weak `~T`, or Copy type
+# error: `|+cb|` copies a Copy value or clones a `*T` / `~T` handle, but `cb` is `?*sub()`

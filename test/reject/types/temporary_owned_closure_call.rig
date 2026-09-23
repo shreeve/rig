@@ -2,7 +2,7 @@
 
 sub main()
   c: *Cell(Int) = *Cell(value: 1)
-  (*Closure(|+c| c.set(2)))()
+  (*|+c| c.set(2))()
   print(c.get())
 
 # error: bind it to a name first

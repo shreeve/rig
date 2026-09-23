@@ -3,8 +3,8 @@
 
 sub main()
   n = 3
-  (|n| print n)()
-  m = (|n| (k: Int) n + k)(4)
+  (|+n| print n)()
+  m = (|+n, k: Int| n + k)(4)
   print(m)
 
 # expect:

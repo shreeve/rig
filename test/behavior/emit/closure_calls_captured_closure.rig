@@ -1,8 +1,8 @@
-# A closure can call a captured `*Closure()`.
+# A closure can call a captured `*sub()`.
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  inc: *Closure() = *Closure(|+count| count.set(count.get() + 1))
+  inc: *sub() = *|+count| count.set(count.get() + 1)
   twice = |+inc|
     inc()
   twice()

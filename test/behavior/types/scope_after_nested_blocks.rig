@@ -26,7 +26,7 @@ fun pick(c: Color) -> Int
 sub main()
   n = 5
   p = P(n: 3)
-  f = |n|
+  f = |+n|
     x = n + 1
     print(x)
   f()

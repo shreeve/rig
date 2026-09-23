@@ -62,7 +62,7 @@
 //! * A match payload binding views the scrutinee. Moving it out consumes
 //!   an owned local scrutinee and is rejected for a borrowed or shared one.
 //! * A closure literal may only be bound (`f = |...|`), called in place,
-//!   or wrapped in `*Closure(...)`; closure bindings cannot be copied. A
+//!   or made owned with `*|...|`; closure bindings cannot be copied. A
 //!   closure body may only use outer locals it captures. Resources
 //!   captured into a closure are owned by its environment: the body may
 //!   use and clone them but not move, drop or reassign them.
@@ -258,7 +258,7 @@ pub const Checker = struct {
     pending_label: []const u8 = "",
     try_ctx: ?*TryCtx = null,
     /// Set immediately before walking a lambda literal that sits in an
-    /// allowed position (binding RHS, call callee, `*Closure(...)`).
+    /// allowed position (binding RHS, call callee, `*|...|`).
     lambda_ok: bool = false,
     /// Scopes `(lo, hi]` are invisible to name lookup (while re-checking
     /// a deferred body at a scope exit).
@@ -447,7 +447,7 @@ pub const Checker = struct {
     fn lookup(self: *Checker, pos: u32, name: []const u8) Error!?VarId {
         const f = self.find(name) orelse return null;
         if (f.crossed) {
-            try self.err(pos, "closure body uses `{s}` without capturing it; add it to the capture list (`|+{s}|`, `|<{s}|`, or `|{s}|` for Copy values)", .{ name, name, name, name });
+            try self.err(pos, "closure body uses `{s}` without capturing it; add it to the bar list (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|~{s}|` holds it weakly)", .{ name, name, name, name });
             return null;
         }
         return f.id;
@@ -844,7 +844,7 @@ pub const Checker = struct {
         const id = (try self.lookup(pos, name)) orelse return .{};
         const v = self.vars.items[id];
         if (v.closure and !as_callee) {
-            try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased; call it as `{s}()`, or wrap the literal in `*Closure(...)` to pass it around", .{ name, name });
+            try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased; call it as `{s}()`, or make the literal owned (`*|...| body`) to pass it around", .{ name, name });
             return .{};
         }
         try self.checkReadable(id, pos);
@@ -1013,7 +1013,7 @@ pub const Checker = struct {
         const v = self.vars.items[id];
         const vt = verb.text();
         if (v.closure) {
-            try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased; call it as `{s}()`, or wrap the literal in `*Closure(...)` to pass it around", .{ v.name, v.name });
+            try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased; call it as `{s}()`, or make the literal owned (`*|...| body`) to pass it around", .{ v.name, v.name });
             return .{};
         }
         if (try self.rejectBorrowedView(id, pos, vt)) return .{};
@@ -1588,30 +1588,12 @@ pub const Checker = struct {
 
     fn walkShare(self: *Checker, items: []const Sexp) Error!Value {
         const inner = items[1];
-        if (ownedClosureLambda(self, inner)) |lambda| {
+        // `*|...| body`: an owned closure.
+        if (isLambda(inner)) {
             self.lambda_ok = true;
-            return self.walk(lambda);
+            return self.walk(inner);
         }
         return self.walkConsumed(inner, .allocation);
-    }
-
-    /// `(call Closure (lambda ...))` and the `Closure1(T)` / `Closure2(A, B)`
-    /// forms: returns the lambda literal.
-    fn ownedClosureLambda(self: *Checker, inner: Sexp) ?Sexp {
-        if (!isTag(inner, .@"call") or inner.list.len != 3) return null;
-        const callee = inner.list[1];
-        const name = if (callee == .src)
-            self.text(callee)
-        else if (isTag(callee, .@"call") and callee.list[1] == .src)
-            self.text(callee.list[1])
-        else
-            return null;
-        const ok = if (callee == .src)
-            std.mem.eql(u8, name, "Closure")
-        else
-            std.mem.eql(u8, name, "Closure1") or std.mem.eql(u8, name, "Closure2");
-        if (!ok or !isLambda(inner.list[2])) return null;
-        return inner.list[2];
     }
 
     fn walkLambda(self: *Checker, items: []const Sexp) Error!Value {
@@ -1619,7 +1601,7 @@ pub const Checker = struct {
         const params = items[2];
         const body = items[4];
         if (!self.lambda_ok) {
-            try self.err(innerPos(.{ .list = items }), "closures cannot escape their defining scope; bind the closure to a local (`f = |...| ...`) and call `f()`, or wrap it in `*Closure(...)` to store or return it", .{});
+            try self.err(innerPos(.{ .list = items }), "closures cannot escape their defining scope; bind the closure to a local (`f = |...| ...`) and call `f()`, or make it owned (`*|...| body`) to pass, store, or return it", .{});
         }
         self.lambda_ok = false;
 
@@ -1648,7 +1630,8 @@ pub const Checker = struct {
             const node = cap.list[1];
             const ty = self.symType(node.src.pos);
             const resource = switch (cap.list[0].tag) {
-                .@"cap_clone", .@"cap_weak", .@"cap_move" => true,
+                .@"cap_clone" => !self.isCopy(ty),
+                .@"cap_weak", .@"cap_move" => true,
                 else => false,
             };
             _ = try self.addVar(.{
@@ -2362,15 +2345,15 @@ pub const Checker = struct {
             .type_var, .imported_nominal => q == .any,
             .optional => |i| self.typeCarries(i, q, depth + 1),
             .fallible => |i| self.typeCarries(i, q, depth + 1),
-            .shared => |i| self.typeCarries(i, q, depth + 1),
+            // An owned closure carries whatever its captures borrow.
+            .shared => |i| if (sema.types.get(i) == .function) q == .any else self.typeCarries(i, q, depth + 1),
             .weak => |i| self.typeCarries(i, q, depth + 1),
             .array => |a| self.typeCarries(a.elem, q, depth + 1),
             .nominal => |s| self.fieldsCarry(s, q, depth),
             .parameterized_nominal => |pn| blk: {
                 // A closure carries whatever its captures borrow, and a
                 // Signal whatever its subscribers borrow.
-                if (pn.sym == sema.closure_sym_id or pn.sym == sema.closure1_sym_id or
-                    pn.sym == sema.closure2_sym_id or pn.sym == sema.signal_sym_id) break :blk q == .any;
+                if (pn.sym == sema.signal_sym_id) break :blk q == .any;
                 for (pn.args) |a| if (self.typeCarries(a, q, depth + 1)) break :blk true;
                 break :blk self.fieldsCarry(pn.sym, q, depth);
             },

@@ -1,8 +1,8 @@
 # Iterating a Vec of resources needs a local Vec binding as the source,
 # not a call result.
 
-fun makeSubs() -> Vec(*Closure())
-  v: Vec(*Closure()) = Vec()
+fun makeSubs() -> Vec(*sub())
+  v: Vec(*sub()) = Vec()
   <v
 
 sub main()

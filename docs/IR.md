@@ -80,10 +80,12 @@ the compiler check each module's IR against the schemas after parsing.
 ```
 (fun name params returns body)
 (sub name params body)
-(lambda captures params returns body)    ; closure `|...| body`; params are
-                                         ; typed `(a: Int)` or `_`; returns is
-                                         ; always `_`; an inline body is
-                                         ; wrapped in (block ...)
+(lambda captures params returns body)    ; closure `|...| body`: captures is a
+                                         ; (captures ...) node or `_`; params
+                                         ; are bare names or `(: a T)`, or `_`;
+                                         ; returns is always `_`; an inline
+                                         ; body is wrapped in (block ...)
+(share (lambda ...))                     ; owned closure `*|...| body`
 (type name typeexpr)             ; type alias
 (generic_type name params? members)
 (generic_enum name params members)
@@ -133,18 +135,23 @@ Statement-only:
 (drop name)            ; `-name` at statement start
 ```
 
-### Closure captures (M20g + M28)
+### Closure bar lists
+
+A closure's bar list holds its captures and parameters. The grammar
+produces the entries in one list; the parser splits them, captures
+first:
 
 ```
-(captures cap1 cap2 ...)               ; list under the lambda's captures slot
-(cap_copy  name)                       ; bare `|x|`     — Copy-only
-(cap_clone name)                       ; `|+x|`         — refcount-bump for *T/~T
-(cap_move  name)                       ; `|<x|`         — disarms outer guard
-(cap_weak  name)                       ; `|~x|`         — requires *T receiver
+|+count, ~sig, a, b: Int| ...
+  →  (lambda (captures (cap_clone count) (cap_weak sig)) (a (: b Int)) _ body)
+
+(captures cap1 cap2 ...)               ; the lambda's captures slot
+(cap_clone name)                       ; `|+x|` — copy of a Copy value, clone of a *T / ~T
+(cap_move  name)                       ; `|<x|` — moves the binding in
+(cap_weak  name)                       ; `|~x|` — weak handle to a *T
 ```
 
-Multi-capture (`|+a, +b|`) shipped in M28; the list contains one
-`cap_*` node per captured binding.
+A bare name is always a parameter; `||` is an empty bar list.
 
 ### Ownership wrappers (expression position)
 
@@ -224,7 +231,8 @@ none                                            ; the absent optional: a name
 (member module Name)             ; `geo.Point`: a type of an imported module
 (slice T)                        ; `[]T`
 (array_type N T)                 ; `[N]T`
-(fun_type (params...) ret)       ; `fun(A, B) R`
+(fun_type (params...) ret)       ; `fun(A, B) R`; `sub(A)` has ret `_`
+(shared (fun_type ...))          ; owned closure type `*fun(A) R` / `*sub(A)`
 (: name type)                    ; parameter / field
 (default name type expr)         ; field default
 (pre_param name type)            ; pre-time parameter

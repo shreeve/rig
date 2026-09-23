@@ -1880,7 +1880,7 @@ pub const Emitter = struct {
     /// `*expr`: move `expr` into a new reference-counted box.
     fn emitShare(self: *Emitter, sexp: Sexp) Error!void {
         const inner = sexp.list[1];
-        if (self.ownedClosureInfo(inner)) |info| return self.emitOwnedClosure(info);
+        if (isTagged(inner, .@"lambda")) return self.emitOwnedClosure(inner);
         const payload_ty: ?TypeId = if (self.typeOf(sexp)) |t| self.sharedInner(t) else null;
         try self.w.writeAll("rig.rcNew(");
         if (payload_ty) |t| {
@@ -1990,9 +1990,9 @@ pub const Emitter = struct {
         // An owned closure handle, held by a name or a field.
         if (self.typeOf(callee)) |t| if (self.isOwnedClosureTy(t)) {
             if (isTagged(callee, .@"member")) try self.emitMember(callee) else try self.emitExpr(callee);
-            try self.w.writeAll(".value.invoke(");
+            try self.w.writeAll(".value.invoke(.{ ");
             try self.emitArgs(sexp);
-            return self.w.writeAll(")");
+            return self.w.writeAll(" })");
         };
 
         if (self.sema.callSlotsOf(sexp)) |slots| {
@@ -2260,17 +2260,30 @@ pub const Emitter = struct {
     /// `var name = struct { captures, fn invoke }{ inits };`. Returns
     /// whether a capture owns a resource.
     fn emitStackClosure(self: *Emitter, zig_name: []const u8, lambda: Sexp) Error!bool {
+        const caps = try self.captureInfo(lambda.list[1]);
+        try self.w.print("var {s} = ", .{zig_name});
+        try self.emitClosureStruct(lambda, caps);
+        try self.emitCaptureInit(caps);
+        try self.w.writeAll(";");
+        for (caps) |c| if (self.kindOf(c.ty) != null) return true;
+        return false;
+    }
+
+    /// A closure's environment: its captures as fields and an `invoke`
+    /// method taking its parameters.
+    ///
+    ///     struct { cap_x: T, pub fn invoke(__rig_self: *@This(), a: A) R { ... } }
+    fn emitClosureStruct(self: *Emitter, lambda: Sexp, caps: []const Capture) Error!void {
         const items = lambda.list;
         const params = items[2];
-        const caps = try self.captureInfo(items[1]);
         const ret = self.lambdaReturn(lambda);
 
-        try self.w.print("var {s} = struct {{\n", .{zig_name});
+        try self.w.writeAll("struct {\n");
         self.indent += 1;
         try self.emitCaptureFields(caps);
         try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
-        try self.w.writeAll("fn invoke(__rig_self: *@This()");
+        try self.w.writeAll("pub fn invoke(__rig_self: *@This()");
         try self.pushScope();
         try self.bindCaptures(caps);
         const saved_fun = self.fun;
@@ -2279,24 +2292,32 @@ pub const Emitter = struct {
         if (params == .list) {
             try self.bindParams(params);
             for (params.list) |p| {
-                try self.w.writeAll(", ");
-                try self.emitParam(p);
+                const local = self.localOf(paramNameNode(p).?).?;
+                try self.w.print(", {s}: ", .{try self.paramZigName(local)});
+                try self.emitParamTypeTy(local.ty orelse self.sema.types.invalid_id);
             }
         }
         try self.w.writeAll(") ");
         if (ret) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
         try self.w.writeAll(" ");
-        try self.emitClosureBody(items[4], caps, .{ .used = null, .unused = "_ = __rig_self;" }, ret != null);
+        try self.emitClosureBody(items[4], caps, ret != null);
         try self.popScope();
         try self.w.writeAll("\n");
         self.indent -= 1;
         try self.writeIndent(self.indent);
         try self.w.writeAll("}");
-        try self.emitCaptureInit(caps);
-        try self.w.writeAll(";");
+    }
 
-        for (caps) |c| if (self.kindOf(c.ty) != null) return true;
-        return false;
+    /// A parameter of sema type `ty`: `!T` is a pointer, everything else
+    /// by value.
+    fn emitParamTypeTy(self: *Emitter, ty: TypeId) Error!void {
+        switch (self.sema.types.get(ty)) {
+            .borrow_write => |inner| {
+                try self.w.writeAll("*");
+                try self.emitTypeTy(inner);
+            },
+            else => try self.emitTypeTy(ty),
+        }
     }
 
     fn emitCaptureFields(self: *Emitter, caps: []const Capture) Error!void {
@@ -2343,18 +2364,12 @@ pub const Emitter = struct {
         try self.w.writeAll(" }");
     }
 
-    /// How a closure body reaches its environment: `used` when the body
-    /// references a capture, `unused` otherwise.
-    const SelfLine = struct { used: ?[]const u8, unused: []const u8 };
-
-    /// A closure body.
-    fn emitClosureBody(self: *Emitter, body: Sexp, caps: []const Capture, self_line: SelfLine, returns_value: bool) Error!void {
+    /// A closure body; `__rig_self` is discarded when no capture is used.
+    fn emitClosureBody(self: *Emitter, body: Sexp, caps: []const Capture, returns_value: bool) Error!void {
         try self.openBrace();
         var uses_self = false;
         for (caps) |c| uses_self = uses_self or self.usage.used.contains(c.sym);
-        if (!uses_self) {
-            try self.line("{s}", .{self_line.unused});
-        } else if (self_line.used) |l| try self.line("{s}", .{l});
+        if (!uses_self) try self.line("_ = __rig_self;", .{});
         try self.emitFunPrologue();
         const stmts = try self.stmtsOf(body);
         if (returns_value and isValueStmt(stmts[stmts.len - 1])) {
@@ -2369,80 +2384,30 @@ pub const Emitter = struct {
         try self.closeBrace();
     }
 
-    const ClosureCtor = struct {
-        /// `Closure`, `Closure1`, or `Closure2`.
-        sym: SymbolId,
-        type_args: []const Sexp,
-        lambda: Sexp,
-    };
-
-    /// `(call Closure (lambda ...))`, `(call (call Closure1 T) (lambda ...))`,
-    /// or `(call (call Closure2 A B) (lambda ...))`.
-    fn ownedClosureInfo(self: *Emitter, inner: Sexp) ?ClosureCtor {
-        if (!isTagged(inner, .@"call") or inner.list.len != 3 or !isTagged(inner.list[2], .@"lambda")) return null;
-        const callee = inner.list[1];
-        const name_node = if (isTagged(callee, .@"call")) callee.list[1] else callee;
-        const sym = self.sema.symbolOf(name_node) orelse return null;
-        const s = self.sema;
-        if (sym != s.closure_sym_id and sym != s.closure1_sym_id and sym != s.closure2_sym_id) return null;
-        return .{ .sym = sym, .type_args = if (isTagged(callee, .@"call")) callee.list[2..] else &.{}, .lambda = inner.list[2] };
-    }
-
-    /// `*Closure(|captures| body)` (and `Closure1(T)` / `Closure2(A, B)`)
-    /// → a heap-allocated environment with `invoke` and `drop` functions,
-    /// wrapped in the type-erased runtime closure and boxed:
+    /// `*|captures, params| body` → a heap-allocated environment, erased
+    /// into the runtime closure and boxed:
     ///
     ///     rig_closure_N: {
-    ///         const Env_N = struct { cap_x: T, fn invoke(...) ..., fn drop(...) ... };
-    ///         const env = rig.create(Env_N);
-    ///         env.* = .{ .cap_x = ... };
-    ///         break :rig_closure_N rig.rcNew(rig.Closure0{ ... });
+    ///         const __rig_Env_N = struct { cap_x: T, pub fn invoke(...) R { ... } };
+    ///         const __rig_env_N = rig.create(__rig_Env_N);
+    ///         __rig_env_N.* = .{ .cap_x = ... };
+    ///         break :rig_closure_N rig.rcNew(rig.Closure(&.{ A }, R).init(__rig_Env_N, __rig_env_N));
     ///     }
     ///
     /// The environment is freed when the last strong handle drops.
-    fn emitOwnedClosure(self: *Emitter, info: ClosureCtor) Error!void {
-        const items = info.lambda.list;
-        const params = items[2];
-        const caps = try self.captureInfo(items[1]);
+    fn emitOwnedClosure(self: *Emitter, lambda: Sexp) Error!void {
+        const f = self.fnType(self.typeOf(lambda)) orelse return self.unsupported(lambda, "an untyped closure");
+        const caps = try self.captureInfo(lambda.list[1]);
         const id = self.nextId();
         const env = try self.fmt("__rig_Env_{d}", .{id});
         const env_ptr = try self.fmt("__rig_env_{d}", .{id});
 
         try self.w.print("rig_closure_{d}: {{\n", .{id});
         self.indent += 1;
-        try self.line("const {s} = struct {{", .{env});
-        self.indent += 1;
-        try self.emitCaptureFields(caps);
-
-        try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
-        try self.w.writeAll("fn invoke(__rig_ctx: *anyopaque");
-        try self.pushScope();
-        try self.bindCaptures(caps);
-        const saved_fun = self.fun;
-        defer self.fun = saved_fun;
-        self.fun = .{ .params = params };
-        if (params == .list) {
-            try self.bindParams(params);
-            for (params.list, 0..) |p, i| {
-                const local = self.localOf(paramNameNode(p).?).?;
-                try self.w.print(", {s}: ", .{local.zig_name});
-                if (i < info.type_args.len) try self.emitType(info.type_args[i]) else try self.emitParamType(p.list[2]);
-            }
-        }
-        try self.w.writeAll(") void ");
-        try self.emitClosureBody(items[4], caps, .{ .used = "const __rig_self: *@This() = @ptrCast(@alignCast(__rig_ctx));", .unused = "_ = __rig_ctx;" }, false);
-        try self.popScope();
-        try self.w.writeAll("\n\n");
-
-        try self.line("fn drop(__rig_ctx: *anyopaque, __rig_allocator: std.mem.Allocator) void {{", .{});
-        try self.line("    const __rig_self: *@This() = @ptrCast(@alignCast(__rig_ctx));", .{});
-        try self.line("    rig.dropFields(__rig_self);", .{});
-        try self.line("    __rig_allocator.destroy(__rig_self);", .{});
-        try self.line("}}", .{});
-        self.indent -= 1;
-        try self.line("}};", .{});
-
+        try self.w.print("const {s} = ", .{env});
+        try self.emitClosureStruct(lambda, caps);
+        try self.w.writeAll(";\n");
         try self.line("const {s} = rig.create({s});", .{ env_ptr, env });
         try self.writeIndent(self.indent);
         try self.w.print("{s}.* = .", .{env_ptr});
@@ -2450,20 +2415,23 @@ pub const Emitter = struct {
         try self.w.writeAll(";\n");
         try self.writeIndent(self.indent);
         try self.w.print("break :rig_closure_{d} rig.rcNew(", .{id});
-        if (info.sym == self.sema.closure_sym_id) {
-            try self.w.writeAll("rig.Closure0");
-        } else {
-            try self.w.writeAll(if (info.sym == self.sema.closure1_sym_id) "rig.Closure1(" else "rig.Closure2(");
-            for (info.type_args, 0..) |t, i| {
-                if (i > 0) try self.w.writeAll(", ");
-                try self.emitType(t);
-            }
-            try self.w.writeAll(")");
-        }
-        try self.w.print("{{ .ctx = {s}, .invoke_fn = {s}.invoke, .drop_fn = {s}.drop, .allocator = rig.defaultAllocator() }});\n", .{ env_ptr, env, env });
+        try self.emitClosureTy(f);
+        try self.w.print(".init({s}, {s}));\n", .{ env, env_ptr });
         self.indent -= 1;
         try self.writeIndent(self.indent);
         try self.w.writeAll("}");
+    }
+
+    /// The runtime closure behind `*fun(A, B) R`: `rig.Closure(&.{ A, B }, R)`.
+    fn emitClosureTy(self: *Emitter, f: types.FunctionType) Error!void {
+        try self.w.writeAll("rig.Closure(&.{");
+        for (f.params, 0..) |p, i| {
+            try self.w.writeAll(if (i == 0) " " else ", ");
+            try self.emitTypeTy(p);
+        }
+        try self.w.writeAll(if (f.params.len > 0) " }, " else "}, ");
+        if (f.is_sub) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
+        try self.w.writeAll(")");
     }
 
     /// The value type a closure literal's body produces, or null.
@@ -2502,7 +2470,18 @@ pub const Emitter = struct {
                 .@"borrow_read", .@"borrow_write" => try self.emitType(items[1]),
                 .@"shared" => {
                     try self.w.writeAll("*rig.RcBox(");
-                    try self.emitType(items[1]);
+                    if (isTagged(items[1], .@"fun_type")) {
+                        // An owned closure: `*fun(A) R`.
+                        const ft = items[1].list;
+                        try self.w.writeAll("rig.Closure(&.{");
+                        if (ft[1] == .list) for (ft[1].list, 0..) |p, i| {
+                            try self.w.writeAll(if (i == 0) " " else ", ");
+                            try self.emitType(p);
+                        };
+                        try self.w.writeAll(if (ft[1] == .list and ft[1].list.len > 0) " }, " else "}, ");
+                        if (ft[2] != .nil) try self.emitType(ft[2]) else try self.w.writeAll("void");
+                        try self.w.writeAll(")");
+                    } else try self.emitType(items[1]);
                     try self.w.writeAll(")");
                 },
                 .@"weak" => {
@@ -2521,7 +2500,6 @@ pub const Emitter = struct {
                 .@"generic_inst" => {
                     const name = self.srcText(items[1]);
                     try self.writeNominalName(name);
-                    if (std.mem.eql(u8, name, "Closure")) return;
                     try self.w.writeAll("(");
                     for (items[2..], 0..) |arg, i| {
                         if (i > 0) try self.w.writeAll(", ");
@@ -2567,7 +2545,10 @@ pub const Emitter = struct {
             .borrow_read, .borrow_write => |inner| try self.emitTypeTy(inner),
             .shared => |inner| {
                 try self.w.writeAll("*rig.RcBox(");
-                try self.emitTypeTy(inner);
+                switch (sema.types.get(inner)) {
+                    .function => |f| try self.emitClosureTy(f),
+                    else => try self.emitTypeTy(inner),
+                }
                 try self.w.writeAll(")");
             },
             .weak => |inner| {
@@ -2594,7 +2575,6 @@ pub const Emitter = struct {
             .parameterized_nominal => |pn| {
                 const name = sema.symbols.items[pn.sym].name;
                 try self.writeNominalName(name);
-                if (pn.sym == sema.closure_sym_id) return;
                 try self.w.writeAll("(");
                 for (pn.args, 0..) |arg, i| {
                     if (i > 0) try self.w.writeAll(", ");
@@ -2686,12 +2666,7 @@ pub const Emitter = struct {
     }
 
     fn isOwnedClosureTy(self: *Emitter, ty: TypeId) bool {
-        const inner = self.sharedInner(self.peelBorrows(ty)) orelse return false;
-        const s = self.sema;
-        return switch (s.types.get(inner)) {
-            .parameterized_nominal => |pn| pn.sym == s.closure_sym_id or pn.sym == s.closure1_sym_id or pn.sym == s.closure2_sym_id,
-            else => false,
-        };
+        return types.ownedClosureFn(self.sema, ty) != null;
     }
 
     fn isBuiltinInstance(self: *Emitter, ty: TypeId, sym_id: SymbolId) bool {
@@ -2877,7 +2852,7 @@ const Scan = struct {
                     try s.consumeTail(arm.list[arm.list.len - 1]);
                 }
             },
-            .@"cap_copy", .@"cap_clone", .@"cap_weak", .@"cap_move" => {
+            .@"cap_clone", .@"cap_weak", .@"cap_move" => {
                 const cap = s.e.sema.symbolOf(items[1]) orelse return;
                 const origin = s.e.sema.symbols.items[cap].origin;
                 try s.put(&s.e.usage.used, origin);
@@ -3029,8 +3004,7 @@ fn paramIsWriteBorrow(p: Sexp) bool {
 /// The runtime's name for a built-in generic type, or null.
 fn builtinZigName(name: []const u8) ?[]const u8 {
     const names = [_][2][]const u8{
-        .{ "Cell", "Cell" },         .{ "Closure", "Closure0" }, .{ "Closure1", "Closure1" },
-        .{ "Closure2", "Closure2" }, .{ "Vec", "Vec" },          .{ "Signal", "Signal" },
+        .{ "Cell", "Cell" }, .{ "Vec", "Vec" }, .{ "Signal", "Signal" },
     };
     for (names) |n| if (std.mem.eql(u8, name, n[0])) return n[1];
     return null;

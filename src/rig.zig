@@ -96,7 +96,6 @@ pub const Tag = enum(u8) {
 
     // Closures
     @"captures",
-    @"cap_copy",        // |x|
     @"cap_clone",       // |+x|
     @"cap_weak",        // |~x|
     @"cap_move",        // |<x|
@@ -321,7 +320,7 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //
 //     `a < b`, `a<b` less-than        `<x`, `f <x` move
 //     `a * b`         multiply        `*x`, `f *x` share, `*T` shared type
-//     `a | b`         bitwise or      `|x| ...`    closure captures
+//     `a | b`         bitwise or      `|x| ...`    closure bar list
 //     `f(x)`, `a[i]`  call, index     `f (x)`, `f [1]`  new operand of f
 //     `a.b`           member          `.red`, `f .red`  enum literal
 //     `x!`, `T?`      suffix          `!x`, `?x`   write / read borrow
@@ -361,7 +360,7 @@ pub const Lexer = struct {
     prev_end: u32 = 0,
     /// A newline or `\` continuation was skipped since the last token.
     joined: bool = false,
-    /// Position of the `|` that closes the capture list being lexed.
+    /// Position of the `|` that closes the bar list being lexed.
     capture_close: ?u32 = null,
 
     /// Why the last `.err` token was produced.
@@ -585,13 +584,14 @@ pub const Lexer = struct {
             .lt => if (self.isPrefix(tok)) .move_pfx else .lt,
             .plus => if (self.isPrefix(tok)) .clone_pfx else .plus,
             .percent => if (self.isPrefix(tok)) .raw_pfx else .percent,
-            .star => if (self.isPrefix(tok)) .share_pfx else .star,
+            .star => if (self.isPrefix(tok) or self.isOwnedClosureStar(tok)) .share_pfx else .star,
             .at => if (self.isPrefix(tok) and !self.isBuiltinCall(tok)) .pin_pfx else .at,
             .question => if (self.touchesValue(tok)) .suffix_q else if (self.isPrefix(tok)) .read_pfx else .question,
             .not_sym => if (self.touchesValue(tok)) .suffix_bang else if (self.isPrefix(tok)) .write_pfx else .not_sym,
             .bar => if (self.isCaptureBar(tok)) .bar_capture else .bar,
             .and_sym => return self.fail(.and_operator, tok.pos),
-            .or_sym => return self.fail(.or_operator, tok.pos),
+            // `||` where an operand starts is an empty closure bar list.
+            .or_sym => if (!isValue(self.last_cat) or (self.spacedBefore(tok) and self.touchesNext(tok))) .bar_empty else return self.fail(.or_operator, tok.pos),
             .power => return self.fail(.power_operator, tok.pos),
             .err => return self.fail(self.lexErrorAt(tok), tok.pos),
             else => tok.cat,
@@ -683,9 +683,24 @@ pub const Lexer = struct {
         return p < src.len and src[p] == '(';
     }
 
-    /// An opening capture bar touches its first capture and is followed by
-    /// `[+<~]name (, [+<~]name)*` and a closing bar touching the last
-    /// name. The closing bar is recognized by position.
+    /// `*` directly before a closure's bar list: `*|+v| ...`, `*|| ...`.
+    fn isOwnedClosureStar(self: *const Lexer, tok: Token) bool {
+        const end = tok.pos + tok.len;
+        if (end >= self.base.source.len or self.base.source[end] != '|') return false;
+        return !isValue(self.last_cat) or self.spacedBefore(tok);
+    }
+
+    /// The token touches the one after it.
+    fn touchesNext(self: *const Lexer, tok: Token) bool {
+        const end = tok.pos + tok.len;
+        return end < self.base.source.len and isOperandStart(self.base.source[end]);
+    }
+
+    /// An opening bar touches its first entry and is followed by
+    /// `entry (, entry)*` and a closing bar touching the last entry. An
+    /// entry is a sigiled capture (`+x`, `<x`, `~x`) or a parameter name
+    /// with an optional type (`a`, `a: Int`, `f: *fun(Int) Int`). The
+    /// closing bar is recognized by position.
     fn isCaptureBar(self: *Lexer, tok: Token) bool {
         if (self.capture_close) |close| if (close == tok.pos) {
             self.capture_close = null;
@@ -701,7 +716,8 @@ pub const Lexer = struct {
                 t = name;
             }
             if (t.cat != .ident or keyword(self.base.text(t)) != null) return false;
-            const sep = probe.matchRules();
+            var sep = probe.matchRules();
+            if (sep.cat == .colon) sep = skipType(&probe) orelse return false;
             switch (sep.cat) {
                 .bar => {
                     if (sep.pre != 0) return false;
@@ -710,6 +726,26 @@ pub const Lexer = struct {
                 },
                 .comma => {},
                 else => return false,
+            }
+        }
+    }
+
+    /// Skip a parameter type in a bar list; returns the token after it
+    /// (a `,` or `|` outside brackets), or null if the tokens cannot be a
+    /// type.
+    fn skipType(probe: *BaseLexer) ?Token {
+        var depth: u32 = 0;
+        while (true) {
+            const t = probe.matchRules();
+            switch (t.cat) {
+                .lparen, .lbracket => depth += 1,
+                .rparen, .rbracket => {
+                    if (depth == 0) return null;
+                    depth -= 1;
+                },
+                .comma, .bar => if (depth == 0) return t,
+                .ident, .integer, .dot, .question, .not_sym, .star, .tilde => {},
+                else => return null,
             }
         }
     }
@@ -814,7 +850,9 @@ pub const Parser = struct {
     /// Parse and rewrite into the semantic IR. On `error.ParseError`,
     /// `diagnostic()` describes the failure.
     pub fn parseProgram(self: *Parser) !Sexp {
-        return self.walk(try self.parseTree());
+        const tree = try self.walk(try self.parseTree());
+        if (self.failure != null) return error.ParseError;
+        return tree;
     }
 
     /// Parse without the IR rewrites: the grammar's own output.
@@ -898,6 +936,8 @@ pub const Parser = struct {
     //     absent trailing optional slots become `_`;
     //   * `for` source sigils move into the mode slot:
     //       (for iter x _ (read xs) body)  →  (for read x _ xs body)
+    //   * a closure's bar list splits into its captures and parameters:
+    //       (lambda ((cap_clone v) a) ...)  →  (lambda (captures (cap_clone v)) (a) ...)
     //   * a `-name` statement whose value is used is negation, not a drop:
     //     the last statement of a `fun` body, or of a branch or arm whose
     //     value is used, becomes (neg name).
@@ -914,6 +954,7 @@ pub const Parser = struct {
         };
         const walked = try self.allocator().alloc(Sexp, items.len);
         for (items, 0..) |child, i| walked[i] = try self.walk(child);
+        if (walked.len >= 2 and walked[0] == .tag and walked[0].tag == .@"lambda") try self.splitBars(walked);
         const out = try ir.pad(self.allocator(), walked);
         if (out.len == 0 or out[0] != .tag) return .{ .list = out };
         switch (out[0].tag) {
@@ -925,6 +966,31 @@ pub const Parser = struct {
             else => {},
         }
         return .{ .list = out };
+    }
+
+    /// `(lambda entries ...)`: sigiled entries are captures, the rest
+    /// parameters. Captures come first.
+    fn splitBars(self: *Parser, items: []Sexp) std.mem.Allocator.Error!void {
+        const entries: []const Sexp = if (items[1] == .list) items[1].list else &.{};
+        var caps: std.ArrayListUnmanaged(Sexp) = .empty;
+        var params: std.ArrayListUnmanaged(Sexp) = .empty;
+        try caps.append(self.allocator(), .{ .tag = .@"captures" });
+        for (entries) |e| {
+            const is_capture = e == .list and e.list.len > 0 and e.list[0] == .tag and switch (e.list[0].tag) {
+                .@"cap_clone", .@"cap_move", .@"cap_weak" => true,
+                else => false,
+            };
+            if (!is_capture) {
+                try params.append(self.allocator(), e);
+                continue;
+            }
+            if (params.items.len > 0 and self.failure == null) {
+                self.failure = .{ .severity = .@"error", .pos = firstPos(e), .message = "captures come before parameters in a closure's bar list: `|+v, a| ...`" };
+            }
+            try caps.append(self.allocator(), e);
+        }
+        items[1] = if (caps.items.len > 1) .{ .list = caps.items } else .nil;
+        if (items.len >= 3) items[2] = if (params.items.len > 0) .{ .list = params.items } else .nil;
     }
 
     /// `sexp` (already walked, so its lists are freshly allocated) is in

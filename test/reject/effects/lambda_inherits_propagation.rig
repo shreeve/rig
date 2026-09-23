@@ -6,7 +6,7 @@ fun g() -> Int!
 
 sub main()
   n = 1
-  c = |n|
+  c = |+n|
     print(g()! + n)
   c()
 

@@ -22,23 +22,23 @@ sub main()
   print(count.get())                # 3
 
   # Owned (escapable) closure.
-  eff: *Closure() = *Closure(|+count| count.set(count.get() + 10))
+  eff: *sub() = *|+count| count.set(count.get() + 10)
   eff()
   print(count.get())                # 13
 
   # Signal: `set` stores the value and calls every subscriber.
   sig: *Signal(Int) = *Signal(value: 0)
-  log: *Closure() = *Closure(|~sig| report(?sig))
+  log: *sub() = *|~sig| report(?sig)
   sig.subscribe(+log)
   sig.set(7)                        # 7
   sig.set(99)                       # 99
 
   # Walking a Vec of closures by borrowed slot.
   notes: *Cell(Int) = *Cell(value: 0)
-  one:   *Closure() = *Closure(|+notes| notes.set(notes.get() + 1))
-  ten:   *Closure() = *Closure(|+notes| notes.set(notes.get() + 10))
-  cent:  *Closure() = *Closure(|+notes| notes.set(notes.get() + 100))
-  subs: Vec(*Closure()) = Vec()
+  one:   *sub() = *|+notes| notes.set(notes.get() + 1)
+  ten:   *sub() = *|+notes| notes.set(notes.get() + 10)
+  cent:  *sub() = *|+notes| notes.set(notes.get() + 100)
+  subs: Vec(*sub()) = Vec()
   (!subs).push(+one)
   (!subs).push(+ten)
   (!subs).push(+cent)
@@ -48,9 +48,9 @@ sub main()
 
   # Signal with several subscribers, called in subscription order.
   tally: *Cell(Int) = *Cell(value: 0)
-  add_a: *Closure() = *Closure(|+tally| tally.set(tally.get() + 1))
-  add_b: *Closure() = *Closure(|+tally| tally.set(tally.get() + 10))
-  add_c: *Closure() = *Closure(|+tally| tally.set(tally.get() + 100))
+  add_a: *sub() = *|+tally| tally.set(tally.get() + 1)
+  add_b: *sub() = *|+tally| tally.set(tally.get() + 10)
+  add_c: *sub() = *|+tally| tally.set(tally.get() + 100)
   multi: *Signal(Int) = *Signal(value: 0)
   multi.subscribe(+add_a)
   multi.subscribe(+add_b)

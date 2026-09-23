@@ -4,10 +4,10 @@
 struct Box
   payload: Int
 
-fun mk() -> *Closure()
+fun mk() -> *sub()
   b = Box(payload: 1)
   r = ?b
-  *Closure(|<r| print(r.payload))
+  *|<r| print(r.payload)
 
 sub main()
   cb = mk()

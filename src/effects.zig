@@ -361,7 +361,7 @@ test "effects: closures and defer cannot propagate" {
         \\sub main()
         \\  defer print(g()!)
         \\  n = 1
-        \\  c = |n|
+        \\  c = |+n|
         \\    print(g()! + n)
         \\  c()
         \\

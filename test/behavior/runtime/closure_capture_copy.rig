@@ -1,9 +1,9 @@
-# A plain `|n|` capture copies a Copy value; the outer binding is
+# `|+n|` captures a copy of a Copy value; the outer binding is
 # unaffected and still readable.
 
 sub main()
   n =! 7
-  add = |n|
+  add = |+n|
     n * 2
   print(add())
   print(n)

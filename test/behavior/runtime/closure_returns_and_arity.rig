@@ -1,0 +1,40 @@
+# Closures take any number of parameters and may return a value: Int,
+# Float, Bool, String, a plain enum, or an optional of one. A `return`
+# inside the body leaves the closure, not the enclosing function.
+
+enum Sign
+  neg
+  zero
+  pos
+
+sub main()
+  none_args: *fun() Int = *|| 42
+  one: *fun(Float) Float = *|x| x / 2.0
+  three: *fun(Int, Int, Bool) Int = *|a, b, sum| a + b if sum else a * b
+  five: *fun(Int, Int, Int, Int, Int) Int = *|a, b, c, d, e| a + b + c + d + e
+  sign: *fun(Int) Sign = *|n|
+    if n < 0
+      return .neg
+    if n == 0
+      return .zero
+    .pos
+  name: *fun(Sign) String = *|s|
+    match s
+      .neg => "negative"
+      .zero => "zero"
+      .pos => "positive"
+  half: *fun(Int) Int? = *|n| n / 2 if n % 2 == 0 else none
+  is_big = |n: Int| n > 100
+
+  print(none_args(), one(5.0), three(2, 3, true), three(2, 3, false))
+  print(five(1, 2, 3, 4, 5))
+  print(name(sign(-3)), name(sign(0)), name(sign(9)))
+  print(half(10) ?? -1, half(7) ?? -1)
+  print(is_big(7), is_big(700))
+
+# expect:
+# 42 2.5 5 6
+# 15
+# negative zero positive
+# 5 -1
+# false true

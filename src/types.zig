@@ -4,7 +4,7 @@
 //! `SemContext`, which every later pass (effects, ownership, emit)
 //! reads:
 //!
-//!   1. builtins     `sema_builtins.zig`  Cell, Closure, Closure1/2, Vec, Signal
+//!   1. builtins     `sema_builtins.zig`  Cell, Vec, Signal
 //!   2. symbols      `sema_decls.zig`     every declaration gets a Symbol in
 //!                                        a Scope; scopes are keyed by the IR
 //!                                        node that opens them
@@ -533,9 +533,6 @@ pub const SemContext = struct {
     facts: Facts = .{},
 
     cell_sym_id: SymbolId = symbol_invalid,
-    closure_sym_id: SymbolId = symbol_invalid,
-    closure1_sym_id: SymbolId = symbol_invalid,
-    closure2_sym_id: SymbolId = symbol_invalid,
     vec_sym_id: SymbolId = symbol_invalid,
     signal_sym_id: SymbolId = symbol_invalid,
 
@@ -867,7 +864,7 @@ fn hasDropGlueUnder(ctx: *const SemContext, ty_id: TypeId, subst: ?*const GlueSu
             break :blk false;
         },
         .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.closure_sym_id) break :blk true;
+            if (pn.sym == ctx.vec_sym_id) break :blk true;
             if (pn.sym == ctx.cell_sym_id) break :blk pn.args.len == 1 and hasDropGlueUnder(ctx, pn.args[0], subst, depth + 1);
             const base = ctx.symbols.items[pn.sym];
             if (base.flags.has_drop_glue) break :blk true;
@@ -885,6 +882,30 @@ fn hasDropGlueUnder(ctx: *const SemContext, ty_id: TypeId, subst: ?*const GlueSu
         },
         .nominal => |sym| ctx.symbols.items[sym].flags.has_drop_glue,
         else => false,
+    };
+}
+
+/// The signature of an owned closure handle `*fun(...) R` / `*sub(...)`
+/// (possibly borrowed), or null.
+pub fn ownedClosureFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
+    return switch (ctx.types.get(unwrapBorrows(ctx, ty))) {
+        .shared => |inner| switch (ctx.types.get(inner)) {
+            .function => |f| f,
+            else => null,
+        },
+        else => null,
+    };
+}
+
+/// A value an owned closure can take or return: its runtime form is
+/// type-erased, so only plain Copy data crosses it (a Copy primitive, a
+/// plain enum, or an optional of one).
+pub fn isClosureValue(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .invalid, .unknown => true,
+        .optional => |inner| isCopyPrimitive(ctx, inner) or isPlainEnum(ctx, inner),
+        .nominal, .imported_nominal => isPlainEnum(ctx, ty),
+        else => isCopyPrimitive(ctx, ty),
     };
 }
 
@@ -1343,7 +1364,7 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
             }
             try buf.append(a, ')');
             if (!f.is_sub) {
-                try buf.appendSlice(a, " -> ");
+                try buf.appendSlice(a, " ");
                 try buf.appendSlice(a, try formatTypeIn(ctx, a, f.returns));
             }
             break :blk buf.items;
@@ -1443,13 +1464,12 @@ pub fn isBorrowedTypeNode(t: Sexp) bool {
     return h == .borrow_read or h == .borrow_write;
 }
 
-pub const CaptureMode = enum { cap_copy, cap_clone, cap_weak, cap_move };
+pub const CaptureMode = enum { cap_clone, cap_weak, cap_move };
 
 pub fn captureModeOf(cap: Sexp) ?CaptureMode {
     const h = headOf(cap) orelse return null;
     if (cap.list.len < 2) return null;
     return switch (h) {
-        .@"cap_copy" => .cap_copy,
         .@"cap_clone" => .cap_clone,
         .@"cap_weak" => .cap_weak,
         .@"cap_move" => .cap_move,
@@ -1769,7 +1789,7 @@ test "facts: captures, parameters, and self resolve to their symbols" {
         \\
         \\sub main()
         \\  s =! "hi"
-        \\  f = |s|
+        \\  f = |+s|
         \\    print(s)
         \\  f()
         \\  p = P(n: 2)
@@ -1863,7 +1883,7 @@ test "facts: a capture names the binding it captures" {
     var r = try factsRun(
         \\sub main()
         \\  n = 3
-        \\  f = |n|
+        \\  f = |+n|
         \\    print(n)
         \\  f()
         \\

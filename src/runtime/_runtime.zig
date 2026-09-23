@@ -262,46 +262,45 @@ pub fn Cell(comptime T: type) type {
 // Owned closures
 // -----------------------------------------------------------------------------
 
-// `*Closure()`, `*Closure1(A)` and `*Closure2(A, B)` are shared handles
-// to these type-erased closures. Each closure literal allocates its own
-// environment (captures plus `invoke` / `drop` functions that know its
-// layout); the erased `ctx` pointer makes every literal of one arity the
-// same type. `drop_fn` releases the captures and frees the environment.
+// An owned closure `*fun(A, B) R` / `*sub(A)` is a shared handle to a
+// `Closure(&.{ A, B }, R)`: a type-erased closure. Each closure literal
+// allocates its own environment `Env` (the captures plus an `invoke`
+// method taking the parameters); `init` erases it behind `ctx`, so every
+// literal with the same parameter and return types has the same type.
+// `drop_fn` releases the captures and frees the environment.
 
-pub const Closure0 = struct {
-    ctx: *anyopaque,
-    invoke_fn: *const fn (*anyopaque) void,
-    drop_fn: *const fn (*anyopaque, std.mem.Allocator) void,
-    allocator: std.mem.Allocator,
-
-    pub fn __rig_print(_: Closure0, w: *std.Io.Writer) std.Io.Writer.Error!void {
-        try w.writeAll("<closure>");
-    }
-
-    pub fn invoke(self: *Closure0) void {
-        self.invoke_fn(self.ctx);
-    }
-
-    pub fn __rig_drop(self: *Closure0) void {
-        self.drop_fn(self.ctx, self.allocator);
-    }
-};
-
-pub fn Closure1(comptime A: type) type {
+pub fn Closure(comptime params: []const type, comptime R: type) type {
     return struct {
         ctx: *anyopaque,
-        invoke_fn: *const fn (*anyopaque, A) void,
+        invoke_fn: *const fn (*anyopaque, Args) R,
         drop_fn: *const fn (*anyopaque, std.mem.Allocator) void,
         allocator: std.mem.Allocator,
 
         const Self = @This();
+        pub const Args = std.meta.Tuple(params);
+
+        /// Erase `env`, a heap-allocated `Env` the closure now owns.
+        pub fn init(comptime Env: type, env: *Env) Self {
+            const erased = struct {
+                fn invoke(ctx: *anyopaque, args: Args) R {
+                    const e: *Env = @ptrCast(@alignCast(ctx));
+                    return @call(.auto, Env.invoke, .{e} ++ args);
+                }
+                fn dropEnv(ctx: *anyopaque, allocator: std.mem.Allocator) void {
+                    const e: *Env = @ptrCast(@alignCast(ctx));
+                    dropFields(e);
+                    allocator.destroy(e);
+                }
+            };
+            return .{ .ctx = env, .invoke_fn = erased.invoke, .drop_fn = erased.dropEnv, .allocator = defaultAllocator() };
+        }
 
         pub fn __rig_print(_: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
             try w.writeAll("<closure>");
         }
 
-        pub fn invoke(self: *Self, a: A) void {
-            self.invoke_fn(self.ctx, a);
+        pub fn invoke(self: *Self, args: Args) R {
+            return self.invoke_fn(self.ctx, args);
         }
 
         pub fn __rig_drop(self: *Self) void {
@@ -310,28 +309,8 @@ pub fn Closure1(comptime A: type) type {
     };
 }
 
-pub fn Closure2(comptime A: type, comptime B: type) type {
-    return struct {
-        ctx: *anyopaque,
-        invoke_fn: *const fn (*anyopaque, A, B) void,
-        drop_fn: *const fn (*anyopaque, std.mem.Allocator) void,
-        allocator: std.mem.Allocator,
-
-        const Self = @This();
-
-        pub fn __rig_print(_: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
-            try w.writeAll("<closure>");
-        }
-
-        pub fn invoke(self: *Self, a: A, b: B) void {
-            self.invoke_fn(self.ctx, a, b);
-        }
-
-        pub fn __rig_drop(self: *Self) void {
-            self.drop_fn(self.ctx, self.allocator);
-        }
-    };
-}
+/// `*sub()`: what a Signal notifies.
+pub const Callback = Closure(&.{}, void);
 
 // -----------------------------------------------------------------------------
 // Signal
@@ -344,7 +323,7 @@ pub fn Closure2(comptime A: type, comptime B: type) type {
 pub fn Signal(comptime T: type) type {
     return struct {
         value: T,
-        subs: Vec(*RcBox(Closure0)),
+        subs: Vec(*RcBox(Callback)),
         notifying: bool = false,
         pending: ?T = null,
 
@@ -375,14 +354,14 @@ pub fn Signal(comptime T: type) type {
             while (next) |v| {
                 self.value = v;
                 self.pending = null;
-                for (self.subs.items()) |cb| cb.value.invoke();
+                for (self.subs.items()) |cb| cb.value.invoke(.{});
                 next = self.pending;
             }
         }
 
         /// Takes ownership of `cb`; the caller passes its own strong
         /// handle (`sig.subscribe(+cb)` to keep one).
-        pub fn subscribe(self: *Self, cb: *RcBox(Closure0)) void {
+        pub fn subscribe(self: *Self, cb: *RcBox(Callback)) void {
             if (self.notifying) @panic("Signal.subscribe called while notifying subscribers");
             self.subs.push(cb);
         }
@@ -732,15 +711,10 @@ test "Signal takes ownership of subscribers and delivers reentrant sets" {
         sig: *Signal(i32),
         seen: *[4]i32,
         n: *usize,
-        fn invoke(ctx: *anyopaque) void {
-            const self: *@This() = @ptrCast(@alignCast(ctx));
+        pub fn invoke(self: *@This()) void {
             self.seen[self.n.*] = self.sig.value;
             self.n.* += 1;
             if (self.sig.value == 1) self.sig.set(2);
-        }
-        fn dropEnv(ctx: *anyopaque, allocator: std.mem.Allocator) void {
-            const self: *@This() = @ptrCast(@alignCast(ctx));
-            allocator.destroy(self);
         }
     };
     var sig: Signal(i32) = .{ .value = 0, .subs = .init(testing.allocator) };
@@ -749,15 +723,28 @@ test "Signal takes ownership of subscribers and delivers reentrant sets" {
     var n: usize = 0;
     const env = try testing.allocator.create(Env);
     env.* = .{ .sig = &sig, .seen = &seen, .n = &n };
-    const cb = try RcBox(Closure0).new(testing.allocator, .{
-        .ctx = env,
-        .invoke_fn = Env.invoke,
-        .drop_fn = Env.dropEnv,
-        .allocator = testing.allocator,
-    });
+    var closure = Callback.init(Env, env);
+    closure.allocator = testing.allocator;
+    const cb = try RcBox(Callback).new(testing.allocator, closure);
     sig.subscribe(cb);
     sig.set(1);
     try testing.expectEqualSlices(i32, &.{ 1, 2 }, seen[0..n]);
+}
+
+test "closures take any number of arguments and return values" {
+    const Env = struct {
+        base: i64,
+        pub fn invoke(self: *@This(), a: i64, b: i64, c: bool) i64 {
+            return if (c) self.base + a * b else self.base;
+        }
+    };
+    const env = try testing.allocator.create(Env);
+    env.* = .{ .base = 1 };
+    var closure = Closure(&.{ i64, i64, bool }, i64).init(Env, env);
+    closure.allocator = testing.allocator;
+    defer closure.__rig_drop();
+    try testing.expectEqual(7, closure.invoke(.{ 2, 3, true }));
+    try testing.expectEqual(1, closure.invoke(.{ 2, 3, false }));
 }
 
 test "aggregates drop their parts" {

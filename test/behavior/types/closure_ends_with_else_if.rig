@@ -3,7 +3,7 @@
 
 sub main()
   n = 2
-  f = |n|
+  f = |+n|
     if n == 1
       print("one")
     else if n == 2

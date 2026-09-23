@@ -1,9 +1,0 @@
-# A bare `|sig|` capture of a shared handle in an owned closure is
-# rejected: it would copy the handle without a refcount bump.
-
-sub main()
-  sig: *Signal(Int) = *Signal(value: 0)
-  cb: *Closure() = *Closure(|sig| sig.get())
-  cb()
-
-# error: bare capture `|sig|` of shared handle

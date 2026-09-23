@@ -2,12 +2,12 @@
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  cb1: *Closure() = *Closure(|+count| count.set(count.get() + 1))
+  cb1: *sub() = *|+count| count.set(count.get() + 1)
 
-  subs: Vec(*Closure()) = Vec()
+  subs: Vec(*sub()) = Vec()
   (!subs).push(+cb1)
 
-  other: Vec(*Closure()) = Vec()
+  other: Vec(*sub()) = Vec()
   for cb in ?subs
     (!other).push(+cb)
 

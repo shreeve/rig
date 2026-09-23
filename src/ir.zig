@@ -53,7 +53,7 @@ pub fn shapeOf(tag: Tag) ?Shape {
         .@"module" => variadic(&.{}, .node),
         .@"use", .@"zig" => fixed(&.{.leaf}),
         .@"fun", .@"sub" => fixed(&.{ .leaf, .group, .opt, .node }), // name params returns body
-        .@"lambda" => fixed(&.{ .node, .group, .opt, .node }), // captures params returns body
+        .@"lambda" => fixed(&.{ .opt, .group, .opt, .node }), // captures params returns body
         .@"struct", .@"enum", .@"errors" => variadic(&.{.leaf}, .node), // name members...
         .@"generic_type", .@"generic_enum" => variadic(&.{ .leaf, .group }, .node),
         .@"type" => fixed(&.{ .leaf, .node }),
@@ -96,7 +96,7 @@ pub fn shapeOf(tag: Tag) ?Shape {
 
         // Closures
         .@"captures" => variadic(&.{}, .node),
-        .@"cap_copy", .@"cap_clone", .@"cap_weak", .@"cap_move" => fixed(&.{.leaf}),
+        .@"cap_clone", .@"cap_weak", .@"cap_move" => fixed(&.{.leaf}),
 
         // Calls and access
         .@"call" => variadic(&.{.node}, .node),
@@ -290,8 +290,9 @@ test "every form the grammar produces matches its schema" {
         \\    1..3 => print(-1)
         \\    else
         \\      print(2)
-        \\  g = |+c, <d, ~e, h| (k: Int) c + k
-        \\  h = *Closure(|+c| c.set(@sizeOf(Int)))
+        \\  g = |+c, <d, ~e, k: Int, j| c + k
+        \\  h = *|+c| c.set(@sizeOf(Int))
+        \\  i = || print(1)
         \\  v = f(1, b: 3) catch 0
         \\  u = f(1)!
         \\  t = f(1) catch |err| 0
@@ -302,6 +303,8 @@ test "every form the grammar produces matches its schema" {
         \\    print(%x)
         \\  print(+a, <b, ?c, !d, *e, ~f, v.w[0])
         \\  n: fun() Int = f
+        \\  n2: *sub(Int, ?Box(Int)) = h
+        \\  n3: sub() = i
         \\  o2: (*Box(Int))? = none
         \\  o3: []~Int = o
         \\  return x

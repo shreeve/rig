@@ -1,18 +1,18 @@
-# `*Cell(Vec(*Closure()))`: a shared cell owning a list of closures.
+# `*Cell(Vec(*sub()))`: a shared cell owning a list of closures.
 # `replace` swaps the list out so it can be walked, then back in; the
 # whole structure is freed when the cell's last handle drops.
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  bump: *Closure() = *Closure(|+count| count.set(count.get() + 1))
-  v: Vec(*Closure()) = Vec()
+  bump: *sub() = *|+count| count.set(count.get() + 1)
+  v: Vec(*sub()) = Vec()
   (!v).push(<bump)
-  c: *Cell(Vec(*Closure())) = *Cell(value: <v)
-  empty: Vec(*Closure()) = Vec()
-  current: Vec(*Closure()) = c.replace(<empty)
+  c: *Cell(Vec(*sub())) = *Cell(value: <v)
+  empty: Vec(*sub()) = Vec()
+  current: Vec(*sub()) = c.replace(<empty)
   for cb in ?current
     cb()
-  discarded: Vec(*Closure()) = c.replace(<current)
+  discarded: Vec(*sub()) = c.replace(<current)
   print(count.get())                # 1
 
 # expect:

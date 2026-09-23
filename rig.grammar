@@ -16,7 +16,7 @@
 #     operator or a suffix.
 #
 #       <x +x %x ?x !x *x ~x @x -x   ownership sigils / negation
-#       |a, +b|                      closure capture list (vs bitwise `|`)
+#       |+a, b|  ||  *|a|            closure bar list (vs bitwise `|`)
 #       f(x) a[i]                    call / index (vs `f (x)`, `f [1, 2]`,
 #                                    which pass a new operand to `f`)
 #       .red                         enum literal (vs member access a.b)
@@ -132,7 +132,8 @@ tokens
     lbracket_index  # [  touching the preceding value: index
     post_if         # if  postfix guard: `stmt if cond`
     ternary_if      # if  inline ternary: `a if cond else b`
-    bar_capture     # |   closure capture delimiter: `|a, +b|`
+    bar_capture     # |   closure bar list delimiter: `|+a, b|`
+    bar_empty       # ||  an empty closure bar list: `|| print(1)`
     dot_lit         # .   enum literal: `.red`
     kwarg_name      # name directly followed by `:` inside ( )
     move_pfx        # <x  move
@@ -374,8 +375,10 @@ type     = READ_PFX  type                   → (borrow_read 2)
          | "~"       type                   → (weak 2)
          | "[" "]" type                     → (slice 3)
          | "[" INTEGER "]" type             → (array_type 2 4)
-         | FUN "(" L(type) ")" type         → (fun_type 3 5)
+         | FUN "(" L(type) ")" type         → (fun_type 3 5)   # `fun(Int) Int`
          | FUN "(" ")" type                 → (fun_type _ 4)
+         | SUB "(" L(type) ")"              → (fun_type 3)     # `sub(Int)`
+         | SUB "(" ")"                      → (fun_type)
          | tsuffix
 
 tsuffix  = tsuffix SUFFIX_Q                 → (optional 1)
@@ -393,18 +396,17 @@ tatom    = name
 # EXPRESSIONS
 # ==============================================================================
 #
-#   tail    an expression, a paren-free call, or a lambda whose body is one.
+#   tail    an expression, a paren-free call, or a closure whose body is one.
 #           Allowed where nothing can follow on the line: a statement, the
 #           right side of a binding, `return`, a match arm, the last
 #           argument of a call.
 #   expr    anything that yields a value, including block forms.
-#   value   an expression without a block or lambda: conditions, operands,
+#   value   an expression without a block or closure: conditions, operands,
 #           ternary branches.
 
 tail     = expr
          | cmd
-         | captures lparams cbody           → (lambda 1 2 _ 3)
-         | captures cbody                   → (lambda 1 _ _ 2)
+         | cclosure
 
 expr     = value
          | if
@@ -413,10 +415,7 @@ expr     = value
          | match
          | try_block
          | logic CATCH BAR_CAPTURE name BAR_CAPTURE block → (catch 1 4 6)
-         | captures lparams block           → (lambda 1 2 _ 3)
-         | captures         block           → (lambda 1 _ _ 2)
-         | captures lparams ebody           → (lambda 1 2 _ 3)
-         | captures         ebody           → (lambda 1 _ _ 2)
+         | closure
          | PRE value                        → (pre 2)
 
 value    = logic TERNARY_IF logic ELSE value → (if 3 1 5)
@@ -451,8 +450,7 @@ exprs    = expr                             → (1)
          | exprs "," expr                   → (...1 3)
 
 cmdtail  = cmd
-         | captures lparams cbody           → (lambda 1 2 _ 3)
-         | captures cbody                   → (lambda 1 _ _ 2)
+         | cclosure
 
 # --- Control flow -------------------------------------------------------------
 
@@ -514,24 +512,37 @@ catch_part = CATCH BAR_CAPTURE name BAR_CAPTURE block → (catch_block 3 5)
 
 # --- Closures -----------------------------------------------------------------
 #
-# A closure starts with its capture list. Each capture carries its mode:
-#   |x|  copy    |+x|  clone    |<x|  move    |~x|  weak
-# Parameters, when present, are typed: `|+v| (a: Int) v.set(a)`.
+# A closure starts with its bar list. An entry with a sigil is a capture;
+# a bare name is a parameter, optionally typed:
+#   |+x| clone (a copy, for a Copy value)   |<x| move   |~x| weak
+#   |a, b| a + b      |+v, a: Int| v.set(a)      || print("tick")
+# `*` before the bars makes an owned closure: `*|+v, a| v.set(a)`. The
+# parser splits the entries into (captures ...) and the parameter list.
 
-captures = BAR_CAPTURE L(capture) BAR_CAPTURE → (captures ...2)
+closure  = lambda
+         | SHARE_PFX lambda                 → (share 2)
 
-capture  = name                             → (cap_copy 1)
+lambda   = bars block                       → (lambda 1 _ _ 2)
+         | bars ebody                       → (lambda 1 _ _ 2)
+
+# A closure whose inline body is a paren-free call.
+cclosure = clambda
+         | SHARE_PFX clambda                → (share 2)
+
+clambda  = bars cbody                       → (lambda 1 _ _ 2)
+
+bars     = BAR_CAPTURE L(barent) BAR_CAPTURE → (...2)
+         | BAR_EMPTY                        → ()
+
+barent   = fname                            → 1
+         | fname ":" type                   → (: 1 3)
          | CLONE_PFX name                   → (cap_clone 2)
          | MOVE_PFX  name                   → (cap_move 2)
          | "~"       name                   → (cap_weak 2)
 
-lparams  = "(" L(lparam) ")"                → (...2)
-
 # An inline body is wrapped in a block, like an indented one.
 ebody    = expr                             → (block 1)
 cbody    = cmd                              → (block 1)
-
-lparam   = KWARG_NAME ":" type              → (: 1 3)
 
 # ==============================================================================
 # OPERANDS

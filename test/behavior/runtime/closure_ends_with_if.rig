@@ -8,7 +8,7 @@ sub main()
       print("peek", h.get())
   peek()
   flag = true
-  say = |flag|
+  say = |+flag|
     if flag
       print("flag")
   say()

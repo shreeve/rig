@@ -1,8 +1,8 @@
-# Calling a zero-argument `*Closure()` with arguments is an arity error.
+# Calling a zero-argument `*sub()` with arguments is an arity error.
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  cb: *Closure() = *Closure(|+count| count.set(count.get() + 1))
+  cb: *sub() = *|+count| count.set(count.get() + 1)
   cb(1, 2)
 
-# error: owned closure `cb` invocation expects 0 argument(s); got 2
+# error: call to `cb` expects 0 arguments, got 2

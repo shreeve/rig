@@ -1,9 +1,0 @@
-# The closure type is spelled `Closure()`; bare `Closure` is rejected.
-
-sub stub(cb: *Closure)
-  print("never reached")
-
-sub main()
-  print("hi")
-
-# error: generic type `Closure` must be written with empty parentheses

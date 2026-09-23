@@ -1,0 +1,14 @@
+# In a bar list a bare name is a parameter; a capture carries a sigil.
+# A bare name that is also a local is rejected with the sigils that
+# would capture it, in a stack closure and in an owned closure.
+
+sub main()
+  rc: *Cell(Int) = *Cell(value: 0)
+  f = |rc| rc.get()
+  print(f())
+  n = 3
+  cb: *sub() = *|n| print(n)
+  cb()
+
+# error: closure parameter `rc` has the name of the local `rc`; to capture the local, give it a sigil (`|+rc|` copies or clones it, `|<rc|` moves it, `|~rc|` holds it weakly)
+# error: closure parameter `n` has the name of the local `n`

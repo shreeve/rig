@@ -9,7 +9,7 @@ sub eat(rc: *Box)
 sub main()
   rc = *Box(payload: 1)
   n = 5
-  f = |n|
+  f = |+n|
     eat(<rc)
   f()
 

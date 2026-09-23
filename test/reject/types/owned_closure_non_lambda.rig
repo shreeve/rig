@@ -1,6 +1,0 @@
-# The argument to `*Closure(...)` must be a lambda.
-
-sub main()
-  cb: *Closure() = *Closure(42)
-
-# error: owned closure `*Closure(...)` argument must be a lambda

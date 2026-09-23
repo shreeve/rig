@@ -1,40 +1,40 @@
 # A Memo-shaped reactive fixture built from substrate pieces: a source
 # holds its value in a shared `Cell` and its subscribers in a shared
-# `Cell(Vec(*Closure1(Int)))`. `set` swaps the subscriber list out,
+# `Cell(Vec(*sub(Int)))`. `set` swaps the subscriber list out,
 # calls each subscriber with the new value, and swaps it back.
 
 struct IntSource
   value: *Cell(Int)
-  subs: *Cell(Vec(*Closure1(Int)))
+  subs: *Cell(Vec(*sub(Int)))
 
   fun new(initial: Int) -> *IntSource
     val: *Cell(Int) = *Cell(value: initial)
-    empty: Vec(*Closure1(Int)) = Vec()
-    subs_cell: *Cell(Vec(*Closure1(Int))) = *Cell(value: <empty)
+    empty: Vec(*sub(Int)) = Vec()
+    subs_cell: *Cell(Vec(*sub(Int))) = *Cell(value: <empty)
     *IntSource(value: <val, subs: <subs_cell)
 
   fun get(self: ?IntSource) -> Int
     self.value.get()
 
-  sub subscribe(self: ?IntSource, cb: *Closure1(Int))
-    empty: Vec(*Closure1(Int)) = Vec()
-    current: Vec(*Closure1(Int)) = self.subs.replace(<empty)
+  sub subscribe(self: ?IntSource, cb: *sub(Int))
+    empty: Vec(*sub(Int)) = Vec()
+    current: Vec(*sub(Int)) = self.subs.replace(<empty)
     (!current).push(+cb)
-    discarded: Vec(*Closure1(Int)) = self.subs.replace(<current)
+    discarded: Vec(*sub(Int)) = self.subs.replace(<current)
 
   sub set(self: ?IntSource, v: Int)
     self.value.set(v)
-    empty: Vec(*Closure1(Int)) = Vec()
-    current: Vec(*Closure1(Int)) = self.subs.replace(<empty)
+    empty: Vec(*sub(Int)) = Vec()
+    current: Vec(*sub(Int)) = self.subs.replace(<empty)
     for cb in ?current
       cb(v)
-    discarded: Vec(*Closure1(Int)) = self.subs.replace(<current)
+    discarded: Vec(*sub(Int)) = self.subs.replace(<current)
 
 sub main()
   src = IntSource.new(0)
   doubled: *Cell(Int) = *Cell(value: 0)
 
-  body: *Closure1(Int) = *Closure1(Int)(|+doubled| (a: Int) doubled.set(a * 2))
+  body: *sub(Int) = *|+doubled, a: Int| doubled.set(a * 2)
   src.subscribe(+body)
 
   src.set(3)            # body fires with a=3 → doubled becomes 6

@@ -4,12 +4,12 @@
 sub stack()
   ctx = 2
   allocator = 3
-  f = |ctx, allocator| (self: Int) self + ctx + allocator
+  f = |+ctx, +allocator, self: Int| self + ctx + allocator
   print(f(1))
 
 sub owned()
   c: *Cell(Int) = *Cell(value: 0)
-  g: *Closure1(Int) = *Closure1(Int)(|+c| (ctx: Int) c.set(ctx))
+  g: *sub(Int) = *|+c, ctx: Int| c.set(ctx)
   g(5)
   print(c.get())
 

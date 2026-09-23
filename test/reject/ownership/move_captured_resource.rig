@@ -6,7 +6,7 @@ fun consume_sig(s: *Signal(Int)) -> Int
 
 sub main()
   sig: *Signal(Int) = *Signal(value: 0)
-  cb: *Closure() = *Closure(|+sig| consume_sig(<sig))
+  cb: *sub() = *|+sig| consume_sig(<sig)
   cb()
 
 # error: cannot move captured resource `sig`

@@ -1,13 +1,13 @@
-# `for cb in ?subs` walks a `Vec(*Closure())` by borrowed slot and calls
+# `for cb in ?subs` walks a `Vec(*sub())` by borrowed slot and calls
 # each closure; all handles and the shared cell are released at scope exit.
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  cb1: *Closure() = *Closure(|+count| count.set(count.get() + 1))
-  cb2: *Closure() = *Closure(|+count| count.set(count.get() + 10))
-  cb3: *Closure() = *Closure(|+count| count.set(count.get() + 100))
+  cb1: *sub() = *|+count| count.set(count.get() + 1)
+  cb2: *sub() = *|+count| count.set(count.get() + 10)
+  cb3: *sub() = *|+count| count.set(count.get() + 100)
 
-  subs: Vec(*Closure()) = Vec()
+  subs: Vec(*sub()) = Vec()
   (!subs).push(+cb1)
   (!subs).push(+cb2)
   (!subs).push(+cb3)

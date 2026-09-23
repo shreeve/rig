@@ -5,12 +5,12 @@
 
 struct IntSource
   value: *Cell(Int)
-  subs: *Cell(Vec(*Closure()))
+  subs: *Cell(Vec(*sub()))
 
   fun new(initial: Int) -> *IntSource
     val: *Cell(Int) = *Cell(value: initial)
-    empty: Vec(*Closure()) = Vec()
-    subs_cell: *Cell(Vec(*Closure())) = *Cell(value: <empty)
+    empty: Vec(*sub()) = Vec()
+    subs_cell: *Cell(Vec(*sub())) = *Cell(value: <empty)
     *IntSource(value: <val, subs: <subs_cell)
 
   fun get(self: ?IntSource) -> Int
@@ -18,19 +18,19 @@ struct IntSource
 
   # A Cell holding a Vec gives no borrowed access, so the list is swapped
   # out with `replace`, pushed to, and swapped back.
-  sub subscribe(self: ?IntSource, cb: *Closure())
-    empty: Vec(*Closure()) = Vec()
-    current: Vec(*Closure()) = self.subs.replace(<empty)
+  sub subscribe(self: ?IntSource, cb: *sub())
+    empty: Vec(*sub()) = Vec()
+    current: Vec(*sub()) = self.subs.replace(<empty)
     (!current).push(+cb)
-    discarded: Vec(*Closure()) = self.subs.replace(<current)
+    discarded: Vec(*sub()) = self.subs.replace(<current)
 
   sub set(self: ?IntSource, v: Int)
     self.value.set(v)
-    empty: Vec(*Closure()) = Vec()
-    current: Vec(*Closure()) = self.subs.replace(<empty)
+    empty: Vec(*sub()) = Vec()
+    current: Vec(*sub()) = self.subs.replace(<empty)
     for cb in ?current
       cb()
-    discarded: Vec(*Closure()) = self.subs.replace(<current)
+    discarded: Vec(*sub()) = self.subs.replace(<current)
 
 # Copy `from` into `to`, scaled, if both are still alive.
 sub relay(from: ?~IntSource, to: ?~IntSource)
@@ -47,10 +47,10 @@ sub main()
   count = IntSource.new(0)
   total = IntSource.new(0)
 
-  body_a: *Closure() = *Closure(|~count, ~total| relay(?count, ?total))
+  body_a: *sub() = *|~count, ~total| relay(?count, ?total)
   count.subscribe(+body_a)
 
-  body_b: *Closure() = *Closure(|~total| report(?total))
+  body_b: *sub() = *|~total| report(?total)
   total.subscribe(+body_b)
 
   count.set(1)        # total becomes 10, prints 10

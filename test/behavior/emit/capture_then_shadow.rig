@@ -3,7 +3,7 @@
 
 sub main()
   x = 1
-  f = |x|
+  f = |+x|
     print(x)
   f()
   new x = "two"

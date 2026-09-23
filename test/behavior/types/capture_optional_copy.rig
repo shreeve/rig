@@ -1,15 +1,10 @@
-# An optional of a Copy value is captured by copy (`|m|`) or clone
-# (`|+m|`).
+# `|+m|` captures a copy of an optional Copy value.
 
 sub main()
   m: Int? = 3
-  f = |m|
-    print(m ?? 0)
-  g = |+m|
+  f = |+m|
     print(m ?? 0)
   f()
-  g()
 
 # expect:
-# 3
 # 3

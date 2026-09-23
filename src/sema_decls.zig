@@ -236,7 +236,7 @@ const SymbolResolver = struct {
             for (captures) |cap| {
                 const cn = types.captureNameNode(cap) orelse continue;
                 if (std.mem.eql(u8, identAt(self.ctx.source, cn) orelse "", name)) {
-                    try self.ctx.err(pos, "lambda parameter `{s}` conflicts with captured variable `{s}`", .{ name, name });
+                    try self.ctx.err(pos, "closure parameter `{s}` has the name of the capture `{s}`", .{ name, name });
                     try self.ctx.note(srcPos(cn, 0), "captured here", .{});
                     collides = true;
                 }
@@ -276,7 +276,7 @@ const SymbolResolver = struct {
         self.scope = parent;
         defer self.scope = saved;
         if (self.visibleLocal(name)) |prev| {
-            try self.ctx.err(srcPos(name_node, 0), "lambda parameter `{s}` shadows the local `{s}` of the enclosing function; use a different name", .{ name, name });
+            try self.ctx.err(srcPos(name_node, 0), "closure parameter `{s}` has the name of the local `{s}`; to capture the local, give it a sigil (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|~{s}|` holds it weakly), or name the parameter differently", .{ name, name, name, name, name });
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
             return;
         }
@@ -1129,6 +1129,7 @@ pub const TypeResolver = struct {
                             try self.ctx.err(firstSrcPos(items[1]), "nested shared type `**T` is not meaningful; use a single `*T`", .{});
                             return t.invalid_id;
                         }
+                        if (self.ctx.types.get(inner) == .function) try self.checkOwnedClosureType(items[1], inner);
                         return self.ctx.intern(.{ .shared = inner });
                     },
                     .@"weak" => return self.ctx.intern(.{ .weak = try self.resolveType(items[1]) }),
@@ -1211,6 +1212,22 @@ pub const TypeResolver = struct {
         return self.ctx.intern(.{ .imported_nominal = .{ .module_id = origin, .sym_id = fid } });
     }
 
+    /// `*fun(...) R` / `*sub(...)`: an owned closure passes plain Copy
+    /// values through its type-erased form.
+    fn checkOwnedClosureType(self: *TypeResolver, fun_type: Sexp, ty: TypeId) Error!void {
+        const f = self.ctx.types.get(ty).function;
+        const nodes: []const Sexp = if (isHead(fun_type, .@"fun_type") and fun_type.list[1] == .list) fun_type.list[1].list else &.{};
+        for (f.params, 0..) |p, i| {
+            if (types.isClosureValue(self.ctx, p)) continue;
+            const pos = if (i < nodes.len) firstSrcPos(nodes[i]) else firstSrcPos(fun_type);
+            try self.ctx.err(pos, "an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try types.formatType(self.ctx, p)});
+        }
+        if (!f.is_sub and !types.isClosureValue(self.ctx, f.returns)) {
+            const pos = if (isHead(fun_type, .@"fun_type") and fun_type.list[2] != .nil) firstSrcPos(fun_type.list[2]) else firstSrcPos(fun_type);
+            try self.ctx.err(pos, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try types.formatType(self.ctx, f.returns)});
+        }
+    }
+
     fn resolveGenericInst(self: *TypeResolver, sexp: Sexp) Error!TypeId {
         const items = sexp.list;
         const t = &self.ctx.types;
@@ -1257,7 +1274,7 @@ pub const TypeResolver = struct {
         const a = self.ctx.arena.allocator();
         if (sym_id == self.ctx.cell_sym_id) {
             if (types.isCopyPrimitive(self.ctx, args[0]) or types.typeHasDropGlue(self.ctx, args[0])) return null;
-            return try std.fmt.allocPrint(a, "`Cell(T)` requires `T` to be a Copy primitive (Int, Bool, Float, String) OR a type with drop glue (`*T`, `~T`, `Vec(T)`, `*Closure()`, struct with resource fields or user `drop`); got `{s}`", .{try types.formatType(self.ctx, args[0])});
+            return try std.fmt.allocPrint(a, "`Cell(T)` requires `T` to be a Copy primitive (Int, Bool, Float, String) OR a type with drop glue (`*T`, `~T`, `Vec(T)`, `*sub()`, struct with resource fields or user `drop`); got `{s}`", .{try types.formatType(self.ctx, args[0])});
         }
         if (sym_id == self.ctx.vec_sym_id) {
             const ok = types.isCopyPrimitive(self.ctx, args[0]) or switch (self.ctx.types.get(args[0])) {
@@ -1270,13 +1287,6 @@ pub const TypeResolver = struct {
         if (sym_id == self.ctx.signal_sym_id) {
             if (types.isCopyPrimitive(self.ctx, args[0])) return null;
             return try std.fmt.allocPrint(a, "`Signal(T)` requires `T` to be a Copy type (Int, Bool, Float, String); got `{s}`", .{try types.formatType(self.ctx, args[0])});
-        }
-        if (sym_id == self.ctx.closure1_sym_id or sym_id == self.ctx.closure2_sym_id) {
-            for (args) |arg| {
-                if (!types.isCopyPrimitive(self.ctx, arg)) {
-                    return try std.fmt.allocPrint(a, "`{s}` argument types must be Copy (Int, Float, Bool, String, or a sized number); got `{s}`", .{ self.ctx.symbols.items[sym_id].name, try types.formatType(self.ctx, arg) });
-                }
-            }
         }
         return null;
     }

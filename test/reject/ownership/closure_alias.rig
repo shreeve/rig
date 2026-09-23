@@ -3,7 +3,7 @@
 
 sub main()
   n =! 5
-  f = |n|
+  f = |+n|
     n + 1
   g = f
   g()

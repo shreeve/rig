@@ -1,10 +1,10 @@
-# An owned closure: `*Closure(|+count| ...)` clones the shared counter
+# An owned closure: `*|+count| ...` clones the shared counter
 # into the closure's environment, so the closure can outlive the scope
 # that built it. Dropping the closure releases the captured handle.
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  cb: *Closure() = *Closure(|+count| count.set(count.get() + 1))
+  cb: *sub() = *|+count| count.set(count.get() + 1)
   cb()
   cb()
   cb()

@@ -7,7 +7,7 @@ sub other()
 
 sub main()
   s =! "hello"
-  f = |s|
+  f = |+s|
     print(s)
   f()
   other()

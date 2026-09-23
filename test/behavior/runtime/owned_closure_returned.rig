@@ -1,9 +1,9 @@
 # An owned closure can escape the function that built it: the captured
 # clone keeps the factory's local cell alive after the factory returns.
 
-fun make_reporter() -> *Closure()
+fun make_reporter() -> *sub()
   value: *Cell(Int) = *Cell(value: 42)
-  *Closure(|+value| print(value.get()))
+  *|+value| print(value.get())
 
 sub main()
   cb = make_reporter()

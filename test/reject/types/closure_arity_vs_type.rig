@@ -1,0 +1,9 @@
+# A closure takes exactly the parameters the type its context expects
+# passes it.
+
+sub main()
+  f: fun(Int) Int = |a, b| a + b
+  g: *sub(Int, Int) = *|a| print(a)
+
+# error: this closure takes 2 parameters, but its type `fun(Int) Int` passes 1
+# error: this closure takes 1 parameter, but its type `sub(Int, Int)` passes 2

@@ -6,7 +6,7 @@ sub consume(f)
 
 sub main()
   n =! 3
-  f = |n|
+  f = |+n|
     n
   consume(f)
 

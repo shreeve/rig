@@ -1,17 +1,23 @@
-# Lambdas, capture modes, owned closures, and closure types.
+# Closures: capture modes, parameters (inferred and annotated), empty
+# bar lists, owned closures, and closure types.
 
 sub main()
   n = 1
   count: *Cell(Int) = *Cell(value: 0)
-  plain = |n| print n
+  copied = |+n| print n
   cloned = |+count| count.set(count.get() + 1)
   weak = |~count| print "weak"
   moved = |<n| print n
-  plain()
+  tick = || print "tick"
+  copied()
 
-  cb: *Closure() = *Closure(|+count| count.set(count.get() + 1))
+  add: fun(Int, Int) Int = |a, b| a + b
+  typed = |+count, a: Int| count.set(a)
+  add(1, 2)
+
+  cb: *sub() = *|+count| count.set(count.get() + 1)
   cb()
-  one: *Closure1(Int) = *Closure1(Int)(|+count| (a: Int) count.set(a))
+  one: *sub(Int) = *|+count, a| count.set(a)
   one(5)
-  two: *Closure2(Int, Int) = *Closure2(Int, Int)(|+count| (a: Int, b: Int) count.set(a + b))
-  two(1, 2)
+  two: *fun(Int, Int) Int = *|a, b| a * b
+  print(two(1, 2))

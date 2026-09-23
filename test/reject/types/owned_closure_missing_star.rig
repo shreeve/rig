@@ -1,8 +1,8 @@
-# An owned closure must be constructed with `*Closure(...)`; bare
-# `Closure(...)` is rejected.
+# A closure where an owned closure `*sub()` is expected must be written
+# owned, with `*` before its bar list.
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
-  cb = Closure(|+count| count.set(count.get() + 1))
+  cb: *sub() = |+count| count.set(count.get() + 1)
 
-# error: owned closure must be wrapped with `*`
+# error: `*sub()` is an owned closure; write `*|...| body` to make one

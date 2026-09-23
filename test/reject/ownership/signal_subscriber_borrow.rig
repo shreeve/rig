@@ -11,7 +11,7 @@ sub main()
   sig: *Signal(Int) = *Signal(value: 0)
   a = Box(payload: 1)
   r = ?a
-  cb: *Closure() = *Closure(|<r| print(r.payload))
+  cb: *sub() = *|<r| print(r.payload)
   sig.subscribe(+cb)
   -cb
   -a

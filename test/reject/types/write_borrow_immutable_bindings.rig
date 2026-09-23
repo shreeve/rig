@@ -11,7 +11,7 @@ sub main()
   y =! 1
   bump(!y)
   k = 1
-  g = |k|
+  g = |+k|
     bump(!k)
   g()
   for x in [1, 2]

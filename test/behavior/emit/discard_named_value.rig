@@ -7,7 +7,7 @@ sub main()
   r = ?x
   _ = r
   _ = ?x
-  f = |x|
+  f = |+x|
     _ = x
     print(x)
   f()

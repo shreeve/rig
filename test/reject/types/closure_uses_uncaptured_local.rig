@@ -1,10 +1,10 @@
-# A closure reaches the enclosing function's locals only through its
-# capture list.
+# A closure reaches the enclosing function's locals only through the
+# captures in its bar list.
 
 sub main()
   n = 1
   m = 2
-  f = |n|
+  f = |+n|
     print(n + m)
   f()
 

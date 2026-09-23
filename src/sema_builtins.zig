@@ -1,6 +1,5 @@
 //! Built-in generic types, registered in every module scope before
-//! user declarations: `Cell(T)`, `Closure()`, `Closure1(T)`,
-//! `Closure2(A, B)`, `Vec(T)`, and `Signal(T)`. Their methods are
+//! user declarations: `Cell(T)`, `Vec(T)`, and `Signal(T)`. Their methods are
 //! ordinary method Fields on generic symbols, so calls go through the
 //! same lookup and substitution as user generics; the runtime
 //! (`runtime.zig`) implements them.
@@ -20,7 +19,7 @@ const pos = types.builtin_decl_pos;
 
 /// Names users cannot redeclare: emit recognizes these by name.
 pub fn isReservedName(name: []const u8) bool {
-    const reserved = [_][]const u8{ "Cell", "Closure", "Closure1", "Closure2", "Vec", "Signal" };
+    const reserved = [_][]const u8{ "Cell", "Vec", "Signal" };
     for (reserved) |r| {
         if (std.mem.eql(u8, name, r)) return true;
     }
@@ -43,11 +42,6 @@ pub fn register(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "replace", .read, &.{ self_ty, t }, t),
         });
     }
-
-    // Closure(): owned, type-erased, no-argument closure handle.
-    ctx.closure_sym_id = (try addGeneric(ctx, module_scope, "Closure", &.{})).sym;
-    ctx.closure1_sym_id = (try addGeneric(ctx, module_scope, "Closure1", &.{"T"})).sym;
-    ctx.closure2_sym_id = (try addGeneric(ctx, module_scope, "Closure2", &.{ "A", "B" })).sym;
 
     // Vec(T): growable buffer that owns its elements.
     {
@@ -72,8 +66,9 @@ pub fn register(ctx: *SemContext, module_scope: ScopeId) Error!void {
         ctx.signal_sym_id = g.sym;
         const t = g.params[0];
         const self_ty = try ctx.intern(.{ .borrow_read = g.self_ty });
-        const closure = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.closure_sym_id, .args = &.{} } });
-        const closure_handle = try ctx.intern(.{ .shared = closure });
+        // Subscribers are owned closures `*sub()`.
+        const callback = try ctx.intern(.{ .function = .{ .params = &.{}, .returns = ctx.types.void_id, .is_sub = true } });
+        const closure_handle = try ctx.intern(.{ .shared = callback });
         try setFields(ctx, g.sym, &.{
             .{ .name = "value", .ty = t, .decl_pos = pos },
             try method(ctx, "get", .read, &.{self_ty}, t),

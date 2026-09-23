@@ -8,10 +8,10 @@ struct Box
     print("drop")
 
 sub main()
-  cbs: Vec(*Closure()) = Vec()
+  cbs: Vec(*sub()) = Vec()
   a = Box(payload: 1)
   r = ?a
-  (!cbs).push(*Closure(|<r| print(r.payload)))
+  (!cbs).push(*|<r| print(r.payload))
   -a
   for cb in ?cbs
     cb()
