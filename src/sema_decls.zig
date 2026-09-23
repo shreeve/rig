@@ -570,16 +570,30 @@ pub const TypeResolver = struct {
             .is_sub = is_sub,
             .pre_mask = pre_mask,
         } });
+        try self.ctx.recordType(items[1], fn_ty);
         if (nominal_sym == types.symbol_invalid) {
             if (self.ctx.symbolOf(items[1])) |fid| {
                 self.ctx.symbols.items[fid].ty = fn_ty;
                 self.ctx.symbols.items[fid].param_names = try self.paramNames(params);
+                self.ctx.symbols.items[fid].param_defaults = try self.paramDefaults(params);
                 if (self.ctx.symbols.items[fid].flags.is_public) {
                     try self.checkPublicSignature(fid, srcPos(items[1], 0), return_ty, param_types.items);
                 }
             }
         }
         return fn_ty;
+    }
+
+    /// The default value of each parameter, or null when none has one.
+    fn paramDefaults(self: *TypeResolver, params: Sexp) Error!?[]const ?Sexp {
+        if (params != .list) return null;
+        var any = false;
+        const out = try self.ctx.arena.allocator().alloc(?Sexp, params.list.len);
+        for (params.list, 0..) |p, i| {
+            out[i] = if (isHead(p, .@"default") and p.list.len >= 4) p.list[3] else null;
+            if (out[i] != null) any = true;
+        }
+        return if (any) out else null;
     }
 
     fn paramNames(self: *TypeResolver, params: Sexp) Error!?[]const []const u8 {
@@ -614,10 +628,7 @@ pub const TypeResolver = struct {
                 const h = headOf(param) orelse return self.ctx.types.invalid_id;
                 switch (h) {
                     .@":", .@"pre_param" => if (items.len >= 3) return self.resolveType(items[2]),
-                    .@"default" => {
-                        try self.ctx.err(types.paramPos(param, firstSrcPos(param)), "default parameter values are not supported yet", .{});
-                        if (items.len >= 3) return self.resolveType(items[2]);
-                    },
+                    .@"default" => if (items.len >= 3) return self.resolveType(items[2]),
                     .@"read", .@"write" => {
                         const name = identAt(self.ctx.source, items[1]) orelse return self.ctx.types.invalid_id;
                         const pos = srcPos(items[1], 0);
@@ -652,7 +663,10 @@ pub const TypeResolver = struct {
         var ps: std.ArrayListUnmanaged(TypeId) = .empty;
         defer ps.deinit(self.ctx.allocator);
         if (params == .list) {
-            for (params.list) |p| try ps.append(self.ctx.allocator, try self.resolveParamType(p));
+            for (params.list) |p| {
+                if (isHead(p, .@"default")) try self.ctx.err(types.paramPos(p, firstSrcPos(p)), "an `extern` parameter cannot have a default value", .{});
+                try ps.append(self.ctx.allocator, try self.resolveParamType(p));
+            }
         }
         const fn_ty = try self.ctx.intern(.{ .function = .{
             .params = try self.ctx.dupeIds(ps.items),
@@ -894,6 +908,7 @@ pub const TypeResolver = struct {
             .is_method = true,
             .receiver = receiver,
             .param_names = try self.paramNames(params),
+            .param_defaults = try self.paramDefaults(params),
         });
     }
 

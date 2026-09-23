@@ -71,6 +71,8 @@ const Checker = struct {
     /// Callee node of the method call being checked; its resolved
     /// signature is recorded as the node's type.
     callee_node: ?Sexp = null,
+    /// The call being checked, for its argument-slot fact.
+    current_call: ?Sexp = null,
 
     fn err(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
         return self.ctx.err(pos, fmt, args);
@@ -197,7 +199,21 @@ const Checker = struct {
         }
         self.fn_return = ret;
         self.is_sub = is_sub;
+        if (items[2] == .list) for (items[2].list) |p| try self.checkDefault(p);
         try self.checkBody(items[items.len - 1], ret, is_sub);
+    }
+
+    /// A parameter's default value is a literal of the parameter's type:
+    /// it is written at each call site that omits the argument.
+    fn checkDefault(self: *Checker, param: Sexp) Error!void {
+        if (!isHead(param, .@"default") or param.list.len < 4) return;
+        const value = param.list[3];
+        const ty = self.ctx.bindingTypeOf(param.list[1]) orelse self.t().unknown_id;
+        if (!isDefaultLiteral(self.ctx.source, value)) {
+            try self.err(firstSrcPos(value), "a default parameter value must be a literal: a number, a string, `true` / `false`, `none`, or `.variant`", .{});
+            return;
+        }
+        try self.checkExpr(value, ty);
     }
 
     /// A body's statements; in a `fun`, the last one is its value.
@@ -1555,6 +1571,13 @@ const Checker = struct {
     // =========================================================================
 
     fn synthCall(self: *Checker, node: Sexp) Error!TypeId {
+        const saved = self.current_call;
+        self.current_call = node;
+        defer self.current_call = saved;
+        return self.synthCallInner(node);
+    }
+
+    fn synthCallInner(self: *Checker, node: Sexp) Error!TypeId {
         const items = node.list;
         if (items.len < 2) return self.t().invalid_id;
         const callee = items[1];
@@ -1582,7 +1605,7 @@ const Checker = struct {
                         try self.synthArgs(args);
                         return self.t().invalid_id;
                     }
-                    try self.checkArgs(args, fty.function, self.paramNamesOf(sym_id), name, callee.src.pos);
+                    try self.checkArgs(args, fty.function, self.paramsOf(sym_id), name, callee.src.pos);
                     return fty.function.returns;
                 },
                 .nominal_type => return self.construct(sym_id, args, callee.src.pos, TypeSubst.empty, null),
@@ -1640,7 +1663,7 @@ const Checker = struct {
         }
         const fty = self.ctx.types.get(types.unwrapBorrows(self.ctx, ty));
         if (fty == .function) {
-            try self.checkArgs(args, fty.function, null, name, pos);
+            try self.checkArgs(args, fty.function, .{}, name, pos);
             return fty.function.returns;
         }
         try self.err(pos, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(ty) });
@@ -1677,14 +1700,45 @@ const Checker = struct {
         return self.t().void_id;
     }
 
-    fn paramNamesOf(self: *Checker, sym_id: SymbolId) ?[]const []const u8 {
-        return self.ctx.symbols.items[sym_id].param_names;
+    /// What a call needs to know about a callee's parameters beyond its
+    /// type: names for keyword arguments and default values.
+    const ParamInfo = struct {
+        names: ?[]const []const u8 = null,
+        defaults: ?[]const ?Sexp = null,
+        /// Source of the module that declares the defaults.
+        source: []const u8 = "",
+
+        fn default(self: ParamInfo, i: usize) ?Sexp {
+            const d = self.defaults orelse return null;
+            return if (i < d.len) d[i] else null;
+        }
+    };
+
+    fn paramsOf(self: *Checker, sym_id: SymbolId) ParamInfo {
+        const sym = self.ctx.symbols.items[sym_id];
+        return .{ .names = sym.param_names, .defaults = sym.param_defaults, .source = self.ctx.source };
+    }
+
+    fn methodParams(self: *Checker, f: Field, skip_self: bool) ParamInfo {
+        var names = f.param_names;
+        var defaults = f.param_defaults;
+        if (skip_self) {
+            if (names) |n| if (n.len > 0) {
+                names = n[1..];
+            };
+            if (defaults) |d| if (d.len > 0) {
+                defaults = d[1..];
+            };
+        }
+        return .{ .names = names, .defaults = defaults, .source = self.ctx.source };
     }
 
     /// Arguments against a signature: arity, types, keyword arguments
-    /// by parameter name, and compile-time-known values for `pre`
-    /// parameters.
-    fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, names: ?[]const []const u8, callee: []const u8, pos: u32) Error!void {
+    /// by parameter name, defaults for omitted parameters, and
+    /// compile-time-known values for `pre` parameters. A call that uses
+    /// keywords or defaults records its argument slots.
+    fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info: ParamInfo, callee: []const u8, pos: u32) Error!void {
+        const call = self.current_call;
         var first_kw: ?usize = null;
         for (args, 0..) |a, i| {
             if (isHead(a, .@"kwarg")) {
@@ -1697,40 +1751,63 @@ const Checker = struct {
         }
         const positional = args[0 .. first_kw orelse args.len];
         const keyword = args[positional.len..];
-        if (keyword.len > 0 and names == null) {
+        if (keyword.len > 0 and info.names == null) {
             try self.err(firstSrcPos(keyword[0]), "`{s}` takes positional arguments only", .{callee});
             try self.synthArgs(args);
             return;
         }
-        if (args.len != f.params.len) {
-            try self.err(pos, "call to `{s}` expects {d} argument{s}, got {d}", .{ callee, f.params.len, plural(f.params.len), args.len });
+        var required: usize = 0;
+        for (0..f.params.len) |i| {
+            if (info.default(i) == null) required += 1;
+        }
+        if (args.len > f.params.len or args.len < required) {
+            if (required == f.params.len) {
+                try self.err(pos, "call to `{s}` expects {d} argument{s}, got {d}", .{ callee, f.params.len, plural(f.params.len), args.len });
+            } else {
+                try self.err(pos, "call to `{s}` expects {d} to {d} arguments, got {d}", .{ callee, required, f.params.len, args.len });
+            }
             try self.synthArgs(args);
             return;
         }
-        var filled = try self.ctx.allocator.alloc(bool, f.params.len);
-        defer self.ctx.allocator.free(filled);
-        @memset(filled, false);
+        const slots = try self.ctx.arena.allocator().alloc(?types.ArgSlot, f.params.len);
+        @memset(slots, null);
         for (positional, 0..) |a, i| {
-            filled[i] = true;
+            slots[i] = .{ .arg = @intCast(i) };
             try self.checkArg(a, f, i, callee);
         }
-        for (keyword) |kw| {
+        for (keyword, positional.len..) |kw, ai| {
             const kname = self.text(kw.list[1]);
-            const idx = for (names.?, 0..) |n, i| {
+            const idx = for (info.names.?, 0..) |n, i| {
                 if (std.mem.eql(u8, n, kname)) break i;
             } else {
                 try self.err(srcPos(kw.list[1], pos), "`{s}` has no parameter `{s}`", .{ callee, kname });
                 _ = try self.synthExpr(kw.list[2]);
                 continue;
             };
-            if (filled[idx]) {
+            if (slots[idx] != null) {
                 try self.err(srcPos(kw.list[1], pos), "parameter `{s}` of `{s}` is given twice", .{ kname, callee });
                 _ = try self.synthExpr(kw.list[2]);
                 continue;
             }
-            filled[idx] = true;
+            slots[idx] = .{ .arg = @intCast(ai) };
             try self.checkArg(kw.list[2], f, idx, callee);
         }
+        var complete = true;
+        for (slots, 0..) |*slot, i| {
+            if (slot.* != null) continue;
+            if (info.default(i)) |d| {
+                slot.* = .{ .default = .{ .expr = d, .source = info.source } };
+                continue;
+            }
+            complete = false;
+            const pname = if (info.names) |n| n[i] else "?";
+            try self.err(pos, "call to `{s}` is missing an argument for parameter `{s}`", .{ callee, pname });
+        }
+        if (!complete or (keyword.len == 0 and args.len == f.params.len)) return;
+        const call_node = call orelse return;
+        const out = try self.ctx.arena.allocator().alloc(types.ArgSlot, slots.len);
+        for (slots, out) |s, *o| o.* = s.?;
+        try self.ctx.recordCallSlots(call_node, out);
     }
 
     fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize, callee: []const u8) Error!void {
@@ -2020,15 +2097,8 @@ const Checker = struct {
             .is_sub = resolved.fn_ty.is_sub,
             .pre_mask = resolved.fn_ty.pre_mask >> 1,
         };
-        try self.checkArgs(args, rest, self.methodParamNames(resolved.field, true), method, pos);
+        try self.checkArgs(args, rest, self.methodParams(resolved.field, true), method, pos);
         return resolved.fn_ty.returns;
-    }
-
-    fn methodParamNames(self: *Checker, f: Field, skip_self: bool) ?[]const []const u8 {
-        _ = self;
-        const names = f.param_names orelse return null;
-        if (skip_self and names.len > 0) return names[1..];
-        return names;
     }
 
     /// `Type.method(args)` or `Type.variant(payload)`.
@@ -2050,7 +2120,7 @@ const Checker = struct {
                     return self.t().invalid_id;
                 }
                 try self.noteCallee(fty.function);
-                try self.checkArgs(args, fty.function, self.methodParamNames(m, false), name, pos);
+                try self.checkArgs(args, fty.function, self.methodParams(m, false), name, pos);
                 return fty.function.returns;
             }
             if (m.is_variant and sym.kind == .nominal_type) {
@@ -2089,7 +2159,7 @@ const Checker = struct {
                     return self.t().invalid_id;
                 }
                 try self.noteCallee(fty.function);
-                try self.checkArgs(args, fty.function, found.sym.param_names, qualified, pos);
+                try self.checkArgs(args, fty.function, .{ .names = found.sym.param_names, .defaults = found.sym.param_defaults, .source = found.ctx.source }, qualified, pos);
                 return fty.function.returns;
             },
             .nominal_type => return self.construct(found.id, args, pos, TypeSubst.empty, .{ .ctx = found.ctx, .module_id = found.module_id }),
@@ -2119,7 +2189,7 @@ const Checker = struct {
             }
             try self.checkReceiverMode(obj, f.receiver, classifyImportedReceiver(self.ctx, obj_ty), method, pos);
             const rest: FunctionType = .{ .params = fty.params[1..], .returns = fty.returns, .is_sub = fty.is_sub, .pre_mask = fty.pre_mask >> 1 };
-            try self.checkArgs(args, rest, null, method, pos);
+            try self.checkArgs(args, rest, .{}, method, pos);
             return fty.returns;
         }
         try self.err(pos, "no method `{s}` on type `{s}`", .{ method, sym.name });
@@ -2668,6 +2738,7 @@ const Checker = struct {
             .cap_move => outer_ty,
         };
         self.ctx.symbols.items[cap_sym].ty = bound;
+        self.ctx.symbols.items[cap_sym].origin = outer_id;
         try self.ctx.recordType(name_node, bound);
     }
 
@@ -2860,6 +2931,17 @@ fn isFreshResourceAlloc(sexp: Sexp) bool {
 /// Forms whose type comes from the other operand: `.variant`, `none`.
 fn isContextual(source: []const u8, e: Sexp) bool {
     return isHead(e, .@"enum_lit") or std.mem.eql(u8, identAt(source, e) orelse "", "none");
+}
+
+/// Literal forms allowed as default parameter values: the same text
+/// means the same value at every call site, in any module.
+pub fn isDefaultLiteral(source: []const u8, e: Sexp) bool {
+    return switch (e) {
+        .src => isLiteralText(identAt(source, e).?) or std.mem.eql(u8, identAt(source, e).?, "none"),
+        .list => |items| (isHead(e, .@"neg") and items.len == 2 and items[1] == .src and isLiteralText(identAt(source, items[1]).?)) or
+            (isHead(e, .@"enum_lit") and items.len == 2),
+        else => false,
+    };
 }
 
 fn isStatementForm(e: Sexp) bool {

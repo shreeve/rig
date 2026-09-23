@@ -1,0 +1,9 @@
+# Only parameters with a default value may be omitted.
+
+fun scaled(n: Int, by: Int = 10) -> Int
+  n * by
+
+sub main()
+  print(scaled(by: 2))
+
+# error: missing an argument for parameter `n`

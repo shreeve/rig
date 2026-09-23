@@ -27,12 +27,18 @@
 //!                                      symbol a leaf names
 //!   ctx.scopeOf(node)    -> ?ScopeId   the scope a fun/sub/method/lambda/
 //!                                      block/for/arm/catch node opens
+//!   ctx.callSlotsOf(call) -> ?[]ArgSlot for a call with keyword or
+//!                                      omitted arguments: which argument
+//!                                      (or default value) fills each
+//!                                      parameter, in parameter order
 //!
 //! A call's callee gets a type too: a function name its signature, and a
 //! method callee `(member obj m)` the resolved method signature with the
-//! receiver's generic arguments applied. Binding facts live on the
-//! Symbol: `flags.reassigned`, `flags.fixed`, `flags.comptime_known`,
-//! `flags.pattern_bound`, `kind` (local / param / capture / ...).
+//! receiver's generic arguments applied. The name leaf of every `fun` /
+//! `sub` declaration, method or not, carries its function type. Binding
+//! facts live on the Symbol: `flags.reassigned`, `flags.fixed`,
+//! `flags.comptime_known`, `flags.pattern_bound`, `kind` (local / param /
+//! capture / ...), and for a capture the `origin` binding it captures.
 //!
 //! Leaves are keyed by source position (`src.pos`); list nodes by the
 //! identity of their item slice (`NodeKey`), which is stable because
@@ -383,6 +389,8 @@ pub const Field = struct {
     has_default: bool = false,
     /// Parameter names of a method, for keyword arguments.
     param_names: ?[]const []const u8 = null,
+    /// Default values of a method's parameters (null where none).
+    param_defaults: ?[]const ?Sexp = null,
 };
 
 pub const Symbol = struct {
@@ -399,6 +407,10 @@ pub const Symbol = struct {
     type_params: ?[]const SymbolId = null,
     /// Parameter names of a function, for keyword arguments.
     param_names: ?[]const []const u8 = null,
+    /// Default values of a function's parameters (null where none).
+    param_defaults: ?[]const ?Sexp = null,
+    /// A capture: the enclosing binding it captures.
+    origin: SymbolId = symbol_invalid,
 };
 
 pub const ScopeKind = enum { module, function, lambda, block };
@@ -442,13 +454,31 @@ pub const Facts = struct {
     node_types: std.AutoHashMapUnmanaged(NodeKey, TypeId) = .empty,
     /// Scope-opening node -> the scope it opens.
     scopes: std.AutoHashMapUnmanaged(NodeKey, ScopeId) = .empty,
+    /// Call node -> how its arguments fill the parameters, for calls
+    /// with keyword arguments or omitted (defaulted) parameters.
+    call_slots: std.AutoHashMapUnmanaged(NodeKey, []const ArgSlot) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         self.names.deinit(allocator);
         self.leaf_types.deinit(allocator);
         self.node_types.deinit(allocator);
         self.scopes.deinit(allocator);
+        self.call_slots.deinit(allocator);
     }
+};
+
+/// What fills one parameter of a call: the argument at an index of the
+/// call's argument list (a `(kwarg ...)` stands for its value), or the
+/// parameter's default value, a literal from the declaring module.
+pub const ArgSlot = union(enum) {
+    arg: u32,
+    default: DefaultValue,
+};
+
+pub const DefaultValue = struct {
+    expr: Sexp,
+    /// Source of the module that declares the parameter.
+    source: []const u8,
 };
 
 /// Where the element type of a Vec `for` source came from; keyed by
@@ -684,6 +714,14 @@ pub const SemContext = struct {
         return self.facts.scopes.get(key);
     }
 
+    /// Parameter-order argument slots of a call with keyword arguments
+    /// or omitted parameters; null when the arguments are positional
+    /// and complete.
+    pub fn callSlotsOf(self: *const SemContext, call: Sexp) ?[]const ArgSlot {
+        const key = nodeKey(call) orelse return null;
+        return self.facts.call_slots.get(key);
+    }
+
     // ---- facts: recording (sema passes only) -----------------------------
 
     pub fn recordName(self: *SemContext, node: Sexp, sym: SymbolId) !void {
@@ -702,6 +740,11 @@ pub const SemContext = struct {
     pub fn recordScope(self: *SemContext, node: Sexp, scope: ScopeId) !void {
         const key = nodeKey(node) orelse return;
         try self.facts.scopes.put(self.allocator, key, scope);
+    }
+
+    pub fn recordCallSlots(self: *SemContext, call: Sexp, slots: []const ArgSlot) !void {
+        const key = nodeKey(call) orelse return;
+        try self.facts.call_slots.put(self.allocator, key, slots);
     }
 
     pub fn intern(self: *SemContext, ty: Type) std.mem.Allocator.Error!TypeId {
@@ -1664,6 +1707,66 @@ test "facts: scopes are keyed by the node that opens them" {
     try std.testing.expectEqual(body_scope, r.ctx.symbols.items[x].scope);
     try std.testing.expectEqual(x, r.ctx.lookup(body_scope, "x").?);
     try std.testing.expect(r.ctx.lookup(fn_scope, "a") == null);
+}
+
+test "facts: declaration names carry their function type" {
+    var r = try factsRun(
+        \\struct P
+        \\  n: Int
+        \\
+        \\  fun get(?self) -> Int
+        \\    self.n
+        \\
+        \\fun twice(x: Int) -> Int
+        \\  x * 2
+        \\
+    );
+    defer r.deinit();
+    const get = r.ctx.types.get(r.leafType("get", 0).?).function;
+    try std.testing.expectEqual(r.ctx.types.int_id, get.returns);
+    try std.testing.expectEqual(@as(usize, 1), get.params.len);
+    const twice = r.ctx.types.get(r.leafType("twice", 0).?).function;
+    try std.testing.expectEqual(r.ctx.types.int_id, twice.params[0]);
+}
+
+test "facts: a capture names the binding it captures" {
+    var r = try factsRun(
+        \\sub main()
+        \\  n = 3
+        \\  f = |n|
+        \\    print(n)
+        \\  f()
+        \\
+    );
+    defer r.deinit();
+    const outer = r.sym("n", 0).?;
+    const cap = r.sym("n", 1).?;
+    try std.testing.expect(cap != outer);
+    try std.testing.expectEqual(outer, r.ctx.symbols.items[cap].origin);
+}
+
+test "facts: keyword and omitted arguments record their slots" {
+    var r = try factsRun(
+        \\fun scaled(n: Int, by: Int = 10, plus: Int = 0) -> Int
+        \\  n * by + plus
+        \\
+        \\sub main()
+        \\  print(scaled(1, 2, 3))
+        \\  print(scaled(plus: 5, n: 4))
+        \\
+    );
+    defer r.deinit();
+    const main_fn = r.ir.list[2];
+    const first = findNode(main_fn.list[4].list[1], .@"call").?;
+    const inner1 = findNode(first.list[2], .@"call").?;
+    try std.testing.expect(r.ctx.callSlotsOf(inner1) == null);
+    const second = findNode(main_fn.list[4].list[2], .@"call").?;
+    const inner2 = findNode(second.list[2], .@"call").?;
+    const slots = r.ctx.callSlotsOf(inner2).?;
+    try std.testing.expectEqual(@as(usize, 3), slots.len);
+    try std.testing.expectEqual(@as(u32, 1), slots[0].arg);
+    try std.testing.expectEqualStrings("10", r.source[slots[1].default.expr.src.pos..][0..2]);
+    try std.testing.expectEqual(@as(u32, 0), slots[2].arg);
 }
 
 // ---- symbols and declarations -----------------------------------------------
