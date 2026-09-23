@@ -201,6 +201,14 @@ pub fn cloneOptional(value: anytype) @TypeOf(value) {
     return if (comptime isStrongHandle(@TypeOf(h))) h.cloneStrong() else h.cloneWeak();
 }
 
+/// `e == none` for a temporary optional that owns a resource: the
+/// temporary is dropped.
+pub fn isNone(value: anytype) bool {
+    var v = value;
+    defer drop(&v);
+    return v == null;
+}
+
 /// Allocate a new `*T` holding `value`.
 pub fn rcNew(value: anytype) *RcBox(@TypeOf(value)) {
     return RcBox(@TypeOf(value)).new(defaultAllocator(), value) catch oom();

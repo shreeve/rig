@@ -1,0 +1,26 @@
+# `-a` on a match payload that owns a resource drops it now and consumes
+# the scrutinee.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+enum S
+  one(a: B)
+  empty
+
+sub main()
+  s: S = .one(a: B(n: 1))
+  match s
+    .one(a)
+      -a
+      print("dropped")
+    .empty => print(0)
+  print("end")
+
+# expect:
+# drop 1
+# dropped
+# end

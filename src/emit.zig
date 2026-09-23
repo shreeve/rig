@@ -692,6 +692,8 @@ pub const Emitter = struct {
     /// its own, or its scrutinee's for a match payload binding.
     fn consumeFlag(self: *Emitter, local: *const Local) ?[]const u8 {
         if (local.guard == .flag) return local.flag;
+        // A Copy payload is copied out; the scrutinee keeps its value.
+        if (local.kind == null) return null;
         const s = local.scrutinee orelse return null;
         const scrut = self.localBySym(s) orelse return null;
         return if (scrut.guard == .flag) scrut.flag else null;
@@ -1019,9 +1021,14 @@ pub const Emitter = struct {
             if (local.guard == .flag) {
                 try self.w.print("{s} = false; ", .{local.flag});
             } else if (local.guard == .none) {
-                // A match payload: the value leaves its scrutinee.
+                // A match payload: the value leaves its scrutinee, and the
+                // capture is a constant, so it is dropped from a copy.
                 const flag = self.consumeFlag(local) orelse return self.w.writeAll("{}");
                 try self.w.print("{s} = false; ", .{flag});
+                if (kind == .value or kind == .optional) {
+                    const id = self.nextId();
+                    return self.w.print("{{ var __rig_drop_{d} = {s}; rig.drop(&__rig_drop_{d}); }}", .{ id, local.zig_name, id });
+                }
             }
             try self.writeDrop(local.zig_name, kind);
             try self.w.writeAll(";");
@@ -1539,7 +1546,8 @@ pub const Emitter = struct {
             .@"move" => try self.emitMoved(items[1]),
             .@"share" => try self.emitShare(sexp),
             .@"clone" => {
-                const kind: ?ResourceKind = if (self.typeOf(items[1])) |t| self.kindOf(t) else null;
+                // `+b` of a borrowed handle clones the handle it borrows.
+                const kind: ?ResourceKind = if (self.typeOf(items[1])) |t| self.kindOf(self.peelBorrows(t)) else null;
                 if (kind == .optional) {
                     try self.w.writeAll("rig.cloneOptional(");
                     try self.emitBare(items[1]);
@@ -1612,6 +1620,10 @@ pub const Emitter = struct {
         }
     }
 
+    fn isNoneLeaf(self: *Emitter, e: Sexp) bool {
+        return e == .src and self.sema.symbolOf(e) == null and std.mem.eql(u8, self.srcText(e), "none");
+    }
+
     /// `&place`, or the pointer itself when the place is already one.
     fn emitAddressOf(self: *Emitter, place: Sexp) Error!void {
         if (place == .src) if (self.localOf(place)) |local| {
@@ -1624,6 +1636,17 @@ pub const Emitter = struct {
     fn emitInfix(self: *Emitter, items: []const Sexp, bare: bool) Error!void {
         const op = @tagName(items[0].tag);
         const is_eq = items[0].tag == .@"==" or items[0].tag == .@"!=";
+        // A temporary optional resource compared with `none` is dropped.
+        if (is_eq) for ([2]usize{ 1, 2 }) |i| {
+            const other = items[3 - i];
+            if (!self.isNoneLeaf(other) or isPlace(items[i])) continue;
+            const t = self.typeOf(items[i]) orelse continue;
+            if (self.kindOf(t) == null) continue;
+            if (items[0].tag == .@"!=") try self.w.writeAll("!");
+            try self.w.writeAll("rig.isNone(");
+            try self.emitBare(items[i]);
+            return self.w.writeAll(")");
+        };
         if (is_eq and (self.isStringExpr(items[1]) or self.isStringExpr(items[2]))) {
             if (items[0].tag == .@"!=") try self.w.writeAll("!");
             try self.w.writeAll("std.mem.eql(u8, ");
@@ -2682,8 +2705,11 @@ const Scan = struct {
         if (node != .src) return;
         const sym = s.e.sema.symbolOf(node) orelse return;
         try s.put(&s.e.usage.consumed, sym);
-        // Moving a payload out consumes its scrutinee.
-        if (s.e.usage.views.get(sym)) |scrut| try s.put(&s.e.usage.consumed, scrut);
+        // Moving a resource payload out consumes its scrutinee.
+        if (s.e.usage.views.get(sym)) |scrut| {
+            const ty = s.e.symType(sym) orelse return;
+            if (s.e.kindOf(ty) != null) try s.put(&s.e.usage.consumed, scrut);
+        }
     }
 
     /// The name a branch yields, when it yields a bare name.
@@ -2859,6 +2885,12 @@ fn isTagged(s: Sexp, tag: Tag) bool {
 
 fn unwrapPub(s: Sexp) Sexp {
     return if (isTagged(s, .@"pub")) s.list[1] else s;
+}
+
+/// Storage with an owner: a name, a field or element, or a borrow of one.
+fn isPlace(e: Sexp) bool {
+    const h = headOf(e) orelse return e == .src;
+    return h == .@"member" or h == .@"index" or h == .@"read" or h == .@"write";
 }
 
 /// The value of a call argument: a `(kwarg name value)` stands for its value.
