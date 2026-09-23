@@ -1541,7 +1541,7 @@ pub const Emitter = struct {
             try self.w.writeAll(",\n");
         }
         if (!has_default and !self.matchIsExhaustive(scrut_ty, variants_seen)) {
-            try self.line("else => unreachable,", .{});
+            try self.line("else => @panic(\"no match arm matched\"),", .{});
         }
         self.indent -= 1;
         try self.writeIndent(self.indent);

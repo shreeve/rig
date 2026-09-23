@@ -343,7 +343,8 @@ src/
   effects.zig            fallibility / raw-context / extern-call enforcement
   ownership.zig          move / borrow / clone / drop / capture checking
   emit.zig               Zig backend
-  runtime.zig            small trusted runtime (Rc, Weak, Cell, Vec, Closure, Signal)
+  runtime.zig            embeds the runtime shipped with every program
+  runtime/_runtime.zig   small trusted runtime (Rc, Weak, Cell, Vec, Closure, Signal)
   main.zig               CLI entry (parse / normalize / check / build / run)
 docs/
   ROADMAP.md             milestone history (M0 → M30)

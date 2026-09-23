@@ -7,10 +7,11 @@
 //!   handles (`WeakHandle(T)`). `cloneStrong` / `dropStrong` /
 //!   `weakRef` / `cloneWeak` / `dropWeak` / `upgrade` are the only
 //!   refcount operations; the emitter spells every one explicitly.
-//! - A type owns resources iff it declares `__rig_drop(self: *Self)`.
-//!   `dropElement` is the single place that knows how to release a value
-//!   of any type: strong handles drop a count, types with `__rig_drop`
-//!   run it, everything else is plain data.
+//! - `dropElement` is the single place that knows how to release a value
+//!   of any type: a strong handle drops a count, a type that declares
+//!   `__rig_drop(self: *Self)` runs it, structs, tagged unions, arrays,
+//!   and optionals drop their parts, and everything else is plain data.
+//! - A moved-from binding's scope-exit drop is disarmed by `take`.
 //! - Allocation failure panics. Every allocation goes through
 //!   `defaultAllocator()`, which is leak-checked in Debug builds.
 
