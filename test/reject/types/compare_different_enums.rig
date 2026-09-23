@@ -1,5 +1,5 @@
-# Known bug (B5): comparing values of two different enum types is
-# accepted; only Zig rejects it.
+# `==` needs both operands of one type; values of two different enums
+# cannot be compared.
 
 enum Color
   red

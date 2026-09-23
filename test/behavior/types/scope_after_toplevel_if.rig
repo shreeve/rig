@@ -1,0 +1,14 @@
+# Locals of a function after a module-level `if` expression resolve
+# normally.
+
+k = if true
+  1
+else
+  2
+
+sub main()
+  n = 5
+  print(n)
+
+# expect:
+# 5

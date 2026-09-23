@@ -1,5 +1,5 @@
-# Known bug (B11): a read-borrowed parameter can't be forwarded; `g(?b)`
-# with `b: ?B` types as `??B` and is rejected.
+# A read-borrowed parameter can be forwarded: `?b` with `b: ?B` reborrows
+# as `?B` rather than nesting.
 
 struct B
   n: Int

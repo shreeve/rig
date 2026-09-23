@@ -1,5 +1,5 @@
-# Known bug (B2): member access on an optional (`u.name` with `u: User?`)
-# is accepted without unwrapping it first.
+# Field access on an optional (`u.name` with `u: User?`) requires
+# unwrapping it first.
 
 struct User
   name: String

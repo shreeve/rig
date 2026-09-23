@@ -1,8 +1,0 @@
-# Known bug (B6): `for` over an Int is accepted; only Zig rejects it.
-
-sub main()
-  x = 3
-  for i in x
-    print(i)
-
-# error: `Int`

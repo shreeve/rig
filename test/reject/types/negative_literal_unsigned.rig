@@ -1,0 +1,7 @@
+# A negative literal does not fit an unsigned type.
+
+sub main()
+  a: U8 = -1
+  print(a)
+
+# error: `U8`

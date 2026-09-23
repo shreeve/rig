@@ -1,5 +1,6 @@
-# Known bug (B6): `self.value + 1` in a generic body is accepted when the
-# type is instantiated with T = String; only Zig rejects the `+`.
+# A generic body's operations on `T` are requirements on every
+# instantiation: `self.value + 1` needs a numeric `T`, so `Box(String)` is
+# rejected.
 
 type Box(T)
   value: T

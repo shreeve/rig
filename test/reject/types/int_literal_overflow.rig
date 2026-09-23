@@ -1,0 +1,7 @@
+# An integer literal must fit the sized type it initializes.
+
+sub main()
+  a: U8 = 300
+  print(a)
+
+# error: `U8`

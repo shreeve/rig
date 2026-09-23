@@ -1,0 +1,9 @@
+# A closure literal's parameter annotations must match the closure type:
+# a `Closure1(Int)` lambda cannot declare `(a: String)`.
+
+sub main()
+  v: *Cell(Int) = *Cell(value: 0)
+  cb: *Closure1(Int) = *Closure1(Int)(|+v| (a: String) print(a))
+  cb(1)
+
+# error: `String`

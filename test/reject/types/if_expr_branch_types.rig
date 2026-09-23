@@ -7,4 +7,4 @@ sub main()
     "no"
   print x
 
-# error: incompatible types `<int literal>` and `String`
+# error: incompatible types `Int` and `String`

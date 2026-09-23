@@ -1,0 +1,13 @@
+# Locals of a function after a `test` block resolve normally (scopes are
+# keyed by the node that opens them, not by visiting order).
+
+test "t"
+  a = 1
+  print(a)
+
+sub main()
+  x = "hi"
+  print(x)
+
+# expect:
+# hi

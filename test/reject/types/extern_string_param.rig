@@ -1,0 +1,13 @@
+# Only integers, floats, and Bool cross the C boundary; an extern taking
+# a `String` (a Zig slice) is rejected.
+
+extern fun puts(s: String) -> Int
+
+sub safe_puts(s: String)
+  raw
+    puts(s)
+
+sub main()
+  safe_puts("hello")
+
+# error: `String`

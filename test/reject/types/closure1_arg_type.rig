@@ -1,5 +1,4 @@
-# Known bug (B6): invoking a `*Closure1(Int)` with a String is accepted;
-# the argument check is left to Zig.
+# Invoking a `*Closure1(Int)` checks the argument against `Int`.
 
 sub main()
   v: *Cell(Int) = *Cell(value: 0)

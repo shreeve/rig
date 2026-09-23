@@ -1,0 +1,12 @@
+# A `for` binding may not reuse the name of a visible local (implicit
+# shadowing is illegal).
+
+sub main()
+  n = 99
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  for n in v
+    print(n)
+  print(n)
+
+# error: shadows

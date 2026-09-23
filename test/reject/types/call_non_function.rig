@@ -1,0 +1,8 @@
+# Calling a value that is not a function (`x(1)` with `x: Int`) is rejected.
+
+sub main()
+  x = 3
+  y = x(1)
+  print(y)
+
+# error: `Int`
