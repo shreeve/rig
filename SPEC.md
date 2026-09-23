@@ -21,7 +21,7 @@ The complement to that philosophy is the IR invariant in
 semantic Tags through lowering.** Ownership operations (`<x` / `?x`
 / `!x` / `+x` / `-x` / `*x` / `~x` / `%x`), failure propagation
 (`expr!`), compile-time specialization (`pre`), capture modes
-(`|+x|` / `|<x|` / `|~x|` / `|x|`), and the raw-escape boundary
+(`|+x|` / `|<x|` / `|~x|`), and the raw-escape boundary
 (`raw` block) all emit as first-class IR nodes the checkers and
 emitter consume by name — not as comments, not as inferred
 annotations, not as runtime convention. Tools that read Rig's
@@ -320,10 +320,10 @@ primitives at sema init; runtime implementation lives in
 `_runtime.zig`).
 
 **M26 extended `Cell(T)` to non-Copy resource T**, so the
-canonical userland Reactor cell shape `*Cell(Vec(*Closure()))`
+canonical userland Reactor cell shape `*Cell(Vec(*sub()))`
 is now constructible. The accept rule: `Cell(T)` accepts `T`
 when `T` is a Copy primitive OR `typeHasDropGlue(T)` is true
-(`*T` shared, `~T` weak, `Vec(T)`, `*Closure()`, structs with
+(`*T` shared, `~T` weak, `Vec(T)`, `*sub()`, structs with
 resource fields or user `drop`, recursively `Cell(drop_T)`).
 Bare nominals without drop glue (e.g., a struct of only Copy
 fields) are still rejected — V1 doesn't yet track Copy for
@@ -377,7 +377,7 @@ c: Cell(Pair) = ...      # error: bare nominal without drop glue
 
 # M26-unlocked shapes (all valid):
 c: Cell(*User) = ...
-c: Cell(Vec(*Closure())) = ...
+c: Cell(Vec(*sub())) = ...
 c: *Cell(*Cell(Int)) = ...
 ```
 
@@ -417,7 +417,7 @@ init; its runtime lives in `_runtime.zig`. The V1 API:
   literal pseudo-types).
 - `*T` shared handles — drop via `dropStrong()`.
 - `~T` weak handles — drop via `dropWeak()`.
-- `*Closure()` — a specific `*T`; works through the
+- `*sub()` — a specific `*T`; works through the
   shared-handle branch.
 
 Rejected:
@@ -512,10 +512,10 @@ for Copy T is "wrong logic" (silently misleading output), not
 memory unsafety — runtime is bounded by `len`. The user is
 responsible for not mutating the Vec mid-iteration.
 
-**Resource element T (e.g., `Vec(*Closure())`):**
+**Resource element T (e.g., `Vec(*sub())`):**
 
 ```rig
-subs: Vec(*Closure()) = Vec()
+subs: Vec(*sub()) = Vec()
 (!subs).push(+cb1); (!subs).push(+cb2)
 for cb in ?subs                    # `?` source borrow is MANDATORY
   cb()                             # bare read OK (invoke = read op)
@@ -532,8 +532,8 @@ Per the M20i.1 design pass (GPT-5.5 entry 26):
    The `?` makes the borrow visible at the syntax level and
    lights up the ownership-layer mutation guard.
 2. **The element binding is a borrowed view of the Vec slot.**
-   Sema types `cb` as `borrow_read(*Closure())` — not as an
-   owned `*Closure()`. The element stays in the Vec's storage;
+   Sema types `cb` as `borrow_read(*sub())` — not as an
+   owned `*sub()`. The element stays in the Vec's storage;
    the body sees a non-consuming read alias of it. The M20d
    auto-deref makes `cb()`, `cb.method(...)`, and `cb.field`
    all work transparently.
@@ -630,7 +630,7 @@ handle type exists for the body to misuse.
 
 **Substrate role.** M20i.1 is the prerequisite for PB3 (multi-
 subscriber Signal). PB3 will generalize `Signal(T)` from one
-optional `*Closure()` subscriber to `Vec(*Closure())`, with
+optional `*sub()` subscriber to `Vec(*sub())`, with
 `signal.set(v)` running `for cb in ?self.subs ; cb()` to
 notify all subscribers. The substrate piece is now solid; the
 remaining design questions (batching, topology, Memo) live in
@@ -653,15 +653,15 @@ substrate to compose correctly. **Do not extend Signal
 speculatively.**
 
 The Signal primitive itself: a `Cell`-like value slot paired
-with a list of retained `*Closure()` subscribers. On
+with a list of retained `*sub()` subscribers. On
 `signal.set(v)`, the value updates AND every subscriber is
 invoked synchronously in subscription order.
 
 ```rig
 sub main()
   sig: *Signal(Int) = *Signal(value: 0)
-  log_a: *Closure() = *Closure(|+sig| print(sig.get() + 1000))
-  log_b: *Closure() = *Closure(|+sig| print(sig.get() + 2000))
+  log_a: *sub() = *|+sig| print(sig.get() + 1000)
+  log_b: *sub() = *|+sig| print(sig.get() + 2000)
   sig.subscribe(+log_a)
   sig.subscribe(+log_b)
   sig.set(7)                      # prints 1007 then 2007
@@ -679,7 +679,7 @@ sema init (parallel to `Cell` and `Vec`); its runtime lives in
 - `signal.set(v: T)` — updates value AND invokes every
   retained subscriber synchronously in subscription order.
   **Non-reentrant** — see R2 policy below.
-- `signal.subscribe(cb: *Closure())` — takes ownership of the
+- `signal.subscribe(cb: *sub())` — takes ownership of the
   handle it is given and appends it to the internal subscriber
   Vec; pass `+cb` to keep your own. Multiple subscribes
   accumulate; there is no `unsubscribe` in V1 (deferred — see
@@ -740,7 +740,7 @@ primitive (Event / Channel / Queue) — not Signal. That
 distinction matters for future async/channel design.
 
 **Stack-local `Signal(T)` rejected in V1.** Signal owns a
-`Vec(*Closure())` of retained subscribers; the Vec requires an
+`Vec(*sub())` of retained subscribers; the Vec requires an
 M20e-style scope-exit defer-guard to release the buffer at
 scope exit. Wiring Signal through the same machinery as Vec is
 possible but bigger than the smallest-safe-path rejection. The
@@ -756,7 +756,7 @@ sig: *Signal(Int) = *Signal(value: 0)
 # OK — the last strong handle's drop drops the subscriber Vec.
 ```
 
-**`subscribe` discipline.** Caller's `*Closure()` handle is
+**`subscribe` discipline.** Caller's `*sub()` handle is
 unaffected — `subscribe` clones it, so the user can retain
 their own strong reference (e.g., for logging or testing) while
 the Signal independently holds its own. No unsubscribe in V1:
@@ -829,7 +829,7 @@ Rig holds the same position: substrate in the language,
 reactive library in userland. The reactive library shape
 (`Reactor` / `Memo` / `Effect`) does NOT belong as future
 builtins; it belongs as userland code built on Cell + Vec +
-Closure + Signal. Cell-non-Copy and `replace` shipped in M26;
+owned closures + Signal. Cell-non-Copy and `replace` shipped in M26;
 remaining Reactor / Memo / Effect work is library design, not new
 builtin surface. The userland
 natural shape.
@@ -1099,39 +1099,6 @@ Extern declarations bypass Rig's ownership / effect contracts;
 the `raw` wrapping requirement forces the caller to
 acknowledge the FFI bargain explicitly.
 
-### Arity-bearing owned closures (M24)
-
-`Closure1(T)` and `Closure2(A, B)` are heap-owned closures with
-explicit argument types. They sit alongside the no-arg `Closure()`
-and follow the same construction discipline (`*ClosureN(...)(|...| body)`),
-escape rule (only the exact constructor shape may escape), and
-runtime cleanup (per-literal env struct + type-erased
-ctx/invoke/drop thunks).
-
-```rig
-v: *Cell(Int) = *Cell(value: 0)
-
-cb1: *Closure1(Int) = *Closure1(Int)(|+v| (a: Int) v.set(a))
-cb1(7)                                    # → v.get() == 7
-
-cb2: *Closure2(Int, Int) = *Closure2(Int, Int)(|+v| (a: Int, b: Int) v.set(a + b))
-cb2(3, 4)                                 # → v.get() == 7
-```
-
-Surface rules (V1):
-
-- Type arguments must be Copy primitives (Int / Float / Bool /
-  String / sized integer/float types). Resource arguments are
-  deferred until the ownership policy is designed.
-- Lambda params declare explicit type annotations matching the
-  closure's type arguments (`(a: Int)` for `Closure1(Int)`,
-  `(a: Int, b: Int)` for `Closure2(Int, Int)`). Implicit
-  inference deferred.
-- Closure body returns Void. Non-void return types are a
-  separate design pass.
-- Higher arities (`Closure3+`) deferred until a real use case
-  forces them.
-
 ### Body-less `extern fun` / `extern sub` declarations (M23)
 
 The natural FFI shape: declare an external symbol's signature
@@ -1166,29 +1133,22 @@ sub safe_puts(s: String)
   representation requirement; this is a pre-existing limitation
   shared with `extvar`.
 
-### Function declarations vs function-type expressions (M30)
+### Function declarations vs function-type expressions
 
-Rig uses a single `fun` keyword for both function declarations
-and function-type expressions, distinguished by what follows:
+`fun` and `sub` both declare functions and spell function types,
+distinguished by what follows:
 
 ```rig
-fun add(a: Int, b: Int) -> Int     # declaration: `fun NAME (...) -> RetType { ... }`
+fun add(a: Int, b: Int) -> Int     # declaration: `fun NAME(...) -> RetType`
   a + b
 
-extern puts: fun(String) Int       # type expression: `fun(ArgTypes...) RetType`
+extern puts: fun(String) Int       # type: `fun(ArgTypes...) RetType`
+extern srand: sub(U32)             # type: `sub(ArgTypes...)`, no return
 ```
 
-The grammar disambiguates by lookahead — `fun IDENT (` is a
-declaration, `fun (` is a type expression. The asymmetry in
-return-type spelling (`-> RetType` for declarations, no arrow
-for type expressions) is intentional: declarations have a body
-that benefits from the visual `->` separator; type expressions
-are dense annotations that don't need it.
-
-Pre-M30 Rig spelled type expressions with a separate `fn`
-keyword (`extern puts: fn(String) Int`); this was folded into
-`fun` during M30 alongside the M29 lambda cleanup, removing
-`fn` from Rig entirely.
+`fun NAME (` is a declaration and `fun (` a type. Declarations spell
+the return type with `->`; type expressions, which are dense
+annotations, do not.
 
 ### The safe-wrapper pattern
 
@@ -1448,265 +1408,183 @@ has no enclosing type to resolve to).
 
 ---
 
-## Lambdas
+## Closures
 
-A closure literal in Rig is an anonymous callable value that
-starts with a capture list `|...|` — no leading keyword. The
-bars are the marker; bitwise `|` and logical `||` are infix
-operators (need a left operand), so `|...|` in expression-start
-position is unambiguously a closure capture list.
+A closure literal starts with its bar list `|...|`: no keyword. The
+bar list holds both the closure's **captures** and its
+**parameters**:
 
-```rig
-sub main()
-  n =! 7
-  add = |n|
-    n * 2
-  print(add())            # 14
-```
-
-The body is an indented block (or a single inline-call
-expression for the M20h owned-closure shape). The closure has
-no name (contrast `fun name(...)`); the bars + capture sigils
-provide all the visual signal needed to distinguish it from
-named declarations.
-
-Per the M29 design lock (drop-fn arc): captures are MANDATORY
-in V1. Empty-capture closures (`|| body`) are deferred —
-they'd need lexer-probe work to distinguish from logical-or.
-In practice, every V1 closure has at least one capture by
-construction, since the only useful closure-as-value patterns
-(retained subscribers, owned closures, deferred work) all
-need to capture state.
-
-**Bare closure values are non-escaping in V1.** A `|...|
-body` literal may appear ONLY as:
-
-- the DIRECT right-hand side of a `(set ...)` binding
-  (`f = |...| body`), OR
-- the callee of a `(call ...)` form (the inline-invoke shape),
-  OR
-- the lambda argument of an `*Closure(|...| body)`
-  construction (M20h, below).
-
-Every other position — nested inside an array literal, a
-record / struct / enum constructor arg, a sub-call's
-argument, a function's implicit-return expression — is
-rejected by the ownership checker. Closure values are also
-**non-copyable**: `g = f` is rejected, and the closure
-binding is implicitly fixed so reassignment is disallowed.
-
-To retain a closure beyond its defining scope, wrap the
-literal in an owned closure handle using `*Closure(...)` —
-see §Owned Closures (M20h) below. The wrap is the visible
-opt-in; the compiler does not infer escape.
-
-### Capture modes
-
-A closure may capture one or more outer names. Each capture
-is prefixed by a mode sigil between the bars; multiple
-captures are comma-separated (M28):
+- an entry with an ownership sigil is a **capture** of an outer
+  local: `+x` copies a Copy value or clones a `*T` / `~T` handle,
+  `<x` moves the binding in, `~x` holds a `*T` weakly;
+- a **bare name** is a **parameter**, optionally annotated
+  (`a`, `a: Int`);
+- captures come first, then parameters; `||` is an empty list.
 
 ```rig
-|x|         body         # cap_copy  — Copy-only; rejects *T / ~T
-|+x|        body         # cap_clone — refcount-bump for shared/weak
-|~x|        body         # cap_weak  — requires *T; captures ~T
-|<x|        body         # cap_move  — transfers ownership; disarms outer
-|+a, +b|    body         # M28: multi-capture, comma-separated
-|+count, ~total| body    # M28: mixed modes per capture
+count: *Cell(Int) = *Cell(value: 0)
+bump = |+count| count.set(count.get() + 1)     # capture only
+add: fun(Int, Int) Int = |a, b| a + b          # parameters only
+set = |+count, a: Int| count.set(a)            # both
+tick = || print("tick")                        # neither
 ```
 
-The mode sigils mirror the M20d ownership family (`+x` clone,
-`<x` move, `~x` weak). Each capture's mode is validated
-independently against the outer name's type; duplicate names
-in the capture list (regardless of mode) are rejected at
-sema time.
-
-Per the visible-effects thesis, the default `|x|` form requires a
-Copy type (`Int` / `Bool` / `Float` / `String` and the literal
-pseudo-types — same set as `Cell(T)`'s V1 restriction). For
-shared / weak handles, the user MUST pick a mode explicitly. A
-bare `|rc|` capture of a `*T` outer fires:
+**Why a bare name is always a parameter.** Whether an entry is a
+capture or a parameter is decided by its spelling alone, never by
+what names happen to be in scope, so adding a local elsewhere can't
+change a closure's meaning. Every capture is visible as a sigil,
+matching the rest of the ownership algebra; capturing a Copy value
+by copy is `|+n|`, since `+` on a Copy value is a copy. And because
+no binding may reuse a visible name, a bare entry that names a
+local is always a mistake, reported with the sigils that would
+capture it:
 
 ```text
-error: bare capture `|rc|` of shared handle `*T` would hide a
-       refcount bump; use `|+rc|` to clone, `|<rc|` to move, or
-       `|~rc|` to capture a weak ref
+error: closure parameter `n` has the name of the local `n`; to capture
+       the local, give it a sigil (`|+n|` copies or clones it, `|<n|`
+       moves it, `|~n|` holds it weakly), or name the parameter differently
 ```
 
-The capture-mode validation table (enforced by sema):
+A closure body reaches the enclosing function's locals only through
+its captures.
 
-| Mode      | Outer Type   | Bound Type | Effect on Outer |
-|-----------|--------------|------------|-----------------|
-| `|x|`     | Copy (non-resource) | same | none |
-| `|+x|`    | `*T`         | `*T`       | `.cloneStrong()` at construct |
-| `|+x|`    | `~T`         | `~T`       | `.cloneWeak()` at construct |
-| `|+x|`    | Copy         | same       | copy (degenerate clone) |
-| `|~x|`    | `*T`         | `~T`       | `.weakRef()` at construct |
-| `|<x|`    | any          | same       | outer enters `.moved` state |
+### Parameter types and return values
 
-Other shapes are diagnostic errors (e.g., `|+x|` on a non-Copy
-non-resource type, `|~x|` on a non-shared outer, etc.).
-
-### Closure-instance lifetime (auto-drop integration)
-
-For each RESOURCE capture, an M20e-style guard + `defer` is
-installed at the CLOSURE-INSTANCE'S enclosing scope — NOT inside
-the body (closures may be invoked multiple times; per-invocation
-drop would be a use-after-free on the second invoke). The guard
-keys on the closure binding's lifetime; the captured handle drops
-exactly once at the closure binding's scope exit.
+A bare parameter takes its type from the type the closure's context
+expects: a binding annotation, the parameter of the function being
+called, a `Vec`'s element type (`push`), a struct field, or a
+function's return type. An annotation is allowed anywhere and must
+agree with the context. With no type from context, every parameter
+must be annotated:
 
 ```rig
-sub main()
-  rc: *Cell(Int) = *Cell(value: 0)
-  read = |+rc|              # cloneStrong: rc strong refcount 1 → 2
-    rc.get()
-  print(read())                # closure body uses cloned handle
-  print(read())                # multiple invocations: handle still alive
-  # scope exit (LIFO):
-  #   1. read's capture defer  → dropStrong on read.cap_rc (refcount 2 → 1)
-  #   2. rc's binding defer    → dropStrong on rc          (refcount 1 → 0 → freed)
+add: fun(Int, Int) Int = |a, b| a + b          # from the annotation
+apply(*|a| a * 10, 4)                          # from `apply`'s parameter
+typed = |a: Int, b: Int| a * b                 # no context: annotated
+bad = |a, b| a + b
+# error: closure parameter `a` needs a type: annotate it (`|a: Int|`) or
+#        write the closure where its type is known
 ```
 
-For `|<rc|` move-capture, the outer's M20e guard disarms at the
-construction site via the standard move-and-yield labeled-block
-recipe; the closure-instance guard takes ownership from there.
+The closure takes exactly as many parameters as its type passes.
+Closures take any number of parameters and may return a value: with
+a type from context, the body is checked against its return type;
+otherwise the return type is that of the body's last expression (a
+body ending in a statement or an `if` without `else` returns
+nothing). `return` inside a closure body leaves the closure.
 
-### Capture / parameter name collisions
-
-A capture and a parameter with the same name are rejected:
+### Function types
 
 ```rig
-f = |x|(x: Int)
-  x
-# error: lambda parameter `x` conflicts with captured variable `x`
-#   note: captured here
+sub(Int)            # takes an Int, returns nothing
+fun(Int, Int) Int   # takes two Ints, returns an Int
+*sub(Int)           # an owned closure of that shape
+*fun(Int) Int
 ```
 
-Captures bind before params in the lambda body scope, so a
-silent shadowing would surprise readers. The diagnostic forces a
-rename of one or the other.
+`fun(...)` / `sub(...)` types a closure bound to a local and a
+function used as a value; `extern` declarations use the same types
+(`extern abs: fun(Int) Int`, `extern srand: sub(U32)`). Declarations
+spell their return type with `->` (`fun add(a: Int) -> Int`); type
+expressions do not.
 
-### Nested-lambda capture limitation
+### Stack closures
 
-A lambda nested inside another lambda's body cannot capture a
-name from the OUTER lambda's body scope in V1:
+A closure literal without `*` lives on the stack of the function that
+writes it. It may appear only as:
 
-```rig
-outer = |+rc|
-  inner = |+rc|     # error: nested closure capture of `rc` is
-    rc.get()           #        not supported in V1; lift the
-  inner()              #        capture to the outer scope or
-                       #        refactor
-```
+- the right-hand side of a binding (`f = |...| body`), called as
+  `f(...)`;
+- the callee of a call, invoked where it is written:
+  `(|+n| print n)()`.
 
-Emit would have to clone the outer closure's `self.cap_rc` field
-into the inner closure — a layer of indirection V1 deliberately
-omits. Lift the captured value to the outermost enclosing scope
-and capture it directly in both lambdas, or refactor to a single
-flat closure.
+Anywhere else (an argument, an array element, a constructor field,
+a return value) it would escape its scope and is rejected; make it
+owned instead. A closure binding is fixed and cannot be copied,
+moved, or borrowed.
 
-### Inline-invoke grammar limitation
+For each resource capture, the closure's environment owns the
+captured handle; it is released once, when the closure binding goes
+out of scope, not after each call. The body may use and clone a
+captured resource but not move, drop, or reassign it.
 
-The conceptual `(|...| body)()` shape — invoking an inline
-lambda literal without binding it to a name — is accepted by
-the ownership checker (call-receiver position is allowed) but
-currently rejected by the parser due to the indented-block /
-suffix-call composition. For V1, use the
-`f = |...| body; f()` shape.
+### Owned closures
 
-### Owned Closures (M20h)
-
-Bare lambdas can't escape their defining scope; the
-**owned-closure handle** `*Closure()` opts into escape via an
-explicit constructor that allocates the closure's env on the
-heap and tracks the lifetime through a refcounted handle:
+`*` before the bar list makes an **owned closure**: its environment
+is allocated on the heap and held by a reference-counted handle of
+type `*sub(...)` / `*fun(...) R`, which can be stored, passed,
+returned, cloned (`+cb`), and dropped like any `*T`:
 
 ```rig
-sub main()
-  count: *Cell(Int) = *Cell(value: 0)
-  cb: *Closure() = *Closure(|+count| count.set(count.get() + 1))
-  cb()
-  cb()
-  print(count.get())                # 2
-```
-
-The construction shape is fixed: `*Closure(|...| body)` —
-exactly one argument, which MUST be a lambda. Bare `Closure(fn
-...)` (no `*`), `*Closure(42)` (non-lambda), `*Closure()` (no
-arg), and `*Closure(|...| body, |...| body)` (multiple args) all
-produce tailored sema diagnostics.
-
-`*Closure()` is itself an ordinary `*T` shared handle:
-
-```rig
-fun make_counter() -> *Closure()
-  count: *Cell(Int) = *Cell(value: 0)
-  *Closure(|+count| count.set(count.get() + 1))
+fun make_counter(start: Int) -> *fun(Int) Int
+  count: *Cell(Int) = *Cell(value: start)
+  *|+count, step|
+    count.set(count.get() + step)
+    count.get()
 
 sub main()
-  cb = make_counter()       # returned, alive past defining scope
-  cb2 = +cb                 # clone — refcount 1 → 2
-  -cb                       # drop  — refcount 2 → 1
-  cb2()                     # cb's gone, cb2's env still alive
+  next = make_counter(100)
+  print(next(1), next(10))        # 101 111
+  sig: *Signal(Int) = *Signal(value: 0)
+  sig.subscribe(*|~sig|
+    if sig.upgrade() as s
+      print(s.get()))
+  sig.set(7)                      # 7
 ```
 
-Invocation is via the natural `cb()` syntax (sema rejects
-`cb(args)` — M20h closures are no-arg / void-return only). The
-emitter lowers `cb()` to `cb.value.invoke()` (a Closure0 vtable
-jump). Auto-drop at scope exit cascades through
-`RcBox.dropStrong` → `Closure0.__rig_drop` → a per-literal
-drop thunk that releases each captured resource and frees the
-heap-allocated env.
+The captures are released when the last handle drops. `*` applies
+only to a closure literal; `*f` of a function or closure binding is
+rejected.
 
-**ABI: type erasure via Closure0.** Each `*Closure(|...| body)`
-literal generates a unique anonymous env struct holding its
-captures plus an `invoke`/`drop` thunk pair tailored to that
-layout. The env pointer is type-erased through `ctx: *anyopaque`
-so every `*Closure()` literal produces the SAME surface type
-(`*rig.RcBox(rig.Closure0)`). Returning, storing, aliasing,
-and weak-ref-ing all flow through the existing `*T` paths
-unchanged.
+An owned closure's parameter and return types are plain Copy values
+— `Int`, `Float`, `Bool`, `String`, sized numbers, plain enums, and
+optionals of these — because its runtime form is type-erased:
+`*sub(*Cell(Int))` or `*fun() Vec(Int)` is rejected. Pass resources
+in as captures instead.
 
-**Capture semantics** are inherited from M20g: `|+count|` clones,
-`|<count|` moves, `|~count|` weak-references. The same mode-
-validation table applies — Copy types for `|x|`, etc. Drop
-happens at LAST-strong-drop of the closure handle (NOT at each
-binding's scope-exit defer); the type-erasure design + the
-`RcBox.__rig_drop` runtime hook are what make `cb2 = +cb; -cb;
-cb2()` safe.
+**Runtime form.** `*fun(A, B) R` lowers to
+`*rig.RcBox(rig.Closure(&.{ A, B }, R))`. Each literal generates its
+own environment struct (the captures plus an `invoke` method taking
+the parameters); `Closure.init` erases it behind an `*anyopaque`, so
+every literal of one function type has the same type. Calls pass the
+arguments as a tuple (`cb.value.invoke(.{ a, b })`), which is how any
+arity shares one runtime type.
 
-**V1 restrictions:**
+### Multi-line closure bodies
 
-- `*Closure()` is the only legal arity. `Closure(Int)` errors
-  with "expects 0 type arguments, got 1"; bare `Closure`
-  errors with "must be written with empty parentheses; write
-  `Closure()`". Arity-bearing closure types (`Closure1<T>`,
-  etc.) are deferred.
-- The closure body returns `void`. Returning a value is
-  deferred until typed `Closure()` arities ship.
-- Multi-line closure bodies require pre-binding into a named
-  helper (the grammar accepts inline-call bodies via a
-  narrow closure-literal call form; multi-stmt bodies need
-  `INDENT/OUTDENT` which doesn't compose inside `(...)`
-  parens).
-- `*Closure()` doesn't replace the M20g non-escaping closures —
-  use the bare `f = |...| body; f()` form for stack-local
-  callbacks (cheaper: no heap allocation, no refcount, no
-  vtable indirection). Reach for `*Closure()` only when the
-  closure needs to outlive its defining scope.
+A closure body may be an indented block wherever the closure is
+written. When a bar list ends its line inside `( )` or `[ ]`, the
+body below is laid out in blocks as anywhere else; it ends where the
+bracket around it closes, or where a line comes back to the
+indentation of the line the closure started on:
 
-**Stored-partial-execution note.** An owned closure is
-structurally the zero-suspension case of stored partial
-execution: heap-owned environment holding captured locals,
-explicit invoke and drop entry points, last-owner cleanup
-via the `__rig_drop` hook. The `Closure0` vtable (`ctx` +
-`invoke_fn` + `drop_fn`) maps directly onto a one-state
-`Future`. A future async milestone would generalize this
-shape — multi-state state machines, poll/wake protocol,
-borrow-across-suspension rules, pin discipline — but the
-substrate `*Closure()` proves is reusable, not throwaway.
-See `docs/INFLUENCES.md` §2 for the full mapping.
+```rig
+each_n(3, *|+total, i|
+  total.set(total.get() + i)
+  print(i))
+
+handlers.push(*||
+  print("one")
+)
+```
+
+A paren-free call takes a trailing closure the same way:
+
+```rig
+sig.subscribe *|~sig|
+  if sig.upgrade() as s
+    print(s.get())
+```
+
+### Limits
+
+- A closure nested inside another closure's body cannot capture a
+  name the outer closure captured; lift the capture to the outer
+  scope.
+- A stack closure cannot be passed as an argument; pass an owned
+  closure.
+- An owned closure's parameters and return value are plain Copy
+  values (above).
 
 ---
 
@@ -1719,7 +1597,7 @@ resource fields release, and the compiler walks resource
 fields automatically *after* the user body returns. The
 combination — user body + auto-generated structural drop glue
 — is the M25 substrate unlock; without it, every struct that
-owned a `*Cell`, `Vec`, or `*Closure()` would either need
+owned a `*Cell`, `Vec`, or `*sub()` would either need
 manual cleanup or leak.
 
 ```rig
@@ -2538,8 +2416,7 @@ Rig ownership analysis should operate on semantic S-expressions.
 (for mode binding collection body)
 
 (lambda
-  (captures
-    (cap_copy name)            ; bare `|x|`
+  (captures                    ; or `_`
     (cap_clone name)           ; `|+x|`
     (cap_move name)            ; `|<x|`
     (cap_weak name))           ; `|~x|`
@@ -2852,7 +2729,7 @@ errors with:
 Implicit exceptions (visible without `pub`):
 - `extern` declarations (visible via FFI; safety is enforced at
   the call site via the `raw` block requirement)
-- Runtime-registered builtins (`Cell`, `Closure`, `Vec`,
+- Runtime-registered builtins (`Cell`, `Vec`,
   `Signal`) — in every module's scope by construction
 
 ## Nominal identity across modules
@@ -2885,7 +2762,7 @@ Per the M22.1 fake-surface invariant lifted to module scope:
   (`imported_nominal{module, sym}`) are exempt — they're
   validated visible in their origin module by the existing
   M15b cross-module call paths. Built-in nominals
-  (Cell/Closure/Vec/Signal) are exempt. `type_var`s are
+  (Cell/Vec/Signal) are exempt. `type_var`s are
   exempt (they're parameters, substituted at use sites).
 - `pub extern <name>: <type>` grammar (`extvar` isn't
   pub-wrappable today; private extern + `pub` safe wrapper
