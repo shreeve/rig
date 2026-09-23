@@ -1139,14 +1139,14 @@ const Checker = struct {
     /// excluding a `new x = ...` whose value is still being checked (its
     /// right side reads the previous `x`).
     fn visibleIn(self: *Checker, scope: ScopeId, name: []const u8, pos: u32) ?SymbolId {
-        const syms = self.ctx.scopes.items[scope].symbols.items;
-        var i = syms.len;
-        while (i > 0) {
-            i -= 1;
-            const sym = self.ctx.symbols.items[syms[i]];
-            if (!std.mem.eql(u8, sym.name, name)) continue;
-            if (sym.kind == .local and (sym.decl_pos > pos or syms[i] == self.pending)) continue;
-            return syms[i];
+        var id = self.ctx.lookupInScopeOnly(scope, name) orelse return null;
+        while (id != types.symbol_invalid) {
+            const sym = self.ctx.symbols.items[id];
+            if (sym.kind == .local and (sym.decl_pos > pos or id == self.pending)) {
+                id = sym.prev_in_scope;
+                continue;
+            }
+            return id;
         }
         return null;
     }

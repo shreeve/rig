@@ -272,10 +272,11 @@ const zig_primitives = std.StaticStringMap(void).initComptime(.{
     .{"void"},
 });
 
-/// Names the emitted prelude declares, and the prefix of emitter
-/// temporaries. A Rig name that collides with one of these is renamed.
+/// Names the emitted prelude declares (`panic` is the root module's panic
+/// handler), and the prefix of emitter temporaries. A Rig name that
+/// collides with one of these is renamed.
 const emitter_names = std.StaticStringMap(void).initComptime(.{
-    .{"std"}, .{"rig"},
+    .{"std"}, .{"rig"}, .{"panic"},
 });
 const emitter_prefix = "__rig";
 

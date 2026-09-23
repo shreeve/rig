@@ -103,7 +103,7 @@ const SymbolResolver = struct {
     fn addSymbol(self: *SymbolResolver, sym: Symbol) Error!SymbolId {
         const id: SymbolId = @intCast(self.ctx.symbols.items.len);
         try self.ctx.symbols.append(self.ctx.allocator, sym);
-        try self.ctx.scopes.items[sym.scope].symbols.append(self.ctx.allocator, id);
+        try self.ctx.addToScope(sym.scope, id);
         return id;
     }
 
@@ -860,11 +860,8 @@ pub const TypeResolver = struct {
         self.ctx.symbols.items[sym_id].fields = owned;
 
         if (head == .@"struct") {
-            var glue = false;
-            for (owned) |f| {
-                if (f.is_drop_method or (!f.is_method and types.typeHasDropGlue(self.ctx, f.ty))) glue = true;
-            }
-            self.ctx.symbols.items[sym_id].flags.has_drop_glue = glue;
+            // `types.propagateDropGlue` finishes this once every type is resolved.
+            self.ctx.symbols.items[sym_id].flags.has_drop_glue = types.fieldsHaveDropGlue(self.ctx, owned);
             for (members) |m| {
                 if (isHead(m, .@"drop_decl")) {
                     try self.enforceDropBody(m.list[2], owned);

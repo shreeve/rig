@@ -173,15 +173,23 @@ sigils form a small algebra.
 You need Zig 0.16.
 
 ```bash
-zig build                          # builds bin/rig
-bin/rig run examples/hello.rig     # check, emit Zig, build, run
-bin/rig check file.rig             # check only
-bin/rig build file.rig             # print the emitted Zig
-./test/run                         # the whole test suite
+zig build                              # builds bin/rig
+bin/rig run examples/hello.rig         # check, build, and run (Debug)
+bin/rig run --release file.rig         # the same, optimized (ReleaseSafe)
+bin/rig build -o hello file.rig        # a native executable
+bin/rig build --release=fast file.rig  # ReleaseFast: no runtime safety checks
+bin/rig test file.rig                  # run the program's `test` blocks
+bin/rig check file.rig                 # check only
+bin/rig emit file.rig                  # print the emitted Zig
+./test/run                             # the whole test suite
 ```
 
-`rig run` builds in Debug mode with a leak-checking allocator, so a
-program that leaks reports it and fails. Changing the grammar needs
+Debug builds (the default) check for memory leaks: a program that
+leaks reports how many allocations it lost and exits 1; set
+`RIG_LEAK_TRACE=1` when building to see where each was allocated.
+`--release` builds keep Zig's safety checks (integer overflow, bounds);
+`--release=fast` drops them. `rig --help` lists every option. Changing
+the grammar needs
 [Nexus](https://github.com/shreeve/nexus), the parser generator, built
 next to this checkout (`cd ../nexus && zig build -Doptimize=ReleaseSafe`),
 then `zig build parser`.

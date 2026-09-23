@@ -35,6 +35,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const options = b.addOptions();
+    options.addOption([]const u8, "version", version);
+    main_mod.addOptions("build_options", options);
 
     const exe = b.addExecutable(.{
         .name = "rig",

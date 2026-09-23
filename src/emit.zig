@@ -77,7 +77,11 @@ const Local = struct {
     /// A match payload binding: the scrutinee it views. Moving it out
     /// consumes the scrutinee.
     scrutinee: ?SymbolId = null,
+    /// The local of the same symbol this one hides until its scope ends.
+    shadowed: ?LocalRef = null,
 };
+
+const LocalRef = struct { scope: u32, index: u32 };
 
 const Scope = struct {
     locals: std.ArrayListUnmanaged(Local) = .empty,
@@ -126,6 +130,10 @@ pub const Emitter = struct {
     sema: *const types.SemContext,
 
     scopes: std.ArrayListUnmanaged(Scope) = .empty,
+    /// Symbol -> its innermost local in `scopes`.
+    local_by_sym: std.AutoHashMapUnmanaged(SymbolId, LocalRef) = .empty,
+    /// The Zig names of the locals in `scopes`, with how many locals use each.
+    local_names: std.StringHashMapUnmanaged(u32) = .empty,
     /// Suffix source for generated labels, temporaries, and renames.
     counter: u32 = 0,
     /// Every module-level Zig name, which locals must not shadow.
@@ -133,6 +141,8 @@ pub const Emitter = struct {
     /// Error-set declarations, whose members are spelled `error.x`.
     error_sets: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     usage: Usage = .{},
+    /// `test` blocks emitted so far: the Rig name literal and the Zig function.
+    tests: std.ArrayListUnmanaged(struct { name: []const u8, func: []const u8 }) = .empty,
     fun: FunState = .{},
     /// Closure bodies being emitted around the current point. Each names
     /// its environment `__rig_self`, `__rig_self1`, ... so a closure
@@ -168,9 +178,12 @@ pub const Emitter = struct {
     pub fn deinit(self: *Emitter) void {
         for (self.scopes.items) |*s| s.locals.deinit(self.allocator);
         self.scopes.deinit(self.allocator);
+        self.local_by_sym.deinit(self.allocator);
+        self.local_names.deinit(self.allocator);
         self.module_names.deinit(self.allocator);
         self.error_sets.deinit(self.allocator);
         self.usage.deinit(self.allocator);
+        self.tests.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -186,6 +199,7 @@ pub const Emitter = struct {
             try self.w.writeAll("\n");
             try self.emitDecl(decl);
         }
+        try self.emitTestTable();
     }
 
     // =========================================================================
@@ -274,11 +288,22 @@ pub const Emitter = struct {
         try self.w.writeAll(";\n");
     }
 
+    /// `(test "name" body)` → a function listed in the module's
+    /// `__rig_tests` table, which `rig test` runs (`rig.runTests`).
     fn emitTest(self: *Emitter, items: []const Sexp) Error!void {
-        try self.w.print("test {s} ", .{self.srcText(items[1])});
+        const func = try self.fmt("__rig_test_{d}", .{self.tests.items.len});
+        try self.tests.append(self.allocator, .{ .name = self.srcText(items[1]), .func = func });
+        try self.w.print("fn {s}() anyerror!void ", .{func});
         self.fun = .{};
         try self.emitBlock(items[2]);
         try self.w.writeAll("\n");
+    }
+
+    fn emitTestTable(self: *Emitter) Error!void {
+        if (self.tests.items.len == 0) return;
+        try self.w.writeAll("\npub const __rig_tests = [_]rig.Test{\n");
+        for (self.tests.items) |t| try self.w.print("    .{{ .name = {s}, .func = {s} }},\n", .{ t.name, t.func });
+        try self.w.writeAll("};\n");
     }
 
     // -------------------------------------------------------------------------
@@ -470,6 +495,8 @@ pub const Emitter = struct {
 
         self.fun = .{ .return_ty = return_ty, .params = params, .leak_check = is_main };
 
+        // The runtime's panic handler flushes buffered `print` output first.
+        if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
         try self.w.print("pub fn {f}(", .{self.ident(name)});
         try self.pushScope();
         defer self.popScope() catch {};
@@ -549,13 +576,13 @@ pub const Emitter = struct {
         try self.emitType(t);
     }
 
-    /// Statements at the top of a function body: the leak check in
-    /// `main`, parameter copies and guards, and discards for unused
-    /// parameters.
+    /// Statements at the top of a function body: in `main`, the deferred
+    /// `rig.finish()` (flush output, check for leaks), then parameter
+    /// copies and guards, and discards for unused parameters.
     fn emitFunPrologue(self: *Emitter) Error!void {
         if (self.fun.leak_check) {
             self.fun.leak_check = false;
-            try self.line("defer rig.checkLeaks();", .{});
+            try self.line("defer rig.finish();", .{});
         }
         const params = self.fun.params orelse return;
         self.fun.params = null;
@@ -585,6 +612,19 @@ pub const Emitter = struct {
 
     fn popScope(self: *Emitter) Error!void {
         var top = self.scopes.pop() orelse return;
+        var i = top.locals.items.len;
+        while (i > 0) {
+            i -= 1;
+            const l = top.locals.items[i];
+            if (l.shadowed) |prev| {
+                self.local_by_sym.putAssumeCapacity(l.sym, prev);
+            } else {
+                _ = self.local_by_sym.remove(l.sym);
+            }
+            const uses = self.local_names.getPtr(l.zig_name).?;
+            uses.* -= 1;
+            if (uses.* == 0) _ = self.local_names.remove(l.zig_name);
+        }
         top.locals.deinit(self.allocator);
     }
 
@@ -601,9 +641,16 @@ pub const Emitter = struct {
         if (l.guard == .flag and l.flag.len == 0) {
             l.flag = try self.fmt("__rig_alive_{s}", .{if (isPlainIdent(l.zig_name)) l.zig_name else try self.fresh(rig_name)});
         }
-        const top = &self.scopes.items[self.scopes.items.len - 1];
+        const scope: u32 = @intCast(self.scopes.items.len - 1);
+        const top = &self.scopes.items[scope];
+        const ref: LocalRef = .{ .scope = scope, .index = @intCast(top.locals.items.len) };
+        const latest = try self.local_by_sym.getOrPut(self.allocator, l.sym);
+        l.shadowed = if (latest.found_existing) latest.value_ptr.* else null;
+        latest.value_ptr.* = ref;
+        const uses = try self.local_names.getOrPut(self.allocator, l.zig_name);
+        uses.value_ptr.* = if (uses.found_existing) uses.value_ptr.* + 1 else 1;
         try top.locals.append(self.allocator, l);
-        return &top.locals.items[top.locals.items.len - 1];
+        return &top.locals.items[ref.index];
     }
 
     /// The local an identifier leaf denotes, if it names one.
@@ -613,17 +660,8 @@ pub const Emitter = struct {
     }
 
     fn localBySym(self: *Emitter, sym: SymbolId) ?*Local {
-        var i = self.scopes.items.len;
-        while (i > 0) {
-            i -= 1;
-            const locals = self.scopes.items[i].locals.items;
-            var j = locals.len;
-            while (j > 0) {
-                j -= 1;
-                if (locals[j].sym == sym) return &locals[j];
-            }
-        }
-        return null;
+        const ref = self.local_by_sym.get(sym) orelse return null;
+        return &self.scopes.items[ref.scope].locals.items[ref.index];
     }
 
     /// A Zig name for a new binding: the Rig name (escaped if needed)
@@ -644,10 +682,7 @@ pub const Emitter = struct {
                 if (std.mem.eql(u8, self.srcText(m.list[1]), zig_name)) return true;
             }
         }
-        for (self.scopes.items) |s| for (s.locals.items) |l| {
-            if (std.mem.eql(u8, l.zig_name, zig_name)) return true;
-        };
-        return false;
+        return self.local_names.contains(zig_name);
     }
 
     fn fresh(self: *Emitter, base: []const u8) Error![]const u8 {
@@ -961,7 +996,12 @@ pub const Emitter = struct {
             try self.writeIndent(self.indent);
             try self.emitGuard(stored);
         } else if (is_var) {
-            try self.w.print(" _ = &{s};", .{stored.zig_name});
+            // Zig rejects a `var` it never sees mutated. A reassignment
+            // is emitted as one; any other reason for `var` (a write
+            // through the binding, which may land behind a pointer
+            // field, run-time arithmetic, a `*Self` method) needs the
+            // discard.
+            if (!s.flags.reassigned) try self.w.print(" _ = &{s};", .{stored.zig_name});
         } else if (!self.usage.used.contains(sym)) {
             try self.w.print(" _ = {s};", .{stored.zig_name});
         } else if (self.sema.const_ints.contains(sym)) {
@@ -2176,9 +2216,12 @@ pub const Emitter = struct {
         if (isTagged(inner, .@"lambda")) return self.emitOwnedClosure(inner);
         const payload_ty: ?TypeId = if (self.typeOf(sexp)) |t| self.sharedInner(t) else null;
         try self.w.writeAll("rig.rcNew(");
-        if (payload_ty) |t| {
+        // A constructor call spells its own type: `rig.rcNew(Node{ ... })`.
+        const typed = payload_ty != null and self.isConstructorCall(inner) and
+            if (self.typeOf(inner)) |inner_ty| inner_ty == payload_ty.? else false;
+        if (payload_ty != null and !typed) {
             try self.w.writeAll("@as(");
-            try self.emitTypeTy(t);
+            try self.emitTypeTy(payload_ty.?);
             try self.w.writeAll(", ");
             try self.emitBare(inner);
             try self.w.writeAll(")");
@@ -2467,6 +2510,19 @@ pub const Emitter = struct {
         self.indent -= 1;
         try self.writeIndent(self.indent);
         try self.w.writeAll("}");
+    }
+
+    /// A call `emitCall` lowers with `emitConstructor`, whose Zig spells
+    /// the value's type.
+    fn isConstructorCall(self: *Emitter, e: Sexp) bool {
+        if (!isTagged(e, .@"call") or e.list[1] != .src) return false;
+        if (self.localOf(e.list[1])) |local| if (local.stack_closure) return false;
+        const sym_id = self.sema.symbolOf(e.list[1]) orelse return false;
+        if (sym_id == self.sema.vec_sym_id or sym_id == self.sema.signal_sym_id) return false;
+        return switch (self.sema.symbols.items[sym_id].kind) {
+            .nominal_type, .generic_type => true,
+            else => false,
+        };
     }
 
     /// Constructor call `Name(field: v, ...)`: a struct literal typed by
@@ -3022,16 +3078,16 @@ pub const Emitter = struct {
     }
 
     /// How a value of this type is released, or null for plain data.
+    /// Sema decides whether it owns anything (`typeHasDropGlue`, or
+    /// `maybeDropGlue` for values of a type parameter, which `rig.drop`
+    /// releases only if the instance needs it); this only picks the call.
     fn kindOf(self: *Emitter, ty: TypeId) ?ResourceKind {
+        if (!types.typeHasDropGlue(self.sema, ty) and !types.maybeDropGlue(self.sema, ty)) return null;
         return switch (self.sema.types.get(ty)) {
             .shared => .shared,
             .weak => .weak,
-            .optional => |inner| if (self.kindOf(inner) != null) .optional else null,
-            .nominal, .parameterized_nominal, .imported_nominal => if (types.typeHasDropGlue(self.sema, ty) or types.maybeDropGlue(self.sema, ty)) .value else null,
-            // A type parameter's value is dropped with `rig.drop`, which
-            // does nothing for plain data.
-            .type_var => .value,
-            else => null,
+            .optional => .optional,
+            else => .value,
         };
     }
 
