@@ -756,7 +756,7 @@ const Checker = struct {
         const scrut_pos = firstSrcPos(items[1]);
         const matchable = switch (self.ctx.types.get(types.unwrapBorrows(self.ctx, scrutinee))) {
             .int, .int_literal, .bool, .invalid, .unknown => true,
-            .nominal, .parameterized_nominal => types.enumVariantCount(self.ctx, scrutinee) != null,
+            .nominal, .parameterized_nominal, .imported_nominal => types.enumVariantCount(self.ctx, scrutinee) != null,
             else => false,
         };
         if (!matchable) {
@@ -949,16 +949,16 @@ const Checker = struct {
     }
 
     fn reportMissingVariant(self: *Checker, enum_ty: TypeId, vname: []const u8, pos: u32) Error!void {
-        const owner = types.nominalSymOfReceiver(self.ctx, enum_ty) orelse {
+        const decl = types.nominalDecl(self.ctx, enum_ty) orelse {
             if (!self.isPoison(enum_ty)) {
                 try self.err(pos, "`.{s}` is an enum variant, but the expected type `{s}` is not an enum", .{ vname, try self.tyName(enum_ty) });
             }
             return;
         };
-        const sym = self.ctx.symbols.items[owner];
+        const sym = decl.symbol();
         if (sym.fields == null) return;
-        try self.err(pos, "no variant `{s}` on enum `{s}`", .{ vname, sym.name });
-        if (sym.decl_pos != types.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
+        try self.err(pos, "no variant `{s}` on enum `{s}`", .{ vname, try self.tyName(types.unwrapBorrows(self.ctx, enum_ty)) });
+        if (decl.module_id == null and sym.decl_pos != types.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
     }
 
     // =========================================================================
@@ -1346,7 +1346,7 @@ const Checker = struct {
         const ok = switch (self.ctx.types.get(ty)) {
             .int, .float, .int_literal, .float_literal, .bool, .string => true,
             .optional => |inner| satisfies(self.ctx, inner, .equatable),
-            .nominal => |s| isPlainEnum(self.ctx, s),
+            .nominal, .imported_nominal => types.isPlainEnum(self.ctx, ty),
             .type_var => |tv| blk: {
                 try self.require(tv, .equatable, firstSrcPos(node), op);
                 break :blk true;
@@ -2685,13 +2685,14 @@ const Checker = struct {
             try self.synthArgs(args);
             return;
         };
-        const owner = self.ctx.symbols.items[resolved.nominal_sym].name;
+        const owner = resolved.owner_name;
         if (resolved.payload.len == 0) {
             if (args.len > 0) try self.err(pos, "variant `{s}` of enum `{s}` takes no payload", .{ name, owner });
             try self.synthArgs(args);
             return;
         }
-        try self.checkFieldArgs(args, resolved.payload, .{ .owner = name, .decl_pos = resolved.field.decl_pos, .pos = pos, .kind = .variant });
+        const decl_pos = if (resolved.nominal_sym == types.symbol_invalid) types.builtin_decl_pos else resolved.field.decl_pos;
+        try self.checkFieldArgs(args, resolved.payload, .{ .owner = name, .decl_pos = decl_pos, .pos = pos, .kind = .variant });
     }
 
     /// `Vec()` / `Vec(capacity: n)`.
@@ -3115,18 +3116,6 @@ fn ownedClosureArgs(ctx: *const SemContext, ty: TypeId) ?[]const TypeId {
     return null;
 }
 
-/// An enum all of whose variants are bare (no payloads): comparable with `==`.
-fn isPlainEnum(ctx: *const SemContext, sym_id: SymbolId) bool {
-    const fields = ctx.symbols.items[sym_id].fields orelse return false;
-    var any = false;
-    for (fields) |f| {
-        if (!f.is_variant) continue;
-        any = true;
-        if (f.payload != null and f.payload.?.len > 0) return false;
-    }
-    return any;
-}
-
 /// Storage that already has an owner: a name, a field or element of
 /// one, or a borrow of one.
 fn isPlaceExpr(e: Sexp) bool {
@@ -3218,7 +3207,7 @@ fn satisfies(ctx: *const SemContext, ty: TypeId, req: Requirement) bool {
         .integer => types.isInteger(ctx, ty),
         .equatable => switch (ctx.types.get(ty)) {
             .int, .float, .bool => true,
-            .nominal => |s| isPlainEnum(ctx, s),
+            .nominal, .imported_nominal => types.isPlainEnum(ctx, ty),
             else => false,
         },
     };

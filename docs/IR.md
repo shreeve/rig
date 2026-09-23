@@ -221,6 +221,7 @@ none                                            ; the absent optional: a name
 (borrow_write T)                 ; from `!T`  (prefix in type position — write-borrowed param/return)
 (shared T) (weak T)              ; `*T`, `~T`
 (generic_inst Name args...)      ; `Box(Int)`
+(member module Name)             ; `geo.Point`: a type of an imported module
 (slice T)                        ; `[]T`
 (array_type N T)                 ; `[N]T`
 (fun_type (params...) ret)       ; `fun(A, B) R`

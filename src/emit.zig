@@ -2529,6 +2529,7 @@ pub const Emitter = struct {
                     }
                     try self.w.writeAll(")");
                 },
+                .@"member" => try self.w.print("{f}.{f}", .{ self.ident(self.srcText(items[1])), self.ident(self.srcText(items[2])) }),
                 .@"fun_type" => {
                     try self.w.writeAll("*const fn (");
                     if (items[1] == .list) for (items[1].list, 0..) |p, i| {
@@ -2655,8 +2656,8 @@ pub const Emitter = struct {
 
     /// The payload fields of variant `vname` of an enum type.
     fn variantPayload(self: *Emitter, enum_ty: TypeId, vname: []const u8) ?[]const types.Field {
-        const sym = types.nominalSymOfReceiver(self.sema, enum_ty) orelse return null;
-        for (self.sema.symbols.items[sym].fields orelse return null) |f| {
+        const decl = types.nominalDecl(self.sema, enum_ty) orelse return null;
+        for (decl.symbol().fields orelse return null) |f| {
             if (f.is_variant and std.mem.eql(u8, f.name, vname)) return f.payload orelse &.{};
         }
         return null;

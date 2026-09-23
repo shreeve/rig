@@ -1,0 +1,17 @@
+# A variant an imported enum does not have is rejected, in a literal and
+# in a pattern; a match that misses a variant needs a default arm.
+
+use colors
+
+fun name(c: colors.Color) -> String
+  match c
+    .red => "red"
+    .purple => "purple"
+
+sub main()
+  c: colors.Color = .mauve
+  print(name(c))
+
+# error: no variant `purple` on enum `colors.Color`
+# error: no variant `mauve` on enum `colors.Color`
+# error: value-position `match` is not exhaustive

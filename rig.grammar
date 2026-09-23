@@ -383,6 +383,7 @@ tsuffix  = tsuffix SUFFIX_Q                 → (optional 1)
          | tatom
 
 tatom    = name
+         | name "." name                    → (member 1 3)  # `geo.Point`
          | TYPE                             → 1  # `pre T: type`
          | name LPAREN_CALL L(type) ")"     → (generic_inst 1 ...3)
          | name LPAREN_CALL ")"             → (generic_inst 1)

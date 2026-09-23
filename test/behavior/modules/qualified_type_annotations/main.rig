@@ -1,0 +1,20 @@
+# A type from another module is named `module.Type` in annotations:
+# parameters (also borrowed), bindings, optionals, and aliases.
+
+use geo
+
+fun total(p: ?geo.Point) -> Int
+  p.sum()
+
+sub main()
+  p: geo.Point = geo.Point(x: 1, y: 2)
+  print(total(?p))
+  none_p: geo.Point? = none
+  print(none_p == none)
+  m: geo.Meters = 5
+  print(m + 1)
+
+# expect:
+# 3
+# true
+# 6

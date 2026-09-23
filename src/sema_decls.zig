@@ -1159,6 +1159,7 @@ pub const TypeResolver = struct {
                         } });
                     },
                     .@"generic_inst" => return self.resolveGenericInst(sexp),
+                    .@"member" => return self.resolveQualified(items[1], items[2]),
                     else => {
                         try self.ctx.err(firstSrcPos(sexp), "unsupported type expression", .{});
                         return t.invalid_id;
@@ -1167,6 +1168,47 @@ pub const TypeResolver = struct {
             },
             else => return t.invalid_id,
         }
+    }
+
+    /// `module.Name`: a public type of an imported module.
+    fn resolveQualified(self: *TypeResolver, module_node: Sexp, name_node: Sexp) Error!TypeId {
+        const t = &self.ctx.types;
+        const module_name = identAt(self.ctx.source, module_node) orelse return t.invalid_id;
+        const name = identAt(self.ctx.source, name_node) orelse return t.invalid_id;
+        const pos = srcPos(name_node, 0);
+        const mod_id = self.ctx.lookup(self.scope, module_name) orelse {
+            try self.ctx.err(srcPos(module_node, 0), "use of unbound module `{s}`; import it with `use {s}`", .{ module_name, module_name });
+            return t.invalid_id;
+        };
+        if (self.ctx.symbols.items[mod_id].kind != .module) {
+            try self.ctx.err(srcPos(module_node, 0), "`{s}` is not a module; a qualified type is written `module.Type`", .{module_name});
+            return t.invalid_id;
+        }
+        try self.ctx.recordName(module_node, mod_id);
+        const origin = self.ctx.module_refs.get(mod_id) orelse return t.invalid_id;
+        const foreign = self.ctx.foreign_semas.get(origin) orelse return t.invalid_id;
+        const fid = foreign.lookupInScopeOnly(1, name) orelse {
+            try self.ctx.err(pos, "no type `{s}` in module `{s}`", .{ name, module_name });
+            return t.invalid_id;
+        };
+        const fsym = foreign.symbols.items[fid];
+        switch (fsym.kind) {
+            .nominal_type, .type_alias => {},
+            .generic_type => {
+                try self.ctx.err(pos, "generic type `{s}.{s}` needs type arguments, which qualified types do not take yet", .{ module_name, name });
+                return t.invalid_id;
+            },
+            else => {
+                try self.ctx.err(pos, "`{s}.{s}` is not a type", .{ module_name, name });
+                return t.invalid_id;
+            },
+        }
+        if (!fsym.flags.is_public) {
+            try self.ctx.err(pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module_name, name, module_name });
+            return t.invalid_id;
+        }
+        if (fsym.kind == .type_alias) return types.importType(self.ctx, foreign, fsym.ty, origin);
+        return self.ctx.intern(.{ .imported_nominal = .{ .module_id = origin, .sym_id = fid } });
     }
 
     fn resolveGenericInst(self: *TypeResolver, sexp: Sexp) Error!TypeId {

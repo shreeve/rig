@@ -888,6 +888,20 @@ fn hasDropGlueUnder(ctx: *const SemContext, ty_id: TypeId, subst: ?*const GlueSu
     };
 }
 
+/// An enum all of whose variants are bare (no payloads): comparable
+/// with `==`.
+pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
+    const decl = nominalDecl(ctx, ty) orelse return false;
+    const fields = decl.symbol().fields orelse return false;
+    var any = false;
+    for (fields) |f| {
+        if (!f.is_variant) continue;
+        any = true;
+        if (f.payload != null and f.payload.?.len > 0) return false;
+    }
+    return any;
+}
+
 /// Primitive values that are copied freely.
 pub fn isCopyPrimitive(ctx: *const SemContext, ty_id: TypeId) bool {
     return switch (ctx.types.get(ty_id)) {
@@ -939,6 +953,35 @@ pub fn nominalSymOfReceiver(ctx: *const SemContext, ty_id: TypeId) ?SymbolId {
     return switch (ctx.types.get(unwrapBorrows(ctx, ty_id))) {
         .nominal => |s| s,
         .parameterized_nominal => |pn| pn.sym,
+        else => null,
+    };
+}
+
+/// Where a nominal type is declared: the module's context and the
+/// symbol there. A type imported from another module resolves to that
+/// module's declaration.
+pub const NominalDecl = struct {
+    ctx: *const SemContext,
+    sym: SymbolId,
+    /// The origin module of an imported nominal; null for a local one.
+    module_id: ?u32 = null,
+
+    pub fn symbol(self: NominalDecl) Symbol {
+        return self.ctx.symbols.items[self.sym];
+    }
+};
+
+/// The declaration behind a (possibly borrowed) nominal type, local or
+/// imported.
+pub fn nominalDecl(ctx: *const SemContext, ty_id: TypeId) ?NominalDecl {
+    return switch (ctx.types.get(unwrapBorrows(ctx, ty_id))) {
+        .nominal => |s| .{ .ctx = ctx, .sym = s },
+        .parameterized_nominal => |pn| .{ .ctx = ctx, .sym = pn.sym },
+        .imported_nominal => |in| blk: {
+            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk null;
+            if (in.sym_id >= foreign.symbols.items.len) break :blk null;
+            break :blk .{ .ctx = foreign, .sym = in.sym_id, .module_id = in.module_id };
+        },
         else => null,
     };
 }
@@ -1156,7 +1199,9 @@ pub const ResolvedVariant = struct {
     field: Field,
     /// Payload fields with generic arguments applied; empty if none.
     payload: []const Field,
+    /// The enum's symbol; `symbol_invalid` for an imported enum.
     nominal_sym: SymbolId,
+    owner_name: []const u8,
 };
 
 const Members = struct {
@@ -1210,17 +1255,33 @@ pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std
 
 /// An enum variant of the receiver's nominal.
 pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedVariant {
+    if (ctx.types.get(unwrapBorrows(ctx, receiver_ty)) == .imported_nominal) {
+        const decl = nominalDecl(ctx, receiver_ty) orelse return null;
+        const foreign: *SemContext = @constCast(decl.ctx);
+        for (decl.symbol().fields orelse return null) |f| {
+            if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
+            const orig = f.payload orelse &.{};
+            const payload = try ctx.arena.allocator().alloc(Field, orig.len);
+            for (orig, 0..) |pf, i| {
+                payload[i] = pf;
+                payload[i].ty = try importType(ctx, foreign, pf.ty, decl.module_id.?);
+            }
+            return .{ .field = f, .payload = payload, .nominal_sym = symbol_invalid, .owner_name = decl.symbol().name };
+        }
+        return null;
+    }
     const m = membersOf(ctx, unwrapBorrows(ctx, receiver_ty)) orelse return null;
     for (m.fields) |f| {
         if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
         const orig = f.payload orelse &.{};
-        if (orig.len == 0 or m.subst.isEmpty()) return .{ .field = f, .payload = orig, .nominal_sym = m.sym };
+        const owner = ctx.symbols.items[m.sym].name;
+        if (orig.len == 0 or m.subst.isEmpty()) return .{ .field = f, .payload = orig, .nominal_sym = m.sym, .owner_name = owner };
         const payload = try ctx.arena.allocator().alloc(Field, orig.len);
         for (orig, 0..) |pf, i| {
             payload[i] = pf;
             payload[i].ty = try substituteType(ctx, pf.ty, m.subst);
         }
-        return .{ .field = f, .payload = payload, .nominal_sym = m.sym };
+        return .{ .field = f, .payload = payload, .nominal_sym = m.sym, .owner_name = owner };
     }
     return null;
 }
@@ -1235,9 +1296,8 @@ pub fn hasMethodNamed(ctx: *const SemContext, receiver_ty: TypeId, name: []const
 
 /// Number of variants of an enum type, or null if not an enum.
 pub fn enumVariantCount(ctx: *const SemContext, ty: TypeId) ?usize {
-    const sym_id = nominalSymOfReceiver(ctx, ty) orelse return null;
-    const sym = ctx.symbols.items[sym_id];
-    const fields = sym.fields orelse return null;
+    const decl = nominalDecl(ctx, ty) orelse return null;
+    const fields = decl.symbol().fields orelse return null;
     var count: usize = 0;
     for (fields) |f| {
         if (f.is_variant) count += 1;

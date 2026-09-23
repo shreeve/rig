@@ -1,0 +1,12 @@
+pub enum Color
+  red
+  green
+  blue
+
+pub enum Shape
+  circle(r: Int)
+  rect(w: Int, h: Int)
+  dot
+
+pub fun favorite() -> Color
+  .green
