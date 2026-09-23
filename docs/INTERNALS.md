@@ -249,7 +249,7 @@ Expressions:
 (array elem...)  (builtin name arg...)
 (lambda captures-or-_ params-or-_ _ body)
 (captures cap...)  (cap_clone x)  (cap_move x)  (cap_weak x)
-(move e) (read e) (write e) (clone e) (share e) (weak e) (raw e) (pin e)
+(move e) (read e) (write e) (clone e) (share e) (weak e) (pin e)
 (propagate e)  (catch e name-or-_ handler)
 (+ a b) (- a b) (* a b) (/ a b) (% a b)
 (== a b) (!= a b) (< a b) (> a b) (<= a b) (>= a b)
@@ -312,9 +312,11 @@ Types are interned in a `TypeStore`, so two `TypeId`s are equal exactly
 when the types are. `unknown` and `invalid` are poison: they appear only
 after a diagnostic and are compatible with everything, so one mistake
 does not cascade. `compatible` also accepts a literal where a numeric
-type is expected, `none` or a `T` where `T?` is expected, a `T` where
-`T!` is expected, `!T` where `?T` is expected, and a borrow of a Copy
-value where the value is expected.
+type is expected, `none` or a `T` where `T?` is expected, a `T` or an
+error value where `T!` is expected, `!T` where `?T` is expected, and a
+borrow of a Copy value where the value is expected. The error a
+`catch |err|` names has the type `error`: any error, since functions do
+not declare which errors they fail with.
 
 ### The facts table
 

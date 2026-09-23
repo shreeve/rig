@@ -14,7 +14,8 @@
 //!
 //! Compatibility (`compatible`): identical types; a literal where a
 //! numeric type is expected; `none` where an optional is expected; any
-//! `T` where `T?` or `T!` is expected (the value is lifted); `!T` where
+//! `T` where `T?` or `T!` is expected (the value is lifted), and an
+//! error value where `T!` is expected (the function fails); `!T` where
 //! `?T` is expected; a borrow of a Copy value where the value is
 //! expected (`readValue`); and anything where poison (`unknown` /
 //! `invalid`) is involved, so one error does not cascade.
