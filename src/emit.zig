@@ -1629,12 +1629,25 @@ pub const Emitter = struct {
                 const in_error_set = if (self.typeOf(sexp)) |t| self.isErrorSetTy(t) else false;
                 try self.w.print("{s}{f}", .{ if (in_error_set) "error." else ".", self.ident(self.srcText(items[1])) });
             },
-            .@"+", .@"-", .@"*", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@">>" => try self.emitInfix(items, bare),
+            .@"+", .@"-", .@"*", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^" => try self.emitInfix(items, bare),
             .@"and", .@"or" => {
                 if (!bare) try self.w.writeAll("(");
                 try self.emitExpr(items[1]);
                 try self.w.writeAll(if (head == .@"and") " and " else " or ");
                 try self.emitExpr(items[2]);
+                if (!bare) try self.w.writeAll(")");
+            },
+            .@"<<", .@">>" => {
+                // The shift amount is cast to the width Zig requires; the
+                // shifted value has the expression's type.
+                if (!bare) try self.w.writeAll("(");
+                try self.w.writeAll("@as(");
+                try self.emitTypeTy(self.typeOf(sexp) orelse self.sema.types.int_id);
+                try self.w.writeAll(", ");
+                try self.emitBare(items[1]);
+                try self.w.print(") {s} @intCast(", .{@tagName(head)});
+                try self.emitBare(items[2]);
+                try self.w.writeAll(")");
                 if (!bare) try self.w.writeAll(")");
             },
             .@"/" => try self.emitDivision(items, "@divTrunc"),

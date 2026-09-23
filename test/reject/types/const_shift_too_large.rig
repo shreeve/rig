@@ -1,0 +1,7 @@
+# A constant shift result must fit its type.
+
+sub main()
+  x = 1 << 63
+  print(x)
+
+# error: does not fit in `Int`

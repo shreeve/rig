@@ -1,0 +1,7 @@
+# Integer arithmetic on constants is checked at compile time: a result
+# that does not fit its type is an error.
+
+sub main()
+  print(4611686018427387904 * 2)
+
+# error: does not fit in `Int`

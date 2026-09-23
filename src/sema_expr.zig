@@ -378,6 +378,9 @@ const Checker = struct {
             .@"+=", .@"-=", .@"*=", .@"/=" => {
                 const target_ty = declared;
                 const op = @tagName(kind);
+                if (kind == .@"/=") if (self.constInt(rhs)) |v| if (v == 0) {
+                    try self.err(firstSrcPos(rhs), "division by zero", .{});
+                };
                 if (!self.isPoison(target_ty) and !types.isNumeric(self.ctx, target_ty)) {
                     try self.err(target.src.pos, "`{s}` requires a numeric target; `{s}` has type `{s}`", .{ op, name, try self.tyName(target_ty) });
                     _ = try self.synthExpr(rhs);
@@ -406,6 +409,10 @@ const Checker = struct {
         if (s.ty == self.t().unknown_id) s.ty = rhs_ty;
         if (kind == .fixed and self.isComptimeKnown(rhs)) s.flags.comptime_known = true;
         try self.ctx.recordType(target, s.ty);
+        // A binding that never changes keeps a constant value.
+        if (is_decl and s.kind == .local and !s.flags.reassigned and !s.flags.written and types.isInteger(self.ctx, s.ty)) {
+            if (self.constInt(rhs)) |v| try self.ctx.const_ints.put(self.ctx.allocator, sym_id, v);
+        }
     }
 
     fn poisonIfUntyped(self: *Checker, id: SymbolId) void {
@@ -1077,6 +1084,69 @@ const Checker = struct {
     /// Both operands numeric (or integer) and of one type. Literals adapt
     /// to the other operand; generic parameters record a requirement.
     fn checkNumericOperands(self: *Checker, items: []const Sexp, op: []const u8, req: Requirement) Error!TypeId {
+        const ty = try self.numericOperands(items, op, req);
+        if (self.isPoison(ty)) return ty;
+        const tag = items[0].tag;
+        const rhs = self.constInt(items[2]);
+        if ((tag == .@"/" or tag == .@"%") and rhs != null and rhs.? == 0) {
+            try self.err(firstSrcPos(items[2]), "division by zero", .{});
+            return self.t().invalid_id;
+        }
+        const info = self.ctx.types.get(ty);
+        if ((tag == .@"<<" or tag == .@">>") and rhs != null and info == .int) {
+            const bits: i128 = if (info.int.bits == 0) 64 else info.int.bits;
+            if (rhs.? < 0 or rhs.? >= bits) {
+                try self.err(firstSrcPos(items[2]), "shift amount `{d}` is out of range for `{s}` (0..{d})", .{ rhs.?, try self.tyName(ty), bits - 1 });
+                return self.t().invalid_id;
+            }
+        }
+        // Constant operands are computed now, so the result must fit.
+        if (info == .int) try self.checkLiteralFits(.{ .list = items }, ty);
+        return ty;
+    }
+
+    /// The value of a constant integer expression: literals, constant
+    /// bindings, and arithmetic on them. Null when not constant (or too
+    /// large to compute).
+    fn constInt(self: *Checker, e: Sexp) ?i128 {
+        switch (e) {
+            .src => {
+                const text_ = self.text(e);
+                if (types.isIntLiteralText(text_)) return std.fmt.parseInt(i128, text_, 0) catch null;
+                const id = self.ctx.symbolOf(e) orelse return null;
+                return self.ctx.const_ints.get(id);
+            },
+            .list => |items| {
+                const h = headOf(e) orelse return null;
+                if (h == .@"neg") return std.math.negate(self.constInt(items[1]) orelse return null) catch null;
+                switch (h) {
+                    .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {},
+                    else => return null,
+                }
+                const a = self.constInt(items[1]) orelse return null;
+                const b = self.constInt(items[2]) orelse return null;
+                return switch (h) {
+                    .@"+" => std.math.add(i128, a, b) catch null,
+                    .@"-" => std.math.sub(i128, a, b) catch null,
+                    .@"*" => std.math.mul(i128, a, b) catch null,
+                    .@"/" => if (b == 0) null else @divTrunc(a, b),
+                    .@"%" => if (b == 0) null else @rem(a, b),
+                    .@"<<" => if (b < 0 or b > 126) null else blk: {
+                        const r = a << @intCast(b);
+                        break :blk if (r >> @intCast(b) == a) r else null;
+                    },
+                    .@">>" => if (b < 0 or b > 127) null else a >> @intCast(b),
+                    .@"&" => a & b,
+                    .@"|" => a | b,
+                    .@"^" => a ^ b,
+                    else => null,
+                };
+            },
+            else => return null,
+        }
+    }
+
+    fn numericOperands(self: *Checker, items: []const Sexp, op: []const u8, req: Requirement) Error!TypeId {
         const a = readValue(self.ctx, try self.synthExpr(items[1]));
         const b = readValue(self.ctx, try self.synthExpr(items[2]));
         const pos = firstSrcPos(items[1]);
@@ -1739,6 +1809,11 @@ const Checker = struct {
                 continue;
             }
             const ty = try self.synthOperand(a);
+            // Literal values print as `Int` / `Float`.
+            if (ty == self.t().int_literal_id) {
+                try self.ctx.recordType(a, self.t().int_id);
+                try self.checkLiteralFits(a, self.t().int_id);
+            } else if (ty == self.t().float_literal_id) try self.ctx.recordType(a, self.t().float_id);
             switch (self.ctx.types.get(ty)) {
                 .void => try self.err(firstSrcPos(a), "`print` needs a value; this expression produces no value (`Void`)", .{}),
                 .none_literal => try self.err(firstSrcPos(a), "cannot print a bare `none`", .{}),
@@ -2477,37 +2552,26 @@ const Checker = struct {
     fn recordAdapted(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
         if (actual != self.t().int_literal_id and actual != self.t().float_literal_id) return;
         const target = self.liftTarget(expected);
-        if (types.isNumeric(self.ctx, target)) try self.ctx.recordType(e, target);
+        if (!types.isNumeric(self.ctx, target)) return;
+        try self.ctx.recordType(e, target);
+        if (actual == self.t().int_literal_id) try self.checkLiteralFits(e, target);
     }
 
-    /// An integer literal (or `-literal`) must fit the integer type it
-    /// becomes.
+    /// A constant integer expression must fit the integer type it gets.
     fn checkLiteralFits(self: *Checker, e: Sexp, target: TypeId) Error!void {
         const tt = self.ctx.types.get(target);
         if (tt != .int) return;
-        var negative = false;
-        var lit = e;
-        if (isHead(e, .@"neg")) {
-            negative = true;
-            lit = e.list[1];
-        }
-        const s = self.text(lit);
-        if (!types.isIntLiteralText(s)) return;
-        const mag = std.fmt.parseInt(u64, s, 0) catch {
-            try self.err(firstSrcPos(e), "integer literal `{s}` is too large", .{s});
+        const v = self.constInt(e) orelse {
+            if (e == .src and types.isIntLiteralText(self.text(e))) {
+                try self.err(firstSrcPos(e), "integer literal `{s}` is too large", .{self.text(e)});
+            }
             return;
         };
         const bits: u8 = if (tt.int.bits == 0) 64 else tt.int.bits;
-        const sign = if (negative) "-" else "";
-        const tname = try self.tyName(target);
-        if (tt.int.signed) {
-            const max: u64 = (@as(u64, 1) << @intCast(bits - 1)) - 1;
-            const ok = if (negative) mag <= max + 1 else mag <= max;
-            if (!ok) try self.err(firstSrcPos(e), "integer literal `{s}{s}` does not fit in `{s}` (-{d}..{d})", .{ sign, s, tname, max + 1, max });
-        } else {
-            const max: u64 = if (bits == 64) std.math.maxInt(u64) else (@as(u64, 1) << @intCast(bits)) - 1;
-            const ok = if (negative) mag == 0 else mag <= max;
-            if (!ok) try self.err(firstSrcPos(e), "integer literal `{s}{s}` does not fit in `{s}` (0..{d})", .{ sign, s, tname, max });
+        const min: i128 = if (tt.int.signed) -(@as(i128, 1) << @intCast(bits - 1)) else 0;
+        const max: i128 = if (tt.int.signed) (@as(i128, 1) << @intCast(bits - 1)) - 1 else (@as(i128, 1) << @intCast(bits)) - 1;
+        if (v < min or v > max) {
+            try self.err(firstSrcPos(e), "integer value `{d}` does not fit in `{s}` ({d}..{d})", .{ v, try self.tyName(target), min, max });
         }
     }
 

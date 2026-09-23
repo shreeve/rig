@@ -551,6 +551,10 @@ pub const SemContext = struct {
     generic_requirements: std.ArrayListUnmanaged(GenericRequirement) = .empty,
     /// Instantiated generic type -> position of its first spelling.
     instantiation_sites: std.AutoHashMapUnmanaged(TypeId, u32) = .empty,
+    /// Integer constants: bindings never reassigned or written whose
+    /// value is a constant expression. The emitted Zig computes these at
+    /// compile time, so sema checks their arithmetic.
+    const_ints: std.AutoHashMapUnmanaged(SymbolId, i128) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
@@ -583,6 +587,7 @@ pub const SemContext = struct {
         self.alias_in_progress.deinit(self.allocator);
         self.generic_requirements.deinit(self.allocator);
         self.instantiation_sites.deinit(self.allocator);
+        self.const_ints.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -1588,6 +1593,27 @@ test "facts: a shadowing binding's value reads the previous binding" {
     try std.testing.expect(second != first);
     try std.testing.expectEqual(first, r.sym("x", 3).?);
     try std.testing.expectEqual(second, r.sym("x", 4).?);
+}
+
+test "facts: constant bindings keep their value; changed ones do not" {
+    var r = try factsRun(
+        \\sub main()
+        \\  a = 2 + 3
+        \\  b = a * 4
+        \\  c = 1
+        \\  c = 2
+        \\  d = 7
+        \\  e = !d
+        \\  print(a, b, c, e)
+        \\
+    );
+    defer r.deinit();
+    try std.testing.expectEqual(@as(?i128, 5), r.ctx.const_ints.get(r.sym("a", 0).?));
+    try std.testing.expectEqual(@as(?i128, 20), r.ctx.const_ints.get(r.sym("b", 0).?));
+    try std.testing.expect(r.ctx.symbols.items[r.sym("c", 0).?].flags.reassigned);
+    try std.testing.expect(r.ctx.const_ints.get(r.sym("c", 0).?) == null);
+    try std.testing.expect(r.ctx.const_ints.get(r.sym("d", 0).?) == null);
+    try std.testing.expect(r.ctx.symbols.items[r.sym("d", 0).?].flags.written);
 }
 
 test "facts: literals record the type their context gives them" {
