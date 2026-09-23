@@ -2614,8 +2614,8 @@ pub const Emitter = struct {
                     try self.writeLocalPlace(&outer);
                     try self.w.writeAll(".weakRef()");
                 },
-                .@"cap_move" => if (outer.is_ptr) {
-                    // A moved borrow moves the pointer.
+                .@"cap_move" => if (outer.is_ptr and self.isPtrBorrowTy(c.ty)) {
+                    // A moved pointer borrow moves the pointer.
                     try self.w.writeAll(outer.zig_name);
                 } else if (self.consumeFlag(&outer)) |flag| try self.writeTake(flag, &outer) else try self.writeLocalPlace(&outer),
                 else => try self.writeLocalPlace(&outer),
