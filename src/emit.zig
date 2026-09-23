@@ -947,8 +947,9 @@ pub const Emitter = struct {
             if (type_node != .nil) {
                 try self.w.writeAll(": ");
                 try self.emitType(type_node);
-            } else if (ty != null and self.isPlainTy(ty.?)) {
-                // Literal and branch values need a runtime type.
+            } else if (ty != null and (self.isPlainTy(ty.?) or self.isEnumTy(ty.?))) {
+                // Literal and branch values need a runtime type, and so
+                // does a bare variant of an enum with payloads.
                 try self.w.writeAll(": ");
                 try self.emitTypeTy(ty.?);
             }
@@ -1701,6 +1702,12 @@ pub const Emitter = struct {
             .float_literal => self.sema.types.float_id,
             else => null,
         };
+    }
+
+    fn isEnumTy(self: *Emitter, ty: TypeId) bool {
+        const decl = types.nominalDecl(self.sema, ty) orelse return false;
+        for (decl.symbol().fields orelse return false) |f| if (f.is_variant) return true;
+        return false;
     }
 
     fn isZigComptime(self: *Emitter, e: Sexp) bool {
