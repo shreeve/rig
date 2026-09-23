@@ -62,9 +62,13 @@ allocation, no hidden refcount traffic, no silent control flow.
 ## Workflow
 
 ```bash
-zig build            # builds bin/rig
-./test/run           # full suite; must be green before every commit
-bin/rig run file.rig # compile + run (Debug, leak-checked)
+zig build                  # builds bin/rig
+./test/run                 # full suite; must be green before every commit
+bin/rig run file.rig       # compile + run (Debug, leak-checked)
+bin/rig emit file.rig      # the emitted Zig
+bin/rig test file.rig      # run the program's `test` blocks
+bin/rig build --release -o prog file.rig   # optimized executable (ReleaseSafe)
+RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 ```
 
 - Fixing a bug starts with a failing test that reproduces it.

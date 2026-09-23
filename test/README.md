@@ -20,6 +20,7 @@ when nothing fails and no known-failing test has started passing.
 | `examples/<name>.rig` | curated showcase programs; same contract as `behavior/` |
 | `test/ir/<name>.rig` | raw and semantic IR snapshots (`<name>.raw.sexp`, `<name>.sem.sexp`) |
 | `test/torture/<name>.rig` | bad input: must be rejected with a diagnostic, never crash the compiler |
+| `test/cli/<name>.sh` | a bash script exercising the `rig` commands; passes when it exits 0 (see below) |
 | `unit` | `zig build test` |
 | `parser` | `src/parser.zig` matches what Nexus generates from `rig.grammar` |
 | `doc/<file>/L<n>` | the ```` ```rig ```` block at line `n` of a Markdown file (see below) |
@@ -73,11 +74,24 @@ the opening fence; `./test/run doc` runs only the doc examples.
 
 ## Leak checking
 
-`rig run` builds in Debug mode, where the runtime allocates through
-`std.heap.DebugAllocator`. The emitted `main` defers `rig.checkLeaks()`,
-which prints each leaked allocation with a stack trace, then
-`error: rig: memory leak detected`, and exits 1. Double frees panic in the
-allocator. A behavior test therefore fails on any leak or double free.
+`rig run` builds in Debug mode, where the runtime records every live
+allocation (address and size, no stack traces). The emitted `main`
+defers `rig.finish()`, which prints
+`error: rig: memory leak detected: N allocations (B bytes) never freed`
+and exits 1 if anything is still allocated. A double free or a free of
+memory that was never allocated panics. A behavior test therefore fails
+on any leak or double free. To see where leaked memory was allocated,
+run the test again by hand with `RIG_LEAK_TRACE=1 bin/rig run file.rig`:
+the runtime then allocates through Zig's `DebugAllocator`, which prints
+a stack trace for each leak.
+
+## CLI tests
+
+Each `test/cli/<name>.sh` runs in an empty directory with `RIG` (the
+compiler), `ROOT` (the checkout), and `RIG_OUT_DIR` set, sources
+`test/cli/_lib.sh` for `fail`, `expect_eq`, `expect_has`, and
+`expect_rc`, writes the programs it needs with heredocs, and passes when
+it exits 0. Files starting with `_` are helpers, not tests.
 
 ## Known bugs
 
@@ -91,5 +105,6 @@ outside `known/` describe current behavior only.
 ## Output
 
 `rig run` writes emitted Zig to `$RIG_OUT_DIR` when set. The suite uses
-`.zig-cache/rig-test/<id>/`, so emitted code for a failing test can be
+`.zig-cache/rig-test/<id>/` (a CLI test's scratch directory is its
+`work/` subdirectory), so emitted code for a failing test can be
 inspected there, and repeated runs hit Zig's build cache.

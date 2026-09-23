@@ -25,25 +25,45 @@ modules          src/modules.zig   load `use`d files, check in dependency order
 emit             src/emit.zig      one Zig file per module
 runtime          src/runtime/_runtime.zig, written next to them
   ▼
-zig run          Debug build, leak-checked
+zig run / zig build-exe            Debug (leak-checked), ReleaseSafe, or ReleaseFast
 ```
 
-`src/main.zig` is the CLI:
+`src/main.zig` is the CLI (`rig --help` prints the same reference):
 
 | Command | Does |
 |---|---|
+| `rig check f.rig` | run every checker on the program and its imports |
+| `rig run [--release[=safe\|fast]] f.rig` | check, emit, and `zig run` the program |
+| `rig build [-o path] [--release[=safe\|fast]] f.rig` | check, emit, and `zig build-exe` a native executable (default `./<name>`) |
+| `rig test [--release[=safe\|fast]] f.rig` | check, emit, and run every `test` block of the program and its modules |
+| `rig emit f.rig` | check, emit, and print the root module's Zig; a note on stderr names the package directory |
 | `rig tokens f.rig` | print the token stream after the lexer rewriter |
 | `rig parse f.rig` | print the grammar's raw S-expression tree |
 | `rig normalize f.rig` | print the semantic IR (after the Parser rewrites) |
-| `rig check f.rig` | run every checker on the program and its imports |
-| `rig build f.rig` | check, then emit Zig (to stdout for one module) |
-| `rig run f.rig` | check, emit, and `zig run` the result |
+| `rig --help`, `rig --version` | usage, version |
 
-`build` and `run` never emit a program the checkers reject. Emitted
-code goes to `$RIG_OUT_DIR` when it is set, otherwise to
-`~/.cache/rig/<name>-<hash>/` (or under `$XDG_CACHE_HOME`), which is
-emptied before each build. When a run fails, the CLI prints where the
-emitted Zig is.
+The mode is Debug unless `--release` (ReleaseSafe, which keeps
+overflow and bounds checks) or `--release=fast` (ReleaseFast) is given;
+only Debug checks for leaks. `run`, `build`, `test`, and `emit` never
+emit a program the checkers reject. Each writes the whole package, one
+`<module>.zig` per module plus the runtime as `rig/runtime.zig`, which
+Zig builds with no other input: to `$RIG_OUT_DIR` when it is set,
+otherwise to `~/.cache/rig/<name>-<hash>/` (or under `$XDG_CACHE_HOME`),
+emptied before each build. The toolchain is `$ZIG`, else `zig` on
+`PATH`. When a build or run fails, the CLI prints where the emitted Zig
+is. `RIG_LEAK_TRACE=1` at build time adds `__rig_leak_trace` to the root
+module (see [the runtime](#the-runtime)).
+
+`rig test` adds a driver, `__rig_test.zig`, whose `main` passes each
+module's `__rig_tests` table to `rig.runTests`. The emitter lowers a
+`test "name"` block to a private function `__rig_test_<n>` and lists it
+in that table; the tests of the root module run first, then those of
+its imports in load order. Each result is one line on stdout,
+`ok    test "name"` or `FAIL  test "name": <reason>`, where the reason
+is an error the test returned, a leak (Debug), or a panic, which ends
+the run. Imported modules' tests carry the module name:
+`ok    test "double" (util)`. The last line counts passes and failures,
+and the exit status is 1 if any test failed.
 
 ## Source map
 
@@ -434,8 +454,11 @@ types comes from the facts table, never from name matching.
   struct per literal and erases it behind `rig.Closure(params, R)`, so
   every literal of one function type shares one runtime type; a call is
   `cb.value.invoke(.{ args })`.
-- **`main`** defers `rig.checkLeaks()` first, so it runs after every
-  other drop.
+- **`main`** defers `rig.finish()` first, so it runs after every other
+  drop, and the root module declares `pub const panic = rig.panic`.
+- **Tests.** `test "name"` becomes `fn __rig_test_<n>() anyerror!void`,
+  listed in the module's `pub const __rig_tests` table, which only
+  `rig test` references.
 
 ## The runtime
 
@@ -446,22 +469,24 @@ reviewed.
 
 | Piece | Role |
 |---|---|
-| `RcBox(T)` | the box behind `*T`: a strong count, a weak count (plus one for all strong handles), the allocator, and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one |
+| `RcBox(T)` | the box behind `*T`: a strong count, a weak count (plus one for all strong handles), the allocator, and the value. `cloneStrong`, `dropStrong`, `weakRef` are the only strong-count operations, and emitted code spells each one. Releasing a box nested more than 256 releases deep queues it instead, and the outermost release drains the queue, so dropping a long `*T` chain uses constant stack |
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade`, which returns a new strong handle or null once the value is gone |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace` |
 | `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order |
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `Signal(T)` | a value and a `Vec` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
-| `print`, `writeValue` | the formatting of `print` |
-| `defaultAllocator`, `checkLeaks` | a leak-checking `DebugAllocator` in Debug builds, `smp_allocator` otherwise; allocation failure panics |
+| `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal |
+| `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
+| `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `DebugAllocator`, which prints the stack trace of each leak. Release builds use `smp_allocator` directly. Allocation failure panics |
+| `runTests`, `Test` | the `rig test` driver: runs each test, checks it for leaks (Debug), reports it |
 
 ## Tests
 
 `./test/run` is the whole suite: behavior tests (run, compare stdout,
 leak-checked), rejection tests, known bugs, IR snapshots, torture
-inputs, the Zig unit tests, a parser-freshness check, and every `rig`
-example in the documentation. [test/README.md](../test/README.md)
+inputs, CLI scripts, the Zig unit tests, a parser-freshness check, and
+every `rig` example in the documentation. [test/README.md](../test/README.md)
 describes each kind and its directives.
 
 To fix a bug: write a failing test first (under `test/known/` if it will
