@@ -2111,7 +2111,8 @@ test "facts: literals record the type their context gives them" {
     );
     defer r.deinit();
     const u8_ty = try r.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } });
-    const i64_ty = try r.ctx.intern(.{ .int = .{ .bits = 64, .signed = true } });
+    // `I64` is `Int`.
+    const i64_ty = r.ctx.types.int_id;
     try std.testing.expectEqual(u8_ty, r.leafType("7", 0).?);
     try std.testing.expectEqual(i64_ty, r.leafType("9", 0).?);
     try std.testing.expectEqual(r.ctx.types.int_id, r.leafType("11", 0).?);
@@ -2355,7 +2356,8 @@ test "declarations: wrapper, sized, and alias types" {
     try std.testing.expectEqual(try r.ctx.intern(.{ .borrow_write = u64_ty }), b.params[1]);
     try std.testing.expectEqual(u64_ty, r.ctx.symbols.items[r.ctx.lookup(1, "UserId").?].ty);
     const ret = r.ctx.types.get(b.returns);
-    try std.testing.expectEqual(FloatInfo{ .bits = 64 }, r.ctx.types.get(ret.optional).float);
+    // `F64` is `Float`.
+    try std.testing.expectEqual(r.ctx.types.float_id, ret.optional);
 }
 
 test "declarations: struct fields, methods, and enum variants" {

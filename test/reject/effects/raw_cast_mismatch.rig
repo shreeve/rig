@@ -11,7 +11,7 @@ sub main()
     c: U8 = @intCast(f)
     d: F32 = @floatFromInt(f)
 
-# error: `@truncate` cannot turn `I64` into `U8`: both must be signed, or both unsigned
+# error: `@truncate` cannot turn `Int` into `U8`: both must be signed, or both unsigned
 # error: `@bitCast` cannot turn `I32` into `U64`: both must have the same size
 # error: `@intCast` cannot turn `Float` into `U8`: it converts one integer type to another
 # error: `@floatFromInt` cannot turn `Float` into `F32`: it converts an integer to a float

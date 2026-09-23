@@ -204,8 +204,8 @@ sub main()
 
 | Type | Meaning | Zig |
 |---|---|---|
-| `Int` | 64-bit signed integer; the type of integer literals by default | `i64` |
-| `Float` | 64-bit float; the type of float literals by default | `f64` |
+| `Int` | 64-bit signed integer, the same type as `I64`; the type of integer literals by default | `i64` |
+| `Float` | 64-bit float, the same type as `F64`; the type of float literals by default | `f64` |
 | `I8` `I16` `I32` `I64` | signed integers | `i8` ... `i64` |
 | `U8` `U16` `U32` `U64` | unsigned integers | `u8` ... `u64` |
 | `F32` `F64` | floats | `f32`, `f64` |
@@ -213,10 +213,10 @@ sub main()
 | `String` | immutable UTF-8 bytes; a Copy value | `[]const u8` |
 | `Void` | no value (what a `sub` returns) | `void` |
 
-Every numeric type is distinct: there are no implicit conversions, and
-`Int` and `I64` are different types. A literal takes the numeric type
-its context expects, and must fit it. Constant arithmetic is checked
-at compile time.
+`Int` is `I64` and `Float` is `F64`: one type under two names. Every
+other numeric type is distinct, and there are no implicit conversions.
+A literal takes the numeric type its context expects, and must fit it.
+Constant arithmetic is checked at compile time.
 
 ```rig
 sub main()
@@ -248,11 +248,40 @@ sub main()
 ```
 
 ```error
-operands have different types `I32` and `I64`
+operands have different types `I32` and `Int`
 ```
 
-Converting between numeric types currently needs a `raw` block and a
-Zig cast builtin ([§16](#16-raw-code-and-ffi)).
+### Numeric conversions
+
+A numeric type's name converts a number to that type: `I32(x)`,
+`U8(x)`, `Float(n)`, `Int(f)`. A conversion is checked. An integer that
+does not fit the target type panics when the program runs, and so does
+a float whose integer part does not fit; a float becomes an integer by
+truncating toward zero. A constant is converted at compile time, so it
+must fit. (Inside `raw`, Zig's unchecked cast builtins are also
+available, [§16](#16-raw-code-and-ffi).)
+
+```rig
+fun average(total: Int, count: Int) -> Float
+  Float(total) / Float(count)
+
+sub main()
+  big = 300
+  print(U8(big - 100), Int(-7.9), average(7, 2), I32(U8(255)) + 1)
+```
+
+```output
+200 -7 3.5 256
+```
+
+```rig reject
+sub main()
+  b = U8(256)
+```
+
+```error
+integer value `256` does not fit in `U8`
+```
 
 A `String` has a length `s.len` and can be indexed (`s[0]`), and a `for`
 loop over it yields its bytes as `U8`. Strings compare with `==` and

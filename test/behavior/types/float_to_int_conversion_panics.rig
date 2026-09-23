@@ -1,0 +1,14 @@
+# Converting a float whose integer part does not fit the target type
+# panics when the program runs.
+
+fun rt(x: Float) -> Float
+  x
+
+sub main()
+  print(I8(rt(127.9)))
+  print(I8(rt(128.0)))
+
+# expect-panic: integer part of floating point value out of bounds
+
+# expect:
+# 127

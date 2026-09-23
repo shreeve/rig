@@ -2003,6 +2003,10 @@ const Checker = struct {
             const name = self.text(callee);
             const id = self.lookupQuiet(callee) orelse {
                 if (std.mem.eql(u8, name, "print")) return self.checkPrint(args);
+                if (decls.isNumericTypeName(name)) {
+                    var r = self.resolver();
+                    return self.checkConversion(try r.resolveType(callee), name, args, callee.src.pos);
+                }
                 try self.err(callee.src.pos, "use of unbound name `{s}`", .{name});
                 try self.synthArgs(args);
                 return self.t().invalid_id;
@@ -2084,6 +2088,43 @@ const Checker = struct {
                 _ = try self.synthExpr(a.list[2]);
             } else _ = try self.synthExpr(a);
         }
+    }
+
+    /// `I32(x)`, `U8(x)`, `Float(n)`, `Int(f)`: a numeric conversion to
+    /// the named type. It is checked: a value that does not fit panics
+    /// when the program runs, and a float converted to an integer is
+    /// truncated toward zero. A constant argument is converted now, so
+    /// it must fit.
+    fn checkConversion(self: *Checker, target: TypeId, name: []const u8, args: []const Sexp, pos: u32) Error!TypeId {
+        if (args.len != 1 or isHead(args[0], .@"kwarg")) {
+            try self.err(pos, "`{s}(x)` converts one number; it takes exactly one argument", .{name});
+            try self.synthArgs(args);
+            return target;
+        }
+        const arg = args[0];
+        const from = readValue(self.ctx, try self.synthExpr(arg));
+        if (self.isPoison(from)) return target;
+        if (!types.isNumeric(self.ctx, from)) {
+            try self.err(firstSrcPos(arg), "`{s}(x)` converts a number; `x` has type `{s}`", .{ name, try self.tyName(from) });
+            return target;
+        }
+        const tt = self.ctx.types.get(target);
+        if (tt != .int) return target;
+        if (types.isInteger(self.ctx, from)) {
+            try self.checkLiteralFits(arg, target);
+            return target;
+        }
+        // A constant float: its integer part must fit.
+        if (constFloatOf(self.ctx.source, arg)) |f| {
+            const bits: u8 = if (tt.int.bits == 0) 64 else tt.int.bits;
+            const min: f64 = if (tt.int.signed) -std.math.pow(f64, 2, @floatFromInt(bits - 1)) else 0;
+            const limit: f64 = std.math.pow(f64, 2, @floatFromInt(if (tt.int.signed) bits - 1 else bits));
+            const whole = @trunc(f);
+            if (!(whole >= min and whole < limit)) {
+                try self.err(firstSrcPos(arg), "`{d}` does not fit in `{s}`", .{ f, try self.tyName(target) });
+            }
+        }
+        return target;
     }
 
     /// `print(a, b, ...)`: any number of values, printed on one line.
@@ -3470,6 +3511,14 @@ fn isStatementForm(e: Sexp) bool {
         .@"set", .@"while", .@"for", .@"drop", .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .@"labeled" => true,
         else => false,
     };
+}
+
+/// The value of a float literal, possibly negated: `2.5`, `-1e3`.
+fn constFloatOf(source: []const u8, e: Sexp) ?f64 {
+    if (isHead(e, .@"neg")) return -(constFloatOf(source, e.list[1]) orelse return null);
+    const t = identAt(source, e) orelse return null;
+    if (!types.isFloatLiteralText(t)) return null;
+    return std.fmt.parseFloat(f64, t) catch null;
 }
 
 /// An integer literal, possibly negated: `42`, `-1`.

@@ -25,6 +25,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const types = @import("types.zig");
+const sema_decls = @import("sema_decls.zig");
 const diag = @import("diag.zig");
 const runtime = @import("runtime.zig");
 
@@ -2263,6 +2264,7 @@ pub const Emitter = struct {
         const args = items[2..];
 
         if (self.isPrintCall(sexp)) return self.emitPrint(args);
+        if (callee == .src and self.sema.symbolOf(callee) == null and sema_decls.isNumericTypeName(self.srcText(callee))) return self.emitConversion(sexp);
         if (isTagged(callee, .@"enum_lit")) return self.emitVariantLit(sexp);
         if (isTagged(callee, .@"lambda")) return self.emitInlineInvoke(sexp);
 
@@ -2315,6 +2317,31 @@ pub const Emitter = struct {
         try self.w.writeAll("(");
         try self.emitArgs(sexp);
         try self.w.writeAll(")");
+    }
+
+    /// `I32(x)` → `@as(i32, @intCast(@as(i64, x)))`, with the builtin
+    /// chosen by the kinds of the two types. Zig checks that the value
+    /// fits in safe builds; `@intFromFloat` truncates toward zero.
+    fn emitConversion(self: *Emitter, call: Sexp) Error!void {
+        const target = self.typeOf(call) orelse return self.unsupported(call, "an untyped conversion");
+        const arg = argValue(call.list[2]);
+        const arg_ty = self.typeOf(arg) orelse return self.unsupported(call, "this conversion");
+        const from = switch (self.sema.types.get(self.peelBorrows(arg_ty))) {
+            .int, .float => self.peelBorrows(arg_ty),
+            .int_literal => self.sema.types.int_id,
+            .float_literal => self.sema.types.float_id,
+            else => return self.unsupported(call, "this conversion"),
+        };
+        const to_int = self.sema.types.get(target) == .int;
+        const from_int = self.sema.types.get(from) == .int;
+        const builtin = if (to_int) (if (from_int) "@intCast" else "@intFromFloat") else (if (from_int) "@floatFromInt" else "@floatCast");
+        try self.w.writeAll("@as(");
+        try self.emitTypeTy(target);
+        try self.w.print(", {s}(@as(", .{builtin});
+        try self.emitTypeTy(from);
+        try self.w.writeAll(", ");
+        try self.emitBare(arg);
+        try self.w.writeAll(")))");
     }
 
     /// `(|n| print n)()`: the closure is built and called in a block.

@@ -1435,19 +1435,35 @@ pub fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
     return null;
 }
 
-/// `I8`..`I64`, `U8`..`U64`, `F32`, `F64`.
+/// `I8`..`I64`, `U8`..`U64`, `F32`, `F64`. `I64` is `Int` and `F64` is
+/// `Float`: the same types under their sized names.
 pub fn sizedTypeId(ctx: *SemContext, name: []const u8) ?Error!TypeId {
     if (name.len < 2 or name.len > 3) return null;
     const bits = std.fmt.parseInt(u8, name[1..], 10) catch return null;
     switch (name[0]) {
         'I', 'U' => {
             if (bits != 8 and bits != 16 and bits != 32 and bits != 64) return null;
+            if (bits == 64 and name[0] == 'I') return ctx.types.int_id;
             return ctx.intern(.{ .int = .{ .bits = bits, .signed = name[0] == 'I' } });
         },
         'F' => {
             if (bits != 32 and bits != 64) return null;
+            if (bits == 64) return ctx.types.float_id;
             return ctx.intern(.{ .float = .{ .bits = bits } });
         },
         else => return null,
     }
+}
+
+/// Whether `name` spells a numeric type: `Int`, `Float`, or a sized one.
+/// Called like a function, such a name converts a number to that type.
+pub fn isNumericTypeName(name: []const u8) bool {
+    if (std.mem.eql(u8, name, "Int") or std.mem.eql(u8, name, "Float")) return true;
+    if (name.len < 2 or name.len > 3) return false;
+    const bits = std.fmt.parseInt(u8, name[1..], 10) catch return false;
+    return switch (name[0]) {
+        'I', 'U' => bits == 8 or bits == 16 or bits == 32 or bits == 64,
+        'F' => bits == 32 or bits == 64,
+        else => false,
+    };
 }

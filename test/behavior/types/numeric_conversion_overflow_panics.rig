@@ -1,0 +1,14 @@
+# A conversion whose value does not fit the target type panics when the
+# program runs.
+
+fun rt(x: Int) -> Int
+  x
+
+sub main()
+  print(U8(rt(255)))
+  print(U8(rt(256)))
+
+# expect-panic: integer does not fit in destination type
+
+# expect:
+# 255
