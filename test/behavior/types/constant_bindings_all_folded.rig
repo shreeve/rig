@@ -1,0 +1,18 @@
+# A constant binding whose every use is computed ahead of time (inside a
+# block value, or a `=!` binding) is still fine to declare.
+
+sub main()
+  x = 3
+  y = if x > 2
+    z = x * 2
+    z + 1
+  else
+    0
+  k =! 4
+  print(k + 1)
+  j =! k * 2
+  print(y, j - 1)
+
+# expect:
+# 5
+# 7 7

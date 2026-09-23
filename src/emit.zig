@@ -919,7 +919,7 @@ pub const Emitter = struct {
         // known, and Zig would then evaluate later arithmetic on it at
         // compile time; Rig treats it as a run-time value.
         const is_var = s.flags.reassigned or (!holds_ptr and (s.flags.written or needs_ptr_self or
-            (!s.flags.comptime_known and !is_move and self.isZigComptime(expr))));
+            (!s.flags.comptime_known and !is_move and (self.isZigComptime(expr) or self.sema.const_ints.contains(sym)))));
 
         // Evaluate the value before the new name is visible, so a shadow
         // (`new x = x + 1`) reads the old binding.
@@ -964,6 +964,9 @@ pub const Emitter = struct {
             try self.w.print(" _ = &{s};", .{stored.zig_name});
         } else if (!self.usage.used.contains(sym)) {
             try self.w.print(" _ = {s};", .{stored.zig_name});
+        } else if (self.sema.const_ints.contains(sym)) {
+            // A constant's uses may all be folded away.
+            try self.w.print(" _ = &{s};", .{stored.zig_name});
         }
     }
 
