@@ -637,7 +637,11 @@ pub const TypeResolver = struct {
             .list => |items| {
                 const h = headOf(param) orelse return self.ctx.types.invalid_id;
                 switch (h) {
-                    .@":", .@"pre_param", .@"default" => if (items.len >= 3) return self.resolveType(items[2]),
+                    .@":", .@"pre_param" => if (items.len >= 3) return self.resolveType(items[2]),
+                    .@"default" => {
+                        try self.ctx.err(types.paramPos(param, firstSrcPos(param)), "default parameter values are not supported yet", .{});
+                        if (items.len >= 3) return self.resolveType(items[2]);
+                    },
                     .@"read", .@"write" => {
                         const name = identAt(self.ctx.source, items[1]) orelse return self.ctx.types.invalid_id;
                         const pos = srcPos(items[1], 0);
@@ -828,7 +832,7 @@ pub const TypeResolver = struct {
         if (head == .@"struct") {
             var glue = false;
             for (owned) |f| {
-                if (f.is_drop_method or (!f.is_method and typeHasGlue(self.ctx, f.ty))) glue = true;
+                if (f.is_drop_method or (!f.is_method and types.typeHasDropGlue(self.ctx, f.ty))) glue = true;
             }
             self.ctx.symbols.items[sym_id].flags.has_drop_glue = glue;
             for (members) |m| {
@@ -1032,7 +1036,7 @@ pub const TypeResolver = struct {
         const fname = identAt(self.ctx.source, member.list[2]) orelse return;
         for (fields) |f| {
             if (f.is_method or f.is_variant or !std.mem.eql(u8, f.name, fname)) continue;
-            if (typeHasGlue(self.ctx, f.ty)) {
+            if (types.typeHasDropGlue(self.ctx, f.ty)) {
                 try self.ctx.err(srcPos(member.list[2], 0), "cannot {s} resource field `self.{s}` inside drop body; fields are dropped automatically after the user drop body returns, so a manual {s} would race the auto-generated drop and double-free", .{ op, fname, op });
             }
             return;
@@ -1190,7 +1194,7 @@ pub const TypeResolver = struct {
     fn builtinArgError(self: *TypeResolver, sym_id: SymbolId, args: []const TypeId) Error!?[]const u8 {
         const a = self.ctx.arena.allocator();
         if (sym_id == self.ctx.cell_sym_id) {
-            if (types.isCopyPrimitive(self.ctx, args[0]) or typeHasGlue(self.ctx, args[0])) return null;
+            if (types.isCopyPrimitive(self.ctx, args[0]) or types.typeHasDropGlue(self.ctx, args[0])) return null;
             return try std.fmt.allocPrint(a, "`Cell(T)` requires `T` to be a Copy primitive (Int, Bool, Float, String) OR a type with drop glue (`*T`, `~T`, `Vec(T)`, `*Closure()`, struct with resource fields or user `drop`); got `{s}`", .{try types.formatType(self.ctx, args[0])});
         }
         if (sym_id == self.ctx.vec_sym_id) {
@@ -1259,12 +1263,6 @@ pub const TypeResolver = struct {
         try leaks.append(self.ctx.allocator, sym_id);
     }
 };
-
-/// `typeHasDropGlue`, but reading flags that may not have converged yet
-/// (used while struct fields are still being resolved).
-fn typeHasGlue(ctx: *const SemContext, ty: TypeId) bool {
-    return types.typeHasDropGlue(ctx, ty);
-}
 
 fn dropPos(node: Sexp) u32 {
     if (node.list.len >= 2 and node.list[1] == .list) {
