@@ -1447,9 +1447,9 @@ write `<a` or `+a`. Sharing a value that is already a shared handle
 a handle automatically, including through fields and loop elements.
 Writing a field, calling a `!self` method, or consuming the value
 through a handle is rejected, because other handles share it; shared
-mutable state goes in a `Cell` ([§11](#cell)). The built-in `Vec` is
-the exception: `(!h).push(x)` works through a `*Vec(T)`, whose elements
-can never be borrowed.
+mutable state goes in a `Cell` ([§11](#cell)). The built-in `Vec` is no
+exception: `(!h).push(x)` through a `*Vec(T)` is rejected, and a shared
+Vec is a `*Cell(Vec(T))`.
 
 ```rig reject
 struct User
@@ -1531,16 +1531,41 @@ mutable value.
 copied out of a cell: it moves in with `set` / `replace` and moves out
 with `replace`.
 
+A Cell is interior-mutable: `set` and `replace` change it through any
+path to it, including a read borrow (`?Cell(T)`), a `?self` method of a
+struct holding one, and a shared handle. A by-value parameter is
+immutable, and a loop or match binding is only a copy, so neither can
+be changed (or lent to something that could change it).
+
 ```rig
+struct Counter
+  hits: Cell(Int)
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub bump(c: ?Cell(Int))
+  c.set(c.get() + 10)
+
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
   other = +count
   other.set(other.get() + 5)
-  print(count.get())
+  local: Cell(Int) = Cell(value: 1)
+  bump(?local)
+  k = Counter(hits: Cell(value: 0))
+  k.hit()
+  k.hit()
+  print(count.get(), local.get(), k.hits.get())
+
+  shared: *Cell(Vec(Int)) = *Cell(value: Vec())
+  v = shared.replace(Vec())
+  (!v).push(7)
+  shared.set(<v)
 ```
 
 ```output
-5
+5 11 2
 ```
 
 ### Vec

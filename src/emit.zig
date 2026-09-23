@@ -78,6 +78,9 @@ const Local = struct {
     /// A match payload binding: the scrutinee it views. Moving it out
     /// consumes the scrutinee.
     scrutinee: ?SymbolId = null,
+    /// A by-value parameter copied into a `var` at the top of the body,
+    /// because it holds a Cell that a borrow of it may change.
+    mutable_copy: bool = false,
 };
 
 const Scope = struct {
@@ -497,6 +500,7 @@ pub const Emitter = struct {
                 local.is_ptr = true;
             } else if (ty) |t| {
                 local.kind = self.kindOf(t);
+                local.mutable_copy = local.kind == null and types.holdsCellByValue(self.sema, t);
             }
             if (local.kind != null) local.guard = if (self.usage.consumed.contains(sym)) .flag else .scope;
             _ = try self.declare(local, self.srcText(name_node));
@@ -505,7 +509,7 @@ pub const Emitter = struct {
 
     /// The Zig spelling of a parameter as the signature names it.
     fn paramZigName(self: *Emitter, local: *const Local) Error![]const u8 {
-        if (local.kind == .value or local.kind == .optional) return self.fmt("__rig_{s}", .{local.zig_name});
+        if (local.kind == .value or local.kind == .optional or local.mutable_copy) return self.fmt("__rig_{s}", .{local.zig_name});
         return local.zig_name;
     }
 
@@ -559,6 +563,10 @@ pub const Emitter = struct {
             const local = self.localOf(paramNameNode(p) orelse continue) orelse continue;
             if (local.kind == .value or local.kind == .optional) {
                 try self.line("var {s} = {s};", .{ local.zig_name, try self.paramZigName(local) });
+            } else if (local.mutable_copy) {
+                try self.line("var {s} = {s};", .{ local.zig_name, try self.paramZigName(local) });
+                try self.line("_ = &{s};", .{local.zig_name});
+                continue;
             }
             if (local.guard != .none) {
                 try self.writeIndent(self.indent);
@@ -902,8 +910,10 @@ pub const Emitter = struct {
         }
         if (local.kind != null) local.guard = if (self.usage.consumed.contains(sym)) .flag else .scope;
 
+        // A Cell can change through any path to it, so a value holding
+        // one lives in mutable storage.
         const needs_ptr_self = local.kind == .value or local.kind == .optional or
-            (ty != null and self.isCellTy(ty.?));
+            (ty != null and types.holdsCellByValue(self.sema, ty.?));
         // A constant initializer would make a Zig `const` compile-time
         // known, and Zig would then evaluate later arithmetic on it at
         // compile time; Rig treats it as a run-time value.
@@ -2317,6 +2327,22 @@ pub const Emitter = struct {
             return self.w.writeAll(" })");
         };
 
+        // `set` / `replace` change a Cell through any path to it: the
+        // receiver's address, which may be a `*const` read borrow, is
+        // cast to a mutable pointer. Sema keeps every Cell in mutable
+        // storage, so the cast is sound.
+        if (isTagged(callee, .@"member")) if (self.typeOf(callee.list[1])) |t| if (self.isCellTy(t) and self.sema.types.get(self.peelBorrows(t)) != .shared) {
+            const m = self.srcText(callee.list[2]);
+            if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "replace")) {
+                var obj = callee.list[1];
+                while (isTagged(obj, .@"read") or isTagged(obj, .@"write")) obj = obj.list[1];
+                try self.w.writeAll("@constCast(");
+                try self.emitAddressOf(obj);
+                try self.w.print(").{s}(", .{m});
+                try self.emitArgs(sexp);
+                return self.w.writeAll(")");
+            }
+        };
         if (self.sema.callSlotsOf(sexp)) |slots| {
             if (reordersEffects(slots, args)) return self.emitCallInSourceOrder(sexp, slots);
         }

@@ -1,11 +1,21 @@
-# `*Vec(Int)`: a Vec inside a shared box; pushes go through the handle
-# and the Vec is freed when the last strong handle drops.
+# A Vec shared between handles lives in a Cell: `*Cell(Vec(Int))`. A
+# handle reads the shared value but never writes through it; `replace`
+# takes the Vec out, and `set` puts it back. The Vec is freed when the
+# last strong handle drops.
+
+sub push_all(cell: ?*Cell(Vec(Int)), n: Int)
+  v = cell.replace(Vec())
+  for i in 0..n
+    (!v).push(i * 100)
+  cell.set(<v)
 
 sub main()
-  rv: *Vec(Int) = *Vec()
-  (!rv).push(100)
-  (!rv).push(200)
-  print(rv.length())                # 2
+  shared: *Cell(Vec(Int)) = *Cell(value: Vec())
+  other = +shared
+  push_all(?other, 3)
+  v = shared.replace(Vec())
+  print(v.length(), v[2])
+  shared.set(<v)
 
 # expect:
-# 2
+# 3 200

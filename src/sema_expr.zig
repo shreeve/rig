@@ -1579,6 +1579,14 @@ const Checker = struct {
         const inner = try self.synthOperand(items[1]);
         if (self.isPoison(inner)) return inner;
         if (kind == .write) try self.checkWritable(items[1], "write-borrow");
+        // A borrow of a value holding a Cell can change the Cell, which a
+        // loop or match binding only copies.
+        if (kind == .read and items[1] == .src and types.holdsCellByValue(self.ctx, inner)) {
+            if (self.ctx.symbolOf(items[1])) |id| if (self.ctx.symbols.items[id].flags.pattern_bound) {
+                try self.err(firstSrcPos(items[1]), "cannot borrow `{s}`: it holds a Cell, and a loop or match binding is a copy, so changes through the borrow would be lost", .{self.text(items[1])});
+                return self.t().invalid_id;
+            };
+        }
         switch (self.ctx.types.get(inner)) {
             .borrow_read => {
                 if (kind == .read) return inner;
@@ -2529,11 +2537,19 @@ const Checker = struct {
         try self.noteCallee(resolved.fn_ty);
         if (resolved.receiver != .value) try self.rejectResourceTemporary(obj, obj_ty);
 
+        // A `?self` method may change a Cell the value holds; a loop or
+        // match binding is only a copy of it.
+        if (resolved.nominal_sym != self.ctx.cell_sym_id and resolved.receiver == .read and obj == .src and types.holdsCellByValue(self.ctx, obj_ty)) {
+            if (self.ctx.symbolOf(obj)) |id| if (self.ctx.symbols.items[id].flags.pattern_bound) {
+                try self.err(firstSrcPos(obj), "cannot call `{s}` on `{s}`: it holds a Cell the method may change, and a loop or match binding is a copy, so the change would be lost", .{ method, self.text(obj) });
+            };
+        }
         if (resolved.nominal_sym == self.ctx.cell_sym_id) {
-            if (std.mem.eql(u8, method, "set") and !self.isAddressableCell(obj, obj_ty)) {
-                try self.err(pos, "`Cell.set` requires an addressable Cell receiver: a local Cell binding or a shared Cell handle (`*Cell(T)`). Cell parameters, borrows, and temporaries cannot be mutated.", .{});
+            const stores = std.mem.eql(u8, method, "set") or std.mem.eql(u8, method, "replace");
+            if (stores and !self.cellSettable(obj)) {
+                try self.err(pos, "`Cell.{s}` needs a Cell that has a place: a local binding, a field of one, or one reached through a borrow (`?T` or `!T`) or a shared handle (`*T`). A by-value parameter, a loop or match binding (a copy), or a temporary cannot be changed.", .{method});
                 try self.synthArgs(args);
-                return self.t().void_id;
+                return if (std.mem.eql(u8, method, "set")) self.t().void_id else resolved.fn_ty.returns;
             }
             if (std.mem.eql(u8, method, "get")) {
                 if (cellElementType(self.ctx, obj_ty)) |elem| {
@@ -2674,15 +2690,33 @@ const Checker = struct {
         return self.t().invalid_id;
     }
 
-    /// `Cell.set` mutates through a pointer, so the receiver must be a
-    /// local Cell (emitted as `var`) or a `*Cell(T)` handle.
-    fn isAddressableCell(self: *Checker, recv: Sexp, recv_ty: TypeId) bool {
-        const ty = self.ctx.types.get(recv_ty);
-        if (ty == .shared) return true;
-        if (ty == .borrow_read or ty == .borrow_write) return false;
-        if (recv != .src) return false;
-        const id = self.ctx.symbolOf(recv) orelse return false;
-        return self.ctx.symbols.items[id].kind == .local;
+    /// A Cell is interior-mutable: `set` and `replace` change it through
+    /// any path that reaches its storage, including a read borrow or a
+    /// shared handle. The storage is a local binding (or a field or
+    /// element of one), a capture held by a closure environment, or
+    /// anything behind a borrow or handle. A by-value parameter is
+    /// immutable, and a loop or match binding is a copy, so changing it
+    /// would not change the value it came from.
+    fn cellSettable(self: *Checker, recv: Sexp) bool {
+        var p = recv;
+        while (isHead(p, .@"read") or isHead(p, .@"write")) p = p.list[1];
+        while (true) {
+            if (self.ctx.typeOf(p)) |ty| switch (self.ctx.types.get(ty)) {
+                .borrow_read, .borrow_write, .shared => return true,
+                else => {},
+            };
+            const h = headOf(p) orelse break;
+            if (h != .@"member" and h != .@"index") return false;
+            p = p.list[1];
+        }
+        if (p != .src) return false;
+        const id = self.ctx.symbolOf(p) orelse return false;
+        const sym = self.ctx.symbols.items[id];
+        return switch (sym.kind) {
+            .local => !sym.flags.pattern_bound,
+            .capture => true,
+            else => false,
+        };
     }
 
     /// Receiver rules: `?self` auto-borrows; `!self` needs an explicit
@@ -3424,21 +3458,23 @@ fn classifyReceiverType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
             };
         }
     }.f;
+    // A borrow of a shared handle (`(!h).m()` with `h: *T`) still reaches
+    // the value through the handle.
+    if (ctx.types.get(types.unwrapBorrows(ctx, ty_id)) == .shared) return .shared;
     return switch (ctx.types.get(ty_id)) {
         .nominal, .parameterized_nominal => if (matches(ctx, ty_id, nominal_sym)) .owned_nominal else .other,
         .borrow_read => |i| if (matches(ctx, i, nominal_sym)) .read_borrow else .other,
         .borrow_write => |i| if (matches(ctx, i, nominal_sym)) .write_borrow else .other,
-        .shared => |i| if (matches(ctx, i, nominal_sym)) .shared else .other,
         else => .other,
     };
 }
 
 fn classifyImportedReceiver(ctx: *const SemContext, ty_id: TypeId) ReceiverTypeKind {
+    if (ctx.types.get(types.unwrapBorrows(ctx, ty_id)) == .shared) return .shared;
     return switch (ctx.types.get(ty_id)) {
         .imported_nominal => .owned_nominal,
         .borrow_read => .read_borrow,
         .borrow_write => .write_borrow,
-        .shared => .shared,
         else => .other,
     };
 }
