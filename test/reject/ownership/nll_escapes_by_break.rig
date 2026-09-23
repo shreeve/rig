@@ -1,0 +1,22 @@
+# A borrow of a loop-body local that is used after the loop cannot
+# leave the loop by `break`.
+
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  drop self: !Box
+    print("drop", self.n)
+
+sub main()
+  a = Box(n: 1)
+  r = ?a
+  while true
+    b = Box(n: 2)
+    r = ?b
+    break
+  print(r.n)
+
+# error: `b` does not live long enough

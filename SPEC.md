@@ -1204,9 +1204,61 @@ cannot write-borrow `u` while a read borrow is live
 **How long a borrow lives.** A borrow passed to a call ends when the
 call returns, so two calls in one statement may each write-borrow the
 same value. A method call borrows its receiver for the whole call, so
-`rc.show(<rc)` is rejected. A borrow stored in a binding lasts until the end of that
-binding's block, or until the binding is dropped with `-r` or
-reassigned.
+`rc.show(<rc)` is rejected. A borrow stored in a binding, or in a view
+([below](#second-class-borrows)), lasts until its last use. Every later
+use counts: a use further on, a use anywhere in a loop around it that
+the binding was declared outside of (the next iteration runs it again),
+a closure that captured it (and every use of that closure), a binding
+that borrows the view in turn, deferred code, and the drop at scope
+exit of a value whose type has drop glue. The binding's block ending,
+`-r`, or reassigning it also end the borrow.
+
+```rig
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+struct View
+  box: ?Box
+
+sub main()
+  x = Box(n: 1)
+  r = ?x
+  print(r.n)
+  (!x).bump()
+  v = View(box: ?x)
+  print(v.box.n)
+  x = Box(n: 7)
+  print(x.n)
+```
+
+```output
+1
+2
+7
+```
+
+```rig reject
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+sub main()
+  x = Box(n: 1)
+  r = ?x
+  i = 0
+  while i < 2 : i += 1
+    print(r.n)
+    (!x).bump()
+```
+
+```error
+cannot write-borrow `x` while a read borrow is live
+```
 
 #### Write borrows
 

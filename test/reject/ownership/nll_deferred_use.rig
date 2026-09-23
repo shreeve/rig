@@ -1,0 +1,19 @@
+# Deferred code runs at scope exit: a borrow it uses is live until
+# then.
+
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  drop self: !Box
+    print("drop", self.n)
+
+sub main()
+  x = Box(n: 1)
+  r = ?x
+  defer print(r.n)
+  (!x).bump()
+
+# error: cannot write-borrow `x` while a read borrow is live

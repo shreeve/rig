@@ -1,0 +1,22 @@
+# A guarded statement's operands are all used when it runs, though the
+# guard comes last in the source.
+
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  drop self: !Box
+    print("drop", self.n)
+
+sub pair(r: ?Box, w: !Box)
+  print(r.n, w.n)
+
+sub main()
+  flag = true
+  x = Box(n: 1)
+  r = ?x
+  pair(r, !x) if flag
+
+# error: cannot write-borrow `x` while a read borrow is live

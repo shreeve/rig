@@ -9,6 +9,10 @@
 //!   paired with a `Flow` (status `live` / `moved` / `dropped`, plus the
 //!   loans its value holds). Vars form a stack; leaving a scope truncates
 //!   it, so a var index is valid exactly while the var is in scope.
+//! * Every write to a flow goes on a trail with the value it replaced.
+//!   Going back to a `Point` undoes the writes since; a branch or jump
+//!   captures its `State` as the flows changed since its construct's
+//!   point, so snapshots and joins cost what changed, not the scope.
 //! * A `Loan` is a read or write borrow of a root var. Loans travel with
 //!   values: `r = ?a` stores a read loan on `a` in `r`; `View(box: ?a)`
 //!   carries it into the struct; a call whose result type can hold a
@@ -22,6 +26,9 @@
 //!   into other borrowed parameters, and it never conflicts.
 //! * Types come from sema's facts table (`typeOf`, `symbolAt`); an
 //!   unknown type is assumed to be able to hold a borrow.
+//! * A loan is in force only while the var holding it is live: while
+//!   it may be used again (see `holderLive`). Borrows end at their last
+//!   use, not at the end of their block.
 //!
 //! Control flow
 //! ------------
@@ -141,6 +148,8 @@ const Var = struct {
     /// A loop element: the var holding the collection it walks, whose
     /// loans are the borrows its elements may hold.
     elem_of: ?VarId = null,
+    /// The sema symbol it binds, for its uses (see `holderLive`).
+    sym: ?SymbolId = null,
     /// Resource captured into a closure environment (`|+x|`, `|~x|`,
     /// `|<x|`): the body sees a borrowed view of the env slot.
     capture_resource: bool = false,
@@ -165,6 +174,9 @@ const Scope = struct {
     start: u32,
     kind: ScopeKind,
     defers: std.ArrayListUnmanaged(Sexp) = .empty,
+    /// The code the scope covers, whose end is where its vars go out of
+    /// scope; `.nil` when not known.
+    node: Sexp = .nil,
 };
 
 /// One change to a var's flow, kept so it can be undone.
@@ -222,6 +234,9 @@ const LoopCtx = struct {
     parent: ?*LoopCtx,
     /// False for a labeled block: only `break :label` leaves it.
     is_loop: bool = true,
+    /// Source position where the loop starts: code from here on may run
+    /// again in the next iteration.
+    start: u32 = 0,
 };
 
 const TryCtx = struct {
@@ -311,6 +326,15 @@ pub const Checker = struct {
     trail: std.ArrayListUnmanaged(Change) = .empty,
     /// Scratch space for `capture`.
     scratch: std.ArrayListUnmanaged(VarId) = .empty,
+    /// Borrows end at their last use (see `holderLive`): for the function
+    /// being checked, the last position each symbol is used at, and the
+    /// symbols used in deferred code, which runs at scope exit.
+    last_use: std.AutoHashMapUnmanaged(SymbolId, u32) = .empty,
+    defer_used: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
+    /// `last_use` describes the code being walked.
+    nll: bool = false,
+    /// The innermost statement being walked.
+    cur_stmt: Sexp = .nil,
     scopes: std.ArrayListUnmanaged(Scope) = .empty,
     /// Loans taken by the current statement and not stored in a var.
     temps: std.ArrayListUnmanaged(Loan) = .empty,
@@ -360,6 +384,8 @@ pub const Checker = struct {
         self.flows.deinit(self.gpa);
         self.trail.deinit(self.gpa);
         self.scratch.deinit(self.gpa);
+        self.last_use.deinit(self.gpa);
+        self.defer_used.deinit(self.gpa);
         for (self.scopes.items) |*s| s.defers.deinit(self.gpa);
         self.scopes.deinit(self.gpa);
         self.temps.deinit(self.gpa);
@@ -470,7 +496,12 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn pushScope(self: *Checker, kind: ScopeKind) Error!void {
-        try self.scopes.append(self.gpa, .{ .start = @intCast(self.vars.items.len), .kind = kind });
+        try self.pushScopeFor(kind, .nil);
+    }
+
+    /// A scope covering `node`.
+    fn pushScopeFor(self: *Checker, kind: ScopeKind, node: Sexp) Error!void {
+        try self.scopes.append(self.gpa, .{ .start = @intCast(self.vars.items.len), .kind = kind, .node = node });
     }
 
     /// Leave the innermost scope: run its defers, check that nothing that
@@ -481,18 +512,21 @@ pub const Checker = struct {
         var scope = self.scopes.pop().?;
         defer scope.defers.deinit(self.gpa);
         const start = scope.start;
-        try self.releaseVarsFrom(start, self.reachable);
+        const ext = extent(scope.node);
+        try self.releaseVarsFrom(start, self.reachable, if (ext.hi >= ext.lo) ext.hi +| 1 else null);
         self.vars.shrinkRetainingCapacity(start);
         self.flows.shrinkRetainingCapacity(start);
     }
 
     /// Remove every loan on vars `>= start` from vars below `start` and
-    /// from the temporaries, reporting each surviving loan when `report`.
-    fn releaseVarsFrom(self: *Checker, start: u32, report: bool) Error!void {
+    /// from the temporaries, reporting each surviving loan when `report`
+    /// and its holder is still live at position `end`, where the scope
+    /// ends (or after the current statement when null).
+    fn releaseVarsFrom(self: *Checker, start: u32, report: bool, end: ?u32) Error!void {
         for (0..@min(start, self.flows.items.len)) |holder| {
             var f = self.flows.items[holder];
             if (!hasLoanFrom(f.loans, start)) continue;
-            if (report) {
+            if (report and self.holderLive(@intCast(holder), end)) {
                 for (f.loans) |l| if (l.root >= start) try self.reportShortLived(l, @intCast(holder));
             }
             f.loans = try self.filterLoansBelow(f.loans, start);
@@ -519,8 +553,12 @@ pub const Checker = struct {
         try self.note(root.decl, "`{s}` goes out of scope while still borrowed", .{root.name});
     }
 
-    fn addVar(self: *Checker, v: Var, flow: Flow) Error!VarId {
+    fn addVar(self: *Checker, var_: Var, flow: Flow) Error!VarId {
         const id: VarId = @intCast(self.vars.items.len);
+        var v = var_;
+        if (v.kind != .hidden) if (self.sema) |sema| {
+            v.sym = sema.symbolAt(v.decl);
+        };
         try self.vars.append(self.gpa, v);
         try self.flows.append(self.gpa, flow);
         return id;
@@ -755,12 +793,103 @@ pub const Checker = struct {
     /// Vars that view `skip_alias_of` (payload bindings of that scrutinee)
     /// are ignored.
     fn findLoan(self: *Checker, root: VarId, q: LoanQuery, skip_alias_of: ?VarId) ?Loan {
-        for (self.flows.items, self.vars.items) |f, v| {
+        for (self.flows.items, self.vars.items, 0..) |f, v, holder| {
             if (skip_alias_of != null and v.alias_of == skip_alias_of) continue;
-            for (f.loans) |l| if (loanMatches(l, root, q)) return l;
+            for (f.loans) |l| if (loanMatches(l, root, q)) {
+                if (self.holderLive(@intCast(holder), null)) return l;
+                break;
+            };
         }
         for (self.temps.items) |l| if (loanMatches(l, root, q)) return l;
         return null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Liveness: a borrow ends at its last use
+    // -------------------------------------------------------------------------
+
+    /// Record the last use of every symbol in `e` (a function's parameters
+    /// and body), and the symbols deferred code uses. A capture's own
+    /// leaf is also a use of the binding it captures.
+    fn indexUses(self: *Checker, e: Sexp, in_defer: bool) Error!void {
+        switch (e) {
+            .src => |s| {
+                const sema = self.sema orelse return;
+                const sym = sema.symbolOf(e) orelse return;
+                try self.noteUse(sym, s.pos, in_defer);
+                const d = sema.symbols.items[sym];
+                if (d.kind == .capture and d.decl_pos == s.pos and d.origin != types.symbol_invalid) {
+                    try self.noteUse(d.origin, s.pos, in_defer);
+                }
+            },
+            .list => |items| {
+                const deferred = in_defer or isTag(e, .@"defer") or isTag(e, .@"errdefer");
+                for (items) |c| try self.indexUses(c, deferred);
+            },
+            else => {},
+        }
+    }
+
+    fn noteUse(self: *Checker, sym: SymbolId, pos: u32, in_defer: bool) Error!void {
+        const gop = try self.last_use.getOrPut(self.gpa, sym);
+        if (!gop.found_existing or gop.value_ptr.* < pos) gop.value_ptr.* = pos;
+        if (in_defer) try self.defer_used.put(self.gpa, sym, {});
+    }
+
+    /// Whether the value var `id` holds may still be used after the
+    /// current point (or after position `at`, a scope's end), so the
+    /// loans it holds are still in force. It is live when the var is used
+    /// later in the code, or anywhere in a loop around this point that
+    /// does not also enclose its declaration (the next iteration runs
+    /// that code again), or in deferred code, or when its type has drop
+    /// glue (its drop at scope exit may reach what it borrows), or when a
+    /// live var or temporary borrows it in turn. Otherwise its last use
+    /// is behind, and its borrows have ended.
+    fn holderLive(self: *const Checker, id: VarId, at: ?u32) bool {
+        return self.holderLiveDepth(id, at, 0);
+    }
+
+    fn holderLiveDepth(self: *const Checker, id: VarId, at: ?u32, depth: u8) bool {
+        if (!self.nll or depth > 16) return true;
+        const sema = self.sema orelse return true;
+        const v = self.vars.items[id];
+        if (v.kind == .hidden or v.kind == .param or v.closure or self.isGlobal(id)) return true;
+        const sym = v.sym orelse return true;
+        if (self.defer_used.contains(sym)) return true;
+        const ty = v.ty orelse return true;
+        // A var that owns its value drops it at scope exit. (A match
+        // payload or a borrowed loop element only views a value.)
+        const owns = v.alias_of == null and !v.loop_borrow and v.ref == .none;
+        if (owns and (types.typeHasDropGlue(sema, ty) or types.maybeDropGlue(sema, ty))) return true;
+        if (self.last_use.get(sym)) |last| if (last >= self.liveFrom(v.decl, at)) return true;
+        for (self.flows.items, 0..) |f, j| {
+            if (j == id) continue;
+            for (f.loans) |l| if (l.root == id and !l.ext) {
+                if (self.holderLiveDepth(@intCast(j), at, depth + 1)) return true;
+                break;
+            };
+        }
+        for (self.temps.items) |l| if (l.root == id) return true;
+        return false;
+    }
+
+    /// The first position whose uses of a var declared at `decl` still
+    /// lie ahead: the current statement (or `at`), or the start of an
+    /// enclosing loop the var was declared outside of.
+    fn liveFrom(self: *const Checker, decl: u32, at: ?u32) u32 {
+        var from: u32 = at orelse self.stmtStart();
+        var l = self.loop;
+        while (l) |ctx| : (l = ctx.parent) {
+            if (ctx.is_loop and ctx.start > decl) from = @min(from, ctx.start);
+        }
+        return from;
+    }
+
+    /// Where the current statement starts: its first source position
+    /// (not always its first leaf, for `stmt if cond`).
+    fn stmtStart(self: *const Checker) u32 {
+        const ext = extent(self.cur_stmt);
+        return if (ext.hi >= ext.lo) ext.lo else self.anchor;
     }
 
     fn addTemp(self: *Checker, l: Loan) Error!void {
@@ -818,6 +947,17 @@ pub const Checker = struct {
         // outside it are undone afterwards.
         const outer = try self.here();
         self.reachable = true;
+        const top = self.fn_depth == 0;
+        if (top and self.sema != null) {
+            self.last_use.clearRetainingCapacity();
+            self.defer_used.clearRetainingCapacity();
+            try self.indexUses(params, false);
+            for (body) |b| try self.indexUses(b, false);
+            self.nll = true;
+        }
+        defer if (top) {
+            self.nll = false;
+        };
         self.fn_depth += 1;
         defer self.fn_depth -= 1;
 
@@ -838,6 +978,9 @@ pub const Checker = struct {
             try self.checkAfterJump(stmts, i);
             if (!self.reachable) break;
             if (returns_value and i == stmts.len - 1 and isValueExpr(stmt)) {
+                const saved_stmt = self.cur_stmt;
+                self.cur_stmt = stmt;
+                defer self.cur_stmt = saved_stmt;
                 try self.walkReturnValue(stmt);
             } else {
                 try self.walkStmt(stmt);
@@ -912,6 +1055,9 @@ pub const Checker = struct {
         var saved: std.ArrayListUnmanaged(Loan) = .empty;
         defer saved.deinit(self.gpa);
         try saved.appendSlice(self.gpa, self.temps.items);
+        const saved_stmt = self.cur_stmt;
+        self.cur_stmt = stmt;
+        defer self.cur_stmt = saved_stmt;
         const v = try self.walk(stmt);
         try self.restoreTemps(saved.items);
         return v;
@@ -924,6 +1070,9 @@ pub const Checker = struct {
         var saved: std.ArrayListUnmanaged(Loan) = .empty;
         defer saved.deinit(self.gpa);
         try saved.appendSlice(self.gpa, self.temps.items);
+        const saved_stmt = self.cur_stmt;
+        self.cur_stmt = expr;
+        defer self.cur_stmt = saved_stmt;
         const v = try self.walkConsumed(expr, .binding);
         try self.restoreTemps(saved.items);
         return v;
@@ -939,7 +1088,7 @@ pub const Checker = struct {
     /// Walk a `(block ...)` in its own scope; its value is the value of
     /// its last statement, which may not borrow the block's own locals.
     fn walkBlock(self: *Checker, stmts: []const Sexp) Error!Value {
-        try self.pushScope(.block);
+        try self.pushScopeFor(.block, .{ .list = stmts });
         var v: Value = .{};
         for (stmts, 0..) |s, i| {
             try self.checkAfterJump(stmts, i);
@@ -1835,8 +1984,8 @@ pub const Checker = struct {
                 for (self.temps.items, 0..) |l, i| {
                     if (i != reservation and loanMatches(l, id, .any)) break :blk l;
                 }
-                for (self.flows.items) |f| for (f.loans) |l| {
-                    if (loanMatches(l, id, .any)) break :blk l;
+                for (self.flows.items, 0..) |f, holder| for (f.loans) |l| {
+                    if (loanMatches(l, id, .any) and self.holderLive(@intCast(holder), null)) break :blk l;
                 };
                 break :blk null;
             };
@@ -1956,7 +2105,7 @@ pub const Checker = struct {
         self.loop = null;
         self.try_ctx = null;
         self.reachable = true;
-        try self.pushScope(.closure);
+        try self.pushScopeFor(.closure, body);
         for (caps, cap_values.items) |cap, cv| {
             if (cap != .list or cap.list.len < 2 or cap.list[0] != .tag or cap.list[1] != .src) continue;
             const node = cap.list[1];
@@ -2092,7 +2241,7 @@ pub const Checker = struct {
     fn walkIfAs(self: *Checker, cond: Sexp, then_b: Sexp, else_b: ?Sexp, t: ?Tail) Error!Value {
         const bound = try self.walkConsumed(cond.list[1], .binding);
         const base = try self.here();
-        try self.pushScope(.block);
+        try self.pushScopeFor(.block, then_b);
         try self.bindOptional(cond.list[2], bound);
         var v1 = try self.walkTailBranch(then_b, t);
         v1 = try self.checkValueEscapesScope(v1);
@@ -2132,7 +2281,7 @@ pub const Checker = struct {
         const v1 = try self.walk(items[1]);
         const base = try self.here();
         const handler = items[items.len - 1];
-        try self.pushScope(.block);
+        try self.pushScopeFor(.block, handler);
         if (items[2] != .nil) {
             _ = try self.addVar(.{ .name = self.text(items[2]), .decl = items[2].src.pos, .ty = self.symType(items[2].src.pos) }, .{});
         }
@@ -2179,7 +2328,7 @@ pub const Checker = struct {
             if (!isTag(arm, .@"arm")) continue;
             const pattern = arm.list[1];
             const body = arm.list[arm.list.len - 1];
-            try self.pushScope(.block);
+            try self.pushScopeFor(.block, arm);
             if (try self.bindPattern(pattern, info, scrut_value)) catch_all = true;
             var v = try self.walkTailBranch(body, tail_ctx);
             v = try self.checkValueEscapesScope(v);
@@ -2272,6 +2421,8 @@ pub const Checker = struct {
         source_loan: LoanKind = .read,
         source_pos: u32 = 0,
         resource_vec: bool = false,
+        /// Where the loop starts in the source.
+        start: u32 = 0,
     };
 
     fn walkWhile(self: *Checker, items: []const Sexp) Error!void {
@@ -2284,6 +2435,7 @@ pub const Checker = struct {
             .cont = if (items[2] == .nil) null else items[2],
             .body = items[3],
             .else_body = if (items[4] != .nil) items[4] else null,
+            .start = extent(.{ .list = items }).lo,
         });
     }
 
@@ -2296,6 +2448,7 @@ pub const Checker = struct {
             .else_body = if (items[6] != .nil) items[6] else null,
             .elem1 = items[2],
             .elem2 = items[3],
+            .start = extent(.{ .list = items }).lo,
         };
         if (mode == .@"move") {
             _ = try self.walkMove(source, .move);
@@ -2343,7 +2496,7 @@ pub const Checker = struct {
     }
 
     fn walkLoop(self: *Checker, spec: LoopSpec) Error!void {
-        var ctx: LoopCtx = .{ .label = self.pending_label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop };
+        var ctx: LoopCtx = .{ .label = self.pending_label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .start = spec.start };
         self.pending_label = "";
         self.loop = &ctx;
         defer self.loop = ctx.parent;
@@ -2394,7 +2547,7 @@ pub const Checker = struct {
         }
         const exit: State = if (spec.cond_always_true) .{ .reachable = false } else try self.capture(ctx.point);
 
-        try self.pushScope(.block);
+        try self.pushScopeFor(.block, spec.body);
         if (spec.cond_binding != .nil) try self.bindOptional(spec.cond_binding, bound);
         try self.bindLoopElems(spec);
         try self.walkStmt(spec.body);
@@ -2519,6 +2672,7 @@ pub const Checker = struct {
         try self.runDefersTo(scope_depth);
         const depth = target.vars;
         for (self.flows.items[0..depth], 0..) |f, holder| {
+            if (!hasLoanFrom(f.loans, depth) or !self.holderLive(@intCast(holder), null)) continue;
             for (f.loans) |l| if (l.root >= depth) try self.reportShortLived(l, @intCast(holder));
         }
         return self.captureBelow(target, depth);
@@ -2903,6 +3057,26 @@ fn sexpMentionsBorrow(t: Sexp) bool {
         if (sexpMentionsBorrow(c)) return true;
     }
     return false;
+}
+
+/// The lowest and highest source positions in `s`; `lo > hi` when it
+/// has none.
+fn extent(s: Sexp) struct { lo: u32, hi: u32 } {
+    switch (s) {
+        .src => |src| return .{ .lo = src.pos, .hi = src.pos },
+        .list => |items| {
+            var lo: u32 = std.math.maxInt(u32);
+            var hi: u32 = 0;
+            for (items) |c| {
+                const e = extent(c);
+                if (e.hi < e.lo) continue;
+                lo = @min(lo, e.lo);
+                hi = @max(hi, e.hi);
+            }
+            return .{ .lo = lo, .hi = hi };
+        },
+        else => return .{ .lo = std.math.maxInt(u32), .hi = 0 },
+    }
 }
 
 fn innerPos(sexp: Sexp) u32 {

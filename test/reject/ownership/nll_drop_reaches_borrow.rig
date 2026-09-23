@@ -1,0 +1,24 @@
+# A value whose type has drop glue is used by its drop at scope exit,
+# which may reach what it borrows.
+
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  drop self: !Box
+    print("drop", self.n)
+
+struct Guard
+  box: ?Box
+
+  drop self: !Guard
+    print("guard", self.box.n)
+
+sub main()
+  x = Box(n: 1)
+  g = Guard(box: ?x)
+  -x
+
+# error: cannot drop `x` while borrows are live

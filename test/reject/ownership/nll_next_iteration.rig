@@ -1,0 +1,21 @@
+# A borrow used earlier in a loop body is used again by the next
+# iteration: it is live at the end of the body.
+
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  drop self: !Box
+    print("drop", self.n)
+
+sub main()
+  x = Box(n: 1)
+  r = ?x
+  i = 0
+  while i < 2 : i += 1
+    print(r.n)
+    (!x).bump()
+
+# error: cannot write-borrow `x` while a read borrow is live

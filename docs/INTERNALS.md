@@ -362,6 +362,14 @@ status (`live`, `moved`, `dropped`, with the position that caused it)
 and the **loans** its value holds. A `Loan` is a read or write borrow of
 a root var. Vars form a stack, truncated when a scope ends.
 
+The state is not copied at branches. Every write to a flow is recorded
+on a *trail* with the value it replaced, so going back to an earlier
+`Point` undoes the writes since. A branch, a loop iteration, or a jump
+captures its state as the flows that changed since the construct's
+point, and joins merge only those. Memory and time follow what a
+construct changes, not the number of vars in scope. What is allocated
+while checking a module-level function is freed when it is done.
+
 **Loans travel with values.** `r = ?a` stores a read loan on `a` in
 `r`; `View(box: ?a)` carries it into the struct; a call whose result
 type can hold a borrow carries the loans of all its borrowed arguments;
@@ -370,6 +378,20 @@ arguments, and the handles it is given. A loan not stored anywhere is a
 temporary and ends with its statement. A borrowed parameter holds an
 *external* loan on itself: a borrow from the caller, which may be
 returned or stored into other borrowed parameters and never conflicts.
+
+**Liveness.** A loan held by a var is in force only while the var is
+live: while it may still be used. Before checking a function, one walk
+records the last source position each symbol is used at (a capture's
+leaf counts as a use of what it captures) and the symbols deferred code
+uses. A var is live after the current statement when it is used at or
+after the statement's start, or anywhere in an enclosing loop it was
+declared outside of (the next iteration), or in deferred code, or when
+it owns a value with drop glue (dropped at scope exit), or when a live
+var or temporary holds a loan on it. A closure binding, a parameter, and
+the hidden var that keeps a `for` source borrowed are always live. The
+conflict checks and the "does not live long enough" checks at scope ends
+and jumps skip loans whose holder is not live. This is textual, so it is
+the same on every path, and conservative where paths differ.
 
 **Control flow.** `if`, `match`, ternaries, and `catch` walk every
 branch from the same entry state and join the results: moved or dropped

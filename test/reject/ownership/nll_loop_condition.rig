@@ -1,0 +1,19 @@
+# A loop condition runs again after the body: a borrow it uses is live
+# throughout the loop.
+
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  drop self: !Box
+    print("drop", self.n)
+
+sub main()
+  v: Vec(Int) = Vec()
+  r = ?v
+  while r.length() < 3
+    (!v).push(1)
+
+# error: cannot write-borrow `v` while a read borrow is live
