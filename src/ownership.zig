@@ -182,7 +182,10 @@ const FnCtx = struct {
     ret_may_borrow: bool = false,
 };
 
+/// A loop, or a labeled block, that `break` / `continue` can leave.
 const LoopCtx = struct {
+    /// The `:label` naming it, or empty.
+    label: []const u8 = "",
     /// Number of vars in scope at loop entry.
     depth: u32,
     /// Number of scopes open at loop entry.
@@ -251,6 +254,8 @@ pub const Checker = struct {
 
     func: FnCtx = .{},
     loop: ?*LoopCtx = null,
+    /// The label of the loop about to be walked (`:name while ...`).
+    pending_label: []const u8 = "",
     try_ctx: ?*TryCtx = null,
     /// Set immediately before walking a lambda literal that sits in an
     /// allowed position (binding RHS, call callee, `*Closure(...)`).
@@ -774,7 +779,10 @@ pub const Checker = struct {
                 try self.walkFor(items);
                 break :blk .{};
             },
-            .@"labeled" => if (items.len >= 3) self.walk(items[2]) else .{},
+            .@"labeled" => blk: {
+                try self.walkLabeled(items);
+                break :blk .{};
+            },
             .@"match" => self.walkMatch(items),
             .@"return" => blk: {
                 try self.walkReturn(items);
@@ -1686,17 +1694,9 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn walkReturn(self: *Checker, items: []const Sexp) Error!void {
-        const value: Sexp = if (items.len >= 2) items[1] else .nil;
-        const guard: Sexp = if (items.len >= 3) items[2] else .nil;
-        var fallthrough: ?State = null;
-        if (guard != .nil) {
-            _ = try self.walk(guard);
-            fallthrough = try self.snapshot();
-        }
-        if (value != .nil) try self.walkReturnValue(value);
+        if (items.len >= 2) try self.walkReturnValue(items[1]);
         try self.runDefersTo(0);
         self.reachable = false;
-        if (fallthrough) |s| try self.restore(s);
     }
 
     /// A value leaving the function: a bare local moves out; anything
@@ -1994,8 +1994,27 @@ pub const Checker = struct {
         try self.walkLoop(spec);
     }
 
+    /// `(labeled name stmt)`: a labeled loop, or a labeled block that
+    /// `break :name` leaves.
+    fn walkLabeled(self: *Checker, items: []const Sexp) Error!void {
+        const label = self.text(items[1]);
+        const stmt = items[2];
+        if (isTag(stmt, .@"while") or isTag(stmt, .@"for")) {
+            self.pending_label = label;
+            return self.walkStmt(stmt);
+        }
+        var ctx: LoopCtx = .{ .label = label, .depth = @intCast(self.vars.items.len), .scope_depth = self.scopes.items.len, .parent = self.loop };
+        self.loop = &ctx;
+        defer self.loop = ctx.parent;
+        try self.walkStmt(stmt);
+        var out = try self.snapshot();
+        for (ctx.breaks.items) |b| out = try self.join(out, b);
+        try self.restore(out);
+    }
+
     fn walkLoop(self: *Checker, spec: LoopSpec) Error!void {
-        var ctx: LoopCtx = .{ .depth = @intCast(self.vars.items.len), .scope_depth = self.scopes.items.len, .parent = self.loop };
+        var ctx: LoopCtx = .{ .label = self.pending_label, .depth = @intCast(self.vars.items.len), .scope_depth = self.scopes.items.len, .parent = self.loop };
+        self.pending_label = "";
         self.loop = &ctx;
         defer self.loop = ctx.parent;
 
@@ -2072,30 +2091,25 @@ pub const Checker = struct {
 
     const Jump = enum { brk, cont };
 
+    /// `(break value-or-_ label?)` / `(continue label?)`: the state here
+    /// flows to the loop (or labeled block) the jump names, or the
+    /// innermost loop.
     fn walkJump(self: *Checker, items: []const Sexp, jump: Jump) Error!void {
-        // (break label value guard) / (continue label guard)
-        const label: Sexp = if (items.len >= 2) items[1] else .nil;
-        const value: Sexp = if (jump == .brk and items.len >= 3) items[2] else .nil;
-        const guard: Sexp = if (jump == .brk) (if (items.len >= 4) items[3] else .nil) else (if (items.len >= 3) items[2] else .nil);
-        var fallthrough: ?State = null;
-        if (guard != .nil) {
-            _ = try self.walk(guard);
-            fallthrough = try self.snapshot();
-        }
-        if (value != .nil) _ = try self.walk(value);
+        const label_slot: usize = if (jump == .brk) 2 else 1;
+        const label = if (items.len > label_slot) self.text(items[label_slot]) else "";
+        if (jump == .brk and items.len >= 2 and items[1] != .nil) _ = try self.walk(items[1]);
         var target = self.loop;
         while (target) |t| : (target = t.parent) {
+            if (label.len == 0 or std.mem.eql(u8, t.label, label)) break;
+        }
+        if (target) |t| {
             const s = try self.exitState(t.depth, t.scope_depth);
             switch (jump) {
                 .brk => try t.breaks.append(self.arena(), s),
                 .cont => try t.conts.append(self.arena(), s),
             }
-            // An unlabeled jump targets the innermost loop; a labeled one
-            // is conservatively joined into every enclosing loop.
-            if (label == .nil) break;
         }
         self.reachable = false;
-        if (fallthrough) |s| try self.restore(s);
     }
 
     /// The state at a jump out of the scopes above `depth` vars /
