@@ -1,0 +1,20 @@
+# Building a second view from the write borrow a first view holds lends
+# the first view out: it cannot be used while the second is live (here
+# the second iterates while the first would push, freeing the buffer).
+
+struct Ed
+  t: !Vec(Int)
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  (!v).push(2)
+  (!v).push(3)
+  if true
+    e = Ed(t: !v)
+    f = Ed(t: e.t)
+    for x in ?f.t
+      (!e.t).push(x)
+  print(v.length())
+
+# error: use of `e` while a write borrow is live

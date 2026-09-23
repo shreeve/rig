@@ -834,7 +834,21 @@ pub const Checker = struct {
     fn walkConsumed(self: *Checker, expr: Sexp, sink: Sink) Error!Value {
         if (isLambda(expr)) return self.walk(expr); // reported by walkLambda
         try self.checkNoImplicitCopy(expr, sink, false);
+        // Passing a held write borrow (`w`, `e.t`) lends it on: like `!w`,
+        // its holder is write-borrowed for as long as the result may keep
+        // the borrow.
+        if (sink == .argument and self.isWriteBorrowPlace(expr)) return self.walkBorrow(expr, .write);
         return self.walk(expr);
+    }
+
+    fn isWriteBorrowPlace(self: *Checker, expr: Sexp) bool {
+        const t = self.exprType(expr) orelse return false;
+        if (self.typeData(t) != .borrow_write) return false;
+        return switch (expr) {
+            .src => true,
+            .list => isTag(expr, .@"member") or isTag(expr, .@"index"),
+            else => false,
+        };
     }
 
     /// A bare use of a name.
@@ -1544,7 +1558,8 @@ pub const Checker = struct {
         if (explicit_write or isTag(arg, .@"clone")) inner = arg.list[1];
         const place = (try self.resolvePlace(inner)) orelse return null;
         const ty = self.exprType(inner);
-        if (!self.mayCarryBorrow(ty)) return null;
+        // What the callee could store into is the value behind a borrow.
+        if (!self.mayCarryBorrow(self.pointee(ty))) return null;
         if (!explicit_write) {
             const t = ty orelse return null;
             const tag = self.typeData(t);
