@@ -796,6 +796,10 @@ pub const Emitter = struct {
         while (isTagged(e, .@"propagate")) e = e.list[1];
         if (!isTagged(e, .@"call")) return true;
         if (self.isPrintCall(e)) return false;
+        // A call lowered to a labeled block is an expression Zig will not
+        // take as a statement.
+        if (isTagged(e.list[1], .@"lambda")) return true;
+        if (self.sema.callSlotsOf(e)) |slots| if (reordersEffects(slots, e.list[2..])) return true;
         const ty = self.typeOf(e) orelse return true;
         return switch (self.sema.types.get(ty)) {
             .void, .noreturn => false,
@@ -1810,6 +1814,7 @@ pub const Emitter = struct {
 
         if (self.isPrintCall(sexp)) return self.emitPrint(args);
         if (isTagged(callee, .@"enum_lit")) return self.emitVariantLit(sexp);
+        if (isTagged(callee, .@"lambda")) return self.emitInlineInvoke(sexp);
 
         if (callee == .src) {
             if (self.localOf(callee)) |local| if (local.stack_closure) {
@@ -1848,6 +1853,29 @@ pub const Emitter = struct {
         try self.w.writeAll("(");
         try self.emitArgs(sexp);
         try self.w.writeAll(")");
+    }
+
+    /// `(|n| print n)()`: the closure is built and called in a block.
+    fn emitInlineInvoke(self: *Emitter, call: Sexp) Error!void {
+        const id = self.nextId();
+        const name = try self.fmt("__rig_fn_{d}", .{id});
+        try self.w.print("rig_call_{d}: {{\n", .{id});
+        self.indent += 1;
+        try self.writeIndent(self.indent);
+        const owns = try self.emitStackClosure(name, call.list[1]);
+        if (owns) {
+            try self.w.writeAll("\n");
+            try self.writeIndent(self.indent);
+            try self.w.print("defer rig.dropFields(&{s});", .{name});
+        }
+        try self.w.writeAll("\n");
+        try self.writeIndent(self.indent);
+        try self.w.print("break :rig_call_{d} {s}.invoke(", .{ id, name });
+        try self.emitArgs(call);
+        try self.w.writeAll(");\n");
+        self.indent -= 1;
+        try self.writeIndent(self.indent);
+        try self.w.writeAll("}");
     }
 
     /// A call's arguments in parameter order: keyword arguments in their
