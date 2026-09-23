@@ -178,7 +178,7 @@ pub const Emitter = struct {
         try self.collectModule(decls);
         for (decls) |decl| {
             try self.w.writeAll("\n");
-            try self.emitDecl(decl, false);
+            try self.emitDecl(decl);
         }
     }
 
@@ -226,12 +226,12 @@ pub const Emitter = struct {
         }
     }
 
-    fn emitDecl(self: *Emitter, sexp: Sexp, is_pub: bool) Error!void {
+    fn emitDecl(self: *Emitter, sexp: Sexp) Error!void {
         if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return self.unsupported(sexp, "this top-level form");
         const items = sexp.list;
         switch (items[0].tag) {
             // Every declaration is emitted `pub`, so `pub` adds nothing.
-            .@"pub" => if (items.len >= 2) try self.emitDecl(items[1], true),
+            .@"pub" => if (items.len >= 2) try self.emitDecl(items[1]),
             .@"fun" => try self.emitFun(items, false),
             .@"sub" => try self.emitFun(items, true),
             .@"extern_fun" => try self.emitExternFun(items, false),
@@ -252,7 +252,6 @@ pub const Emitter = struct {
             .@"set" => try self.emitModuleConst(sexp),
             else => return self.unsupported(sexp, "this top-level form"),
         }
-        _ = is_pub;
     }
 
     fn emitUse(self: *Emitter, items: []const Sexp) Error!void {
@@ -970,20 +969,20 @@ pub const Emitter = struct {
             .@"-=" => try self.emitCompound(target, "-", expr),
             .@"*=" => try self.emitCompound(target, "*", expr),
             .@"/=" => try self.emitCompound(target, "/", expr),
-            .fixed, .shadow => try self.emitBind(target, type_node, expr, kind == .fixed),
+            .fixed, .shadow => try self.emitBind(target, type_node, expr),
             .default, .move => {
                 const value: Sexp = if (kind == .move) try self.list(&.{ .{ .tag = .@"move" }, expr }) else expr;
                 if (self.lookup(name)) |local| {
-                    try self.emitRebind(local, value);
+                    try self.emitRebind(local.*, value);
                 } else {
-                    try self.emitBind(target, type_node, value, false);
+                    try self.emitBind(target, type_node, value);
                 }
             },
         }
     }
 
     /// A new binding.
-    fn emitBind(self: *Emitter, name_node: Sexp, type_node: Sexp, expr: Sexp, fixed: bool) Error!void {
+    fn emitBind(self: *Emitter, name_node: Sexp, type_node: Sexp, expr: Sexp) Error!void {
         if (isTagged(expr, .@"lambda")) return self.emitClosureBinding(name_node, expr);
 
         const rig_name = self.srcText(name_node);
@@ -1027,7 +1026,6 @@ pub const Emitter = struct {
         }
 
         const stored = try self.declare(local);
-        _ = fixed;
         try self.w.print("{s} {s}", .{ if (is_var) "var" else "const", stored.zig_name });
         if (type_node != .nil and !is_borrow) {
             try self.w.writeAll(": ");
@@ -1037,7 +1035,7 @@ pub const Emitter = struct {
             try self.emitTypeTy(ty.?);
         } else if (is_var and ty == null and isNumberLiteral(self.source, expr)) {
             // A mutable number needs a runtime type: Rig's defaults.
-            try self.w.writeAll(if (self.isFloatExpr(unwrapNeg(expr))) ": f64" else ": i32");
+            try self.w.writeAll(if (self.isFloatExpr(unwrapNeg(expr))) ": f32" else ": i32");
         }
         try self.w.print(" = {s};", .{value_buf.written()});
 
@@ -1062,9 +1060,9 @@ pub const Emitter = struct {
     /// Reassign an existing binding. A resource's old value is dropped
     /// after the new one has been computed (so `a = +a` works), and the
     /// guard is re-armed.
-    fn emitRebind(self: *Emitter, local: *Local, value: Sexp) Error!void {
+    fn emitRebind(self: *Emitter, local: Local, value: Sexp) Error!void {
         const kind = local.kind orelse {
-            try self.writeLocalPlace(local);
+            try self.writeLocalPlace(&local);
             try self.w.writeAll(" = ");
             try self.emitExprExpecting(value, local.ty);
             try self.w.writeAll(";");
@@ -1396,13 +1394,11 @@ pub const Emitter = struct {
         }
         try self.w.print("{s}{s}", .{ if (by_ptr and !std.mem.eql(u8, elem_name, "_")) "*" else "", elem_name });
 
-        var index_zig: ?[]const u8 = null;
         if (index_binding == .src) {
             const iname = self.srcText(index_binding);
             if (usesNameInStmts(self.source, body_stmts, iname)) {
                 const raw = try self.fmt("__rig_i_{d}", .{self.nextId()});
                 const stored = try self.declare(.{ .rig_name = iname, .zig_name = "", .ty = self.declTy(index_binding) });
-                index_zig = stored.zig_name;
                 try self.w.print(", {s}", .{raw});
                 try self.w.writeAll("| {\n");
                 self.indent += 1;
@@ -1721,7 +1717,7 @@ pub const Emitter = struct {
             .@"%" => try self.emitDivision(items, "@rem"),
             .@"**" => {
                 try self.w.writeAll("std.math.pow(");
-                if (self.typeOf(items[1])) |t| try self.emitTypeTy(t) else try self.w.writeAll(if (self.isFloatExpr(items[1])) "f64" else "i32");
+                if (self.typeOf(items[1])) |t| try self.emitTypeTy(t) else try self.w.writeAll(if (self.isFloatExpr(items[1])) "f32" else "i32");
                 try self.w.writeAll(", ");
                 try self.emitExpr(items[1]);
                 try self.w.writeAll(", ");
@@ -1867,7 +1863,7 @@ pub const Emitter = struct {
 
     fn emitLiteralElemType(self: *Emitter, elems: []const Sexp) Error!void {
         if (elems.len > 0) if (self.typeOf(elems[0])) |t| return self.emitTypeTy(t);
-        if (elems.len > 0 and self.isFloatExpr(elems[0])) return self.w.writeAll("f64");
+        if (elems.len > 0 and self.isFloatExpr(elems[0])) return self.w.writeAll("f32");
         try self.w.writeAll("i32");
     }
 
@@ -2723,7 +2719,7 @@ pub const Emitter = struct {
             .bool => try self.w.writeAll("bool"),
             .string => try self.w.writeAll("[]const u8"),
             .int_literal => try self.w.writeAll("i32"),
-            .float_literal => try self.w.writeAll("f64"),
+            .float_literal => try self.w.writeAll("f32"),
             .int => |i| if (i.bits == 0) try self.w.writeAll("i32") else try self.w.print("{c}{d}", .{ @as(u8, if (i.signed) 'i' else 'u'), i.bits }),
             .float => |f| try self.w.print("f{d}", .{if (f.bits == 0) @as(u8, 32) else f.bits}),
             .optional => |inner| {
@@ -3550,7 +3546,7 @@ fn builtinZigName(name: []const u8) []const u8 {
 
 fn mapTypeName(rig_name: []const u8) []const u8 {
     const map = .{
-        .{ "Int", "i32" },        .{ "Float", "f64" }, .{ "I8", "i8" },   .{ "I16", "i16" },
+        .{ "Int", "i32" },        .{ "Float", "f32" }, .{ "I8", "i8" },   .{ "I16", "i16" },
         .{ "I32", "i32" },        .{ "I64", "i64" },   .{ "U8", "u8" },   .{ "U16", "u16" },
         .{ "U32", "u32" },        .{ "U64", "u64" },   .{ "F32", "f32" }, .{ "F64", "f64" },
         .{ "Bool", "bool" },      .{ "String", "[]const u8" },            .{ "Bytes", "[]const u8" },

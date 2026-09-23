@@ -1904,6 +1904,20 @@ Rig should prefer readability over clever omission.
 
 ---
 
+## Keyword Arguments
+
+Arguments may be passed by parameter name, in any order, to
+functions and methods:
+
+```rig
+area(scale: 10, rect: r)
+```
+
+Arguments are always evaluated left to right as written, whatever
+parameters they bind to.
+
+---
+
 # Constructors
 
 Rig uses:
@@ -2310,6 +2324,41 @@ queue consumed
 packet ownership transferred
 queue invalid afterward
 ```
+
+---
+
+## Ranges, Indexes, and `else`
+
+`a..b` is the half-open integer range from `a` up to but not
+including `b`; both bounds are evaluated once. A second binding
+receives each element's index:
+
+```rig
+for i in 0..n
+  total += i
+
+for x, i in xs            # arrays and Vecs
+  print(x * i)
+```
+
+A loop's `else` block runs when the loop ends without `break`
+(`while` and `for` alike). Labeled loops (`:outer while ...`) are
+the targets of `break :outer` and `continue :outer`; `break` and
+`continue` take a postfix guard (`break if done`).
+
+`[a, b, c]` is an array literal and `xs.len` its length. `xs[i]` and
+`v[i]` (a `Vec` of plain data) read an element and `xs[i] = x`
+stores one; an index outside `0 ..< len` panics with `index out of
+bounds`.
+
+---
+
+# Arithmetic
+
+Integer `/` truncates toward zero and `%` is the remainder with the
+sign of the dividend, so `(a / b) * b + a % b == a` (`-7 / 2 == -3`,
+`-7 % 2 == -1`). Float `/` is ordinary division. `a ** b` raises `a`
+to the power `b`, and `x |> f(y)` is `f(x, y)`.
 
 ---
 
