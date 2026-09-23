@@ -32,7 +32,8 @@ allocation, no hidden refcount traffic, no silent control flow.
    program using it runs and prints the right thing, with no leaks
    under the checking allocator. A rejection exists when a
    `must-reject` test proves it. Docs make no claims the test suite
-   does not check.
+   does not check, and every `rig` example in the docs is run by
+   `./test/run` (see `test/README.md`).
 2. **Accept means correct.** If `rig check` accepts a program, the
    emitted Zig compiles, runs, and does what the source says. Anything
    the compiler cannot lower correctly is rejected in sema with a Rig
@@ -75,12 +76,13 @@ bin/rig run file.rig # compile + run (Debug, leak-checked)
 
 | Path | Role |
 |---|---|
-| `rig.grammar` | Nexus grammar (source of truth for syntax) |
-| `src/rig.zig` | Lexer rewriter (indentation, sigil classification) and IR tags |
+| `rig.grammar` | Nexus grammar (source of truth for syntax and IR shape) |
+| `src/rig.zig` | Lexer and parser wrappers (layout, spacing, IR rewrites), IR tags |
 | `src/parser.zig` | Generated — do not edit |
+| `src/ir.zig` | The schema of every IR node |
 | `src/modules.zig` | Module graph and `use` resolution |
-| `src/types.zig` | Semantic analysis: names, types, expression checking |
-| `src/effects.zig` | Fallibility checking |
+| `src/types.zig`, `src/sema_*.zig` | Semantic analysis: names, types, the facts table |
+| `src/effects.zig` | Fallibility and the `raw` boundary |
 | `src/ownership.zig` | Move / borrow / drop checking |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime/_runtime.zig` | Runtime support shipped with every program (embedded by `src/runtime.zig`) |
@@ -88,4 +90,7 @@ bin/rig run file.rig # compile + run (Debug, leak-checked)
 | `test/` | The test suite (see `test/README.md`) |
 | `examples/` | Curated example programs, all run by the suite |
 | `SPEC.md` | Language reference |
-| `docs/` | Design and internals |
+| `docs/DESIGN.md` | Principles and rationale |
+| `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
+| `docs/ROADMAP.md` | Future directions |
+| `docs/zig-0.16.md` | Zig 0.16 API reference for contributors |
