@@ -1573,6 +1573,24 @@ test "facts: reassignment names the existing binding" {
     try std.testing.expectEqual(first, r.sym("x", 2).?);
 }
 
+test "facts: a shadowing binding's value reads the previous binding" {
+    var r = try factsRun(
+        \\sub main()
+        \\  x = 1
+        \\  print(x)
+        \\  new x = x + 1
+        \\  print(x)
+        \\
+    );
+    defer r.deinit();
+    const first = r.sym("x", 0).?;
+    try std.testing.expectEqual(first, r.sym("x", 1).?);
+    const second = r.sym("x", 2).?;
+    try std.testing.expect(second != first);
+    try std.testing.expectEqual(first, r.sym("x", 3).?);
+    try std.testing.expectEqual(second, r.sym("x", 4).?);
+}
+
 test "facts: literals record the type their context gives them" {
     var r = try factsRun(
         \\sub main()
