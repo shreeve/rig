@@ -1,0 +1,34 @@
+# Returning an owned parameter from a match arm moves it out; the arms
+# that don't return it leave it to be dropped.
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+enum Pick
+  keep
+  lose
+
+fun choose(a: *Noisy, p: Pick) -> *Noisy
+  match p
+    .keep => a
+    .lose => *Noisy(id: 0)
+
+sub main()
+  x = *Noisy(id: 1)
+  y = choose(<x, .keep)
+  print(y.id)
+  z = *Noisy(id: 2)
+  w = choose(<z, .lose)
+  print(w.id)
+  print("end")
+
+# expect:
+# 1
+# 2
+# 0
+# end
+# 0
+# 1

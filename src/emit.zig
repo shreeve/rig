@@ -1035,6 +1035,9 @@ pub const Emitter = struct {
         } else if (is_var and ty != null and self.isNumericOrBool(ty.?)) {
             try self.w.writeAll(": ");
             try self.emitTypeTy(ty.?);
+        } else if (is_var and ty == null and isNumberLiteral(self.source, expr)) {
+            // A mutable number needs a runtime type: Rig's defaults.
+            try self.w.writeAll(if (self.isFloatExpr(unwrapNeg(expr))) ": f64" else ": i32");
         }
         try self.w.print(" = {s};", .{value_buf.written()});
 
@@ -1091,25 +1094,31 @@ pub const Emitter = struct {
             try self.w.writeAll(";");
             return;
         }
-        const tmp = try self.fmt("__rig_new_{d}", .{self.nextId()});
-        try self.w.print("{{ const {s} = ", .{tmp});
+        const id = self.nextId();
+        try self.w.print("{{ const __rig_new_{d} = ", .{id});
         try self.emitExprExpecting(value, place_ty);
-        try self.w.writeAll("; rig.drop(&");
+        try self.w.print("; const __rig_slot_{d} = &", .{id});
         try self.emitPlace(target);
-        try self.w.writeAll("); ");
-        try self.emitPlace(target);
-        try self.w.print(" = {s}; }}", .{tmp});
+        try self.w.print("; rig.drop(__rig_slot_{d}); __rig_slot_{d}.* = __rig_new_{d}; }}", .{ id, id, id });
     }
 
     /// `x op= e` on a name or place. Integer `/=` truncates.
     fn emitCompound(self: *Emitter, target: Sexp, op: []const u8, value: Sexp) Error!void {
         if (std.mem.eql(u8, op, "/") and !self.isFloatExpr(target)) {
-            try self.emitPlace(target);
-            try self.w.writeAll(" = @divTrunc(");
-            try self.emitPlace(target);
+            if (target == .src) {
+                try self.emitPlace(target);
+                try self.w.writeAll(" = @divTrunc(");
+                try self.emitPlace(target);
+            } else {
+                // Evaluate the place once.
+                const id = self.nextId();
+                try self.w.print("{{ const __rig_slot_{d} = &", .{id});
+                try self.emitPlace(target);
+                try self.w.print("; __rig_slot_{d}.* = @divTrunc(__rig_slot_{d}.*", .{ id, id });
+            }
             try self.w.writeAll(", ");
             try self.emitBare(value);
-            try self.w.writeAll(");");
+            try self.w.writeAll(if (target == .src) ");" else "); }");
             return;
         }
         try self.emitPlace(target);
@@ -2089,6 +2098,11 @@ pub const Emitter = struct {
         // Function and method calls.
         const params = self.calleeParams(callee);
         const skip_self = params != null and isTagged(callee, .@"member") and paramsStartWithSelf(self.source, params.?);
+        if (params != null and hasKwarg(args)) {
+            const plist = paramSlice(params, if (skip_self) 1 else 0);
+            const slots = try self.matchArgs(args, plist);
+            if (reordersEffects(slots, args)) return self.emitCallInSourceOrder(callee, args, plist, slots);
+        }
         if (isTagged(callee, .@"member")) {
             try self.emitMember(callee.list);
         } else {
@@ -2110,52 +2124,110 @@ pub const Emitter = struct {
     }
 
     /// Arguments in parameter order. Keyword arguments are matched to
-    /// parameter names and omitted parameters take their defaults; when
-    /// that reorders arguments with side effects, they are evaluated
-    /// into temporaries in source order first.
+    /// parameter names and omitted parameters take their defaults.
     fn emitArgList(self: *Emitter, args: []const Sexp, params: ?Sexp, skip: usize) Error!void {
-        const plist: []const Sexp = if (params) |p| (if (p == .list) p.list[@min(skip, p.list.len)..] else &.{}) else &.{};
-        if (!hasKwarg(args) and args.len >= plist.len) {
+        const plist = paramSlice(params, skip);
+        if (params == null or (!hasKwarg(args) and args.len >= plist.len)) {
+            if (params == null and hasKwarg(args)) return self.unsupported(args[0], "keyword arguments to this callee");
             for (args, 0..) |a, i| {
                 if (i > 0) try self.w.writeAll(", ");
                 try self.emitArg(a, if (i < plist.len) plist[i] else null);
             }
             return;
         }
-        if (params == null) {
-            if (hasKwarg(args)) return self.unsupported(args[0], "keyword arguments to this callee");
-            for (args, 0..) |a, i| {
-                if (i > 0) try self.w.writeAll(", ");
-                try self.emitArg(a, null);
-            }
-            return;
-        }
-        // Map each parameter to its argument.
-        const slots = try self.arena.allocator().alloc(?Sexp, plist.len);
+        try self.emitMatchedArgs(args, plist, try self.matchArgs(args, plist), null);
+    }
+
+    /// For each parameter, the index of the argument bound to it, or null
+    /// when it takes its default.
+    fn matchArgs(self: *Emitter, args: []const Sexp, plist: []const Sexp) Error![]const ?usize {
+        const slots = try self.arena.allocator().alloc(?usize, plist.len);
         @memset(slots, null);
         var positional: usize = 0;
-        for (args) |a| {
+        for (args, 0..) |a, ai| {
             if (isTagged(a, .@"kwarg")) {
                 const kname = self.text(a.list[1]) orelse continue;
                 for (plist, 0..) |p, i| {
                     const pn = paramNameNode(p) orelse continue;
-                    if (std.mem.eql(u8, self.text(pn) orelse "", kname)) slots[i] = a.list[2];
+                    if (std.mem.eql(u8, self.text(pn) orelse "", kname)) slots[i] = ai;
                 }
             } else {
-                if (positional < slots.len) slots[positional] = a;
+                if (positional < slots.len) slots[positional] = ai;
                 positional += 1;
             }
         }
-        for (plist, 0..) |p, i| {
+        return slots;
+    }
+
+    fn emitMatchedArgs(self: *Emitter, args: []const Sexp, plist: []const Sexp, slots: []const ?usize, temps: ?[]const ?[]const u8) Error!void {
+        for (plist, slots, 0..) |p, slot, i| {
             if (i > 0) try self.w.writeAll(", ");
-            if (slots[i]) |a| {
-                try self.emitArg(a, p);
+            if (slot) |ai| {
+                if (temps) |t| if (t[ai]) |name| {
+                    try self.w.writeAll(name);
+                    continue;
+                };
+                try self.emitArg(args[ai], p);
             } else if (isTagged(p, .@"default") and p.list.len >= 4) {
-                try self.emitExpr(p.list[3]);
+                try self.emitBare(p.list[3]);
             } else {
-                return self.unsupported(args[0], "a call missing an argument");
+                return self.unsupported(if (args.len > 0) args[0] else p, "a call missing an argument");
             }
         }
+    }
+
+    /// Whether binding keyword arguments reorders two arguments that
+    /// have side effects, which must then run in source order.
+    fn reordersEffects(slots: []const ?usize, args: []const Sexp) bool {
+        var last: ?usize = null;
+        for (slots) |slot| {
+            const ai = slot orelse continue;
+            if (isPureArg(args[ai])) continue;
+            if (last) |l| if (ai < l) return true;
+            last = ai;
+        }
+        return false;
+    }
+
+    /// `f(b: g(), a: h())` evaluates `g()` before `h()`:
+    ///
+    ///     rig_call_N: {
+    ///         const __rig_arg_N_0 = g();
+    ///         const __rig_arg_N_1 = h();
+    ///         break :rig_call_N f(__rig_arg_N_1, __rig_arg_N_0);
+    ///     }
+    fn emitCallInSourceOrder(self: *Emitter, callee: Sexp, args: []const Sexp, plist: []const Sexp, slots: []const ?usize) Error!void {
+        const id = self.nextId();
+        const temps = try self.arena.allocator().alloc(?[]const u8, args.len);
+        @memset(temps, null);
+        try self.w.print("rig_call_{d}: {{\n", .{id});
+        self.indent += 1;
+        for (args, 0..) |a, ai| {
+            if (isPureArg(a)) continue;
+            const param: ?Sexp = for (slots, 0..) |s, pi| {
+                if (s == ai) break plist[pi];
+            } else null;
+            const name = try self.fmt("__rig_arg_{d}_{d}", .{ id, ai });
+            temps[ai] = name;
+            try self.writeIndent(self.indent);
+            try self.w.print("const {s}", .{name});
+            if (param) |p| if (p == .list and p.list.len >= 3 and (isTagged(p, .@":") or isTagged(p, .@"default"))) {
+                try self.w.writeAll(": ");
+                try self.emitParamType(p.list[2]);
+            };
+            try self.w.writeAll(" = ");
+            try self.emitArg(a, param);
+            try self.w.writeAll(";\n");
+        }
+        try self.writeIndent(self.indent);
+        try self.w.print("break :rig_call_{d} ", .{id});
+        if (isTagged(callee, .@"member")) try self.emitMember(callee.list) else try self.emitExpr(callee);
+        try self.w.writeAll("(");
+        try self.emitMatchedArgs(args, plist, slots, temps);
+        try self.w.writeAll(");\n");
+        self.indent -= 1;
+        try self.writeIndent(self.indent);
+        try self.w.writeAll("}");
     }
 
     fn emitArg(self: *Emitter, arg: Sexp, param: ?Sexp) Error!void {
@@ -2163,7 +2235,7 @@ pub const Emitter = struct {
         defer self.expected = saved;
         self.expected = if (param) |p| (if (paramNameNode(p)) |n| self.declTy(n) else null) else null;
         if (self.expected) |t| self.expected = self.peelBorrows(t);
-        try self.emitBare(arg);
+        try self.emitBare(if (isTagged(arg, .@"kwarg")) arg.list[2] else arg);
     }
 
     /// Parameter list of the function or method a callee names.
@@ -3373,6 +3445,16 @@ fn isLiteralText(t: []const u8) bool {
         std.mem.eql(u8, t, "null") or std.mem.eql(u8, t, "undefined");
 }
 
+fn unwrapNeg(s: Sexp) Sexp {
+    return if (isTagged(s, .@"neg") and s.list.len >= 2) s.list[1] else s;
+}
+
+/// A numeric literal, possibly negated.
+fn isNumberLiteral(source: []const u8, s: Sexp) bool {
+    const n = unwrapNeg(s);
+    return n == .src and std.ascii.isDigit(source[n.src.pos]);
+}
+
 fn isNonNegativeIntLiteral(source: []const u8, s: Sexp) bool {
     if (s != .src) return false;
     const t = source[s.src.pos..][0..s.src.len];
@@ -3390,6 +3472,29 @@ fn unwrapPub(s: Sexp) Sexp {
 
 fn unwrapShare(s: Sexp) Sexp {
     return if (isTagged(s, .@"share") and s.list.len >= 2) s.list[1] else s;
+}
+
+fn paramSlice(params: ?Sexp, skip: usize) []const Sexp {
+    const p = params orelse return &.{};
+    if (p != .list) return &.{};
+    return p.list[@min(skip, p.list.len)..];
+}
+
+/// An argument whose evaluation has no side effects.
+fn isPureArg(arg: Sexp) bool {
+    return switch (arg) {
+        .src, .nil => true,
+        .list => |items| items.len > 0 and items[0] == .tag and switch (items[0].tag) {
+            .@"kwarg" => items.len >= 3 and isPureArg(items[2]),
+            .@"read", .@"write", .@"move", .@"member", .@"deref", .@"neg", .@"not", .@"enum_lit",
+            .@"+", .@"-", .@"*", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&&", .@"||",
+            => for (items[1..]) |c| {
+                if (!isPureArg(c)) break false;
+            } else true,
+            else => false,
+        },
+        else => false,
+    };
 }
 
 fn hasKwarg(args: []const Sexp) bool {
@@ -3616,7 +3721,7 @@ test "emit: const for unmutated, var for mutated" {
         \\
     );
     defer std.testing.allocator.free(out);
-    try std.testing.expect(std.mem.indexOf(u8, out, "var x =") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "var x: i32 = 1") != null);
     try std.testing.expect(std.mem.indexOf(u8, out, "const y =") != null);
 }
 

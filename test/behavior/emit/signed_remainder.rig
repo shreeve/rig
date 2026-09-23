@@ -1,0 +1,16 @@
+# `%` is the remainder with the sign of the dividend.
+
+sub main()
+  print(7 % 2)
+  print(-7 % 2)
+  print(7 % -2)
+  x = -9
+  print(x / 4)
+  print(x % 4)
+
+# expect:
+# 1
+# -1
+# 1
+# -2
+# -1

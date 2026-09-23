@@ -1,0 +1,18 @@
+# `**` raises to a power; `x |> f` calls `f(x)` and `x |> f(y)` calls
+# `f(x, y)`.
+
+fun double(n: Int) -> Int
+  n * 2
+
+fun add(a: Int, b: Int) -> Int
+  a + b
+
+sub main()
+  print(2 ** 10)
+  print(3 |> double)
+  print(3 |> add(4))
+
+# expect:
+# 1024
+# 6
+# 7

@@ -1,0 +1,8 @@
+# Indexing an array past its end panics.
+
+sub main()
+  xs = [1, 2, 3]
+  i = 3
+  print(xs[i])
+
+# expect-panic: index out of bounds

@@ -1,0 +1,17 @@
+# `xs[i] = x` stores into an array or a Vec element (bounds-checked).
+
+sub main()
+  xs = [1, 2, 3]
+  xs[0] = 10
+  i = 2
+  xs[i] = 30
+  print(xs[0] + xs[1] + xs[2])
+  v: Vec(Int) = Vec()
+  (!v).push(4)
+  (!v).push(5)
+  v[1] = 50
+  print(v[0] + v[1])
+
+# expect:
+# 42
+# 54
