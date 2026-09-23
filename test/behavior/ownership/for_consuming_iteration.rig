@@ -1,0 +1,68 @@
+# `for x in <v` consumes the Vec: each element is handed to `x`, which
+# owns it for one iteration (and may move it on). Elements a `break` or
+# `return` leaves behind are dropped with the buffer.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+sub eat(b: *B)
+  print("eat", b.n)
+
+fun first(v: Vec(*B)) -> Int
+  for x in <v
+    return x.n
+  -1
+
+sub main()
+  v: Vec(*B) = Vec()
+  for i in 0..4
+    (!v).push(*B(n: i))
+  for x, i in <v
+    if i == 1
+      eat(<x)
+      continue
+    if i == 2
+      break
+    print("see", x.n)
+  print("after")
+
+  w: Vec(*B) = Vec()
+  (!w).push(*B(n: 7))
+  (!w).push(*B(n: 8))
+  print(first(<w))
+
+  nums: Vec(Int) = Vec()
+  (!nums).push(3)
+  (!nums).push(4)
+  total = 0
+  for x in <nums
+    total += x
+  else
+    print("all")
+  print(total)
+
+  src: Vec(*B) = Vec()
+  (!src).push(*B(n: 9))
+  keep: Vec(*B) = Vec()
+  for x in <src
+    (!keep).push(<x)
+  print(keep.length())
+
+# expect:
+# see 0
+# drop 0
+# eat 1
+# drop 1
+# drop 2
+# drop 3
+# after
+# drop 7
+# drop 8
+# 7
+# all
+# 7
+# 1
+# drop 9

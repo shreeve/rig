@@ -672,9 +672,7 @@ const Checker = struct {
         if (mode == .ptr) {
             try self.err(source_pos, "by-reference for-loop binding `for *x in ...` is reserved; write `for x in ?xs` to read-iterate a Vec of resources, or `for x in xs` to iterate values", .{});
         }
-        if (mode == .@"move") {
-            try self.err(source_pos, "consuming iteration (`for x in <xs`) is not supported yet; iterate by value or with `?xs`", .{});
-        }
+
         if (index_binding != .nil and isHead(source, .@"..")) {
             try self.err(firstSrcPos(index_binding), "a range has no index binding; the element is already the position (`for i in a..b`)", .{});
         }
@@ -753,6 +751,8 @@ const Checker = struct {
                     }
                 }
                 if (mode == .@"write") return self.writeElement(source, inner_source, elem);
+                // `for x in <v` hands each element over.
+                if (mode == .@"move") return elem;
                 return if (is_resource) try self.ctx.intern(.{ .borrow_read = elem }) else elem;
             },
             .array => |a| {

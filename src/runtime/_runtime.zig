@@ -454,6 +454,32 @@ pub fn Vec(comptime T: type) type {
             return self.buf[self.len];
         }
 
+        /// `for x in <v`: the Vec's elements, each handed over in order.
+        pub const IntoIter = struct {
+            vec: Self,
+            next_index: usize = 0,
+
+            pub fn next(it: *IntoIter) ?T {
+                if (it.next_index >= it.vec.len) return null;
+                const value = it.vec.buf[it.next_index];
+                it.next_index += 1;
+                return value;
+            }
+
+            /// Drop the elements not handed over (the loop left early),
+            /// then free the buffer.
+            pub fn deinit(it: *IntoIter) void {
+                while (it.next_index < it.vec.len) : (it.next_index += 1) {
+                    dropElement(T, &it.vec.buf[it.next_index]);
+                }
+                if (it.vec.buf.len > 0) it.vec.allocator.free(it.vec.buf);
+            }
+        };
+
+        pub fn intoIter(self: Self) IntoIter {
+            return .{ .vec = self };
+        }
+
         /// Drop every element (last first), keeping the buffer.
         pub fn clear(self: *Self) void {
             while (self.len > 0) {

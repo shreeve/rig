@@ -1290,6 +1290,7 @@ pub const Emitter = struct {
 
         const src_ty = self.typeOf(source);
         const is_vec = src_ty != null and self.isVecTy(src_ty.?);
+        if (is_vec and mode == .tag and mode.tag == .@"move") return self.emitConsumingFor(sexp, label);
         const elem_sym = self.sema.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
         // A resource element is a borrowed view of its slot.
@@ -1332,6 +1333,60 @@ pub const Emitter = struct {
             try self.w.writeAll(" else ");
             try self.emitBranchStmt(items[6]);
         }
+    }
+
+    /// `for x in <v`: the Vec is consumed; each element is handed to `x`,
+    /// which owns it for one iteration. Elements a `break` or `return`
+    /// leaves behind are dropped with the buffer.
+    ///
+    ///     { var it = v.intoIter(); defer it.deinit();
+    ///       while (it.next()) |e| { var x = e; defer rig.drop(&x); ... } }
+    fn emitConsumingFor(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
+        const items = sexp.list;
+        const binding = items[2];
+        const index_binding = items[3];
+        const source = items[4];
+        const id = self.nextId();
+        const it = try self.fmt("__rig_it_{d}", .{id});
+        const tmp = try self.fmt("__rig_elem_{d}", .{id});
+        const counter = try self.fmt("__rig_i_{d}", .{id});
+        const index_sym: ?SymbolId = if (self.sema.symbolOf(index_binding)) |i| (if (self.usage.used.contains(i)) i else null) else null;
+
+        try self.openBrace();
+        try self.writeIndent(self.indent);
+        try self.w.print("var {s} = ", .{it});
+        try self.emitMoved(source);
+        try self.w.writeAll(".intoIter();\n");
+        try self.line("defer {s}.deinit();", .{it});
+        if (index_sym != null) try self.line("var {s}: usize = 0;", .{counter});
+        try self.writeIndent(self.indent);
+        try self.writeLabel(label);
+        try self.w.print("while ({s}.next()) |{s}| ", .{ it, tmp });
+        if (index_sym != null) try self.w.print(": ({s} += 1) ", .{counter});
+        try self.pushScope();
+        try self.openBrace();
+        if (self.sema.symbolOf(binding)) |sym| {
+            const ty = self.symType(sym);
+            if (ty != null and self.kindOf(ty.?) != null) {
+                try self.bindOptionalResource(.{ .name = binding, .tmp = tmp });
+            } else if (self.usage.used.contains(sym)) {
+                const local = try self.declare(.{ .sym = sym, .zig_name = "", .ty = ty }, self.srcText(binding));
+                try self.line("const {s} = {s};", .{ local.zig_name, tmp });
+            } else try self.line("_ = {s};", .{tmp});
+        } else try self.line("_ = {s};", .{tmp});
+        if (index_sym) |isym| {
+            const local = try self.declare(.{ .sym = isym, .zig_name = "", .ty = self.symType(isym) }, self.srcText(index_binding));
+            try self.line("const {s}: {s} = @intCast({s});", .{ local.zig_name, int_zig, counter });
+        }
+        try self.emitStmts(try self.stmtsOf(items[5]));
+        try self.closeBrace();
+        try self.popScope();
+        if (items[6] != .nil) {
+            try self.w.writeAll(" else ");
+            try self.emitBranchStmt(items[6]);
+        }
+        try self.w.writeAll("\n");
+        try self.closeBrace();
     }
 
     /// `for i in a..b`: a half-open integer range.

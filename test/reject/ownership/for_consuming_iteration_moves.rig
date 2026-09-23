@@ -1,0 +1,27 @@
+# `for x in <v` moves `v`: it cannot be used afterwards, consumed while
+# borrowed, or consumed again by a later loop iteration.
+
+struct B
+  n: Int
+
+sub main()
+  v: Vec(*B) = Vec()
+  for x in <v
+    print(x.n)
+  print(v.length())
+
+  w: Vec(*B) = Vec()
+  r = ?w
+  for x in <w
+    print(x.n)
+
+  u: Vec(*B) = Vec()
+  i = 0
+  while i < 2
+    for x in <u
+      print(x.n)
+    i += 1
+
+# error: use of `v` after move
+# error: cannot move `w` while it is read-borrowed
+# error: use of `u` after move
