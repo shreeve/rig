@@ -900,15 +900,21 @@ pub const Parser = struct {
     }
 
     /// Why parsing failed: at the token where the parser stopped, or the
-    /// rejected tree.
+    /// rejected tree. A token the parser did not expect is followed by
+    /// what it expected there, when that is a short list.
     pub fn diagnostic(self: *Parser) diag.Diagnostic {
         if (self.failure) |f| return f;
         const tok = self.base.current;
         const src = self.base.source;
+        var pos = tok.pos;
+        var end = tok.pos + tok.len;
         const message: []const u8 = switch (tok.cat) {
-            .err => self.base.lexer.err.message(),
-            .eof => return .{ .severity = .@"error", .pos = self.base.lexer.prev_end, .message = "unexpected end of file" },
-            .outdent => return .{ .severity = .@"error", .pos = self.base.lexer.prev_end, .message = "unexpected end of block" },
+            .err => return .{ .severity = .@"error", .pos = pos, .end = end, .message = self.base.lexer.err.message() },
+            .eof, .outdent => blk: {
+                pos = self.base.lexer.prev_end;
+                end = pos;
+                break :blk if (tok.cat == .eof) "unexpected end of file" else "unexpected end of block";
+            },
             .newline => "unexpected end of line",
             .indent => "unexpected indentation",
             .post_if => "a postfix `if` guard must end a statement; write `a if c else b` for a value",
@@ -918,8 +924,47 @@ pub const Parser = struct {
             else
                 self.format("unexpected `{s}`", .{src[tok.pos..][0..tok.len]}),
         };
-        return .{ .severity = .@"error", .pos = tok.pos, .end = tok.pos + tok.len, .message = message };
+        const full = if (self.expectedHint()) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
+        return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
     }
+
+    /// The generated parser's expected set where it stopped (its
+    /// `@display` and `@errors` names, distinct), or null when it names
+    /// more than a few things.
+    fn expectedHint(self: *Parser) ?[]const u8 {
+        var buf: [4096]u8 = undefined;
+        var w = std.Io.Writer.fixed(&buf);
+        self.base.writeError(&w) catch return null;
+        // `line:col: expected A, B or C, got D`
+        const text = w.buffered();
+        const from = (std.mem.indexOf(u8, text, ": expected ") orelse return null) + ": expected ".len;
+        const to = std.mem.lastIndexOf(u8, text, ", got ") orelse return null;
+        var names: [max_expected][]const u8 = undefined;
+        var count: usize = 0;
+        var rest = text[from..to];
+        while (rest.len > 0) {
+            const cut = std.mem.indexOf(u8, rest, ", ") orelse std.mem.indexOf(u8, rest, " or ") orelse rest.len;
+            const name = rest[0..cut];
+            rest = if (cut == rest.len) "" else rest[cut + (if (rest[cut] == ',') @as(usize, 2) else 4) ..];
+            for (names[0..count]) |n| {
+                if (std.mem.eql(u8, n, name)) break;
+            } else {
+                if (count == max_expected) return null;
+                names[count] = name;
+                count += 1;
+            }
+        }
+        if (count == 0) return null;
+        var out: std.Io.Writer.Allocating = .init(self.allocator());
+        for (names[0..count], 0..) |n, i| {
+            if (i > 0) out.writer.writeAll(if (i + 1 == count) " or " else ", ") catch return null;
+            out.writer.writeAll(n) catch return null;
+        }
+        return out.written();
+    }
+
+    /// The longest expected set a parse error lists.
+    const max_expected = 3;
 
     fn format(self: *Parser, comptime fmt: []const u8, args: anytype) []const u8 {
         return std.fmt.allocPrint(self.allocator(), fmt, args) catch "unexpected token";

@@ -27,12 +27,13 @@ spans.rig:8:5: error: \`break\` is not inside a loop (a closure body cannot leav
     break
     ^~~~~" "diagnostics at node spans"
 
-# A parse error points at the token the parser stopped on.
+# A parse error points at the token the parser stopped on, and says
+# what the parser expected there when that is a short list.
 cat >parse.rig <<'EOF'
 sub main()
   x = (1 + )
 EOF
 "$RIG" check parse.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a program that does not parse"
-expect_eq "$(cat out.txt)" "parse.rig:2:12: error: unexpected \`)\`
+expect_eq "$(cat out.txt)" "parse.rig:2:12: error: unexpected \`)\`; expected an operand
   x = (1 + )
            ^" "parse error at its token"

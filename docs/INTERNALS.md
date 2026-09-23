@@ -180,8 +180,10 @@ adds block forms; `value` is an expression without blocks or closures
 ### The parser wrapper
 
 `Parser` in `src/rig.zig` runs the generated parser, turns a failure
-into a positioned diagnostic, and makes the only rewrites that need to
-inspect the tree:
+into a positioned diagnostic (``unexpected `)`; expected an operand``:
+what the parser expected there, in the grammar's `@display` names for
+tokens and `@errors` names for rules, when that is at most three
+things), and makes the only rewrites that need to inspect the tree:
 
 - a closure's bar-list entries are split into `(captures ...)` and a
   parameter list, and a capture after a parameter is an error;
