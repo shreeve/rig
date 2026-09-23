@@ -1,0 +1,19 @@
+# An enum whose payload holds a shared handle owns it; copying the enum
+# would drop the handle twice.
+
+struct Box
+  n: Int
+
+enum Slot
+  full(b: *Box)
+  empty
+
+sub main()
+  rc = *Box(n: 5)
+  s: Slot = .full(b: <rc)
+  t = s
+  match t
+    .full(b) => print(b.n)
+    .empty => print(0)
+
+# error: would alias an owning value

@@ -1,0 +1,13 @@
+# An extern declared in the `name: fun(...)` form is callable inside `raw`.
+
+extern abs: fun(Int) Int
+
+sub print_abs(n: Int)
+  raw
+    print(abs(n))
+
+sub main()
+  print_abs(-5)
+
+# expect:
+# 5

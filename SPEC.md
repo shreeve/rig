@@ -456,14 +456,10 @@ v.push(rc)                # error: bare use of *T handle in
 For Copy element types, plain `push(x)` is fine (no aliasing
 concern).
 
-**Auto-drop discipline.** Stack-local `Vec(T)` bindings get
-an M20e-style defer-guard that calls `__rig_drop()` at
-scope exit. The destructor walks elements (LIFO) +
-dispatches per-element via `dropElement` (hybrid shape +
-marker comptime dispatch), then frees the backing buffer.
-Shared `*Vec(T)` bindings use the standard `*T` auto-drop
-(via `dropStrong`); the Vec's `__rig_drop` fires on last
-strong via M20h's `hasRigDrop` hook.
+**Auto-drop discipline.** A stack-local `Vec(T)` is dropped at
+scope exit: its elements are dropped last-first, then the
+backing buffer is freed. A shared `*Vec(T)` is dropped the same
+way when its last strong handle goes.
 
 ```rig
 sub main()
@@ -676,18 +672,18 @@ sub main()
 sema init (parallel to `Cell` and `Vec`); its runtime lives in
 `_runtime.zig`. V1 API:
 
-- `*Signal(value: T)` — constructor. Lowers to
-  `rig.rcNew(rig.Signal(T).init(V))` via the emit-side
-  `tryEmitSignalConstruction`. **Heap-owned form is mandatory**
-  in V1; stack-local `Signal(T)` is sema-rejected (see below).
+- `*Signal(value: T)` — constructor. **Heap-owned form is
+  mandatory** in V1; stack-local `Signal(T)` is sema-rejected
+  (see below).
 - `signal.get() -> T` — current value (copy semantics).
 - `signal.set(v: T)` — updates value AND invokes every
   retained subscriber synchronously in subscription order.
   **Non-reentrant** — see R2 policy below.
-- `signal.subscribe(cb: *Closure())` — clones the incoming
-  `*Closure()` handle and appends to the internal subscriber
-  Vec. Multiple subscribes accumulate; there is no `unsubscribe`
-  in V1 (deferred — see below).
+- `signal.subscribe(cb: *Closure())` — takes ownership of the
+  handle it is given and appends it to the internal subscriber
+  Vec; pass `+cb` to keep your own. Multiple subscribes
+  accumulate; there is no `unsubscribe` in V1 (deferred — see
+  below).
 
 **V1 restriction: `Signal(T)` remains Copy-only** (`Int`, `Bool`,
 `Float`, `String`, and literal pseudo-types). Cell-non-Copy and
@@ -716,8 +712,7 @@ keeping `subscribe` strict:
     not a memory-safety issue.
   - **Reentrant `subscribe`** still panics:
     ```
-    thread <id> panic: Rig Signal.subscribe: subscribing
-                       during notification is not supported in V1
+    panic: Signal.subscribe called while notifying subscribers
     ```
     List-mutation semantics during iteration are subtler than
     the queued-value pattern set uses; locking that policy
@@ -758,9 +753,7 @@ sig: Signal(Int) = Signal(value: 0)
 #        ownership. Use `*Signal(T)` (heap-owned) instead.
 
 sig: *Signal(Int) = *Signal(value: 0)
-# OK — *Signal wires Signal's `__rig_drop` through M20h's
-# `hasRigDrop` hook so the subs-Vec destructor cascades on
-# last-strong drop.
+# OK — the last strong handle's drop drops the subscriber Vec.
 ```
 
 **`subscribe` discipline.** Caller's `*Closure()` handle is
@@ -1249,9 +1242,10 @@ The runtime Zig (`_runtime.zig` — Cell, Vec, Signal,
 Closure, RcBox, WeakHandle, etc.) lives outside Rig source
 entirely. It uses unsafe Zig patterns (`@ptrCast`,
 `@alignCast`, `@hasDecl`, etc.) internally; that's the
-trusted-implementation boundary. The runtime's safety story
-is verified by code review and by the absence of regressions
-in the canary suite, not by Rig's checker. User-defined
+trusted-implementation boundary. The runtime (`src/runtime/_runtime.zig`)
+is verified by its own unit tests and by the behavior suite,
+which runs every program under a leak-checking allocator, not
+by Rig's checker. User-defined
 trusted-runtime patterns (writing your own Cell-like primitive
 in Rig source with unsafe internals) compose via the
 safe-wrapper pattern above; for V1 there is no separate
@@ -1748,44 +1742,29 @@ Surface rules (V1, locked per the M25 design checkpoint):
   *can* fail wraps internals in `raw` and panics or logs).
 - Cannot be marked `pub` / `extern` (drop is implicit in the
   type's contract; visibility doesn't apply).
-- Plain structs only. `enum` / `errors` / `generic_type` /
-  `generic_enum` Drop is V1-deferred (per-variant payload
-  drop and bounds-aware monomorphized resource analysis are
-  separate substrate arcs).
+- Plain structs only. A user `drop` on an `enum`, `errors`,
+  `generic_type`, or `generic_enum` is V1-deferred (their owned
+  payloads and fields are still dropped structurally; see below).
 
-## Auto-generated structural drop glue
+## Structural drop glue
 
-A struct gets compiler-generated drop glue when EITHER it has
-a user `drop` declaration OR any of its data fields has a
-resource type. Resource fields include:
+A type has drop glue when it has a user `drop` declaration or
+owns a resource: a `*T` or `~T` handle, a `Vec(T)`, a `Cell` of
+a resource, an optional resource such as `(*T)?`, or a value of
+another type with drop glue. Structs own their fields, enums the
+payload of their current variant, and an instance of a generic
+type what its fields hold under its type arguments
+(`Holder(*T)` owns a `*T`; `Holder(Int)` owns nothing).
 
-- `*T` shared handles → released via `dropStrong()`.
-- `~T` weak handles → released via `dropWeak()`.
-- `Vec(T)` resource values → released via `__rig_drop()`.
-- `*Closure()` owned closures → released via `dropStrong()`
-  (since `*Closure` is a `*T` shared handle).
-- nominal structs already flagged with drop glue → released
-  via `__rig_drop()` (recursive case).
-
-The generated method has shape:
-
-```zig
-pub fn __rig_drop(self: *Self) void {
-    self.__rig_user_drop();      // only if user `drop` exists
-    self.field_n.{drop_method}();   // reverse declaration
-    ...                             // order — Rust's discipline
-    self.field_1.{drop_method}();
-}
-```
-
-Reverse declaration order ensures fields are released in the
-opposite order they were initialized — the last-constructed
-resource is the first-released, matching the natural
-acquire-then-release shape.
+Dropping a value runs the user `drop` body first, if there is
+one, and then drops the owned parts: struct fields in reverse
+declaration order (the last-constructed resource is released
+first), the active variant's payload, or each element of a
+`Vec` from last to first.
 
 ## "Any type with drop glue is non-Copy" rule
 
-A struct flagged `has_drop_glue` is non-Copy. Bare alias /
+A value whose type has drop glue is non-Copy. Bare alias /
 assignment / call-arg of such a value is rejected — two
 bindings would each run the destructor on scope exit
 (double-free). Move (`<x`) is required:
@@ -1808,14 +1787,13 @@ clone shape for user-Drop types.
 
 ## Auto-drop discipline
 
-A named binding of a `has_drop_glue` struct gets the M20e
-auto-drop guard: a `var __rig_alive_x: bool = true;` flag plus
-a scope-exit `defer` that calls `x.__rig_drop()` if the flag
-is still armed. Explicit discharges (`-x`, `<x`, `return x`)
-disarm the flag before the defer fires. Reassignment drops
-the previous handle and re-arms the flag for the new one.
-Same machinery as Vec / `*T` / `~T`; the user-Drop struct
-just rides the existing path.
+A named binding whose type has drop glue is dropped when it
+goes out of scope, unless it was consumed first: dropped early
+(`-x`), moved (`<x`, a `|<x|` capture), or returned. A value
+leaving through a `return`, a `break`, or the last expression
+of a value block (including each branch of an `if`/`match`
+expression) is moved out. Reassignment evaluates the new value,
+then drops the old one.
 
 ## Drop body restrictions (M25.1)
 
@@ -1901,6 +1879,20 @@ send encode <packet
 ```
 
 Rig should prefer readability over clever omission.
+
+---
+
+## Keyword Arguments
+
+Arguments may be passed by parameter name, in any order, to
+functions and methods:
+
+```rig
+area(scale: 10, rect: r)
+```
+
+Arguments are always evaluated left to right as written, whatever
+parameters they bind to.
 
 ---
 
@@ -2310,6 +2302,41 @@ queue consumed
 packet ownership transferred
 queue invalid afterward
 ```
+
+---
+
+## Ranges, Indexes, and `else`
+
+`a..b` is the half-open integer range from `a` up to but not
+including `b`; both bounds are evaluated once. A second binding
+receives each element's index:
+
+```rig
+for i in 0..n
+  total += i
+
+for x, i in xs            # arrays and Vecs
+  print(x * i)
+```
+
+A loop's `else` block runs when the loop ends without `break`
+(`while` and `for` alike). Labeled loops (`:outer while ...`) are
+the targets of `break :outer` and `continue :outer`; `break` and
+`continue` take a postfix guard (`break if done`).
+
+`[a, b, c]` is an array literal and `xs.len` its length. `xs[i]` and
+`v[i]` (a `Vec` of plain data) read an element and `xs[i] = x`
+stores one; an index outside `0 ..< len` panics with `index out of
+bounds`.
+
+---
+
+# Arithmetic
+
+Integer `/` truncates toward zero and `%` is the remainder with the
+sign of the dividend, so `(a / b) * b + a % b == a` (`-7 / 2 == -3`,
+`-7 % 2 == -1`). Float `/` is ordinary division. `a ** b` raises `a`
+to the power `b`, and `x |> f(y)` is `f(x, y)`.
 
 ---
 

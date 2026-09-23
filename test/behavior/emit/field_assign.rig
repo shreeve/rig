@@ -1,0 +1,12 @@
+# `u.name = "y"` assigns a field.
+
+struct User
+  name: String
+
+sub main()
+  u = User(name: "x")
+  u.name = "y"
+  print(u.name)
+
+# expect:
+# y

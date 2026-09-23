@@ -1,0 +1,20 @@
+# A range loop's `else` runs only when the loop was not left by `break`;
+# the range is half-open and its bounds may be expressions.
+
+sub find(limit: Int, target: Int)
+  for i in 0..limit + 1
+    if i == target
+      print(i)
+      break
+  else
+    print("none")
+
+sub main()
+  find(5, 3)
+  find(2, 3)
+  for i in 3..3
+    print(i)
+
+# expect:
+# 3
+# none

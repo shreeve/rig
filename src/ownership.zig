@@ -1267,11 +1267,12 @@ pub const Checker = struct {
                             try self.err(innerPos(expr), "bare use of `{s}` in {s} would duplicate a write borrow; a field cannot be moved out of its parent", .{ try self.placeText(expr), sink.text() });
                         }
                     },
-                    .@"if" => for (items[2..]) |b| try self.checkNoImplicitCopy(tailOf(b), sink, false),
-                    .@"ternary" => for (items[2..]) |b| try self.checkNoImplicitCopy(tailOf(b), sink, false),
+                    // A value returned through a branch moves out, like a bare return.
+                    .@"if" => for (items[2..]) |b| try self.checkNoImplicitCopy(tailOf(b), sink, top_return),
+                    .@"ternary" => for (items[2..]) |b| try self.checkNoImplicitCopy(tailOf(b), sink, top_return),
                     .@"match" => for (items[2..]) |arm| {
                         if (isTag(arm, .@"arm") and arm.list.len >= 2) {
-                            try self.checkNoImplicitCopy(tailOf(arm.list[arm.list.len - 1]), sink, false);
+                            try self.checkNoImplicitCopy(tailOf(arm.list[arm.list.len - 1]), sink, top_return);
                         }
                     },
                     .@"block" => if (items.len >= 2) try self.checkNoImplicitCopy(tailOf(expr), sink, top_return),
@@ -1749,7 +1750,7 @@ pub const Checker = struct {
                 }
             }
         } else if (isValueExpr(expr)) {
-            try self.checkNoImplicitCopy(expr, .ret, false);
+            try self.checkNoImplicitCopy(expr, .ret, true);
             value = try self.walk(expr);
         } else {
             _ = try self.walk(expr);
@@ -2288,6 +2289,7 @@ pub const Checker = struct {
         return switch (sema.types.get(t)) {
             .shared => .shared,
             .weak => .weak,
+            .optional => |child| self.owningKind(child),
             .parameterized_nominal => |pn| blk: {
                 if (pn.sym == sema.vec_sym_id) break :blk .vec;
                 if (types.typeHasDropGlue(sema, t)) break :blk .{ .drop_glue = sema.symbols.items[pn.sym].name };

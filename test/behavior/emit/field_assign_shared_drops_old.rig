@@ -1,0 +1,22 @@
+# Assigning a shared handle into a struct field drops the old handle at
+# the assignment; the struct drops the new one when it goes.
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+struct Pair
+  a: *Noisy
+
+sub main()
+  p = Pair(a: *Noisy(id: 1))
+  n = *Noisy(id: 2)
+  p.a = <n
+  print("assigned")
+
+# expect:
+# 1
+# assigned
+# 2

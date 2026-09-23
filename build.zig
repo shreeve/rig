@@ -66,6 +66,7 @@ pub fn build(b: *std.Build) void {
         "src/effects.zig",
         "src/ownership.zig",
         "src/emit.zig",
+        "src/runtime.zig",
     };
     for (test_roots) |root| {
         const mod = b.createModule(.{

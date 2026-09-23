@@ -1,0 +1,17 @@
+# A value-position match arm can destructure a multi-field payload.
+
+enum Shape
+  circle(radius: Int)
+  triangle(a: Int, b: Int)
+
+fun measure(s: Shape) -> Int
+  match s
+    .circle(r) => r
+    .triangle(a, b) => a + b
+
+sub main()
+  s: Shape = .triangle(a: 3, b: 4)
+  print(measure(s))
+
+# expect:
+# 7

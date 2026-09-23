@@ -1,0 +1,21 @@
+# A generic struct instantiated with a handle (`Holder(*Noisy)`) drops the
+# handle it holds.
+
+type Holder(T)
+  value: T
+  id: Int
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+sub main()
+  n = *Noisy(id: 6)
+  h: Holder(*Noisy) = Holder(value: <n, id: 1)
+  print(h.id)
+
+# expect:
+# 1
+# 6

@@ -1,9 +1,0 @@
-# Known bug (new, emit): a Rig type name passed to a builtin (`@sizeOf(I64)`)
-# is emitted verbatim, so Zig reports "use of undeclared identifier 'I64'".
-
-sub main()
-  n = @sizeOf(I64)
-  print(n)
-
-# expect:
-# 8

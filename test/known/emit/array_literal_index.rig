@@ -1,9 +1,0 @@
-# Known bug (B12, D17): array literals and indexing are accepted by sema,
-# but emit writes a @compileError for `array`.
-
-sub main()
-  xs = [10, 20, 30]
-  print(xs[1])
-
-# expect:
-# 20

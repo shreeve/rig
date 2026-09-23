@@ -1,0 +1,18 @@
+# A parameter with a default value may be omitted; keyword arguments
+# fill the rest.
+# Known bug (new): sema does not bind the name of a defaulted parameter
+# ("use of unbound name `by`") and requires every argument. Emit already
+# fills omitted arguments from the defaults.
+
+fun scaled(n: Int, by: Int = 10) -> Int
+  n * by
+
+sub main()
+  print(scaled(3))
+  print(scaled(3, 2))
+  print(scaled(by: 4, n: 5))
+
+# expect:
+# 30
+# 6
+# 20

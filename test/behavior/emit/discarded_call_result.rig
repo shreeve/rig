@@ -1,0 +1,13 @@
+# A call whose result is discarded is still evaluated. Moving a Copy
+# value (`<n`) copies it, so `n` stays usable.
+
+fun consume(n: Int) -> Int
+  n
+
+sub main()
+  n = 1
+  consume <n
+  print n
+
+# expect:
+# 1

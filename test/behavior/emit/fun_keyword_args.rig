@@ -1,0 +1,10 @@
+# Keyword arguments bind to parameters by name, in any order.
+
+fun sub_ab(a: Int, b: Int) -> Int
+  a - b
+
+sub main()
+  print(sub_ab(b: 1, a: 5))
+
+# expect:
+# 4

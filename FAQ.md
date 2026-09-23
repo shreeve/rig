@@ -138,7 +138,7 @@ Three sources combine to make GC the wrong answer for Rig:
 
 Rig does ship a small trusted runtime (`*T` / `~T` refcount,
 `Cell`, `Vec`, `Closure`, `Signal`) — that's the cost of avoiding GC,
-and it's documented in `src/runtime.zig`. The runtime does not
+and it's documented in `src/runtime/_runtime.zig`. The runtime does not
 allocate on a managed heap, doesn't trace, and doesn't pause; it's
 the smallest set of primitives the substrate ladder requires.
 

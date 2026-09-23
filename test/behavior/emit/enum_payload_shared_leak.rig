@@ -1,0 +1,19 @@
+# An enum variant carrying a shared handle owns it: the enum drops the
+# handle when it goes.
+
+struct Box
+  payload: Int
+
+enum Slot
+  full(b: *Box)
+  empty
+
+sub main()
+  rc = *Box(payload: 5)
+  s: Slot = .full(b: <rc)
+  match s
+    .full(b) => print(1)
+    .empty => print(0)
+
+# expect:
+# 1

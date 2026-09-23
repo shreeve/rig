@@ -1,0 +1,23 @@
+# A generic enum instantiated with a handle (`Maybe(*Noisy)`) drops the
+# handle it holds.
+
+enum Maybe(T)
+  some(value: T)
+  none
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+sub main()
+  n = *Noisy(id: 6)
+  m: Maybe(*Noisy) = .some(value: <n)
+  match m
+    .some => print("some")
+    .none => print("none")
+
+# expect:
+# some
+# 6

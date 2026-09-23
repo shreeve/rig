@@ -1,0 +1,10 @@
+# Known bug (new): sema does not walk `(labeled ...)` statements, so
+# nothing inside a labeled loop is type-checked (and its locals get no
+# types); this mismatch is accepted.
+
+sub main()
+  :outer while true
+    x: Int = "s"
+    break :outer
+
+# error: type mismatch: expected `Int`, got `String`

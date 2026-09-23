@@ -1,0 +1,13 @@
+# A closure that move-captures a `Vec` owns it and frees it when the
+# closure leaves scope.
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  (!v).push(2)
+  f = |<v|
+    print(v.length())
+  f()
+
+# expect:
+# 2

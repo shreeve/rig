@@ -1,0 +1,13 @@
+# The `else` block of a `while` runs when the loop ends without `break`.
+
+sub main()
+  i = 0
+  while i < 2
+    i += 1
+  else
+    print("done")
+  print(i)
+
+# expect:
+# done
+# 2

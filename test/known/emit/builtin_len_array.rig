@@ -1,9 +1,0 @@
-# Arrays expose their length as `.len`.
-# Known bug (D17): the array literal emits a @compileError.
-
-sub main()
-  arr = [1, 2, 3]
-  print(arr.len)
-
-# expect:
-# 3

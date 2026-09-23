@@ -1,0 +1,13 @@
+# A `raw` block can be a function's value.
+
+extern fun abs(n: Int) -> Int
+
+fun safe_abs(n: Int) -> Int
+  raw
+    abs(n)
+
+sub main()
+  print(safe_abs(-5))
+
+# expect:
+# 5

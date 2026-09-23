@@ -83,7 +83,7 @@ bin/rig run file.rig # compile + run (Debug, leak-checked)
 | `src/effects.zig` | Fallibility checking |
 | `src/ownership.zig` | Move / borrow / drop checking |
 | `src/emit.zig` | Zig code generation |
-| `src/runtime.zig` | Runtime support emitted with every program |
+| `src/runtime/_runtime.zig` | Runtime support shipped with every program (embedded by `src/runtime.zig`) |
 | `src/main.zig` | CLI |
 | `test/` | The test suite (see `test/README.md`) |
 | `examples/` | Curated example programs, all run by the suite |

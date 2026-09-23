@@ -1,0 +1,17 @@
+# A local may share its name with a function; the local wins in its scope.
+
+fun total() -> Int
+  42
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  (!v).push(2)
+  for total in v
+    print(total)
+  print(total())
+
+# expect:
+# 1
+# 2
+# 42

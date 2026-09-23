@@ -1,0 +1,16 @@
+# A generic struct instantiated with a resource (`Holder(*Box)`) owns it;
+# copying the struct would drop the handle twice.
+
+type Holder(T)
+  value: T
+
+struct Box
+  n: Int
+
+sub main()
+  rc = *Box(n: 5)
+  h: Holder(*Box) = Holder(value: <rc)
+  g = h
+  print(g.value.n)
+
+# error: would alias an owning value

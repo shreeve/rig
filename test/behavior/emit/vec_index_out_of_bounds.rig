@@ -1,0 +1,9 @@
+# Indexing a Vec past its end panics, and so does a negative index.
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  i = -1
+  print(v[i])
+
+# expect-panic: index out of bounds
