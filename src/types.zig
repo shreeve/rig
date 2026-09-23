@@ -913,20 +913,24 @@ fn propagateDropGlue(ctx: *SemContext) void {
         changed = false;
         for (ctx.symbols.items) |*sym| {
             if (sym.kind != .nominal_type or sym.flags.has_drop_glue) continue;
-            const fields = sym.fields orelse continue;
-            for (fields) |f| {
-                const glue = f.is_drop_method or (!f.is_method and if (f.is_variant)
-                    payloadHasDropGlue(ctx, f)
-                else
-                    typeHasDropGlue(ctx, f.ty));
-                if (glue) {
-                    sym.flags.has_drop_glue = true;
-                    changed = true;
-                    break;
-                }
+            if (fieldsHaveDropGlue(ctx, sym.fields orelse continue)) {
+                sym.flags.has_drop_glue = true;
+                changed = true;
             }
         }
     }
+}
+
+/// Whether a nominal type with these members has drop glue, given the
+/// `has_drop_glue` flags known so far: it declares `drop`, or a field or
+/// variant payload has drop glue.
+pub fn fieldsHaveDropGlue(ctx: *const SemContext, fields: []const Field) bool {
+    for (fields) |f| {
+        if (f.is_drop_method) return true;
+        if (f.is_method) continue;
+        if (if (f.is_variant) payloadHasDropGlue(ctx, f) else typeHasDropGlue(ctx, f.ty)) return true;
+    }
+    return false;
 }
 
 /// A struct or enum may not contain itself by value (directly or through

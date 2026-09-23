@@ -3057,16 +3057,16 @@ pub const Emitter = struct {
     }
 
     /// How a value of this type is released, or null for plain data.
+    /// Sema decides whether it owns anything (`typeHasDropGlue`, or
+    /// `maybeDropGlue` for values of a type parameter, which `rig.drop`
+    /// releases only if the instance needs it); this only picks the call.
     fn kindOf(self: *Emitter, ty: TypeId) ?ResourceKind {
+        if (!types.typeHasDropGlue(self.sema, ty) and !types.maybeDropGlue(self.sema, ty)) return null;
         return switch (self.sema.types.get(ty)) {
             .shared => .shared,
             .weak => .weak,
-            .optional => |inner| if (self.kindOf(inner) != null) .optional else null,
-            .nominal, .parameterized_nominal, .imported_nominal => if (types.typeHasDropGlue(self.sema, ty) or types.maybeDropGlue(self.sema, ty)) .value else null,
-            // A type parameter's value is dropped with `rig.drop`, which
-            // does nothing for plain data.
-            .type_var => .value,
-            else => null,
+            .optional => .optional,
+            else => .value,
         };
     }
 
