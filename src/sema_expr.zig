@@ -2656,7 +2656,10 @@ const Checker = struct {
             if (stmts.len > 0) {
                 for (stmts[0 .. stmts.len - 1]) |s| try self.checkStmt(s);
                 const last = stmts[stmts.len - 1];
-                ret = if (isStatementForm(last)) blk: {
+                // A closure ending in a statement, or an `if` without
+                // `else`, returns nothing.
+                const no_value = isStatementForm(last) or (isHead(last, .@"if") and last.list[3] == .nil);
+                ret = if (no_value) blk: {
                     try self.checkStmt(last);
                     break :blk self.t().void_id;
                 } else try self.synthExpr(last);
@@ -2931,7 +2934,7 @@ pub fn isDefaultLiteral(source: []const u8, e: Sexp) bool {
 fn isStatementForm(e: Sexp) bool {
     const h = headOf(e) orelse return false;
     return switch (h) {
-        .@"set", .@"while", .@"for", .@"drop", .@"defer", .@"errdefer", .@"return", .@"break", .@"continue" => true,
+        .@"set", .@"while", .@"for", .@"drop", .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .@"labeled" => true,
         else => false,
     };
 }

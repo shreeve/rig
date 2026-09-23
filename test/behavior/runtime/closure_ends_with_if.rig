@@ -1,0 +1,18 @@
+# A closure body may end with an `if` that has no `else`; the closure
+# then returns nothing. Here it upgrades a weak capture.
+
+sub main()
+  c: *Cell(Int) = *Cell(value: 13)
+  peek = |~c|
+    if c.upgrade() as h
+      print("peek", h.get())
+  peek()
+  flag = true
+  say = |flag|
+    if flag
+      print("flag")
+  say()
+
+# expect:
+# peek 13
+# flag
