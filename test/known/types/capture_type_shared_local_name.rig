@@ -1,6 +1,7 @@
-# Known bug (B10): a closure capture's type is found by a global name
-# scan; with another function's Int `s`, the captured String prints as a
-# byte array.
+# Known bug (B10, emit): a closure capture's type is found by a global
+# name scan; with another function's Int `s`, the captured String prints
+# as a byte array. Sema's facts table has the right answer:
+# `ctx.symbolOf(capture_leaf)` is the capture with type String.
 
 sub other()
   s = 3

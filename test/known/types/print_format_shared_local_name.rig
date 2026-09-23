@@ -1,6 +1,7 @@
-# Known bug (B10): print picks its format by scanning for the first
+# Known bug (B10, emit): print picks its format by scanning for the first
 # symbol with the name, so when two functions both have a local `s`, the
-# String in `a` prints as a byte array.
+# String in `a` prints as a byte array. Sema's facts table has the right
+# answer: `ctx.typeOf(arg)` is String here.
 
 sub b()
   s = 42

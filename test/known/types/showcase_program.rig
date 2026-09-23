@@ -1,7 +1,9 @@
-# Known bug (B1): the original language showcase. Nothing can produce a
-# `T!` value, so `loadUser` / `loadProfile` are rejected ("expected
-# `User!`, got `User`"), and forwarding a borrowed parameter (`?input`
-# where `input: ?Bytes`) is rejected as `??Bytes` (B11).
+# The original language showcase. Sema accepts it (fallible functions
+# return plain values; `?input` reborrows a borrowed parameter).
+# Known bugs: `print user.name` parses as `(print user).name` (front end,
+# paren-free call with a member argument); emit maps a user type named
+# `Bytes` to `[]const u8`, and leaves unused parameters and locals that
+# Zig rejects.
 
 struct User
   name: String

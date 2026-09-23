@@ -1,6 +1,6 @@
 # `v[i]` reads an element of a Vec of Copy values (bounds-checked).
-# Known bug (D17): sema accepts indexing a Vec but the emitted Zig fails
-# to compile.
+# Sema types it as the element type. Known bug (D17, emit): the emitted
+# Zig indexes the Vec struct itself and fails to compile.
 
 sub main()
   v: Vec(Int) = Vec()

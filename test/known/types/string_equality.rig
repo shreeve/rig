@@ -1,5 +1,6 @@
-# Known bug (B5): `==` on two Strings is accepted but lowered to Zig `==`
-# on slices, which Zig rejects ("cannot compare strings with ==").
+# `==` on two Strings compares their contents.
+# Known bug (B5, emit): lowered to Zig `==` on slices, which Zig rejects
+# ("cannot compare strings with =="); it needs `std.mem.eql`.
 
 sub main()
   s = "a"
