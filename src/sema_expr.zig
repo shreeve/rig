@@ -539,7 +539,7 @@ const Checker = struct {
         if (items.len < 3) return self.t().invalid_id;
         const cond = items[1];
         const then_node = items[2];
-        const else_node: Sexp = if (items.len >= 4) items[3] else .{ .nil = {} };
+        const else_node = items[3];
 
         const prev = self.scope;
         try self.checkCondition(cond);
@@ -605,13 +605,11 @@ const Checker = struct {
         if (items.len < 3) return;
         const prev = self.scope;
         try self.checkCondition(items[1]);
-        // (while cond cont body else?)
-        const body_end: usize = if (items.len >= 5) items.len - 1 else items.len;
-        for (items[2..body_end]) |c| {
-            if (c != .nil) try self.checkStmt(c);
-        }
+        // (while cond step body else)
+        if (items[2] != .nil) try self.checkStmt(items[2]);
+        try self.checkStmt(items[3]);
         self.scope = prev;
-        if (items.len >= 5 and items[4] != .nil) try self.checkStmt(items[4]);
+        if (items[4] != .nil) try self.checkStmt(items[4]);
     }
 
     fn checkFor(self: *Checker, node: Sexp) Error!void {
@@ -658,7 +656,7 @@ const Checker = struct {
             }
             try self.checkStmt(items[5]);
         }
-        if (items.len > 6 and items[6] != .nil) try self.checkStmt(items[6]);
+        if (items[6] != .nil) try self.checkStmt(items[6]);
     }
 
     fn recordType(self: *Checker, node: Sexp, ty: TypeId) Error!void {

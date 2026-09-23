@@ -20,6 +20,7 @@ const rig = @import("rig.zig");
 const types = @import("types.zig");
 const effects = @import("effects.zig");
 const ownership = @import("ownership.zig");
+const ir_check = @import("ir.zig");
 
 pub const max_source_bytes = 16 * 1024 * 1024;
 
@@ -147,6 +148,7 @@ pub const ModuleGraph = struct {
             },
             else => |e| return e,
         };
+        ir_check.assertValid(ir, source, display);
         self.get(id).ir = ir;
 
         if (!try self.loadImports(id)) {

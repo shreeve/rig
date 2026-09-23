@@ -1037,7 +1037,7 @@ pub const Emitter = struct {
 
     /// `(return value?)`.
     fn emitReturn(self: *Emitter, items: []const Sexp) Error!void {
-        if (items.len < 2) return self.w.writeAll("return;");
+        if (items[1] == .nil) return self.w.writeAll("return;");
         try self.w.writeAll("return ");
         try self.emitReturnValue(items[1]);
         try self.w.writeAll(";");
@@ -1054,14 +1054,14 @@ pub const Emitter = struct {
     /// `(break value-or-_ label?)`.
     fn emitBreak(self: *Emitter, items: []const Sexp) Error!void {
         try self.w.writeAll("break");
-        if (items.len >= 3) try self.w.print(" :{f}", .{self.ident(self.srcText(items[2]))});
+        if (items[2] != .nil) try self.w.print(" :{f}", .{self.ident(self.srcText(items[2]))});
         try self.w.writeAll(";");
     }
 
     /// `(continue label?)`.
     fn emitContinue(self: *Emitter, items: []const Sexp) Error!void {
         try self.w.writeAll("continue");
-        if (items.len >= 2) try self.w.print(" :{f}", .{self.ident(self.srcText(items[1]))});
+        if (items[1] != .nil) try self.w.print(" :{f}", .{self.ident(self.srcText(items[1]))});
         try self.w.writeAll(";");
     }
 
@@ -1078,7 +1078,7 @@ pub const Emitter = struct {
             try self.emitCond(items[1]);
             try self.emitBranchStmt(items[2]);
         }
-        if (items.len >= 4) {
+        if (items[3] != .nil) {
             try self.w.writeAll(" else ");
             if (isTagged(items[3], .@"if")) try self.emitIf(items[3]) else try self.emitBranchStmt(items[3]);
         }
@@ -1139,7 +1139,7 @@ pub const Emitter = struct {
         }
         try self.emitBodyWith(items[3], prelude);
         try self.popScope();
-        if (items.len >= 5) {
+        if (items[4] != .nil) {
             try self.w.writeAll(" else ");
             try self.emitBranchStmt(items[4]);
         }
@@ -1221,7 +1221,7 @@ pub const Emitter = struct {
         try self.emitStmts(try self.stmtsOf(body));
         try self.closeBrace();
         try self.popScope();
-        if (items.len >= 7) {
+        if (items[6] != .nil) {
             try self.w.writeAll(" else ");
             try self.emitBranchStmt(items[6]);
         }
@@ -1261,7 +1261,7 @@ pub const Emitter = struct {
         };
         try self.emitStmts(try self.stmtsOf(items[5]));
         try self.closeBrace();
-        if (items.len >= 7) {
+        if (items[6] != .nil) {
             try self.w.writeAll(" else ");
             try self.emitBranchStmt(items[6]);
         }
@@ -1762,7 +1762,7 @@ pub const Emitter = struct {
     /// `(if cond then else)` as a value.
     fn emitIfExpr(self: *Emitter, sexp: Sexp) Error!void {
         const items = sexp.list;
-        if (items.len != 4) return self.unsupported(sexp, "an `if` without `else` in value position");
+        if (items[3] == .nil) return self.unsupported(sexp, "an `if` without `else` in value position");
         try self.w.writeAll("if ");
         try self.pushScope();
         var prelude: Prelude = .{};
@@ -2711,9 +2711,9 @@ const Scan = struct {
                 if (s.e.kindOf(ty) != null) try s.put(&s.e.usage.used, sym);
                 return;
             },
-            .@"return", .@"break" => if (items.len >= 2) try s.consumeAll(items[1]),
+            .@"return", .@"break" => try s.consumeAll(items[1]),
             .@"for" => if (items[1] == .tag and items[1].tag == .@"move") try s.consume(items[4]),
-            .@"if" => if (items.len == 4) {
+            .@"if" => if (items[3] != .nil) {
                 // An `if` with `else` may be a value: its branches yield.
                 try s.consumeTail(items[2]);
                 try s.consumeTail(items[3]);
@@ -2901,7 +2901,7 @@ fn isValueStmt(s: Sexp) bool {
     const h = headOf(s) orelse return true;
     return switch (h) {
         .@"set", .@"drop", .@"return", .@"break", .@"continue", .@"defer", .@"errdefer", .@"block", .@"while", .@"for", .@"labeled" => false,
-        .@"if" => s.list.len >= 4,
+        .@"if" => s.list[3] != .nil,
         else => true,
     };
 }

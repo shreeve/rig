@@ -17,6 +17,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const diag = @import("diag.zig");
+const ir = @import("ir.zig");
 const BaseLexer = parser.BaseLexer;
 const BaseParser = parser.BaseParser;
 const Token = parser.Token;
@@ -74,7 +75,7 @@ pub const Tag = enum(u8) {
     @"iter",            // for modes
     @"ptr",
     @"match",
-    @"arm",             // (arm pattern _ body)
+    @"arm",             // (arm pattern body)
     @"range_pattern",
     @"variant_pattern", // .circle(r)
     @"enum_lit",        // .red
@@ -892,6 +893,8 @@ pub const Parser = struct {
     // -------------------------------------------------------------------------
     // Rewrites that need to inspect the tree:
     //
+    //   * every node gets all the slots its schema (`ir.zig`) gives it:
+    //     absent trailing optional slots become `_`;
     //   * `for` source sigils move into the mode slot:
     //       (for iter x _ (read xs) body)  →  (for read x _ xs body)
     //   * a `-name` statement whose value is used is negation, not a drop:
@@ -908,8 +911,9 @@ pub const Parser = struct {
             .list => |l| l,
             else => return sexp,
         };
-        const out = try self.allocator().alloc(Sexp, items.len);
-        for (items, 0..) |child, i| out[i] = try self.walk(child);
+        const walked = try self.allocator().alloc(Sexp, items.len);
+        for (items, 0..) |child, i| walked[i] = try self.walk(child);
+        const out = try ir.pad(self.allocator(), walked);
         if (out.len == 0 or out[0] != .tag) return .{ .list = out };
         switch (out[0].tag) {
             .@"for" => normFor(out),
@@ -930,13 +934,11 @@ pub const Parser = struct {
         switch (items[0].tag) {
             .@"drop" => items[0] = .{ .tag = .@"neg" },
             .@"block" => if (items.len >= 2) valueTail(items[items.len - 1]),
-            .@"if" => if (items.len >= 4) {
+            .@"if" => {
                 valueTail(items[2]);
                 valueTail(items[3]);
             },
-            .@"match" => for (items[2..]) |arm| {
-                if (arm == .list and arm.list.len >= 4) valueTail(arm.list[3]);
-            },
+            .@"match" => for (items[2..]) |arm| valueTail(arm.list[2]),
             else => {},
         }
     }

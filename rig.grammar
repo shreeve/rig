@@ -485,8 +485,8 @@ arms     = arm                              → (1)
          | arms NEWLINE arm                 → (...1 3)
          | arms NEWLINE                     → 1
 
-arm      = pattern "=>" simple              → (arm 1 _ 3)
-         | pattern block                    → (arm 1 _ 2)
+arm      = pattern "=>" simple              → (arm 1 3)
+         | pattern block                    → (arm 1 2)
 
 pattern  = patatom
          | patatom ".." patatom             → (range_pattern 1 3)

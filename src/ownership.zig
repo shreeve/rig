@@ -1694,7 +1694,7 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn walkReturn(self: *Checker, items: []const Sexp) Error!void {
-        if (items.len >= 2) try self.walkReturnValue(items[1]);
+        if (items[1] != .nil) try self.walkReturnValue(items[1]);
         try self.runDefersTo(0);
         self.reachable = false;
     }
@@ -1749,7 +1749,7 @@ pub const Checker = struct {
 
     fn walkIf(self: *Checker, items: []const Sexp) Error!Value {
         if (items.len < 3) return .{};
-        const else_b: ?Sexp = if (items.len >= 4) items[3] else null;
+        const else_b: ?Sexp = if (items[3] != .nil) items[3] else null;
         if (isTag(items[1], .@"as")) return self.walkIfAs(items[1], items[2], else_b);
         _ = try self.walk(items[1]);
         return self.walkBranches(items[2], else_b);
@@ -1842,12 +1842,10 @@ pub const Checker = struct {
         for (items[2..]) |arm| {
             if (!isTag(arm, .@"arm") or arm.list.len < 3) continue;
             const pattern = arm.list[1];
-            const guard: Sexp = if (arm.list.len >= 4) arm.list[2] else .nil;
             const body = arm.list[arm.list.len - 1];
             try self.restore(base);
             try self.pushScope(.block);
             if (try self.bindPattern(pattern, info, scrut_value)) catch_all = true;
-            if (guard != .nil) _ = try self.walk(guard);
             var v = try self.walk(body);
             v = try self.checkValueEscapesScope(v);
             try self.popScope();
@@ -1950,7 +1948,7 @@ pub const Checker = struct {
             .cond_always_true = cond == .src and std.mem.eql(u8, self.text(cond), "true"),
             .cont = if (items[2] == .nil) null else items[2],
             .body = items[3],
-            .else_body = if (items.len >= 5 and items[4] != .nil) items[4] else null,
+            .else_body = if (items[4] != .nil) items[4] else null,
         });
     }
 
@@ -1961,7 +1959,7 @@ pub const Checker = struct {
         const source = items[4];
         var spec: LoopSpec = .{
             .body = items[5],
-            .else_body = if (items.len >= 7 and items[6] != .nil) items[6] else null,
+            .else_body = if (items[6] != .nil) items[6] else null,
             .elem1 = items[2],
             .elem2 = items[3],
         };
@@ -2096,8 +2094,8 @@ pub const Checker = struct {
     /// innermost loop.
     fn walkJump(self: *Checker, items: []const Sexp, jump: Jump) Error!void {
         const label_slot: usize = if (jump == .brk) 2 else 1;
-        const label = if (items.len > label_slot) self.text(items[label_slot]) else "";
-        if (jump == .brk and items.len >= 2 and items[1] != .nil) _ = try self.walk(items[1]);
+        const label = self.text(items[label_slot]);
+        if (jump == .brk and items[1] != .nil) _ = try self.walk(items[1]);
         var target = self.loop;
         while (target) |t| : (target = t.parent) {
             if (label.len == 0 or std.mem.eql(u8, t.label, label)) break;

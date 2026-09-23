@@ -460,7 +460,7 @@ const SymbolResolver = struct {
             _ = try self.bindFresh(items[3], "`for` binding");
             try self.walk(items[5]);
         }
-        if (items.len > 6) try self.walk(items[6]);
+        try self.walk(items[6]);
     }
 
     /// An `if` / `while`. A condition `(as expr name)` opens a scope
@@ -684,8 +684,8 @@ pub const TypeResolver = struct {
     fn resolveExternFun(self: *TypeResolver, items: []const Sexp) Error!void {
         if (items.len < 2) return;
         const is_sub = items[0].tag == .@"extern_sub";
-        const params: Sexp = if (items.len >= 3) items[2] else .{ .nil = {} };
-        const returns: Sexp = if (!is_sub and items.len >= 4) items[3] else .{ .nil = {} };
+        const params = items[2];
+        const returns: Sexp = if (is_sub) .nil else items[3];
         const return_ty = if (returns == .nil) self.ctx.types.void_id else try self.resolveReturnType(returns);
         var ps: std.ArrayListUnmanaged(TypeId) = .empty;
         defer ps.deinit(self.ctx.allocator);

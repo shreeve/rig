@@ -65,6 +65,10 @@ For everything else, raw == semantic (`bin/rig parse` vs `bin/rig normalize`).
 
 ## Full IR shape
 
+Every node has exactly the slots its schema in `src/ir.zig` gives it:
+the parser fills an absent optional slot with `_`, and Debug builds of
+the compiler check each module's IR against the schemas after parsing.
+
 ### Module structure
 
 ```
@@ -158,23 +162,25 @@ Multi-capture (`|+a, +b|`) shipped in M28; the list contains one
 ### Control flow
 
 ```
-(if cond then else?)             ; block `if`; also the inline ternary
+(if cond then else-or-_)         ; block `if`; also the inline ternary
                                  ; `a if c else b` → (if c a b), and a
-                                 ; guard `stmt if c` → (if c (block stmt))
-(while cond _ body else:?)
-(while cond cont body else:?)    ; `while c : cont` form
+                                 ; guard `stmt if c` → (if c (block stmt) _)
+(as expr name)                   ; `if expr as name` / `while expr as name`:
+                                 ; in the cond slot, binds the value inside
+                                 ; the optional `expr`
+(while cond step-or-_ body else-or-_)  ; `while c : step` form
 (for <mode> binding1 binding2-or-_ source body else?)
                                             ; mode = iter (default) | read | write | move | ptr
                                             ; binding2 is `_` for single-binding `for x in xs`
                                             ; or a name for `for x, i in xs` / `for *x, i in xs`
 (match scrutinee arms...)
-(arm pattern _ body)             ; pattern: name, `else`, literal, (neg INT),
+(arm pattern body)               ; pattern: name, `else`, literal, (neg INT),
                                  ; (enum_lit n), (variant_pattern n names...),
                                  ; (range_pattern lo hi)
 (block stmts...)
-(return value?)
-(break value-or-_ label?)
-(continue label?)
+(return value-or-_)
+(break value-or-_ label-or-_)
+(continue label-or-_)
 (labeled name stmt)              ; `:name stmt`
 (defer body)
 (errdefer body)

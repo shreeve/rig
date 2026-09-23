@@ -15,6 +15,7 @@ const rig = @import("rig.zig");
 const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const modules = @import("modules.zig");
+const ir = @import("ir.zig");
 const runtime = @import("runtime.zig");
 
 const usage =
@@ -107,6 +108,8 @@ fn printTree(allocator: std.mem.Allocator, io: std.Io, path: []const u8, source:
         },
         else => return err,
     };
+
+    if (stage == .semantic) ir.assertValid(tree, source, path);
 
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stdout().writer(io, &buffer);
