@@ -1138,9 +1138,14 @@ pub fn enumVariantCount(ctx: *const SemContext, ty: TypeId) ?usize {
     return if (count == 0) null else count;
 }
 
-/// Render a type the way it is spelled in Rig source.
+/// Render a type the way it is spelled in Rig source, allocating in the
+/// context's arena.
 pub fn formatType(ctx: *SemContext, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
-    const a = ctx.arena.allocator();
+    return formatTypeIn(ctx, ctx.arena.allocator(), ty_id);
+}
+
+/// `formatType` with a caller-chosen allocator.
+pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId) std.mem.Allocator.Error![]const u8 {
     return switch (ctx.types.get(ty_id)) {
         .invalid => "invalid",
         .unknown => "unknown",
@@ -1153,26 +1158,26 @@ pub fn formatType(ctx: *SemContext, ty_id: TypeId) std.mem.Allocator.Error![]con
         .float_literal => "Float",
         .none_literal => "none",
         .noreturn => "NoReturn",
-        .optional => |inner| try formatSuffixed(ctx, inner, '?'),
-        .fallible => |inner| try formatSuffixed(ctx, inner, '!'),
-        .borrow_read => |inner| try std.fmt.allocPrint(a, "?{s}", .{try formatType(ctx, inner)}),
-        .borrow_write => |inner| try std.fmt.allocPrint(a, "!{s}", .{try formatType(ctx, inner)}),
-        .shared => |inner| try std.fmt.allocPrint(a, "*{s}", .{try formatType(ctx, inner)}),
-        .weak => |inner| try std.fmt.allocPrint(a, "~{s}", .{try formatType(ctx, inner)}),
-        .slice => |s| try std.fmt.allocPrint(a, "[]{s}", .{try formatType(ctx, s.elem)}),
-        .array => |arr| try std.fmt.allocPrint(a, "[{d}]{s}", .{ arr.len, try formatType(ctx, arr.elem) }),
-        .range => |e| try std.fmt.allocPrint(a, "range of {s}", .{try formatType(ctx, e)}),
+        .optional => |inner| try formatSuffixed(ctx, a, inner, '?'),
+        .fallible => |inner| try formatSuffixed(ctx, a, inner, '!'),
+        .borrow_read => |inner| try std.fmt.allocPrint(a, "?{s}", .{try formatTypeIn(ctx, a, inner)}),
+        .borrow_write => |inner| try std.fmt.allocPrint(a, "!{s}", .{try formatTypeIn(ctx, a, inner)}),
+        .shared => |inner| try std.fmt.allocPrint(a, "*{s}", .{try formatTypeIn(ctx, a, inner)}),
+        .weak => |inner| try std.fmt.allocPrint(a, "~{s}", .{try formatTypeIn(ctx, a, inner)}),
+        .slice => |s| try std.fmt.allocPrint(a, "[]{s}", .{try formatTypeIn(ctx, a, s.elem)}),
+        .array => |arr| try std.fmt.allocPrint(a, "[{d}]{s}", .{ arr.len, try formatTypeIn(ctx, a, arr.elem) }),
+        .range => |e| try std.fmt.allocPrint(a, "range of {s}", .{try formatTypeIn(ctx, a, e)}),
         .function => |f| blk: {
             var buf: std.ArrayListUnmanaged(u8) = .empty;
             try buf.appendSlice(a, if (f.is_sub) "sub(" else "fun(");
             for (f.params, 0..) |p, i| {
                 if (i > 0) try buf.appendSlice(a, ", ");
-                try buf.appendSlice(a, try formatType(ctx, p));
+                try buf.appendSlice(a, try formatTypeIn(ctx, a, p));
             }
             try buf.append(a, ')');
             if (!f.is_sub) {
                 try buf.appendSlice(a, " -> ");
-                try buf.appendSlice(a, try formatType(ctx, f.returns));
+                try buf.appendSlice(a, try formatTypeIn(ctx, a, f.returns));
             }
             break :blk buf.items;
         },
@@ -1188,7 +1193,7 @@ pub fn formatType(ctx: *SemContext, ty_id: TypeId) std.mem.Allocator.Error![]con
             try buf.append(a, '(');
             for (pn.args, 0..) |arg, i| {
                 if (i > 0) try buf.appendSlice(a, ", ");
-                try buf.appendSlice(a, try formatType(ctx, arg));
+                try buf.appendSlice(a, try formatTypeIn(ctx, a, arg));
             }
             try buf.append(a, ')');
             break :blk buf.items;
@@ -1199,16 +1204,16 @@ pub fn formatType(ctx: *SemContext, ty_id: TypeId) std.mem.Allocator.Error![]con
 
 /// `T?` / `T!`, parenthesizing prefix forms: `(*T)?` is an optional
 /// handle, while `*T?` would be a handle to an optional.
-fn formatSuffixed(ctx: *SemContext, inner: TypeId, suffix: u8) ![]const u8 {
-    const s = try formatType(ctx, inner);
+fn formatSuffixed(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, suffix: u8) ![]const u8 {
+    const s = try formatTypeIn(ctx, a, inner);
     const parens = switch (ctx.types.get(inner)) {
         .shared, .weak, .borrow_read, .borrow_write => true,
         else => false,
     };
     return if (parens)
-        std.fmt.allocPrint(ctx.arena.allocator(), "({s}){c}", .{ s, suffix })
+        std.fmt.allocPrint(a, "({s}){c}", .{ s, suffix })
     else
-        std.fmt.allocPrint(ctx.arena.allocator(), "{s}{c}", .{ s, suffix });
+        std.fmt.allocPrint(a, "{s}{c}", .{ s, suffix });
 }
 
 // =============================================================================

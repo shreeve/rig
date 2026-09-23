@@ -1,0 +1,10 @@
+# A deferred expression cannot propagate with `!`.
+
+fun g() -> Int!
+  3
+
+sub main()
+  defer print(g()!)
+  print(1)
+
+# error: `defer`

@@ -1,5 +1,4 @@
-# Known bug (B4): a fallible instance method called without `!` or
-# `catch` is not flagged. The method body also hits B1.
+# A fallible instance method called without `!` or `catch` is rejected.
 
 struct User
   name: String

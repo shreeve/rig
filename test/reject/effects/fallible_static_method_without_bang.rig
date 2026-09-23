@@ -1,6 +1,4 @@
-# Known bug (B4): a fallible associated method called without `!` or
-# `catch` is not flagged (only module-qualified calls are checked). The
-# method body also hits B1.
+# A fallible associated method called without `!` or `catch` is rejected.
 
 struct User
   name: String
