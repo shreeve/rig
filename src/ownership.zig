@@ -82,6 +82,7 @@ const rig = @import("rig.zig");
 const types = @import("types.zig");
 
 const Sexp = parser.Sexp;
+const ir = parser.ir;
 const Tag = rig.Tag;
 const TypeId = types.TypeId;
 const SymbolId = types.SymbolId;
@@ -281,7 +282,8 @@ const Owning = union(enum) {
 
 /// The consuming context of a branching value; `node` is its list.
 const Tail = struct {
-    node: [*]const Sexp,
+    /// The `if` or `match` node consumed by `sink`.
+    node: parser.NodeId,
     sink: Sink,
 };
 
@@ -822,10 +824,9 @@ pub const Checker = struct {
                     try self.noteUse(d.origin, s.pos, in_defer);
                 }
             },
-            .list => |items_list| {
-                const items = items_list.items();
+            .list => {
                 const deferred = in_defer or e.isKind(.@"defer") or e.isKind(.@"errdefer");
-                for (items) |c| try self.indexUses(c, deferred);
+                for (e.items()) |c| try self.indexUses(c, deferred);
             },
             else => {},
         }
@@ -909,26 +910,20 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
-        if (sexp != .list or sexp.items().len == 0 or sexp.items()[0] != .tag) return;
-        const items = sexp.items();
-        switch (items[0].tag) {
-            .@"module" => for (items[1..]) |c| try self.walkDecl(c),
-            .@"fun", .@"sub" => try self.walkFun(items[1], items[2], items[3], items[4..]),
-            .@"drop_decl" => try self.walkFun(.nil, items[1], .nil, items[2..3]),
-            .@"struct", .@"enum", .@"errors", .@"generic_type" => for (items[1..]) |c| try self.walkDecl(c),
-            .@"pub", .@"extern" => {
-                if (items.len >= 2) try self.walkDecl(items[items.len - 1]);
-            },
-            .@"test" => try self.walkFun(.nil, .nil, .nil, items[2..]),
-            .@"use", .@"type", .@"extern_fun", .@"extern_sub", .@"variant", .@":" => {},
+        switch (sexp.kind() orelse return) {
+            .@"module" => for (ir.Module.decls(sexp)) |c| try self.walkDecl(c),
+            .@"fun", .@"sub" => try self.walkFun(ir.get(sexp, .name), ir.get(sexp, .params), ir.get(sexp, .returns), ir.get(sexp, .body)),
+            .@"drop_decl" => try self.walkFun(.nil, ir.DropDecl.params(sexp), .nil, ir.DropDecl.body(sexp)),
+            .@"struct", .@"enum", .@"errors", .@"generic_type" => for (ir.rest(sexp, .members)) |c| try self.walkDecl(c),
+            .@"pub" => try self.walkDecl(ir.Pub.decl(sexp)),
+            .@"test" => try self.walkFun(.nil, .nil, .nil, ir.Test.body(sexp)),
+            .@"use", .@"type", .@"extern", .@"extern_fun", .@"extern_sub", .@"variant", .@":" => {},
             else => try self.walkStmt(sexp),
         }
     }
 
-    /// Walk a function, method, drop body or closure body. `body` is empty
-    /// for body-less declarations.
-    fn walkFun(self: *Checker, name: Sexp, params: Sexp, returns: Sexp, body: []const Sexp) Error!void {
-        if (body.len == 0) return;
+    /// Walk a function, method, drop body or test body.
+    fn walkFun(self: *Checker, name: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
         const saved_func = self.func;
         const saved_loop = self.loop;
         const saved_try = self.try_ctx;
@@ -953,7 +948,7 @@ pub const Checker = struct {
             self.last_use.clearRetainingCapacity();
             self.defer_used.clearRetainingCapacity();
             try self.indexUses(params, false);
-            for (body) |b| try self.indexUses(b, false);
+            try self.indexUses(body, false);
             self.nll = true;
         }
         defer if (top) {
@@ -963,8 +958,8 @@ pub const Checker = struct {
         defer self.fn_depth -= 1;
 
         try self.pushScope(.function);
-        if (params == .list) for (params.items()) |p| try self.bindParam(p);
-        try self.walkBody(body[0], returns_value);
+        for (params.items()) |p| try self.bindParam(p);
+        try self.walkBody(body, returns_value);
         try self.popScope();
         try self.rewind(outer);
         // Nothing allocated for a module-level function outlives it.
@@ -974,7 +969,7 @@ pub const Checker = struct {
     /// Walk a function body in the current scope. When the function
     /// returns a value, its last expression is the return value.
     fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!void {
-        const stmts: []const Sexp = if (body.isKind(.@"block")) body.items()[1..] else (&body)[0..1];
+        const stmts: []const Sexp = if (body.isKind(.@"block")) ir.Block.stmts(body) else (&body)[0..1];
         for (stmts, 0..) |stmt, i| {
             try self.checkAfterJump(stmts, i);
             if (!self.reachable) break;
@@ -995,26 +990,21 @@ pub const Checker = struct {
         var sugar: Ref = .none;
         switch (p) {
             .src => name_node = p,
-            .list => |items_list| {
-                const items = items_list.items();
-                if (items.len >= 2 and items[0] == .tag) {
-                    switch (items[0].tag) {
-                        .@":", .pre_param, .default => {
-                            name_node = items[1];
-                            if (items.len >= 3) type_node = items[2];
-                        },
-                        // `?self` / `!self` sugar.
-                        .@"read" => {
-                            name_node = items[1];
-                            sugar = .read;
-                        },
-                        .@"write" => {
-                            name_node = items[1];
-                            sugar = .write;
-                        },
-                        else => {},
-                    }
-                }
+            .list => switch (p.kind() orelse return) {
+                .@":", .pre_param, .default => {
+                    name_node = ir.get(p, .name);
+                    type_node = ir.get(p, .type);
+                },
+                // `?self` / `!self` sugar.
+                .@"read" => {
+                    name_node = ir.Read.operand(p);
+                    sugar = .read;
+                },
+                .@"write" => {
+                    name_node = ir.Write.operand(p);
+                    sugar = .write;
+                },
+                else => {},
             },
             else => return,
         }
@@ -1089,8 +1079,9 @@ pub const Checker = struct {
 
     /// Walk a `(block ...)` in its own scope; its value is the value of
     /// its last statement, which may not borrow the block's own locals.
-    fn walkBlock(self: *Checker, stmts: []const Sexp) Error!Value {
-        try self.pushScopeFor(.block, Sexp.listOf(stmts));
+    fn walkBlock(self: *Checker, block: Sexp) Error!Value {
+        const stmts = ir.Block.stmts(block);
+        try self.pushScopeFor(.block, block);
         var v: Value = .{};
         for (stmts, 0..) |s, i| {
             try self.checkAfterJump(stmts, i);
@@ -1121,84 +1112,84 @@ pub const Checker = struct {
             .list => {},
             else => return .{},
         }
-        const items = sexp.items();
-        if (items.len == 0 or items[0] != .tag) return .{};
-        return switch (items[0].tag) {
+        const kind = sexp.kind() orelse return .{};
+        const children = sexp.items()[1..];
+        return switch (kind) {
             .@"fun", .@"sub", .@"drop_decl", .@"struct", .@"enum", .@"errors" => blk: {
                 try self.walkDecl(sexp);
                 break :blk .{};
             },
-            .@"block" => self.walkBlock(items[1..]),
+            .@"block" => self.walkBlock(sexp),
             .@"set" => blk: {
-                try self.walkSet(items);
+                try self.walkSet(sexp);
                 break :blk .{};
             },
             .@"drop" => blk: {
-                try self.walkDrop(items);
+                try self.walkDrop(sexp);
                 break :blk .{};
             },
-            .@"move" => self.walkMove(items[1], .move),
-            .@"read" => self.walkBorrow(items[1], .read),
-            .@"write" => self.walkBorrow(items[1], .write),
-            .@"clone", .@"weak" => self.walkCloneWeak(items),
-            .@"pin" => self.walk(items[1]),
-            .@"share" => self.walkShare(items),
-            .@"lambda" => self.walkLambda(items),
-            .@"if" => self.walkIf(items),
+            .@"move" => self.walkMove(ir.Move.operand(sexp), .move),
+            .@"read" => self.walkBorrow(ir.Read.operand(sexp), .read),
+            .@"write" => self.walkBorrow(ir.Write.operand(sexp), .write),
+            .@"clone", .@"weak" => self.walkCloneWeak(sexp),
+            .@"pin" => self.walk(ir.Pin.operand(sexp)),
+            .@"share" => self.walkShare(sexp),
+            .@"lambda" => self.walkLambda(sexp),
+            .@"if" => self.walkIf(sexp),
             .@"while" => blk: {
-                try self.walkWhile(items);
+                try self.walkWhile(sexp);
                 break :blk .{};
             },
             .@"for" => blk: {
-                try self.walkFor(items);
+                try self.walkFor(sexp);
                 break :blk .{};
             },
             .@"labeled" => blk: {
-                try self.walkLabeled(items);
+                try self.walkLabeled(sexp);
                 break :blk .{};
             },
-            .@"match" => self.walkMatch(items),
+            .@"match" => self.walkMatch(sexp),
             .@"return" => blk: {
-                try self.walkReturn(items);
+                try self.walkReturn(sexp);
                 break :blk .{};
             },
             .@"break" => blk: {
-                try self.walkJump(items, .brk);
+                try self.walkJump(sexp, .brk);
                 break :blk .{};
             },
             .@"continue" => blk: {
-                try self.walkJump(items, .cont);
+                try self.walkJump(sexp, .cont);
                 break :blk .{};
             },
             .@"try_block" => blk: {
-                try self.walkTryBlock(items);
+                try self.walkTryBlock(sexp);
                 break :blk .{};
             },
-            .@"catch" => self.walkCatch(items),
-            .@"propagate" => self.walkPropagate(items),
+            .@"catch" => self.walkCatch(sexp),
+            .@"propagate" => self.walkPropagate(sexp),
             .@"defer", .@"errdefer" => blk: {
-                try self.walkDefer(items);
+                try self.walkDefer(sexp);
                 break :blk .{};
             },
-            .@"call" => self.walkCall(items),
+            .@"call" => self.walkCall(sexp),
             .@"member" => self.walkMember(sexp),
             .@"index" => self.walkMember(sexp),
-            .@"kwarg" => self.walkConsumed(items[2], .argument),
+            .@"kwarg" => self.walkConsumed(ir.Kwarg.value(sexp), .argument),
             .@"array" => blk: {
                 var v: Value = .{};
-                for (items[1..]) |e| v = try self.valueUnion(v, try self.walkConsumed(e, .element));
+                for (ir.Array.elems(sexp)) |e| v = try self.valueUnion(v, try self.walkConsumed(e, .element));
                 break :blk v;
             },
-            .@"raw_block" => self.walk(items[1]),
+            .@"raw_block" => self.walk(ir.RawBlock.body(sexp)),
             .@"enum_lit", .@"use", .@"type", .@"generic_type", .@"generic_inst" => .{},
             // Operators on values produce fresh Copy results.
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"neg", .@"not", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
-                for (items[1..]) |c| _ = try self.walk(c);
+                for (children) |c| _ = try self.walk(c);
                 break :blk .{};
             },
             else => blk: {
                 var v: Value = .{};
-                for (items[1..]) |c| v = try self.valueUnion(v, try self.walk(c));
+                for (children) |c| v = try self.valueUnion(v, try self.walk(c));
                 break :blk v;
             },
         };
@@ -1219,16 +1210,15 @@ pub const Checker = struct {
     /// Mark `expr`, if it branches, as consumed by `sink`.
     fn setTail(self: *Checker, expr: Sexp, sink: Sink) void {
         const e = tailOf(expr);
-        if (e != .list or e.items().len == 0) return;
         if (e.isKind(.@"if") or e.isKind(.@"match")) {
-            self.tail = .{ .node = e.items().ptr, .sink = sink };
+            self.tail = .{ .node = e.list.id, .sink = sink };
         }
     }
 
-    /// The consuming context of the branching node `items`, if any.
-    fn takeTail(self: *Checker, items: []const Sexp) ?Tail {
+    /// The consuming context of the branching `node`, if any.
+    fn takeTail(self: *Checker, node: Sexp) ?Tail {
         const t = self.tail orelse return null;
-        if (t.node != items.ptr) return null;
+        if (t.node != node.list.id) return null;
         self.tail = null;
         return t;
     }
@@ -1333,23 +1323,20 @@ pub const Checker = struct {
                 const id = (try self.lookup(e.src.pos, self.text(e))) orelse return null;
                 return .{ .root = id, .whole = true, .through_borrow = self.vars.items[id].ref != .none };
             },
-            .list => |items_list| {
-                const items = items_list.items();
-                if (items.len < 2 or items[0] != .tag) return null;
-                switch (items[0].tag) {
-                    .@"member", .@"index" => {
-                        var p = (try self.resolvePlace(items[1])) orelse return null;
-                        p.whole = false;
-                        if (items[0].tag == .@"index") p.indexed = true;
-                        if (self.exprType(items[1])) |t| {
+            .list => switch (e.kind() orelse return null) {
+                .@"member", .@"index" => {
+                    const object = ir.get(e, .object);
+                    var p = (try self.resolvePlace(object)) orelse return null;
+                    p.whole = false;
+                    if (e.isKind(.@"index")) p.indexed = true;
+                    if (self.exprType(object)) |t| {
                             const ty = self.typeData(t);
                             if (ty == .shared) p.through_shared = true;
-                            if (ty == .borrow_read or ty == .borrow_write) p.through_borrow = true;
-                        }
-                        return p;
-                    },
-                    else => return null,
-                }
+                        if (ty == .borrow_read or ty == .borrow_write) p.through_borrow = true;
+                    }
+                    return p;
+                },
+                else => return null,
             },
             else => return null,
         }
@@ -1357,24 +1344,20 @@ pub const Checker = struct {
 
     /// Walk the index expressions inside a place.
     fn walkPlaceIndices(self: *Checker, e: Sexp) Error!void {
-        if (e != .list or e.items().len < 2 or e.items()[0] != .tag) return;
-        const items = e.items();
-        switch (items[0].tag) {
-            .@"member" => try self.walkPlaceIndices(items[1]),
+        switch (e.kind() orelse return) {
+            .@"member" => try self.walkPlaceIndices(ir.Member.object(e)),
             .@"index" => {
-                try self.walkPlaceIndices(items[1]);
-                for (items[2..]) |i| _ = try self.walk(i);
+                try self.walkPlaceIndices(ir.Index.object(e));
+                _ = try self.walk(ir.Index.index(e));
             },
             else => {},
         }
     }
 
+    /// A `member` or `index`.
     fn walkMember(self: *Checker, e: Sexp) Error!Value {
-        const items = e.items();
-        const obj = try self.walk(items[1]);
-        if (items[0].tag == .@"index") for (items[2..]) |i| {
-            _ = try self.walk(i);
-        };
+        const obj = try self.walk(ir.get(e, .object));
+        if (e.isKind(.@"index")) _ = try self.walk(ir.Index.index(e));
         if (!self.mayCarryBorrow(self.exprType(e))) return .{};
         return obj;
     }
@@ -1580,8 +1563,9 @@ pub const Checker = struct {
     /// borrow it was made through (a loop element, a `?*T` parameter),
     /// unless the shared value itself holds borrows (an owned closure
     /// that captured one, a view): then the new handle reaches them too.
-    fn walkCloneWeak(self: *Checker, items: []const Sexp) Error!Value {
-        const inner = items[1];
+    /// A `clone` or `weak`.
+    fn walkCloneWeak(self: *Checker, e: Sexp) Error!Value {
+        const inner = ir.get(e, .operand);
         const v = try self.walk(inner);
         const t = self.pointee(self.exprType(inner)) orelse return v;
         const boxed: TypeId = switch (self.typeData(t)) {
@@ -1600,13 +1584,8 @@ pub const Checker = struct {
         return v;
     }
 
-    fn walkDrop(self: *Checker, items: []const Sexp) Error!void {
-        const target = items[1];
-        if (target != .src) {
-            _ = try self.walk(target);
-            try self.err(innerPos(target), "only a whole binding can be dropped", .{});
-            return;
-        }
+    fn walkDrop(self: *Checker, node: Sexp) Error!void {
+        const target = ir.Drop.name(node);
         const pos = target.src.pos;
         const name = self.text(target);
         const id = (try self.lookup(pos, name)) orelse return;
@@ -1675,13 +1654,11 @@ pub const Checker = struct {
                     try self.err(pos, "bare use of `{s}` in {s} would duplicate the write borrow it holds; use `<{s}` to move it", .{ name, sink.text(), name });
                 }
             },
-            .list => |items_list| {
-                const items = items_list.items();
-                if (items.len == 0 or items[0] != .tag) return;
-                switch (items[0].tag) {
+            .list => {
+                switch (expr.kind() orelse return) {
                     .@"member", .@"index" => {
                         // `Enum.variant` is a new value, not a field.
-                        if (self.namesType(items[1])) return;
+                        if (self.namesType(ir.get(expr, .object))) return;
                         const ty = self.exprType(expr);
                         if (self.owningKind(ty)) |k| {
                             return self.reportAlias(innerPos(expr), try self.placeText(expr), false, k, sink, ty);
@@ -1691,20 +1668,24 @@ pub const Checker = struct {
                         }
                     },
                     // A value returned through a branch moves out, like a bare return.
-                    .@"if" => for (items[2..]) |b| try self.checkNoImplicitCopy(tailOf(b), sink, top_return),
-                    .@"match" => for (items[2..]) |arm| {
-                        if (arm.isKind(.@"arm")) {
-                            try self.checkNoImplicitCopy(tailOf(arm.items()[arm.items().len - 1]), sink, top_return);
-                        }
+                    .@"if" => {
+                        try self.checkNoImplicitCopy(tailOf(ir.If.then(expr)), sink, top_return);
+                        try self.checkNoImplicitCopy(tailOf(ir.If.@"else"(expr)), sink, top_return);
                     },
-                    .@"block" => if (items.len >= 2) try self.checkNoImplicitCopy(tailOf(expr), sink, top_return),
+                    .@"match" => for (ir.Match.arms(expr)) |arm| {
+                        try self.checkNoImplicitCopy(tailOf(ir.Arm.body(arm)), sink, top_return);
+                    },
+                    .@"block" => if (ir.Block.stmts(expr).len > 0) try self.checkNoImplicitCopy(tailOf(expr), sink, top_return),
                     // Operators that yield one of their operands.
-                    .@"??" => for (items[1..]) |c| try self.checkNoImplicitCopy(c, sink, false),
-                    .@"catch" => {
-                        try self.checkNoImplicitCopy(items[1], sink, false);
-                        try self.checkNoImplicitCopy(tailOf(items[items.len - 1]), sink, false);
+                    .@"??" => {
+                        try self.checkNoImplicitCopy(ir.@"??".left(expr), sink, false);
+                        try self.checkNoImplicitCopy(ir.@"??".right(expr), sink, false);
                     },
-                    .@"propagate" => try self.checkNoImplicitCopy(items[1], sink, false),
+                    .@"catch" => {
+                        try self.checkNoImplicitCopy(ir.Catch.value(expr), sink, false);
+                        try self.checkNoImplicitCopy(tailOf(ir.Catch.handler(expr)), sink, false);
+                    },
+                    .@"propagate" => try self.checkNoImplicitCopy(ir.Propagate.value(expr), sink, false),
                     else => {},
                 }
             },
@@ -1715,11 +1696,11 @@ pub const Checker = struct {
     /// Whether `e` names a type (`Shape`, `lib.Shape`) rather than a value.
     fn namesType(self: *const Checker, e: Sexp) bool {
         const sema = self.sema orelse return false;
-        const leaf = if (e.isKind(.@"member")) e.items()[2] else e;
+        const leaf = if (e.isKind(.@"member")) ir.Member.name(e) else e;
         if (leaf != .src) return false;
         if (e.isKind(.@"member")) {
             // `module.Type`: the module has no value.
-            const m = e.items()[1];
+            const m = ir.Member.object(e);
             if (m != .src) return false;
             const id = sema.symbolOf(m) orelse return false;
             return sema.symbols.items[id].kind == .module;
@@ -1771,10 +1752,10 @@ pub const Checker = struct {
     // Bindings and assignment
     // -------------------------------------------------------------------------
 
-    fn walkSet(self: *Checker, items: []const Sexp) Error!void {
-        const kind = try rig.bindingKindOf(items[1]);
-        const target = items[2];
-        const expr = items[4];
+    fn walkSet(self: *Checker, node: Sexp) Error!void {
+        const kind = try rig.bindingKindOf(ir.Set.op(node));
+        const target = ir.Set.target(node);
+        const expr = ir.Set.value(node);
         const compound = switch (kind) {
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => true,
             else => false,
@@ -1913,10 +1894,10 @@ pub const Checker = struct {
     // Calls
     // -------------------------------------------------------------------------
 
-    fn walkCall(self: *Checker, items: []const Sexp) Error!Value {
+    fn walkCall(self: *Checker, node: Sexp) Error!Value {
         const temps_start = self.temps.items.len;
-        const callee = items[1];
-        const args = items[2..];
+        const callee = ir.Call.callee(node);
+        const args = ir.Call.args(node);
         var result: Value = .{};
 
         // Method call: the receiver is borrowed for the whole call. A
@@ -1926,11 +1907,11 @@ pub const Checker = struct {
         var recv_mode: types.MethodReceiver = .read;
         var reservation: usize = 0;
         if (callee.isKind(.@"member")) {
-            var obj = callee.items()[1];
+            var obj = ir.Member.object(callee);
             var explicit_write = false;
             if (obj.isKind(.@"write") or obj.isKind(.@"read")) {
                 explicit_write = obj.isKind(.@"write");
-                obj = obj.items()[1];
+                obj = ir.get(obj, .operand);
             }
             recv_mode = if (explicit_write) .write else self.receiverMode(obj, callee);
             const place = if (recv_mode == .value) null else try self.resolvePlace(obj);
@@ -1946,7 +1927,7 @@ pub const Checker = struct {
                     result = try self.valueUnion(recv_val, try self.reborrow(id, .{ .root = id, .kind = kind, .pos = pos }));
                 }
             } else {
-                result = try self.walk(callee.items()[1]);
+                result = try self.walk(ir.Member.object(callee));
             }
         } else if (callee == .src) {
             _ = try self.walkName(callee, true);
@@ -1973,11 +1954,11 @@ pub const Checker = struct {
         // can mutate: the receiver, `!x` arguments, and shared handles.
         if (stored.loans.len > 0) {
             if (recv_root) |id| {
-                const obj = callee.items()[1];
+                const obj = ir.Member.object(callee);
                 if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, innerPos(obj));
             }
             for (args) |a| {
-                const arg = if (a.isKind(.@"kwarg")) a.items()[2] else a;
+                const arg = if (a.isKind(.@"kwarg")) ir.Kwarg.value(a) else a;
                 if (try self.containerRoot(arg)) |id| try self.absorbLoans(id, stored, innerPos(arg));
             }
         }
@@ -1994,7 +1975,7 @@ pub const Checker = struct {
                 break :blk null;
             };
             if (conflict) |l| {
-                const pos = innerPos(callee.items()[1]);
+                const pos = innerPos(ir.Member.object(callee));
                 switch (l.kind) {
                     .read => try self.err(pos, "cannot write-borrow `{s}` while a read borrow is live", .{name}),
                     .write => try self.err(pos, "cannot take a second write borrow on `{s}`", .{name}),
@@ -2005,7 +1986,7 @@ pub const Checker = struct {
 
         // The borrows passed to the call end when it returns, unless its
         // result can carry them.
-        if (!self.mayCarryBorrow(self.exprType(Sexp.listOf(items)))) {
+        if (!self.mayCarryBorrow(self.exprType(node))) {
             self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
             return .{};
         }
@@ -2023,7 +2004,7 @@ pub const Checker = struct {
     fn containerRoot(self: *Checker, arg: Sexp) Error!?VarId {
         var inner = arg;
         const explicit_write = arg.isKind(.@"write");
-        if (explicit_write or arg.isKind(.@"clone")) inner = arg.items()[1];
+        if (explicit_write or arg.isKind(.@"clone")) inner = ir.get(arg, .operand);
         const place = (try self.resolvePlace(inner)) orelse return null;
         const ty = self.exprType(inner);
         // What the callee could store into is the value behind a borrow.
@@ -2071,8 +2052,8 @@ pub const Checker = struct {
     // Closures and shared allocation
     // -------------------------------------------------------------------------
 
-    fn walkShare(self: *Checker, items: []const Sexp) Error!Value {
-        const inner = items[1];
+    fn walkShare(self: *Checker, node: Sexp) Error!Value {
+        const inner = ir.Share.operand(node);
         // `*|...| body`: an owned closure.
         if (isLambda(inner)) {
             self.lambda_ok = true;
@@ -2081,19 +2062,18 @@ pub const Checker = struct {
         return self.walkConsumed(inner, .allocation);
     }
 
-    fn walkLambda(self: *Checker, items: []const Sexp) Error!Value {
-        const captures = items[1];
-        const params = items[2];
-        const body = items[4];
+    fn walkLambda(self: *Checker, node: Sexp) Error!Value {
+        const params = ir.Lambda.params(node);
+        const body = ir.Lambda.body(node);
         if (!self.lambda_ok) {
-            try self.err(innerPos(Sexp.listOf(items)), "closures cannot escape their defining scope; bind the closure to a local (`f = |...| ...`) and call `f()`, or make it owned (`*|...| body`) to pass, store, or return it", .{});
+            try self.err(innerPos(node), "closures cannot escape their defining scope; bind the closure to a local (`f = |...| ...`) and call `f()`, or make it owned (`*|...| body`) to pass, store, or return it", .{});
         }
         self.lambda_ok = false;
 
         // Captures take effect on the enclosing scope, at construction.
         var value: Value = .{};
         var cap_values: std.ArrayListUnmanaged(Value) = .empty;
-        const caps: []const Sexp = if (captures.isKind(.@"captures")) captures.items()[1..] else &.{};
+        const caps = types.captureList(ir.Lambda.captures(node));
         for (caps) |cap| {
             try cap_values.append(self.arena(), try self.applyCapture(cap));
             value = try self.valueUnion(value, cap_values.items[cap_values.items.len - 1]);
@@ -2111,24 +2091,22 @@ pub const Checker = struct {
         self.reachable = true;
         try self.pushScopeFor(.closure, body);
         for (caps, cap_values.items) |cap, cv| {
-            if (cap != .list or cap.items().len < 2 or cap.items()[0] != .tag or cap.items()[1] != .src) continue;
-            const node = cap.items()[1];
-            const ty = self.symType(node.src.pos);
-            const resource = switch (cap.items()[0].tag) {
-                .@"cap_clone" => !self.isCopy(ty),
-                .@"cap_weak", .@"cap_move" => true,
-                else => false,
+            const name = types.captureNameNode(cap).?;
+            const ty = self.symType(name.src.pos);
+            const resource = switch (types.captureModeOf(cap).?) {
+                .cap_clone => !self.isCopy(ty),
+                .cap_weak, .cap_move => true,
             };
             _ = try self.addVar(.{
-                .name = self.text(node),
-                .decl = node.src.pos,
+                .name = self.text(name),
+                .decl = name.src.pos,
                 .ty = ty,
                 .kind = .capture,
                 .ref = self.refOfType(ty),
                 .capture_resource = resource,
             }, .{ .loans = cv.loans });
         }
-        if (params == .list) for (params.items()) |p| try self.bindParam(p);
+        for (params.items()) |p| try self.bindParam(p);
         try self.walkBody(body, false);
         try self.popScope();
         self.func = saved_func;
@@ -2139,9 +2117,8 @@ pub const Checker = struct {
     }
 
     fn applyCapture(self: *Checker, cap: Sexp) Error!Value {
-        if (cap != .list or cap.items().len < 2 or cap.items()[0] != .tag or cap.items()[1] != .src) return .{};
-        const mode = cap.items()[0].tag;
-        const node = cap.items()[1];
+        const mode = types.captureModeOf(cap).?;
+        const node = types.captureNameNode(cap).?;
         const pos = node.src.pos;
         const name = self.text(node);
         // Unresolved or nested captures are diagnosed by sema.
@@ -2153,7 +2130,7 @@ pub const Checker = struct {
             try self.err(pos, "cannot capture closure `{s}`; closures cannot be copied", .{name});
             return .{};
         }
-        if (mode == .@"cap_move") return self.moveVar(id, pos, .capture);
+        if (mode == .cap_move) return self.moveVar(id, pos, .capture);
         if (!self.flowLive(id)) {
             try self.err(pos, "cannot capture `{s}` after {s}", .{ name, if (self.flows.items[id].status == .dropped) "drop" else "move" });
             try self.noteInvalidated(id, pos);
@@ -2177,8 +2154,9 @@ pub const Checker = struct {
     // Return and escape
     // -------------------------------------------------------------------------
 
-    fn walkReturn(self: *Checker, items: []const Sexp) Error!void {
-        if (items[1] != .nil) try self.walkReturnValue(items[1]);
+    fn walkReturn(self: *Checker, node: Sexp) Error!void {
+        const value = ir.Return.value(node);
+        if (value != .nil) try self.walkReturnValue(value);
         try self.runDefersTo(0);
         self.reachable = false;
     }
@@ -2232,21 +2210,22 @@ pub const Checker = struct {
     // Branches
     // -------------------------------------------------------------------------
 
-    fn walkIf(self: *Checker, items: []const Sexp) Error!Value {
-        const t = self.takeTail(items);
-        const else_b: ?Sexp = if (items[3] != .nil) items[3] else null;
-        if (items[1].isKind(.@"as")) return self.walkIfAs(items[1], items[2], else_b, t);
-        _ = try self.walk(items[1]);
-        return self.walkBranches(items[2], else_b, t);
+    fn walkIf(self: *Checker, node: Sexp) Error!Value {
+        const t = self.takeTail(node);
+        const cond = ir.If.cond(node);
+        const else_b: ?Sexp = if (ir.If.@"else"(node) != .nil) ir.If.@"else"(node) else null;
+        if (cond.isKind(.@"as")) return self.walkIfAs(cond, ir.If.then(node), else_b, t);
+        _ = try self.walk(cond);
+        return self.walkBranches(ir.If.then(node), else_b, t);
     }
 
     /// `if expr as name`: the value inside the optional moves into
     /// `name`, which the then-branch owns.
     fn walkIfAs(self: *Checker, cond: Sexp, then_b: Sexp, else_b: ?Sexp, t: ?Tail) Error!Value {
-        const bound = try self.walkConsumed(cond.items()[1], .binding);
+        const bound = try self.walkConsumed(ir.As.value(cond), .binding);
         const base = try self.here();
         try self.pushScopeFor(.block, then_b);
-        try self.bindOptional(cond.items()[2], bound);
+        try self.bindOptional(ir.As.name(cond), bound);
         var v1 = try self.walkTailBranch(then_b, t);
         v1 = try self.checkValueEscapesScope(v1);
         try self.popScope();
@@ -2281,13 +2260,14 @@ pub const Checker = struct {
     }
 
     /// `(catch expr name? handler)`: the handler runs when `expr` fails.
-    fn walkCatch(self: *Checker, items: []const Sexp) Error!Value {
-        const v1 = try self.walk(items[1]);
+    fn walkCatch(self: *Checker, node: Sexp) Error!Value {
+        const v1 = try self.walk(ir.Catch.value(node));
         const base = try self.here();
-        const handler = items[items.len - 1];
+        const handler = ir.Catch.handler(node);
         try self.pushScopeFor(.block, handler);
-        if (items[2] != .nil) {
-            _ = try self.addVar(.{ .name = self.text(items[2]), .decl = items[2].src.pos, .ty = self.symType(items[2].src.pos) }, .{});
+        const name = ir.Catch.name(node);
+        if (name != .nil) {
+            _ = try self.addVar(.{ .name = self.text(name), .decl = name.src.pos, .ty = self.symType(name.src.pos) }, .{});
         }
         var v2 = try self.walk(handler);
         v2 = try self.checkValueEscapesScope(v2);
@@ -2303,13 +2283,13 @@ pub const Checker = struct {
         via: Via = .owned,
     };
 
-    fn walkMatch(self: *Checker, items: []const Sexp) Error!Value {
-        const tail_ctx = self.takeTail(items);
-        const scrut = items[1];
+    fn walkMatch(self: *Checker, match: Sexp) Error!Value {
+        const tail_ctx = self.takeTail(match);
+        const scrut = ir.Match.subject(match);
         var info: Scrutinee = .{};
         var node = scrut;
         if (scrut.isKind(.@"read") or scrut.isKind(.@"write")) {
-            node = scrut.items()[1];
+            node = ir.get(scrut, .operand);
             info.via = .borrowed;
         }
         if (node == .src) {
@@ -2328,10 +2308,9 @@ pub const Checker = struct {
         var acc: ?State = null;
         var value: Value = .{};
         var catch_all = false;
-        for (items[2..]) |arm| {
-            if (!arm.isKind(.@"arm")) continue;
-            const pattern = arm.items()[1];
-            const body = arm.items()[arm.items().len - 1];
+        for (ir.Match.arms(match)) |arm| {
+            const pattern = ir.Arm.pattern(arm);
+            const body = ir.Arm.body(arm);
             try self.pushScopeFor(.block, arm);
             if (try self.bindPattern(pattern, info, scrut_value)) catch_all = true;
             var v = try self.walkTailBranch(body, tail_ctx);
@@ -2360,10 +2339,9 @@ pub const Checker = struct {
                 _ = try self.bindPayload(pattern, info, scrut_value);
                 return true;
             },
-            .list => |items_list| {
-                const items = items_list.items();
-                if (items[0].tag == .@"variant_pattern") {
-                    const binds = items[2..];
+            .list => {
+                if (pattern.isKind(.@"variant_pattern")) {
+                    const binds = ir.VariantPattern.bindings(pattern);
                     for (binds, 0..) |b, i| {
                         if (b == .src and !std.mem.eql(u8, self.text(b), "_")) {
                             const id = try self.bindPayload(b, info, scrut_value);
@@ -2430,30 +2408,32 @@ pub const Checker = struct {
         start: u32 = 0,
     };
 
-    fn walkWhile(self: *Checker, items: []const Sexp) Error!void {
-        const as_cond = items[1].isKind(.@"as");
-        const cond = if (as_cond) items[1].items()[1] else items[1];
+    fn walkWhile(self: *Checker, node: Sexp) Error!void {
+        const as_cond = ir.While.cond(node).isKind(.@"as");
+        const cond = if (as_cond) ir.As.value(ir.While.cond(node)) else ir.While.cond(node);
+        const step = ir.While.step(node);
+        const else_ = ir.While.@"else"(node);
         try self.walkLoop(.{
             .cond = cond,
-            .cond_binding = if (as_cond) items[1].items()[2] else .nil,
+            .cond_binding = if (as_cond) ir.As.name(ir.While.cond(node)) else .nil,
             .cond_always_true = cond == .src and std.mem.eql(u8, self.text(cond), "true"),
-            .cont = if (items[2] == .nil) null else items[2],
-            .body = items[3],
-            .else_body = if (items[4] != .nil) items[4] else null,
-            .start = extent(Sexp.listOf(items)).lo,
+            .cont = if (step == .nil) null else step,
+            .body = ir.While.body(node),
+            .else_body = if (else_ != .nil) else_ else null,
+            .start = extent(node).lo,
         });
     }
 
-    fn walkFor(self: *Checker, items: []const Sexp) Error!void {
-        // (for mode binding1 binding2 source body else?)
-        const mode: Tag = if (items[1] == .tag) items[1].tag else .iter;
-        const source = items[4];
+    fn walkFor(self: *Checker, node: Sexp) Error!void {
+        const mode = ir.For.mode(node).tag;
+        const source = ir.For.source(node);
+        const else_ = ir.For.@"else"(node);
         var spec: LoopSpec = .{
-            .body = items[5],
-            .else_body = if (items[6] != .nil) items[6] else null,
-            .elem1 = items[2],
-            .elem2 = items[3],
-            .start = extent(Sexp.listOf(items)).lo,
+            .body = ir.For.body(node),
+            .else_body = if (else_ != .nil) else_ else null,
+            .elem1 = ir.For.@"var"(node),
+            .elem2 = ir.For.index(node),
+            .start = extent(node).lo,
         };
         if (mode == .@"move") {
             _ = try self.walkMove(source, .move);
@@ -2486,9 +2466,9 @@ pub const Checker = struct {
 
     /// `(labeled name stmt)`: a labeled loop, or a labeled block that
     /// `break :name` leaves.
-    fn walkLabeled(self: *Checker, items: []const Sexp) Error!void {
-        const label = self.text(items[1]);
-        const stmt = items[2];
+    fn walkLabeled(self: *Checker, node: Sexp) Error!void {
+        const label = self.text(ir.Labeled.label(node));
+        const stmt = ir.Labeled.stmt(node);
         if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) {
             self.pending_label = label;
             return self.walkStmt(stmt);
@@ -2604,7 +2584,7 @@ pub const Checker = struct {
         if (i == 0) return;
         const prev = stmts[i - 1];
         if (!(prev.isKind(.@"return") or prev.isKind(.@"break") or prev.isKind(.@"continue"))) return;
-        try self.err(self.stmtPos(stmts[i]), "unreachable code: this statement follows a `{s}`", .{@tagName(prev.items()[0].tag)});
+        try self.err(self.stmtPos(stmts[i]), "unreachable code: this statement follows a `{s}`", .{@tagName(prev.kind().?)});
     }
 
     /// A statement's position, finding the keyword of one that carries
@@ -2638,10 +2618,10 @@ pub const Checker = struct {
     /// `(break value-or-_ label?)` / `(continue label?)`: the state here
     /// flows to the loop (or labeled block) the jump names, or the
     /// innermost loop.
-    fn walkJump(self: *Checker, items: []const Sexp, jump: Jump) Error!void {
-        const label_slot: usize = if (jump == .brk) 2 else 1;
-        const label = self.text(items[label_slot]);
-        if (jump == .brk and items[1] != .nil) _ = try self.walk(items[1]);
+    /// A `break` or `continue`.
+    fn walkJump(self: *Checker, node: Sexp, jump: Jump) Error!void {
+        const label = self.text(ir.get(node, .label));
+        if (jump == .brk) _ = try self.walk(ir.Break.value(node));
         var target = self.loop;
         while (target) |t| : (target = t.parent) {
             if (label.len == 0) {
@@ -2685,8 +2665,8 @@ pub const Checker = struct {
 
     /// `e!`: on failure, control leaves for the enclosing `catch` or the
     /// caller.
-    fn walkPropagate(self: *Checker, items: []const Sexp) Error!Value {
-        const v = try self.walk(items[1]);
+    fn walkPropagate(self: *Checker, node: Sexp) Error!Value {
+        const v = try self.walk(ir.Propagate.value(node));
         if (!self.reachable) return v;
         if (self.try_ctx) |t| {
             try t.fails.append(self.arena(), try self.exitState(t.point, t.scope_depth));
@@ -2696,23 +2676,23 @@ pub const Checker = struct {
         return v;
     }
 
-    fn walkTryBlock(self: *Checker, items: []const Sexp) Error!void {
-        // (try_block body (catch_block name body)?)
+    fn walkTryBlock(self: *Checker, node: Sexp) Error!void {
         var ctx: TryCtx = .{ .point = try self.here(), .scope_depth = self.scopes.items.len };
         const saved = self.try_ctx;
         self.try_ctx = &ctx;
-        try self.walkStmt(items[1]);
+        try self.walkStmt(ir.TryBlock.body(node));
         self.try_ctx = saved;
         const after = try self.capture(ctx.point);
         try self.rewind(ctx.point);
         var fail: State = .{ .reachable = false };
         for (ctx.fails.items) |f| fail = try self.join(fail, f);
-        if (items[2] != .nil) {
-            const cb = items[2].items();
+        const catch_block = ir.TryBlock.@"catch"(node);
+        if (catch_block != .nil) {
+            const name = ir.CatchBlock.name(catch_block);
             try self.apply(fail);
             try self.pushScope(.block);
-            if (cb[1] == .src) _ = try self.addVar(.{ .name = self.text(cb[1]), .decl = cb[1].src.pos, .ty = self.symType(cb[1].src.pos) }, .{});
-            try self.walkStmt(cb[2]);
+            _ = try self.addVar(.{ .name = self.text(name), .decl = name.src.pos, .ty = self.symType(name.src.pos) }, .{});
+            try self.walkStmt(ir.CatchBlock.body(catch_block));
             try self.popScope();
             const handled = try self.capture(ctx.point);
             try self.rewind(ctx.point);
@@ -2729,8 +2709,9 @@ pub const Checker = struct {
     /// A deferred body runs at scope exit. It is checked where it is
     /// written (and may not change outer state), then again at each exit
     /// of its scope against the state there.
-    fn walkDefer(self: *Checker, items: []const Sexp) Error!void {
-        const body = items[1];
+    /// A `defer` or `errdefer`.
+    fn walkDefer(self: *Checker, node: Sexp) Error!void {
+        const body = ir.get(node, .body);
         try self.checkDeferBody(body, true);
         try self.scopes.items[self.scopes.items.len - 1].defers.append(self.gpa, body);
     }
@@ -2971,16 +2952,14 @@ pub const Checker = struct {
     fn placeText(self: *Checker, e: Sexp) Error![]const u8 {
         switch (e) {
             .src => return self.text(e),
-            .list => |items_list| {
-                const items = items_list.items();
-                if (items.len >= 3 and items[0] == .tag and items[0].tag == .@"member") {
-                    return std.fmt.allocPrint(self.arena(), "{s}.{s}", .{ try self.placeText(items[1]), self.text(items[2]) });
-                }
-                if (items.len >= 2 and items[0] == .tag and items[0].tag == .@"index") {
-                    return std.fmt.allocPrint(self.arena(), "{s}[...]", .{try self.placeText(items[1])});
-                }
-                if (items.len >= 2 and items[0] == .tag) return self.placeText(items[1]);
-                return "expression";
+            .list => switch (e.kind() orelse return "expression") {
+                .@"member" => return std.fmt.allocPrint(self.arena(), "{s}.{s}", .{ try self.placeText(ir.Member.object(e)), self.text(ir.Member.name(e)) }),
+                .@"index" => return std.fmt.allocPrint(self.arena(), "{s}[...]", .{try self.placeText(ir.Index.object(e))}),
+                // A sigil or other wrapper: the place it wraps.
+                else => {
+                    const children = e.items()[1..];
+                    return if (children.len > 0) self.placeText(children[0]) else "expression";
+                },
             },
             else => return "expression",
         }
@@ -3029,8 +3008,9 @@ fn hasLoanFrom(loans: []const Loan, start: u32) bool {
 /// a block, or the branch itself.
 fn tailOf(s: Sexp) Sexp {
     if (s.isKind(.@"block")) {
-        if (s.items().len < 2) return .nil;
-        return tailOf(s.items()[s.items().len - 1]);
+        const stmts = ir.Block.stmts(s);
+        if (stmts.len == 0) return .nil;
+        return tailOf(stmts[stmts.len - 1]);
     }
     return s;
 }
@@ -3039,8 +3019,7 @@ fn tailOf(s: Sexp) Sexp {
 /// or looping).
 fn isValueExpr(s: Sexp) bool {
     if (s != .list) return s == .src;
-    if (s.items().len == 0 or s.items()[0] != .tag) return false;
-    return switch (s.items()[0].tag) {
+    return switch (s.kind() orelse return false) {
         .@"set", .@"return", .@"break", .@"continue", .@"while", .@"for", .@"drop", .@"defer", .@"errdefer", .@"labeled" => false,
         else => true,
     };
@@ -3066,11 +3045,10 @@ fn sexpMentionsBorrow(t: Sexp) bool {
 fn extent(s: Sexp) struct { lo: u32, hi: u32 } {
     switch (s) {
         .src => |src| return .{ .lo = src.pos, .hi = src.pos },
-        .list => |items_list| {
-            const items = items_list.items();
+        .list => {
             var lo: u32 = std.math.maxInt(u32);
             var hi: u32 = 0;
-            for (items) |c| {
+            for (s.items()) |c| {
                 const e = extent(c);
                 if (e.hi < e.lo) continue;
                 lo = @min(lo, e.lo);
