@@ -34,7 +34,7 @@ tokens
     # Literals
     ident           # identifier
     integer         # 0, 42, 0xff, 0b1010, 0o17
-    real            # 3.14, .5
+    real            # 3.14, .5, 1.0e10, 2e-3
     string_sq       # 'single'
     string_dq       # "double"
 
@@ -168,7 +168,8 @@ tokens
 '0' [xX] [0-9a-fA-F]+                       → integer
 '0' [bB] [01]+                              → integer
 '0' [oO] [0-7]+                             → integer
-[0-9]* '.' [0-9]+                           → real
+[0-9]* '.' [0-9]+ ([Ee] [+-]? [0-9]+)?      → real
+[0-9]+ [Ee] [+-]? [0-9]+                    → real
 [0-9]+                                      → integer
 
 "**"                                        → power

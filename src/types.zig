@@ -1415,13 +1415,15 @@ pub fn parseIntegerLiteral(source: []const u8, sexp: Sexp) ?u64 {
 
 pub fn isIntLiteralText(text: []const u8) bool {
     if (text.len == 0 or text[0] < '0' or text[0] > '9') return false;
-    return std.mem.indexOfScalar(u8, text, '.') == null;
+    return !isFloatLiteralText(text);
 }
 
+/// `3.14`, `.5`, `1.0e10`, `2e-3`. A hex literal's `e` is a digit.
 pub fn isFloatLiteralText(text: []const u8) bool {
     if (text.len == 0) return false;
     if ((text[0] < '0' or text[0] > '9') and text[0] != '.') return false;
-    return std.mem.indexOfScalar(u8, text, '.') != null;
+    if (text.len > 1 and text[0] == '0' and (text[1] == 'x' or text[1] == 'X')) return false;
+    return std.mem.indexOfAny(u8, text, ".eE") != null;
 }
 
 // =============================================================================

@@ -424,7 +424,7 @@ pub const BaseLexer = struct {
     }
 
     /// Scan number (generated from grammar)
-    fn scanNumber(self: *Self, start: u32, ws: u8) Token {        var hasDecimal = false;        const startsWithDot = self.source[self.pos] == '.';
+    fn scanNumber(self: *Self, start: u32, ws: u8) Token {        var hasDecimal = false;        var hasExponent = false;        const startsWithDot = self.source[self.pos] == '.';
         // Number prefix patterns (from grammar)
         if (self.source[self.pos] == '0' and self.pos + 1 < self.source.len) {
             const prefix = self.source[self.pos + 1];
@@ -476,8 +476,25 @@ pub const BaseLexer = struct {
                 }
             }
         }
+        // Exponent part
+        if (self.pos < self.source.len) {
+            const e = self.source[self.pos];
+            if (e == 'E' or e == 'e') {
+                var expPos = self.pos + 1;
+                if (expPos < self.source.len and (self.source[expPos] == '+' or self.source[expPos] == '-')) {
+                    expPos += 1;
+                }
+                if (expPos < self.source.len and isDigit(self.source[expPos])) {
+                    hasExponent = true;
+                    self.pos = expPos;
+                    while (self.pos < self.source.len and isDigit(self.source[self.pos])) {
+                        self.pos += 1;
+                    }
+                }
+            }
+        }
         // Classify
-        const tokenCat: TokenCat = if (hasDecimal or startsWithDot)
+        const tokenCat: TokenCat = if (hasDecimal or hasExponent or startsWithDot)
             .@"real"
         else
             .@"integer";
