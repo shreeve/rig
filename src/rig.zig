@@ -9,7 +9,7 @@
 //!                                              diagnostics
 //!
 //! so `parser.Parser.init(allocator, source).parseProgram()` returns the
-//! semantic IR described in docs/IR.md.
+//! semantic IR described in docs/INTERNALS.md.
 //!
 //! Also here: the IR `Tag` enum, `BindingKind`, and the identifier
 //! escaping that emit needs (`writeZigIdent`).

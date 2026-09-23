@@ -1,6 +1,6 @@
 //! Zig code generation.
 //!
-//! Lowers the semantic IR (`docs/IR.md`) of one checked module to Zig
+//! Lowers the semantic IR (`docs/INTERNALS.md`) of one checked module to Zig
 //! 0.16 source. The program has already passed sema, effects, and
 //! ownership checking; this pass only chooses a representation, and it
 //! reads everything it needs to know about names and types from sema's
