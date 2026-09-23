@@ -1,6 +1,6 @@
-# Known bug (emit): `+p.a` on a shared-handle field is emitted as a plain
-# copy of the field (no `cloneStrong`), so the handle is dropped twice.
-# The ownership checker accepts it (and suggests it for `x = p.a`).
+# `+p.a` clones the shared handle held in a field: the clone and the
+# field each own a count, and the value is dropped once, when the last
+# handle goes.
 
 struct Box
   payload: Int

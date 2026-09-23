@@ -1,6 +1,6 @@
 # Torture Corpus
 
-Bad inputs that previously crashed (or could plausibly crash) the compiler.
+Bad inputs that could plausibly crash the compiler.
 
 **Contract enforced by `test/run`** (also: the compiler must not die from a signal):
 
@@ -20,6 +20,5 @@ Each file should be a minimal reduction of a real failure mode (or a class of
 failures). New entries belong here whenever a panic/segfault is discovered.
 
 Example: [`01_match_with_keyword_variant.rig`](01_match_with_keyword_variant.rig)
-combines a `match` with an enum whose variant is a Rig keyword (`sub`); a
-parse failure there once left module sema uninitialized and crashed the
-diagnostic writer.
+combines a `match` with an enum whose variant is a Rig keyword (`sub`); the
+parse error must still reach the diagnostic writer.

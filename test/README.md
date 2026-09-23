@@ -62,10 +62,12 @@ allocator. A behavior test therefore fails on any leak or double free.
 
 ## Known bugs
 
-`test/known/` is the work queue. Each file states in its header what is
-wrong today and cites the audit finding. Fix the bug, run the suite, and
-the test reports `FIXED`; move it into `test/behavior/` or `test/reject/`
-under the same area in the same commit.
+`test/known/` is the work queue. Each file is written as a behavior or
+reject test of the correct behavior, and its header also says what goes
+wrong today. Fix the bug, run the suite, and the test reports `FIXED`;
+move it into `test/behavior/` or `test/reject/` under the same area in
+the same commit, and drop the note about the bug from its header: tests
+outside `known/` describe current behavior only.
 
 ## Output
 

@@ -1,7 +1,5 @@
 # `return .red` returns the enum literal `.red` of the declared return
-# type.
-# Known bug (B10): it parses, but emit's match lowering adds an `else`
-# prong to the exhaustive switch and Zig rejects it as unreachable.
+# type, and a match covering every variant needs no default arm.
 
 enum Color
   red

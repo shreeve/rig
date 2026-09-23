@@ -1,6 +1,5 @@
-# Variant named `sub` collides with the `sub` keyword.
-# Parse fails — and used to segfault when writeAllDiagnostics
-# dereferenced an undefined sema. Now must produce a clean diagnostic.
+# A variant named `sub` collides with the `sub` keyword; the parse error
+# is reported as a diagnostic.
 enum Op
   add
   sub
