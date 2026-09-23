@@ -389,20 +389,11 @@ const SymbolResolver = struct {
                     try self.ctx.recordName(target, existing);
                     return;
                 }
-                if (self.scope != self.module_scope) {
-                    if (self.ctx.scopes.items[self.scope].kind != .function) {
-                        // Only a lambda boundary can hide an outer local here.
-                        try self.checkLambdaShadow(target);
-                    }
-                    try self.checkShadowsDeclaration(target, "local");
-                }
+                try self.checkNewLocal(target);
                 _ = try self.declare(target, .local, .{});
             },
             .fixed => {
-                if (self.scope != self.module_scope) {
-                    try self.checkLambdaShadow(target);
-                    try self.checkShadowsDeclaration(target, "local");
-                }
+                try self.checkNewLocal(target);
                 _ = try self.declare(target, .local, .{ .fixed = true });
             },
             .shadow => _ = try self.declare(target, .local, .{}),
@@ -420,6 +411,12 @@ const SymbolResolver = struct {
         }
         const id = self.ctx.lookupInScopeOnly(self.module_scope, name) orelse return null;
         return if (self.ctx.symbols.items[id].kind == .local) id else null;
+    }
+
+    fn checkNewLocal(self: *SymbolResolver, name_node: Sexp) Error!void {
+        if (self.scope == self.module_scope) return;
+        try self.checkLambdaShadow(name_node);
+        try self.checkShadowsDeclaration(name_node, "local");
     }
 
     /// Inside a lambda, a new local may not reuse a name of the
