@@ -42,6 +42,7 @@ tokens
     true
     false
     and
+    as
     break
     catch
     continue
@@ -453,14 +454,19 @@ cmdtail  = cmd
 
 # --- Control flow -------------------------------------------------------------
 
-if       = IF cond block ELSE if            → (if 2 3 5)
-         | IF cond block ELSE block         → (if 2 3 5)
-         | IF cond block                    → (if 2 3)
+# `if e as name` / `while e as name`: `e` is an optional; the body runs
+# with `name` bound to the value inside it.
+ifcond   = cond
+         | value AS name                    → (as 1 3)
 
-while    = WHILE cond              block ELSE block → (while 2 _ 3 else:5)
-         | WHILE cond ":" simple   block ELSE block → (while 2 4 5 else:7)
-         | WHILE cond              block            → (while 2 _ 3)
-         | WHILE cond ":" simple   block            → (while 2 4 5)
+if       = IF ifcond block ELSE if          → (if 2 3 5)
+         | IF ifcond block ELSE block       → (if 2 3 5)
+         | IF ifcond block                  → (if 2 3)
+
+while    = WHILE ifcond            block ELSE block → (while 2 _ 3 else:5)
+         | WHILE ifcond ":" simple block ELSE block → (while 2 4 5 else:7)
+         | WHILE ifcond            block            → (while 2 _ 3)
+         | WHILE ifcond ":" simple block            → (while 2 4 5)
 
 # (for <mode> binding index-or-_ source body else?); the Parser wrapper
 # moves a `?xs` / `!xs` / `<xs` source sigil into the mode slot.

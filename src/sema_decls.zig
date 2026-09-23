@@ -80,6 +80,8 @@ const SymbolResolver = struct {
                 for (items[1..]) |c| try self.walk(c);
             },
             .@"for" => try self.walkFor(sexp),
+            .@"if" => try self.walkConditional(items[1], items[2..3], items[3..]),
+            .@"while" => try self.walkConditional(items[1], items[2..4], items[4..]),
             .@"arm" => try self.walkArm(sexp),
             .@"catch_block" => try self.walkCatchBlock(sexp),
             .@"catch" => try self.walkCatch(sexp),
@@ -459,6 +461,23 @@ const SymbolResolver = struct {
             try self.walk(items[5]);
         }
         if (items.len > 6) try self.walk(items[6]);
+    }
+
+    /// An `if` / `while`. A condition `(as expr name)` opens a scope
+    /// binding `name` over `bodies` (the branch or loop body the value
+    /// is present in); `rest` (the `else`) is outside it.
+    fn walkConditional(self: *SymbolResolver, cond: Sexp, bodies: []const Sexp, rest: []const Sexp) Error!void {
+        if (isHead(cond, .@"as")) {
+            try self.walk(cond.list[1]);
+            const prev = try self.enter(cond, .block);
+            defer self.scope = prev;
+            _ = try self.bindFresh(cond.list[2], "optional binding");
+            for (bodies) |b| try self.walk(b);
+        } else {
+            try self.walk(cond);
+            for (bodies) |b| try self.walk(b);
+        }
+        for (rest) |r| try self.walk(r);
     }
 
     fn walkCatchBlock(self: *SymbolResolver, node: Sexp) Error!void {

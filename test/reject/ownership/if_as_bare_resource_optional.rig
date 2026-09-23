@@ -1,0 +1,14 @@
+# Binding an optional handle held in a local would alias the handle: move
+# it (`<m`) or clone it (`+m`).
+
+struct B
+  n: Int
+
+sub main()
+  rc = *B(n: 1)
+  w = ~rc
+  m = w.upgrade()
+  if m as h
+    print(h.n)
+
+# error: bare use of shared (`*T`) handle `m`

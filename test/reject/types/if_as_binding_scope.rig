@@ -1,0 +1,9 @@
+# The name bound by `as` is visible only in the branch it guards.
+
+sub main()
+  m: Int? = 3
+  if m as y
+    print(y)
+  print(y)
+
+# error: use of unbound name `y`

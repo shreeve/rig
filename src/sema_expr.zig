@@ -571,8 +571,33 @@ const Checker = struct {
         return self.synthExpr(node);
     }
 
+    /// A Bool condition, or an optional binding `(as expr name)`, which
+    /// enters the scope binding `name`; the caller restores the scope.
     fn checkCondition(self: *Checker, cond: Sexp) Error!void {
+        if (isHead(cond, .@"as")) return self.checkOptionalBinding(cond);
         return self.checkExpr(cond, self.t().bool_id);
+    }
+
+    /// `if expr as name` / `while expr as name`: `expr` is an optional,
+    /// and `name` holds the value inside it. A resource moves into the
+    /// binding, which owns it; it cannot be copied out of a place.
+    fn checkOptionalBinding(self: *Checker, node: Sexp) Error!void {
+        const expr = node.list[1];
+        const name = node.list[2];
+        const ty = try self.synthExpr(expr);
+        var inner = self.t().invalid_id;
+        if (!self.isPoison(ty)) switch (self.ctx.types.get(types.unwrapBorrows(self.ctx, ty))) {
+            .optional => |i| inner = i,
+            else => try self.err(firstSrcPos(expr), "`as` binds the value inside an optional; this expression has type `{s}`", .{try self.tyName(ty)}),
+        };
+        if (types.typeHasDropGlue(self.ctx, inner) and (isHead(expr, .@"read") or isHead(expr, .@"write"))) {
+            try self.err(firstSrcPos(expr), "a borrow cannot give up the resource inside it; bind a new handle with `+x` instead", .{});
+        }
+        self.scope = self.ctx.scopeOf(node) orelse self.scope;
+        if (self.ctx.symbolOf(name)) |sym| {
+            self.ctx.symbols.items[sym].ty = inner;
+            try self.ctx.recordType(name, inner);
+        }
     }
 
     fn checkWhile(self: *Checker, node: Sexp) Error!void {
@@ -1324,12 +1349,18 @@ const Checker = struct {
         if (items.len < 2) return self.t().invalid_id;
         const inner = try self.synthOperand(items[1]);
         if (self.isPoison(inner)) return inner;
-        switch (self.ctx.types.get(types.unwrapBorrows(self.ctx, inner))) {
-            .shared, .weak => return types.unwrapBorrows(self.ctx, inner),
+        const value = types.unwrapBorrows(self.ctx, inner);
+        switch (self.ctx.types.get(value)) {
+            .shared, .weak => return value,
+            // An optional handle clones to another optional handle.
+            .optional => |o| switch (self.ctx.types.get(o)) {
+                .shared, .weak => return value,
+                else => {},
+            },
             else => {},
         }
         if (types.typeHasDropGlue(self.ctx, inner)) {
-            try self.err(firstSrcPos(items[1]), "`+x` cannot clone a `{s}`; only `*T` and `~T` handles and plain values can be cloned", .{try self.tyName(inner)});
+            try self.err(firstSrcPos(items[1]), "`+x` cannot clone a `{s}`; only `*T` and `~T` handles (or optionals of them) and plain values can be cloned", .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
         return types.unwrapBorrows(self.ctx, inner);

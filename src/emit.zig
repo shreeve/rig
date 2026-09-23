@@ -1056,8 +1056,15 @@ pub const Emitter = struct {
     fn emitIf(self: *Emitter, sexp: Sexp) Error!void {
         const items = sexp.list;
         try self.w.writeAll("if ");
-        try self.emitCond(items[1]);
-        try self.emitBranchStmt(items[2]);
+        if (isTagged(items[1], .@"as")) {
+            try self.pushScope();
+            const prelude = try self.emitOptionalHead(items[1]);
+            try self.emitBodyWith(items[2], prelude);
+            try self.popScope();
+        } else {
+            try self.emitCond(items[1]);
+            try self.emitBranchStmt(items[2]);
+        }
         if (items.len >= 4) {
             try self.w.writeAll(" else ");
             if (isTagged(items[3], .@"if")) try self.emitIf(items[3]) else try self.emitBranchStmt(items[3]);
@@ -1069,6 +1076,14 @@ pub const Emitter = struct {
         try self.w.writeAll("(");
         try self.emitBare(cond);
         try self.w.writeAll(") ");
+    }
+
+    /// A statement-position body that starts with `prelude`.
+    fn emitBodyWith(self: *Emitter, body: Sexp, prelude: Prelude) Error!void {
+        try self.openBrace();
+        try self.emitPrelude(prelude);
+        try self.emitStmts(try self.stmtsOf(body));
+        try self.closeBrace();
     }
 
     fn emitBranchStmt(self: *Emitter, branch: Sexp) Error!void {
@@ -1101,13 +1116,16 @@ pub const Emitter = struct {
         const items = sexp.list;
         try self.writeLabel(label);
         try self.w.writeAll("while ");
-        try self.emitCond(items[1]);
+        try self.pushScope();
+        var prelude: Prelude = .{};
+        if (isTagged(items[1], .@"as")) prelude = try self.emitOptionalHead(items[1]) else try self.emitCond(items[1]);
         if (items[2] != .nil) {
             try self.w.writeAll(": (");
             try self.emitContinuation(items[2]);
             try self.w.writeAll(") ");
         }
-        try self.emitBranchStmt(items[3]);
+        try self.emitBodyWith(items[3], prelude);
+        try self.popScope();
         if (items.len >= 5) {
             try self.w.writeAll(" else ");
             try self.emitBranchStmt(items[4]);
@@ -1304,7 +1322,7 @@ pub const Emitter = struct {
                 },
                 else => return self.unsupported(arm, "this pattern"),
             }
-            try self.emitArmBody(body, aliases, value_pos);
+            try self.emitArmBody(body, .{ .aliases = aliases }, value_pos);
             try self.w.writeAll(",\n");
         }
         if (!has_default and !self.matchIsExhaustive(scrut_ty, variants_seen)) {
@@ -1316,6 +1334,21 @@ pub const Emitter = struct {
     }
 
     const Alias = struct { zig_name: []const u8, field: []const u8 };
+
+    /// Bindings a branch body starts with: multi-field payload aliases,
+    /// or the owning binding of `if expr as name`.
+    const Prelude = struct {
+        aliases: []const Alias = &.{},
+        optional: ?OptionalBinding = null,
+
+        fn isEmpty(p: Prelude) bool {
+            return p.aliases.len == 0 and p.optional == null;
+        }
+    };
+
+    /// A resource bound by `as`: captured as `tmp`, then owned by a local
+    /// declared at the top of the body.
+    const OptionalBinding = struct { name: Sexp, tmp: []const u8 };
 
     /// A payload binding local, viewing the scrutinee.
     fn payloadLocal(self: *Emitter, name_node: Sexp) ?Local {
@@ -1344,12 +1377,62 @@ pub const Emitter = struct {
         return out.items;
     }
 
-    fn emitArmBody(self: *Emitter, body: Sexp, aliases: []const Alias, value_pos: bool) Error!void {
-        if (value_pos) return self.emitValueBlock(body, aliases);
+    fn emitArmBody(self: *Emitter, body: Sexp, prelude: Prelude, value_pos: bool) Error!void {
+        if (value_pos) return self.emitValueBlock(body, prelude);
         try self.openBrace();
-        for (aliases) |a| try self.line("const {s} = __rig_payload.{f};", .{ a.zig_name, self.ident(a.field) });
+        try self.emitPrelude(prelude);
         try self.emitStmts(try self.stmtsOf(body));
         try self.closeBrace();
+    }
+
+    fn emitPrelude(self: *Emitter, prelude: Prelude) Error!void {
+        for (prelude.aliases) |a| try self.line("const {s} = __rig_payload.{f};", .{ a.zig_name, self.ident(a.field) });
+        if (prelude.optional) |o| try self.bindOptionalResource(o);
+    }
+
+    /// `(expr) |capture| ` for `if expr as name` / `while expr as name`.
+    /// Plain data is captured under the binding's name; a resource is
+    /// captured as a temporary that the returned prelude hands to an
+    /// owning local inside the body.
+    fn emitOptionalHead(self: *Emitter, cond: Sexp) Error!Prelude {
+        const name = cond.list[2];
+        try self.w.writeAll("(");
+        try self.emitBare(cond.list[1]);
+        try self.w.writeAll(") ");
+        const sym = self.sema.symbolOf(name).?;
+        const ty = self.symType(sym);
+        if (ty != null and self.kindOf(ty.?) != null) {
+            const tmp = try self.fmt("__rig_opt_{d}", .{self.nextId()});
+            try self.w.print("|{s}| ", .{tmp});
+            return .{ .optional = .{ .name = name, .tmp = tmp } };
+        }
+        if (!self.usage.used.contains(sym)) {
+            try self.w.writeAll("|_| ");
+        } else {
+            const local = try self.declare(.{ .sym = sym, .zig_name = "", .ty = ty }, self.srcText(name));
+            try self.w.print("|{s}| ", .{local.zig_name});
+        }
+        return .{};
+    }
+
+    /// The owning local of a resource bound by `as`, dropped at the end
+    /// of the body unless it is moved out.
+    fn bindOptionalResource(self: *Emitter, o: OptionalBinding) Error!void {
+        const sym = self.sema.symbolOf(o.name).?;
+        const ty = self.symType(sym).?;
+        const kind = self.kindOf(ty).?;
+        const local = try self.declare(.{
+            .sym = sym,
+            .zig_name = "",
+            .ty = ty,
+            .kind = kind,
+            .guard = if (self.usage.consumed.contains(sym)) .flag else .scope,
+        }, self.srcText(o.name));
+        const is_var = kind == .value or kind == .optional;
+        try self.line("{s} {s} = {s};", .{ if (is_var) "var" else "const", local.zig_name, o.tmp });
+        try self.writeIndent(self.indent);
+        try self.emitGuard(local);
+        try self.w.writeAll("\n");
     }
 
     fn matchIsExhaustive(self: *Emitter, scrut_ty: ?TypeId, variants_seen: usize) bool {
@@ -1491,8 +1574,8 @@ pub const Emitter = struct {
                 if (!bare) try self.w.writeAll(")");
             },
             .@"match" => try self.emitMatch(sexp, true),
-            .@"block" => try self.emitValueBlock(sexp, &.{}),
-            .@"raw_block" => try self.emitValueBlock(items[1], &.{}),
+            .@"block" => try self.emitValueBlock(sexp, .{}),
+            .@"raw_block" => try self.emitValueBlock(items[1], .{}),
             .@"array" => try self.emitArray(sexp),
             else => return self.unsupported(sexp, "this expression"),
         }
@@ -1668,10 +1751,13 @@ pub const Emitter = struct {
         const items = sexp.list;
         if (items.len != 4) return self.unsupported(sexp, "an `if` without `else` in value position");
         try self.w.writeAll("if ");
-        try self.emitCond(items[1]);
-        try self.emitValueBlock(items[2], &.{});
+        try self.pushScope();
+        var prelude: Prelude = .{};
+        if (isTagged(items[1], .@"as")) prelude = try self.emitOptionalHead(items[1]) else try self.emitCond(items[1]);
+        try self.emitValueBlock(items[2], prelude);
+        try self.popScope();
         try self.w.writeAll(" else ");
-        try self.emitValueBlock(items[3], &.{});
+        try self.emitValueBlock(items[3], .{});
     }
 
     /// A block that yields its last expression: inline when it is a
@@ -1679,11 +1765,11 @@ pub const Emitter = struct {
     /// block, so a resource binding in tail position is moved out. A block
     /// ending in `return`/`break`/`continue` yields nothing and needs no
     /// label.
-    fn emitValueBlock(self: *Emitter, body: Sexp, aliases: []const Alias) Error!void {
+    fn emitValueBlock(self: *Emitter, body: Sexp, prelude: Prelude) Error!void {
         const stmts = try self.stmtsOf(body);
         if (stmts.len == 0) return self.unsupported(body, "an empty block in value position");
         const last = stmts[stmts.len - 1];
-        if (stmts.len == 1 and aliases.len == 0 and isValueStmt(last)) return self.emitValue(last, true);
+        if (stmts.len == 1 and prelude.isEmpty() and isValueStmt(last)) return self.emitValue(last, true);
 
         const terminates = isTerminatingStmt(last);
         if (!terminates and !isValueStmt(last)) return self.unsupported(last, "a block without a value in value position");
@@ -1693,7 +1779,7 @@ pub const Emitter = struct {
             try self.w.print("{s}: ", .{label});
         }
         try self.openBrace();
-        for (aliases) |a| try self.line("const {s} = __rig_payload.{f};", .{ a.zig_name, self.ident(a.field) });
+        try self.emitPrelude(prelude);
         try self.emitStmts(stmts[0 .. stmts.len - 1]);
         try self.writeIndent(self.indent);
         if (terminates) {

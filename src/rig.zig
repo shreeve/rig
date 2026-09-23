@@ -68,6 +68,7 @@ pub const Tag = enum(u8) {
 
     // Control flow
     @"if",              // (if cond then else?): block if, ternary, guard
+    @"as",              // (as expr name): optional binding in an if/while condition
     @"while",           // (while cond cont-or-_ body else:?)
     @"for",             // (for mode binding index-or-_ source body else?)
     @"iter",            // for modes
@@ -241,6 +242,7 @@ pub const Diagnostic = struct {
 /// `fun new(...)` and `Point.new(...)` stay ordinary names.
 const keywords = std.StaticStringMap(TokenCat).initComptime(.{
     .{ "and", .@"and" },
+    .{ "as", .@"as" },
     .{ "break", .@"break" },
     .{ "catch", .@"catch" },
     .{ "continue", .@"continue" },

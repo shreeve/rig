@@ -1,0 +1,8 @@
+# `if e as x` needs an optional `e`.
+
+sub main()
+  x = 3
+  if x as y
+    print(y)
+
+# error: `as` binds the value inside an optional

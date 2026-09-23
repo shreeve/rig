@@ -1,0 +1,14 @@
+# A resource bound by `as` is owned by the binding, so it cannot come
+# from a borrow.
+
+struct B
+  n: Int
+
+sub main()
+  rc = *B(n: 1)
+  w = ~rc
+  m = w.upgrade()
+  if ?m as h
+    print(h.n)
+
+# error: a borrow cannot give up the resource inside it

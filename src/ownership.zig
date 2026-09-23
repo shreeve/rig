@@ -724,6 +724,17 @@ pub const Checker = struct {
         return v;
     }
 
+    /// Walk an expression whose value is bound (a loop's `as` condition)
+    /// as its own statement: its temporary borrows end with it.
+    fn walkConsumedStmt(self: *Checker, expr: Sexp) Error!Value {
+        if (!self.reachable) return .{};
+        const saved = try self.arena().dupe(Loan, self.temps.items);
+        const v = try self.walkConsumed(expr, .binding);
+        self.temps.clearRetainingCapacity();
+        try self.temps.appendSlice(self.gpa, try self.filterLoansBelow(saved, @intCast(self.vars.items.len)));
+        return v;
+    }
+
     /// Walk a `(block ...)` in its own scope; its value is the value of
     /// its last statement, which may not borrow the block's own locals.
     fn walkBlock(self: *Checker, stmts: []const Sexp) Error!Value {
@@ -1773,8 +1784,36 @@ pub const Checker = struct {
 
     fn walkIf(self: *Checker, items: []const Sexp) Error!Value {
         if (items.len < 3) return .{};
+        const else_b: ?Sexp = if (items.len >= 4) items[3] else null;
+        if (isTag(items[1], .@"as")) return self.walkIfAs(items[1], items[2], else_b);
         _ = try self.walk(items[1]);
-        return self.walkBranches(items[2], if (items.len >= 4) items[3] else null);
+        return self.walkBranches(items[2], else_b);
+    }
+
+    /// `if expr as name`: the value inside the optional moves into
+    /// `name`, which the then-branch owns.
+    fn walkIfAs(self: *Checker, cond: Sexp, then_b: Sexp, else_b: ?Sexp) Error!Value {
+        const bound = try self.walkConsumed(cond.list[1], .binding);
+        const base = try self.snapshot();
+        try self.pushScope(.block);
+        try self.bindOptional(cond.list[2], bound);
+        var v1 = try self.walk(then_b);
+        v1 = try self.checkValueEscapesScope(v1);
+        try self.popScope();
+        const s1 = try self.snapshot();
+        try self.restore(base);
+        const v2 = if (else_b) |e| try self.walk(e) else Value{};
+        try self.restore(try self.join(s1, try self.snapshot()));
+        return self.valueUnion(v1, v2);
+    }
+
+    /// The name an optional binding introduces, holding `value`.
+    fn bindOptional(self: *Checker, name: Sexp, value: Value) Error!void {
+        const pos = name.src.pos;
+        const ty = self.symType(pos);
+        _ = try self.addVar(.{ .name = self.text(name), .decl = pos, .ty = ty, .ref = self.refOfType(ty) }, .{
+            .loans = if (self.mayCarryBorrow(ty)) value.loans else &.{},
+        });
     }
 
     /// `(ternary cond then else)`
@@ -1929,6 +1968,8 @@ pub const Checker = struct {
     const LoopSpec = struct {
         cond: ?Sexp = null,
         cond_always_true: bool = false,
+        /// `while expr as name`: the binding the condition's value moves into.
+        cond_binding: Sexp = .nil,
         cont: ?Sexp = null,
         body: Sexp,
         else_body: ?Sexp = null,
@@ -1943,9 +1984,11 @@ pub const Checker = struct {
 
     fn walkWhile(self: *Checker, items: []const Sexp) Error!void {
         if (items.len < 4) return;
-        const cond = items[1];
+        const as_cond = isTag(items[1], .@"as");
+        const cond = if (as_cond) items[1].list[1] else items[1];
         try self.walkLoop(.{
             .cond = cond,
+            .cond_binding = if (as_cond) items[1].list[2] else .nil,
             .cond_always_true = cond == .src and std.mem.eql(u8, self.text(cond), "true"),
             .cont = if (items[2] == .nil) null else items[2],
             .body = items[3],
@@ -2023,10 +2066,14 @@ pub const Checker = struct {
     fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!struct { back: State, exit: State } {
         ctx.breaks.clearRetainingCapacity();
         ctx.conts.clearRetainingCapacity();
-        if (spec.cond) |c| try self.walkStmt(c);
+        var bound: Value = .{};
+        if (spec.cond) |c| {
+            if (spec.cond_binding != .nil) bound = try self.walkConsumedStmt(c) else try self.walkStmt(c);
+        }
         const exit = if (spec.cond_always_true) try self.unreachableState() else try self.snapshot();
 
         try self.pushScope(.block);
+        if (spec.cond_binding != .nil) try self.bindOptional(spec.cond_binding, bound);
         try self.bindLoopElems(spec);
         try self.walkStmt(spec.body);
         try self.popScope();

@@ -1,0 +1,24 @@
+# An optional handle held in a binding is bound with `as` by cloning it
+# (`if +m as h`) or moving it (`if <m as h`).
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+sub main()
+  rc = *B(n: 1)
+  w = ~rc
+  m = w.upgrade()
+  if +m as h
+    print("clone", h.n)
+  if <m as h
+    print("moved", h.n)
+  print("end")
+
+# expect:
+# clone 1
+# moved 1
+# end
+# drop 1
