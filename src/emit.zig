@@ -1692,6 +1692,23 @@ pub const Emitter = struct {
         try self.emitBare(e);
     }
 
+    /// Whether every name in `e` is a constant binding, so folding it
+    /// drops no reference Zig would miss (a branch a constant condition
+    /// skips may name other locals).
+    fn onlyConstantLeaves(self: *Emitter, e: Sexp) bool {
+        switch (e) {
+            .src => {
+                const sym = self.sema.symbolOf(e) orelse return true;
+                return self.sema.const_ints.contains(sym);
+            },
+            .list => |items| {
+                for (items) |c| if (!self.onlyConstantLeaves(c)) return false;
+                return true;
+            },
+            else => return true,
+        }
+    }
+
     fn emitIntConstant(self: *Emitter, sexp: Sexp, v: i128) Error!void {
         const t = self.typeOf(sexp);
         const concrete = t != null and self.sema.types.get(t.?) == .int;
@@ -1820,7 +1837,7 @@ pub const Emitter = struct {
                 // Sema computed a constant integer expression (and checked
                 // that it fits); its value is written as a literal, so Zig
                 // does not evaluate it again with other intermediate types.
-                if (types.constIntOf(self.sema, sexp)) |v| return self.emitIntConstant(sexp, v);
+                if (types.constIntOf(self.sema, sexp)) |v| if (self.onlyConstantLeaves(sexp)) return self.emitIntConstant(sexp, v);
             },
             else => {},
         }

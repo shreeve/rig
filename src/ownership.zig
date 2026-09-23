@@ -180,6 +180,8 @@ const FnCtx = struct {
     /// The return type can carry borrows: returned values are checked
     /// for loans on locals.
     ret_may_borrow: bool = false,
+    /// Checking a closure body.
+    in_closure: bool = false,
 };
 
 /// A loop, or a labeled block, that `break` / `continue` can leave.
@@ -193,6 +195,8 @@ const LoopCtx = struct {
     breaks: std.ArrayListUnmanaged(State) = .empty,
     conts: std.ArrayListUnmanaged(State) = .empty,
     parent: ?*LoopCtx,
+    /// False for a labeled block: only `break :label` leaves it.
+    is_loop: bool = true,
 };
 
 const TryCtx = struct {
@@ -265,6 +269,9 @@ pub const Checker = struct {
     /// (bound, passed, returned): the tails of its branches leave them.
     /// Set just before walking that node; see `takeTail`.
     tail: ?Tail = null,
+    /// A source position at or before the statement being walked, for
+    /// statements without one of their own (`break`, `continue`).
+    anchor: u32 = 0,
     flows: std.ArrayListUnmanaged(Flow) = .empty,
     scopes: std.ArrayListUnmanaged(Scope) = .empty,
     /// Loans taken by the current statement and not stored in a var.
@@ -759,6 +766,9 @@ pub const Checker = struct {
 
     /// Walk one statement; its temporary borrows end with it.
     fn walkStmtValue(self: *Checker, stmt: Sexp) Error!Value {
+        // A jump's only position is its label, after the keyword.
+        const p = if (isTag(stmt, .@"break") or isTag(stmt, .@"continue")) 0 else innerPos(stmt);
+        if (p != 0) self.anchor = p;
         if (!self.reachable) return .{};
         const saved = try self.arena().dupe(Loan, self.temps.items);
         const v = try self.walk(stmt);
@@ -1761,7 +1771,7 @@ pub const Checker = struct {
         const saved_func = self.func;
         const saved_loop = self.loop;
         const saved_try = self.try_ctx;
-        self.func = .{};
+        self.func = .{ .in_closure = true };
         self.loop = null;
         self.try_ctx = null;
         self.reachable = true;
@@ -2139,7 +2149,7 @@ pub const Checker = struct {
             self.pending_label = label;
             return self.walkStmt(stmt);
         }
-        var ctx: LoopCtx = .{ .label = label, .depth = @intCast(self.vars.items.len), .scope_depth = self.scopes.items.len, .parent = self.loop };
+        var ctx: LoopCtx = .{ .label = label, .depth = @intCast(self.vars.items.len), .scope_depth = self.scopes.items.len, .parent = self.loop, .is_loop = false };
         self.loop = &ctx;
         defer self.loop = ctx.parent;
         try self.walkStmt(stmt);
@@ -2231,6 +2241,23 @@ pub const Checker = struct {
 
     const Jump = enum { brk, cont };
 
+    /// The position of the first line starting with `word` at or after
+    /// the anchor: the keyword of a statement that carries no position.
+    fn keywordPos(self: *const Checker, word: []const u8) u32 {
+        var i: usize = self.anchor;
+        const src = self.source;
+        while (i < src.len) : (i += 1) {
+            if (!std.mem.startsWith(u8, src[i..], word)) continue;
+            const end = i + word.len;
+            if (end < src.len and (std.ascii.isAlphanumeric(src[end]) or src[end] == '_')) continue;
+            // Only indentation before it on its line.
+            var j = i;
+            while (j > 0 and src[j - 1] == ' ') j -= 1;
+            if (j == 0 or src[j - 1] == '\n') return @intCast(i);
+        }
+        return self.anchor;
+    }
+
     /// `(break value-or-_ label?)` / `(continue label?)`: the state here
     /// flows to the loop (or labeled block) the jump names, or the
     /// innermost loop.
@@ -2240,7 +2267,21 @@ pub const Checker = struct {
         if (jump == .brk and items[1] != .nil) _ = try self.walk(items[1]);
         var target = self.loop;
         while (target) |t| : (target = t.parent) {
-            if (label.len == 0 or std.mem.eql(u8, t.label, label)) break;
+            if (label.len == 0) {
+                if (t.is_loop) break;
+            } else if (std.mem.eql(u8, t.label, label)) break;
+        }
+        const word = if (jump == .brk) "break" else "continue";
+        if (target == null) {
+            const where = if (self.func.in_closure) " (a closure body cannot leave a loop around it)" else "";
+            const pos = self.keywordPos(word);
+            if (label.len == 0) {
+                try self.err(pos, "`{s}` is not inside a loop{s}", .{ word, where });
+            } else {
+                try self.err(pos, "`{s} :{s}` names no enclosing loop or block{s}", .{ word, label, where });
+            }
+        } else if (jump == .cont and !target.?.is_loop) {
+            try self.err(self.keywordPos(word), "`continue :{s}` names a block, not a loop", .{label});
         }
         if (target) |t| {
             const s = try self.exitState(t.depth, t.scope_depth);

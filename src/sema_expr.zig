@@ -615,10 +615,10 @@ const Checker = struct {
     /// A branch or element whose value is a literal (`int_literal`) takes
     /// the type the others settled on, and must fit it.
     fn adaptLiteral(self: *Checker, node: Sexp, ty: TypeId, target: TypeId) Error!void {
-        if (ty == target) return;
         var value = node;
         while (isHead(value, .@"block") and value.list.len >= 2) value = value.list[value.list.len - 1];
-        try self.recordAdapted(value, ty, target);
+        // All-literal branches still yield an `Int` (or `Float`).
+        try self.recordAdapted(value, ty, self.canonical(target));
     }
 
     fn branch(self: *Checker, node: Sexp, expected: ?TypeId, position: Position) Error!TypeId {
