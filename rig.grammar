@@ -405,6 +405,8 @@ stmt     = use
 
 # A simple statement: an expression, a paren-free call, a binding, or a
 # flow statement. Only these take a postfix guard (`return x if done`).
+# Each assignment operator has its own alternative: `op` takes a marker
+# tag, which only an action literal supplies.
 simple   = tail
          | target:postfix "="   value:tail          → (set)
          | target:postfix "+="  value:tail          → (set op:+=)
