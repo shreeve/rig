@@ -1,8 +1,0 @@
-# Index bindings in `for` are not supported yet.
-
-sub main()
-  v: Vec(Int) = Vec()
-  for x, i in v
-    print(x)
-
-# error: index bindings are not supported yet

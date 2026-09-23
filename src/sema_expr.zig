@@ -631,8 +631,8 @@ const Checker = struct {
                 if (mode == .@"write") "mutable" else "consuming", if (mode == .@"write") "!" else "<",
             });
         }
-        if (index_binding != .nil) {
-            try self.err(firstSrcPos(index_binding), "`for x, i in ...` index bindings are not supported yet", .{});
+        if (index_binding != .nil and isHead(source, .@"..")) {
+            try self.err(firstSrcPos(index_binding), "a range has no index binding; the element is already the position (`for i in a..b`)", .{});
         }
 
         var elem_ty = self.t().invalid_id;
@@ -651,6 +651,10 @@ const Checker = struct {
             if (self.ctx.symbolOf(binding)) |sym| {
                 self.ctx.symbols.items[sym].ty = elem_ty;
                 try self.ctx.recordType(binding, elem_ty);
+            }
+            if (self.ctx.symbolOf(index_binding)) |sym| {
+                self.ctx.symbols.items[sym].ty = self.t().int_id;
+                try self.ctx.recordType(index_binding, self.t().int_id);
             }
             try self.checkStmt(items[5]);
         }

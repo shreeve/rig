@@ -1,5 +1,4 @@
 # `for x, i in xs` walks an array (or a Vec) with each element's index.
-# Known bug: sema rejects `for x, i` although emit lowers it
 
 sub main()
   xs = [10, 20, 30]

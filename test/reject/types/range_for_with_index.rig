@@ -1,0 +1,7 @@
+# A range loop has no index binding: its element is the position.
+
+sub main()
+  for i, k in 0..3
+    print(i + k)
+
+# error: a range has no index binding
