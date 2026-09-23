@@ -248,6 +248,8 @@ pub const Checker = struct {
     /// Scopes `(lo, hi]` are invisible to name lookup (while re-checking
     /// a deferred body at a scope exit).
     hidden: ?struct { lo: usize, hi: usize } = null,
+    /// Walking a deferred body.
+    in_defer: bool = false,
     /// Whether the last error was recorded (notes attach only to a
     /// recorded error; duplicates from re-walked code are dropped).
     last_err_kept: bool = false,
@@ -2074,11 +2076,14 @@ pub const Checker = struct {
         const snap = try self.snapshot();
         const saved_loop = self.loop;
         const saved_try = self.try_ctx;
+        const saved_in_defer = self.in_defer;
         self.loop = null;
         self.try_ctx = null;
+        self.in_defer = true;
         try self.walkStmt(body);
         self.loop = saved_loop;
         self.try_ctx = saved_try;
+        self.in_defer = saved_in_defer;
         if (report_changes) {
             for (snap.flows, self.flows.items[0..snap.flows.len], 0..) |before, after, i| {
                 if (before.status != after.status) {
@@ -2106,6 +2111,8 @@ pub const Checker = struct {
     /// Run the defers of the scopes an early exit leaves: every scope at
     /// index `scope_depth` or above, up to the enclosing function.
     fn runDefersTo(self: *Checker, scope_depth: usize) Error!void {
+        // An exit from inside a deferred body leaves only that body.
+        if (self.in_defer) return;
         var si = self.scopes.items.len;
         while (si > scope_depth) {
             si -= 1;
@@ -2861,6 +2868,28 @@ test "a match without a catch-all arm may run no arm" {
         \\  match n
         \\    1 => rc = make()
         \\    2 => rc = make()
+        \\  look(?rc)
+        \\
+    , "use of `rc` after move");
+}
+
+test "an exit inside a deferred body does not re-run the defers" {
+    try expectClean(
+        \\sub main()
+        \\  defer print(g()!)
+        \\  print(1)
+        \\
+    );
+}
+
+test "a deferred body is checked against the state at scope exit" {
+    try expectError(
+        \\sub main()
+        \\  rc = make()
+        \\  defer look(?rc)
+        \\  if c()
+        \\    eat(<rc)
+        \\    return
         \\  look(?rc)
         \\
     , "use of `rc` after move");
