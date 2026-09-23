@@ -3752,7 +3752,7 @@ fn breaksOut(e: Sexp) bool {
         .@"while", .@"for", .@"lambda", .@"labeled" => return false,
         else => {},
     }
-    for (e.items()[1..]) |c| if (breaksOut(c)) return true;
+    for (rig.children(e)) |c| if (breaksOut(c)) return true;
     return false;
 }
 

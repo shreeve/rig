@@ -2472,7 +2472,7 @@ const Coverage = struct {
                     self.expr(ir.Set.value(e));
                 },
                 .@"block" => for (ir.Block.stmts(e)) |c| self.expr(c),
-                .@"if", .@"while" => for (e.items()[1..]) |c| self.expr(c),
+                .@"if", .@"while" => for (rig.children(e)) |c| self.expr(c),
                 .@"as" => {
                     self.expr(ir.As.value(e));
                     self.expectName(ir.As.name(e));
@@ -2514,11 +2514,11 @@ const Coverage = struct {
                         if (a.isKind(.@"kwarg")) self.expr(ir.Kwarg.value(a)) else self.expr(a);
                     }
                 },
-                .@"return", .@"drop", .@"defer" => for (e.items()[1..]) |c| self.expr(c),
+                .@"return", .@"drop", .@"defer" => for (rig.children(e)) |c| self.expr(c),
                 .@"enum_lit" => self.expectType(e),
                 else => {
                     self.expectType(e);
-                    for (e.items()[1..]) |c| if (c != .tag) self.expr(c);
+                    for (rig.children(e)) |c| if (c != .tag) self.expr(c);
                 },
             },
             else => {},

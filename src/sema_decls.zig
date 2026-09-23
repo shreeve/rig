@@ -87,7 +87,7 @@ const SymbolResolver = struct {
             .@"arm" => try self.walkArm(sexp),
             .@"catch_block" => try self.walkCatchBlock(sexp),
             .@"catch" => try self.walkCatch(sexp),
-            else => for (sexp.items()[1..]) |c| try self.walk(c),
+            else => for (rig.children(sexp)) |c| try self.walk(c),
         }
     }
 
@@ -1050,7 +1050,7 @@ pub const TypeResolver = struct {
             },
             else => {},
         }
-        for (body.items()[1..]) |c| try self.enforceDropBody(c, fields);
+        for (rig.children(body)) |c| try self.enforceDropBody(c, fields);
     }
 
     fn isSelf(self: *TypeResolver, node: Sexp) bool {

@@ -32,6 +32,14 @@ const Sexp = parser.Sexp;
 /// in rig.grammar (which also gives each kind's roles).
 pub const Tag = parser.Tag;
 
+/// Every child of a node, in slot order (absent optional slots are `_`),
+/// for passes that visit all of them; empty for a leaf. Passes that need
+/// a particular child read it by role (`parser.ir`).
+pub fn children(node: Sexp) []const Sexp {
+    if (node.kind() == null) return &.{};
+    return node.items()[1..];
+}
+
 // =============================================================================
 // BindingKind — the kind slot of (set <kind> ...)
 // =============================================================================

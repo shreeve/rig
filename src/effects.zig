@@ -126,7 +126,7 @@ pub const Checker = struct {
                 }
                 for (ir.Builtin.args(sexp)) |c| try self.walk(c, false);
             },
-            else => for (sexp.items()[1..]) |c| try self.walk(c, false),
+            else => for (rig.children(sexp)) |c| try self.walk(c, false),
         }
     }
 

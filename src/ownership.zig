@@ -1113,7 +1113,7 @@ pub const Checker = struct {
             else => return .{},
         }
         const kind = sexp.kind() orelse return .{};
-        const children = sexp.items()[1..];
+        const children = rig.children(sexp);
         return switch (kind) {
             .@"fun", .@"sub", .@"drop_decl", .@"struct", .@"enum", .@"errors" => blk: {
                 try self.walkDecl(sexp);
@@ -2957,7 +2957,7 @@ pub const Checker = struct {
                 .@"index" => return std.fmt.allocPrint(self.arena(), "{s}[...]", .{try self.placeText(ir.Index.object(e))}),
                 // A sigil or other wrapper: the place it wraps.
                 else => {
-                    const children = e.items()[1..];
+                    const children = rig.children(e);
                     return if (children.len > 0) self.placeText(children[0]) else "expression";
                 },
             },
