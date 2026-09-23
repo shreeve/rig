@@ -768,6 +768,8 @@ const Checker = struct {
     fn writeElement(self: *Checker, source: Sexp, inner_source: Sexp, elem: TypeId) Error!TypeId {
         if (!isFieldPath(inner_source)) {
             try self.err(firstSrcPos(source), "`for x in !xs` writes each element in place; `xs` must be a binding or a field of one", .{});
+        } else if (try self.placeThroughShared(inner_source)) {
+            try self.err(firstSrcPos(source), "cannot write-iterate through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell(T)` for mutation through shared ownership.", .{});
         } else try self.checkWritable(inner_source, "write-iterate");
         return self.ctx.intern(.{ .borrow_write = elem });
     }
@@ -1579,7 +1581,13 @@ const Checker = struct {
     fn synthBorrow(self: *Checker, items: []const Sexp, kind: BorrowKind) Error!TypeId {
         const inner = try self.synthOperand(items[1]);
         if (self.isPoison(inner)) return inner;
-        if (kind == .write) try self.checkWritable(items[1], "write-borrow");
+        if (kind == .write) {
+            if (try self.placeThroughShared(items[1])) {
+                try self.err(firstSrcPos(items[1]), "cannot write-borrow through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell(T)` for mutation through shared ownership.", .{});
+                return self.t().invalid_id;
+            }
+            try self.checkWritable(items[1], "write-borrow");
+        }
         // A borrow of a value holding a Cell can change the Cell, which a
         // loop or match binding only copies.
         if (kind == .read and types.holdsCellByValue(self.ctx, inner)) {
