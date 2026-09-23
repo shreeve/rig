@@ -1,0 +1,19 @@
+# An imported struct holding a Vec of handles is filled through its
+# write method, iterated by field, and drops its elements.
+
+use lib
+
+sub main()
+  h = lib.H(items: Vec())
+  (!h).add(*lib.B(n: 1))
+  (!h).add(*lib.B(n: 2))
+  print(h.count())
+  for x in ?h.items
+    print(x.n)
+
+# expect:
+# 2
+# 1
+# 2
+# drop 2
+# drop 1

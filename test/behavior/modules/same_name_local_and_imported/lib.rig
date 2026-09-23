@@ -1,0 +1,5 @@
+pub struct P
+  x: Int
+
+pub fun make() -> P
+  P(x: 1)

@@ -2321,10 +2321,7 @@ const Checker = struct {
                 try self.synthArgs(args);
                 return self.t().invalid_id;
             },
-            .imported_nominal => |in| {
-                try self.rejectResourceTemporary(obj, obj_ty);
-                return self.importedMethodCall(obj, obj_ty, in, method, pos, args);
-            },
+            .imported_nominal => |in| return self.importedMethodCall(obj, obj_ty, in, method, pos, args),
             .type_var => {
                 try self.err(pos, "a generic parameter `{s}` has no methods; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) });
                 try self.synthArgs(args);
@@ -2487,6 +2484,8 @@ const Checker = struct {
                 try self.synthArgs(args);
                 return fty.returns;
             }
+            // A consuming method takes over a temporary receiver.
+            if (f.receiver != .value) try self.rejectResourceTemporary(obj, obj_ty);
             try self.checkReceiverMode(obj, f.receiver, classifyImportedReceiver(self.ctx, obj_ty), method, pos);
             const rest: FunctionType = .{ .params = fty.params[1..], .returns = fty.returns, .is_sub = fty.is_sub, .pre_mask = fty.pre_mask >> 1 };
             var params = self.methodParams(f, true);

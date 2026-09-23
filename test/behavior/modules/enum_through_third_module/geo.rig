@@ -1,0 +1,4 @@
+use util
+
+pub fun total(a: ?util.Shape, b: ?util.Shape) -> Int
+  util.area(a) + util.area(b)

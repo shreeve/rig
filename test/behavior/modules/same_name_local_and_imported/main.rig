@@ -1,0 +1,15 @@
+# A local type may share its name with an imported one: `P` and
+# `lib.P` are different types.
+
+use lib
+
+struct P
+  y: Int
+
+sub main()
+  a = lib.make()
+  b = P(y: 2)
+  print(a.x, b.y)
+
+# expect:
+# 1 2

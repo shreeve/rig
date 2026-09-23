@@ -1,0 +1,20 @@
+pub struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+  fun get(?self) -> Int
+    self.n
+
+  sub bump(!self)
+    self.n += 1
+
+  fun take(self: B) -> Int
+    self.n
+
+pub fun peek(b: ?B) -> Int
+  b.n
+
+pub fun mkcl(k: Int) -> *fun(Int) Int
+  *|+k, a| a + k
