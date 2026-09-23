@@ -1386,3 +1386,335 @@ test "check: tolerates an empty IR" {
     defer ctx.deinit();
     try std.testing.expect(!ctx.hasErrors());
 }
+
+// ---- facts table ---------------------------------------------------------------
+
+const FactsRun = struct {
+    p: parser.Parser,
+    ir: Sexp,
+    ctx: SemContext,
+    source: []const u8,
+
+    fn deinit(self: *FactsRun) void {
+        self.ctx.deinit();
+        self.p.deinit();
+    }
+
+    /// Position of the `nth` (0-based) occurrence of `needle` as a whole word.
+    fn at(self: *const FactsRun, needle: []const u8, nth: usize) u32 {
+        var count: usize = 0;
+        var i: usize = 0;
+        while (std.mem.indexOfPos(u8, self.source, i, needle)) |p| : (i = p + 1) {
+            const before_ok = p == 0 or !isWordChar(self.source[p - 1]);
+            const after = p + needle.len;
+            const after_ok = after >= self.source.len or !isWordChar(self.source[after]);
+            if (!before_ok or !after_ok) continue;
+            if (count == nth) return @intCast(p);
+            count += 1;
+        }
+        @panic("needle not found");
+    }
+
+    fn sym(self: *const FactsRun, needle: []const u8, nth: usize) ?SymbolId {
+        return self.ctx.symbolAt(self.at(needle, nth));
+    }
+
+    fn leafType(self: *const FactsRun, needle: []const u8, nth: usize) ?TypeId {
+        return self.ctx.facts.leaf_types.get(self.at(needle, nth));
+    }
+};
+
+fn isWordChar(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_';
+}
+
+fn factsRun(source: []const u8) !FactsRun {
+    var r: FactsRun = .{ .p = parser.Parser.init(std.testing.allocator, source), .ir = undefined, .ctx = undefined, .source = source };
+    errdefer r.p.deinit();
+    r.ir = try r.p.parseProgram();
+    r.ctx = try check(std.testing.allocator, source, r.ir);
+    for (r.ctx.diagnostics.items) |d| std.debug.print("unexpected diagnostic: {s}\n", .{d.message});
+    try std.testing.expect(!r.ctx.hasErrors());
+    return r;
+}
+
+/// Find the first list node with head `tag` (depth-first).
+fn findNode(node: Sexp, tag: Tag) ?Sexp {
+    if (headOf(node) == tag) return node;
+    if (node != .list) return null;
+    for (node.list) |c| {
+        if (findNode(c, tag)) |n| return n;
+    }
+    return null;
+}
+
+test "facts: same local name in two functions resolves per function" {
+    var r = try factsRun(
+        \\sub b()
+        \\  s = 42
+        \\  print(s)
+        \\
+        \\sub a()
+        \\  s = "hello"
+        \\  print(s)
+        \\
+    );
+    defer r.deinit();
+    const b_decl = r.sym("s", 0).?;
+    const b_use = r.sym("s", 1).?;
+    const a_decl = r.sym("s", 2).?;
+    const a_use = r.sym("s", 3).?;
+    try std.testing.expectEqual(b_decl, b_use);
+    try std.testing.expectEqual(a_decl, a_use);
+    try std.testing.expect(a_decl != b_decl);
+    try std.testing.expectEqual(r.ctx.types.int_id, r.ctx.symbols.items[b_use].ty);
+    try std.testing.expectEqual(r.ctx.types.string_id, r.ctx.symbols.items[a_use].ty);
+    try std.testing.expectEqual(r.ctx.types.string_id, r.leafType("s", 3).?);
+}
+
+test "facts: reassignment names the existing binding" {
+    var r = try factsRun(
+        \\sub main()
+        \\  x = 1
+        \\  if true
+        \\    x = 2
+        \\  print(x)
+        \\
+    );
+    defer r.deinit();
+    const first = r.sym("x", 0).?;
+    try std.testing.expectEqual(first, r.sym("x", 1).?);
+    try std.testing.expectEqual(first, r.sym("x", 2).?);
+}
+
+test "facts: literals record the type their context gives them" {
+    var r = try factsRun(
+        \\sub main()
+        \\  a: U8 = 7
+        \\  b: I64? = 9
+        \\  c = 11
+        \\  print(a)
+        \\  print(b ?? 0)
+        \\  print(c)
+        \\
+    );
+    defer r.deinit();
+    const u8_ty = try r.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } });
+    const i64_ty = try r.ctx.intern(.{ .int = .{ .bits = 64, .signed = true } });
+    try std.testing.expectEqual(u8_ty, r.leafType("7", 0).?);
+    try std.testing.expectEqual(i64_ty, r.leafType("9", 0).?);
+    try std.testing.expectEqual(r.ctx.types.int_id, r.leafType("11", 0).?);
+    try std.testing.expectEqual(i64_ty, r.leafType("0", 0).?);
+}
+
+test "facts: expression nodes carry their types" {
+    var r = try factsRun(
+        \\fun half(n: Int) -> Float
+        \\  1.5
+        \\
+        \\sub main()
+        \\  print(half(4) + 2.0)
+        \\
+    );
+    defer r.deinit();
+    const call = findNode(r.ir.list[2], .@"call").?;
+    const add = findNode(call, .@"+").?;
+    try std.testing.expectEqual(r.ctx.types.float_id, r.ctx.typeOf(add).?);
+    const half_call = findNode(add, .@"call").?;
+    try std.testing.expectEqual(r.ctx.types.float_id, r.ctx.typeOf(half_call).?);
+    try std.testing.expectEqual(r.ctx.types.void_id, r.ctx.typeOf(call).?);
+    const half_sym = r.sym("half", 1).?;
+    try std.testing.expectEqual(r.sym("half", 0).?, half_sym);
+    try std.testing.expectEqual(SymbolKind.function, r.ctx.symbols.items[half_sym].kind);
+}
+
+test "facts: captures, parameters, and self resolve to their symbols" {
+    var r = try factsRun(
+        \\struct P
+        \\  n: Int
+        \\
+        \\  fun get(?self) -> Int
+        \\    self.n
+        \\
+        \\sub main()
+        \\  s =! "hi"
+        \\  f = |s|
+        \\    print(s)
+        \\  f()
+        \\  p = P(n: 2)
+        \\  print(p.get())
+        \\
+    );
+    defer r.deinit();
+    const self_decl = r.sym("self", 0).?;
+    try std.testing.expectEqual(self_decl, r.sym("self", 1).?);
+    try std.testing.expectEqual(SymbolKind.param, r.ctx.symbols.items[self_decl].kind);
+    const cap = r.sym("s", 1).?;
+    try std.testing.expectEqual(SymbolKind.capture, r.ctx.symbols.items[cap].kind);
+    try std.testing.expectEqual(cap, r.sym("s", 2).?);
+    try std.testing.expect(cap != r.sym("s", 0).?);
+    try std.testing.expectEqual(r.ctx.types.string_id, r.ctx.symbols.items[cap].ty);
+    const f_ty = r.ctx.types.get(r.ctx.symbols.items[r.sym("f", 0).?].ty);
+    try std.testing.expect(f_ty == .function);
+}
+
+test "facts: loop and pattern bindings" {
+    var r = try factsRun(
+        \\enum Shape
+        \\  circle(radius: Int)
+        \\  dot
+        \\
+        \\sub main()
+        \\  v: Vec(Int) = Vec()
+        \\  (!v).push(3)
+        \\  for x in v
+        \\    print(x)
+        \\  s: Shape = .circle(radius: 4)
+        \\  match s
+        \\    .circle(r) => print(r)
+        \\    .dot => print(0)
+        \\
+    );
+    defer r.deinit();
+    const x = r.sym("x", 0).?;
+    try std.testing.expectEqual(x, r.sym("x", 1).?);
+    try std.testing.expectEqual(r.ctx.types.int_id, r.ctx.symbols.items[x].ty);
+    const rr = r.sym("r", 0).?;
+    try std.testing.expectEqual(rr, r.sym("r", 1).?);
+    try std.testing.expectEqual(r.ctx.types.int_id, r.ctx.symbols.items[rr].ty);
+}
+
+test "facts: scopes are keyed by the node that opens them" {
+    var r = try factsRun(
+        \\test "first"
+        \\  a = 1
+        \\  print(a)
+        \\
+        \\sub main()
+        \\  x = "hi"
+        \\  print(x)
+        \\
+    );
+    defer r.deinit();
+    const main_fn = r.ir.list[2];
+    const fn_scope = r.ctx.scopeOf(main_fn).?;
+    try std.testing.expectEqual(ScopeKind.function, r.ctx.scopes.items[fn_scope].kind);
+    const body = main_fn.list[4];
+    const body_scope = r.ctx.scopeOf(body).?;
+    try std.testing.expectEqual(fn_scope, r.ctx.scopes.items[body_scope].parent.?);
+    const x = r.sym("x", 0).?;
+    try std.testing.expectEqual(body_scope, r.ctx.symbols.items[x].scope);
+    try std.testing.expectEqual(x, r.ctx.lookup(body_scope, "x").?);
+    try std.testing.expect(r.ctx.lookup(fn_scope, "a") == null);
+}
+
+// ---- symbols and declarations -----------------------------------------------
+
+test "symbols: functions at module scope, parameters in the function scope" {
+    var r = try factsRun(
+        \\fun add(a: Int, b: Int) -> Int
+        \\  a + b
+        \\
+        \\pub sub main()
+        \\  print(add(1, 2))
+        \\
+    );
+    defer r.deinit();
+    const add = r.ctx.lookup(1, "add").?;
+    try std.testing.expectEqual(SymbolKind.function, r.ctx.symbols.items[add].kind);
+    try std.testing.expect(r.ctx.lookup(1, "a") == null);
+    const a = r.sym("a", 0).?;
+    try std.testing.expectEqual(SymbolKind.param, r.ctx.symbols.items[a].kind);
+    try std.testing.expectEqual(r.ctx.types.int_id, r.ctx.symbols.items[a].ty);
+    try std.testing.expect(r.ctx.symbols.items[r.ctx.lookup(1, "main").?].flags.is_public);
+    const f = r.ctx.types.get(r.ctx.symbols.items[add].ty).function;
+    try std.testing.expectEqual(@as(usize, 2), f.params.len);
+    try std.testing.expectEqual(r.ctx.types.int_id, f.returns);
+    try std.testing.expect(!f.is_sub);
+    try std.testing.expectEqualStrings("b", r.ctx.symbols.items[add].param_names.?[1]);
+}
+
+test "symbols: binding flags" {
+    var r = try factsRun(
+        \\struct U
+        \\  n: Int
+        \\
+        \\fun read(u: ?U) -> Int
+        \\  u.n
+        \\
+        \\sub show(pre k: Int)
+        \\  print(k)
+        \\
+        \\sub main()
+        \\  y =! 2
+        \\  show(y)
+        \\  print(read(?U(n: y)))
+        \\
+    );
+    defer r.deinit();
+    try std.testing.expect(r.ctx.symbols.items[r.sym("u", 0).?].flags.borrowed_param);
+    const y = r.ctx.symbols.items[r.sym("y", 0).?];
+    try std.testing.expect(y.flags.fixed);
+    try std.testing.expect(y.flags.comptime_known);
+    const k = r.ctx.symbols.items[r.sym("k", 0).?];
+    try std.testing.expect(k.flags.is_pre);
+    const show = r.ctx.types.get(r.ctx.symbols.items[r.ctx.lookup(1, "show").?].ty).function;
+    try std.testing.expect(show.isPre(0));
+}
+
+test "declarations: wrapper, sized, and alias types" {
+    var r = try factsRun(
+        \\type UserId = U64
+        \\
+        \\fun a() -> Int!
+        \\  1
+        \\
+        \\fun b(x: ?I32, y: !UserId) -> F64?
+        \\  none
+        \\
+    );
+    defer r.deinit();
+    const a = r.ctx.types.get(r.ctx.symbols.items[r.ctx.lookup(1, "a").?].ty).function;
+    try std.testing.expect(r.ctx.types.get(a.returns) == .fallible);
+    const b = r.ctx.types.get(r.ctx.symbols.items[r.ctx.lookup(1, "b").?].ty).function;
+    const x = r.ctx.types.get(b.params[0]);
+    try std.testing.expect(x == .borrow_read);
+    try std.testing.expectEqual(IntInfo{ .bits = 32, .signed = true }, r.ctx.types.get(x.borrow_read).int);
+    const u64_ty = try r.ctx.intern(.{ .int = .{ .bits = 64, .signed = false } });
+    try std.testing.expectEqual(try r.ctx.intern(.{ .borrow_write = u64_ty }), b.params[1]);
+    try std.testing.expectEqual(u64_ty, r.ctx.symbols.items[r.ctx.lookup(1, "UserId").?].ty);
+    const ret = r.ctx.types.get(b.returns);
+    try std.testing.expectEqual(FloatInfo{ .bits = 64 }, r.ctx.types.get(ret.optional).float);
+}
+
+test "declarations: struct fields, methods, and enum variants" {
+    var r = try factsRun(
+        \\struct User
+        \\  name: String
+        \\  age: Int
+        \\
+        \\  fun greet(?self) -> String
+        \\    self.name
+        \\
+        \\enum Shape
+        \\  circle(radius: Int)
+        \\  origin
+        \\
+        \\error NetError
+        \\  timeout
+        \\
+    );
+    defer r.deinit();
+    const user = r.ctx.symbols.items[r.ctx.lookup(1, "User").?].fields.?;
+    try std.testing.expectEqual(@as(usize, 3), user.len);
+    try std.testing.expectEqualStrings("age", user[1].name);
+    try std.testing.expectEqual(r.ctx.types.int_id, user[1].ty);
+    try std.testing.expect(user[2].is_method);
+    try std.testing.expectEqual(MethodReceiver.read, user[2].receiver);
+    const shape = r.ctx.symbols.items[r.ctx.lookup(1, "Shape").?].fields.?;
+    try std.testing.expect(shape[0].is_variant);
+    try std.testing.expectEqualStrings("radius", shape[0].payload.?[0].name);
+    try std.testing.expect(shape[1].payload == null);
+    const net = r.ctx.symbols.items[r.ctx.lookup(1, "NetError").?].fields.?;
+    try std.testing.expectEqualStrings("timeout", net[0].name);
+}
