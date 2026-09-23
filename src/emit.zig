@@ -996,7 +996,12 @@ pub const Emitter = struct {
             try self.writeIndent(self.indent);
             try self.emitGuard(stored);
         } else if (is_var) {
-            try self.w.print(" _ = &{s};", .{stored.zig_name});
+            // Zig rejects a `var` it never sees mutated. A reassignment
+            // is emitted as one; any other reason for `var` (a write
+            // through the binding, which may land behind a pointer
+            // field, run-time arithmetic, a `*Self` method) needs the
+            // discard.
+            if (!s.flags.reassigned) try self.w.print(" _ = &{s};", .{stored.zig_name});
         } else if (!self.usage.used.contains(sym)) {
             try self.w.print(" _ = {s};", .{stored.zig_name});
         } else if (self.sema.const_ints.contains(sym)) {
@@ -2211,9 +2216,12 @@ pub const Emitter = struct {
         if (isTagged(inner, .@"lambda")) return self.emitOwnedClosure(inner);
         const payload_ty: ?TypeId = if (self.typeOf(sexp)) |t| self.sharedInner(t) else null;
         try self.w.writeAll("rig.rcNew(");
-        if (payload_ty) |t| {
+        // A constructor call spells its own type: `rig.rcNew(Node{ ... })`.
+        const typed = payload_ty != null and self.isConstructorCall(inner) and
+            if (self.typeOf(inner)) |inner_ty| inner_ty == payload_ty.? else false;
+        if (payload_ty != null and !typed) {
             try self.w.writeAll("@as(");
-            try self.emitTypeTy(t);
+            try self.emitTypeTy(payload_ty.?);
             try self.w.writeAll(", ");
             try self.emitBare(inner);
             try self.w.writeAll(")");
@@ -2502,6 +2510,19 @@ pub const Emitter = struct {
         self.indent -= 1;
         try self.writeIndent(self.indent);
         try self.w.writeAll("}");
+    }
+
+    /// A call `emitCall` lowers with `emitConstructor`, whose Zig spells
+    /// the value's type.
+    fn isConstructorCall(self: *Emitter, e: Sexp) bool {
+        if (!isTagged(e, .@"call") or e.list[1] != .src) return false;
+        if (self.localOf(e.list[1])) |local| if (local.stack_closure) return false;
+        const sym_id = self.sema.symbolOf(e.list[1]) orelse return false;
+        if (sym_id == self.sema.vec_sym_id or sym_id == self.sema.signal_sym_id) return false;
+        return switch (self.sema.symbols.items[sym_id].kind) {
+            .nominal_type, .generic_type => true,
+            else => false,
+        };
     }
 
     /// Constructor call `Name(field: v, ...)`: a struct literal typed by
