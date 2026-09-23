@@ -183,6 +183,9 @@ const LoopCtx = struct {
 };
 
 const TryCtx = struct {
+    /// Number of vars and scopes at entry to the try body.
+    depth: u32,
+    scope_depth: usize,
     /// Join of the states at every `!` propagation in the try body.
     fail: ?State = null,
 };
@@ -601,7 +604,7 @@ pub const Checker = struct {
         const items = sexp.list;
         switch (items[0].tag) {
             .@"module" => for (items[1..]) |c| try self.walkDecl(c),
-            .@"fun", .@"sub" => try self.walkFun(items[1], items[2], items[3], items[4..]),
+            .@"fun", .@"sub" => if (items.len >= 4) try self.walkFun(items[1], items[2], items[3], items[4..]),
             .@"drop_decl" => if (items.len >= 3) try self.walkFun(.nil, items[1], .nil, items[2..3]),
             .@"struct", .@"enum", .@"errors", .@"generic_type" => for (items[1..]) |c| try self.walkDecl(c),
             .@"pub", .@"export", .@"packed", .@"callconv", .@"extern" => {
@@ -807,11 +810,7 @@ pub const Checker = struct {
                 break :blk .{};
             },
             .@"catch" => self.walkCatch(items),
-            .@"propagate", .@"try" => blk: {
-                const v = if (items.len >= 2) try self.walk(items[1]) else Value{};
-                if (self.try_ctx) |t| t.fail = if (t.fail) |f| try self.join(f, try self.snapshot()) else try self.snapshot();
-                break :blk v;
-            },
+            .@"propagate", .@"try" => self.walkPropagate(items),
             .@"defer", .@"errdefer" => blk: {
                 try self.walkDefer(items);
                 break :blk .{};
@@ -951,6 +950,7 @@ pub const Checker = struct {
 
     fn walkMember(self: *Checker, e: Sexp) Error!Value {
         const items = e.list;
+        if (items.len < 2) return .{};
         const obj = try self.walk(items[1]);
         if (items[0].tag == .@"index") for (items[2..]) |i| {
             _ = try self.walk(i);
@@ -1010,13 +1010,11 @@ pub const Checker = struct {
     const MoveVerb = enum {
         move,
         capture,
-        ret,
 
         fn text(m: MoveVerb) []const u8 {
             return switch (m) {
                 .move => "move",
                 .capture => "move-capture",
-                .ret => "return",
             };
         }
     };
@@ -1997,13 +1995,7 @@ pub const Checker = struct {
         if (value != .nil) _ = try self.walk(value);
         var target = self.loop;
         while (target) |t| : (target = t.parent) {
-            try self.runDefersTo(t.scope_depth);
-            // Leaving the loop body: nothing that survives may borrow
-            // what is left behind.
-            for (self.flows.items[0..t.depth], 0..) |f, holder| {
-                for (f.loans) |l| if (l.root >= t.depth) try self.reportShortLived(l, @intCast(holder));
-            }
-            const s = try self.truncState(try self.snapshot(), t.depth);
+            const s = try self.exitState(t.depth, t.scope_depth);
             switch (jump) {
                 .brk => try t.breaks.append(self.arena(), s),
                 .cont => try t.conts.append(self.arena(), s),
@@ -2016,10 +2008,35 @@ pub const Checker = struct {
         if (fallthrough) |s| try self.restore(s);
     }
 
+    /// The state at a jump out of the scopes above `depth` vars /
+    /// `scope_depth` scopes: their defers run, and nothing that survives
+    /// may borrow what is left behind.
+    fn exitState(self: *Checker, depth: u32, scope_depth: usize) Error!State {
+        try self.runDefersTo(scope_depth);
+        for (self.flows.items[0..depth], 0..) |f, holder| {
+            for (f.loans) |l| if (l.root >= depth) try self.reportShortLived(l, @intCast(holder));
+        }
+        return self.truncState(try self.snapshot(), depth);
+    }
+
+    /// `e!`: on failure, control leaves for the enclosing `catch` or the
+    /// caller.
+    fn walkPropagate(self: *Checker, items: []const Sexp) Error!Value {
+        const v = if (items.len >= 2) try self.walk(items[1]) else Value{};
+        if (!self.reachable) return v;
+        if (self.try_ctx) |t| {
+            const s = try self.exitState(t.depth, t.scope_depth);
+            t.fail = if (t.fail) |f| try self.join(f, s) else s;
+        } else {
+            try self.runDefersTo(0);
+        }
+        return v;
+    }
+
     fn walkTryBlock(self: *Checker, items: []const Sexp) Error!void {
         // (try_block body (catch_block name body)?)
         if (items.len < 2) return;
-        var ctx: TryCtx = .{};
+        var ctx: TryCtx = .{ .depth = @intCast(self.vars.items.len), .scope_depth = self.scopes.items.len };
         const saved = self.try_ctx;
         self.try_ctx = &ctx;
         try self.walkStmt(items[1]);
