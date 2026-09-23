@@ -349,7 +349,11 @@ pub const SymbolFlags = packed struct(u8) {
     /// Value known at compile time: a `pre` parameter, or a `=!` binding
     /// initialized with a compile-time-known expression.
     comptime_known: bool = false,
-    _padding: u2 = 0,
+    /// Bound by a `for` loop, a match pattern, or `as`: not assignable.
+    pattern_bound: bool = false,
+    /// Assigned again after its declaration (`=`, `<-`, `+=`, ...):
+    /// lowers to a Zig `var`.
+    reassigned: bool = false,
 };
 
 /// How a method takes its receiver, from the declared first parameter.

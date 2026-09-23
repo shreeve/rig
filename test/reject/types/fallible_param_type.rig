@@ -1,0 +1,9 @@
+# A fallible type is only allowed as a function's return type.
+
+fun f(a: Int!) -> Int
+  1
+
+sub main()
+  print(1)
+
+# error: a fallible type `Int!` is only allowed as a function's return type

@@ -1,0 +1,10 @@
+# An enum literal needs a known enum type.
+
+enum Color
+  red
+
+sub main()
+  c = .red
+  print(1)
+
+# error: enum literal `.red` needs a known enum type

@@ -1,0 +1,7 @@
+# Array literal elements share one type.
+
+sub main()
+  xs = [1, "two"]
+  print(1)
+
+# error: incompatible types `Int` and `String`

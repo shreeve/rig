@@ -1,0 +1,10 @@
+# Loop bindings are immutable.
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  for n in v
+    n = n + 1
+    print(n)
+
+# error: cannot assign to `n`; loop and pattern bindings are immutable

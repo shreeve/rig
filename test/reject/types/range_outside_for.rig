@@ -1,0 +1,7 @@
+# A range can only be a `for` source.
+
+sub main()
+  r = 0..4
+  print(1)
+
+# error: a range `a..b` can only be used as a `for` loop source

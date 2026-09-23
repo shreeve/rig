@@ -1,0 +1,6 @@
+# `print` takes one value.
+
+sub main()
+  print(1, 2)
+
+# error: `print` takes one value

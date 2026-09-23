@@ -1,0 +1,15 @@
+# Methods are not reachable through an optional.
+
+struct U
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+fun f(u: U?) -> Int
+  u.get()
+
+sub main()
+  print(1)
+
+# error: cannot call `get` on optional `U?`

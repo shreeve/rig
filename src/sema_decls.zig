@@ -145,7 +145,7 @@ const SymbolResolver = struct {
         const name = identAt(self.ctx.source, name_node) orelse return null;
         if (std.mem.eql(u8, name, "_")) return null;
         try self.checkShadowing(name_node, what);
-        return self.declare(name_node, .local, .{});
+        return self.declare(name_node, .local, .{ .pattern_bound = true });
     }
 
     fn checkShadowing(self: *SymbolResolver, name_node: Sexp, what: []const u8) Error!void {

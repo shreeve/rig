@@ -1,0 +1,7 @@
+# An index must be an integer.
+
+sub main()
+  v: Vec(Int) = Vec()
+  print(v["0"])
+
+# error: an index must be an integer; got `String`

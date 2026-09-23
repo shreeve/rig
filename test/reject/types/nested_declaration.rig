@@ -1,0 +1,8 @@
+# Declarations are only allowed at module level.
+
+sub main()
+  fun inner() -> Int
+    1
+  print(inner())
+
+# error: declarations are only allowed at module level

@@ -1,0 +1,10 @@
+# A struct cannot declare the same member twice.
+
+struct P
+  x: Int
+  x: Int
+
+sub main()
+  print(1)
+
+# error: duplicate member `x` in `P`

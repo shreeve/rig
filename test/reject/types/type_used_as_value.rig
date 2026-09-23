@@ -1,0 +1,9 @@
+# A type name is not a value.
+
+struct P
+  x: Int
+
+sub main()
+  print(P)
+
+# error: `P` is a type, not a value

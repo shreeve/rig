@@ -336,6 +336,10 @@ const Checker = struct {
         if (!is_decl and sym.kind == .capture) {
             try self.err(target.src.pos, "cannot assign to captured `{s}`; captures are fixed when the closure is created", .{name});
         }
+        if (!is_decl) sym.flags.reassigned = true;
+        if (!is_decl and sym.flags.pattern_bound) {
+            try self.err(target.src.pos, "cannot assign to `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ name, name, name });
+        }
 
         var declared = self.t().unknown_id;
         if (type_node != .nil) {
@@ -352,6 +356,7 @@ const Checker = struct {
             const d = self.ctx.types.get(declared);
             if (d == .parameterized_nominal and d.parameterized_nominal.sym == self.ctx.signal_sym_id) {
                 try self.err(target.src.pos, "stack-local `Signal(T)` is not supported; Signal owns a subscriber `Vec` that requires heap ownership. Use `*Signal(T)` instead: `{s}: *Signal(...) = *Signal(value: ...)`", .{name});
+                self.poisonIfUntyped(sym_id);
                 return;
             }
         }
@@ -385,6 +390,11 @@ const Checker = struct {
         if (s.ty == self.t().unknown_id) s.ty = rhs_ty;
         if (kind == .fixed and self.isComptimeKnown(rhs)) s.flags.comptime_known = true;
         try self.ctx.recordType(target, s.ty);
+    }
+
+    fn poisonIfUntyped(self: *Checker, id: SymbolId) void {
+        const sym = &self.ctx.symbols.items[id];
+        if (sym.ty == self.t().unknown_id) sym.ty = self.t().invalid_id;
     }
 
     /// The type an unannotated binding gets from its initializer.
@@ -898,7 +908,11 @@ const Checker = struct {
             if (s == types.scope_invalid or s >= self.ctx.scopes.items.len) break;
             if (self.ctx.lookupInScopeOnly(s, name)) |id| {
                 try self.ctx.recordName(leaf, id);
-                const kind = self.ctx.symbols.items[id].kind;
+                const sym = self.ctx.symbols.items[id];
+                const kind = sym.kind;
+                if (kind == .local and sym.ty == self.t().unknown_id and sym.decl_pos != leaf.src.pos) {
+                    try self.err(leaf.src.pos, "`{s}` is used before it has a value", .{name});
+                }
                 if (crossed_lambda and s != self.module_scope and (kind == .local or kind == .param or kind == .capture)) {
                     try self.err(leaf.src.pos, "`{s}` is a local of the enclosing function; capture it to use it inside the closure (`|{s}|`, `|+{s}|`, or `|<{s}|`)", .{ name, name, name, name });
                 }
@@ -1111,15 +1125,11 @@ const Checker = struct {
         const r = items[2];
         // A contextual operand (`.red`, `none`) takes the other side's type.
         if (isContextual(l) and !isContextual(r)) {
-            const rt = try self.synthExpr(r);
-            try self.checkExpr(l, rt);
-            try self.checkEquatable(rt, r, op);
+            try self.checkExpr(l, try self.synthExpr(r));
             return self.t().bool_id;
         }
         if (isContextual(r)) {
-            const lt = try self.synthExpr(l);
-            try self.checkExpr(r, lt);
-            try self.checkEquatable(lt, l, op);
+            try self.checkExpr(r, try self.synthExpr(l));
             return self.t().bool_id;
         }
         const a = try self.synthExpr(l);
@@ -1162,7 +1172,8 @@ const Checker = struct {
     fn checkEquatable(self: *Checker, ty: TypeId, node: Sexp, op: []const u8) Error!void {
         if (self.isPoison(ty)) return;
         const ok = switch (self.ctx.types.get(ty)) {
-            .int, .float, .int_literal, .float_literal, .bool, .string, .optional => true,
+            .int, .float, .int_literal, .float_literal, .bool, .string => true,
+            .optional => |inner| satisfies(self.ctx, inner, .equatable),
             .nominal => |s| isPlainEnum(self.ctx, s),
             .type_var => |tv| blk: {
                 try self.require(tv, .equatable, firstSrcPos(node), op);
