@@ -539,11 +539,16 @@ timed out
 ### Generic types
 
 `type Name(T, ...)` declares a generic struct and `enum Name(T, ...)` a
-generic enum. An instance names its type arguments (`Box(Int)`), and a
-constructor takes its type arguments from the expected type, so a
-generic value needs an annotation. A generic body may only do with a
-`T` what every instantiation allows: operations on `T` are checked for
-each instantiation, and methods cannot be called on a type parameter.
+generic enum. An instance names its type arguments (`Box(Int)`). A
+constructor takes them from the expected type when there is one, and
+otherwise infers them from the values that fill it: a constructor's
+fields (`Pair(first: 1, second: "x")` is a `Pair(Int, String)`), a
+payload variant's fields (`Option.some(value: 7)`), or an associated
+function's arguments (`Pair.make(1, 2)`). A literal takes its default
+type. A parameter nothing fills, as in `Vec()`, needs the annotation. A
+generic body may only do with a `T` what every instantiation allows:
+operations on `T` are checked for each instantiation, inferred or
+spelled, and methods cannot be called on a type parameter.
 
 ```rig
 type Pair(T, U)
@@ -558,15 +563,18 @@ enum Option(T)
   nothing
 
 sub main()
-  p: Pair(Int, String) = Pair(first: 42, second: "answer")
+  p = Pair(first: 42, second: "answer")
   o: Option(Int) = .some(value: p.left())
   match o
     .some(v) => print(v, p.second)
     .nothing => print("none")
+  q = Option.some(value: 2.5)
+  print(q)
 ```
 
 ```output
 42 answer
+.some(2.5)
 ```
 
 There are no generic functions yet.

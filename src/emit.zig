@@ -2161,6 +2161,10 @@ pub const Emitter = struct {
         var o = obj;
         while (isTagged(o, .@"read") or isTagged(o, .@"write")) o = o.list[1];
         if (self.place_chain and isTagged(o, .@"index")) return self.emitIndex(o.list, true);
+        // `Box.make(...)` of a generic type: the instance sema inferred.
+        if (o == .src) if (self.sema.symbolOf(o)) |id| if (self.sema.symbols.items[id].kind == .generic_type) {
+            if (obj_ty) |t| return self.emitTypeTy(t);
+        };
         if (o == .src) if (self.localOf(o)) |local| {
             if (local.is_ptr and obj_ty != null and self.isStructLike(obj_ty.?)) return self.w.writeAll(local.zig_name);
             return self.writeLocalPlace(local);

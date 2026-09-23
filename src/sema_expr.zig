@@ -2057,9 +2057,18 @@ const Checker = struct {
                     return self.t().invalid_id;
                 },
                 .generic_type => {
-                    try self.err(callee.src.pos, "generic constructor `{s}` requires an expected type; write `b: {s}(T) = {s}(...)`", .{ name, name, name });
-                    try self.synthArgs(args);
-                    return self.t().invalid_id;
+                    // The type arguments come from the fields' values.
+                    if (sym_id == self.ctx.vec_sym_id) {
+                        try self.err(callee.src.pos, "`Vec()` needs its element type from where it goes; write `v: Vec(T) = Vec()`", .{});
+                        try self.synthArgs(args);
+                        return self.t().invalid_id;
+                    }
+                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = sym.fields orelse &.{} }, callee.src.pos)) orelse {
+                        try self.synthArgs(args);
+                        return self.t().invalid_id;
+                    };
+                    _ = try self.instantiate(sym_id, subst.args, callee.src.pos);
+                    return self.construct(sym_id, args, callee.src.pos, subst, null);
                 },
                 .module => {
                     try self.err(callee.src.pos, "module `{s}` cannot be called", .{name});
@@ -2460,7 +2469,7 @@ const Checker = struct {
                     },
                     .nominal_type, .generic_type => {
                         try self.ctx.recordName(obj, id);
-                        return self.associatedCall(id, method, pos, args);
+                        return self.associatedCall(obj, id, method, pos, args);
                     },
                     else => {},
                 }
@@ -2591,7 +2600,7 @@ const Checker = struct {
     }
 
     /// `Type.method(args)` or `Type.variant(payload)`.
-    fn associatedCall(self: *Checker, sym_id: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!TypeId {
+    fn associatedCall(self: *Checker, obj: Sexp, sym_id: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!TypeId {
         const sym = self.ctx.symbols.items[sym_id];
         const members = sym.fields orelse {
             try self.err(pos, "opaque type `{s}` has no members", .{sym.name});
@@ -2603,21 +2612,37 @@ const Checker = struct {
             if (m.is_method and !m.is_drop_method) {
                 const fty = self.ctx.types.get(m.ty);
                 if (fty != .function) break;
+                var f = fty.function;
                 if (sym.kind == .generic_type) {
-                    try self.err(pos, "associated function `{s}.{s}` of a generic type needs its type arguments, which cannot be written here yet", .{ sym.name, name });
-                    try self.synthArgs(args);
-                    return self.t().invalid_id;
+                    // The type's arguments come from the call's arguments.
+                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .params = .{ .params = f.params, .names = m.param_names } }, pos)) orelse {
+                        try self.synthArgs(args);
+                        return self.t().invalid_id;
+                    };
+                    const inst = try self.instantiate(sym_id, subst.args, pos);
+                    try self.ctx.recordType(obj, inst);
+                    const sub_ty = try types.substituteType(self.ctx, m.ty, subst);
+                    f = self.ctx.types.get(sub_ty).function;
                 }
-                try self.noteCallee(fty.function);
-                try self.checkArgs(args, fty.function, self.methodParams(m, false), name, pos);
-                return fty.function.returns;
+                try self.noteCallee(f);
+                try self.checkArgs(args, f, self.methodParams(m, false), name, pos);
+                return f.returns;
             }
-            if (m.is_variant and sym.kind == .nominal_type) {
+            if (m.is_variant) {
                 const payload = m.payload orelse &.{};
                 if (payload.len == 0) {
                     try self.err(pos, "variant `{s}.{s}` takes no payload", .{ sym.name, name });
                     try self.synthArgs(args);
                     return self.t().invalid_id;
+                }
+                if (sym.kind == .generic_type) {
+                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = payload }, pos)) orelse {
+                        try self.synthArgs(args);
+                        return self.t().invalid_id;
+                    };
+                    const inst = try self.instantiate(sym_id, subst.args, pos);
+                    try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .pos = pos, .subst = subst, .kind = .variant });
+                    return inst;
                 }
                 try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .pos = pos, .kind = .variant });
                 return self.ctx.intern(.{ .nominal = sym_id });
@@ -2628,6 +2653,123 @@ const Checker = struct {
         if (sym.decl_pos != types.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
         try self.synthArgs(args);
         return self.t().invalid_id;
+    }
+
+    /// Where an inferred generic's arguments are matched: the fields a
+    /// constructor or variant fills, or an associated function's
+    /// parameters (with their names, for keyword arguments).
+    const InferFrom = union(enum) {
+        fields: []const Field,
+        params: struct { params: []const TypeId, names: ?[]const []const u8 },
+    };
+
+    /// The type arguments of generic `sym_id` that make `args` fit: each
+    /// argument's type is matched against the field or parameter it
+    /// fills, binding the type parameters that appear there. A literal
+    /// binds its default type (`Int`, `Float`). Null, after a diagnostic,
+    /// when some parameter is left unbound.
+    fn inferTypeArgs(self: *Checker, sym_id: SymbolId, args: []const Sexp, from: InferFrom, pos: u32) Error!?TypeSubst {
+        const sym = self.ctx.symbols.items[sym_id];
+        const params = sym.type_params orelse &.{};
+        const bound = try self.ctx.arena.allocator().alloc(TypeId, params.len);
+        @memset(bound, types.type_invalid);
+        var positional: usize = 0;
+        for (args) |a| {
+            var value = a;
+            var pattern: ?TypeId = null;
+            if (isHead(a, .@"kwarg")) {
+                value = a.list[2];
+                const kname = self.text(a.list[1]);
+                pattern = switch (from) {
+                    .fields => |fs| for (fs) |f| {
+                        if (!f.is_method and !f.is_variant and std.mem.eql(u8, f.name, kname)) break f.ty;
+                    } else null,
+                    .params => |p| blk: {
+                        const names = p.names orelse break :blk null;
+                        for (names, 0..) |n, j| {
+                            if (std.mem.eql(u8, n, kname) and j < p.params.len) break :blk p.params[j];
+                        }
+                        break :blk null;
+                    },
+                };
+            } else {
+                defer positional += 1;
+                pattern = switch (from) {
+                    .fields => |fs| blk: {
+                        var n: usize = 0;
+                        for (fs) |f| {
+                            if (f.is_method or f.is_variant) continue;
+                            if (n == positional) break :blk f.ty;
+                            n += 1;
+                        }
+                        break :blk null;
+                    },
+                    .params => |p| if (positional < p.params.len) p.params[positional] else null,
+                };
+            }
+            const pat = pattern orelse continue;
+            if (!types.containsTypeVar(self.ctx, pat)) continue;
+            const actual = try self.synthQuiet(value);
+            self.bindTypeVars(pat, actual, params, bound, 0);
+        }
+        for (params, bound) |p, b| {
+            if (b != types.type_invalid) continue;
+            try self.err(pos, "cannot infer `{s}` for `{s}` from the arguments; give the type where the value goes (`x: {s}(...) = ...`)", .{ self.ctx.symbols.items[p].name, sym.name, sym.name });
+            return null;
+        }
+        return .{ .params = params, .args = bound };
+    }
+
+    /// Bind the type parameters in `pattern` so that it matches `actual`.
+    /// The first binding of a parameter wins; a later argument that does
+    /// not fit it is reported when the arguments are checked.
+    fn bindTypeVars(self: *Checker, pattern: TypeId, actual: TypeId, params: []const SymbolId, bound: []TypeId, depth: u8) void {
+        if (depth > 32 or self.isPoison(actual)) return;
+        const a = self.ctx.types.get(actual);
+        switch (self.ctx.types.get(pattern)) {
+            .type_var => |tv| {
+                const value = self.canonical(readValue(self.ctx, actual));
+                switch (self.ctx.types.get(value)) {
+                    .none_literal, .noreturn, .void => return,
+                    else => {},
+                }
+                for (params, 0..) |p, i| {
+                    if (p == tv and bound[i] == types.type_invalid) bound[i] = value;
+                }
+            },
+            .optional => |pi| if (a == .optional) self.bindTypeVars(pi, a.optional, params, bound, depth + 1) else self.bindTypeVars(pi, actual, params, bound, depth + 1),
+            .borrow_read => |pi| if (a == .borrow_read) self.bindTypeVars(pi, a.borrow_read, params, bound, depth + 1) else if (a == .borrow_write) self.bindTypeVars(pi, a.borrow_write, params, bound, depth + 1),
+            .borrow_write => |pi| if (a == .borrow_write) self.bindTypeVars(pi, a.borrow_write, params, bound, depth + 1),
+            .shared => |pi| if (a == .shared) self.bindTypeVars(pi, a.shared, params, bound, depth + 1),
+            .weak => |pi| if (a == .weak) self.bindTypeVars(pi, a.weak, params, bound, depth + 1),
+            .array => |pa| if (a == .array) self.bindTypeVars(pa.elem, a.array.elem, params, bound, depth + 1),
+            .parameterized_nominal => |pn| if (a == .parameterized_nominal and a.parameterized_nominal.sym == pn.sym) {
+                for (pn.args, a.parameterized_nominal.args) |pa, aa| self.bindTypeVars(pa, aa, params, bound, depth + 1);
+            },
+            .function => |pf| if (a == .function and a.function.params.len == pf.params.len) {
+                for (pf.params, a.function.params) |pp, ap| self.bindTypeVars(pp, ap, params, bound, depth + 1);
+                self.bindTypeVars(pf.returns, a.function.returns, params, bound, depth + 1);
+            },
+            else => {},
+        }
+    }
+
+    /// The instance of generic `sym_id` at `args`, checked like a spelled
+    /// one: the built-in generics' element rules, and every generic's
+    /// requirements (through its instantiation site).
+    fn instantiate(self: *Checker, sym_id: SymbolId, args: []const TypeId, pos: u32) Error!TypeId {
+        var r = self.resolver();
+        if (try r.builtinArgError(sym_id, args)) |msg| try self.err(pos, "{s}", .{msg});
+        const ty = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = try self.ctx.dupeIds(args) } });
+        if (!types.containsTypeVar(self.ctx, ty)) {
+            const gop = try self.ctx.instantiation_sites.getOrPut(self.ctx.allocator, ty);
+            if (!gop.found_existing) gop.value_ptr.* = pos;
+        } else if (self.ctx.symbols.items[sym_id].decl_pos != types.builtin_decl_pos) {
+            for (self.ctx.generic_uses.items) |u| {
+                if (u == ty) break;
+            } else try self.ctx.generic_uses.append(self.ctx.allocator, ty);
+        }
+        return ty;
     }
 
     /// `module.function(args)` or `module.Type(fields)`.

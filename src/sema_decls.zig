@@ -1303,7 +1303,7 @@ pub const TypeResolver = struct {
     }
 
     /// Element-type rules of the built-in generics.
-    fn builtinArgError(self: *TypeResolver, sym_id: SymbolId, args: []const TypeId) Error!?[]const u8 {
+    pub fn builtinArgError(self: *TypeResolver, sym_id: SymbolId, args: []const TypeId) Error!?[]const u8 {
         const a = self.ctx.arena.allocator();
         if (sym_id == self.ctx.cell_sym_id) {
             if (types.isCopyPrimitive(self.ctx, args[0]) or types.typeHasDropGlue(self.ctx, args[0])) return null;

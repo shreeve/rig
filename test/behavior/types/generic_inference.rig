@@ -1,0 +1,64 @@
+# A generic type's arguments are inferred from the values that fill it:
+# a constructor's fields, a payload variant's fields, or an associated
+# function's arguments. An annotation is still allowed, and a literal
+# takes its default type.
+
+type Pair(A, B)
+  first: A
+  second: B
+
+  fun make(a: A, b: B) -> Pair(A, B)
+    Pair(first: a, second: b)
+
+  fun swap(?self) -> Pair(B, A)
+    Pair(first: self.second, second: self.first)
+
+enum Option(T)
+  some(value: T)
+  nothing
+
+  fun unwrap_or(?self, fallback: T) -> T
+    match self
+      .some(v) => v
+      .nothing => fallback
+
+type Holder(T)
+  item: T
+  count: Int
+
+struct Box
+  n: Int
+
+  drop self: !Box
+    print("drop box", self.n)
+
+sub main()
+  p = Pair(first: 1, second: "one")
+  q = p.swap()
+  print(p, q.first, q.second)
+  r = Pair.make(2.5, true)
+  print(r)
+  o = Option.some(value: 7)
+  print(o.unwrap_or(0))
+  n: Option(Int) = .nothing
+  print(n.unwrap_or(-1))
+  c = Cell(value: 3)
+  c.set(c.get() + 1)
+  print(c.get())
+  h = Holder(item: *Box(n: 9), count: 1)
+  print(h.item.n, h.count)
+  s = *Signal(value: 5)
+  print(s.get())
+  explicit: Pair(Int, Int) = Pair(first: 1, second: 2)
+  print(explicit.second)
+
+# expect:
+# Pair(first: 1, second: "one") one 1
+# Pair(first: 2.5, second: true)
+# 7
+# -1
+# 4
+# 9 1
+# 5
+# 2
+# drop box 9
