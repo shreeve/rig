@@ -5163,7 +5163,7 @@ const ExprChecker = struct {
             // misaligned scopes silently returned `unknown` (the
             // pre-M15b.1 fake-surface anti-pattern). Discovered
             // when M15b.1's unbound-name detection in `synthLeafSrc`
-            // fired on `o1`/`o2` in `examples/generic_enum_method.rig`
+            // fired on `o1`/`o2` in `test/behavior/types/generic_enum_method.rig`
             // — they were "unbound" because the lookup was using
             // the wrong scope (the generic enum's body scope, not
             // sub main's body scope). Adding the missing arm fixes

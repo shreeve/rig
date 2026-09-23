@@ -878,7 +878,7 @@ pub const Checker = struct {
             // otherwise the body could silently consume a resource
             // capture (UAF on multi-invocation of a retained
             // closure). The negative test
-            // `examples/capture_bare_resource_rejected.rig`
+            // `test/reject/ownership/capture_bare_shared_owned_closure.rig`
             // pins the M20g rule.
             const is_resource_cap = switch (cap.list[0].tag) {
                 .@"cap_clone", .@"cap_weak", .@"cap_move" => true,
@@ -1301,7 +1301,7 @@ pub const Checker = struct {
     /// named `rc` in one function with type `*Box`, another function
     /// with `rc: Int` — the flat scan finds the `*Box` first and
     /// mis-classifies the Int binding as shared). The shadowing
-    /// regression test `examples/shared_alias_shadowing.rig` pins
+    /// regression test `test/behavior/ownership/alias_rule_uses_local_types.rig` pins
     /// the correct behavior.
     fn checkSharedHandleAlias(self: *Checker, expr: Sexp, ctx: []const u8) Error!void {
         if (expr != .src) return;
