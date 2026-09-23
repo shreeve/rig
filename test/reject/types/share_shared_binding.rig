@@ -1,0 +1,12 @@
+# `*x` where `x` is already a shared handle is rejected; `+x` makes
+# another handle to the same value.
+
+struct Noisy
+  id: Int
+
+sub main()
+  inner = *Noisy(id: 4)
+  outer = *inner
+  print(outer.id)
+
+# error: already a shared handle `*Noisy`

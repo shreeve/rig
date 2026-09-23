@@ -1,6 +1,5 @@
 # Sharing a value that is already a shared handle is rejected, like the
 # `*(*T)` type: use `+x` to get another handle.
-# Known bug: sema accepts `*(<inner)` and the emitted Zig fails.
 
 struct Noisy
   id: Int

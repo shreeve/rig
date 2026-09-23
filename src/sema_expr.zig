@@ -1296,7 +1296,7 @@ const Checker = struct {
         const inner = try self.synthExpr(items[1]);
         if (self.isPoison(inner)) return inner;
         if (self.ctx.types.get(inner) == .shared) {
-            try self.err(firstSrcPos(items[1]), "`*x` of a shared handle `{s}` would nest handles; clone it with `+x` instead", .{try self.tyName(inner)});
+            try self.err(firstSrcPos(items[1]), "this value is already a shared handle `{s}`; `*` would nest handles. Clone it with `+x` for another handle", .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
         return self.ctx.intern(.{ .shared = inner });
