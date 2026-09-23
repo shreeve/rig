@@ -1,0 +1,7 @@
+# An integer literal must fit in `Int`, a 64-bit signed integer.
+
+sub main()
+  x = 9223372036854775808
+  print(x)
+
+# error: does not fit in `Int`

@@ -2636,8 +2636,8 @@ const Scan = struct {
 // =============================================================================
 
 /// Zig spellings of Rig's default numeric types.
-const int_zig = "i32";
-const float_zig = "f32";
+const int_zig = "i64";
+const float_zig = "f64";
 
 /// Formats a Rig identifier as a Zig identifier (`rig.writeZigIdent`).
 const Ident = struct {

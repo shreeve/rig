@@ -18,7 +18,7 @@
 const std = @import("std");
 
 /// Rig's `Int`. Sizes and indices cross the Rig boundary as `Int`.
-pub const Int = i32;
+pub const Int = i64;
 
 // -----------------------------------------------------------------------------
 // Dropping values

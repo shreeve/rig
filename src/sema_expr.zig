@@ -1387,9 +1387,7 @@ const Checker = struct {
                 try self.err(pos, "cannot access `{s}` on optional `{s}`; take the value out first with `x ?? fallback`", .{ field, try self.tyName(peeled) });
                 return self.t().invalid_id;
             },
-            .array, .slice, .string => if (std.mem.eql(u8, field, "len")) {
-                return self.ctx.intern(.{ .int = .{ .bits = 64, .signed = false } });
-            },
+            .array, .slice, .string => if (std.mem.eql(u8, field, "len")) return self.t().int_id,
             .imported_nominal => |in| return self.importedField(in, field, pos),
             .type_var => {
                 try self.err(pos, "a generic parameter `{s}` has no fields; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) });
@@ -2464,7 +2462,7 @@ const Checker = struct {
             try self.err(firstSrcPos(e), "integer literal `{s}` is too large", .{s});
             return;
         };
-        const bits: u8 = if (tt.int.bits == 0) 32 else tt.int.bits;
+        const bits: u8 = if (tt.int.bits == 0) 64 else tt.int.bits;
         const sign = if (negative) "-" else "";
         const tname = try self.tyName(target);
         if (tt.int.signed) {

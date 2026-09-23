@@ -80,13 +80,13 @@ pub const type_invalid: TypeId = 0;
 // =============================================================================
 
 pub const IntInfo = struct {
-    /// 0 for `Int` (lowered as i32); otherwise 8/16/32/64.
+    /// 0 for `Int` (64-bit signed); otherwise 8/16/32/64.
     bits: u8 = 0,
     signed: bool = true,
 };
 
 pub const FloatInfo = struct {
-    /// 0 for `Float` (lowered as f32); otherwise 32/64.
+    /// 0 for `Float` (64-bit); otherwise 32/64.
     bits: u8 = 0,
 };
 
