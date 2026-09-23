@@ -181,6 +181,11 @@ pub fn WeakHandle(comptime T: type) type {
             if (p.weak == 0) p.allocator.destroy(p);
         }
 
+        pub fn __rig_print(self: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            const alive = if (self.ptr) |p| p.strong > 0 else false;
+            try w.writeAll(if (alive) "~(alive)" else "~(gone)");
+        }
+
         /// A new strong handle, or null once the value has been dropped.
         pub fn upgrade(self: Self) ?*RcBox(T) {
             const p = self.ptr orelse return null;
@@ -269,6 +274,10 @@ pub const Closure0 = struct {
     drop_fn: *const fn (*anyopaque, std.mem.Allocator) void,
     allocator: std.mem.Allocator,
 
+    pub fn __rig_print(_: Closure0, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        try w.writeAll("<closure>");
+    }
+
     pub fn invoke(self: *Closure0) void {
         self.invoke_fn(self.ctx);
     }
@@ -286,6 +295,10 @@ pub fn Closure1(comptime A: type) type {
         allocator: std.mem.Allocator,
 
         const Self = @This();
+
+        pub fn __rig_print(_: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            try w.writeAll("<closure>");
+        }
 
         pub fn invoke(self: *Self, a: A) void {
             self.invoke_fn(self.ctx, a);
@@ -305,6 +318,10 @@ pub fn Closure2(comptime A: type, comptime B: type) type {
         allocator: std.mem.Allocator,
 
         const Self = @This();
+
+        pub fn __rig_print(_: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            try w.writeAll("<closure>");
+        }
 
         pub fn invoke(self: *Self, a: A, b: B) void {
             self.invoke_fn(self.ctx, a, b);
@@ -339,6 +356,12 @@ pub fn Signal(comptime T: type) type {
 
         pub fn get(self: *const Self) T {
             return self.value;
+        }
+
+        pub fn __rig_print(self: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            try w.writeAll("Signal(value: ");
+            try writeValue(w, self.value, false);
+            try w.writeAll(")");
         }
 
         pub fn set(self: *Self, value: T) void {
@@ -392,6 +415,10 @@ pub fn Vec(comptime T: type) type {
             var v: Self = .init(allocator);
             v.reserve(toIndex(capacity));
             return v;
+        }
+
+        pub fn __rig_print(self: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            try writeList(w, self.items());
         }
 
         /// The live elements. Invalidated by `push`.
@@ -509,13 +536,107 @@ pub fn checkLeaks() void {
     }
 }
 
-/// `print`: formatted and flushed per call, so output interleaves
-/// correctly with panics and diagnostics on stderr.
-pub fn print(comptime fmt: []const u8, args: anytype) void {
+/// `print(a, b, ...)`: the values separated by single spaces, then a
+/// newline; flushed per call, so output interleaves correctly with
+/// panics and diagnostics on stderr.
+pub fn print(args: anytype) void {
     var buffer: [1024]u8 = undefined;
     var fw = std.Io.File.stdout().writerStreaming(std.Io.Threaded.global_single_threaded.io(), &buffer);
-    fw.interface.print(fmt, args) catch {};
-    fw.interface.flush() catch {};
+    const w = &fw.interface;
+    inline for (std.meta.fields(@TypeOf(args)), 0..) |f, i| {
+        if (i > 0) w.writeAll(" ") catch {};
+        writeValue(w, @field(args, f.name), true) catch {};
+    }
+    w.writeAll("\n") catch {};
+    w.flush() catch {};
+}
+
+fn isString(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .pointer => |p| switch (p.size) {
+            .slice => p.child == u8,
+            .one => switch (@typeInfo(p.child)) {
+                .array => |a| a.child == u8,
+                else => false,
+            },
+            else => false,
+        },
+        else => false,
+    };
+}
+
+/// The Rig name of a declared type: `main.Box(i64)` is `Box`.
+fn rigTypeName(comptime T: type) []const u8 {
+    const full = @typeName(T);
+    const end = comptime std.mem.indexOfScalar(u8, full, '(') orelse full.len;
+    const start = comptime if (std.mem.lastIndexOfScalar(u8, full[0..end], '.')) |d| d + 1 else 0;
+    return full[start..end];
+}
+
+/// A value as Rig writes it: text as is at the top level and quoted
+/// inside other values, `none` for an absent optional, `Name(field: v)`
+/// for a struct, `.variant` / `.variant(payload)` for an enum, and
+/// `[a, b]` for arrays and Vecs. A shared handle prints its value.
+pub fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
+    const T = @TypeOf(value);
+    if (comptime isString(T)) {
+        return if (top) w.writeAll(value) else w.print("\"{s}\"", .{value});
+    }
+    switch (@typeInfo(T)) {
+        .int, .comptime_int, .float, .comptime_float => try w.print("{d}", .{value}),
+        .bool => try w.writeAll(if (value) "true" else "false"),
+        .optional => if (value) |v| try writeValue(w, v, top) else try w.writeAll("none"),
+        .pointer => |p| {
+            if (comptime isStrongHandle(T)) return writeValue(w, value.value, top);
+            if (p.size == .slice) return writeList(w, value);
+            return writeValue(w, value.*, top);
+        },
+        .array => try writeList(w, value),
+        .@"enum" => try w.print(".{s}", .{@tagName(value)}),
+        .error_set => try w.print(".{s}", .{@errorName(value)}),
+        .@"union" => |u| {
+            if (u.tag_type == null) return w.writeAll("?");
+            switch (value) {
+                inline else => |payload, tag| {
+                    try w.print(".{s}", .{@tagName(tag)});
+                    const P = @TypeOf(payload);
+                    if (P == void) return;
+                    if (@typeInfo(P) == .@"struct" and !@hasDecl(P, "__rig_print") and !isStrongHandle(P)) {
+                        try w.writeAll("(");
+                        try writeFields(w, payload);
+                        return w.writeAll(")");
+                    }
+                    try w.writeAll("(");
+                    try writeValue(w, payload, false);
+                    try w.writeAll(")");
+                },
+            }
+        },
+        .@"struct" => {
+            if (@hasDecl(T, "__rig_print")) return value.__rig_print(w);
+            try w.print("{s}(", .{rigTypeName(T)});
+            try writeFields(w, value);
+            try w.writeAll(")");
+        },
+        else => try w.print("{any}", .{value}),
+    }
+}
+
+fn writeFields(w: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
+    inline for (std.meta.fields(@TypeOf(value)), 0..) |f, i| {
+        if (i > 0) try w.writeAll(", ");
+        try w.print("{s}: ", .{f.name});
+        try writeValue(w, @field(value, f.name), false);
+    }
+}
+
+fn writeList(w: *std.Io.Writer, items: anytype) std.Io.Writer.Error!void {
+    try w.writeAll("[");
+    for (items, 0..) |x, i| {
+        if (i > 0) try w.writeAll(", ");
+        try writeValue(w, x, false);
+    }
+    try w.writeAll("]");
 }
 
 // -----------------------------------------------------------------------------
@@ -669,6 +790,21 @@ test "aggregates drop their parts" {
     };
     drop(&arr);
     try testing.expectEqual(5, drops);
+}
+
+test "values print the way Rig writes them" {
+    var buf: [256]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    const P = struct { name: []const u8, n: ?i64 };
+    const U = union(enum) { dot, circle: i64, rect: struct { w: i64, h: i64 } };
+    try writeValue(&w, P{ .name = "a", .n = null }, true);
+    try w.writeAll(" ");
+    try writeValue(&w, U{ .rect = .{ .w = 2, .h = 3 } }, true);
+    try w.writeAll(" ");
+    try writeValue(&w, [_][]const u8{ "x", "y" }, true);
+    try w.writeAll(" ");
+    try writeValue(&w, @as(?[]const u8, "hi"), true);
+    try testing.expectEqualStrings("P(name: \"a\", n: none) .rect(w: 2, h: 3) [\"x\", \"y\"] hi", w.buffered());
 }
 
 test "take clears the alive flag" {

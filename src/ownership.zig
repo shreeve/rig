@@ -1474,6 +1474,11 @@ pub const Checker = struct {
             _ = try self.walk(callee);
         }
 
+        // `print` only reads its arguments.
+        if (self.isPrint(callee)) {
+            for (args) |a| _ = try self.walk(a);
+            return .{};
+        }
         var stored: Value = .{};
         for (args) |a| {
             const v = try self.walkConsumed(a, .argument);
@@ -1517,6 +1522,12 @@ pub const Checker = struct {
 
         if (!self.mayCarryBorrow(self.exprType(.{ .list = items }))) return .{};
         return result;
+    }
+
+    fn isPrint(self: *Checker, callee: Sexp) bool {
+        if (callee != .src or !std.mem.eql(u8, self.text(callee), "print")) return false;
+        if (self.sema) |sema| return sema.symbolOf(callee) == null;
+        return self.find("print") == null;
     }
 
     /// The var behind an argument the callee can store into: `!x`, or a

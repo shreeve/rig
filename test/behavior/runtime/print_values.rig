@@ -1,8 +1,6 @@
 # `print` writes Rig values readably: text as is (quoted inside other
 # values), `none` for an absent optional, structs as `Name(field: value)`,
 # enums as `.variant`, and Vecs and arrays as `[a, b]`.
-# Known bug: optionals print `null`, and structs, strings inside other
-# values, and Vecs print Zig's representation.
 
 struct User
   name: String

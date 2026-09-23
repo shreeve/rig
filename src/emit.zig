@@ -2204,15 +2204,9 @@ pub const Emitter = struct {
         try self.w.writeAll(" }");
     }
 
-    /// `print(a, b)`: the values separated by one space, then a newline.
-    /// Strings print with `{s}`, everything else with `{any}`.
+    /// `print(a, b)`: the runtime writes each value the way Rig spells it.
     fn emitPrint(self: *Emitter, args: []const Sexp) Error!void {
-        try self.w.writeAll("rig.print(\"");
-        for (args, 0..) |a, i| {
-            if (i > 0) try self.w.writeAll(" ");
-            try self.w.writeAll(if (self.isStringExpr(a)) "{s}" else "{any}");
-        }
-        try self.w.writeAll("\\n\", .{");
+        try self.w.writeAll("rig.print(.{");
         for (args, 0..) |a, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
             try self.emitBare(a);
