@@ -1291,8 +1291,7 @@ const Checker = struct {
     /// nesting (`?b` with `b: ?B` is `?B`).
     fn synthBorrow(self: *Checker, items: []const Sexp, kind: BorrowKind) Error!TypeId {
         if (items.len < 2) return self.t().invalid_id;
-        if (try self.rejectResourceTemp(items[1])) return self.t().invalid_id;
-        const inner = try self.synthExpr(items[1]);
+        const inner = try self.synthOperand(items[1]);
         if (self.isPoison(inner)) return inner;
         switch (self.ctx.types.get(inner)) {
             .borrow_read => {
@@ -1322,8 +1321,7 @@ const Checker = struct {
 
     fn synthWeak(self: *Checker, items: []const Sexp) Error!TypeId {
         if (items.len < 2) return self.t().invalid_id;
-        if (try self.rejectResourceTemp(items[1])) return self.t().invalid_id;
-        const inner = try self.synthExpr(items[1]);
+        const inner = try self.synthOperand(items[1]);
         if (self.isPoison(inner)) return inner;
         switch (self.ctx.types.get(inner)) {
             .shared => |target| return self.ctx.intern(.{ .weak = target }),
@@ -1336,8 +1334,7 @@ const Checker = struct {
 
     fn synthClone(self: *Checker, items: []const Sexp) Error!TypeId {
         if (items.len < 2) return self.t().invalid_id;
-        if (try self.rejectResourceTemp(items[1])) return self.t().invalid_id;
-        const inner = try self.synthExpr(items[1]);
+        const inner = try self.synthOperand(items[1]);
         if (self.isPoison(inner)) return inner;
         switch (self.ctx.types.get(types.unwrapBorrows(self.ctx, inner))) {
             .shared, .weak => return types.unwrapBorrows(self.ctx, inner),
@@ -1352,26 +1349,23 @@ const Checker = struct {
 
     fn synthRawAccess(self: *Checker, items: []const Sexp) Error!TypeId {
         if (items.len < 2) return self.t().invalid_id;
-        if (try self.rejectResourceTemp(items[1])) return self.t().invalid_id;
-        return self.synthExpr(items[1]);
+        return self.synthOperand(items[1]);
     }
 
-    /// `*Foo(...)` or a call returning `*T` used where no binding owns
-    /// it: nothing would ever drop the handle.
-    fn rejectResourceTemp(self: *Checker, operand: Sexp) Error!bool {
+    /// Synthesize the operand of a borrow, clone, member access, index,
+    /// or method call. Such an operand is not bound to a name, so a fresh
+    /// `*Foo(...)` or a call returning `*T` there would never be dropped.
+    fn synthOperand(self: *Checker, operand: Sexp) Error!TypeId {
         if (isFreshResourceAlloc(operand)) {
             try self.err(firstSrcPos(operand), "resource allocation `*{s}` used as an anonymous temporary; bind it to a name first so it is dropped at scope exit", .{self.freshAllocName(operand)});
-            return true;
+            return self.t().invalid_id;
         }
-        if (isHead(operand, .@"call")) {
-            const ty = try self.synthQuiet(operand);
-            if (self.ctx.types.get(ty) == .shared) {
-                _ = try self.synthExpr(operand);
-                try self.err(firstSrcPos(operand), "resource-valued call result used as an anonymous temporary; bind it to a name first so it is dropped at scope exit", .{});
-                return true;
-            }
+        const ty = try self.synthExpr(operand);
+        if (isHead(operand, .@"call") and self.ctx.types.get(ty) == .shared) {
+            try self.err(firstSrcPos(operand), "resource-valued call result used as an anonymous temporary; bind it to a name first so it is dropped at scope exit", .{});
+            return self.t().invalid_id;
         }
-        return false;
+        return ty;
     }
 
     fn freshAllocName(self: *Checker, operand: Sexp) []const u8 {
@@ -1391,13 +1385,11 @@ const Checker = struct {
         const field = self.text(field_node);
         const pos = srcPos(field_node, firstSrcPos(obj));
 
-        if (try self.rejectResourceTemp(obj)) return self.t().invalid_id;
-
         if (obj == .src) {
             if (try self.qualifiedMember(obj, field_node)) |ty| return ty;
         }
 
-        const obj_ty = try self.synthExpr(obj);
+        const obj_ty = try self.synthOperand(obj);
         if (self.isPoison(obj_ty)) return obj_ty;
         const peeled = types.unwrapReadAccess(self.ctx, obj_ty);
         const pty = self.ctx.types.get(peeled);
@@ -1545,8 +1537,7 @@ const Checker = struct {
 
     fn synthIndex(self: *Checker, items: []const Sexp) Error!TypeId {
         if (items.len < 3) return self.t().invalid_id;
-        if (try self.rejectResourceTemp(items[1])) return self.t().invalid_id;
-        const obj_ty = try self.synthExpr(items[1]);
+        const obj_ty = try self.synthOperand(items[1]);
         if (isHead(items[2], .@"..")) {
             try self.err(firstSrcPos(items[2]), "slicing `xs[a..b]` is not supported yet", .{});
             return self.t().invalid_id;
@@ -1976,11 +1967,7 @@ const Checker = struct {
             }
         }
 
-        if (try self.rejectResourceTemp(obj)) {
-            try self.synthArgs(args);
-            return self.t().invalid_id;
-        }
-        const obj_ty = try self.synthExpr(obj);
+        const obj_ty = try self.synthOperand(obj);
         if (self.isPoison(obj_ty)) {
             try self.synthArgs(args);
             return obj_ty;
