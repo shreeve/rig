@@ -384,7 +384,7 @@ const SymbolResolver = struct {
             return;
         }
         switch (kind) {
-            .default => {
+            .default, .@"move" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     try self.ctx.recordName(target, existing);
                     return;
@@ -406,7 +406,7 @@ const SymbolResolver = struct {
                 _ = try self.declare(target, .local, .{ .fixed = true });
             },
             .shadow => _ = try self.declare(target, .local, .{}),
-            .@"move", .@"+=", .@"-=", .@"*=", .@"/=" => {},
+            .@"+=", .@"-=", .@"*=", .@"/=" => {},
         }
     }
 
@@ -766,13 +766,18 @@ pub const TypeResolver = struct {
                             if (mi.len < 3) continue;
                             const fname = identAt(self.ctx.source, mi[1]) orelse continue;
                             const fpos = srcPos(mi[1], 0);
+                            if (h == .@"default") {
+                                try self.ctx.err(fpos, "field default values are not supported yet; pass `{s}` in every constructor", .{fname});
+                            } else if (h == .@"aligned") {
+                                try self.ctx.err(fpos, "`align` on fields is not supported yet", .{});
+                            }
                             if (is_enum) {
                                 try self.ctx.err(fpos, "an enum declares variants, not typed fields; write `{s}` or `{s}(field: T)`", .{ fname, fname });
                                 continue;
                             }
                             if (try self.checkDuplicateMember(fields.items, fname, fpos, sym_name)) continue;
                             const fty = try self.resolveType(mi[2]);
-                            try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos, .has_default = h == .@"default" });
+                            try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos });
                         },
                         .@"valued" => {
                             const vname = identAt(self.ctx.source, mi[1]) orelse continue;

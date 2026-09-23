@@ -1,0 +1,21 @@
+# A `-> T?` function returns either a `T` (lifted) or `none`; `??`
+# supplies a fallback and `== none` tests for absence.
+
+fun positive(n: Int) -> Int?
+  if n > 0
+    n
+  else
+    none
+
+sub main()
+  print(positive(3) ?? 0)
+  print(positive(-1) ?? 0)
+  m: Int? = none
+  print(m == none)
+  print(positive(5) == none)
+
+# expect:
+# 3
+# 0
+# true
+# false

@@ -1,0 +1,7 @@
+# The fallback of `??` must have the optional's value type.
+
+sub main()
+  x: Int? = 3
+  print(x ?? "none")
+
+# error: expected `Int`, got `String`

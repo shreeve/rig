@@ -1,9 +1,0 @@
-# Known bug (B2): there is no way to write an absent optional; `none` is
-# an unbound name today.
-
-sub main()
-  x: Int? = none
-  print(x ?? 7)
-
-# expect:
-# 7

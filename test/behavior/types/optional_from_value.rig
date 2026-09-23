@@ -1,0 +1,9 @@
+# A plain value is lifted where an optional is expected: `y: Int? = 3`.
+# `??` yields the value inside, or the fallback when it is `none`.
+
+sub main()
+  y: Int? = 3
+  print(y ?? 7)
+
+# expect:
+# 3

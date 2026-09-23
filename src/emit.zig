@@ -229,6 +229,13 @@ pub const Emitter = struct {
             .@"extern_fun" => try self.emitExternFun(items, false),
             .@"extern_sub" => try self.emitExternFun(items, true),
             .@"use" => try self.emitUse(items),
+            // `type Name = T` → `const Name = T;` (aliases are transparent).
+            .@"type" => if (items.len >= 3) {
+                const name = identText(self.source, items[1]) orelse return;
+                try self.w.print("const {s} = ", .{name});
+                try self.emitType(items[2]);
+                try self.w.writeAll(";\n");
+            },
             .@"struct" => try self.emitStruct(items),
             .@"enum" => try self.emitEnum(items),
             .@"errors" => try self.emitErrorSet(items),
@@ -3893,6 +3900,17 @@ pub const Emitter = struct {
             // blocks when they need them; single-expression branches
             // are emitted inline. See `emitIfExpr` / `emitBranchExpr`.
             .@"if" => try self.emitIfExpr(items),
+            // `none` is Zig's `null`.
+            .@"null" => try self.w.writeAll("null"),
+            // `a ?? b` → `(a orelse b)`; `a catch b` → `(a catch b)`.
+            .@"??", .@"catch" => {
+                if (items.len != 3) return;
+                try self.w.writeAll("(");
+                try self.emitExpr(items[1]);
+                try self.w.writeAll(if (head == .@"??") " orelse " else " catch ");
+                try self.emitExpr(items[2]);
+                try self.w.writeAll(")");
+            },
             else => {
                 try self.w.writeAll("@compileError(\"rig: emitter does not yet support `");
                 try self.w.writeAll(@tagName(head));

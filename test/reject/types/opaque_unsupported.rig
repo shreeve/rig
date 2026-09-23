@@ -1,0 +1,8 @@
+# `opaque` declarations are not supported yet.
+
+opaque Handle
+
+sub main()
+  print(1)
+
+# error: `opaque` types are not supported yet

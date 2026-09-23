@@ -1,9 +1,0 @@
-# Known bug (B2): a plain value can't be stored in an optional; sema never
-# lifts `Int` to `Int?`, so `y: Int? = 3` is rejected.
-
-sub main()
-  y: Int? = 3
-  print(y ?? 7)
-
-# expect:
-# 3

@@ -112,9 +112,13 @@ const Checker = struct {
         const head = headOf(sexp) orelse return;
         const items = sexp.list;
         switch (head) {
-            .@"pub", .@"export", .@"packed" => if (items.len >= 2) try self.checkDecl(items[1]),
-            .@"callconv" => if (items.len >= 3) try self.checkDecl(items[2]),
-            .@"extern" => if (items.len == 2) try self.checkDecl(items[1]),
+            .@"pub" => if (items.len >= 2) try self.checkDecl(items[1]),
+            .@"export", .@"packed", .@"callconv" => {
+                try self.err(firstSrcPos(sexp), "`{s}` declarations are not supported yet", .{@tagName(head)});
+            },
+            .@"extern" => if (items.len == 2) {
+                try self.err(firstSrcPos(sexp), "an `extern` declaration with a body is not supported; declare the signature only (`extern fun f(x: Int) -> Int`)", .{});
+            },
             .@"fun", .@"sub" => {
                 const fn_ty = if (self.ctx.symbolOf(items[1])) |id| self.ctx.symbols.items[id].ty else self.t().invalid_id;
                 try self.checkFunction(sexp, fn_ty);
@@ -125,8 +129,12 @@ const Checker = struct {
                 defer self.scope = prev_scope;
                 if (items.len >= 3) try self.checkBody(items[2], self.t().void_id, true);
             },
-            .@"set" => try self.checkSet(items),
-            .@"use", .@"type", .@"extern_fun", .@"extern_sub", .@"opaque" => {},
+            .@"set" => {
+                try self.err(firstSrcPos(sexp), "module-level bindings are not supported yet; bind values inside a function", .{});
+                try self.checkSet(items);
+            },
+            .@"opaque" => try self.err(firstSrcPos(sexp), "`opaque` types are not supported yet", .{}),
+            .@"use", .@"type", .@"extern_fun", .@"extern_sub" => {},
             else => try self.err(firstSrcPos(sexp), "only declarations and bindings are allowed at module level; move this statement into a function", .{}),
         }
     }
@@ -540,6 +548,7 @@ const Checker = struct {
     fn checkCondition(self: *Checker, cond: Sexp) Error!void {
         if (!isHead(cond, .@"as")) return self.checkExpr(cond, self.t().bool_id);
         if (cond.list.len < 3) return;
+        try self.err(firstSrcPos(cond), "unwrapping with `opt as name` is not supported yet; use `opt ?? fallback`", .{});
         const opt_ty = try self.synthExpr(cond.list[1]);
         _ = self.enter(cond);
         const name_node = cond.list[2];
