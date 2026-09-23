@@ -9,7 +9,7 @@ Short programs that show what Rig looks like. Each one is run by
 | `ownership_tour.rig` | move `<x`, read borrow `?x`, shared `*x`, clone `+x`, drop `-x` |
 | `shapes.rig` | payload enums, `match`, methods, a generic type |
 | `resources.rig` | a user-defined `drop` plus compiler-generated drop glue |
-| `counter_closure.rig` | an owned closure capturing a shared `Cell` |
-| `memo_canary.rig` | a small reactive source built from `Cell`, `Vec`, and `Closure1` |
+| `counter_closure.rig` | stack and owned closures capturing a shared `Cell`; a closure returned from a function |
+| `memo_canary.rig` | a small reactive source built from `Cell`, `Vec`, and owned closures, with derived sources |
 
 The full test suite lives in `test/` (see `test/README.md`).
