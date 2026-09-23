@@ -1469,9 +1469,11 @@ bad = |a, b| a + b
 The closure takes exactly as many parameters as its type passes.
 Closures take any number of parameters and may return a value: with
 a type from context, the body is checked against its return type;
-otherwise the return type is that of the body's last expression (a
-body ending in a statement or an `if` without `else` returns
-nothing). `return` inside a closure body leaves the closure.
+otherwise the return type is that of the body's last expression, or
+of its `return`s when it ends in one (a body ending in any other
+statement, or an `if` without `else`, returns nothing), and every
+`return` must agree with it. `return` inside a closure body leaves
+the closure. A parameter the body ignores may be named `_`.
 
 ### Function types
 
