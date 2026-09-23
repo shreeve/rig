@@ -905,7 +905,7 @@ pub const Checker = struct {
                         p.whole = false;
                         if (items[0].tag == .@"index") p.indexed = true;
                         if (self.exprType(items[1])) |t| {
-                            const ty = self.typeOf(t);
+                            const ty = self.typeData(t);
                             if (ty == .shared) p.through_shared = true;
                             if (ty == .borrow_read or ty == .borrow_write) p.through_borrow = true;
                         }
@@ -1530,7 +1530,7 @@ pub const Checker = struct {
         if (!self.mayCarryBorrow(ty)) return null;
         if (!explicit_write) {
             const t = ty orelse return null;
-            const tag = self.typeOf(t);
+            const tag = self.typeData(t);
             if (tag != .shared and tag != .borrow_write) return null;
         }
         return place.root;
@@ -1818,7 +1818,7 @@ pub const Checker = struct {
                 info.root = f.id;
                 const v = self.vars.items[f.id];
                 if (v.ref != .none or v.alias_of != null) info.via = .borrowed;
-                if (v.ty) |t| if (self.typeOf(t) == .shared) {
+                if (v.ty) |t| if (self.typeData(t) == .shared) {
                     info.via = .shared;
                 };
             };
@@ -2208,7 +2208,7 @@ pub const Checker = struct {
     }
 
     // -------------------------------------------------------------------------
-    // Types (a local view of sema's facts)
+    // Types, from sema's facts
     // -------------------------------------------------------------------------
 
     fn text(self: *const Checker, node: Sexp) []const u8 {
@@ -2218,7 +2218,8 @@ pub const Checker = struct {
         };
     }
 
-    fn typeOf(self: *const Checker, id: TypeId) types.Type {
+    /// The structure of a type (`.unknown` without sema).
+    fn typeData(self: *const Checker, id: TypeId) types.Type {
         const sema = self.sema orelse return .unknown;
         return sema.types.get(id);
     }
@@ -2244,12 +2245,12 @@ pub const Checker = struct {
 
     fn isVoid(self: *const Checker, ty: ?TypeId) bool {
         const t = ty orelse return false;
-        return self.typeOf(t) == .void;
+        return self.typeData(t) == .void;
     }
 
     /// The declared return type of the function or method named at `name`.
     fn fnReturnType(self: *const Checker, name: Sexp) ?TypeId {
-        const t = self.typeOf(self.exprType(name) orelse return null);
+        const t = self.typeData(self.exprType(name) orelse return null);
         if (t != .function) return null;
         return self.known(t.function.returns);
     }
@@ -2262,7 +2263,7 @@ pub const Checker = struct {
 
     fn refOfType(self: *const Checker, ty: ?TypeId) Ref {
         const t = ty orelse return .none;
-        return switch (self.typeOf(t)) {
+        return switch (self.typeData(t)) {
             .borrow_read => .read,
             .borrow_write => .write,
             else => .none,
@@ -2271,7 +2272,7 @@ pub const Checker = struct {
 
     fn isCopy(self: *const Checker, ty: ?TypeId) bool {
         const t = ty orelse return false;
-        return switch (self.typeOf(t)) {
+        return switch (self.typeData(t)) {
             .bool, .int, .float, .string, .int_literal, .float_literal => true,
             else => false,
         };
@@ -2371,10 +2372,10 @@ pub const Checker = struct {
     /// anything else reads. A shared handle is only ever read through.
     fn receiverMode(self: *const Checker, obj: Sexp, callee: Sexp) types.MethodReceiver {
         if (isTag(obj, .@"move")) return .value;
-        if (self.exprType(obj)) |t| if (self.typeOf(t) == .shared) return .read;
-        const f = self.typeOf(self.exprType(callee) orelse return .read);
+        if (self.exprType(obj)) |t| if (self.typeData(t) == .shared) return .read;
+        const f = self.typeData(self.exprType(callee) orelse return .read);
         if (f != .function or f.function.params.len == 0) return .read;
-        return switch (self.typeOf(f.function.params[0])) {
+        return switch (self.typeData(f.function.params[0])) {
             .borrow_write => .write,
             .nominal, .parameterized_nominal, .imported_nominal => .value,
             else => .read,
