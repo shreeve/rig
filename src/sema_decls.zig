@@ -1118,18 +1118,28 @@ pub const TypeResolver = struct {
                 switch (head) {
                     .@"optional" => {
                         const inner = try self.resolveType(items[1]);
+                        if (inner == t.invalid_id) return t.invalid_id;
                         return self.ctx.intern(.{ .optional = inner });
                     },
                     .@"error_union" => {
                         const inner = try self.resolveType(items[1]);
                         const ty = try self.ctx.intern(.{ .fallible = inner });
-                        try self.ctx.err(firstSrcPos(sexp), "a fallible type `{s}` is only allowed as a function's return type", .{try types.formatType(self.ctx, ty)});
+                        try self.ctx.err(firstSrcPos(sexp), "a fallible type `{s}` is only allowed as a function's return type (a fallible handle is `(*T)!`)", .{try types.formatType(self.ctx, ty)});
                         return t.invalid_id;
                     },
-                    .@"borrow_read" => return self.ctx.intern(.{ .borrow_read = try self.resolveType(items[1]) }),
-                    .@"borrow_write" => return self.ctx.intern(.{ .borrow_write = try self.resolveType(items[1]) }),
+                    .@"borrow_read", .@"borrow_write", .@"weak", .@"slice" => {
+                        const inner = try self.resolveType(items[1]);
+                        if (inner == t.invalid_id) return t.invalid_id;
+                        return switch (head) {
+                            .@"borrow_read" => self.ctx.intern(.{ .borrow_read = inner }),
+                            .@"borrow_write" => self.ctx.intern(.{ .borrow_write = inner }),
+                            .@"weak" => self.ctx.intern(.{ .weak = inner }),
+                            else => self.ctx.intern(.{ .slice = .{ .elem = inner } }),
+                        };
+                    },
                     .@"shared" => {
                         const inner = try self.resolveType(items[1]);
+                        if (inner == t.invalid_id) return t.invalid_id;
                         if (self.ctx.types.get(inner) == .shared) {
                             try self.ctx.err(firstSrcPos(items[1]), "nested shared type `**T` is not meaningful; use a single `*T`", .{});
                             return t.invalid_id;
@@ -1137,8 +1147,6 @@ pub const TypeResolver = struct {
                         if (self.ctx.types.get(inner) == .function) try self.checkOwnedClosureType(items[1], inner);
                         return self.ctx.intern(.{ .shared = inner });
                     },
-                    .@"weak" => return self.ctx.intern(.{ .weak = try self.resolveType(items[1]) }),
-                    .@"slice" => return self.ctx.intern(.{ .slice = .{ .elem = try self.resolveType(items[1]) } }),
                     .@"array_type" => {
                         const len = types.parseIntegerLiteral(self.ctx.source, items[1]) orelse {
                             try self.ctx.err(firstSrcPos(items[1]), "array length must be an integer literal", .{});
