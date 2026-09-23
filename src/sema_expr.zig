@@ -758,7 +758,7 @@ const Checker = struct {
 
     fn checkPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, covered: *std.StringHashMapUnmanaged(u32), has_default: *bool) Error!void {
         switch (pattern) {
-            .src => |s| {
+            .src => {
                 const name = self.text(pattern);
                 if (isLiteralText(name)) {
                     try self.checkExpr(pattern, scrutinee);
@@ -771,7 +771,6 @@ const Checker = struct {
                         try self.ctx.recordType(pattern, scrutinee);
                     }
                 }
-                _ = s;
             },
             .list => |items| {
                 const h = headOf(pattern) orelse return;
@@ -1139,7 +1138,7 @@ const Checker = struct {
         const b = try self.synthExpr(r);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
         if (types.isNumeric(self.ctx, a) and types.isNumeric(self.ctx, b)) {
-            _ = try self.checkNumericOperandsAgain(items, a, b, op);
+            _ = try self.checkNumericComparison(items, a, b, op);
             return self.t().bool_id;
         }
         const ta = self.ctx.types.get(a);
@@ -1162,7 +1161,7 @@ const Checker = struct {
     }
 
     /// Numeric equality: same rules as arithmetic, with operands already synthesized.
-    fn checkNumericOperandsAgain(self: *Checker, items: []const Sexp, a: TypeId, b: TypeId, op: []const u8) Error!void {
+    fn checkNumericComparison(self: *Checker, items: []const Sexp, a: TypeId, b: TypeId, op: []const u8) Error!void {
         const a_lit = a == self.t().int_literal_id or a == self.t().float_literal_id;
         const b_lit = b == self.t().int_literal_id or b == self.t().float_literal_id;
         if (a_lit and !b_lit) return self.checkExpr(items[1], b);
@@ -2851,7 +2850,7 @@ fn classifyImportedReceiver(ctx: *const SemContext, ty_id: TypeId) ReceiverTypeK
     };
 }
 
-const ReceiverShape = enum { read_explicit, write_explicit, move_explicit, rvalue, lvalue_bare };
+pub const ReceiverShape = enum { read_explicit, write_explicit, move_explicit, rvalue, lvalue_bare };
 
 /// How the receiver expression is written. Only heads that certainly
 /// produce a fresh value count as rvalues; everything else is a place.

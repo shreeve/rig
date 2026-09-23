@@ -412,6 +412,12 @@ pub const Scope = struct {
 pub const Severity = diag.Severity;
 pub const Diagnostic = diag.Diagnostic;
 
+/// How a receiver expression is written, and what kind of value it is,
+/// for the method receiver-mode rules.
+pub const ReceiverShape = exprs.ReceiverShape;
+pub const ReceiverTypeKind = exprs.ReceiverTypeKind;
+pub const compatible = exprs.compatible;
+
 // =============================================================================
 // Facts
 // =============================================================================
