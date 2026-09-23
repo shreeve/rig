@@ -33,8 +33,9 @@ be checked as thoroughly as what exists.
 
 ## Tooling
 
-- **`rig test`**: run `test` blocks.
+- **Assertions** for `test` blocks, and running one test by name.
 - **`rig check --facts`**: export sema's facts table (symbols, types, ownership operations, captures) as versioned JSON for tools.
 - **A formatter.**
 - **A language server**: diagnostics, types on hover, go to definition, built on the facts table.
-- **Release builds** from the CLI, and C-ABI-friendly `extern` types.
+- **C-ABI-friendly `extern` types.**
+- **Drop plans from the ownership checker**: which bindings are consumed on every path, so the emitter can drop their alive flags and emit a plain `defer` or none.
