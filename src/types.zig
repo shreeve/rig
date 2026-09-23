@@ -348,7 +348,7 @@ pub const SymbolKind = enum {
 };
 
 pub const SymbolFlags = packed struct(u8) {
-    /// `=!` binding or `extern const`: cannot be reassigned.
+    /// `=!` binding: cannot be reassigned.
     fixed: bool = false,
     is_public: bool = false,
     /// Parameter declared with a borrowed type (`?T` / `!T`).

@@ -120,9 +120,6 @@ const Checker = struct {
         const items = sexp.list;
         switch (head) {
             .@"pub" => try self.checkDecl(items[1]),
-            .@"extern" => if (items.len == 2) {
-                try self.err(firstSrcPos(sexp), "an `extern` declaration with a body is not supported; declare the signature only (`extern fun f(x: Int) -> Int`)", .{});
-            },
             .@"fun", .@"sub" => {
                 const fn_ty = if (self.ctx.symbolOf(items[1])) |id| self.ctx.symbols.items[id].ty else self.t().invalid_id;
                 try self.checkFunction(sexp, fn_ty);
@@ -137,7 +134,7 @@ const Checker = struct {
                 try self.err(firstSrcPos(sexp), "module-level bindings are not supported yet; bind values inside a function", .{});
                 try self.checkSet(items);
             },
-            .@"use", .@"type", .@"extern_fun", .@"extern_sub" => {},
+            .@"use", .@"type", .@"extern", .@"extern_fun", .@"extern_sub" => {},
             else => try self.err(firstSrcPos(sexp), "only declarations and bindings are allowed at module level; move this statement into a function", .{}),
         }
     }

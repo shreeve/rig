@@ -361,12 +361,9 @@ const SymbolResolver = struct {
         }
     }
 
+    /// `(extern _ name type)`: an extern variable.
     fn walkExtern(self: *SymbolResolver, items: []const Sexp) Error!void {
-        // `(extern kind name type)` declares an extern variable;
-        // `(extern decl)` marks a declaration with a body as extern.
-        if (items.len == 2) return self.walk(items[1]);
-        const fixed = items[1] == .tag and items[1].tag == .fixed;
-        _ = try self.declare(items[2], .@"extern", .{ .fixed = fixed });
+        _ = try self.declare(items[2], .@"extern", .{});
     }
 
     fn walkSet(self: *SymbolResolver, items: []const Sexp) Error!void {
@@ -518,7 +515,7 @@ const SymbolResolver = struct {
 pub fn resolveDeclarations(ctx: *SemContext, ir: Sexp, module_scope: ScopeId) Error!void {
     if (!isHead(ir, .@"module")) return;
     var tr: TypeResolver = .{ .ctx = ctx, .scope = module_scope };
-    for (ir.list[1..]) |decl| try tr.resolveDecl(decl, false);
+    for (ir.list[1..]) |decl| try tr.resolveDecl(decl);
 }
 
 pub const TypeResolver = struct {
@@ -526,18 +523,17 @@ pub const TypeResolver = struct {
     scope: ScopeId,
     nominal: NominalContext = NominalContext.none,
 
-    fn resolveDecl(self: *TypeResolver, sexp: Sexp, is_extern: bool) Error!void {
+    fn resolveDecl(self: *TypeResolver, sexp: Sexp) Error!void {
         const head = headOf(sexp) orelse return;
         const items = sexp.list;
         switch (head) {
-            .@"pub" => try self.resolveDecl(items[1], is_extern),
+            .@"pub" => try self.resolveDecl(items[1]),
             .@"fun", .@"sub" => _ = try self.resolveFunction(sexp, types.symbol_invalid),
             .@"type" => {
                 const id = self.ctx.symbolOf(items[1]) orelse return;
                 _ = try self.resolveAlias(id);
             },
             .@"extern" => {
-                if (items.len == 2) return self.resolveDecl(items[1], true);
                 const ty = try self.resolveType(items[3]);
                 const id = self.ctx.symbolOf(items[2]) orelse return;
                 self.ctx.symbols.items[id].ty = ty;
