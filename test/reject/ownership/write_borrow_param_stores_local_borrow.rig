@@ -1,0 +1,11 @@
+# A value stored through a `!T` parameter lands in the caller's binding,
+# so it may not borrow the function's own locals.
+
+sub keep(p: !?Int)
+  x = 5
+  p = ?x
+
+sub main()
+  print(1)
+
+# error: cannot store a borrow of `x` through `p`

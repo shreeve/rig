@@ -1,0 +1,21 @@
+# `!self` is assignable: a method can replace the whole receiver.
+
+struct Counter
+  n: Int
+
+  sub reset(!self)
+    self = Counter(n: 0)
+
+  sub bump(!self)
+    self.n += 1
+
+sub main()
+  c = Counter(n: 5)
+  (!c).bump()
+  print(c.n)
+  (!c).reset()
+  print(c.n)
+
+# expect:
+# 6
+# 0

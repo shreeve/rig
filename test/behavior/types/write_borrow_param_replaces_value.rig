@@ -1,0 +1,21 @@
+# Assigning a `!T` parameter replaces the caller's value; the old value is
+# dropped first.
+
+struct Box
+  v: Int
+
+  drop self: !Box
+    print(self.v)
+
+sub replace(b: !Box)
+  b = Box(v: 2)
+
+sub main()
+  x = Box(v: 1)
+  replace(!x)
+  print(x.v * 10)
+
+# expect:
+# 1
+# 20
+# 2

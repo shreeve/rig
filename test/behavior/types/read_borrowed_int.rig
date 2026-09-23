@@ -1,0 +1,11 @@
+# A borrow of a Copy value reads as the value in arithmetic.
+
+fun inc(n: ?Int) -> Int
+  n + 1
+
+sub main()
+  x = 2
+  print(inc(?x))
+
+# expect:
+# 3

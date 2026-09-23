@@ -345,8 +345,8 @@ const Checker = struct {
         const sym = &self.ctx.symbols.items[sym_id];
         const is_decl = sym.decl_pos == target.src.pos;
 
-        if (!is_decl and sym.kind == .param) {
-            try self.err(target.src.pos, "cannot assign to parameter `{s}`; parameters are immutable (bind a copy with `new {s} = {s}`)", .{ name, name, name });
+        if (!is_decl and sym.kind == .param and self.ctx.types.get(sym.ty) != .borrow_write) {
+            try self.err(target.src.pos, "cannot assign to parameter `{s}`; parameters are immutable (bind a copy with `new {s} = {s}`, or take `{s}: !T` to write through to the caller)", .{ name, name, name, name });
         }
         if (!is_decl and sym.kind == .capture) {
             try self.err(target.src.pos, "cannot assign to captured `{s}`; captures are fixed when the closure is created", .{name});
@@ -366,6 +366,11 @@ const Checker = struct {
         } else if (!is_decl or sym.ty != self.t().unknown_id) {
             declared = sym.ty;
         }
+        // Assigning a `!T` parameter writes through to the caller's `T`.
+        if (!is_decl and sym.kind == .param) switch (self.ctx.types.get(declared)) {
+            .borrow_write => |inner| declared = inner,
+            else => {},
+        };
 
         if (self.ctx.signal_sym_id != types.symbol_invalid) {
             const d = self.ctx.types.get(declared);
@@ -1032,8 +1037,8 @@ const Checker = struct {
     /// to the other operand; generic parameters record a requirement.
     fn checkNumericOperands(self: *Checker, items: []const Sexp, op: []const u8, req: Requirement) Error!TypeId {
         if (items.len < 3) return self.t().invalid_id;
-        const a = try self.synthExpr(items[1]);
-        const b = try self.synthExpr(items[2]);
+        const a = readValue(self.ctx, try self.synthExpr(items[1]));
+        const b = readValue(self.ctx, try self.synthExpr(items[2]));
         const pos = firstSrcPos(items[1]);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().invalid_id;
 
@@ -1085,7 +1090,7 @@ const Checker = struct {
 
     fn synthNeg(self: *Checker, items: []const Sexp) Error!TypeId {
         if (items.len < 2) return self.t().invalid_id;
-        const ty = try self.synthExpr(items[1]);
+        const ty = readValue(self.ctx, try self.synthExpr(items[1]));
         if (self.isPoison(ty)) return ty;
         switch (self.ctx.types.get(ty)) {
             .int => |info| if (!info.signed) {
@@ -1116,8 +1121,8 @@ const Checker = struct {
             try self.checkExpr(r, try self.synthExpr(l));
             return self.t().bool_id;
         }
-        const a = try self.synthExpr(l);
-        const b = try self.synthExpr(r);
+        const a = readValue(self.ctx, try self.synthExpr(l));
+        const b = readValue(self.ctx, try self.synthExpr(r));
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
         if (types.isNumeric(self.ctx, a) and types.isNumeric(self.ctx, b)) {
             _ = try self.checkNumericComparison(items, a, b, op);
@@ -2825,6 +2830,15 @@ const Checker = struct {
 // Compatibility and classification
 // =============================================================================
 
+/// A borrow of a Copy value reads as the value itself: `n + 1` with
+/// `n: ?Int` or `n: !Int` is an `Int`.
+pub fn readValue(ctx: *const SemContext, ty: TypeId) TypeId {
+    return switch (ctx.types.get(ty)) {
+        .borrow_read, .borrow_write => |inner| if (types.isCopyPrimitive(ctx, inner)) inner else ty,
+        else => ty,
+    };
+}
+
 /// Can a value of type `actual` be used where `expected` is required?
 pub fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
     if (actual == expected) return true;
@@ -2845,6 +2859,7 @@ pub fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool
     return switch (a) {
         .int_literal => e == .int or e == .float,
         .float_literal => e == .float,
+        .borrow_read, .borrow_write => readValue(ctx, actual) != actual and compatible(ctx, readValue(ctx, actual), expected),
         else => false,
     };
 }

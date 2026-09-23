@@ -1402,6 +1402,16 @@ pub const Checker = struct {
         if (v.closure or v.fixed or v.loop_borrow or v.capture_resource) return;
         if (self.isGlobal(id) and !self.isCopy(v.ty)) return;
         if (self.findLoan(id, .any, null) != null) return;
+        if (v.ref == .write) {
+            // Assigning a `!T` parameter writes into the caller's value:
+            // the parameter still borrows it, and the new value may only
+            // carry borrows the caller handed in.
+            for (value.loans) |l| if (self.isLocalLoan(l)) {
+                try self.err(pos, "cannot store a borrow of `{s}` through `{s}`: the caller's value outlives it", .{ self.vars.items[l.root].name, v.name });
+                return;
+            };
+            return;
+        }
         // The old value is dropped (if still owned) and the binding is
         // live again with the new value.
         self.flows.items[id] = .{ .loans = if (self.mayCarryBorrow(v.ty)) value.loans else &.{} };

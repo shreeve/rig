@@ -1,5 +1,4 @@
 # A `!Int` parameter writes through to the caller's binding.
-# Known bug: sema rejects assigning through a write-borrow parameter
 
 sub bump(c: !Int)
   c = c + 1

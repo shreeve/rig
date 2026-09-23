@@ -913,6 +913,17 @@ pub const Emitter = struct {
     /// after the new one has been computed (so `a = +a` works), and the
     /// guard is re-armed.
     fn emitRebind(self: *Emitter, local: Local, value: Sexp, is_move: bool) Error!void {
+        if (local.is_ptr) {
+            // Through a `!T` parameter: the caller's value is replaced.
+            const pointee = if (local.ty) |t| self.peelBorrows(t) else null;
+            if (pointee != null and self.kindOf(pointee.?) != null) {
+                const id = self.nextId();
+                try self.w.print("{{ const __rig_new_{d} = ", .{id});
+                try self.emitValueOf(value, is_move);
+                try self.w.print("; rig.drop({s}); {s}.* = __rig_new_{d}; }}", .{ local.zig_name, local.zig_name, id });
+                return;
+            }
+        }
         const kind = local.kind orelse {
             try self.writeLocalPlace(&local);
             try self.w.writeAll(" = ");
