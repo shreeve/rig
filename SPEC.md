@@ -262,7 +262,8 @@ A numeric type's name converts a number to that type: `I32(x)`,
 `U8(x)`, `Float(n)`, `Int(f)`. A conversion is checked. An integer that
 does not fit the target type panics when the program runs, and so does
 a float whose integer part does not fit; a float becomes an integer by
-truncating toward zero. A constant is converted at compile time, so it
+truncating toward zero, and `F32(x)` rounds (to an infinity when `x` is
+too large). A constant integer is converted at compile time, so it
 must fit. (Inside `raw`, Zig's unchecked cast builtins are also
 available, [§16](#16-raw-code-and-ffi).)
 
