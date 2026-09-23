@@ -79,10 +79,9 @@ RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 
 | Path | Role |
 |---|---|
-| `rig.grammar` | Nexus grammar (source of truth for syntax and IR shape) |
-| `src/rig.zig` | Lexer and parser wrappers (layout, spacing, IR rewrites), IR tags |
-| `src/parser.zig` | Generated — do not edit |
-| `src/ir.zig` | The schema of every IR node |
+| `rig.grammar` | Nexus grammar: syntax, and the IR schema every node follows |
+| `src/rig.zig` | Lexer and parser wrappers (layout, spacing, IR rewrites) |
+| `src/parser.zig` | Generated — do not edit: lexer, parser, IR tags and accessors |
 | `src/modules.zig` | Module graph and `use` resolution |
 | `src/types.zig`, `src/sema_*.zig` | Semantic analysis: names, types, the facts table |
 | `src/effects.zig` | Fallibility and the `raw` boundary |

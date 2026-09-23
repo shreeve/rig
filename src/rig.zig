@@ -1160,3 +1160,102 @@ test "parser: bar lists split into captures and parameters; rewrites keep node i
     const s = p.span(lambda);
     try testing.expectEqualStrings("|+c, a| a + c", source[s.start..s.end]);
 }
+
+fn parses(source: []const u8) !void {
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    _ = try p.parseProgram();
+}
+
+test "parser: every form parses" {
+    try parses(
+        \\use m
+        \\
+        \\type Id = U64
+        \\
+        \\type Box(T)
+        \\  value: T
+        \\
+        \\  fun get(?self) -> T
+        \\    self.value
+        \\
+        \\enum Shape
+        \\  circle(radius: Int)
+        \\  empty()
+        \\  dot
+        \\
+        \\enum Code
+        \\  ok = 200
+        \\
+        \\error Net
+        \\  timeout
+        \\
+        \\struct P
+        \\  n: Int
+        \\
+        \\  drop self: !P
+        \\    print(self.n)
+        \\
+        \\extern fun abs(n: Int) -> Int
+        \\extern fun tick(n: Int)
+        \\extern sub halt
+        \\extern ptr: fun(Int) Int
+        \\
+        \\pub fun f(a: Int, b: Int = 2, pre c: Int) -> Int!
+        \\  a
+        \\
+        \\test "t"
+        \\  print(1)
+        \\
+        \\sub main()
+        \\  x = 1
+        \\  y: [2]Int =! [1, 2]
+        \\  new x = x + 1
+        \\  x += 1
+        \\  x <<= 2
+        \\  z <- w
+        \\  -z
+        \\  if x > 1
+        \\    print x, y
+        \\  else if not (x < 0 and true)
+        \\    return
+        \\  if m as v
+        \\    print(v)
+        \\  :outer while x < 3 : x += 1
+        \\    break :outer
+        \\  while m as v
+        \\    continue
+        \\  else
+        \\    break
+        \\  for a, i in ?xs
+        \\    print(a[i])
+        \\  else
+        \\    print(0)
+        \\  for *p in xs
+        \\    print(p)
+        \\  match s
+        \\    .circle(r) => print(r)
+        \\    1..3 => print(-1)
+        \\    else
+        \\      print(2)
+        \\  g = |+c, <d, ~e, k: Int, j| c + k
+        \\  h = *|+c| c.set(@sizeOf(Int))
+        \\  i = || print(1)
+        \\  v = f(1, b: 3) catch 0
+        \\  u = f(1)!
+        \\  t = f(1) catch |err| 0
+        \\  q = a ?? b
+        \\  o = 1 if c else 2
+        \\  defer print(1)
+        \\  raw
+        \\    print(@intCast(x))
+        \\  print(+a, <b, ?c, !d, *e, ~f, v.w[0])
+        \\  n: fun() Int = f
+        \\  n2: *sub(Int, ?Box(Int)) = h
+        \\  n3: sub() = i
+        \\  o2: (*Box(Int))? = none
+        \\  o3: []~Int = o
+        \\  return x
+        \\
+    );
+}

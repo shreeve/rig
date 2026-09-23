@@ -64,7 +64,6 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run the Zig unit tests in every compiler module");
     const test_roots = [_][]const u8{
         "src/rig.zig",
-        "src/ir.zig",
         "src/modules.zig",
         "src/types.zig",
         "src/effects.zig",
