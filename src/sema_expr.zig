@@ -1471,18 +1471,16 @@ const Checker = struct {
             return null;
         };
         const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
-        if (foreign.scopes.items.len < 2) return null;
-        for (foreign.scopes.items[1].symbols.items) |fid| {
-            const fsym = foreign.symbols.items[fid];
-            if (!std.mem.eql(u8, fsym.name, name)) continue;
-            if (!fsym.flags.is_public and fsym.decl_pos != types.builtin_decl_pos) {
-                try self.err(pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module_name, name, module_name });
-                return null;
-            }
-            return .{ .ctx = foreign, .module_id = origin, .id = fid, .sym = fsym };
+        const fid = foreign.lookupInScopeOnly(1, name) orelse {
+            try self.err(pos, "no member `{s}` in module `{s}`", .{ name, module_name });
+            return null;
+        };
+        const fsym = foreign.symbols.items[fid];
+        if (!fsym.flags.is_public and fsym.decl_pos != types.builtin_decl_pos) {
+            try self.err(pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module_name, name, module_name });
+            return null;
         }
-        try self.err(pos, "no member `{s}` in module `{s}`", .{ name, module_name });
-        return null;
+        return .{ .ctx = foreign, .module_id = origin, .id = fid, .sym = fsym };
     }
 
     fn importedField(self: *Checker, in: types.ImportedNominal, field: []const u8, pos: u32) Error!TypeId {

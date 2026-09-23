@@ -396,6 +396,15 @@ const SymbolResolver = struct {
                 _ = try self.declare(target, .local, .{});
             },
             .fixed => {
+                if (self.scope != self.module_scope) {
+                    if (self.visibleLocal(identAt(self.ctx.source, target).?)) |prev| {
+                        const name = self.ctx.symbols.items[prev].name;
+                        try self.ctx.err(srcPos(target, 0), "`{s}` is already bound; `=!` declares a new binding. Assign with `{s} = ...` or shadow with `new {s} = ...`", .{ name, name, name });
+                        try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
+                        try self.ctx.recordName(target, prev);
+                        return;
+                    }
+                }
                 try self.checkNewLocal(target);
                 _ = try self.declare(target, .local, .{ .fixed = true });
             },

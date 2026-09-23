@@ -1,0 +1,11 @@
+# `=!` declares a new binding, and a local may not silently reuse a
+# visible name: shadowing is written `new x = ...`.
+
+sub main()
+  x = 1
+  if x > 0
+    x =! 2
+    print(x)
+  print(x)
+
+# error: `x` is already bound; `=!` declares a new binding

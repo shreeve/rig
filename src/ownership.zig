@@ -1338,14 +1338,7 @@ pub const Checker = struct {
 
         switch (kind) {
             .shadow => try self.bindNew(name, pos, false, is_lambda, value),
-            .fixed => {
-                if (self.lookupCurrent(name)) |prev| {
-                    try self.err(pos, "binding `{s}` already exists in this scope", .{name});
-                    try self.note(self.vars.items[prev].decl, "previous binding here", .{});
-                    return;
-                }
-                try self.bindNew(name, pos, true, is_lambda, value);
-            },
+            .fixed => try self.bindNew(name, pos, true, is_lambda, value),
             .default, .@"move" => {
                 if (try self.lookup(pos, name)) |id| {
                     try self.reassign(id, pos, value);
