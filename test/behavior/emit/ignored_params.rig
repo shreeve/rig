@@ -1,0 +1,20 @@
+# A parameter a function or closure does not use may be named `_`, any
+# number of times; parameters may also use names Zig reserves.
+
+fun first(a: Int, _: Int, _: Int) -> Int
+  a
+
+sub main()
+  print(first(1, 2, 3))
+  second: fun(Int, Int) Int = |_, b| b
+  print(second(4, 5))
+  ignore: *sub(Int, String) = *|_, _| print("ignored")
+  ignore(6, "x")
+  sum = |fn: Int, var: Int| fn + var
+  print(sum(7, 8))
+
+# expect:
+# 1
+# 5
+# ignored
+# 15

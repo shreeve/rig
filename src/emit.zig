@@ -564,7 +564,7 @@ pub const Emitter = struct {
                 try self.writeIndent(self.indent);
                 try self.emitGuard(local);
                 try self.w.writeAll("\n");
-            } else if (!self.usage.used.contains(local.sym)) {
+            } else if (!self.usage.used.contains(local.sym) and !std.mem.eql(u8, local.zig_name, "_")) {
                 try self.line("_ = {s};", .{local.zig_name});
             }
         }

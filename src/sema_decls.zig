@@ -242,7 +242,9 @@ const SymbolResolver = struct {
                 }
             }
             if (collides) continue;
+            // Any number of parameters may be ignored as `_`.
             for (params.list[0..i]) |earlier| {
+                if (std.mem.eql(u8, name, "_")) break;
                 if (std.mem.eql(u8, types.paramName(self.ctx.source, earlier) orelse "", name)) {
                     try self.ctx.err(pos, "duplicate parameter `{s}`", .{name});
                     collides = true;
