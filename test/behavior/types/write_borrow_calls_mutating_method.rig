@@ -26,13 +26,11 @@ sub main()
   (!c).bump()
   w = !c
   w.bump()
-  -w
   print(c.n)
   v: Vec(Int) = Vec()
   fill(!v)
   b = !v
   b.push(3)
-  -b
   print(v.length(), v[2])
 
 # expect:

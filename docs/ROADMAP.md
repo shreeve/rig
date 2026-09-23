@@ -9,7 +9,6 @@ be checked as thoroughly as what exists.
 - **Stack closures as arguments**: pass a non-escaping closure to a call without allocating it.
 - **Generic functions**: type parameters on functions, not only on types.
 - **Strings**: building and formatting strings, slices of strings and arrays.
-- **Iteration**: modifying (`for x in !v`) and consuming (`for x in <v`) loops.
 - **Optional propagation**: `e?` returns `none` from the enclosing function, mirroring `e!`.
 - **Module-level constants** and **field defaults**.
 - **Traits or interfaces** whose dispatch and ownership stay visible in the IR.

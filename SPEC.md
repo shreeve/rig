@@ -725,14 +725,16 @@ Arithmetic needs numeric operands of one type (a literal adapts to the
 other operand). Integer `/` truncates toward zero and `%` takes the sign
 of the dividend, so `(a / b) * b + a % b == a`. Unsigned values cannot be
 negated. Bitwise operators need integers; a shift amount may be any
-integer.
+integer, from 0 up to the width of the shifted type. A left shift that
+loses bits (or the sign) overflows: a constant one is rejected, and one
+computed when the program runs panics, like `+` and `*`.
 
 `==` and `!=` compare two values of the same type: numbers, `Bool`,
 `String` (by content), and enums (with each other or with a `.variant`).
 Structs have no `==`. Ordering comparisons need numbers.
 
 `and`, `or`, and `not` take `Bool`s; `not` binds looser than comparisons,
-so `not a == b` is `not (a == b)`. The spellings `&&`, `||`, and `**` are
+so `not a == b` is `not (a == b)`. The spellings `&&` and `||` are
 rejected with a hint.
 
 ```rig
@@ -936,9 +938,53 @@ found at 2
 not found
 ```
 
-Loop bindings are immutable, and may not reuse a visible name.
-Modifying iteration (`for x in !v`) and consuming iteration
-(`for x in <v`) are not supported yet.
+Loop bindings are immutable, and may not reuse a visible name. Two
+source sigils change that:
+
+- `for x in !xs` borrows each element of a `Vec` or array for writing:
+  assigning `x` (or a field of it) writes the element in place, and a
+  resource element that is replaced is dropped. `xs` must be a binding
+  or a field of one.
+- `for x in <v` consumes the Vec: each element is handed to `x`, which
+  owns it for one iteration and may move it on. Elements a `break` or
+  `return` leaves behind are dropped with the buffer, and `v` is moved.
+
+```rig
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+sub main()
+  xs = [1, 2, 3]
+  for x in !xs
+    x *= 10
+  print(xs)
+  v: Vec(*B) = Vec()
+  for i in 0..3
+    (!v).push(*B(n: i))
+  for b, i in <v
+    if i == 1
+      keep(<b)
+      continue
+    print("saw", b.n)
+  print("after")
+```
+
+```output
+[10, 20, 30]
+saw 0
+drop 0
+kept 1
+drop 1
+saw 2
+drop 2
+after
+```
 
 ### Labels, break, and continue
 
@@ -1671,24 +1717,27 @@ sub main()
 
 `Vec(T)` is a growable array that owns its elements. The binding is the
 buffer: a `Vec` is an owning value even when its elements are Copy.
-Elements are Copy primitives (numbers, `Bool`, `String`), shared handles
-(including owned closures), or weak handles.
+Elements are Copy primitives (numbers, `Bool`, `String`), plain data
+(structs, enums, and optionals that own nothing and hold no borrow),
+shared handles (including owned closures), or weak handles.
 
 | Member | Meaning |
 |---|---|
 | `Vec()`, `Vec(capacity: n)` | an empty Vec (typed by context) |
 | `(!v).push(x)` | append; an owning `x` is moved or cloned in |
 | `v.length()` | the number of elements |
-| `v[i]`, `v[i] = x` | read or write an element (Copy `T`; bounds-checked) |
+| `v[i]`, `v[i] = x` | read or write an element, or a field of one (Copy `T`; bounds-checked) |
 | `v.get(i)` | the element as `T?` (Copy `T`) |
-| `(!v).pop()` | remove the last element, as `T?` (Copy `T`) |
+| `(!v).pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
 | `(!v).clear()` | drop every element |
 
 A `for` loop borrows the Vec for the whole loop, so it cannot be
 modified inside it. A Vec of Copy values may be walked by value
 (`for x in v`). A Vec of owning values is walked by borrowed slot with
-`for x in ?v`, where `v` must be a local: the element can be read and
-called, but not moved, dropped, cloned, or stored.
+`for x in ?v`, where `v` must be a binding or a field of one: the
+element can be read, called, and cloned (`+x` is a new handle), but not
+moved, dropped, or stored. `for x in !v` and `for x in <v` write and
+consume the elements ([§7](#for)).
 
 ```rig
 sub main()
@@ -1708,6 +1757,38 @@ sub main()
 
 ```output
 711 2
+```
+
+```rig
+struct P
+  x: Int
+  y: Int
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+sub main()
+  ps: Vec(P) = Vec()
+  (!ps).push(P(x: 1, y: 2))
+  ps[0].y = 5
+  print(ps[0], ps.length())
+  bs: Vec(*B) = Vec()
+  (!bs).push(*B(n: 1))
+  (!bs).push(*B(n: 2))
+  if (!bs).pop() as last
+    print("popped", last.n)
+  print("left", bs.length())
+```
+
+```output
+P(x: 1, y: 5) 1
+popped 2
+drop 2
+left 1
+drop 1
 ```
 
 ### Signal
@@ -1854,10 +1935,28 @@ sub main()
 | `fun(Int, Int) Int` | takes two `Int`s, returns an `Int` |
 | `sub(String)` | takes a `String`, returns nothing |
 | `*fun(Int) Int`, `*sub()` | an owned closure of that shape |
+| `~fun(Int) Int`, `~sub()` | a weak handle to an owned closure |
 
 Function types describe closures bound to locals, function names used
 as values, and `extern` function variables. Declarations write their
-return type after `->`; type expressions do not.
+return type after `->`; type expressions do not. An owned closure is a
+shared handle, so `~f` makes a weak handle to it, which upgrades like
+any other ([§10](#weak-handles)).
+
+```rig
+sub main()
+  f: *fun(Int) Int = *|a| a + 1
+  w: ~fun(Int) Int = ~f
+  if w.upgrade() as g
+    print(g(1))
+  -f
+  print(w.upgrade() == none)
+```
+
+```output
+2
+true
+```
 
 ### Stack closures
 
@@ -2122,16 +2221,25 @@ type mismatch: expected `Int`, got `ParseError`
 
 `use name` imports `name.rig` from the importing file's directory. The
 module's `pub` declarations are then reached as `name.decl`, and its
-types are named `name.Type` in annotations. Imports are checked in
-dependency order, each module once; a cycle is an error.
+types are named `name.Type` in annotations. A type's members are named
+through the module too: `name.Type.function(...)` calls an associated
+function, and `name.Enum.variant` names a variant. Imports are checked
+in dependency order, each module once; a cycle is an error.
 
 ```rig file=geo.rig
 pub struct Point
   x: Int
   y: Int
 
+  fun at(x: Int, y: Int) -> Point
+    Point(x: x, y: y)
+
   fun sum(?self) -> Int
     self.x + self.y
+
+pub enum Dir
+  north
+  east
 
 pub fun origin() -> Point
   Point(x: 0, y: 0)
@@ -2145,11 +2253,13 @@ fun total(p: ?geo.Point) -> Int
 
 sub main()
   p: geo.Point = geo.Point(x: 1, y: 2)
-  print(total(?p), geo.origin().sum())
+  q = geo.Point.at(3, 4)
+  d = geo.Dir.east
+  print(total(?p), geo.origin().sum(), q.sum(), d)
 ```
 
 ```output
-3 0
+3 0 7 .east
 ```
 
 Only `pub` declarations are visible to importers. A `pub` function whose
@@ -2287,10 +2397,9 @@ These parse, and are rejected with a diagnostic that says why:
 
 | Form | Status |
 |---|---|
-| `&&`, `\|\|`, `**` | not Rig operators; use `and`, `or` |
+| `&&`, `\|\|` | not Rig operators; use `and`, `or` |
 | `@x` (pin) | reserved: no pinning semantics yet |
 | `for *x in v` | reserved: by-reference loop binding |
-| `for x in !v`, `for x in <v` | not supported yet |
 | `pre expr`, `pre` blocks | reserved; only `pre` parameters exist |
 | `try` blocks with `catch` blocks | reserved; use `f()!` or `f() catch x` |
 | `zig "..."` | reserved: no inline Zig; use `raw` and `extern` |
