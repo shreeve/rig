@@ -1,0 +1,26 @@
+# A bare variant of an enum with payloads, named through its enum, is a
+# value of the enum: a method receiver, an argument, or printed.
+
+enum Sh
+  c(r: Int)
+  d
+
+  fun area(?self) -> Int
+    match self
+      .c(r) => r * r
+      .d => 0
+
+  fun make(r: Int) -> Sh
+    .c(r: r)
+
+fun show(s: Sh) -> Int
+  s.area() + 1
+
+sub main()
+  s = Sh.make(3)
+  print(s.area(), Sh.d.area(), show(Sh.d))
+  print(Sh.d)
+
+# expect:
+# 9 0 1
+# .d

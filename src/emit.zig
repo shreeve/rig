@@ -1736,6 +1736,14 @@ pub const Emitter = struct {
         };
     }
 
+    fn hasPayloadVariants(self: *Emitter, ty: TypeId) bool {
+        const decl = types.nominalDecl(self.sema, ty) orelse return false;
+        for (decl.symbol().fields orelse return false) |f| {
+            if (f.is_variant and f.payload != null and f.payload.?.len > 0) return true;
+        }
+        return false;
+    }
+
     fn isEnumTy(self: *Emitter, ty: TypeId) bool {
         const decl = types.nominalDecl(self.sema, ty) orelse return false;
         for (decl.symbol().fields orelse return false) |f| if (f.is_variant) return true;
@@ -2100,6 +2108,15 @@ pub const Emitter = struct {
         const obj = sexp.list[1];
         const field = self.srcText(sexp.list[2]);
         const obj_ty = self.typeOf(obj);
+        // `Shape.dot` of an enum with payloads names the tag; the value
+        // is the union holding it.
+        if (obj_ty == null and self.isTypeCallee(obj)) if (self.typeOf(sexp)) |t| if (self.hasPayloadVariants(t)) {
+            try self.w.writeAll("@as(");
+            try self.emitTypeTy(t);
+            try self.w.writeAll(", ");
+            try self.emitMemberBase(obj, obj_ty);
+            return self.w.print(".{f})", .{self.ident(field)});
+        };
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.hasLen(obj_ty.?)) {
             try self.w.writeAll("rig.len(");
             try self.emitMemberBase(obj, obj_ty);
