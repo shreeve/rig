@@ -1698,11 +1698,8 @@ const Checker = struct {
         }
     }
 
-    /// `print(x)`: one value (or none, for a blank line).
+    /// `print(a, b, ...)`: any number of values, printed on one line.
     fn checkPrint(self: *Checker, args: []const Sexp) Error!TypeId {
-        if (args.len > 1) {
-            try self.err(firstSrcPos(args[1]), "`print` takes one value; got {d}", .{args.len});
-        }
         for (args) |a| {
             if (isHead(a, .@"kwarg")) {
                 try self.err(firstSrcPos(a), "`print` takes no keyword arguments", .{});

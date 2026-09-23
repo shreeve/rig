@@ -1914,13 +1914,20 @@ pub const Emitter = struct {
         try self.w.writeAll(" }");
     }
 
-    /// `print(x)`: strings with `{s}`, everything else with `{any}`.
+    /// `print(a, b)`: the values separated by one space, then a newline.
+    /// Strings print with `{s}`, everything else with `{any}`.
     fn emitPrint(self: *Emitter, args: []const Sexp) Error!void {
-        if (args.len == 0) return self.w.writeAll("rig.print(\"\\n\", .{})");
-        const f: []const u8 = if (self.isStringExpr(args[0])) "{s}" else "{any}";
-        try self.w.print("rig.print(\"{s}\\n\", .{{", .{f});
-        try self.emitBare(args[0]);
-        try self.w.writeAll("})");
+        try self.w.writeAll("rig.print(\"");
+        for (args, 0..) |a, i| {
+            if (i > 0) try self.w.writeAll(" ");
+            try self.w.writeAll(if (self.isStringExpr(a)) "{s}" else "{any}");
+        }
+        try self.w.writeAll("\\n\", .{");
+        for (args, 0..) |a, i| {
+            try self.w.writeAll(if (i == 0) " " else ", ");
+            try self.emitBare(a);
+        }
+        try self.w.writeAll(if (args.len > 0) " })" else "})");
     }
 
     // =========================================================================
