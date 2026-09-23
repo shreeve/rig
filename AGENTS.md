@@ -41,6 +41,9 @@ allocation, no hidden refcount traffic, no silent control flow.
 3. **Safe code cannot corrupt memory.** Use-after-move, double-free,
    use-after-free, dangling borrows, and leaks in safe Rig are
    compiler bugs. Only code inside `raw` may break these guarantees.
+   The one leak the compiler does not prevent is a cycle of strong
+   `*T` handles, as in Rust and Swift; `~T` exists to break cycles,
+   and every test and example must still run leak-free.
 4. **Effects stay visible.** Every sigil survives as a named node in
    the semantic IR (`docs/INTERNALS.md`), which the checkers and emitter
    consume by name. Don't add features that hide moves, clones,

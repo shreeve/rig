@@ -1,11 +1,12 @@
-# Known bug (D17): `a..b` is only a match pattern in V1, but a range in
-# expression position (`for i in 0..3`) is accepted and emit writes a
-# `@compileError`. Sema should reject it with a Rig diagnostic.
+# `a..b` is a half-open integer range; `for i in a..b` iterates it.
+# Known bug (D17): emit writes a @compileError for ranges in expression
+# position.
 
 sub main()
   total = 0
-  for i in 0..3
+  for i in 0..4
     total += i
   print(total)
 
-# error: range
+# expect:
+# 6
