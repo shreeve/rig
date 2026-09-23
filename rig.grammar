@@ -385,9 +385,7 @@ stmt     = use
          | zig
          | ":" label:name stmt:stmt                 → (labeled)
          | simple
-         | then:guarded POST_IF cond:value          → (if)
-
-guarded  = simple                                   → (block 1)
+         | simple POST_IF cond:value                → (if then:(block 1))
 
 # A simple statement: an expression, a paren-free call, a binding, or a
 # flow statement. Only these take a postfix guard (`return x if done`).
@@ -629,13 +627,14 @@ catch_part = CATCH BAR_CAPTURE name:name BAR_CAPTURE body:block → (catch_block
 closure  = lambda
          | SHARE_PFX operand:lambda                 → (share)
 
-lambda   = params:bars body:(block | ebody)         → (lambda)
+lambda   = params:bars body:block                   → (lambda)
+         | params:bars expr                         → (lambda body:(block 2))
 
 # A closure whose inline body is a paren-free call.
 cclosure = clambda
          | SHARE_PFX operand:clambda                → (share)
 
-clambda  = params:bars body:cbody                   → (lambda)
+clambda  = params:bars cmd                          → (lambda body:(block 2))
 
 bars     = BAR_CAPTURE L(barent) BAR_CAPTURE        → (...2)
          | BAR_EMPTY                                → ()
@@ -646,9 +645,6 @@ barent   = fname
          | MOVE_PFX  name:name                      → (cap_move)
          | "~"       name:name                      → (cap_weak)
 
-# An inline body is wrapped in a block, like an indented one.
-ebody    = expr                                     → (block 1)
-cbody    = cmd                                      → (block 1)
 
 # ==============================================================================
 # OPERANDS

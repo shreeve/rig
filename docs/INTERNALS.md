@@ -573,8 +573,9 @@ green.
   `L(expr) "," cmd` therefore never reaches `cmd`; lists followed by a
   comma and something else are written as left-recursive rules
   (`exprs`, `callargs`).
-- A nested S-expression in an action (`(if 3 (block 1))`) is emitted as
-  a tag literally named `(block`; wrap the inner node in its own rule
-  instead (`guarded`, `ebody`, `cbody`).
-- An empty alternative on the start rule never matches; the empty file
-  is handled in `rig.Parser`.
+- A label on a token fills its role with the token (a leaf), so a role
+  typed `tag(...)` is filled by an action literal: the compound
+  assignments are one alternative each (`→ (set op:+=)`) rather than
+  one alternative over a choice of operator tokens.
+- A choice `(A | B)` cannot sit inside an `[...]` group; `if ... else`
+  is written as two alternatives for that reason.
