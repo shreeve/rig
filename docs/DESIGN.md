@@ -50,10 +50,11 @@ aims for rigor plus visibility.
 **Effects stay visible.** Moves, borrows, clones, drops, shared and
 weak ownership, allocation, failure, mutation, capture modes,
 compile-time parameters, and the unsafe boundary each have a marker.
-There is no inferred ownership transfer, no hidden refcount traffic, no
-implicit error propagation, and no unmarked unsafe code. The one
-implicit effect is the cheapest and most common: calling a `?self`
-method borrows the receiver for reading. Writing through a receiver
+There is no hidden refcount traffic, no implicit error propagation, and
+no unmarked unsafe code. What stays implicit is cheap and cannot
+surprise: copying plain data, reading through a shared handle, lending
+a receiver to a `?self` method, and moving a local out with `return x`,
+where its scope ends anyway. Writing through a receiver
 (`(!v).push(x)`) or consuming it (`(<u).close()`) is always spelled out.
 
 **Effects survive into the IR.** Every sigil becomes a named node in

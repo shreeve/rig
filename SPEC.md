@@ -1385,7 +1385,9 @@ write `<a` or `+a`. Sharing a value that is already a shared handle
 a handle automatically, including through fields and loop elements.
 Writing a field, calling a `!self` method, or consuming the value
 through a handle is rejected, because other handles share it; shared
-mutable state goes in a `Cell` ([§11](#cell)).
+mutable state goes in a `Cell` ([§11](#cell)). The built-in `Vec` is
+the exception: `(!h).push(x)` works through a `*Vec(T)`, whose elements
+can never be borrowed.
 
 ```rig reject
 struct User
@@ -2013,6 +2015,8 @@ a value.
 | struct | `User(name: "ada", age: 36)` |
 | array, `Vec` | `[1, 2]` |
 | shared handle | the value it holds |
+| weak handle | `~(alive)` or `~(gone)` |
+| owned closure | `<closure>` |
 
 ```rig
 struct User
