@@ -697,6 +697,7 @@ pub const Checker = struct {
     fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!void {
         const stmts: []const Sexp = if (isTag(body, .@"block")) body.list[1..] else (&body)[0..1];
         for (stmts, 0..) |stmt, i| {
+            try self.checkAfterJump(stmts, i);
             if (!self.reachable) break;
             if (returns_value and i == stmts.len - 1 and isValueExpr(stmt)) {
                 try self.walkReturnValue(stmt);
@@ -794,6 +795,7 @@ pub const Checker = struct {
         try self.pushScope(.block);
         var v: Value = .{};
         for (stmts, 0..) |s, i| {
+            try self.checkAfterJump(stmts, i);
             if (!self.reachable) break;
             if (i == stmts.len - 1) v = try self.walkStmtValue(s) else try self.walkStmt(s);
         }
@@ -2240,6 +2242,26 @@ pub const Checker = struct {
     }
 
     const Jump = enum { brk, cont };
+
+    /// Code right after `return`, `break`, or `continue` in the same
+    /// block never runs; Zig rejects it, and so does Rig.
+    fn checkAfterJump(self: *Checker, stmts: []const Sexp, i: usize) Error!void {
+        if (i == 0) return;
+        const prev = stmts[i - 1];
+        if (!(isTag(prev, .@"return") or isTag(prev, .@"break") or isTag(prev, .@"continue"))) return;
+        try self.err(self.stmtPos(stmts[i]), "unreachable code: this statement follows a `{s}`", .{@tagName(prev.list[0].tag)});
+    }
+
+    /// A statement's position, finding the keyword of one that carries
+    /// none of its own.
+    fn stmtPos(self: *const Checker, s: Sexp) u32 {
+        if (isTag(s, .@"break")) return self.keywordPos("break");
+        if (isTag(s, .@"continue")) return self.keywordPos("continue");
+        const p = innerPos(s);
+        if (p != 0) return p;
+        if (isTag(s, .@"return")) return self.keywordPos("return");
+        return self.anchor;
+    }
 
     /// The position of the first line starting with `word` at or after
     /// the anchor: the keyword of a statement that carries no position.

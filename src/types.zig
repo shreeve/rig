@@ -612,6 +612,10 @@ pub const SemContext = struct {
 
     pub fn err(self: *SemContext, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
         const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
+        // The same finding reached twice is reported once.
+        for (self.diagnostics.items) |d| {
+            if (d.severity == .@"error" and d.pos == pos and std.mem.eql(u8, d.message, msg)) return;
+        }
         try self.diagnostics.append(self.allocator, .{ .severity = .@"error", .pos = pos, .message = msg });
     }
 

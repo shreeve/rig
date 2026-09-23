@@ -229,6 +229,10 @@ const Checker = struct {
         }
         for (stmts, 0..) |s, i| {
             if (wants_value and i == stmts.len - 1) {
+                if (loopsForever(self.ctx.source, s)) {
+                    try self.checkStmt(s);
+                    continue;
+                }
                 if (isStatementForm(s) and !isHead(s, .@"return")) {
                     try self.checkStmt(s);
                     try self.err(firstSrcPos(s), "a function returning `{s}` must end with a value; this `{s}` produces none", .{ try self.tyName(ret), @tagName(headOf(s).?) });
@@ -2786,6 +2790,18 @@ const Checker = struct {
             if (e == .src and types.isIntLiteralText(self.text(e))) {
                 try self.err(firstSrcPos(e), "integer literal `{s}` is too large", .{self.text(e)});
             }
+            // Not constant as a whole (a branch is chosen when the program
+            // runs): its constant parts are values of the type too.
+            if (headOf(e)) |h| switch (h) {
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^", .@"neg" => {
+                    for (e.list[1..]) |c| try self.checkLiteralFits(c, target);
+                },
+                .@"if" => if (e.list.len == 4) {
+                    try self.checkLiteralFits(e.list[2], target);
+                    try self.checkLiteralFits(e.list[3], target);
+                },
+                else => {},
+            };
             return;
         };
         const bits: u8 = if (tt.int.bits == 0) 64 else tt.int.bits;
@@ -3264,6 +3280,28 @@ fn isPlaceExpr(e: Sexp) bool {
         .@"member", .@"index", .@"read", .@"write" => true,
         else => false,
     };
+}
+
+/// `while true` with no `break` out of it: the loop only ends by
+/// `return`, so a function may end with it.
+fn loopsForever(source: []const u8, s: Sexp) bool {
+    if (!isHead(s, .@"while")) return false;
+    const cond = s.list[1];
+    if (!std.mem.eql(u8, identAt(source, cond) orelse "", "true")) return false;
+    return !breaksOut(s.list[3]);
+}
+
+/// Whether `e` holds a `break` that would leave the loop around it (one
+/// not inside a nested loop or closure).
+fn breaksOut(e: Sexp) bool {
+    const h = headOf(e) orelse return false;
+    switch (h) {
+        .@"break" => return true,
+        .@"while", .@"for", .@"lambda", .@"labeled" => return false,
+        else => {},
+    }
+    for (e.list[1..]) |c| if (breaksOut(c)) return true;
+    return false;
 }
 
 /// A name or a chain of fields off one: `v`, `t.kids`, `a.b.c`.

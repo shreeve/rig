@@ -1,6 +1,7 @@
 # A constant that does not fit is rejected wherever it is used as a
 # value: in a branch whose type comes from the other branch, an array
-# element, or a comparison of two constants.
+# element, a comparison of two constants, or an operand next to a value
+# chosen when the program runs.
 
 fun rt(x: Int) -> Int
   x
@@ -10,7 +11,9 @@ sub main()
   x = a if a > 0 else 9223372036854775807 * 2
   xs = [a, 9223372036854775807 + 1]
   print((9223372036854775807 << 2) < 0)
+  print((5 if a < 1 else 0) % (9223372036854775807 << 3))
 
 # error: integer value `18446744073709551614` does not fit in `Int`
 # error: integer value `9223372036854775808` does not fit in `Int`
 # error: integer value `36893488147419103228` does not fit in `Int`
+# error: integer value `73786976294838206456` does not fit in `Int`
