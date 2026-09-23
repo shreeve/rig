@@ -106,6 +106,13 @@ pub fn take(alive: *bool, value: anytype) @TypeOf(value) {
     return value;
 }
 
+/// `value`, as a run-time value: arithmetic on a compile-time constant
+/// read through this is checked when it runs, as Rig specifies, rather
+/// than folded by Zig at compile time.
+pub fn rt(value: anytype) @TypeOf(value) {
+    return value;
+}
+
 /// Allocate one `T` with the default allocator.
 pub fn create(comptime T: type) *T {
     return defaultAllocator().create(T) catch oom();

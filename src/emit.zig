@@ -145,6 +145,12 @@ pub const Emitter = struct {
     /// The value being emitted is a write borrow: a pointer local in tail
     /// position yields the pointer, not the value behind it.
     ptr_tail: bool = false,
+    /// Emitting an operand of arithmetic or an index: compile-time names
+    /// (`pre` parameters, `=!` constants) are read through `rig.rt` so Zig
+    /// evaluates the operation at run time, as Rig checked it.
+    rt_names: bool = false,
+    /// Emitting a `pre` argument, which must stay compile-time known.
+    keep_comptime: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, w: *Writer, sema: *const types.SemContext) Emitter {
         return .{
@@ -906,7 +912,11 @@ pub const Emitter = struct {
 
         const needs_ptr_self = local.kind == .value or local.kind == .optional or
             (ty != null and self.isCellTy(ty.?));
-        const is_var = s.flags.reassigned or (!holds_ptr and (s.flags.written or needs_ptr_self));
+        // A constant initializer would make a Zig `const` compile-time
+        // known, and Zig would then evaluate later arithmetic on it at
+        // compile time; Rig treats it as a run-time value.
+        const is_var = s.flags.reassigned or (!holds_ptr and (s.flags.written or needs_ptr_self or
+            (!s.flags.comptime_known and !is_move and self.isZigComptime(expr))));
 
         // Evaluate the value before the new name is visible, so a shadow
         // (`new x = x + 1`) reads the old binding.
@@ -1576,6 +1586,9 @@ pub const Emitter = struct {
     fn emitName(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
         const name = self.srcText(sexp);
         if (self.localOf(sexp)) |local| {
+            if (self.rt_names and !self.keep_comptime and self.sema.symbols.items[local.sym].flags.comptime_known) {
+                return self.w.print("rig.rt({s})", .{local.zig_name});
+            }
             if (tail and self.ptr_tail and local.is_ptr) return self.w.writeAll(local.zig_name);
             if (tail) if (self.consumeFlag(local)) |flag| return self.writeTake(flag, local);
             return self.writeLocalPlace(local);
@@ -1604,6 +1617,22 @@ pub const Emitter = struct {
     fn emitStored(self: *Emitter, e: Sexp) Error!void {
         if (self.isWriteBorrowExpr(e)) return self.emitBorrowValue(e);
         try self.emitBare(e);
+    }
+
+    /// The number type an expression yields, with literal types at their
+    /// defaults; null for anything else.
+    fn numericValueTy(self: *Emitter, e: Sexp) ?TypeId {
+        const t = self.typeOf(e) orelse return null;
+        return switch (self.sema.types.get(t)) {
+            .int, .float => t,
+            .int_literal => self.sema.types.int_id,
+            .float_literal => self.sema.types.float_id,
+            else => null,
+        };
+    }
+
+    fn isZigComptime(self: *Emitter, e: Sexp) bool {
+        return isZigComptimeIn(self, e, 0);
     }
 
     fn isWriteBorrowExpr(self: *Emitter, e: Sexp) bool {
@@ -1646,6 +1675,12 @@ pub const Emitter = struct {
     fn emitList(self: *Emitter, sexp: Sexp, tail: bool, bare: bool) Error!void {
         const items = sexp.list;
         const head = items[0].tag;
+        const saved_rt = self.rt_names;
+        defer self.rt_names = saved_rt;
+        switch (head) {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"neg", .@"index" => self.rt_names = true,
+            else => {},
+        }
         switch (head) {
             .@"read", .@"raw" => {
                 self.bare = bare;
@@ -1737,12 +1772,18 @@ pub const Emitter = struct {
                 try self.emitValue(items[3], true);
                 try self.w.writeAll(")");
             },
-            .@"if" => {
-                if (!bare) try self.w.writeAll("(");
-                try self.emitIfExpr(sexp);
-                if (!bare) try self.w.writeAll(")");
+            .@"if", .@"match" => {
+                // Literal branches under a run-time condition need the
+                // result's type spelled out.
+                const num = self.numericValueTy(sexp);
+                if (num) |t| {
+                    try self.w.writeAll("@as(");
+                    try self.emitTypeTy(t);
+                    try self.w.writeAll(", ");
+                } else if (!bare and head == .@"if") try self.w.writeAll("(");
+                if (head == .@"if") try self.emitIfExpr(sexp) else try self.emitMatch(sexp, true);
+                if (num != null) try self.w.writeAll(")") else if (!bare and head == .@"if") try self.w.writeAll(")");
             },
-            .@"match" => try self.emitMatch(sexp, true),
             .@"block" => try self.emitValueBlock(sexp, .{}),
             .@"raw_block" => try self.emitValueBlock(items[1], .{}),
             .@"array" => try self.emitArray(sexp),
@@ -1839,7 +1880,10 @@ pub const Emitter = struct {
         }
         try self.emitExpr(base);
         try self.w.writeAll("[");
-        if (isNonNegativeIntLiteral(self.source, index)) {
+        // Sema checked a constant index against an array's length; a
+        // string's length is only known when it runs.
+        const is_array = if (base_ty) |t| self.sema.types.get(self.peelBorrows(t)) == .array else false;
+        if (is_array and isNonNegativeIntLiteral(self.source, index)) {
             try self.emitExpr(index);
         } else {
             try self.w.writeAll("rig.index(");
@@ -2064,18 +2108,35 @@ pub const Emitter = struct {
     fn emitArgs(self: *Emitter, call: Sexp) Error!void {
         const args = call.list[2..];
         const params = self.paramTypes(call);
-        if (self.sema.callSlotsOf(call)) |slots| return self.emitSlots(args, slots, null, params);
+        const pre = self.preMask(call);
+        if (self.sema.callSlotsOf(call)) |slots| return self.emitSlots(args, slots, null, params, pre);
         for (args, 0..) |a, i| {
             if (i > 0) try self.w.writeAll(", ");
-            try self.emitArg(a, if (i < params.len) params[i] else null);
+            try self.emitArg(a, if (i < params.len) params[i] else null, isPreSlot(pre, i));
         }
     }
 
-    /// An argument: a `!T` parameter receives a pointer.
-    fn emitArg(self: *Emitter, arg: Sexp, param: ?TypeId) Error!void {
+    /// An argument: a `!T` parameter receives a pointer; a `pre`
+    /// parameter a compile-time value.
+    fn emitArg(self: *Emitter, arg: Sexp, param: ?TypeId, is_pre: bool) Error!void {
         const value = argValue(arg);
         if (param) |p| if (self.sema.types.get(p) == .borrow_write) return self.emitBorrowValue(value);
+        const saved = self.keep_comptime;
+        defer self.keep_comptime = saved;
+        if (is_pre) self.keep_comptime = true;
         try self.emitBare(value);
+    }
+
+    /// Which of a call's arguments fill `pre` parameters (bit per slot).
+    fn preMask(self: *Emitter, call: Sexp) u32 {
+        const callee = call.list[1];
+        const f = self.fnType(self.typeOf(callee)) orelse return 0;
+        if (!isTagged(callee, .@"member")) return f.pre_mask;
+        if (self.sema.symbolOf(callee.list[1])) |obj| switch (self.sema.symbols.items[obj].kind) {
+            .nominal_type, .generic_type, .module => return f.pre_mask,
+            else => {},
+        };
+        return f.pre_mask >> 1;
     }
 
     /// The parameter types a call's arguments fill (without a method's
@@ -2093,7 +2154,7 @@ pub const Emitter = struct {
         return if (f.params.len > 0) f.params[1..] else f.params;
     }
 
-    fn emitSlots(self: *Emitter, args: []const Sexp, slots: []const types.ArgSlot, temps: ?[]const ?[]const u8, params: []const TypeId) Error!void {
+    fn emitSlots(self: *Emitter, args: []const Sexp, slots: []const types.ArgSlot, temps: ?[]const ?[]const u8, params: []const TypeId, pre: u32) Error!void {
         for (slots, 0..) |slot, i| {
             if (i > 0) try self.w.writeAll(", ");
             switch (slot) {
@@ -2102,7 +2163,7 @@ pub const Emitter = struct {
                         try self.w.writeAll(name);
                         continue;
                     };
-                    try self.emitArg(args[ai], if (i < params.len) params[i] else null);
+                    try self.emitArg(args[ai], if (i < params.len) params[i] else null, isPreSlot(pre, i));
                 },
                 .default => |d| try writeLiteral(self.w, d.source, d.expr),
             }
@@ -2156,14 +2217,14 @@ pub const Emitter = struct {
             const param: ?TypeId = for (slots, 0..) |slot, pi| {
                 if (slot == .arg and slot.arg == ai and pi < params.len) break params[pi];
             } else null;
-            try self.emitArg(a, param);
+            try self.emitArg(a, param, false);
             try self.w.writeAll(";\n");
         }
         try self.writeIndent(self.indent);
         try self.w.print("break :rig_call_{d} ", .{id});
         if (isTagged(callee, .@"member")) try self.emitMember(callee) else try self.emitExpr(callee);
         try self.w.writeAll("(");
-        try self.emitSlots(args, slots, temps, params);
+        try self.emitSlots(args, slots, temps, params, self.preMask(call));
         try self.w.writeAll(");\n");
         self.indent -= 1;
         try self.writeIndent(self.indent);
@@ -2986,6 +3047,55 @@ fn isPlainIdent(name: []const u8) bool {
 }
 
 /// Literal source text: numbers, quoted strings, and the value keywords.
+/// Whether Zig could evaluate `e` at compile time: it is built only from
+/// literals, compile-time names (`pre` parameters, `=!` constants),
+/// constructors, and operators. Conservative: true when unsure.
+fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
+    if (depth > 32) return true;
+    switch (e) {
+        .src => {
+            const t = em.srcText(e);
+            if (isLiteralText(t) or std.mem.eql(u8, t, "none")) return true;
+            const sym = em.sema.symbolOf(e) orelse return true;
+            const sd = em.sema.symbols.items[sym];
+            return switch (sd.kind) {
+                .local, .param, .capture => sd.flags.comptime_known,
+                else => true,
+            };
+        },
+        .list => |items| {
+            const h = headOf(e) orelse return true;
+            switch (h) {
+                .@"call" => {
+                    // A constructor or variant of constant arguments is
+                    // constant; a function call is not.
+                    const callee = items[1];
+                    const ctor = isTagged(callee, .@"enum_lit") or (callee == .src and if (em.sema.symbolOf(callee)) |id| switch (em.sema.symbols.items[id].kind) {
+                        .nominal_type, .generic_type => true,
+                        else => false,
+                    } else false);
+                    if (!ctor) return false;
+                    for (items[2..]) |a| if (!isZigComptimeIn(em, argValue(a), depth + 1)) return false;
+                    return true;
+                },
+                .@"share", .@"clone", .@"weak", .@"move", .@"read", .@"write", .@"lambda", .@"propagate", .@"catch" => return false,
+                else => {
+                    for (items[1..]) |c| {
+                        if (c == .tag or c == .nil) continue;
+                        if (!isZigComptimeIn(em, c, depth + 1)) return false;
+                    }
+                    return true;
+                },
+            }
+        },
+        else => return true,
+    }
+}
+
+fn isPreSlot(mask: u32, i: usize) bool {
+    return i < 32 and (mask >> @intCast(i)) & 1 == 1;
+}
+
 fn isLiteralText(t: []const u8) bool {
     if (t.len == 0) return false;
     if (std.ascii.isDigit(t[0]) or t[0] == '"' or t[0] == '\'' or t[0] == '.') return true;
@@ -3130,19 +3240,25 @@ test "emit: hello world" {
     try std.testing.expect(std.mem.indexOf(u8, out, "\"hello, rig\"") != null);
 }
 
-test "emit: const for unmutated, var for reassigned" {
+test "emit: const for unmutated, var for reassigned or constant" {
     const out = try emitSourceToString(std.testing.allocator,
+        \\fun two() -> Int
+        \\  2
+        \\
         \\sub main()
         \\  x = 1
-        \\  y = 2
+        \\  y = two()
+        \\  z = 5
         \\  if y > 1
         \\    x = 3
-        \\  print(x + y)
+        \\  print(x + y + z)
         \\
     );
     defer std.testing.allocator.free(out);
     try std.testing.expect(std.mem.indexOf(u8, out, "var x: " ++ int_zig ++ " = 1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out, "const y: " ++ int_zig ++ " = 2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "const y: " ++ int_zig ++ " = two()") != null);
+    // A constant initializer is kept out of Zig's compile-time evaluation.
+    try std.testing.expect(std.mem.indexOf(u8, out, "var z: " ++ int_zig ++ " = 5") != null);
     try std.testing.expect(std.mem.indexOf(u8, out, "x = 3;") != null);
 }
 
@@ -3185,6 +3301,6 @@ test "emit: Zig keywords and emitter names are escaped" {
         \\
     );
     defer std.testing.allocator.free(out);
-    try std.testing.expect(std.mem.indexOf(u8, out, "const @\"var\": " ++ int_zig ++ " = 3;") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out, "const @\"rig'\": " ++ int_zig ++ " = 4;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "var @\"var\": " ++ int_zig ++ " = 3;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "var @\"rig'\": " ++ int_zig ++ " = 4;") != null);
 }

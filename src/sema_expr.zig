@@ -1203,6 +1203,12 @@ const Checker = struct {
             .list => |items| {
                 const h = headOf(e) orelse return null;
                 if (h == .@"neg") return std.math.negate(self.constInt(items[1]) orelse return null) catch null;
+                // `a if c else b` with a constant condition: Zig picks the
+                // branch at compile time, so its value is constant.
+                if (h == .@"if" and items.len == 4 and items[3] != .nil) {
+                    const c = self.constBool(items[1]) orelse return null;
+                    return self.constInt(if (c) items[2] else items[3]);
+                }
                 switch (h) {
                     .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {},
                     else => return null,
@@ -1225,6 +1231,41 @@ const Checker = struct {
                     .@"^" => a ^ b,
                     else => null,
                 };
+            },
+            else => return null,
+        }
+    }
+
+    /// The value of a constant Bool expression: literals, `not`, `and`,
+    /// `or`, and comparisons of constant integers.
+    fn constBool(self: *Checker, e: Sexp) ?bool {
+        switch (e) {
+            .src => {
+                const word = self.text(e);
+                if (std.mem.eql(u8, word, "true")) return true;
+                if (std.mem.eql(u8, word, "false")) return false;
+                return null;
+            },
+            .list => |items| {
+                const h = headOf(e) orelse return null;
+                switch (h) {
+                    .@"not" => return !(self.constBool(items[1]) orelse return null),
+                    .@"and" => return (self.constBool(items[1]) orelse return null) and (self.constBool(items[2]) orelse return null),
+                    .@"or" => return (self.constBool(items[1]) orelse return null) or (self.constBool(items[2]) orelse return null),
+                    .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
+                        const a = self.constInt(items[1]) orelse return null;
+                        const b = self.constInt(items[2]) orelse return null;
+                        return switch (h) {
+                            .@"==" => a == b,
+                            .@"!=" => a != b,
+                            .@"<" => a < b,
+                            .@">" => a > b,
+                            .@"<=" => a <= b,
+                            else => a >= b,
+                        };
+                    },
+                    else => return null,
+                }
             },
             else => return null,
         }
@@ -1286,9 +1327,13 @@ const Checker = struct {
         const ty = readValue(self.ctx, try self.synthExpr(items[1]));
         if (self.isPoison(ty)) return ty;
         switch (self.ctx.types.get(ty)) {
-            .int => |info| if (!info.signed) {
-                try self.err(firstSrcPos(items[1]), "cannot negate a value of unsigned type `{s}`", .{try self.tyName(ty)});
-                return self.t().invalid_id;
+            .int => |info| {
+                if (!info.signed) {
+                    try self.err(firstSrcPos(items[1]), "cannot negate a value of unsigned type `{s}`", .{try self.tyName(ty)});
+                    return self.t().invalid_id;
+                }
+                // A constant operand is negated now, so the result must fit.
+                try self.checkLiteralFits(.{ .list = items }, ty);
             },
             .float, .int_literal, .float_literal => {},
             .type_var => |tv| try self.require(tv, .numeric, firstSrcPos(items[1]), "-"),
@@ -1725,7 +1770,14 @@ const Checker = struct {
         if (self.isPoison(obj_ty)) return obj_ty;
         const peeled = types.unwrapReadAccess(self.ctx, obj_ty);
         switch (self.ctx.types.get(peeled)) {
-            .array => |a| return a.elem,
+            .array => |a| {
+                // The length is part of the type, so a constant index is
+                // checked now.
+                if (self.constInt(items[2])) |i| if (i < 0 or i >= a.len) {
+                    try self.err(firstSrcPos(items[2]), "index `{d}` is out of bounds for an array of length {d}", .{ i, a.len });
+                };
+                return a.elem;
+            },
             .slice => |s| return s.elem,
             .string => return self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } }),
             .parameterized_nominal => |pn| if (pn.sym == self.ctx.vec_sym_id and pn.args.len == 1) {
