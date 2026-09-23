@@ -371,7 +371,7 @@ tokens
 @errors
     stmt: "a statement", block: "an indented block", type: "a type"
     expr: "an expression", tail: "an expression", value: "a value"
-    name: "a name", field: "a parameter", member: "a member"
+    field: "a parameter", member: "a member"
     pattern: "a pattern", arm: "a match arm", params: "a parameter list"
     unary: "an operand"
 

@@ -146,6 +146,11 @@ pub const ModuleGraph = struct {
                 self.get(id).state = .failed;
                 return id;
             },
+            error.InputTooLarge => {
+                try self.errorAt(id, .{ .start = 0, .end = 0 }, "source file is too large to parse (4 GiB or more)", .{});
+                self.get(id).state = .failed;
+                return id;
+            },
             else => |e| return e,
         };
         self.get(id).ir = tree;
