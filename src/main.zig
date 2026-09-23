@@ -214,7 +214,7 @@ fn printTree(allocator: std.mem.Allocator, io: std.Io, path: []const u8, source:
     if (stage == .semantic) ir.assertValid(tree, source, path);
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.File.stdout().writer(io, &buffer);
+    var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
     try tree.write(source, &writer.interface);
     try writer.interface.writeAll("\n");
     try writer.interface.flush();
@@ -228,7 +228,7 @@ fn loadProject(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !modu
     try graph.loadRoot(path);
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.File.stderr().writer(io, &buffer);
+    var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
     try graph.writeAllDiagnostics(&writer.interface);
     try writer.interface.flush();
     if (graph.hasErrors()) std.process.exit(1);
@@ -243,7 +243,7 @@ fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
     const pkg = try emitPackage(allocator, io, env, &graph);
 
     var buffer: [4096]u8 = undefined;
-    var writer = std.Io.File.stdout().writer(io, &buffer);
+    var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
     try writer.interface.writeAll(pkg.root_source);
     try writer.interface.flush();
     std.debug.print("note: the package (every module and the runtime, {s}) is in {s}\n", .{ runtime.filename, pkg.dir });

@@ -22,6 +22,11 @@ cmp -s main.zig "$RIG_OUT_DIR/main.zig" || fail "stdout differs from the written
 [[ -f "$RIG_OUT_DIR/shapes.zig" ]] || fail "imported module not written"
 [[ -f "$RIG_OUT_DIR/rig/runtime.zig" ]] || fail "runtime not written"
 
+# Output is streamed: appending to a file appends.
+"$RIG" emit main.rig >>twice.zig 2>/dev/null
+"$RIG" emit main.rig >>twice.zig 2>/dev/null
+expect_eq "$(cat twice.zig)" "$(cat main.zig main.zig)" "emit >> file"
+
 here=$PWD
 (cd "$RIG_OUT_DIR" && ${ZIG:-zig} build-exe main.zig -femit-bin="$here/prog") || fail "the package does not build on its own"
 expect_eq "$(./prog)" "6" "package built with zig build-exe"
