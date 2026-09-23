@@ -235,8 +235,7 @@ fn printTree(allocator: std.mem.Allocator, io: std.Io, path: []const u8, source:
 ///
 ///   (node ID KIND START END)   every node the parser built, with its span
 ///   (role ID ROLE CHILD...)    each non-empty role: a node id, `leaf POS
-///                              LEN`, `tag NAME`, or `(CHILD...)` for a
-///                              list without an id
+///                              LEN`, or `tag NAME`
 fn printFacts(io: std.Io, m: *const modules.Module) !void {
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stdout().writerStreaming(io, &buffer);

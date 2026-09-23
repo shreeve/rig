@@ -987,7 +987,8 @@ pub const Parser = struct {
     //     the last statement of a `fun` body, or of a branch or arm whose
     //     value is used, becomes (neg name).
     //
-    // Every rewritten node keeps its node id, and so its span.
+    // Every rewritten node keeps its node id, and so its span; the new
+    // `captures` node gets its own (`newNode`).
     // -------------------------------------------------------------------------
 
     pub fn rewrite(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
@@ -1018,7 +1019,6 @@ pub const Parser = struct {
         const bars = ir.Lambda.params(node);
         var caps: std.ArrayListUnmanaged(Sexp) = .empty;
         var params: std.ArrayListUnmanaged(Sexp) = .empty;
-        try caps.append(self.allocator(), .{ .tag = .@"captures" });
         for (bars.items()) |e| {
             const is_capture = if (e.kind()) |k| switch (k) {
                 .@"cap_clone", .@"cap_move", .@"cap_weak" => true,
@@ -1034,8 +1034,11 @@ pub const Parser = struct {
             }
             try caps.append(self.allocator(), e);
         }
-        items[slot(.@"lambda", .captures)] = if (caps.items.len > 1) Sexp.listOf(caps.items) else .nil;
-        items[slot(.@"lambda", .params)] = if (params.items.len > 0) .{ .list = parser.List.withId(params.items, bars.list.id) } else .nil;
+        items[ir.slot(.@"lambda", .captures)] = if (caps.items.len > 0) try self.base.newNode(.@"captures", caps.items, .{
+            .start = self.span(caps.items[0]).start,
+            .end = self.span(caps.items[caps.items.len - 1]).end,
+        }) else .nil;
+        items[ir.slot(.@"lambda", .params)] = if (params.items.len > 0) .{ .list = parser.List.withId(params.items, bars.list.id) } else .nil;
     }
 
     /// `sexp` (already walked, so its lists are freshly allocated) is in
@@ -1066,24 +1069,11 @@ pub const Parser = struct {
         const kind = source.kind() orelse return;
         switch (kind) {
             .@"read", .@"write", .@"move" => {
-                items[slot(.@"for", .mode)] = .{ .tag = kind };
-                items[slot(.@"for", .source)] = ir.get(source, .operand);
+                items[ir.slot(.@"for", .mode)] = .{ .tag = kind };
+                items[ir.slot(.@"for", .source)] = ir.get(source, .operand);
             },
             else => {},
         }
-    }
-
-    /// Index of slot role `role` in the items of a node of `kind`: the
-    /// generated accessors read slots but do not export their indices, so
-    /// this asks `ir.get` at compile time which item of a probe node it
-    /// reads.
-    fn slot(comptime kind: Tag, comptime role: parser.Role) usize {
-        return comptime blk: {
-            var probe: [16]Sexp = undefined;
-            probe[0] = .{ .tag = kind };
-            for (probe[1..], 1..) |*p, i| p.* = .{ .src = .{ .pos = i, .len = 0, .id = 0 } };
-            break :blk ir.get(Sexp.listOf(&probe), role).src.pos;
-        };
     }
 };
 
@@ -1191,7 +1181,7 @@ test "parser: for-source sigil moves into the mode slot" {
     try testing.expectEqualStrings("xs", ir.For.source(loop).getText(p.base.source));
 }
 
-test "parser: bar lists split into captures and parameters; rewrites keep node ids" {
+test "parser: bar lists split into captures and parameters, all with node ids" {
     const source = "f = |+c, a| a + c\n";
     var p = Parser.init(testing.allocator, source);
     defer p.deinit();
@@ -1200,10 +1190,15 @@ test "parser: bar lists split into captures and parameters; rewrites keep node i
     const set = ir.Module.decls(tree)[0];
     try testing.expectEqual(ir.Module.decls(raw)[0].list.id, set.list.id);
     const lambda = ir.Set.value(set);
-    try testing.expect(ir.Lambda.captures(lambda).isKind(.@"captures"));
+    const captures = ir.Lambda.captures(lambda);
+    try testing.expect(captures.isKind(.@"captures"));
     try testing.expectEqual(@as(usize, 1), ir.Lambda.params(lambda).items().len);
     const s = p.span(lambda);
     try testing.expectEqualStrings("|+c, a| a + c", source[s.start..s.end]);
+    // The wrapper's `captures` node gets its own id, spanning its entries.
+    try testing.expect(captures.list.id != 0);
+    const cs = p.span(captures);
+    try testing.expectEqualStrings("+c", source[cs.start..cs.end]);
 }
 
 fn parses(source: []const u8) !void {
