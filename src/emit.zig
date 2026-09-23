@@ -1360,7 +1360,7 @@ pub const Emitter = struct {
     };
 
     /// A resource bound by `as`: captured as `tmp`, then owned by a local
-    /// declared at the top of the body.
+    /// declared at the top of the body (or dropped at once for `as _`).
     const OptionalBinding = struct { name: Sexp, tmp: []const u8 };
 
     /// A payload binding local, viewing the scrutinee.
@@ -1412,7 +1412,21 @@ pub const Emitter = struct {
         try self.w.writeAll("(");
         try self.emitBare(cond.list[1]);
         try self.w.writeAll(") ");
-        const sym = self.sema.symbolOf(name).?;
+        const sym = self.sema.symbolOf(name) orelse {
+            // `as _`: a resource inside is dropped at once.
+            const opt = self.typeOf(cond.list[1]) orelse return .{};
+            const inner = switch (self.sema.types.get(self.peelBorrows(opt))) {
+                .optional => |i| i,
+                else => return .{},
+            };
+            if (self.kindOf(inner) == null) {
+                try self.w.writeAll("|_| ");
+                return .{};
+            }
+            const tmp = try self.fmt("__rig_opt_{d}", .{self.nextId()});
+            try self.w.print("|{s}| ", .{tmp});
+            return .{ .optional = .{ .name = .nil, .tmp = tmp } };
+        };
         const ty = self.symType(sym);
         if (ty != null and self.kindOf(ty.?) != null) {
             const tmp = try self.fmt("__rig_opt_{d}", .{self.nextId()});
@@ -1431,6 +1445,10 @@ pub const Emitter = struct {
     /// The owning local of a resource bound by `as`, dropped at the end
     /// of the body unless it is moved out.
     fn bindOptionalResource(self: *Emitter, o: OptionalBinding) Error!void {
+        if (o.name == .nil) {
+            const id = self.nextId();
+            return self.line("var __rig_discard_{d} = {s}; rig.drop(&__rig_discard_{d});", .{ id, o.tmp, id });
+        }
         const sym = self.sema.symbolOf(o.name).?;
         const ty = self.symType(sym).?;
         const kind = self.kindOf(ty).?;

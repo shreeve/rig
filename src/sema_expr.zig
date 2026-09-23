@@ -1447,7 +1447,7 @@ const Checker = struct {
     /// is an ordinary value.
     fn qualifiedMember(self: *Checker, obj: Sexp, field_node: Sexp) Error!?TypeId {
         const name = self.text(obj);
-        const id = self.lookupQuiet(name) orelse return null;
+        const id = self.lookupQuiet(obj) orelse return null;
         const sym = self.ctx.symbols.items[id];
         const field = self.text(field_node);
         const pos = srcPos(field_node, 0);
@@ -1494,8 +1494,21 @@ const Checker = struct {
         }
     }
 
-    fn lookupQuiet(self: *Checker, name: []const u8) ?SymbolId {
-        return self.ctx.lookup(self.scope, name);
+    /// The symbol a name leaf denotes where it is written, without
+    /// diagnostics.
+    fn lookupQuiet(self: *Checker, leaf: Sexp) ?SymbolId {
+        return self.lookupAt(self.scope, self.text(leaf), leaf.src.pos);
+    }
+
+    /// `name` as seen at `pos` from `scope`: declaration order counts.
+    fn lookupAt(self: *Checker, scope: ScopeId, name: []const u8, pos: u32) ?SymbolId {
+        var sid: ?ScopeId = scope;
+        while (sid) |s| {
+            if (s == types.scope_invalid or s >= self.ctx.scopes.items.len) break;
+            if (self.visibleIn(s, name, pos)) |id| return id;
+            sid = self.ctx.scopes.items[s].parent;
+        }
+        return null;
     }
 
     const Foreign = struct {
@@ -1617,7 +1630,7 @@ const Checker = struct {
 
         if (callee == .src) {
             const name = self.text(callee);
-            const id = self.lookupQuiet(name) orelse {
+            const id = self.lookupQuiet(callee) orelse {
                 if (std.mem.eql(u8, name, "print")) return self.checkPrint(args);
                 try self.err(callee.src.pos, "use of unbound name `{s}`", .{name});
                 try self.synthArgs(args);
@@ -1852,7 +1865,7 @@ const Checker = struct {
             .src => {
                 const s = self.text(e);
                 if (isLiteralText(s)) return true;
-                const id = self.ctx.symbolOf(e) orelse (self.lookupQuiet(s) orelse return false);
+                const id = self.ctx.symbolOf(e) orelse (self.lookupQuiet(e) orelse return false);
                 return self.ctx.symbols.items[id].flags.comptime_known;
             },
             .list => |items| {
@@ -1862,7 +1875,7 @@ const Checker = struct {
                     .@"neg", .@"not" => self.isComptimeKnown(items[1]),
                     .@"+", .@"-", .@"*", .@"/", .@"%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => self.isComptimeKnown(items[1]) and self.isComptimeKnown(items[2]),
                     .@"member" => items[1] == .src and blk: {
-                        const id = self.lookupQuiet(self.text(items[1])) orelse break :blk false;
+                        const id = self.lookupQuiet(items[1]) orelse break :blk false;
                         break :blk self.ctx.symbols.items[id].kind == .nominal_type;
                     },
                     else => false,
@@ -2008,7 +2021,7 @@ const Checker = struct {
         const pos = srcPos(name_node, firstSrcPos(obj));
 
         if (obj == .src) {
-            if (self.lookupQuiet(self.text(obj))) |id| {
+            if (self.lookupQuiet(obj)) |id| {
                 const sym = self.ctx.symbols.items[id];
                 switch (sym.kind) {
                     .module => {
@@ -2345,7 +2358,7 @@ const Checker = struct {
                 if (items[1] == .src) {
                     const tt = self.ctx.types.get(target);
                     if (tt == .parameterized_nominal) {
-                        if (self.lookupQuiet(self.text(items[1]))) |id| {
+                        if (self.lookupQuiet(items[1])) |id| {
                             if (id == tt.parameterized_nominal.sym) {
                                 _ = try self.useName(items[1]);
                                 if (id == self.ctx.vec_sym_id) {
@@ -2719,7 +2732,7 @@ const Checker = struct {
         const pos = srcPos(name_node, 0);
         const cap_sym = self.ctx.symbolOf(name_node) orelse return;
 
-        const outer_id = self.ctx.lookup(outer, name) orelse {
+        const outer_id = self.lookupAt(outer, name, pos) orelse {
             try self.err(pos, "captured name `{s}` is not in scope", .{name});
             self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
             return;
@@ -2773,11 +2786,11 @@ const Checker = struct {
         var type_args: []const Sexp = &.{};
         var name_node: Sexp = callee;
         if (callee == .src) {
-            const id = self.lookupQuiet(self.text(callee)) orelse return null;
+            const id = self.lookupQuiet(callee) orelse return null;
             if (id != self.ctx.closure_sym_id) return null;
             sym = id;
         } else if (isHead(callee, .@"call") and callee.list[1] == .src) {
-            const id = self.lookupQuiet(self.text(callee.list[1])) orelse return null;
+            const id = self.lookupQuiet(callee.list[1]) orelse return null;
             if (id != self.ctx.closure1_sym_id and id != self.ctx.closure2_sym_id) return null;
             sym = id;
             type_args = callee.list[2..];
