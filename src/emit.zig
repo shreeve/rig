@@ -139,6 +139,8 @@ pub const Emitter = struct {
     /// The next expression sits in a delimited position (after `=`,
     /// between commas, inside parentheses) and needs no outer parentheses.
     bare: bool = false,
+    /// Sema symbols by declaration position, for `declTy`.
+    decls: std.AutoHashMapUnmanaged(u32, types.SymbolId) = .empty,
     /// Type expected for the expression being emitted, when known
     /// (binding annotation, parameter, field, or return type).
     expected: ?Ty = null,
@@ -167,6 +169,7 @@ pub const Emitter = struct {
         self.module.error_sets.deinit(self.allocator);
         self.fun.mutated.deinit(self.allocator);
         self.fun.consumed.deinit(self.allocator);
+        self.decls.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -188,6 +191,12 @@ pub const Emitter = struct {
 
     fn collectModule(self: *Emitter, decls: []const Sexp) Error!void {
         const a = self.allocator;
+        if (self.sema) |sema| for (sema.symbols.items, 0..) |sym, id| {
+            if (sym.decl_pos == 0) continue;
+            const gop = try self.decls.getOrPut(a, sym.decl_pos);
+            // Keep the first symbol declared at a position.
+            if (!gop.found_existing) gop.value_ptr.* = @intCast(id);
+        };
         try self.module.names.put(a, "std", {});
         try self.module.names.put(a, "rig", {});
         for (decls) |d0| {
@@ -2780,13 +2789,11 @@ pub const Emitter = struct {
     fn declTy(self: *Emitter, name_node: Sexp) ?Ty {
         const sema = self.sema orelse return null;
         if (name_node != .src) return null;
-        const name = self.srcText(name_node);
-        for (sema.symbols.items) |sym| {
-            if (sym.decl_pos != name_node.src.pos or !std.mem.eql(u8, sym.name, name)) continue;
-            if (sym.ty == sema.types.unknown_id or sym.ty == sema.types.invalid_id) return null;
-            return .{ .id = sym.ty };
-        }
-        return null;
+        const id = self.decls.get(name_node.src.pos) orelse return null;
+        const sym = sema.symbols.items[id];
+        if (!std.mem.eql(u8, sym.name, self.srcText(name_node))) return null;
+        if (sym.ty == sema.types.unknown_id or sym.ty == sema.types.invalid_id) return null;
+        return .{ .id = sym.ty };
     }
 
     /// Follow type variables through the substitution.
