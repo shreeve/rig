@@ -745,11 +745,13 @@ const Checker = struct {
         }
         const scrutinee = try self.synthOperand(items[1]);
         const scrut_pos = firstSrcPos(items[1]);
-        switch (self.ctx.types.get(types.unwrapBorrows(self.ctx, scrutinee))) {
-            .string, .optional, .fallible, .shared, .weak, .array, .slice, .float, .function => {
-                try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, integers, and Bool", .{try self.tyName(scrutinee)});
-            },
-            else => {},
+        const matchable = switch (self.ctx.types.get(types.unwrapBorrows(self.ctx, scrutinee))) {
+            .int, .int_literal, .bool, .invalid, .unknown => true,
+            .nominal, .parameterized_nominal => types.enumVariantCount(self.ctx, scrutinee) != null,
+            else => false,
+        };
+        if (!matchable) {
+            try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, integers, and Bool", .{try self.tyName(scrutinee)});
         }
 
         var covered: std.StringHashMapUnmanaged(u32) = .empty;
@@ -1598,6 +1600,10 @@ const Checker = struct {
         const concrete = self.canonical(elem);
         if (concrete != elem) {
             for (elems) |e| try self.checkExpr(e, concrete);
+        }
+        if (types.typeHasDropGlue(self.ctx, concrete)) {
+            try self.err(firstSrcPos(node), "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try self.tyName(concrete)});
+            return self.t().invalid_id;
         }
         return self.ctx.intern(.{ .array = .{ .elem = concrete, .len = elems.len } });
     }

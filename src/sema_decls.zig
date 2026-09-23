@@ -1012,7 +1012,9 @@ pub const TypeResolver = struct {
             .@"return" => if (self.isSelf(items[1])) {
                 try self.ctx.err(items[1].src.pos, "cannot return `self` from its own drop body", .{});
             },
-            .@"set" => try self.checkDropBodyField(items[2], fields, "reassign"),
+            .@"set" => if (self.isSelf(items[2])) {
+                try self.ctx.err(items[2].src.pos, "cannot reassign `self` inside its own drop body; dropping the old value would run this body again", .{});
+            } else try self.checkDropBodyField(items[2], fields, "reassign"),
             else => {},
         }
         for (items[1..]) |c| try self.enforceDropBody(c, fields);
@@ -1113,7 +1115,12 @@ pub const TypeResolver = struct {
                             try self.ctx.err(firstSrcPos(items[1]), "array length must be an integer literal", .{});
                             return t.invalid_id;
                         };
-                        return self.ctx.intern(.{ .array = .{ .elem = try self.resolveType(items[2]), .len = len } });
+                        const elem = try self.resolveType(items[2]);
+                        if (types.typeHasDropGlue(self.ctx, elem)) {
+                            try self.ctx.err(firstSrcPos(items[2]), "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try types.formatType(self.ctx, elem)});
+                            return t.invalid_id;
+                        }
+                        return self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
                     },
                     .@"fun_type" => {
                         var ps: std.ArrayListUnmanaged(TypeId) = .empty;

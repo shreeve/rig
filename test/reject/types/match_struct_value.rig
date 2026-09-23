@@ -1,0 +1,11 @@
+# `match` works on enums, integers, and Bool, not on structs.
+
+struct P
+  n: Int
+
+sub main()
+  p = P(n: 1)
+  match p
+    x => print(x.n)
+
+# error: cannot `match` on a value of type `P`
