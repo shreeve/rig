@@ -140,11 +140,17 @@ const Var = struct {
     via: Via = .owned,
 };
 
+const ScopeKind = enum {
+    block,
+    /// A function body. Module-level names stay visible through it.
+    function,
+    /// A closure body: locals of enclosing functions must be captured.
+    closure,
+};
+
 const Scope = struct {
     start: u32,
-    /// Function or closure boundary: names above it are not visible as
-    /// locals of the body.
-    barrier: bool,
+    kind: ScopeKind,
     defers: std.ArrayListUnmanaged(Sexp) = .empty,
 };
 
@@ -254,7 +260,7 @@ pub const Checker = struct {
             .arena_state = std.heap.ArenaAllocator.init(allocator),
             .source = source,
         };
-        try c.scopes.append(allocator, .{ .start = 0, .barrier = true });
+        try c.scopes.append(allocator, .{ .start = 0, .kind = .function });
         return c;
     }
 
@@ -358,8 +364,8 @@ pub const Checker = struct {
     // Vars and scopes
     // -------------------------------------------------------------------------
 
-    fn pushScope(self: *Checker, barrier: bool) Error!void {
-        try self.scopes.append(self.gpa, .{ .start = @intCast(self.vars.items.len), .barrier = barrier });
+    fn pushScope(self: *Checker, kind: ScopeKind) Error!void {
+        try self.scopes.append(self.gpa, .{ .start = @intCast(self.vars.items.len), .kind = kind });
     }
 
     /// Leave the innermost scope: run its defers, check that nothing that
@@ -415,8 +421,8 @@ pub const Checker = struct {
 
     const Found = struct { id: VarId, crossed: bool };
 
-    /// Find the innermost var named `name`, noting whether the search
-    /// crossed a function or closure boundary.
+    /// Find the innermost var named `name`. `crossed` is set when it is a
+    /// local of a function enclosing the current closure body.
     fn find(self: *const Checker, name: []const u8) ?Found {
         if (name.len == 0) return null;
         var crossed = false;
@@ -432,12 +438,17 @@ pub const Checker = struct {
             var i = end;
             while (i > sc.start) {
                 i -= 1;
-                if (std.mem.eql(u8, self.vars.items[i].name, name)) return .{ .id = @intCast(i), .crossed = crossed };
+                if (std.mem.eql(u8, self.vars.items[i].name, name)) return .{ .id = @intCast(i), .crossed = crossed and si > 0 };
             }
             end = sc.start;
-            if (sc.barrier) crossed = true;
+            if (sc.kind == .closure) crossed = true;
         }
         return null;
+    }
+
+    /// A module-level binding seen from inside a function body.
+    fn isGlobal(self: *const Checker, id: VarId) bool {
+        return self.scopes.items.len > 1 and id < self.scopes.items[1].start;
     }
 
     /// Resolve a value-position name. A local of an enclosing function
@@ -623,7 +634,7 @@ pub const Checker = struct {
         self.try_ctx = null;
         self.reachable = true;
 
-        try self.pushScope(true);
+        try self.pushScope(.function);
         if (params == .list) for (params.list) |p| try self.bindParam(p);
         try self.walkBody(body[0], returns_value);
         try self.popScope();
@@ -714,7 +725,7 @@ pub const Checker = struct {
     /// Walk a `(block ...)` in its own scope; its value is the value of
     /// its last statement, which may not borrow the block's own locals.
     fn walkBlock(self: *Checker, stmts: []const Sexp) Error!Value {
-        try self.pushScope(false);
+        try self.pushScope(.block);
         var v: Value = .{};
         for (stmts, 0..) |s, i| {
             if (!self.reachable) break;
@@ -1040,6 +1051,7 @@ pub const Checker = struct {
         }
         const value = self.varValue(id);
         if (self.isCopy(v.ty)) return value;
+        if (try self.rejectGlobal(id, pos, vt)) return .{};
 
         if (v.alias_of) |root| return self.movePayload(id, root, pos, value);
 
@@ -1132,6 +1144,15 @@ pub const Checker = struct {
         return false;
     }
 
+    /// A module-level binding outlives every call of the function using
+    /// it: a function cannot consume or replace it.
+    fn rejectGlobal(self: *Checker, id: VarId, pos: u32, op: []const u8) Error!bool {
+        if (!self.isGlobal(id)) return false;
+        const name = self.vars.items[id].name;
+        try self.err(pos, "cannot {s} module-level `{s}` inside a function; later calls would still use it", .{ op, name });
+        return true;
+    }
+
     fn walkCloneWeak(self: *Checker, items: []const Sexp) Error!Value {
         if (items.len < 2) return .{};
         const inner = items[1];
@@ -1165,6 +1186,7 @@ pub const Checker = struct {
             try self.err(pos, "cannot drop borrowed parameter `{s}`; the caller owns it", .{name});
             return;
         }
+        if (try self.rejectGlobal(id, pos, "drop")) return;
         switch (self.flows.items[id].status) {
             .live => {},
             .moved => {
@@ -1358,6 +1380,7 @@ pub const Checker = struct {
             return;
         }
         if (try self.rejectBorrowedView(id, pos, "reassign")) return;
+        if (!self.isCopy(v.ty) and try self.rejectGlobal(id, pos, "reassign")) return;
         if (v.alias_of != null and !self.isCopy(v.ty)) {
             try self.err(pos, "cannot reassign match binding `{s}`; it views the matched value", .{v.name});
             return;
@@ -1374,6 +1397,7 @@ pub const Checker = struct {
         if (self.diagnostics.items.len != before and self.quiet == 0) return;
         const v = self.vars.items[id];
         if (v.closure or v.fixed or v.loop_borrow or v.capture_resource) return;
+        if (self.isGlobal(id) and !self.isCopy(v.ty)) return;
         if (self.findLoan(id, .any, null) != null) return;
         // The old value is dropped (if still owned) and the binding is
         // live again with the new value.
@@ -1546,7 +1570,7 @@ pub const Checker = struct {
         self.loop = null;
         self.try_ctx = null;
         self.reachable = true;
-        try self.pushScope(true);
+        try self.pushScope(.closure);
         for (caps, cap_values.items) |cap, cv| {
             if (cap != .list or cap.list.len < 2 or cap.list[0] != .tag or cap.list[1] != .src) continue;
             const node = cap.list[1];
@@ -1700,7 +1724,7 @@ pub const Checker = struct {
         const v1 = try self.walk(items[1]);
         const base = try self.snapshot();
         const handler = items[items.len - 1];
-        try self.pushScope(false);
+        try self.pushScope(.block);
         if (items.len >= 4 and items[2] == .src) {
             _ = try self.addVar(.{ .name = self.text(items[2]), .decl = items[2].src.pos, .ty = self.symType(items[2].src.pos) }, .{});
         }
@@ -1736,7 +1760,6 @@ pub const Checker = struct {
             };
         }
         const scrut_value = try self.walk(scrut);
-        const scrut_ty = self.exprType(node);
 
         const base = try self.snapshot();
         var acc: ?State = null;
@@ -1748,7 +1771,7 @@ pub const Checker = struct {
             const guard: Sexp = if (arm.list.len >= 4) arm.list[2] else .nil;
             const body = arm.list[arm.list.len - 1];
             try self.restore(base);
-            try self.pushScope(false);
+            try self.pushScope(.block);
             if (try self.bindPattern(pattern, info, scrut_value)) catch_all = true;
             if (guard != .nil) _ = try self.walk(guard);
             var v = try self.walk(body);
@@ -1758,8 +1781,8 @@ pub const Checker = struct {
             const s = try self.snapshot();
             acc = if (acc) |a| try self.join(a, s) else s;
         }
-        // A match that may fall through leaves the entry state possible.
-        if (!catch_all and !self.isEnum(scrut_ty)) acc = if (acc) |a| try self.join(a, base) else base;
+        // Without a catch-all arm, no arm may run.
+        if (!catch_all) acc = if (acc) |a| try self.join(a, base) else base;
         try self.restore(acc orelse base);
         return value;
     }
@@ -1770,11 +1793,11 @@ pub const Checker = struct {
             .src => {
                 const name = self.text(pattern);
                 if (std.mem.eql(u8, name, "_") or std.mem.eql(u8, name, "else")) return true;
-                if (self.find(name) == null or !isIdentStart(name[0])) {
-                    try self.bindPayload(pattern, info, scrut_value);
-                    return true;
-                }
-                return false;
+                // Literal patterns match one value; an identifier binds the
+                // whole scrutinee and matches everything.
+                if (!isIdentStart(name[0]) or std.mem.eql(u8, name, "true") or std.mem.eql(u8, name, "false")) return false;
+                try self.bindPayload(pattern, info, scrut_value);
+                return true;
             },
             .list => |items| {
                 if (items.len >= 2 and items[0] == .tag and items[0].tag == .@"variant_pattern") {
@@ -1920,7 +1943,7 @@ pub const Checker = struct {
         if (spec.cond) |c| try self.walkStmt(c);
         const exit = if (spec.cond_always_true) try self.unreachableState() else try self.snapshot();
 
-        try self.pushScope(false);
+        try self.pushScope(.block);
         try self.bindLoopElems(spec);
         try self.walkStmt(spec.body);
         try self.popScope();
@@ -2006,7 +2029,7 @@ pub const Checker = struct {
         if (items.len >= 3 and isTag(items[2], .@"catch_block") and items[2].list.len >= 3) {
             const cb = items[2].list;
             try self.restore(fail);
-            try self.pushScope(false);
+            try self.pushScope(.block);
             if (cb[1] == .src) _ = try self.addVar(.{ .name = self.text(cb[1]), .decl = cb[1].src.pos, .ty = self.symType(cb[1].src.pos) }, .{});
             try self.walkStmt(cb[2]);
             try self.popScope();
@@ -2070,7 +2093,7 @@ pub const Checker = struct {
         while (si > scope_depth) {
             si -= 1;
             if (self.scopes.items[si].defers.items.len > 0) try self.runDefers(si);
-            if (self.scopes.items[si].barrier) break;
+            if (self.scopes.items[si].kind != .block) break;
         }
     }
 
@@ -2138,18 +2161,6 @@ pub const Checker = struct {
             .bool, .int, .float, .string, .int_literal, .float_literal => true,
             else => false,
         };
-    }
-
-    fn isEnum(self: *const Checker, ty: ?TypeId) bool {
-        const sema = self.sema orelse return false;
-        const t = ty orelse return false;
-        const sid = switch (sema.types.get(types.unwrapBorrows(sema, t))) {
-            .nominal => |s| s,
-            .parameterized_nominal => |pn| pn.sym,
-            else => return false,
-        };
-        for (sema.symbols.items[sid].fields orelse &.{}) |f| if (f.is_variant) return true;
-        return false;
     }
 
     fn isResourceVec(self: *const Checker, ty: ?TypeId) bool {
@@ -2823,4 +2834,34 @@ test "move inside try is seen by catch" {
         \\    look(?rc)
         \\
     , "use of `rc` after move");
+}
+
+test "a match without a catch-all arm may run no arm" {
+    try expectError(
+        \\sub go(n: Int)
+        \\  rc = make()
+        \\  eat(<rc)
+        \\  match n
+        \\    1 => rc = make()
+        \\    2 => rc = make()
+        \\  look(?rc)
+        \\
+    , "use of `rc` after move");
+}
+
+test "module-level bindings are visible in functions but cannot be consumed" {
+    try expectClean(
+        \\limit = make()
+        \\
+        \\sub main()
+        \\  look(?limit)
+        \\
+    );
+    try expectError(
+        \\limit = make()
+        \\
+        \\sub main()
+        \\  eat(<limit)
+        \\
+    , "cannot move module-level `limit` inside a function");
 }
