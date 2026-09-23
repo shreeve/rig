@@ -1,0 +1,17 @@
+# Dropping a `*(*T)` drops the inner handle too.
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+sub main()
+  inner = *Noisy(id: 4)
+  outer = *(<inner)
+  print("wrapped")
+  # scope exit drops `outer`, which drops the inner handle: prints 4
+
+# expect:
+# wrapped
+# 4

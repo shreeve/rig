@@ -1,0 +1,13 @@
+# `continue if c` skips the rest of the body only when `c` holds.
+
+sub main()
+  i = 0
+  while i < 6
+    i += 1
+    continue if i < 4
+    print(i)
+
+# expect:
+# 4
+# 5
+# 6

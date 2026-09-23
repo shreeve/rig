@@ -1,0 +1,21 @@
+# Field reads and method calls through a struct's shared-handle field
+# (`p.a.n`, `p.a.twice()`) auto-dereference the handle.
+
+struct Box
+  n: Int
+
+  fun twice(self: ?Box) -> Int
+    self.n * 2
+
+struct Pair
+  a: *Box
+
+sub main()
+  b = *Box(n: 4)
+  p = Pair(a: <b)
+  print(p.a.n)
+  print(p.a.twice())
+
+# expect:
+# 4
+# 8

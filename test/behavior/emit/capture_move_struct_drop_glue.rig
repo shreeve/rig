@@ -1,0 +1,21 @@
+# A closure that move-captures a struct with drop glue owns it: the
+# struct is dropped when the closure leaves scope, not at the move.
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+sub main()
+  n = Noisy(id: 7)
+  f = |<n|
+    print(n.id + 1)
+  f()
+  print("end")
+  # scope exit drops `f`, which drops the captured Noisy: prints 7
+
+# expect:
+# 8
+# end
+# 7

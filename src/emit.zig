@@ -1,21 +1,25 @@
-//! Rig Zig Emitter (M3).
+//! Zig code generation.
 //!
-//! Lowers the normalized semantic IR (from `rig.Parser`) to Zig 0.16
-//! source. Boring lowering first; clever later.
+//! Lowers the semantic IR (`docs/IR.md`) of one checked module to Zig
+//! 0.16 source. The program has already passed sema, effects, and
+//! ownership checking; this pass only chooses a representation:
 //!
-//! Per GPT-5.5 review:
-//!   - `print x` lowers to `rig.print("{s}\n", .{x})` (stdout) for strings,
-//!     `{any}` otherwise.
-//!   - `(set x e)` first occurrence in fn scope → `var x = e;` ; rebind
-//!     → `x = e;`. Tracked via per-scope symbol table.
-//!   - `(shadow x e)` always emits a fresh Zig symbol (`x_1`, `x_2`, ...)
-//!     because Zig forbids name shadowing.
-//!   - `(fixed_bind x e)` / `(typed_fixed x T e)` → `const`.
-//!   - `(propagate e)` → `try e`.
-//!   - `(try_block ...)` value-yielding form: emitter unsupported in MVP.
-//!   - Ownership wrappers (`(read x)`, `(write x)`, `(move x)`, `(clone x)`)
-//!     just emit the inner expression for V1 — semantics are enforced by
-//!     M2 and Zig's regular semantics handle the runtime side.
+//! - A binding is `const` unless it is reassigned, write-borrowed,
+//!   field-assigned, or has a type whose methods take `*Self`.
+//! - A resource binding (`*T`, `~T`, a value with drop glue, or an
+//!   optional of one) is dropped at scope exit by a `defer`. When the
+//!   function may move, drop, or return the binding, the defer tests a
+//!   `__rig_alive_<name>` flag, and the consuming site clears it.
+//! - `!T` parameters, `!self` receivers, and borrow bindings are
+//!   pointers; reads go through `.*`.
+//! - A Rig name that is a Zig keyword or would shadow another visible
+//!   Zig name is renamed.
+//!
+//! Names resolve through the emitter's scope stack, which mirrors Rig's
+//! block scoping and records each binding's sema type, so auto-deref,
+//! print formats, and drop decisions follow the binding actually in
+//! scope. Anything the emitter cannot lower is an internal error: sema
+//! must reject it first.
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -24,61 +28,94 @@ const types = @import("types.zig");
 
 const Sexp = parser.Sexp;
 const Tag = rig.Tag;
-const BindingKind = rig.BindingKind;
 const Writer = std.Io.Writer;
 
-pub const Error = std.mem.Allocator.Error || Writer.Error || rig.BindingKindError;
+pub const Error = std.mem.Allocator.Error || Writer.Error || rig.BindingKindError || error{Unsupported};
 
-/// M20e: classification of a binding's resource type. File-scope so
-/// the SymbolEntry / scope-table can carry it without a circular ref.
-/// M20e + M20i: resource-bearing binding classification. Used by
-/// `emitResourceGuard` (to install scope-exit defers) and the
-/// disarm logic at explicit-discharge sites (`-rc`, `<rc`, return).
-///
-/// - `.shared`: `*T` strong handle — drops via `dropStrong()`.
-/// - `.weak`:   `~T` weak handle — drops via `dropWeak()`.
-/// - `.vec_value`: M20i `Vec(T)` resource value — drops via
-///   `__rig_drop()`. Vec owns a backing buffer; the destructor
-///   walks elements + frees buffer. Distinct from `.shared` /
-///   `.weak` because Vec is a VALUE type (not a handle) and the
-///   stack-local binding is the owner, not a reference.
-pub const ResourceKind = enum { shared, weak, vec_value };
-
-const SymbolEntry = struct {
-    rig_name: []const u8,
-    zig_name: []const u8, // may differ from rig_name due to shadowing
-    /// M20e.1: resource classification carried in the emitter's scope
-    /// table so use-site disarm (`<rc`, `-rc`, `return rc`) and the
-    /// auto-deref bridge can dispatch correctly under shadowing. The
-    /// original M20e(1/5) implementation used a global symbol scan
-    /// (`resourceKindOfBareUse`) which first-match-wins picked the
-    /// wrong binding when the same name was reused across functions
-    /// — and for auto-drop disarm that's a memory-safety bug (a
-    /// returned handle could be dropped by the function defer if the
-    /// disarm missed). Per GPT-5.5's M20e post-implementation review:
-    /// scoped emitter metadata is the correct phase to carry this.
-    resource_kind: ?ResourceKind = null,
-    /// M20g(3/5): set on a binding produced by `f = |...| body`.
-    /// `emitCall` consults this when the callee resolves to such a
-    /// binding and emits `<zig_name>.invoke(args)` instead of the
-    /// regular `<zig_name>(args)`. Closure bindings emit as Zig
-    /// `var` (the invoke method takes `self: *@This()`); the
-    /// ownership pass enforces the V1 non-copyability so the
-    /// emitter doesn't need to defend against rebinds.
-    is_closure: bool = false,
-
-    /// M20h(4/5): set on a binding produced by
-    /// `cb = *Closure(|...| body)`. Distinct from `is_closure`:
-    /// the binding is an ordinary `*T` shared handle (auto-drop,
-    /// clone, weak-ref all flow through the usual `*T` paths), but
-    /// the call rewrite is different (`cb()` → `cb.value.invoke()`
-    /// instead of `cb.invoke()`) because the closure value is
-    /// inside an `RcBox` payload, not a direct struct.
-    is_owned_closure: bool = false,
+/// How a resource binding is released.
+const ResourceKind = enum {
+    /// `*T`: `x.dropStrong()`.
+    shared,
+    /// `~T`: `x.dropWeak()`.
+    weak,
+    /// A value with drop glue (`Vec`, a struct owning resources, ...):
+    /// `rig.drop(&x)`. Needs `var` storage.
+    value,
+    /// An optional resource such as `(*T)?`: `rig.drop(&x)`. Needs `var`.
+    optional,
 };
 
-const ScopeFrame = struct {
-    symbols: std.ArrayListUnmanaged(SymbolEntry),
+/// How a binding's scope-exit drop is armed.
+const Guard = enum {
+    /// Not dropped here (plain data, borrows, captures, loop elements).
+    none,
+    /// Always dropped at scope exit: `defer x.dropStrong();`.
+    scope,
+    /// Dropped at scope exit unless consumed first.
+    flag,
+};
+
+const Callable = enum { none, stack_closure, owned_closure };
+
+/// A sema type, plus the generic substitution in effect where it was
+/// found (a field of `Box(Int)` is `T` under `T := Int`).
+const Ty = struct {
+    id: types.TypeId,
+    subst: types.TypeSubst = .empty,
+};
+
+const Local = struct {
+    rig_name: []const u8,
+    /// The Zig spelling: a renamed or escaped identifier, or a path such
+    /// as `self.cap_x` for a closure capture.
+    zig_name: []const u8,
+    ty: ?Ty = null,
+    kind: ?ResourceKind = null,
+    guard: Guard = .none,
+    /// `zig_name` holds a pointer to the Rig value.
+    is_ptr: bool = false,
+    callable: Callable = .none,
+    /// Return type of a stack closure.
+    ret: ?Ty = null,
+    /// Name of the alive flag when `guard == .flag`.
+    flag: []const u8 = "",
+};
+
+const Scope = struct {
+    locals: std.ArrayListUnmanaged(Local) = .empty,
+};
+
+/// Declarations visible across the whole module.
+const ModuleInfo = struct {
+    /// Every module-level Zig name, which locals must not shadow.
+    names: std.StringHashMapUnmanaged(void) = .empty,
+    /// Parameter lists of top-level functions, for keyword arguments.
+    funs: std.StringHashMapUnmanaged(Sexp) = .empty,
+    /// Parameter lists of methods, keyed `Type.method`.
+    methods: std.StringHashMapUnmanaged(Sexp) = .empty,
+    /// Names of `error` sets, whose members are spelled `error.x`.
+    error_sets: std.StringHashMapUnmanaged(void) = .empty,
+};
+
+/// State for the function whose body is being emitted.
+const FunState = struct {
+    /// Declaration positions of bindings that need Zig `var`.
+    mutated: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// Names the function may move, drop, or return. A resource binding
+    /// with one of these names needs an alive flag.
+    consumed: std.StringHashMapUnmanaged(void) = .empty,
+    /// Declared return type, for error-set literals.
+    returns: ?Sexp = null,
+    return_ty: ?Ty = null,
+    /// Parameters to bind at the top of the body.
+    params: ?Sexp = null,
+    leak_check: bool = false,
+};
+
+const Nominal = struct {
+    /// How `Self` is spelled: the type name, or `Self` inside a generic.
+    name: []const u8,
+    members: []const Sexp,
 };
 
 pub const Emitter = struct {
@@ -86,94 +123,35 @@ pub const Emitter = struct {
     source: []const u8,
     w: *Writer,
     indent: u32 = 0,
-
-    /// All emitter-allocated strings (currently just `freshShadow`'s
-    /// generated `x_<n>` names) live in this arena. `deinit` frees the
-    /// whole arena in one call, so we don't need per-allocation
-    /// bookkeeping. Without this, `freshShadow` allocations leaked under
-    /// the test allocator (the CLI's outer arena masked the bug).
-    name_arena: std.heap.ArenaAllocator,
-
-    /// Stack of per-block scope frames. Symbol lookup walks up.
-    scopes: std.ArrayListUnmanaged(ScopeFrame) = .empty,
-
-    /// Counter for shadow-renames: each `new x = ...` gets `x_<n>`.
-    shadow_counter: u32 = 0,
-
-    /// Counter for labeled-block labels used when lowering value-position
-    /// constructs (currently `if`-as-expression). Each labeled block gets
-    /// a unique `rig_blk_<n>` label so nested expressions never shadow.
-    /// See `emitBranchExpr`.
-    block_label_counter: u32 = 0,
-
-    /// M20h(4/5): counter for owned-closure construction sites. Each
-    /// `*Closure(|...| body)` literal generates a unique anonymous
-    /// env struct + a labeled block to construct + initialize it. The
-    /// counter prevents label / type-name collisions when multiple
-    /// closure literals appear in the same function.
-    closure_env_counter: u32 = 0,
-
-    /// Per-function pre-scan: names that are reassigned in the body,
-    /// so they need `var` instead of `const` in Zig. Reset at the
-    /// start of each `emitFun`.
-    fn_mutated: std.StringHashMapUnmanaged(void) = .{},
-
-    /// True iff THIS function's declared return type is `(error_union T)`
-    /// — set per-function in `emitFun` from the IR, NOT from body
-    /// inspection. The effects checker (src/effects.zig) is responsible
-    /// for ensuring body-level fallibility matches the declaration.
-    fn_is_fallible: bool = false,
-
-    /// Optional sema context. When wired, `emitCall` consults sema's
-    /// symbol table to decide whether `Foo(...)` should lower to a
-    /// Zig struct literal (`Foo{ ... }`) or a function call (`Foo(...)`)
-    /// based on whether `Foo` resolves to a nominal type vs a function.
-    /// Without sema, falls back to the kwarg-presence heuristic that
-    /// the M3/M4 emitter shipped with.
+    /// Generated names and other emit-lifetime allocations.
+    arena: std.heap.ArenaAllocator,
     sema: ?*const types.SemContext = null,
 
-    /// M20a: name of the enclosing nominal when emitting a method body
-    /// (or its signature), so `Self` in type position substitutes to
-    /// the nominal's name. Null when not inside a nominal body.
-    current_nominal_name: ?[]const u8 = null,
-
-    /// M20e: parameter list for the function whose body we're about
-    /// to emit. The body emit (`emitBlock` / `emitFunBody`) consumes
-    /// this once, right after writing the open brace, to install
-    /// `__rig_alive_<param>` guards + `defer` for each resource-typed
-    /// parameter. Set by `emitFun` before delegating to the body
-    /// emitter; cleared by whichever body emitter consumed it.
-    pending_param_guards: ?Sexp = null,
-
-    /// Set by `emitFun` for the top-level `main`; the body emitter
-    /// consumes it right after the open brace to install
-    /// `defer rig.checkLeaks();`, which runs after every other
-    /// scope-exit drop in `main`.
-    pending_leak_check: bool = false,
-
-    /// M20f(3/4): the LHS type annotation Sexp currently being emitted
-    /// into, threaded by `emitSetOrBind` so deep emit paths can
-    /// recover the expected target type without re-walking sema. The
-    /// `(share x)` emit needs this when `x` is a built-in nominal
-    /// constructor (e.g., `Cell(value: 0)`) — without an explicit
-    /// type on the struct literal, `rig.rcNew(anytype)` infers a
-    /// synthetic comptime struct instead of `rig.Cell(T)`. Saved/
-    /// restored on entry/exit of `emitSetOrBind` to keep nested
-    /// bindings sound.
-    current_set_type: ?Sexp = null,
+    scopes: std.ArrayListUnmanaged(Scope) = .empty,
+    /// Suffix source for generated labels, temporaries, and renames.
+    counter: u32 = 0,
+    module: ModuleInfo = .{},
+    fun: FunState = .{},
+    nominal: ?Nominal = null,
+    /// Statements after the one being emitted in the current block;
+    /// decides whether a new binding needs `_ = x;`.
+    rest: []const Sexp = &.{},
+    /// The next expression sits in a delimited position (after `=`,
+    /// between commas, inside parentheses) and needs no outer parentheses.
+    bare: bool = false,
+    /// Type expected for the expression being emitted, when known
+    /// (binding annotation, parameter, field, or return type).
+    expected: ?Ty = null,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, w: *Writer) Emitter {
         return .{
             .allocator = allocator,
             .source = source,
             .w = w,
-            .name_arena = std.heap.ArenaAllocator.init(allocator),
+            .arena = std.heap.ArenaAllocator.init(allocator),
         };
     }
 
-    /// Constructor that wires the sema context. Use this from the CLI
-    /// pipeline so emit decisions consult the authoritative symbol
-    /// table instead of relying on syntactic heuristics.
     pub fn initWithSema(allocator: std.mem.Allocator, source: []const u8, w: *Writer, sema: *const types.SemContext) Emitter {
         var e = init(allocator, source, w);
         e.sema = sema;
@@ -181,1581 +159,2349 @@ pub const Emitter = struct {
     }
 
     pub fn deinit(self: *Emitter) void {
-        for (self.scopes.items) |*s| s.symbols.deinit(self.allocator);
+        for (self.scopes.items) |*s| s.locals.deinit(self.allocator);
         self.scopes.deinit(self.allocator);
-        self.fn_mutated.deinit(self.allocator);
-        self.name_arena.deinit();
+        self.module.names.deinit(self.allocator);
+        self.module.funs.deinit(self.allocator);
+        self.module.methods.deinit(self.allocator);
+        self.module.error_sets.deinit(self.allocator);
+        self.fun.mutated.deinit(self.allocator);
+        self.fun.consumed.deinit(self.allocator);
+        self.arena.deinit();
     }
 
     pub fn emit(self: *Emitter, sexp: Sexp) Error!void {
         try self.w.writeAll("const std = @import(\"std\");\n");
-        // M20d: every emitted module imports the Rig runtime as a
-        // sibling file (`_runtime.zig`), regardless of whether it
-        // uses `*T`/`~T`. Top-level unused namespace imports are
-        // permitted by Zig, so an unused `rig` reference is harmless.
-        // The driver writes the runtime to the same dir for `run` /
-        // multi-file `build`; single-file `build` emits to stdout and
-        // the runtime file is the caller's responsibility (`bin/rig
-        // run` is the supported execution path).
-        //
-        // M22.1.1: renamed from `_rig_runtime.zig` per Steve — the
-        // `_` prefix already says "internal"; the `rig_` was
-        // redundant inside an output dir literally named `rig_<name>/`.
         try self.w.writeAll("const rig = @import(\"_runtime.zig\");\n");
-        if (sexp == .list and sexp.list.len > 0 and sexp.list[0] == .tag and
-            sexp.list[0].tag == .@"module")
-        {
-            for (sexp.list[1..]) |child| {
-                try self.w.writeAll("\n");
-                try self.emitDecl(child);
+        if (!isTagged(sexp, .@"module")) return;
+        const decls = sexp.list[1..];
+        try self.collectModule(decls);
+        for (decls) |decl| {
+            try self.w.writeAll("\n");
+            try self.emitDecl(decl, false);
+        }
+    }
+
+    // =========================================================================
+    // Module-level declarations
+    // =========================================================================
+
+    fn collectModule(self: *Emitter, decls: []const Sexp) Error!void {
+        const a = self.allocator;
+        try self.module.names.put(a, "std", {});
+        try self.module.names.put(a, "rig", {});
+        for (decls) |d0| {
+            const d = unwrapPub(d0);
+            if (d != .list or d.list.len < 2 or d.list[0] != .tag) continue;
+            const items = d.list;
+            switch (items[0].tag) {
+                .@"fun", .@"sub", .@"extern_fun", .@"extern_sub" => {
+                    const name = self.text(items[1]) orelse continue;
+                    try self.module.names.put(a, name, {});
+                    if (items.len >= 3) try self.module.funs.put(a, name, items[2]);
+                },
+                .@"extern" => if (items.len >= 3) {
+                    if (self.text(items[2])) |name| try self.module.names.put(a, name, {});
+                },
+                .@"use", .@"type", .@"opaque" => {
+                    if (self.text(items[1])) |name| try self.module.names.put(a, name, {});
+                },
+                .@"struct", .@"enum", .@"errors", .@"generic_type", .@"generic_enum" => {
+                    const name = self.text(items[1]) orelse continue;
+                    try self.module.names.put(a, name, {});
+                    if (items[0].tag == .@"errors") try self.module.error_sets.put(a, name, {});
+                    for (items[2..]) |m| {
+                        if (!isTagged(m, .@"fun") and !isTagged(m, .@"sub")) continue;
+                        if (m.list.len < 3) continue;
+                        const mname = self.text(m.list[1]) orelse continue;
+                        const key = try std.fmt.allocPrint(self.arena.allocator(), "{s}.{s}", .{ name, mname });
+                        try self.module.methods.put(a, key, m.list[2]);
+                    }
+                },
+                .@"set" => if (items.len >= 3) {
+                    if (self.text(items[2])) |name| try self.module.names.put(a, name, {});
+                },
+                else => {},
             }
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Top-level declarations
-    // -------------------------------------------------------------------------
-
-    fn emitDecl(self: *Emitter, sexp: Sexp) Error!void {
-        if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return;
+    fn emitDecl(self: *Emitter, sexp: Sexp, is_pub: bool) Error!void {
+        if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return self.unsupported(sexp, "this top-level form");
         const items = sexp.list;
         switch (items[0].tag) {
+            // Every declaration is emitted `pub`, so `pub` adds nothing.
+            .@"pub" => if (items.len >= 2) try self.emitDecl(items[1], true),
             .@"fun" => try self.emitFun(items, false),
             .@"sub" => try self.emitFun(items, true),
-            // M23: body-less extern function/sub declarations lower
-            // to Zig `extern fn name(...) ReturnType;` at module
-            // scope. The default extern calling convention is C-
-            // compatible (matches Zig's `extern fn` default).
             .@"extern_fun" => try self.emitExternFun(items, false),
             .@"extern_sub" => try self.emitExternFun(items, true),
+            .@"extern" => try self.emitExternDecl(sexp),
             .@"use" => try self.emitUse(items),
             .@"struct" => try self.emitStruct(items),
             .@"enum" => try self.emitEnum(items),
             .@"errors" => try self.emitErrorSet(items),
             .@"generic_type" => try self.emitGenericType(items),
             .@"generic_enum" => try self.emitGenericEnum(items),
-            .@"pub" => {
-                // V1: Rig has no module system, so functions are public by
-                // default and `emitFun` always prefixes `pub`. The explicit
-                // `(pub child)` wrapper is therefore redundant — strip it
-                // and recurse without injecting another `pub` (the prior
-                // `try writeAll("pub ")` here produced `pub pub fn ...`).
-                if (items.len >= 2) try self.emitDecl(items[1]);
+            .@"type" => try self.emitTypeAlias(items),
+            .@"opaque" => {
+                const name = self.text(items[1]) orelse return self.unsupported(sexp, "this opaque declaration");
+                try self.w.print("pub const {f} = opaque {{}};\n", .{self.ident(name)});
             },
-            else => try self.emitUnsupported("top-level decl"),
+            .@"test" => try self.emitTest(items),
+            .@"set" => try self.emitModuleConst(sexp),
+            else => return self.unsupported(sexp, "this top-level form"),
         }
-    }
-
-    /// `(struct Name (: field type) ... (fun method ...) ...)` →
-    /// Zig `const Name = struct { ... };`. M12: method members
-    /// (`fun`/`sub`) emit as `pub fn` declarations inside the
-    /// struct's body so they're callable as `Name.method(args)`.
-    /// Method bodies aren't yet sema-checked but lower as-is via
-    /// the existing `emitFun` path.
-    fn emitStruct(self: *Emitter, items: []const Sexp) Error!void {
-        if (items.len < 2) return;
-        const name = identText(self.source, items[1]) orelse "AnonStruct";
-        try self.w.print("pub const {s} = struct {{\n", .{name});
-
-        // M20a: set the nominal context so `Self` in member signatures
-        // / bodies substitutes correctly via `emitType`.
-        const prev_nominal = self.current_nominal_name;
-        self.current_nominal_name = name;
-        defer self.current_nominal_name = prev_nominal;
-
-        // Emit data fields first (Zig allows mixed order, but data-
-        // then-methods reads more naturally).
-        for (items[2..]) |member| {
-            if (member != .list or member.list.len < 3 or member.list[0] != .tag) continue;
-            if (member.list[0].tag != .@":") continue;
-            const fname = identText(self.source, member.list[1]) orelse continue;
-            try self.w.print("    {s}: ", .{fname});
-            try self.emitType(member.list[2]);
-            try self.w.writeAll(",\n");
-        }
-
-        try self.emitNominalMethods(items[2..], 1);
-
-        // M25(4/5): if the struct has drop glue (user `drop` decl OR
-        // resource fields per sema's `has_drop_glue` flag), emit a
-        // compiler-generated `__rig_drop` method. This is the ABI
-        // hook the runtime calls when:
-        //   - a `*Self` shared handle hits last-strong drop (RcBox);
-        //   - a `Self` value-type binding's M20e auto-drop guard
-        //     fires at scope exit;
-        //   - a `Self`-element in a `Vec(T)` drops as part of
-        //     `Vec.__rig_drop`'s element walk.
-        // The generated body calls the user `__rig_user_drop` (if
-        // any) first, then walks resource fields in REVERSE
-        // declaration order — Rust-shaped drop semantics.
-        try self.emitGeneratedDropIfNeeded(name, items);
-
-        try self.w.writeAll("};\n");
-    }
-
-    /// M25(4/5): emit the compiler-generated `__rig_drop` method if
-    /// the struct has drop glue. The struct has drop glue when EITHER
-    /// it declares a user `drop self: !Self` body OR any of its data
-    /// fields has a resource type. The body shape:
-    ///
-    ///   pub fn __rig_drop(self: *Self) void {
-    ///       self.__rig_user_drop();   // only if user drop_decl
-    ///       self.field_n.{drop_method_n}();
-    ///       ...
-    ///       self.field_1.{drop_method_1}();
-    ///   }
-    ///
-    /// where `field_k` are resource fields (shared/weak/Vec/nominal-
-    /// with-drop-glue) in REVERSE declaration order, and the drop
-    /// method is `dropStrong` for `*T`, `dropWeak` for `~T`, and
-    /// `__rig_drop` for `Vec(T)` / nominal-with-drop-glue.
-    fn emitGeneratedDropIfNeeded(self: *Emitter, struct_name: []const u8, items: []const Sexp) Error!void {
-        const sema = self.sema orelse return;
-
-        // Look up the struct's sema Symbol to read `has_drop_glue`.
-        if (items.len < 2 or items[1] != .src) return;
-        const decl_pos = items[1].src.pos;
-        var has_glue = false;
-        var has_user_drop = false;
-        for (sema.symbols.items) |sym| {
-            if (sym.decl_pos != decl_pos) continue;
-            if (!std.mem.eql(u8, sym.name, struct_name)) continue;
-            has_glue = sym.flags.has_drop_glue;
-            // The user_drop presence is recorded on `fields[]` with
-            // `is_drop_method = true`; check it here so we know
-            // whether to invoke `__rig_user_drop` in the generated body.
-            if (sym.fields) |fs| {
-                for (fs) |f| if (f.is_drop_method) { has_user_drop = true; break; };
-            }
-            break;
-        }
-        if (!has_glue) return;
-
-        try self.w.writeAll("\n    pub fn __rig_drop(self: *");
-        try self.w.writeAll(struct_name);
-        try self.w.writeAll(") void {\n");
-
-        if (has_user_drop) {
-            try self.w.writeAll("        self.__rig_user_drop();\n");
-        }
-
-        // Walk data fields in REVERSE declaration order, emitting a
-        // drop call for each resource field. The IR's data-field
-        // members are `(: name type)` shapes interleaved with methods;
-        // we filter by tag.
-        const member_count: usize = if (items.len > 2) items.len - 2 else 0;
-        var i: usize = member_count;
-        while (i > 0) {
-            i -= 1;
-            const member = items[2 + i];
-            if (member != .list or member.list.len < 3 or member.list[0] != .tag) continue;
-            if (member.list[0].tag != .@":") continue;
-            const fname = identText(self.source, member.list[1]) orelse continue;
-            // Resolve this field's type via the struct's Symbol.fields
-            // (where TypeResolver already wrote the resolved TypeId)
-            // rather than re-walking the type expression.
-            const field_ty = lookupFieldTypeByDeclPos(sema, decl_pos, struct_name, member.list[1]) orelse continue;
-            const drop_method = dropMethodForResourceType(sema, field_ty) orelse continue;
-            try self.w.print("        self.{s}.{s}();\n", .{ fname, drop_method });
-        }
-
-        try self.w.writeAll("    }\n");
-    }
-
-    /// M20a: emit `fun`/`sub` members of a nominal body as nested
-    /// Zig `pub fn` declarations. Factored out of `emitStruct` so
-    /// `emitEnum` and `emitErrorSet` can use the same machinery.
-    /// Caller is responsible for setting `current_nominal_name`.
-    /// `indent_levels` controls how much extra indent to push for
-    /// method body emission (1 for top-level structs/enums; 2 for
-    /// generic types whose struct is nested inside `return struct {...}`).
-    ///
-    /// M25(4/5): also emits user-defined `drop self: !Self` bodies
-    /// as `pub fn __rig_user_drop(self: *Self) void { body }`. The
-    /// public-facing `__rig_drop` is generated separately by
-    /// `emitGeneratedDropIfNeeded` after this function returns.
-    fn emitNominalMethods(self: *Emitter, members: []const Sexp, indent_levels: u32) Error!void {
-        var any_methods = false;
-        for (members) |member| {
-            if (member != .list or member.list.len == 0 or member.list[0] != .tag) continue;
-            const head = member.list[0].tag;
-            const is_method_form = head == .@"fun" or head == .@"sub";
-            const is_drop_form = head == .@"drop_decl";
-            if (!is_method_form and !is_drop_form) continue;
-            if (is_method_form and member.list.len < 5) continue;
-            if (is_drop_form and member.list.len < 3) continue;
-            if (!any_methods) {
-                try self.w.writeAll("\n");
-                any_methods = true;
-            }
-            var i: u32 = 0;
-            while (i < indent_levels) : (i += 1) try self.w.writeAll("    ");
-            const prev_indent = self.indent;
-            self.indent += indent_levels;
-            if (is_drop_form) {
-                try self.emitDropDecl(member.list);
-            } else {
-                try self.emitFun(member.list, head == .@"sub");
-            }
-            self.indent = prev_indent;
-        }
-    }
-
-    /// M25(4/5): emit a `(drop_decl params block)` member as
-    /// `pub fn __rig_user_drop(self: *Self) void { body }`. The
-    /// IR shape lacks the name slot of fun/sub (drop is implicit
-    /// per the type's contract), and the receiver was sema-validated
-    /// as `self: !Self`, so we hardcode the lowered signature.
-    /// `current_nominal_name` is set by the caller (emitStruct) so
-    /// `Self` in the body resolves correctly via `emitType`.
-    fn emitDropDecl(self: *Emitter, items: []const Sexp) Error!void {
-        if (items.len < 3) return;
-        const params = items[1];
-        const body = items[2];
-
-        const struct_name = self.current_nominal_name orelse "Self";
-        try self.w.print("pub fn __rig_user_drop(self: *{s}) void {{\n", .{struct_name});
-
-        // The user body is a single sub-shaped block. We push a scope
-        // + bind self the same way emitFun does, then emit each
-        // statement. If the body doesn't reference `self`, prepend a
-        // `_ = self;` discard so Zig's "unused function parameter"
-        // check stays quiet. If it does reference self, omit the
-        // discard — Zig also rejects "pointless discard of function
-        // parameter".
-        self.indent += 1;
-        try self.pushScope();
-        if (params == .list) {
-            for (params.list) |p| try self.bindParam(p);
-        }
-        self.pending_param_guards = null;
-
-        const self_used = isNameUsedInBody(self.source, body, "self");
-        if (!self_used) {
-            try self.indentSpaces();
-            try self.w.writeAll("_ = self;\n");
-        }
-
-        const stmts: []const Sexp = if (body == .list and body.list.len > 0 and
-            body.list[0] == .tag and body.list[0].tag == .@"block")
-            body.list[1..]
-        else
-            &[_]Sexp{body};
-        for (stmts) |stmt| {
-            try self.indentSpaces();
-            try self.emitStmt(stmt);
-            try self.w.writeAll("\n");
-        }
-
-        try self.popScope();
-        self.indent -= 1;
-        try self.indentSpaces();
-        try self.w.writeAll("}\n");
-    }
-
-    /// `(generic_type Name (T1 T2 ...) members...)` → Zig
-    /// `pub fn Name(comptime T1: type, ...) type { return struct {
-    /// const Self = @This(); /* fields */ /* methods */ }; }`.
-    /// M14 v1 was struct-only with no method emission (latent bug);
-    /// M20b(5/5) closes the bug now that sema understands generic
-    /// methods (M20b(3/5) + M20b(4/5)).
-    ///
-    /// Per GPT-5.5: `Self` inside a generic body must lower to Zig
-    /// `Self` (via `const Self = @This();`), NOT to the bare type
-    /// name `Box`. We set `current_nominal_name = "Self"` for the
-    /// duration of the body, so `emitType`'s `Self`-substitution
-    /// arm emits `Self` (a no-op rename that pairs with the alias).
-    fn emitGenericType(self: *Emitter, items: []const Sexp) Error!void {
-        if (items.len < 4) return;
-        const name = identText(self.source, items[1]) orelse "AnonGeneric";
-        const params = items[2];
-
-        // M20b(5/5): Self → Zig Self inside the generic struct body.
-        const prev_nominal = self.current_nominal_name;
-        self.current_nominal_name = "Self";
-        defer self.current_nominal_name = prev_nominal;
-
-        try self.w.print("pub fn {s}(", .{name});
-        if (params == .list) {
-            var first = true;
-            for (params.list) |p| {
-                if (p != .src) continue;
-                if (!first) try self.w.writeAll(", ");
-                first = false;
-                try self.w.print("comptime {s}: type", .{self.source[p.src.pos..][0..p.src.len]});
-            }
-        }
-        try self.w.writeAll(") type {\n    return struct {\n");
-
-        // M20b(5/5): `const Self = @This();` so methods can use Self
-        // and the `?self` sugar (lowers to `self: Self` per M20a.1).
-        try self.w.writeAll("        const Self = @This();\n\n");
-
-        for (items[3..]) |member| {
-            if (member != .list or member.list.len < 3 or member.list[0] != .tag) continue;
-            if (member.list[0].tag != .@":") continue;
-            const fname = identText(self.source, member.list[1]) orelse continue;
-            try self.w.print("        {s}: ", .{fname});
-            try self.emitType(member.list[2]);
-            try self.w.writeAll(",\n");
-        }
-
-        // M20b(5/5): method members — same machinery as `emitStruct` /
-        // `emitEnum`, just indented one extra level (the inner struct
-        // sits inside `return struct { ... }`).
-        try self.emitNominalMethods(items[3..], 2);
-
-        try self.w.writeAll("    };\n}\n");
-    }
-
-    /// `(generic_enum Name (T1 T2 ...) variants...)` → Zig
-    /// `pub fn Name(comptime T1: type, ...) type { return union(enum)
-    /// { const Self = @This(); /* variants */ /* methods */ }; }`.
-    /// M20c: parallel to `emitGenericType` but the inner body is a
-    /// tagged union since generic enums always have at least some
-    /// payload (otherwise the type params are unused).
-    ///
-    /// Per GPT-5.5: `Self` inside the inner body lowers to Zig
-    /// `Self` (via `const Self = @This();`), NOT to the bare type
-    /// name `Option`. Method receiver sugar (`?self` lowering to
-    /// `self: Self`) then composes naturally.
-    fn emitGenericEnum(self: *Emitter, items: []const Sexp) Error!void {
-        if (items.len < 4) return;
-        const name = identText(self.source, items[1]) orelse "AnonGenericEnum";
-        const params = items[2];
-
-        const prev_nominal = self.current_nominal_name;
-        self.current_nominal_name = "Self";
-        defer self.current_nominal_name = prev_nominal;
-
-        try self.w.print("pub fn {s}(", .{name});
-        if (params == .list) {
-            var first = true;
-            for (params.list) |p| {
-                if (p != .src) continue;
-                if (!first) try self.w.writeAll(", ");
-                first = false;
-                try self.w.print("comptime {s}: type", .{self.source[p.src.pos..][0..p.src.len]});
-            }
-        }
-        try self.w.writeAll(") type {\n    return union(enum) {\n");
-        try self.w.writeAll("        const Self = @This();\n\n");
-
-        // Variants: bare `red` → `red: void`; valued `ok = 0` →
-        // `ok: void` (the value can't co-exist with payload-bearing
-        // tagged-union form, matches the plain `emitEnum`
-        // has_payloads branch); payload `some(value: T)` →
-        // `some: T` (single-field unwrap) or `some: struct { ... }`
-        // (multi-field).
-        for (items[3..]) |variant| {
-            switch (variant) {
-                .src => |s| {
-                    const vname = self.source[s.pos..][0..s.len];
-                    try self.w.print("        {s}: void,\n", .{vname});
-                },
-                .list => |sub| {
-                    if (sub.len < 2 or sub[0] != .tag) continue;
-                    switch (sub[0].tag) {
-                        .@"variant" => {
-                            if (sub.len < 3) continue;
-                            const vname = identText(self.source, sub[1]) orelse continue;
-                            const vparams = sub[2];
-                            if (vparams != .list or vparams.list.len == 0) {
-                                try self.w.print("        {s}: void,\n", .{vname});
-                                continue;
-                            }
-                            // Single-field unwrap.
-                            if (vparams.list.len == 1) {
-                                const p = vparams.list[0];
-                                if (p == .list and p.list.len >= 3 and p.list[0] == .tag and p.list[0].tag == .@":") {
-                                    try self.w.print("        {s}: ", .{vname});
-                                    try self.emitType(p.list[2]);
-                                    try self.w.writeAll(",\n");
-                                    continue;
-                                }
-                            }
-                            // Multi-field → anonymous struct.
-                            try self.w.print("        {s}: struct {{ ", .{vname});
-                            var first = true;
-                            for (vparams.list) |p| {
-                                if (p != .list or p.list.len < 3 or p.list[0] != .tag) continue;
-                                if (p.list[0].tag != .@":") continue;
-                                if (!first) try self.w.writeAll(", ");
-                                first = false;
-                                const fname = identText(self.source, p.list[1]) orelse continue;
-                                try self.w.print("{s}: ", .{fname});
-                                try self.emitType(p.list[2]);
-                            }
-                            try self.w.writeAll(" },\n");
-                        },
-                        .@"valued" => {
-                            // Valued variant in a tagged union — falls
-                            // back to bare `: void` (value can't be
-                            // expressed in union(enum) form). Matches
-                            // emitEnum's has_payloads-with-valued path.
-                            if (identText(self.source, sub[1])) |vname| {
-                                try self.w.print("        {s}: void,\n", .{vname});
-                            }
-                        },
-                        else => {},
-                    }
-                },
-                else => {},
-            }
-        }
-
-        // Method members — indent +2 like emitGenericType.
-        try self.emitNominalMethods(items[3..], 2);
-
-        try self.w.writeAll("    };\n}\n");
-    }
-
-    /// `(errors Name v1 v2 ...)` → Zig `const Name = error { v1, v2, ... };`.
-    /// Same IR shape as `enum`; lowers to Zig's distinct `error` set
-    /// type so calls returning `Name` propagate naturally with `try`.
-    fn emitErrorSet(self: *Emitter, items: []const Sexp) Error!void {
-        if (items.len < 2) return;
-        const name = identText(self.source, items[1]) orelse "AnonError";
-        try self.w.print("pub const {s} = error {{\n", .{name});
-        for (items[2..]) |variant| {
-            switch (variant) {
-                .src => |s| {
-                    const vname = self.source[s.pos..][0..s.len];
-                    try self.w.print("    {s},\n", .{vname});
-                },
-                else => {},
-            }
-        }
-        try self.w.writeAll("};\n");
-    }
-
-    /// `(enum Name v1 v2 ...)` lowers to one of three Zig forms based
-    /// on what variant shapes appear in the body:
-    ///
-    ///   - all bare           → `pub const Name = enum { v1, v2, };`
-    ///   - any `(valued)`     → `pub const Name = enum(u32) { v1 = 0, ... };`
-    ///   - any `(variant ...)` → `pub const Name = union(enum) { v1: T1, ... };`
-    ///
-    /// The union(enum) form is Zig's tagged union — exactly what we
-    /// need for payload-bearing variants. Bare variants in the same
-    /// declaration get `: void` so the union accepts them too. Bare-
-    /// variant-only enums stay as plain enums (cheaper / matches
-    /// user intent).
-    fn emitEnum(self: *Emitter, items: []const Sexp) Error!void {
-        if (items.len < 2) return;
-        const name = identText(self.source, items[1]) orelse "AnonEnum";
-
-        // M20a: set the nominal context so `Self` in method signatures
-        // / bodies substitutes correctly via `emitType`.
-        const prev_nominal = self.current_nominal_name;
-        self.current_nominal_name = name;
-        defer self.current_nominal_name = prev_nominal;
-
-        // First pass: classify variant shapes.
-        var has_values = false;
-        var has_payloads = false;
-        for (items[2..]) |variant| {
-            if (variant != .list or variant.list.len == 0 or variant.list[0] != .tag) continue;
-            switch (variant.list[0].tag) {
-                .@"valued" => has_values = true,
-                .@"variant" => has_payloads = true,
-                else => {},
-            }
-        }
-
-        // Tagged union takes precedence over `(valued)` numeric tagging
-        // — Rig V1 doesn't mix them, and emit picks the one that lets
-        // every variant compile.
-        if (has_payloads) {
-            try self.w.print("pub const {s} = union(enum) {{\n", .{name});
-            for (items[2..]) |variant| {
-                switch (variant) {
-                    .src => |s| {
-                        const vname = self.source[s.pos..][0..s.len];
-                        try self.w.print("    {s}: void,\n", .{vname});
-                    },
-                    .list => |sub| {
-                        if (sub.len < 2 or sub[0] != .tag) continue;
-                        switch (sub[0].tag) {
-                            .@"variant" => {
-                                if (sub.len < 3) continue;
-                                const vname = identText(self.source, sub[1]) orelse continue;
-                                const params = sub[2];
-                                if (params != .list or params.list.len == 0) {
-                                    try self.w.print("    {s}: void,\n", .{vname});
-                                    continue;
-                                }
-                                // Single-payload variant → unwrap to the
-                                // bare type. Multi-payload → anonymous
-                                // struct.
-                                if (params.list.len == 1) {
-                                    const p = params.list[0];
-                                    if (p == .list and p.list.len >= 3 and p.list[0] == .tag and p.list[0].tag == .@":") {
-                                        try self.w.print("    {s}: ", .{vname});
-                                        try self.emitType(p.list[2]);
-                                        try self.w.writeAll(",\n");
-                                        continue;
-                                    }
-                                }
-                                try self.w.print("    {s}: struct {{ ", .{vname});
-                                var first = true;
-                                for (params.list) |p| {
-                                    if (p != .list or p.list.len < 3 or p.list[0] != .tag) continue;
-                                    if (p.list[0].tag != .@":") continue;
-                                    if (!first) try self.w.writeAll(", ");
-                                    first = false;
-                                    const fname = identText(self.source, p.list[1]) orelse continue;
-                                    try self.w.print("{s}: ", .{fname});
-                                    try self.emitType(p.list[2]);
-                                }
-                                try self.w.writeAll(" },\n");
-                            },
-                            // `(valued ...)` inside a payload-bearing
-                            // enum is uncommon but harmless — fall back
-                            // to bare `: void` (the explicit value
-                            // can't co-exist cleanly with a tagged union).
-                            else => {
-                                if (identText(self.source, sub[1])) |vname| {
-                                    try self.w.print("    {s}: void,\n", .{vname});
-                                }
-                            },
-                        }
-                    },
-                    else => {},
-                }
-            }
-            try self.emitNominalMethods(items[2..], 1);
-            try self.w.writeAll("};\n");
-            return;
-        }
-
-        if (has_values) {
-            try self.w.print("pub const {s} = enum(u32) {{\n", .{name});
-        } else {
-            try self.w.print("pub const {s} = enum {{\n", .{name});
-        }
-        for (items[2..]) |variant| {
-            switch (variant) {
-                .src => |s| {
-                    const vname = self.source[s.pos..][0..s.len];
-                    try self.w.print("    {s},\n", .{vname});
-                },
-                .list => |sub| {
-                    if (sub.len < 3 or sub[0] != .tag or sub[0].tag != .@"valued") continue;
-                    const vname = identText(self.source, sub[1]) orelse continue;
-                    try self.w.print("    {s} = ", .{vname});
-                    try self.emitExpr(sub[2]);
-                    try self.w.writeAll(",\n");
-                },
-                else => {},
-            }
-        }
-        try self.emitNominalMethods(items[2..], 1);
-        try self.w.writeAll("};\n");
+        _ = is_pub;
     }
 
     fn emitUse(self: *Emitter, items: []const Sexp) Error!void {
-        // (use name) → const <name> = @import("<name>.zig");
-        //
-        // Skip `std` because we always inject `const std = @import("std");`
-        // at the top of the emitted file.
-        //
-        // M15: explicit `.zig` extension because each Rig module
-        // emits to a sibling `.zig` file in the project's output dir.
-        // Zig's `@import` with a quoted path resolves the file
-        // relative to the importing module's location.
-        if (items.len < 2) return;
-        const name = identText(self.source, items[1]) orelse return;
+        const name = self.text(items[1]) orelse return;
         if (std.mem.eql(u8, name, "std")) return;
-        try self.w.print("const {s} = @import(\"{s}.zig\");\n", .{ name, name });
+        try self.w.print("const {f} = @import(\"{s}.zig\");\n", .{ self.ident(name), name });
     }
 
-    /// M23: emit a body-less extern function/sub as a Zig
-    /// `extern fn name(...) ReturnType;` declaration at module
-    /// scope. IR shapes:
-    ///   (extern_fun name params returns)
-    ///   (extern_sub name params)
-    /// `params` may be `_` (nil) for a no-arg extern; for
-    /// `extern_sub` `returns` is implicit Void. The default extern
-    /// calling convention is C-compatible (matches Zig's default).
+    /// `(extern_fun name params returns)` / `(extern_sub name params)`.
     fn emitExternFun(self: *Emitter, items: []const Sexp, is_sub: bool) Error!void {
-        if (items.len < 2) return;
-        const name = identText(self.source, items[1]) orelse "anon";
-        const params: Sexp = if (items.len >= 3) items[2] else .{ .nil = {} };
-        const returns_node: ?Sexp = if (is_sub or items.len < 4) null else items[3];
-
-        try self.w.print("extern fn {s}(", .{name});
-        try self.emitParams(params);
+        const name = self.text(items[1]) orelse return;
+        try self.w.print("extern fn {f}(", .{self.ident(name)});
+        if (items.len >= 3) try self.emitParamList(items[2]);
         try self.w.writeAll(") ");
-
-        if (is_sub) {
-            try self.w.writeAll("void");
-        } else if (returns_node) |r| {
-            try self.emitType(r);
-        } else {
-            try self.w.writeAll("void");
-        }
-
+        if (!is_sub and items.len >= 4 and items[3] != .nil) try self.emitType(items[3]) else try self.w.writeAll("void");
         try self.w.writeAll(";\n");
     }
 
-    fn emitFun(self: *Emitter, items: []const Sexp, is_sub: bool) Error!void {
-        // Both shapes are position-stable as (head name params returns body),
-        // with returns = nil for `sub` and for `fun` without explicit return type.
-        if (items.len < 5) return;
-        const name = identText(self.source, items[1]) orelse "anon";
-        const params = items[2];
-        const returns_node: ?Sexp = if (is_sub) null else items[3];
-        const body = items[4];
-
-        // Per-fn pre-scan: mutation analysis (var vs const) only.
-        // Fallibility comes from the IR (declared return type), not body
-        // inspection — the effects checker enforces that they agree.
-        self.fn_mutated.clearRetainingCapacity();
-        try scanMutations(&self.fn_mutated, self.allocator, body, self.source);
-
-        // Special case: `sub main()` lowers to `pub fn main() !void` if its
-        // body propagates, matching Zig's `pub fn main() !void` idiom. The
-        // effects checker explicitly allows this for `main`.
-        const is_main_sub = is_sub and std.mem.eql(u8, name, "main");
-        const main_uses_propagate = is_main_sub and containsPropagate(body);
-        self.fn_is_fallible = main_uses_propagate or
-            (returns_node != null and isErrorUnion(returns_node.?));
-
-        try self.w.print("pub fn {s}(", .{name});
-        try self.emitParams(params);
-        try self.w.writeAll(") ");
-
-        // Return type — emit exactly what the IR declares (no signature
-        // inference). For `sub` we always emit `void` unless the special
-        // main-propagates case promotes to `!void`.
-        if (is_sub) {
-            if (main_uses_propagate) try self.w.writeAll("!void ") else try self.w.writeAll("void ");
-        } else if (returns_node) |r| {
-            try self.emitType(r);
-            try self.w.writeAll(" ");
-        } else {
-            try self.w.writeAll("void ");
+    /// `(extern kind name type)`: an extern function given by a function
+    /// type, or an extern variable.
+    fn emitExternDecl(self: *Emitter, sexp: Sexp) Error!void {
+        const items = sexp.list;
+        if (items.len < 4) return self.unsupported(sexp, "this extern declaration");
+        const name = self.text(items[2]) orelse return self.unsupported(sexp, "this extern declaration");
+        const ty = items[3];
+        if (isTagged(ty, .@"fun_type")) {
+            try self.w.print("extern fn {f}(", .{self.ident(name)});
+            if (ty.list[1] == .list) {
+                for (ty.list[1].list, 0..) |p, i| {
+                    if (i > 0) try self.w.writeAll(", ");
+                    try self.emitType(p);
+                }
+            }
+            try self.w.writeAll(") ");
+            if (ty.list.len >= 3 and ty.list[2] != .nil) try self.emitType(ty.list[2]) else try self.w.writeAll("void");
+            try self.w.writeAll(";\n");
+            return;
         }
+        const kw: []const u8 = if (items[1] == .tag and items[1].tag == .fixed) "const" else "var";
+        try self.w.print("extern {s} {f}: ", .{ kw, self.ident(name) });
+        try self.emitType(ty);
+        try self.w.writeAll(";\n");
+    }
 
-        // Body. For non-sub functions with a return type, the last
-        // statement of the block is the implicit return value and is
-        // emitted as `return <expr>;`.
-        try self.pushScope();
-        if (params == .list) {
-            for (params.list) |p| try self.bindParam(p);
-        }
-        // M20e: stage the param list so the body emit can install
-        // resource-binding guards for each `*T` / `~T` param right
-        // after the open brace. Cleared by the body emit.
-        self.pending_param_guards = params;
-        self.pending_leak_check = self.indent == 0 and std.mem.eql(u8, name, "main");
-        if (is_sub) {
-            try self.emitBlock(body);
-        } else {
-            try self.emitFunBody(body);
-        }
-        self.pending_param_guards = null;
-        try self.popScope();
+    fn emitTypeAlias(self: *Emitter, items: []const Sexp) Error!void {
+        const name = self.text(items[1]) orelse return;
+        try self.w.print("pub const {f} = ", .{self.ident(name)});
+        try self.emitType(items[2]);
+        try self.w.writeAll(";\n");
+    }
+
+    fn emitTest(self: *Emitter, items: []const Sexp) Error!void {
+        if (items.len < 3) return;
+        try self.w.writeAll("test ");
+        try self.emitExpr(items[1]);
+        try self.w.writeAll(" ");
+        self.resetFun();
+        try self.scanFunction(null, items[2], false);
+        try self.emitBlock(items[2]);
         try self.w.writeAll("\n");
     }
 
-    /// Like emitBlock, but rewrites the last expression-statement to a
-    /// `return <expr>;` so a `fun foo() -> Int { 1 + 2 }` actually returns.
-    fn emitFunBody(self: *Emitter, body: Sexp) Error!void {
-        try self.w.writeAll("{\n");
-        self.indent += 1;
-        try self.pushScope();
-        // M20e: install param guards (consumes pending_param_guards).
-        try self.flushPendingParamGuards();
-
-        const stmts: []const Sexp = if (body == .list and body.list.len > 0 and
-            body.list[0] == .tag and body.list[0].tag == .@"block")
-            body.list[1..]
-        else
-            &[_]Sexp{body};
-
-        for (stmts, 0..) |stmt, i| {
-            try self.indentSpaces();
-            if (i == stmts.len - 1 and isExprStmt(stmt)) {
-                // M20e(2/5): same disarm-before-return rule as
-                // emitReturn — the implicit-return path also exits
-                // the function with the value, so resource bindings
-                // need to be disarmed first.
-                try self.emitReturnDisarmIfResource(stmt);
-                try self.w.writeAll("return ");
-                try self.emitExpr(stmt);
-                try self.w.writeAll(";");
-            } else {
-                try self.emitStmt(stmt);
-            }
-            try self.w.writeAll("\n");
+    /// A module-level binding: `pub const name = expr;`.
+    fn emitModuleConst(self: *Emitter, sexp: Sexp) Error!void {
+        const items = sexp.list;
+        if (items.len < 5) return;
+        const name = self.text(items[2]) orelse return self.unsupported(sexp, "this module-level binding");
+        try self.w.print("pub const {f}", .{self.ident(name)});
+        if (items[3] != .nil) {
+            try self.w.writeAll(": ");
+            try self.emitType(items[3]);
         }
-        try self.popScope();
-        self.indent -= 1;
-        try self.indentSpaces();
-        try self.w.writeAll("}");
+        try self.w.writeAll(" = ");
+        try self.emitExpr(items[4]);
+        try self.w.writeAll(";\n");
     }
 
-    /// M20e: consume `pending_param_guards` and emit a guard +
-    /// `defer` for each resource-typed parameter, at the top of a
-    /// function body (right after the `{`). Clearing the pending
-    /// pointer means nested `emitBlock` calls (if/while bodies)
-    /// don't accidentally re-emit guards.
-    fn flushPendingParamGuards(self: *Emitter) Error!void {
-        if (self.pending_leak_check) {
-            self.pending_leak_check = false;
-            try self.indentSpaces();
-            try self.w.writeAll("defer rig.checkLeaks();\n");
-        }
-        const params = self.pending_param_guards orelse return;
-        self.pending_param_guards = null;
-        if (params != .list) return;
-        for (params.list) |p| {
-            const name_node = paramNameNode(p) orelse continue;
-            const kind = self.resourceKindOfBinding(name_node) orelse continue;
-            // For params, the Zig-side name equals the source-side
-            // name (no shadow renaming at the function entry).
-            const name = if (name_node == .src)
-                self.source[name_node.src.pos..][0..name_node.src.len]
-            else
-                continue;
-            try self.indentSpaces();
-            try self.emitResourceGuard(name, kind);
-            try self.w.writeAll("\n");
-        }
+    // -------------------------------------------------------------------------
+    // Nominal types
+    // -------------------------------------------------------------------------
+
+    /// `(struct Name (: field type)... methods...)`.
+    fn emitStruct(self: *Emitter, items: []const Sexp) Error!void {
+        const name = self.text(items[1]) orelse return;
+        const members = items[2..];
+        try self.w.print("pub const {f} = struct {{\n", .{self.ident(name)});
+        const prev = self.enterNominal(name, members);
+        defer self.nominal = prev;
+        try self.emitFields(members, 1);
+        try self.emitMethods(members, 1);
+        try self.w.writeAll("};\n");
     }
 
-    fn emitParams(self: *Emitter, params: Sexp) Error!void {
+    /// `(generic_type Name (T...) members...)` → a type-returning function.
+    fn emitGenericType(self: *Emitter, items: []const Sexp) Error!void {
+        if (items.len < 3) return;
+        const name = self.text(items[1]) orelse return;
+        const members = items[3..];
+        try self.w.print("pub fn {f}(", .{self.ident(name)});
+        try self.emitTypeParams(items[2]);
+        try self.w.writeAll(") type {\n    return struct {\n        const Self = @This();\n\n");
+        const prev = self.enterNominal("Self", members);
+        defer self.nominal = prev;
+        try self.emitFields(members, 2);
+        try self.emitMethods(members, 2);
+        try self.w.writeAll("    };\n}\n");
+    }
+
+    /// `(enum Name variants... methods...)`: a Zig enum, an enum with
+    /// explicit values, or a tagged union when any variant has a payload.
+    fn emitEnum(self: *Emitter, items: []const Sexp) Error!void {
+        const name = self.text(items[1]) orelse return;
+        const members = items[2..];
+        const prev = self.enterNominal(name, members);
+        defer self.nominal = prev;
+
+        var has_values = false;
+        var has_payloads = false;
+        for (members) |m| {
+            if (isTagged(m, .@"valued")) has_values = true;
+            if (isTagged(m, .@"variant")) has_payloads = true;
+        }
+        if (has_payloads) {
+            try self.w.print("pub const {f} = union(enum) {{\n", .{self.ident(name)});
+            try self.emitUnionVariants(members, 1);
+        } else {
+            try self.w.print("pub const {f} = enum{s} {{\n", .{ self.ident(name), if (has_values) "(u32)" else "" });
+            for (members) |m| switch (m) {
+                .src => try self.w.print("    {f},\n", .{self.ident(self.srcText(m))}),
+                .list => if (isTagged(m, .@"valued") and m.list.len >= 3) {
+                    try self.w.print("    {f} = ", .{self.ident(self.text(m.list[1]) orelse "_")});
+                    try self.emitExpr(m.list[2]);
+                    try self.w.writeAll(",\n");
+                },
+                else => {},
+            };
+        }
+        try self.emitMethods(members, 1);
+        try self.w.writeAll("};\n");
+    }
+
+    /// `(generic_enum Name (T...) variants... methods...)`.
+    fn emitGenericEnum(self: *Emitter, items: []const Sexp) Error!void {
+        if (items.len < 3) return;
+        const name = self.text(items[1]) orelse return;
+        const members = items[3..];
+        try self.w.print("pub fn {f}(", .{self.ident(name)});
+        try self.emitTypeParams(items[2]);
+        try self.w.writeAll(") type {\n    return union(enum) {\n        const Self = @This();\n\n");
+        const prev = self.enterNominal("Self", members);
+        defer self.nominal = prev;
+        try self.emitUnionVariants(members, 2);
+        try self.emitMethods(members, 2);
+        try self.w.writeAll("    };\n}\n");
+    }
+
+    /// `(errors Name v...)` → a Zig error set.
+    fn emitErrorSet(self: *Emitter, items: []const Sexp) Error!void {
+        const name = self.text(items[1]) orelse return;
+        try self.w.print("pub const {f} = error{{\n", .{self.ident(name)});
+        for (items[2..]) |v| if (v == .src) try self.w.print("    {f},\n", .{self.ident(self.srcText(v))});
+        try self.w.writeAll("};\n");
+    }
+
+    fn enterNominal(self: *Emitter, name: []const u8, members: []const Sexp) ?Nominal {
+        const prev = self.nominal;
+        self.nominal = .{ .name = name, .members = members };
+        return prev;
+    }
+
+    fn emitTypeParams(self: *Emitter, params: Sexp) Error!void {
         if (params != .list) return;
         var first = true;
         for (params.list) |p| {
+            if (p != .src) continue;
             if (!first) try self.w.writeAll(", ");
             first = false;
+            try self.w.print("comptime {f}: type", .{self.ident(self.srcText(p))});
+        }
+    }
+
+    fn emitFields(self: *Emitter, members: []const Sexp, depth: u32) Error!void {
+        for (members) |m| {
+            const is_field = isTagged(m, .@":") or isTagged(m, .@"aligned") or isTagged(m, .@"default");
+            if (!is_field or m.list.len < 3) continue;
+            const fname = self.text(m.list[1]) orelse "_";
+            // The grammar still admits a few statement keywords as field
+            // names; none can be written back as a Rig expression.
+            if (isRigStatementKeyword(fname)) return self.unsupported(m.list[1], "a field named by a keyword");
+            try self.writeIndent(depth);
+            try self.w.print("{f}: ", .{self.ident(fname)});
+            try self.emitType(m.list[2]);
+            if (isTagged(m, .@"aligned") and m.list.len >= 4) {
+                try self.w.writeAll(" align(");
+                try self.emitExpr(m.list[3]);
+                try self.w.writeAll(")");
+            }
+            if (isTagged(m, .@"default") and m.list.len >= 4) {
+                try self.w.writeAll(" = ");
+                try self.emitExpr(m.list[3]);
+            }
+            try self.w.writeAll(",\n");
+        }
+    }
+
+    /// Variants of a tagged union: bare → `void`, one payload field →
+    /// its type, several → an anonymous struct.
+    fn emitUnionVariants(self: *Emitter, members: []const Sexp, depth: u32) Error!void {
+        for (members) |m| {
+            const vname: []const u8 = switch (m) {
+                .src => self.srcText(m),
+                .list => if (isTagged(m, .@"variant") or isTagged(m, .@"valued"))
+                    self.text(m.list[1]) orelse continue
+                else
+                    continue,
+                else => continue,
+            };
+            try self.writeIndent(depth);
+            try self.w.print("{f}: ", .{self.ident(vname)});
+            const fields: []const Sexp = if (isTagged(m, .@"variant") and m.list.len >= 3 and m.list[2] == .list)
+                m.list[2].list
+            else
+                &.{};
+            if (fields.len == 0) {
+                try self.w.writeAll("void");
+            } else if (fields.len == 1 and isTagged(fields[0], .@":")) {
+                try self.emitType(fields[0].list[2]);
+            } else {
+                try self.w.writeAll("struct { ");
+                for (fields, 0..) |f, i| {
+                    if (!isTagged(f, .@":") or f.list.len < 3) continue;
+                    if (i > 0) try self.w.writeAll(", ");
+                    try self.w.print("{f}: ", .{self.ident(self.text(f.list[1]) orelse "_")});
+                    try self.emitType(f.list[2]);
+                }
+                try self.w.writeAll(" }");
+            }
+            try self.w.writeAll(",\n");
+        }
+    }
+
+    /// Methods of a nominal type, and its `drop` body. A user `drop`
+    /// becomes `__rig_drop`, which runs the body and then drops the
+    /// fields; without one, the runtime drops fields structurally.
+    fn emitMethods(self: *Emitter, members: []const Sexp, depth: u32) Error!void {
+        for (members) |m| {
+            if (m != .list or m.list.len == 0 or m.list[0] != .tag) continue;
+            const head = m.list[0].tag;
+            if (head != .@"fun" and head != .@"sub" and head != .@"drop_decl") continue;
+            try self.w.writeAll("\n");
+            try self.writeIndent(depth);
+            const prev_indent = self.indent;
+            self.indent = depth;
+            defer self.indent = prev_indent;
+            if (head == .@"drop_decl") {
+                try self.emitDropDecl(m.list);
+            } else {
+                try self.emitFun(m.list, head == .@"sub");
+            }
+        }
+    }
+
+    /// `(drop_decl params block)`: the body becomes `__rig_user_drop`, and
+    /// `__rig_drop` runs it and then drops every field.
+    fn emitDropDecl(self: *Emitter, items: []const Sexp) Error!void {
+        if (items.len < 3) return;
+        const nom = self.nominal.?.name;
+        try self.w.print("fn __rig_user_drop(self: *{s}) void ", .{nom});
+        self.resetFun();
+        try self.scanFunction(items[1], items[2], false);
+        self.fun.params = items[1];
+        try self.pushScope();
+        try self.bindParams(items[1]);
+        try self.emitBlock(items[2]);
+        try self.popScope();
+        try self.w.writeAll("\n\n");
+        try self.writeIndent(self.indent);
+        try self.w.print("pub fn __rig_drop(self: *{s}) void {{\n", .{nom});
+        try self.writeIndent(self.indent + 1);
+        try self.w.writeAll("self.__rig_user_drop();\n");
+        try self.writeIndent(self.indent + 1);
+        try self.w.writeAll("rig.dropFields(self);\n");
+        try self.writeIndent(self.indent);
+        try self.w.writeAll("}\n");
+    }
+
+    // -------------------------------------------------------------------------
+    // Functions
+    // -------------------------------------------------------------------------
+
+    /// `(fun name params returns body)` / `(sub name params _ body)`.
+    fn emitFun(self: *Emitter, items: []const Sexp, is_sub: bool) Error!void {
+        if (items.len < 5) return;
+        const name = self.text(items[1]) orelse "anon";
+        const params = items[2];
+        const returns: ?Sexp = if (is_sub or items[3] == .nil) null else items[3];
+        const body = items[4];
+        const is_main = self.nominal == null and is_sub and std.mem.eql(u8, name, "main");
+
+        self.resetFun();
+        try self.scanFunction(params, body, returns != null);
+        self.fun.returns = returns;
+        self.fun.return_ty = if (returns != null) self.funReturnTy(items[1]) else null;
+        self.fun.params = params;
+        self.fun.leak_check = is_main;
+
+        try self.w.print("pub fn {f}(", .{self.ident(name)});
+        try self.pushScope();
+        defer self.popScope() catch {};
+        try self.bindParams(params);
+        try self.emitParamList(params);
+        try self.w.writeAll(") ");
+        if (returns) |r| {
+            try self.emitType(r);
+        } else if (is_main and containsPropagate(body)) {
+            try self.w.writeAll("!void");
+        } else {
+            try self.w.writeAll("void");
+        }
+        try self.w.writeAll(" ");
+        if (returns != null) try self.emitValueBody(body) else try self.emitBlock(body);
+        try self.w.writeAll("\n");
+    }
+
+    /// Bind each parameter in the current scope. Owned resource values
+    /// are copied into a `var` at the top of the body so they can be
+    /// dropped; the Zig parameter gets a `__rig_` name.
+    fn bindParams(self: *Emitter, params: Sexp) Error!void {
+        if (params != .list) return;
+        for (params.list) |p| {
+            const name_node = paramNameNode(p) orelse continue;
+            const rig_name = self.text(name_node) orelse continue;
+            const ty = self.declTy(name_node);
+            var local: Local = .{ .rig_name = rig_name, .zig_name = "", .ty = ty };
+            if (paramIsWriteBorrow(p)) {
+                local.is_ptr = true;
+            } else if (ty) |t| {
+                local.kind = self.kindOf(t);
+                local.callable = if (self.isOwnedClosureTy(t)) .owned_closure else .none;
+            }
+            if (local.kind != null) local.guard = if (self.fun.consumed.contains(rig_name)) .flag else .scope;
+            _ = try self.declare(local);
+        }
+    }
+
+    /// The Zig spelling of a parameter as the signature names it.
+    fn paramZigName(self: *Emitter, local: *const Local) Error![]const u8 {
+        if (local.kind == .value or local.kind == .optional) return self.fmt("__rig_{s}", .{local.zig_name});
+        return local.zig_name;
+    }
+
+    fn emitParamList(self: *Emitter, params: Sexp) Error!void {
+        if (params != .list) return;
+        for (params.list, 0..) |p, i| {
+            if (i > 0) try self.w.writeAll(", ");
             try self.emitParam(p);
         }
     }
 
     fn emitParam(self: *Emitter, p: Sexp) Error!void {
-        // Param shapes:
-        //   name                       — untyped
-        //   (: name type)              — typed
-        //   (pre_param name type)      — comptime-typed
-        //   (default name type expr)   — typed with default
-        //   (read NAME) / (write NAME) — M20a.1 `?self` / `!self` sugar;
-        //                                desugars to NAME: EnclosingType
+        const name_node = paramNameNode(p) orelse return self.unsupported(p, "this parameter");
+        const rig_name = self.text(name_node) orelse "_";
+        const zig_name: []const u8 = if (self.lookupCurrent(rig_name)) |local|
+            try self.paramZigName(local)
+        else
+            try self.fmt("{f}", .{self.ident(rig_name)});
         switch (p) {
-            .src => |s| try self.w.print("{s}: anytype", .{self.source[s.pos..][0..s.len]}),
-            .list => |items| {
-                if (items.len < 2 or items[0] != .tag) return;
-                switch (items[0].tag) {
-                    .@":" => {
-                        const name = identText(self.source, items[1]) orelse "_";
-                        try self.w.print("{s}: ", .{name});
-                        if (items.len >= 3) try self.emitType(items[2]) else try self.w.writeAll("anytype");
-                    },
-                    .pre_param => {
-                        const name = identText(self.source, items[1]) orelse "_";
-                        try self.w.print("comptime {s}: ", .{name});
-                        if (items.len >= 3) try self.emitType(items[2]) else try self.w.writeAll("anytype");
-                    },
-                    // M20a.1: `?self` / `!self` sugar. Emit as
-                    // `NAME: EnclosingType`. Borrow stripping in
-                    // emit follows the same convention as the
-                    // explicit `self: ?User` form (Zig is loose
-                    // about borrows at the type level — M2 enforced
-                    // them).
-                    .@"read", .@"write" => {
-                        const name = identText(self.source, items[1]) orelse "_";
-                        try self.w.print("{s}: ", .{name});
-                        if (self.current_nominal_name) |nom| {
-                            try self.w.writeAll(nom);
-                        } else {
-                            try self.w.writeAll("anytype");
-                        }
-                    },
-                    else => {},
-                }
+            .src => try self.w.print("{s}: anytype", .{zig_name}),
+            .list => |items| switch (items[0].tag) {
+                .@":", .@"default", .@"aligned" => {
+                    try self.w.print("{s}: ", .{zig_name});
+                    if (items.len >= 3) try self.emitParamType(items[2]) else try self.w.writeAll("anytype");
+                },
+                .@"pre_param" => {
+                    try self.w.print("comptime {s}: ", .{zig_name});
+                    if (items.len >= 3) try self.emitType(items[2]) else try self.w.writeAll("anytype");
+                },
+                // `?self` / `!self` receivers.
+                .@"read", .@"write" => {
+                    const ptr: []const u8 = if (items[0].tag == .@"write") "*" else "";
+                    const nom = if (self.nominal) |n| n.name else "anytype";
+                    try self.w.print("{s}: {s}{s}", .{ zig_name, ptr, nom });
+                },
+                else => return self.unsupported(p, "this parameter"),
             },
-            else => {},
+            else => return self.unsupported(p, "this parameter"),
         }
     }
 
-    fn bindParam(self: *Emitter, p: Sexp) Error!void {
-        var name_node: Sexp = .{ .nil = {} };
-        switch (p) {
-            .src => name_node = p,
-            .list => {
-                if (p.list.len >= 2 and p.list[0] == .tag) {
-                    switch (p.list[0].tag) {
-                        .@":", .pre_param, .default, .aligned => name_node = p.list[1],
-                        // M20a.1: `?self` / `!self` sugar — bind the
-                        // wrapped name (typically `self`) into the
-                        // emit scope.
-                        .@"read", .@"write" => name_node = p.list[1],
-                        else => {},
-                    }
-                }
-            },
-            else => return,
+    /// A parameter type: `!T` is a pointer, everything else by value.
+    fn emitParamType(self: *Emitter, t: Sexp) Error!void {
+        if (isTagged(t, .@"borrow_write")) {
+            try self.w.writeAll("*");
+            return self.emitType(t.list[1]);
         }
-        if (name_node != .src) return;
-        const nm = self.source[name_node.src.pos..][0..name_node.src.len];
-        // M20e.1: record param's resource classification (if any)
-        // alongside its scope-table entry, so use-site lookups see
-        // the correct kind under shadowing.
-        try self.declareWithResourceKind(nm, nm, self.resourceKindOfBinding(name_node));
+        try self.emitType(t);
     }
 
-    // -------------------------------------------------------------------------
-    // Scope / symbol table
-    // -------------------------------------------------------------------------
+    /// Statements at the top of a function body: the leak check in
+    /// `main`, parameter copies and guards, and discards for unused
+    /// parameters.
+    fn emitFunPrologue(self: *Emitter, body_stmts: []const Sexp) Error!void {
+        if (self.fun.leak_check) {
+            self.fun.leak_check = false;
+            try self.line("defer rig.checkLeaks();", .{});
+        }
+        const params = self.fun.params orelse return;
+        self.fun.params = null;
+        if (params != .list) return;
+        for (params.list) |p| {
+            const name_node = paramNameNode(p) orelse continue;
+            const rig_name = self.text(name_node) orelse continue;
+            const local = self.lookup(rig_name) orelse continue;
+            if (local.kind == .value or local.kind == .optional) {
+                try self.line("var {s} = {s};", .{ local.zig_name, try self.paramZigName(local) });
+            }
+            if (local.guard != .none) {
+                try self.writeIndent(self.indent);
+                try self.emitGuard(local);
+                try self.w.writeAll("\n");
+            } else if (!usesNameInStmts(self.source, body_stmts, rig_name)) {
+                try self.line("_ = {s};", .{local.zig_name});
+            }
+        }
+    }
+
+    /// Start a new function: clear per-function state.
+    fn resetFun(self: *Emitter) void {
+        var mutated = self.fun.mutated;
+        var consumed = self.fun.consumed;
+        mutated.clearRetainingCapacity();
+        consumed.clearRetainingCapacity();
+        self.fun = .{ .mutated = mutated, .consumed = consumed };
+    }
+
+    // =========================================================================
+    // Scopes and names
+    // =========================================================================
 
     fn pushScope(self: *Emitter) Error!void {
-        try self.scopes.append(self.allocator, .{ .symbols = .empty });
+        try self.scopes.append(self.allocator, .{});
     }
 
     fn popScope(self: *Emitter) Error!void {
-        if (self.scopes.items.len == 0) return;
-        var top = self.scopes.pop().?;
-        top.symbols.deinit(self.allocator);
+        var top = self.scopes.pop() orelse return;
+        top.locals.deinit(self.allocator);
     }
 
-    fn declare(self: *Emitter, rig_name: []const u8, zig_name: []const u8) Error!void {
-        try self.declareWithResourceKind(rig_name, zig_name, null);
-    }
-
-    /// M20e.1: like `declare`, but records the binding's resource
-    /// classification (`shared` / `weak`) in the emitter's scope
-    /// table. Callers query via `lookupResourceKind` at use sites —
-    /// scope-aware lookup, sound under shadowing.
-    fn declareWithResourceKind(
-        self: *Emitter,
-        rig_name: []const u8,
-        zig_name: []const u8,
-        kind: ?ResourceKind,
-    ) Error!void {
+    /// Declare `local` in the innermost scope, choosing its Zig name
+    /// unless one is given. Returns the stored entry.
+    fn declare(self: *Emitter, local: Local) Error!*Local {
         if (self.scopes.items.len == 0) try self.pushScope();
-        const top = &self.scopes.items[self.scopes.items.len - 1];
-        try top.symbols.append(self.allocator, .{
-            .rig_name = rig_name,
-            .zig_name = zig_name,
-            .resource_kind = kind,
-        });
-    }
-
-    /// M20g(3/5): mark the most-recently-declared symbol with the
-    /// given rig_name in the current scope as a closure binding.
-    /// Used by `emitClosureBinding` right after writing the
-    /// closure `var` declaration so `emitCall` can later rewrite
-    /// `<name>(args)` → `<name>.invoke(args)`.
-    fn markClosure(self: *Emitter, rig_name: []const u8) void {
-        if (self.scopes.items.len == 0) return;
-        const top = &self.scopes.items[self.scopes.items.len - 1];
-        var i = top.symbols.items.len;
-        while (i > 0) {
-            i -= 1;
-            if (std.mem.eql(u8, top.symbols.items[i].rig_name, rig_name)) {
-                top.symbols.items[i].is_closure = true;
-                return;
-            }
+        var l = local;
+        if (l.zig_name.len == 0) l.zig_name = try self.zigNameFor(l.rig_name);
+        if (l.guard == .flag and l.flag.len == 0) {
+            l.flag = try self.fmt("__rig_alive_{s}", .{if (isPlainIdent(l.zig_name)) l.zig_name else try self.fresh(l.rig_name)});
         }
+        const top = &self.scopes.items[self.scopes.items.len - 1];
+        try top.locals.append(self.allocator, l);
+        return &top.locals.items[top.locals.items.len - 1];
     }
 
-    /// M20g(3/5): true iff the bare name resolves to a closure
-    /// binding in the visible scope chain. Walked innermost-first
-    /// so a closure shadowing an outer name correctly wins.
-    fn lookupIsClosure(self: *const Emitter, rig_name: []const u8) bool {
+    fn lookup(self: *Emitter, rig_name: []const u8) ?*Local {
         var i = self.scopes.items.len;
         while (i > 0) {
             i -= 1;
-            const frame = &self.scopes.items[i];
-            var j = frame.symbols.items.len;
+            const locals = self.scopes.items[i].locals.items;
+            var j = locals.len;
             while (j > 0) {
                 j -= 1;
-                const s = frame.symbols.items[j];
-                if (std.mem.eql(u8, s.rig_name, rig_name)) return s.is_closure;
-            }
-        }
-        return false;
-    }
-
-    /// M20h(4/5): mirror of `markClosure` for owned closures
-    /// (`cb = *Closure(fn ...)`). Sets `is_owned_closure = true`
-    /// on the most-recently-declared symbol with `rig_name` in
-    /// the current scope.
-    fn markOwnedClosure(self: *Emitter, rig_name: []const u8) void {
-        if (self.scopes.items.len == 0) return;
-        const top = &self.scopes.items[self.scopes.items.len - 1];
-        var i = top.symbols.items.len;
-        while (i > 0) {
-            i -= 1;
-            if (std.mem.eql(u8, top.symbols.items[i].rig_name, rig_name)) {
-                top.symbols.items[i].is_owned_closure = true;
-                return;
-            }
-        }
-    }
-
-    /// M20h(4/5): mirror of `lookupIsClosure` for owned closures.
-    /// True iff the bare name resolves to an owned-closure binding
-    /// in the visible scope chain.
-    fn lookupIsOwnedClosure(self: *const Emitter, rig_name: []const u8) bool {
-        var i = self.scopes.items.len;
-        while (i > 0) {
-            i -= 1;
-            const frame = &self.scopes.items[i];
-            var j = frame.symbols.items.len;
-            while (j > 0) {
-                j -= 1;
-                const s = frame.symbols.items[j];
-                if (std.mem.eql(u8, s.rig_name, rig_name)) return s.is_owned_closure;
-            }
-        }
-        return false;
-    }
-
-    /// M20h(4/5): consult sema to determine whether the binding
-    /// at `name_node` has type `shared(parameterized_nominal(Closure,
-    /// _))` or `shared(nominal(Closure))`. Used by `emitSetOrBind`
-    /// as a fallback when neither the RHS shape nor the type
-    /// annotation identifies the binding — e.g., for `cb = +other`,
-    /// `cb = make_counter()`, captures with `cap_clone` of a
-    /// `*Closure()` outer, etc.
-    fn isOwnedClosureBindingViaSema(self: *const Emitter, name_node: Sexp) bool {
-        const sema = self.sema orelse return false;
-        if (name_node != .src) return false;
-        const name = self.source[name_node.src.pos..][0..name_node.src.len];
-        const decl_pos = name_node.src.pos;
-        for (sema.symbols.items) |sym| {
-            if (sym.decl_pos != decl_pos) continue;
-            if (!std.mem.eql(u8, sym.name, name)) continue;
-            return semaTypeIsOwnedClosure(sema, sym.ty);
-        }
-        return false;
-    }
-
-    /// M20e.1: scope-aware resource classification for use sites
-    /// (`<rc`, `-rc`, `return rc`, the auto-deref bridge). Replaces
-    /// the M20e(1/5) `resourceKindOfBareUse` global scan, which had
-    /// first-match-wins shadowing fragility unacceptable for auto-
-    /// drop disarm (a missed disarm = dangling pointer returned to
-    /// caller). Walks the scope stack innermost-first.
-    fn lookupResourceKind(self: *const Emitter, rig_name: []const u8) ?ResourceKind {
-        var i = self.scopes.items.len;
-        while (i > 0) {
-            i -= 1;
-            const frame = &self.scopes.items[i];
-            var j = frame.symbols.items.len;
-            while (j > 0) {
-                j -= 1;
-                const s = frame.symbols.items[j];
-                if (std.mem.eql(u8, s.rig_name, rig_name)) return s.resource_kind;
+                if (std.mem.eql(u8, locals[j].rig_name, rig_name)) return &locals[j];
             }
         }
         return null;
     }
 
-    /// Look up the Zig name for a Rig name, walking scopes.
-    fn lookup(self: *Emitter, rig_name: []const u8) ?[]const u8 {
-        var i = self.scopes.items.len;
-        while (i > 0) {
-            i -= 1;
-            const frame = &self.scopes.items[i];
-            var j = frame.symbols.items.len;
-            while (j > 0) {
-                j -= 1;
-                const s = frame.symbols.items[j];
-                if (std.mem.eql(u8, s.rig_name, rig_name)) return s.zig_name;
-            }
-        }
-        return null;
-    }
-
-    fn lookupCurrent(self: *Emitter, rig_name: []const u8) ?[]const u8 {
+    fn lookupCurrent(self: *Emitter, rig_name: []const u8) ?*Local {
         if (self.scopes.items.len == 0) return null;
-        const frame = &self.scopes.items[self.scopes.items.len - 1];
-        for (frame.symbols.items) |s| {
-            if (std.mem.eql(u8, s.rig_name, rig_name)) return s.zig_name;
+        const locals = self.scopes.items[self.scopes.items.len - 1].locals.items;
+        var j = locals.len;
+        while (j > 0) {
+            j -= 1;
+            if (std.mem.eql(u8, locals[j].rig_name, rig_name)) return &locals[j];
         }
         return null;
     }
 
-    fn freshShadow(self: *Emitter, base: []const u8) Error![]const u8 {
-        self.shadow_counter += 1;
-        // Allocated in `name_arena` so deinit reclaims everything. The
-        // generated name is referenced by `SymbolEntry.zig_name`, which
-        // lives only as long as the Emitter, so arena lifetime is right.
-        return try std.fmt.allocPrint(self.name_arena.allocator(), "{s}_{d}", .{ base, self.shadow_counter });
+    /// A Zig name for a new binding: the Rig name (escaped if it is a Zig
+    /// keyword) unless that would shadow a visible Zig name.
+    fn zigNameFor(self: *Emitter, rig_name: []const u8) Error![]const u8 {
+        if (std.mem.eql(u8, rig_name, "_")) return "_";
+        const base = try self.fmt("{f}", .{self.ident(rig_name)});
+        if (!self.nameTaken(base)) return base;
+        return self.fresh(rig_name);
     }
 
-    /// Emit a Rig single-quoted string literal as a Zig double-quoted
-    /// string literal. `text` includes the surrounding quotes.
-    ///
-    /// Rules:
-    ///   `\'` in source → `'` in output (escape no longer needed)
-    ///   `"`  in source → `\"` in output (must escape now)
-    ///   everything else (including `\n`, `\t`, `\\`, etc.) passes through
-    fn emitSingleQuotedAsZigString(self: *Emitter, text: []const u8) Error!void {
-        try self.w.writeAll("\"");
-        const inner = text[1 .. text.len - 1];
-        var i: usize = 0;
-        while (i < inner.len) : (i += 1) {
-            const c = inner[i];
-            if (c == '\\' and i + 1 < inner.len and inner[i + 1] == '\'') {
-                try self.w.writeAll("'");
-                i += 1;
-            } else if (c == '"') {
-                try self.w.writeAll("\\\"");
-            } else {
-                try self.w.writeByte(c);
+    fn nameTaken(self: *Emitter, zig_name: []const u8) bool {
+        if (self.module.names.contains(zig_name)) return true;
+        if (self.nominal) |n| {
+            if (std.mem.eql(u8, n.name, zig_name)) return true;
+            for (n.members) |m| {
+                if (!isTagged(m, .@"fun") and !isTagged(m, .@"sub")) continue;
+                if (m.list.len >= 2) if (self.text(m.list[1])) |mn| if (std.mem.eql(u8, mn, zig_name)) return true;
             }
         }
-        try self.w.writeAll("\"");
+        for (self.scopes.items) |s| for (s.locals.items) |l| {
+            if (std.mem.eql(u8, l.zig_name, zig_name)) return true;
+        };
+        return false;
     }
 
-    // -------------------------------------------------------------------------
-    // Statements / blocks
-    // -------------------------------------------------------------------------
+    fn fresh(self: *Emitter, base: []const u8) Error![]const u8 {
+        while (true) {
+            self.counter += 1;
+            const name = try self.fmt("{s}_{d}", .{ base, self.counter });
+            if (!self.nameTaken(name)) return name;
+        }
+    }
 
-    fn emitBlock(self: *Emitter, body: Sexp) Error!void {
+    fn nextId(self: *Emitter) u32 {
+        self.counter += 1;
+        return self.counter;
+    }
+
+    fn fmt(self: *Emitter, comptime f: []const u8, args: anytype) Error![]const u8 {
+        return std.fmt.allocPrint(self.arena.allocator(), f, args);
+    }
+
+    // =========================================================================
+    // Resource guards
+    // =========================================================================
+
+    /// `defer ...` that drops `local` at scope exit.
+    fn emitGuard(self: *Emitter, local: *const Local) Error!void {
+        const kind = local.kind orelse return;
+        switch (local.guard) {
+            .none => {},
+            .scope => {
+                try self.w.writeAll("defer ");
+                try self.writeDrop(local.zig_name, kind);
+                try self.w.writeAll(";");
+            },
+            .flag => {
+                // The defer clears the flag itself, so the flag is a mutated
+                // `var` even when nothing consumes the binding.
+                try self.w.print("var {s} = true;\n", .{local.flag});
+                try self.writeIndent(self.indent);
+                try self.w.print("defer if ({s}) {{ {s} = false; ", .{ local.flag, local.flag });
+                try self.writeDrop(local.zig_name, kind);
+                try self.w.writeAll("; };");
+            },
+        }
+    }
+
+    fn writeDrop(self: *Emitter, place: []const u8, kind: ResourceKind) Error!void {
+        switch (kind) {
+            .shared => try self.w.print("{s}.dropStrong()", .{place}),
+            .weak => try self.w.print("{s}.dropWeak()", .{place}),
+            .value, .optional => try self.w.print("rig.drop(&{s})", .{place}),
+        }
+    }
+
+    // =========================================================================
+    // Blocks and statements
+    // =========================================================================
+
+    /// The statements of a block, or a lone statement as a list of one.
+    fn stmtsOf(self: *Emitter, body: Sexp) Error![]const Sexp {
+        if (isTagged(body, .@"block")) return body.list[1..];
+        return self.arena.allocator().dupe(Sexp, &.{body});
+    }
+
+    fn openBrace(self: *Emitter) Error!void {
         try self.w.writeAll("{\n");
         self.indent += 1;
         try self.pushScope();
-        // M20e: install param guards if this is a function-root block
-        // (consumes pending_param_guards if set). Nested blocks find
-        // it null and skip.
-        try self.flushPendingParamGuards();
-        if (body == .list and body.list.len > 0 and body.list[0] == .tag and
-            body.list[0].tag == .@"block")
-        {
-            for (body.list[1..]) |stmt| {
-                try self.indentSpaces();
-                try self.emitStmt(stmt);
-                try self.w.writeAll("\n");
-            }
-        } else {
-            try self.indentSpaces();
-            try self.emitStmt(body);
-            try self.w.writeAll("\n");
-        }
+    }
+
+    fn closeBrace(self: *Emitter) Error!void {
         try self.popScope();
         self.indent -= 1;
-        try self.indentSpaces();
+        try self.writeIndent(self.indent);
         try self.w.writeAll("}");
+    }
+
+    /// `{ stmts }` for a statement-position block.
+    fn emitBlock(self: *Emitter, body: Sexp) Error!void {
+        try self.openBrace();
+        const stmts = try self.stmtsOf(body);
+        try self.emitFunPrologue(stmts);
+        try self.emitStmts(stmts);
+        try self.closeBrace();
+    }
+
+    fn emitStmts(self: *Emitter, stmts: []const Sexp) Error!void {
+        return self.emitStmtRange(stmts, stmts.len);
+    }
+
+    /// The first `count` of `stmts`; the others still count as `rest`.
+    fn emitStmtRange(self: *Emitter, stmts: []const Sexp, count: usize) Error!void {
+        const saved = self.rest;
+        defer self.rest = saved;
+        for (stmts[0..count], 0..) |stmt, i| {
+            self.rest = stmts[i + 1 ..];
+            try self.writeIndent(self.indent);
+            try self.emitStmt(stmt);
+            try self.w.writeAll("\n");
+        }
+    }
+
+    /// A statement with nothing after it in its block.
+    fn emitLastStmt(self: *Emitter, stmt: Sexp) Error!void {
+        const saved = self.rest;
+        defer self.rest = saved;
+        self.rest = &.{};
+        try self.emitStmt(stmt);
+    }
+
+    /// A function body whose last expression statement is its value.
+    fn emitValueBody(self: *Emitter, body: Sexp) Error!void {
+        try self.openBrace();
+        const stmts = try self.stmtsOf(body);
+        try self.emitFunPrologue(stmts);
+        if (stmts.len == 0) return self.closeBrace();
+        const last = stmts.len - 1;
+        try self.emitStmtRange(stmts, last);
+        try self.writeIndent(self.indent);
+        if (isValueStmt(stmts[last])) {
+            try self.w.writeAll("return ");
+            try self.emitReturnValue(stmts[last]);
+            try self.w.writeAll(";");
+        } else {
+            try self.emitLastStmt(stmts[last]);
+        }
+        try self.w.writeAll("\n");
+        try self.closeBrace();
     }
 
     fn emitStmt(self: *Emitter, sexp: Sexp) Error!void {
         if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) {
+            try self.w.writeAll("_ = ");
             try self.emitExpr(sexp);
             try self.w.writeAll(";");
             return;
         }
         const items = sexp.list;
         switch (items[0].tag) {
-            .@"set" => try self.emitSet(items),
-            .@"drop" => {
-                // M20d: explicit `-x` for shared/weak handles maps to
-                // runtime refcount ops. M20e: also disarms the M20e
-                // guard so the scope-exit `defer` is a no-op.
-                //
-                // M20i(4/5): `-vec` for a Vec(T) value calls the
-                // runtime destructor (`vec.__rig_drop()`) which walks
-                // elements + frees buffer + nulls the buf pointer. The
-                // M20e guard's flag is then disarmed so the scope-exit
-                // defer is a no-op. Note: __rig_drop is idempotent
-                // w.r.t. the buf-null check, but the flag disarm is
-                // the official "I handled this" signal.
-                if (items.len < 2) {
-                    try self.w.writeAll("// drop");
-                    return;
-                }
-                // Vec values go through the scope-aware resource lookup
-                // (not `handleKindOf` which is shared/weak only).
-                if (items[1] == .src) {
-                    const drop_name = self.source[items[1].src.pos..][0..items[1].src.len];
-                    if (self.lookupResourceKind(drop_name)) |rk| {
-                        if (rk == .vec_value) {
-                            try self.emitExpr(items[1]);
-                            try self.w.writeAll(".__rig_drop();");
-                            try self.emitDisarmIfBareResourceName(items[1]);
-                            return;
-                        }
-                    }
-                }
-                const kind = self.handleKindOf(items[1]);
-                switch (kind) {
-                    .shared => {
-                        try self.emitExpr(items[1]);
-                        try self.w.writeAll(".dropStrong();");
-                        try self.emitDisarmIfBareResourceName(items[1]);
-                    },
-                    .weak => {
-                        try self.emitExpr(items[1]);
-                        try self.w.writeAll(".dropWeak();");
-                        try self.emitDisarmIfBareResourceName(items[1]);
-                    },
-                    .other => {
-                        try self.w.writeAll("// drop ");
-                        try self.emitExpr(items[1]);
-                    },
-                }
-            },
+            .@"set" => try self.emitSet(sexp),
+            .@"drop" => try self.emitDrop(sexp),
             .@"return" => try self.emitReturn(items),
-            .@"if" => try self.emitIf(items),
-            .@"while" => try self.emitWhile(items),
-            .@"for" => try self.emitFor(items),
-            .@"match" => try self.emitMatch(items, false),
+            .@"break" => try self.emitBreak(items),
+            .@"continue" => try self.emitContinue(items),
+            .@"if" => try self.emitIf(sexp),
+            .@"while", .@"for" => try self.emitLoop(sexp, null),
+            .@"labeled" => try self.emitLabeled(sexp),
+            .@"match" => try self.emitMatch(sexp, false, false),
             .@"block" => try self.emitBlock(sexp),
-            // M22: `raw` block is a sema-level audit boundary, not a
-            // Zig construct. Emit the inner block as-is — sema/effects
-            // have already validated that any `%x` / unsafe-builtin /
-            // extern call inside is permitted by virtue of being in
-            // raw context. (Fixes a M22 emit hole: pre-M15b post-impl
-            // review, `raw_block` fell through to the catch-all
-            // `@compileError("rig: emitter does not yet support
-            // raw_block")` — never caught because the M22 test suite
-            // only golden-tested the parse + sema rejection examples,
-            // not the positive `raw_block_ok.rig` end-to-end run.)
-            .@"raw_block" => {
-                if (items.len >= 2) try self.emitStmt(items[1]);
-            },
-            .@"break" => try self.w.writeAll("break;"),
-            .@"continue" => try self.w.writeAll("continue;"),
-            .@"defer" => {
-                try self.w.writeAll("defer ");
-                if (items.len >= 2) try self.emitStmt(items[1]);
-            },
-            .@"errdefer" => {
-                try self.w.writeAll("errdefer ");
-                if (items.len >= 2) try self.emitStmt(items[1]);
+            // `raw` marks an audit boundary for sema; it lowers to a block.
+            .@"raw_block" => try self.emitBlock(items[1]),
+            .@"defer", .@"errdefer" => {
+                try self.w.print("{s} ", .{@tagName(items[0].tag)});
+                const saved = self.rest;
+                self.rest = &.{};
+                defer self.rest = saved;
+                if (isTagged(items[1], .@"block")) try self.emitBlock(items[1]) else try self.emitStmt(items[1]);
             },
             else => {
+                if (self.discardsValue(sexp)) try self.w.writeAll("_ = ");
                 try self.emitExpr(sexp);
                 try self.w.writeAll(";");
             },
         }
     }
 
-    fn emitSet(self: *Emitter, items: []const Sexp) Error!void {
-        // Unified 5-child shape: (set <kind> name type-or-_ expr).
-        // BindingKind is exhaustive, so the switch below is checked by Zig.
-        if (items.len < 5) return;
+    /// True when `expr` in statement position produces a value that Zig
+    /// requires to be used.
+    fn discardsValue(self: *Emitter, expr: Sexp) bool {
+        var e = expr;
+        while (isTagged(e, .@"propagate") or isTagged(e, .@"try")) e = e.list[1];
+        if (!isTagged(e, .@"call")) return true;
+        if (self.isPrintCall(e)) return false;
+        const ty = self.typeOf(e) orelse return true;
+        return switch (self.sema.?.types.get(self.resolve(ty).id)) {
+            .void => false,
+            else => true,
+        };
+    }
+
+    // -------------------------------------------------------------------------
+    // Bindings and assignment
+    // -------------------------------------------------------------------------
+
+    /// `(set kind target type expr)`.
+    fn emitSet(self: *Emitter, sexp: Sexp) Error!void {
+        const items = sexp.list;
+        if (items.len < 5) return self.unsupported(sexp, "this binding");
         const kind = try rig.bindingKindOf(items[1]);
-        const name_node = items[2];
-        const name = identText(self.source, name_node) orelse return;
+        const target = items[2];
         const type_node = items[3];
         const expr = items[4];
 
-        switch (kind) {
-            .@"+=" => try self.emitCompoundAssign(name, "+=", expr),
-            .@"-=" => try self.emitCompoundAssign(name, "-=", expr),
-            .@"*=" => try self.emitCompoundAssign(name, "*=", expr),
-            .@"/=" => try self.emitCompoundAssign(name, "/=", expr),
-            // M20e.1 (per GPT-5.5's M20e post-implementation review):
-            // `<-` move-assign with a resource RHS must consume the
-            // source — same as the `(move x)` wrapped form. Without
-            // this, `rc2 <- rc` lowered to `rc2 = rc;` (Zig pointer
-            // copy) leaving BOTH guards armed → scope-exit defers
-            // double-drop on the same RcBox → UAF. Synthesize a
-            // `(move RHS)` wrapper so the resource-aware emit path
-            // installs the disarm.
-            .@"move" => {
-                var wrapped_items = [_]Sexp{ .{ .tag = .@"move" }, expr };
-                const wrapped = Sexp{ .list = &wrapped_items };
-                try self.emitSetOrBind(name, name_node, type_node, wrapped, false, false);
-            },
-            .default => try self.emitSetOrBind(name, name_node, type_node, expr, false, false),
-            .fixed => try self.emitSetOrBind(name, name_node, type_node, expr, true, false),
-            .shadow => try self.emitSetOrBind(name, name_node, type_node, expr, false, true),
+        if (target != .src) {
+            return switch (kind) {
+                .default, .move => self.emitPlaceAssign(target, expr),
+                .@"+=" => self.emitCompound(target, "+", expr),
+                .@"-=" => self.emitCompound(target, "-", expr),
+                .@"*=" => self.emitCompound(target, "*", expr),
+                .@"/=" => self.emitCompound(target, "/", expr),
+                .fixed, .shadow => self.unsupported(sexp, "this binding target"),
+            };
         }
-        // Exhaustive on BindingKind — Zig enforces.
+        const name = self.srcText(target);
+        switch (kind) {
+            .@"+=" => try self.emitCompound(target, "+", expr),
+            .@"-=" => try self.emitCompound(target, "-", expr),
+            .@"*=" => try self.emitCompound(target, "*", expr),
+            .@"/=" => try self.emitCompound(target, "/", expr),
+            .fixed, .shadow => try self.emitBind(target, type_node, expr, kind == .fixed),
+            .default, .move => {
+                const value: Sexp = if (kind == .move) try self.list(&.{ .{ .tag = .@"move" }, expr }) else expr;
+                if (self.lookup(name)) |local| {
+                    try self.emitRebind(local, value);
+                } else {
+                    try self.emitBind(target, type_node, value, false);
+                }
+            },
+        }
     }
 
-    fn emitCompoundAssign(self: *Emitter, name: []const u8, op_str: []const u8, expr: Sexp) Error!void {
-        const zig_name = self.lookup(name) orelse name;
-        try self.w.print("{s} {s} ", .{ zig_name, op_str });
-        try self.emitExpr(expr);
+    /// A new binding.
+    fn emitBind(self: *Emitter, name_node: Sexp, type_node: Sexp, expr: Sexp, fixed: bool) Error!void {
+        if (isTagged(expr, .@"lambda")) return self.emitClosureBinding(name_node, expr);
+
+        const rig_name = self.srcText(name_node);
+        const ty = self.declTy(name_node);
+        const is_borrow = isTagged(expr, .@"read") or isTagged(expr, .@"write");
+        var local: Local = .{ .rig_name = rig_name, .zig_name = "", .ty = ty, .is_ptr = is_borrow };
+        if (!is_borrow) {
+            if (ty) |t| local.kind = self.kindOf(t);
+        }
+        if (local.kind != null) local.guard = if (self.fun.consumed.contains(rig_name)) .flag else .scope;
+        if ((ty != null and self.isOwnedClosureTy(ty.?)) or isOwnedClosureTypeNode(self.source, type_node) or
+            classifyOwnedClosure(self.source, unwrapShare(expr)) != null)
+        {
+            local.callable = .owned_closure;
+        }
+
+        const needs_ptr_self = local.kind == .value or local.kind == .optional or
+            (ty != null and self.isCellTy(ty.?));
+        const mutated = self.fun.mutated.contains(name_node.src.pos);
+        const is_var = !is_borrow and (mutated or needs_ptr_self);
+
+        // Evaluate the value before the new name is visible, so a shadow
+        // (`new x = x + 1`) reads the old binding.
+        const saved_expected = self.expected;
+        self.expected = ty;
+        defer {
+            self.expected = saved_expected;
+        }
+        var value_buf: Writer.Allocating = .init(self.arena.allocator());
+        {
+            const saved_w = self.w;
+            self.w = &value_buf.writer;
+            defer self.w = saved_w;
+            if (is_borrow) {
+                try self.emitAddressOf(expr.list[1]);
+            } else if (type_node != .nil and self.isErrorSetNode(type_node) and isTagged(expr, .@"enum_lit")) {
+                try self.w.print("error.{f}", .{self.ident(self.text(expr.list[1]) orelse "_")});
+            } else {
+                try self.emitBare(expr);
+            }
+        }
+
+        const stored = try self.declare(local);
+        _ = fixed;
+        try self.w.print("{s} {s}", .{ if (is_var) "var" else "const", stored.zig_name });
+        if (type_node != .nil and !is_borrow) {
+            try self.w.writeAll(": ");
+            try self.emitType(type_node);
+        } else if (is_var and ty != null and self.isNumericOrBool(ty.?)) {
+            try self.w.writeAll(": ");
+            try self.emitTypeTy(ty.?);
+        }
+        try self.w.print(" = {s};", .{value_buf.written()});
+
+        if (stored.guard != .none) {
+            try self.w.writeAll("\n");
+            try self.writeIndent(self.indent);
+            try self.emitGuard(stored);
+        } else if (is_var and !mutated) {
+            // Methods that take `*Self` mutate through the address.
+            try self.w.print(" _ = &{s};", .{stored.zig_name});
+        } else if (!self.usedLater(rig_name)) {
+            try self.w.print(" _ = {s};", .{stored.zig_name});
+        }
+    }
+
+    /// Whether `rig_name` is referenced by the rest of the current block
+    /// (before any statement that shadows it).
+    fn usedLater(self: *Emitter, rig_name: []const u8) bool {
+        return usesNameInStmts(self.source, self.rest, rig_name);
+    }
+
+    /// Reassign an existing binding. A resource's old value is dropped
+    /// after the new one has been computed (so `a = +a` works), and the
+    /// guard is re-armed.
+    fn emitRebind(self: *Emitter, local: *Local, value: Sexp) Error!void {
+        const kind = local.kind orelse {
+            try self.writeLocalPlace(local);
+            try self.w.writeAll(" = ");
+            try self.emitExprExpecting(value, local.ty);
+            try self.w.writeAll(";");
+            return;
+        };
+        const tmp = try self.fmt("__rig_new_{d}", .{self.nextId()});
+        try self.w.print("{{ const {s} = ", .{tmp});
+        try self.emitExprExpecting(value, local.ty);
+        try self.w.writeAll("; ");
+        if (local.guard == .flag) try self.w.print("if ({s}) ", .{local.flag});
+        try self.writeDrop(local.zig_name, kind);
+        try self.w.print("; {s} = {s};", .{ local.zig_name, tmp });
+        if (local.guard == .flag) try self.w.print(" {s} = true;", .{local.flag});
+        try self.w.writeAll(" }");
+    }
+
+    /// Assignment to a field, element, or dereference. When the place
+    /// may hold a resource, the old value is dropped after the new one
+    /// is computed.
+    fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp) Error!void {
+        const place_ty = self.typeOf(target);
+        const may_own = if (place_ty) |t| self.kindOf(t) != null else true;
+        if (!may_own) {
+            try self.emitPlace(target);
+            try self.w.writeAll(" = ");
+            try self.emitExprExpecting(value, place_ty);
+            try self.w.writeAll(";");
+            return;
+        }
+        const tmp = try self.fmt("__rig_new_{d}", .{self.nextId()});
+        try self.w.print("{{ const {s} = ", .{tmp});
+        try self.emitExprExpecting(value, place_ty);
+        try self.w.writeAll("; rig.drop(&");
+        try self.emitPlace(target);
+        try self.w.writeAll("); ");
+        try self.emitPlace(target);
+        try self.w.print(" = {s}; }}", .{tmp});
+    }
+
+    /// `x op= e` on a name or place. Integer `/=` truncates.
+    fn emitCompound(self: *Emitter, target: Sexp, op: []const u8, value: Sexp) Error!void {
+        if (std.mem.eql(u8, op, "/") and !self.isFloatExpr(target)) {
+            try self.emitPlace(target);
+            try self.w.writeAll(" = @divTrunc(");
+            try self.emitPlace(target);
+            try self.w.writeAll(", ");
+            try self.emitBare(value);
+            try self.w.writeAll(");");
+            return;
+        }
+        try self.emitPlace(target);
+        try self.w.print(" {s}= ", .{op});
+        try self.emitBare(value);
         try self.w.writeAll(";");
     }
 
-    fn emitSetOrBind(
-        self: *Emitter,
-        name: []const u8,
-        name_node: Sexp,
-        type_node: Sexp,
-        expr: Sexp,
-        is_fixed: bool,
-        is_shadow: bool,
-    ) Error!void {
-        const has_type = type_node != .nil;
-        var zig_name: []const u8 = name;
-        const found = self.lookup(name);
+    /// An assignable place: a binding, field, element, or dereference.
+    fn emitPlace(self: *Emitter, target: Sexp) Error!void {
+        switch (target) {
+            .src => if (self.lookup(self.srcText(target))) |local| try self.writeLocalPlace(local) else try self.emitExpr(target),
+            .list => |items| if (items.len >= 3 and items[0] == .tag and items[0].tag == .@"index") {
+                try self.emitIndex(items, true);
+            } else {
+                try self.emitExpr(target);
+            },
+            else => try self.emitExpr(target),
+        }
+    }
 
-        // M20f(3/4): make the LHS type visible to deep emit paths
-        // (specifically the `(share x)` arm for built-in nominal
-        // constructors) via a saved/restored Emitter field.
-        const prev_set_type = self.current_set_type;
-        self.current_set_type = if (has_type) type_node else null;
-        defer self.current_set_type = prev_set_type;
+    fn writeLocalPlace(self: *Emitter, local: *const Local) Error!void {
+        try self.w.writeAll(local.zig_name);
+        if (local.is_ptr) try self.w.writeAll(".*");
+    }
 
-        // M20g(3/5): closure binding. The RHS is a lambda literal
-        // `(lambda CAPTURES PARAMS RETURNS BODY)`; lower to an
-        // anonymous Zig struct + `pub fn invoke(self: *@This())`
-        // method. The binding is `var` so `invoke` has a valid
-        // mutable pointer; `_ = &name;` pacifies Zig's
-        // "never mutated" warning in the common case where the
-        // closure is only invoked. ownership.zig has already
-        // enforced V1 non-copyability / non-escape, so the
-        // emitter doesn't have to defend against rebinds here.
-        if (isLambdaExpr(expr)) {
-            try self.emitClosureBinding(name, name_node, expr, is_shadow, found);
+    /// `-x`: drop now.
+    fn emitDrop(self: *Emitter, sexp: Sexp) Error!void {
+        const items = sexp.list;
+        if (items.len >= 2 and items[1] == .src) {
+            if (self.lookup(self.srcText(items[1]))) |local| {
+                if (local.kind) |kind| if (local.guard != .none) {
+                    if (local.guard == .flag) try self.w.print("{s} = false; ", .{local.flag});
+                    try self.writeDrop(local.zig_name, kind);
+                    try self.w.writeAll(";");
+                    return;
+                };
+                // Ending a borrow or dropping plain data has no runtime effect.
+                try self.w.writeAll("{}");
+                return;
+            }
+        }
+        return self.unsupported(sexp, "this drop");
+    }
+
+    // -------------------------------------------------------------------------
+    // Control flow
+    // -------------------------------------------------------------------------
+
+    /// `(return value? guard?)`.
+    fn emitReturn(self: *Emitter, items: []const Sexp) Error!void {
+        const value: Sexp = if (items.len >= 2) items[1] else .nil;
+        const guard: Sexp = if (items.len >= 3) items[2] else .nil;
+        if (guard != .nil) {
+            try self.w.writeAll("if (");
+            try self.emitBare(guard);
+            try self.w.writeAll(") ");
+        }
+        if (value == .nil) {
+            try self.w.writeAll("return;");
             return;
         }
+        try self.w.writeAll("return ");
+        try self.emitReturnValue(value);
+        try self.w.writeAll(";");
+    }
 
-        // M20h(4/5): owned-closure binding. The RHS is a `(share
-        // (call Closure (lambda ...)))` shape — a `*Closure()`
-        // construction. Sema typed the binding as `*Closure()`
-        // (shared(closure)), so resource_kind = .shared is set by
-        // the regular path below and auto-drop / clone / weak-ref
-        // all flow through the existing `*T` shared-handle paths.
-        // The ONLY thing different is `cb()` invocation: it must
-        // become `cb.value.invoke()` (Closure0 vtable jump) rather
-        // than the M20g `cb.invoke()` (direct struct method). We
-        // mark the binding so `emitCall` can apply that rewrite.
-        const is_owned_closure_rhs = isOwnedClosureConstruction(self.source, expr);
+    /// A value leaving the function. Resource bindings reached in tail
+    /// position (directly, or through `if`/`match`/ternary branches) are
+    /// moved out, so their scope-exit drop is disarmed.
+    fn emitReturnValue(self: *Emitter, value: Sexp) Error!void {
+        const saved = self.expected;
+        defer self.expected = saved;
+        self.expected = self.returnTy();
+        if (self.fun.returns) |r| {
+            if (self.isErrorSetNode(r) and isTagged(value, .@"enum_lit")) {
+                try self.w.print("error.{f}", .{self.ident(self.text(value.list[1]) orelse "_")});
+                return;
+            }
+        }
+        self.bare = true;
+        try self.emitValue(value, true);
+    }
 
-        if (is_shadow or found == null) {
-            if (is_shadow and found != null) {
-                // Mark the shadowed binding as "used" so Zig doesn't error
-                // on the now-unreachable original.
-                try self.w.print("_ = {s}; ", .{found.?});
-                zig_name = try self.freshShadow(name);
+    /// `(break value label guard)`.
+    fn emitBreak(self: *Emitter, items: []const Sexp) Error!void {
+        const value: Sexp = if (items.len >= 2) items[1] else .nil;
+        const label: Sexp = if (items.len >= 3) items[2] else .nil;
+        const guard: Sexp = if (items.len >= 4) items[3] else .nil;
+        try self.emitGuardPrefix(guard);
+        try self.w.writeAll("break");
+        if (label != .nil) try self.w.print(" :{f}", .{self.ident(self.text(label) orelse "_")});
+        if (value != .nil) {
+            try self.w.writeAll(" ");
+            self.bare = true;
+            try self.emitValue(value, true);
+        }
+        try self.w.writeAll(";");
+    }
+
+    /// `(continue label guard)`.
+    fn emitContinue(self: *Emitter, items: []const Sexp) Error!void {
+        const label: Sexp = if (items.len >= 2) items[1] else .nil;
+        const guard: Sexp = if (items.len >= 3) items[2] else .nil;
+        try self.emitGuardPrefix(guard);
+        try self.w.writeAll("continue");
+        if (label != .nil) try self.w.print(" :{f}", .{self.ident(self.text(label) orelse "_")});
+        try self.w.writeAll(";");
+    }
+
+    fn emitGuardPrefix(self: *Emitter, guard: Sexp) Error!void {
+        if (guard == .nil) return;
+        try self.w.writeAll("if (");
+        try self.emitBare(guard);
+        try self.w.writeAll(") ");
+    }
+
+    /// Statement `if`: `(if cond then)`, `(if cond then else)`, or
+    /// `(if cond then err_name else)`.
+    fn emitIf(self: *Emitter, sexp: Sexp) Error!void {
+        const items = sexp.list;
+        if (items.len < 3) return self.unsupported(sexp, "this if");
+        try self.pushScope();
+        try self.w.writeAll("if ");
+        try self.emitCond(items[1]);
+        try self.emitBranchStmt(items[2]);
+        try self.popScope();
+        if (items.len == 4) {
+            try self.w.writeAll(" else ");
+            if (isTagged(items[3], .@"if")) try self.emitIf(items[3]) else try self.emitBranchStmt(items[3]);
+        } else if (items.len >= 5) {
+            try self.pushScope();
+            const err_name = self.text(items[3]) orelse "_";
+            const local = try self.declare(.{ .rig_name = err_name, .zig_name = "" });
+            try self.w.print(" else |{s}| ", .{local.zig_name});
+            try self.emitBranchStmt(items[4]);
+            try self.popScope();
+        }
+    }
+
+    /// `(cond) ` for `if`/`while`. `(as expr name)` unwraps an optional
+    /// into `name`, declared in the current scope: `(expr) |name| `.
+    fn emitCond(self: *Emitter, cond: Sexp) Error!void {
+        try self.w.writeAll("(");
+        if (!isTagged(cond, .@"as")) {
+            try self.emitBare(cond);
+            return self.w.writeAll(") ");
+        }
+        try self.emitExpr(cond.list[1]);
+        const name = self.text(cond.list[2]) orelse "_";
+        const inner = if (self.typeOf(cond.list[1])) |t| self.optionalChild(t) else null;
+        const local = try self.declare(.{ .rig_name = name, .zig_name = "", .ty = inner });
+        try self.w.print(") |{s}| ", .{local.zig_name});
+    }
+
+    fn emitBranchStmt(self: *Emitter, branch: Sexp) Error!void {
+        if (isTagged(branch, .@"block")) return self.emitBlock(branch);
+        try self.w.writeAll("{ ");
+        const saved = self.rest;
+        self.rest = &.{};
+        defer self.rest = saved;
+        try self.emitStmt(branch);
+        try self.w.writeAll(" }");
+    }
+
+    /// `(labeled name stmt)`: a labeled loop or block.
+    fn emitLabeled(self: *Emitter, sexp: Sexp) Error!void {
+        const items = sexp.list;
+        const label = self.text(items[1]) orelse return self.unsupported(sexp, "this label");
+        const stmt = items[2];
+        if (isTagged(stmt, .@"while") or isTagged(stmt, .@"for")) return self.emitLoop(stmt, label);
+        if (isTagged(stmt, .@"block")) {
+            try self.w.print("{f}: ", .{self.ident(label)});
+            return self.emitBlock(stmt);
+        }
+        return self.unsupported(sexp, "a label on this statement");
+    }
+
+    fn emitLoop(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
+        if (isTagged(sexp, .@"while")) return self.emitWhile(sexp, label);
+        return self.emitFor(sexp, label);
+    }
+
+    fn writeLabel(self: *Emitter, label: ?[]const u8) Error!void {
+        if (label) |l| try self.w.print("{f}: ", .{self.ident(l)});
+    }
+
+    /// `(while cond continuation body else?)`.
+    fn emitWhile(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
+        const items = sexp.list;
+        if (items.len < 4) return self.unsupported(sexp, "this while");
+        try self.pushScope();
+        try self.writeLabel(label);
+        try self.w.writeAll("while ");
+        try self.emitCond(items[1]);
+        if (items[2] != .nil) {
+            try self.w.writeAll(": (");
+            try self.emitContinuation(items[2]);
+            try self.w.writeAll(") ");
+        }
+        try self.emitBranchStmt(items[3]);
+        try self.popScope();
+        if (items.len >= 5 and items[4] != .nil) {
+            try self.w.writeAll(" else ");
+            try self.emitBranchStmt(items[4]);
+        }
+    }
+
+    /// The `: step` of a while, written as a Zig continue expression.
+    fn emitContinuation(self: *Emitter, step: Sexp) Error!void {
+        if (isTagged(step, .@"set") and step.list.len >= 5 and step.list[2] == .src) {
+            const kind = try rig.bindingKindOf(step.list[1]);
+            const op: ?[]const u8 = switch (kind) {
+                .@"+=" => "+=",
+                .@"-=" => "-=",
+                .@"*=" => "*=",
+                .default => "=",
+                else => null,
+            };
+            if (op) |o| if (self.lookup(self.srcText(step.list[2]))) |local| {
+                try self.writeLocalPlace(local);
+                try self.w.print(" {s} ", .{o});
+                try self.emitBare(step.list[4]);
+                return;
+            };
+        }
+        if (isTagged(step, .@"call")) return self.emitExpr(step);
+        // Anything else runs as a block.
+        try self.w.writeAll("{ ");
+        const saved = self.rest;
+        self.rest = &.{};
+        defer self.rest = saved;
+        try self.emitStmt(step);
+        try self.w.writeAll(" }");
+    }
+
+    /// `(for mode binding index-binding source body else?)`.
+    fn emitFor(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
+        const items = sexp.list;
+        if (items.len < 6) return self.unsupported(sexp, "this for");
+        const mode = items[1];
+        const binding = items[2];
+        const index_binding = items[3];
+        const source = items[4];
+        const body = items[5];
+        const else_body: Sexp = if (items.len >= 7) items[6] else .nil;
+
+        if (isTagged(source, .@"..")) return self.emitRangeFor(sexp, label);
+
+        const src_ty = self.typeOf(source);
+        const elem_ty: ?Ty = if (src_ty) |t| self.elemTy(t) else null;
+        const is_vec = if (src_ty) |t| self.isVecTy(t) else self.vecInfo(source) != null;
+        const by_ptr = (mode == .tag and (mode.tag == .@"ptr" or mode.tag == .@"write")) or
+            (is_vec and if (elem_ty) |t| self.kindOf(t) != null else if (self.vecInfo(source)) |v| v.is_resource else false);
+
+        const body_stmts = try self.stmtsOf(body);
+        try self.pushScope();
+        try self.writeLabel(label);
+        try self.w.writeAll("for (");
+        try self.emitExpr(source);
+        if (is_vec) try self.w.writeAll(".items()");
+        if (index_binding != .nil) try self.w.writeAll(", 0..");
+        try self.w.writeAll(") |");
+
+        var elem_name: []const u8 = "_";
+        if (binding == .src and usesNameInStmts(self.source, body_stmts, self.srcText(binding))) {
+            var local: Local = .{ .rig_name = self.srcText(binding), .zig_name = "", .ty = elem_ty, .is_ptr = by_ptr };
+            if (elem_ty) |t| {
+                if (self.isOwnedClosureTy(t)) local.callable = .owned_closure;
+            } else if (self.vecInfo(source)) |v| {
+                if (v.is_closure) local.callable = .owned_closure;
             }
-            // M20e.1: record the binding's resource classification
-            // in the emitter's scope table so use-site disarms find
-            // it via scope-aware lookup (sound under shadowing).
-            try self.declareWithResourceKind(name, zig_name, self.resourceKindOfBinding(name_node));
-            // M20h(4/5): mark owned-closure bindings so `emitCall`
-            // rewrites `cb()` to `cb.value.invoke()`. We mark when
-            // ANY of three signals identifies the binding as owned-
-            // closure:
-            //   - RHS shape is `*Closure(fn ...)` (immediate construction)
-            //   - type annotation is `*Closure()`
-            //   - sema's type for the binding is `shared(closure)`
-            //     (covers `cb = +other_cb`, `cb = make_counter()`,
-            //     captures, etc. — anywhere the value comes from a
-            //     `*Closure()` source other than direct construction)
-            // The marking is done AFTER `declareWithResourceKind` so
-            // it targets the freshly-installed scope entry.
-            if (is_owned_closure_rhs or
-                isOwnedClosureTypeNode(self.source, type_node) or
-                self.isOwnedClosureBindingViaSema(name_node))
-            {
-                self.markOwnedClosure(name);
-            }
-            // `var` only if reassigned later. `=!` always emits `const`.
-            //
-            // M20f(2/4): Cell(T) (and other future interior-mutable
-            // nominals) need their Zig storage to be mutable so the
-            // `set(self: *Self, value: T)` runtime method has a
-            // valid mutable pointer. Per GPT-5.5's M20f design pass:
-            // emit Cell locals as `var` unconditionally — Rig's `=!`
-            // still prevents rebinding at the Rig level (SPEC
-            // permits interior mutation through fixed bindings).
-            const is_mutated = self.fn_mutated.contains(name);
-            const is_interior_mutable = self.isInteriorMutableBinding(name_node);
-            const want_var = is_mutated or is_interior_mutable;
-            const decl_kw: []const u8 = if (is_fixed and !is_interior_mutable)
-                "const"
-            else if (want_var) "var" else "const";
-            if (has_type) {
-                try self.w.print("{s} {s}: ", .{ decl_kw, zig_name });
-                try self.emitType(type_node);
-                try self.w.writeAll(" = ");
-            } else if (decl_kw[0] == 'v') {
-                // M19: mutable binding with no source-level type annotation.
-                // Zig refuses `var x = 0;` because `comptime_int` isn't
-                // a runtime type. If sema inferred a concrete type for
-                // this binding, emit it as a Zig type annotation. Falls
-                // back to the bare form for non-numeric inferred types
-                // and when sema is unavailable (parser-only mode).
-                if (self.tryEmitInferredType(name_node, name)) {
-                    try self.w.print("{s} {s}: ", .{ decl_kw, zig_name });
-                    try self.emitInferredType(name_node, name);
-                    try self.w.writeAll(" = ");
-                } else {
-                    try self.w.print("{s} {s} = ", .{ decl_kw, zig_name });
-                }
+            const stored = try self.declare(local);
+            elem_name = stored.zig_name;
+        }
+        try self.w.print("{s}{s}", .{ if (by_ptr and !std.mem.eql(u8, elem_name, "_")) "*" else "", elem_name });
+
+        var index_zig: ?[]const u8 = null;
+        if (index_binding == .src) {
+            const iname = self.srcText(index_binding);
+            if (usesNameInStmts(self.source, body_stmts, iname)) {
+                const raw = try self.fmt("__rig_i_{d}", .{self.nextId()});
+                const stored = try self.declare(.{ .rig_name = iname, .zig_name = "", .ty = self.declTy(index_binding) });
+                index_zig = stored.zig_name;
+                try self.w.print(", {s}", .{raw});
+                try self.w.writeAll("| {\n");
+                self.indent += 1;
+                try self.line("const {s}: i32 = @intCast({s});", .{ stored.zig_name, raw });
             } else {
-                try self.w.print("{s} {s} = ", .{ decl_kw, zig_name });
-            }
-            try self.emitExpr(expr);
-            try self.w.writeAll(";");
-            // M20e: if this binding is a resource (`*T` / `~T`), install
-            // a `var __rig_alive_<zig_name> = true;` guard + `defer` that
-            // drops via the runtime if the guard is still armed at scope
-            // exit. Explicit `-x` / `<x` / bare `return x` disarm the
-            // guard (subsequent sub-commits cover those discharges).
-            if (self.resourceKindOfBinding(name_node)) |kind| {
-                try self.emitResourceGuard(zig_name, kind);
-            }
-            // M20f(2/4): Cell bindings are emitted as `var` so the
-            // runtime `set(self: *Self, value: T)` method has a valid
-            // mutable pointer. If the binding is only field-read in
-            // the body (no `c.set(...)` calls), Zig fires
-            // "local variable is never mutated, consider using 'const'".
-            // Pacify with `_ = &<name>;` — the address-taken hint tells
-            // Zig the var may be mutated through an alias. Harmless
-            // when the binding IS mutated; necessary when it isn't.
-            if (is_interior_mutable) {
-                try self.w.print(" _ = &{s};", .{zig_name});
+                try self.w.writeAll(", _| {\n");
+                self.indent += 1;
             }
         } else {
-            // M20e(3/5): reassigning a resource binding must drop the
-            // previous handle before overwriting. Without this, the
-            // old strong/weak handle would leak silently. The
-            // sequence is:
-            //   1. Conditional drop of the previous handle (only if
-            //      the guard is still armed — explicit `-rc` earlier
-            //      in this scope may have already disarmed).
-            //   2. The actual assignment.
-            //   3. Re-arm the guard to true so scope-exit / future
-            //      reassign sites can drop the new handle.
-            // Together these preserve the M20e invariant: every
-            // resource binding has exactly-one drop per allocation.
-            //
-            // Per GPT-5.5's M20e design pass: this is the only safe
-            // option — silent overwrite would leak; rejection would
-            // break the natural `rc = *fresh(...)` pattern.
-            const found_name = found.?;
-            const resource_kind = self.resourceKindOfBareUse(name);
-            if (resource_kind) |kind| {
-                // M20e.1 (per GPT-5.5 post-implementation review):
-                // disarm INSIDE the drop-old block, BEFORE evaluating
-                // the RHS. The original M20e(3/5) ordering
-                //     drop_old; rhs; arm = true
-                // double-dropped on fallible RHS: if `<rhs>` propagated
-                // an error (via `expr!`), Zig unwinds the scope with
-                // `__rig_alive_x == true` but the old handle had
-                // already been dropped — the scope-exit defer would
-                // call dropStrong on a freed box.
-                //
-                // Correct shape: clear the flag as part of the old-
-                // handle release atomic step, then evaluate RHS, then
-                // re-arm only after the assignment completes. If RHS
-                // propagates, the flag is false and the defer is a
-                // no-op (correct: the new handle never landed).
-                const drop_method: []const u8 = switch (kind) {
-                    .shared => "dropStrong",
-                    .weak => "dropWeak",
-                    // M20i: Vec(T) bindings drop via __rig_drop. The
-                    // reassignment-of-resource path applies uniformly
-                    // — same atomic "drop-old, assign-new, re-arm"
-                    // pattern as shared/weak.
-                    .vec_value => "__rig_drop",
-                };
-                try self.w.print("if (__rig_alive_{s}) {{ {s}.{s}(); __rig_alive_{s} = false; }} ", .{
-                    found_name, found_name, drop_method, found_name,
-                });
+            try self.w.writeAll("| {\n");
+            self.indent += 1;
+        }
+        try self.pushScope();
+        try self.emitStmts(body_stmts);
+        try self.closeBrace();
+        try self.popScope();
+        if (else_body != .nil) {
+            try self.w.writeAll(" else ");
+            try self.emitBranchStmt(else_body);
+        }
+    }
+
+    /// `for i in a..b`: a half-open integer range.
+    fn emitRangeFor(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
+        const items = sexp.list;
+        const binding = items[2];
+        const range = items[4];
+        const body_stmts = try self.stmtsOf(items[5]);
+        const else_body: Sexp = if (items.len >= 7) items[6] else .nil;
+        const id = self.nextId();
+        const counter = try self.fmt("__rig_i_{d}", .{id});
+        const end = try self.fmt("__rig_end_{d}", .{id});
+        const int_ty: ?Ty = if (binding == .src) self.declTy(binding) else null;
+
+        try self.openBrace();
+        try self.writeIndent(self.indent);
+        try self.w.print("var {s}: ", .{counter});
+        if (int_ty != null and self.isNumericOrBool(int_ty.?)) try self.emitTypeTy(int_ty.?) else try self.w.writeAll("i32");
+        try self.w.writeAll(" = ");
+        try self.emitExpr(range.list[1]);
+        try self.w.print(";\n", .{});
+        try self.writeIndent(self.indent);
+        try self.w.print("const {s} = ", .{end});
+        try self.emitExpr(range.list[2]);
+        try self.w.writeAll(";\n");
+        try self.writeIndent(self.indent);
+        try self.writeLabel(label);
+        try self.w.print("while ({s} < {s}) : ({s} += 1) ", .{ counter, end, counter });
+        try self.openBrace();
+        if (binding == .src and usesNameInStmts(self.source, body_stmts, self.srcText(binding))) {
+            const stored = try self.declare(.{ .rig_name = self.srcText(binding), .zig_name = "", .ty = int_ty });
+            try self.line("const {s} = {s};", .{ stored.zig_name, counter });
+        }
+        try self.emitStmts(body_stmts);
+        try self.closeBrace();
+        if (else_body != .nil) {
+            try self.w.writeAll(" else ");
+            try self.emitBranchStmt(else_body);
+        }
+        try self.w.writeAll("\n");
+        try self.closeBrace();
+    }
+
+    // -------------------------------------------------------------------------
+    // Match
+    // -------------------------------------------------------------------------
+
+    /// `(match scrutinee arm...)` → `switch`. In value position each arm
+    /// yields a value; `tail` moves resource bindings the arms return.
+    fn emitMatch(self: *Emitter, sexp: Sexp, value_pos: bool, tail: bool) Error!void {
+        const items = sexp.list;
+        if (items.len < 2) return self.unsupported(sexp, "this match");
+        const scrutinee = items[1];
+        const scrut_ty = self.typeOf(scrutinee);
+        const error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false;
+
+        try self.w.writeAll("switch (");
+        try self.emitBare(scrutinee);
+        try self.w.writeAll(") {\n");
+        self.indent += 1;
+
+        var has_default = false;
+        var variants_seen: usize = 0;
+        for (items[2..]) |arm| {
+            if (!isTagged(arm, .@"arm") or arm.list.len < 4) continue;
+            const pattern = arm.list[1];
+            const as_name = arm.list[2];
+            const body = arm.list[arm.list.len - 1];
+            try self.writeIndent(self.indent);
+            try self.pushScope();
+            defer self.popScope() catch {};
+
+            var captures: []const Sexp = &.{};
+            var variant: ?[]const u8 = null;
+            switch (pattern) {
+                .src, .nil => {
+                    has_default = true;
+                    try self.w.writeAll("else => ");
+                    const bind = if (pattern == .src and !std.mem.eql(u8, self.srcText(pattern), "_")) pattern else as_name;
+                    if (bind == .src) try self.emitCapture(bind, scrut_ty, body);
+                },
+                .list => |p| switch (if (p.len > 0 and p[0] == .tag) p[0].tag else .@"block") {
+                    .@"enum_lit", .@"enum_pattern", .@"variant_pattern" => {
+                        const vname = self.text(p[1]) orelse "_";
+                        variant = vname;
+                        variants_seen += 1;
+                        try self.w.print("{s}{f} => ", .{ if (error_set) "error." else ".", self.ident(vname) });
+                        if (p[0].tag == .@"variant_pattern") captures = p[2..];
+                        if (captures.len == 0 and as_name == .src) {
+                            try self.emitCapture(as_name, self.variantPayloadTy(scrut_ty, vname, null), body);
+                        }
+                    },
+                    .@"range_pattern" => {
+                        // Patterns are inclusive: `1..3` covers 1, 2, 3.
+                        try self.emitExpr(p[1]);
+                        try self.w.writeAll("...");
+                        try self.emitExpr(p[2]);
+                        try self.w.writeAll(" => ");
+                    },
+                    else => {
+                        try self.emitExpr(pattern);
+                        try self.w.writeAll(" => ");
+                    },
+                },
+                else => {
+                    try self.emitExpr(pattern);
+                    try self.w.writeAll(" => ");
+                },
             }
-            try self.w.print("{s} = ", .{found_name});
-            try self.emitExpr(expr);
+
+            // Payload destructuring.
+            var aliases: []const Alias = &.{};
+            if (captures.len == 1 and captures[0] == .src) {
+                try self.emitCapture(captures[0], self.variantPayloadTy(scrut_ty, variant.?, null), body);
+            } else if (captures.len > 1) {
+                aliases = try self.payloadAliases(captures, scrut_ty, variant.?, body);
+                if (aliases.len > 0) try self.w.writeAll("|__rig_payload| ");
+            }
+            try self.emitArmBody(body, aliases, value_pos, tail);
+            try self.w.writeAll(",\n");
+        }
+        if (!has_default and !self.matchIsExhaustive(scrut_ty, variants_seen)) {
+            try self.line("else => unreachable,", .{});
+        }
+        self.indent -= 1;
+        try self.writeIndent(self.indent);
+        try self.w.writeAll("}");
+    }
+
+    const Alias = struct { zig_name: []const u8, field: []const u8 };
+
+    /// `|name| ` for a payload or catch-all capture that the body uses.
+    fn emitCapture(self: *Emitter, name_node: Sexp, ty: ?Ty, body: Sexp) Error!void {
+        const name = self.srcText(name_node);
+        if (!usesName(self.source, body, name)) return;
+        const local = try self.declare(.{ .rig_name = name, .zig_name = "", .ty = ty, .callable = if (ty != null and self.isOwnedClosureTy(ty.?)) .owned_closure else .none });
+        try self.w.print("|{s}| ", .{local.zig_name});
+    }
+
+    /// Bindings for a multi-field payload, declared in the arm's scope.
+    fn payloadAliases(self: *Emitter, captures: []const Sexp, scrut_ty: ?Ty, variant: []const u8, body: Sexp) Error![]const Alias {
+        const names = self.variantFieldNames(scrut_ty, variant) orelse return self.unsupported(captures[0], "this payload pattern");
+        var out: std.ArrayListUnmanaged(Alias) = .empty;
+        for (captures, 0..) |c, i| {
+            if (c != .src or i >= names.len) continue;
+            const name = self.srcText(c);
+            if (std.mem.eql(u8, name, "_") or !usesName(self.source, body, name)) continue;
+            const ty = self.variantPayloadTy(scrut_ty, variant, names[i]);
+            const local = try self.declare(.{ .rig_name = name, .zig_name = "", .ty = ty });
+            try out.append(self.arena.allocator(), .{ .zig_name = local.zig_name, .field = names[i] });
+        }
+        return out.items;
+    }
+
+    fn emitArmBody(self: *Emitter, body: Sexp, aliases: []const Alias, value_pos: bool, tail: bool) Error!void {
+        if (value_pos) return self.emitValueBlock(body, aliases, tail);
+        try self.openBrace();
+        for (aliases) |a| try self.line("const {s} = __rig_payload.{f};", .{ a.zig_name, self.ident(a.field) });
+        try self.emitStmts(try self.stmtsOf(body));
+        try self.closeBrace();
+    }
+
+    fn matchIsExhaustive(self: *Emitter, scrut_ty: ?Ty, variants_seen: usize) bool {
+        const t = scrut_ty orelse return false;
+        const sym_id = self.nominalSym(t) orelse return false;
+        const sym = self.sema.?.symbols.items[sym_id];
+        const fields = sym.fields orelse return false;
+        var count: usize = 0;
+        for (fields) |f| {
+            if (f.is_variant) count += 1;
+        }
+        return count > 0 and variants_seen >= count;
+    }
+
+    // =========================================================================
+    // Expressions
+    // =========================================================================
+
+    fn emitExpr(self: *Emitter, sexp: Sexp) Error!void {
+        return self.emitValue(sexp, false);
+    }
+
+    /// An expression in a delimited position: no outer parentheses.
+    fn emitBare(self: *Emitter, sexp: Sexp) Error!void {
+        self.bare = true;
+        return self.emitValue(sexp, false);
+    }
+
+    fn emitExprExpecting(self: *Emitter, sexp: Sexp, ty: ?Ty) Error!void {
+        const saved = self.expected;
+        defer self.expected = saved;
+        self.expected = ty;
+        self.bare = true;
+        return self.emitValue(sexp, false);
+    }
+
+    /// Emit an expression. With `tail`, the expression's value leaves
+    /// its scope (return, break value): resource bindings in tail
+    /// position are moved out.
+    fn emitValue(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
+        const bare = self.bare;
+        self.bare = false;
+        switch (sexp) {
+            .nil => try self.w.writeAll("undefined"),
+            .src => try self.emitName(sexp, tail),
+            .str => |s| try self.w.writeAll(s),
+            .tag => return self.unsupported(sexp, "this expression"),
+            .list => |items| {
+                if (items.len == 0 or items[0] != .tag) return self.unsupported(sexp, "this expression");
+                try self.emitList(sexp, tail, bare);
+            },
+        }
+    }
+
+    fn emitName(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
+        const name = self.srcText(sexp);
+        if (self.lookup(name)) |local| {
+            if (tail and local.guard == .flag) return self.writeTake(local);
+            return self.writeLocalPlace(local);
+        }
+        if (name.len >= 2 and name[0] == '\'') return self.writeSingleQuoted(name);
+        if (isLiteralText(name)) return self.w.writeAll(name);
+        try self.w.print("{f}", .{self.ident(name)});
+    }
+
+    /// `rig.take(&flag, x)`: yields `x` and disarms its scope-exit drop.
+    fn writeTake(self: *Emitter, local: *const Local) Error!void {
+        try self.w.print("rig.take(&{s}, {s})", .{ local.flag, local.zig_name });
+    }
+
+    fn emitList(self: *Emitter, sexp: Sexp, tail: bool, bare: bool) Error!void {
+        const items = sexp.list;
+        const head = items[0].tag;
+        switch (head) {
+            .@"read", .@"pin", .@"raw" => try self.emitValue(items[1], tail),
+            // `!x` as a value (an argument, a receiver) is the place's address.
+            .@"write" => try self.emitAddressOf(items[1]),
+            .@"move" => {
+                if (items[1] == .src) if (self.lookup(self.srcText(items[1]))) |local| {
+                    if (local.guard == .flag) return self.writeTake(local);
+                };
+                try self.emitExpr(items[1]);
+            },
+            .@"share" => try self.emitShare(items[1]),
+            .@"clone" => {
+                const ty = self.typeOf(items[1]);
+                try self.emitExpr(items[1]);
+                if (ty) |t| switch (self.sema.?.types.get(self.resolve(t).id)) {
+                    .shared => try self.w.writeAll(".cloneStrong()"),
+                    .weak => try self.w.writeAll(".cloneWeak()"),
+                    else => {},
+                };
+            },
+            .@"weak" => {
+                try self.emitExpr(items[1]);
+                try self.w.writeAll(".weakRef()");
+            },
+            .@"call" => try self.emitCall(sexp),
+            .@"member" => try self.emitMember(items),
+            .@"index" => try self.emitIndex(items, false),
+            .@"deref" => {
+                try self.emitExpr(items[1]);
+                try self.w.writeAll(".*");
+            },
+            .@"builtin" => try self.emitBuiltin(items),
+            .@"propagate", .@"try" => {
+                try self.w.writeAll("try ");
+                try self.emitExpr(items[1]);
+            },
+            .@"neg" => {
+                try self.w.writeAll("-");
+                try self.emitExpr(items[1]);
+            },
+            .@"not" => {
+                try self.w.writeAll("!");
+                try self.emitExpr(items[1]);
+            },
+            .@"addr_of" => {
+                try self.w.writeAll("&");
+                try self.emitExpr(items[1]);
+            },
+            .@"enum_lit" => try self.w.print(".{f}", .{self.ident(self.text(items[1]) orelse "_")}),
+            .@"null", .@"undefined", .@"unreachable" => try self.w.writeAll(@tagName(head)),
+            .@"+", .@"-", .@"*", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^", .@"<<", .@">>" => try self.emitInfix(items, bare),
+            .@"&&", .@"||" => {
+                if (!bare) try self.w.writeAll("(");
+                try self.emitExpr(items[1]);
+                try self.w.writeAll(if (head == .@"&&") " and " else " or ");
+                try self.emitExpr(items[2]);
+                if (!bare) try self.w.writeAll(")");
+            },
+            .@"/" => try self.emitDivision(items, "@divTrunc"),
+            .@"%" => try self.emitDivision(items, "@rem"),
+            .@"**" => {
+                try self.w.writeAll("std.math.pow(");
+                if (self.typeOf(items[1])) |t| try self.emitTypeTy(t) else try self.w.writeAll(if (self.isFloatExpr(items[1])) "f64" else "i32");
+                try self.w.writeAll(", ");
+                try self.emitExpr(items[1]);
+                try self.w.writeAll(", ");
+                try self.emitExpr(items[2]);
+                try self.w.writeAll(")");
+            },
+            .@"??" => {
+                try self.w.writeAll("(");
+                try self.emitExpr(items[1]);
+                try self.w.writeAll(" orelse ");
+                try self.emitValue(items[2], tail);
+                try self.w.writeAll(")");
+            },
+            .@"catch" => {
+                try self.w.writeAll("(");
+                try self.emitExpr(items[1]);
+                try self.w.writeAll(" catch ");
+                if (items.len >= 4) {
+                    try self.pushScope();
+                    const local = try self.declare(.{ .rig_name = self.text(items[2]) orelse "_", .zig_name = "" });
+                    try self.w.print("|{s}| ", .{if (usesName(self.source, items[3], local.rig_name)) local.zig_name else "_"});
+                    try self.emitValue(items[3], tail);
+                    try self.popScope();
+                } else {
+                    try self.emitValue(items[2], tail);
+                }
+                try self.w.writeAll(")");
+            },
+            .@"|>" => try self.emitPipe(items),
+            .@"ternary" => {
+                // `(ternary cond then else)`
+                try self.w.writeAll(if (bare) "if (" else "(if (");
+                try self.emitBare(items[1]);
+                try self.w.writeAll(") ");
+                try self.emitValue(items[2], tail);
+                try self.w.writeAll(" else ");
+                try self.emitValue(items[3], tail);
+                if (!bare) try self.w.writeAll(")");
+            },
+            .@"if" => {
+                if (!bare) try self.w.writeAll("(");
+                try self.emitIfExpr(sexp, tail);
+                if (!bare) try self.w.writeAll(")");
+            },
+            .@"match" => try self.emitMatch(sexp, true, tail),
+            .@"block" => try self.emitValueBlock(sexp, &.{}, tail),
+            .@"raw_block" => try self.emitValueBlock(items[1], &.{}, tail),
+            .@"array" => try self.emitArray(items),
+            .@"anon_init" => try self.emitFieldInit(".", items[1..]),
+            .@"record" => {
+                try self.w.print("{f}", .{self.ident(self.text(items[1]) orelse "_")});
+                try self.emitFieldInit("", items[2..]);
+            },
+            else => return self.unsupported(sexp, "this expression"),
+        }
+    }
+
+    /// `&place`, or the pointer itself when the place is already one.
+    fn emitAddressOf(self: *Emitter, place: Sexp) Error!void {
+        if (place == .src) if (self.lookup(self.srcText(place))) |local| {
+            if (local.is_ptr) return self.w.writeAll(local.zig_name);
+        };
+        try self.w.writeAll("&");
+        try self.emitPlace(place);
+    }
+
+    fn emitInfix(self: *Emitter, items: []const Sexp, bare: bool) Error!void {
+        const op = @tagName(items[0].tag);
+        const is_eq = items[0].tag == .@"==" or items[0].tag == .@"!=";
+        if (is_eq and (self.isStringExpr(items[1]) or self.isStringExpr(items[2]))) {
+            if (items[0].tag == .@"!=") try self.w.writeAll("!");
+            try self.w.writeAll("std.mem.eql(u8, ");
+            try self.emitExpr(items[1]);
+            try self.w.writeAll(", ");
+            try self.emitExpr(items[2]);
+            try self.w.writeAll(")");
+            return;
+        }
+        if (!bare) try self.w.writeAll("(");
+        try self.emitExpr(items[1]);
+        try self.w.print(" {s} ", .{op});
+        try self.emitExpr(items[2]);
+        if (!bare) try self.w.writeAll(")");
+    }
+
+    /// `/` truncates toward zero for integers (`@divTrunc`); `%` is the
+    /// remainder with the dividend's sign (`@rem`), for integers and
+    /// floats alike. Float `/` is ordinary division.
+    fn emitDivision(self: *Emitter, items: []const Sexp, builtin: []const u8) Error!void {
+        if (items[0].tag == .@"/" and (self.isFloatExpr(items[1]) or self.isFloatExpr(items[2]))) {
+            return self.emitInfix(items, false);
+        }
+        try self.w.print("{s}(", .{builtin});
+        try self.emitExpr(items[1]);
+        try self.w.writeAll(", ");
+        try self.emitExpr(items[2]);
+        try self.w.writeAll(")");
+    }
+
+    /// `x |> f` → `f(x)`; `x |> f(a)` → `f(x, a)`.
+    fn emitPipe(self: *Emitter, items: []const Sexp) Error!void {
+        const arg = items[1];
+        const f = items[2];
+        if (isTagged(f, .@"call")) {
+            var call: std.ArrayListUnmanaged(Sexp) = .empty;
+            try call.appendSlice(self.arena.allocator(), f.list[0..2]);
+            try call.append(self.arena.allocator(), arg);
+            try call.appendSlice(self.arena.allocator(), f.list[2..]);
+            return self.emitCall(.{ .list = call.items });
+        }
+        return self.emitCall(try self.list(&.{ .{ .tag = .@"call" }, f, arg }));
+    }
+
+    /// `.{ .a = x, ... }` / `Name{ ... }` from kwargs or positional args.
+    fn emitFieldInit(self: *Emitter, prefix: []const u8, args: []const Sexp) Error!void {
+        try self.w.print("{s}{{", .{prefix});
+        for (args, 0..) |a, i| {
+            try self.w.writeAll(if (i == 0) " " else ", ");
+            if (isTagged(a, .@"kwarg")) {
+                try self.w.print(".{f} = ", .{self.ident(self.text(a.list[1]) orelse "_")});
+                try self.emitExpr(a.list[2]);
+            } else {
+                try self.emitBare(a);
+            }
+        }
+        try self.w.writeAll(if (args.len > 0) " }" else "}");
+    }
+
+    /// `[a, b, c]` → `[_]T{ a, b, c }`.
+    fn emitArray(self: *Emitter, items: []const Sexp) Error!void {
+        const elems = items[1..];
+        try self.w.writeAll("[_]");
+        if (self.expected) |t| if (self.arrayElemTy(t)) |elem| {
+            try self.emitTypeTy(elem);
+        } else try self.emitLiteralElemType(elems) else try self.emitLiteralElemType(elems);
+        try self.w.writeAll("{");
+        for (elems, 0..) |e, i| {
+            try self.w.writeAll(if (i == 0) " " else ", ");
+            try self.emitExpr(e);
+        }
+        try self.w.writeAll(if (elems.len > 0) " }" else "}");
+    }
+
+    fn emitLiteralElemType(self: *Emitter, elems: []const Sexp) Error!void {
+        if (elems.len > 0) if (self.typeOf(elems[0])) |t| return self.emitTypeTy(t);
+        if (elems.len > 0 and self.isFloatExpr(elems[0])) return self.w.writeAll("f64");
+        try self.w.writeAll("i32");
+    }
+
+    /// `x[i]`: bounds-checked element of an array, slice, string, or
+    /// `Vec` of plain data. As a place, a `Vec` element is `x.slot(i).*`.
+    fn emitIndex(self: *Emitter, items: []const Sexp, as_place: bool) Error!void {
+        const base = items[1];
+        const index = items[2];
+        const base_ty = self.typeOf(base);
+        if (base_ty != null and self.isVecTy(base_ty.?)) {
+            try self.emitExpr(base);
+            try self.w.writeAll(if (as_place) ".slot(" else ".at(");
+            try self.emitExpr(index);
+            try self.w.writeAll(if (as_place) ").*" else ")");
+            return;
+        }
+        try self.emitExpr(base);
+        try self.w.writeAll("[");
+        if (isNonNegativeIntLiteral(self.source, index)) {
+            try self.emitExpr(index);
+        } else {
+            try self.w.writeAll("rig.index(");
+            try self.emitExpr(index);
+            try self.w.writeAll(", ");
+            try self.emitExpr(base);
+            try self.w.writeAll(".len)");
+        }
+        try self.w.writeAll("]");
+    }
+
+    /// `(member obj name)`. A shared handle auto-dereferences through
+    /// `.value`; `.len` of an array, slice, or string is an `Int`.
+    fn emitMember(self: *Emitter, items: []const Sexp) Error!void {
+        const obj = items[1];
+        const field = self.text(items[2]) orelse return self.unsupported(items[2], "this member");
+        const obj_ty = self.typeOf(obj);
+        if (std.mem.eql(u8, field, "len") and obj_ty != null and self.hasLen(obj_ty.?)) {
+            try self.w.writeAll("rig.len(");
+            try self.emitMemberBase(obj, obj_ty);
+            try self.w.writeAll(".len)");
+            return;
+        }
+        try self.emitMemberBase(obj, obj_ty);
+        if (obj_ty) |t| if (self.isSharedTy(t)) try self.w.writeAll(".value");
+        try self.w.print(".{f}", .{self.ident(field)});
+    }
+
+    /// The object of a member access. Borrow sigils on a receiver are
+    /// implicit in Zig's method call syntax; pointers to structs
+    /// auto-dereference.
+    fn emitMemberBase(self: *Emitter, obj: Sexp, obj_ty: ?Ty) Error!void {
+        var o = obj;
+        while (isTagged(o, .@"read") or isTagged(o, .@"write")) o = o.list[1];
+        if (o == .src) if (self.lookup(self.srcText(o))) |local| {
+            if (local.is_ptr and obj_ty != null and self.isStructLike(obj_ty.?)) return self.w.writeAll(local.zig_name);
+            return self.writeLocalPlace(local);
+        };
+        const needs_parens = o == .list and o.list.len > 0 and o.list[0] == .tag and switch (o.list[0].tag) {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"neg", .@"not", .@"ternary", .@"if", .@"match", .@"??", .@"catch", .@"try", .@"propagate" => true,
+            else => false,
+        };
+        if (needs_parens) try self.w.writeAll("(");
+        try self.emitExpr(o);
+        if (needs_parens) try self.w.writeAll(")");
+    }
+
+    /// `@name(args)`. Arguments that name Rig types are spelled as Zig types.
+    fn emitBuiltin(self: *Emitter, items: []const Sexp) Error!void {
+        try self.w.print("@{s}(", .{self.text(items[1]) orelse "_"});
+        for (items[2..], 0..) |a, i| {
+            if (i > 0) try self.w.writeAll(", ");
+            if (self.isTypeArg(a)) try self.emitType(a) else try self.emitBare(a);
+        }
+        try self.w.writeAll(")");
+    }
+
+    fn isTypeArg(self: *Emitter, a: Sexp) bool {
+        if (isTagged(a, .@"generic_inst") or isTagged(a, .@"shared") or isTagged(a, .@"optional")) return true;
+        if (a != .src) return false;
+        const name = self.srcText(a);
+        if (self.lookup(name) != null) return false;
+        if (!std.mem.eql(u8, mapTypeName(name), name)) return true;
+        const sema = self.sema orelse return false;
+        const id = sema.lookup(1, name) orelse return false;
+        return switch (sema.symbols.items[id].kind) {
+            .nominal_type, .type_alias, .generic_type => true,
+            else => false,
+        };
+    }
+
+    /// `*expr`: move `expr` into a new reference-counted box.
+    fn emitShare(self: *Emitter, inner: Sexp) Error!void {
+        if (classifyOwnedClosure(self.source, inner)) |info| return self.emitOwnedClosure(info);
+        const payload_ty: ?Ty = if (self.expected) |t| self.sharedInner(t) else null;
+        const saved = self.expected;
+        defer self.expected = saved;
+        self.expected = payload_ty;
+        try self.w.writeAll("rig.rcNew(");
+        if (payload_ty != null and self.needsTypedPayload(inner)) {
+            try self.w.writeAll("@as(");
+            try self.emitTypeTy(payload_ty.?);
+            try self.w.writeAll(", ");
+            try self.emitExpr(inner);
+            try self.w.writeAll(")");
+        } else {
+            try self.emitExpr(inner);
+        }
+        try self.w.writeAll(")");
+    }
+
+    /// True when `inner` lowers to an expression whose Zig type comes
+    /// from its result location (an anonymous or decl literal, a number).
+    fn needsTypedPayload(self: *Emitter, inner: Sexp) bool {
+        if (inner == .src) return isLiteralText(self.srcText(inner)) or self.srcText(inner)[0] == '\'';
+        if (!isTagged(inner, .@"call") or inner.list[1] != .src) return true;
+        const name = self.srcText(inner.list[1]);
+        if (isBuiltinNominalName(name)) return true;
+        const sema = self.sema orelse return false;
+        const id = sema.lookup(1, name) orelse return false;
+        return sema.symbols.items[id].kind == .generic_type;
+    }
+
+    // -------------------------------------------------------------------------
+    // Value-position blocks and branches
+    // -------------------------------------------------------------------------
+
+    /// `(if cond then else)` as a value.
+    fn emitIfExpr(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
+        const items = sexp.list;
+        if (items.len != 4) return self.unsupported(sexp, "an `if` without `else` in value position");
+        try self.pushScope();
+        try self.w.writeAll("if ");
+        try self.emitCond(items[1]);
+        try self.emitValueBlock(items[2], &.{}, tail);
+        try self.popScope();
+        try self.w.writeAll(" else ");
+        try self.emitValueBlock(items[3], &.{}, tail);
+    }
+
+    /// A block that yields its last expression: inline when it is a
+    /// single expression, otherwise a labeled block. A block ending in
+    /// `return`/`break`/`continue` yields nothing and needs no label.
+    fn emitValueBlock(self: *Emitter, body: Sexp, aliases: []const Alias, tail: bool) Error!void {
+        const stmts = try self.stmtsOf(body);
+        if (stmts.len == 0) return self.unsupported(body, "an empty block in value position");
+        const last = stmts[stmts.len - 1];
+        if (stmts.len == 1 and aliases.len == 0 and isValueStmt(last)) return self.emitValue(last, tail);
+
+        const terminates = isTerminatingStmt(last);
+        if (!terminates and !isValueStmt(last)) return self.unsupported(last, "a block without a value in value position");
+        var label: []const u8 = "";
+        if (!terminates) {
+            label = try self.fmt("rig_blk_{d}", .{self.nextId()});
+            try self.w.print("{s}: ", .{label});
+        }
+        try self.openBrace();
+        for (aliases) |a| try self.line("const {s} = __rig_payload.{f};", .{ a.zig_name, self.ident(a.field) });
+        try self.emitStmtRange(stmts, stmts.len - 1);
+        try self.writeIndent(self.indent);
+        if (terminates) {
+            try self.emitLastStmt(last);
+        } else {
+            try self.w.print("break :{s} ", .{label});
+            self.bare = true;
+            try self.emitValue(last, tail);
             try self.w.writeAll(";");
-            if (resource_kind != null) {
-                try self.w.print(" __rig_alive_{s} = true;", .{found_name});
+        }
+        try self.w.writeAll("\n");
+        try self.closeBrace();
+    }
+
+    // -------------------------------------------------------------------------
+    // Calls
+    // -------------------------------------------------------------------------
+
+    fn isPrintCall(self: *Emitter, call: Sexp) bool {
+        return call.list.len >= 2 and call.list[1] == .src and std.mem.eql(u8, self.srcText(call.list[1]), "print") and
+            self.lookup("print") == null;
+    }
+
+    fn emitCall(self: *Emitter, sexp: Sexp) Error!void {
+        const items = sexp.list;
+        const callee = items[1];
+        const args = items[2..];
+
+        if (self.isPrintCall(sexp)) return self.emitPrint(args);
+
+        if (callee == .src) {
+            const name = self.srcText(callee);
+            if (self.lookup(name)) |local| switch (local.callable) {
+                .stack_closure => return self.emitInvoke(local.zig_name, ".invoke(", args),
+                .owned_closure => return self.emitInvoke(try self.placeText(local), ".value.invoke(", args),
+                .none => {},
+            };
+            if (std.mem.eql(u8, name, "Vec") and self.lookup(name) == null) return self.emitVecConstruction(args);
+            if (std.mem.eql(u8, name, "Signal") and self.lookup(name) == null) return self.emitSignalConstruction(args);
+        }
+        if (isTagged(callee, .@"enum_lit")) return self.emitVariantLit(callee.list[1], args);
+
+        // A closure-typed field or other expression: `self.cb()`.
+        if (!(callee == .src)) if (self.typeOf(callee)) |t| {
+            if (self.isOwnedClosureTy(t)) {
+                try self.emitExpr(callee);
+                try self.w.writeAll(".value.invoke(");
+                try self.emitArgList(args, null, 0);
+                try self.w.writeAll(")");
+                return;
+            }
+        };
+
+        // Constructors.
+        if (callee == .src) if (self.sema) |sema| if (sema.lookup(1, self.srcText(callee))) |sym_id| {
+            switch (sema.symbols.items[sym_id].kind) {
+                .nominal_type, .type_alias => {
+                    try self.w.print("{f}", .{self.ident(self.srcText(callee))});
+                    return self.emitConstructorFields(args, sym_id);
+                },
+                .generic_type => return self.emitConstructorFields(args, sym_id),
+                else => {},
+            }
+        };
+        if (callee == .src and self.lookup(self.srcText(callee)) == null and self.sema == null and hasKwarg(args)) {
+            try self.w.print("{f}", .{self.ident(self.srcText(callee))});
+            return self.emitFieldInit("", args);
+        }
+
+        // Function and method calls.
+        const params = self.calleeParams(callee);
+        const skip_self = params != null and isTagged(callee, .@"member") and paramsStartWithSelf(self.source, params.?);
+        if (isTagged(callee, .@"member")) {
+            try self.emitMember(callee.list);
+        } else {
+            try self.emitExpr(callee);
+        }
+        try self.w.writeAll("(");
+        try self.emitArgList(args, params, if (skip_self) 1 else 0);
+        try self.w.writeAll(")");
+    }
+
+    fn placeText(self: *Emitter, local: *const Local) Error![]const u8 {
+        return if (local.is_ptr) self.fmt("{s}.*", .{local.zig_name}) else local.zig_name;
+    }
+
+    fn emitInvoke(self: *Emitter, target: []const u8, method: []const u8, args: []const Sexp) Error!void {
+        try self.w.print("{s}{s}", .{ target, method });
+        try self.emitArgList(args, null, 0);
+        try self.w.writeAll(")");
+    }
+
+    /// Arguments in parameter order. Keyword arguments are matched to
+    /// parameter names and omitted parameters take their defaults; when
+    /// that reorders arguments with side effects, they are evaluated
+    /// into temporaries in source order first.
+    fn emitArgList(self: *Emitter, args: []const Sexp, params: ?Sexp, skip: usize) Error!void {
+        const plist: []const Sexp = if (params) |p| (if (p == .list) p.list[@min(skip, p.list.len)..] else &.{}) else &.{};
+        if (!hasKwarg(args) and args.len >= plist.len) {
+            for (args, 0..) |a, i| {
+                if (i > 0) try self.w.writeAll(", ");
+                try self.emitArg(a, if (i < plist.len) plist[i] else null);
+            }
+            return;
+        }
+        if (params == null) {
+            if (hasKwarg(args)) return self.unsupported(args[0], "keyword arguments to this callee");
+            for (args, 0..) |a, i| {
+                if (i > 0) try self.w.writeAll(", ");
+                try self.emitArg(a, null);
+            }
+            return;
+        }
+        // Map each parameter to its argument.
+        const slots = try self.arena.allocator().alloc(?Sexp, plist.len);
+        @memset(slots, null);
+        var positional: usize = 0;
+        for (args) |a| {
+            if (isTagged(a, .@"kwarg")) {
+                const kname = self.text(a.list[1]) orelse continue;
+                for (plist, 0..) |p, i| {
+                    const pn = paramNameNode(p) orelse continue;
+                    if (std.mem.eql(u8, self.text(pn) orelse "", kname)) slots[i] = a.list[2];
+                }
+            } else {
+                if (positional < slots.len) slots[positional] = a;
+                positional += 1;
+            }
+        }
+        for (plist, 0..) |p, i| {
+            if (i > 0) try self.w.writeAll(", ");
+            if (slots[i]) |a| {
+                try self.emitArg(a, p);
+            } else if (isTagged(p, .@"default") and p.list.len >= 4) {
+                try self.emitExpr(p.list[3]);
+            } else {
+                return self.unsupported(args[0], "a call missing an argument");
             }
         }
     }
 
-    // -------------------------------------------------------------------------
-    // M20g(3/5): closure emit
-    // -------------------------------------------------------------------------
+    fn emitArg(self: *Emitter, arg: Sexp, param: ?Sexp) Error!void {
+        const saved = self.expected;
+        defer self.expected = saved;
+        self.expected = if (param) |p| (if (paramNameNode(p)) |n| self.declTy(n) else null) else null;
+        if (self.expected) |t| self.expected = self.peelBorrows(t);
+        try self.emitBare(arg);
+    }
 
-    /// `(set kind name _ (lambda CAPTURES PARAMS RETURNS BODY))` →
-    ///
-    ///   var <name> = struct {
-    ///       cap_<n1>: <T1>,
-    ///       ...
-    ///       pub fn invoke(self: *@This()) <RT> {
-    ///           // body, with captures rewritten to `self.cap_<n>`
-    ///       }
-    ///   }{
-    ///       .cap_<n1> = <init_expr1>,
-    ///       ...
-    ///   };
-    ///   _ = &<name>;
-    ///
-    /// Per GPT-5.5's M20g(2/5) post-implementation guidance:
-    ///   - receiver is `*@This()` (anchors the invoke call site;
-    ///     future-proof for mutable captures)
-    ///   - closure binding emits as `var` (so `f.invoke()` can take
-    ///     `&f` implicitly)
-    ///   - `_ = &<name>;` pacifies Zig's "never mutated" complaint
-    ///     when the closure is only invoked (no direct mutation)
-    ///   - capture-name references inside the body resolve to
-    ///     `self.cap_<name>` via a scope-frame mapping pushed
-    ///     before walking the body
-    ///
-    /// V1 scope per the GPT-5.5 tactical Q&A: ALL capture modes
-    /// (cap_copy / cap_clone / cap_weak / cap_move) are supported
-    /// at the emit level, but auto-drop guards for resource
-    /// captures land in M20g(4/5). EMIT_TARGETS in (3/5) covers
-    /// the Copy-capture and no-capture cases only; resource-capture
-    /// closures pass sema but their emitted Zig leaks until (4/5).
-    fn emitClosureBinding(
-        self: *Emitter,
-        rig_name: []const u8,
-        name_node: Sexp,
-        lambda: Sexp,
-        is_shadow: bool,
-        found: ?[]const u8,
-    ) Error!void {
-        // Resolve the shadow rename. If we're shadowing an outer
-        // binding, generate a fresh `<name>_<n>` and mark the old
-        // one as "used" so Zig doesn't fire dead-code warnings.
-        var zig_name: []const u8 = rig_name;
-        if (is_shadow and found != null) {
-            try self.w.print("_ = {s}; ", .{found.?});
-            zig_name = try self.freshShadow(rig_name);
+    /// Parameter list of the function or method a callee names.
+    fn calleeParams(self: *Emitter, callee: Sexp) ?Sexp {
+        if (callee == .src) {
+            if (self.lookup(self.srcText(callee)) != null) return null;
+            return self.module.funs.get(self.srcText(callee));
         }
-        try self.declareWithResourceKind(rig_name, zig_name, null);
-        self.markClosure(rig_name);
+        if (!isTagged(callee, .@"member")) return null;
+        const method = self.text(callee.list[2]) orelse return null;
+        var obj = callee.list[1];
+        while (isTagged(obj, .@"read") or isTagged(obj, .@"write") or isTagged(obj, .@"move")) obj = obj.list[1];
+        const type_name: []const u8 = blk: {
+            if (obj == .src and self.lookup(self.srcText(obj)) == null) break :blk self.srcText(obj);
+            const t = self.typeOf(obj) orelse return null;
+            const sym = self.nominalSym(t) orelse return null;
+            break :blk self.sema.?.symbols.items[sym].name;
+        };
+        const key = std.fmt.allocPrint(self.arena.allocator(), "{s}.{s}", .{ type_name, method }) catch return null;
+        return self.module.methods.get(key);
+    }
 
-        // Pull the IR pieces.
+    /// Constructor call `Name(field: v, ...)`: a struct literal. For a
+    /// generic type the literal is anonymous and takes its type from
+    /// the result location.
+    fn emitConstructorFields(self: *Emitter, args: []const Sexp, sym_id: types.SymbolId) Error!void {
+        const sema = self.sema.?;
+        const sym = sema.symbols.items[sym_id];
+        const is_generic = sym.kind == .generic_type;
+        try self.w.writeAll(if (is_generic) ".{" else "{");
+        for (args, 0..) |a, i| {
+            try self.w.writeAll(if (i == 0) " " else ", ");
+            if (isTagged(a, .@"kwarg")) {
+                const fname = self.text(a.list[1]) orelse "_";
+                try self.w.print(".{f} = ", .{self.ident(fname)});
+                var field_ty: ?Ty = null;
+                if (self.expected) |t| field_ty = self.fieldTy(t, fname);
+                if (field_ty == null and !is_generic) {
+                    if (sym.fields) |fs| for (fs) |f| {
+                        if (!f.is_method and !f.is_variant and std.mem.eql(u8, f.name, fname)) field_ty = .{ .id = f.ty };
+                    };
+                }
+                try self.emitExprExpecting(a.list[2], field_ty);
+            } else {
+                try self.emitExpr(a);
+            }
+        }
+        try self.w.writeAll(if (args.len > 0) " }" else "}");
+    }
+
+    /// `Vec()` / `Vec(capacity: n)`: a decl literal typed by its result
+    /// location.
+    fn emitVecConstruction(self: *Emitter, args: []const Sexp) Error!void {
+        for (args) |a| if (isTagged(a, .@"kwarg") and std.mem.eql(u8, self.text(a.list[1]) orelse "", "capacity")) {
+            try self.w.writeAll(".initCapacity(rig.defaultAllocator(), ");
+            try self.emitExpr(a.list[2]);
+            try self.w.writeAll(")");
+            return;
+        };
+        try self.w.writeAll(".init(rig.defaultAllocator())");
+    }
+
+    /// `Signal(value: v)`.
+    fn emitSignalConstruction(self: *Emitter, args: []const Sexp) Error!void {
+        for (args) |a| if (isTagged(a, .@"kwarg") and std.mem.eql(u8, self.text(a.list[1]) orelse "", "value")) {
+            try self.w.writeAll(".init(");
+            try self.emitExpr(a.list[2]);
+            try self.w.writeAll(")");
+            return;
+        };
+        return self.unsupported(if (args.len > 0) args[0] else .nil, "this Signal construction");
+    }
+
+    /// `.variant(args)` → `.{ .variant = payload }`. A single-field
+    /// payload is the value itself; several fields form a struct.
+    fn emitVariantLit(self: *Emitter, name_node: Sexp, args: []const Sexp) Error!void {
+        const vname = self.text(name_node) orelse "_";
+        if (args.len == 0) return self.w.print(".{f}", .{self.ident(vname)});
+        const single = if (self.variantFieldNames(self.expected, vname)) |names| names.len == 1 else self.variantArityAnywhere(vname) == 1;
+        try self.w.print(".{{ .{f} = ", .{self.ident(vname)});
+        if (single and args.len == 1) {
+            const a = args[0];
+            try self.emitExprExpecting(if (isTagged(a, .@"kwarg")) a.list[2] else a, self.variantPayloadTy(self.expected, vname, null));
+        } else {
+            try self.emitFieldInit(".", args);
+        }
+        try self.w.writeAll(" }");
+    }
+
+    /// `print(x)`: strings with `{s}`, everything else with `{any}`.
+    fn emitPrint(self: *Emitter, args: []const Sexp) Error!void {
+        if (args.len == 0) return self.w.writeAll("rig.print(\"\\n\", .{})");
+        const f: []const u8 = if (self.isStringExpr(args[0])) "{s}" else "{any}";
+        try self.w.print("rig.print(\"{s}\\n\", .{{", .{f});
+        try self.emitBare(args[0]);
+        try self.w.writeAll("})");
+    }
+
+    // =========================================================================
+    // Closures
+    // =========================================================================
+
+    /// `f = |captures| body` → a struct holding the captures with an
+    /// `invoke` method; calls lower to `f.invoke(...)`. When a capture
+    /// owns a resource, the closure is dropped at scope exit, which drops
+    /// its fields.
+    fn emitClosureBinding(self: *Emitter, name_node: Sexp, lambda: Sexp) Error!void {
         const items = lambda.list;
         const captures = items[1];
         const params = items[2];
         const body = items[4];
+        const caps = try self.captureInfo(captures);
 
-        // Render the closure struct + init.
+        const local = try self.declare(.{ .rig_name = self.srcText(name_node), .zig_name = "", .callable = .stack_closure, .ret = self.lambdaReturn(lambda) });
+        const zig_name = local.zig_name;
+
         try self.w.print("var {s} = struct {{\n", .{zig_name});
         self.indent += 1;
-        try self.emitClosureFields(captures);
-        try self.emitClosureInvoke(captures, params, body, lambda);
+        try self.emitCaptureFields(caps);
+        try self.w.writeAll("\n");
+        try self.writeIndent(self.indent);
+        try self.w.writeAll("fn invoke(self: *@This()");
+        try self.pushScope();
+        try self.bindCaptures(caps);
+        const saved_fun = self.fun;
+        self.fun.returns = null;
+        self.fun.return_ty = null;
+        self.fun.params = null;
+        self.fun.leak_check = false;
+        defer self.fun = saved_fun;
+        if (params == .list) {
+            try self.bindParams(params);
+            for (params.list) |p| {
+                try self.w.writeAll(", ");
+                try self.emitParam(p);
+            }
+        }
+        try self.w.writeAll(") ");
+        const ret = self.lambdaReturn(lambda);
+        if (ret) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
+        try self.w.writeAll(" ");
+        self.fun.params = params;
+        try self.emitClosureBody(body, caps, ret != null);
+        try self.popScope();
+        try self.w.writeAll("\n");
         self.indent -= 1;
-        try self.indentSpaces();
+        try self.writeIndent(self.indent);
         try self.w.writeAll("}");
-        // Initializer.
-        try self.emitClosureInit(captures);
+        try self.emitCaptureInit(caps);
         try self.w.writeAll(";");
-        // Pacify Zig's never-mutated warning for closures that are
-        // only invoked.
-        try self.w.print(" _ = &{s};", .{zig_name});
 
-        // M20g(4/5): install one M20e-style guard per RESOURCE
-        // capture, anchored at the closure-instance's enclosing
-        // scope. The guard's drop expression accesses the captured
-        // handle through the closure struct (`<closure>.cap_<n>`)
-        // so it's keyed on the closure-instance lifetime, NOT
-        // per-invocation — closures may be invoked many times,
-        // and the captured handle must persist until the closure
-        // binding itself leaves scope.
-        //
-        // Pairs with M20g(3/5)'s emit of the capture init:
-        //   - cap_clone shared/weak: clone() bumped refcount;
-        //     guard drops the cloned handle at scope exit.
-        //   - cap_weak: weakRef() created a fresh weak; guard
-        //     drops it (dropWeak) at scope exit.
-        //   - cap_move resource: outer's guard already disarmed
-        //     via the M20e labeled-block recipe at construction
-        //     time; new guard takes over from there.
-        //   - cap_copy / cap_clone Copy: no resource, no guard.
-        //
-        // Defer ordering is LIFO — the closure's capture defers
-        // fire BEFORE the outer's bare-binding defers, so e.g.
-        // `rc = *Cell(...); f = |+rc| ...` cleanly drops the
-        // closure's cloned strong handle before the outer's
-        // original handle at scope exit.
-        try self.emitClosureCaptureGuards(captures, zig_name);
-        _ = name_node;
+        var owns = false;
+        for (caps) |c| owns = owns or c.kind != null;
+        if (owns) {
+            try self.w.writeAll("\n");
+            try self.writeIndent(self.indent);
+            try self.w.print("defer rig.dropFields(&{s});", .{zig_name});
+        } else {
+            try self.w.print(" _ = &{s};", .{zig_name});
+        }
     }
 
-    /// M20h(4/5): emit the owned-closure construction expression for
-    /// `(share (call Closure (lambda ...)))`. The shape is a single
-    /// labeled-block expression that:
-    ///
-    ///   1. Defines a UNIQUE anonymous env struct local to the
-    ///      block (`Env`), with one field per capture plus two
-    ///      `fn rigInvoke`/`fn rigDrop` thunks bound to that env
-    ///      layout.
-    ///   2. Heap-allocates an `Env`, initializes its capture
-    ///      fields (clone/weakRef/copy/move per capture mode —
-    ///      same as M20g's stack-local closures).
-    ///   3. Wraps a `rig.Closure0` vtable struct (`ctx = env_ptr`,
-    ///      `invoke_fn = Env.rigInvoke`, `drop_fn = Env.rigDrop`,
-    ///      `allocator = defaultAllocator()`) and feeds it through
-    ///      `rig.rcNew(...)` to get back the `*RcBox(Closure0)`
-    ///      handle.
-    ///
-    /// The `Env` type is local to each construction's block, so
-    /// every `*Closure(fn ...)` literal in the function gets its
-    /// own layout matching exactly its capture list. The surface
-    /// type `*Closure()` (uniform `*RcBox(Closure0)`) hides the
-    /// per-literal env via `ctx: *anyopaque`.
-    ///
-    /// Drop semantics: `RcBox(Closure0).dropStrong()` on last
-    /// strong calls `Closure0.__rig_drop` (M20h(1/5) runtime
-    /// hook) which calls our `Env.rigDrop(env_ptr, allocator)`.
-    /// `rigDrop` drops each resource capture + `allocator.destroy(env)`.
-    /// CRITICAL: this happens at LAST-STRONG-DROP, NOT at each
-    /// binding's scope-exit. That's what makes `cb2 = +cb; -cb;
-    /// cb2()` safe — `cb`'s drop releases its strong, but `cb2`
-    /// still holds a strong, so captures aren't freed yet.
-    fn emitOwnedClosureConstruction(
-        self: *Emitter,
-        call_items: []const Sexp,
-    ) Error!void {
-        // call_items: (call Closure (lambda ...))                      M20h
-        //          or (call (call Closure1 T)    (lambda ...))         M24
-        //          or (call (call Closure2 A B)  (lambda ...))         M24
-        const inner: Sexp = .{ .list = call_items };
-        const info = classifyOwnedClosureConstruction(self.source, inner) orelse return;
+    const Capture = struct {
+        mode: Tag,
+        name: []const u8,
+        outer: ?*Local,
+        /// Resource kind of the captured value inside the closure.
+        kind: ?ResourceKind,
+        ty: ?Ty,
+    };
 
-        const lambda = info.lambda;
-        const lambda_items = lambda.list;
-        const captures = lambda_items[1];
-        const params = lambda_items[2];
-        const body = lambda_items[4];
+    fn captureInfo(self: *Emitter, captures: Sexp) Error![]const Capture {
+        if (!isTagged(captures, .@"captures")) return &.{};
+        var out: std.ArrayListUnmanaged(Capture) = .empty;
+        for (captures.list[1..]) |cap| {
+            const name_node = captureNameSrc(cap) orelse continue;
+            const name = self.srcText(name_node);
+            const outer = self.lookup(name);
+            const mode = cap.list[0].tag;
+            var ty: ?Ty = if (outer) |o| o.ty else null;
+            if (ty == null) ty = self.findOuterCaptureType(name, name_node.src.pos);
+            var kind: ?ResourceKind = if (ty) |t| self.kindOf(t) else null;
+            if (mode == .@"cap_weak") kind = .weak;
+            try out.append(self.arena.allocator(), .{ .mode = mode, .name = name, .outer = outer, .kind = kind, .ty = ty });
+        }
+        return out.items;
+    }
 
-        const env_id = self.closure_env_counter;
-        self.closure_env_counter += 1;
+    fn emitCaptureFields(self: *Emitter, caps: []const Capture) Error!void {
+        for (caps) |c| {
+            try self.writeIndent(self.indent);
+            try self.w.print("cap_{s}: ", .{c.name});
+            const t = c.ty orelse return self.unsupported(.nil, "a capture of unknown type");
+            if (c.mode == .@"cap_weak") {
+                try self.w.writeAll("rig.WeakHandle(");
+                try self.emitTypeTy(self.sharedInner(t) orelse t);
+                try self.w.writeAll(")");
+            } else {
+                try self.emitTypeTy(t);
+            }
+            try self.w.writeAll(",\n");
+        }
+    }
 
-        try self.w.print("rig_closure_{d}: {{\n", .{env_id});
+    /// Declare captures inside a closure body as `self.cap_<name>`.
+    fn bindCaptures(self: *Emitter, caps: []const Capture) Error!void {
+        for (caps) |c| {
+            var ty = c.ty;
+            if (c.mode == .@"cap_weak") ty = null;
+            _ = try self.declare(.{
+                .rig_name = c.name,
+                .zig_name = try self.fmt("self.cap_{s}", .{c.name}),
+                .ty = ty,
+                .callable = if (c.outer) |o| (if (o.callable == .owned_closure) .owned_closure else .none) else .none,
+            });
+        }
+    }
+
+    /// `{ .cap_x = init, ... }` evaluated where the closure is created.
+    fn emitCaptureInit(self: *Emitter, caps: []const Capture) Error!void {
+        if (caps.len == 0) return self.w.writeAll("{}");
+        try self.w.writeAll("{");
+        for (caps, 0..) |c, i| {
+            try self.w.writeAll(if (i == 0) " " else ", ");
+            try self.w.print(".cap_{s} = ", .{c.name});
+            const outer_name = if (c.outer) |o| try self.placeText(o) else c.name;
+            const outer_kind: ?ResourceKind = if (c.outer) |o| o.kind else null;
+            switch (c.mode) {
+                .@"cap_clone" => {
+                    try self.w.writeAll(outer_name);
+                    if (outer_kind) |k| switch (k) {
+                        .shared => try self.w.writeAll(".cloneStrong()"),
+                        .weak => try self.w.writeAll(".cloneWeak()"),
+                        else => {},
+                    };
+                },
+                .@"cap_weak" => try self.w.print("{s}.weakRef()", .{outer_name}),
+                .@"cap_move" => if (c.outer) |o| {
+                    if (o.guard == .flag) try self.writeTake(o) else try self.w.writeAll(outer_name);
+                } else try self.w.writeAll(outer_name),
+                else => try self.w.writeAll(outer_name),
+            }
+        }
+        try self.w.writeAll(" }");
+    }
+
+    /// A closure body. Without a capture reference, `self` is discarded.
+    fn emitClosureBody(self: *Emitter, body: Sexp, caps: []const Capture, returns_value: bool) Error!void {
+        try self.openBrace();
+        var uses_self = false;
+        for (caps) |c| uses_self = uses_self or usesName(self.source, body, c.name);
+        if (!uses_self) try self.line("_ = self;", .{});
+        const stmts = try self.stmtsOf(body);
+        try self.emitFunPrologue(stmts);
+        if (returns_value and isValueStmt(stmts[stmts.len - 1])) {
+            try self.emitStmtRange(stmts, stmts.len - 1);
+            try self.writeIndent(self.indent);
+            try self.w.writeAll("return ");
+            try self.emitValue(stmts[stmts.len - 1], true);
+            try self.w.writeAll(";\n");
+        } else {
+            try self.emitStmts(stmts);
+        }
+        try self.closeBrace();
+    }
+
+    /// `*Closure(|captures| body)` (and `Closure1(T)` / `Closure2(A, B)`)
+    /// → a heap-allocated environment with `invoke` and `drop` functions,
+    /// wrapped in the type-erased runtime closure and boxed:
+    ///
+    ///     rig_closure_N: {
+    ///         const Env_N = struct { cap_x: T, fn invoke(...) ..., fn drop(...) ... };
+    ///         const env = rig.create(Env_N);
+    ///         env.* = .{ .cap_x = ... };
+    ///         break :rig_closure_N rig.rcNew(rig.Closure0{ ... });
+    ///     }
+    ///
+    /// The environment is freed when the last strong handle drops.
+    fn emitOwnedClosure(self: *Emitter, info: ClosureCtorInfo) Error!void {
+        const items = info.lambda.list;
+        const captures = items[1];
+        const params = items[2];
+        const body = items[4];
+        const caps = try self.captureInfo(captures);
+        const id = self.nextId();
+        const env = try self.fmt("__rig_Env_{d}", .{id});
+        const env_ptr = try self.fmt("__rig_env_{d}", .{id});
+
+        try self.w.print("rig_closure_{d}: {{\n", .{id});
         self.indent += 1;
-
-        try self.indentSpaces();
-        try self.w.writeAll("const Env = struct {\n");
+        try self.line("const {s} = struct {{", .{env});
         self.indent += 1;
-        try self.emitClosureFields(captures);
-        try self.emitOwnedClosureInvokeThunk(captures, body, lambda, params, info.type_args);
-        try self.emitOwnedClosureDropThunk(captures);
+        try self.emitCaptureFields(caps);
+
+        try self.w.writeAll("\n");
+        try self.writeIndent(self.indent);
+        try self.w.writeAll("fn invoke(ctx: *anyopaque");
+        try self.pushScope();
+        try self.bindCaptures(caps);
+        const saved_fun = self.fun;
+        self.fun.returns = null;
+        self.fun.return_ty = null;
+        self.fun.params = null;
+        self.fun.leak_check = false;
+        defer self.fun = saved_fun;
+        if (params == .list) {
+            try self.bindParams(params);
+            for (params.list, 0..) |p, i| {
+                const pn = paramNameNode(p) orelse continue;
+                const local = self.lookupCurrent(self.text(pn) orelse continue) orelse continue;
+                try self.w.print(", {s}: ", .{local.zig_name});
+                if (i < info.type_args.len) try self.emitType(info.type_args[i]) else try self.emitParamType(p.list[2]);
+            }
+        }
+        try self.w.writeAll(") void ");
+        try self.openBrace();
+        var uses_self = false;
+        for (caps) |c| uses_self = uses_self or usesName(self.source, body, c.name);
+        if (uses_self) try self.line("const self: *@This() = @ptrCast(@alignCast(ctx));", .{}) else try self.line("_ = ctx;", .{});
+        const stmts = try self.stmtsOf(body);
+        self.fun.params = params;
+        try self.emitFunPrologue(stmts);
+        try self.emitStmts(stmts);
+        try self.closeBrace();
+        try self.popScope();
+        try self.w.writeAll("\n\n");
+
+        try self.line("fn drop(ctx: *anyopaque, allocator: std.mem.Allocator) void {{", .{});
+        try self.line("    const self: *@This() = @ptrCast(@alignCast(ctx));", .{});
+        try self.line("    rig.dropFields(self);", .{});
+        try self.line("    allocator.destroy(self);", .{});
+        try self.line("}}", .{});
         self.indent -= 1;
-        try self.indentSpaces();
-        try self.w.writeAll("};\n");
+        try self.line("}};", .{});
 
-        try self.indentSpaces();
-        try self.w.writeAll("const __rig_env = rig.defaultAllocator().create(Env) catch @panic(\"Rig closure env allocation failed\");\n");
-
-        try self.indentSpaces();
-        try self.w.writeAll("__rig_env.* = .");
-        try self.emitClosureInit(captures);
+        try self.line("const {s} = rig.create({s});", .{ env_ptr, env });
+        try self.writeIndent(self.indent);
+        try self.w.print("{s}.* = .", .{env_ptr});
+        try self.emitCaptureInit(caps);
         try self.w.writeAll(";\n");
-
-        try self.indentSpaces();
-        try self.w.print("break :rig_closure_{d} (rig.rcNew(", .{env_id});
-        try self.emitClosureRuntimeType(info);
-        try self.w.writeAll("{ .ctx = __rig_env, .invoke_fn = Env.rigInvoke, .drop_fn = Env.rigDrop, .allocator = rig.defaultAllocator() }) catch @panic(\"Rig Rc allocation failed\"));\n");
-
-        self.indent -= 1;
-        try self.indentSpaces();
-        try self.w.writeAll("}");
-    }
-
-    /// M24: write the runtime closure type spelling
-    /// (`rig.Closure0` for the no-arg form, `rig.Closure1(T)` /
-    /// `rig.Closure2(A, B)` for arity-bearing) into the output.
-    fn emitClosureRuntimeType(self: *Emitter, info: ClosureCtorInfo) Error!void {
+        try self.writeIndent(self.indent);
+        try self.w.print("break :rig_closure_{d} rig.rcNew(", .{id});
         switch (info.kind) {
             .c0 => try self.w.writeAll("rig.Closure0"),
             .c1 => {
@@ -1771,2600 +2517,56 @@ pub const Emitter = struct {
                 try self.w.writeAll(")");
             },
         }
-    }
-
-    /// M20h(4/5): emit the `rigInvoke(ctx: *anyopaque) void` thunk.
-    /// Inside the thunk, ctx is `@ptrCast(@alignCast)`-narrowed to
-    /// `*@This()` (= `*Env`) and bound to the local name `self` so
-    /// `emitClosureBody`'s capture remapping (which writes
-    /// `self.cap_<n>`) works unchanged.
-    fn emitOwnedClosureInvokeThunk(
-        self: *Emitter,
-        captures: Sexp,
-        body: Sexp,
-        lambda: Sexp,
-        params: Sexp,
-        type_args: []const Sexp,
-    ) Error!void {
-        try self.indentSpaces();
-        try self.w.writeAll("fn rigInvoke(ctx: *anyopaque");
-        // M24: thread declared params through the thunk signature.
-        // Each param's type comes from the closure's type-arg slot
-        // (validated at sema time to be Copy + match the param's
-        // explicit annotation). Param NAMES come from the lambda's
-        // params list so the body's references resolve.
-        if (params == .list and type_args.len > 0) {
-            const param_count = @min(params.list.len, type_args.len);
-            var i: usize = 0;
-            while (i < param_count) : (i += 1) {
-                const param = params.list[i];
-                const pname = paramNameNode(param) orelse continue;
-                const name_text = identText(self.source, pname) orelse continue;
-                try self.w.writeAll(", ");
-                try self.w.writeAll(name_text);
-                try self.w.writeAll(": ");
-                try self.emitType(type_args[i]);
-            }
-        }
-        try self.w.writeAll(") void {\n");
-        self.indent += 1;
-        try self.indentSpaces();
-        try self.w.writeAll("const self: *@This() = @ptrCast(@alignCast(ctx));\n");
-        // Register captures in a fresh scope frame so bare capture
-        // names in the body emit as `self.cap_<n>` — same trick the
-        // M20g `emitClosureInvoke` uses. We open the scope here so
-        // the captures live for the duration of the body emit and
-        // get popped before the closing brace.
-        try self.pushScope();
-        // Pacify the unused-self warning for void-bodied closures
-        // with unreferenced captures. Same scan M20g uses.
-        if (!bodyReferencesAnyCapture(self.source, body, captures)) {
-            try self.indentSpaces();
-            try self.w.writeAll("_ = self;\n");
-        }
-        if (isCapturesNode(captures)) {
-            for (captures.list[1..]) |cap| {
-                const name_node = captureNameSrc(cap) orelse continue;
-                const name = self.source[name_node.src.pos..][0..name_node.src.len];
-                const qualified = std.fmt.allocPrint(
-                    self.name_arena.allocator(),
-                    "self.cap_{s}",
-                    .{name},
-                ) catch return error.OutOfMemory;
-                const cap_kind = self.closureCaptureBodyResourceKind(cap, name_node);
-                try self.declareWithResourceKind(name, qualified, cap_kind);
-            }
-        }
-        // Emit body statements. Owned closures are no-arg void-return
-        // in M20h, so no implicit-return rewrite needed.
-        if (body == .list and body.list.len > 0 and body.list[0] == .tag and
-            body.list[0].tag == .@"block")
-        {
-            for (body.list[1..]) |stmt| {
-                try self.indentSpaces();
-                try self.emitStmt(stmt);
-                try self.w.writeAll("\n");
-            }
-        } else {
-            try self.indentSpaces();
-            try self.emitStmt(body);
-            try self.w.writeAll("\n");
-        }
-        try self.popScope();
-        // M20g's lambda return type (M20h pin: void only) — emit
-        // is hard-coded to void return here; if a future M20h+
-        // adds typed-return closures, this is the integration
-        // point.
-        _ = lambda;
+        try self.w.print("{{ .ctx = {s}, .invoke_fn = {s}.invoke, .drop_fn = {s}.drop, .allocator = rig.defaultAllocator() }});\n", .{ env_ptr, env, env });
         self.indent -= 1;
-        try self.indentSpaces();
-        try self.w.writeAll("}\n");
+        try self.writeIndent(self.indent);
+        try self.w.writeAll("}");
     }
 
-    /// M20h(4/5): emit the `rigDrop(ctx: *anyopaque, allocator)
-    /// void` thunk. Drops each resource capture in declaration
-    /// order, then `allocator.destroy(env)`. Drop methods match
-    /// `RcBox`/`WeakHandle` runtime API.
-    fn emitOwnedClosureDropThunk(self: *Emitter, captures: Sexp) Error!void {
-        try self.indentSpaces();
-        try self.w.writeAll("fn rigDrop(ctx: *anyopaque, allocator: std.mem.Allocator) void {\n");
-        self.indent += 1;
-        try self.indentSpaces();
-        try self.w.writeAll("const self: *@This() = @ptrCast(@alignCast(ctx));\n");
-        if (isCapturesNode(captures)) {
-            for (captures.list[1..]) |cap| {
-                const name_node = captureNameSrc(cap) orelse continue;
-                const kind = self.closureCaptureBodyResourceKind(cap, name_node) orelse continue;
-                const name = self.source[name_node.src.pos..][0..name_node.src.len];
-                const drop_method: []const u8 = switch (kind) {
-                    .shared => "dropStrong",
-                    .weak => "dropWeak",
-                    // M20i: Vec captures aren't supported (Vec is
-                    // non-copyable, capture would require move which
-                    // sema rejects). Unreachable at runtime; included
-                    // for exhaustiveness.
-                    .vec_value => unreachable,
-                };
-                try self.indentSpaces();
-                try self.w.print("self.cap_{s}.{s}();\n", .{ name, drop_method });
-            }
-        }
-        try self.indentSpaces();
-        try self.w.writeAll("allocator.destroy(self);\n");
-        self.indent -= 1;
-        try self.indentSpaces();
-        try self.w.writeAll("}\n");
-    }
-
-    fn emitClosureCaptureGuards(
-        self: *Emitter,
-        captures: Sexp,
-        closure_zig_name: []const u8,
-    ) Error!void {
-        if (!isCapturesNode(captures)) return;
-        for (captures.list[1..]) |cap| {
-            const name_node = captureNameSrc(cap) orelse continue;
-            const kind = self.closureCaptureBodyResourceKind(cap, name_node) orelse continue;
-            const cap_name = self.source[name_node.src.pos..][0..name_node.src.len];
-            const drop_method: []const u8 = switch (kind) {
-                .shared => "dropStrong",
-                .weak => "dropWeak",
-                // M20i: Vec captures aren't supported in V1.
-                // Unreachable; here for switch exhaustiveness.
-                .vec_value => unreachable,
-            };
-            // Variable name: `__rig_alive_<closure>_cap_<n>` — the
-            // closure-and-capture pair uniquely identifies the
-            // guard, so multiple closures with same-named captures
-            // (across sibling scopes) never collide.
-            try self.w.writeAll("\n");
-            try self.indentSpaces();
-            try self.w.print(
-                "var __rig_alive_{s}_cap_{s}: bool = true;",
-                .{ closure_zig_name, cap_name },
-            );
-            try self.w.writeAll("\n");
-            try self.indentSpaces();
-            try self.w.print(
-                "defer if (__rig_alive_{s}_cap_{s}) {{ __rig_alive_{s}_cap_{s} = false; {s}.cap_{s}.{s}(); }};",
-                .{
-                    closure_zig_name, cap_name,
-                    closure_zig_name, cap_name,
-                    closure_zig_name, cap_name,
-                    drop_method,
-                },
-            );
-        }
-    }
-
-    fn emitClosureFields(self: *Emitter, captures: Sexp) Error!void {
-        if (!isCapturesNode(captures)) return;
-        for (captures.list[1..]) |cap| {
-            const name_node = captureNameSrc(cap) orelse continue;
-            const name = self.source[name_node.src.pos..][0..name_node.src.len];
-            try self.indentSpaces();
-            try self.w.print("cap_{s}: ", .{name});
-            try self.emitCapturedType(cap, name_node);
-            try self.w.writeAll(",\n");
-        }
-    }
-
-    /// Emit the Zig type for a capture field. Mode-aware:
-    ///   - cap_copy / cap_clone (Copy types): outer's type
-    ///   - cap_clone shared: still `*T` (cloneStrong returns same)
-    ///   - cap_clone weak:   still `~T`
-    ///   - cap_weak:          `~T` (we converted shared → weak)
-    ///   - cap_move:          outer's type, unchanged
-    ///
-    /// Lookup of the outer's type goes through `self.sema` by the
-    /// capture name + outer source position. Falls back to
-    /// `anytype` if we can't recover a concrete type (shouldn't
-    /// happen for the V1 capture shapes sema validated).
-    fn emitCapturedType(self: *Emitter, cap: Sexp, name_node: Sexp) Error!void {
-        const sema = self.sema orelse {
-            try self.w.writeAll("anytype");
-            return;
-        };
-        const mode = cap.list[0].tag;
-        const name = self.source[name_node.src.pos..][0..name_node.src.len];
-        const outer_ty_id = self.findOuterCaptureType(sema, name, name_node.src.pos) orelse {
-            try self.w.writeAll("anytype");
-            return;
-        };
-        // cap_weak converts shared(T) → weak(T). We can't intern new
-        // TypeIds from emit (sema is `*const`), so handle the
-        // weak-wrap directly at the Zig-type spelling level.
-        if (mode == .@"cap_weak") {
-            const outer_ty = sema.types.get(outer_ty_id);
-            if (outer_ty == .shared) {
-                try self.w.writeAll("rig.WeakHandle(");
-                try self.emitZigTypeForTypeId(outer_ty.shared);
-                try self.w.writeAll(")");
-                return;
-            }
-            // Sema should have rejected non-shared cap_weak earlier.
-            // Defensive fall-through emits the outer's type spelling.
-        }
-        try self.emitZigTypeForTypeId(outer_ty_id);
-    }
-
-    fn emitClosureInvoke(
-        self: *Emitter,
-        captures: Sexp,
-        params: Sexp,
-        body: Sexp,
-        lambda: Sexp,
-    ) Error!void {
-        try self.indentSpaces();
-        try self.w.writeAll("pub fn invoke(self: *@This()");
-        if (params == .list) {
-            for (params.list) |p| {
-                try self.w.writeAll(", ");
-                try self.emitParam(p);
-            }
-        }
-        try self.w.writeAll(") ");
-        try self.emitClosureReturnType(lambda);
-        try self.w.writeAll(" ");
-
-        // Push a fresh scope frame for the invoke method. Captures
-        // become locals whose `zig_name` is the fully-qualified
-        // `self.cap_<name>` expression (so a plain bare-name
-        // reference inside the body emits as `self.cap_x`). Params
-        // bind ordinarily.
-        try self.pushScope();
-        defer self.popScope() catch {};
-
-        if (isCapturesNode(captures)) {
-            for (captures.list[1..]) |cap| {
-                const name_node = captureNameSrc(cap) orelse continue;
-                const name = self.source[name_node.src.pos..][0..name_node.src.len];
-                const qualified = std.fmt.allocPrint(
-                    self.name_arena.allocator(),
-                    "self.cap_{s}",
-                    .{name},
-                ) catch return error.OutOfMemory;
-                // Capture's resource kind inside the body. We carry
-                // it so the M20d read-only auto-deref bridge
-                // (handleKindOf via lookupResourceKind) fires on
-                // `rc.field` correctly for shared/weak captures.
-                const cap_kind = self.closureCaptureBodyResourceKind(cap, name_node);
-                try self.declareWithResourceKind(name, qualified, cap_kind);
-            }
-        }
-        if (params == .list) {
-            for (params.list) |p| try self.bindParam(p);
-        }
-
-        try self.emitClosureBody(body, lambda);
-    }
-
-    /// Render the lambda body. For a `(block ...)` body, the last
-    /// statement is the implicit-return expression unless the
-    /// inferred return type is `void` (in which case it stays a
-    /// plain statement). For a single-expression body, we always
-    /// emit it as a `return <expr>;`.
-    fn emitClosureBody(self: *Emitter, body: Sexp, lambda: Sexp) Error!void {
-        try self.w.writeAll("{\n");
-        self.indent += 1;
-        try self.pushScope();
-        const ret_is_void = self.closureReturnIsVoid(lambda);
-
-        // Pacify Zig's unused-parameter check on `self` for the
-        // case where the body never reads any capture (Zig also
-        // forbids a `_ = self;` discard when self IS used — so
-        // we must scan first). Without this, a void-body lambda
-        // like `|+rc| print('alive')` would fail Zig compile
-        // with "unused function parameter" on the synthesized
-        // `self: *@This()` slot.
-        const captures = lambda.list[1];
-        if (!bodyReferencesAnyCapture(self.source, body, captures)) {
-            try self.indentSpaces();
-            try self.w.writeAll("_ = self;\n");
-        }
-
-        if (body == .list and body.list.len > 0 and body.list[0] == .tag and
-            body.list[0].tag == .@"block")
-        {
-            const stmts = body.list[1..];
-            for (stmts, 0..) |stmt, i| {
-                try self.indentSpaces();
-                if (i == stmts.len - 1 and !ret_is_void and isExprStmt(stmt)) {
-                    try self.w.writeAll("return ");
-                    try self.emitExpr(stmt);
-                    try self.w.writeAll(";");
-                } else {
-                    try self.emitStmt(stmt);
-                }
-                try self.w.writeAll("\n");
-            }
-        } else {
-            try self.indentSpaces();
-            if (!ret_is_void) {
-                try self.w.writeAll("return ");
-                try self.emitExpr(body);
-                try self.w.writeAll(";");
-            } else {
-                try self.emitStmt(body);
-            }
-            try self.w.writeAll("\n");
-        }
-        try self.popScope();
-        self.indent -= 1;
-        try self.indentSpaces();
-        try self.w.writeAll("}\n");
-    }
-
-    fn emitClosureInit(self: *Emitter, captures: Sexp) Error!void {
-        try self.w.writeAll("{");
-        if (!isCapturesNode(captures)) {
-            try self.w.writeAll("}");
-            return;
-        }
-        try self.w.writeAll(" ");
-        var first = true;
-        for (captures.list[1..]) |cap| {
-            const name_node = captureNameSrc(cap) orelse continue;
-            const name = self.source[name_node.src.pos..][0..name_node.src.len];
-            if (!first) try self.w.writeAll(", ");
-            first = false;
-            try self.w.print(".cap_{s} = ", .{name});
-            try self.emitCaptureInitExpr(cap, name_node, name);
-        }
-        try self.w.writeAll(" }");
-    }
-
-    fn emitCaptureInitExpr(
-        self: *Emitter,
-        cap: Sexp,
-        name_node: Sexp,
-        name: []const u8,
-    ) Error!void {
-        const mode = cap.list[0].tag;
-        // The outer source spelling — pass through emit's symbol
-        // table for shadow handling.
-        const outer_zig = self.lookup(name) orelse name;
-        const outer_kind = self.resourceKindOfBareUse(name);
-        switch (mode) {
-            .@"cap_copy" => {
-                // Plain Zig value copy.
-                try self.w.writeAll(outer_zig);
-            },
-            .@"cap_clone" => {
-                // shared → cloneStrong, weak → cloneWeak, else copy.
-                if (outer_kind) |k| {
-                    const m: []const u8 = switch (k) {
-                        .shared => "cloneStrong",
-                        .weak => "cloneWeak",
-                        // M20i: Vec captures aren't supported in V1.
-                        // Unreachable; here for switch exhaustiveness.
-                        .vec_value => unreachable,
-                    };
-                    try self.w.print("{s}.{s}()", .{ outer_zig, m });
-                } else {
-                    try self.w.writeAll(outer_zig);
-                }
-            },
-            .@"cap_weak" => {
-                // outer is shared(T); produce a weak handle.
-                try self.w.print("{s}.weakRef()", .{outer_zig});
-            },
-            .@"cap_move" => {
-                // For resource captures: disarm the outer guard via
-                // the labeled-block recipe so the outer's defer is
-                // a no-op when scope exits. For non-resource: plain
-                // value passthrough.
-                if (outer_kind) |_| {
-                    const label = self.block_label_counter;
-                    self.block_label_counter += 1;
-                    try self.w.print(
-                        "rig_mv_{d}: {{ __rig_alive_{s} = false; break :rig_mv_{d} {s}; }}",
-                        .{ label, outer_zig, label, outer_zig },
-                    );
-                } else {
-                    try self.w.writeAll(outer_zig);
-                }
-            },
-            else => try self.w.writeAll(outer_zig),
-        }
-        _ = name_node;
-    }
-
-    /// Emit the Zig type for the lambda's invoke return slot.
-    /// Reads `sema.lambda_return_types` keyed by the lambda IR's
-    /// first src pos (populated in `ExprChecker.synthLambda`).
-    /// Falls back to `void` for unknown types — degrades cleanly
-    /// for closures whose body is a statement (e.g., a
-    /// `print(...)` call that returns void).
-    fn emitClosureReturnType(self: *Emitter, lambda: Sexp) Error!void {
-        const sema = self.sema orelse {
-            try self.w.writeAll("void");
-            return;
-        };
-        const pos = firstSrcPosEmit(lambda);
-        const ty_id = sema.lambda_return_types.get(pos) orelse {
-            try self.w.writeAll("void");
-            return;
-        };
-        try self.emitZigTypeForTypeId(ty_id);
-    }
-
-    fn closureReturnIsVoid(self: *const Emitter, lambda: Sexp) bool {
-        const sema = self.sema orelse return true;
-        const pos = firstSrcPosEmit(lambda);
-        const ty_id = sema.lambda_return_types.get(pos) orelse return true;
-        const ty = sema.types.get(ty_id);
-        return switch (ty) {
-            .void, .unknown, .invalid => true,
-            else => false,
+    fn lambdaReturn(self: *Emitter, lambda: Sexp) ?Ty {
+        const sema = self.sema orelse return null;
+        const id = sema.lambda_return_types.get(firstSrcPos(lambda)) orelse return null;
+        return switch (sema.types.get(id)) {
+            .void, .unknown, .invalid => null,
+            else => .{ .id = id },
         };
     }
 
-    /// Map a sema TypeId to the corresponding Zig type spelling.
-    /// V1 covers the types lambdas commonly return: primitives,
-    /// shared/weak handles, nominal types, parameterized
-    /// nominals (Cell, etc.), optional / fallible wrappers, and
-    /// borrow wrappers. Unknown/invalid → `void`.
-    fn emitZigTypeForTypeId(self: *Emitter, ty_id: types.TypeId) Error!void {
-        const sema = self.sema orelse {
-            try self.w.writeAll("anytype");
-            return;
-        };
-        const ty = sema.types.get(ty_id);
-        switch (ty) {
-            .void, .unknown, .invalid => try self.w.writeAll("void"),
-            .bool => try self.w.writeAll("bool"),
-            .string => try self.w.writeAll("[]const u8"),
-            .int_literal => try self.w.writeAll("i32"),
-            .float_literal => try self.w.writeAll("f32"),
-            .int => |info| {
-                if (info.bits == 0) {
-                    try self.w.writeAll("i32");
-                } else if (info.signed) {
-                    try self.w.print("i{d}", .{info.bits});
-                } else {
-                    try self.w.print("u{d}", .{info.bits});
-                }
-            },
-            .float => |info| {
-                try self.w.print("f{d}", .{if (info.bits == 0) @as(u32, 32) else info.bits});
-            },
-            .shared => |inner| {
-                try self.w.writeAll("*rig.RcBox(");
-                try self.emitZigTypeForTypeId(inner);
-                try self.w.writeAll(")");
-            },
-            .weak => |inner| {
-                try self.w.writeAll("rig.WeakHandle(");
-                try self.emitZigTypeForTypeId(inner);
-                try self.w.writeAll(")");
-            },
-            .nominal => |sym_id| {
-                const sym = sema.symbols.items[sym_id];
-                if (builtinZigSpelling(sym.name)) |spelled| {
-                    try self.w.print("rig.{s}", .{spelled});
-                } else if (isBuiltinNominalName(sym.name)) {
-                    try self.w.print("rig.{s}", .{sym.name});
-                } else {
-                    try self.w.writeAll(sym.name);
-                }
-            },
-            .parameterized_nominal => |pn| {
-                const sym = sema.symbols.items[pn.sym];
-                // M20h: `Closure` is zero-arity by construction; emit
-                // bare `rig.Closure0` (the type-erased ABI), NOT
-                // `rig.Closure()` (which Zig doesn't have).
-                if (builtinZigSpelling(sym.name)) |spelled| {
-                    try self.w.print("rig.{s}", .{spelled});
-                    return;
-                }
-                if (isBuiltinNominalName(sym.name)) {
-                    try self.w.print("rig.{s}", .{sym.name});
-                } else {
-                    try self.w.writeAll(sym.name);
-                }
-                try self.w.writeAll("(");
-                var first = true;
-                for (pn.args) |arg| {
-                    if (!first) try self.w.writeAll(", ");
-                    first = false;
-                    try self.emitZigTypeForTypeId(arg);
-                }
-                try self.w.writeAll(")");
-            },
-            else => try self.w.writeAll("void"),
-        }
-    }
-
-    /// Walk sema's symbol table to find the OUTER symbol named
-    /// `name` whose `decl_pos` is < `cap_pos`. Used by capture-
-    /// emit to discover the outer's type at the capture site.
-    /// We approximate by finding the symbol with the largest
-    /// `decl_pos < cap_pos` matching name (closest preceding
-    /// declaration is the most-likely outer source).
-    fn findOuterCaptureType(
-        self: *const Emitter,
-        sema: *const types.SemContext,
-        name: []const u8,
-        cap_pos: u32,
-    ) ?types.TypeId {
-        _ = self;
+    /// Type of the closest preceding declaration of `name`: the capture's
+    /// outer binding when the emitter has no scope entry for it.
+    fn findOuterCaptureType(self: *Emitter, name: []const u8, cap_pos: u32) ?Ty {
+        const sema = self.sema orelse return null;
         var best_pos: u32 = 0;
-        var best_ty: ?types.TypeId = null;
+        var best: ?Ty = null;
         for (sema.symbols.items) |sym| {
             if (!std.mem.eql(u8, sym.name, name)) continue;
-            if (sym.decl_pos == 0 or sym.decl_pos >= cap_pos) continue;
-            // Skip the capture symbol itself (kind == .capture
-            // lives inside the lambda body scope, decl_pos == name
-            // node pos, which equals cap_pos here, so the
-            // `< cap_pos` guard already filters it out).
-            if (sym.decl_pos > best_pos) {
-                best_pos = sym.decl_pos;
-                best_ty = sym.ty;
-            }
+            if (sym.decl_pos == 0 or sym.decl_pos >= cap_pos or sym.decl_pos <= best_pos) continue;
+            best_pos = sym.decl_pos;
+            best = .{ .id = sym.ty };
         }
-        return best_ty;
+        return best;
     }
 
-    /// What's the resource kind of a capture INSIDE the lambda
-    /// body? Mostly mirrors the outer's kind, with cap_weak
-    /// converting shared → weak. Used to register the capture in
-    /// the body's emit scope so the M20d read-auto-deref bridge
-    /// (`handleKindOf` → `lookupResourceKind`) fires correctly.
-    fn closureCaptureBodyResourceKind(
-        self: *const Emitter,
-        cap: Sexp,
-        name_node: Sexp,
-    ) ?ResourceKind {
-        const sema = self.sema orelse return null;
-        const name = self.source[name_node.src.pos..][0..name_node.src.len];
-        const outer_ty_id = self.findOuterCaptureType(sema, name, name_node.src.pos) orelse return null;
-        const outer_ty = sema.types.get(outer_ty_id);
-        const mode = cap.list[0].tag;
-        return switch (mode) {
-            .@"cap_weak" => switch (outer_ty) {
-                .shared => .weak,
-                else => null,
-            },
-            .@"cap_copy", .@"cap_clone", .@"cap_move" => switch (outer_ty) {
-                .shared => .shared,
-                .weak => .weak,
-                else => null,
-            },
-            else => null,
-        };
-    }
-
-    /// M20d: classify whether an expression Sexp evaluates to a shared
-    /// or weak handle, for operator-emit dispatch.
-    ///
-    /// Best-effort, sema-aware. Currently handles the cases that matter
-    /// for the common shapes the M20d emit lowering sees:
-    ///   - bare name (`rc`) — global name scan over sema.symbols
-    ///   - already-classified wrappers: `(read x)` / `(write x)` /
-    ///     `(move x)` / `(clone x)` — recurse on operand (so e.g.
-    ///     `(clone (clone rc))` still sees shared)
-    ///   - `(share _)` heads — by construction `shared(_)`
-    ///   - `(weak rc)` — by sema invariant `weak(_)` (operand must be
-    ///     shared, enforced upstream)
-    /// Returns `.other` for unknown shapes; emit falls back to the
-    /// pass-through path which preserves existing non-handle behavior.
-    ///
-    /// Phase discipline note: the global name scan is the same
-    /// fragility M20a.2's `method_two_self_methods` test pinned —
-    /// first-match-wins under shadowing. Acceptable for M20d (rare
-    /// collision with shared/weak names), revisited when emit grows
-    /// real scope-aware symbol resolution.
-    /// M20f(3/4): true when the inner expr of a `(share ...)` is a
-    /// built-in-nominal constructor call AND we know the LHS type
-    /// requires the corresponding `*Builtin(T)` shape. Drives the
-    /// explicit-typed struct literal emit so `rig.rcNew(anytype)`
-    /// can infer the right payload type. Currently only Cell.
-    fn shouldExplicitTypeShareInner(self: *const Emitter, inner: Sexp) bool {
-        if (inner != .list or inner.list.len < 2 or inner.list[0] != .tag) return false;
-        if (inner.list[0].tag != .@"call") return false;
-        const callee = inner.list[1];
-        if (callee != .src) return false;
-        const callee_name = self.source[callee.src.pos..][0..callee.src.len];
-        if (!isBuiltinNominalName(callee_name)) return false;
-        // M20i: Vec is a builtin nominal but does NOT use the
-        // explicit-struct-literal construction shape (`rig.Vec(T){
-        // .buf = ..., .len = 0, .cap = 0 }`). Vec construction
-        // goes through `tryEmitVecConstruction` instead, which
-        // produces `rig.Vec(T).init(allocator)` /
-        // `initCapacity(...) catch panic`. The share-arm's
-        // fall-through `emitExpr` path reaches that helper via
-        // `emitCall`.
-        if (std.mem.eql(u8, callee_name, "Vec")) return false;
-        // PB3(3/5): same exclusion for Signal — it now uses an
-        // `init(value)` constructor (the new `subs: Vec(...)`
-        // field needs an allocator, which isn't expressible as a
-        // Zig struct-field default). Signal construction routes
-        // through `tryEmitSignalConstruction` instead.
-        if (std.mem.eql(u8, callee_name, "Signal")) return false;
-        // Verify the LHS type wraps an instantiation of the same
-        // built-in (i.e., `*Cell(...)`).
-        const lhs = self.current_set_type orelse return false;
-        if (lhs != .list or lhs.list.len < 2 or lhs.list[0] != .tag) return false;
-        if (lhs.list[0].tag != .@"shared") return false;
-        const inner_lhs = lhs.list[1];
-        if (inner_lhs != .list or inner_lhs.list.len < 2 or inner_lhs.list[0] != .tag) return false;
-        if (inner_lhs.list[0].tag != .@"generic_inst") return false;
-        const lhs_name = inner_lhs.list[1];
-        if (lhs_name != .src) return false;
-        const lhs_name_str = self.source[lhs_name.src.pos..][0..lhs_name.src.len];
-        return std.mem.eql(u8, lhs_name_str, callee_name);
-    }
-
-    /// M20i(4/5): detect and emit `Vec(T)()` / `Vec(T)(capacity: N)`
-    /// construction. Returns true if Vec construction was detected
-    /// and emitted; false otherwise (caller continues with the
-    /// normal call-emit path).
-    ///
-    /// Both stack-local and shared construction route through here:
-    ///   - `v: Vec(Int) = Vec()` — emitCall on `(call Vec)`
-    ///     directly. `current_set_type = (generic_inst Vec Int)`.
-    ///   - `rv: *Vec(Int) = *Vec()` — share-arm calls emitExpr on
-    ///     `(call Vec)`. `current_set_type = (shared (generic_inst
-    ///     Vec Int))`. The share-arm wraps the result with
-    ///     `rig.rcNew(...) catch @panic(...)` afterward.
-    ///
-    /// Emit shapes (where `T` is the resolved Zig element type):
-    ///   - `Vec()`                    → `rig.Vec(T).init(rig.defaultAllocator())`
-    ///   - `Vec(capacity: N)`         → `rig.Vec(T).initCapacity(rig.defaultAllocator(), N) catch @panic("Rig Vec allocation failed")`
-    fn tryEmitVecConstruction(self: *Emitter, items: []const Sexp) Error!bool {
-        // items: (call <callee> args...). callee must be `Vec` identifier.
-        if (items.len < 2) return false;
-        const callee = items[1];
-        if (callee != .src) return false;
-        const callee_name = self.source[callee.src.pos..][0..callee.src.len];
-        if (!std.mem.eql(u8, callee_name, "Vec")) return false;
-
-        // Pull the element-type-bearing `(generic_inst Vec T)` from
-        // the LHS type annotation. Two valid shapes:
-        //   - `(generic_inst Vec T)`               — stack-local Vec
-        //   - `(shared (generic_inst Vec T))`      — *Vec via share-arm
-        const lhs = self.current_set_type orelse {
-            // No type annotation — sema should have rejected this
-            // (Vec construction requires an expected type), but emit
-            // a safety net so the Zig compiler complains rather than
-            // silently producing garbage.
-            try self.w.writeAll("@compileError(\"Rig Vec construction requires a type-annotated binding\")");
-            return true;
-        };
-        var inst_node = lhs;
-        if (lhs == .list and lhs.list.len >= 2 and lhs.list[0] == .tag and
-            lhs.list[0].tag == .@"shared")
-        {
-            inst_node = lhs.list[1];
-        }
-        if (inst_node != .list or inst_node.list.len < 2 or inst_node.list[0] != .tag) return false;
-        if (inst_node.list[0].tag != .@"generic_inst") return false;
-        const inst_name = inst_node.list[1];
-        if (inst_name != .src) return false;
-        const inst_name_str = self.source[inst_name.src.pos..][0..inst_name.src.len];
-        if (!std.mem.eql(u8, inst_name_str, "Vec")) return false;
-
-        // Detect a `(kwarg capacity expr)` argument if present.
-        var capacity_expr: ?Sexp = null;
-        for (items[2..]) |arg| {
-            if (arg != .list or arg.list.len < 3 or arg.list[0] != .tag) continue;
-            if (arg.list[0].tag != .@"kwarg") continue;
-            const kw_name_node = arg.list[1];
-            if (kw_name_node != .src) continue;
-            const kw_name = self.source[kw_name_node.src.pos..][0..kw_name_node.src.len];
-            if (std.mem.eql(u8, kw_name, "capacity")) {
-                capacity_expr = arg.list[2];
-                break;
-            }
-        }
-
-        // Emit the type prefix: `(generic_inst Vec Int)` → `rig.Vec(i32)`.
-        try self.emitType(inst_node);
-        if (capacity_expr) |cap| {
-            try self.w.writeAll(".initCapacity(rig.defaultAllocator(), ");
-            try self.emitExpr(cap);
-            try self.w.writeAll(") catch @panic(\"Rig Vec allocation failed\")");
-        } else {
-            try self.w.writeAll(".init(rig.defaultAllocator())");
-        }
-        return true;
-    }
-
-    /// PB3(3/5): detect and emit `Signal(value: V)` construction.
-    /// Returns true if Signal construction was detected and
-    /// emitted; false otherwise (caller continues with the normal
-    /// call-emit path).
-    ///
-    /// Lowering: `Signal(value: V)` -> `rig.Signal(T).init(V)`.
-    ///
-    /// The element type `T` comes from the surrounding LHS type
-    /// annotation via `current_set_type` (parallel to Vec's path).
-    /// Both stack-local and shared construction route through here:
-    ///   - `sig: Signal(Int) = Signal(value: 0)` — direct
-    ///     `emitCall` on `(call Signal (kwarg value 0))`.
-    ///     `current_set_type = (generic_inst Signal Int)`.
-    ///     **Sema rejects this shape** (see `checkSignalConstruction`)
-    ///     because stack-local Signal owns a Vec without an M20e-
-    ///     style scope-exit guard wired through Signal's
-    ///     destructor. This emit path remains for safety: if sema
-    ///     ever stops rejecting, emit still produces valid Zig.
-    ///   - `sig: *Signal(Int) = *Signal(value: 0)` — share-arm
-    ///     calls emitExpr on `(call Signal (kwarg value 0))`.
-    ///     `current_set_type = (shared (generic_inst Signal Int))`.
-    ///     The share-arm wraps the result with
-    ///     `rig.rcNew(...) catch @panic(...)` afterward.
-    fn tryEmitSignalConstruction(self: *Emitter, items: []const Sexp) Error!bool {
-        if (items.len < 2) return false;
-        const callee = items[1];
-        if (callee != .src) return false;
-        const callee_name = self.source[callee.src.pos..][0..callee.src.len];
-        if (!std.mem.eql(u8, callee_name, "Signal")) return false;
-
-        // Pull the type-bearing `(generic_inst Signal T)` from the
-        // LHS type annotation. Two valid shapes (parallel to Vec):
-        //   - `(generic_inst Signal T)`            — stack-local
-        //   - `(shared (generic_inst Signal T))`   — *Signal via share-arm
-        const lhs = self.current_set_type orelse {
-            try self.w.writeAll("@compileError(\"Rig Signal construction requires a type-annotated binding\")");
-            return true;
-        };
-        var inst_node = lhs;
-        if (lhs == .list and lhs.list.len >= 2 and lhs.list[0] == .tag and
-            lhs.list[0].tag == .@"shared")
-        {
-            inst_node = lhs.list[1];
-        }
-        if (inst_node != .list or inst_node.list.len < 2 or inst_node.list[0] != .tag) return false;
-        if (inst_node.list[0].tag != .@"generic_inst") return false;
-        const inst_name = inst_node.list[1];
-        if (inst_name != .src) return false;
-        const inst_name_str = self.source[inst_name.src.pos..][0..inst_name.src.len];
-        if (!std.mem.eql(u8, inst_name_str, "Signal")) return false;
-
-        // Pull the `(kwarg value V)` argument. Signal's constructor
-        // is single-arg `init(value)`. Sema validates the kwarg
-        // presence before we get here.
-        var value_expr: ?Sexp = null;
-        for (items[2..]) |arg| {
-            if (arg != .list or arg.list.len < 3 or arg.list[0] != .tag) continue;
-            if (arg.list[0].tag != .@"kwarg") continue;
-            const kw_name_node = arg.list[1];
-            if (kw_name_node != .src) continue;
-            const kw_name = self.source[kw_name_node.src.pos..][0..kw_name_node.src.len];
-            if (std.mem.eql(u8, kw_name, "value")) {
-                value_expr = arg.list[2];
-                break;
-            }
-        }
-
-        // Emit `rig.Signal(T).init(V)`.
-        try self.emitType(inst_node);
-        try self.w.writeAll(".init(");
-        if (value_expr) |v| {
-            try self.emitExpr(v);
-        } else {
-            // Defensive: sema should have rejected, but produce
-            // a Zig diagnostic for the case where it didn't.
-            try self.w.writeAll("@compileError(\"Rig Signal construction requires `value:` kwarg\")");
-        }
-        try self.w.writeAll(")");
-        return true;
-    }
-
-    /// M20f(3/4): emit a built-in nominal constructor call as an
-    /// explicit-typed struct literal (`rig.Cell(i32){ .value = 0 }`
-    /// rather than `.{ .value = 0 }`). The explicit type derives
-    /// from the current LHS type annotation.
-    fn emitExplicitTypedConstruction(self: *Emitter, call: Sexp) Error!void {
-        // Type prefix: emit the inner of the `(shared (generic_inst Name T))`
-        // LHS type as a Zig type. That gives us `rig.Cell(i32)`.
-        const lhs = self.current_set_type.?;
-        const inner_lhs = lhs.list[1]; // (generic_inst Name T)
-        try self.emitType(inner_lhs);
-        try self.w.writeAll("{ ");
-        var first = true;
-        for (call.list[2..]) |arg| {
-            if (!first) try self.w.writeAll(", ");
-            first = false;
-            if (arg == .list and arg.list.len >= 3 and arg.list[0] == .tag and
-                arg.list[0].tag == .@"kwarg")
-            {
-                try self.w.writeAll(".");
-                try self.emitExpr(arg.list[1]);
-                try self.w.writeAll(" = ");
-                try self.emitExpr(arg.list[2]);
-            } else {
-                try self.emitExpr(arg);
-            }
-        }
-        try self.w.writeAll(" }");
-    }
-
-    /// M20f(2/4): is this binding's sema-side type an
-    /// interior-mutable nominal (currently just `Cell(T)`)? Used by
-    /// `emitSetOrBind` to force `var` emission so the runtime
-    /// `set(self: *Self, value: T)` method has a valid mutable
-    /// pointer. Per GPT-5.5's M20f design pass: emit Cell locals as
-    /// `var` unconditionally — Rig's `=!` still prevents rebinding
-    /// at the Rig level (SPEC permits interior mutation through
-    /// fixed bindings).
-    /// M20f + M20i: does this stack-local binding need Zig `var`
-    /// storage (rather than the M19-inferred `const`) so its
-    /// methods can take `*Self` receivers?
-    ///
-    /// Two cases trigger `var`:
-    ///   - **Cell(T)** (M20f) — interior-mutable: `set(*Self, T)`
-    ///     needs a mutable pointer to update `value` through a
-    ///     read-receiver call site.
-    ///   - **Vec(T)** (M20i) — resource value with mutating
-    ///     methods: `push` / `pop` / `clear` / `__rig_drop` all
-    ///     take `*Self`. Without `var`, calling `(!v).push(...)`
-    ///     would fail Zig's "expected mutable pointer" check.
-    ///
-    /// Both share the "user-facing API requires mutable storage
-    /// even if the binding is never reassigned" pattern. The
-    /// surrounding emit code also fires `_ = &<name>;` to pacify
-    /// Zig's "never mutated" warning in the case where the body
-    /// only invokes methods (no rebinding).
-    fn isInteriorMutableBinding(self: *const Emitter, name_node: Sexp) bool {
-        const sema = self.sema orelse return false;
-        if (name_node != .src) return false;
-        const decl_pos = name_node.src.pos;
-        const name = self.source[name_node.src.pos..][0..name_node.src.len];
-        // M20f.1 per GPT-5.5: also match on `name`. The
-        // `decl_pos`-only bridge was vulnerable to collision with
-        // built-in symbols (which use `builtin_decl_pos` now, but
-        // belt-and-suspenders: future builtins or other phases
-        // adding decl_pos-less symbols won't accidentally match).
-        for (sema.symbols.items) |sym| {
-            if (sym.decl_pos != decl_pos) continue;
-            if (!std.mem.eql(u8, sym.name, name)) continue;
-            const ty = sema.types.get(sym.ty);
-            return switch (ty) {
-                // PB2: Signal also needs `var` storage like Cell/Vec.
-                // The runtime's `set` / `subscribe` take `*Self`
-                // receivers (the interior-mutability pattern), and
-                // the Zig binding must be mutable for that pointer
-                // to be valid.
-                //
-                // M25(4/5): user structs with `has_drop_glue` also
-                // need `var` storage. The auto-drop guard's defer
-                // calls `o.__rig_drop()` which requires `&o`; that
-                // requires `var o`. Same shape as Vec — the
-                // generated `__rig_drop` takes `*Self`.
-                .parameterized_nominal => |pn| pn.sym == sema.cell_sym_id or
-                    pn.sym == sema.vec_sym_id or
-                    pn.sym == sema.signal_sym_id or
-                    sema.symbols.items[pn.sym].flags.has_drop_glue,
-                .nominal => |s| s == sema.cell_sym_id or s == sema.vec_sym_id or
-                    s == sema.signal_sym_id or
-                    sema.symbols.items[s].flags.has_drop_glue,
-                else => false,
-            };
-        }
-        return false;
-    }
-
-    /// M20e: classify a binding (by its declared-site `.src` Sexp) as
-    /// `shared` / `weak` / null (not a resource). Used by M20e's
-    /// auto-drop emit to decide whether to install a Zig `defer`
-    /// guard for the binding.
-    ///
-    /// Looks up the binding's sema-side type via `decl_pos` (the same
-    /// pattern as `tryEmitInferredType` / `semaBindingIsCopy` — sound
-    /// under shadowing because `decl_pos` is unique per declaration).
-    /// Returns null when sema isn't wired, the binding isn't found,
-    /// or its type isn't shared/weak.
-    ///
-    /// NOTE: distinct from `handleKindOf(expr)` which classifies an
-    /// expression's TYPE via a name scan — that helper is the
-    /// known-fragile global-scan used for dispatch on uses. This helper
-    /// is sound because declarations are unique by position.
-    fn resourceKindOfBinding(self: *const Emitter, name_node: Sexp) ?ResourceKind {
-        const sema = self.sema orelse return null;
-        if (name_node != .src) return null;
-        const decl_pos = name_node.src.pos;
-        const name = self.source[name_node.src.pos..][0..name_node.src.len];
-        // M20f.1: cross-check name alongside decl_pos. Defense
-        // against collisions with builtin symbols.
-        for (sema.symbols.items) |sym| {
-            if (sym.decl_pos != decl_pos) continue;
-            if (!std.mem.eql(u8, sym.name, name)) continue;
-            const ty = sema.types.get(sym.ty);
-            return switch (ty) {
-                .shared => .shared,
-                .weak => .weak,
-                // M20i + M26(2/5): parameterized-nominal value-type
-                // bindings get a scope-exit `__rig_drop` defer when
-                // the type has drop glue. Vec(T), Cell(Drop T), and
-                // any future drop-glue-bearing parameterized type
-                // route through the same `.vec_value` branch — all
-                // three rely on the runtime's `pub fn __rig_drop`
-                // hook. The dispatch is `typeHasDropGlue` because
-                // Cell's drop-glue depends on its element T (M26's
-                // Cell-non-Copy unlock). This keeps the predicate
-                // unified instead of growing per-builtin special
-                // cases.
-                .parameterized_nominal => if (types.typeHasDropGlue(sema, sym.ty))
-                    @as(?ResourceKind, .vec_value)
-                else
-                    null,
-                // M25(4/5): user-struct values with `has_drop_glue`
-                // (user `drop` decl OR resource fields) get the same
-                // `.vec_value` treatment as Vec — both call
-                // `__rig_drop()` for cleanup, both need the M20e
-                // alive-guard + defer, both disarm on `<x` move /
-                // `-x` discharge / return / reassign. The
-                // ResourceKind-level representation is identical;
-                // diagnostics differ at the ownership layer, where
-                // M25(3/5) already routes to a distinct error
-                // message that mentions the user struct name.
-                .nominal => |s| if (sema.symbols.items[s].flags.has_drop_glue)
-                    @as(?ResourceKind, .vec_value)
-                else
-                    null,
-                else => null,
-            };
-        }
-        return null;
-    }
-
-    /// M20e.1: classify a use-site bare-name reference via the
-    /// emitter's scope-aware metadata. Replaces the M20e(1/5) global
-    /// sema scan — that approach was first-match-wins and could
-    /// mis-classify resources under cross-function shadowing, which
-    /// for auto-drop disarm is a memory-safety hazard (a missed
-    /// disarm leaves the function-scope defer dropping a returned
-    /// handle). Per GPT-5.5's M20e post-implementation review:
-    /// scope-aware metadata carried at `declareWithResourceKind`
-    /// time is the correct phase for this lookup.
-    fn resourceKindOfBareUse(self: *const Emitter, name: []const u8) ?ResourceKind {
-        return self.lookupResourceKind(name);
-    }
-
-    /// M20e: emit the resource-binding guard preamble.
-    ///
-    ///   var __rig_alive_<zig_name>: bool = true;
-    ///   defer if (__rig_alive_<zig_name>) {
-    ///       __rig_alive_<zig_name> = false;
-    ///       <zig_name>.{dropStrong|dropWeak}();
-    ///   }
-    ///
-    /// The disarm-inside-defer keeps Zig's "never mutated" check
-    /// happy in the pure-auto-drop case (no explicit discharge in
-    /// the body) while remaining semantically a no-op: explicit
-    /// discharges always set the flag false BEFORE the defer fires,
-    /// so the body of the defer's if-true branch only runs when
-    /// auto-drop actually applies.
-    ///
-    /// Caller must have already emitted the binding declaration (so
-    /// `<zig_name>` is in scope). Writes a trailing newline + indent.
-    fn emitResourceGuard(self: *Emitter, zig_name: []const u8, kind: ResourceKind) Error!void {
-        const drop_method: []const u8 = switch (kind) {
-            .shared => "dropStrong",
-            .weak => "dropWeak",
-            .vec_value => "__rig_drop",
-        };
-        try self.w.writeAll("\n");
-        try self.indentSpaces();
-        try self.w.print("var __rig_alive_{s}: bool = true;", .{zig_name});
-        try self.w.writeAll("\n");
-        try self.indentSpaces();
-        try self.w.print(
-            "defer if (__rig_alive_{s}) {{ __rig_alive_{s} = false; {s}.{s}(); }};",
-            .{ zig_name, zig_name, zig_name, drop_method },
-        );
-    }
-
-    /// M20e: emit the disarm of a resource binding's guard. Called at
-    /// every explicit discharge site (`-rc`, `<rc`, bare `return rc` —
-    /// the last two land in subsequent sub-commits).
-    fn emitResourceDisarm(self: *Emitter, zig_name: []const u8) Error!void {
-        try self.w.print(" __rig_alive_{s} = false;", .{zig_name});
-    }
-
-    /// M20e: convenience for the common pattern "expr is a bare name
-    /// referring to a resource binding; emit the disarm." Silent
-    /// no-op for non-name or non-resource expressions, so callers
-    /// can use it unconditionally.
-    fn emitDisarmIfBareResourceName(self: *Emitter, expr: Sexp) Error!void {
-        if (expr != .src) return;
-        const name = self.source[expr.src.pos..][0..expr.src.len];
-        const kind = self.resourceKindOfBareUse(name) orelse return;
-        _ = kind;
-        const zig_name = self.lookup(name) orelse name;
-        try self.emitResourceDisarm(zig_name);
-    }
-
-    const HandleKind = enum { shared, weak, other };
-    fn handleKindOf(self: *const Emitter, expr: Sexp) HandleKind {
-        return switch (expr) {
-            .src => |s| blk: {
-                const name = self.source[s.pos..][0..s.len];
-                // M20e.1: scope-aware bare-name classification via
-                // the emitter's `lookupResourceKind` (declared at
-                // `declareWithResourceKind` time on each binding).
-                // Replaces the prior first-match-wins global sema
-                // scan, which was fragile under cross-function
-                // shadowing. The scope-aware path is sound under
-                // shadowing because each binding's resource_kind is
-                // recorded against its own scope frame.
-                if (self.lookupResourceKind(name)) |kind| {
-                    break :blk switch (kind) {
-                        .shared => .shared,
-                        .weak => .weak,
-                        // M20i: Vec is a resource value, not a
-                        // handle. `handleKindOf` answers "is this a
-                        // clonable Rc/Weak handle"; Vec is move-only
-                        // (no clone), so map to `.other` which means
-                        // "not a clone-aware handle". Callers like
-                        // `(clone x)` and `(drop x)` fall back to the
-                        // pass-through / vec-specific branches.
-                        .vec_value => .other,
-                    };
-                }
-                break :blk .other;
-            },
-            .list => |items| blk: {
-                if (items.len < 2 or items[0] != .tag) break :blk .other;
-                break :blk switch (items[0].tag) {
-                    .@"share" => .shared,
-                    .@"weak" => .weak,
-                    // Recurse through transparent wrappers.
-                    .@"read", .@"write", .@"move", .@"clone", .@"pin", .@"raw" => self.handleKindOf(items[1]),
-                    // M27: member access on a struct field — look up
-                    // the field's declared type on the obj's nominal
-                    // Symbol. If the field is `shared(_)`, return
-                    // `.shared` so the `.@"member"` emit arm inserts
-                    // the `.value` RcBox deref. This unblocks
-                    // `self.value.set(v)` and friends inside method
-                    // bodies, which were previously emitted as
-                    // `self.value.set(v)` (Zig only auto-derefs once
-                    // through pointers).
-                    //
-                    // Per GPT-5.5's M27 design lock:
-                    // - Only return `.shared` for shared fields;
-                    //   `.weak` fields require explicit upgrade and
-                    //   must NOT get an auto-deref.
-                    // - Vec / drop-glue value fields are inline; no
-                    //   bridge needed — return `.other`.
-                    // - Substitution for generic field types (when
-                    //   the field's stored type is a `type_var`) is
-                    //   not yet handled in emit; documented as a
-                    //   follow-up gap.
-                    .@"member" => self.handleKindOfMember(items),
-                    else => .other,
-                };
-            },
-            else => .other,
-        };
-    }
-
-    /// M27: classify a `(member <obj> <field>)` shape's handle kind by
-    /// looking up `<field>` on `<obj>`'s nominal Symbol. Returns
-    /// `.shared` if the field's declared type is `shared(_)`, `.weak`
-    /// if `weak(_)`, else `.other`.
-    ///
-    /// Composes with the recursive `nominalSymForExpr` below: an obj
-    /// that's itself a member chain or a bare local resolves to its
-    /// nominal symbol, and field lookup on that symbol yields the
-    /// chained field's type.
-    fn handleKindOfMember(self: *const Emitter, member_items: []const Sexp) HandleKind {
-        if (member_items.len < 3) return .other;
-        const sema = self.sema orelse return .other;
-        const field_name = identText(self.source, member_items[2]) orelse return .other;
-        const obj_nom = self.nominalSymForExpr(member_items[1]) orelse return .other;
-        const sym = sema.symbols.items[obj_nom];
-        const fields = sym.fields orelse return .other;
-        for (fields) |f| {
-            // M20a/M20c: methods and enum variants live in the same
-            // `fields` slice as data fields; filter them out so we
-            // only inspect actual data field types.
-            if (f.is_method or f.is_variant) continue;
-            if (!std.mem.eql(u8, f.name, field_name)) continue;
-            const ty = sema.types.get(f.ty);
-            return switch (ty) {
-                .shared => .shared,
-                .weak => .weak,
-                else => .other,
-            };
-        }
-        return .other;
-    }
-
-    /// M27: recover the nominal Symbol of an expression's type for
-    /// emit-time dispatch. Handles the three shapes the userland
-    /// library exercises:
-    ///
-    /// - bare `self` — uses `current_nominal_name` (set by
-    ///   `emitStruct` / `emitGenericType` when entering a method
-    ///   body).
-    /// - bare local — looks up by `decl_pos` + `name` (matches
-    ///   `resourceKindOfBinding`'s sound-under-shadowing pattern).
-    /// - `(member <obj> <field>)` — recurses to get obj's nominal,
-    ///   then looks up the field's type and reads its nominal sym.
-    ///
-    /// Limitations (documented as follow-ups, not blockers for the
-    /// userland reactive library):
-    /// - Generic struct fields with `type_var` types lose precision
-    ///   here (emit doesn't yet do the M20b substitution machinery
-    ///   that `lookupDataField` does — would require a mutable
-    ///   sema reference for `intern`-on-substitute). `Holder(T)`
-    ///   with `value: T` and `T = *Cell(Int)` won't auto-deref via
-    ///   this path. Userland code can work around with an explicit
-    ///   non-generic wrapper.
-    /// - `borrow_read` / `borrow_write` wrappers around the inner
-    ///   nominal type are peeled (read access through borrows is
-    ///   sound). `shared` wrappers are also peeled — that's the
-    ///   point of the auto-deref.
-    /// - `weak` is NOT peeled here. Weak handles require an
-    ///   explicit `.upgrade()`; auto-derefing through them would
-    ///   silently dereference a potentially dangling handle.
-    fn nominalSymForExpr(self: *const Emitter, expr: Sexp) ?types.SymbolId {
-        const sema = self.sema orelse return null;
-        switch (expr) {
-            .src => |s| {
-                const name = self.source[s.pos..][0..s.len];
-                // `self` resolves via the enclosing nominal name set
-                // by emitStruct / emitGenericType.
-                if (std.mem.eql(u8, name, "self")) {
-                    const nom_name = self.current_nominal_name orelse return null;
-                    // For generic types, current_nominal_name is "Self"
-                    // (set so emitType emits `Self`). Don't try to
-                    // resolve "Self" — would conflict with multiple
-                    // generic instantiations. Defer generic struct
-                    // self.field auto-deref to a follow-up.
-                    if (std.mem.eql(u8, nom_name, "Self")) return null;
-                    for (sema.symbols.items, 0..) |sym, i| {
-                        if (sym.kind != .nominal_type) continue;
-                        if (!std.mem.eql(u8, sym.name, nom_name)) continue;
-                        return @intCast(i);
-                    }
-                    return null;
-                }
-                // Bare local: look up by decl_pos + name to find the
-                // sema Symbol, then peel its type to a nominal sym.
-                for (sema.symbols.items) |sym| {
-                    if (sym.decl_pos != s.pos) continue;
-                    if (!std.mem.eql(u8, sym.name, name)) continue;
-                    return self.peelTypeToNominal(sym.ty);
-                }
-                return null;
-            },
-            .list => |items| {
-                if (items.len < 2 or items[0] != .tag) return null;
-                switch (items[0].tag) {
-                    // Borrow / share wrappers in expression position
-                    // — peel and recurse to inner.
-                    .@"read", .@"write", .@"share" => return self.nominalSymForExpr(items[1]),
-                    .@"member" => {
-                        if (items.len < 3) return null;
-                        const obj_nom = self.nominalSymForExpr(items[1]) orelse return null;
-                        const field_name = identText(self.source, items[2]) orelse return null;
-                        const sym = sema.symbols.items[obj_nom];
-                        const fields = sym.fields orelse return null;
-                        for (fields) |f| {
-                            if (f.is_method or f.is_variant) continue;
-                            if (!std.mem.eql(u8, f.name, field_name)) continue;
-                            return self.peelTypeToNominal(f.ty);
-                        }
-                        return null;
-                    },
-                    else => return null,
-                }
-            },
-            else => return null,
-        }
-    }
-
-    /// M27: walk a TypeId through borrow / shared wrappers and return
-    /// the underlying nominal SymbolId, or null if the type doesn't
-    /// terminate in a nominal/parameterized_nominal. `weak` is NOT
-    /// peeled (weak handles require explicit upgrade — auto-deref
-    /// through them would be unsafe).
-    fn peelTypeToNominal(self: *const Emitter, ty_id: types.TypeId) ?types.SymbolId {
-        const sema = self.sema orelse return null;
-        var id = ty_id;
-        var depth: u8 = 0;
-        while (depth < 8) : (depth += 1) {
-            const t = sema.types.get(id);
-            switch (t) {
-                .borrow_read, .borrow_write => |inner| id = inner,
-                .shared => |inner| id = inner,
-                .nominal => |s| return s,
-                .parameterized_nominal => |pn| return pn.sym,
-                else => return null,
-            }
-        }
-        return null;
-    }
-
-    /// True iff sema has a concrete type for the binding declared at
-    /// `name_node` whose source spelling is `name`. Used by `emitSetOrBind`
-    /// to decide whether to emit a Zig type annotation for a `var`
-    /// binding that lacked a source-level annotation.
-    ///
-    /// Lookup strategy: match by `decl_pos` (the binding name's source
-    /// position). The sema's `SymbolResolver` records this for every
-    /// local declaration site, so it uniquely identifies the symbol
-    /// even when the same name is reused in sibling scopes.
-    fn tryEmitInferredType(self: *Emitter, name_node: Sexp, name: []const u8) bool {
-        _ = name;
-        const sema = self.sema orelse return false;
-        if (name_node != .src) return false;
-        const decl_pos = name_node.src.pos;
-        for (sema.symbols.items) |sym| {
-            if (sym.decl_pos != decl_pos) continue;
-            if (sym.ty == sema.types.invalid_id or sym.ty == sema.types.unknown_id) return false;
-            const ty = sema.types.get(sym.ty);
-            return switch (ty) {
-                .int, .float, .int_literal, .float_literal, .bool => true,
-                else => false,
-            };
-        }
-        return false;
-    }
-
-    /// Emit the Zig type spelling for the inferred type of `name`'s
-    /// binding at `name_node`. Caller must have already checked
-    /// `tryEmitInferredType`. Defaults `int_literal` → `i32` and
-    /// `float_literal` → `f32` for unconstrained literals.
-    fn emitInferredType(self: *Emitter, name_node: Sexp, name: []const u8) Error!void {
-        _ = name;
-        const sema = self.sema.?;
-        const decl_pos = name_node.src.pos;
-        for (sema.symbols.items) |sym| {
-            if (sym.decl_pos != decl_pos) continue;
-            const ty = sema.types.get(sym.ty);
-            switch (ty) {
-                .int_literal => try self.w.writeAll("i32"),
-                .float_literal => try self.w.writeAll("f32"),
-                .int => |info| {
-                    if (info.bits == 0) {
-                        try self.w.writeAll("i32");
-                    } else if (info.signed) {
-                        try self.w.print("i{d}", .{info.bits});
-                    } else {
-                        try self.w.print("u{d}", .{info.bits});
-                    }
-                },
-                .float => |info| {
-                    try self.w.print("f{d}", .{if (info.bits == 0) @as(u32, 32) else info.bits});
-                },
-                .bool => try self.w.writeAll("bool"),
-                else => try self.w.writeAll("anytype"), // defensive, shouldn't reach
-            }
-            return;
-        }
-    }
-
-    fn emitReturn(self: *Emitter, items: []const Sexp) Error!void {
-        if (items.len < 2) {
-            try self.w.writeAll("return;");
-            return;
-        }
-        // M20e(2/5): bare `return rc` of a resource binding must
-        // disarm the guard before the return so the scope-exit defer
-        // is a no-op. Without this the caller sees the handle but
-        // the defer drops it immediately, leaving a dangling pointer.
-        try self.emitReturnDisarmIfResource(items[1]);
-        try self.w.writeAll("return ");
-        try self.emitExpr(items[1]);
-        try self.w.writeAll(";");
-    }
-
-    /// M20e(2/5): if `expr` is a bare resource-binding reference,
-    /// emit the disarm statement right before the `return`. Silent
-    /// no-op for wrapped forms (`+rc` / `<rc` / `~rc` etc.) and
-    /// non-resource expressions — those have their own discharge
-    /// handling (clone keeps original alive; move already disarms
-    /// via the labeled-block; etc.).
-    fn emitReturnDisarmIfResource(self: *Emitter, expr: Sexp) Error!void {
-        if (expr != .src) return;
-        const name = self.source[expr.src.pos..][0..expr.src.len];
-        if (self.resourceKindOfBareUse(name) == null) return;
-        const zig_name = self.lookup(name) orelse name;
-        try self.w.print("__rig_alive_{s} = false; ", .{zig_name});
-    }
-
-    fn emitIf(self: *Emitter, items: []const Sexp) Error!void {
-        // (if cond then else?)
-        if (items.len < 3) return;
-        try self.w.writeAll("if (");
-        try self.emitExpr(items[1]);
-        try self.w.writeAll(") ");
-        try self.emitBlockOrInline(items[2]);
-        if (items.len >= 4) {
-            try self.w.writeAll(" else ");
-            try self.emitBlockOrInline(items[3]);
-        }
-    }
-
-    /// Lower `(if cond (block ...) (block ...))` used in expression
-    /// position (RHS of a binding, function return value, argument to
-    /// a call, branch of another `if`, etc.).
-    ///
-    /// Zig's `if (c) a else b` is itself an expression, so the shape is
-    /// the same as the statement form — but each branch must produce a
-    /// value. Multi-statement branches become labeled blocks; single
-    /// expression branches are emitted inline.
-    ///
-    /// Without an else branch the result type would be `void`, which
-    /// is almost certainly not what the user wanted. We emit a
-    /// `@compileError` safety net so the generated Zig fails with a
-    /// clear message rather than silently producing wrong code. A
-    /// real Rig diagnostic should come from sema (M17b).
-    fn emitIfExpr(self: *Emitter, items: []const Sexp) Error!void {
-        if (items.len < 4) {
-            try self.w.writeAll("@compileError(\"rig: if-expression requires an else branch\")");
-            return;
-        }
-        try self.w.writeAll("if (");
-        try self.emitExpr(items[1]);
-        try self.w.writeAll(") ");
-        try self.emitBranchExpr(items[2]);
-        try self.w.writeAll(" else ");
-        try self.emitBranchExpr(items[3]);
-    }
-
-    /// Emit one branch of a value-position `if`. The branch is always
-    /// a `(block stmts...)` from the grammar, but we tolerate a bare
-    /// expression too (defensive against future IR shapes).
-    ///
-    /// Cases:
-    /// - 0 stmts → `@compileError` safety net.
-    /// - 1 stmt that's an expression → emit inline (no labeled block).
-    /// - Final stmt is terminating (`return`/`break`/`continue`) →
-    ///   labeled block, no trailing `break :label …` (the branch has
-    ///   type `noreturn` and coerces to the other branch's type).
-    /// - Final stmt is an expression → labeled block with
-    ///   `break :rig_blk_N <expr>;` as the final line.
-    /// - Otherwise (non-expression, non-terminating final stmt) →
-    ///   `@compileError` (this branch doesn't produce a value).
-    fn emitBranchExpr(self: *Emitter, branch: Sexp) Error!void {
-        // Pull out `(block stmts...)` if applicable.
-        const stmts: []const Sexp = blk: {
-            if (branch == .list and branch.list.len > 0 and branch.list[0] == .tag and
-                branch.list[0].tag == .@"block")
-            {
-                break :blk branch.list[1..];
-            }
-            // Bare-expression branch: treat as a one-element stmt list
-            // so the single-expr fast path picks it up.
-            break :blk @as([]const Sexp, &[_]Sexp{branch});
-        };
-
-        if (stmts.len == 0) {
-            try self.w.writeAll("@compileError(\"rig: empty value-position branch\")");
-            return;
-        }
-
-        if (stmts.len == 1 and isExprStmt(stmts[0])) {
-            try self.emitExpr(stmts[0]);
-            return;
-        }
-
-        // When the final stmt is terminating (return/break/continue),
-        // the branch produces `noreturn` and we never `break :label`
-        // out of it. Emitting a label in that case triggers Zig's
-        // "unused block label" error. Detect and emit a *plain* block
-        // (no label) for the noreturn case.
-        const last = stmts[stmts.len - 1];
-        const terminating = isTerminatingStmt(last);
-        const want_label = !terminating and isExprStmt(last);
-
-        var label_id: u32 = 0;
-        if (want_label) {
-            label_id = self.block_label_counter;
-            self.block_label_counter += 1;
-            try self.w.print("rig_blk_{d}: {{\n", .{label_id});
-        } else {
-            try self.w.writeAll("{\n");
-        }
-        self.indent += 1;
-        try self.pushScope();
-
-        // All but the final statement: emit as ordinary statements.
-        for (stmts[0 .. stmts.len - 1]) |s| {
-            try self.indentSpaces();
-            try self.emitStmt(s);
-            try self.w.writeAll("\n");
-        }
-
-        try self.indentSpaces();
-        if (terminating) {
-            try self.emitStmt(last);
-        } else if (want_label) {
-            try self.w.print("break :rig_blk_{d} ", .{label_id});
-            try self.emitExpr(last);
-            try self.w.writeAll(";");
-        } else {
-            // Final stmt is something like `(set ...)` with no value.
-            // The branch doesn't produce a value — emit a diagnostic.
-            try self.w.writeAll("@compileError(\"rig: value-position branch does not produce a value\");");
-        }
-        try self.w.writeAll("\n");
-
-        try self.popScope();
-        self.indent -= 1;
-        try self.indentSpaces();
-        try self.w.writeAll("}");
-    }
-
-    fn emitWhile(self: *Emitter, items: []const Sexp) Error!void {
-        if (items.len < 4) return;
-        try self.w.writeAll("while (");
-        try self.emitExpr(items[1]);
-        try self.w.writeAll(") ");
-        try self.emitBlockOrInline(items[3]);
-    }
-
-    fn emitFor(self: *Emitter, items: []const Sexp) Error!void {
-        // (for <mode> binding1 binding2-or-_ source body else?)
-        //
-        // M20i.1: Vec(T) iteration lowers to an explicit
-        // `if (vec.buf) |__p| { while ... }` walk instead of Zig's
-        // raw `for (vec) |x|` (Zig doesn't know how to iterate
-        // `rig.Vec(T)`). Two emit shapes per GPT-5.5's M20i.1
-        // design pass:
-        //
-        //   - **Shape Y (Copy elements):** bind the element by value
-        //     to a Zig const.
-        //     `for n in nums` lowers to:
-        //         if (nums.buf) |__p_X| {
-        //             var __i_X: usize = 0;
-        //             while (__i_X < nums.len) : (__i_X += 1) {
-        //                 const n = __p_X[__i_X];
-        //                 <body>
-        //             }
-        //         }
-        //
-        //   - **Shape X (resource elements `*T` / `~T`):** bind the
-        //     element via a slot pointer so emit can resolve uses
-        //     through `__elem_<name>.*`. The textual rewrite is
-        //     installed via the emit scope frame's `zig_name` slot.
-        //     `for cb in ?subs` (subs: Vec(*Closure())) lowers to:
-        //         if (subs.buf) |__p_X| {
-        //             var __i_X: usize = 0;
-        //             while (__i_X < subs.len) : (__i_X += 1) {
-        //                 const __elem_cb = &__p_X[__i_X];
-        //                 <body, where `cb` => `__elem_cb.*`>
-        //             }
-        //         }
-        //     The owned-closure invocation path
-        //     (`lookupIsOwnedClosure` -> `cb.value.invoke()`) is
-        //     marked on the element binding so `cb()` lowers to
-        //     `__elem_cb.*.value.invoke()` correctly.
-        //
-        // For non-Vec sources (existing M2 `for u in ?users` over
-        // borrowed slices, etc.) retain the pre-M20i.1 emit:
-        // `for (<source>) |b1, b2?| body`.
-        if (items.len < 6) return;
-        const binding1 = items[2];
-        const binding2 = items[3];
-        const source = items[4];
-        const body = items[5];
-
-        const vec_emit = self.vecSourceForEmit(source);
-        if (vec_emit) |info| {
-            // Use the binding's source position as a uniqueness
-            // suffix so nested fors don't collide.
-            const tag_pos: u32 = if (binding1 == .src) binding1.src.pos else 0;
-            // Allocate generated names in the emit's `name_arena`
-            // so they outlive the for-statement walk (the emit scope
-            // frame holds a slice into them) and get reclaimed when
-            // the Emitter deinits.
-            const p_name = try std.fmt.allocPrint(self.name_arena.allocator(), "__rig_p_{d}", .{tag_pos});
-            const i_name = try std.fmt.allocPrint(self.name_arena.allocator(), "__rig_i_{d}", .{tag_pos});
-
-            // Outer scope: the slot alias lives here, body resolves
-            // the loop binding via the scope-frame `zig_name`.
-            try self.pushScope();
-
-            try self.w.print("if (", .{});
-            try self.emitExpr(source);
-            try self.w.print(".buf) |{s}| {{\n", .{p_name});
-            self.indent += 1;
-            try self.indentSpaces();
-            try self.w.print("var {s}: usize = 0;\n", .{i_name});
-            try self.indentSpaces();
-            try self.w.print("while ({s} < ", .{i_name});
-            try self.emitExpr(source);
-            try self.w.print(".len) : ({s} += 1) {{\n", .{i_name});
-            self.indent += 1;
-
-            if (binding1 == .src) {
-                const name = self.source[binding1.src.pos..][0..binding1.src.len];
-                if (info.elem_is_resource) {
-                    // Shape X: declare the slot alias and rewrite the
-                    // Rig binding's uses via `__elem_<name>.*` in the
-                    // emit scope frame.
-                    const elem_name = try std.fmt.allocPrint(self.name_arena.allocator(), "__rig_elem_{d}", .{binding1.src.pos});
-                    try self.indentSpaces();
-                    try self.w.print("const {s} = &{s}[{s}];\n", .{ elem_name, p_name, i_name });
-                    const deref_zig_name = try std.fmt.allocPrint(self.name_arena.allocator(), "{s}.*", .{elem_name});
-                    try self.declareWithResourceKind(name, deref_zig_name, null);
-                    // Owned closure invocation rewrite — if the
-                    // element is `*Closure()`, `cb()` must lower to
-                    // `<elem>.value.invoke()`. We mark uniformly for
-                    // all resource elements; non-closure invocations
-                    // never look at the flag.
-                    if (info.elem_is_closure) self.markOwnedClosure(name);
-                } else {
-                    // Shape Y: bind by value as a normal Zig const.
-                    try self.indentSpaces();
-                    try self.w.print("const {s} = {s}[{s}];\n", .{ name, p_name, i_name });
-                    try self.declare(name, name);
-                }
-            }
-
-            // Body. emitBlockOrInline pushes its own nested scope,
-            // but the loop-binding declaration lives in the parent
-            // for-scope so it's visible throughout the body.
-            try self.indentSpaces();
-            try self.emitBlockOrInline(body);
-            try self.w.writeAll("\n");
-
-            self.indent -= 1;
-            try self.indentSpaces();
-            try self.w.writeAll("}\n");
-            self.indent -= 1;
-            try self.indentSpaces();
-            try self.w.writeAll("}");
-
-            try self.popScope();
-            return;
-        }
-
-        // Legacy path: non-Vec source.
-        try self.w.writeAll("for (");
-        try self.emitExpr(source);
-        try self.w.writeAll(") |");
-        if (binding1 == .src) try self.w.writeAll(self.source[binding1.src.pos..][0..binding1.src.len]);
-        if (binding2 == .src) {
-            try self.w.writeAll(", ");
-            try self.w.writeAll(self.source[binding2.src.pos..][0..binding2.src.len]);
-        }
-        try self.w.writeAll("| ");
-        try self.emitBlockOrInline(body);
-    }
-
-    /// M20i.1: classify a for-loop source expression for emit-time
-    /// dispatch. Returns null for non-Vec sources (existing M2 path).
-    /// For Vec sources, signals whether the element is a resource
-    /// handle (Shape X with slot-alias rewrite) and whether it's
-    /// specifically a `*Closure()` (so emit can mark the binding for
-    /// the M20h `cb() -> cb.value.invoke()` rewrite).
-    ///
-    /// V1: only handles bare-name sources (`for x in vec` /
-    /// `for x in ?vec`). General expression sources fall back to the
-    /// legacy emit path. Resource Vec iteration with a non-bare
-    /// source is sema-rejected (M20i.1.1).
-    ///
-    /// M20i.1.1 per GPT-5.5 post-impl review: looks up the per-`for`
-    /// classification recorded by `ExprChecker.checkForStmt` in
-    /// `SemContext.for_source_vec_info`. The previous implementation
-    /// scanned `sema.symbols` reverse-order for a name match —
-    /// the same M20e-legacy "first-match-wins" pattern that
-    /// mis-classifies under cross-function shadowing. With the
-    /// attribution table, each `for` source is keyed by its own
-    /// `.src.pos`, so the lookup is uniquely sound.
-    const VecEmitInfo = struct {
-        elem_is_resource: bool,
-        elem_is_closure: bool,
-    };
-    fn vecSourceForEmit(self: *const Emitter, source: Sexp) ?VecEmitInfo {
-        const sema = self.sema orelse return null;
-        if (source != .src) return null;
-        const info = sema.for_source_vec_info.get(source.src.pos) orelse return null;
-        return .{
-            .elem_is_resource = info.is_resource,
-            .elem_is_closure = info.is_closure,
-        };
-    }
-
-    /// `(match scrutinee arm...)` lowers to a Zig `switch` statement.
-    /// Each `(arm pattern binding-or-_ body)` becomes one prong:
-    ///
-    ///   pattern shape           Zig prong              notes
-    ///   -----------------------  ---------------------  ----------------
-    ///   (enum_lit X)            `.X => body,`          enum variant
-    ///   .src bare ident `_`     `else => body,`        catch-all
-    ///   .src bare ident name    `else => body,`        catch-all (binding ignored in M8)
-    ///   integer literal `42`    `42 => body,`          int match
-    ///   string literal `"foo"`  uses raw text          rare
-    ///
-    /// If no catch-all arm is supplied, we append `else => unreachable,`
-    /// so Zig's switch-must-be-exhaustive rule is satisfied. M9+ will
-    /// add real exhaustiveness checking + bind names from `_` arms.
-    /// Lower `(match scrutinee arm...)` to a Zig `switch`.
-    ///
-    /// `value_position` is `true` when the match is being used as an
-    /// expression (binding RHS, function return, argument, branch of
-    /// another expression). In that case multi-statement arm bodies
-    /// must produce a value, and the M18 labeled-block recipe
-    /// (`emitArmBodyValue`) kicks in. When `false`, arm bodies are
-    /// emitted as void-returning blocks (`emitMatchArmBody`).
-    fn emitMatch(self: *Emitter, items: []const Sexp, value_position: bool) Error!void {
-        if (items.len < 2) return;
-        try self.w.writeAll("switch (");
-        try self.emitExpr(items[1]);
-        try self.w.writeAll(") {\n");
-        self.indent += 1;
-
-        var has_default = false;
-        var enum_variants_covered: usize = 0;
-        for (items[2..]) |arm| {
-            if (arm != .list or arm.list.len < 4 or arm.list[0] != .tag or
-                arm.list[0].tag != .@"arm")
-            {
-                continue;
-            }
-            const pattern = arm.list[1];
-            const body = arm.list[arm.list.len - 1];
-
-            try self.indentSpaces();
-
-            // Track payload destructuring: `(variant_pattern X b1 b2 ...)`
-            // generates `.X => |__payload| { const b1 = __payload.field1; ... body }`.
-            // For single-payload `(variant_pattern X b1)` the capture
-            // is the bare value (matches the union(enum) unwrapping).
-            var capture_names: []const Sexp = &.{};
-            var is_variant_pattern = false;
-
-            if (isDefaultPattern(pattern)) {
-                has_default = true;
-                try self.w.writeAll("else => ");
-            } else if (pattern == .list and pattern.list.len >= 2 and
-                pattern.list[0] == .tag and pattern.list[0].tag == .@"enum_lit")
-            {
-                try self.w.writeAll(".");
-                try self.emitExpr(pattern.list[1]);
-                try self.w.writeAll(" => ");
-                enum_variants_covered += 1;
-            } else if (pattern == .list and pattern.list.len >= 3 and
-                pattern.list[0] == .tag and pattern.list[0].tag == .@"range_pattern")
-            {
-                // M13: `lo..hi => body` lowers to Zig's inclusive
-                // range syntax `lo...hi => body`. Rig V1 treats `..`
-                // as inclusive on the high end (matches `(range_pattern
-                // 1 3)` covering 1, 2, 3). M14+ may add `..<` for
-                // exclusive once SPEC settles.
-                try self.emitExpr(pattern.list[1]);
-                try self.w.writeAll("...");
-                try self.emitExpr(pattern.list[2]);
-                try self.w.writeAll(" => ");
-            } else if (pattern == .list and pattern.list.len >= 2 and
-                pattern.list[0] == .tag and pattern.list[0].tag == .@"variant_pattern")
-            {
-                is_variant_pattern = true;
-                capture_names = pattern.list[2..];
-                try self.w.writeAll(".");
-                try self.emitExpr(pattern.list[1]);
-                try self.w.writeAll(" => ");
-                if (capture_names.len == 1) {
-                    // Single-payload: `.X => |b| body` — Zig's natural
-                    // capture syntax (matches the unwrapped union arm).
-                    try self.w.writeAll("|");
-                    try self.emitExpr(capture_names[0]);
-                    try self.w.writeAll("| ");
-                } else if (capture_names.len > 1) {
-                    // Multi-payload: capture into a synthetic name and
-                    // alias each field at the start of the wrapped body.
-                    try self.w.writeAll("|__payload| ");
-                }
-                enum_variants_covered += 1;
-            } else {
-                // Literal or other expression-shaped pattern — emit the
-                // pattern verbatim and let Zig validate.
-                try self.emitExpr(pattern);
-                try self.w.writeAll(" => ");
-            }
-
-            if (is_variant_pattern and capture_names.len == 1) {
-                // Single-payload destructure. If the body actually uses
-                // the binding, just emit the body as-is. Otherwise wrap
-                // in `{ _ = b; ... }` to silence Zig's unused-capture
-                // error. Zig errors EITHER way (used → "pointless
-                // discard" if we always emit `_ =`; unused → "unused
-                // capture" if we don't), so we have to decide per-arm.
-                const b = capture_names[0];
-                if (b == .src) {
-                    const bname = self.source[b.src.pos..][0..b.src.len];
-                    if (std.mem.eql(u8, bname, "_") or isNameUsedInBody(self.source, body, bname)) {
-                        try self.emitArmBody(body, value_position);
-                    } else {
-                        // Unused capture: insert `_ = name;` discard.
-                        // Note: this path forces a void-returning wrap,
-                        // so it's incompatible with value-position match
-                        // arms. Keep the M3 behavior; revisit if a real
-                        // case appears.
-                        try self.w.writeAll("{ _ = ");
-                        try self.w.writeAll(bname);
-                        try self.w.writeAll("; ");
-                        try self.emitStmt(body);
-                        try self.w.writeAll(" }");
-                    }
-                } else {
-                    try self.emitArmBody(body, value_position);
-                }
-            } else if (is_variant_pattern and capture_names.len > 1) {
-                // Multi-payload destructure: alias each binding from
-                // `__payload.fieldN` before emitting the body. Wrap in
-                // a plain block so the aliases scope to this arm only.
-                // emitStmt terminates with `;`; the trailing block
-                // close keeps Zig's switch-arm syntax happy.
-                //
-                // After each alias we also emit `_ = name;` so Zig's
-                // unused-local rule doesn't fire when the user's body
-                // happens to ignore one of the destructured fields.
-                // Same pattern shadow renames use.
-                try self.w.writeAll("{ ");
-                const payload_field_names = self.lookupVariantPayloadNames(pattern.list[1]);
-                for (capture_names, 0..) |b, i| {
-                    if (b != .src) continue;
-                    const bname = self.source[b.src.pos..][0..b.src.len];
-                    if (std.mem.eql(u8, bname, "_")) continue;
-                    const fname: []const u8 = if (payload_field_names) |names|
-                        (if (i < names.len) names[i] else "")
-                    else
-                        ""; // sema unavailable — emit nothing (Zig will fail)
-                    if (fname.len > 0) {
-                        try self.w.print("const {s} = __payload.{s}; ", .{ bname, fname });
-                        // Only silence binding when the body doesn't use it.
-                        if (!isNameUsedInBody(self.source, body, bname)) {
-                            try self.w.print("_ = {s}; ", .{bname});
-                        }
-                    }
-                }
-                try self.emitStmt(body);
-                try self.w.writeAll(" }");
-            } else {
-                // Body. Zig switch arms accept an expression; the
-                // value/void dispatch happens inside `emitArmBody`.
-                try self.emitArmBody(body, value_position);
-            }
-            try self.w.writeAll(",\n");
-        }
-
-        // Only emit `else => unreachable` if Zig actually needs it.
-        // It needs it when the switch isn't already exhaustive — i.e.,
-        // when there's no default arm AND the scrutinee isn't a sema
-        // enum whose every variant is covered by an `(enum_lit X)` arm.
-        const exhaustive = has_default or self.matchExhaustive(items[1], enum_variants_covered);
-        if (!exhaustive) {
-            try self.indentSpaces();
-            try self.w.writeAll("else => unreachable,\n");
-        }
-        self.indent -= 1;
-        try self.indentSpaces();
-        try self.w.writeAll("}");
-    }
-
-    /// Returns true if a `match` on `scrutinee` is exhaustive given
-    /// `enum_arms_seen` enum-literal arms. Requires sema to know the
-    /// scrutinee's nominal enum and its variant count. Sema's
-    /// duplicate-detection ensures arm count matches DIFFERENT
-    /// variants, so we can rely on the count check here.
-    fn matchExhaustive(self: *Emitter, scrutinee: Sexp, enum_arms_seen: usize) bool {
-        const sema = self.sema orelse return false;
-        if (scrutinee != .src) return false;
-        const name = self.source[scrutinee.src.pos..][0..scrutinee.src.len];
-        for (sema.symbols.items) |sym| {
-            if (!std.mem.eql(u8, sym.name, name)) continue;
-            // M20a / M20a.2 / M20c: peel borrow_read / borrow_write so
-            // `match self` on `self: ?Color` / `self: ?Option(Int)`
-            // finds the underlying enum. M20c per GPT-5.5: also
-            // handle `parameterized_nominal` via `nominalSymOfReceiver`
-            // so generic enum match-exhaustiveness works.
-            const sym_id = types.nominalSymOfReceiver(sema, sym.ty) orelse continue;
-            const enum_sym = sema.symbols.items[sym_id];
-            const fields = enum_sym.fields orelse return false;
-            // M20c: count actual variants (is_variant=true) only.
-            // Data fields (struct case — unreachable here in practice)
-            // and methods don't contribute to exhaustiveness.
-            var variant_count: usize = 0;
-            for (fields) |f| {
-                if (f.is_variant) variant_count += 1;
-            }
-            return enum_arms_seen >= variant_count;
-        }
-        return false;
-    }
-
-    /// Look up the payload field names (in declaration order) for a
-    /// variant referenced by name, scanning all sema enum symbols.
-    /// Returns null if no match is found. Used by `emitMatch` when
-    /// destructuring multi-field payload variants so we can alias
-    /// bindings to the correct Zig field names.
-    fn lookupVariantPayloadNames(self: *Emitter, variant_name_node: Sexp) ?[]const []const u8 {
-        const sema = self.sema orelse return null;
-        if (variant_name_node != .src) return null;
-        const variant_name = self.source[variant_name_node.src.pos..][0..variant_name_node.src.len];
-        for (sema.symbols.items) |sym| {
-            // M20c: accept both plain (`nominal_type`) and generic
-            // (`generic_type`) enum symbols; filter to actual
-            // variants via `is_variant` to avoid matching methods.
-            if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
-            const fields = sym.fields orelse continue;
-            for (fields) |v| {
-                if (!v.is_variant) continue;
-                if (!std.mem.eql(u8, v.name, variant_name)) continue;
-                const payload = v.payload orelse continue;
-                // Build a flat slice of name strings in arena memory.
-                const out = self.name_arena.allocator().alloc([]const u8, payload.len) catch return null;
-                for (payload, 0..) |f, i| out[i] = f.name;
-                return out;
-            }
-        }
-        return null;
-    }
-
-    /// Match-arm body dispatcher.
-    ///
-    /// In **value position** (M18): multi-statement arm bodies must
-    /// produce a value, so route through `emitBranchExpr` (the M17
-    /// labeled-block recipe — `rig_blk_N: { ...; break :rig_blk_N
-    /// expr; }`). Single-expression arm bodies emit inline. Final-
-    /// terminating bodies (`return`/`break`/`continue`) emit a plain
-    /// unlabeled block.
-    ///
-    /// In **statement position** (legacy `emitMatchArmBody`): arm
-    /// bodies are void-returning. Single statements wrap in `{ stmt; }`
-    /// so things like `return`/`break`/side-effecting calls work.
-    fn emitArmBody(self: *Emitter, body: Sexp, value_position: bool) Error!void {
-        if (value_position) {
-            try self.emitBranchExpr(body);
-        } else {
-            try self.emitMatchArmBody(body);
-        }
-    }
-
-    /// Emit a match-arm body in STATEMENT position. Arm bodies are
-    /// void-returning. For statement-shaped sexps (call, set, etc.)
-    /// wrap in a block expression `{ stmt; }` since Zig switch arms
-    /// expect an expression position. Bare expressions emit as-is.
-    /// See `emitArmBody` for the value-position variant.
-    fn emitMatchArmBody(self: *Emitter, body: Sexp) Error!void {
-        if (body == .list and body.list.len > 0 and body.list[0] == .tag) {
-            const head = body.list[0].tag;
-            // Block / control-flow statements should be wrapped.
-            switch (head) {
-                .@"block" => return self.emitBlock(body),
-                .@"call", .@"set", .@"return", .@"if", .@"while",
-                .@"for", .@"match", .@"break", .@"continue",
-                .@"defer", .@"errdefer", .@"drop",
-                => {
-                    try self.w.writeAll("{ ");
-                    try self.emitStmt(body);
-                    try self.w.writeAll(" }");
-                    return;
-                },
-                else => {},
-            }
-        }
-        try self.emitExpr(body);
-    }
-
-    fn emitBlockOrInline(self: *Emitter, sexp: Sexp) Error!void {
-        if (sexp == .list and sexp.list.len > 0 and sexp.list[0] == .tag and
-            sexp.list[0].tag == .@"block")
-        {
-            try self.emitBlock(sexp);
-        } else {
-            try self.w.writeAll("{ ");
-            try self.emitStmt(sexp);
-            try self.w.writeAll(" }");
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Expressions
-    // -------------------------------------------------------------------------
-
-    fn emitExpr(self: *Emitter, sexp: Sexp) Error!void {
-        switch (sexp) {
-            .nil => try self.w.writeAll("undefined"),
-            .src => |s| {
-                const text = self.source[s.pos..][0..s.len];
-                // If this is a known Rig binding, emit the Zig name
-                // (handles shadow renaming).
-                if (self.lookup(text)) |zig_name| {
-                    try self.w.writeAll(zig_name);
-                } else if (text.len >= 2 and text[0] == '\'' and text[text.len - 1] == '\'') {
-                    // Single-quoted Rig string → double-quoted Zig string.
-                    // Zig's `'x'` is a u8 character literal, not a string,
-                    // so passing source verbatim produces a syntax error
-                    // for anything but a single-char literal. Emit a
-                    // properly-escaped Zig string literal instead.
-                    try self.emitSingleQuotedAsZigString(text);
-                } else {
-                    try self.w.writeAll(text);
-                }
-            },
-            .str => |s| try self.w.writeAll(s),
-            .tag => try self.w.writeAll(@tagName(sexp.tag)),
-            .list => |items| {
-                if (items.len == 0) {
-                    try self.w.writeAll("undefined");
-                    return;
-                }
-                if (items[0] != .tag) {
-                    try self.w.writeAll("undefined");
-                    return;
-                }
-                try self.emitExprList(items);
-            },
-        }
-    }
-
-    fn emitExprList(self: *Emitter, items: []const Sexp) Error!void {
-        const head = items[0].tag;
-        switch (head) {
-            // Ownership wrappers: most lower transparently. M20d adds
-            // runtime dispatch for shared/weak ops (below). M20e wraps
-            // `(move x)` for resource bindings in a labeled-block
-            // expression that disarms the guard before yielding the
-            // bare handle, so the scope-exit `defer` is a no-op and
-            // the callee gets a clean handle.
-            .@"read", .@"write", .@"pin", .@"raw" => {
-                if (items.len >= 2) try self.emitExpr(items[1]);
-            },
-            .@"move" => {
-                if (items.len < 2) return;
-                // For bare resource-name moves, emit:
-                //   blk_NN: { __rig_alive_<name> = false; break :blk_NN <name>; }
-                // The labeled-block form is the smallest Zig expression
-                // that lets us run a side-effect (disarm) before
-                // yielding the value, in any expression context.
-                const inner = items[1];
-                if (inner == .src) {
-                    const name = self.source[inner.src.pos..][0..inner.src.len];
-                    if (self.resourceKindOfBareUse(name)) |_| {
-                        const zig_name = self.lookup(name) orelse name;
-                        const label = self.block_label_counter;
-                        self.block_label_counter += 1;
-                        try self.w.print(
-                            "rig_mv_{d}: {{ __rig_alive_{s} = false; break :rig_mv_{d} {s}; }}",
-                            .{ label, zig_name, label, zig_name },
-                        );
-                        return;
-                    }
-                }
-                // Non-resource move: pass through (M2 enforced
-                // ownership; Zig's value semantics handle the transfer).
-                try self.emitExpr(inner);
-            },
-            // M20d: `(share x)` always constructs a fresh Rc box.
-            // Operator semantics: `*expr` MOVES `expr` into the new
-            // RcBox (per GPT-5.5's M20d design pass — implicit clone
-            // would silently duplicate ownership). The OOM behavior
-            // is panic (Rust-style); the runtime helper returns an
-            // error union for future recoverable-allocation APIs.
-            //
-            // M20f(3/4): when the inner is a built-in nominal
-            // construction (e.g., `Cell(value: 0)`) and the LHS
-            // type peels to that built-in, emit the inner as an
-            // explicit-typed struct literal so `rig.rcNew(anytype)`
-            // can infer the right RcBox payload type. Without this,
-            // the anonymous struct literal `.{ .value = 0 }` would
-            // get inferred as a synthetic comptime struct and the
-            // resulting `*RcBox(synthetic_struct)` mismatches the
-            // expected `*RcBox(rig.Cell(i32))`.
-            //
-            // M20h(4/5): `*Closure(|...| body)` is the owned-
-            // closure construction shape — special-cased before the
-            // generic share path because the value being boxed is a
-            // synthesized `rig.Closure0` (vtable) wrapping a per-
-            // literal anonymous env struct. See
-            // `emitOwnedClosureConstruction` for the full shape.
-            .@"share" => {
-                if (items.len < 2) return;
-                if (isOwnedClosureConstruction(self.source, items[1])) {
-                    try self.emitOwnedClosureConstruction(items[1].list);
-                    return;
-                }
-                try self.w.writeAll("(rig.rcNew(");
-                if (self.shouldExplicitTypeShareInner(items[1])) {
-                    try self.emitExplicitTypedConstruction(items[1]);
-                } else {
-                    try self.emitExpr(items[1]);
-                }
-                try self.w.writeAll(") catch @panic(\"Rig Rc allocation failed\"))");
-            },
-            // M20d: `(clone x)` dispatches on the operand's TYPE.
-            //   shared(T) → x.cloneStrong()
-            //   weak(T)   → x.cloneWeak()
-            //   else      → pass-through (Zig value copy)
-            // When the operand's type is unknown (sema couldn't infer),
-            // we conservatively pass through so existing non-shared
-            // `+x` uses keep working.
-            .@"clone" => {
-                if (items.len < 2) return;
-                const kind = self.handleKindOf(items[1]);
-                switch (kind) {
-                    .shared => {
-                        try self.emitExpr(items[1]);
-                        try self.w.writeAll(".cloneStrong()");
-                    },
-                    .weak => {
-                        try self.emitExpr(items[1]);
-                        try self.w.writeAll(".cloneWeak()");
-                    },
-                    .other => try self.emitExpr(items[1]),
-                }
-            },
-            // M20d: `(weak x)` constructs a weak handle from a shared
-            // operand. Sema already requires operand to be shared(T)
-            // (see types.zig synthList .@"weak" arm), so we can emit
-            // `.weakRef()` unconditionally — failures would have been
-            // caught upstream.
-            .@"weak" => {
-                if (items.len < 2) return;
-                try self.emitExpr(items[1]);
-                try self.w.writeAll(".weakRef()");
-            },
-            // Calls
-            .@"call" => try self.emitCall(items),
-            // Member / index
-            .@"member" => {
-                if (items.len >= 3) {
-                    try self.emitExpr(items[1]);
-                    // M20d(4/5) read-only auto-deref: when the obj's
-                    // type is `shared(T)`, Zig sees a `*rig.RcBox(T)`
-                    // — field/method access on T requires bridging
-                    // through `.value`. Sema has already validated
-                    // that the access is read-only (write/value
-                    // receivers and field-target assigns are rejected
-                    // by checkReceiverMode / checkSet).
-                    if (self.handleKindOf(items[1]) == .shared) {
-                        try self.w.writeAll(".value");
-                    }
-                    try self.w.writeAll(".");
-                    try self.emitExpr(items[2]);
-                }
-            },
-            .@"deref" => {
-                if (items.len >= 2) {
-                    try self.emitExpr(items[1]);
-                    try self.w.writeAll(".*");
-                }
-            },
-            .@"index" => {
-                if (items.len >= 3) {
-                    try self.emitExpr(items[1]);
-                    try self.w.writeAll("[");
-                    try self.emitExpr(items[2]);
-                    try self.w.writeAll("]");
-                }
-            },
-            .@"builtin" => {
-                if (items.len >= 2) {
-                    try self.w.writeAll("@");
-                    try self.emitExpr(items[1]);
-                    try self.w.writeAll("(");
-                    var first = true;
-                    for (items[2..]) |arg| {
-                        if (!first) try self.w.writeAll(", ");
-                        first = false;
-                        try self.emitExpr(arg);
-                    }
-                    try self.w.writeAll(")");
-                }
-            },
-            .@"propagate", .@"try" => {
-                // `expr!` and `try expr` both lower to Zig `try expr`.
-                // No `in_try_context` bookkeeping needed: the emitter is
-                // dumb here, and the effects checker has already proven
-                // that the underlying call is fallible-allowed.
-                try self.w.writeAll("try ");
-                if (items.len >= 2) try self.emitExpr(items[1]);
-            },
-            .@"neg" => {
-                try self.w.writeAll("-");
-                if (items.len >= 2) try self.emitExpr(items[1]);
-            },
-            .@"not" => {
-                try self.w.writeAll("!");
-                if (items.len >= 2) try self.emitExpr(items[1]);
-            },
-            .@"addr_of" => {
-                try self.w.writeAll("&");
-                if (items.len >= 2) try self.emitExpr(items[1]);
-            },
-            .@"enum_lit" => {
-                try self.w.writeAll(".");
-                if (items.len >= 2) try self.emitExpr(items[1]);
-            },
-            // Infix arithmetic / comparison / logic — emit `(a OP b)`.
-            .@"+", .@"-", .@"*", .@"/", .@"%",
-            .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=",
-            .@"&&", .@"||", .@"&", .@"|", .@"^", .@"<<", .@">>",
-            => try self.emitInfix(items, head),
-            // Block-as-expression (e.g., `if cond block else block` returning value)
-            .@"block" => try self.emitBlock(.{ .list = items }),
-            // M10: value-position match. Same lowering as statement
-            // position — Zig's `switch` is also an expression — but
-            // arm bodies need the value-block recipe (M18) so multi-
-            // statement arms produce a value via labeled `break`.
-            .@"match" => try self.emitMatch(items, true),
-            // M17: value-position if. Branches are wrapped in labeled
-            // blocks when they need them; single-expression branches
-            // are emitted inline. See `emitIfExpr` / `emitBranchExpr`.
-            .@"if" => try self.emitIfExpr(items),
-            else => {
-                try self.w.writeAll("@compileError(\"rig: emitter does not yet support `");
-                try self.w.writeAll(@tagName(head));
-                try self.w.writeAll("`\")");
-            },
-        }
-    }
-
-    fn emitCall(self: *Emitter, items: []const Sexp) Error!void {
-        // (call fn args...)
-        // Special: `print` as builtin → rig.print (stdout).
-        if (items.len >= 2 and items[1] == .src) {
-            const fn_name = self.source[items[1].src.pos..][0..items[1].src.len];
-            if (std.mem.eql(u8, fn_name, "print")) {
-                try self.emitPrint(items[2..]);
-                return;
-            }
-        }
-        if (items.len < 2) return;
-
-        // M20i(4/5): Vec construction. `(call Vec)` and
-        // `(call Vec (kwarg capacity N))` lower to the runtime's
-        // `rig.Vec(T).init(...)` / `initCapacity(...) catch
-        // @panic(...)`. The element type `T` comes from the
-        // surrounding LHS type annotation via `current_set_type`.
-        // The share-arm `(share (call Vec))` wraps the result in
-        // `rig.rcNew(...) catch @panic(...)` unchanged — the Vec
-        // construction emit produces an inner expression that
-        // composes correctly with the existing share machinery.
-        if (try self.tryEmitVecConstruction(items)) return;
-
-        // PB3(3/5): Signal construction lowers to
-        // `rig.Signal(T).init(V)` (instead of struct-literal). The
-        // new `subs: Vec(...)` field needs an allocator that
-        // isn't expressible as a Zig field default, so construction
-        // must go through the init function. Parallel to
-        // `tryEmitVecConstruction`.
-        if (try self.tryEmitSignalConstruction(items)) return;
-
-        // M20g(3/5): closure invocation. If the callee is a bare
-        // name resolving to a closure binding (marked by
-        // `emitClosureBinding` via `is_closure=true` on the
-        // SymbolEntry), lower `f(args)` to `f.invoke(args)`. The
-        // ownership pass already guarantees the closure is in
-        // call-receiver position, so we never see this name in
-        // a context that would require .invoke handling elsewhere.
-        //
-        // M20h(4/5): owned-closure invocation. When the callee is
-        // a binding of type `*Closure()`, the value lives inside
-        // an RcBox payload — lower `cb()` to `cb.value.invoke()`
-        // (Closure0's no-arg vtable invocation). Distinct from the
-        // M20g path because the closure isn't a direct struct.
-        // M20h sema rejects `cb(args)`, so this path never has args.
-        if (items[1] == .src) {
-            const cn = self.source[items[1].src.pos..][0..items[1].src.len];
-            if (self.lookupIsClosure(cn)) {
-                const zig_name = self.lookup(cn) orelse cn;
-                try self.w.print("{s}.invoke(", .{zig_name});
-                var first = true;
-                for (items[2..]) |arg| {
-                    if (!first) try self.w.writeAll(", ");
-                    first = false;
-                    try self.emitExpr(arg);
-                }
-                try self.w.writeAll(")");
-                return;
-            }
-            if (self.lookupIsOwnedClosure(cn)) {
-                // M20h: `cb()` → `cb.value.invoke()` for `*Closure()`.
-                // M24:  `cb1(7)` → `cb1.value.invoke(7)` for `*Closure1(T)`.
-                //       `cb2(3, 4)` → `cb2.value.invoke(3, 4)` for `*Closure2(A, B)`.
-                // The arity is enforced by sema at call time; emit
-                // simply passes through whatever args the IR carries.
-                const zig_name = self.lookup(cn) orelse cn;
-                try self.w.print("{s}.value.invoke(", .{zig_name});
-                var first = true;
-                for (items[2..]) |arg| {
-                    if (!first) try self.w.writeAll(", ");
-                    first = false;
-                    try self.emitExpr(arg);
-                }
-                try self.w.writeAll(")");
-                return;
-            }
-        }
-
-        // M9b: payload-bearing variant construction. When the callee is
-        // `(enum_lit name)`, the call is constructing a tagged-union
-        // value. Lower to Zig's anonymous-tagged-union literal so the
-        // surrounding context (typed binding / function arg) coerces
-        // it into the right enum type:
-        //
-        //   .variant            no args  → `.variant`
-        //   .variant(x)         one arg  → `.{ .variant = x }`
-        //   .variant(a, b)      pos args → `.{ .variant = .{ a, b } }`
-        //   .variant(name: x)   kwargs   → `.{ .variant = .{ .name = x } }`
-        if (items[1] == .list and items[1].list.len >= 2 and
-            items[1].list[0] == .tag and items[1].list[0].tag == .@"enum_lit")
-        {
-            try self.emitPayloadVariantLit(items[1].list, items[2..]);
-            return;
-        }
-
-        // Constructor-vs-call disambiguation. Per GPT-5.5's M5 design
-        // pass (Q4): "resolved nominal > resolved function > fallback
-        // heuristic". Sema knows whether `Foo` refers to a struct,
-        // type alias, generic_type, or function — use that
-        // authoritative answer when available. Without sema, fall back
-        // to "any kwarg arg means struct literal" (M3/M4 heuristic).
-        //
-        // M14: `generic_type` callees emit as ANONYMOUS struct
-        // literals (`.{ .value = 5 }`) since the named identifier is
-        // a Zig fn, not a type. The surrounding type context
-        // (typed binding LHS, fn arg, return) coerces the literal.
-        const ConstrKind = enum { regular_struct, anon_struct, regular_call };
-        const constr: ConstrKind = blk: {
-            if (self.sema) |sema| {
-                if (items[1] == .src) {
-                    const fn_name = self.source[items[1].src.pos..][0..items[1].src.len];
-                    if (sema.lookup(1, fn_name)) |sym_id| {
-                        const sym = sema.symbols.items[sym_id];
-                        switch (sym.kind) {
-                            .nominal_type, .type_alias => break :blk .regular_struct,
-                            .generic_type => break :blk .anon_struct,
-                            .function => break :blk .regular_call,
-                            else => {},
-                        }
-                    }
-                }
-            }
-            for (items[2..]) |arg| {
-                if (arg == .list and arg.list.len > 0 and arg.list[0] == .tag and
-                    arg.list[0].tag == .@"kwarg")
-                {
-                    break :blk .regular_struct;
-                }
-            }
-            break :blk .regular_call;
-        };
-
-        if (constr == .anon_struct) {
-            // M14: generic-type construction. Emit `.{ ... }` and let
-            // Zig coerce from the contextually-expected `Box(i32)`.
-            try self.w.writeAll(".{ ");
-            var first = true;
-            for (items[2..]) |arg| {
-                if (!first) try self.w.writeAll(", ");
-                first = false;
-                if (arg == .list and arg.list.len >= 3 and arg.list[0] == .tag and
-                    arg.list[0].tag == .@"kwarg")
-                {
-                    try self.w.writeAll(".");
-                    try self.emitExpr(arg.list[1]);
-                    try self.w.writeAll(" = ");
-                    try self.emitExpr(arg.list[2]);
-                } else {
-                    try self.emitExpr(arg);
-                }
-            }
-            try self.w.writeAll(" }");
-            return;
-        }
-
-        try self.emitExpr(items[1]);
-        if (constr == .regular_struct) {
-            try self.w.writeAll("{ ");
-            var first = true;
-            for (items[2..]) |arg| {
-                if (!first) try self.w.writeAll(", ");
-                first = false;
-                if (arg == .list and arg.list.len >= 3 and arg.list[0] == .tag and
-                    arg.list[0].tag == .@"kwarg")
-                {
-                    try self.w.writeAll(".");
-                    try self.emitExpr(arg.list[1]);
-                    try self.w.writeAll(" = ");
-                    try self.emitExpr(arg.list[2]);
-                } else {
-                    try self.emitExpr(arg);
-                }
-            }
-            try self.w.writeAll(" }");
-        } else {
-            try self.w.writeAll("(");
-            var first = true;
-            for (items[2..]) |arg| {
-                if (!first) try self.w.writeAll(", ");
-                first = false;
-                try self.emitExpr(arg);
-            }
-            try self.w.writeAll(")");
-        }
-    }
-
-    /// Lower a payload-variant construction to Zig's anonymous tagged-
-    /// union literal. The surrounding type context (a typed binding,
-    /// fn arg, return value) coerces the literal to the correct enum
-    /// type — this matches Zig's natural construction style.
-    ///
-    /// The shape depends on the variant's payload arity, which we
-    /// consult sema for (matches what `emitEnum` produced):
-    ///
-    ///   payload count 0 → `.variant`
-    ///   payload count 1 → `.{ .variant = value }` (single arg unwraps;
-    ///                      kwarg's value is extracted)
-    ///   payload count N → `.{ .variant = .{ ...fields... } }`
-    fn emitPayloadVariantLit(self: *Emitter, callee: []const Sexp, args: []const Sexp) Error!void {
-        // No payload args → just emit `.name` (M7 path).
-        if (args.len == 0) {
-            try self.w.writeAll(".");
-            try self.emitExpr(callee[1]);
-            return;
-        }
-
-        const variant_name: ?[]const u8 = identText(self.source, callee[1]);
-        const single_payload = blk: {
-            if (variant_name == null or self.sema == null) break :blk false;
-            // Find a sema enum with this variant name AND determine
-            // its payload arity. We don't know the enclosing enum
-            // type from emit alone — scan all symbols for a matching
-            // variant. False positives are harmless (worst case we
-            // emit a more verbose form that Zig rejects).
-            // M20c: also accept `.generic_type` symbols (generic enums
-            // store their variants on a generic_type symbol — same
-            // structural layout via `is_variant`-flagged Fields).
-            for (self.sema.?.symbols.items) |sym| {
-                if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
-                const fields = sym.fields orelse continue;
-                for (fields) |v| {
-                    if (!v.is_variant) continue;
-                    if (!std.mem.eql(u8, v.name, variant_name.?)) continue;
-                    const payload = v.payload orelse continue;
-                    if (payload.len == 1) break :blk true;
-                }
-            }
-            break :blk false;
-        };
-
-        try self.w.writeAll(".{ .");
-        try self.emitExpr(callee[1]);
-        try self.w.writeAll(" = ");
-
-        if (single_payload and args.len == 1) {
-            // Unwrap single-arg construction (matches the unwrapped
-            // `variant: T` form emitted by `emitEnum`).
-            const a = args[0];
-            if (a == .list and a.list.len >= 3 and a.list[0] == .tag and a.list[0].tag == .@"kwarg") {
-                try self.emitExpr(a.list[2]);
-            } else {
-                try self.emitExpr(a);
-            }
-        } else {
-            // Multi-field or non-unwrap path: anonymous struct literal.
-            try self.w.writeAll(".{ ");
-            var first = true;
-            for (args) |a| {
-                if (!first) try self.w.writeAll(", ");
-                first = false;
-                if (a == .list and a.list.len >= 3 and a.list[0] == .tag and a.list[0].tag == .@"kwarg") {
-                    try self.w.writeAll(".");
-                    try self.emitExpr(a.list[1]);
-                    try self.w.writeAll(" = ");
-                    try self.emitExpr(a.list[2]);
-                } else {
-                    try self.emitExpr(a);
-                }
-            }
-            try self.w.writeAll(" }");
-        }
-        try self.w.writeAll(" }");
-    }
-
-    fn emitPrint(self: *Emitter, args: []const Sexp) Error!void {
-        if (args.len == 0) {
-            try self.w.writeAll("rig.print(\"\\n\", .{})");
-            return;
-        }
-        // V1: single arg only.
-        const arg = args[0];
-        const is_str = self.isStringLiteral(arg);
-        const fmt: []const u8 = if (is_str) "{s}\\n" else "{any}\\n";
-        try self.w.print("rig.print(\"{s}\", .{{ ", .{fmt});
-        try self.emitExpr(arg);
-        try self.w.writeAll(" })");
-    }
-
-    /// True if `sexp` is a string at emit time. M7 v1 checks:
-    ///   - Raw `.src` slice quoted with `"` or `'` (string literals)
-    ///   - Sigil-wrapped string literal (`?s`, `!s`, etc.)
-    ///   - `.src` identifier whose sema-declared type is `string`
-    ///   - `(member obj name)` where the field's type is `string`
-    /// Returning true makes `print` use `{s}` instead of `{any}` so
-    /// strings render as text not byte arrays.
-    fn isStringLiteral(self: *const Emitter, sexp: Sexp) bool {
-        switch (sexp) {
-            .src => |s| {
-                if (s.pos >= self.source.len) return false;
-                const c = self.source[s.pos];
-                if (c == '"' or c == '\'') return true;
-                // M7: also true if sema knows this name is a String binding.
-                // Emit doesn't track scope, so we scan all symbols for a
-                // name match — first hit wins. Good enough for print
-                // disambiguation (no semantic risk).
-                if (self.sema) |sema| {
-                    const name = self.source[s.pos..][0..s.len];
-                    for (sema.symbols.items) |sym| {
-                        if (std.mem.eql(u8, sym.name, name)) {
-                            return sym.ty == sema.types.string_id;
-                        }
-                    }
-                }
-                return false;
-            },
-            .list => |items| {
-                if (items.len >= 2 and items[0] == .tag) {
-                    switch (items[0].tag) {
-                        .@"read", .@"write", .@"move", .@"clone", .@"share" => return self.isStringLiteral(items[1]),
-                        // (member obj name): if obj is a known nominal
-                        // with a String field of that name, this is a
-                        // string-typed expression. Same name-scan as
-                        // the .src arm — emit doesn't track scope.
-                        .@"member" => {
-                            if (items.len < 3 or self.sema == null) return false;
-                            const sema = self.sema.?;
-                            const obj = items[1];
-                            const fname = if (items[2] == .src)
-                                self.source[items[2].src.pos..][0..items[2].src.len]
-                            else
-                                return false;
-                            if (obj != .src) return false;
-                            const oname = self.source[obj.src.pos..][0..obj.src.len];
-                            for (sema.symbols.items) |sym| {
-                                if (!std.mem.eql(u8, sym.name, oname)) continue;
-                                // M20a / M20a.2: method params carry
-                                // borrow_read / borrow_write types;
-                                // peel to reach the nominal for field
-                                // lookup. (Helper lives in types.zig.)
-                                const peeled = types.unwrapBorrows(sema, sym.ty);
-                                const ty = sema.types.get(peeled);
-                                // M20b(5/5) per GPT-5.5: also handle
-                                // parameterized nominals (`b: Box(String)`)
-                                // — look up on the generic's fields list
-                                // with the receiver's type args
-                                // substituting T. Comparison goes
-                                // through `typeEqualsAfterSubst` (const,
-                                // non-allocating) so emit doesn't mutate
-                                // sema's interner.
-                                var owner_sym_id: types.SymbolId = 0;
-                                var subst: types.TypeSubst = types.TypeSubst.empty;
-                                if (ty == .nominal) {
-                                    owner_sym_id = ty.nominal;
-                                } else if (ty == .parameterized_nominal) {
-                                    owner_sym_id = ty.parameterized_nominal.sym;
-                                    const owner_sym = sema.symbols.items[ty.parameterized_nominal.sym];
-                                    const tparams = owner_sym.type_params orelse &.{};
-                                    subst = .{ .params = tparams, .args = ty.parameterized_nominal.args };
-                                } else continue;
-                                const owner = sema.symbols.items[owner_sym_id];
-                                const fields = owner.fields orelse continue;
-                                for (fields) |f| {
-                                    if (std.mem.eql(u8, f.name, fname)) {
-                                        return types.typeEqualsAfterSubst(sema, f.ty, subst, sema.types.string_id);
-                                    }
-                                }
-                            }
-                            return false;
-                        },
-                        // (call callee args...): if sema knows the
-                        // callee's return type is String, treat as
-                        // string-typed. Handles top-level fn calls
-                        // (`greet()`) and qualified method calls
-                        // (`User.greet()`).
-                        .@"call" => {
-                            if (items.len < 2 or self.sema == null) return false;
-                            const sema = self.sema.?;
-                            const callee = items[1];
-                            const ret_ty: ?types.TypeId = blk: {
-                                if (callee == .src) {
-                                    const cname = self.source[callee.src.pos..][0..callee.src.len];
-                                    for (sema.symbols.items) |sym| {
-                                        if (!std.mem.eql(u8, sym.name, cname)) continue;
-                                        const t = sema.types.get(sym.ty);
-                                        if (t == .function) break :blk t.function.returns;
-                                    }
-                                }
-                                if (callee == .list and callee.list.len >= 3 and
-                                    callee.list[0] == .tag and callee.list[0].tag == .@"member")
-                                {
-                                    const owner_node = callee.list[1];
-                                    const m_node = callee.list[2];
-                                    if (m_node != .src) break :blk null;
-                                    const mname = self.source[m_node.src.pos..][0..m_node.src.len];
-                                    // Two flavors:
-                                    //   - owner is a bare type name (`User.greet()`): nominal_type symbol with that name
-                                    //   - M20a: owner is a value binding (`u.greet()`): nominal_type via the binding's ty.nominal
-                                    if (owner_node == .src) {
-                                        const oname = self.source[owner_node.src.pos..][0..owner_node.src.len];
-                                        for (sema.symbols.items) |sym| {
-                                            if (!std.mem.eql(u8, sym.name, oname)) continue;
-                                            if (sym.kind == .nominal_type) {
-                                                // Namespaced: User.greet
-                                                const fields = sym.fields orelse continue;
-                                                for (fields) |f| {
-                                                    if (!std.mem.eql(u8, f.name, mname)) continue;
-                                                    const ft = sema.types.get(f.ty);
-                                                    if (ft == .function) break :blk ft.function.returns;
-                                                }
-                                            } else {
-                                                // M20a: value binding — follow its type to its nominal.
-                                                var st = sema.types.get(sym.ty);
-                                                while (true) {
-                                                    switch (st) {
-                                                        .borrow_read => |inner| st = sema.types.get(inner),
-                                                        .borrow_write => |inner| st = sema.types.get(inner),
-                                                        else => break,
-                                                    }
-                                                }
-                                                if (st != .nominal) continue;
-                                                const owner = sema.symbols.items[st.nominal];
-                                                const fields = owner.fields orelse continue;
-                                                for (fields) |f| {
-                                                    if (!std.mem.eql(u8, f.name, mname)) continue;
-                                                    const ft = sema.types.get(f.ty);
-                                                    if (ft == .function) break :blk ft.function.returns;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                break :blk null;
-                            };
-                            if (ret_ty) |rt| return rt == sema.types.string_id;
-                            return false;
-                        },
-                        else => return false,
-                    }
-                }
-                return false;
-            },
-            else => return false,
-        }
-    }
-
-    fn emitInfix(self: *Emitter, items: []const Sexp, op: Tag) Error!void {
-        if (items.len < 3) return;
-        try self.w.writeAll("(");
-        try self.emitExpr(items[1]);
-        try self.w.print(" {s} ", .{@tagName(op)});
-        try self.emitExpr(items[2]);
-        try self.w.writeAll(")");
-    }
-
-    // -------------------------------------------------------------------------
+    // =========================================================================
     // Types
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
+    /// A type expression from the IR.
     fn emitType(self: *Emitter, t: Sexp) Error!void {
         switch (t) {
-            .src => |s| {
-                const txt = self.source[s.pos..][0..s.len];
-                // M20a: substitute `Self` to the enclosing nominal name
-                // when emitting inside a struct/enum/errors body.
-                if (std.mem.eql(u8, txt, "Self")) {
-                    if (self.current_nominal_name) |nom| {
-                        try self.w.writeAll(nom);
-                        return;
-                    }
-                }
-                try self.w.writeAll(mapTypeName(txt));
+            .src => {
+                const name = self.srcText(t);
+                if (std.mem.eql(u8, name, "Self")) if (self.nominal) |n| return self.w.writeAll(n.name);
+                const mapped = mapTypeName(name);
+                if (mapped.ptr != name.ptr) return self.w.writeAll(mapped);
+                if (isBuiltinNominalName(name)) return self.w.print("rig.{s}", .{builtinZigName(name)});
+                try self.w.print("{f}", .{self.ident(name)});
             },
             .list => |items| {
-                if (items.len < 2 or items[0] != .tag) return;
+                if (items.len == 3 and items[0] == .src and std.mem.eql(u8, self.srcText(items[0]), "(")) {
+                    return self.emitType(items[1]);
+                }
+                if (items.len < 2 or items[0] != .tag) return self.unsupported(t, "this type");
                 switch (items[0].tag) {
                     .@"optional" => {
                         try self.w.writeAll("?");
@@ -4374,17 +2576,8 @@ pub const Emitter = struct {
                         try self.w.writeAll("!");
                         try self.emitType(items[1]);
                     },
-                    .@"borrow_read", .@"borrow_write" => {
-                        // Type-position borrows (`?T` / `!T`) lower to plain
-                        // `T` in Zig — borrow semantics were enforced by M2;
-                        // Zig is loose about borrows at the type level.
-                        try self.emitType(items[1]);
-                    },
-                    // M20d: type-position `*T` and `~T` lower to the
-                    // runtime's RcBox / WeakHandle generic instantiations.
-                    // Variable bindings of shared type carry a Zig pointer
-                    // (`*rig.RcBox(T)`); weak bindings carry the struct
-                    // value (`rig.WeakHandle(T)`).
+                    // A borrow is a pointer only as a parameter (see `emitParamType`).
+                    .@"borrow_read", .@"borrow_write" => try self.emitType(items[1]),
                     .@"shared" => {
                         try self.w.writeAll("*rig.RcBox(");
                         try self.emitType(items[1]);
@@ -4396,75 +2589,731 @@ pub const Emitter = struct {
                         try self.w.writeAll(")");
                     },
                     .@"slice" => {
-                        try self.w.writeAll("[]");
+                        try self.w.writeAll("[]const ");
                         try self.emitType(items[1]);
                     },
                     .@"array_type" => {
                         try self.w.writeAll("[");
                         try self.emitExpr(items[1]);
                         try self.w.writeAll("]");
-                        if (items.len >= 3) try self.emitType(items[2]);
+                        try self.emitType(items[2]);
                     },
-                    // M14: `(generic_inst Name (T1 T2 ...))` lowers to
-                    // a Zig function call `Name(T1, T2, ...)` since
-                    // `(generic_type ...)` lowers to a type-returning
-                    // function. Box(Int) → Box(i32).
-                    //
-                    // M20f: built-in nominal types (`Cell`) live in the
-                    // runtime module, so the emitted Zig form is
-                    // `rig.Cell(T)` not bare `Cell(T)`. Identified by
-                    // name; the corresponding sema symbol is registered
-                    // by `registerBuiltins` at module-scope creation.
                     .@"generic_inst" => {
-                        const name_node = items[1];
-                        if (name_node == .src) {
-                            const name = self.source[name_node.src.pos..][0..name_node.src.len];
-                            // M20h: built-in zero-arity generics
-                            // (`Closure()`) lower to a bare Zig type
-                            // name (`rig.Closure0`) — no parens, no
-                            // type args. The mapping table handles
-                            // both: when a builtin needs a different
-                            // Zig spelling than its Rig name, we
-                            // short-circuit without emitting the
-                            // `(args)` suffix.
-                            if (builtinZigSpelling(name)) |spelled| {
-                                try self.w.print("rig.{s}", .{spelled});
-                                return;
-                            }
-                            if (isBuiltinNominalName(name)) try self.w.writeAll("rig.");
-                            try self.w.writeAll(name);
-                        } else {
-                            try self.w.writeAll("anytype");
-                        }
-                        try self.w.writeAll("(");
-                        var first = true;
-                        for (items[2..]) |arg| {
-                            if (!first) try self.w.writeAll(", ");
-                            first = false;
+                        const name = self.text(items[1]) orelse return self.unsupported(t, "this type");
+                        if (std.mem.eql(u8, name, "Closure")) return self.w.writeAll("rig.Closure0");
+                        if (isBuiltinNominalName(name)) try self.w.writeAll("rig.");
+                        try self.w.print("{f}(", .{self.ident(name)});
+                        for (items[2..], 0..) |arg, i| {
+                            if (i > 0) try self.w.writeAll(", ");
                             try self.emitType(arg);
                         }
                         try self.w.writeAll(")");
                     },
-                    else => try self.w.writeAll("anytype"),
+                    .@"member" => {
+                        try self.emitExpr(items[1]);
+                        try self.w.print(".{f}", .{self.ident(self.text(items[2]) orelse "_")});
+                    },
+                    .@"fun_type" => {
+                        try self.w.writeAll("*const fn (");
+                        if (items[1] == .list) for (items[1].list, 0..) |p, i| {
+                            if (i > 0) try self.w.writeAll(", ");
+                            try self.emitType(p);
+                        };
+                        try self.w.writeAll(") ");
+                        if (items.len >= 3 and items[2] != .nil) try self.emitType(items[2]) else try self.w.writeAll("void");
+                    },
+                    else => return self.unsupported(t, "this type"),
                 }
             },
-            else => try self.w.writeAll("anytype"),
+            else => return self.unsupported(t, "this type"),
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    fn indentSpaces(self: *Emitter) Error!void {
-        var i: u32 = 0;
-        while (i < self.indent) : (i += 1) try self.w.writeAll("    ");
+    /// A sema type, with generic parameters substituted.
+    fn emitTypeTy(self: *Emitter, ty0: Ty) Error!void {
+        const sema = self.sema.?;
+        const ty = self.resolve(ty0);
+        switch (sema.types.get(ty.id)) {
+            .void => try self.w.writeAll("void"),
+            .bool => try self.w.writeAll("bool"),
+            .string => try self.w.writeAll("[]const u8"),
+            .int_literal => try self.w.writeAll("i32"),
+            .float_literal => try self.w.writeAll("f64"),
+            .int => |i| if (i.bits == 0) try self.w.writeAll("i32") else try self.w.print("{c}{d}", .{ @as(u8, if (i.signed) 'i' else 'u'), i.bits }),
+            .float => |f| try self.w.print("f{d}", .{if (f.bits == 0) @as(u8, 32) else f.bits}),
+            .optional => |inner| {
+                try self.w.writeAll("?");
+                try self.emitTypeTy(.{ .id = inner, .subst = ty.subst });
+            },
+            .fallible => |inner| {
+                try self.w.writeAll("!");
+                try self.emitTypeTy(.{ .id = inner, .subst = ty.subst });
+            },
+            .borrow_read, .borrow_write => |inner| try self.emitTypeTy(.{ .id = inner, .subst = ty.subst }),
+            .shared => |inner| {
+                try self.w.writeAll("*rig.RcBox(");
+                try self.emitTypeTy(.{ .id = inner, .subst = ty.subst });
+                try self.w.writeAll(")");
+            },
+            .weak => |inner| {
+                try self.w.writeAll("rig.WeakHandle(");
+                try self.emitTypeTy(.{ .id = inner, .subst = ty.subst });
+                try self.w.writeAll(")");
+            },
+            .slice => |s| {
+                try self.w.writeAll("[]const ");
+                try self.emitTypeTy(.{ .id = s.elem, .subst = ty.subst });
+            },
+            .array => |a| {
+                try self.w.print("[{d}]", .{a.len});
+                try self.emitTypeTy(.{ .id = a.elem, .subst = ty.subst });
+            },
+            .nominal => |sym_id| try self.writeNominalName(sema.symbols.items[sym_id].name),
+            .parameterized_nominal => |pn| {
+                const name = sema.symbols.items[pn.sym].name;
+                if (std.mem.eql(u8, name, "Closure")) return self.w.writeAll("rig.Closure0");
+                try self.writeNominalName(name);
+                try self.w.writeAll("(");
+                for (pn.args, 0..) |arg, i| {
+                    if (i > 0) try self.w.writeAll(", ");
+                    try self.emitTypeTy(.{ .id = arg, .subst = ty.subst });
+                }
+                try self.w.writeAll(")");
+            },
+            .type_var => |sym_id| try self.w.print("{f}", .{self.ident(sema.symbols.items[sym_id].name)}),
+            else => return self.unsupported(.nil, "a value of this type"),
+        }
     }
 
-    fn emitUnsupported(self: *Emitter, what: []const u8) Error!void {
-        try self.w.writeAll("// rig: emitter does not yet support ");
-        try self.w.writeAll(what);
-        try self.w.writeAll("\n");
+    fn writeNominalName(self: *Emitter, name: []const u8) Error!void {
+        if (isBuiltinNominalName(name)) return self.w.print("rig.{s}", .{builtinZigName(name)});
+        try self.w.print("{f}", .{self.ident(name)});
+    }
+
+    // -------------------------------------------------------------------------
+    // Type queries
+    // -------------------------------------------------------------------------
+
+    /// The sema type of the binding declared at `name_node`.
+    fn declTy(self: *Emitter, name_node: Sexp) ?Ty {
+        const sema = self.sema orelse return null;
+        if (name_node != .src) return null;
+        const name = self.srcText(name_node);
+        for (sema.symbols.items) |sym| {
+            if (sym.decl_pos != name_node.src.pos or !std.mem.eql(u8, sym.name, name)) continue;
+            if (sym.ty == sema.types.unknown_id or sym.ty == sema.types.invalid_id) return null;
+            return .{ .id = sym.ty };
+        }
+        return null;
+    }
+
+    /// Follow type variables through the substitution.
+    fn resolve(self: *Emitter, ty: Ty) Ty {
+        const sema = self.sema orelse return ty;
+        var t = ty;
+        var depth: u8 = 0;
+        while (depth < 8) : (depth += 1) {
+            switch (sema.types.get(t.id)) {
+                .type_var => |sym| t = .{ .id = t.subst.lookup(sym) orelse return t },
+                else => return t,
+            }
+        }
+        return t;
+    }
+
+    fn peelBorrows(self: *Emitter, ty: Ty) Ty {
+        const sema = self.sema orelse return ty;
+        var t = self.resolve(ty);
+        while (true) switch (sema.types.get(t.id)) {
+            .borrow_read, .borrow_write => |inner| t = self.resolve(.{ .id = inner, .subst = t.subst }),
+            else => return t,
+        };
+    }
+
+    /// Borrows and shared handles peeled: the type whose fields and
+    /// methods a member access reaches.
+    fn derefTy(self: *Emitter, ty: Ty) Ty {
+        const sema = self.sema.?;
+        const t = self.peelBorrows(ty);
+        return switch (sema.types.get(t.id)) {
+            .shared => |inner| self.peelBorrows(.{ .id = inner, .subst = t.subst }),
+            else => t,
+        };
+    }
+
+    /// The type of an expression, when the emitter can tell.
+    fn typeOf(self: *Emitter, expr: Sexp) ?Ty {
+        const sema = self.sema orelse return null;
+        switch (expr) {
+            .src => {
+                const name = self.srcText(expr);
+                if (self.lookup(name)) |local| return local.ty;
+                if (name.len > 0 and (name[0] == '"' or name[0] == '\'')) return .{ .id = sema.types.string_id };
+                if (std.mem.eql(u8, name, "true") or std.mem.eql(u8, name, "false")) return .{ .id = sema.types.bool_id };
+                return null;
+            },
+            .list => |items| {
+                if (items.len < 2 or items[0] != .tag) return null;
+                return switch (items[0].tag) {
+                    .@"read", .@"write", .@"move", .@"clone", .@"pin", .@"raw", .@"propagate", .@"try" => self.typeOf(items[1]),
+                    .@"member" => blk: {
+                        const obj = self.typeOf(items[1]) orelse break :blk null;
+                        break :blk self.fieldTy(obj, self.text(items[2]) orelse break :blk null);
+                    },
+                    .@"index" => blk: {
+                        const obj = self.typeOf(items[1]) orelse break :blk null;
+                        break :blk self.elemTy(obj);
+                    },
+                    .@"call" => self.callReturnTy(items),
+                    .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&&", .@"||", .@"not" => .{ .id = sema.types.bool_id },
+                    .@"+", .@"-", .@"*", .@"/", .@"%", .@"neg" => self.typeOf(items[1]),
+                    else => null,
+                };
+            },
+            else => return null,
+        }
+    }
+
+    fn callReturnTy(self: *Emitter, items: []const Sexp) ?Ty {
+        const sema = self.sema.?;
+        const callee = items[1];
+        const fn_ty: Ty = blk: {
+            if (callee == .src) {
+                const name = self.srcText(callee);
+                if (self.lookup(name)) |local| return switch (local.callable) {
+                    .stack_closure => local.ret orelse .{ .id = sema.types.void_id },
+                    .owned_closure => .{ .id = sema.types.void_id },
+                    .none => null,
+                };
+                const id = sema.lookup(1, name) orelse return null;
+                if (sema.symbols.items[id].kind != .function) return null;
+                break :blk .{ .id = sema.symbols.items[id].ty };
+            }
+            if (!isTagged(callee, .@"member")) return null;
+            const mname = self.text(callee.list[2]) orelse return null;
+            var obj = callee.list[1];
+            while (isTagged(obj, .@"read") or isTagged(obj, .@"write") or isTagged(obj, .@"move")) obj = obj.list[1];
+            if (obj == .src and self.lookup(self.srcText(obj)) == null) {
+                const id = sema.lookup(1, self.srcText(obj)) orelse return null;
+                const sym = sema.symbols.items[id];
+                const fields = sym.fields orelse return null;
+                for (fields) |f| if (f.is_method and std.mem.eql(u8, f.name, mname)) break :blk .{ .id = f.ty };
+                return null;
+            }
+            const recv = self.typeOf(obj) orelse return null;
+            break :blk self.methodTy(recv, mname) orelse return null;
+        };
+        return switch (sema.types.get(fn_ty.id)) {
+            .function => |f| .{ .id = f.returns, .subst = fn_ty.subst },
+            else => null,
+        };
+    }
+
+    /// The generic substitution of a nominal instance.
+    fn substOf(self: *Emitter, ty: Ty) struct { sym: types.SymbolId, subst: types.TypeSubst } {
+        const sema = self.sema.?;
+        return switch (sema.types.get(ty.id)) {
+            .nominal => |s| .{ .sym = s, .subst = .empty },
+            .parameterized_nominal => |pn| .{ .sym = pn.sym, .subst = .{
+                .params = sema.symbols.items[pn.sym].type_params orelse &.{},
+                .args = pn.args,
+            } },
+            else => .{ .sym = types.symbol_invalid, .subst = .empty },
+        };
+    }
+
+    fn nominalSym(self: *Emitter, ty: Ty) ?types.SymbolId {
+        const s = self.substOf(self.derefTy(ty));
+        return if (s.sym == types.symbol_invalid) null else s.sym;
+    }
+
+    fn fieldTy(self: *Emitter, owner: Ty, name: []const u8) ?Ty {
+        const sema = self.sema orelse return null;
+        const o = self.substOf(self.derefTy(owner));
+        if (o.sym == types.symbol_invalid) return null;
+        const fields = sema.symbols.items[o.sym].fields orelse return null;
+        for (fields) |f| {
+            if (f.is_method or f.is_variant or f.is_drop_method) continue;
+            if (std.mem.eql(u8, f.name, name)) return self.resolve(.{ .id = f.ty, .subst = o.subst });
+        }
+        return null;
+    }
+
+    fn methodTy(self: *Emitter, owner: Ty, name: []const u8) ?Ty {
+        const sema = self.sema orelse return null;
+        const o = self.substOf(self.derefTy(owner));
+        if (o.sym == types.symbol_invalid) return null;
+        const fields = sema.symbols.items[o.sym].fields orelse return null;
+        for (fields) |f| {
+            if (f.is_method and std.mem.eql(u8, f.name, name)) return .{ .id = f.ty, .subst = o.subst };
+        }
+        return null;
+    }
+
+    fn variantOf(self: *Emitter, scrut: ?Ty, vname: []const u8) ?struct { fields: []const types.Field, subst: types.TypeSubst } {
+        const sema = self.sema orelse return null;
+        const t = scrut orelse return null;
+        const o = self.substOf(self.derefTy(t));
+        if (o.sym == types.symbol_invalid) return null;
+        const fields = sema.symbols.items[o.sym].fields orelse return null;
+        for (fields) |f| {
+            if (f.is_variant and std.mem.eql(u8, f.name, vname)) return .{ .fields = f.payload orelse &.{}, .subst = o.subst };
+        }
+        return null;
+    }
+
+    fn variantFieldNames(self: *Emitter, scrut: ?Ty, vname: []const u8) ?[]const []const u8 {
+        const v = self.variantOf(scrut, vname) orelse return self.variantNamesAnywhere(vname);
+        const out = self.arena.allocator().alloc([]const u8, v.fields.len) catch return null;
+        for (v.fields, 0..) |f, i| out[i] = f.name;
+        return out;
+    }
+
+    /// Payload type of a variant: its single field, or the named one.
+    fn variantPayloadTy(self: *Emitter, scrut: ?Ty, vname: []const u8, field: ?[]const u8) ?Ty {
+        const v = self.variantOf(scrut, vname) orelse return null;
+        for (v.fields) |f| {
+            if (field == null or std.mem.eql(u8, f.name, field.?)) return self.resolve(.{ .id = f.ty, .subst = v.subst });
+        }
+        return null;
+    }
+
+    /// Payload field names of the first enum declaring `vname`; used
+    /// when the scrutinee's type is unknown.
+    fn variantNamesAnywhere(self: *Emitter, vname: []const u8) ?[]const []const u8 {
+        const sema = self.sema orelse return null;
+        for (sema.symbols.items) |sym| {
+            if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
+            const fields = sym.fields orelse continue;
+            for (fields) |v| {
+                if (!v.is_variant or !std.mem.eql(u8, v.name, vname)) continue;
+                const payload = v.payload orelse continue;
+                const out = self.arena.allocator().alloc([]const u8, payload.len) catch return null;
+                for (payload, 0..) |f, i| out[i] = f.name;
+                return out;
+            }
+        }
+        return null;
+    }
+
+    fn variantArityAnywhere(self: *Emitter, vname: []const u8) usize {
+        const names = self.variantNamesAnywhere(vname) orelse return 0;
+        return names.len;
+    }
+
+    fn elemTy(self: *Emitter, ty: Ty) ?Ty {
+        const sema = self.sema orelse return null;
+        const t = self.derefTy(ty);
+        return switch (sema.types.get(t.id)) {
+            .array => |a| self.resolve(.{ .id = a.elem, .subst = t.subst }),
+            .slice => |s| self.resolve(.{ .id = s.elem, .subst = t.subst }),
+            .parameterized_nominal => |pn| if (pn.sym == sema.vec_sym_id and pn.args.len == 1)
+                self.resolve(.{ .id = pn.args[0], .subst = t.subst })
+            else
+                null,
+            else => null,
+        };
+    }
+
+    fn arrayElemTy(self: *Emitter, ty: Ty) ?Ty {
+        const sema = self.sema orelse return null;
+        const t = self.peelBorrows(ty);
+        return switch (sema.types.get(t.id)) {
+            .array => |a| self.resolve(.{ .id = a.elem, .subst = t.subst }),
+            else => null,
+        };
+    }
+
+    fn optionalChild(self: *Emitter, ty: Ty) ?Ty {
+        const sema = self.sema orelse return null;
+        const t = self.peelBorrows(ty);
+        return switch (sema.types.get(t.id)) {
+            .optional => |inner| self.resolve(.{ .id = inner, .subst = t.subst }),
+            else => null,
+        };
+    }
+
+    fn sharedInner(self: *Emitter, ty: Ty) ?Ty {
+        const sema = self.sema orelse return null;
+        const t = self.resolve(ty);
+        return switch (sema.types.get(t.id)) {
+            .shared => |inner| self.resolve(.{ .id = inner, .subst = t.subst }),
+            else => null,
+        };
+    }
+
+    /// How a value of this type is released, or null for plain data.
+    fn kindOf(self: *Emitter, ty0: Ty) ?ResourceKind {
+        const sema = self.sema orelse return null;
+        const ty = self.resolve(ty0);
+        return switch (sema.types.get(ty.id)) {
+            .shared => .shared,
+            .weak => .weak,
+            .optional => |inner| if (self.kindOf(.{ .id = inner, .subst = ty.subst }) != null) .optional else null,
+            .nominal, .parameterized_nominal => if (types.typeHasDropGlue(sema, ty.id)) .value else null,
+            else => null,
+        };
+    }
+
+    fn isSharedTy(self: *Emitter, ty: Ty) bool {
+        const t = self.peelBorrows(ty);
+        return self.sema.?.types.get(t.id) == .shared;
+    }
+
+    fn isOwnedClosureTy(self: *Emitter, ty: Ty) bool {
+        const sema = self.sema orelse return false;
+        const inner = self.sharedInner(self.peelBorrows(ty)) orelse return false;
+        const sym = switch (sema.types.get(inner.id)) {
+            .nominal => |s| s,
+            .parameterized_nominal => |pn| pn.sym,
+            else => return false,
+        };
+        return sym != types.symbol_invalid and
+            (sym == sema.closure_sym_id or sym == sema.closure1_sym_id or sym == sema.closure2_sym_id);
+    }
+
+    fn isBuiltinInstance(self: *Emitter, ty: Ty, sym_id: types.SymbolId) bool {
+        const sema = self.sema orelse return false;
+        const t = self.peelBorrows(ty);
+        return switch (sema.types.get(t.id)) {
+            .parameterized_nominal => |pn| pn.sym == sym_id,
+            .nominal => |s| s == sym_id,
+            else => false,
+        };
+    }
+
+    fn isVecTy(self: *Emitter, ty: Ty) bool {
+        return self.isBuiltinInstance(ty, self.sema.?.vec_sym_id);
+    }
+
+    fn isCellTy(self: *Emitter, ty: Ty) bool {
+        return self.isBuiltinInstance(ty, self.sema.?.cell_sym_id);
+    }
+
+    fn isStructLike(self: *Emitter, ty: Ty) bool {
+        const t = self.peelBorrows(ty);
+        return switch (self.sema.?.types.get(t.id)) {
+            .nominal, .parameterized_nominal => true,
+            else => false,
+        };
+    }
+
+    fn hasLen(self: *Emitter, ty: Ty) bool {
+        const t = self.peelBorrows(ty);
+        return switch (self.sema.?.types.get(t.id)) {
+            .array, .slice, .string => true,
+            else => false,
+        };
+    }
+
+    fn isNumericOrBool(self: *Emitter, ty: Ty) bool {
+        return switch (self.sema.?.types.get(self.resolve(ty).id)) {
+            .int, .float, .int_literal, .float_literal, .bool => true,
+            else => false,
+        };
+    }
+
+    fn isErrorSetTy(self: *Emitter, ty: Ty) bool {
+        const sym = self.nominalSym(ty) orelse return false;
+        return self.module.error_sets.contains(self.sema.?.symbols.items[sym].name);
+    }
+
+    fn isErrorSetNode(self: *Emitter, node: Sexp) bool {
+        return node == .src and self.module.error_sets.contains(self.srcText(node));
+    }
+
+    fn isStringExpr(self: *Emitter, expr: Sexp) bool {
+        const ty = self.typeOf(expr) orelse return false;
+        return self.sema.?.types.get(self.peelBorrows(ty).id) == .string;
+    }
+
+    fn isFloatExpr(self: *Emitter, expr: Sexp) bool {
+        if (expr == .src) {
+            const t = self.srcText(expr);
+            if (t.len > 0 and std.ascii.isDigit(t[0]) and std.mem.indexOfAny(u8, t, ".eE") != null and
+                !std.mem.startsWith(u8, t, "0x")) return true;
+        }
+        const ty = self.typeOf(expr) orelse return false;
+        return switch (self.sema.?.types.get(self.resolve(ty).id)) {
+            .float, .float_literal => true,
+            else => false,
+        };
+    }
+
+    fn returnTy(self: *Emitter) ?Ty {
+        return self.fun.return_ty;
+    }
+
+    /// The declared return type of the function or method named at `name_node`.
+    fn funReturnTy(self: *Emitter, name_node: Sexp) ?Ty {
+        const sema = self.sema orelse return null;
+        if (name_node != .src) return null;
+        const fn_ty: types.TypeId = blk: {
+            if (self.declTy(name_node)) |t| break :blk t.id;
+            for (sema.symbols.items) |sym| {
+                const fields = sym.fields orelse continue;
+                for (fields) |f| if (f.is_method and f.decl_pos == name_node.src.pos) break :blk f.ty;
+            }
+            return null;
+        };
+        return switch (sema.types.get(fn_ty)) {
+            .function => |f| .{ .id = f.returns },
+            else => null,
+        };
+    }
+
+    fn vecInfo(self: *Emitter, source: Sexp) ?types.VecIterInfo {
+        const sema = self.sema orelse return null;
+        if (source != .src) return null;
+        return sema.for_source_vec_info.get(source.src.pos);
+    }
+
+    // =========================================================================
+    // Function scan
+    // =========================================================================
+
+    /// Pre-scan a function body: which bindings need `var`, and which
+    /// names the body may consume.
+    fn scanFunction(self: *Emitter, params: ?Sexp, body: Sexp, returns_value: bool) Error!void {
+        var scan: Scan = .{ .e = self };
+        defer scan.deinit();
+        try scan.push();
+        if (params) |p| try scan.declareParams(p);
+        try scan.walk(body);
+        if (returns_value) {
+            const stmts = try self.stmtsOf(body);
+            if (stmts.len > 0) try scan.consumeAll(stmts[stmts.len - 1]);
+        }
+    }
+
+    // =========================================================================
+    // Output helpers
+    // =========================================================================
+
+    fn text(self: *Emitter, sexp: Sexp) ?[]const u8 {
+        return switch (sexp) {
+            .src => |s| self.source[s.pos..][0..s.len],
+            else => null,
+        };
+    }
+
+    fn srcText(self: *Emitter, sexp: Sexp) []const u8 {
+        return self.source[sexp.src.pos..][0..sexp.src.len];
+    }
+
+    fn ident(self: *Emitter, name: []const u8) Ident {
+        _ = self;
+        return .{ .name = name };
+    }
+
+    fn list(self: *Emitter, items: []const Sexp) Error!Sexp {
+        return .{ .list = try self.arena.allocator().dupe(Sexp, items) };
+    }
+
+    fn writeIndent(self: *Emitter, depth: u32) Error!void {
+        for (0..depth) |_| try self.w.writeAll("    ");
+    }
+
+    /// One indented line.
+    fn line(self: *Emitter, comptime f: []const u8, args: anytype) Error!void {
+        try self.writeIndent(self.indent);
+        try self.w.print(f ++ "\n", args);
+    }
+
+    /// A Rig single-quoted string as a Zig string literal.
+    fn writeSingleQuoted(self: *Emitter, lit: []const u8) Error!void {
+        try self.w.writeAll("\"");
+        const inner = lit[1 .. lit.len - 1];
+        var i: usize = 0;
+        while (i < inner.len) : (i += 1) {
+            const c = inner[i];
+            if (c == '\\' and i + 1 < inner.len and inner[i + 1] == '\'') {
+                try self.w.writeAll("'");
+                i += 1;
+            } else if (c == '"') {
+                try self.w.writeAll("\\\"");
+            } else {
+                try self.w.writeByte(c);
+            }
+        }
+        try self.w.writeAll("\"");
+    }
+
+    /// Report a construct the emitter cannot lower. Sema is responsible
+    /// for rejecting it with a proper diagnostic; reaching this is a
+    /// compiler bug.
+    fn unsupported(self: *Emitter, node: Sexp, what: []const u8) Error {
+        const pos = firstSrcPos(node);
+        var line_no: usize = 1;
+        var col: usize = 1;
+        for (self.source[0..@min(pos, self.source.len)]) |c| {
+            if (c == '\n') {
+                line_no += 1;
+                col = 1;
+            } else col += 1;
+        }
+        std.debug.print("{d}:{d}: internal error: cannot emit {s} (sema should reject it)\n", .{ line_no, col, what });
+        return error.Unsupported;
+    }
+};
+
+// =============================================================================
+// Function scan
+// =============================================================================
+
+/// Walks a function body tracking Rig scopes, to find the declarations
+/// that need Zig `var` and the names that may be consumed.
+const Scan = struct {
+    e: *Emitter,
+    scopes: std.ArrayListUnmanaged(std.StringHashMapUnmanaged(u32)) = .empty,
+
+    fn deinit(s: *Scan) void {
+        for (s.scopes.items) |*m| m.deinit(s.e.allocator);
+        s.scopes.deinit(s.e.allocator);
+    }
+
+    fn push(s: *Scan) Error!void {
+        try s.scopes.append(s.e.allocator, .empty);
+    }
+
+    fn pop(s: *Scan) void {
+        var m = s.scopes.pop().?;
+        m.deinit(s.e.allocator);
+    }
+
+    fn declare(s: *Scan, node: Sexp) Error!void {
+        if (node != .src) return;
+        try s.scopes.items[s.scopes.items.len - 1].put(s.e.allocator, s.e.srcText(node), node.src.pos);
+    }
+
+    fn declareParams(s: *Scan, params: Sexp) Error!void {
+        if (params != .list) return;
+        for (params.list) |p| if (paramNameNode(p)) |n| try s.declare(n);
+    }
+
+    fn visible(s: *Scan, name: []const u8) ?u32 {
+        var i = s.scopes.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (s.scopes.items[i].get(name)) |pos| return pos;
+        }
+        return null;
+    }
+
+    /// The binding a place is rooted in needs `var`.
+    fn mutate(s: *Scan, place: Sexp) Error!void {
+        var p = place;
+        while (p == .list and p.list.len >= 2 and p.list[0] == .tag) switch (p.list[0].tag) {
+            .@"member", .@"index", .@"read", .@"write", .@"move" => p = p.list[1],
+            else => return,
+        };
+        if (p != .src) return;
+        if (s.visible(s.e.srcText(p))) |pos| try s.e.fun.mutated.put(s.e.allocator, pos, {});
+    }
+
+    fn consume(s: *Scan, node: Sexp) Error!void {
+        if (node == .src) try s.e.fun.consumed.put(s.e.allocator, s.e.srcText(node), {});
+    }
+
+    /// Every name in a value that may leave the function.
+    fn consumeAll(s: *Scan, node: Sexp) Error!void {
+        switch (node) {
+            .src => try s.consume(node),
+            .list => |items| for (items) |c| try s.consumeAll(c),
+            else => {},
+        }
+    }
+
+    fn walkBlock(s: *Scan, items: []const Sexp) Error!void {
+        try s.push();
+        defer s.pop();
+        for (items) |c| try s.walk(c);
+    }
+
+    fn walk(s: *Scan, sexp: Sexp) Error!void {
+        if (sexp != .list or sexp.list.len == 0) return;
+        const items = sexp.list;
+        if (items[0] != .tag) {
+            for (items) |c| try s.walk(c);
+            return;
+        }
+        switch (items[0].tag) {
+            .@"block" => try s.walkBlock(items[1..]),
+            .@"set" => {
+                if (items.len < 5) return;
+                try s.walk(items[4]);
+                const kind = try rig.bindingKindOf(items[1]);
+                const target = items[2];
+                if (kind == .move) try s.consume(items[4]);
+                if (target != .src) {
+                    try s.mutate(target);
+                    try s.walk(target);
+                    return;
+                }
+                switch (kind) {
+                    .@"+=", .@"-=", .@"*=", .@"/=" => try s.mutate(target),
+                    .default, .move => if (s.visible(s.e.srcText(target)) != null) try s.mutate(target) else try s.declare(target),
+                    .fixed, .shadow => try s.declare(target),
+                }
+            },
+            .@"write" => {
+                try s.mutate(items[1]);
+                try s.walk(items[1]);
+            },
+            .@"move", .@"drop" => {
+                try s.consume(items[1]);
+                try s.walk(items[1]);
+            },
+            .@"return", .@"break" => {
+                if (items.len >= 2) try s.consumeAll(items[1]);
+                for (items[1..]) |c| try s.walk(c);
+            },
+            .@"for" => {
+                if (items.len < 6) return;
+                if (items[1] == .tag and items[1].tag == .@"move") try s.consume(items[4]);
+                try s.walk(items[4]);
+                try s.push();
+                defer s.pop();
+                try s.declare(items[2]);
+                try s.declare(items[3]);
+                try s.walk(items[5]);
+                if (items.len >= 7) try s.walk(items[6]);
+            },
+            .@"arm" => {
+                try s.push();
+                defer s.pop();
+                const pattern = items[1];
+                if (pattern == .src) try s.declare(pattern);
+                if (isTagged(pattern, .@"variant_pattern")) for (pattern.list[2..]) |c| try s.declare(c);
+                if (items.len >= 3) try s.declare(items[2]);
+                try s.walk(items[items.len - 1]);
+            },
+            .@"as" => {
+                try s.walk(items[1]);
+                try s.declare(items[2]);
+            },
+            .@"if", .@"while" => {
+                // A capture in the condition scopes over the body.
+                try s.push();
+                defer s.pop();
+                for (items[1..]) |c| try s.walk(c);
+            },
+            .@"lambda" => {
+                if (isTagged(items[1], .@"captures")) for (items[1].list[1..]) |cap| {
+                    if (isTagged(cap, .@"cap_move")) try s.consume(cap.list[1]);
+                };
+                // The body sees only its captures and parameters.
+                var inner: Scan = .{ .e = s.e };
+                defer inner.deinit();
+                try inner.push();
+                if (isTagged(items[1], .@"captures")) for (items[1].list[1..]) |cap| if (captureNameSrc(cap)) |n| try inner.declare(n);
+                try inner.declareParams(items[2]);
+                try inner.walk(items[4]);
+                const stmts = try s.e.stmtsOf(items[4]);
+                if (stmts.len > 0) try inner.consumeAll(stmts[stmts.len - 1]);
+            },
+            else => for (items[1..]) |c| try s.walk(c),
+        }
     }
 };
 
@@ -4472,56 +3321,127 @@ pub const Emitter = struct {
 // Free helpers
 // =============================================================================
 
-/// M20f: is `name` one of Rig's built-in nominal types whose Zig
-/// implementation lives in `_runtime.zig`? Used for the
-/// `rig.` namespace prefix decision in type emission.
-fn isBuiltinNominalName(name: []const u8) bool {
-    return std.mem.eql(u8, name, "Cell") or
-        std.mem.eql(u8, name, "Closure") or
-        std.mem.eql(u8, name, "Closure1") or
-        std.mem.eql(u8, name, "Closure2") or
-        std.mem.eql(u8, name, "Vec") or
-        std.mem.eql(u8, name, "Signal");
-}
+/// Formats a Rig identifier as a Zig identifier, escaping Zig keywords
+/// and primitive names (`var` → `@"var"`).
+const Ident = struct {
+    name: []const u8,
 
-/// M20h(4/5) + M24: does the Sexp look like an owned-closure
-/// construction? Pure structural check — same predicate sema and
-/// ownership use. Recognized shapes:
-///   M20h:  `(call Closure (lambda ...))`
-///   M24:   `(call (call Closure1 T) (lambda ...))`
-///   M24:   `(call (call Closure2 A B) (lambda ...))`
-fn isOwnedClosureConstruction(source: []const u8, inner: Sexp) bool {
-    if (inner != .list) return false;
-    const items = inner.list;
-    if (items.len < 3) return false;
-    if (items[0] != .tag or items[0].tag != .@"call") return false;
-    const callee = items[1];
-    if (callee == .src) {
-        const callee_name = source[callee.src.pos..][0..callee.src.len];
-        if (!std.mem.eql(u8, callee_name, "Closure")) return false;
-    } else if (callee == .list) {
-        const inner_items = callee.list;
-        if (inner_items.len < 2) return false;
-        if (inner_items[0] != .tag or inner_items[0].tag != .@"call") return false;
-        const inner_callee = inner_items[1];
-        if (inner_callee != .src) return false;
-        const inner_name = source[inner_callee.src.pos..][0..inner_callee.src.len];
-        if (!std.mem.eql(u8, inner_name, "Closure1") and
-            !std.mem.eql(u8, inner_name, "Closure2")) return false;
-    } else {
-        return false;
+    pub fn format(self: Ident, w: *Writer) Writer.Error!void {
+        if (needsEscape(self.name)) {
+            try w.print("@\"{s}\"", .{self.name});
+        } else {
+            try w.writeAll(self.name);
+        }
     }
-    const args = items[2..];
-    if (args.len != 1) return false;
-    const arg = args[0];
-    return arg == .list and arg.list.len >= 1 and arg.list[0] == .tag and
-        arg.list[0].tag == .@"lambda";
+};
+
+fn needsEscape(name: []const u8) bool {
+    if (name.len == 0 or std.mem.eql(u8, name, "_")) return false;
+    if (std.zig.Token.getKeyword(name) != null) return true;
+    if (isLiteralText(name)) return false;
+    return std.zig.primitives.isPrimitive(name);
 }
 
-/// M24: classify the closure arity of an `isOwnedClosureConstruction`-
-/// shaped Sexp. Returns null when the shape isn't recognized;
-/// otherwise returns an enum tag plus, for arity > 0, the slice of
-/// type-arg Sexps from the inner `(call ClosureN T...)` shape.
+fn isRigStatementKeyword(name: []const u8) bool {
+    const words = [_][]const u8{ "if", "else", "while", "for", "match", "return", "break", "continue" };
+    for (words) |w| if (std.mem.eql(u8, name, w)) return true;
+    return false;
+}
+
+fn isPlainIdent(name: []const u8) bool {
+    return name.len > 0 and name[0] != '@' and std.mem.indexOfScalar(u8, name, '.') == null;
+}
+
+/// Literal source text: numbers, quoted strings, and the value keywords.
+fn isLiteralText(t: []const u8) bool {
+    if (t.len == 0) return false;
+    if (std.ascii.isDigit(t[0]) or t[0] == '"' or t[0] == '\'') return true;
+    return std.mem.eql(u8, t, "true") or std.mem.eql(u8, t, "false") or
+        std.mem.eql(u8, t, "null") or std.mem.eql(u8, t, "undefined");
+}
+
+fn isNonNegativeIntLiteral(source: []const u8, s: Sexp) bool {
+    if (s != .src) return false;
+    const t = source[s.src.pos..][0..s.src.len];
+    for (t) |c| if (!std.ascii.isDigit(c) and c != '_') return false;
+    return t.len > 0;
+}
+
+fn isTagged(s: Sexp, tag: Tag) bool {
+    return s == .list and s.list.len > 0 and s.list[0] == .tag and s.list[0].tag == tag;
+}
+
+fn unwrapPub(s: Sexp) Sexp {
+    return if (isTagged(s, .@"pub") and s.list.len >= 2) s.list[1] else s;
+}
+
+fn unwrapShare(s: Sexp) Sexp {
+    return if (isTagged(s, .@"share") and s.list.len >= 2) s.list[1] else s;
+}
+
+fn hasKwarg(args: []const Sexp) bool {
+    for (args) |a| if (isTagged(a, .@"kwarg")) return true;
+    return false;
+}
+
+/// The name node of any parameter shape.
+fn paramNameNode(p: Sexp) ?Sexp {
+    return switch (p) {
+        .src => p,
+        .list => |items| if (items.len >= 2 and items[0] == .tag) switch (items[0].tag) {
+            .@":", .@"pre_param", .@"default", .@"aligned", .@"read", .@"write" => items[1],
+            else => null,
+        } else null,
+        else => null,
+    };
+}
+
+fn paramIsWriteBorrow(p: Sexp) bool {
+    if (isTagged(p, .@"write")) return true;
+    if (p != .list or p.list.len < 3 or p.list[0] != .tag) return false;
+    return switch (p.list[0].tag) {
+        .@":", .@"default" => isTagged(p.list[2], .@"borrow_write"),
+        else => false,
+    };
+}
+
+fn paramsStartWithSelf(source: []const u8, params: Sexp) bool {
+    if (params != .list or params.list.len == 0) return false;
+    const n = paramNameNode(params.list[0]) orelse return false;
+    return n == .src and std.mem.eql(u8, source[n.src.pos..][0..n.src.len], "self");
+}
+
+fn captureNameSrc(cap: Sexp) ?Sexp {
+    if (cap != .list or cap.list.len < 2 or cap.list[0] != .tag) return null;
+    return switch (cap.list[0].tag) {
+        .@"cap_copy", .@"cap_clone", .@"cap_weak", .@"cap_move" => cap.list[1],
+        else => null,
+    };
+}
+
+/// Rig types implemented by the runtime.
+fn isBuiltinNominalName(name: []const u8) bool {
+    const names = [_][]const u8{ "Cell", "Closure", "Closure1", "Closure2", "Vec", "Signal" };
+    for (names) |n| if (std.mem.eql(u8, name, n)) return true;
+    return false;
+}
+
+fn builtinZigName(name: []const u8) []const u8 {
+    return if (std.mem.eql(u8, name, "Closure")) "Closure0" else name;
+}
+
+fn mapTypeName(rig_name: []const u8) []const u8 {
+    const map = .{
+        .{ "Int", "i32" },        .{ "Float", "f64" }, .{ "I8", "i8" },   .{ "I16", "i16" },
+        .{ "I32", "i32" },        .{ "I64", "i64" },   .{ "U8", "u8" },   .{ "U16", "u16" },
+        .{ "U32", "u32" },        .{ "U64", "u64" },   .{ "F32", "f32" }, .{ "F64", "f64" },
+        .{ "Bool", "bool" },      .{ "String", "[]const u8" },            .{ "Bytes", "[]const u8" },
+        .{ "Void", "void" },
+    };
+    inline for (map) |m| if (std.mem.eql(u8, rig_name, m[0])) return m[1];
+    return rig_name;
+}
+
 const ClosureKind = enum { c0, c1, c2 };
 
 const ClosureCtorInfo = struct {
@@ -4530,216 +3450,116 @@ const ClosureCtorInfo = struct {
     lambda: Sexp,
 };
 
-fn classifyOwnedClosureConstruction(source: []const u8, inner: Sexp) ?ClosureCtorInfo {
-    if (!isOwnedClosureConstruction(source, inner)) return null;
-    const items = inner.list;
-    const callee = items[1];
-    const lambda = items[2];
+/// `(call Closure (lambda ...))`, `(call (call Closure1 T) (lambda ...))`,
+/// or `(call (call Closure2 A B) (lambda ...))`.
+fn classifyOwnedClosure(source: []const u8, inner: Sexp) ?ClosureCtorInfo {
+    if (!isTagged(inner, .@"call") or inner.list.len != 3 or !isTagged(inner.list[2], .@"lambda")) return null;
+    const callee = inner.list[1];
+    const lambda = inner.list[2];
     if (callee == .src) {
-        return .{ .kind = .c0, .type_args = &[_]Sexp{}, .lambda = lambda };
+        if (!std.mem.eql(u8, source[callee.src.pos..][0..callee.src.len], "Closure")) return null;
+        return .{ .kind = .c0, .type_args = &.{}, .lambda = lambda };
     }
-    const inner_items = callee.list;
-    const inner_callee = inner_items[1];
-    const inner_name = source[inner_callee.src.pos..][0..inner_callee.src.len];
-    const kind: ClosureKind = if (std.mem.eql(u8, inner_name, "Closure1")) .c1 else .c2;
-    return .{ .kind = kind, .type_args = inner_items[2..], .lambda = lambda };
-}
-
-/// M20h(4/5) + M24: does the type annotation IR Sexp look like
-/// `(shared (generic_inst Closure))` / `(shared (generic_inst
-/// Closure1 T))` / `(shared (generic_inst Closure2 A B))`?
-/// Used by `emitSetOrBind` to recognize bindings declared as
-/// `*Closure()` / `*Closure1(T)` / `*Closure2(A, B)` even when the
-/// RHS isn't an immediate construction (e.g., `cb: *Closure() =
-/// +other`).
-fn isOwnedClosureTypeNode(source: []const u8, type_node: Sexp) bool {
-    if (type_node != .list) return false;
-    const items = type_node.list;
-    if (items.len < 2) return false;
-    if (items[0] != .tag or items[0].tag != .@"shared") return false;
-    const inner = items[1];
-    if (inner != .list) return false;
-    const inner_items = inner.list;
-    if (inner_items.len < 2) return false;
-    if (inner_items[0] != .tag or inner_items[0].tag != .@"generic_inst") return false;
-    const name_node = inner_items[1];
-    if (name_node != .src) return false;
-    const name = source[name_node.src.pos..][0..name_node.src.len];
-    return std.mem.eql(u8, name, "Closure") or
-        std.mem.eql(u8, name, "Closure1") or
-        std.mem.eql(u8, name, "Closure2");
-}
-
-/// M20h(4/5): does the sema-side TypeId describe `*Closure()` —
-/// the owned-closure handle? Free helper rather than method because
-/// emit's sema reference is `*const SemContext`; this keeps the
-/// callsite ergonomic without smuggling state into Emitter.
-fn semaTypeIsOwnedClosure(sema: *const types.SemContext, ty_id: types.TypeId) bool {
-    const ty = sema.types.get(ty_id);
-    const inner_id = switch (ty) {
-        .shared => |t| t,
-        else => return false,
-    };
-    const inner_ty = sema.types.get(inner_id);
-    return switch (inner_ty) {
-        .nominal => |s| symIsAnyClosure(sema, s),
-        .parameterized_nominal => |pn| symIsAnyClosure(sema, pn.sym),
-        else => false,
-    };
-}
-
-fn symIsAnyClosure(sema: *const types.SemContext, sym_id: types.SymbolId) bool {
-    if (sym_id == types.symbol_invalid) return false;
-    return (sema.closure_sym_id != types.symbol_invalid and sym_id == sema.closure_sym_id) or
-        (sema.closure1_sym_id != types.symbol_invalid and sym_id == sema.closure1_sym_id) or
-        (sema.closure2_sym_id != types.symbol_invalid and sym_id == sema.closure2_sym_id);
-}
-
-/// M20h: built-in nominal types whose Rig-surface name differs
-/// from their Zig spelling. Returns the Zig spelling (without the
-/// `rig.` namespace prefix) when a remapping applies, otherwise
-/// null. The caller is responsible for adding `rig.` itself.
-///
-/// `Closure` lowers to `Closure0` because the type is a bare
-/// vtable struct (no generic args) — Zig doesn't accept
-/// `rig.Closure()` for a non-generic type, and the `0` suffix
-/// leaves room for `Closure1`/`Closure2`/etc. when Rig grows
-/// arity-bearing closures in a future milestone.
-///
-/// `Cell` does NOT remap — its Rig name and Zig generic function
-/// name are identical. The 1:1 mapping is what `isBuiltinNominalName`
-/// covers; this helper is only for the divergent cases.
-fn builtinZigSpelling(name: []const u8) ?[]const u8 {
-    if (std.mem.eql(u8, name, "Closure")) return "Closure0";
-    return null;
-}
-
-/// M20e helper: extract the name `.src` node from any param shape.
-/// Returns null for shapes that don't carry a normal name (e.g.,
-/// destructured params if/when those land).
-fn paramNameNode(p: Sexp) ?Sexp {
-    switch (p) {
-        .src => return p,
-        .list => |items| {
-            if (items.len < 2 or items[0] != .tag) return null;
-            return switch (items[0].tag) {
-                .@":", .pre_param, .default, .aligned, .@"read", .@"write" => items[1],
-                else => null,
-            };
-        },
-        else => return null,
-    }
-}
-
-fn identText(source: []const u8, sexp: Sexp) ?[]const u8 {
-    return switch (sexp) {
-        .src => |s| source[s.pos..][0..s.len],
-        else => null,
-    };
-}
-
-/// M25(4/5): which Zig method drops a value of this type? Returns
-/// the method name (`dropStrong` / `dropWeak` / `__rig_drop`) for
-/// resource-shaped types, or null for non-resources. Used by the
-/// generated `__rig_drop` body to lower per-field cleanup.
-fn dropMethodForResourceType(sema: *const types.SemContext, ty_id: types.TypeId) ?[]const u8 {
-    if (ty_id == sema.types.invalid_id or ty_id == sema.types.unknown_id) return null;
-    const ty = sema.types.get(ty_id);
-    return switch (ty) {
-        .shared => "dropStrong",
-        .weak => "dropWeak",
-        .parameterized_nominal => |pn| blk: {
-            // Vec(T) and Closure() pre-defined by the runtime;
-            // user-defined parameterized types with drop glue
-            // (when those land) flow through the second branch.
-            if (pn.sym == sema.vec_sym_id) break :blk "__rig_drop";
-            if (pn.sym == sema.closure_sym_id) break :blk null;
-            break :blk if (sema.symbols.items[pn.sym].flags.has_drop_glue) "__rig_drop" else null;
-        },
-        .nominal => |s| if (sema.symbols.items[s].flags.has_drop_glue)
-            @as(?[]const u8, "__rig_drop")
-        else
-            null,
-        else => null,
-    };
-}
-
-/// M25(4/5): look up a struct field's resolved TypeId via sema.
-/// `decl_pos` is the struct's declaration position (its name
-/// `.src.pos`); `struct_name` cross-checks the identity. The
-/// `field_name_node` carries the field's source-position; we
-/// match against `Symbol.fields[]` entries by `decl_pos`. Returns
-/// `null` if any step fails (defensive — caller treats null as
-/// "not a resource field, skip drop emission").
-fn lookupFieldTypeByDeclPos(
-    sema: *const types.SemContext,
-    struct_decl_pos: u32,
-    struct_name: []const u8,
-    field_name_node: parser.Sexp,
-) ?types.TypeId {
-    if (field_name_node != .src) return null;
-    const field_pos = field_name_node.src.pos;
-    for (sema.symbols.items) |sym| {
-        if (sym.decl_pos != struct_decl_pos) continue;
-        if (!std.mem.eql(u8, sym.name, struct_name)) continue;
-        const fields = sym.fields orelse return null;
-        for (fields) |f| {
-            if (f.decl_pos == field_pos) return f.ty;
-        }
+    if (!isTagged(callee, .@"call") or callee.list.len < 2 or callee.list[1] != .src) return null;
+    const name = source[callee.list[1].src.pos..][0..callee.list[1].src.len];
+    const kind: ClosureKind = if (std.mem.eql(u8, name, "Closure1"))
+        .c1
+    else if (std.mem.eql(u8, name, "Closure2"))
+        .c2
+    else
         return null;
+    return .{ .kind = kind, .type_args = callee.list[2..], .lambda = lambda };
+}
+
+/// `(shared (generic_inst Closure...))` type annotations.
+fn isOwnedClosureTypeNode(source: []const u8, t: Sexp) bool {
+    if (!isTagged(t, .@"shared") or !isTagged(t.list[1], .@"generic_inst")) return false;
+    const n = t.list[1].list[1];
+    if (n != .src) return false;
+    const name = source[n.src.pos..][0..n.src.len];
+    return std.mem.eql(u8, name, "Closure") or std.mem.eql(u8, name, "Closure1") or std.mem.eql(u8, name, "Closure2");
+}
+
+/// Statements that produce a value (and can end a value block).
+fn isValueStmt(s: Sexp) bool {
+    if (s != .list or s.list.len == 0 or s.list[0] != .tag) return true;
+    return switch (s.list[0].tag) {
+        .@"set", .@"drop", .@"return", .@"break", .@"continue", .@"defer", .@"errdefer", .@"block", .@"while", .@"for", .@"labeled" => false,
+        .@"if" => s.list.len >= 4,
+        else => true,
+    };
+}
+
+fn isTerminatingStmt(s: Sexp) bool {
+    if (s != .list or s.list.len == 0 or s.list[0] != .tag) return false;
+    return switch (s.list[0].tag) {
+        .@"return" => s.list.len < 3 or s.list[2] == .nil,
+        .@"break" => s.list.len < 4 or s.list[3] == .nil,
+        .@"continue" => s.list.len < 3 or s.list[2] == .nil,
+        else => false,
+    };
+}
+
+fn containsPropagate(sexp: Sexp) bool {
+    if (sexp != .list or sexp.list.len == 0) return false;
+    const items = sexp.list;
+    if (items[0] == .tag) switch (items[0].tag) {
+        .@"propagate", .@"try" => return true,
+        .@"fun", .@"sub", .@"lambda" => return false,
+        else => {},
+    };
+    for (items) |c| if (containsPropagate(c)) return true;
+    return false;
+}
+
+fn firstSrcPos(s: Sexp) u32 {
+    return switch (s) {
+        .src => |x| x.pos,
+        .list => |items| for (items) |c| {
+            const p = firstSrcPos(c);
+            if (p > 0) break p;
+        } else 0,
+        else => 0,
+    };
+}
+
+/// Whether `name` is referenced in `stmts`, up to a statement that
+/// shadows it with `new name = ...`.
+fn usesNameInStmts(source: []const u8, stmts: []const Sexp, name: []const u8) bool {
+    for (stmts) |s| {
+        if (isTagged(s, .@"set") and s.list.len >= 5 and s.list[2] == .src and
+            std.mem.eql(u8, source[s.list[2].src.pos..][0..s.list[2].src.len], name))
+        {
+            const kind = rig.bindingKindOf(s.list[1]) catch return true;
+            if (kind == .shadow) return usesName(source, s.list[4], name);
+        }
+        if (usesName(source, s, name)) return true;
     }
-    return null;
+    return false;
 }
 
-/// True if `body` (an IR Sexp) contains any `.src` reference whose
-/// source-text equals `name`. Used by `emitMatch` to decide whether
-/// to emit a `_ = name;` silencer for destructured payload bindings.
-fn isNameUsedInBody(source: []const u8, body: parser.Sexp, name: []const u8) bool {
-    return switch (body) {
-        .src => |s| std.mem.eql(u8, source[s.pos..][0..s.len], name),
-        .list => |items| blk: {
-            for (items) |c| if (isNameUsedInBody(source, c, name)) break :blk true;
-            break :blk false;
+/// Whether `node` refers to `name`. Field names, keyword-argument
+/// names, and enum literals are not references; a closure body sees
+/// only its captures.
+fn usesName(source: []const u8, node: Sexp, name: []const u8) bool {
+    switch (node) {
+        .src => |s| return std.mem.eql(u8, source[s.pos..][0..s.len], name),
+        .list => |items| {
+            if (items.len == 0) return false;
+            if (items[0] == .tag) switch (items[0].tag) {
+                .@"member" => return items.len >= 2 and usesName(source, items[1], name),
+                .@"kwarg" => return items.len >= 3 and usesName(source, items[2], name),
+                .@"enum_lit", .@"enum_pattern" => return false,
+                .@"variant_pattern" => return false,
+                .@"lambda" => return items.len >= 2 and usesName(source, items[1], name),
+                .@"block" => return usesNameInStmts(source, items[1..], name),
+                else => {},
+            };
+            for (items) |c| if (usesName(source, c, name)) return true;
+            return false;
         },
-        else => false,
-    };
-}
-
-/// True if a match-arm pattern is a catch-all: bare `_`, or any bare
-/// identifier (which acts as a "match anything and bind it" pattern).
-/// M8 v1 doesn't yet thread the binding through to the body — `else =>`
-/// is sufficient for control-flow correctness; the binding name is
-/// available in scope via the symbol resolver's arm-scope.
-fn isDefaultPattern(pattern: parser.Sexp) bool {
-    return switch (pattern) {
-        .src => true, // bare ident — `other`, `_`, etc.
-        .nil => true,
-        else => false,
-    };
-}
-
-fn mapTypeName(rig_name: []const u8) []const u8 {
-    if (std.mem.eql(u8, rig_name, "Int")) return "i32";
-    if (std.mem.eql(u8, rig_name, "Float")) return "f32";
-    if (std.mem.eql(u8, rig_name, "I8")) return "i8";
-    if (std.mem.eql(u8, rig_name, "I16")) return "i16";
-    if (std.mem.eql(u8, rig_name, "I32")) return "i32";
-    if (std.mem.eql(u8, rig_name, "I64")) return "i64";
-    if (std.mem.eql(u8, rig_name, "U8")) return "u8";
-    if (std.mem.eql(u8, rig_name, "U16")) return "u16";
-    if (std.mem.eql(u8, rig_name, "U32")) return "u32";
-    if (std.mem.eql(u8, rig_name, "U64")) return "u64";
-    if (std.mem.eql(u8, rig_name, "F32")) return "f32";
-    if (std.mem.eql(u8, rig_name, "F64")) return "f64";
-    if (std.mem.eql(u8, rig_name, "Bool")) return "bool";
-    if (std.mem.eql(u8, rig_name, "String")) return "[]const u8";
-    if (std.mem.eql(u8, rig_name, "Bytes")) return "[]const u8";
-    if (std.mem.eql(u8, rig_name, "Void")) return "void";
-    return rig_name;
-}
-
-fn isErrorUnion(t: Sexp) bool {
-    return t == .list and t.list.len >= 2 and t.list[0] == .tag and t.list[0].tag == .@"error_union";
+        else => return false,
+    }
 }
 
 // =============================================================================
@@ -4747,8 +3567,6 @@ fn isErrorUnion(t: Sexp) bool {
 // =============================================================================
 
 fn emitSourceToString(allocator: std.mem.Allocator, rig_source: []const u8) ![]u8 {
-    // `parser.Parser` auto-wires to `rig.Parser`, so parseProgram returns
-    // the fully-rewritten IR directly.
     var p = parser.Parser.init(allocator, rig_source);
     defer p.deinit();
     const ir = try p.parseProgram();
@@ -4762,12 +3580,11 @@ fn emitSourceToString(allocator: std.mem.Allocator, rig_source: []const u8) ![]u
 }
 
 test "emit: hello world" {
-    const source =
+    const out = try emitSourceToString(std.testing.allocator,
         \\sub main()
         \\  print "hello, rig"
         \\
-    ;
-    const out = try emitSourceToString(std.testing.allocator, source);
+    );
     defer std.testing.allocator.free(out);
     try std.testing.expect(std.mem.indexOf(u8, out, "pub fn main()") != null);
     try std.testing.expect(std.mem.indexOf(u8, out, "rig.print") != null);
@@ -4775,283 +3592,68 @@ test "emit: hello world" {
 }
 
 test "emit: const for unmutated, var for mutated" {
-    const source =
+    const out = try emitSourceToString(std.testing.allocator,
         \\sub main()
         \\  x = 1
         \\  y = 2
         \\  x = 3
+        \\  print(x + y)
         \\
-    ;
-    const out = try emitSourceToString(std.testing.allocator, source);
+    );
     defer std.testing.allocator.free(out);
     try std.testing.expect(std.mem.indexOf(u8, out, "var x =") != null);
     try std.testing.expect(std.mem.indexOf(u8, out, "const y =") != null);
 }
 
-test "emit: fixed_bind always const" {
-    const source =
+test "emit: fixed binding is const" {
+    const out = try emitSourceToString(std.testing.allocator,
         \\sub main()
         \\  user =! 1
+        \\  print(user)
         \\
-    ;
-    const out = try emitSourceToString(std.testing.allocator, source);
+    );
     defer std.testing.allocator.free(out);
     try std.testing.expect(std.mem.indexOf(u8, out, "const user =") != null);
 }
 
-test "emit: propagate becomes try; no signature inference; no auto-try" {
-    // M4.5: emitter is dumb. It trusts the IR's declared return type
-    // and does NOT mutate signatures or auto-prefix `try` at call sites.
-    // The effects checker would reject this Rig source (foo declares `Int`
-    // but body propagates), but here we feed the emitter directly to
-    // verify it emits exactly what the IR says.
-    const source =
+test "emit: propagate becomes try; signatures come from the IR" {
+    const out = try emitSourceToString(std.testing.allocator,
         \\fun foo() -> Int!
         \\  bar()!
         \\
         \\sub main()
         \\  x = foo()!
+        \\  print(x)
         \\
-    ;
-    const out = try emitSourceToString(std.testing.allocator, source);
+    );
     defer std.testing.allocator.free(out);
-    // `bar()!` lowers to `try bar()`.
     try std.testing.expect(std.mem.indexOf(u8, out, "try bar()") != null);
-    // foo signature should be `!i32` (declared `Int!`).
     try std.testing.expect(std.mem.indexOf(u8, out, "pub fn foo() !i32") != null);
-    // `foo()!` lowers to `try foo()`. The emitter does NOT add `try` for
-    // the bare `foo()` form anymore.
     try std.testing.expect(std.mem.indexOf(u8, out, "try foo()") != null);
 }
 
-test "emit: bare fallible call is NOT auto-tried" {
-    // Verifies the auto-try removal: `x = foo()` (no `!`) emits as
-    // `const x = foo()` even though foo is fallible. Zig will error on
-    // this, which is fine — the effects checker is the proper gate.
-    const source =
+test "emit: a bare fallible call is not tried" {
+    const out = try emitSourceToString(std.testing.allocator,
         \\fun foo() -> Int!
         \\  1
         \\
         \\sub main()
         \\  x = foo()
+        \\  print(x)
         \\
-    ;
-    const out = try emitSourceToString(std.testing.allocator, source);
+    );
     defer std.testing.allocator.free(out);
     try std.testing.expect(std.mem.indexOf(u8, out, "try foo()") == null);
     try std.testing.expect(std.mem.indexOf(u8, out, "= foo()") != null);
 }
 
-/// Recursively check if `sexp` (or any descendant) is a `(propagate ...)`
-/// or explicit `(try ...)` form. Used to decide whether the enclosing
-/// function should be marked fallible (`!T` return type).
-fn containsPropagate(sexp: Sexp) bool {
-    if (sexp != .list) return false;
-    const items = sexp.list;
-    if (items.len == 0) return false;
-    if (items[0] == .tag and (items[0].tag == .@"propagate" or items[0].tag == .@"try")) return true;
-    // Don't descend into nested fn/sub/lambda — those have their own scope.
-    if (items[0] == .tag and
-        (items[0].tag == .@"fun" or items[0].tag == .@"sub" or items[0].tag == .@"lambda"))
-        return false;
-    for (items) |child| if (containsPropagate(child)) return true;
-    return false;
-}
-
-/// Walk `body` and add the name of every binding that is `set` more than
-/// once (the second `set` is a reassignment). Names with single `set`
-/// declarations should be `const` in Zig; reassigned names need `var`.
-fn scanMutations(
-    out: *std.StringHashMapUnmanaged(void),
-    allocator: std.mem.Allocator,
-    body: Sexp,
-    source: []const u8,
-) (std.mem.Allocator.Error || rig.BindingKindError)!void {
-    var seen: std.StringHashMapUnmanaged(void) = .{};
-    defer seen.deinit(allocator);
-    try scanMutationsRec(out, &seen, allocator, body, source);
-}
-
-fn scanMutationsRec(
-    out: *std.StringHashMapUnmanaged(void),
-    seen: *std.StringHashMapUnmanaged(void),
-    allocator: std.mem.Allocator,
-    sexp: Sexp,
-    source: []const u8,
-) (std.mem.Allocator.Error || rig.BindingKindError)!void {
-    if (sexp != .list) return;
-    const items = sexp.list;
-    if (items.len == 0) return;
-    if (items[0] == .tag) {
-        const tag = items[0].tag;
-        // Don't descend into nested fn/sub/lambda — they're separate scopes
-        // analyzed by their own scanMutations call.
-        if (tag == .@"fun" or tag == .@"sub" or tag == .@"lambda") return;
-
-        // Each `(block ...)` opens a new lexical scope. Use a fresh
-        // `seen` set within so a binding name reused across sibling
-        // scopes (e.g., the same `tmp` in two match arms) doesn't get
-        // misdetected as a reassignment of the first.
-        if (tag == .@"block") {
-            var inner_seen: std.StringHashMapUnmanaged(void) = .{};
-            defer inner_seen.deinit(allocator);
-            for (items[1..]) |child| {
-                try scanMutationsRec(out, &inner_seen, allocator, child, source);
-            }
-            return;
-        }
-
-        if (tag == .@"set" and items.len >= 5) {
-            // (set <kind> name type expr). Decide whether this site
-            // means "declare a new binding" or "mutate an existing one":
-            //
-            //   compound ops (`+=` `-=` `*=` `/=`)  → always mutation
-            //   move-assign (`<-`)                  → always mutation
-            //   plain `=`                           → mutation iff target was already declared in this scope
-            //   `=!` (fixed) / `new` (shadow)       → fresh binding (no mutation)
-            //
-            // Exhaustive switch on BindingKind — adding a new kind to
-            // the enum forces an explicit decision here.
-            const kind = try rig.bindingKindOf(items[1]);
-            const target = items[2];
-            if (target == .src) {
-                const nm = source[target.src.pos..][0..target.src.len];
-                switch (kind) {
-                    .@"+=", .@"-=", .@"*=", .@"/=", .@"move" => {
-                        // Always counts as mutation; doesn't affect `seen`.
-                        try out.put(allocator, nm, {});
-                    },
-                    .default => {
-                        if (seen.contains(nm)) {
-                            try out.put(allocator, nm, {});
-                        } else {
-                            try seen.put(allocator, nm, {});
-                        }
-                    },
-                    .fixed, .shadow => {
-                        // Fresh binding — record in scope, don't mutate.
-                        try seen.put(allocator, nm, {});
-                    },
-                }
-            }
-        }
-    }
-    for (items) |child| try scanMutationsRec(out, seen, allocator, child, source);
-}
-
-/// M20g(3/5): true iff `sexp` is a lambda literal `(lambda ...)`.
-fn isLambdaExpr(sexp: Sexp) bool {
-    if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return false;
-    return sexp.list[0].tag == .@"lambda";
-}
-
-/// M20g(3/5): true iff `sexp` is the `(captures cap_node...)` wrapper.
-fn isCapturesNode(sexp: Sexp) bool {
-    if (sexp != .list or sexp.list.len < 2 or sexp.list[0] != .tag) return false;
-    return sexp.list[0].tag == .@"captures";
-}
-
-/// M20g(3/5): extract the NAME `.src` from a capture node
-/// `(cap_xxx NAME)`. Returns null for malformed shapes.
-fn captureNameSrc(cap: Sexp) ?Sexp {
-    if (cap != .list or cap.list.len < 2 or cap.list[0] != .tag) return null;
-    return switch (cap.list[0].tag) {
-        .@"cap_copy", .@"cap_clone", .@"cap_weak", .@"cap_move" => cap.list[1],
-        else => null,
-    };
-}
-
-/// M20g(3/5): true iff `body` contains any bare-name reference
-/// (`.src`) matching one of the capture names in `captures`.
-/// Drives the `_ = self;` pacification: Zig forbids the discard
-/// when self IS used, but also requires self use somewhere. Body
-/// references to capture names get rewritten in emit to
-/// `self.cap_<n>`, so a capture-name `.src` reaching this scan
-/// means the body will reference `self.cap_<n>` and we should
-/// SKIP the discard. Returns true for the lookup-finds-capture
-/// case AND for explicit `(deref self)`/`(member self ...)`
-/// shapes — both keep `self` live for Zig.
-fn bodyReferencesAnyCapture(source: []const u8, body: Sexp, captures: Sexp) bool {
-    if (!isCapturesNode(captures)) return false;
-    return scanBodyForCaptureRef(source, body, captures.list[1..]);
-}
-
-fn scanBodyForCaptureRef(source: []const u8, sexp: Sexp, caps: []const Sexp) bool {
-    return switch (sexp) {
-        .src => |s| blk: {
-            const text = source[s.pos..][0..s.len];
-            for (caps) |c| {
-                const nn = captureNameSrc(c) orelse continue;
-                if (nn != .src) continue;
-                const cn = source[nn.src.pos..][0..nn.src.len];
-                if (std.mem.eql(u8, text, cn)) break :blk true;
-            }
-            break :blk false;
-        },
-        .list => |items| blk: {
-            // Don't recurse into nested lambdas (those have their
-            // own scope; the outer captures are not visible by
-            // M20g sema, so any bare-name match would be a false
-            // positive from a same-named local inside the inner
-            // lambda).
-            if (items.len > 0 and items[0] == .tag and items[0].tag == .@"lambda") {
-                break :blk false;
-            }
-            for (items) |child| {
-                if (scanBodyForCaptureRef(source, child, caps)) break :blk true;
-            }
-            break :blk false;
-        },
-        else => false,
-    };
-}
-
-/// M20g(3/5): recursively find the first `.src` position in a Sexp
-/// (mirrors the helper in src/types.zig). Used to key the
-/// `lambda_return_types` map between sema and emit; both ends
-/// derive the key from the lambda IR itself, so the
-/// stash + read sites agree.
-fn firstSrcPosEmit(s: Sexp) u32 {
-    return switch (s) {
-        .src => |x| x.pos,
-        .list => |items| blk: {
-            for (items) |c| {
-                const p = firstSrcPosEmit(c);
-                if (p > 0) break :blk p;
-            }
-            break :blk 0;
-        },
-        else => 0,
-    };
-}
-
-/// True if `sexp` is an expression-statement (i.e., not a binding/return/etc).
-/// These are the things that can be rewritten to `return <expr>;` when they
-/// appear as the last statement of a function body.
-fn isExprStmt(sexp: Sexp) bool {
-    if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return true;
-    return switch (sexp.list[0].tag) {
-        .@"set", .@"drop",
-        .@"return", .@"break", .@"continue",
-        .@"defer", .@"errdefer",
-        .@"block",
-        => false,
-        else => true,
-    };
-}
-
-/// True if `sexp` is a control-flow statement that never falls through
-/// to a subsequent statement (i.e., its Zig type is `noreturn`).
-///
-/// Used by `emitBranchExpr` to decide whether to append a `break :label
-/// <expr>;` after the branch's final statement. For terminating final
-/// statements, the branch produces `noreturn` and Zig coerces it to
-/// the other branch's type — no `break` needed (and would be
-/// unreachable).
-fn isTerminatingStmt(sexp: Sexp) bool {
-    if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return false;
-    return switch (sexp.list[0].tag) {
-        .@"return", .@"break", .@"continue" => true,
-        else => false,
-    };
+test "emit: Zig keywords are escaped" {
+    const out = try emitSourceToString(std.testing.allocator,
+        \\sub main()
+        \\  var = 3
+        \\  print(var)
+        \\
+    );
+    defer std.testing.allocator.free(out);
+    try std.testing.expect(std.mem.indexOf(u8, out, "const @\"var\" = 3;") != null);
 }

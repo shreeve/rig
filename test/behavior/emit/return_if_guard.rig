@@ -1,0 +1,14 @@
+# `return 1 if c` returns only when `c` holds; otherwise execution
+# continues to `return 2`.
+
+fun f(c: Bool) -> Int
+  return 1 if c
+  return 2
+
+sub main()
+  print(f(true))
+  print(f(false))
+
+# expect:
+# 1
+# 2
