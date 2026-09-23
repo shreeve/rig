@@ -44,10 +44,10 @@
 //! capture / ...), and for a capture the `origin` binding it captures.
 //!
 //! Leaves are keyed by source position (`src.pos`); list nodes by the
-//! identity of their item slice (`NodeKey`), which is stable because
-//! every pass walks the same IR tree that was passed to `check`. A node
-//! that sema never reached (dead code after an error, type positions)
-//! has no entry; callers treat `null` as "no information".
+//! node id the parser gave them (`List.id`), which the Parser wrapper's
+//! rewrites preserve. A node that sema never reached (dead code after an
+//! error, type positions) has no entry; callers treat `null` as "no
+//! information".
 //!
 //! Types are interned in `TypeStore`, so two TypeIds are the same type
 //! iff they are equal. `unknown` and `invalid` are poison: they appear
@@ -455,15 +455,20 @@ pub const compatible = exprs.compatible;
 // Facts
 // =============================================================================
 
-/// Identity of an IR list node: the address and length of its item
-/// slice.
-pub const NodeKey = struct { addr: usize, len: usize };
+/// Identity of an IR list node: its node id.
+pub const NodeKey = parser.NodeId;
 
+/// The key of a list node the parser built; null for anything else (a
+/// leaf, `_`, or the Parser wrapper's `(captures ...)`, which has no
+/// node id and no facts).
 pub fn nodeKey(node: Sexp) ?NodeKey {
-    return switch (node) {
-        .list => |items| .{ .addr = @intFromPtr(items.ptr), .len = items.len },
-        else => null,
-    };
+    if (node != .list or node.list.id == 0) return null;
+    return node.list.id;
+}
+
+/// The key of a node a fact is recorded for: a node the parser built.
+fn recordKey(node: Sexp) NodeKey {
+    return nodeKey(node) orelse std.debug.panic("sema recorded a fact for a node without a node id: {s}", .{if (node.kind()) |k| @tagName(k) else @tagName(node)});
 }
 
 pub const Facts = struct {
@@ -730,7 +735,7 @@ pub const SemContext = struct {
     pub fn typeOf(self: *const SemContext, node: Sexp) ?TypeId {
         return switch (node) {
             .src => |s| self.facts.leaf_types.get(s.pos),
-            .list => self.facts.node_types.get(nodeKey(node).?),
+            .list => self.facts.node_types.get(nodeKey(node) orelse return null),
             else => null,
         };
     }
@@ -772,24 +777,21 @@ pub const SemContext = struct {
     pub fn recordType(self: *SemContext, node: Sexp, ty: TypeId) !void {
         switch (node) {
             .src => |s| try self.facts.leaf_types.put(self.allocator, s.pos, ty),
-            .list => try self.facts.node_types.put(self.allocator, nodeKey(node).?, ty),
+            .list => try self.facts.node_types.put(self.allocator, recordKey(node), ty),
             else => {},
         }
     }
 
     pub fn recordScope(self: *SemContext, node: Sexp, scope: ScopeId) !void {
-        const key = nodeKey(node) orelse return;
-        try self.facts.scopes.put(self.allocator, key, scope);
+        try self.facts.scopes.put(self.allocator, recordKey(node), scope);
     }
 
     pub fn recordExhaustive(self: *SemContext, match: Sexp) !void {
-        const key = nodeKey(match) orelse return;
-        try self.facts.exhaustive.put(self.allocator, key, {});
+        try self.facts.exhaustive.put(self.allocator, recordKey(match), {});
     }
 
     pub fn recordCallSlots(self: *SemContext, call: Sexp, slots: []const ArgSlot) !void {
-        const key = nodeKey(call) orelse return;
-        try self.facts.call_slots.put(self.allocator, key, slots);
+        try self.facts.call_slots.put(self.allocator, recordKey(call), slots);
     }
 
     pub fn intern(self: *SemContext, ty: Type) std.mem.Allocator.Error!TypeId {
