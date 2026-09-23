@@ -1,1521 +1,1703 @@
-# Rig — Design Master Spec (V1)
-
-## Overview
-
-Rig is a systems programming language that combines:
-
-- Zig-level performance
-- Rust-inspired ownership safety
-- Rip/Zag-style syntax simplicity
-- A Nexus S-expression compiler pipeline
-- Zig as the native backend
-
-Rig is not trying to become "Rust with prettier syntax." The core philosophy is:
-
-> Important effects should be visible directly in the syntax.
-
-Rig aims to make ownership, mutation, transfer, failure propagation, compile-time specialization, and iteration semantics explicit and lightweight.
-
-The complement to that philosophy is the IR invariant in
-`docs/IR.md`: **visible source effects survive as visible
-semantic Tags through lowering.** Ownership operations (`<x` / `?x`
-/ `!x` / `+x` / `-x` / `*x` / `~x` / `%x`), failure propagation
-(`expr!`), compile-time specialization (`pre`), capture modes
-(`|+x|` / `|<x|` / `|~x|`), and the raw-escape boundary
-(`raw` block) all emit as first-class IR nodes the checkers and
-emitter consume by name — not as comments, not as inferred
-annotations, not as runtime convention. Tools that read Rig's
-semantic IR therefore see the same facts the compiler does,
-without speculation. This is the design property the M20+
-substrate ladder (`docs/INFLUENCES.md` §1) protects, and it is
-what a future stable semantic export (`rig sema --json`, see
-`docs/ROADMAP.md` §V1.x) will project for external consumers.
-
-Rig compiles to Zig.
-
-Rig itself performs:
-
-- parsing
-- semantic normalization
-- type analysis
-- ownership analysis
-- borrow checking
-- lowering to Zig
-
-Zig then performs:
-
-- optimization
-- code generation
-- register allocation
-- linking
-- ABI/platform handling
-
----
-
-# Compiler Pipeline
-
-```text
-Rig source
-→ Nexus parser
-→ raw S-expressions
-→ normalized semantic S-expressions
-→ type analysis
-→ ownership checker
-→ Zig generation
-→ Zig compiler
-→ machine code
-```
-
-Rig does NOT need to implement:
-
-- LLVM backend
-- register allocator
-- object format generation
-- linker
-- optimizer backend
-
-Rig leverages Zig for those responsibilities.
-
----
-
-# Language Philosophy
-
-Rig intentionally favors:
-
-- explicit ownership
-- lightweight syntax
-- visible effects
-- minimal ceremony
-- ownership-aware APIs
-- compile-time specialization
-- strong local readability
-
-Rig intentionally avoids:
-
-- giant trait systems
-- complex lifetime syntax
-- excessive keywords
-- hidden ownership transfer
-- implicit mutation
-- macro-heavy programming models
-
-Rig should feel:
-
-- simpler than Rust
-- safer than Zig
-- more explicit than Ruby
-- cleaner than C++
-
----
-
-# Core Ownership Algebra
-
-Rig ownership is represented through sigils.
-
-## Ownership Sigils
-
-```text
-<x       move ownership
-?x       read borrow
-!x       write borrow
-+x       clone/copy
--x       drop/end ownership
-*x       shared strong ownership
-~x       weak reference
-@x       pinned/stable address           (RESERVED: V2; sema rejects in V1)
-%x       raw access                      (requires `raw` block)
-```
-
-These operators are intentionally:
-
-- unary
-- local
-- visually distinct
-- emotionally intuitive
-- attached directly to values
-
-The ownership model is the core of Rig.
-
----
-
-# Ownership Semantics
-
-## Move
-
-```rig
-send <packet
-```
-
-Ownership transfers into `send`.
-
-`packet` becomes invalid afterward.
-
-```rig
-other <- packet
-```
-
-is sugar for:
-
-```rig
-other = <packet
-```
-
-Ownership visually flows leftward.
-
----
-
-## Read Borrow
-
-```rig
-print ?user
-```
-
-Read-only borrow.
-
-Many read borrows may coexist.
-
-Read borrows prohibit:
-
-- moves
-- writes
-- drops
-
-while active.
-
----
-
-## Write Borrow
-
-```rig
-rename !user
-```
-
-Exclusive mutable access.
-
-While write-borrowed:
-
-- no reads
-- no writes
-- no moves
-- no drops
-
-may occur.
-
----
-
-## Clone
-
-```rig
-backup = +user
-```
-
-Creates a new owned value.
-
-Original remains valid.
-
----
-
-## Drop
-
-```rig
--user
-```
-
-Ends ownership immediately.
-
-Drop is statement-only.
-
-This is NOT valid:
-
-```rig
-y = -x
-```
-
-because that remains numeric negation.
-
----
-
-## Shared Ownership
-
-```rig
-shared = *user
-```
-
-Single-threaded reference-counted shared ownership. V1 semantics:
-
-- `*expr` allocates a new `RcBox(T)` and **moves** `expr` into it
-  (per the M20d design pass: implicit clone would silently
-  duplicate ownership; users wanting to keep the original write
-  `*(+expr)` to clone-then-share).
-- `+rc` increments the strong count (`cloneStrong`); the original
-  handle stays valid alongside the new one.
-- `-rc` decrements the strong count (`dropStrong`); when the count
-  reaches zero, the inner value's drop glue runs synchronously if
-  `T` has drop glue, then the value's slot is released.
-- NOT `Send`, NOT `Sync` (no atomics — single-threaded V1).
-- Cycles leak by default; document loudly and lint where possible.
-
-This is exactly `Rc<T>`. Multi-threaded shared ownership (`Arc<T>`,
-`Send` / `Sync` marker, atomic refcounting) is deferred to V2.
-
-### V1 Drop Discipline (automatic, with explicit early-drop)
-
-**V1 has automatic scope-exit drop for `*T` / `~T` handles.** A
-binding of resource type that is not explicitly discharged is
-dropped at the end of its enclosing scope. Explicit `-rc` / `-w`
-still work and act as **early drop** — the handle is released at
-the explicit point, and the scope-exit auto-drop is a runtime no-
-op for that binding.
-
-Discharge markers that suppress auto-drop:
-
-- `-x` — explicit drop. Runs the runtime drop call at the explicit
-  point.
-- `<x` — move out (move-as-argument, move-as-assignment, etc.).
-  Transfers the handle to the receiver; the original binding's
-  auto-drop is suppressed.
-- `return x` (bare) — consuming move-out via the function's return
-  channel. Same suppression as `<x`.
-- Reassignment `x = <new>` — drops the previous handle, re-arms
-  the auto-drop for the new one. Exactly one drop per allocation.
-
-Non-discharging (binding stays live, auto-drop applies):
-
-- `+x` (clone) — original stays valid; both the original and the
-  cloned handle auto-drop independently at scope exit.
-- `~rc` (weak ref) — the shared original stays live; the new weak
-  handle gets its own auto-drop.
-- `w.upgrade()` — returns a fresh `(*T)?` but does not consume w.
-- Field access (`rc.field`) and method calls (`rc.method()`) via
-  M20d read-only auto-deref — these are non-consuming reads.
-
-Implementation (per the M20e design pass with GPT-5.5): every
-resource binding emits a Zig `defer` guarded by a runtime alive
-flag. Explicit discharges disarm the flag before the defer fires.
-Zig's defer behavior gives Rig path-sensitive cleanup across
-branches, early returns, break / continue, try / catch (when
-try-block emit lands), and labeled-block recipes — without any
-Rig-side static drop-elaboration analysis.
-
-V1 panic / unreachable: Zig defers run on `return` and on normal
-scope exit; they do NOT run on `@panic` / `unreachable`. Programs
-that panic with live resource handles leak those handles (the
-process is dying anyway). Document for clarity, not for change.
-
-### Interior mutability via `Cell(T)` (M20f + M26)
-
-The M20d rules reject write-receiver and consume-receiver methods
-through `*T` — shared ownership cannot grant unique mutable access.
-The user-facing escape hatch is `Cell(T)`, a built-in interior-
-mutability container:
-
-```rig
-rc: *Cell(Int) = *Cell(value: 0)
-rc.set(5)
-print(rc.get())            # 5
-```
-
-`Cell(T)` is a built-in generic nominal (registered alongside
-primitives at sema init; runtime implementation lives in
-`_runtime.zig`).
-
-**M26 extended `Cell(T)` to non-Copy resource T**, so the
-canonical userland Reactor cell shape `*Cell(Vec(*sub()))`
-is now constructible. The accept rule: `Cell(T)` accepts `T`
-when `T` is a Copy primitive OR `typeHasDropGlue(T)` is true
-(`*T` shared, `~T` weak, `Vec(T)`, `*sub()`, structs with
-resource fields or user `drop`, recursively `Cell(drop_T)`).
-Bare nominals without drop glue (e.g., a struct of only Copy
-fields) are still rejected — V1 doesn't yet track Copy for
-user types.
-
-**Cell's API:**
-
-- `value: T` — synthetic data field for the constructor sugar
-  `Cell(value: ...)`. Direct read access (`cell.value`) is
-  rejected for Drop T (would alias-double-drop).
-- `get(self: ?Cell(T)) -> T` — returns the current value by
-  copy. **Rejected for Drop T** (alias-double-drop). For Copy
-  T it returns by value as before.
-- `set(self: ?Cell(T), value: T)` — interior mutation. For
-  Copy T it overwrites; for Drop T the runtime calls
-  `dropElement(T, &self.value)` to release the old value
-  first, then stores `new`. The visible-effects rule still
-  applies at the call site: `cell.set(<new)` for resource T
-  (move) or `cell.set(+rc)` (clone), never bare alias.
-- `replace(self: ?Cell(T), value: T) -> T` — atomic
-  swap-and-yield primitive (M26). Stores `new` and returns
-  the old value as owned T. The caller must bind it; the
-  bound `old` gets the standard M20e auto-drop guard.
-  Anonymous results from `replace` are sema-rejected by the
-  M22.1 resource-temporary rule.
-
-All three methods take `?self` (read borrow) so M20d's
-auto-deref permits them through any access path (bare value,
-`?Cell(T)`, `*Cell(T)`). The interior mutation is guaranteed
-safe by Cell's contract — single-threaded V1, Cell's only
-methods are the trusted runtime ones.
-
-**Cell(T) carries drop glue when T does.** A stack-local
-`Cell(*User)` binding gets a scope-exit `__rig_drop` defer
-just like Vec; the heap-owned `*Cell(T)` form dispatches
-through the standard `dropStrong` → `__rig_drop` chain.
-Bare alias of a Drop-bearing Cell value is rejected by the
-generalized "any type with drop glue is non-Copy" rule.
-
-**M26-deferred:**
-- `take()` (yields-and-empties) — needs an empty-state
-  representation; deferred until a use case forces the design.
-- `cell.borrow()` read-access shape for Drop T — needs
-  lifetime rules through `*Cell` interior mutation; deferred.
-- User-defined `Clone` for Drop T (so users could opt into a
-  `+x` form for their Drop types).
-
-```rig
-# Old M20f-era restriction (still applies to bare nominals):
-c: Cell(Pair) = ...      # error: bare nominal without drop glue
-
-# M26-unlocked shapes (all valid):
-c: Cell(*User) = ...
-c: Cell(Vec(*sub())) = ...
-c: *Cell(*Cell(Int)) = ...
-```
-
-### Resource-aware containers via `Vec(T)` (M20i)
-
-`Vec(T)` is the first user-facing builtin OWNING value
-type — a growable container that owns its backing buffer
-and correctly cascades drops to its elements when it goes
-out of scope. Distinct from `*T` / `~T` handles (which are
-references to heap-allocated boxes), `Vec(T)` IS the
-allocation; the binding directly owns the buffer.
+# The Rig Language Reference
+
+This is the reference for Rig as the compiler implements it today. Every
+rule here is enforced by `rig check`, and every example is run by
+`./test/run`: a program followed by an `output` block must print exactly
+that output with no leaks, and a program marked as rejected must fail
+with the error shown. For the reasons behind the rules, see
+[docs/DESIGN.md](docs/DESIGN.md); for what is not built yet, see
+[docs/ROADMAP.md](docs/ROADMAP.md).
 
 ```rig
 sub main()
-  v: Vec(Int) = Vec()
-  (!v).push(10)
-  (!v).push(20)
-  (!v).push(30)
-  print(v.length())              # 3
-  # Scope exit: v.__rig_drop() walks elements LIFO + frees buf.
+  print("hello, rig")
 ```
 
-`Vec(T)` is registered as a built-in generic type at sema
-init; its runtime lives in `_runtime.zig`. The V1 API:
-
-- `Vec()` — construct empty.
-- `Vec(capacity: N)` — pre-allocate N elements of room.
-- `(!v).push(value)` — append. Write-receiver method.
-- `v.length() -> Int` — count. Read-receiver.
-- `(!v).clear()` — drop all elements (LIFO) + reset length.
-- `v.get(i) -> T?` — index access. Copy-T only.
-- `(!v).pop() -> T?` — remove + return last. Copy-T only.
-
-**Element-type restrictions (V1).** Allowed:
-
-- Copy primitives (`Int`, `Bool`, `Float`, `String`,
-  literal pseudo-types).
-- `*T` shared handles — drop via `dropStrong()`.
-- `~T` weak handles — drop via `dropWeak()`.
-- `*sub()` — a specific `*T`; works through the
-  shared-handle branch.
-
-Rejected:
-
-- Arbitrary nominal `T` without drop glue remains rejected in V1.
-  Nominals with compiler-recognized drop glue participate in the
-  resource/drop-glue path.
-- Nested `Vec(Vec(T))` — recursive resource semantics
-  deferred.
-- `Cell(T)` elements follow the same drop-glue/non-Copy rules as
-  other resource-bearing values. `Vec(*Cell(T))` remains the
-  common shared-interior-mutability shape.
-
-**Resource-value ownership rules.** Because `Vec(T)` owns
-its buffer, the M2 / M20d alias-footgun discipline applies
-to the Vec value itself:
-
-```rig
-v: Vec(Int) = Vec()
-v2: Vec(Int) = v          # error: bare use of `Vec` value would
-                          # copy the buffer pointer and double-free
-v2: Vec(Int) = <v         # OK — move ownership; `v` is consumed
--v                        # OK — explicit drop; subsequent use rejected
+```output
+hello, rig
 ```
 
-**Push-arg visibility.** For resource element types, the
-`push` argument must use an explicit mode sigil:
+## Contents
 
-```rig
-v.push(<rc)               # move handle into Vec
-v.push(+rc)               # clone handle into Vec
-v.push(rc)                # error: bare use of *T handle in
-                          # call argument would alias the handle
+1. [Programs](#1-programs)
+2. [Lexical structure](#2-lexical-structure)
+3. [Types](#3-types)
+4. [Declarations](#4-declarations)
+5. [Bindings and assignment](#5-bindings-and-assignment)
+6. [Expressions](#6-expressions)
+7. [Control flow](#7-control-flow)
+8. [Ownership](#8-ownership)
+9. [Drop and drop glue](#9-drop-and-drop-glue)
+10. [Shared and weak handles](#10-shared-and-weak-handles)
+11. [Cell, Vec, and Signal](#11-cell-vec-and-signal)
+12. [Closures](#12-closures)
+13. [Optionals](#13-optionals)
+14. [Errors](#14-errors)
+15. [Modules](#15-modules)
+16. [Raw code and FFI](#16-raw-code-and-ffi)
+17. [Compile-time parameters](#17-compile-time-parameters)
+18. [Printing](#18-printing)
+19. [Reserved and rejected forms](#19-reserved-and-rejected-forms)
+
+---
+
+## 1. Programs
+
+A Rig program is a file of declarations: functions (`fun`, `sub`),
+types (`struct`, `enum`, `error`, `type`), imports (`use`), `extern`
+declarations, and `test` blocks. Statements live inside functions;
+module-level bindings are not supported yet. `rig run` needs a
+`sub main()`.
+
+```bash
+bin/rig run hello.rig      # check, emit Zig, build in Debug mode, run
+bin/rig check hello.rig    # check only
+bin/rig build hello.rig    # check, then print the emitted Zig
 ```
 
-For Copy element types, plain `push(x)` is fine (no aliasing
-concern).
+`rig run` builds in Debug mode with a leak-checking allocator: a program
+that leaks memory prints each leak and exits with an error. Integer
+overflow and out-of-bounds indexing panic.
 
-**Auto-drop discipline.** A stack-local `Vec(T)` is dropped at
-scope exit: its elements are dropped last-first, then the
-backing buffer is freed. A shared `*Vec(T)` is dropped the same
-way when its last strong handle goes.
+---
 
-```rig
+## 2. Lexical structure
+
+### Comments
+
+A comment runs from `#` to the end of the line.
+
+### Indentation
+
+Blocks are marked by indentation, with spaces only. A line indented
+deeper than the one before it opens a block; coming back to an
+enclosing line's indentation closes it. A tab in indentation is an
+error, and so is a dedent to a column that matches no enclosing block.
+
+```rig reject
 sub main()
-  c1: *Cell(Int) = *Cell(value: 11)
-  c2: *Cell(Int) = *Cell(value: 22)
-  v: Vec(*Cell(Int)) = Vec()
-  (!v).push(<c1)             # move c1's handle into Vec
-  (!v).push(<c2)             # move c2's handle into Vec
-  print(v.length())          # 2
-  # Scope exit (LIFO defer order):
-  #   v.__rig_drop() walks elements, calls dropStrong on each
-  #   *Cell(Int). Each Cell's RcBox refcount → 0 → Cell freed.
+	print(1)
 ```
 
-**V1 deferred features.**
+```error
+tab in indentation; indent with spaces
+```
 
-- `get`/`pop` on resource elements (returning `(*T)?` would
-  need optional-resource auto-drop semantics that aren't
-  yet designed). For subscriber notification patterns,
-  iterate via `for x in ?vec` (M20i.1 — see below).
-- `insert(i, v)` / `remove(i)` / `swap_remove(i)`.
-- Internal-callback iteration (`v.each(...)`) — M20i.1 ships
-  external `for` only; the callback shape may be added in
-  M20j after PB3 exposes whether the ergonomics matter.
-- Persistent / CHAMP-backed Vec — see `docs/INFLUENCES.md`
-  §8 for the conditional roadmap entry.
-- `*Cell(Vec(T))` — shipped via M26 Cell-non-Copy support when
-  `Vec(T)` has drop glue. Remaining Cell deferred items are
-  `take()`, borrowed access to Drop `T`, and user-defined `Clone`.
+### Line joining
 
-### Vec iteration via `for x in ?vec` (M20i.1)
-
-External `for x in vec` walks the Vec's elements in insertion
-order. The shape mirrors the existing `for u in ?users`
-iteration over borrowed slices, but lowers to a Vec-aware Zig
-walk and threads borrow discipline through both element binding
-shape and source mutation.
-
-**Copy element T (e.g., `Vec(Int)`):**
+Inside `( )` and `[ ]` a newline is plain whitespace, so arguments,
+expressions, and method chains can span lines at any indentation. A
+backslash at the end of a line joins the next line anywhere.
 
 ```rig
-nums: Vec(Int) = Vec()
-(!nums).push(10); (!nums).push(20); (!nums).push(30)
-for n in nums                      # iter mode (no `?`); bind by value
-  print(n)                         # 10, 20, 30
-```
+fun add3(a: Int, b: Int, c: Int) -> Int
+  a + b + c
 
-The element `n: Int` is bound by value. Iterator-invalidation
-for Copy T is "wrong logic" (silently misleading output), not
-memory unsafety — runtime is bounded by `len`. The user is
-responsible for not mutating the Vec mid-iteration.
-
-**Resource element T (e.g., `Vec(*sub())`):**
-
-```rig
-subs: Vec(*sub()) = Vec()
-(!subs).push(+cb1); (!subs).push(+cb2)
-for cb in ?subs                    # `?` source borrow is MANDATORY
-  cb()                             # bare read OK (invoke = read op)
-```
-
-Per the M20i.1 design pass (GPT-5.5 entry 26):
-
-1. **The `?` source borrow is mandatory.** Bare-source
-   iteration over a resource-element Vec is sema-rejected:
-   ```
-   error: resource Vec(T) iteration requires an explicit read
-          borrow; write `for x in ?vec`
-   ```
-   The `?` makes the borrow visible at the syntax level and
-   lights up the ownership-layer mutation guard.
-2. **The element binding is a borrowed view of the Vec slot.**
-   Sema types `cb` as `borrow_read(*sub())` — not as an
-   owned `*sub()`. The element stays in the Vec's storage;
-   the body sees a non-consuming read alias of it. The M20d
-   auto-deref makes `cb()`, `cb.method(...)`, and `cb.field`
-   all work transparently.
-3. **The loop body cannot write-borrow the source.** The for
-   installs a scope-bound read borrow on the source Vec, so
-   `(!subs).push(...)` / `<subs` / `-subs` inside the body
-   fire the standard borrow-conflict diagnostic. This prevents
-   iterator-invalidation that could free elements mid-iteration
-   (resource Vec drop is memory-safety, unlike Copy T).
-   **Caveat:** the lexical borrow rule only catches direct
-   `subs` references inside the loop body. If the loop calls a
-   retained closure (`cb()`) that itself captures `subs` and
-   mutates it, the lexical checker can't see through the
-   indirection — that's a reentrancy hazard PB3 will need a
-   runtime policy for (snapshot subscribers, queue mutations,
-   or an explicit `notifying` flag).
-4. **The element cannot be cloned / moved / dropped / returned
-   / stored.** `+cb`, `<cb`, `-cb`, `return cb`, and bare
-   `cb` as a call argument / binding RHS all fire tailored
-   diagnostics:
-   ```
-   error: cannot {clone,move,drop,return,...} loop-borrow
-          alias `cb`; resource Vec(T) iteration binds the
-          element as a read borrow of the Vec slot. Clone /
-          move / drop / store are not supported on borrowed
-          elements in V1.
-   ```
-   For PB3 multi-subscriber notification, the only required
-   use is `cb()`, which works cleanly.
-
-**Modes.** The for grammar's mode slot drives the dispatch:
-
-| Mode    | Source form    | Copy T | Resource T |
-|---------|----------------|--------|------------|
-| `iter`  | `for x in vec` | OK     | rejected   |
-| `read`  | `for x in ?vec`| OK     | OK         |
-| `write` | `for x in !vec`| n/a    | rejected (V1) |
-| `move`  | `for x in <vec`| n/a    | rejected (V1) |
-| `ptr`   | `for *x in vec`| n/a    | rejected (V1) |
-
-Write / move / pointer iteration over resource Vec is V1-
-deferred — would require resource-T `pop`/`get` or `take`/
-`swap` primitives that don't exist yet.
-
-**Source restrictions for resource Vec (M20i.1.1).** Resource
-Vec iteration requires the source to be a bare local Vec
-binding. `for cb in ?h.subs` (member access) and
-`for cb in ?makeVec()` (function call) are rejected:
-
-```
-error: resource Vec(T) iteration in V1 requires a bare local
-       Vec binding as the source; got an expression. Bind the
-       result to a `Vec(T)` local first.
-```
-
-Two reasons: (a) the ownership-layer loop-source read borrow
-only attaches to a bare name; iterating over a member /
-temporary would leave the Vec un-borrowed, defeating the
-mutation rejection rule; (b) a function-result temporary's
-buffer is dropped at statement end, freeing elements
-mid-loop. Copy Vec iteration is permissive on source shape
-(no resource hazard) — this restriction only fires for
-resource elements.
-
-**Emit shape.** Vec iteration lowers to an explicit walk
-(Zig doesn't know how to iterate `rig.Vec(T)`):
-
-```zig
-// Copy element (Shape Y):
-if (nums.buf) |__rig_p_X| {
-    var __rig_i_X: usize = 0;
-    while (__rig_i_X < nums.len) : (__rig_i_X += 1) {
-        const n = __rig_p_X[__rig_i_X];
-        // <body>
-    }
-}
-
-// Resource element (Shape X):
-if (subs.buf) |__rig_p_X| {
-    var __rig_i_X: usize = 0;
-    while (__rig_i_X < subs.len) : (__rig_i_X += 1) {
-        const __rig_elem_cb = &__rig_p_X[__rig_i_X];
-        // Uses of `cb` lower to `__rig_elem_cb.*`.
-        // `cb()` lowers to `__rig_elem_cb.*.value.invoke()`.
-    }
-}
-```
-
-The outer `if (vec.buf) ...` handles the empty-Vec case
-naturally (runtime: `buf == null` until the first push). The
-slot-alias rewrite for Shape X preserves the "borrowed view"
-semantics at the Zig level — no normal Zig local of the strong
-handle type exists for the body to misuse.
-
-**Substrate role.** M20i.1 is the prerequisite for PB3 (multi-
-subscriber Signal). PB3 will generalize `Signal(T)` from one
-optional `*sub()` subscriber to `Vec(*sub())`, with
-`signal.set(v)` running `for cb in ?self.subs ; cb()` to
-notify all subscribers. The substrate piece is now solid; the
-remaining design questions (batching, topology, Memo) live in
-their own PB3 / PB4 checkpoints.
-
-### Reactive primitive: `Signal(T)` (PB2 / PB3 / PB4)
-
-`Signal(T)` is Rig's built-in reactive primitive used to force the
-substrate to compose correctly — NOT a
-long-term reactive API. Per GPT-5.5 entry 33 (PB4 design pass):
-Rust and Zig deliberately keep reactivity in libraries
-(Leptos / Dioxus / etc. on Rust; no ecosystem on Zig). Rig
-holds the same position: the SUBSTRATE (heap closures +
-resource Vec + Vec iteration + capture-resource audit) belongs
-in the language; reactive LIBRARIES (`Reactor` / `Memo` /
-`Effect` / batching / dependency-graph topology) belong in
-userland, once `Cell`-non-`Copy` or equivalent substrate
-lands. Signal is the minimum-viable surface that forces the
-substrate to compose correctly. **Do not extend Signal
-speculatively.**
-
-The Signal primitive itself: a `Cell`-like value slot paired
-with a list of retained `*sub()` subscribers. On
-`signal.set(v)`, the value updates AND every subscriber is
-invoked synchronously in subscription order.
-
-```rig
 sub main()
-  sig: *Signal(Int) = *Signal(value: 0)
-  log_a: *sub() = *|+sig| print(sig.get() + 1000)
-  log_b: *sub() = *|+sig| print(sig.get() + 2000)
-  sig.subscribe(+log_a)
-  sig.subscribe(+log_b)
-  sig.set(7)                      # prints 1007 then 2007
-  sig.set(99)                     # prints 1099 then 2099
+  total = add3(
+    1,
+    2,
+    3
+  )
+  more = (total +
+      10)
+  last = 1 + \
+    2
+  print(total, more, last)
 ```
 
-`Signal(T)` is registered as a one-arg built-in generic type at
-sema init (parallel to `Cell` and `Vec`); its runtime lives in
-`_runtime.zig`. V1 API:
-
-- `*Signal(value: T)` — constructor. **Heap-owned form is
-  mandatory** in V1; stack-local `Signal(T)` is sema-rejected
-  (see below).
-- `signal.get() -> T` — current value (copy semantics).
-- `signal.set(v: T)` — updates value AND invokes every
-  retained subscriber synchronously in subscription order.
-  **Non-reentrant** — see R2 policy below.
-- `signal.subscribe(cb: *sub())` — takes ownership of the
-  handle it is given and appends it to the internal subscriber
-  Vec; pass `+cb` to keep your own. Multiple subscribes
-  accumulate; there is no `unsubscribe` in V1 (deferred — see
-  below).
-
-**V1 restriction: `Signal(T)` remains Copy-only** (`Int`, `Bool`,
-`Float`, `String`, and literal pseudo-types). Cell-non-Copy and
-`replace` shipped in M26, but non-Copy `Signal(T)` still needs
-its own `value` / `pending_value` drop and replacement semantics
-before lifting the restriction.
-
-**Reentrancy policy (PB3 R2 baseline, PB4 set-relaxation).**
-The runtime's `notifying: bool` flag tracks whether a
-notification round is active.
-
-PB3 (R2 baseline) made both `set` and `subscribe` panic on
-reentry — the strict starting point. PB4 (per GPT-5.5
-entry 33) relaxed `set` to a queued-coalesced drain loop while
-keeping `subscribe` strict:
-
-  - **Reentrant `set`** queues the new value into a per-Signal
-    `pending_value` slot (coalescing — multiple reentrant sets
-    in one notification round all collapse to the last value).
-    After the current walk completes, the queued value
-    triggers another walk, repeating until no more values
-    queue. Iterative drain loop, NOT recursive (recursion
-    would re-enter the guard AND grow the stack proportionally
-    to cascade depth). A subscriber that always re-sets its
-    own Signal will loop forever — that's a user-logic bug,
-    not a memory-safety issue.
-  - **Reentrant `subscribe`** still panics:
-    ```
-    panic: Signal.subscribe called while notifying subscribers
-    ```
-    List-mutation semantics during iteration are subtler than
-    the queued-value pattern set uses; locking that policy
-    would force a mini-Reactor design that PB4 deliberately
-    defers. Strict-first; relax later only if a canary
-    forces it.
-
-The R2-relaxed-for-set policy generalizes cleanly to a future
-`Future<T>` async primitive (resolve-once, notify-waiters, no
-recursive resolve — the same shape applies, with `set`'s drain
-loop becoming `resolve`'s one-shot notify).
-
-**Signal is a last-value primitive, NOT an event stream.**
-Per GPT-5.5 entry 34: when multiple reentrant `set` calls
-happen within one notification round, the queue COALESCES to
-the most-recent value (the slot is a single `pending_value`,
-not a queue). If subscriber A calls `sig.set(99)` and a later
-subscriber B in the same round calls `sig.set(42)`, only 42
-is consumed by the next round; 99 is silently dropped. This
-is the correct semantics for a value-broadcast model: the
-Signal represents "the current value of X," not "the history
-of values X has taken." Users who need every-value-delivered
-semantics (event streams, message queues) need a different
-primitive (Event / Channel / Queue) — not Signal. That
-distinction matters for future async/channel design.
-
-**Stack-local `Signal(T)` rejected in V1.** Signal owns a
-`Vec(*sub())` of retained subscribers; the Vec requires an
-M20e-style scope-exit defer-guard to release the buffer at
-scope exit. Wiring Signal through the same machinery as Vec is
-possible but bigger than the smallest-safe-path rejection. The
-heap-owned form `*Signal(T)` is the only V1 shape:
-
-```rig
-sig: Signal(Int) = Signal(value: 0)
-# error: stack-local `Signal(T)` is not supported in V1;
-#        Signal owns a subscriber `Vec` that requires heap
-#        ownership. Use `*Signal(T)` (heap-owned) instead.
-
-sig: *Signal(Int) = *Signal(value: 0)
-# OK — the last strong handle's drop drops the subscriber Vec.
+```output
+6 16 3
 ```
 
-**`subscribe` discipline.** Caller's `*sub()` handle is
-unaffected — `subscribe` clones it, so the user can retain
-their own strong reference (e.g., for logging or testing) while
-the Signal independently holds its own. No unsubscribe in V1:
-identity-comparison on RcBox pointers is straightforward but
-the slot-shift / iteration interaction is its own design
-decision. Users who need register/unregister can build it
-userland via weak handles + `.upgrade()` (M20d primitives).
+The one exception is a closure whose bar list ends a line inside
+brackets: its body below is laid out in blocks as usual
+([§12](#multi-line-closure-bodies)).
 
-**Lifecycle**:
+### Keywords
 
-- `init(value)` — Vec subs initialized empty with the default
-  allocator; first `subscribe` allocates the backing buffer.
-  `pending_value` placeholder-initialized to the init value
-  (only read when `pending_set` is true).
-- `subscribe(cb)` — clone + push. Caller's handle still live.
-  PANIC if called during notification.
-- `set(v)` — if NOT notifying, run a drain loop: set
-  `notifying = true`, write `value`, walk `subs` forwards
-  with `len` snapshot at the start of each round, then loop
-  while `pending_set` is true (consuming `pending_value` each
-  round and clearing the flag). `defer notifying = false`
-  resets the guard at function exit. If notifying, queue the
-  value (overwriting any prior queued value) and return.
-- `__rig_drop` — cascades through `self.subs.__rig_drop()`
-  which walks elements LIFO and dropStrongs each retained
-  closure via the M20i `dropElement` dispatch. `value` and
-  `pending_value` are Copy so no per-field cleanup is needed.
-
-**V1 deferred features.**
-
-- Reentrant `subscribe` (list mutation during iteration).
-  Stays panic in V1.
-- Unsubscribe / subscription tokens. Userland-buildable via
-  weak handles + `.upgrade()` in the meantime.
-- Cross-Signal batching / explicit `Reactor.flush()`.
-  Explicitly **userland** work, not future builtin per
-  GPT-5.5 entry 33. Blocked on `Cell`-non-`Copy` substrate
-  for the natural userland shape (`*Cell(Vec(NotifyJob))`).
-- `Memo` (derived values that auto-recompute on dep change).
-  Userland. May require `pre`-time AST extraction (D8) for
-  ergonomic auto-tracking.
-- `Effect` lifecycle (auto-unregister on Effect drop).
-  Userland. Needs the unsubscribe primitive above.
-- Topology / dependency-graph ordering. Userland.
-- Multi-threaded Signal (`Arc<Signal>` / `Send` / `Sync`). V2+.
-
-**Substrate composition.** Phase B is the convergence point
-of Rig's reactive substrate work:
-
-  M20h     heap closures            (stored partial execution)
-  M20i     resource Vec             (owned container of escaping callbacks)
-  M20i.1   resource-Vec iteration   (walk over retained callbacks)
-  PB3      multi-subscriber Signal  (retained-callback-list notify)
-  PB4      reentrant-set queued     (deterministic cascade in V1)
-
-This same shape — value slot + list of resumption continuations
-+ notify-on-resolve — is structurally what `Future<T>` needs
-for async (per `docs/INFLUENCES.md` §2 "async is
-stored-partial-execution"). Future async work derives the
-`Future<T>` shape from PB3 + PB4 (resolve-once + waiter list
-+ drain-to-completion) but still requires state-machine
-lowering, poll/wake ABI, pin discipline, cancellation, and an
-executor — substrate-closer-than-it-was, not "trivial
-derivation."
-
-**Position relative to other languages.** Rust ships zero
-reactivity in std (Leptos / Dioxus / Yew / Sycamore are all
-libraries on `Rc<RefCell<T>>` + closures). Zig ships nothing.
-Rig holds the same position: substrate in the language,
-reactive library in userland. The reactive library shape
-(`Reactor` / `Memo` / `Effect`) does NOT belong as future
-builtins; it belongs as userland code built on Cell + Vec +
-owned closures + Signal. Cell-non-Copy and `replace` shipped in M26;
-remaining Reactor / Memo / Effect work is library design, not new
-builtin surface. The userland
-natural shape.
-
-### Resource temporaries (named-binding RAII boundary)
-
-**V1 auto-drop applies to named bindings and parameters.** Unbound
-`*expr` temporaries — for example `consume(*User(name: "a"))` or
-`(*User(name: "a")).field` — are NOT automatically dropped by
-M20e. They are only safe in positions where the receiving context
-takes ownership of the handle:
-
-- ✅ `consume(*User(...))` where `consume` has a `*User`
-  parameter (the callee owns it; its own M20e guard drops it).
-- ⚠️ `(*User(...)).field` — read access on an unbound temporary
-  leaks the allocation.
-- ⚠️ `*User(...)` as a bare expression-statement — leaks.
-
-For V1, bind the result to a name and let M20e auto-drop handle
-it:
-
-```rig
-rc = *User(name: "a")
-print(rc.field)
-# rc auto-drops at scope exit
-```
-
-A future ergonomics milestone may either reject leak-shaped
-temporaries with a clear diagnostic or lower them to hidden
-guarded bindings; for V1 the binding-only boundary is the
-contract.
-
-### Alias Discipline (M20d, enforced now)
-
-Bare `*T` / `~T` handles cannot be reused without making the
-ownership effect visible. Specifically:
-
-```rig
-rc = *User(...)
-rc2 = rc              # error: bare alias; use `<rc` (move) or `+rc` (clone)
-takes_rc(rc)          # error: bare alias; use `<rc` (move into callee)
-```
-
-The fix matches Rig's `?x` / `!x` / `<x` / `+x` algebra: the
-ownership effect appears at the call site. Move (`<rc`) transfers
-the handle without bumping the count; clone (`+rc`) bumps the strong
-count and produces a fresh handle.
-
-Read-only access through a shared handle is unrestricted:
-
-```rig
-print(rc.field)       # OK — read-only auto-deref
-print(rc.read_method()) # OK — method declared with `self: ?T`
-```
-
-Write or consume through shared is rejected (other handles may
-exist; we can't hand out unique mutable access):
-
-```rig
-rc.write_method()     # error: write-receiver method through `*T`
-rc.consume()          # error: consume through `*T`
-rc.field = X          # error: field-target assign through `*T`
-```
-
-The user-facing escape hatch for controlled mutation through shared
-ownership is the shipped built-in `Cell(T)` interior-mutability
-container.
-
-### Type-position precedence: `*T?` vs `(*T)?`
-
-Prefix `*` and `~` bind LOOSER than suffix `?` and `!` (consistent
-with `?T?` parsing as `(borrow_read (optional T))`):
+These words are reserved and cannot name anything:
 
 ```text
-*User?     parses as  shared(optional(User))   # "shared handle to optional User"
-(*User)?   parses as  optional(shared(User))   # "optional shared handle"
-~User?     parses as  weak(optional(User))
-(~User)?   parses as  optional(weak(User))
+and  as  break  catch  continue  defer  drop  else  enum  errdefer
+error  extern  false  for  fun  if  in  match  not  or  pre  pub  raw
+return  struct  sub  test  true  try  type  use  while  zig
 ```
 
-`WeakHandle.upgrade()` returns `(*T)?` (optional shared handle) —
-the spelling requires parens because the suffix would otherwise bind
-inside the prefix.
+`new` is a keyword only at the start of a statement (`new x = ...`), so
+a method may be named `new`. `none` is a reserved name for the absent
+optional. Words that are keywords in Zig but not in Rig (`var`, `fn`,
+`const`) are ordinary names.
 
-### Drop Order
+```rig reject
+fun f(in: Int) -> Int
+  in
+```
 
-When the last `*T` strong handle is dropped, the value's drop glue
-runs synchronously before the allocation is released. If `T` has a
-user `drop`, that body runs before the compiler-generated structural
-field cleanup (M25). Any `~T` weak handles to the same value upgrade
-to `none` after this point. Destructors during a callback dispatch
-(reactive flush, observer notify, etc.) are allowed; re-entrant
-destruction is the calling library's policy to handle.
+```error
+unexpected keyword `in`
+```
 
----
+### Literals
 
-## Weak Reference
+| Literal | Examples | Notes |
+|---|---|---|
+| Integer | `42`, `0xff`, `0b1010`, `0o17` | no digit separators or suffixes |
+| Float | `3.14`, `1.0e10`, `2e-3`, `1.5E+2` | a digit sequence with a `.` or an exponent |
+| String | `"tab\tnewline\n"`, `'it''s'` | double quotes take Zig escapes (`\n`, `\t`, `\\`, `\"`, `\x41`, `\u{e9}`); single quotes take none, and `''` is one `'` |
+| Bool | `true`, `false` | |
+| Absent optional | `none` | see [§13](#13-optionals) |
+| Array | `[1, 2, 3]` | see [§3](#arrays) |
+| Enum variant | `.red`, `.circle(radius: 2)` | typed by context |
+
+There is no string interpolation; `print` takes several values instead.
 
 ```rig
-weak = ~shared
+sub main()
+  print(0xff, 0b101, 0o17, 1.5E+2, 2e-3)
+  print('single: "no escapes\n"', "double: 'x'\ty")
 ```
 
-Single-threaded weak handle paired with `*T`. V1 semantics:
-
-- does NOT keep `T` alive
-- after the last `*T` is dropped, all `~T.upgrade()` calls return
-  `none`
-
-Exactly `Weak<T>`. Required for cycle-free shared-graph structures
-(GUI parent/child, observer subscriber lists, reactive subscriber
-back-edges, ECS handles, graph data structures, compiler
-self-referential types).
-
-### Built-in method: `upgrade() -> (*T)?`
-
-Every weak handle (`~T`) supports the built-in method:
-
-```rig
-w.upgrade()    # returns (*T)?
+```output
+255 5 15 150 0.002
+single: "no escapes\n" double: 'x'	y
 ```
 
-`upgrade` is a **built-in method on `~T`**, not a sigil and not a
-user-overridable function. Semantically:
+### The spacing rule
 
-- Returns `(*T)?` — an optional shared handle. The optional carries
-  the failure mode: weak references exist precisely because the
-  referent may have been dropped, and `upgrade` reports that
-  honestly rather than panicking.
-  - Note the type spelling: `(*T)?` is `optional(shared(T))`
-    ("optional shared handle"). The prefix-suffix precedence rules
-    (see §Shared Ownership) mean `*T?` parses as
-    `shared(optional(T))` instead — a different type.
-- Takes no arguments. `w.upgrade(arg)` is a sema error.
-- Only available on weak handles. `rc.upgrade()` where `rc: *T` is
-  a sema error with a targeted suggestion (use `~rc` first), UNLESS
-  the underlying type `T` defines its own `.upgrade()` method, in
-  which case auto-deref through shared dispatches to the user's
-  method.
-- Built-in `upgrade` on `~T` takes precedence over any user-defined
-  `.upgrade()` only when the receiver is actually weak. Users
-  cannot override the built-in via a method on `T`.
+Several characters are both operators and prefixes: `<` `+` `-` `*` `?`
+`!` `~` `%` `@`. One rule decides which, and it also governs `(`, `[`,
+and `.`:
 
-Why a method and not a sigil: every other Rig ownership sigil
-(`<`, `?`, `!`, `+`, `-`, `*`, `~`, `@`, `%`) is total within its
-domain — it succeeds in normal control flow and only fails on
-sema-detectable errors or environmental conditions (OOM). `upgrade`
-is fundamentally fallible (the referent may be gone), so spelling
-it as a method makes the failure mode visible at the call site and
-keeps the sigil family's "sigil = total transformation" invariant
-intact. A future sugar candidate (`^w` for upgrade) was considered
-during M20d.2 design and deferred — see HANDOFF / ROADMAP for the
-discussion. The method form is the V1 commitment.
+> A character that touches its operand and not the value before it is
+> a prefix. Otherwise it is an infix operator, or it continues the value
+> before it.
 
-**Constraint.** `*T` and `~T` are an "all or nothing" V1
-commitment. Shipping them as parsed-but-fake is more dangerous than
-not shipping them — fake handles create false-promise APIs that
-calcify. Either both have real semantics in V1, or both are
-reserved for V2. See `docs/REACTIVITY.md` for the design
-discussion.
-
----
-
-## Pin
-
-```rig
-pinned = @user
-```
-
-**Deferred to V2.** Pinning is a `Pin<P>` discipline, not a sigil;
-the substrate cost (pin projection, `Unpin` taxonomy,
-move-while-pinned errors) is too high for V1's benefit. V1 use
-cases (self-referential structs, subscribe-in-init callbacks) are
-workable via `alloc.create` returning a `*Self` with a stable heap
-address.
-
-The `@x` sigil parses in V1 but sema rejects it. Pinning is
-reserved for V2; there is no accepted V1 pin operation. (`@` also
-prefixes Zig builtin calls — `@sizeOf(T)` etc. — which is a
-separate, unrelated use of the symbol.)
-
----
-
-## Raw escape (M22)
-
-```rig
-raw
-  ptr = %buffer.ptr
-```
-
-Escape hatch from ownership guarantees. `%` intentionally looks
-visually dangerous, but the sigil alone is not enough — `%x`,
-non-whitelisted `@builtin(...)` calls, and calls to `extern`
-functions all require a `raw` **block**. The block is the
-statement-level audit boundary; making it visually heavy is
-the point.
-
-(Renamed from M19's `unsafe` keyword for sigil-alignment with
-the existing `%x` raw-prefix sigil — 3 letters, reads as a
-noun rather than a Rust-imported scarlet letter.)
-
-### Syntax
-
-**Block-only form.** There is no `raw expr` single-statement
-shortcut, and no `raw sub`/`raw fun` function-modifier in V1
-(per the M22 cleanup, GPT-5.5 entry 38). The block is the only
-construct:
-
-```rig
-sub safe_wrapper()
-  raw
-    ptr = %buffer.ptr
-    raw_op(ptr)
-```
-
-**There is no raw/unsafe function modifier in V1.** Users who
-want a whole function body in a raw context wrap it as the first
-statement (one extra line of indentation). This is the V1
-intentional limitation — see "V1 deferred features" below.
-
-### What requires a `raw` block
-
-| Operation | Diagnostic |
+| Source | Reads as |
 |---|---|
-| `%x` (raw access) | `raw access \`%x\` requires \`raw\` block` |
-| `@builtin(...)` not in safe whitelist | `builtin \`@ptrCast\` is not in the safe whitelist` |
-| Call to `extern` symbol | `call to extern function \`puts\` requires \`raw\` block` |
+| `a < b`, `a<b` | comparison |
+| `f <x` | `f(<x)`: a paren-free call passing `x` moved |
+| `a - b`, `a-b` | subtraction |
+| `f -x` | `f(-x)` |
+| `f(x)`, `a[i]`, `a.b` | call, index, member access |
+| `f (x)`, `f [1, 2]`, `f .red` | paren-free call with the argument `(x)`, `[1, 2]`, `.red` |
+| `-x` alone on a line | drops `x` ([§8](#drop)), except where the line's value is used |
 
-Each diagnostic names the specific operation so users don't
-have to grep the source.
+The rule is uniform, so it has one sharp edge worth knowing: `a -1`
+calls `a` with `-1`.
 
-### Builtin classification (default-unsafe + safe whitelist)
-
-Per GPT-5.5 entry 35: default-unsafe with a small audited safe
-whitelist. Currently safe:
-
+```rig reject
+sub main()
+  a = 5
+  b = a -1
 ```
-@sizeOf      @alignOf      @TypeOf       @typeName
-@hasDecl     @hasField     @len          @This
+
+```error
+`a` has type `Int` and cannot be called
 ```
 
-All are pure compile-time queries or ownership-safe operations.
-Everything else (`@ptrCast`, `@intFromPtr`, `@ptrFromInt`,
-`@memcpy`, `@bitCast`, `@as`, `@field`, `@frame`, etc.)
-requires a `raw` block.
+---
 
-Adding a new safe builtin requires explicit audit for:
+## 3. Types
 
-- no pointer manipulation that breaks the borrow checker
-- no memory layout changes that violate ownership
-- no side effects beyond compile-time type inspection
+### Primitive types
 
-### Extern declarations are the FFI boundary
+| Type | Meaning | Zig |
+|---|---|---|
+| `Int` | 64-bit signed integer; the type of integer literals by default | `i64` |
+| `Float` | 64-bit float; the type of float literals by default | `f64` |
+| `I8` `I16` `I32` `I64` | signed integers | `i8` ... `i64` |
+| `U8` `U16` `U32` `U64` | unsigned integers | `u8` ... `u64` |
+| `F32` `F64` | floats | `f32`, `f64` |
+| `Bool` | `true` or `false` | `bool` |
+| `String` | immutable UTF-8 bytes; a Copy value | `[]const u8` |
+| `Void` | no value (what a `sub` returns) | `void` |
+
+Every numeric type is distinct: there are no implicit conversions, and
+`Int` and `I64` are different types. A literal takes the numeric type
+its context expects, and must fit it. Constant arithmetic is checked
+at compile time.
 
 ```rig
-extern puts: fun(String) Int
+sub main()
+  small: U8 = 200
+  sum = small + 55          # 55 is a U8 here
+  big = 9223372036854775807
+  print(sum, big, @sizeOf(Int), 0.1 + 0.2)
+```
+
+```output
+255 9223372036854775807 8 0.30000000000000004
+```
+
+```rig reject
+sub main()
+  a: U8 = 250
+  b = a + 10
+```
+
+```error
+`260` does not fit in `U8`
+```
+
+```rig reject
+sub main()
+  a: I32 = 1
+  b: I64 = 2
+  print(a + b)
+```
+
+```error
+operands have different types `I32` and `I64`
+```
+
+Converting between numeric types currently needs a `raw` block and a
+Zig cast builtin ([§16](#16-raw-code-and-ffi)).
+
+A `String` has a length `s.len` and can be indexed (`s[0]`), and a `for`
+loop over it yields its bytes as `U8`. Strings compare with `==` and
+`!=`; they have no ordering.
+
+### Arrays
+
+`[N]T` is a fixed-size array. An array literal `[a, b, c]` takes its
+element type from its elements (or from an annotation), `xs.len` is its
+length, and `xs[i]` reads or writes an element; an index outside
+`0 ..< len` panics. Arrays hold plain data only; a collection of
+resources is a `Vec`.
+
+```rig
+sub main()
+  xs = [10, 20, 30]
+  xs[0] = 5
+  ys: [2]U8 = [1, 2]
+  print(xs, xs.len, xs[2], ys)
+```
+
+```output
+[5, 20, 30] 3 30 [1, 2]
+```
+
+### Composite and handle types
+
+| Type | Meaning | Section |
+|---|---|---|
+| `T?` | optional: a `T` or `none` | [§13](#13-optionals) |
+| `T!` | fallible: a `T` or an error; only as a return type | [§14](#14-errors) |
+| `?T` | read borrow of a `T` (parameters, returns, locals, fields) | [§8](#8-ownership) |
+| `!T` | write borrow of a `T` | [§8](#8-ownership) |
+| `*T` | shared handle: reference-counted, single-threaded | [§10](#10-shared-and-weak-handles) |
+| `~T` | weak handle to a shared value | [§10](#10-shared-and-weak-handles) |
+| `fun(A, B) R`, `sub(A)` | function and closure types | [§12](#12-closures) |
+| `*fun(A) R`, `*sub(A)` | owned closure (a shared handle) | [§12](#12-closures) |
+| `Cell(T)`, `Vec(T)`, `Signal(T)` | built-in generic types | [§11](#11-cell-vec-and-signal) |
+| `Name`, `Name(T)`, `mod.Name` | user types, generic instances, imported types | [§4](#4-declarations), [§15](#15-modules) |
+
+Suffixes bind tighter than prefixes: `*User?` is a shared handle to an
+optional `User`, and an optional shared handle is written `(*User)?`.
+Prefixes compose right to left: `?*Box` is a read borrow of a shared
+handle, and `*Cell(Vec(*sub()))` is a shared cell holding a list of
+owned closures.
+
+### Copy values and owning values
+
+A **Copy** value is plain data: numbers, `Bool`, `String`, plain enums,
+arrays of Copy values, and structs whose fields are all Copy. Using one
+copies it.
+
+An **owning** value holds a resource that must be released exactly
+once: a `*T` or `~T` handle, a `Vec`, a `Signal`, an owned closure, and
+any struct, enum, or generic instance that contains one or declares a
+`drop` body. Owning values have **drop glue**: code the compiler
+generates to release them. They move instead of copying, and the
+ownership rules of [§8](#8-ownership) apply to them.
+
+---
+
+## 4. Declarations
+
+### Functions
+
+`fun` declares a function that returns a value; `sub` declares one that
+does not. The return type follows `->`. A function's value is its last
+expression, or the value of a `return`.
+
+```rig
+fun area(w: Int, h: Int) -> Int
+  w * h
+
+fun sign(n: Int) -> Int
+  return 1 if n > 0 else -1 if n < 0 else 0
+
+sub report(label: String, n: Int)
+  print(label, n)
 
 sub main()
-  puts("hi")       # error: extern call requires `raw` block
-
-sub safe_puts(s: String)
-  raw
-    puts(s)        # OK: caller acknowledges the FFI bargain
+  report("area", area(3, 4))
+  report("sign", sign(-7))
 ```
 
-Per GPT-5.5 entry 35: all extern calls require a raw context.
-Extern declarations bypass Rig's ownership / effect contracts;
-the `raw` wrapping requirement forces the caller to
-acknowledge the FFI bargain explicitly.
+```output
+area 12
+sign -1
+```
 
-### Body-less `extern fun` / `extern sub` declarations (M23)
-
-The natural FFI shape: declare an external symbol's signature
-once at the top of a module, no body block. Lowers to Zig's
-`extern fn name(...) ReturnType;` at module scope (default
-calling convention is C-compatible).
+Parameters are immutable, except a write-borrowed `!T` parameter, which
+can be assigned ([§8](#write-borrows)). A parameter the body ignores
+may be named `_`, any number of times. A parameter may have a default
+value, which must be a literal; arguments can be passed by keyword, in
+any order, and are evaluated in the order written.
 
 ```rig
-extern fun puts(s: String) -> Int
-extern sub log_msg(msg: String)
+fun scaled(n: Int, by: Int = 10, _: Bool = false) -> Int
+  n * by
+
+sub main()
+  print(scaled(3), scaled(3, 2), scaled(by: 4, n: 5))
 ```
 
-Calls still require a `raw` block per the M21/M22 enforcement —
-the `raw` discipline keys off the symbol's extern kind and fires
-uniformly regardless of whether the symbol was declared via the
-legacy extern-variable form (`extern puts: fun(String) Int`) or
-the body-less form above:
+```output
+30 6 20
+```
+
+A function name is a value of its function type, so it can be passed
+where a `fun(...)` or `sub(...)` is expected ([§12](#function-types)).
+
+Declarations are only allowed at module level; there are no nested
+functions (use a closure). Two module-level declarations may not share a
+name.
+
+### Structs
+
+A `struct` lists its fields, then its methods. It is constructed by
+naming every field: `Point(x: 1, y: 2)`. Field default values are not
+supported yet.
 
 ```rig
-sub safe_puts(s: String)
-  raw
-    puts(s)                  # OK — inside `raw`
+struct Point
+  x: Int
+  y: Int
+
+  fun origin() -> Self
+    Point(x: 0, y: 0)
+
+  fun plus(?self, other: ?Point) -> Point
+    Point(x: self.x + other.x, y: self.y + other.y)
+
+  sub shift(!self, dx: Int)
+    self.x += dx
+
+sub main()
+  p = Point.origin()
+  q = Point(x: 1, y: 2)
+  r = p.plus(?q)
+  (!r).shift(10)
+  print(r, r.x)
 ```
 
-**V1 deferred for the body-less form:**
+```output
+Point(x: 11, y: 2) 11
+```
 
-- `pub extern fun ...` — `extvar` doesn't take `pub` either;
-  the V1 idiom is "private extern + `pub` safe wrapper."
-- Calling-convention syntax (`callconv C extern fun ...`).
-- FFI-friendly parameter-type lowering — `String` lowers to a
-  Zig slice that doesn't satisfy `extern fn`'s in-memory
-  representation requirement; this is a pre-existing limitation
-  shared with `extvar`.
+A method whose first parameter is `self` is an instance method;
+without one it is an associated function, called through the type
+(`Point.origin()`). `Self` names the enclosing type. The receiver says
+how the method uses the value, and the call site says the same thing:
 
-### Function declarations vs function-type expressions
+| Receiver | Meaning | Call |
+|---|---|---|
+| `?self` (= `self: ?Self`) | reads the value | `p.m()`: the read borrow is implicit |
+| `!self` (= `self: !Self`) | modifies the value | `(!p).m()` |
+| `self: Self` | consumes the value | `(<p).m()`, or on a temporary |
 
-`fun` and `sub` both declare functions and spell function types,
-distinguished by what follows:
+Write borrows and moves are never implicit, so calling a `!self` method
+as `p.m()` is an error. Inside a `!self` method, `self.field = v` and
+`self = v` write through to the caller's value. The sigil shorthand
+`?self` / `!self` is only for `self`; other parameters put the sigil on
+the type (`other: ?Point`).
+
+### Enums
+
+An `enum` lists variants. A variant may carry an explicit integer value
+or payload fields, and an enum may have methods. A variant is written
+`.name` where the enum type is known, or `Type.name`.
 
 ```rig
-fun add(a: Int, b: Int) -> Int     # declaration: `fun NAME(...) -> RetType`
-  a + b
+enum Shape
+  circle(radius: Int)
+  rect(w: Int, h: Int)
+  point
 
-extern puts: fun(String) Int       # type: `fun(ArgTypes...) RetType`
-extern srand: sub(U32)             # type: `sub(ArgTypes...)`, no return
+  fun area(?self) -> Int
+    match self
+      .circle(r) => 3 * r * r
+      .rect(w, h) => w * h
+      .point => 0
+
+enum Status
+  ok = 200
+  missing = 404
+
+sub main()
+  s: Shape = .rect(w: 2, h: 5)
+  c: Shape = Shape.point
+  print(s.area(), c.area(), s)
+  st: Status = .missing
+  print(st == .missing)
 ```
 
-`fun NAME (` is a declaration and `fun (` a type. Declarations spell
-the return type with `->`; type expressions, which are dense
-annotations, do not.
+```output
+10 0 .rect(w: 2, h: 5)
+true
+```
 
-### The safe-wrapper pattern
+A payload variant is constructed with keyword fields
+(`.circle(radius: 2)`) or positionally, in field order (`.circle(2)`). Enums have no constructor call (`Shape(...)` is an
+error); plain enums compare with `==`.
 
-The canonical idiom for exposing raw internals through a
-safe public API:
+### Error sets
+
+`error Name` declares a set of error values, which are used like the
+variants of a plain enum ([§14](#14-errors)).
 
 ```rig
-extern raw_alloc: fun(Int) RawPtr
+error NetworkError
+  timeout
+  refused
 
-sub safe_alloc(n: Int) -> *Buffer
-  raw
-    p = raw_alloc(n)
-    Buffer{ ptr: %p, len: n }
+sub main()
+  e: NetworkError = .timeout
+  match e
+    .timeout => print("timed out")
+    .refused => print("refused")
 ```
 
-The public `safe_alloc` declares a Rig-visible ownership
-contract (`-> *Buffer`); the internal `raw` block opts into
-the raw context where needed. Callers of `safe_alloc` are
-NOT required to be in a raw context — the safe wrapper
-upholds the contract.
+```output
+timed out
+```
 
-### What V1 raw blocks DO support
+### Generic types
 
-Safe wrappers over raw internals via the pattern above.
-Callers of the wrapper get the Rig-visible safe contract; the
-wrapper's body audit-boundary is the `raw` block.
+`type Name(T, ...)` declares a generic struct and `enum Name(T, ...)` a
+generic enum. An instance names its type arguments (`Box(Int)`), and a
+constructor takes its type arguments from the expected type, so a
+generic value needs an annotation. A generic body may only do with a
+`T` what every instantiation allows: operations on `T` are checked for
+each instantiation, and methods cannot be called on a type parameter.
 
-### What V1 raw blocks DO NOT support
+```rig
+type Pair(T, U)
+  first: T
+  second: U
 
-**APIs with unchecked caller obligations.** Rust-style
-`unsafe fn slice_get_unchecked(i)` — where the BODY is safe
-but the CALLER must uphold "i < len" or else UB — has no V1
-expression. The caller-precondition-marker is deferred until
-a real stdlib use case forces a fresh design pass. Per
-GPT-5.5 entry 38: "raw preconditions are contained inside
-the implementation block; public APIs are safe or not
-expressible yet."
+  fun left(?self) -> T
+    self.first
 
-### Safety bargain
+enum Option(T)
+  some(value: T)
+  nothing
 
-Rig's safety guarantee applies to safe Rig code and to calls
-whose contracts are known to the Rig checker. Raw pointers,
-unchecked builtins, and unsafe externs are outside the
-guarantee and require an explicit `raw` block. Safe APIs MAY
-wrap raw implementations only by declaring and upholding
-Rig-visible ownership / effect contracts.
+sub main()
+  p: Pair(Int, String) = Pair(first: 42, second: "answer")
+  o: Option(Int) = .some(value: p.left())
+  match o
+    .some(v) => print(v, p.second)
+    .nothing => print("none")
+```
 
-### Trusted runtime is out-of-band
+```output
+42 answer
+```
 
-The runtime Zig (`_runtime.zig` — Cell, Vec, Signal,
-Closure, RcBox, WeakHandle, etc.) lives outside Rig source
-entirely. It uses unsafe Zig patterns (`@ptrCast`,
-`@alignCast`, `@hasDecl`, etc.) internally; that's the
-trusted-implementation boundary. The runtime (`src/runtime/_runtime.zig`)
-is verified by its own unit tests and by the behavior suite,
-which runs every program under a leak-checking allocator, not
-by Rig's checker. User-defined
-trusted-runtime patterns (writing your own Cell-like primitive
-in Rig source with unsafe internals) compose via the
-safe-wrapper pattern above; for V1 there is no separate
-`trusted` decoration.
+There are no generic functions yet.
 
-### V1 deferred features
+### Type aliases
 
-- **No raw/unsafe function modifier.** Dropped in M22 per
-  GPT-5.5 entry 38; can return as a `raw sub`/`raw fun` form
-  with a fresh design pass when a real stdlib API needs
-  caller-precondition marking. Future sessions: do NOT
-  resurrect the M19 `unsafe sub` form without an explicit
-  reset; it had no V1 use case and the machinery wasn't
-  worth carrying.
-- **`zig "..."` raw Zig blocks** for inline FFI. Reserved in
-  V1 per M22.1 — the grammar still accepts the syntax but
-  sema rejects it cleanly with a Rig diagnostic. Inline Zig
-  text needs a real V2+ design pass for scope capture, symbol
-  hygiene, and ownership effects; the practical needs are
-  covered today by `raw` block + `extern`.
-- **Body-less `extern fun`/`extern sub` declarations** (no
-  block, just a signature). Required for real FFI ergonomics
-  but blocked on a grammar extension to allow body-less function
-  declarations. Currently extern callable surface is limited
-  to extern variables with `fun(...)` type annotations
-  (`extern puts: fun(String) Int`).
-- **Cross-module signature import.** Shipped in M15b; not deferred.
-  Every cross-module reference now carries the same checked
-  contract it would have carried in the defining file:
-  fallibility, arity, kwargs, borrow-mode obligations, extern
-  raw-at-call-site, resource-temp leak rule, M20e auto-drop
-  guards, auto-deref through `*T`, and `pub` enforcement all
-  fire uniformly at the module boundary.
-- **User-defined `trusted` decoration** for writing custom
-  trusted-runtime types in Rig source. Not in V1; the
-  safe-wrapper pattern is the V1 substitute.
+`type Name = T` gives a type a second name. An alias is transparent: it
+is the same type as `T`.
+
+```rig
+type UserId = Int
+
+fun next(id: UserId) -> Int
+  id + 1
+
+sub main()
+  x: UserId = 5
+  print(next(x))
+```
+
+```output
+6
+```
+
+### Tests
+
+`test "name"` declares a block that is checked and emitted as a Zig
+`test`. There is no `rig test` command yet, so test blocks do not run.
+
+```rig
+fun area(w: Int, h: Int) -> Int
+  w * h
+
+test "area"
+  print(area(2, 3))
+```
+
+### Other declarations
+
+`use` imports a module ([§15](#15-modules)), `pub` exports a
+declaration ([§15](#15-modules)), and `extern` declares a C symbol
+([§16](#16-raw-code-and-ffi)).
 
 ---
 
-# Binding Model
+## 5. Bindings and assignment
 
-Rig intentionally removes:
+| Form | Meaning |
+|---|---|
+| `x = e` | bind a new local `x`, or assign to the visible `x` |
+| `x: T = e` | bind with a type annotation |
+| `x =! e`, `x: T =! e` | bind a fixed local, which cannot be reassigned |
+| `new x = e` | bind a new `x` that shadows the visible one; `e` may read the old `x` |
+| `x <- y` | move-assign: `x = <y` |
+| `x += e` (`-=`, `*=`, `/=`) | compound assignment |
+| `p.f = e`, `xs[i] = e` | assign a field or an element |
+| `_ = e` | evaluate `e` and discard it; an owning value is dropped at once |
 
-- const
-- var
-- let
-- :=
+A binding's type comes from its annotation or its value. Rig has no
+`var`, `let`, or `const`: the compiler emits a Zig `const` unless the
+binding is reassigned or written through.
 
-Core binding operators:
-
-```text
-=      bind/assign
-=!     fixed binding
-new    explicit shadow
-<-     move assignment
-```
-
-## Binding
+There is no implicit shadowing. A local may not reuse the name of a
+visible local, parameter, or module-level declaration, and `x =! e`
+always declares. To reuse a name on purpose, write `new`:
 
 ```rig
-user = loadUser(id)!
+sub main()
+  x = 1
+  new x = x + 10
+  new x = "now a string"
+  print(x)
 ```
 
-Binds if new.
+```output
+now a string
+```
 
-Assigns if existing.
+```rig reject
+fun total() -> Int
+  0
+
+sub main()
+  total = 5
+```
+
+```error
+local `total` has the same name as the module-level declaration `total`
+```
+
+A binding cannot refer to itself in its own initializer. Parameters,
+loop bindings, and names bound by patterns and `as` are immutable.
 
 ---
 
-## Fixed Binding
+## 6. Expressions
+
+### Operators
+
+From lowest to highest precedence:
+
+| Operators | Notes |
+|---|---|
+| `a if c else b`, `e catch f` | ternary and error fallback; right-nested |
+| `or` | Bool; short-circuit |
+| `and` | Bool; short-circuit |
+| `not` | Bool |
+| `==` `!=` `<` `>` `<=` `>=` | not chainable |
+| `??` | optional fallback; right-associative |
+| `..` | half-open range, only as a `for` source |
+| `\|` | bitwise or |
+| `^` | bitwise xor |
+| `&` | bitwise and |
+| `<<` `>>` | shifts |
+| `+` `-` | |
+| `*` `/` `%` | |
+| `-x` and the ownership sigils | prefix |
+| `f(x)` `a[i]` `a.b` `e!` | postfix: call, index, member, propagate |
+
+Arithmetic needs numeric operands of one type (a literal adapts to the
+other operand). Integer `/` truncates toward zero and `%` takes the sign
+of the dividend, so `(a / b) * b + a % b == a`. Unsigned values cannot be
+negated. Bitwise operators need integers; a shift amount may be any
+integer.
+
+`==` and `!=` compare two values of the same type: numbers, `Bool`,
+`String` (by content), and enums (with each other or with a `.variant`).
+Structs have no `==`. Ordering comparisons need numbers.
+
+`and`, `or`, and `not` take `Bool`s; `not` binds looser than comparisons,
+so `not a == b` is `not (a == b)`. The spellings `&&`, `||`, and `**` are
+rejected with a hint.
 
 ```rig
-user =! loadUser(id)!
+sub main()
+  a = 7
+  print(-7 / 2, -7 % 2, a & 3, a << 2, a ^ 1)
+  print(not a == 3, a > 3 and a < 10, false or true)
+  print(1 if a > 5 else 2)
 ```
 
-Creates an immutable/fixed binding.
-
-Reassignment becomes illegal.
-
-Equivalent Zig lowering:
-
-```zig
-const user = try loadUser(id);
+```output
+-3 -1 3 28 6
+true true true
+1
 ```
 
----
-
-## Explicit Shadowing
-
-```rig
-new user = User(name: "guest")
+```rig reject
+sub main()
+  a = true
+  b = a && false
 ```
 
-Implicit shadowing is illegal.
-
-Rig requires shadowing to be explicit.
-
----
-
-## Move Assignment
-
-```rig
-other <- user
+```error
+`&&` is not a Rig operator; use `and`
 ```
 
-Equivalent to:
+### Calls
 
-```rig
-other = <user
-```
-
----
-
-# Function Syntax
-
-## Functions
+`f(a, b)` calls `f`. A **paren-free call** takes the rest of the line
+as its arguments, and a nested paren-free call can be its last
+argument: `print add 1, 2` is `print(add(1, 2))`. Paren-free calls read
+well for simple statements; use parentheses when nesting.
 
 ```rig
 fun add(a: Int, b: Int) -> Int
   a + b
+
+sub main()
+  print add 1, 2
+  print (1 + 2) * 3
+  print add(1, 2), add 3, 4
 ```
 
-Functions return values.
+```output
+3
+9
+3 7
+```
+
+Keyword arguments name parameters (`scaled(by: 4, n: 5)`), and
+constructors always use them. Arity, keyword names, and argument types
+are checked.
+
+### Block expressions
+
+`if` and `match` are expressions when their value is used: as a
+function's last expression, a binding's value, or a `return` value.
+Every branch must then produce a value of one type (a branch may also
+leave with `return`), so an `if` needs an `else` and a `match` must
+cover every value. The inline ternary `a if c else b` is the one-line
+form.
+
+```rig
+fun classify(x: Int) -> String
+  if x > 0
+    "positive"
+  else if x < 0
+    "negative"
+  else
+    "zero"
+
+sub main()
+  n = 5
+  label = if n > 3
+    doubled = n * 2
+    doubled + 1
+  else
+    0
+  print(classify(-2), label)
+```
+
+```output
+negative 11
+```
+
+`-x` as a whole line drops `x`, except where the line's value is used
+(the last line of a `fun`, or of a branch whose value is used): there
+it is negation.
+
+### Builtins
+
+`@name(args)` calls a Zig builtin. `@sizeOf`, `@alignOf`, `@TypeOf`,
+and `@typeName` are safe anywhere; every other builtin needs a `raw`
+block ([§16](#16-raw-code-and-ffi)). Rig type names are translated
+(`@sizeOf(I64)` is 8).
 
 ---
 
-## Procedures
+## 7. Control flow
+
+### if
 
 ```rig
 sub main()
-  print "hello"
+  x = 5
+  if x > 10
+    print("big")
+  else if x > 3
+    print("medium")
+  else
+    print("small")
 ```
 
-Procedures return nothing.
+```output
+medium
+```
+
+Conditions must be `Bool`. `if e as name` tests an optional and binds
+its value ([§13](#13-optionals)).
+
+### Guards
+
+A simple statement (a call, binding, `return`, `break`, or `continue`)
+may end with `if cond`: it runs only when `cond` holds.
+
+```rig
+fun first_over(limit: Int) -> Int
+  i = 0
+  while i < 100
+    i += 1
+    break if i > limit
+  return i
+
+sub main()
+  x = 5
+  print(x) if x > 3
+  print(first_over(3))
+```
+
+```output
+5
+4
+```
+
+A guard ends a statement; inside an expression, write the ternary
+`a if c else b`.
+
+### while
+
+`while cond` repeats its block. `while cond : step` runs `step` after
+each iteration (including after `continue`). `while e as x` repeats
+while the optional `e` has a value. An `else` block runs when the loop
+ends without `break`.
+
+```rig
+sub main()
+  i = 0
+  while i < 3 : i += 1
+    continue if i == 1
+    print(i)
+  else
+    print("done")
+```
+
+```output
+0
+2
+done
+```
+
+### for
+
+`for x in source` walks an array, a `Vec` of Copy values, a `String`
+(bytes), or a range `a..b` (from `a` up to, not including, `b`; the
+bounds are evaluated once). `for x, i in xs` also binds the index (not
+for ranges). An `else` block runs when the loop ends without `break`.
+A `Vec` of owning values is walked with `for x in ?v` ([§11](#vec)).
+
+```rig
+sub find(xs: ?[4]Int, target: Int)
+  for x, i in xs
+    if x == target
+      print("found at", i)
+      break
+  else
+    print("not found")
+
+sub main()
+  total = 0
+  for i in 0..5
+    total += i
+  print(total)
+  xs = [3, 1, 4, 1]
+  find(?xs, 4)
+  find(?xs, 9)
+```
+
+```output
+10
+found at 2
+not found
+```
+
+Loop bindings are immutable, and may not reuse a visible name.
+Modifying iteration (`for x in !v`) and consuming iteration
+(`for x in <v`) are not supported yet.
+
+### Labels, break, and continue
+
+A loop may be labeled `:name`; `break :name` and `continue :name` then
+refer to it from an inner loop.
+
+```rig
+sub main()
+  :outer for i in 0..3
+    for j in 0..3
+      continue :outer if j > i
+      break :outer if i == 2
+      print(i, j)
+```
+
+```output
+0 0
+1 0
+1 1
+```
+
+### match
+
+`match` selects the first arm whose pattern matches. It works on
+enums, integers, and `Bool`.
+
+| Pattern | Matches |
+|---|---|
+| `.name` | an enum variant |
+| `.name(a, b)` | a payload variant, binding its fields in order |
+| `42`, `-1`, `true` | a literal |
+| `lo..hi` | an integer in the inclusive range |
+| `else`, `_`, or any other name | everything else |
+
+An arm is `pattern => statement` or a pattern followed by an indented
+block. A match whose value is used must cover every value; a statement
+match need not, and then runs no arm for the rest. Duplicate and
+unreachable arms are rejected.
+
+```rig
+fun size(n: U8) -> String
+  match n
+    0..9 => "small"
+    10..99 => "medium"
+    100..255 => "large"
+
+sub main()
+  print(size(5), size(42), size(200))
+  match 7
+    1 => print("one")
+    other => print("something else")
+```
+
+```output
+small medium large
+something else
+```
+
+### defer and errdefer
+
+`defer stmt` (or `defer` with a block) runs when the enclosing block
+exits, in reverse order of the defers. `errdefer` runs only when the
+function exits with an error. A deferred body may not move or drop
+outer bindings, or propagate with `!`.
+
+```rig
+sub main()
+  defer print("cleanup 1")
+  defer
+    print("cleanup 2")
+  print("body")
+```
+
+```output
+body
+cleanup 2
+cleanup 1
+```
 
 ---
 
-## Methods and `self` Receivers
+## 8. Ownership
 
-A `fun` or `sub` declared inside a `struct`, `enum`, or `errors`
-body is a method. If its first parameter is named `self`, it's an
-instance method (callable as `value.method(args)`); otherwise it's
-an associated/static method (callable as `Type.method(args)`).
+Every owning value has exactly one owner, and the owner decides when it
+is released. The sigils make each ownership effect visible where it
+happens:
 
-The receiver type uses the same `?T` / `!T` borrow-prefix rules as
-any other parameter:
+| Sigil | Name | Effect |
+|---|---|---|
+| `<x` | move | ownership passes on; `x` is unusable until reassigned |
+| `?x` | read borrow | a temporary read-only view; `x` keeps ownership |
+| `!x` | write borrow | a temporary exclusive, writable view |
+| `+x` | clone | a new owner: a refcount bump for a handle, a copy for a Copy value |
+| `-x` | drop | release `x` now |
+| `*x` | share | move `x` into a new shared box ([§10](#10-shared-and-weak-handles)) |
+| `~x` | weak | a weak handle to a shared value ([§10](#10-shared-and-weak-handles)) |
+
+A Copy value can be used freely: a bare use copies it. An explicit `<x`
+still moves it, leaving the name unusable, except for numbers, `Bool`,
+and `String`, which `<x` copies. The rest of this section is about
+owning values.
+
+### Moves
+
+A value moves when it is passed to a parameter of owning type, bound to
+another name, stored in a field, or returned. The move is written
+`<x`; only a bare name returned directly (`return x`, or `x` as the
+last expression) moves without it. After a move the name cannot be
+used until it is reassigned.
+
+```rig
+struct Packet
+  payload: Int
+
+  drop self: !Packet
+    print("released", self.payload)
+
+sub send(p: Packet)
+  print("sent", p.payload)
+
+sub main()
+  p = Packet(payload: 42)
+  send(<p)
+  p = Packet(payload: 7)     # reassigning makes `p` usable again
+  print(p.payload)
+```
+
+```output
+sent 42
+released 42
+7
+released 7
+```
+
+```rig reject
+struct Packet
+  payload: Int
+
+  drop self: !Packet
+    print("released")
+
+sub send(p: Packet)
+  print(p.payload)
+
+sub main()
+  p = Packet(payload: 42)
+  send(<p)
+  print(p.payload)
+```
+
+```error
+use of `p` after move
+```
+
+Writing a bare name where an owning value would be copied is an error,
+because two owners would release it twice. Write `<x` to move it or
+`+x` to clone it:
+
+```rig reject
+struct Box
+  n: Int
+
+sub main()
+  a = *Box(n: 1)
+  b = a
+```
+
+```error
+bare use of shared (`*T`) handle `a` in binding would alias the handle
+```
+
+The checker follows every path. A value moved in one branch of an `if`
+or `match` is moved after it; a value moved inside a loop is moved at
+the top of the next iteration, unless the loop is left or the value is
+reassigned first.
+
+```rig reject
+struct Box
+  n: Int
+
+sub eat(b: *Box)
+  print(b.n)
+
+sub main()
+  b = *Box(n: 1)
+  i = 0
+  while i < 2 : i += 1
+    eat(<b)
+```
+
+```error
+use of `b` after move
+```
+
+Only whole bindings move. Moving a field out of a struct is rejected
+(the struct would still drop it); clone a shared field with `+p.a`, or
+move the struct as a whole. A Copy field can be read or copied freely.
+A `match` payload binding views the matched value; moving it out
+(`.full(b) => eat(<b)`) consumes the matched value, which must then be
+an owned local whose variant has no other owning field.
+
+### Borrows
+
+A borrow lends a value without giving it up. `?x` is a read borrow and
+`!x` a write borrow, and borrowed parameter types say the same thing:
+`b: ?Box` reads, `b: !Box` writes. Every borrow is visible at the call
+site.
+
+```rig
+struct Account
+  balance: Int
+
+fun balance_of(a: ?Account) -> Int
+  a.balance
+
+sub deposit(a: !Account, n: Int)
+  a.balance += n
+
+sub main()
+  acct = Account(balance: 100)
+  deposit(!acct, 50)
+  print(balance_of(?acct))
+```
+
+```output
+150
+```
+
+**The aliasing rule.** At any point a value may have any number of read
+borrows or one write borrow, not both. While a read borrow is live the
+owner cannot be written, moved, or dropped; while a write borrow is
+live the owner cannot be used at all.
+
+```rig reject
+struct User
+  name: String
+
+sub main()
+  u = User(name: "ada")
+  r = ?u
+  w = !u
+  print(r.name)
+```
+
+```error
+cannot write-borrow `u` while a read borrow is live
+```
+
+**How long a borrow lives.** A borrow passed to a call ends when the
+call returns, so two calls in one statement may each write-borrow the
+same value. A method call borrows its receiver for the whole call, so
+`rc.show(<rc)` is rejected. A borrow stored in a binding lasts until the end of that
+binding's block, or until the binding is dropped with `-r` or
+reassigned.
+
+#### Write borrows
+
+A `!T` parameter is assignable: `p.f = v` and `p = v` write through to
+the caller's value (the old value is dropped first). A write borrow can
+be passed on, or moved into a local with `<p`, but not copied.
+
+```rig
+struct Counter
+  hits: Int
+
+sub bump(c: !Counter)
+  c.hits += 1
+
+sub reset(c: !Counter)
+  c = Counter(hits: 0)
+
+sub main()
+  c = Counter(hits: 5)
+  bump(!c)
+  print(c.hits)
+  reset(!c)
+  print(c.hits)
+```
+
+```output
+6
+0
+```
+
+A `!x` borrow needs a binding that may change: a parameter (other than
+`!T`), a fixed binding, a capture, or a loop binding cannot be
+write-borrowed.
+
+#### Second-class borrows
+
+Borrows are values the checker follows, not types you annotate: there
+is no lifetime syntax. A borrow can be held by a parameter, a local, a
+struct field (a **view**), or a function's result, and the checker
+tracks where every one came from.
+
+- A function may return a borrow only of something its caller lent it.
+  The result then borrows from every borrowed argument of the call.
+- A struct holding a borrow keeps the borrowed value borrowed while the
+  struct is alive. So does a closure that captured a borrow, and a value
+  a call may have stored a borrow into (its receiver, its `!`
+  arguments, the handles it was given).
+- A borrow may not outlive the value it borrows: not past the end of
+  its block, not through `break`, and not out of the function.
+
+```rig
+struct Box
+  payload: Int
+
+struct View
+  box: ?Box
+
+fun pick(a: ?Box, b: ?Box, first: Bool) -> ?Box
+  if first
+    a
+  else
+    b
+
+sub main()
+  x = Box(payload: 1)
+  y = Box(payload: 2)
+  r = pick(?x, ?y, false)
+  v = View(box: ?x)
+  print(r.payload, v.box.payload)
+```
+
+```output
+2 1
+```
+
+```rig reject
+struct User
+  name: String
+
+fun make() -> ?User
+  u = User(name: "ada")
+  ?u
+```
+
+```error
+returned borrow of `u` does not originate from a borrowed parameter
+```
+
+```rig reject
+struct Box
+  payload: Int
+
+  drop self: !Box
+    print("drop")
+
+fun first(a: ?Box, b: ?Box) -> ?Box
+  a
+
+sub main()
+  x = Box(payload: 1)
+  y = Box(payload: 2)
+  r = first(?x, ?y)
+  -y
+  print(r.payload)
+```
+
+```error
+cannot drop `y` while borrows are live
+```
+
+A borrowed parameter can be forwarded (`g(?b)` with `b: ?B`), and a
+borrow of a Copy value reads as the value. The caller still owns a
+borrowed value: a borrowed parameter cannot be dropped or move-captured,
+and a field cannot be moved out of it.
+
+### Clone
+
+`+x` makes a new owner. For a shared or weak handle it bumps the
+count; for a Copy value it copies. A struct with drop glue has no
+clone. `+p.a` clones the handle in a field.
+
+### Drop
+
+`-x` as a statement releases `x` now; afterwards `x` cannot be used.
+Every owning local and parameter that is still live is dropped
+automatically when its block ends, including on early `return`,
+`break`, and `continue`, and on every path through branches. So `-x`
+is only needed to release something early. A borrowed parameter cannot
+be dropped: the caller owns it.
+
+```rig
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print("drop", self.id)
+
+sub run(early: Bool)
+  a = Noisy(id: 1)
+  b = Noisy(id: 2)
+  if early
+    -b
+    print("dropped b early")
+  print("end of run")
+
+sub main()
+  run(true)
+  run(false)
+```
+
+```output
+drop 2
+dropped b early
+end of run
+drop 1
+end of run
+drop 2
+drop 1
+```
+
+Automatic drops at the end of a block run in reverse order of
+declaration.
+
+### Temporaries
+
+A value that owns a resource must have an owner. It may be bound,
+returned, passed to a call (which takes ownership), discarded with
+`_ = e` (which drops it), used as the receiver of a consuming method,
+or compared with `none`. Anywhere else (a field read, a borrow, a
+method receiver, a `print` argument, an expression statement) nothing
+would release it, so it must be bound to a name first.
+
+```rig reject
+struct User
+  age: Int
+
+sub main()
+  print((*User(age: 5)).age)
+```
+
+```error
+bind it to a name first
+```
+
+---
+
+## 9. Drop and drop glue
+
+A struct may declare one `drop` body, which runs when a value of the
+type is released. It takes exactly `self: !Self`.
+
+```rig
+struct File
+  fd: Int
+
+  drop self: !File
+    print("closing", self.fd)
+
+sub main()
+  f = File(fd: 3)
+  print("using", f.fd)
+```
+
+```output
+using 3
+closing 3
+```
+
+**Drop glue** is generated for every type that owns something: a
+struct with a `drop` body or an owning field, an enum with an owning
+payload, and a generic instance with an owning argument. Releasing a
+value runs its `drop` body first, then releases its owning fields in
+reverse declaration order, recursively. Glue does not depend on the
+order of declarations in the file.
+
+```rig
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print("noisy", self.id)
+
+struct Pair
+  a: *Noisy
+  b: *Noisy
+
+  drop self: !Pair
+    print("pair")
+
+sub main()
+  p = Pair(a: *Noisy(id: 1), b: *Noisy(id: 2))
+  print("built")
+```
+
+```output
+built
+pair
+noisy 2
+noisy 1
+```
+
+A drop body may read fields, change Copy fields, and use `raw`. It may
+not move, drop, or replace `self`, or move or reassign an owning field:
+the fields are released after the body returns. `drop` bodies are only
+for structs; enums and generic types get structural glue only.
+
+---
+
+## 10. Shared and weak handles
+
+### Shared handles
+
+`*T` is a shared handle: a reference-counted box holding a `T`,
+single-threaded, like Rust's `Rc<T>`. `*expr` moves a value into a new
+box; for a named owning value, write the move: `*<x`. `+h` makes
+another handle to the same box, and the value is released when the last
+strong handle goes.
 
 ```rig
 struct User
   name: String
 
-  fun greet(self: ?User) -> String       # read-borrowed self
-    self.name
+  drop self: !User
+    print("released", self.name)
 
-  sub modify(self: !User, n: String)     # write-borrowed self
-    self.name = n
-
-  sub consume(self: User)                # by-value (consuming) self
-    print(self.name)
+sub main()
+  a = *User(name: "ada")
+  b = +a
+  -a
+  print(b.name)
+  print("end")
 ```
 
-`Self` is a type alias for the enclosing nominal, usable in
-method signatures (and constructors):
+```output
+ada
+end
+released ada
+```
 
-```rig
+Handles are owning values: a bare copy (`b = a`, `f(a)`) is rejected;
+write `<a` or `+a`. Sharing a value that is already a shared handle
+(`*a` with `a: *T`, or the type `*(*T)`) is rejected; clone it instead.
+
+**Access is read-only.** Field reads and `?self` methods reach through
+a handle automatically, including through fields and loop elements.
+Writing a field, calling a `!self` method, or consuming the value
+through a handle is rejected, because other handles share it; shared
+mutable state goes in a `Cell` ([§11](#cell)). The built-in `Vec` is
+the exception: `(!h).push(x)` works through a `*Vec(T)`, whose elements
+can never be borrowed.
+
+```rig reject
 struct User
-  name: String
+  age: Int
 
-  fun make(default: String) -> Self
-    User(name: default)
+sub main()
+  u = *User(age: 1)
+  u.age = 2
 ```
 
-### Sigil-on-name Sugar for `self`
+```error
+cannot assign through shared handle
+```
 
-For the very common borrow-receiver case, Rig accepts a sigil-on-
-name shorthand at parameter position — **only when the name is
-literally `self`**:
+### Weak handles
+
+`~h` makes a weak handle `~T` from a shared one. A weak handle does not
+keep the value alive. `w.upgrade()` returns an optional strong handle
+`(*T)?`: a new owner while the value is alive, `none` after.
 
 ```rig
-fun greet(?self) -> String       # sugar for `self: ?Self`
-sub modify(!self, n: String)     # sugar for `self: !Self`
-sub consume(self: Self)          # by-value uses the long form
+struct Node
+  id: Int
+
+  drop self: !Node
+    print("drop", self.id)
+
+sub show(w: ?~Node)
+  if w.upgrade() as n
+    print("alive", n.id)
+  else
+    print("gone")
+
+sub main()
+  rc = *Node(id: 7)
+  w = ~rc
+  show(?w)
+  -rc
+  show(?w)
 ```
 
-The sugar lowers to the canonical `self: ?Self` / `self: !Self`
-form during sema; the IR shape, emit output, and ownership rules
-are identical to the explicit form. Both spellings are valid; the
-sugar exists purely as an ergonomic shortcut for the common case.
+```output
+alive 7
+drop 7
+gone
+```
 
-This is the **only** position where a sigil-prefix may attach to a
-parameter name. Writing `?xs` or `!other` is a sema error
-("sigil-prefixed parameter is only allowed for `self`; for other
-parameters use `xs: ?Type`"). The rule defends against the
-foot-gun where users might assume `?name` is a general "borrowed
-parameter" form — borrow-ness belongs on the type, per the
-`?` / `!` triangle.
+### Cycles
 
-The sugar is also rejected outside a nominal body (since `Self`
-has no enclosing type to resolve to).
+A cycle of strong handles is never released: it leaks, as in Rust and
+Swift. This is the one leak the compiler does not prevent. Break cycles
+with weak handles: a child holds its parent weakly, and a callback
+that refers back to its owner captures it weakly (`|~owner|`,
+[§12](#captures)). Every test and example in this repository runs
+leak-free under the checking allocator.
 
 ---
 
-## Closures
+## 11. Cell, Vec, and Signal
 
-A closure literal starts with its bar list `|...|`: no keyword. The
-bar list holds both the closure's **captures** and its
-**parameters**:
+These built-in generic types are part of the language's substrate.
+Their names are reserved.
 
-- an entry with an ownership sigil is a **capture** of an outer
-  local: `+x` copies a Copy value or clones a `*T` / `~T` handle,
-  `<x` moves the binding in, `~x` holds a `*T` weakly;
-- a **bare name** is a **parameter**, optionally annotated
-  (`a`, `a: Int`);
-- captures come first, then parameters; `||` is an empty list.
+### Cell
 
-```rig
-count: *Cell(Int) = *Cell(value: 0)
-bump = |+count| count.set(count.get() + 1)     # capture only
-add: fun(Int, Int) Int = |a, b| a + b          # parameters only
-set = |+count, a: Int| count.set(a)            # both
-tick = || print("tick")                        # neither
-```
+`Cell(T)` holds one value that can be replaced through a read-only
+path. It is the way to mutate shared state: `*Cell(T)` is a shared,
+mutable value.
 
-**Why a bare name is always a parameter.** Whether an entry is a
-capture or a parameter is decided by its spelling alone, never by
-what names happen to be in scope, so adding a local elsewhere can't
-change a closure's meaning. Every capture is visible as a sigil,
-matching the rest of the ownership algebra; capturing a Copy value
-by copy is `|+n|`, since `+` on a Copy value is a copy. And because
-no binding may reuse a visible name, a bare entry that names a
-local is always a mistake, reported with the sigils that would
-capture it:
+| Member | Meaning |
+|---|---|
+| `Cell(value: v)` | construct |
+| `c.get()` | a copy of the value (Copy `T` only) |
+| `c.value` | the same (Copy `T` only) |
+| `c.set(v)` | store `v`; the old value is dropped |
+| `c.replace(v)` | store `v` and return the old value |
 
-```text
-error: closure parameter `n` has the name of the local `n`; to capture
-       the local, give it a sigil (`|+n|` copies or clones it, `|<n|`
-       moves it, `|~n|` holds it weakly), or name the parameter differently
-```
-
-A closure body reaches the enclosing function's locals only through
-its captures.
-
-### Parameter types and return values
-
-A bare parameter takes its type from the type the closure's context
-expects: a binding annotation, the parameter of the function being
-called, a `Vec`'s element type (`push`), a struct field, or a
-function's return type. An annotation is allowed anywhere and must
-agree with the context. With no type from context, every parameter
-must be annotated:
+`T` is a Copy primitive or an owning type. An owning value is never
+copied out of a cell: it moves in with `set` / `replace` and moves out
+with `replace`.
 
 ```rig
-add: fun(Int, Int) Int = |a, b| a + b          # from the annotation
-apply(*|a| a * 10, 4)                          # from `apply`'s parameter
-typed = |a: Int, b: Int| a * b                 # no context: annotated
-bad = |a, b| a + b
-# error: closure parameter `a` needs a type: annotate it (`|a: Int|`) or
-#        write the closure where its type is known
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  other = +count
+  other.set(other.get() + 5)
+  print(count.get())
 ```
 
-The closure takes exactly as many parameters as its type passes.
-Closures take any number of parameters and may return a value: with
-a type from context, the body is checked against its return type;
-otherwise the return type is that of the body's last expression, or
-of its `return`s when it ends in one (a body ending in any other
-statement, or an `if` without `else`, returns nothing), and every
-`return` must agree with it. `return` inside a closure body leaves
-the closure. A parameter the body ignores may be named `_`.
+```output
+5
+```
+
+### Vec
+
+`Vec(T)` is a growable array that owns its elements. The binding is the
+buffer: a `Vec` is an owning value even when its elements are Copy.
+Elements are Copy primitives (numbers, `Bool`, `String`), shared handles
+(including owned closures), or weak handles.
+
+| Member | Meaning |
+|---|---|
+| `Vec()`, `Vec(capacity: n)` | an empty Vec (typed by context) |
+| `(!v).push(x)` | append; an owning `x` is moved or cloned in |
+| `v.length()` | the number of elements |
+| `v[i]`, `v[i] = x` | read or write an element (Copy `T`; bounds-checked) |
+| `v.get(i)` | the element as `T?` (Copy `T`) |
+| `(!v).pop()` | remove the last element, as `T?` (Copy `T`) |
+| `(!v).clear()` | drop every element |
+
+A `for` loop borrows the Vec for the whole loop, so it cannot be
+modified inside it. A Vec of Copy values may be walked by value
+(`for x in v`). A Vec of owning values is walked by borrowed slot with
+`for x in ?v`, where `v` must be a local: the element can be read and
+called, but not moved, dropped, cloned, or stored.
+
+```rig
+sub main()
+  total: *Cell(Int) = *Cell(value: 0)
+  steps: Vec(*sub()) = Vec()
+  (!steps).push(*|+total| total.set(total.get() + 1))
+  (!steps).push(*|+total| total.set(total.get() + 10))
+  for step in ?steps
+    step()
+  nums: Vec(Int) = Vec()
+  (!nums).push(3)
+  (!nums).push(4)
+  while (!nums).pop() as n
+    total.set(total.get() + n * 100)
+  print(total.get(), steps.length())
+```
+
+```output
+711 2
+```
+
+### Signal
+
+`Signal(T)` holds a Copy value and a list of subscribers, owned closures
+of type `*sub()`. It lives behind a shared handle: a stack `Signal` is
+rejected.
+
+| Member | Meaning |
+|---|---|
+| `*Signal(value: v)` | construct |
+| `s.get()` | the current value |
+| `s.set(v)` | store `v`, then call every subscriber in subscription order |
+| `s.subscribe(cb)` | take ownership of the handle `cb` (pass `+cb` to keep yours) |
+
+A `set` from inside a subscriber is queued and delivered after the
+current round, with the latest value winning. Subscribing from inside a
+subscriber panics. A subscriber that reads its own signal must capture
+it weakly, or the signal and its subscriber keep each other alive.
+
+```rig
+sub main()
+  sig: *Signal(Int) = *Signal(value: 0)
+  sig.subscribe(*|~sig|
+    if sig.upgrade() as s
+      print("now", s.get()))
+  sig.set(7)
+  sig.set(9)
+```
+
+```output
+now 7
+now 9
+```
+
+Signal is deliberately minimal: richer reactive libraries are built in
+Rig from `Cell`, `Vec`, and owned closures (see
+`examples/memo_canary.rig`).
+
+---
+
+## 12. Closures
+
+### Bar lists
+
+A closure starts with its bar list and has no keyword. The list holds
+the closure's **captures** and its **parameters**, captures first:
+
+- an entry with a sigil captures an outer local: `+x` copies a Copy
+  value or clones a handle, `<x` moves the binding in, `~x` holds a
+  shared handle weakly;
+- a bare name is a parameter, optionally annotated (`a`, `a: Int`);
+- `||` is an empty list.
+
+The body is an expression on the same line or an indented block.
+
+```rig
+sub main()
+  n = 10
+  cell: *Cell(Int) = *Cell(value: 0)
+  plus_n = |+n, a: Int| a + n
+  bump = |+cell| cell.set(cell.get() + 1)
+  hello = || print("hello")
+  bump()
+  bump()
+  hello()
+  print(plus_n(5), cell.get())
+```
+
+```output
+hello
+15 2
+```
+
+A closure reaches the enclosing function's locals only through its
+captures. A bare entry that names a visible local is rejected, with the
+sigils that would capture it, because the spelling alone decides what
+an entry is:
+
+```rig reject
+sub main()
+  n = 1
+  f = |n| n + 1
+```
+
+```error
+closure parameter `n` has the name of the local `n`
+```
+
+### Captures
+
+| Capture | Outer value | Inside the closure |
+|---|---|---|
+| `\|+x\|` | Copy value | a copy |
+| `\|+x\|` | `*T` or `~T` | a clone of the handle |
+| `\|<x\|` | any | the value, moved in; the outer `x` is gone |
+| `\|~x\|` | `*T` | a weak handle `~T` |
+
+The closure's environment owns what it captured and releases it once,
+when the closure is released, not after each call. The body may use,
+call, and clone a captured owning value, but not move, drop, or
+reassign it: the closure may be called again. A name may be captured
+once per list, and a closure nested in another cannot re-capture a name
+the outer one captured.
+
+### Parameters and results
+
+A bare parameter takes its type from the type the context expects: a
+binding annotation, the parameter of the function being called, a
+`Vec`'s element type, a struct field, or a function's return type. An
+annotation is allowed anywhere and must agree with the context; with no
+context, every parameter must be annotated. A closure takes exactly the
+parameters its type passes, and may ignore one by naming it `_`.
+
+With a type from context, the body is checked against its return type.
+Otherwise the closure returns the type of its last expression, or of
+its `return`s when it ends in one; a body ending in any other statement,
+or in an `if` without `else`, returns nothing. `return` inside a closure
+leaves the closure.
+
+```rig
+fun apply(f: fun(Int) Int, x: Int) -> Int
+  f(x)
+
+fun twice(n: Int) -> Int
+  n * 2
+
+sub main()
+  add: fun(Int, Int) Int = |a, b| a + b
+  clamp = |x: Int|
+    return 100 if x > 100
+    x
+  print(add(2, 3), clamp(700), apply(twice, 4))
+```
+
+```output
+5 100 8
+```
 
 ### Function types
 
-```rig
-sub(Int)            # takes an Int, returns nothing
-fun(Int, Int) Int   # takes two Ints, returns an Int
-*sub(Int)           # an owned closure of that shape
-*fun(Int) Int
-```
+| Type | Meaning |
+|---|---|
+| `fun(Int, Int) Int` | takes two `Int`s, returns an `Int` |
+| `sub(String)` | takes a `String`, returns nothing |
+| `*fun(Int) Int`, `*sub()` | an owned closure of that shape |
 
-`fun(...)` / `sub(...)` types a closure bound to a local and a
-function used as a value; `extern` declarations use the same types
-(`extern abs: fun(Int) Int`, `extern srand: sub(U32)`). Declarations
-spell their return type with `->` (`fun add(a: Int) -> Int`); type
-expressions do not.
+Function types describe closures bound to locals, function names used
+as values, and `extern` function variables. Declarations write their
+return type after `->`; type expressions do not.
 
 ### Stack closures
 
-A closure literal without `*` lives on the stack of the function that
-writes it. It may appear only as:
+A closure literal without `*` lives in the stack frame of the function
+that writes it, so it may not escape. It may only be bound to a local
+(`f = |...| body`, then called as `f(...)`) or called where it is
+written (`(|+n| print(n))()`). Anywhere else (an argument, a field, an
+array element, a return value) it is rejected; make it owned instead. A
+closure binding is fixed and cannot be copied, moved, or passed on.
 
-- the right-hand side of a binding (`f = |...| body`), called as
-  `f(...)`;
-- the callee of a call, invoked where it is written:
-  `(|+n| print n)()`.
+```rig reject
+fun make() -> fun() Int
+  n = 1
+  |+n| n
+```
 
-Anywhere else (an argument, an array element, a constructor field,
-a return value) it would escape its scope and is rejected; make it
-owned instead. A closure binding is fixed and cannot be copied,
-moved, or borrowed.
-
-For each resource capture, the closure's environment owns the
-captured handle; it is released once, when the closure binding goes
-out of scope, not after each call. The body may use and clone a
-captured resource but not move, drop, or reassign it.
+```error
+closures cannot escape their defining scope
+```
 
 ### Owned closures
 
-`*` before the bar list makes an **owned closure**: its environment
-is allocated on the heap and held by a reference-counted handle of
-type `*sub(...)` / `*fun(...) R`, which can be stored, passed,
-returned, cloned (`+cb`), and dropped like any `*T`:
+`*` before the bar list makes an **owned closure**: its environment is
+allocated on the heap behind a shared handle of type `*fun(...) R` or
+`*sub(...)`, which can be stored, passed, returned, cloned (`+cb`),
+held weakly, and dropped like any `*T`.
 
 ```rig
 fun make_counter(start: Int) -> *fun(Int) Int
@@ -1526,451 +1708,74 @@ fun make_counter(start: Int) -> *fun(Int) Int
 
 sub main()
   next = make_counter(100)
-  print(next(1), next(10))        # 101 111
-  sig: *Signal(Int) = *Signal(value: 0)
-  sig.subscribe(*|~sig|
-    if sig.upgrade() as s
-      print(s.get()))
-  sig.set(7)                      # 7
+  print(next(1), next(10))
+  handlers: Vec(*fun(Int) Int) = Vec()
+  (!handlers).push(<next)
+  (!handlers).push(*|x| x * 10)
+  for h in ?handlers
+    print(h(3))
 ```
 
-The captures are released when the last handle drops. `*` applies
-only to a closure literal; `*f` of a function or closure binding is
-rejected.
+```output
+101 111
+114
+30
+```
 
-An owned closure's parameter and return types are plain Copy values
-— `Int`, `Float`, `Bool`, `String`, sized numbers, plain enums, and
-optionals of these — because its runtime form is type-erased:
-`*sub(*Cell(Int))` or `*fun() Vec(Int)` is rejected. Pass resources
-in as captures instead.
-
-**Runtime form.** `*fun(A, B) R` lowers to
-`*rig.RcBox(rig.Closure(&.{ A, B }, R))`. Each literal generates its
-own environment struct (the captures plus an `invoke` method taking
-the parameters); `Closure.init` erases it behind an `*anyopaque`, so
-every literal of one function type has the same type. Calls pass the
-arguments as a tuple (`cb.value.invoke(.{ a, b })`), which is how any
-arity shares one runtime type.
+An owned closure is type-erased at run time, so its parameters and
+result are plain Copy values: numbers, `Bool`, `String`, plain enums,
+and optionals of these. Pass owning values in as captures. `*` applies
+only to a closure literal, not to a function name or a closure binding.
 
 ### Multi-line closure bodies
 
-A closure body may be an indented block wherever the closure is
-written. When a bar list ends its line inside `( )` or `[ ]`, the
-body below is laid out in blocks as anywhere else; it ends where the
-bracket around it closes, or where a line comes back to the
-indentation of the line the closure started on:
+A closure's body may be an indented block wherever the closure is
+written. When the bar list ends a line inside `( )`, the body below is
+laid out in blocks as anywhere else; it ends where the bracket closes,
+or where a line comes back to the indentation of the line the closure
+started on. A paren-free call takes a trailing closure the same way.
 
 ```rig
-each_n(3, *|+total, i|
-  total.set(total.get() + i)
-  print(i))
+sub each(n: Int, f: *sub(Int))
+  for i in 0..n
+    f(i)
 
-handlers.push(*||
-  print("one")
-)
+sub main()
+  total: *Cell(Int) = *Cell(value: 0)
+  each(3, *|+total, i|
+    total.set(total.get() + i)
+    print("saw", i))
+  each 2, *|i|
+    print("trailing", i)
+  print(total.get())
 ```
 
-A paren-free call takes a trailing closure the same way:
-
-```rig
-sig.subscribe *|~sig|
-  if sig.upgrade() as s
-    print(s.get())
-```
-
-### Limits
-
-- A closure nested inside another closure's body cannot capture a
-  name the outer closure captured; lift the capture to the outer
-  scope.
-- A stack closure cannot be passed as an argument; pass an owned
-  closure.
-- An owned closure's parameters and return value are plain Copy
-  values (above).
-
----
-
-# User-Defined Drop (M25)
-
-A struct may declare a single `drop` body that runs when an
-instance is destroyed. This is Rig's substrate-level cleanup
-hook: the user authors what happens *before* the struct's
-resource fields release, and the compiler walks resource
-fields automatically *after* the user body returns. The
-combination — user body + auto-generated structural drop glue
-— is the M25 substrate unlock; without it, every struct that
-owned a `*Cell`, `Vec`, or `*sub()` would either need
-manual cleanup or leak.
-
-```rig
-struct File
-  fd: Int
-
-  drop self: !File
-    raw
-      close_fd(self.fd)
-```
-
-Surface rules (V1, locked per the M25 design checkpoint):
-
-- Exactly one `drop` declaration per struct.
-- Receiver must be `self: !Self` (write-borrow). Other
-  receiver shapes — `?Self`, by-value `Self`, missing `self`,
-  extra parameters — are rejected at sema time.
-- No return type (drop is total).
-- No fallibility on the body (drop cannot fail; cleanup that
-  *can* fail wraps internals in `raw` and panics or logs).
-- Cannot be marked `pub` / `extern` (drop is implicit in the
-  type's contract; visibility doesn't apply).
-- Plain structs only. A user `drop` on an `enum`, `errors`,
-  `generic_type`, or `generic_enum` is V1-deferred (their owned
-  payloads and fields are still dropped structurally; see below).
-
-## Structural drop glue
-
-A type has drop glue when it has a user `drop` declaration or
-owns a resource: a `*T` or `~T` handle, a `Vec(T)`, a `Cell` of
-a resource, an optional resource such as `(*T)?`, or a value of
-another type with drop glue. Structs own their fields, enums the
-payload of their current variant, and an instance of a generic
-type what its fields hold under its type arguments
-(`Holder(*T)` owns a `*T`; `Holder(Int)` owns nothing).
-
-Dropping a value runs the user `drop` body first, if there is
-one, and then drops the owned parts: struct fields in reverse
-declaration order (the last-constructed resource is released
-first), the active variant's payload, or each element of a
-`Vec` from last to first.
-
-## "Any type with drop glue is non-Copy" rule
-
-A value whose type has drop glue is non-Copy. Bare alias /
-assignment / call-arg of such a value is rejected — two
-bindings would each run the destructor on scope exit
-(double-free). Move (`<x`) is required:
-
-```rig
-o1: Owner = Owner(cell: <c)
-o2: Owner = o1                # error: bare alias of `Owner`
-o2: Owner = <o1               # OK: explicit move
-```
-
-This generalizes the existing M20d alias-discipline rule from
-the hardcoded resource set (`*T` / `~T` / `Vec(T)`) to the
-substrate-classified set (anything with drop glue). Per the
-M25 design lock, this is the load-bearing ownership rule —
-without it, M25's auto-generated drop glue would let users
-silently corrupt refcounts.
-
-User-defined `Clone` is its own deferred arc; V1 has no `+x`
-clone shape for user-Drop types.
-
-## Auto-drop discipline
-
-A named binding whose type has drop glue is dropped when it
-goes out of scope, unless it was consumed first: dropped early
-(`-x`), moved (`<x`, a `|<x|` capture), or returned. A value
-leaving through a `return`, a `break`, or the last expression
-of a value block (including each branch of an `if`/`match`
-expression) is moved out. Reassignment evaluates the new value,
-then drops the old one.
-
-## Drop body restrictions (M25.1)
-
-A `drop` body cannot consume or replace what the auto-
-generated `__rig_drop` is about to walk. Specifically:
-
-```rig
-struct Owner
-  cell: *Cell(Int)
-
-  drop self: !Owner
-    -self                         # error: drop `self` in own drop body
-    other = <self                 # error: move `self` out of own drop
-    return self                   # error: return `self` from own drop
-    stash = <self.cell            # error: move resource field
-    consume(<self.cell)           # error: same — call-arg position
-    self.cell = *Cell(value: 0)   # error: reassign resource field
-```
-
-The auto-generated `__rig_drop` walks resource fields after
-the user body returns, so any of the above creates a double-
-drop or use-after-free hazard. Drop bodies CAN read fields,
-mutate Copy fields, and use raw cleanup — anything that
-doesn't take ownership of self or its resources.
-
-The check is `enforceDropBodyRestrictions` in
-`TypeResolver`, which recursively walks the body and matches
-against the patterns above using the struct's resolved
-`fields[]` to identify resource-typed fields.
-
-## What's deferred
-
-Per the M25 design lock (GPT-5.5 conversation
-`c_5c1d09d53ebe2f62`):
-
-- **`Cell.take()` semantics** — still deferred; it needs an
-  empty/taken state. Cell-non-Copy and `replace` shipped in M26.
-
-Previously deferred and now shipped (kept for context): split
-  to a separate M26 arc. `Cell.set(v)` for resource T needs
-  to drop the old value before storing the new; the natural
-  `take` primitive needs an "empty / taken" state. That's
-  its own design checkpoint.
-- **User `Clone`.** Lets users opt into a `+x` form for
-  their Drop types. Without it, `<x` move is the only V1
-  multi-binding shape.
-- **Optional-resource auto-drop** (`Vec.pop() -> T?` for
-  resource T, `*T?` upgrades, etc.) — separate substrate
-  topic.
-- **Generic Drop** (`drop` on `type Box(T)` etc.) — needs
-  bounds / monomorphized resource analysis.
-- **Enum / errors Drop** — needs per-variant payload drop.
-- **Auto-deref through member-access in method bodies** shipped
-  in M27 — `self.cell.get()` inside a method body resolves the
-  shared-handle deref automatically.
-
----
-
-# Function Calls
-
-Rig allows Ruby-style omitted parentheses.
-
-## Preferred Style
-
-```rig
-send <packet
-print ?user
-rename !user, "Ada"
+```output
+saw 0
+saw 1
+saw 2
+trailing 0
+trailing 1
+3
 ```
 
 ---
 
-## Parentheses Recommended For Nesting
-
-```rig
-send(encode <packet)
-```
-
-instead of:
-
-```rig
-send encode <packet
-```
-
-Rig should prefer readability over clever omission.
-
----
-
-## Keyword Arguments
-
-Arguments may be passed by parameter name, in any order, to
-functions and methods:
-
-```rig
-area(scale: 10, rect: r)
-```
-
-Arguments are always evaluated left to right as written, whatever
-parameters they bind to.
-
----
-
-# Constructors
-
-Rig uses:
-
-```rig
-User(name: "Ada")
-```
-
-instead of:
-
-```rig
-User.new(...)
-```
-
-or:
-
-```rig
-User{...}
-```
-
-The rule:
-
-```text
-Type(...) means “construct a value of this type.”
-```
-
-The compiler may lower to:
-
-- struct literal
-- init function
-- allocator-backed initialization
-
-based on the type.
-
-Example:
-
-```rig
-buf = Buffer(arena, size: 4096)
-```
-
-may lower to:
-
-```zig
-const buf = try Buffer.init(arena, 4096);
-```
-
-Allocation should remain visible through arguments.
-
-Failure should remain visible through result handling.
-
----
-
-# Fallibility / Error Propagation
-
-Rig uses suffix `!` for error propagation. The `!` family is errors;
-the `?` family is optionality (`none`). Each spelling has exactly one
-meaning — see "## The ?/! Triangle" above.
-
-## Propagation
-
-```rig
-user = loadUser(id)!
-```
-
-Meaning:
-
-```text
-unwrap success
-or propagate failure upward
-```
-
-Equivalent Zig lowering:
-
-```zig
-const user = try loadUser(id);
-```
-
-The suffix `!` form is reserved for error propagation. (Suffix `?` on
-expression is reserved for future optional-propagation, e.g.,
-`firstUser()?` if `firstUser` returns `User?`.)
-
----
-
-## Local Error Handling
-
-Rig uses `catch` for local recovery.
-
-```rig
-user = loadUser(id) catch |err|
-  log.warn "load failed: {err}"
-  User(name: "guest")
-```
-
-Meaning:
-
-```text
-evaluate expression
-if failure occurs, bind failure to err and execute recovery block
-```
-
-This maps naturally to Zig:
-
-```zig
-const user = loadUser(id) catch |err| {
-    ...
-};
-```
-
-Rig intentionally separates:
-
-```text
-expr!              propagate failure
-expr catch |err|   recover locally
-```
-
-This keeps `!` lightweight and visually obvious — and consistent with
-the `T!` (fallible type) spelling: a function returning `T!` is
-called with `f()!` to propagate.
-
----
-
-## Multi-Line Fallible Blocks
-
-Value-producing multi-line `try/catch` blocks parse but are
-reserved in V1 and sema-rejected per M22.1. V1 fallibility
-supports `expr!` propagation and `expr catch |err| recovery`.
-
-(Future-spec design sketch follows.)
-
-```rig
-view = try
-  user = loadUser(id)!
-  profile = loadProfile(user.id)!
-  UserView(?user, ?profile)
-catch |err|
-  log.warn "failed to build view: {err}"
-  UserView.empty()
-```
-
-Meaning:
-
-```text
-run the block
-any expression marked with ! may propagate into catch
-try yields the final successful expression
-catch yields the fallback expression
-```
-
-This preserves:
-
-- explicit failure propagation
-- visible control flow
-- typed errors
-- no hidden exceptions
-
-while still providing ergonomic block recovery.
-
-Only expressions marked with `!` may escape to `catch`.
-
----
-
-## Fallible Function Return
-
-```rig
-fun loadUser(id: U64) -> User!
-```
-
-Meaning:
-
-```text
-this function returns User-or-failure
-```
-
-The suffix `!` on a type makes it **fallible** (an error union).
-A fallible type is only allowed as a function's return type.
-
-A plain `T` is accepted where `T!` is expected, so a fallible function
-returns its successful value directly:
-
-```rig
-fun double(n: Int) -> Int!
-  n * 2
-```
-
-A call to a fallible function must be wrapped with `!` or `catch`, and
-`!` applies only to something that can fail. A closure body and a
-`defer` expression cannot propagate with `!`.
-
----
-
-## Optionals
-
-`T?` holds a `T` or nothing. `none` is the absent value; a plain `T` is
-accepted where `T?` is expected. `a ?? b` yields the value inside `a`,
-or `b` when `a` is `none`, and `== none` tests for absence:
+## 13. Optionals
+
+`T?` holds a `T` or `none`. A plain `T` is accepted where a `T?` is
+expected, and `none` needs a known optional type.
+
+| Form | Meaning |
+|---|---|
+| `a ?? b` | the value inside `a`, or `b` when `a` is `none` |
+| `a == none`, `a != none` | test for absence |
+| `if a as x` | run the block with `x` bound to the value inside `a`; `else` runs when `a` is `none` |
+| `while a as x` | repeat while `a` produces a value |
+
+Fields and methods are not reachable through an optional; take the
+value out first. The name bound by `as` is visible only in its block,
+and `as _` tests without binding.
 
 ```rig
 fun positive(n: Int) -> Int?
@@ -1979,901 +1784,283 @@ fun positive(n: Int) -> Int?
   else
     none
 
-sub main()
-  print(positive(3) ?? 0)     # 3
-  print(positive(-1) ?? 0)    # 0
-  m: Int? = none
-  print(m == none)            # true
-```
-
-Fields and methods are not reachable through an optional; take the
-value out with `??` first. `none` is a reserved name, needs a known
-optional type (`x: Int? = none`), and `??` refuses optionals of
-resource handles, whose value would be copied out.
-
----
-
-## The `?` / `!` Triangle
-
-Rig keeps the meaning of `?` and `!` clean by giving each position a
-distinct role, and by giving each *family* a single domain:
-
-```text
-   ?x   prefix on expression  read borrow
-   !x   prefix on expression  write borrow
-   ?T   prefix on type        read-borrowed parameter / return
-   !T   prefix on type        write-borrowed parameter / return
-   T?   suffix on type        optional T (T or none)
-   T!   suffix on type        fallible T (T or error)
-   x!   suffix on expression  propagate failure
-   x?   suffix on expression  RESERVED for future optional-propagation
-                              (Swift-style "if none, propagate none")
-```
-
-So:
-- **Prefix `?` / `!`** = borrow (in either expression or type position).
-- **`?` family** = optionality / none. Suffix-on-type and (future)
-  suffix-on-expression both belong to the optional world.
-- **`!` family** = errors / failure. Suffix-on-type (`T!` fallible)
-  and suffix-on-expression (`x!` propagate) both belong to the
-  error-handling world.
-
-The propagation symbol matches the type it operates on: a function
-returning `User!` is called with `f()!` to propagate the error; a
-function returning `User?` (someday) is called with `f()?` to
-propagate the `none`.
-
-The two halves never collide; each spelling has exactly one meaning.
-
----
-
-# Expression-Oriented Philosophy
-
-Rig strongly prefers expression-oriented semantics.
-
-Most constructs naturally yield values:
-
-```rig
-x = if ok
-  1
-else
-  2
-```
-
-```rig
-x = try
-  loadUser(id)!
-catch |err|
-  User(name: "guest")
-```
-
-Assignment is optional consumption of the resulting value.
-
-This is also valid:
-
-```rig
-if ok
-  print "yes"
-else
-  print "no"
-```
-
-The value is simply ignored.
-
-Core philosophy:
-
-```text
-Most constructs are expressions.
-Assignment optionally consumes their values.
-```
-
----
-
-# Generics
-
-Rig supports lightweight generic types/functions.
-
-## Generic Type
-
-```rig
-type Box(T)
-  value: T
-```
-
-Equivalent Zig lowering:
-
-```zig
-pub fn Box(comptime T: type) type {
-    return struct {
-        value: T,
-    };
-}
-```
-
----
-
-## Generic Function
-
-```rig
-fun first(T, xs: ?[]T) -> T?
-  xs[0]
-```
-
-Rig hides Zig comptime syntax for generic parameters.
-
-Note the `?` / `!` triangle in action:
-- `xs: ?[]T` — prefix `?` on type → **read-borrowed slice** of T (param)
-- `-> T?`    — suffix `?` on type → **optional** T (return may be missing)
-
----
-
-## Type Parameters
-
-Type parameter names are NOT keywords.
-
-All valid:
-
-```rig
-Box(T)
-Box(Item)
-Map(Key, Value)
-```
-
----
-
-# Compile-Time Specialization (`pre`)
-
-Rig replaces Zig `comptime` with `pre`.
-
-## Compile-Time Parameter
-
-```rig
-fun parse(pre mode: ParseMode, input: ?Bytes) -> Ast
-  if pre mode == .strict
-    parseStrict ?input
+fun describe(m: Int?) -> Int
+  if m as v
+    v * 2
   else
-    parseLoose ?input
-```
-
-Meaning:
-
-```text
-mode is known at compile time
-compiler specializes the generated runtime code
-unused branches disappear
-```
-
-This generates separate specialized versions.
-
----
-
-## Compile-Time Block (reserved in V1)
-
-```rig
-pre
-  assert(sizeOf(Header) == 32)
-```
-
-`pre INDENT body OUTDENT` parses but is reserved in V1 and
-sema-rejected per M22.1.
-
----
-
-## Compile-Time Function (reserved in V1)
-
-```rig
-pre fun buildTable() -> Table
-  ...
-```
-
-`pre fun` declarations are reserved alongside `pre <expr>` and
-`pre` blocks. V1 ships `pre`-parameter shape only (see above).
-
----
-
-## Compile-Time Condition (reserved in V1)
-
-```rig
-if pre mode == .strict
-```
-
-`pre <expr>` modifiers are reserved in V1.
-
----
-
-# Iteration
-
-Rig iteration carries ownership semantics.
-
-## Read Iteration
-
-```rig
-for user in ?users
-  print ?user
-```
-
-(Callback-style `.each` iteration is not V1 surface — V1 ships
-only the external `for x in <source>` form. Internal-callback
-iteration is deferred per the M20i `Vec(T)` deferred-features
-list.)
-
----
-
-## Mutable Iteration
-
-```rig
-for user in !users
-  normalize !user
-```
-
----
-
-## Consuming Iteration
-
-```rig
-for packet in <queue
-  send <packet
-```
-
-Meaning:
-
-```text
-queue consumed
-packet ownership transferred
-queue invalid afterward
-```
-
----
-
-## Ranges, Indexes, and `else`
-
-`a..b` is the half-open integer range from `a` up to but not
-including `b`; both bounds are evaluated once. A second binding
-receives each element's index:
-
-```rig
-for i in 0..n
-  total += i
-
-for x, i in xs            # arrays and Vecs
-  print(x * i)
-```
-
-A loop's `else` block runs when the loop ends without `break`
-(`while` and `for` alike). Labeled loops (`:outer while ...`) are
-the targets of `break :outer` and `continue :outer`; `break` and
-`continue` take a postfix guard (`break if done`).
-
-`[a, b, c]` is an array literal and `xs.len` its length. `xs[i]` and
-`v[i]` (a `Vec` of plain data) read an element and `xs[i] = x`
-stores one; an index outside `0 ..< len` panics with `index out of
-bounds`.
-
----
-
-# Arithmetic
-
-Integer `/` truncates toward zero and `%` is the remainder with the
-sign of the dividend, so `(a / b) * b + a % b == a` (`-7 / 2 == -3`,
-`-7 % 2 == -1`). Float `/` is ordinary division. `a ** b` raises `a`
-to the power `b`, and `x |> f(y)` is `f(x, y)`.
-
----
-
-# Immutability Philosophy
-
-Rig respects Clojure’s insight that:
-
-> uncontrolled mutation creates complexity.
-
-Rig differs by solving this through ownership rather than GC/persistent structures.
-
-Rig posture:
-
-```text
-reading is explicit
-mutation is explicit
-ownership transfer is explicit
-rebinding can be fixed
-```
-
-Rig is:
-
-- immutable-friendly
-- mutation-explicit
-- ownership-visible
-
-without requiring garbage collection.
-
----
-
-# Ownership Checker V1
-
-## Value States
-
-Each binding is:
-
-```text
-valid
-moved
-dropped
-```
-
----
-
-## Borrow Rules
-
-### Read Borrow
-
-```text
-many allowed
-blocks move/write/drop
-```
-
-### Write Borrow
-
-```text
-exclusive
-blocks all other access
-```
-
----
-
-## Borrow Lifetime
-
-V1 conservative rule:
-
-```text
-temporary borrows end at statement end
-bound borrows live until scope exit or explicit drop
-```
-
-Example:
-
-```rig
-print ?user
-rename !user
-```
-
-allowed.
-
-But:
-
-```rig
-r = ?user
-rename !user
-```
-
-is illegal while `r` exists.
-
----
-
-## Borrow Escape Rule
-
-Returned borrows must originate from borrowed parameters.
-
-Allowed:
-
-```rig
-fun name(user: ?User) -> ?String
-  ?user.name
-```
-
-Illegal:
-
-```rig
-fun bad() -> ?String
-  user = User(name: "Ada")
-  ?user.name
-```
-
----
-
-# Normalized Semantic S-Expressions
-
-Ownership checking occurs after normalization.
-
-Example:
-
-```rig
-send <packet
-log ?packet
-```
-
-Normalizes to:
-
-```lisp
-(block
-  (call send (move packet))
-  (call log (read packet)))
-```
-
-Rig ownership analysis should operate on semantic S-expressions.
-
----
-
-# Semantic IR Nodes
-
-```lisp
-(block ...)
-(bind name expr)
-(bind-fixed name expr)
-(assign name expr)
-(shadow name expr)
-
-(move expr)
-(read expr)
-(write expr)
-(clone expr)
-(drop expr)
-
-(share expr)
-(weak expr)
-(pin expr)      ; parsed for `@x`, reserved in V1; sema rejects per M22.1
-(raw expr)
-
-(call callee args...)
-(return expr)
-(if cond then else)
-(for mode binding collection body)
-
-(lambda
-  (captures                    ; or `_`
-    (cap_clone name)           ; `|+x|`
-    (cap_move name)            ; `|<x|`
-    (cap_weak name))           ; `|~x|`
-  params
-  returns
-  body)
-```
-
----
-
-# Ownership Checker State
-
-Per binding:
-
-```text
-name
-type
-state: valid | moved | dropped
-fixed: bool
-read_borrows
-write_borrow
-scope_id
-```
-
----
-
-# V1 Test Cases
-
-## Use After Move
-
-```rig
-send <packet
-log ?packet
-```
-
-Must error.
-
----
-
-## Write While Read Borrowed
-
-```rig
-r = ?user
-rename !user
-```
-
-Must error.
-
----
-
-## Read While Write Borrowed
-
-```rig
-w = !user
-print ?user
-```
-
-Must error.
-
----
-
-## Use After Drop
-
-```rig
--user
-print ?user
-```
-
-Must error.
-
----
-
-## Explicit Shadow
-
-```rig
-x = 1
-new x = 2
-```
-
-Allowed.
-
----
-
-## Fixed Binding Reassignment
-
-```rig
-user =! loadUser(id)!
-user = refreshUser(id)!
-```
-
-Must error.
-
----
-
-## Borrow Escape
-
-```rig
-fun bad() -> ?String
-  user = User(name: "Ada")
-  ?user.name
-```
-
-Must error.
-
----
-
-# Relationship To Zig
-
-Rig is NOT replacing Zig.
-
-Rig provides:
-
-- ownership analysis
-- syntax simplification
-- semantic normalization
-- safety guarantees
-
-Zig provides:
-
-- performance
-- optimizer
-- native backend
-- ABI/platform support
-- comptime machinery
-- mature systems ecosystem
-
-Rig is effectively:
-
-```text
-Rust-inspired ownership semantics
-over
-a Zig backend
-```
-
----
-
-# Relationship To Rust
-
-Rig intentionally borrows:
-
-- ownership
-- moves
-- borrowing
-- explicit mutation
-- compile-time safety
-
-Rig intentionally avoids (for V1):
-
-- complex trait systems
-- advanced lifetime syntax
-- heavy generics machinery
-- async complexity
-- advanced type-level programming
-
-Rig aims for:
-
-```text
-simpler than Rust
-safer than Zig
-```
-
----
-
-# Relationship To Clojure
-
-Rig respects the idea that mutation should be controlled.
-
-Rig differs by:
-
-- no GC
-- explicit ownership
-- systems-level performance
-
-Rig can still support:
-
-- immutable collections
-- persistent structures
-- structural sharing
-
-as library/runtime features.
-
----
-
-# V1 Scope
-
-Rig V1 should fully support:
-
-- ownership sigils (core + shared / weak)
-- borrowing
-- moves
-- clone / drop
-- binding rules
-- generics
-- `pre` parameters for compile-time specialization (`pre <expr>`
-  and `pre` blocks are reserved per M22.1)
-- error propagation
-- iteration ownership
-- Zig lowering
-- ownership checking
-- single-threaded reference-counted shared ownership (`*T` as `Rc<T>`)
-- weak references (`~T` as `Weak<T>`) with `upgrade() -> (*T)?`
-- raw context (`raw INDENT body OUTDENT` block ONLY; required
-  for `%x` raw access and non-whitelisted `@builtin(...)`. M22
-  dropped the M19 `unsafe` keyword and the `unsafe sub`/`unsafe
-  fun` function-modifier; M22.1 audited the surface to ensure
-  every accepted construct has enforced semantics — see §Reserved
-  surface below)
-- extern call FFI boundary (`extern` declarations are raw-by-
-  default at call sites; callers must wrap in `raw` block)
-
-# Reserved surface (M22.1)
-
-M22.1 ("fake-surface audit" per GPT-5.5 entry 39): every accepted
-V1 surface form has enforced semantics and a working Rig lowering;
-unsupported / reserved forms fail at sema time with a Rig
-diagnostic before Zig emission. The following forms parse (the
-lexer / grammar still recognize them so the design space is
-preserved for V2+), but sema rejects them in V1:
-
-- **`@x` pin sigil** — pinning / stable-address semantics
-  deferred to V2. Lexer still distinguishes `@x` (pin_pfx) from
-  `@len(x)` (builtin call); the resulting `(pin x)` IR is
-  rejected by sema. M19's emit was identity (`@x` lowered to
-  plain `x`), a fake-surface hazard. `@Builtin(...)` form is
-  unaffected.
-- **`for *x in v` ptr-mode loop binding** — by-reference
-  iteration deferred. M20i.1's emit for Copy Vec was identical
-  to bare `for x in v` (silent no-op). V1 has one spelling per
-  element kind: `for x in v` for Copy, `for x in ?v` for
-  resource. Future by-reference iteration likely takes a
-  borrow-shaped spelling (`for ?x in v` / `for !x in v`) to
-  avoid muddying `*` (which means shared ownership everywhere
-  else in the grid).
-- **`pre <expr>` / `pre INDENT body OUTDENT`** — compile-time
-  expression / block forms reserved. `pre_param` (compile-time
-  function parameters: `sub f(pre x: Int, y: Int)`) STAYS — it
-  lowers to Zig `comptime x: i32` and is fully wired.
-- **`try INDENT body OUTDENT [catch |e| ...]`** — value-yielding
-  multi-line try-block reserved. V1 fallibility: `expr!`
-  propagation and `expr catch |e| recovery` (inline single-
-  expression). The block form needs a real design pass (value
-  vs statement position, catch-binding scope, drop-on-error path
-  interaction with M20e auto-drop guards).
-- **`zig "..."` inline-Zig escape** — embedded Zig text
-  reserved. V1 escape-valves are `raw` block (audit boundary)
-  and `extern` (FFI boundary at the symbol level), which cover
-  the practical needs without embedding a second language with
-  no scope-capture / hygiene story.
-
-Each retracted surface has a regression-test example in
-`examples/*_reserved.rig` / `examples/*_rejected.rig` documenting
-the diagnostic.
-
-# Modules (M15 + M15b)
-
-Rig V1 supports multi-file projects via `use NAME`:
-
-```rig
-# main.rig
-use math
+    0
 
 sub main()
-  print(math.add(1, 2))
-
-# math.rig
-pub fun add(a: Int, b: Int) -> Int
-  a + b
+  print(positive(3) ?? 0, positive(-1) ?? 0)
+  print(describe(4), describe(none), positive(-5) == none)
 ```
 
-`use NAME` resolves to `NAME.rig` in the same directory as the
-importing file. Imports are recursive; cycles are detected and
-rejected with a clean diagnostic.
+```output
+3 0
+8 0 true
+```
 
-## Cross-module contract (M15b)
+An optional of an owning value (such as `(*T)?` from `upgrade()`) owns
+what it holds. `if e as x` over a temporary gives `x` ownership, and it
+is dropped at the end of the block. An optional held in a binding is
+bound by moving or cloning it: `if <m as x`, `if +m as x`.
 
-Per the M15b "module honesty" invariant: **every accepted cross-
-module reference carries the same checked contract it would
-have carried in the defining file**. This means cross-module
-calls and member accesses fire the same Rig diagnostics as
-same-file:
+```rig reject
+struct User
+  name: String
 
-- Arity, arg-type, and kwargs validation against the imported
-  signature.
-- Fallibility: `a.parse_int("hi")` without `!` errors with
-  "fallible call to `a.parse_int` must be wrapped with `!`".
-- Borrow obligations: `a.log_box(b)` where the param is `?Box`
-  and the arg is a bare value errors with "type mismatch:
-  expected `?Box`, got `Box`".
-- Extern FFI: `a.puts("hi")` where `a.puts` is an extern
-  requires a `raw` block at the call site (the FFI boundary
-  travels across modules).
-- Resource lifetime: `b = a.make_box()` where `make_box` returns
-  `*Box` installs the M20e auto-drop guard locally, and
-  `b.value` auto-derefs through the Rc just like a same-file
-  binding.
-- M22.1 anonymous-resource-temp rule: `a.make_box().value` is
-  rejected as an anonymous temporary (the same shape as the
-  same-file `(*Box(...)).value` rejection).
+sub main()
+  u: User? = none
+  print(u.name)
+```
 
-## Visibility (M15b)
-
-`pub` is enforced across module boundaries. A symbol declared
-without `pub` is invisible to importers; calling
-`a.internal_helper(x)` where `internal_helper` is not `pub`
-errors with:
-
-> `a.internal_helper` is not public; mark it `pub` in module `a`
-> to expose it across module boundaries.
-
-Implicit exceptions (visible without `pub`):
-- `extern` declarations (visible via FFI; safety is enforced at
-  the call site via the `raw` block requirement)
-- Runtime-registered builtins (`Cell`, `Vec`,
-  `Signal`) — in every module's scope by construction
-
-## Nominal identity across modules
-
-Per the M15b architecture decision: nominal types are tagged
-with their origin module. `a.Box` and `b.Box` are different
-types even if their fields are identical (nominal-by-name, not
-nominal-by-shape). The importer's local TypeStore carries
-`imported_nominal{module_id, sym_id}` for foreign nominals.
-
-## Module-surface reservations (M15b)
-
-Per the M22.1 fake-surface invariant lifted to module scope:
-- `use std` is reserved in V1 (the grammar still accepts it
-  but sema rejects with a clean diagnostic). Future Zig-stdlib
-  pass-through would need a real design pass — possibly
-  `use zig.std` or an explicit FFI form.
-
-## Deferred to M15b.2+ (under active follow-up)
-
-- ~~Public-API-leaks-private-type rejection (`pub fun
-  make_secret() -> Secret` where `Secret` is non-pub) —
-  M15b.2.~~ ✅ **Shipped in M15b.2.** A `pub fun` / `pub sub`
-  whose signature mentions a non-`pub` same-module nominal —
-  return type, parameter type, or as a `parameterized_nominal`
-  argument (`Box(Secret)`) — fires a decl-time diagnostic
-  anchored at the function's name position. Importers see the
-  same diagnostic when the cross-module compilation chain
-  pulls in the offending module's sema. Imported nominals
-  (`imported_nominal{module, sym}`) are exempt — they're
-  validated visible in their origin module by the existing
-  M15b cross-module call paths. Built-in nominals
-  (Cell/Vec/Signal) are exempt. `type_var`s are
-  exempt (they're parameters, substituted at use sites).
-- `pub extern <name>: <type>` grammar (`extvar` isn't
-  pub-wrappable today; private extern + `pub` safe wrapper
-  is the V1 idiom).
-- Qualified resource types in type position (`b: *a.Box = ...`)
-  — currently a parse-gap; users use type inference today
-  (`b = a.make_box()`).
-- Cross-module user-defined generics (V1 cross-module call
-  paths handle built-in parameterized types like `Vec(T)` but
-  not user `pub type Box(T) ...`).
-- Legacy global name-scan retirement in `emit.zig`
-  (M20a.2 + M20e.1 partials; internal cleanup now that
-  sema-side unbound is enforced).
-
-## Closed in M15b.1
-
-- **Unbound value-name detection.** `nonexistent_fn()` and
-  `print(nope)` now error at `bin/rig check` with "use of
-  unbound name `X`" instead of falling through to Zig.
-  `synthLeafSrc` (value position) and `synthCall`'s
-  unknown-callee branch both enforce.
-- **Unbound type-name detection** (per post-impl review).
-  `x: NopeType = ...` now errors with "use of unbound type
-  `X`" at TypeResolver time. Same "unknown is poison after
-  a diagnostic" invariant applied at the type system.
-- **`print` whitelisted ONLY at call-callee position.** Bare
-  `print` as a value (`x = print`) errors as unbound. Only
-  the direct call shape `print(...)` is special-cased
-  (legacy emit-side builtin not yet in the symbol table).
-- `synthBlock` scope-tracking. Value-position multi-stmt
-  blocks (`if` / `match` expression arms, etc.) now correctly
-  enter the block scope created by `SymbolResolver.walkBlock`.
-  Pre-M15b.1 the scope existed but was never entered, leaving
-  local bindings invisible at use sites — hidden by the
-  silent-`unknown` fall-through.
-- `walkDecl` generic-enum dispatch. `.@"generic_enum"` was
-  missing from `ExprChecker.walkDecl`'s switch, which caused
-  ExprChecker to silently skip generic enum method bodies AND
-  desync the scope cursor for every subsequent top-level
-  decl. Fixed; cursor stays aligned with SymbolResolver's
-  scope creation order.
-
-# Resource-temporary leak rule (M22.1)
-
-A "resource allocation" — `*Foo(...)` (a fresh `Rc<Foo>`) — may
-appear ONLY in ownership-installing positions:
-
-- RHS of a `set` binding: `x: *Foo = *Foo(...)`
-- Direct child of `return`: `return *Foo(...)`
-- Direct argument of a `call` (callee parameter consumes)
-
-It may NOT appear as the receiver / object of:
-
-- `member` access: `(*Foo(...)).field`        — REJECTED
-- `index`:          `(*Foo(...))[i]`           — REJECTED
-- method call:      `(*Foo(...)).method(...)`  — REJECTED (via member)
-- ownership wrapper: `?(*Foo(...))`, `!(*Foo(...))`, `+(*Foo(...))`,
-  `~(*Foo(...))`, `%(*Foo(...))` — REJECTED
-
-Such anonymous Rc temporaries have no M20e auto-drop guard
-installed (guards key off NAMED bindings) and would leak the
-allocation. V1 fix: bind to a name first; the guard installs
-at the binding site and the borrow / method-call / member-access
-stays valid for the binding's scope. Hidden guarded temporaries
-are a possible V2+ extension when a concrete use case appears.
+```error
+`User?`
+```
 
 ---
 
-# V2/V3 Ideas
+## 14. Errors
 
-Possible future features:
+A function whose return type is `T!` may fail. A call to it must say
+what happens to the failure, visibly:
 
-- multi-threaded shared ownership (`Arc<T>`, `Send` / `Sync`,
-  atomic refcounting)
-- pinning (`@T`) as a real `Pin<P>` discipline
-- async model
-- concurrency traits
-- actor / task ownership transfer
-- allocator traits
-- reflection
-- interfaces / traits
-- advanced lifetime inference
-- richer compile-time metaprogramming
-- scoped context syntax (akin to Scala `given` / Koka effects) for
-  ambient reactor / allocator / tracing parameters
-- effect annotations on methods (`mutates(self)` etc.)
-- reactive sugar (`:=` / `~=` / `~>` as parser-level desugar over
-  `Cell` / `Memo` / `Effect`; see `docs/REACTIVITY.md`)
+- `f()!` propagates it: the enclosing function fails with the same
+  error. The enclosing function must itself return a `T!`, or be
+  `sub main`.
+- `f() catch fallback` handles it: the value of the call, or `fallback`
+  when it fails.
 
-These are intentionally deferred.
+A bare call to a fallible function is rejected, and so is `!` on a call
+that cannot fail. A closure body and a `defer` cannot propagate. A
+fallible type is only allowed as a function's return type, and a plain
+`T` is accepted where `T!` is expected.
+
+```rig
+fun parse_len(s: String) -> Int!
+  s.len
+
+fun double_len(s: String) -> Int!
+  parse_len(s)! * 2
+
+sub main()
+  print(double_len("four")!)
+  print(parse_len("abc") catch 0)
+```
+
+```output
+8
+3
+```
+
+```rig reject
+fun parse_len(s: String) -> Int!
+  s.len
+
+sub main()
+  n = parse_len("abc")
+```
+
+```error
+must be wrapped with `!` (propagate) or `catch` (handle)
+```
+
+Two parts of the error story are not built yet: a function cannot
+produce an error value of its own, and `catch |err|` cannot name the
+error. Error sets ([§4](#error-sets)) can be declared and used as
+values.
 
 ---
 
-# Core Rig Thesis
+## 15. Modules
 
-Rig is a systems programming language with:
+`use name` imports `name.rig` from the importing file's directory. The
+module's `pub` declarations are then reached as `name.decl`, and its
+types are named `name.Type` in annotations. Imports are checked in
+dependency order, each module once; a cycle is an error.
 
-- Zig performance
-- Rust-inspired ownership safety
-- Rip/Zag syntax simplicity
-- Nexus S-expression compilation
-- lightweight explicit ownership algebra
+```rig file=geo.rig
+pub struct Point
+  x: Int
+  y: Int
 
-Rig makes:
+  fun sum(?self) -> Int
+    self.x + self.y
 
-- ownership visible
-- mutation visible
-- failure visible
-- compile-time specialization visible
+pub fun origin() -> Point
+  Point(x: 0, y: 0)
+```
 
-while keeping the syntax small, direct, and expressive.
+```rig
+use geo
 
+fun total(p: ?geo.Point) -> Int
+  p.sum()
+
+sub main()
+  p: geo.Point = geo.Point(x: 1, y: 2)
+  print(total(?p), geo.origin().sum())
+```
+
+```output
+3 0
+```
+
+Only `pub` declarations are visible to importers. A `pub` function whose
+signature mentions a private type is rejected, because importers could
+hold such a value but never name it. A struct's fields and methods are
+visible wherever the struct is. Every check (types, arity, keyword
+arguments, borrow modes, fallibility, ownership) applies across modules
+exactly as within one, and a type is identified by the module that
+declares it: `a.Point` and `b.Point` are different types. `use std` is
+reserved.
+
+---
+
+## 16. Raw code and FFI
+
+A `raw` block is the boundary of what the checker guarantees. Inside
+it, and only there, a program may:
+
+- write a raw access `%x`, which today reads `x` like a plain use (the
+  spelling is kept for raw pointer access, which Rig does not have yet);
+- call a builtin outside the safe list (`@intCast`, `@bitCast`, ...);
+- call an `extern` function.
+
+Everything else inside a `raw` block is still checked. A `raw` block
+can yield a value, and a safe function may wrap raw code, which is the
+intended pattern: its callers need no `raw`.
+
+```rig
+extern fun abs(n: Int) -> Int
+
+fun safe_abs(n: Int) -> Int
+  raw
+    abs(n)
+
+sub main()
+  x: Int = 300
+  raw
+    small: U8 = @intCast(x - 100)
+    print(small, %x)
+  print(safe_abs(-5))
+```
+
+```output
+200 300
+5
+```
+
+`extern fun name(params) -> R` and `extern sub name(params)` declare C
+functions; `extern name: fun(A) R` declares a function variable. Only
+integers, floats, and `Bool` cross the C boundary, and a C function
+cannot return a Rig error union. An `extern` is visible to importers
+only through `pub` wrappers.
+
+```rig reject
+extern fun abs(n: Int) -> Int
+
+sub main()
+  print(abs(-5))
+```
+
+```error
+call to extern function `abs` requires `raw` block
+```
+
+---
+
+## 17. Compile-time parameters
+
+A parameter marked `pre` is known at compile time; it lowers to a Zig
+`comptime` parameter. The argument must be a literal, an enum value, a
+`pre` parameter, or a `=!` binding of one.
+
+```rig
+enum Mode
+  strict
+  loose
+
+fun check(pre mode: Mode, n: Int) -> Bool
+  if mode == .strict
+    n > 10
+  else
+    n > 0
+
+sub main()
+  print(check(.strict, 5), check(.loose, 5))
+```
+
+```output
+false true
+```
+
+`pre` expressions and `pre` blocks are reserved.
+
+---
+
+## 18. Printing
+
+`print(a, b, ...)` writes its values separated by single spaces, then a
+newline; `print()` writes an empty line. It also takes the paren-free
+form `print a, b`. `print` is only special as a direct call; it is not
+a value.
+
+| Value | Printed as |
+|---|---|
+| numbers, `Bool` | `42`, `-3`, `2.5`, `true` |
+| `String` | its text; inside other values, quoted |
+| `none` | `none` |
+| enum | `.green`, `.rect(w: 2, h: 3)` |
+| struct | `User(name: "ada", age: 36)` |
+| array, `Vec` | `[1, 2]` |
+| shared handle | the value it holds |
+| weak handle | `~(alive)` or `~(gone)` |
+| owned closure | `<closure>` |
+
+```rig
+struct User
+  name: String
+  age: Int
+
+sub main()
+  u = User(name: "ada", age: 36)
+  n: Int? = none
+  print(u, n, ["a", "b"], 2.5)
+```
+
+```output
+User(name: "ada", age: 36) none ["a", "b"] 2.5
+```
+
+---
+
+## 19. Reserved and rejected forms
+
+These parse, and are rejected with a diagnostic that says why:
+
+| Form | Status |
+|---|---|
+| `&&`, `\|\|`, `**` | not Rig operators; use `and`, `or` |
+| `@x` (pin) | reserved: no pinning semantics yet |
+| `for *x in v` | reserved: by-reference loop binding |
+| `for x in !v`, `for x in <v` | not supported yet |
+| `pre expr`, `pre` blocks | reserved; only `pre` parameters exist |
+| `try` blocks with `catch` blocks | reserved; use `f()!` or `f() catch x` |
+| `catch \|err\| ...` | naming the error is not supported yet |
+| `zig "..."` | reserved: no inline Zig; use `raw` and `extern` |
+| `use std` | reserved |
+| module-level bindings | not supported yet |
+| field default values | not supported yet |
+| generic functions (`pre T: type`) | not supported yet |
+| `drop` on enums and generic types | not supported; they get structural glue |
+| a stack `Signal(T)` | rejected; use `*Signal(T)` |
+
+```rig reject
+sub main()
+  zig "return;"
+```
+
+```error
+inline `zig "..."` raw-Zig escape is reserved
+```

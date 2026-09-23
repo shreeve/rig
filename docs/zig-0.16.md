@@ -52,13 +52,13 @@ Read the section that matches your knowledge baseline.
 
 ### Copy-paste bootstrap prompt for a fresh AI chat
 
-Paste this as your first message in a new chat with `ZIG-0.16.0.md`
+Paste this as your first message in a new chat with `zig-0.16.md`
 attached. Replace the `<…>` fields.
 
 ```
 I need to migrate a Zig codebase from 0.15.x to 0.16.0.
 
-I've attached `ZIG-0.16.0.md`. It's a single reference with four sections:
+I've attached `zig-0.16.md`. It's a single reference with four sections:
   §1  Quickstart Protocol         — start here; this is the workflow.
   §2  Pre-0.15 → 0.15.x Migration — only relevant if your code predates 0.15.
   §3  0.15 → 0.16 Migration       — the deep reference.

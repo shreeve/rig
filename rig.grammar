@@ -25,7 +25,7 @@
 #       T? T! x!                     type / propagation suffixes
 #       a if c else b                ternary vs postfix guard `stmt if c`
 #
-# See docs/grammar-conflicts.md for the conflicts this grammar still has.
+# The grammar has no LALR conflicts; see docs/INTERNALS.md (Conflicts policy).
 # ==============================================================================
 
 @lang = "rig"
