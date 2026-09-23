@@ -491,8 +491,6 @@ const SymbolResolver = struct {
             },
             else => {},
         }
-        // `(arm pattern name body)`: the `as name` binding.
-        if (items.len >= 4) _ = try self.bindFresh(items[2], "pattern binding");
         try self.walk(items[items.len - 1]);
     }
 

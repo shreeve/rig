@@ -2114,9 +2114,10 @@ sub main()
   print(m == none)            # true
 ```
 
-Fields and methods are not reachable through an optional; unwrap it
-first. `none` needs a known optional type (`x: Int? = none`), and `??`
-refuses optionals of resource handles, whose value would be copied out.
+Fields and methods are not reachable through an optional; take the
+value out with `??` first. `none` is a reserved name, needs a known
+optional type (`x: Int? = none`), and `??` refuses optionals of
+resource handles, whose value would be copied out.
 
 ---
 

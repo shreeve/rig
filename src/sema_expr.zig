@@ -511,10 +511,6 @@ const Checker = struct {
     fn checkIfValue(self: *Checker, node: Sexp, expected: ?TypeId, position: Position) Error!TypeId {
         const items = node.list;
         if (items.len < 3) return self.t().invalid_id;
-        if (items.len >= 5) {
-            try self.err(firstSrcPos(items[3]), "`else as name` is not supported", .{});
-            return self.t().invalid_id;
-        }
         const cond = items[1];
         const then_node = items[2];
         const else_node: Sexp = if (items.len >= 4) items[3] else .{ .nil = {} };
@@ -691,12 +687,6 @@ const Checker = struct {
             const prev = self.enter(arm);
             defer self.scope = prev;
             try self.checkPattern(arm.list[1], scrutinee, &covered, &has_default);
-            if (arm.list.len >= 4) {
-                if (self.ctx.symbolOf(arm.list[2])) |s| {
-                    self.ctx.symbols.items[s].ty = scrutinee;
-                    try self.ctx.recordType(arm.list[2], scrutinee);
-                }
-            }
             const body = arm.list[arm.list.len - 1];
             switch (position) {
                 .statement => try self.checkStmt(body),
@@ -1197,7 +1187,7 @@ const Checker = struct {
             },
         };
         if (types.typeHasDropGlue(self.ctx, inner)) {
-            try self.err(firstSrcPos(items[1]), "`??` on an optional `{s}` would copy an owning handle out of it; unwrap with `if opt as name` instead", .{try self.tyName(opt)});
+            try self.err(firstSrcPos(items[1]), "`??` on an optional `{s}` would copy an owning handle out of it; optionals of resource handles can only be compared with `none`", .{try self.tyName(opt)});
             return self.t().invalid_id;
         }
         const result = expected orelse inner;
@@ -1357,7 +1347,7 @@ const Checker = struct {
 
         switch (pty) {
             .optional => {
-                try self.err(pos, "cannot access `{s}` on optional `{s}`; unwrap it first with `if x as v` or `x ?? default`", .{ field, try self.tyName(peeled) });
+                try self.err(pos, "cannot access `{s}` on optional `{s}`; take the value out first with `x ?? fallback`", .{ field, try self.tyName(peeled) });
                 return self.t().invalid_id;
             },
             .array, .slice, .string => if (std.mem.eql(u8, field, "len")) {
@@ -1957,7 +1947,7 @@ const Checker = struct {
         const peeled = types.unwrapReadAccess(self.ctx, obj_ty);
         switch (self.ctx.types.get(peeled)) {
             .optional => {
-                try self.err(pos, "cannot call `{s}` on optional `{s}`; unwrap it first with `if x as v` or `x ?? default`", .{ method, try self.tyName(peeled) });
+                try self.err(pos, "cannot call `{s}` on optional `{s}`; take the value out first with `x ?? fallback`", .{ method, try self.tyName(peeled) });
                 try self.synthArgs(args);
                 return self.t().invalid_id;
             },
