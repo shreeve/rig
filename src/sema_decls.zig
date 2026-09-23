@@ -407,7 +407,7 @@ const SymbolResolver = struct {
                 _ = try self.declare(target, .local, .{ .fixed = true });
             },
             .shadow => _ = try self.declare(target, .local, .{}),
-            .@"+=", .@"-=", .@"*=", .@"/=" => {
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     self.ctx.symbols.items[existing].flags.reassigned = true;
                 }

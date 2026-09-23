@@ -390,19 +390,10 @@ const Checker = struct {
         }
 
         switch (kind) {
-            .@"+=", .@"-=", .@"*=", .@"/=" => {
-                const target_ty = declared;
-                const op = @tagName(kind);
-                if (kind == .@"/=") if (self.constInt(rhs)) |v| if (v == 0) {
-                    try self.err(firstSrcPos(rhs), "division by zero", .{});
-                };
-                if (!self.isPoison(target_ty) and !types.isNumeric(self.ctx, target_ty)) {
-                    try self.err(target.src.pos, "`{s}` requires a numeric target; `{s}` has type `{s}`", .{ op, name, try self.tyName(target_ty) });
-                    _ = try self.synthExpr(rhs);
-                } else {
-                    try self.checkExpr(rhs, target_ty);
-                }
-                try self.ctx.recordType(target, target_ty);
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
+                const what = try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}` has type", .{name});
+                try self.checkCompound(kind, declared, rhs, target.src.pos, what);
+                try self.ctx.recordType(target, declared);
                 return;
             },
             else => {},
@@ -502,17 +493,50 @@ const Checker = struct {
             try self.err(firstSrcPos(target), "cannot replace an element of type `{s}` by assignment; the old handle would leak", .{try self.tyName(place_ty)});
             return;
         }
-        switch (kind) {
-            .@"+=", .@"-=", .@"*=", .@"/=" => {
-                if (!self.isPoison(place_ty) and !types.isNumeric(self.ctx, place_ty)) {
-                    try self.err(firstSrcPos(target), "`{s}` requires a numeric target; this place has type `{s}`", .{ @tagName(kind), try self.tyName(place_ty) });
-                    _ = try self.synthExpr(rhs);
-                    return;
-                }
-            },
-            else => {},
-        }
+        if (kind.operator() != null) return self.checkCompound(kind, place_ty, rhs, firstSrcPos(target), "this place has type");
         try self.checkExpr(rhs, place_ty);
+    }
+
+    /// `x op= e` is `x = x op e` with `x` evaluated once, and `x` keeps its
+    /// type: arithmetic needs a numeric target, bitwise operators and
+    /// shifts an integer one. `e` has the target's type, except a shift
+    /// amount, which may be any integer.
+    fn checkCompound(self: *Checker, kind: rig.BindingKind, target_ty: TypeId, rhs: Sexp, pos: u32, what: []const u8) Error!void {
+        const op = kind.operator().?;
+        const spelled = @tagName(kind);
+        if (self.isPoison(target_ty)) {
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        const integer_only = switch (op) {
+            .@"&", .@"|", .@"^", .@"<<", .@">>" => true,
+            else => false,
+        };
+        const ok = if (integer_only) types.isInteger(self.ctx, target_ty) else types.isNumeric(self.ctx, target_ty);
+        if (!ok) {
+            try self.err(pos, "`{s}` requires {s} target; {s} `{s}`", .{ spelled, if (integer_only) "an integer" else "a numeric", what, try self.tyName(target_ty) });
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        if (op == .@"<<" or op == .@">>") {
+            const amount = readValue(self.ctx, try self.synthExpr(rhs));
+            if (self.isPoison(amount)) return;
+            if (!types.isInteger(self.ctx, amount)) {
+                try self.err(firstSrcPos(rhs), "a shift amount must be an integer; got `{s}`", .{try self.tyName(amount)});
+                return;
+            }
+            if (amount == self.t().int_literal_id) try self.ctx.recordType(rhs, self.t().int_id);
+            const info = self.ctx.types.get(target_ty).int;
+            const bits: i128 = if (info.bits == 0) 64 else info.bits;
+            if (self.constInt(rhs)) |v| if (v < 0 or v >= bits) {
+                try self.err(firstSrcPos(rhs), "shift amount `{d}` is out of range for `{s}` (0..{d})", .{ v, try self.tyName(target_ty), bits - 1 });
+            };
+            return;
+        }
+        if (op == .@"/" or op == .@"%") if (self.constInt(rhs)) |v| if (v == 0) {
+            try self.err(firstSrcPos(rhs), "division by zero", .{});
+        };
+        try self.checkExpr(rhs, target_ty);
     }
 
     /// Writing to `place` (a name, or a field or element of one) writes

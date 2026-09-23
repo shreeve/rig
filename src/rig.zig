@@ -66,6 +66,12 @@ pub const Tag = enum(u8) {
     @"-=",
     @"*=",
     @"/=",
+    @"%=",
+    @"&=",
+    @"|=",
+    @"^=",
+    @"<<=",
+    @">>=",
     @"drop",            // (drop name): `-name` statement
 
     // Control flow
@@ -162,7 +168,8 @@ pub const Tag = enum(u8) {
 
 /// Exhaustive view of the kind slot, so dispatch sites must handle every
 /// kind: `_` → default, `fixed` (`=!`), `shadow` (`new x =`), `move`
-/// (`<-`), and the compound assignments.
+/// (`<-`), and the compound assignments (`x op= e`, one per binary
+/// arithmetic, bitwise, and shift operator).
 pub const BindingKind = enum {
     default,
     fixed,
@@ -172,6 +179,30 @@ pub const BindingKind = enum {
     @"-=",
     @"*=",
     @"/=",
+    @"%=",
+    @"&=",
+    @"|=",
+    @"^=",
+    @"<<=",
+    @">>=",
+
+    /// The binary operator a compound assignment applies, or null for a
+    /// plain binding or assignment.
+    pub fn operator(k: BindingKind) ?Tag {
+        return switch (k) {
+            .default, .fixed, .shadow, .@"move" => null,
+            .@"+=" => .@"+",
+            .@"-=" => .@"-",
+            .@"*=" => .@"*",
+            .@"/=" => .@"/",
+            .@"%=" => .@"%",
+            .@"&=" => .@"&",
+            .@"|=" => .@"|",
+            .@"^=" => .@"^",
+            .@"<<=" => .@"<<",
+            .@">>=" => .@">>",
+        };
+    }
 };
 
 pub const BindingKindError = error{InvalidBindingKind};
@@ -189,6 +220,12 @@ pub fn bindingKindOf(kind_slot: Sexp) BindingKindError!BindingKind {
         .@"-=" => .@"-=",
         .@"*=" => .@"*=",
         .@"/=" => .@"/=",
+        .@"%=" => .@"%=",
+        .@"&=" => .@"&=",
+        .@"|=" => .@"|=",
+        .@"^=" => .@"^=",
+        .@"<<=" => .@"<<=",
+        .@">>=" => .@">>=",
         else => error.InvalidBindingKind,
     };
 }

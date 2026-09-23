@@ -561,9 +561,28 @@ declaration ([§15](#15-modules)), and `extern` declares a C symbol
 | `x =! e`, `x: T =! e` | bind a fixed local, which cannot be reassigned |
 | `new x = e` | bind a new `x` that shadows the visible one; `e` may read the old `x` |
 | `x <- y` | move-assign: `x = <y` |
-| `x += e` (`-=`, `*=`, `/=`) | compound assignment |
+| `x += e` (`-=` `*=` `/=` `%=` `<<=` `>>=` `&=` `\|=` `^=`) | compound assignment: `x = x op e`, with `x` evaluated once |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate `e` and discard it; an owning value is dropped at once |
+
+A compound assignment keeps its target's type: an arithmetic operator
+needs a number, a bitwise operator or shift an integer, and a shift
+amount may be any integer. Each behaves like its operator
+([§6](#operators)): `/=` truncates, `%=` takes the dividend's sign, and
+`<<=` panics when bits are lost.
+
+```rig
+sub main()
+  x = 100
+  x %= 7
+  x <<= 3
+  x ^= 5
+  print(x)
+```
+
+```output
+21
+```
 
 A binding's type comes from its annotation or its value. Rig has no
 `var`, `let`, or `const`: the compiler emits a Zig `const` unless the

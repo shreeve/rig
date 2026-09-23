@@ -225,7 +225,8 @@ Declarations:
 Statements and control flow:
 
 ```text
-(set kind target type-or-_ expr)      kind: _ fixed shadow move += -= *= /=
+(set kind target type-or-_ expr)      kind: _ fixed shadow move, or op= for
+                                      each binary arithmetic, bitwise, shift op
 (drop name)
 (block stmt...)
 (if cond then else-or-_)              also the ternary and `stmt if c`

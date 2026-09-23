@@ -835,21 +835,15 @@ pub const Emitter = struct {
         const expr = items[4];
         const is_move = kind == .move;
 
+        if (kind.operator()) |op| return self.emitCompound(target, op, expr);
         if (target != .src) {
             return switch (kind) {
                 .default, .move => self.emitPlaceAssign(target, expr, is_move),
-                .@"+=" => self.emitCompound(target, "+", expr),
-                .@"-=" => self.emitCompound(target, "-", expr),
-                .@"*=" => self.emitCompound(target, "*", expr),
-                .@"/=" => self.emitCompound(target, "/", expr),
-                .fixed, .shadow => self.unsupported(sexp, "this binding target"),
+                else => self.unsupported(sexp, "this binding target"),
             };
         }
         switch (kind) {
-            .@"+=" => try self.emitCompound(target, "+", expr),
-            .@"-=" => try self.emitCompound(target, "-", expr),
-            .@"*=" => try self.emitCompound(target, "*", expr),
-            .@"/=" => try self.emitCompound(target, "/", expr),
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => unreachable,
             .default, .move, .fixed, .shadow => {
                 if (std.mem.eql(u8, self.srcText(target), "_")) {
                     // A discarded resource is dropped at once.
@@ -1051,28 +1045,42 @@ pub const Emitter = struct {
         try self.w.print("; rig.drop(__rig_slot_{d}); __rig_slot_{d}.* = __rig_new_{d}; }}", .{ id, id, id });
     }
 
-    /// `x op= e` on a name or place. Integer `/=` truncates.
-    fn emitCompound(self: *Emitter, target: Sexp, op: []const u8, value: Sexp) Error!void {
-        if (std.mem.eql(u8, op, "/") and !self.isFloatExpr(target)) {
+    /// `x op= e` on a name or place, with the place evaluated once. The
+    /// operators that lower to a builtin (`@divTrunc` for integer `/`,
+    /// `@rem`, `@shlExact`) assign the builtin's result; the others use
+    /// Zig's own compound assignment.
+    fn emitCompound(self: *Emitter, target: Sexp, op: Tag, value: Sexp) Error!void {
+        const builtin: ?[]const u8 = switch (op) {
+            .@"/" => if (self.isFloatExpr(target)) null else "@divTrunc",
+            .@"%" => "@rem",
+            .@"<<" => "@shlExact",
+            else => null,
+        };
+        const shift = op == .@"<<" or op == .@">>";
+        if (builtin) |b| {
+            var slot: []const u8 = "";
             if (target == .src) {
                 try self.emitPlace(target);
-                try self.w.writeAll(" = @divTrunc(");
+                try self.w.print(" = {s}(", .{b});
                 try self.emitPlace(target);
             } else {
-                // Evaluate the place once.
                 const id = self.nextId();
-                try self.w.print("{{ const __rig_slot_{d} = &", .{id});
+                slot = try self.fmt("__rig_slot_{d}", .{id});
+                try self.w.print("{{ const {s} = &", .{slot});
                 try self.emitPlace(target);
-                try self.w.print("; __rig_slot_{d}.* = @divTrunc(__rig_slot_{d}.*", .{ id, id });
+                try self.w.print("; {s}.* = {s}({s}.*", .{ slot, b, slot });
             }
-            try self.w.writeAll(", ");
+            try self.w.writeAll(if (shift) ", @intCast(" else ", ");
             try self.emitBare(value);
+            if (shift) try self.w.writeAll(")");
             try self.w.writeAll(if (target == .src) ");" else "); }");
             return;
         }
         try self.emitPlace(target);
-        try self.w.print(" {s}= ", .{op});
+        try self.w.print(" {s}= ", .{@tagName(op)});
+        if (shift) try self.w.writeAll("@intCast(");
         try self.emitBare(value);
+        if (shift) try self.w.writeAll(")");
         try self.w.writeAll(";");
     }
 

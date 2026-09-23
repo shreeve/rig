@@ -122,7 +122,7 @@ pub fn shapeOf(tag: Tag) ?Shape {
         .@"fun_type" => fixed(&.{ .group, .opt }), // params returns
 
         // Markers only.
-        .@"iter", .@"ptr", .@"fixed", .@"shadow", .@"+=", .@"-=", .@"*=", .@"/=" => null,
+        .@"iter", .@"ptr", .@"fixed", .@"shadow", .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => null,
         _ => null,
     };
 }
@@ -265,6 +265,7 @@ test "every form the grammar produces matches its schema" {
         \\  y: [2]Int =! [1, 2]
         \\  new x = x + 1
         \\  x += 1
+        \\  x <<= 2
         \\  z <- w
         \\  -z
         \\  if x > 1

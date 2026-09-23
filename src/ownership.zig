@@ -1469,7 +1469,7 @@ pub const Checker = struct {
         const target = items[2];
         const expr = items[4];
         const compound = switch (kind) {
-            .@"+=", .@"-=", .@"*=", .@"/=" => true,
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => true,
             else => false,
         };
 
@@ -1499,7 +1499,7 @@ pub const Checker = struct {
                     try self.bindNew(name, pos, false, is_lambda, value);
                 }
             },
-            .@"+=", .@"-=", .@"*=", .@"/=" => {
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
                 const id = (try self.lookup(pos, name)) orelse {
                     if (self.find(name) == null) try self.err(pos, "compound assignment on undefined `{s}`", .{name});
                     return;
