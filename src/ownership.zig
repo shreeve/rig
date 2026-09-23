@@ -824,7 +824,7 @@ pub const Checker = struct {
             },
             .list => |items_list| {
                 const items = items_list.items();
-                const deferred = in_defer or isTag(e, .@"defer") or isTag(e, .@"errdefer");
+                const deferred = in_defer or e.isKind(.@"defer") or e.isKind(.@"errdefer");
                 for (items) |c| try self.indexUses(c, deferred);
             },
             else => {},
@@ -974,7 +974,7 @@ pub const Checker = struct {
     /// Walk a function body in the current scope. When the function
     /// returns a value, its last expression is the return value.
     fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!void {
-        const stmts: []const Sexp = if (isTag(body, .@"block")) body.items()[1..] else (&body)[0..1];
+        const stmts: []const Sexp = if (body.isKind(.@"block")) body.items()[1..] else (&body)[0..1];
         for (stmts, 0..) |stmt, i| {
             try self.checkAfterJump(stmts, i);
             if (!self.reachable) break;
@@ -1051,7 +1051,7 @@ pub const Checker = struct {
     /// Walk one statement; its temporary borrows end with it.
     fn walkStmtValue(self: *Checker, stmt: Sexp) Error!Value {
         // A jump's only position is its label, after the keyword.
-        const p = if (isTag(stmt, .@"break") or isTag(stmt, .@"continue")) 0 else innerPos(stmt);
+        const p = if (stmt.isKind(.@"break") or stmt.isKind(.@"continue")) 0 else innerPos(stmt);
         if (p != 0) self.anchor = p;
         if (!self.reachable) return .{};
         var saved: std.ArrayListUnmanaged(Loan) = .empty;
@@ -1220,7 +1220,7 @@ pub const Checker = struct {
     fn setTail(self: *Checker, expr: Sexp, sink: Sink) void {
         const e = tailOf(expr);
         if (e != .list or e.items().len == 0) return;
-        if (isTag(e, .@"if") or isTag(e, .@"match")) {
+        if (e.isKind(.@"if") or e.isKind(.@"match")) {
             self.tail = .{ .node = e.items().ptr, .sink = sink };
         }
     }
@@ -1268,7 +1268,7 @@ pub const Checker = struct {
         if (self.typeData(t) != .borrow_write) return false;
         return switch (expr) {
             .src => true,
-            .list => isTag(expr, .@"member") or isTag(expr, .@"index"),
+            .list => expr.isKind(.@"member") or expr.isKind(.@"index"),
             else => false,
         };
     }
@@ -1693,7 +1693,7 @@ pub const Checker = struct {
                     // A value returned through a branch moves out, like a bare return.
                     .@"if" => for (items[2..]) |b| try self.checkNoImplicitCopy(tailOf(b), sink, top_return),
                     .@"match" => for (items[2..]) |arm| {
-                        if (isTag(arm, .@"arm")) {
+                        if (arm.isKind(.@"arm")) {
                             try self.checkNoImplicitCopy(tailOf(arm.items()[arm.items().len - 1]), sink, top_return);
                         }
                     },
@@ -1715,9 +1715,9 @@ pub const Checker = struct {
     /// Whether `e` names a type (`Shape`, `lib.Shape`) rather than a value.
     fn namesType(self: *const Checker, e: Sexp) bool {
         const sema = self.sema orelse return false;
-        const leaf = if (isTag(e, .@"member")) e.items()[2] else e;
+        const leaf = if (e.isKind(.@"member")) e.items()[2] else e;
         if (leaf != .src) return false;
-        if (isTag(e, .@"member")) {
+        if (e.isKind(.@"member")) {
             // `module.Type`: the module has no value.
             const m = e.items()[1];
             if (m != .src) return false;
@@ -1925,11 +1925,11 @@ pub const Checker = struct {
         var recv_root: ?VarId = null;
         var recv_mode: types.MethodReceiver = .read;
         var reservation: usize = 0;
-        if (isTag(callee, .@"member")) {
+        if (callee.isKind(.@"member")) {
             var obj = callee.items()[1];
             var explicit_write = false;
-            if (isTag(obj, .@"write") or isTag(obj, .@"read")) {
-                explicit_write = isTag(obj, .@"write");
+            if (obj.isKind(.@"write") or obj.isKind(.@"read")) {
+                explicit_write = obj.isKind(.@"write");
                 obj = obj.items()[1];
             }
             recv_mode = if (explicit_write) .write else self.receiverMode(obj, callee);
@@ -1977,7 +1977,7 @@ pub const Checker = struct {
                 if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, innerPos(obj));
             }
             for (args) |a| {
-                const arg = if (isTag(a, .@"kwarg")) a.items()[2] else a;
+                const arg = if (a.isKind(.@"kwarg")) a.items()[2] else a;
                 if (try self.containerRoot(arg)) |id| try self.absorbLoans(id, stored, innerPos(arg));
             }
         }
@@ -2022,8 +2022,8 @@ pub const Checker = struct {
     /// shared handle or write borrow passed by name (or cloned).
     fn containerRoot(self: *Checker, arg: Sexp) Error!?VarId {
         var inner = arg;
-        const explicit_write = isTag(arg, .@"write");
-        if (explicit_write or isTag(arg, .@"clone")) inner = arg.items()[1];
+        const explicit_write = arg.isKind(.@"write");
+        if (explicit_write or arg.isKind(.@"clone")) inner = arg.items()[1];
         const place = (try self.resolvePlace(inner)) orelse return null;
         const ty = self.exprType(inner);
         // What the callee could store into is the value behind a borrow.
@@ -2093,7 +2093,7 @@ pub const Checker = struct {
         // Captures take effect on the enclosing scope, at construction.
         var value: Value = .{};
         var cap_values: std.ArrayListUnmanaged(Value) = .empty;
-        const caps: []const Sexp = if (isTag(captures, .@"captures")) captures.items()[1..] else &.{};
+        const caps: []const Sexp = if (captures.isKind(.@"captures")) captures.items()[1..] else &.{};
         for (caps) |cap| {
             try cap_values.append(self.arena(), try self.applyCapture(cap));
             value = try self.valueUnion(value, cap_values.items[cap_values.items.len - 1]);
@@ -2235,7 +2235,7 @@ pub const Checker = struct {
     fn walkIf(self: *Checker, items: []const Sexp) Error!Value {
         const t = self.takeTail(items);
         const else_b: ?Sexp = if (items[3] != .nil) items[3] else null;
-        if (isTag(items[1], .@"as")) return self.walkIfAs(items[1], items[2], else_b, t);
+        if (items[1].isKind(.@"as")) return self.walkIfAs(items[1], items[2], else_b, t);
         _ = try self.walk(items[1]);
         return self.walkBranches(items[2], else_b, t);
     }
@@ -2308,7 +2308,7 @@ pub const Checker = struct {
         const scrut = items[1];
         var info: Scrutinee = .{};
         var node = scrut;
-        if (isTag(scrut, .@"read") or isTag(scrut, .@"write")) {
+        if (scrut.isKind(.@"read") or scrut.isKind(.@"write")) {
             node = scrut.items()[1];
             info.via = .borrowed;
         }
@@ -2329,7 +2329,7 @@ pub const Checker = struct {
         var value: Value = .{};
         var catch_all = false;
         for (items[2..]) |arm| {
-            if (!isTag(arm, .@"arm")) continue;
+            if (!arm.isKind(.@"arm")) continue;
             const pattern = arm.items()[1];
             const body = arm.items()[arm.items().len - 1];
             try self.pushScopeFor(.block, arm);
@@ -2431,7 +2431,7 @@ pub const Checker = struct {
     };
 
     fn walkWhile(self: *Checker, items: []const Sexp) Error!void {
-        const as_cond = isTag(items[1], .@"as");
+        const as_cond = items[1].isKind(.@"as");
         const cond = if (as_cond) items[1].items()[1] else items[1];
         try self.walkLoop(.{
             .cond = cond,
@@ -2489,7 +2489,7 @@ pub const Checker = struct {
     fn walkLabeled(self: *Checker, items: []const Sexp) Error!void {
         const label = self.text(items[1]);
         const stmt = items[2];
-        if (isTag(stmt, .@"while") or isTag(stmt, .@"for")) {
+        if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) {
             self.pending_label = label;
             return self.walkStmt(stmt);
         }
@@ -2603,18 +2603,18 @@ pub const Checker = struct {
     fn checkAfterJump(self: *Checker, stmts: []const Sexp, i: usize) Error!void {
         if (i == 0) return;
         const prev = stmts[i - 1];
-        if (!(isTag(prev, .@"return") or isTag(prev, .@"break") or isTag(prev, .@"continue"))) return;
+        if (!(prev.isKind(.@"return") or prev.isKind(.@"break") or prev.isKind(.@"continue"))) return;
         try self.err(self.stmtPos(stmts[i]), "unreachable code: this statement follows a `{s}`", .{@tagName(prev.items()[0].tag)});
     }
 
     /// A statement's position, finding the keyword of one that carries
     /// none of its own.
     fn stmtPos(self: *const Checker, s: Sexp) u32 {
-        if (isTag(s, .@"break")) return self.keywordPos("break");
-        if (isTag(s, .@"continue")) return self.keywordPos("continue");
+        if (s.isKind(.@"break")) return self.keywordPos("break");
+        if (s.isKind(.@"continue")) return self.keywordPos("continue");
         const p = innerPos(s);
         if (p != 0) return p;
-        if (isTag(s, .@"return")) return self.keywordPos("return");
+        if (s.isKind(.@"return")) return self.keywordPos("return");
         return self.anchor;
     }
 
@@ -2957,7 +2957,7 @@ pub const Checker = struct {
     /// resolved for the callee: `!self` writes, a `Self` value is consumed,
     /// anything else reads. A shared handle is only ever read through.
     fn receiverMode(self: *const Checker, obj: Sexp, callee: Sexp) types.MethodReceiver {
-        if (isTag(obj, .@"move")) return .value;
+        if (obj.isKind(.@"move")) return .value;
         if (self.exprType(obj)) |t| if (self.typeData(t) == .shared) return .read;
         const f = self.typeData(self.exprType(callee) orelse return .read);
         if (f != .function or f.function.params.len == 0) return .read;
@@ -2991,12 +2991,8 @@ pub const Checker = struct {
 // Helpers
 // =============================================================================
 
-fn isTag(s: Sexp, tag: Tag) bool {
-    return types.isHead(s, tag);
-}
-
 fn isLambda(s: Sexp) bool {
-    return isTag(s, .@"lambda");
+    return s.isKind(.@"lambda");
 }
 
 fn isIdentStart(c: u8) bool {
@@ -3032,7 +3028,7 @@ fn hasLoanFrom(loans: []const Loan, start: u32) bool {
 /// The expression whose value a branch produces: the last statement of
 /// a block, or the branch itself.
 fn tailOf(s: Sexp) Sexp {
-    if (isTag(s, .@"block")) {
+    if (s.isKind(.@"block")) {
         if (s.items().len < 2) return .nil;
         return tailOf(s.items()[s.items().len - 1]);
     }
@@ -3051,8 +3047,8 @@ fn isValueExpr(s: Sexp) bool {
 }
 
 fn refOfTypeSexp(t: Sexp) Ref {
-    if (isTag(t, .borrow_read)) return .read;
-    if (isTag(t, .borrow_write)) return .write;
+    if (t.isKind(.borrow_read)) return .read;
+    if (t.isKind(.borrow_write)) return .write;
     return .none;
 }
 
@@ -3115,10 +3111,10 @@ const TestRig = struct {
 fn checkSource(allocator: std.mem.Allocator, source: []const u8) !TestRig {
     var p = parser.Parser.init(allocator, source);
     errdefer p.deinit();
-    const ir = try p.parseProgram();
+    const tree = try p.parseProgram();
     var c = try Checker.init(allocator, source);
     errdefer c.deinit();
-    try c.check(ir);
+    try c.check(tree);
     return .{ .parser_obj = p, .checker = c };
 }
 

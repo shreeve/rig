@@ -191,7 +191,7 @@ pub const Emitter = struct {
     pub fn emit(self: *Emitter, sexp: Sexp) Error!void {
         try self.w.writeAll("const std = @import(\"std\");\n");
         try self.w.print("const rig = @import(\"{s}\");\n", .{runtime.filename});
-        if (!isTagged(sexp, .@"module")) return;
+        if (!sexp.isKind(.@"module")) return;
         const decls = sexp.items()[1..];
         try self.collectModule(decls);
         var scan: Scan = .{ .e = self };
@@ -265,7 +265,7 @@ pub const Emitter = struct {
     fn emitExternVar(self: *Emitter, items: []const Sexp) Error!void {
         const name = self.srcText(items[2]);
         const ty = items[3];
-        if (isTagged(ty, .@"fun_type")) {
+        if (ty.isKind(.@"fun_type")) {
             try self.w.print("extern fn {f}(", .{self.ident(name)});
             if (ty.items()[1] == .list) for (ty.items()[1].items(), 0..) |p, i| {
                 if (i > 0) try self.w.writeAll(", ");
@@ -344,8 +344,8 @@ pub const Emitter = struct {
         var has_values = false;
         var has_payloads = false;
         for (members) |m| {
-            if (isTagged(m, .@"valued")) has_values = true;
-            if (isTagged(m, .@"variant")) has_payloads = true;
+            if (m.isKind(.@"valued")) has_values = true;
+            if (m.isKind(.@"variant")) has_payloads = true;
         }
         if (has_payloads) {
             try self.w.print("pub const {f} = union(enum) {{\n", .{self.ident(name)});
@@ -354,7 +354,7 @@ pub const Emitter = struct {
             try self.w.print("pub const {f} = enum{s} {{\n", .{ self.ident(name), if (has_values) "(u32)" else "" });
             for (members) |m| switch (m) {
                 .src => try self.w.print("    {f},\n", .{self.ident(self.srcText(m))}),
-                .list => if (isTagged(m, .@"valued")) {
+                .list => if (m.isKind(.@"valued")) {
                     try self.w.print("    {f} = ", .{self.ident(self.srcText(m.items()[1]))});
                     try self.emitExpr(m.items()[2]);
                     try self.w.writeAll(",\n");
@@ -402,7 +402,7 @@ pub const Emitter = struct {
 
     fn emitFields(self: *Emitter, members: []const Sexp, depth: u32) Error!void {
         for (members) |m| {
-            if (!isTagged(m, .@":")) continue;
+            if (!m.isKind(.@":")) continue;
             try self.writeIndent(depth);
             try self.w.print("{f}: ", .{self.ident(self.srcText(m.items()[1]))});
             try self.emitType(m.items()[2]);
@@ -416,12 +416,12 @@ pub const Emitter = struct {
         for (members) |m| {
             const vname: []const u8 = switch (m) {
                 .src => self.srcText(m),
-                .list => if (isTagged(m, .@"variant") or isTagged(m, .@"valued")) self.srcText(m.items()[1]) else continue,
+                .list => if (m.isKind(.@"variant") or m.isKind(.@"valued")) self.srcText(m.items()[1]) else continue,
                 else => continue,
             };
             try self.writeIndent(depth);
             try self.w.print("{f}: ", .{self.ident(vname)});
-            const fields: []const Sexp = if (isTagged(m, .@"variant") and m.items()[2] == .list) m.items()[2].items() else &.{};
+            const fields: []const Sexp = if (m.isKind(.@"variant") and m.items()[2] == .list) m.items()[2].items() else &.{};
             if (fields.len == 0) {
                 try self.w.writeAll("void");
             } else if (fields.len == 1) {
@@ -442,7 +442,7 @@ pub const Emitter = struct {
     /// Methods of a nominal type, and its `drop` body.
     fn emitMethods(self: *Emitter, members: []const Sexp, depth: u32) Error!void {
         for (members) |m| {
-            const head = headOf(m) orelse continue;
+            const head = m.kind() orelse continue;
             if (head != .@"fun" and head != .@"sub" and head != .@"drop_decl") continue;
             try self.w.writeAll("\n");
             try self.writeIndent(depth);
@@ -681,7 +681,7 @@ pub const Emitter = struct {
         if (self.nominal) |n| {
             if (std.mem.eql(u8, n.name, zig_name)) return true;
             for (n.members) |m| {
-                if (!isTagged(m, .@"fun") and !isTagged(m, .@"sub")) continue;
+                if (!m.isKind(.@"fun") and !m.isKind(.@"sub")) continue;
                 if (std.mem.eql(u8, self.srcText(m.items()[1]), zig_name)) return true;
             }
         }
@@ -756,7 +756,7 @@ pub const Emitter = struct {
 
     /// The statements of a block, or a lone statement as a list of one.
     fn stmtsOf(self: *Emitter, body: Sexp) Error![]const Sexp {
-        if (isTagged(body, .@"block")) return body.items()[1..];
+        if (body.isKind(.@"block")) return body.items()[1..];
         return self.arena.allocator().dupe(Sexp, &.{body});
     }
 
@@ -809,7 +809,7 @@ pub const Emitter = struct {
     }
 
     fn emitStmt(self: *Emitter, sexp: Sexp) Error!void {
-        const head = headOf(sexp) orelse {
+        const head = sexp.kind() orelse {
             try self.w.writeAll("_ = ");
             try self.emitExpr(sexp);
             try self.w.writeAll(";");
@@ -832,7 +832,7 @@ pub const Emitter = struct {
             .@"raw_block" => try self.emitBlock(items[1]),
             .@"defer", .@"errdefer" => {
                 try self.w.print("{s} ", .{@tagName(head)});
-                if (isTagged(items[1], .@"block")) try self.emitBlock(items[1]) else try self.emitStmt(items[1]);
+                if (items[1].isKind(.@"block")) try self.emitBlock(items[1]) else try self.emitStmt(items[1]);
             },
             else => {
                 if (self.discardsValue(sexp)) try self.w.writeAll("_ = ");
@@ -846,12 +846,12 @@ pub const Emitter = struct {
     /// requires to be used.
     fn discardsValue(self: *Emitter, expr: Sexp) bool {
         var e = expr;
-        while (isTagged(e, .@"propagate")) e = e.items()[1];
-        if (!isTagged(e, .@"call")) return true;
+        while (e.isKind(.@"propagate")) e = e.items()[1];
+        if (!e.isKind(.@"call")) return true;
         if (self.isPrintCall(e)) return false;
         // A call lowered to a labeled block is an expression Zig will not
         // take as a statement.
-        if (isTagged(e.items()[1], .@"lambda")) return true;
+        if (e.items()[1].isKind(.@"lambda")) return true;
         if (self.sema.callSlotsOf(e)) |slots| if (reordersEffects(slots, e.items()[2..])) return true;
         const ty = self.typeOf(e) orelse return true;
         return switch (self.sema.types.get(ty)) {
@@ -896,8 +896,8 @@ pub const Emitter = struct {
                     // A named place is discarded by address: it may be used
                     // elsewhere, and Zig rejects discarding a used name.
                     var place = expr;
-                    if (isTagged(place, .@"read") or isTagged(place, .@"write")) place = place.items()[1];
-                    if (!is_move and isPlace(place) and !isTagged(place, .@"index")) {
+                    if (place.isKind(.@"read") or place.isKind(.@"write")) place = place.items()[1];
+                    if (!is_move and isPlace(place) and !place.isKind(.@"index")) {
                         try self.w.writeAll("_ = &");
                         try self.emitPlace(place);
                         return self.w.writeAll(";");
@@ -928,7 +928,7 @@ pub const Emitter = struct {
 
     /// A new binding.
     fn emitBind(self: *Emitter, name_node: Sexp, sym: SymbolId, type_node: Sexp, expr: Sexp, is_move: bool) Error!void {
-        if (isTagged(expr, .@"lambda")) return self.emitClosureBinding(name_node, sym, expr);
+        if (expr.isKind(.@"lambda")) return self.emitClosureBinding(name_node, sym, expr);
 
         const s = self.sema.symbols.items[sym];
         const ty = self.symType(sym);
@@ -936,7 +936,7 @@ pub const Emitter = struct {
             .borrow_read, .borrow_write => true,
             else => false,
         } else true;
-        const is_borrow = !is_move and binds_borrow and (isTagged(expr, .@"read") or isTagged(expr, .@"write"));
+        const is_borrow = !is_move and binds_borrow and (expr.isKind(.@"read") or expr.isKind(.@"write"));
         // A write borrow is held as a pointer however it was obtained.
         const holds_ptr = is_borrow or (ty != null and self.isPtrBorrowTy(ty.?));
         var local: Local = .{ .sym = sym, .zig_name = "", .ty = ty, .is_ptr = holds_ptr };
@@ -1017,7 +1017,7 @@ pub const Emitter = struct {
         if (local.is_ptr and !writes_through) {
             // A borrow local is rebound to borrow something else.
             try self.w.print("{s} = ", .{local.zig_name});
-            if (isTagged(value, .@"read") or isTagged(value, .@"write")) try self.emitAddressOf(value.items()[1]) else try self.emitBorrowValue(value);
+            if (value.isKind(.@"read") or value.isKind(.@"write")) try self.emitAddressOf(value.items()[1]) else try self.emitBorrowValue(value);
             return self.w.writeAll(";");
         }
         if (local.is_ptr) {
@@ -1132,7 +1132,7 @@ pub const Emitter = struct {
     /// An assignable place: a binding, field, or element.
     fn emitPlace(self: *Emitter, target: Sexp) Error!void {
         if (target == .src) if (self.localOf(target)) |local| return self.writeLocalPlace(local);
-        if (isTagged(target, .@"index")) return self.emitIndex(target.items(), true);
+        if (target.isKind(.@"index")) return self.emitIndex(target.items(), true);
         // A field of an element (`v[i].x = ...`) is reached through the
         // element's slot.
         const saved = self.place_chain;
@@ -1215,7 +1215,7 @@ pub const Emitter = struct {
     fn emitIf(self: *Emitter, sexp: Sexp) Error!void {
         const items = sexp.items();
         try self.w.writeAll("if ");
-        if (isTagged(items[1], .@"as")) {
+        if (items[1].isKind(.@"as")) {
             try self.pushScope();
             const prelude = try self.emitOptionalHead(items[1]);
             try self.emitBodyWith(items[2], prelude);
@@ -1226,7 +1226,7 @@ pub const Emitter = struct {
         }
         if (items[3] != .nil) {
             try self.w.writeAll(" else ");
-            if (isTagged(items[3], .@"if")) try self.emitIf(items[3]) else try self.emitBranchStmt(items[3]);
+            if (items[3].isKind(.@"if")) try self.emitIf(items[3]) else try self.emitBranchStmt(items[3]);
         }
     }
 
@@ -1246,7 +1246,7 @@ pub const Emitter = struct {
     }
 
     fn emitBranchStmt(self: *Emitter, branch: Sexp) Error!void {
-        if (isTagged(branch, .@"block")) return self.emitBlock(branch);
+        if (branch.isKind(.@"block")) return self.emitBlock(branch);
         try self.w.writeAll("{ ");
         try self.emitStmt(branch);
         try self.w.writeAll(" }");
@@ -1259,9 +1259,9 @@ pub const Emitter = struct {
         // Zig rejects a label nothing jumps to.
         if (!self.labelUsed(stmt, self.srcText(items[1]))) return self.emitStmt(stmt);
         const label = self.srcText(items[1]);
-        if (isTagged(stmt, .@"while")) return self.emitWhile(stmt, label);
-        if (isTagged(stmt, .@"for")) return self.emitFor(stmt, label);
-        if (isTagged(stmt, .@"block")) {
+        if (stmt.isKind(.@"while")) return self.emitWhile(stmt, label);
+        if (stmt.isKind(.@"for")) return self.emitFor(stmt, label);
+        if (stmt.isKind(.@"block")) {
             try self.w.print("{f}: ", .{self.ident(label)});
             return self.emitBlock(stmt);
         }
@@ -1270,7 +1270,7 @@ pub const Emitter = struct {
 
     /// Whether a `break` or `continue` inside `node` names `label`.
     fn labelUsed(self: *Emitter, node: Sexp, label: []const u8) bool {
-        const h = headOf(node) orelse return false;
+        const h = node.kind() orelse return false;
         const slot: ?usize = switch (h) {
             .@"break" => 2,
             .@"continue" => 1,
@@ -1296,7 +1296,7 @@ pub const Emitter = struct {
         try self.w.writeAll("while ");
         try self.pushScope();
         var prelude: Prelude = .{};
-        if (isTagged(items[1], .@"as")) prelude = try self.emitOptionalHead(items[1]) else try self.emitCond(items[1]);
+        if (items[1].isKind(.@"as")) prelude = try self.emitOptionalHead(items[1]) else try self.emitCond(items[1]);
         if (items[2] != .nil) {
             try self.w.writeAll(": (");
             try self.emitContinuation(items[2]);
@@ -1312,7 +1312,7 @@ pub const Emitter = struct {
 
     /// The `: step` of a while, written as a Zig continue expression.
     fn emitContinuation(self: *Emitter, step: Sexp) Error!void {
-        if (isTagged(step, .@"set") and step.items()[2] == .src) {
+        if (step.isKind(.@"set") and step.items()[2] == .src) {
             const op: ?[]const u8 = switch (try rig.bindingKindOf(step.items()[1])) {
                 .@"+=" => "+=",
                 .@"-=" => "-=",
@@ -1327,7 +1327,7 @@ pub const Emitter = struct {
                 return;
             };
         }
-        if (isTagged(step, .@"call")) return self.emitExpr(step);
+        if (step.isKind(.@"call")) return self.emitExpr(step);
         // Anything else runs as a block.
         try self.w.writeAll("{ ");
         try self.emitStmt(step);
@@ -1343,7 +1343,7 @@ pub const Emitter = struct {
         const source = items[4];
         const body = items[5];
 
-        if (isTagged(source, .@"..")) return self.emitRangeFor(sexp, label);
+        if (source.isKind(.@"..")) return self.emitRangeFor(sexp, label);
 
         const src_ty = self.typeOf(source);
         const is_vec = src_ty != null and self.isVecTy(src_ty.?);
@@ -1858,8 +1858,8 @@ pub const Emitter = struct {
 
     /// `isPtrBorrowTy` for a type expression.
     fn isPtrBorrowSexp(self: *Emitter, t: Sexp) bool {
-        if (isTagged(t, .@"borrow_write")) return true;
-        if (!isTagged(t, .@"borrow_read")) return false;
+        if (t.isKind(.@"borrow_write")) return true;
+        if (!t.isKind(.@"borrow_read")) return false;
         return self.sexpHoldsCell(t.items()[1], 0);
     }
 
@@ -2140,7 +2140,7 @@ pub const Emitter = struct {
             return;
         }
         // An array literal is indexed through parentheses: `([_]T{ ... })[i]`.
-        const literal = isTagged(base, .@"array");
+        const literal = base.isKind(.@"array");
         if (literal) try self.w.writeAll("(");
         try self.emitExpr(base);
         if (literal) try self.w.writeAll(")");
@@ -2200,8 +2200,8 @@ pub const Emitter = struct {
     /// auto-dereference.
     fn emitMemberBase(self: *Emitter, obj: Sexp, obj_ty: ?TypeId) Error!void {
         var o = obj;
-        while (isTagged(o, .@"read") or isTagged(o, .@"write")) o = o.items()[1];
-        if (self.place_chain and isTagged(o, .@"index")) return self.emitIndex(o.items(), true);
+        while (o.isKind(.@"read") or o.isKind(.@"write")) o = o.items()[1];
+        if (self.place_chain and o.isKind(.@"index")) return self.emitIndex(o.items(), true);
         // `Box.make(...)` of a generic type: the instance sema inferred.
         if (o == .src) if (self.sema.symbolOf(o)) |id| if (self.sema.symbols.items[id].kind == .generic_type) {
             if (obj_ty) |t| return self.emitTypeTy(t);
@@ -2210,7 +2210,7 @@ pub const Emitter = struct {
             if (local.is_ptr and obj_ty != null and self.isStructLike(obj_ty.?)) return self.w.writeAll(local.zig_name);
             return self.writeLocalPlace(local);
         };
-        const needs_parens = if (headOf(o)) |h| switch (h) {
+        const needs_parens = if (o.kind()) |h| switch (h) {
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"neg", .@"not", .@"if", .@"match", .@"??", .@"catch", .@"propagate", .@"call", .@"array" => true,
             else => false,
         } else false;
@@ -2230,7 +2230,7 @@ pub const Emitter = struct {
     }
 
     fn isTypeArg(self: *Emitter, a: Sexp) bool {
-        if (isTagged(a, .@"generic_inst") or isTagged(a, .@"shared") or isTagged(a, .@"optional")) return true;
+        if (a.isKind(.@"generic_inst") or a.isKind(.@"shared") or a.isKind(.@"optional")) return true;
         if (a != .src) return false;
         const name = self.srcText(a);
         if (!std.mem.eql(u8, mapTypeName(name), name)) return true;
@@ -2244,7 +2244,7 @@ pub const Emitter = struct {
     /// `*expr`: move `expr` into a new reference-counted box.
     fn emitShare(self: *Emitter, sexp: Sexp) Error!void {
         const inner = sexp.items()[1];
-        if (isTagged(inner, .@"lambda")) return self.emitOwnedClosure(inner);
+        if (inner.isKind(.@"lambda")) return self.emitOwnedClosure(inner);
         const payload_ty: ?TypeId = if (self.typeOf(sexp)) |t| self.sharedInner(t) else null;
         try self.w.writeAll("rig.rcNew(");
         // A constructor call spells its own type: `rig.rcNew(Node{ ... })`.
@@ -2273,7 +2273,7 @@ pub const Emitter = struct {
         try self.w.writeAll("if ");
         try self.pushScope();
         var prelude: Prelude = .{};
-        if (isTagged(items[1], .@"as")) prelude = try self.emitOptionalHead(items[1]) else try self.emitCond(items[1]);
+        if (items[1].isKind(.@"as")) prelude = try self.emitOptionalHead(items[1]) else try self.emitCond(items[1]);
         try self.emitValueBlock(items[2], prelude);
         try self.popScope();
         try self.w.writeAll(" else ");
@@ -2330,8 +2330,8 @@ pub const Emitter = struct {
 
         if (self.isPrintCall(sexp)) return self.emitPrint(args);
         if (callee == .src and self.sema.symbolOf(callee) == null and sema_decls.isNumericTypeName(self.srcText(callee))) return self.emitConversion(sexp);
-        if (isTagged(callee, .@"enum_lit")) return self.emitVariantLit(sexp);
-        if (isTagged(callee, .@"lambda")) return self.emitInlineInvoke(sexp);
+        if (callee.isKind(.@"enum_lit")) return self.emitVariantLit(sexp);
+        if (callee.isKind(.@"lambda")) return self.emitInlineInvoke(sexp);
 
         if (callee == .src) {
             if (self.localOf(callee)) |local| if (local.stack_closure) {
@@ -2350,7 +2350,7 @@ pub const Emitter = struct {
         }
         // A variant named through its enum: `Shape.circle(r: 2)`,
         // `m.Shape.circle(r: 2)`.
-        if (isTagged(callee, .@"member")) if (self.typeOf(sexp)) |t| {
+        if (callee.isKind(.@"member")) if (self.typeOf(sexp)) |t| {
             const vname = self.srcText(callee.items()[2]);
             if (self.sema.typeOf(callee) == null and self.variantPayload(t, vname) != null) {
                 try self.w.writeAll("@as(");
@@ -2361,7 +2361,7 @@ pub const Emitter = struct {
             }
         };
         // A cross-module constructor: `m.Type(field: v)`.
-        if (isTagged(callee, .@"member")) if (self.typeOf(sexp)) |t| {
+        if (callee.isKind(.@"member")) if (self.typeOf(sexp)) |t| {
             if (self.sema.types.get(t) == .imported_nominal and self.sema.typeOf(callee) == null) {
                 try self.emitMember(callee);
                 return self.emitFieldInit(args);
@@ -2369,7 +2369,7 @@ pub const Emitter = struct {
         };
         // An owned closure handle, held by a name or a field.
         if (self.typeOf(callee)) |t| if (self.isOwnedClosureTy(t)) {
-            if (isTagged(callee, .@"member")) try self.emitMember(callee) else try self.emitExpr(callee);
+            if (callee.isKind(.@"member")) try self.emitMember(callee) else try self.emitExpr(callee);
             try self.w.writeAll(".value.invoke(.{ ");
             try self.emitArgs(sexp);
             return self.w.writeAll(" })");
@@ -2379,11 +2379,11 @@ pub const Emitter = struct {
         // receiver's address, which may be a `*const` read borrow, is
         // cast to a mutable pointer. Sema keeps every Cell in mutable
         // storage, so the cast is sound.
-        if (isTagged(callee, .@"member")) if (self.typeOf(callee.items()[1])) |t| if (self.isCellTy(t) and self.sema.types.get(self.peelBorrows(t)) != .shared) {
+        if (callee.isKind(.@"member")) if (self.typeOf(callee.items()[1])) |t| if (self.isCellTy(t) and self.sema.types.get(self.peelBorrows(t)) != .shared) {
             const m = self.srcText(callee.items()[2]);
             if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "replace")) {
                 var obj = callee.items()[1];
-                while (isTagged(obj, .@"read") or isTagged(obj, .@"write")) obj = obj.items()[1];
+                while (obj.isKind(.@"read") or obj.isKind(.@"write")) obj = obj.items()[1];
                 try self.w.writeAll("@constCast(");
                 try self.emitAddressOf(obj);
                 try self.w.print(").{s}(", .{m});
@@ -2394,7 +2394,7 @@ pub const Emitter = struct {
         if (self.sema.callSlotsOf(sexp)) |slots| {
             if (reordersEffects(slots, args)) return self.emitCallInSourceOrder(sexp, slots);
         }
-        if (isTagged(callee, .@"member")) try self.emitMember(callee) else try self.emitExpr(callee);
+        if (callee.isKind(.@"member")) try self.emitMember(callee) else try self.emitExpr(callee);
         try self.w.writeAll("(");
         try self.emitArgs(sexp);
         try self.w.writeAll(")");
@@ -2476,7 +2476,7 @@ pub const Emitter = struct {
     fn preMask(self: *Emitter, call: Sexp) u32 {
         const callee = call.items()[1];
         const f = self.fnType(self.typeOf(callee)) orelse return 0;
-        if (!isTagged(callee, .@"member")) return f.pre_mask;
+        if (!callee.isKind(.@"member")) return f.pre_mask;
         if (self.isTypeCallee(callee.items()[1])) return f.pre_mask;
         return f.pre_mask >> 1;
     }
@@ -2484,7 +2484,7 @@ pub const Emitter = struct {
     /// The object of `Type.f(...)`, `module.f(...)`, or
     /// `module.Type.f(...)`: a call passing every parameter.
     fn isTypeCallee(self: *Emitter, obj: Sexp) bool {
-        if (isTagged(obj, .@"member")) {
+        if (obj.isKind(.@"member")) {
             const m = obj.items()[1];
             const id = self.sema.symbolOf(m) orelse return false;
             return self.sema.symbols.items[id].kind == .module;
@@ -2501,7 +2501,7 @@ pub const Emitter = struct {
     fn paramTypes(self: *Emitter, call: Sexp) []const TypeId {
         const callee = call.items()[1];
         const f = self.fnType(self.typeOf(callee)) orelse return &.{};
-        if (!isTagged(callee, .@"member")) return f.params;
+        if (!callee.isKind(.@"member")) return f.params;
         // `Type.method(...)` and `module.f(...)` pass every parameter;
         // `value.method(...)` passes all but the receiver.
         if (self.isTypeCallee(callee.items()[1])) return f.params;
@@ -2576,7 +2576,7 @@ pub const Emitter = struct {
         }
         try self.writeIndent(self.indent);
         try self.w.print("break :rig_call_{d} ", .{id});
-        if (isTagged(callee, .@"member")) try self.emitMember(callee) else try self.emitExpr(callee);
+        if (callee.isKind(.@"member")) try self.emitMember(callee) else try self.emitExpr(callee);
         try self.w.writeAll("(");
         try self.emitSlots(args, slots, temps, params, self.preMask(call));
         try self.w.writeAll(");\n");
@@ -2588,7 +2588,7 @@ pub const Emitter = struct {
     /// A call `emitCall` lowers with `emitConstructor`, whose Zig spells
     /// the value's type.
     fn isConstructorCall(self: *Emitter, e: Sexp) bool {
-        if (!isTagged(e, .@"call") or e.items()[1] != .src) return false;
+        if (!e.isKind(.@"call") or e.items()[1] != .src) return false;
         if (self.localOf(e.items()[1])) |local| if (local.stack_closure) return false;
         const sym_id = self.sema.symbolOf(e.items()[1]) orelse return false;
         if (sym_id == self.sema.vec_sym_id or sym_id == self.sema.signal_sym_id) return false;
@@ -2659,7 +2659,7 @@ pub const Emitter = struct {
             try self.w.writeAll(".{");
             for (args, 0..) |a, i| {
                 try self.w.writeAll(if (i == 0) " " else ", ");
-                const fname = if (isTagged(a, .@"kwarg")) self.srcText(a.items()[1]) else fields[i].name;
+                const fname = if (a.isKind(.@"kwarg")) self.srcText(a.items()[1]) else fields[i].name;
                 try self.w.print(".{f} = ", .{self.ident(fname)});
                 try self.emitStored(argValue(a));
             }
@@ -2923,7 +2923,7 @@ pub const Emitter = struct {
     /// What a `*T` / `~T` handle points at; for an owned closure
     /// (`*fun(A) R`) that is the type-erased closure.
     fn emitHandleTarget(self: *Emitter, t: Sexp) Error!void {
-        if (!isTagged(t, .@"fun_type")) return self.emitType(t);
+        if (!t.isKind(.@"fun_type")) return self.emitType(t);
         const ft = t.items();
         try self.w.writeAll("rig.Closure(&.{");
         if (ft[1] == .list) for (ft[1].items(), 0..) |p, i| {
@@ -3324,7 +3324,7 @@ const Scan = struct {
             else => return,
         }
         const items = sexp.items();
-        const head = headOf(sexp) orelse return;
+        const head = sexp.kind() orelse return;
         switch (head) {
             .@"set" => if (try rig.bindingKindOf(items[1]) == .move) try s.consume(items[4]),
             .@"move" => try s.consume(items[1]),
@@ -3345,11 +3345,11 @@ const Scan = struct {
             },
             .@"match" => {
                 var scrut = items[1];
-                while (isTagged(scrut, .@"read") or isTagged(scrut, .@"write")) scrut = scrut.items()[1];
+                while (scrut.isKind(.@"read") or scrut.isKind(.@"write")) scrut = scrut.items()[1];
                 const scrut_sym = if (scrut == .src) s.e.sema.symbolOf(scrut) else null;
                 for (items[2..]) |arm| {
                     const pattern = arm.items()[1];
-                    const binds: []const Sexp = if (isTagged(pattern, .@"variant_pattern")) pattern.items()[2..] else (&pattern)[0..1];
+                    const binds: []const Sexp = if (pattern.isKind(.@"variant_pattern")) pattern.items()[2..] else (&pattern)[0..1];
                     if (scrut_sym) |ss| for (binds) |b| {
                         if (s.e.sema.symbolOf(b)) |bs| try s.e.usage.views.put(s.e.allocator, bs, ss);
                     };
@@ -3458,13 +3458,13 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
         },
         .list => |items_list| {
             const items = items_list.items();
-            const h = headOf(e) orelse return true;
+            const h = e.kind() orelse return true;
             switch (h) {
                 .@"call" => {
                     // A constructor or variant of constant arguments is
                     // constant; a function call is not.
                     const callee = items[1];
-                    const ctor = isTagged(callee, .@"enum_lit") or (callee == .src and if (em.sema.symbolOf(callee)) |id| switch (em.sema.symbols.items[id].kind) {
+                    const ctor = callee.isKind(.@"enum_lit") or (callee == .src and if (em.sema.symbolOf(callee)) |id| switch (em.sema.symbols.items[id].kind) {
                         .nominal_type, .generic_type => true,
                         else => false,
                     } else false);
@@ -3514,26 +3514,22 @@ fn isNonNegativeIntLiteral(source: []const u8, s: Sexp) bool {
 }
 
 fn headOf(s: Sexp) ?Tag {
-    return types.headOf(s);
-}
-
-fn isTagged(s: Sexp, tag: Tag) bool {
-    return types.isHead(s, tag);
+    return s.kind();
 }
 
 fn unwrapPub(s: Sexp) Sexp {
-    return if (isTagged(s, .@"pub")) s.items()[1] else s;
+    return if (s.isKind(.@"pub")) s.items()[1] else s;
 }
 
 /// Storage with an owner: a name, a field or element, or a borrow of one.
 fn isPlace(e: Sexp) bool {
-    const h = headOf(e) orelse return e == .src;
+    const h = e.kind() orelse return e == .src;
     return h == .@"member" or h == .@"index" or h == .@"read" or h == .@"write";
 }
 
 /// The value of a call argument: a `(kwarg name value)` stands for its value.
 fn argValue(a: Sexp) Sexp {
-    return if (isTagged(a, .@"kwarg")) a.items()[2] else a;
+    return if (a.isKind(.@"kwarg")) a.items()[2] else a;
 }
 
 /// An argument whose evaluation has no side effects.
@@ -3558,8 +3554,8 @@ fn paramNameNode(p: Sexp) ?Sexp {
 }
 
 fn paramIsWriteBorrow(p: Sexp) bool {
-    if (isTagged(p, .@"write")) return true;
-    return (isTagged(p, .@":") or isTagged(p, .@"default")) and isTagged(p.items()[2], .@"borrow_write");
+    if (p.isKind(.@"write")) return true;
+    return (p.isKind(.@":") or p.isKind(.@"default")) and p.items()[2].isKind(.@"borrow_write");
 }
 
 /// The runtime's name for a built-in generic type, or null.
@@ -3585,7 +3581,7 @@ fn mapTypeName(rig_name: []const u8) []const u8 {
 
 /// Statements that produce a value (and can end a value block).
 fn isValueStmt(s: Sexp) bool {
-    const h = headOf(s) orelse return true;
+    const h = s.kind() orelse return true;
     return switch (h) {
         .@"set", .@"drop", .@"return", .@"break", .@"continue", .@"defer", .@"errdefer", .@"block", .@"while", .@"for", .@"labeled" => false,
         .@"if" => s.items()[3] != .nil,
@@ -3594,12 +3590,12 @@ fn isValueStmt(s: Sexp) bool {
 }
 
 fn isTerminatingStmt(s: Sexp) bool {
-    const h = headOf(s) orelse return false;
+    const h = s.kind() orelse return false;
     return h == .@"return" or h == .@"break" or h == .@"continue";
 }
 
 fn containsPropagate(sexp: Sexp) bool {
-    const h = headOf(sexp) orelse return false;
+    const h = sexp.kind() orelse return false;
     switch (h) {
         .@"propagate" => return true,
         .@"fun", .@"sub", .@"lambda" => return false,
@@ -3616,15 +3612,15 @@ fn containsPropagate(sexp: Sexp) bool {
 fn emitSourceToString(allocator: std.mem.Allocator, rig_source: []const u8) ![]u8 {
     var p = parser.Parser.init(allocator, rig_source);
     defer p.deinit();
-    const ir = try p.parseProgram();
-    var sema = try types.check(allocator, rig_source, ir);
+    const tree = try p.parseProgram();
+    var sema = try types.check(allocator, rig_source, tree);
     defer sema.deinit();
 
     var out: std.Io.Writer.Allocating = .init(allocator);
     defer out.deinit();
     var em = Emitter.init(allocator, rig_source, &out.writer, &sema);
     defer em.deinit();
-    try em.emit(ir);
+    try em.emit(tree);
     return try allocator.dupe(u8, out.written());
 }
 

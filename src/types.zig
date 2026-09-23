@@ -63,6 +63,7 @@ const decls = @import("sema_decls.zig");
 const exprs = @import("sema_expr.zig");
 
 const Sexp = parser.Sexp;
+const ir = parser.ir;
 const Tag = rig.Tag;
 
 // =============================================================================
@@ -805,15 +806,15 @@ pub const SemContext = struct {
 // =============================================================================
 
 /// Check a single module with no imports.
-pub fn check(allocator: std.mem.Allocator, source: []const u8, ir: Sexp) !SemContext {
-    return checkWithImports(allocator, source, ir, &.{}, &.{}, 0);
+pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp) !SemContext {
+    return checkWithImports(allocator, source, tree, &.{}, &.{}, 0);
 }
 
 /// Check a module whose `use` declarations resolve to `imports`.
 pub fn checkWithImports(
     allocator: std.mem.Allocator,
     source: []const u8,
-    ir: Sexp,
+    tree: Sexp,
     imports: []const ImportEntry,
     /// Modules the imports reach in turn: their types can appear here
     /// (`lib.make()` returning an `a.P`) without being named.
@@ -832,11 +833,11 @@ pub fn checkWithImports(
 
     const module_scope = try ctx.pushScopeKind(scope_invalid, .module);
     try builtins.register(&ctx, module_scope);
-    try decls.resolveSymbols(&ctx, ir, module_scope);
-    try decls.resolveDeclarations(&ctx, ir, module_scope);
+    try decls.resolveSymbols(&ctx, tree, module_scope);
+    try decls.resolveDeclarations(&ctx, tree, module_scope);
     propagateDropGlue(&ctx);
     try checkInfiniteTypes(&ctx);
-    try exprs.checkModule(&ctx, ir, module_scope);
+    try exprs.checkModule(&ctx, tree, module_scope);
     try expandInstantiations(&ctx);
     try exprs.checkGenericInstantiations(&ctx);
     return ctx;
@@ -1761,7 +1762,6 @@ pub fn srcPos(sexp: Sexp, fallback: u32) u32 {
     return if (sexp == .src) sexp.src.pos else fallback;
 }
 
-/// Head tag of a list node, or null.
 /// The value of a constant integer expression: literals, constant
 /// bindings, and arithmetic on them. Null when not constant (or too
 /// large to compute).
@@ -1773,22 +1773,21 @@ pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?i128 {
             const id = ctx.symbolOf(e) orelse return null;
             return ctx.const_ints.get(id);
         },
-        .list => |items_list| {
-            const items = items_list.items();
-            const h = headOf(e) orelse return null;
-            if (h == .@"neg") return std.math.negate(constIntOf(ctx, items[1]) orelse return null) catch null;
+        .list => {
+            const h = e.kind() orelse return null;
+            if (h == .@"neg") return std.math.negate(constIntOf(ctx, ir.Neg.operand(e)) orelse return null) catch null;
             // `a if c else b` with a constant condition: Zig picks the
             // branch at compile time, so its value is constant.
-            if (h == .@"if" and items.len == 4 and items[3] != .nil) {
-                const c = constBoolOf(ctx, items[1]) orelse return null;
-                return constIntOf(ctx, if (c) items[2] else items[3]);
+            if (h == .@"if" and ir.If.@"else"(e) != .nil) {
+                const c = constBoolOf(ctx, ir.If.cond(e)) orelse return null;
+                return constIntOf(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e));
             }
             switch (h) {
                 .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {},
                 else => return null,
             }
-            const a = constIntOf(ctx, items[1]) orelse return null;
-            const b = constIntOf(ctx, items[2]) orelse return null;
+            const a = constIntOf(ctx, ir.get(e, .left)) orelse return null;
+            const b = constIntOf(ctx, ir.get(e, .right)) orelse return null;
             return switch (h) {
                 .@"+" => std.math.add(i128, a, b) catch null,
                 .@"-" => std.math.sub(i128, a, b) catch null,
@@ -1820,16 +1819,15 @@ pub fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
             if (std.mem.eql(u8, word, "false")) return false;
             return null;
         },
-        .list => |items_list| {
-            const items = items_list.items();
-            const h = headOf(e) orelse return null;
+        .list => {
+            const h = e.kind() orelse return null;
             switch (h) {
-                .@"not" => return !(constBoolOf(ctx, items[1]) orelse return null),
-                .@"and" => return (constBoolOf(ctx, items[1]) orelse return null) and (constBoolOf(ctx, items[2]) orelse return null),
-                .@"or" => return (constBoolOf(ctx, items[1]) orelse return null) or (constBoolOf(ctx, items[2]) orelse return null),
+                .@"not" => return !(constBoolOf(ctx, ir.Not.operand(e)) orelse return null),
+                .@"and" => return (constBoolOf(ctx, ir.And.left(e)) orelse return null) and (constBoolOf(ctx, ir.And.right(e)) orelse return null),
+                .@"or" => return (constBoolOf(ctx, ir.Or.left(e)) orelse return null) or (constBoolOf(ctx, ir.Or.right(e)) orelse return null),
                 .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
-                    const a = constIntOf(ctx, items[1]) orelse return null;
-                    const b = constIntOf(ctx, items[2]) orelse return null;
+                    const a = constIntOf(ctx, ir.get(e, .left)) orelse return null;
+                    const b = constIntOf(ctx, ir.get(e, .right)) orelse return null;
                     return switch (h) {
                         .@"==" => a == b,
                         .@"!=" => a != b,
@@ -1846,28 +1844,13 @@ pub fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
     }
 }
 
-pub fn headOf(sexp: Sexp) ?Tag {
-    if (sexp != .list or sexp.items().len == 0 or sexp.items()[0] != .tag) return null;
-    return sexp.items()[0].tag;
-}
-
-pub fn isHead(sexp: Sexp, tag: Tag) bool {
-    return headOf(sexp) == tag;
-}
-
 /// Name leaf of a parameter: `(: name T)`, `(pre_param name T)`,
-/// `(read self)`, `(write self)`, or a bare name.
+/// `(default name T value)`, `(read self)`, `(write self)`, or a bare
+/// name.
 pub fn paramNameNode(param: Sexp) ?Sexp {
-    return switch (param) {
-        .src => param,
-        .list => |items_list| blk: {
-            const items = items_list.items();
-            if (items.len < 2 or items[0] != .tag) break :blk null;
-            break :blk switch (items[0].tag) {
-                .@":", .@"pre_param", .@"read", .@"write", .@"default" => items[1],
-                else => null,
-            };
-        },
+    return switch (param.kind() orelse return if (param == .src) param else null) {
+        .@":", .@"pre_param", .@"default" => ir.get(param, .name),
+        .@"read", .@"write" => ir.get(param, .operand),
         else => null,
     };
 }
@@ -1882,16 +1865,13 @@ pub fn paramPos(param: Sexp, fallback: u32) u32 {
 }
 
 pub fn isBorrowedTypeNode(t: Sexp) bool {
-    const h = headOf(t) orelse return false;
-    return h == .borrow_read or h == .borrow_write;
+    return t.isKind(.borrow_read) or t.isKind(.borrow_write);
 }
 
 pub const CaptureMode = enum { cap_clone, cap_weak, cap_move };
 
 pub fn captureModeOf(cap: Sexp) ?CaptureMode {
-    const h = headOf(cap) orelse return null;
-    if (cap.items().len < 2) return null;
-    return switch (h) {
+    return switch (cap.kind() orelse return null) {
         .@"cap_clone" => .cap_clone,
         .@"cap_weak" => .cap_weak,
         .@"cap_move" => .cap_move,
@@ -1901,13 +1881,13 @@ pub fn captureModeOf(cap: Sexp) ?CaptureMode {
 
 pub fn captureNameNode(cap: Sexp) ?Sexp {
     _ = captureModeOf(cap) orelse return null;
-    return cap.items()[1];
+    return ir.get(cap, .name);
 }
 
-/// Items of a `(captures ...)` node, or empty.
+/// The captures of a closure's `captures` slot (`_` when it has none).
 pub fn captureList(captures: Sexp) []const Sexp {
-    if (!isHead(captures, .@"captures")) return &.{};
-    return captures.items()[1..];
+    if (captures == .nil) return &.{};
+    return ir.Captures.caps(captures);
 }
 
 pub fn parseIntegerLiteral(source: []const u8, sexp: Sexp) ?u64 {
@@ -2056,7 +2036,7 @@ fn factsRun(source: []const u8) !FactsRun {
 
 /// Find the first list node with head `tag` (depth-first).
 fn findNode(node: Sexp, tag: Tag) ?Sexp {
-    if (headOf(node) == tag) return node;
+    if (node.kind() == tag) return node;
     if (node != .list) return null;
     for (node.items()) |c| {
         if (findNode(c, tag)) |n| return n;
@@ -2474,7 +2454,7 @@ const Coverage = struct {
 
     fn expectType(self: *Coverage, node: Sexp) void {
         if (self.r.ctx.typeOf(node) == null) {
-            std.debug.print("no type for node at {d} ({s})\n", .{ diag.firstSrcPos(node), if (headOf(node)) |h| @tagName(h) else "leaf" });
+            std.debug.print("no type for node at {d} ({s})\n", .{ diag.firstSrcPos(node), if (node.kind()) |h| @tagName(h) else "leaf" });
             self.missing += 1;
         }
     }
@@ -2488,7 +2468,7 @@ const Coverage = struct {
             },
             .list => |items_list| {
                 const items = items_list.items();
-                const h = headOf(e) orelse return;
+                const h = e.kind() orelse return;
                 switch (h) {
                     .@"set" => {
                         self.expectName(items[2]);
@@ -2524,7 +2504,7 @@ const Coverage = struct {
                         self.expr(items[1]);
                         for (items[2..]) |arm| {
                             const pat = arm.items()[1];
-                            if (isHead(pat, .@"variant_pattern")) for (pat.items()[2..]) |b| self.expectName(b);
+                            if (pat.isKind(.@"variant_pattern")) for (pat.items()[2..]) |b| self.expectName(b);
                             self.expr(arm.items()[arm.items().len - 1]);
                         }
                         return;
@@ -2545,7 +2525,7 @@ const Coverage = struct {
                             self.expectName(items[1]);
                         } else self.expr(items[1]);
                         for (items[2..]) |a| {
-                            if (isHead(a, .@"kwarg")) self.expr(a.items()[2]) else self.expr(a);
+                            if (a.isKind(.@"kwarg")) self.expr(a.items()[2]) else self.expr(a);
                         }
                         return;
                     },
@@ -2568,7 +2548,7 @@ const Coverage = struct {
     }
 
     fn decl(self: *Coverage, d: Sexp) void {
-        const h = headOf(d) orelse return;
+        const h = d.kind() orelse return;
         switch (h) {
             .@"fun", .@"sub" => {
                 if (d.items()[2] == .list) for (d.items()[2].items()) |p| self.expectName(paramNameNode(p).?);

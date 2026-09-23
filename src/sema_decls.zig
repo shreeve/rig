@@ -32,17 +32,15 @@ const Error = std.mem.Allocator.Error;
 
 const identAt = types.identAt;
 const srcPos = types.srcPos;
-const headOf = types.headOf;
-const isHead = types.isHead;
 const firstSrcPos = types.diag.firstSrcPos;
 
 // =============================================================================
 // Symbol resolution
 // =============================================================================
 
-pub fn resolveSymbols(ctx: *SemContext, ir: Sexp, module_scope: ScopeId) Error!void {
+pub fn resolveSymbols(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!void {
     var r: SymbolResolver = .{ .ctx = ctx, .scope = module_scope, .module_scope = module_scope };
-    try r.walk(ir);
+    try r.walk(tree);
 }
 
 const SymbolResolver = struct {
@@ -51,7 +49,7 @@ const SymbolResolver = struct {
     module_scope: ScopeId,
 
     fn walk(self: *SymbolResolver, sexp: Sexp) Error!void {
-        const head = headOf(sexp) orelse return;
+        const head = sexp.kind() orelse return;
         const items = sexp.items();
         switch (head) {
             .@"module" => for (items[1..]) |c| try self.walk(c),
@@ -262,7 +260,7 @@ const SymbolResolver = struct {
             } else {
                 try self.checkShadowsDeclaration(name_node, "parameter");
             }
-            const h = headOf(p);
+            const h = p.kind();
             const borrowed = h == .@"read" or h == .@"write" or
                 (p == .list and p.items().len >= 3 and types.isBorrowedTypeNode(p.items()[2]));
             const is_pre = h == .@"pre_param";
@@ -358,7 +356,7 @@ const SymbolResolver = struct {
 
     fn walkMembers(self: *SymbolResolver, members: []const Sexp) Error!void {
         for (members) |m| {
-            const h = headOf(m) orelse continue;
+            const h = m.kind() orelse continue;
             switch (h) {
                 .@"fun", .@"sub" => try self.walkFun(m, false),
                 .@"drop_decl" => {
@@ -424,7 +422,7 @@ const SymbolResolver = struct {
     /// `x` is: it cannot be a constant.
     fn markWritten(self: *SymbolResolver, place: Sexp) Error!void {
         var p = place;
-        while (headOf(p)) |h| {
+        while (p.kind()) |h| {
             if (h != .@"member" and h != .@"index") return;
             p = p.items()[1];
         }
@@ -484,7 +482,7 @@ const SymbolResolver = struct {
     /// binding `name` over `bodies` (the branch or loop body the value
     /// is present in); `rest` (the `else`) is outside it.
     fn walkConditional(self: *SymbolResolver, cond: Sexp, bodies: []const Sexp, rest: []const Sexp) Error!void {
-        if (isHead(cond, .@"as")) {
+        if (cond.isKind(.@"as")) {
             try self.walk(cond.items()[1]);
             const prev = try self.enter(cond, .block);
             defer self.scope = prev;
@@ -528,7 +526,7 @@ const SymbolResolver = struct {
             .src => if (!isWildcardPattern(self.ctx.source, pattern)) {
                 _ = try self.bindFresh(pattern, "pattern binding");
             },
-            .list => if (isHead(pattern, .@"variant_pattern")) {
+            .list => if (pattern.isKind(.@"variant_pattern")) {
                 for (pattern.items()[2..]) |b| _ = try self.bindFresh(b, "pattern binding");
             },
             else => {},
@@ -542,10 +540,10 @@ const SymbolResolver = struct {
 // Declaration types
 // =============================================================================
 
-pub fn resolveDeclarations(ctx: *SemContext, ir: Sexp, module_scope: ScopeId) Error!void {
-    if (!isHead(ir, .@"module")) return;
+pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!void {
+    if (!tree.isKind(.@"module")) return;
     var tr: TypeResolver = .{ .ctx = ctx, .scope = module_scope };
-    for (ir.items()[1..]) |decl| try tr.resolveDecl(decl);
+    for (tree.items()[1..]) |decl| try tr.resolveDecl(decl);
     try tr.checkPublicNominals();
 }
 
@@ -557,7 +555,7 @@ pub const TypeResolver = struct {
     generic_leak: ?TypeId = null,
 
     fn resolveDecl(self: *TypeResolver, sexp: Sexp) Error!void {
-        const head = headOf(sexp) orelse return;
+        const head = sexp.kind() orelse return;
         const items = sexp.items();
         switch (head) {
             .@"pub" => try self.resolveDecl(items[1]),
@@ -599,7 +597,7 @@ pub const TypeResolver = struct {
             for (params.items(), 0..) |p, i| {
                 const pty = try self.resolveParamType(p);
                 try param_types.append(self.ctx.allocator, pty);
-                if (isHead(p, .@"pre_param") and i < 32) pre_mask |= @as(u32, 1) << @intCast(i);
+                if (p.isKind(.@"pre_param") and i < 32) pre_mask |= @as(u32, 1) << @intCast(i);
                 if (types.paramNameNode(p)) |pn| {
                     if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
                 }
@@ -631,7 +629,7 @@ pub const TypeResolver = struct {
         var any = false;
         const out = try self.ctx.arena.allocator().alloc(?Sexp, params.items().len);
         for (params.items(), 0..) |p, i| {
-            out[i] = if (isHead(p, .@"default")) p.items()[3] else null;
+            out[i] = if (p.isKind(.@"default")) p.items()[3] else null;
             if (out[i] != null) any = true;
         }
         return if (any) out else null;
@@ -647,7 +645,7 @@ pub const TypeResolver = struct {
     /// Only a function's return type may be fallible (`T!`); Zig error
     /// unions with inferred error sets exist only there.
     fn resolveReturnType(self: *TypeResolver, node: Sexp) Error!TypeId {
-        if (isHead(node, .@"error_union")) {
+        if (node.isKind(.@"error_union")) {
             const inner = try self.resolveType(node.items()[1]);
             return self.ctx.intern(.{ .fallible = inner });
         }
@@ -667,7 +665,7 @@ pub const TypeResolver = struct {
             },
             .list => |items_list| {
                 const items = items_list.items();
-                const h = headOf(param) orelse return self.ctx.types.invalid_id;
+                const h = param.kind() orelse return self.ctx.types.invalid_id;
                 switch (h) {
                     .@":", .@"pre_param", .@"default" => return self.resolveType(items[2]),
                     .@"read", .@"write" => {
@@ -704,7 +702,7 @@ pub const TypeResolver = struct {
         defer ps.deinit(self.ctx.allocator);
         if (params == .list) {
             for (params.items()) |p| {
-                if (isHead(p, .@"default")) try self.ctx.err(types.paramPos(p, firstSrcPos(p)), "an `extern` parameter cannot have a default value", .{});
+                if (p.isKind(.@"default")) try self.ctx.err(types.paramPos(p, firstSrcPos(p)), "an `extern` parameter cannot have a default value", .{});
                 try ps.append(self.ctx.allocator, try self.resolveParamType(p));
             }
         }
@@ -794,7 +792,7 @@ pub const TypeResolver = struct {
                 },
                 .list => |mi_list| {
                     const mi = mi_list.items();
-                    const h = headOf(m) orelse continue;
+                    const h = m.kind() orelse continue;
                     switch (h) {
                         .@":", .@"default" => {
                             if (mi.len < 3) continue;
@@ -870,7 +868,7 @@ pub const TypeResolver = struct {
             // `types.propagateDropGlue` finishes this once every type is resolved.
             self.ctx.symbols.items[sym_id].flags.has_drop_glue = types.fieldsHaveDropGlue(self.ctx, owned);
             for (members) |m| {
-                if (isHead(m, .@"drop_decl")) {
+                if (m.isKind(.@"drop_decl")) {
                     try self.enforceDropBody(m.items()[2], owned);
                 }
             }
@@ -897,7 +895,7 @@ pub const TypeResolver = struct {
         defer payload.deinit(self.ctx.allocator);
         if (mi[2] == .list) {
             for (mi[2].items()) |p| {
-                if (!isHead(p, .@":") or p.items().len < 3) {
+                if (!p.isKind(.@":") or p.items().len < 3) {
                     try self.ctx.err(firstSrcPos(p), "variant payload fields need types (`name: T`)", .{});
                     continue;
                 }
@@ -931,7 +929,7 @@ pub const TypeResolver = struct {
             for (params.items(), 0..) |p, i| {
                 if (i == 0) continue;
                 const is_self = std.mem.eql(u8, types.paramName(self.ctx.source, p) orelse "", "self");
-                const h = headOf(p);
+                const h = p.kind();
                 if (is_self) {
                     try self.ctx.err(types.paramPos(p, mpos), "`self` must be the first parameter of a method", .{});
                 }
@@ -1039,7 +1037,7 @@ pub const TypeResolver = struct {
     /// Inside `drop`, the body runs before the generated field drops, so
     /// it must not consume `self` or move/replace a field with drop glue.
     fn enforceDropBody(self: *TypeResolver, body: Sexp, fields: []const Field) Error!void {
-        const head = headOf(body) orelse return;
+        const head = body.kind() orelse return;
         const items = body.items();
         switch (head) {
             .@"drop" => if (self.isSelf(items[1])) {
@@ -1066,7 +1064,7 @@ pub const TypeResolver = struct {
     }
 
     fn checkDropBodyField(self: *TypeResolver, member: Sexp, fields: []const Field, op: []const u8) Error!void {
-        if (!isHead(member, .@"member")) return;
+        if (!member.isKind(.@"member")) return;
         if (!self.isSelf(member.items()[1])) return;
         const fname = identAt(self.ctx.source, member.items()[2]) orelse return;
         for (fields) |f| {
@@ -1128,7 +1126,7 @@ pub const TypeResolver = struct {
             },
             .list => |items_list| {
                 const items = items_list.items();
-                const head = headOf(sexp) orelse return t.invalid_id;
+                const head = sexp.kind() orelse return t.invalid_id;
                 switch (head) {
                     .@"optional" => {
                         const inner = try self.resolveType(items[1]);
@@ -1243,14 +1241,14 @@ pub const TypeResolver = struct {
     /// values through its type-erased form.
     fn checkOwnedClosureType(self: *TypeResolver, fun_type: Sexp, ty: TypeId) Error!void {
         const f = self.ctx.types.get(ty).function;
-        const nodes: []const Sexp = if (isHead(fun_type, .@"fun_type") and fun_type.items()[1] == .list) fun_type.items()[1].items() else &.{};
+        const nodes: []const Sexp = if (fun_type.isKind(.@"fun_type") and fun_type.items()[1] == .list) fun_type.items()[1].items() else &.{};
         for (f.params, 0..) |p, i| {
             if (types.isClosureValue(self.ctx, p)) continue;
             const pos = if (i < nodes.len) firstSrcPos(nodes[i]) else firstSrcPos(fun_type);
             try self.ctx.err(pos, "an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try types.formatType(self.ctx, p)});
         }
         if (!f.is_sub and !types.isClosureValue(self.ctx, f.returns)) {
-            const pos = if (isHead(fun_type, .@"fun_type") and fun_type.items()[2] != .nil) firstSrcPos(fun_type.items()[2]) else firstSrcPos(fun_type);
+            const pos = if (fun_type.isKind(.@"fun_type") and fun_type.items()[2] != .nil) firstSrcPos(fun_type.items()[2]) else firstSrcPos(fun_type);
             try self.ctx.err(pos, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try types.formatType(self.ctx, f.returns)});
         }
     }
