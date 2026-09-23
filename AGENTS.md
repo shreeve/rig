@@ -1,196 +1,88 @@
-# AGENTS.md — compass for AI sessions on Rig
+# AGENTS.md — working on Rig
 
-You are picking up a Rig compiler session. Read this file in full
-before writing any code or making any design proposals. It is
-short by design; the heavy detail lives in `HANDOFF.md`,
-`SPEC.md`, and `docs/`.
+Read this before changing anything. It is short on purpose.
 
----
+## North star
 
-## What Rig is (one paragraph)
+Rig is a fast, indentation-sensitive systems language that compiles
+to Zig. Its grammar is written for **Nexus** (`rig.grammar` →
+`src/parser.zig`). A small algebra of sigils makes ownership visible
+where it happens, so memory safety reads more cleanly than in Rust:
 
-Rig is a systems programming language with Zig-level performance,
-Rust-inspired ownership safety, and a small, expressive surface
-syntax. It compiles to Zig 0.16. The language is built around two
-complementary invariants:
-
-1. **Important effects are visible directly in the syntax** —
-   ownership transfer, borrowing, cloning, dropping, shared / weak
-   handles, failure propagation, compile-time specialization,
-   capture modes, raw-escape boundary.
-2. **Visible source effects survive as visible semantic Tags
-   through lowering** — every syntactic effect emits as a
-   first-class IR node the checkers and emitter consume by name.
-   Tools that read the IR see the same facts the compiler does,
-   without speculation.
-
-That's the thesis. Everything else is implementation detail.
-
----
-
-## Cadence (non-negotiable)
-
-Every new design arc follows this cadence:
-
-```
-GPT-5.5 design checkpoint  (via the user-ai MCP server)
-    ↓
-3–5 sub-commits, M5-style numbering: Mxx(n/total)
-    ↓
-post-implementation review  (via user-ai)
-    ↓
-commit
-```
-
-Every sub-commit must keep all tests passing
-(`./test/run` should report `N passed, 0 failed`).
-
-The collaboration with GPT-5.5 has caught real correctness bugs
-in every M20+ arc (UAF in M20h's ABI proposal, `in_set_rhs` leak
-in M20g, emit reverse-scan fragility in M20i.1, captured-resource
-UAF in PB3). Skipping it costs more than running it.
-
-The active design conversation is `c_5c1d09d53ebe2f62`. Continue
-it, or start a focused new conversation if the topic is
-genuinely orthogonal.
-
----
-
-## What you must read before touching code
-
-In order, with rough budgets:
-
-1. **`HANDOFF.md` TL;DR + Non-negotiable invariants** (~5 min) —
-   current state and the invariants you cannot violate.
-2. **`docs/INFLUENCES.md` §1** (~5 min) — the substrate ladder.
-   The conceptual map of where every milestone fits.
-3. **`docs/ROADMAP.md`** most recent entries (~10 min) —
-   commit-by-commit history.
-4. **`docs/REACTIVITY.md`** (~15 min) — Phase B north star.
-5. **`SPEC.md`** §Overview + the section relevant to your arc
-   (~10 min depending on scope).
-6. **`docs/IR.md`** (~5 min) — IR shape and the
-   lowering invariant.
-
-If your work touches reactivity, also read
-`examples/reactive_canary.rig` and
-`examples/signal_multi_subscriber.rig` — the canaries are the
-regression tests for the full Phase B chain.
-
----
-
-## Don't-do list (hard rules)
-
-These are guardrails. Each has caused or threatened real harm.
-
-- **Don't add features that hide effects.** Visible source effects
-  must survive as visible semantic Tags through lowering.
-  Reserved-but-not-enforced surfaces are M22.1-class hazards;
-  emit-time `@compileError`-as-placeholder is forbidden. New
-  surface ships with full semantics + emit, OR a clean sema
-  rejection with a Rig diagnostic.
-- **Don't pivot Rig's positioning to "the AI language."** Rig is
-  a systems language with a contract that happens to be useful
-  to AI tooling because the facts are visible. AI-native
-  marketing invites natural-language-input + opaque-generation
-  expectations, the inverse of Rig's thesis. Per
-  `docs/INFLUENCES.md` §10 rule 9.
-- **Don't add GC.** Ownership replaces it. If a feature requires
-  GC, redesign the feature, not the language.
-  (`docs/INFLUENCES.md` §10 rule 4.)
-- **Don't add a macro system in V1.** `pre` plus library design
-  covers the V1 use cases.
-- **Don't ship reactive library primitives as builtins.** PB4
-  locked the position: `Reactor` / `Memo` / `Effect` / batching
-  / topology are userland work. Substrate goes in the language;
-  libraries go in user code. Matches Rust and Zig position.
-- **Don't bypass the "any type with drop glue is non-Copy"
-  rule (M25).** A struct with resource fields OR a user `drop`
-  declaration is non-Copy at the ownership layer. Bare alias /
-  assignment / call-arg is rejected; only `<x` move is the V1
-  multi-binding shape. New language features that introduce a
-  way to silently alias such values would re-open the double-
-  free hazard the rule prevents.
-- **Don't edit `src/parser.zig` by hand.** It's generated from
-  `rig.grammar` via `zig build parser`.
-- **Don't skip the GPT-5.5 design checkpoint.** Rationale above.
-- **Don't fix the library when the language is wrong.** The
-  canary discipline (`docs/REACTIVITY.md` Phase B Q1):
-  the library is the canary; if it doesn't compose, fix the
-  language.
-
----
-
-## What "complete the Rig language" means
-
-Phase B is shipped (substrate ladder Layers 0–7 plus the Layer
-7.x follow-ons through M30 plus M23 body-less extern + M24
-arity-bearing closures; 1145 tests passing). The next
-forward arcs are listed in `HANDOFF.md` §13:
-
-- **Category A — Substrate cleanup**: body-less `extern fun` /
-  `extern sub`, `Closure1(T)` / `Closure2(A, B)` arity, legacy
-  global name-scan retirement. M15b.2, M25, M26, M27, M28,
-  M29, and M30 are shipped.
-- **Category B — Optional substrate extensions**: Layer 8
-  structured concurrency, Phase C reactive sugar, `pre` AST
-  extraction, persistent collections (conditional).
-- **Category C — V1.x tooling**: `rig sema --json` v0
-  (stable, versioned semantic export). Smaller scope, but still
-  follows the normal checkpoint cadence unless Steve explicitly
-  scopes it as a docs/projection-only maintenance task. See
-  `docs/ROADMAP.md` §V1.x.
-
-The forward arc is Steve-driven. Your job is to execute the
-chosen arc cleanly under the cadence above, not to invent a new
-direction. If you think a direction change is genuinely
-warranted, raise it as a discussion item with GPT-5.5 first.
-
----
-
-## Where things live
-
-| File | Role |
+| Sigil | Meaning |
 |---|---|
-| `AGENTS.md` (this file) | Compass; first thing read |
-| `HANDOFF.md` | Current state; non-negotiable invariants; forward-arc menu |
-| `SPEC.md` | Language spec (canonical) |
-| `docs/ROADMAP.md` | Milestone history (M0 → PB4 done) and V1.x tooling layer |
-| `docs/CHECKLIST.md` | Per-milestone checklists |
-| `docs/IR.md` | IR shape + lowering invariant |
-| `docs/REACTIVITY.md` | Phase B design north star |
-| `docs/INFLUENCES.md` | Design lineage; substrate ladder; strategic rules (§12 covers the Zag / Nexus grammar substrate) |
-| `docs/LANGUAGE-SUMMARY.md` | Comprehensive language overview synthesized from founding chats |
-| `rig.grammar` | Nexus grammar (current conflict count: 75) |
-| `src/rig.zig` | Lexer rewriter + Tag enum |
-| `src/parser.zig` | **GENERATED** — do not edit by hand |
-| `src/types.zig` | Sema (SymbolResolver, TypeResolver, ExprChecker, builtins) |
-| `src/effects.zig` | Effects checker (fallibility) |
-| `src/ownership.zig` | M2-era borrow/move/drop checker |
-| `src/emit.zig` | Zig codegen |
-| `src/runtime.zig` | V1 runtime as a Zig string constant (RcBox, WeakHandle, Cell, Closure0, Vec, Signal) |
-| `src/main.zig` | CLI driver |
-| `examples/` | Positive + negative examples; `*_rejected.rig` and `*_reserved.rig` are diagnostic regression tests |
-| `test/run` | Test driver |
+| `<x` | move |
+| `?x` / `?T` | read borrow |
+| `!x` / `!T` | write borrow |
+| `+x` | clone |
+| `-x` | drop now |
+| `*x` / `*T` | shared (refcounted) |
+| `~x` / `~T` | weak |
+| `%x` | raw pointer access (inside `raw` only) |
+| `expr!` / `T!` | propagate failure / fallible type |
+| `T?` | optional type |
 
----
+Everything else aims for the readability of Python and Ruby, the
+cost model of Zig and C, and the safety of Rust: no GC, no hidden
+allocation, no hidden refcount traffic, no silent control flow.
 
-## If you get stuck
+## Rules
 
-- **Read `HANDOFF.md` §12** ("If you get stuck"). It has a
-  triage list for common failure modes.
-- **Don't bypass an invariant to make a test pass.** If the
-  invariant is wrong, the cadence is to discuss it with
-  GPT-5.5 and update the invariant explicitly. Silently
-  weakening an invariant is how substrates rot.
-- **Re-read the substrate ladder** in `docs/INFLUENCES.md` §1.
-  Most "I don't know what should happen here" questions resolve
-  to "what layer is this on, and is the layer below it solid?"
+1. **We test and verify everything we say.** A feature exists when a
+   program using it runs and prints the right thing, with no leaks
+   under the checking allocator. A rejection exists when a
+   `must-reject` test proves it. Docs make no claims the test suite
+   does not check.
+2. **Accept means correct.** If `rig check` accepts a program, the
+   emitted Zig compiles, runs, and does what the source says. Anything
+   the compiler cannot lower correctly is rejected in sema with a Rig
+   diagnostic (file:line:col). Never emit `@compileError` placeholders
+   and never drop a construct silently.
+3. **Safe code cannot corrupt memory.** Use-after-move, double-free,
+   use-after-free, dangling borrows, and leaks in safe Rig are
+   compiler bugs. Only code inside `raw` may break these guarantees.
+4. **Effects stay visible.** Every sigil survives as a named node in
+   the semantic IR (`docs/INTERNALS.md`), which the checkers and emitter
+   consume by name. Don't add features that hide moves, clones,
+   allocation, failure, or mutation.
+5. **Substrate in the language, libraries in userland.** No GC, no
+   macros, no built-in reactive framework.
+6. **Never edit `src/parser.zig` by hand.** Edit `rig.grammar` and
+   run `zig build parser` (needs `../nexus/bin/nexus`; build it with
+   `cd ../nexus && zig build -Doptimize=ReleaseSafe`). Grammar
+   conflicts must be understood: every conflict that remains is
+   listed and justified in `docs/INTERNALS.md`.
+7. **Comments explain the code as it is.** Milestone history,
+   design-chat references, and changelogs belong in git history.
 
----
+## Workflow
 
-## Bottom line
+```bash
+zig build            # builds bin/rig
+./test/run           # full suite; must be green before every commit
+bin/rig run file.rig # compile + run (Debug, leak-checked)
+```
 
-The thesis is the contract. The cadence is the discipline. The
-ladder is the map. The invariants are the guardrails. Everything
-else is implementation.
+- Fixing a bug starts with a failing test that reproduces it.
+- Every change keeps `./test/run` green.
+- Commit messages are short, imperative, and describe the change.
+  No AI attribution lines.
+
+## Map
+
+| Path | Role |
+|---|---|
+| `rig.grammar` | Nexus grammar (source of truth for syntax) |
+| `src/rig.zig` | Lexer rewriter (indentation, sigil classification) and IR tags |
+| `src/parser.zig` | Generated — do not edit |
+| `src/modules.zig` | Module graph and `use` resolution |
+| `src/types.zig` | Semantic analysis: names, types, expression checking |
+| `src/effects.zig` | Fallibility checking |
+| `src/ownership.zig` | Move / borrow / drop checking |
+| `src/emit.zig` | Zig code generation |
+| `src/runtime.zig` | Runtime support emitted with every program |
+| `src/main.zig` | CLI |
+| `test/` | The test suite (see `test/README.md`) |
+| `examples/` | Curated example programs, all run by the suite |
+| `SPEC.md` | Language reference |
+| `docs/` | Design and internals |
