@@ -7,7 +7,8 @@
 #   filter      only run tests whose id contains one of these substrings;
 #               ids look like behavior/ownership/move_into_fn, known/emit/...,
 #               reject/types/..., examples/hello, ir/..., torture/..., unit,
-#               parser. A bare kind name (`known`, `ir`, ...) selects that kind.
+#               parser, doc/SPEC/L120 (the ```rig block at SPEC.md line 120).
+#               A bare kind name (`known`, `doc`, ...) selects that kind.
 #   -v          also list passing and known-failing tests
 #   -j N        parallel jobs (default: CPU count)
 #   --update    rewrite test/ir snapshots from the current compiler
@@ -148,6 +149,49 @@ check_torture() {
     return 0
 }
 
+# check_accept <entry> <logfile>: `rig check` accepts the program.
+check_accept() {
+    local out
+    out=$(timeout "$TIMEOUT" "$RIG" check "$1" 2>&1 </dev/null)
+    local rc=$?
+    echo "$out" >"$2"
+    if [[ $rc -eq 0 ]]; then return 0; fi
+    if [[ $rc -eq 124 ]]; then REASON="timed out"; return 1; fi
+    if [[ $rc -gt 128 ]] || grep -qE "$PANIC_RE" <<<"$out"; then REASON="compiler crashed"; return 1; fi
+    REASON="rejected: $(head -1 <<<"$out")"
+    return 1
+}
+
+# check_parse <entry> <logfile>: the file parses.
+check_parse() {
+    local out
+    out=$(timeout "$TIMEOUT" "$RIG" parse "$1" 2>&1 >/dev/null </dev/null)
+    local rc=$?
+    echo "$out" >"$2"
+    if [[ $rc -eq 0 ]]; then return 0; fi
+    REASON="does not parse: $(head -1 <<<"$out")"
+    return 1
+}
+
+# A doc example: a directory extracted from a ```rig block, with its
+# mode in `mode` (see extract_docs).
+check_doc() {
+    local dir=$1 entry=$2 outdir=$3 log=$4 mode ok
+    mode=$(cat "$dir/mode")
+    case $mode in
+        run)      check_behavior "$entry" "$outdir" "$log" ;;
+        check)    check_accept "$entry" "$log" ;;
+        reject)   check_reject "$entry" "$log" ;;
+        fragment) check_parse "$entry" "$log" ;;
+        *)        REASON=$mode; return 1 ;;
+    esac
+    ok=$?
+    # Report positions relative to the example, not the scratch directory.
+    REASON=${REASON//$dir\//}
+    [[ -f "$log" ]] && sed "s|$dir/||g" "$log" >"$log.tmp" && mv "$log.tmp" "$log"
+    return $ok
+}
+
 check_ir() {
     local entry=$1 log=$2
     local base=${entry%.rig} ok=0 kind cmd
@@ -181,6 +225,7 @@ worker() {
         reject)            check_reject "$entry" "$log"; ok=$? ;;
         torture)           check_torture "$entry" "$outdir" "$log"; ok=$? ;;
         ir)                check_ir "$entry" "$log"; ok=$? ;;
+        doc)               check_doc "$path" "$entry" "$outdir" "$log"; ok=$? ;;
         known)
             if grep -qE '^# error:' "$entry"; then check_reject "$entry" "$log"
             else check_behavior "$entry" "$outdir" "$log"; fi
@@ -246,7 +291,7 @@ selected() {
     local f
     for f in "${FILTERS[@]}"; do
         case $f in # a bare kind name selects that kind only
-            behavior|reject|known|examples|ir|torture|unit|parser)
+            behavior|reject|known|examples|ir|torture|unit|parser|doc)
                 [[ "$1" == "$f" || "$1" == "$f/"* ]] && return 0 ;;
             *) [[ "$1" == *"$f"* ]] && return 0 ;;
         esac
@@ -271,6 +316,85 @@ done
 for p in examples/*.rig; do [[ -e "$p" ]] && add "examples/$(basename "$p" .rig)" "$p"; done
 for p in test/ir/*.rig; do [[ -e "$p" ]] && add "ir/$(basename "$p" .rig)" "$p"; done
 for p in test/torture/*.rig; do [[ -e "$p" ]] && add "torture/$(basename "$p" .rig)" "$p"; done
+
+# Doc examples: every ```rig block in the Markdown docs is a test. The
+# info string after `rig` sets the contract (see test/README.md):
+#
+#   ```rig             a program `rig check` accepts; followed by an
+#                      ```output block, it is run like a behavior test
+#   ```rig reject      `rig check` rejects it; a following ```error block
+#                      lists text each diagnostic must contain, one a line
+#   ```rig fragment    only parsed
+#   ```rig file=m.rig  module `m.rig`, imported by the next example
+#
+# Each example becomes a directory holding main.rig (the directives
+# appended) and its `mode`; the id names the line of the opening fence.
+extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
+    local name=${1%.md}
+    name=${name#docs/}
+    name=${name//\//-}
+    awk -v doc="$name" -v out="$2/$name" '
+        function fail(msg) { mode = "doc convention: " msg }
+        function emit(    dir, f, k, n, ls) {
+            dir = out "/L" start
+            system("mkdir -p \"" dir "\"")
+            printf "%s", body > (dir "/main.rig")
+            if (mode == "run" || mode == "reject") {
+                n = split(extra, ls, "\n")
+                printf "\n%s\n", (mode == "run" ? "# expect:" : "") > (dir "/main.rig")
+                for (k = 1; k < n; k++) {
+                    if (mode == "run") printf "%s\n", (ls[k] == "" ? "#" : "# " ls[k]) > (dir "/main.rig")
+                    else printf "# error: %s\n", ls[k] > (dir "/main.rig")
+                }
+            }
+            close(dir "/main.rig")
+            for (f in pending) { printf "%s", pending[f] > (dir "/" f); close(dir "/" f); delete pending[f] }
+            print mode > (dir "/mode"); close(dir "/mode")
+            printf "doc/%s/L%d\t%s\n", doc, start, dir
+        }
+        { line[NR] = $0 }
+        END {
+            i = 1
+            while (i <= NR) {
+                if (line[i] !~ /^```rig([ \t]|$)/) { i++; continue }
+                start = i; mode = "check"; fname = ""
+                n = split(substr(line[i], 7), words, /[ \t]+/)
+                for (k = 1; k <= n; k++) {
+                    w = words[k]
+                    if (w == "") continue
+                    if (w == "reject" || w == "fragment") mode = w
+                    else if (w ~ /^file=[A-Za-z_][A-Za-z0-9_]*\.rig$/) fname = substr(w, 6)
+                    else fail("unknown word `" w "` after ```rig")
+                }
+                body = ""
+                for (i++; i <= NR && line[i] != "```"; i++) body = body line[i] "\n"
+                if (i > NR) fail("unterminated ```rig block")
+                i++
+                j = i
+                while (j <= NR && line[j] ~ /^[ \t]*$/) j++
+                kind = ""; extra = ""
+                if (j <= NR && (line[j] == "```output" || line[j] == "```error")) {
+                    kind = substr(line[j], 4)
+                    for (j++; j <= NR && line[j] != "```"; j++) extra = extra line[j] "\n"
+                    i = j + 1
+                }
+                if (fname != "") {
+                    if (kind != "" || mode != "check") fail("a file= block stands alone")
+                    else { pending[fname] = body; pending_at[fname] = start; continue }
+                }
+                if (kind == "output") { if (mode == "check") mode = "run"; else fail("```output follows a program") }
+                else if (kind == "error") { if (mode != "reject") fail("```error follows a ```rig reject block") }
+                else if (mode == "reject") fail("```rig reject needs an ```error block")
+                emit()
+            }
+            for (f in pending) { start = pending_at[f]; body = ""; fail("file=" f " is not followed by a program"); emit(); break }
+        }
+    ' "$1"
+}
+for md in *.md docs/*.md examples/*.md test/*.md; do
+    [[ -e "$md" ]] || continue
+    while IFS=$'\t' read -r id dir; do add "$id" "$dir"; done < <(extract_docs "$md" "$WORK/doc")
+done
 
 # Whole-program checks run alongside the per-file tests.
 UNIT_LOG="$WORK/unit.log" UNIT_PID=""
@@ -339,7 +463,7 @@ printf '\n%s%-26s %6s %6s %6s%s\n' "$B" "area" "pass" "fail" "known" "$X"
 awk -F'\t' '
     {
         n = split($2, p, "/")
-        key = (p[1] == "behavior" || p[1] == "reject" || p[1] == "known") && n >= 3 ? p[1] "/" p[2] : p[1]
+        key = (p[1] == "behavior" || p[1] == "reject" || p[1] == "known" || p[1] == "doc") && n >= 3 ? p[1] "/" p[2] : p[1]
         if ($1 == "pass") pass[key]++
         else if ($1 == "known") known[key]++
         else fail[key]++

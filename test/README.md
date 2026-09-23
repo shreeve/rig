@@ -22,6 +22,7 @@ when nothing fails and no known-failing test has started passing.
 | `test/torture/<name>.rig` | bad input: must be rejected with a diagnostic, never crash the compiler |
 | `unit` | `zig build test` |
 | `parser` | `src/parser.zig` matches what Nexus generates from `rig.grammar` |
+| `doc/<file>/L<n>` | the ```` ```rig ```` block at line `n` of a Markdown file (see below) |
 
 Areas: `syntax`, `types`, `effects`, `ownership`, `emit`, `runtime`, `modules`.
 A multi-file test is a directory `<name>/` with an entry `main.rig`; the
@@ -51,6 +52,24 @@ sub main()
   on stderr. An `# expect:` block, if present, still checks stdout.
 - `# error: <text>` — makes the file a rejection test. Repeat the line to
   require several diagnostics.
+
+## Doc examples
+
+Every ```` ```rig ```` block in the Markdown files (`*.md`, `docs/`,
+`examples/`, `test/`) is a test, so the docs cannot drift from the
+compiler. The word after `rig` on the opening fence sets the contract:
+
+| Fence | Contract |
+|---|---|
+| ```` ```rig ```` | a program `rig check` accepts |
+| ```` ```rig ```` followed by ```` ```output ```` | run like a behavior test: stdout equals the output block, no leaks |
+| ```` ```rig reject ```` followed by ```` ```error ```` | `rig check` rejects it; each line of the error block appears in a diagnostic |
+| ```` ```rig fragment ```` | only parsed; for snippets that are not whole programs |
+| ```` ```rig file=name.rig ```` | module `name.rig`, written next to the next example, which can `use name` |
+
+Blank lines may separate a block from its `output` or `error` block. A
+failure is reported with the id `doc/<file>/L<line>`, naming the line of
+the opening fence; `./test/run doc` runs only the doc examples.
 
 ## Leak checking
 
