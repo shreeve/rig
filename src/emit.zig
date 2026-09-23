@@ -907,7 +907,7 @@ pub const Emitter = struct {
             .@"if" => try self.emitIf(sexp),
             .@"while", .@"for" => try self.emitLoop(sexp, null),
             .@"labeled" => try self.emitLabeled(sexp),
-            .@"match" => try self.emitMatch(sexp, false, false),
+            .@"match" => try self.emitMatch(sexp, false),
             .@"block" => try self.emitBlock(sexp),
             // `raw` marks an audit boundary for sema; it lowers to a block.
             .@"raw_block" => try self.emitBlock(items[1]),
@@ -1467,8 +1467,8 @@ pub const Emitter = struct {
     // -------------------------------------------------------------------------
 
     /// `(match scrutinee arm...)` → `switch`. In value position each arm
-    /// yields a value; `tail` moves resource bindings the arms return.
-    fn emitMatch(self: *Emitter, sexp: Sexp, value_pos: bool, tail: bool) Error!void {
+    /// yields a value.
+    fn emitMatch(self: *Emitter, sexp: Sexp, value_pos: bool) Error!void {
         const items = sexp.list;
         if (items.len < 2) return self.unsupported(sexp, "this match");
         const scrutinee = items[1];
@@ -1537,7 +1537,7 @@ pub const Emitter = struct {
                 aliases = try self.payloadAliases(captures, scrut_ty, variant.?, body);
                 if (aliases.len > 0) try self.w.writeAll("|__rig_payload| ");
             }
-            try self.emitArmBody(body, aliases, value_pos, tail);
+            try self.emitArmBody(body, aliases, value_pos);
             try self.w.writeAll(",\n");
         }
         if (!has_default and !self.matchIsExhaustive(scrut_ty, variants_seen)) {
@@ -1573,8 +1573,8 @@ pub const Emitter = struct {
         return out.items;
     }
 
-    fn emitArmBody(self: *Emitter, body: Sexp, aliases: []const Alias, value_pos: bool, tail: bool) Error!void {
-        if (value_pos) return self.emitValueBlock(body, aliases, tail);
+    fn emitArmBody(self: *Emitter, body: Sexp, aliases: []const Alias, value_pos: bool) Error!void {
+        if (value_pos) return self.emitValueBlock(body, aliases);
         try self.openBrace();
         for (aliases) |a| try self.line("const {s} = __rig_payload.{f};", .{ a.zig_name, self.ident(a.field) });
         try self.emitStmts(try self.stmtsOf(body));
@@ -1728,7 +1728,7 @@ pub const Emitter = struct {
                 try self.w.writeAll("(");
                 try self.emitExpr(items[1]);
                 try self.w.writeAll(" orelse ");
-                try self.emitValue(items[2], tail);
+                try self.emitValue(items[2], true);
                 try self.w.writeAll(")");
             },
             .@"catch" => {
@@ -1739,10 +1739,10 @@ pub const Emitter = struct {
                     try self.pushScope();
                     const local = try self.declare(.{ .rig_name = self.text(items[2]) orelse "_", .zig_name = "" });
                     try self.w.print("|{s}| ", .{if (usesName(self.source, items[3], local.rig_name)) local.zig_name else "_"});
-                    try self.emitValue(items[3], tail);
+                    try self.emitValue(items[3], true);
                     try self.popScope();
                 } else {
-                    try self.emitValue(items[2], tail);
+                    try self.emitValue(items[2], true);
                 }
                 try self.w.writeAll(")");
             },
@@ -1752,19 +1752,19 @@ pub const Emitter = struct {
                 try self.w.writeAll(if (bare) "if (" else "(if (");
                 try self.emitBare(items[1]);
                 try self.w.writeAll(") ");
-                try self.emitValue(items[2], tail);
+                try self.emitValue(items[2], true);
                 try self.w.writeAll(" else ");
-                try self.emitValue(items[3], tail);
+                try self.emitValue(items[3], true);
                 if (!bare) try self.w.writeAll(")");
             },
             .@"if" => {
                 if (!bare) try self.w.writeAll("(");
-                try self.emitIfExpr(sexp, tail);
+                try self.emitIfExpr(sexp);
                 if (!bare) try self.w.writeAll(")");
             },
-            .@"match" => try self.emitMatch(sexp, true, tail),
-            .@"block" => try self.emitValueBlock(sexp, &.{}, tail),
-            .@"raw_block" => try self.emitValueBlock(items[1], &.{}, tail),
+            .@"match" => try self.emitMatch(sexp, true),
+            .@"block" => try self.emitValueBlock(sexp, &.{}),
+            .@"raw_block" => try self.emitValueBlock(items[1], &.{}),
             .@"array" => try self.emitArray(items),
             .@"anon_init" => try self.emitFieldInit(".", items[1..]),
             .@"record" => {
@@ -1992,26 +1992,27 @@ pub const Emitter = struct {
     // -------------------------------------------------------------------------
 
     /// `(if cond then else)` as a value.
-    fn emitIfExpr(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
+    fn emitIfExpr(self: *Emitter, sexp: Sexp) Error!void {
         const items = sexp.list;
         if (items.len != 4) return self.unsupported(sexp, "an `if` without `else` in value position");
         try self.pushScope();
         try self.w.writeAll("if ");
         try self.emitCond(items[1]);
-        try self.emitValueBlock(items[2], &.{}, tail);
+        try self.emitValueBlock(items[2], &.{});
         try self.popScope();
         try self.w.writeAll(" else ");
-        try self.emitValueBlock(items[3], &.{}, tail);
+        try self.emitValueBlock(items[3], &.{});
     }
 
     /// A block that yields its last expression: inline when it is a
-    /// single expression, otherwise a labeled block. A block ending in
+    /// single expression, otherwise a labeled block. The value leaves the
+    /// block, so a resource binding in tail position is moved out. A block ending in
     /// `return`/`break`/`continue` yields nothing and needs no label.
-    fn emitValueBlock(self: *Emitter, body: Sexp, aliases: []const Alias, tail: bool) Error!void {
+    fn emitValueBlock(self: *Emitter, body: Sexp, aliases: []const Alias) Error!void {
         const stmts = try self.stmtsOf(body);
         if (stmts.len == 0) return self.unsupported(body, "an empty block in value position");
         const last = stmts[stmts.len - 1];
-        if (stmts.len == 1 and aliases.len == 0 and isValueStmt(last)) return self.emitValue(last, tail);
+        if (stmts.len == 1 and aliases.len == 0 and isValueStmt(last)) return self.emitValue(last, true);
 
         const terminates = isTerminatingStmt(last);
         if (!terminates and !isValueStmt(last)) return self.unsupported(last, "a block without a value in value position");
@@ -2029,7 +2030,7 @@ pub const Emitter = struct {
         } else {
             try self.w.print("break :{s} ", .{label});
             self.bare = true;
-            try self.emitValue(last, tail);
+            try self.emitValue(last, true);
             try self.w.writeAll(";");
         }
         try self.w.writeAll("\n");
@@ -3296,6 +3297,12 @@ const Scan = struct {
         if (node == .src) try s.e.fun.consumed.put(s.e.allocator, s.e.srcText(node), {});
     }
 
+    /// The name a branch yields, when it yields a bare name.
+    fn consumeTail(s: *Scan, branch: Sexp) Error!void {
+        const stmts = try s.e.stmtsOf(branch);
+        if (stmts.len > 0) try s.consume(stmts[stmts.len - 1]);
+    }
+
     /// Every name in a value that may leave the function.
     fn consumeAll(s: *Scan, node: Sexp) Error!void {
         switch (node) {
@@ -3374,9 +3381,23 @@ const Scan = struct {
                 try s.declare(items[2]);
             },
             .@"if", .@"while" => {
+                // An `if` with `else` may be a value: its branches yield.
+                if (items[0].tag == .@"if" and items.len == 4) {
+                    try s.consumeTail(items[2]);
+                    try s.consumeTail(items[3]);
+                }
                 // A capture in the condition scopes over the body.
                 try s.push();
                 defer s.pop();
+                for (items[1..]) |c| try s.walk(c);
+            },
+            .@"match" => {
+                for (items[2..]) |arm| if (isTagged(arm, .@"arm")) try s.consumeTail(arm.list[arm.list.len - 1]);
+                for (items[1..]) |c| try s.walk(c);
+            },
+            .@"ternary" => {
+                try s.consumeTail(items[2]);
+                try s.consumeTail(items[3]);
                 for (items[1..]) |c| try s.walk(c);
             },
             .@"lambda" => {
