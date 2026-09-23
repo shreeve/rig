@@ -577,7 +577,7 @@ pub const TypeResolver = struct {
         const is_sub = node.isKind(.@"sub");
         const name = ir.get(node, .name);
         const params = ir.get(node, .params);
-        const returns = ir.get(node, .returns);
+        const returns = rig.returnType(node);
         const return_ty = if (returns == .nil)
             self.ctx.types.void_id
         else

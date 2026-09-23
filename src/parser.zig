@@ -802,7 +802,6 @@ pub const Role = enum(u16) {
     @"members",
     @"type",
     @"decl",
-    @"kind",
     @"label",
     @"stmt",
     @"value",
@@ -1855,11 +1854,8 @@ pub const ir = struct {
         pub fn @"params"(@"ir.node": @"ir.Sexp") @"ir.Sexp" {
             return @"ir.at"(@"ir.node", .@"sub", 2, "ir.Sub.params");
         }
-        pub fn @"returns"(@"ir.node": @"ir.Sexp") @"ir.Sexp" {
-            return @"ir.at"(@"ir.node", .@"sub", 3, "ir.Sub.returns");
-        }
         pub fn @"body"(@"ir.node": @"ir.Sexp") @"ir.Sexp" {
-            return @"ir.at"(@"ir.node", .@"sub", 4, "ir.Sub.body");
+            return @"ir.at"(@"ir.node", .@"sub", 3, "ir.Sub.body");
         }
     };
     pub const Lambda = struct {
@@ -1869,11 +1865,8 @@ pub const ir = struct {
         pub fn @"params"(@"ir.node": @"ir.Sexp") @"ir.Sexp" {
             return @"ir.at"(@"ir.node", .@"lambda", 2, "ir.Lambda.params");
         }
-        pub fn @"returns"(@"ir.node": @"ir.Sexp") @"ir.Sexp" {
-            return @"ir.at"(@"ir.node", .@"lambda", 3, "ir.Lambda.returns");
-        }
         pub fn @"body"(@"ir.node": @"ir.Sexp") @"ir.Sexp" {
-            return @"ir.at"(@"ir.node", .@"lambda", 4, "ir.Lambda.body");
+            return @"ir.at"(@"ir.node", .@"lambda", 3, "ir.Lambda.body");
         }
     };
     pub const Struct = struct {
@@ -1944,14 +1937,11 @@ pub const ir = struct {
         }
     };
     pub const Extern = struct {
-        pub fn @"kind"(@"ir.node": @"ir.Sexp") @"ir.Sexp" {
-            return @"ir.at"(@"ir.node", .@"extern", 1, "ir.Extern.kind");
-        }
         pub fn @"name"(@"ir.node": @"ir.Sexp") @"ir.Sexp" {
-            return @"ir.at"(@"ir.node", .@"extern", 2, "ir.Extern.name");
+            return @"ir.at"(@"ir.node", .@"extern", 1, "ir.Extern.name");
         }
         pub fn @"type"(@"ir.node": @"ir.Sexp") @"ir.Sexp" {
-            return @"ir.at"(@"ir.node", .@"extern", 3, "ir.Extern.type");
+            return @"ir.at"(@"ir.node", .@"extern", 2, "ir.Extern.type");
         }
     };
     pub const ExternFun = struct {
@@ -2760,8 +2750,8 @@ fn executeAction(self: *BaseParser, ruleId: u16, pass: []Sexp) Sexp {
         60 => self.build(&.{ .{ .tag = .@"fun" }, pass[1], pass[2], .nil, pass[3] }),
         61 => self.build(&.{ .{ .tag = .@"fun" }, pass[1], .nil, pass[2], pass[3] }),
         62 => self.build(&.{ .{ .tag = .@"fun" }, pass[1], pass[2], pass[3], pass[4] }),
-        63 => self.build(&.{ .{ .tag = .@"sub" }, pass[1], .nil, .nil, pass[2] }),
-        64 => self.build(&.{ .{ .tag = .@"sub" }, pass[1], pass[2], .nil, pass[3] }),
+        63 => self.build(&.{ .{ .tag = .@"sub" }, pass[1], .nil, pass[2] }),
+        64 => self.build(&.{ .{ .tag = .@"sub" }, pass[1], pass[2], pass[3] }),
         65 => pass[1],
         66 => self.spreadList(pass[0], pass[1]),
         67 => self.spreadList(pass[1], pass[2]),
@@ -2796,7 +2786,7 @@ fn executeAction(self: *BaseParser, ruleId: u16, pass: []Sexp) Sexp {
         96 => self.build(&.{ .{ .tag = .@"drop_decl" }, pass[1], pass[2] }),
         97 => blk: { var out = self.extendList(pass[0]) catch break :blk self.oomNil(); break :blk self.keepList(&out); },
         98 => self.build(&.{ .{ .tag = .@"test" }, pass[1], pass[2] }),
-        99 => self.build(&.{ .{ .tag = .@"extern" }, .nil, pass[1], pass[3] }),
+        99 => self.build(&.{ .{ .tag = .@"extern" }, pass[1], pass[3] }),
         100 => self.build(&.{ .{ .tag = .@"extern_fun" }, pass[2], .nil, .nil }),
         101 => self.build(&.{ .{ .tag = .@"extern_fun" }, pass[2], pass[3], .nil }),
         102 => self.build(&.{ .{ .tag = .@"extern_fun" }, pass[2], .nil, pass[3] }),
@@ -2905,11 +2895,11 @@ fn executeAction(self: *BaseParser, ruleId: u16, pass: []Sexp) Sexp {
         205 => self.build(&.{ .{ .tag = .@"catch_block" }, pass[2], pass[4] }),
         206 => pass[0],
         207 => self.build(&.{ .{ .tag = .@"share" }, pass[1] }),
-        208 => self.build(&.{ .{ .tag = .@"lambda" }, .nil, pass[0], .nil, pass[1] }),
-        209 => self.build(&.{ .{ .tag = .@"lambda" }, .nil, pass[0], .nil, pass[1] }),
+        208 => self.build(&.{ .{ .tag = .@"lambda" }, .nil, pass[0], pass[1] }),
+        209 => self.build(&.{ .{ .tag = .@"lambda" }, .nil, pass[0], pass[1] }),
         210 => pass[0],
         211 => self.build(&.{ .{ .tag = .@"share" }, pass[1] }),
-        212 => self.build(&.{ .{ .tag = .@"lambda" }, .nil, pass[0], .nil, pass[1] }),
+        212 => self.build(&.{ .{ .tag = .@"lambda" }, .nil, pass[0], pass[1] }),
         213 => self.spreadList(pass[0], pass[1]),
         214 => self.spreadList(pass[1], pass[2]),
         215 => self.emptyList(),
@@ -3809,15 +3799,13 @@ fn slotOf(kind: Tag, role: Role) ?usize {
         .@"sub" => switch (role) {
             .@"name" => 1,
             .@"params" => 2,
-            .@"returns" => 3,
-            .@"body" => 4,
+            .@"body" => 3,
             else => null,
         },
         .@"lambda" => switch (role) {
             .@"captures" => 1,
             .@"params" => 2,
-            .@"returns" => 3,
-            .@"body" => 4,
+            .@"body" => 3,
             else => null,
         },
         .@"struct" => switch (role) {
@@ -3857,9 +3845,8 @@ fn slotOf(kind: Tag, role: Role) ?usize {
             else => null,
         },
         .@"extern" => switch (role) {
-            .@"kind" => 1,
-            .@"name" => 2,
-            .@"type" => 3,
+            .@"name" => 1,
+            .@"type" => 2,
             else => null,
         },
         .@"extern_fun" => switch (role) {
@@ -4277,15 +4264,13 @@ fn roleAt(kind: Tag, slot: usize) ?Role {
         .@"sub" => switch (slot) {
             1 => .@"name",
             2 => .@"params",
-            3 => .@"returns",
-            4 => .@"body",
+            3 => .@"body",
             else => null,
         },
         .@"lambda" => switch (slot) {
             1 => .@"captures",
             2 => .@"params",
-            3 => .@"returns",
-            4 => .@"body",
+            3 => .@"body",
             else => null,
         },
         .@"struct" => switch (slot) {
@@ -4325,9 +4310,8 @@ fn roleAt(kind: Tag, slot: usize) ?Role {
             else => null,
         },
         .@"extern" => switch (slot) {
-            1 => .@"kind",
-            2 => .@"name",
-            3 => .@"type",
+            1 => .@"name",
+            2 => .@"type",
             else => null,
         },
         .@"extern_fun" => switch (slot) {

@@ -265,14 +265,15 @@ tokens
     module                      ...decls
     use                         name:leaf
     zig                         code:leaf
-    fun, sub                    name:leaf params:group? returns? body:block
-    lambda                      captures:captures? params:group? returns? body:block
+    fun                         name:leaf params:group? returns? body:block
+    sub                         name:leaf params:group? body:block
+    lambda                      captures:captures? params:group? body:block
     struct, enum, errors        name:leaf ...members
     generic_type, generic_enum  name:leaf params:group? ...members
     type                        name:leaf type
     test                        name:leaf body:block
     pub                         decl:fun|sub|struct|enum|errors|type|generic_type|generic_enum|test
-    extern                      kind:tag? name:leaf type
+    extern                      name:leaf type
     extern_fun                  name:leaf params:group? returns?
     extern_sub                  name:leaf params:group?
     drop_decl                   params:group body:block

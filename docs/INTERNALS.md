@@ -92,18 +92,21 @@ and the exit status is 1 if any test failed.
 shape of the IR. [Nexus](https://github.com/shreeve/nexus) turns it into
 `src/parser.zig`, one self-contained Zig file holding a regex-based
 `BaseLexer` and an LALR(1) `BaseParser`. Each grammar rule names the
-S-expression it produces:
+node it produces, filling the kind's roles (declared in the grammar's
+`@schema`, see [the semantic IR](#the-semantic-ir)) from labeled
+pattern elements:
 
 ```text
-fun = FUN name params returns block    → (fun 2 3 4 5)
-    | FUN name params         block    → (fun 2 3 _ 4)
+fun = FUN name:name [params:params] [returns:returns] body:block → (fun)
 ```
 
-Numbers are child positions, `_` is an absent slot, and a bare word is
-a literal tag. There is no hand-written parser and no AST type: every
-later pass walks this tree. After editing the grammar, run
-`zig build parser` (Nexus must be built next to this checkout); the
-test suite fails if `src/parser.zig` is stale.
+`[...]` is optional (a role whose element is absent is `_`), and an
+action can also fill roles by position or with a literal tag
+(`→ (set op:fixed)`). There is no hand-written parser and no AST type:
+every later pass walks this tree. After editing the grammar, run
+`zig build parser` with Nexus 1.0 (`-Dnexus=path/to/nexus`, or
+`nexus/bin/nexus` next to this checkout); the test suite fails if
+`src/parser.zig` is stale.
 
 Nexus auto-wires the language module: when `src/rig.zig` declares a
 `Lexer` or `Parser`, the generated code uses it in place of the base
@@ -113,8 +116,10 @@ the finished semantic IR.
 ### Conflicts policy
 
 The grammar has **no** LALR(1) conflicts (`@conflicts = 0`), and uses no
-precedence hints to hide any. Nexus fails the build if the count
-changes, so a new conflict is a deliberate decision, justified here.
+precedence hints to hide any. Nexus fails generation on any conflict
+the grammar does not declare, so a new conflict is a deliberate
+decision: it goes in an `@conflicts` manifest entry with its rationale,
+and is justified here.
 
 The ambiguities in Rig's surface are real; they are resolved in the
 lexer rewriter, which can see spacing and look ahead on the line, and
@@ -180,7 +185,7 @@ inspect the tree:
 - a closure's bar-list entries are split into `(captures ...)` and a
   parameter list, and a capture after a parameter is an error;
 - a `for` source wrapped in `?`, `!`, or `<` moves into the mode slot:
-  `(for iter x _ (read xs) body)` becomes `(for read x _ xs body)`;
+  `(for iter x _ (read xs) body _)` becomes `(for read x _ xs body _)`;
 - a `-name` statement whose value is used (the last line of a `fun`, or
   of a branch or arm whose value is used) becomes `(neg name)` instead
   of `(drop name)`.
@@ -207,88 +212,69 @@ type, no value-bearing token dropped), so every node the parser builds
 has exactly its kind's slots. From the schema it also generates the
 `Tag` and `Role` enums and the accessors in `parser.ir`.
 
+The compiler reads the tree through those accessors, by role rather
+than by position: `ir.get(node, .value)` for any kind with a `value`
+role, the per-kind views (`ir.Set.target(node)`, `ir.Block.stmts(node)`)
+where the kind is known, and `rig.children(node)` in the passes that
+visit every child. Asking a node for a role its kind lacks panics in
+Debug builds.
+
 One head tag per concept, with the variant as a child slot: all
-bindings are `(set <kind> ...)`, all loops over a source are
-`(for <mode> ...)`. `BindingKind` decodes the kind slot exhaustively,
+bindings are `(set <op> ...)`, all loops over a source are
+`(for <mode> ...)`. `BindingKind` decodes the `op` slot exhaustively,
 so the Zig compiler rejects a dispatch site that misses a new kind.
 
 ```text
 $ rig normalize packet.rig
 (module
+  (struct Packet (: size Int))
   (fun size_of ((: p (borrow_read Packet))) Int (block (member p size)))
-  (sub main () _ (block
+  (sub send ((: p Packet)) (block (call print (member p size))))
+  (sub main () (block
     (set _ p _ (call Packet (kwarg size 512)))
     (call print (call size_of (read p)))
-    (call send (move p))
-    (set _ f _ (lambda (captures (cap_clone count)) ((: a Int)) _
-      (block (+ a count)))))))
+    (set _ count _ 1)
+    (set _ f _ (lambda (captures (cap_clone count)) ((: a Int))
+      (block (+ a count))))
+    (call print (call f 2))
+    (call send (move p)))))
 ```
 
 ### Node shapes
 
-Declarations:
+The `@schema` block at the top of the parser section of `rig.grammar`
+is the complete list: one line per kind (or per group of kinds with the
+same roles), giving each role's name and type in slot order. `?` marks
+an optional role, `...` a role that takes the remaining children:
 
 ```text
-(module decl...)
-(fun name params returns body)        params is a group or _
-(sub name params _ body)
-(struct name member...)   (enum name member...)   (errors name member...)
-(generic_type name (T...) member...)  (generic_enum name (T...) member...)
-(type name type)                      alias
-(: name type)  (default name type expr)  (pre_param name type)
-(valued name expr)                    enum variant with a value
-(variant name (field...))             payload variant
-(drop_decl (params...) body)
-(use name)  (test "name" body)  (pub decl)
-(extern _ name type)  (extern_fun name params returns)  (extern_sub name params)
-(zig "...")                           reserved; rejected by sema
+fun         name:leaf params:group? returns? body:block
+sub         name:leaf params:group? body:block
+set         op:tag(fixed|shadow|move|"+="|...)? target type? value
+for         mode:tag(iter|ptr|read|write|move) var:leaf index:leaf? source body:block else:block?
+match       subject ...arms:arm
+call        callee ...args
+"+", "-", "*", "/", "%"   left right
 ```
 
-Statements and control flow:
+A few kinds serve more than one surface form:
 
-```text
-(set kind target type-or-_ expr)      kind: _ fixed shadow move, or op= for
-                                      each binary arithmetic, bitwise, shift op
-(drop name)
-(block stmt...)
-(if cond then else-or-_)              also the ternary and `stmt if c`
-(as expr name)                        `if e as x` / `while e as x`, in the cond slot
-(while cond step-or-_ body else-or-_)
-(for mode x i-or-_ source body else-or-_)   mode: iter read write move ptr
-(match scrutinee arm...)   (arm pattern body)
-(range_pattern lo hi)  (variant_pattern name binding...)  (enum_lit name)
-(return value-or-_)  (break value-or-_ label-or-_)  (continue label-or-_)
-(labeled name stmt)
-(defer body)  (errdefer body)  (raw_block body)
-(pre_block body)  (pre expr)          reserved; rejected by sema
-(try_block body catch_block-or-_)  (catch_block name body)   reserved
-```
-
-Expressions:
-
-```text
-(call callee arg...)  (kwarg name expr)  (member obj name)  (index obj i)
-(array elem...)  (builtin name arg...)
-(lambda captures-or-_ params-or-_ _ body)
-(captures cap...)  (cap_clone x)  (cap_move x)  (cap_weak x)
-(move e) (read e) (write e) (clone e) (share e) (weak e) (pin e)
-(propagate e)  (catch e name-or-_ handler)
-(+ a b) (- a b) (* a b) (/ a b) (% a b)
-(== a b) (!= a b) (< a b) (> a b) (<= a b) (>= a b)
-(and a b) (or a b) (not a) (neg a)
-(& a b) (| a b) (^ a b) (<< a b) (>> a b)
-(?? a b) (.. a b)
-literals: names, integers, reals, strings, true, false; `none` is a name
-```
-
-Types:
-
-```text
-(optional T) (error_union T) (borrow_read T) (borrow_write T)
-(shared T) (weak T) (slice T) (array_type N T)
-(generic_inst Name T...)  (member module Name)
-(fun_type (params...) returns-or-_)   `sub(...)` has no return
-```
+- `if` is the block `if`, the ternary `a if c else b`, and the guard
+  `stmt if c` (whose `then` is a block holding the statement); its
+  `cond` may be `(as value name)`, as may a `while`'s.
+- `set`'s `op` is `_` for `=`, `fixed` for `=!`, `shadow` for
+  `new x =`, `move` for `<-`, and the operator for a compound
+  assignment.
+- `for`'s `mode` is `iter` or `ptr` (`for *x in ...`) from the grammar;
+  the Parser wrapper turns `for x in ?xs` / `!xs` / `<xs` into `read`,
+  `write`, `move`.
+- `lambda`'s `captures` is a `(captures cap...)` node the Parser wrapper
+  builds from the bar list (the one `@wrapper` kind), or `_`.
+- `weak` is both `~x` and the type `~T`; `member` is both `a.b` and the
+  qualified type `module.Type`; the other type kinds (`optional`,
+  `shared`, `fun_type`, ...) appear only in type positions.
+- `pre`, `pre_block`, `try_block`, and `zig` are reserved: sema rejects
+  them.
 
 An owned closure is `(share (lambda ...))`, and its type
 `(shared (fun_type ...))`.

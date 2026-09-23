@@ -32,6 +32,11 @@ const Sexp = parser.Sexp;
 /// in rig.grammar (which also gives each kind's roles).
 pub const Tag = parser.Tag;
 
+/// The declared return type of a `fun`; `_` for a `sub`, which has none.
+pub fn returnType(fun_or_sub: Sexp) Sexp {
+    return if (fun_or_sub.isKind(.@"fun")) ir.Fun.returns(fun_or_sub) else .nil;
+}
+
 /// Every child of a node, in slot order (absent optional slots are `_`),
 /// for passes that visit all of them; empty for a leaf. Passes that need
 /// a particular child read it by role (`parser.ir`).

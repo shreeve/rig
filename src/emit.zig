@@ -488,7 +488,7 @@ pub const Emitter = struct {
         const name_node = ir.get(node, .name);
         const name = self.srcText(name_node);
         const params = ir.get(node, .params);
-        const returns = ir.get(node, .returns);
+        const returns = rig.returnType(node);
         const body = ir.get(node, .body);
         const is_main = self.nominal == null and is_sub and std.mem.eql(u8, name, "main");
         const fn_ty = self.fnType(self.sema.typeOf(name_node));
