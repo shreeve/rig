@@ -63,7 +63,7 @@ const Guard = enum {
 const Local = struct {
     sym: SymbolId,
     /// The Zig spelling: a renamed or escaped identifier, or a path such
-    /// as `self.cap_x` for a closure capture.
+    /// as `__rig_self.cap_x` for a closure capture.
     zig_name: []const u8,
     ty: ?TypeId = null,
     kind: ?ResourceKind = null,
@@ -1158,8 +1158,10 @@ pub const Emitter = struct {
     /// `(labeled name stmt)`: a labeled loop or block.
     fn emitLabeled(self: *Emitter, sexp: Sexp) Error!void {
         const items = sexp.list;
-        const label = self.srcText(items[1]);
         const stmt = items[2];
+        // Zig rejects a label nothing jumps to.
+        if (!self.labelUsed(stmt, self.srcText(items[1]))) return self.emitStmt(stmt);
+        const label = self.srcText(items[1]);
         if (isTagged(stmt, .@"while")) return self.emitWhile(stmt, label);
         if (isTagged(stmt, .@"for")) return self.emitFor(stmt, label);
         if (isTagged(stmt, .@"block")) {
@@ -1167,6 +1169,23 @@ pub const Emitter = struct {
             return self.emitBlock(stmt);
         }
         return self.unsupported(sexp, "a label on this statement");
+    }
+
+    /// Whether a `break` or `continue` inside `node` names `label`.
+    fn labelUsed(self: *Emitter, node: Sexp, label: []const u8) bool {
+        const h = headOf(node) orelse return false;
+        const slot: ?usize = switch (h) {
+            .@"break" => 2,
+            .@"continue" => 1,
+            .@"lambda" => return false,
+            else => null,
+        };
+        if (slot) |i| {
+            const l = node.list[i];
+            return l != .nil and std.mem.eql(u8, self.srcText(l), label);
+        }
+        for (node.list[1..]) |c| if (self.labelUsed(c, label)) return true;
+        return false;
     }
 
     fn writeLabel(self: *Emitter, label: ?[]const u8) Error!void {
@@ -1242,7 +1261,9 @@ pub const Emitter = struct {
         try self.w.writeAll("for (");
         try self.emitExpr(source);
         if (is_vec) try self.w.writeAll(".items()");
-        if (index_binding != .nil) try self.w.writeAll(", 0..");
+        // An index nobody reads needs no counter.
+        const index_sym: ?SymbolId = if (self.sema.symbolOf(index_binding)) |i| (if (self.usage.used.contains(i)) i else null) else null;
+        if (index_sym != null) try self.w.writeAll(", 0..");
         try self.w.writeAll(") |");
 
         var elem_name: []const u8 = "_";
@@ -1253,16 +1274,11 @@ pub const Emitter = struct {
         try self.w.print("{s}{s}", .{ if (by_ptr and !std.mem.eql(u8, elem_name, "_")) "*" else "", elem_name });
 
         var index_decl: ?[]const u8 = null;
-        if (index_binding != .nil) {
-            const isym = self.sema.symbolOf(index_binding);
-            if (isym != null and self.usage.used.contains(isym.?)) {
-                const raw = try self.fmt("__rig_i_{d}", .{self.nextId()});
-                const stored = try self.declare(.{ .sym = isym.?, .zig_name = "", .ty = self.symType(isym.?) }, self.srcText(index_binding));
-                try self.w.print(", {s}", .{raw});
-                index_decl = try self.fmt("const {s}: {s} = @intCast({s});", .{ stored.zig_name, int_zig, raw });
-            } else {
-                try self.w.writeAll(", _");
-            }
+        if (index_sym) |isym| {
+            const raw = try self.fmt("__rig_i_{d}", .{self.nextId()});
+            const stored = try self.declare(.{ .sym = isym, .zig_name = "", .ty = self.symType(isym) }, self.srcText(index_binding));
+            try self.w.print(", {s}", .{raw});
+            index_decl = try self.fmt("const {s}: {s} = @intCast({s});", .{ stored.zig_name, int_zig, raw });
         }
         try self.w.writeAll("| ");
         try self.openBrace();
@@ -2266,7 +2282,7 @@ pub const Emitter = struct {
         try self.emitCaptureFields(caps);
         try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
-        try self.w.writeAll("fn invoke(self: *@This()");
+        try self.w.writeAll("fn invoke(__rig_self: *@This()");
         try self.pushScope();
         try self.bindCaptures(caps);
         const saved_fun = self.fun;
@@ -2282,7 +2298,7 @@ pub const Emitter = struct {
         try self.w.writeAll(") ");
         if (ret) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
         try self.w.writeAll(" ");
-        try self.emitClosureBody(items[4], caps, .{ .used = null, .unused = "_ = self;" }, ret != null);
+        try self.emitClosureBody(items[4], caps, .{ .used = null, .unused = "_ = __rig_self;" }, ret != null);
         try self.popScope();
         try self.w.writeAll("\n");
         self.indent -= 1;
@@ -2304,10 +2320,10 @@ pub const Emitter = struct {
         }
     }
 
-    /// Declare captures inside a closure body as `self.cap_<name>`.
+    /// Declare captures inside a closure body as `__rig_self.cap_<name>`.
     fn bindCaptures(self: *Emitter, caps: []const Capture) Error!void {
         for (caps) |c| {
-            _ = try self.declare(.{ .sym = c.sym, .zig_name = try self.fmt("self.cap_{s}", .{c.name}), .ty = c.ty }, c.name);
+            _ = try self.declare(.{ .sym = c.sym, .zig_name = try self.fmt("__rig_self.cap_{s}", .{c.name}), .ty = c.ty }, c.name);
         }
     }
 
@@ -2412,7 +2428,7 @@ pub const Emitter = struct {
 
         try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
-        try self.w.writeAll("fn invoke(ctx: *anyopaque");
+        try self.w.writeAll("fn invoke(__rig_ctx: *anyopaque");
         try self.pushScope();
         try self.bindCaptures(caps);
         const saved_fun = self.fun;
@@ -2427,14 +2443,14 @@ pub const Emitter = struct {
             }
         }
         try self.w.writeAll(") void ");
-        try self.emitClosureBody(items[4], caps, .{ .used = "const self: *@This() = @ptrCast(@alignCast(ctx));", .unused = "_ = ctx;" }, false);
+        try self.emitClosureBody(items[4], caps, .{ .used = "const __rig_self: *@This() = @ptrCast(@alignCast(__rig_ctx));", .unused = "_ = __rig_ctx;" }, false);
         try self.popScope();
         try self.w.writeAll("\n\n");
 
-        try self.line("fn drop(ctx: *anyopaque, allocator: std.mem.Allocator) void {{", .{});
-        try self.line("    const self: *@This() = @ptrCast(@alignCast(ctx));", .{});
-        try self.line("    rig.dropFields(self);", .{});
-        try self.line("    allocator.destroy(self);", .{});
+        try self.line("fn drop(__rig_ctx: *anyopaque, __rig_allocator: std.mem.Allocator) void {{", .{});
+        try self.line("    const __rig_self: *@This() = @ptrCast(@alignCast(__rig_ctx));", .{});
+        try self.line("    rig.dropFields(__rig_self);", .{});
+        try self.line("    __rig_allocator.destroy(__rig_self);", .{});
         try self.line("}}", .{});
         self.indent -= 1;
         try self.line("}};", .{});

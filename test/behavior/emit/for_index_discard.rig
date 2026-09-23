@@ -1,0 +1,9 @@
+# `for x, _ in xs` ignores the index.
+
+sub main()
+  for x, _ in [1, 2]
+    print(x)
+
+# expect:
+# 1
+# 2
