@@ -1,0 +1,20 @@
+# A Signal keeps its subscribers, so subscribing a closure that captured
+# a borrow keeps the borrowed value borrowed while the Signal is live.
+
+struct Box
+  payload: Int
+
+  drop self: !Box
+    print("drop")
+
+sub main()
+  sig: *Signal(Int) = *Signal(value: 0)
+  a = Box(payload: 1)
+  r = ?a
+  cb: *Closure() = *Closure(|<r| print(r.payload))
+  sig.subscribe(+cb)
+  -cb
+  -a
+  sig.set(1)
+
+# error: cannot drop `a` while borrows are live

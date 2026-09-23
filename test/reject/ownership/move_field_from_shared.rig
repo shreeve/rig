@@ -1,0 +1,19 @@
+# A field cannot be moved out through a shared handle: other handles may
+# still use it, and the last one drops it.
+
+struct Box
+  payload: Int
+
+struct Outer
+  inner: *Box
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub main()
+  b = *Box(payload: 7)
+  o = *Outer(inner: <b)
+  eat(<o.inner)
+  print("back")
+
+# error: cannot move out of

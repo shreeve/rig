@@ -1,0 +1,31 @@
+# A move followed by `return` leaves the function, so the rest of the
+# loop body and later iterations still see the value.
+
+struct Box
+  payload: Int
+
+  drop self: !Box
+    print("drop")
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub run()
+  rc = *Box(payload: 42)
+  i = 0
+  while i < 3
+    if i == 1
+      eat(<rc)
+      return
+    print(rc.payload + i)
+    i += 1
+
+sub main()
+  run()
+  print("done")
+
+# expect:
+# 42
+# 42
+# drop
+# done

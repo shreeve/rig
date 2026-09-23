@@ -1,6 +1,7 @@
-# Known bug (C8): match arms are checked one after another instead of
-# independently, so a move in the second arm is reported as a use after
-# the first arm's move. Today this valid program is rejected.
+# Known bug (emit): the ownership checker accepts moving `rc` in each of
+# two match arms (arms are checked independently), but emit lowers the
+# `_` arm to a second `else` prong: "multiple else prongs in switch
+# expression".
 
 struct Box
   payload: Int

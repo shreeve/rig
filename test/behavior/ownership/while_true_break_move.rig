@@ -1,0 +1,26 @@
+# A move followed by `break` out of `while true` is the only way out of the
+# loop, and the value is not used afterwards.
+
+struct Box
+  payload: Int
+
+  drop self: !Box
+    print("drop")
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub main()
+  rc = *Box(payload: 7)
+  i = 0
+  while true
+    i += 1
+    if i == 3
+      eat(<rc)
+      break
+  print("end")
+
+# expect:
+# 7
+# drop
+# end

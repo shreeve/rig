@@ -1,0 +1,20 @@
+# Dropping a borrow binding ends the borrow.
+
+struct Box
+  payload: Int
+
+  drop self: !Box
+    print("drop")
+
+sub main()
+  b = Box(payload: 1)
+  r = ?b
+  print(r.payload)
+  -r
+  -b
+  print("end")
+
+# expect:
+# 1
+# drop
+# end

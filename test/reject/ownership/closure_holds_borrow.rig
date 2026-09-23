@@ -1,0 +1,18 @@
+# A closure that captured a borrow keeps the owner borrowed while the
+# closure binding is live.
+
+struct Box
+  payload: Int
+
+  drop self: !Box
+    print("drop")
+
+sub main()
+  a = Box(payload: 1)
+  r = ?a
+  f = |<r|
+    print(r.payload)
+  -a
+  f()
+
+# error: cannot drop `a` while borrows are live
