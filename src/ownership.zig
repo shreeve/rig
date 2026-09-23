@@ -2313,6 +2313,7 @@ pub const Checker = struct {
                 break :blk null;
             },
             .nominal => |s| if (sema.symbols.items[s].flags.has_drop_glue) .{ .drop_glue = sema.symbols.items[s].name } else null,
+            .imported_nominal => if (types.typeHasDropGlue(sema, t)) .{ .drop_glue = types.nominalDecl(sema, t).?.symbol().name } else null,
             else => null,
         };
     }

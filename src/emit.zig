@@ -2670,7 +2670,7 @@ pub const Emitter = struct {
             .shared => .shared,
             .weak => .weak,
             .optional => |inner| if (self.kindOf(inner) != null) .optional else null,
-            .nominal, .parameterized_nominal => if (types.typeHasDropGlue(self.sema, ty)) .value else null,
+            .nominal, .parameterized_nominal, .imported_nominal => if (types.typeHasDropGlue(self.sema, ty)) .value else null,
             else => null,
         };
     }

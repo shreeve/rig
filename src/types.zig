@@ -785,7 +785,8 @@ pub fn checkWithImports(
     errdefer ctx.deinit();
 
     ctx.module_id = module_id;
-    ctx.imports = imports;
+    // The caller's slice is temporary; the emitter reads the imports later.
+    ctx.imports = try ctx.arena.allocator().dupe(ImportEntry, imports);
     for (imports) |imp| try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
 
     const module_scope = try ctx.pushScopeKind(scope_invalid, .module);
@@ -881,6 +882,11 @@ fn hasDropGlueUnder(ctx: *const SemContext, ty_id: TypeId, subst: ?*const GlueSu
             break :blk false;
         },
         .nominal => |sym| ctx.symbols.items[sym].flags.has_drop_glue,
+        .imported_nominal => |in| blk: {
+            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk false;
+            if (in.sym_id >= foreign.symbols.items.len) break :blk false;
+            break :blk foreign.symbols.items[in.sym_id].flags.has_drop_glue;
+        },
         else => false,
     };
 }

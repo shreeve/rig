@@ -1,0 +1,22 @@
+# A value of an imported type with drop glue is dropped at scope exit,
+# moved by `<`, and dropped once when moved into a function; the same
+# holds for an imported struct that owns one.
+
+use lib
+
+sub eat(n: lib.Noisy)
+  print("eat", n.n)
+
+sub main()
+  a = lib.Noisy(n: 1)
+  b = lib.Noisy(n: 2)
+  eat(<b)
+  h = lib.Holder(inner: lib.Noisy(n: 3))
+  print("end", a.n, h.inner.n)
+
+# expect:
+# eat 2
+# drop 2
+# end 1 3
+# drop 3
+# drop 1

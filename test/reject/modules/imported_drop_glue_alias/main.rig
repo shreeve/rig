@@ -1,0 +1,11 @@
+# Copying a value of an imported type with drop glue would run its
+# destructor twice.
+
+use lib
+
+sub main()
+  a = lib.Noisy(n: 1)
+  b = a
+  print(b.n)
+
+# error: would alias an owning value
