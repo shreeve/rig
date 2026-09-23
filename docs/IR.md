@@ -210,7 +210,8 @@ Multi-capture (`|+a, +b|`) shipped in M28; the list contains one
 ### Literals
 
 ```
-(null) (true) (false) (undefined) (unreachable)
+(null)                           ; `none`, the absent optional
+(true) (false) (undefined) (unreachable)
 INTEGER REAL STRING_SQ STRING_DQ                ; raw parser src refs
 ```
 
@@ -241,7 +242,7 @@ INTEGER REAL STRING_SQ STRING_DQ                ; raw parser src refs
 (|> a b)                         ; pipe
 (.. a b)                         ; range
 (neg x) (not x)                  ; unary
-(?? a b)                         ; nullish coalesce
+(?? a b)                         ; `a ?? b`: value of optional `a`, else `b`
 ```
 
 ### Compile-time
