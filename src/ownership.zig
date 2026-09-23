@@ -2520,7 +2520,7 @@ pub const Checker = struct {
     fn isCopy(self: *const Checker, ty: ?TypeId) bool {
         const t = ty orelse return false;
         return switch (self.typeData(t)) {
-            .bool, .int, .float, .string, .int_literal, .float_literal => true,
+            .bool, .int, .float, .string, .int_literal, .float_literal, .any_error => true,
             else => false,
         };
     }
@@ -2581,7 +2581,7 @@ pub const Checker = struct {
         return switch (sema.types.get(t)) {
             .invalid, .unknown => false,
             .void, .bool, .string, .int, .float, .int_literal, .float_literal, .function => false,
-            .none_literal, .noreturn, .range => false,
+            .none_literal, .noreturn, .range, .any_error => false,
             .borrow_write => true,
             .borrow_read, .slice => q == .any,
             // Generic bodies are checked for a `T` without borrows; an

@@ -6,7 +6,6 @@ be checked as thoroughly as what exists.
 
 ## Language
 
-- **Raising errors**: a way for a `T!` function to fail with an error-set value, and `catch |err|` to name it.
 - **Stack closures as arguments**: pass a non-escaping closure to a call without allocating it.
 - **Generic functions**: type parameters on functions, not only on types.
 - **Strings**: building and formatting strings, slices of strings and arrays.

@@ -128,6 +128,10 @@ pub const Type = union(enum) {
     none_literal,
     /// Expressions that never complete: `return`, `break`, `continue`.
     noreturn,
+    /// Any error value: what `catch |err|` binds. Functions do not
+    /// declare which errors they fail with, so the error a failed call
+    /// produced may belong to any error set.
+    any_error,
 
     optional: TypeId, // T?
     fallible: TypeId, // T!
@@ -189,6 +193,7 @@ pub const TypeStore = struct {
     float_literal_id: TypeId = type_invalid,
     none_id: TypeId = type_invalid,
     noreturn_id: TypeId = type_invalid,
+    any_error_id: TypeId = type_invalid,
 
     const IdContext = struct {
         items: []const Type,
@@ -224,6 +229,7 @@ pub const TypeStore = struct {
         s.float_literal_id = try s.intern(allocator, .float_literal);
         s.none_id = try s.intern(allocator, .none_literal);
         s.noreturn_id = try s.intern(allocator, .noreturn);
+        s.any_error_id = try s.intern(allocator, .any_error);
         return s;
     }
 
@@ -261,7 +267,7 @@ pub const TypeStore = struct {
         const tag: u8 = @intFromEnum(std.meta.activeTag(t));
         h.update(&.{tag});
         switch (t) {
-            .invalid, .unknown, .void, .bool, .string, .int_literal, .float_literal, .none_literal, .noreturn => {},
+            .invalid, .unknown, .void, .bool, .string, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => {},
             .int => |i| h.update(&.{ i.bits, @intFromBool(i.signed) }),
             .float => |f| h.update(&.{f.bits}),
             .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner| hashId(&h, inner),
@@ -296,7 +302,7 @@ pub const TypeStore = struct {
     fn typeEqual(a: Type, b: Type) bool {
         if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
         return switch (a) {
-            .invalid, .unknown, .void, .bool, .string, .int_literal, .float_literal, .none_literal, .noreturn => true,
+            .invalid, .unknown, .void, .bool, .string, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => true,
             .int => |ai| ai.bits == b.int.bits and ai.signed == b.int.signed,
             .float => |af| af.bits == b.float.bits,
             .optional => |x| x == b.optional,
@@ -372,7 +378,9 @@ pub const SymbolFlags = packed struct(u16) {
     /// Written through: write-borrowed (`!x`), or a field or element of
     /// it assigned. Also lowers to a Zig `var`.
     written: bool = false,
-    _: u7 = 0,
+    /// An `error` declaration: its variants are error values.
+    error_set: bool = false,
+    _: u6 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -1070,6 +1078,40 @@ pub fn isClosureValue(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
+/// A value of an error set, or any error: what a fallible function
+/// fails with.
+pub fn isErrorValue(ctx: *const SemContext, ty: TypeId) bool {
+    if (ctx.types.get(ty) == .any_error) return true;
+    return isErrorSet(ctx, ty);
+}
+
+/// A type declared with `error`.
+pub fn isErrorSet(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .nominal, .imported_nominal => (nominalDecl(ctx, ty) orelse return false).symbol().flags.error_set,
+        else => false,
+    };
+}
+
+/// Whether some error set this module can see (its own, or one declared
+/// in a module it imports) has a member named `name`.
+pub fn errorNameExists(ctx: *const SemContext, name: []const u8) bool {
+    if (errorNameIn(ctx, name)) return true;
+    var it = ctx.foreign_semas.valueIterator();
+    while (it.next()) |f| if (errorNameIn(f.*, name)) return true;
+    return false;
+}
+
+fn errorNameIn(ctx: *const SemContext, name: []const u8) bool {
+    for (ctx.symbols.items) |sym| {
+        if (!sym.flags.error_set) continue;
+        for (sym.fields orelse &.{}) |f| {
+            if (f.is_variant and std.mem.eql(u8, f.name, name)) return true;
+        }
+    }
+    return false;
+}
+
 /// An enum all of whose variants are bare (no payloads): comparable
 /// with `==`.
 pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
@@ -1344,7 +1386,7 @@ pub fn isPlainData(ctx: *const SemContext, ty: TypeId) bool {
 fn plainUnder(ctx: *const SemContext, ty: TypeId, in_fields: bool, depth: u8) bool {
     if (depth > 32) return false;
     return switch (ctx.types.get(ty)) {
-        .bool, .int, .float, .string => true,
+        .bool, .int, .float, .string, .any_error => true,
         .optional => |i| plainUnder(ctx, i, in_fields, depth + 1),
         .array => |a| plainUnder(ctx, a.elem, in_fields, depth + 1),
         .nominal => |sym| fieldsPlain(ctx, ctx.symbols.items[sym].fields orelse return false, depth),
@@ -1419,7 +1461,7 @@ pub fn importType(
 ) std.mem.Allocator.Error!TypeId {
     const ty = foreign_ctx.types.get(foreign_ty_id);
     switch (ty) {
-        .invalid, .unknown, .void, .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn => return local_ctx.intern(ty),
+        .invalid, .unknown, .void, .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => return local_ctx.intern(ty),
         inline .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
             return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
@@ -1620,6 +1662,7 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
         .int_literal => "Int",
         .float_literal => "Float",
         .none_literal => "none",
+        .any_error => "error",
         .noreturn => "NoReturn",
         .optional => |inner| try formatSuffixed(ctx, a, inner, '?'),
         .fallible => |inner| try formatSuffixed(ctx, a, inner, '!'),

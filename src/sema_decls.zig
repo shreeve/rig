@@ -65,7 +65,12 @@ const SymbolResolver = struct {
             .@"use" => try self.walkUse(items),
             .@"type" => try self.walkTypeAlias(items),
             .@"generic_type", .@"generic_enum" => try self.walkGenericType(items),
-            .@"struct", .@"enum", .@"errors" => try self.walkNominalType(items),
+            .@"struct", .@"enum" => try self.walkNominalType(items),
+            .@"errors" => {
+                const before = self.ctx.symbols.items.len;
+                try self.walkNominalType(items);
+                if (self.ctx.symbols.items.len > before) self.ctx.symbols.items[before].flags.error_set = true;
+            },
             .@"extern" => try self.walkExtern(items),
             .@"extern_fun", .@"extern_sub" => {
                 _ = try self.declare(items[1], .@"extern", .{});

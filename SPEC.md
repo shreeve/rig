@@ -1915,10 +1915,70 @@ sub main()
 must be wrapped with `!` (propagate) or `catch` (handle)
 ```
 
-Two parts of the error story are not built yet: a function cannot
-produce an error value of its own, and `catch |err|` cannot name the
-error. Error sets ([§4](#error-sets)) can be declared and used as
-values.
+### Failing
+
+A fallible function fails by producing an error value where its `T` is
+expected: `return E.name` (a member of an error set,
+[§4](#error-sets)), a binding of an error set's type, an error it
+caught, or `.name` when `T` has no variant of that name. The failure
+leaves the function the way `!` does: every `defer` and `errdefer` of
+the scopes it leaves runs. Only a function returning `T!` can fail.
+
+### Naming the error
+
+`f() catch |err| handler` names the error for the handler. Functions do
+not declare which errors they fail with, so `err` may be any error: it
+is compared with error-set members (`err == E.name`, `err == .name`),
+matched by their names (`.name =>`, with a default arm where the match
+gives a value), printed, and returned from a fallible function. Every
+`.name` it is compared or matched with must be a member of some error
+set the module can see. The handler may be a block.
+
+```rig
+error ParseError
+  empty
+  too_long
+
+fun parse_len(s: String) -> Int!
+  return ParseError.empty if s == ""
+  return .too_long if s.len > 5
+  s.len
+
+fun describe(s: String) -> String
+  n = parse_len(s) catch |err|
+    match err
+      .empty => return "empty"
+      else => return "too long"
+  "length ok" if n > 2 else "short"
+
+sub main()
+  print(parse_len("abc") catch -1, parse_len("") catch -1)
+  print(describe(""), describe("abcdefg"), describe("abcd"))
+  x = parse_len("") catch |err|
+    print("failed with", err)
+    0
+  print(x)
+```
+
+```output
+3 -1
+empty too long length ok
+failed with .empty
+0
+```
+
+```rig reject
+error ParseError
+  empty
+
+fun plain(n: Int) -> Int
+  return ParseError.empty if n < 0
+  n
+```
+
+```error
+type mismatch: expected `Int`, got `ParseError`
+```
 
 ---
 
@@ -2097,7 +2157,6 @@ These parse, and are rejected with a diagnostic that says why:
 | `for x in !v`, `for x in <v` | not supported yet |
 | `pre expr`, `pre` blocks | reserved; only `pre` parameters exist |
 | `try` blocks with `catch` blocks | reserved; use `f()!` or `f() catch x` |
-| `catch \|err\| ...` | naming the error is not supported yet |
 | `zig "..."` | reserved: no inline Zig; use `raw` and `extern` |
 | `use std` | reserved |
 | module-level bindings | not supported yet |

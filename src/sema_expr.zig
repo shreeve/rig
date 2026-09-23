@@ -826,12 +826,12 @@ const Checker = struct {
         const scrut_pos = firstSrcPos(items[1]);
         if (scrutinee == self.t().int_literal_id) try self.checkLiteralFits(items[1], self.t().int_id);
         const matchable = switch (self.ctx.types.get(types.unwrapBorrows(self.ctx, scrutinee))) {
-            .int, .int_literal, .bool, .invalid, .unknown => true,
+            .int, .int_literal, .bool, .invalid, .unknown, .any_error => true,
             .nominal, .parameterized_nominal, .imported_nominal => types.enumVariantCount(self.ctx, scrutinee) != null,
             else => false,
         };
         if (!matchable) {
-            try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, integers, and Bool", .{try self.tyName(scrutinee)});
+            try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, errors, integers, and Bool", .{try self.tyName(scrutinee)});
         }
 
         var cov: MatchCoverage = .{};
@@ -1030,6 +1030,10 @@ const Checker = struct {
         const vname = self.text(items[1]);
         const vpos = srcPos(items[1], 0);
         try self.recordCovered(vname, vpos, covered);
+        if (types.unwrapBorrows(self.ctx, scrutinee) == self.t().any_error_id) {
+            try self.err(vpos, "an error has no payload to destructure; match it as `.{s}`", .{vname});
+            return;
+        }
         const resolved = (try types.lookupVariant(self.ctx, scrutinee, vname)) orelse {
             try self.reportMissingVariant(scrutinee, vname, vpos);
             return;
@@ -1434,6 +1438,9 @@ const Checker = struct {
             try self.require(tv, .equatable, firstSrcPos(l), op);
             return self.t().bool_id;
         }
+        // Any error compares with a member of any error set.
+        const any_err = self.t().any_error_id;
+        if ((a == any_err and types.isErrorValue(self.ctx, b)) or (b == any_err and types.isErrorValue(self.ctx, a))) return self.t().bool_id;
         if (a != b) {
             try self.err(firstSrcPos(l), "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
             return self.t().bool_id;
@@ -1461,7 +1468,7 @@ const Checker = struct {
     fn checkEquatable(self: *Checker, ty: TypeId, node: Sexp, op: []const u8) Error!void {
         if (self.isPoison(ty)) return;
         const ok = switch (self.ctx.types.get(ty)) {
-            .int, .float, .int_literal, .float_literal, .bool, .string => true,
+            .int, .float, .int_literal, .float_literal, .bool, .string, .any_error => true,
             .optional => |inner| satisfies(self.ctx, inner, .equatable),
             .nominal, .imported_nominal => types.isPlainEnum(self.ctx, ty),
             .type_var => |tv| blk: {
@@ -1522,13 +1529,20 @@ const Checker = struct {
     }
 
     /// `expr catch handler`: the value of fallible `expr`, or `handler`.
+    /// `expr catch |err| handler` names the error for the handler; it
+    /// may be any error, since functions do not declare their errors.
     fn synthCatch(self: *Checker, items: []const Sexp, expected: ?TypeId) Error!TypeId {
-        if (items[2] != .nil) {
-            try self.err(srcPos(items[2], firstSrcPos(.{ .list = items })), "naming the error in `catch |err|` is not supported yet; write `expr catch fallback`", .{});
-            return self.t().invalid_id;
-        }
         const handler = items[items.len - 1];
         const ty = try self.synthExpr(items[1]);
+        const prev = self.scope;
+        defer self.scope = prev;
+        if (items[2] != .nil) {
+            _ = self.enter(.{ .list = items });
+            if (self.ctx.symbolOf(items[2])) |sym| {
+                self.ctx.symbols.items[sym].ty = self.t().any_error_id;
+                try self.ctx.recordType(items[2], self.t().any_error_id);
+            }
+        }
         if (self.isPoison(ty)) {
             _ = try self.synthExpr(handler);
             return ty;
@@ -2765,6 +2779,15 @@ const Checker = struct {
                 return false;
             },
             .@"enum_lit" => {
+                // Where a `T!` is expected, `.name` that is not a variant
+                // of `T` is an error value.
+                if (self.ctx.types.get(expected) == .fallible and
+                    (try types.lookupVariant(self.ctx, target, self.text(items[1]))) == null and
+                    types.errorNameExists(self.ctx, self.text(items[1])))
+                {
+                    try self.ctx.recordType(e, self.t().any_error_id);
+                    return true;
+                }
                 try self.checkEnumLit(items[1], target);
                 try self.ctx.recordType(e, target);
                 return true;
@@ -2935,10 +2958,18 @@ const Checker = struct {
         }
     }
 
+    /// `.name` where any error is expected: a member of some error set.
+    fn checkErrorName(self: *Checker, name_node: Sexp) Error!void {
+        const name = self.text(name_node);
+        if (types.errorNameExists(self.ctx, name)) return;
+        try self.err(srcPos(name_node, 0), "no error set has a member `{s}`", .{name});
+    }
+
     fn checkEnumLit(self: *Checker, name_node: Sexp, expected: TypeId) Error!void {
         const name = self.text(name_node);
         const pos = srcPos(name_node, 0);
         if (self.isPoison(expected)) return;
+        if (expected == self.t().any_error_id) return self.checkErrorName(name_node);
         if (try types.lookupVariant(self.ctx, expected, name)) |v| {
             if (v.payload.len > 0) {
                 try self.err(pos, "variant `{s}` carries a payload; construct it with `.{s}(...)`", .{ name, name });
@@ -2951,6 +2982,7 @@ const Checker = struct {
     /// `.variant` as a pattern: any variant of the scrutinee's enum.
     fn checkVariantName(self: *Checker, name_node: Sexp, scrutinee: TypeId) Error!void {
         if (self.isPoison(scrutinee)) return;
+        if (types.unwrapBorrows(self.ctx, scrutinee) == self.t().any_error_id) return self.checkErrorName(name_node);
         const name = self.text(name_node);
         if ((try types.lookupVariant(self.ctx, scrutinee, name)) == null) {
             try self.reportMissingVariant(scrutinee, name, srcPos(name_node, 0));
@@ -3367,7 +3399,8 @@ pub fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool
             if (a == .none_literal) return true;
             return compatible(ctx, actual, inner);
         },
-        .fallible => |inner| return compatible(ctx, actual, inner),
+        // A `T!` holds a `T`, or the error it failed with.
+        .fallible => |inner| return compatible(ctx, actual, inner) or types.isErrorValue(ctx, actual),
         .borrow_read => |inner| if (a == .borrow_write) return a.borrow_write == inner,
         else => {},
     }

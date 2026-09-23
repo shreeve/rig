@@ -131,8 +131,6 @@ pub const Emitter = struct {
     counter: u32 = 0,
     /// Every module-level Zig name, which locals must not shadow.
     module_names: std.StringHashMapUnmanaged(void) = .empty,
-    /// Error-set declarations, whose members are spelled `error.x`.
-    error_sets: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     usage: Usage = .{},
     fun: FunState = .{},
     /// Closure bodies being emitted around the current point. Each names
@@ -170,7 +168,6 @@ pub const Emitter = struct {
         for (self.scopes.items) |*s| s.locals.deinit(self.allocator);
         self.scopes.deinit(self.allocator);
         self.module_names.deinit(self.allocator);
-        self.error_sets.deinit(self.allocator);
         self.usage.deinit(self.allocator);
         self.arena.deinit();
     }
@@ -203,9 +200,6 @@ pub const Emitter = struct {
             const name_node = if (d.list[0].tag == .@"extern") d.list[2] else d.list[1];
             const name = self.text(name_node) orelse continue;
             try self.module_names.put(a, try self.fmt("{f}", .{self.ident(name)}), {});
-            if (d.list[0].tag == .@"errors") {
-                if (self.sema.symbolOf(name_node)) |id| try self.error_sets.put(a, id, {});
-            }
         }
     }
 
@@ -1528,9 +1522,11 @@ pub const Emitter = struct {
     const Prelude = struct {
         aliases: []const Alias = &.{},
         optional: ?OptionalBinding = null,
+        /// The error a `catch |err|` handler names, captured as `tmp`.
+        err_capture: ?struct { zig_name: []const u8, tmp: []const u8 } = null,
 
         fn isEmpty(p: Prelude) bool {
-            return p.aliases.len == 0 and p.optional == null;
+            return p.aliases.len == 0 and p.optional == null and p.err_capture == null;
         }
     };
 
@@ -1576,6 +1572,7 @@ pub const Emitter = struct {
     fn emitPrelude(self: *Emitter, prelude: Prelude) Error!void {
         for (prelude.aliases) |a| try self.line("const {s} = __rig_payload.{f};", .{ a.zig_name, self.ident(a.field) });
         if (prelude.optional) |o| try self.bindOptionalResource(o);
+        if (prelude.err_capture) |c| try self.line("const {s}: anyerror = {s};", .{ c.zig_name, c.tmp });
     }
 
     /// `(expr) |capture| ` for `if expr as name` / `while expr as name`.
@@ -1963,11 +1960,21 @@ pub const Emitter = struct {
                 try self.w.writeAll(")");
             },
             .@"catch" => {
-                // `(catch expr _ handler)`: the handler replaces the value.
+                // `(catch expr name? handler)`: the handler replaces the
+                // value. A named error is held as `anyerror`, so it
+                // compares and matches with any error value.
                 try self.w.writeAll("(");
                 try self.emitExpr(items[1]);
                 try self.w.writeAll(" catch ");
-                try self.emitValue(items[3], true);
+                const sym: ?SymbolId = if (items[2] != .nil) self.sema.symbolOf(items[2]) else null;
+                if (sym != null and self.usage.used.contains(sym.?)) {
+                    const tmp = try self.fmt("__rig_err_{d}", .{self.nextId()});
+                    try self.w.print("|{s}| ", .{tmp});
+                    try self.pushScope();
+                    const local = try self.declare(.{ .sym = sym.?, .zig_name = "", .ty = self.symType(sym.?) }, self.srcText(items[2]));
+                    try self.emitValueBlock(items[3], .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp } });
+                    try self.popScope();
+                } else try self.emitValue(items[3], true);
                 try self.w.writeAll(")");
             },
             .@"if", .@"match" => {
@@ -2919,6 +2926,7 @@ pub const Emitter = struct {
         const sema = self.sema;
         switch (sema.types.get(ty)) {
             .void => try self.w.writeAll("void"),
+            .any_error => try self.w.writeAll("anyerror"),
             .bool => try self.w.writeAll("bool"),
             .string => try self.w.writeAll("[]const u8"),
             .int_literal => try self.w.writeAll(int_zig),
@@ -3118,11 +3126,11 @@ pub const Emitter = struct {
         };
     }
 
+    /// An error set (local or imported) or any error: its members are
+    /// spelled `error.name`.
     fn isErrorSetTy(self: *Emitter, ty: TypeId) bool {
-        return switch (self.sema.types.get(self.peelBorrows(ty))) {
-            .nominal => |sym| self.error_sets.contains(sym),
-            else => false,
-        };
+        const t = self.peelBorrows(ty);
+        return self.sema.types.get(t) == .any_error or types.isErrorSet(self.sema, t);
     }
 
     fn isStringExpr(self: *Emitter, expr: Sexp) bool {
