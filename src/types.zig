@@ -481,14 +481,6 @@ pub const DefaultValue = struct {
     source: []const u8,
 };
 
-/// Where the element type of a Vec `for` source came from; keyed by
-/// the source leaf's position in `SemContext.for_source_vec_info`.
-pub const VecIterInfo = struct {
-    elem_ty: TypeId,
-    is_resource: bool,
-    is_closure: bool,
-};
-
 /// An operation a generic body applies to a type parameter. Checked
 /// against every instantiation of the generic type.
 pub const Requirement = enum {
@@ -538,11 +530,6 @@ pub const SemContext = struct {
     vec_sym_id: SymbolId = symbol_invalid,
     signal_sym_id: SymbolId = symbol_invalid,
 
-    /// Lambda node's first source position -> type of its body's value.
-    lambda_return_types: std.AutoHashMapUnmanaged(u32, TypeId) = .empty,
-    /// `for` source leaf position -> Vec element classification.
-    for_source_vec_info: std.AutoHashMapUnmanaged(u32, VecIterInfo) = .empty,
-
     /// Assigned by the module graph; 0 for a lone file.
     module_id: u32 = 0,
     imports: []const ImportEntry = &.{},
@@ -586,8 +573,6 @@ pub const SemContext = struct {
         self.types.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.facts.deinit(self.allocator);
-        self.lambda_return_types.deinit(self.allocator);
-        self.for_source_vec_info.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
         self.foreign_semas.deinit(self.allocator);
         self.alias_targets.deinit(self.allocator);

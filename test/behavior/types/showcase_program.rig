@@ -1,7 +1,6 @@
-# The original language showcase. Sema accepts it (fallible functions
-# return plain values; `?input` reborrows a borrowed parameter).
-# Known bugs (emit): a user type named `Bytes` is mapped to `[]const u8`,
-# and unused parameters and locals are left for Zig to reject.
+# The original language showcase: fallible functions return plain
+# values, `?input` reborrows a borrowed parameter, `pre` specializes at
+# compile time, and a user type may be named `Bytes`.
 
 struct User
   name: String

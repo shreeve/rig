@@ -661,13 +661,6 @@ const Checker = struct {
                         try self.err(pos, "resource Vec(T) iteration requires a bare local Vec binding as the source; got an expression. Bind the result to a `Vec(T)` local first.", .{});
                     }
                 }
-                if (inner_source == .src) {
-                    try self.ctx.for_source_vec_info.put(self.ctx.allocator, inner_source.src.pos, .{
-                        .elem_ty = elem,
-                        .is_resource = is_resource,
-                        .is_closure = self.isOwnedClosureHandle(elem),
-                    });
-                }
                 return if (is_resource) try self.ctx.intern(.{ .borrow_read = elem }) else elem;
             },
             .array => |a| return a.elem,
@@ -2685,8 +2678,6 @@ const Checker = struct {
         ret = self.canonical(ret);
         if (ret == self.t().noreturn_id) ret = self.t().void_id;
 
-        const pos = firstSrcPos(node);
-        if (pos != 0 and !self.isPoison(ret)) try self.ctx.lambda_return_types.put(self.ctx.allocator, pos, ret);
         return self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params.items), .returns = ret, .is_sub = ret == self.t().void_id } });
     }
 
@@ -2806,10 +2797,6 @@ const Checker = struct {
         const ty = try self.ctx.intern(.{ .shared = closure });
         try self.ctx.recordType(inner, closure);
         return ty;
-    }
-
-    fn isOwnedClosureHandle(self: *Checker, ty: TypeId) bool {
-        return ownedClosureArgs(self.ctx, ty) != null;
     }
 };
 

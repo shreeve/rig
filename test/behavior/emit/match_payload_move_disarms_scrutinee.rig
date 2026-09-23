@@ -1,7 +1,5 @@
 # Moving a match payload binding out of an owned local scrutinee is
 # allowed; it consumes the scrutinee.
-# Known bug: emit keeps the scrutinee's drop armed after the payload
-# moves out, so the handle is dropped twice (segfault).
 
 struct Box
   payload: Int

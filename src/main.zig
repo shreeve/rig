@@ -139,7 +139,7 @@ fn build(allocator: std.mem.Allocator, io: std.Io, env: *const std.process.Envir
 
     const root = graph.root();
     if (root.imports.items.len == 0) {
-        var em = emit.Emitter.initWithSema(allocator, root.source, w, root.sema);
+        var em = emit.Emitter.init(allocator, root.source, w, root.sema);
         defer em.deinit();
         try em.emit(root.ir);
     } else {
@@ -191,7 +191,7 @@ fn emitProject(allocator: std.mem.Allocator, io: std.Io, env: *const std.process
 
     for (graph.modules.items) |*m| {
         var file_buffer: std.Io.Writer.Allocating = .init(allocator);
-        var em = emit.Emitter.initWithSema(allocator, m.source, &file_buffer.writer, m.sema);
+        var em = emit.Emitter.init(allocator, m.source, &file_buffer.writer, m.sema);
         defer em.deinit();
         try em.emit(m.ir);
         try writeFile(io, try std.fs.path.join(allocator, &.{ dir, m.out_basename }), file_buffer.written());
