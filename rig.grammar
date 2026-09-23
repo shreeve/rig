@@ -8,7 +8,9 @@
 # rewriter in src/rig.zig then:
 #
 #   * turns indentation into INDENT / OUTDENT / NEWLINE, and joins lines
-#     inside ( ) and [ ] (a newline there is plain whitespace);
+#     inside ( ) and [ ] (a newline there is plain whitespace), except in
+#     a closure body that starts below its bar list, which is laid out in
+#     blocks as anywhere else;
 #   * classifies keywords (every keyword is reserved);
 #   * classifies the characters whose meaning depends on spacing. The rule
 #     is the same for all of them: a character that touches its operand and

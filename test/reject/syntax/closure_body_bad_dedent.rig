@@ -1,0 +1,12 @@
+# A multi-line closure body inside parentheses follows the usual block
+# rules: a line must come back to an enclosing block's indentation.
+
+sub twice(f: *sub())
+  f()
+
+sub main()
+  twice(*||
+      print("a")
+    print("b"))
+
+# error: indentation does not match any enclosing block

@@ -134,6 +134,10 @@ pub const Emitter = struct {
     error_sets: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     usage: Usage = .{},
     fun: FunState = .{},
+    /// Closure bodies being emitted around the current point. Each names
+    /// its environment `__rig_self`, `__rig_self1`, ... so a closure
+    /// inside another does not shadow the outer one's.
+    closure_depth: u32 = 0,
     nominal: ?Nominal = null,
     /// The next expression sits in a delimited position (after `=`,
     /// between commas, inside parentheses) and needs no outer parentheses.
@@ -2283,9 +2287,12 @@ pub const Emitter = struct {
         try self.emitCaptureFields(caps);
         try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
-        try self.w.writeAll("pub fn invoke(__rig_self: *@This()");
+        const env = try self.envName();
+        try self.w.print("pub fn invoke({s}: *@This()", .{env});
         try self.pushScope();
-        try self.bindCaptures(caps);
+        try self.bindCaptures(caps, env);
+        self.closure_depth += 1;
+        defer self.closure_depth -= 1;
         const saved_fun = self.fun;
         defer self.fun = saved_fun;
         self.fun = .{ .return_ty = ret, .params = params };
@@ -2300,7 +2307,7 @@ pub const Emitter = struct {
         try self.w.writeAll(") ");
         if (ret) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
         try self.w.writeAll(" ");
-        try self.emitClosureBody(items[4], caps, ret != null);
+        try self.emitClosureBody(items[4], caps, env, ret != null);
         try self.popScope();
         try self.w.writeAll("\n");
         self.indent -= 1;
@@ -2329,10 +2336,16 @@ pub const Emitter = struct {
         }
     }
 
-    /// Declare captures inside a closure body as `__rig_self.cap_<name>`.
-    fn bindCaptures(self: *Emitter, caps: []const Capture) Error!void {
+    /// The environment parameter of the closure about to be emitted.
+    fn envName(self: *Emitter) Error![]const u8 {
+        if (self.closure_depth == 0) return "__rig_self";
+        return self.fmt("__rig_self{d}", .{self.closure_depth});
+    }
+
+    /// Declare captures inside a closure body as `<env>.cap_<name>`.
+    fn bindCaptures(self: *Emitter, caps: []const Capture, env: []const u8) Error!void {
         for (caps) |c| {
-            _ = try self.declare(.{ .sym = c.sym, .zig_name = try self.fmt("__rig_self.cap_{s}", .{c.name}), .ty = c.ty }, c.name);
+            _ = try self.declare(.{ .sym = c.sym, .zig_name = try self.fmt("{s}.cap_{s}", .{ env, c.name }), .ty = c.ty }, c.name);
         }
     }
 
@@ -2364,12 +2377,13 @@ pub const Emitter = struct {
         try self.w.writeAll(" }");
     }
 
-    /// A closure body; `__rig_self` is discarded when no capture is used.
-    fn emitClosureBody(self: *Emitter, body: Sexp, caps: []const Capture, returns_value: bool) Error!void {
+    /// A closure body; its environment `env` is discarded when no
+    /// capture is used.
+    fn emitClosureBody(self: *Emitter, body: Sexp, caps: []const Capture, env: []const u8, returns_value: bool) Error!void {
         try self.openBrace();
         var uses_self = false;
         for (caps) |c| uses_self = uses_self or self.usage.used.contains(c.sym);
-        if (!uses_self) try self.line("_ = __rig_self;", .{});
+        if (!uses_self) try self.line("_ = {s};", .{env});
         try self.emitFunPrologue();
         const stmts = try self.stmtsOf(body);
         if (returns_value and isValueStmt(stmts[stmts.len - 1])) {

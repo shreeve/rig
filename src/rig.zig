@@ -314,6 +314,18 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //   A trailing `\` also joins the next line. Tabs are rejected in
 //   indentation.
 //
+//   Closure bodies inside brackets: a closure's bar list that ends its
+//   line inside ( ) or [ ] opens a layout island, so the body below is
+//   laid out in blocks like anywhere else:
+//
+//       sig.subscribe(*|~sig|
+//         if sig.upgrade() as s
+//           print(s.get()))
+//
+//   The island closes when a line comes back to the indentation of the
+//   line the closure started on, or when the bracket around it closes;
+//   its open blocks end there.
+//
 // Spacing
 //   A character that touches its operand and not the preceding value is a
 //   prefix; otherwise it is infix (or a suffix when it touches the value):
@@ -362,12 +374,27 @@ pub const Lexer = struct {
     joined: bool = false,
     /// Position of the `|` that closes the bar list being lexed.
     capture_close: ?u32 = null,
+    /// The last token closed a closure's bar list.
+    closed_bars: bool = false,
+    /// Layout islands: closure bodies laid out inside brackets, innermost
+    /// last.
+    islands: [max_islands]Island = undefined,
+    island_count: u32 = 0,
+    /// A token held back until pending OUTDENTs are returned.
+    pending_token: ?Token = null,
 
     /// Why the last `.err` token was produced.
     err: LexError = .none,
 
     pub const max_indent_depth = 64;
     pub const max_nesting = 512;
+    pub const max_islands = 32;
+
+    /// A closure body laid out inside brackets. Its blocks sit on the
+    /// layout stack above `depth`; `column` is the indentation of the
+    /// line the closure starts on, and the layout state to restore is
+    /// `depth` / `outer_column`.
+    const Island = struct { nesting: u32, depth: u32, column: u32, outer_column: u32 };
 
     pub const LexError = enum {
         none,
@@ -414,7 +441,61 @@ pub const Lexer = struct {
             self.joined = false;
             self.prev_end = tok.pos + tok.len;
         }
+        if (self.closed_bars) {
+            self.closed_bars = false;
+            if (self.nesting > 0 and !self.inIsland() and self.lineEndsAfter()) {
+                if (self.island_count == max_islands) return self.fail(.nesting_too_deep, tok.pos);
+                self.islands[self.island_count] = .{
+                    .nesting = self.nesting,
+                    .depth = self.depth,
+                    .column = self.lineIndent(tok.pos),
+                    .outer_column = self.column,
+                };
+                self.island_count += 1;
+                self.column = self.islands[self.island_count - 1].column;
+            }
+        }
         return tok;
+    }
+
+    /// Newlines at the current bracket depth are layout: the innermost
+    /// island is open at this depth.
+    fn inIsland(self: *const Lexer) bool {
+        return self.island_count > 0 and self.islands[self.island_count - 1].nesting == self.nesting;
+    }
+
+    /// Nothing but a comment follows on the current line.
+    fn lineEndsAfter(self: *const Lexer) bool {
+        var probe = self.base;
+        var t = probe.matchRules();
+        if (t.cat == .comment) t = probe.matchRules();
+        return t.cat == .newline or t.cat == .eof;
+    }
+
+    /// Indentation of the line containing `pos`.
+    fn lineIndent(self: *const Lexer, pos: u32) u32 {
+        var start = pos;
+        while (start > 0 and self.base.source[start - 1] != '\n') start -= 1;
+        var p = start;
+        while (p < self.base.source.len and self.base.source[p] == ' ') p += 1;
+        return p - start;
+    }
+
+    /// Close the innermost island: its open blocks end here. Returns the
+    /// first OUTDENT, with the rest pending and `after` held back, or
+    /// null when no block was open.
+    fn closeIsland(self: *Lexer, pos: u32, after: ?Token) ?Token {
+        self.island_count -= 1;
+        const island = self.islands[self.island_count];
+        const open = self.depth - island.depth;
+        self.depth = island.depth;
+        self.column = island.outer_column;
+        if (open == 0) return null;
+        self.pending_outdents = open - 1;
+        self.pending_pos = pos;
+        self.pending_newline = false;
+        self.pending_token = after;
+        return synthetic(.outdent, pos);
     }
 
     fn produce(self: *Lexer) Token {
@@ -426,6 +507,10 @@ pub const Lexer = struct {
             self.pending_newline = false;
             return synthetic(.newline, self.pending_pos);
         }
+        if (self.pending_token) |t| {
+            self.pending_token = null;
+            return self.classify(t);
+        }
 
         while (true) {
             const tok = self.base.matchRules();
@@ -436,6 +521,7 @@ pub const Lexer = struct {
                     continue;
                 },
                 .newline => {
+                    if (self.inIsland()) return self.lineBreak(tok);
                     if (self.nesting > 0 or self.last_cat == .eof) {
                         self.joined = true;
                         continue;
@@ -500,6 +586,12 @@ pub const Lexer = struct {
             }
             if (tab) |t| return self.fail(.tab_indent, t);
             self.base.pos = line;
+            // Back at the closure's own line: the island ends and the
+            // bracketed expression continues.
+            if (self.inIsland() and p - line <= self.islands[self.island_count - 1].column) {
+                self.joined = true;
+                return self.closeIsland(p, null) orelse self.produce();
+            }
             return self.indentTo(p - line, p, nl);
         }
     }
@@ -565,6 +657,10 @@ pub const Lexer = struct {
     // -------------------------------------------------------------------------
 
     fn classify(self: *Lexer, tok: Token) Token {
+        // The bracket around an island closes: so do the island's blocks.
+        if ((tok.cat == .rparen or tok.cat == .rbracket) and self.inIsland()) {
+            if (self.closeIsland(tok.pos, tok)) |outdent| return outdent;
+        }
         var out = tok;
         out.cat = switch (tok.cat) {
             .ident => self.classifyWord(tok),
@@ -591,7 +687,10 @@ pub const Lexer = struct {
             .bar => if (self.isCaptureBar(tok)) .bar_capture else .bar,
             .and_sym => return self.fail(.and_operator, tok.pos),
             // `||` where an operand starts is an empty closure bar list.
-            .or_sym => if (!isValue(self.last_cat) or (self.spacedBefore(tok) and self.touchesNext(tok))) .bar_empty else return self.fail(.or_operator, tok.pos),
+            .or_sym => if (!isValue(self.last_cat) or (self.spacedBefore(tok) and self.touchesNext(tok))) blk: {
+                self.closed_bars = true;
+                break :blk .bar_empty;
+            } else return self.fail(.or_operator, tok.pos),
             .power => return self.fail(.power_operator, tok.pos),
             .err => return self.fail(self.lexErrorAt(tok), tok.pos),
             else => tok.cat,
@@ -704,6 +803,7 @@ pub const Lexer = struct {
     fn isCaptureBar(self: *Lexer, tok: Token) bool {
         if (self.capture_close) |close| if (close == tok.pos) {
             self.capture_close = null;
+            self.closed_bars = true;
             return true;
         };
         if (!self.isPrefix(tok)) return false;
@@ -759,7 +859,7 @@ pub const Lexer = struct {
             const t = probe.matchRules();
             switch (t.cat) {
                 .eof => return false,
-                .newline => if (depth == 0 and self.nesting == 0) return false,
+                .newline => if (depth == 0 and (self.nesting == 0 or self.inIsland())) return false,
                 .lparen, .lbracket, .lbrace => depth += 1,
                 .rparen, .rbracket, .rbrace => {
                     if (depth == 0) return false;
@@ -1086,6 +1186,25 @@ test "layout: indentation, joined lines, tabs" {
     try expectCats("f(1,\n  2)\nx", &.{ .ident, .lparen_call, .integer, .comma, .integer, .rparen, .newline, .ident });
     try expectCats("a\n\tb", &.{ .ident, .err });
     try expectCats("a\n    b\n  c", &.{ .ident, .indent, .ident, .err });
+}
+
+test "closure bar lists: typed parameters, empty bars, owned star" {
+    try expectCats("f = |+v, a: Int| a", &.{ .ident, .assign, .bar_capture, .clone_pfx, .ident, .comma, .ident, .colon, .ident, .bar_capture, .ident });
+    try expectCats("g = || 1", &.{ .ident, .assign, .bar_empty, .integer });
+    try expectCats("h = *|a| a", &.{ .ident, .assign, .share_pfx, .bar_capture, .ident, .bar_capture, .ident });
+    try expectCats("x = a | b", &.{ .ident, .assign, .ident, .bar, .ident });
+    try expectCats("x = a * b", &.{ .ident, .assign, .ident, .star, .ident });
+    try expectCats("x = a || b", &.{ .ident, .assign, .ident, .err });
+}
+
+test "layout: a closure body inside brackets is laid out in blocks" {
+    try expectCats("f(*|x|\n  g(x)\n  h)\ny", &.{
+        .ident,  .lparen_call, .share_pfx, .bar_capture, .ident, .bar_capture,
+        .indent, .ident,       .lparen_call, .ident,     .rparen, .newline,
+        .ident,  .outdent,     .rparen,    .newline,     .ident,
+    });
+    // Coming back to the closure's line ends the body.
+    try expectCats("f(||\n  g\n, 1)", &.{ .ident, .lparen_call, .bar_empty, .indent, .ident, .outdent, .comma, .integer, .rparen });
 }
 
 test "writeZigIdent escapes Zig keywords and emitter names" {
