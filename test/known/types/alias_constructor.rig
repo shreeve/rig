@@ -1,0 +1,10 @@
+# Known bug (B6): a type alias used as a constructor (`N(5)` with
+# `type N = Int`) is accepted; the emitted Zig references an undeclared `N`.
+
+type N = Int
+
+sub main()
+  x = N(5)
+  print(x)
+
+# error: `N`

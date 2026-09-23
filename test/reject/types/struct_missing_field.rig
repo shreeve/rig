@@ -1,4 +1,4 @@
-## M6: constructor must supply every declared field.
+# A constructor must supply every declared field.
 
 struct User
   name: String
@@ -6,3 +6,5 @@ struct User
 
 sub main()
   u = User(name: "Steve")
+
+# error: constructor of `User` is missing field `age`

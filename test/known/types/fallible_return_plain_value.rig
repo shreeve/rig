@@ -1,0 +1,12 @@
+# Known bug (B1): a `-> T!` function cannot return a plain `T`; sema never
+# lifts `Int` to `Int!`, so every fallible function body is rejected with
+# "type mismatch: expected `Int!`, got `Int`".
+
+fun double(n: Int) -> Int!
+  n * 2
+
+sub main()
+  print(double(4)!)
+
+# expect:
+# 8

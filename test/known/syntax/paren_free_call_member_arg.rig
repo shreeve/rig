@@ -1,0 +1,12 @@
+# Known bug: in a paren-free call, a member access binds to the call
+# instead of the argument: `print p.x` parses as `(print p).x`.
+
+struct Point
+  x: Int
+
+sub main()
+  p = Point(x: 42)
+  print p.x
+
+# expect:
+# 42

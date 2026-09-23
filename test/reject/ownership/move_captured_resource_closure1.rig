@@ -1,8 +1,5 @@
-## M24 + PB3(1/5): consume-of-capture is rejected inside the
-## body of an arity-bearing owned closure, same as for the
-## zero-arg form. The capture-resource audit fires uniformly
-## because both shapes go through the shared lambda body
-## walker.
+# Moving a captured resource out is rejected in an arity-bearing owned
+# closure too.
 
 sub takes_owned(c: *Cell(Int))
   c.set(0)
@@ -10,3 +7,5 @@ sub takes_owned(c: *Cell(Int))
 sub main()
   sig: *Cell(Int) = *Cell(value: 0)
   bad: *Closure1(Int) = *Closure1(Int)(|+sig| (a: Int) takes_owned(<sig))
+
+# error: cannot move captured resource `sig`

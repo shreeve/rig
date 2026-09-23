@@ -1,1 +1,0 @@
-(module (struct Owner (: cell (shared (generic_inst Cell Int))) (drop_decl ((: self (borrow_write Owner))) (block (drop self)))))

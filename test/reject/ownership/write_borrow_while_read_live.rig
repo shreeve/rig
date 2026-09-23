@@ -1,6 +1,5 @@
-# SPEC §"Write While Read Borrowed" — must be rejected.
-#
-# `r = ?user` holds a read borrow; `rename !user` requires a write borrow.
+# A write borrow cannot be taken while a read borrow of the same value
+# is live.
 
 struct User
   name: String
@@ -12,3 +11,5 @@ sub main()
   user = User(name: "Steve")
   r = ?user
   rename !user
+
+# error: cannot write-borrow `user` while a read borrow is live

@@ -1,0 +1,20 @@
+# Known bug (D6): returning an owned parameter through an if-expression
+# does not disarm the parameter's drop guard (only a bare-name return
+# does), so the returned handle is freed on exit; today this segfaults.
+
+struct Box
+  n: Int
+
+fun keep(a: *Box, flag: Bool) -> *Box
+  if flag
+    a
+  else
+    a
+
+sub main()
+  x = *Box(n: 1)
+  z = keep(<x, true)
+  print(z.n)
+
+# expect:
+# 1

@@ -1,7 +1,4 @@
-## M4.5a: plain `.src` use during active write borrow must be rejected.
-##
-## `w = !user` opens an exclusive write borrow. Plain `print user` is a
-## read access; rejecting it preserves write-borrow exclusivity.
+# Reading a value while a write borrow of it is live is rejected.
 
 struct User
   name: String
@@ -10,3 +7,5 @@ sub main()
   user = User(name: "Steve")
   w = !user
   print user
+
+# error: use of `user` while a write borrow is live

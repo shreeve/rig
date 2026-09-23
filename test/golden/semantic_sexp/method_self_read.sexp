@@ -1,1 +1,0 @@
-(module (struct User (: name String) (fun greet ((read self)) String (block (member self name)))) (sub main () _ (block (set _ u _ (call User (kwarg name "Steve"))) (call print (call (member u greet))))))

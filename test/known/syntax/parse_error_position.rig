@@ -1,0 +1,9 @@
+# A parse error is reported with the file:line:col of the offending token.
+# Known bug (A9): `rig check` prints only "parse error in `<file>`" with no
+# position (`rig parse` has the position, check never prints it).
+
+sub main()
+  x = )
+  print(x)
+
+# error: unexpected

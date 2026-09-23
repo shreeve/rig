@@ -1,11 +1,11 @@
-# M20e(4/5): early return from inside a nested conditional. Zig's
-# defer fires on the return path — Rig didn't need to enumerate
-# the scope chain or synthesize explicit drops at each return site
-# (the original M20e plan I proposed; GPT-5.5's defer-guard
-# strategy made it unnecessary).
+# An early return from inside a conditional still drops the local
+# shared handle, and so does the fall-through return.
 
 struct C
   v: Int
+
+  drop self: !C
+    print(self.v)
 
 fun pick(cond: Bool) -> Int
   rc = *C(v: 99)
@@ -16,3 +16,9 @@ fun pick(cond: Bool) -> Int
 sub main()
   print(pick(true))
   print(pick(false))
+
+# expect:
+# 99
+# 1
+# 99
+# 2

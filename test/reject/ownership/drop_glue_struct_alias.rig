@@ -1,19 +1,5 @@
-# M25(3/5): "any type with drop glue is non-Copy" rule.
-#
-# A struct that owns a resource field (`*Cell(Int)` here, but
-# the same applies to `Vec(T)`, `~T`, `*Closure()`, or any
-# other struct already flagged `has_drop_glue`) is itself
-# non-Copy. Bare alias would create two bindings whose
-# scope-exit auto-drops would each fire the destructor —
-# double-free.
-#
-# Per GPT-5.5's M25 design lock: substrate-level rule that
-# generalizes the existing M20d alias-discipline from the
-# hardcoded resource set (shared / weak / Vec / Closure) to
-# the substrate-classified set (anything with drop glue).
-#
-# V1 fix: explicit `<o1` move. Clone is not yet supported for
-# user-defined Drop types (user Clone is its own deferred arc).
+# A struct with a resource field has drop glue, so a bare alias
+# (`o2 = o1`) is rejected: both bindings would run the destructor.
 
 struct Owner
   cell: *Cell(Int)
@@ -22,3 +8,5 @@ sub main()
   o1 = Owner(cell: *Cell(value: 0))
   o2 = o1
   print(o2.cell.get())
+
+# error: bare use of `Owner` value `o1` in binding would alias an owning value

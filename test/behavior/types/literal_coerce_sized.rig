@@ -1,11 +1,4 @@
-## M5(3/n): integer literals adapt to declared sized integer types.
-##
-## Without literal pseudo-types this would type-error: `Int` is unsized
-## and `U8` is sized, so a strict same-type rule rejects them. With
-## literal pseudo-types, `0` (an int_literal) is compatible with any
-## integer type at use sites.
-##
-## EXPECTED: clean (no diagnostics).
+# Integer and float literals adapt to declared sized numeric types.
 
 sub main()
   x: U8 = 0
@@ -14,3 +7,8 @@ sub main()
   print x
   print y
   print z
+
+# expect:
+# 0
+# -1
+# 3.14

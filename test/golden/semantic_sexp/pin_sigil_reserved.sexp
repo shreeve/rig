@@ -1,1 +1,0 @@
-(module (sub main () _ (block (set _ x _ 42) (set _ p _ (pin x)) (call print p))))

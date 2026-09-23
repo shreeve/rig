@@ -1,4 +1,4 @@
-## M6: accessing an undeclared field on a known struct must error.
+# Member access must name a declared field.
 
 struct User
   name: String
@@ -7,3 +7,5 @@ struct User
 sub main()
   u = User(name: "Steve", age: 30)
   print(u.zzz)
+
+# error: no field `zzz` on type `User`

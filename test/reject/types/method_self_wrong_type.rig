@@ -1,11 +1,4 @@
-## M20a.2 negative: `self` typed as a different nominal than enclosing.
-##
-## `self: ?Order` inside `struct User` makes no semantic sense — the
-## receiver of a method on User must be a User (or Self alias). Before
-## M20a.2, this was silently accepted and the method registered on
-## `User`'s field list, leading to surprising dispatch behavior.
-##
-## EXPECTED: sema error: `self` receiver type must be `?Self` or `?User`.
+# A method's `self` must have the enclosing type (or `Self`).
 
 struct Order
   id: Int
@@ -19,3 +12,5 @@ struct User
 sub main()
   u = User(name: "x")
   print(u.bad())
+
+# error: `self` receiver type must be `?Self` or `?User`

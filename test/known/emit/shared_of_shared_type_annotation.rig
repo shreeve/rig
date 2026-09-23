@@ -1,0 +1,18 @@
+# Known bug: a parenthesized shared type `*(*Noisy)` in an annotation is
+# emitted as `*rig.RcBox()` (the inner type is lost), so the Zig fails to
+# compile. The unannotated form is covered by known/runtime/shared_of_shared_drops_inner.
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+sub main()
+  inner = *Noisy(id: 4)
+  outer: *(*Noisy) = *(<inner)
+  print("wrapped")
+
+# expect:
+# wrapped
+# 4

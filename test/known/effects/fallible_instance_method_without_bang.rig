@@ -1,0 +1,15 @@
+# Known bug (B4): a fallible instance method called without `!` or
+# `catch` is not flagged. The method body also hits B1.
+
+struct User
+  name: String
+
+  fun check(?self) -> Int!
+    1
+
+sub main()
+  u = User(name: "x")
+  n = u.check()
+  print(n)
+
+# error: must be wrapped with `!` (propagate) or `catch` (handle)

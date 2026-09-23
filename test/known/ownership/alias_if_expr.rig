@@ -1,0 +1,16 @@
+# Known bug (C3): the alias rule only checks bare names, so a shared
+# handle chosen by an if-expression is copied without a refcount bump.
+# Today this is accepted and `x` and `rc` both drop the box (segfault).
+
+struct Box
+  payload: Int
+
+sub main()
+  rc = *Box(payload: 7)
+  x = if true
+    rc
+  else
+    rc
+  print(x.payload)
+
+# error: would alias the handle

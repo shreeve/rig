@@ -1,0 +1,29 @@
+# Known bug (C1): `break` gets no special handling, so a move followed by
+# `break` is merged into the rest of the loop body. Today this valid
+# program is rejected with "use of `rc` after move".
+
+struct Box
+  payload: Int
+
+  drop self: !Box
+    print("drop")
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub main()
+  rc = *Box(payload: 42)
+  i = 0
+  while i < 3
+    if i == 1
+      eat(<rc)
+      break
+    print(rc.payload + i)
+    i += 1
+  print("done")
+
+# expect:
+# 42
+# 42
+# drop
+# done

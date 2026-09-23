@@ -1,1 +1,0 @@
-(module (struct User (: age Int)) (sub main () _ (block (set _ rc _ (share (call User (kwarg age 1)))) (set _ (member rc age) _ 99) (drop rc))))

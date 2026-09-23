@@ -1,5 +1,5 @@
-# NOT pub. Private extern + safe wrapper is the V1 pattern; the
-# extern itself should be invisible cross-module.
+# Not `pub`: a private extern behind a `pub` safe wrapper is the
+# idiom; the extern itself is invisible to importers.
 extern puts: fun(String) Int
 
 pub sub safe_puts(s: String)

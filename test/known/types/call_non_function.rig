@@ -1,0 +1,9 @@
+# Known bug (B6): calling an Int local like a function is accepted; only
+# Zig rejects it ("not a function").
+
+sub main()
+  x = 3
+  y = x(1)
+  print(y)
+
+# error: `Int`

@@ -1,8 +1,9 @@
-# Importer side. The diagnostic doesn't actually fire at this call
-# site — it fires in `a.rig`'s decl-time sema, but the cross-module
-# compilation chain surfaces it through `bin/rig run main.rig`.
+# A `pub fun` whose return type is a private struct is rejected where it
+# is declared (in a.rig), and importing that module surfaces the error.
 use a
 
 sub main()
   s = a.make_secret()
   print(s.value)
+
+# error: public function `make_secret` leaks private type `Secret`

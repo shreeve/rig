@@ -1,6 +1,5 @@
-# M17: `if`/`else if`/`else` chains nest cleanly because each
-# `else` branch is itself a single-statement block whose only
-# statement is another if-expression, which the emitter inlines.
+# Nested `if`/`else` in value position selects among three results.
+
 fun classify(x: Int) -> Int
   if x > 0
     1
@@ -14,3 +13,8 @@ sub main()
   print(classify(5))
   print(classify(-5))
   print(classify(0))
+
+# expect:
+# 1
+# -1
+# 0

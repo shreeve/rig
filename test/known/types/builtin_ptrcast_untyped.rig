@@ -1,0 +1,11 @@
+# Known bug (new): `@ptrCast(x)` on an Int with no result type is accepted
+# inside `raw`; the emitted Zig fails ("@ptrCast must have a known result
+# type"). Sema should reject what it can't lower.
+
+sub main()
+  x = 42
+  raw
+    y = @ptrCast(x)
+    print(y)
+
+# error: @ptrCast

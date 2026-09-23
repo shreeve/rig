@@ -1,16 +1,4 @@
-## M20a.2 negative: associated/static method called as instance.
-##
-## Before M20a.2, `synthInstanceCall` inferred receiver-ness from
-## `params.len > 0`, silently dispatching `u.make()` as an instance
-## call to a static method. The bug surfaced as a confusing Zig error
-## ("no member function 'make'") instead of a clean Rig diagnostic.
-##
-## M20a.2: `MethodReceiver` metadata is computed at decl-time from the
-## syntactic first parameter. `make`'s receiver is `.none` (no `self`
-## param), so `u.make()` now errors at the sema level with a targeted
-## diagnostic pointing the user to the correct `User.make(...)` form.
-##
-## EXPECTED: sema error: method `make` has no `self` receiver.
+# A method without a `self` receiver can't be called on an instance.
 
 struct User
   name: String
@@ -22,3 +10,5 @@ sub main()
   u = User(name: "Steve")
   v = u.make()
   print(v.name)
+
+# error: method `make` has no `self` receiver; call as `User.make(...)`

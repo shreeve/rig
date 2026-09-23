@@ -1,0 +1,21 @@
+# Known bug (C4): only a literal `r = ?x` is tracked as a borrow, so a
+# borrow returned from a function does not keep `h` borrowed. Today `-h`
+# is accepted while `r` is still used, and the program segfaults.
+
+struct Box
+  payload: Int
+
+struct Holder
+  inner: *Box
+
+fun view(h: ?Holder) -> ?Holder
+  h
+
+sub main()
+  h = Holder(inner: *Box(payload: 5))
+  r = view(?h)
+  -h
+  x = +r.inner
+  print(x.payload)
+
+# error: cannot drop `h` while borrows are live

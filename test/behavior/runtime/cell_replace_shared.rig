@@ -1,10 +1,6 @@
-# M26: `cell.replace(<new) -> T` is the swap-and-yield primitive
-# for Drop T. Atomically stores `new` and returns the old value
-# as an owned T; the caller binds it (M20e auto-drop fires at
-# scope exit) or discharges with `-old`.
-#
-# Anonymous resource temporaries from `replace` are rejected by
-# the existing M22.1 rule — see `m26_cell_replace_anon_rejected`.
+# `Cell(*User).replace(<new)` stores the new handle and returns the old
+# one as an owned value. Each handle is dropped exactly once: `old` at
+# scope exit, the stored one by the cell's drop glue.
 
 struct User
   age: Int
@@ -14,8 +10,7 @@ sub main()
   ub: *User = *User(age: 99)
   c: Cell(*User) = Cell(value: <ua)
   old: *User = c.replace(<ub)
-  print(0)
-  # scope exit (LIFO):
-  #   old.dropStrong  → frees the originally-stored User
-  #   c.__rig_drop    → dropStrong on the new (current) User
-  # Each resource handle drops exactly once. No double-drop.
+  print(old.age)                    # 30
+
+# expect:
+# 30

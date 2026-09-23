@@ -1,0 +1,25 @@
+# Known bug (C8): pattern bindings are unknown to the ownership checker.
+# Moving the payload out of `s` twice must be rejected as a use after
+# move; today both arms report "use of unbound name `b`" instead.
+
+struct Box
+  payload: Int
+
+enum Slot
+  full(b: *Box)
+  empty
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub main()
+  rc = *Box(payload: 5)
+  s: Slot = .full(b: <rc)
+  match s
+    .full(b) => eat(<b)
+    .empty => print(0)
+  match s
+    .full(b) => eat(<b)
+    .empty => print(0)
+
+# error: after move

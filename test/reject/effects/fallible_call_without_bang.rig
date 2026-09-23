@@ -1,8 +1,5 @@
-## M4.5a: a fallible call without `!` (or `catch`) must be rejected.
-##
-## `loadUser` returns `User!`. Bare assignment to `x` would silently
-## propagate (the bug we're fixing). Effects checker must require an
-## explicit `!` or `catch`.
+# A call to a fallible function must be wrapped with `!` (propagate) or
+# `catch` (handle); a bare call would hide the failure path.
 
 struct User
   name: String
@@ -12,4 +9,6 @@ fun loadUser(id: U64) -> User!
 
 sub main()
   x = loadUser(1)
-  print x
+  print x.name
+
+# error: fallible call to `loadUser` must be wrapped with `!` (propagate) or `catch` (handle)

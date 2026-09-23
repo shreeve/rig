@@ -1,0 +1,16 @@
+# Known bug (B5): comparing values of two different enum types is
+# accepted; only Zig rejects it.
+
+enum Color
+  red
+
+enum Shape
+  red
+
+sub main()
+  c: Color = .red
+  s: Shape = .red
+  if c == s
+    print("same")
+
+# error: `Shape`

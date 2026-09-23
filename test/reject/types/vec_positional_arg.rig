@@ -1,8 +1,6 @@
-# M20i: Vec constructor takes no positional arguments.
-#
-# `Vec(10)` is rejected — V1 requires the kwarg form
-# `Vec(capacity: N)` to make the capacity hint visible. The
-# diagnostic suggests both legal shapes (empty / capacity).
+# The `Vec` constructor takes no positional arguments.
 
 sub main()
   v: Vec(Int) = Vec(10)
+
+# error: `Vec` constructor takes no positional arguments

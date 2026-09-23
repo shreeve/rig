@@ -1,0 +1,9 @@
+# Known bug (B4): `extern fun g() -> Int!` is accepted, but a C symbol
+# can't return a Rig error union; the emitted Zig extern prototype fails.
+
+extern fun g() -> Int!
+
+sub main()
+  print("unused")
+
+# error: `extern`

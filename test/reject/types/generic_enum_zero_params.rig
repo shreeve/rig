@@ -1,11 +1,5 @@
-## M20c negative: zero-param generic enum declaration.
-##
-## Per GPT-5.5 M20c design pass: `enum Foo()` is degenerate (a
-## generic with no type parameters). The user almost certainly meant
-## `enum Foo` (plain enum). Reject at decl time with a targeted
-## diagnostic; same rule applies to `type Box()`.
-##
-## EXPECTED: sema error: generic enum requires at least one type parameter.
+# `enum Foo()` declares a generic with no type parameters, which is
+# rejected; a plain enum drops the `()`.
 
 enum Foo()
   bar
@@ -13,3 +7,5 @@ enum Foo()
 
 sub main()
   print("done")
+
+# error: generic enum `Foo` must declare at least one type parameter

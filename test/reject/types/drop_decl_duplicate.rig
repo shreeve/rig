@@ -1,5 +1,4 @@
-# M25(2/5): exactly one user `drop` declaration per struct.
-# Duplicates are rejected at the second occurrence.
+# A struct may declare at most one `drop`.
 
 struct File
   fd: Int
@@ -9,3 +8,5 @@ struct File
 
   drop self: !File
     print(self.fd + 1)
+
+# error: duplicate `drop` declaration on this struct

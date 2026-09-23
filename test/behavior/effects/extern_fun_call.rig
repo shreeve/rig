@@ -1,14 +1,16 @@
-## M23(1/N): body-less `extern fun` parses + lowers.
-##
-## The natural FFI shape: declare an external symbol's signature
-## once at the top of a module. Lowers to Zig's `extern fn` at
-## module scope; calls still require a `raw` block per M22.
+# A body-less `extern fun` declares a C symbol; a safe wrapper calls it
+# inside a `raw` block, and callers of the wrapper need no `raw`.
 
-extern fun puts(s: String) -> Int
+extern fun abs(n: Int) -> Int
 
-sub safe_puts(s: String)
+sub print_abs(n: Int)
   raw
-    puts(s)
+    print(abs(n))
 
 sub main()
-  safe_puts("hello, m23")
+  print_abs(-5)
+  print_abs(3)
+
+# expect:
+# 5
+# 3

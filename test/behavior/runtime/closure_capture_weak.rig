@@ -1,23 +1,6 @@
-# M20g: `|~rc|` weak-capture. Requires the outer to be a shared
-# handle `*T`; the captured value is `~T` (weak). Weak captures
-# DON'T extend the underlying allocation's lifetime — they just
-# observe whether the strong handle is still alive.
-#
-# The closure body here is void-returning (just a `print` call)
-# so we exercise the capture-lifetime path without forcing the
-# user to plumb `.upgrade()` (which returns `(*T)?` and would
-# bring optional-formatting into the golden test). Multiple
-# invocations confirm the captured weak survives across calls.
-#
-# Verifies:
-#   - `|~rc| ...` typechecks; captured slot is `~T`
-#   - Outer `*T` is not consumed (cap_weak is non-mutating)
-#   - Weak capture survives multiple invocations because the
-#     closure-instance guard (M20g(4/5)) drops only at the
-#     closure binding's scope exit
-#   - LIFO defer ordering drops the closure's captured weak
-#     before the outer's strong, so the strong handle is still
-#     valid when the weak's drop runs
+# `|~rc|` weak-captures a shared handle without consuming it. The
+# closure survives several calls and its weak handle is dropped before
+# the outer strong handle.
 
 sub main()
   rc: *Cell(Int) = *Cell(value: 1)
@@ -26,3 +9,8 @@ sub main()
   watch()
   watch()
   print(rc.get())
+
+# expect:
+# observing weak
+# observing weak
+# 1

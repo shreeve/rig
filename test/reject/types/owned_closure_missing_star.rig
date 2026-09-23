@@ -1,11 +1,8 @@
-# M20h(5/5): bare `Closure(fn ...)` (no `*`) is rejected.
-#
-# Owned-closure construction MUST be wrapped with `*` so the
-# heap allocation is visible at the construction site. Without
-# the `*`, the user has a malformed constructor call (Closure
-# takes zero type args, the lambda is being supplied as if it
-# were a type), and sema fires a tailored hint.
+# An owned closure must be constructed with `*Closure(...)`; bare
+# `Closure(...)` is rejected.
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
   cb = Closure(|+count| count.set(count.get() + 1))
+
+# error: owned closure must be wrapped with `*`

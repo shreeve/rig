@@ -1,1 +1,0 @@
-(module (sub main () _ (block (set _ v (generic_inst Vec Int) (call Vec 10)))))

@@ -1,10 +1,11 @@
-# M20e(4/5): resource declared inside a loop body. Each iteration
-# enters a fresh scope, installs the guard, and drops at the end
-# of the iteration (Zig's `defer` runs at the end of the enclosing
-# block, which for a loop body is each iteration's scope).
+# A handle declared inside a loop body is dropped at the end of each
+# iteration.
 
 struct C
   v: Int
+
+  drop self: !C
+    print(self.v + 100)
 
 sub main()
   i = 0
@@ -13,3 +14,12 @@ sub main()
     print(rc.v)
     i += 1
   print("done")
+
+# expect:
+# 0
+# 100
+# 1
+# 101
+# 2
+# 102
+# done

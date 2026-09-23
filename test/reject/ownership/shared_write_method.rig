@@ -1,8 +1,4 @@
-# M20d(4/5): write-receiver methods are not callable through a shared
-# (`*T`) handle. `*T` is shared ownership — other handles may exist, so
-# we cannot hand out unique mutable access. The user-facing pattern for
-# mutation through shared ownership is interior mutability
-# (`Cell(T)` / `RefCell(T)`, planned as M20+ item #7).
+# A write-receiver method cannot be called through a shared handle.
 
 struct User
   age: Int
@@ -12,5 +8,7 @@ struct User
 
 sub main()
   rc = *User(age: 1)
-  rc.set_age(5)   # error: write-receiver method through shared
+  rc.set_age(5)
   -rc
+
+# error: cannot call write-receiver method `set_age` through a shared handle

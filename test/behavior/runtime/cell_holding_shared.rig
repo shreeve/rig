@@ -1,14 +1,17 @@
-# M26: Cell(T) for resource T — basic case. Cell wraps a `*User`
-# shared handle. Cell now carries drop glue (T has drop glue);
-# the stack-local `c` binding gets an auto-drop guard that
-# cascades through `Cell.__rig_drop` → `dropElement(*User)` →
-# `dropStrong` on the inner User.
+# A stack-local `Cell(*Noisy)` has drop glue: when `c` leaves scope it
+# drops the handle it holds, which runs Noisy's drop body.
 
-struct User
-  age: Int
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
 
 sub main()
-  u: *User = *User(age: 30)
-  c: Cell(*User) = Cell(value: <u)
-  print(0)
-  # scope exit: c.__rig_drop drops the inner *User.
+  u = *Noisy(id: 30)
+  c: Cell(*Noisy) = Cell(value: <u)
+  print("stored")
+
+# expect:
+# stored
+# 30

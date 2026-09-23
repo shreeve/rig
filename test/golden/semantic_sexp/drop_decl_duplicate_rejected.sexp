@@ -1,1 +1,0 @@
-(module (struct File (: fd Int) (drop_decl ((: self (borrow_write File))) (block (call print (member self fd)))) (drop_decl ((: self (borrow_write File))) (block (call print (+ (member self fd) 1))))))

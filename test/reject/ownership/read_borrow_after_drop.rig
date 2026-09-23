@@ -1,6 +1,4 @@
-# SPEC §"Use After Drop" — must be rejected.
-#
-# `-user` ends ownership immediately. Subsequent use is invalid.
+# Taking a read borrow (`?user`) of a dropped value is rejected.
 
 struct User
   name: String
@@ -9,3 +7,5 @@ sub main()
   user = User(name: "Steve")
   -user
   print ?user
+
+# error: use of `user` after drop

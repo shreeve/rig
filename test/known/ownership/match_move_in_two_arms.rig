@@ -1,0 +1,23 @@
+# Known bug (C8): match arms are checked one after another instead of
+# independently, so a move in the second arm is reported as a use after
+# the first arm's move. Today this valid program is rejected.
+
+struct Box
+  payload: Int
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub go(n: Int)
+  rc = *Box(payload: n)
+  match n
+    1 => eat(<rc)
+    _ => eat(<rc)
+
+sub main()
+  go(1)
+  go(2)
+
+# expect:
+# 1
+# 2

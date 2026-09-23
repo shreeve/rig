@@ -1,0 +1,17 @@
+# Known bug (C1): the loop body is walked once, so a `|<rc|` move-capture
+# inside a loop is not seen by the next iteration. Today this is accepted
+# and the second iteration segfaults.
+
+struct Box
+  payload: Int
+
+sub main()
+  rc = *Box(payload: 1)
+  i = 0
+  while i < 2
+    f = |<rc|
+      print(rc.payload)
+    f()
+    i += 1
+
+# error: cannot capture `rc` after move

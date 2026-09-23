@@ -1,13 +1,8 @@
-# M28: cross-source reactive cascade. The canary that rrlib v0
-# deferred — chains two IntSources via a multi-capture closure.
-# When `count` changes, body_a fires (captured count + total),
-# updates total to count*10, which fires body_b (captured total),
-# which prints. Demonstrates the full count→total→print pattern.
-#
-# Inlines a minimal IntSource (same shape as
-# `examples/rig_reactive.rig`) to keep this single-file. The
-# IntSource shape is unchanged from rrlib v0; M28's contribution
-# is the multi-capture closure body that previously parsed-error'd.
+# Known bug (D1): two reactive sources chained by a multi-capture closure
+# (count -> total -> print) produce the right output but leak: `body_a`
+# captures `count` and `body_b` captures `total`, and each source's list
+# holds its subscriber, forming strong Rc cycles. Safe Rig cannot write this
+# cycle-free until a weak capture's `upgrade()` result can be unwrapped.
 
 struct IntSource
   value: *Cell(Int)
@@ -40,15 +35,17 @@ sub main()
   count = IntSource.new(0)
   total = IntSource.new(0)
 
-  # M28-unlocked: multi-capture closure. Body sees both `count`
-  # and `total` via cloned shared handles.
   body_a: *Closure() = *Closure(|+count, +total| total.set(count.get() * 10))
   count.subscribe(+body_a)
 
   body_b: *Closure() = *Closure(|+total| print(total.get()))
   total.subscribe(+body_b)
 
-  count.set(1)        # → total becomes 10 → prints 10
-  count.set(7)        # → total becomes 70 → prints 70
-  print(total.get())  # → 70 (read after set)
-  # Expected output: 10\n70\n70
+  count.set(1)        # total becomes 10, prints 10
+  count.set(7)        # total becomes 70, prints 70
+  print(total.get())  # 70
+
+# expect:
+# 10
+# 70
+# 70

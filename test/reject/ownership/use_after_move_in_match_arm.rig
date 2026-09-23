@@ -1,0 +1,17 @@
+# A move in one match arm makes the value unusable after the match.
+
+struct Box
+  payload: Int
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub main()
+  rc = *Box(payload: 5)
+  n = 1
+  match n
+    1 => eat(<rc)
+    _ => print(0)
+  print(rc.payload)
+
+# error: use of `rc` after move

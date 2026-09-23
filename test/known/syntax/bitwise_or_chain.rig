@@ -1,0 +1,13 @@
+# `a | b | c` is bitwise or of three integers.
+# Known bug (A6): the closure probe sees `|b|` as a capture list, so this
+# parses as `a(|b| c)` and check rejects an escaping closure.
+
+sub main()
+  a = 1
+  b = 2
+  c = 4
+  x = a | b | c
+  print(x)
+
+# expect:
+# 7

@@ -1,0 +1,18 @@
+# Known bug (B10): a closure capture's type is found by a global name
+# scan; with another function's Int `s`, the captured String prints as a
+# byte array.
+
+sub other()
+  s = 3
+  print(s)
+
+sub main()
+  s =! "hello"
+  f = |s|
+    print(s)
+  f()
+  other()
+
+# expect:
+# hello
+# 3

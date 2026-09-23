@@ -1,1 +1,0 @@
-(module (struct Counter (: value Int)) (sub main () _ (block (set _ rc _ (share (call Counter (kwarg value 11)))) (set _ rc _ (share (call Counter (kwarg value 22)))) (call print (member rc value)))))

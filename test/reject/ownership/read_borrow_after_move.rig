@@ -1,6 +1,4 @@
-# SPEC §"Use After Move" — must be rejected by the ownership checker.
-#
-# `<packet` moves ownership into `send`. Then `?packet` is invalid.
+# Taking a read borrow (`?packet`) of a moved value is rejected.
 
 struct Packet
   payload: Int
@@ -18,3 +16,5 @@ sub main()
   packet = make_packet()
   send <packet
   log ?packet
+
+# error: use of `packet` after move

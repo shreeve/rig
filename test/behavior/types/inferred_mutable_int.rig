@@ -1,6 +1,5 @@
-# M19: a mutable accumulator with no source-level type annotation.
-# Sema infers `Int` from the literal RHS; the emitter renders it as
-# `var sum: i32 = 0;`.
+# Unannotated mutable bindings (`sum = 0` then `sum += i`) infer Int.
+
 fun sum_to(n: Int) -> Int
   sum = 0
   i = 1
@@ -11,3 +10,6 @@ fun sum_to(n: Int) -> Int
 
 sub main()
   print(sum_to(10))
+
+# expect:
+# 55

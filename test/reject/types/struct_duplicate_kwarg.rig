@@ -1,4 +1,4 @@
-## M6: a kwarg that names the same field twice in a constructor must error.
+# A constructor may not name the same field twice.
 
 struct User
   name: String
@@ -6,3 +6,5 @@ struct User
 
 sub main()
   u = User(name: "Steve", name: "Other", age: 30)
+
+# error: duplicate field `name` in constructor of `User`

@@ -1,6 +1,4 @@
-## M10: real exhaustiveness with duplicate-arm detection.
-##
-## The same `.red` matches twice — sema flags it.
+# Two arms for the same variant are rejected.
 
 enum Color
   red
@@ -12,3 +10,5 @@ sub main()
     .red => print(1)
     .red => print(2)
     .green => print(3)
+
+# error: duplicate arm for variant `red`

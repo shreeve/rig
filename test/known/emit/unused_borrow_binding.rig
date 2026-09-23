@@ -1,10 +1,7 @@
-## M4.5a: dropping a borrow binding must release the underlying borrow.
-##
-## After `-r`, the read borrow on `user` is gone, so `w = !user` (write
-## borrow) must be allowed. Without the fix, the checker leaves
-## `user.read_borrows` non-zero and rejects the write.
-##
-## EXPECTED: clean (no diagnostics).
+# Known bug (new, emit): a borrow binding that is never read is emitted as a
+# plain Zig `const`, which Zig rejects as "unused local constant".
+# Dropping the read borrow `r` releases it, so the write borrow `w` is
+# allowed.
 
 struct User
   name: String
@@ -14,3 +11,7 @@ sub main()
   r = ?user
   -r
   w = !user
+  print("ok")
+
+# expect:
+# ok

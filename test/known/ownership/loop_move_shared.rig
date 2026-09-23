@@ -1,0 +1,18 @@
+# Known bug (C1): the ownership checker walks a loop body once, with no
+# back-edge, so a move inside a `while` body is not seen by the next
+# iteration. Today this is accepted and the second `eat(<rc)` segfaults.
+
+struct Box
+  payload: Int
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub main()
+  rc = *Box(payload: 42)
+  i = 0
+  while i < 3
+    eat(<rc)
+    i += 1
+
+# error: use of `rc` after move

@@ -1,0 +1,13 @@
+# Known bug (B12): two `fun` declarations with the same name are not
+# diagnosed; only Zig rejects the duplicate member.
+
+fun f() -> Int
+  1
+
+fun f() -> Int
+  2
+
+sub main()
+  print(f())
+
+# error: duplicate

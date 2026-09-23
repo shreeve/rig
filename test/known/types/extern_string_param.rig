@@ -1,0 +1,14 @@
+# Known bug (new): an extern with a `String` parameter is accepted, but
+# String lowers to a Zig slice, which an extern (C ABI) function can't
+# take; the emitted Zig fails to compile.
+
+extern fun puts(s: String) -> Int
+
+sub safe_puts(s: String)
+  raw
+    puts(s)
+
+sub main()
+  safe_puts("hello")
+
+# error: `String`

@@ -1,0 +1,19 @@
+# Known bug (D2): `RcBox.dropStrong` runs the payload's drop only when the
+# payload type declares `__rig_drop`, so a `*(*T)` never drops the inner
+# handle: the Noisy is never dropped and leaks.
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+sub main()
+  inner = *Noisy(id: 4)
+  outer = *(<inner)
+  print("wrapped")
+  # scope exit drops `outer`, which drops the inner handle: prints 4
+
+# expect:
+# wrapped
+# 4

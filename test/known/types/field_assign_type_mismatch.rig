@@ -1,0 +1,12 @@
+# Known bug (B7): assigning to a field skips the field-type check, so
+# `u.name = 5` is accepted.
+
+struct User
+  name: String
+
+sub main()
+  u = User(name: "x")
+  u.name = 5
+  print(u.name)
+
+# error: expected `String`

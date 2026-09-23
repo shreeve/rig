@@ -1,5 +1,5 @@
-# M17: `if` as expression — single-expression branches lower to
-# Zig's `if (cond) a else b` form directly, with no labeled block.
+# `if` as the value of a function body with single-expression branches.
+
 fun pick(c: Bool) -> Int
   if c
     10
@@ -9,3 +9,7 @@ fun pick(c: Bool) -> Int
 sub main()
   print(pick(true))
   print(pick(false))
+
+# expect:
+# 10
+# 20

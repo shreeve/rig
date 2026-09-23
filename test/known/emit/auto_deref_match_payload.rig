@@ -1,0 +1,17 @@
+# Known bug (D16): a method call on a match-payload binding of shared type
+# (`cell.get()`) is not auto-dereferenced, so the Zig fails to compile
+# (no `get` on `RcBox`).
+
+enum Slot
+  full(cell: *Cell(Int))
+  empty
+
+sub main()
+  c: *Cell(Int) = *Cell(value: 8)
+  s: Slot = .full(cell: <c)
+  match s
+    .full(cell) => print(cell.get())
+    .empty => print(0)
+
+# expect:
+# 8

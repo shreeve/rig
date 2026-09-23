@@ -1,0 +1,10 @@
+# Known bug (B8): a lambda's parameter annotations are ignored; a
+# `Closure1(Int)` lambda declared `(a: String)` is accepted and runs with
+# an Int.
+
+sub main()
+  v: *Cell(Int) = *Cell(value: 0)
+  cb: *Closure1(Int) = *Closure1(Int)(|+v| (a: String) print(a))
+  cb(1)
+
+# error: `String`

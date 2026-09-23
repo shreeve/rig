@@ -1,0 +1,24 @@
+# Known bug (C4): a function that stores its borrowed parameter in a
+# returned struct extends the borrow, but the caller does not track it.
+# Today `-h` is accepted while `v.h` is still used, and this segfaults.
+
+struct Box
+  payload: Int
+
+struct Holder
+  inner: *Box
+
+struct View
+  h: ?Holder
+
+fun mk(h: ?Holder) -> View
+  View(h: h)
+
+sub main()
+  h = Holder(inner: *Box(payload: 5))
+  v = mk(?h)
+  -h
+  x = +v.h.inner
+  print(x.payload)
+
+# error: cannot drop `h` while borrows are live

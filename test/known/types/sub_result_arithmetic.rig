@@ -1,0 +1,12 @@
+# Known bug (B6): binding the result of a `sub` (Void) and doing
+# arithmetic on it is accepted; only Zig rejects `void + 1`.
+
+sub g()
+  print(1)
+
+sub main()
+  x = g()
+  y = x + 1
+  print(y)
+
+# error: `Void`

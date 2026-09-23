@@ -1,0 +1,15 @@
+# `f() catch 0` recovers from a failure of `f()` with 0; here `may`
+# succeeds, so the result is its value.
+# Known bug (A2): `catch` after a call stays an identifier, so the line
+# parses as nested calls `may()(catch)(0)` and check reports
+# "use of unbound name `catch`".
+
+fun may() -> Int!
+  return 42
+
+sub main()
+  y = may() catch 0
+  print(y)
+
+# expect:
+# 42

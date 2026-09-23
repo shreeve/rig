@@ -1,14 +1,5 @@
-# M20i(5/5): basic Vec(T) for Copy element types.
-#
-# The simplest shape: stack-local `Vec(Int)`, push a few
-# elements, query length. Validates:
-#   - `Vec(Int) = Vec()` constructor lowers to
-#     `rig.Vec(i32).init(rig.defaultAllocator())`
-#   - `(!v).push(x)` lowers to `v.push(x)` with write-receiver
-#   - `v.length()` lowers to `v.length()`
-#   - Scope-exit auto-drop guard calls `v.__rig_drop()`
-#     (frees the backing buffer; no per-element work needed
-#     for Copy T because `dropElement` short-circuits).
+# `Vec(Int)`: push three values and read the length; the buffer is
+# freed at scope exit.
 
 sub main()
   v: Vec(Int) = Vec()
@@ -16,3 +7,6 @@ sub main()
   (!v).push(20)
   (!v).push(30)
   print(v.length())                 # 3
+
+# expect:
+# 3

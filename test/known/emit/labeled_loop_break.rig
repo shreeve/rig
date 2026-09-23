@@ -1,0 +1,14 @@
+# `break :outer` inside a nested loop exits the loop labeled `:outer`,
+# so the `print(99)` after the inner loop never runs.
+# Known bug (A12): labeled statements emit a `@compileError` placeholder
+# instead of a Zig labeled loop.
+
+sub main()
+  :outer while true
+    while true
+      break :outer
+    print(99)
+  print(1)
+
+# expect:
+# 1

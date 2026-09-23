@@ -1,0 +1,14 @@
+# Known bug (D8): the `else` block of a `for` (run when the loop ends
+# without `break`) is dropped by the emitter.
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  for n in v
+    print(n)
+  else
+    print("done")
+
+# expect:
+# 1
+# done

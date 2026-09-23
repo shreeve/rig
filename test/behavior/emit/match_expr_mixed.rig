@@ -1,7 +1,5 @@
-# M18: a match in expression position with arms of mixed shape —
-# some single-expression, some multi-statement blocks. The emitter
-# inlines single-expression arms and labels-blocks the multi-stmt
-# ones, so the generated Zig stays compact where it can.
+# A value-position match mixing single-expression and multi-statement arms.
+
 enum Op
   zero
   square
@@ -19,3 +17,8 @@ sub main()
   print(apply(.zero, 5))
   print(apply(.square, 5))
   print(apply(.cube, 3))
+
+# expect:
+# 0
+# 25
+# 27

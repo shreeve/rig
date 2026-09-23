@@ -1,0 +1,10 @@
+# A user module may be named `_runtime`; it is imported like any other.
+# Known bug (A8): emit writes the module to `_runtime.zig`, overwriting the
+# Rig runtime, so `rig.print` no longer exists and the Zig build fails.
+use _runtime
+
+sub main()
+  print(_runtime.helper())
+
+# expect:
+# 7

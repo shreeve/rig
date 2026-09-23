@@ -1,0 +1,12 @@
+# Known bug (B4): `!` inside `defer` is accepted; a deferred expression
+# can't propagate (Zig: "'try' not allowed inside defer expression"). The
+# fallible `g` body also hits B1.
+
+fun g() -> Int!
+  3
+
+sub main()
+  defer print(g()!)
+  print(1)
+
+# error: `defer`

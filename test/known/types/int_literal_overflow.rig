@@ -1,0 +1,8 @@
+# Known bug (B6): an integer literal out of range for its sized type
+# (`U8 = 300`) is accepted; only Zig rejects it.
+
+sub main()
+  a: U8 = 300
+  print(a)
+
+# error: `U8`

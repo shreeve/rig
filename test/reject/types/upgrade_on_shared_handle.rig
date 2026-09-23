@@ -1,12 +1,5 @@
-# M20d.2: `upgrade` is built-in ONLY on weak handles (`~T`). Calling
-# it on a shared handle (`*T`) — when the underlying type has no
-# user-defined `.upgrade()` method — fires a targeted diagnostic
-# pointing the user at the correct pattern (`~rc` to obtain a weak
-# reference, then `.upgrade()`).
-#
-# When the underlying type DOES have a user-defined `.upgrade()`,
-# auto-deref through shared dispatches to it normally — this test
-# only covers the no-user-method footgun.
+# `upgrade` is a built-in only on weak handles; calling it on a shared
+# handle (whose type has no `upgrade` method) points at `~rc`.
 
 struct User
   name: String
@@ -15,3 +8,5 @@ sub main()
   rc = *User(name: "x")
   m  = rc.upgrade()
   -rc
+
+# error: `upgrade` is only available on weak handles (`~T`)

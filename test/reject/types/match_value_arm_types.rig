@@ -1,4 +1,4 @@
-## M10: value-position match arms must unify into a single result type.
+# Value-position match arms must unify into a single result type.
 
 enum Color
   red
@@ -9,3 +9,5 @@ sub main()
   x = match c
     .red => 1
     .green => "no"
+
+# error: incompatible types `<int literal>` and `String`

@@ -1,12 +1,17 @@
-## M23: body-less `extern sub` declaration. `sub` declarations
-## return Void by definition, so no return-type slot is needed in
-## the IR shape `(extern_sub name params)`.
+# A body-less `extern sub` declares a C function returning void; calls
+# still require a `raw` block. Reseeding with the same seed repeats the
+# sequence.
 
-extern sub log_msg(msg: String)
-
-sub safe_log(msg: String)
-  raw
-    log_msg(msg)
+extern sub srand(seed: U32)
+extern fun rand() -> Int
 
 sub main()
-  safe_log("ping")
+  raw
+    srand(7)
+    a = rand()
+    srand(7)
+    b = rand()
+    print(a == b)
+
+# expect:
+# true

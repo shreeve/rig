@@ -1,0 +1,15 @@
+# Known bug (B4): a fallible associated method called without `!` or
+# `catch` is not flagged (only module-qualified calls are checked). The
+# method body also hits B1.
+
+struct User
+  name: String
+
+  fun make() -> User!
+    User(name: "x")
+
+sub main()
+  u = User.make()
+  print(u.name)
+
+# error: must be wrapped with `!` (propagate) or `catch` (handle)

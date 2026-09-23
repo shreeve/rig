@@ -1,9 +1,5 @@
-## M6: declared struct + constructor + member access — should be clean.
-##
-## With sema knowing User's fields, the constructor's kwargs are
-## validated and `u.name` resolves to the String field type.
-##
-## EXPECTED: clean (no diagnostics).
+# A struct constructor with keyword fields; member access types each
+# field from the declaration.
 
 struct User
   name: String
@@ -12,3 +8,8 @@ struct User
 sub main()
   u = User(name: "Steve", age: 30)
   print(u.name)
+  print(u.age + 1)
+
+# expect:
+# Steve
+# 31

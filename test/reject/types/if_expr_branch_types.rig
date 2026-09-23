@@ -1,6 +1,4 @@
-## M5(3/n): value-position `if` arms must unify.
-##
-## `1` is an int literal; `"no"` is a String. Sema must reject this.
+# Value-position `if` branches must unify into one type.
 
 sub main()
   x = if true
@@ -8,3 +6,5 @@ sub main()
   else
     "no"
   print x
+
+# error: incompatible types `<int literal>` and `String`

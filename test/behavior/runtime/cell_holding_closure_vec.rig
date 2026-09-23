@@ -1,19 +1,19 @@
-# M26: the canonical userland Reactor cell shape —
-# `*Cell(Vec(*Closure()))`. Heap-allocated Cell holding a Vec of
-# subscriber closures. Before M26 this construction was rejected
-# at sema (Cell-non-Copy-T forbidden); after M26 it composes
-# cleanly via the unified `dropElement` dispatch:
-#
-#   c.dropStrong (last-strong)
-#     → Cell.__rig_drop
-#       → dropElement(Vec(*Closure()), &c.value)
-#         → Vec.__rig_drop
-#           → walk elements (none here) + free buffer
-#
-# This is the M25 + M26 substrate combined unlock for the
-# userland reactive library (`Reactor` / `Memo` / `Effect`).
+# `*Cell(Vec(*Closure()))`: a shared cell owning a list of closures.
+# `replace` swaps the list out so it can be walked, then back in; the
+# whole structure is freed when the cell's last handle drops.
 
 sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  bump: *Closure() = *Closure(|+count| count.set(count.get() + 1))
   v: Vec(*Closure()) = Vec()
+  (!v).push(<bump)
   c: *Cell(Vec(*Closure())) = *Cell(value: <v)
-  print(0)
+  empty: Vec(*Closure()) = Vec()
+  current: Vec(*Closure()) = c.replace(<empty)
+  for cb in ?current
+    cb()
+  discarded: Vec(*Closure()) = c.replace(<current)
+  print(count.get())                # 1
+
+# expect:
+# 1

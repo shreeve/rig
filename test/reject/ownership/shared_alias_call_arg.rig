@@ -1,6 +1,5 @@
-# M20d(3/5) alias-footgun rule: passing a bare `*T` as a call argument
-# would alias the handle in caller and callee. Must use `<rc` (move
-# into callee) or `+rc` (clone for shared use).
+# Passing a bare shared handle as a call argument is rejected: caller
+# and callee would both own it. Use `<rc` or `+rc`.
 
 struct Box
   value: Int
@@ -10,5 +9,7 @@ sub use_rc(rc: *Box)
 
 sub main()
   rc = *Box(value: 1)
-  use_rc(rc)     # error: bare alias of shared handle
+  use_rc(rc)
   -rc
+
+# error: bare use of shared (`*T`) handle `rc` in call argument would alias the handle

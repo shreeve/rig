@@ -1,9 +1,6 @@
-## M7: error set declaration. Same IR shape as enum, lowers to Zig
-## `pub const X = error { ... };`. Once typed-error returns land
-## (M8+), `fun foo() -> User!NetworkError` will let `propagate` /
-## `catch` reason about specific error tags.
-##
-## EXPECTED: clean (no diagnostics).
+# Known bug (new, emit): binding an error-set value `e: NetworkError =
+# .timeout` is accepted by sema, but the emitted Zig assigns an enum
+# literal to an error set and fails to compile.
 
 error NetworkError
   timeout
@@ -12,4 +9,10 @@ error NetworkError
 
 sub main()
   e: NetworkError = .timeout
-  print(e)
+  match e
+    .timeout => print("timeout")
+    .refused => print("refused")
+    .reset => print("reset")
+
+# expect:
+# timeout

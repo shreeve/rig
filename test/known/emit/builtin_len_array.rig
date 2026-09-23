@@ -1,0 +1,11 @@
+# Known bug (new, emit): `@len` is on the safe-builtin whitelist, but
+# there is no Zig `@len`, and the array literal itself emits a
+# @compileError.
+
+sub main()
+  arr = [1, 2, 3]
+  n = @len(arr)
+  print(n)
+
+# expect:
+# 3

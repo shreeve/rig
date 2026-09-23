@@ -1,0 +1,15 @@
+# Inside parentheses a newline does not end the statement, so call
+# arguments may span lines.
+# Known bug (A12): newlines inside parens are still NEWLINE/INDENT tokens,
+# so the call is a parse error.
+
+fun add(a: Int, b: Int) -> Int
+  a + b
+
+sub main()
+  x = add(1,
+    2)
+  print(x)
+
+# expect:
+# 3

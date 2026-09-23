@@ -1,4 +1,4 @@
 use b
 
-sub main()
-  print(0)
+pub fun fa() -> Int
+  1

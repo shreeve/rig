@@ -1,6 +1,5 @@
-# M18: match-as-expression with multi-statement arm bodies. Each
-# arm's body block lowers to `pattern => rig_blk_N: { ...; break
-# :rig_blk_N <expr>; }`. Single-expression arms still emit inline.
+# Multi-statement match arms in value position yield their last expression.
+
 enum Op
   add
   minus
@@ -17,3 +16,7 @@ fun apply(op: Op, a: Int, b: Int) -> Int
 sub main()
   print(apply(.add, 3, 4))
   print(apply(.minus, 10, 3))
+
+# expect:
+# 7
+# 7

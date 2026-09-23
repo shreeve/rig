@@ -1,12 +1,4 @@
-## M8: exhaustive match on an enum — clean.
-##
-## Each variant has its own arm. Sema verifies the arm patterns
-## against the scrutinee's enum type; emit lowers to Zig `switch`
-## with no `else` (Zig requires exhaustive coverage OR an else,
-## and we satisfy the former).
-##
-## EXPECTED: clean (no diagnostics). Should compile and run; output
-## is whatever variant `c` happens to be.
+# An exhaustive statement-position match on an enum runs the matching arm.
 
 enum Color
   red
@@ -14,8 +6,11 @@ enum Color
   blue
 
 sub main()
-  c: Color = .red
+  c: Color = .green
   match c
     .red => print "R"
     .green => print "G"
     .blue => print "B"
+
+# expect:
+# G

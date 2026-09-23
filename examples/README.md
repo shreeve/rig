@@ -1,31 +1,15 @@
-# Rig Examples
+# Rig examples
 
-Each `.rig` file's leading comment block describes its intent. The
-suite is intentionally flat — one `.rig` per scenario, paired with
-goldens in `test/golden/{raw_sexp,semantic_sexp,errors,emitted_zig}/`.
+Short programs that show what Rig looks like. Each one is run by
+`./test/run` and must print exactly its `# expect:` block with no leaks.
 
-Implicit categories (read the header to tell which is which):
+| File | Shows |
+|---|---|
+| `hello.rig` | the smallest program |
+| `ownership_tour.rig` | move `<x`, read borrow `?x`, shared `*x`, clone `+x`, drop `-x` |
+| `shapes.rig` | payload enums, `match`, methods, a generic type |
+| `resources.rig` | a user-defined `drop` plus compiler-generated drop glue |
+| `counter_closure.rig` | an owned closure capturing a shared `Cell` |
+| `memo_canary.rig` | a small reactive source built from `Cell`, `Vec`, and `Closure1` |
 
-- **Working / clean** — should pass `rig check` cleanly. May or may not
-  also lower to Zig (some only exercise the front-end). E.g.:
-  - `hello.rig`, `shadow.rig`, `spacing.rig`
-  - `borrow_release.rig`, `shadow_lookup.rig` (M4.5a positive checks)
-  - `branch_independent.rig` (M4.5b positive check)
-
-- **Negative** — must produce a specific diagnostic. The error text is
-  the golden, not the emitted Zig. E.g.:
-  - `move.rig`, `borrow.rig`, `drop.rig`, `escape.rig`, `fixed.rig`
-    (SPEC §V1 test cases)
-  - `plain_after_move.rig`, `plain_after_drop.rig`,
-    `plain_during_write.rig`, `missing_bang.rig` (M4.5a)
-  - `escape_nested.rig`, `branch_merged_move.rig` (M4.5b)
-
-- **Surface preview** — exercises the broader Rig surface; not all
-  features are fully lowered yet. Flagged in the file header.
-  - `showcase.rig`
-
-The `test/run` script doesn't care about category — it runs raw_sexp
-+ semantic_sexp + determinism on every example, and runs the
-ownership/effects checker on every example to capture the `errors/`
-golden (which is empty for the clean ones). Emitted-Zig tests run
-only for `EMIT_TARGETS` listed in `test/run`.
+The full test suite lives in `test/` (see `test/README.md`).

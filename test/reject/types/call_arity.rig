@@ -1,6 +1,4 @@
-## M5(3/n): call arg arity must match the callee's declared signature.
-##
-## `add` takes 2 args; calling with 1 must error.
+# A call must pass as many arguments as the callee declares.
 
 fun add(a: Int, b: Int) -> Int
   a + b
@@ -8,3 +6,5 @@ fun add(a: Int, b: Int) -> Int
 sub main()
   x = add(1)
   print x
+
+# error: call to `add` expects 2 arguments, got 1

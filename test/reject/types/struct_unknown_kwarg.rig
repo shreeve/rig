@@ -1,4 +1,4 @@
-## M6: a constructor kwarg that doesn't name a real field must error.
+# A constructor keyword must name a declared field.
 
 struct User
   name: String
@@ -6,3 +6,5 @@ struct User
 
 sub main()
   u = User(name: "Steve", lol: 30)
+
+# error: no field `lol` on type `User`

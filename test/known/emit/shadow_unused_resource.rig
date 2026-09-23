@@ -1,0 +1,13 @@
+# Known bug (C6): `new rc = ...` shadowing a resource that was never used
+# emits `_ = rc;` instead of a drop, so the first box leaks.
+
+struct Box
+  payload: Int
+
+sub main()
+  rc = *Box(payload: 1)
+  new rc = *Box(payload: 2)
+  print(rc.payload)
+
+# expect:
+# 2

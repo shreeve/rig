@@ -1,0 +1,17 @@
+# Known bug (C7): `*Closure(|<rc| ...)` move-captures a read-borrowed
+# parameter, taking ownership of a handle the caller still owns. Today
+# `rig check` accepts this.
+
+struct Box
+  payload: Int
+
+fun f(rc: ?*Box) -> *Closure()
+  *Closure(|<rc| print(rc.payload))
+
+sub main()
+  rc = *Box(payload: 5)
+  cb = f(?rc)
+  cb()
+  print(rc.payload)
+
+# error: cannot move-capture borrowed

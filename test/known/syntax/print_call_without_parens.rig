@@ -1,0 +1,12 @@
+# Known bug: `print f(x)` parses as `(print f)(x)`, so the emitted Zig
+# prints the function itself and then calls the result of print.
+# Per SPEC "Function Calls", paren-free calls take the rest of the line.
+
+fun double(n: Int) -> Int
+  n * 2
+
+sub main()
+  print double(21)
+
+# expect:
+# 42

@@ -1,51 +1,48 @@
-# Spacing-sensitive sigil classification (per GPT-5.5 review).
-#
-# These pairs MUST tokenize differently:
-#
-#   <x   move prefix      vs    a < x   less-than infix
-#   *x   share prefix     vs    a * b   multiply infix
-#   +x   clone prefix     vs    a + b   plus infix
-#   %x   raw prefix       vs    a % b   modulo infix
-#   ?x   read prefix      vs    expr?   propagate (postfix)
-#   @x   pin prefix       vs    @len(x) builtin call (pin RESERVED in V1)
-#   a.*  deref            vs    *x      share prefix
-#   y = -x  expr negation vs    -x      drop statement (at stmt-start)
+# The same character is an infix operator when spaced (`a < x`, `a * b`,
+# `a + b`, `a % b`, `a - b`) and an ownership sigil when tight against its
+# operand at expression start (`<s`, `*Box`, `+s`, `%x`, `?box`). `-x` is
+# negation in an expression and a drop at statement start; `@name(...)`
+# is a builtin call.
+
+struct Box
+  v: Int
+
+fun show(b: ?Box) -> Int
+  b.v
 
 sub main()
-  a = 1
+  a = 7
   b = 2
-  c = a < x          # infix: (< a x)
-  d = a * b          # infix: (* a b)
-  e = a + b          # infix: (+ a b)
-  f = a % b          # infix: (% a b)
-  g = @len(arr)      # builtin: (builtin len arr)
-  h = a.*            # deref: (deref a)
-  m = <x             # move: (move x)
-  s = *x             # share: (share x)
-  k = +x             # clone: (clone x)
-  # M22: `%x` raw access requires a `raw` block. The
-  # tokenization test still applies (this file's purpose is
-  # sigil classification); wrap in `raw` so the example
-  # passes the M22 effects check while preserving the
-  # raw-prefix tokenization signal.
+  x = 3
+  print(a < x)
+  print(a * b)
+  print(a + b)
+  print(a % b)
+  print(a - b)
+  y = -x              # negation
+  print(y)
+  print(@sizeOf(Box)) # builtin call
   raw
-    r = %x           # raw: (raw x)
-  # M22.1: `@x` lexer still tokenizes as pin_pfx (preserved so the
-  # disambiguation from `@len(x)` keeps working), but sema rejects
-  # the resulting `(pin x)` IR — pinning is reserved for V2. The
-  # line stays so the tokenization signal is exercised; the sema
-  # error becomes part of the spacing.rig errors-golden.
-  p = @x             # pin: (pin x)  (errors: V1 rejects pin)
-  rb = ?x            # read borrow: (read x)
-  wb = !x            # write borrow: (write x)
-  y = -x             # negation in expr position: (neg x)
+    r = %x            # raw access
+    print(r)
+  s = *Box(v: 10)     # share
+  t = +s              # clone
+  u = <s              # move
+  print(u.v)
+  -u                  # drop statement
+  print(t.v)
+  box = Box(v: 1)
+  print(show(?box))   # read borrow
 
-  # Drop is only at statement-start (per SPEC: "Drop is statement-only")
-  -y                 # drop: (drop y)
-
-  # Multi-pair constructor:
-  u = User(name: "Steve", age: 42)
-
-  # Mixed positional + named (named must come last for sanity, but parser
-  # tolerates any order in V1).
-  v = make(arena, name: "Steve")
+# expect:
+# false
+# 14
+# 9
+# 1
+# 5
+# -3
+# 4
+# 3
+# 10
+# 10
+# 1

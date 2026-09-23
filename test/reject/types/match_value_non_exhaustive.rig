@@ -1,5 +1,4 @@
-## M10: value-position match must be exhaustive (cover every variant
-## OR include a default arm). A missing variant fires.
+# A value-position match must cover every variant or have a default arm.
 
 enum Color
   red
@@ -11,3 +10,5 @@ sub main()
   x = match c
     .red => 1
     .green => 2
+
+# error: value-position `match` is not exhaustive

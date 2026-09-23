@@ -1,5 +1,4 @@
-## M8: arm pattern naming a variant that doesn't exist on the
-## scrutinee's enum must error.
+# A match arm pattern must name a variant of the scrutinee's enum.
 
 enum Color
   red
@@ -10,3 +9,5 @@ sub main()
   match c
     .red => print "R"
     .purple => print "P"
+
+# error: no variant `purple` on enum `Color`

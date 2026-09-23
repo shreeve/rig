@@ -1,14 +1,5 @@
-## M10: payload-variant destructuring in match arms.
-##
-## `.circle(r)` captures the variant's single payload field as `r`.
-## `.triangle(a, b)` destructures the multi-field payload struct.
-## `.origin` matches the bare variant.
-##
-## Sema validates each arm's pattern: variant must exist on the
-## scrutinee enum, and binding count must match the variant's
-## payload arity.
-##
-## EXPECTED: clean, runs, prints `7` (a + b for triangle(3, 4)).
+# Match arms bind payload fields: `.circle(r)` binds the single field,
+# `.triangle(a, b)` binds both fields.
 
 enum Shape
   circle(radius: Int)
@@ -21,3 +12,6 @@ sub main()
     .circle(r) => print(r)
     .triangle(a, b) => print(a + b)
     .origin => print(0)
+
+# expect:
+# 7

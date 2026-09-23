@@ -1,16 +1,19 @@
-## M4.5b: nested borrow escape must be detected.
-##
-## The earlier `escape.rig` returns `?user.name` directly (top-level
-## borrow). This nests the borrow inside a constructor call:
-## `View(name: ?user)`. Without the recursive escape walker the leak
-## was silent.
+# Known bug (C4): a borrow of a local stored in a returned struct escapes
+# the function, but only a directly returned `?T` is checked, so this is
+# accepted today and the caller reads a dangling borrow.
 
 struct User
-  name: String
+  age: Int
 
 struct View
-  name: ?User
+  user: ?User
 
-fun bad() -> ?String
-  user = User(name: "Steve")
-  View(name: ?user)
+fun bad() -> View
+  user = User(age: 42)
+  View(user: ?user)
+
+sub main()
+  v = bad()
+  print(v.user.age)
+
+# error: returned borrow of `user` does not originate from a borrowed parameter

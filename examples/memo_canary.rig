@@ -1,14 +1,7 @@
-## M24 canary — a Memo-shaped fixture that uses Closure1 to demonstrate
-## the substrate unblock. A `Memo` here is the smallest reactive
-## abstraction that needs an arity-bearing callback: subscribe to a
-## source's set events, recompute a derived value whenever the source
-## changes, and push the new value into a cell.
-##
-## This fixture inlines a minimal `IntSource` (same shape as
-## `examples/rig_reactive.rig`) and uses `*Closure1(Int)` as the
-## subscriber callback shape so the new value of the source is
-## passed directly to each subscriber rather than being read via
-## `source.get()`. That's what `Closure1` unblocks.
+# A Memo-shaped reactive fixture built from substrate pieces: a source
+# holds its value in a shared `Cell` and its subscribers in a shared
+# `Cell(Vec(*Closure1(Int)))`. `set` swaps the subscriber list out,
+# calls each subscriber with the new value, and swaps it back.
 
 struct IntSource
   value: *Cell(Int)
@@ -48,3 +41,7 @@ sub main()
   print(doubled.get())  # 6
   src.set(5)            # body fires with a=5 → doubled becomes 10
   print(doubled.get())  # 10
+
+# expect:
+# 6
+# 10

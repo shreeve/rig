@@ -1,0 +1,11 @@
+# Known bug (D17): `a..b` is only a match pattern in V1, but a range in
+# expression position (`for i in 0..3`) is accepted and emit writes a
+# `@compileError`. Sema should reject it with a Rig diagnostic.
+
+sub main()
+  total = 0
+  for i in 0..3
+    total += i
+  print(total)
+
+# error: range

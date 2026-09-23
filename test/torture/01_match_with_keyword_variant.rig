@@ -1,4 +1,4 @@
-# M16 trigger. Variant named `sub` collides with the `sub` keyword.
+# Variant named `sub` collides with the `sub` keyword.
 # Parse fails — and used to segfault when writeAllDiagnostics
 # dereferenced an undefined sema. Now must produce a clean diagnostic.
 enum Op

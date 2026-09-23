@@ -1,0 +1,10 @@
+# Known bug (D17): V1 Vec access is `v.get(i)`; `v[0]` is accepted by sema
+# and the emitted Zig fails to compile ("does not support indexing"). Sema
+# should reject indexing a Vec with a Rig diagnostic.
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(4)
+  print(v[0])
+
+# error: index

@@ -1,8 +1,4 @@
-# M20d.2 (negative): `w.upgrade()` is a built-in method on weak
-# handles; it takes no arguments. Passing any args fires a targeted
-# diagnostic. Pinned because the M20d.1 intercept's arity check
-# predates the M20d.2 formalization-as-built-in; this golden ensures
-# the message survives future refactors.
+# The built-in `upgrade` on a weak handle takes no arguments.
 
 struct User
   name: String
@@ -13,3 +9,5 @@ sub main()
   m  = w.upgrade(42)
   -rc
   -w
+
+# error: weak `upgrade` takes no arguments

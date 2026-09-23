@@ -1,4 +1,4 @@
-## M7: enum literal whose variant doesn't exist on the expected enum.
+# An enum literal must name a variant of the expected enum.
 
 enum Color
   red
@@ -7,3 +7,5 @@ enum Color
 
 sub main()
   c: Color = .purple
+
+# error: no variant `purple` on enum `Color`

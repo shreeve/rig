@@ -1,0 +1,20 @@
+# Known bug (C2): moving a field out through a shared handle (`*Outer`)
+# is accepted, although other handles may still reference the inner
+# value. Today the handle's drop frees `inner` again and panics.
+
+struct Box
+  payload: Int
+
+struct Outer
+  inner: *Box
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub main()
+  b = *Box(payload: 7)
+  o = *Outer(inner: <b)
+  eat(<o.inner)
+  print("back")
+
+# error: cannot move out of

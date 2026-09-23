@@ -1,0 +1,11 @@
+# Known bug (B3): `!` on a call that can't fail is accepted; the emitted
+# `try` on a plain Int fails in Zig ("expected error union type").
+
+fun one() -> Int
+  1
+
+sub main()
+  n = one()!
+  print(n)
+
+# error: fallible

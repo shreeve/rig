@@ -1,14 +1,8 @@
-## M22.1(1/8): resource-producing temporary borrowed with `?` is rejected.
-##
-## Per GPT-5.5 entry 39: borrowing a fresh `*Cell(...)` via `?`
-## yields a borrow over an Rc that has no owner — the strong
-## handle gets dropped on the floor as soon as the borrow expires.
-## Same leak class as `(*Foo(...)).field`.
-##
-## V1 policy: bind the *Cell to a name first; the M20e auto-drop
-## guard installs at the binding site and the borrow stays valid
-## for the binding's scope.
+# Borrowing a fresh `*Cell(...)` without binding it first is rejected:
+# the anonymous handle would leak.
 
 sub main()
-  c = ?(*Cell(value: 0))    # error: anonymous *Cell temporary leaks
+  c = ?(*Cell(value: 0))
   print(c.get())
+
+# error: resource allocation `*Cell` used as an anonymous temporary

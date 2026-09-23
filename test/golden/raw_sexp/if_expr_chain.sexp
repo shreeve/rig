@@ -1,1 +1,0 @@
-(module (fun classify ((: x Int)) Int (block (if (> x 0) (block 1) (block (if (< x 0) (block (neg 1)) (block 0)))))) (sub main () _ (block (call print (call classify 5)) (call print (call classify (neg 5))) (call print (call classify 0)))))

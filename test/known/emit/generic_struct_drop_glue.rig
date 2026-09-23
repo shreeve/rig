@@ -1,0 +1,21 @@
+# Known bug (D10): generic structs get no drop glue, so a `Holder(*Noisy)`
+# never drops the handle it holds: the Noisy is never dropped and leaks.
+
+type Holder(T)
+  value: T
+  id: Int
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
+
+sub main()
+  n = *Noisy(id: 6)
+  h: Holder(*Noisy) = Holder(value: <n, id: 1)
+  print(h.id)
+
+# expect:
+# 1
+# 6

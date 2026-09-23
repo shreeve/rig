@@ -1,15 +1,5 @@
-## M22.1(1/8): bind-first idiom for resource handles works.
-##
-## Positive regression for the H1 resource-temp leak fix.
-## Demonstrates that the canonical "bind to a name, then use"
-## pattern is unaffected by the M22.1 rejection. The named `*User`
-## binding installs an M20e auto-drop guard (`defer if
-## (__rig_alive_u) { ... u.dropStrong(); };` in the emitted Zig),
-## so the Rc lifetime is properly managed.
-##
-## Also covers the same pattern for resource-returning functions
-## (`fun make_user() -> *User`), where binding to a name makes the
-## guard install just as it does for the `*Ctor(...)` form.
+# Binding a fresh resource (constructor or resource-returning call) to
+# a name first, then reading its fields, is the supported form.
 
 struct User
   age: Int
@@ -19,7 +9,11 @@ fun make_user() -> *User
 
 sub main()
   u: *User = *User(age: 5)
-  print(u.age)            # 5
+  print(u.age)
 
-  m = make_user()         # rebinding to a name — guard installs
-  print(m.age)            # 7
+  m = make_user()
+  print(m.age)
+
+# expect:
+# 5
+# 7

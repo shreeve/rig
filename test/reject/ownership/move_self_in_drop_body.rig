@@ -1,8 +1,9 @@
-# M25.1: a drop body cannot move `self` out of its own scope —
-# the binding is being destroyed by the runtime.
+# A drop body cannot move `self` out.
 
 struct Owner
   cell: *Cell(Int)
 
   drop self: !Owner
     other = <self
+
+# error: cannot move `self` out of its own drop body

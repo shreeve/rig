@@ -1,10 +1,9 @@
-# M15b cross-module borrow-mode canary. `a.log_box` declares its
-# parameter as `?Box` (read borrow). Passing a bare `Box` value
-# violates the borrow obligation. Same diagnostic same-file would
-# fire; pre-M15b the cross-module call silently passed because the
-# signature wasn't imported.
+# `a.log_box` takes a read borrow `?Box`; passing a bare `Box` violates
+# the imported parameter's borrow mode.
 use a
 
 sub main()
   b = a.make_box(42)
   a.log_box(b)
+
+# error: type mismatch: expected `?Box`, got `Box`

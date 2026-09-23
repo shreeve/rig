@@ -1,12 +1,11 @@
-# M20d(4/5): field-target assignment through a shared (`*T`) handle is
-# rejected. It would mutate the inner T through a shared owner, breaking
-# the aliasing model — other handles would observe the write without any
-# borrow synchronization.
+# Assigning a field through a shared handle is rejected.
 
 struct User
   age: Int
 
 sub main()
   rc = *User(age: 1)
-  rc.age = 99    # error: field-target assign through shared
+  rc.age = 99
   -rc
+
+# error: cannot assign through shared handle

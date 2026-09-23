@@ -1,5 +1,6 @@
-# M17: if used as the RHS of a binding (`x = if cond ...`). The
-# binding's type is inferred from the unified branch type.
+# `if` as the right-hand side of a binding; the binding's type comes
+# from the unified branch type.
+
 sub main()
   x = if true
     1
@@ -11,3 +12,7 @@ sub main()
     -100
   print(x)
   print(y)
+
+# expect:
+# 1
+# 100

@@ -1,6 +1,5 @@
-# M20d(4/5): by-value (consuming) receivers are not callable through a
-# shared (`*T`) handle. Other handles may still reference the inner
-# value, so consuming it would dangle them.
+# A by-value (consuming) method cannot be called through a shared
+# handle.
 
 struct User
   name: String
@@ -10,5 +9,7 @@ struct User
 
 sub main()
   rc = *User(name: "x")
-  rc.consume()   # error: consume through shared handle
+  rc.consume()
   -rc
+
+# error: method `consume` consumes the receiver

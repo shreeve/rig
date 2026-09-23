@@ -1,18 +1,23 @@
-# M25(5/5): reverse-order field drop in the generated `__rig_drop`.
-#
-# When a struct has multiple resource fields, the compiler-generated
-# drop walks them in REVERSE declaration order — Rust's drop
-# discipline. This pins the order so future readers don't have to
-# rederive it: `b` declared after `a` drops first.
+# Generated drop glue drops resource fields in reverse declaration
+# order: `b` (declared second) is dropped before `a`.
+
+struct Noisy
+  id: Int
+
+  drop self: !Noisy
+    print(self.id)
 
 struct Pair
-  a: *Cell(Int)
-  b: *Cell(Int)
+  a: *Noisy
+  b: *Noisy
 
 sub main()
-  ca: *Cell(Int) = *Cell(value: 1)
-  cb: *Cell(Int) = *Cell(value: 2)
-  p: Pair = Pair(a: <ca, b: <cb)
-  print(0)
-  # scope exit: p.__rig_drop() walks p.b.dropStrong() then
-  # p.a.dropStrong() (reverse declaration order), then frees p.
+  na = *Noisy(id: 1)
+  nb = *Noisy(id: 2)
+  p: Pair = Pair(a: <na, b: <nb)
+  print("built")
+
+# expect:
+# built
+# 2
+# 1

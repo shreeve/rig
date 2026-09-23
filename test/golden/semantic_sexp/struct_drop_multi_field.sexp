@@ -1,1 +1,0 @@
-(module (struct Pair (: a (shared (generic_inst Cell Int))) (: b (shared (generic_inst Cell Int)))) (sub main () _ (block (set _ ca (shared (generic_inst Cell Int)) (share (call Cell (kwarg value 1)))) (set _ cb (shared (generic_inst Cell Int)) (share (call Cell (kwarg value 2)))) (set _ p Pair (call Pair (kwarg a (move ca)) (kwarg b (move cb)))) (call print 0))))

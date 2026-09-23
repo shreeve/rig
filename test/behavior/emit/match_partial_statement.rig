@@ -1,11 +1,5 @@
-## M8: non-exhaustive match without a default arm — Zig requires
-## SOMETHING to cover the missing variants. Emit appends
-## `else => unreachable`. At runtime, hitting the missing variant
-## panics; at compile time, this is a hint that exhaustiveness
-## checking belongs in M9+.
-##
-## EXPECTED: clean (no Rig diagnostics). Compiles + runs because
-## `c` is `.red` which is handled.
+# A statement-position match need not cover every variant; the handled
+# variant runs its arm.
 
 enum Color
   red
@@ -17,3 +11,6 @@ sub main()
   match c
     .red => print "R"
     .green => print "G"
+
+# expect:
+# R

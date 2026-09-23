@@ -1,10 +1,8 @@
-## M22.1(4/8): `pre <expr>` expression-modifier form is reserved in V1.
-##
-## Per GPT-5.5 entry 39: parallel to `pre_block`, the expression
-## form `x = pre 42` parsed cleanly but emit produced
-## `@compileError`. Reserved in V1; `pre_param` is the supported
-## compile-time surface.
+# A `pre <expr>` expression modifier is reserved; only `pre` function
+# parameters are supported compile-time forms.
 
 sub main()
-  x = pre 42           # error: `pre` expression reserved
+  x = pre 42
   print(x)
+
+# error: `pre` expression / block is reserved

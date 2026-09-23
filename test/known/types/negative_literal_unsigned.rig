@@ -1,0 +1,8 @@
+# Known bug (B6): a negative literal for an unsigned type (`U8 = -1`) is
+# accepted; only Zig rejects it.
+
+sub main()
+  a: U8 = -1
+  print(a)
+
+# error: `U8`

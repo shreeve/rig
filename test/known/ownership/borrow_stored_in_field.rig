@@ -1,0 +1,17 @@
+# Known bug (C4): a borrow stored in a struct field is not tracked, so the
+# owner can be dropped while the struct still holds the borrow. Today this
+# is accepted.
+
+struct Box
+  payload: Int
+
+struct View
+  box: ?Box
+
+sub main()
+  b = Box(payload: 5)
+  v = View(box: ?b)
+  -b
+  print(v.box.payload)
+
+# error: cannot drop `b` while borrows are live

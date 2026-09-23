@@ -1,0 +1,12 @@
+# Known bug (new, emit): assigning an outer local inside a `raw` block is
+# missed by emit's mutation scan, so the local is emitted as `const` and
+# Zig reports "cannot assign to constant".
+
+sub main()
+  r = 0
+  raw
+    r = 5
+  print(r)
+
+# expect:
+# 5

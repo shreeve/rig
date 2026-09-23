@@ -1,0 +1,16 @@
+# Known bug (C3): the shared-handle alias rule only checks bare names, so
+# `x = p.a` copies the handle without a refcount bump. Today this is
+# accepted and both `x` and `p` drop the same box (segfault).
+
+struct Box
+  payload: Int
+
+struct Pair
+  a: *Box
+
+sub main()
+  p = Pair(a: *Box(payload: 1))
+  x = p.a
+  print(x.payload)
+
+# error: would alias the handle

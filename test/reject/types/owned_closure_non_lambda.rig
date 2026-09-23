@@ -1,8 +1,6 @@
-# M20h(5/5): owned-closure constructor needs a lambda argument.
-#
-# `*Closure(42)` (non-lambda arg) fires the sema diagnostic.
-# So does `*Closure()` (no arg). The error message points the
-# user at the correct shape `*Closure(|...| body)`.
+# The argument to `*Closure(...)` must be a lambda.
 
 sub main()
   cb: *Closure() = *Closure(42)
+
+# error: owned closure `*Closure(...)` argument must be a lambda

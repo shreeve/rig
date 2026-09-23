@@ -1,0 +1,16 @@
+# `x = a if c else b` is the inline ternary expression.
+# Known bug (A2): `else` is only promoted from identifier to keyword when
+# the parser can shift it immediately; here a reduce comes first, so the
+# line is a parse error.
+
+fun f(c: Bool) -> Int
+  x = 1 if c else 2
+  return x
+
+sub main()
+  print(f(true))
+  print(f(false))
+
+# expect:
+# 1
+# 2

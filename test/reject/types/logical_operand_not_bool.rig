@@ -1,7 +1,7 @@
-## M5(3/n): `&&` and `||` require Bool operands.
-##
-## Passing a non-Bool to a logical op must fire.
+# `&&` and `||` require Bool operands.
 
 sub main()
   x = true && 1
   print x
+
+# error: type mismatch: expected `Bool`, got `<int literal>`

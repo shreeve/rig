@@ -1,0 +1,16 @@
+# Known bug (C6): shadowing a resource binding that was already used
+# emits it without a drop guard or auto-deref (`rc.payload` on the RcBox)
+# plus a "pointless discard", so the Zig fails to compile.
+
+struct Box
+  payload: Int
+
+sub main()
+  rc = *Box(payload: 1)
+  print(rc.payload)
+  new rc = *Box(payload: 2)
+  print(rc.payload)
+
+# expect:
+# 1
+# 2

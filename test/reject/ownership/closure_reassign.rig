@@ -1,7 +1,5 @@
-# M20g(2.1) per GPT-5.5's M20g(2/5) post-implementation review:
-# closures are implicitly fixed (non-rebindable) in V1. Re-binding
-# fires a tailored diagnostic referencing the closure-fixed rule
-# instead of the generic `=!` message (the user never wrote `=!`).
+# Closure bindings are fixed; rebinding one is rejected with a
+# closure-specific diagnostic.
 
 sub main()
   n =! 7
@@ -10,3 +8,5 @@ sub main()
   f = |n|
     n + 1
   print(f())
+
+# error: cannot reassign closure binding `f`

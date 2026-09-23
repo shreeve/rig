@@ -1,12 +1,5 @@
-## M20a.2 negative: bare untyped `self` in first position.
-##
-## Per GPT-5.5's pre-commit review: once `self` is special enough to
-## power receiver-mode metadata, it must not silently become an
-## associated/static method's untyped first param. Users wanting a
-## by-value receiver must spell it: `self: Self` (or `self: User`).
-## Bare-`self` sugar for by-value receivers is deliberately deferred.
-##
-## EXPECTED: sema error: `self` parameter requires an explicit receiver type.
+# A bare `self` parameter needs an explicit receiver type: `?self`,
+# `!self`, or `self: Self`.
 
 struct User
   name: String
@@ -17,3 +10,5 @@ struct User
 sub main()
   u = User(name: "Steve")
   print(u.greet())
+
+# error: `self` parameter requires an explicit receiver type

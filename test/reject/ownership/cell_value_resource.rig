@@ -1,6 +1,5 @@
-# M26: `cell.value` direct field access is rejected for Drop T.
-# Same rationale as `cell.get()`: reading by value aliases the
-# Cell's owned T and creates a double-drop hazard.
+# Reading `cell.value` on a Cell of shared handles is rejected: the copy
+# would alias the owned handle.
 
 struct User
   age: Int
@@ -10,3 +9,5 @@ sub main()
   c: Cell(*User) = Cell(value: <u)
   view = c.value
   print(0)
+
+# error: `cell.value` reads `T` by value but `T = *User` has drop glue

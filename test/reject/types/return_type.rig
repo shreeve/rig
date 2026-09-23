@@ -1,6 +1,4 @@
-## M5(3/n): function body's implicit return must match declared type.
-##
-## `bad` declares `-> Int` but returns a String literal.
+# A function's implicit return value must match its declared type.
 
 fun bad() -> Int
   "not an int"
@@ -8,3 +6,5 @@ fun bad() -> Int
 sub main()
   x = bad()
   print x
+
+# error: type mismatch: expected `Int`, got `String`

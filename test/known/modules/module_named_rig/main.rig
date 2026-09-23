@@ -1,0 +1,11 @@
+# A user module may be named `rig`; it is imported like any other.
+# Known bug (A8): emit declares `const rig = @import("rig.zig")` next to
+# the runtime's `const rig = @import("_runtime.zig")`, and the Zig build
+# fails on the duplicate name.
+use rig
+
+sub main()
+  print(rig.helper())
+
+# expect:
+# 7

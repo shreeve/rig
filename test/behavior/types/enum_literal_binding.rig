@@ -1,9 +1,5 @@
-## M7: declared enum + typed binding via enum literal — clean.
-##
-## `c: Color = .red` checks the enum literal against the declared
-## type and confirms `red` is a real variant of `Color`.
-##
-## EXPECTED: clean (no diagnostics).
+# `c: Color = .red` checks the enum literal against the declared type
+# and confirms `red` is a variant of `Color`.
 
 enum Color
   red
@@ -13,3 +9,6 @@ enum Color
 sub main()
   c: Color = .red
   print(c)
+
+# expect:
+# .red

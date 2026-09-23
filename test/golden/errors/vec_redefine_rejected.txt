@@ -1,1 +1,0 @@
-examples/vec_redefine_rejected.rig:9:8: error: `Vec` is a reserved built-in nominal name and cannot be redefined

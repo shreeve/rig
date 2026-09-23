@@ -1,19 +1,15 @@
-## M22: extern call wrapped in a `raw` block is allowed.
-##
-## The "safe wrapper" pattern around an FFI function: the
-## public `safe_puts` Rig sub has a safe contract; internally
-## it wraps the extern call in a `raw` block. Callers of
-## `safe_puts` don't need to know about the FFI boundary.
-##
-## V1 has `raw` blocks, not raw/unsafe function declarations.
-## A safe wrapper may contain raw internals; APIs whose
-## callers must uphold unchecked preconditions are deferred.
+# Known bug (new, emit): an extern declared in the `name: fun(...)` form
+# is accepted by sema but never emitted, so the call inside `raw` fails
+# with Zig "use of undeclared identifier".
 
-extern puts: fun(String) Int
+extern abs: fun(Int) Int
 
-sub safe_puts(s: String)
+sub print_abs(n: Int)
   raw
-    puts(s)        # OK: inside `raw` block
+    print(abs(n))
 
 sub main()
-  safe_puts("hi")  # OK: safe_puts has a safe contract
+  print_abs(-5)
+
+# expect:
+# 5

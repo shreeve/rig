@@ -1,6 +1,4 @@
-## M7: enum with explicit numeric values (`ok = 0`).
-##
-## EXPECTED: clean. Lowers to `Status = enum { ok = 0, warn = 1, ... }`.
+# Enum variants may carry explicit integer values (`ok = 0`).
 
 enum Status
   ok = 0
@@ -8,5 +6,8 @@ enum Status
   err = 2
 
 sub main()
-  s: Status = .ok
+  s: Status = .warn
   print(s)
+
+# expect:
+# .warn

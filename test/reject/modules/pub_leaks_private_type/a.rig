@@ -1,7 +1,4 @@
-# M15b.2 cross-module canary: a `pub fun` whose return type is a
-# non-`pub` same-module nominal must error at the defining module's
-# decl time, BEFORE any importer touches the symbol. The diagnostic
-# fires here in `a.rig` (not at the call site in `main.rig`).
+# `Secret` is private, but the public `make_secret` returns it.
 
 struct Secret
   value: Int

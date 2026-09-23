@@ -1,0 +1,26 @@
+# `return .red` returns the enum literal `.red` of the declared return
+# type.
+# Known bug (A3): the keyword reaches the lexer rewriter as an identifier,
+# so `.red` is classified as member access (`return.red`) and the file
+# fails to parse.
+
+enum Color
+  red
+  green
+
+fun pick(b: Bool) -> Color
+  if b
+    return .red
+  return .green
+
+sub main()
+  match pick(true)
+    .red => print(1)
+    .green => print(2)
+  match pick(false)
+    .red => print(1)
+    .green => print(2)
+
+# expect:
+# 1
+# 2

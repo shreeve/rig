@@ -1,12 +1,4 @@
-## M20i.1: dropping a loop-borrow alias is rejected.
-##
-## `for cb in ?subs` binds `cb` as a borrowed view of the Vec
-## slot. `-cb` (explicit drop) would decrement the strong
-## refcount on a handle the loop binding doesn't own, leaving
-## the Vec slot with a freed pointer. Per GPT-5.5's M20i.1
-## design pass: drop has no V1 form on a borrowed slot view —
-## the Vec is the owner of the slot, and `subs.__rig_drop()` at
-## scope exit handles the cascade.
+# Dropping the borrowed element of `for cb in ?subs` is rejected.
 
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
@@ -17,3 +9,5 @@ sub main()
 
   for cb in ?subs
     -cb
+
+# error: cannot drop loop-borrow alias `cb`

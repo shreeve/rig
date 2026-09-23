@@ -1,7 +1,9 @@
-## M9b: payload variant construction with the wrong field type.
+# Payload fields are checked against their declared types.
 
 enum Shape
   circle(radius: Int)
 
 sub main()
   s: Shape = .circle(radius: "nope")
+
+# error: type mismatch: expected `Int`, got `String`

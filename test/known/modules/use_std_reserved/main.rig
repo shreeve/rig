@@ -1,13 +1,9 @@
-# M15b(4/5) canary: `use std` is reserved in V1.
-#
-# Per GPT-5.5 entry 39: pre-M15b(4/5) `modules.zig:365` silently
-# skipped `use std`, leaving any later `std.foo()` to type as
-# `unknown` and lower to literal `std.foo()` Zig syntax. That's
-# pure fake surface (the M22.1 anti-pattern at the import layer).
-# V1 doesn't expose a `std` namespace; if it returns in V2+ it
-# needs a real design pass (Rig re-exports vs Zig stdlib pass-
-# through vs FFI sugar).
+# `use std` is reserved: Rig does not expose a std module namespace.
+# Known bug (A9): the diagnostic is printed without a file:line:col; it
+# should point at the `use std` line.
 use std
 
 sub main()
   print(0)
+
+# error: `use std` is reserved

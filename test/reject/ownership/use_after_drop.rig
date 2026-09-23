@@ -1,6 +1,4 @@
-## M4.5a: plain `.src` use after drop must be rejected.
-##
-## Existing `drop.rig` uses `?user` (sigil); this uses bare `user`.
+# A bare use of a dropped value is rejected.
 
 struct User
   name: String
@@ -9,3 +7,5 @@ sub main()
   user = User(name: "Steve")
   -user
   print user
+
+# error: use of `user` after drop
