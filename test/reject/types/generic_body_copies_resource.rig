@@ -1,7 +1,8 @@
 # A generic body is checked once, for any `T`. Where it copies a `T`,
-# discards one, leaves one as a temporary, or copies one into a closure, every instantiation must
-# use plain data for `T`, including instantiations reached through
-# another generic's body (`Opt(*B)` through `Holder(*B)`).
+# discards one, leaves one as a temporary, or copies one into a
+# closure, every instantiation must use plain data for `T`, including
+# instantiations reached through another generic's body (`Opt(*B)`
+# through `Holder(*B)`).
 
 struct B
   n: Int
