@@ -10,7 +10,7 @@ fun scale(p: ?Point, by: Int) -> Int
 sub main()
   a = 1 + 2 * 3 - 4 / 2
   b = (1 + 2) * 3 % 4
-  c = a == b && a != 0 || (a < b)
+  c = a == b and a != 0 or not (a < b)
   d = a <= b
   e = -a
   f = 0xff

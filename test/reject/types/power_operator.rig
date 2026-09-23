@@ -1,6 +1,0 @@
-# `**` is not supported.
-
-sub main()
-  print(2 ** 3)
-
-# error: operator `**` is not supported

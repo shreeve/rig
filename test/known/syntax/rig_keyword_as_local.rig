@@ -1,9 +1,0 @@
-# `else` is a Rig keyword and cannot name a local binding.
-# Known bug (A8): it is accepted as an identifier and emitted as
-# `const else = 3;`, which the Zig compiler rejects.
-
-sub main()
-  else = 3
-  print(else)
-
-# error: else

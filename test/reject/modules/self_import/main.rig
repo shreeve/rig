@@ -1,0 +1,7 @@
+# A module cannot import itself.
+use main
+
+sub main()
+  print(0)
+
+# error: cyclic import

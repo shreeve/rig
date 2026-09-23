@@ -1,0 +1,15 @@
+# A deferred body cannot move an outer binding: it runs at scope exit,
+# after the binding's own cleanup has been decided.
+
+struct Box
+  payload: Int
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub main()
+  rc = *Box(payload: 1)
+  defer eat(<rc)
+  print(1)
+
+# error: a `defer` body cannot move or drop `rc`

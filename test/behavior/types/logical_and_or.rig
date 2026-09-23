@@ -1,0 +1,11 @@
+# `and` and `or` combine Bools.
+
+sub main()
+  a = 7 > 3 and 2 < 5
+  b = 1 > 2 or 3 > 4
+  print(a)
+  print(b)
+
+# expect:
+# true
+# false

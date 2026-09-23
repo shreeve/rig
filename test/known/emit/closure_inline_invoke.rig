@@ -1,0 +1,11 @@
+# A closure literal can be called where it is written: `(|n| print n)()`.
+# Known bug: it parses to (call (lambda ...)) and check accepts it, but
+# emit has no lowering for a lambda outside a binding and writes a
+# `@compileError` placeholder.
+
+sub main()
+  n = 3
+  (|n| print n)()
+
+# expect:
+# 3

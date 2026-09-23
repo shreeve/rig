@@ -279,21 +279,15 @@ const Checker = struct {
         return "expr";
     }
 
-    /// `(break value? label? guard?)` / `(continue label? guard?)`.
+    /// `(break value-or-_ label?)` / `(continue label?)`.
     fn checkJump(self: *Checker, items: []const Sexp) Error!void {
-        const is_break = items[0].tag == .@"break";
-        if (is_break and items.len >= 2 and items[1] != .nil) {
+        if (items[0].tag == .@"break" and items.len >= 2 and items[1] != .nil) {
             try self.err(firstSrcPos(items[1]), "`break` with a value is not supported yet", .{});
-        }
-        const guard_index: usize = if (is_break) 3 else 2;
-        if (items.len > guard_index and items[guard_index] != .nil) {
-            try self.checkExpr(items[guard_index], self.t().bool_id);
         }
     }
 
     fn checkReturn(self: *Checker, items: []const Sexp) Error!void {
         const value: Sexp = if (items.len >= 2) items[1] else .{ .nil = {} };
-        if (items.len >= 3 and items[2] != .nil) try self.checkExpr(items[2], self.t().bool_id);
         const ret = self.fn_return;
         if (value == .nil) {
             if (!self.is_sub and ret != self.t().void_id and !self.isPoison(ret)) {
@@ -555,30 +549,8 @@ const Checker = struct {
         return self.synthExpr(node);
     }
 
-    /// A Bool condition, or `opt as name`, which binds `name` to the
-    /// value inside the optional and leaves `self.scope` at the scope
-    /// covering the guarded branch.
     fn checkCondition(self: *Checker, cond: Sexp) Error!void {
-        if (!isHead(cond, .@"as")) return self.checkExpr(cond, self.t().bool_id);
-        if (cond.list.len < 3) return;
-        try self.err(firstSrcPos(cond), "unwrapping with `opt as name` is not supported yet; use `opt ?? fallback`", .{});
-        const opt_ty = try self.synthExpr(cond.list[1]);
-        _ = self.enter(cond);
-        const name_node = cond.list[2];
-        const sym = self.ctx.symbolOf(name_node) orelse return;
-        var bound = self.t().invalid_id;
-        switch (self.ctx.types.get(types.unwrapBorrows(self.ctx, opt_ty))) {
-            .optional => |inner| {
-                // A resource inside stays owned by the optional; the
-                // name is a read borrow of it.
-                bound = if (types.typeHasDropGlue(self.ctx, inner)) try self.ctx.intern(.{ .borrow_read = inner }) else inner;
-            },
-            else => if (!self.isPoison(opt_ty)) {
-                try self.err(firstSrcPos(cond.list[1]), "`as` unwraps an optional; this expression has type `{s}`", .{try self.tyName(opt_ty)});
-            },
-        }
-        self.ctx.symbols.items[sym].ty = bound;
-        try self.ctx.recordType(name_node, bound);
+        return self.checkExpr(cond, self.t().bool_id);
     }
 
     fn checkWhile(self: *Checker, node: Sexp) Error!void {
@@ -765,7 +737,7 @@ const Checker = struct {
                     return;
                 }
                 has_default.* = true;
-                if (!std.mem.eql(u8, name, "_")) {
+                if (!decls.isWildcardPattern(self.ctx.source, pattern)) {
                     if (self.ctx.symbolOf(pattern)) |sym| {
                         self.ctx.symbols.items[sym].ty = scrutinee;
                         try self.ctx.recordType(pattern, scrutinee);
@@ -876,6 +848,7 @@ const Checker = struct {
         if (s.len == 0) return self.t().invalid_id;
         if (s[0] == '"' or s[0] == '\'') return self.t().string_id;
         if (std.mem.eql(u8, s, "true") or std.mem.eql(u8, s, "false")) return self.t().bool_id;
+        if (std.mem.eql(u8, s, "none")) return self.t().none_id;
         if (types.isFloatLiteralText(s)) return self.t().float_literal_id;
         if (types.isIntLiteralText(s)) {
             if (std.fmt.parseInt(u64, s, 0)) |_| {} else |_| {
@@ -965,7 +938,7 @@ const Checker = struct {
                 break :blk self.t().bool_id;
             },
             .@"==", .@"!=" => self.synthEquality(items),
-            .@"&&", .@"||" => blk: {
+            .@"and", .@"or" => blk: {
                 try self.checkExpr(items[1], self.t().bool_id);
                 try self.checkExpr(items[2], self.t().bool_id);
                 break :blk self.t().bool_id;
@@ -977,7 +950,6 @@ const Checker = struct {
             .@"neg" => self.synthNeg(items),
             .@"??" => self.synthCoalesce(items, null),
             .@"catch" => self.synthCatch(items, null),
-            .@"null" => self.t().none_id,
             .@"array" => self.synthArray(e),
             .@"enum_lit" => blk: {
                 try self.err(firstSrcPos(e), "enum literal `.{s}` needs a known enum type; write `Type.{s}` or annotate the binding", .{ self.text(items[1]), self.text(items[1]) });
@@ -1019,18 +991,6 @@ const Checker = struct {
             },
             .@"anon_init" => blk: {
                 try self.err(firstSrcPos(e), "anonymous initializer `.{{...}}` is not supported; construct with `Type(field: value)`", .{});
-                break :blk self.t().invalid_id;
-            },
-            .@"undefined" => blk: {
-                try self.err(firstSrcPos(e), "`undefined` is not supported; initialize the value", .{});
-                break :blk self.t().invalid_id;
-            },
-            .@"unreachable" => blk: {
-                try self.err(firstSrcPos(e), "`unreachable` is not supported yet", .{});
-                break :blk self.t().invalid_id;
-            },
-            .@"as" => blk: {
-                try self.err(firstSrcPos(e), "`opt as name` is only allowed as an `if` or `while` condition", .{});
                 break :blk self.t().invalid_id;
             },
             .@"kwarg" => blk: {
@@ -1126,11 +1086,11 @@ const Checker = struct {
         const l = items[1];
         const r = items[2];
         // A contextual operand (`.red`, `none`) takes the other side's type.
-        if (isContextual(l) and !isContextual(r)) {
+        if (isContextual(self.ctx.source, l) and !isContextual(self.ctx.source, r)) {
             try self.checkExpr(l, try self.synthExpr(r));
             return self.t().bool_id;
         }
-        if (isContextual(r)) {
+        if (isContextual(self.ctx.source, r)) {
             try self.checkExpr(r, try self.synthExpr(l));
             return self.t().bool_id;
         }
@@ -1251,25 +1211,26 @@ const Checker = struct {
     /// `expr catch handler`: the value of fallible `expr`, or `handler`.
     fn synthCatch(self: *Checker, items: []const Sexp, expected: ?TypeId) Error!TypeId {
         if (items.len < 3) return self.t().invalid_id;
-        if (items.len >= 4) {
+        if (items.len >= 4 and items[2] != .nil) {
             try self.err(srcPos(items[2], firstSrcPos(.{ .list = items })), "naming the error in `catch |err|` is not supported yet; write `expr catch fallback`", .{});
             return self.t().invalid_id;
         }
+        const handler = items[items.len - 1];
         const ty = try self.synthExpr(items[1]);
         if (self.isPoison(ty)) {
-            _ = try self.synthExpr(items[2]);
+            _ = try self.synthExpr(handler);
             return ty;
         }
         const inner = switch (self.ctx.types.get(ty)) {
             .fallible => |i| i,
             else => {
                 try self.err(firstSrcPos(items[1]), "`catch` needs a fallible expression; this expression has type `{s}` and cannot fail", .{try self.tyName(ty)});
-                _ = try self.synthExpr(items[2]);
+                _ = try self.synthExpr(handler);
                 return self.t().invalid_id;
             },
         };
         _ = expected;
-        try self.checkExpr(items[2], inner);
+        try self.checkExpr(handler, inner);
         return inner;
     }
 
@@ -1801,9 +1762,9 @@ const Checker = struct {
             .list => |items| {
                 const h = headOf(e) orelse return false;
                 return switch (h) {
-                    .@"enum_lit", .@"null" => true,
+                    .@"enum_lit" => true,
                     .@"neg", .@"not" => items.len >= 2 and self.isComptimeKnown(items[1]),
-                    .@"+", .@"-", .@"*", .@"/", .@"%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&&", .@"||" => items.len >= 3 and self.isComptimeKnown(items[1]) and self.isComptimeKnown(items[2]),
+                    .@"+", .@"-", .@"*", .@"/", .@"%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => items.len >= 3 and self.isComptimeKnown(items[1]) and self.isComptimeKnown(items[2]),
                     .@"member" => items.len >= 3 and items[1] == .src and blk: {
                         const id = self.lookupQuiet(self.text(items[1])) orelse break :blk false;
                         break :blk self.ctx.symbols.items[id].kind == .nominal_type;
@@ -2254,6 +2215,10 @@ const Checker = struct {
         switch (e) {
             .src => {
                 const s = self.text(e);
+                if (std.mem.eql(u8, s, "none")) {
+                    try self.checkNone(e, expected, target);
+                    return true;
+                }
                 if (types.isIntLiteralText(s) and types.isInteger(self.ctx, target)) {
                     try self.checkLiteralFits(e, target);
                     try self.ctx.recordType(e, target);
@@ -2267,14 +2232,6 @@ const Checker = struct {
         const items = e.list;
         const head = headOf(e) orelse return false;
         switch (head) {
-            .@"null" => {
-                if (self.ctx.types.get(target) == .optional or self.ctx.types.get(expected) == .optional) {
-                    try self.ctx.recordType(e, if (self.ctx.types.get(expected) == .optional) expected else target);
-                } else {
-                    try self.err(firstSrcPos(e), "`none` needs an optional type; `{s}` is not optional (write `{s}?`)", .{ try self.tyName(expected), try self.tyName(expected) });
-                }
-                return true;
-            },
             .@"neg" => {
                 if (items.len >= 2 and items[1] == .src and types.isIntLiteralText(self.text(items[1])) and types.isInteger(self.ctx, target)) {
                     try self.checkLiteralFits(e, target);
@@ -2375,6 +2332,23 @@ const Checker = struct {
             },
             else => return false,
         }
+    }
+
+    /// `none` where `expected` is required: an optional (possibly fallible).
+    fn checkNone(self: *Checker, e: Sexp, expected: TypeId, target: TypeId) Error!void {
+        var ty = expected;
+        while (true) {
+            switch (self.ctx.types.get(ty)) {
+                .optional => {
+                    try self.ctx.recordType(e, ty);
+                    return;
+                },
+                .fallible => |i| ty = i,
+                else => break,
+            }
+        }
+        _ = target;
+        try self.err(firstSrcPos(e), "`none` needs an optional type; `{s}` is not optional (write `{s}?`)", .{ try self.tyName(expected), try self.tyName(expected) });
     }
 
     /// What a contextual form (literal, `.variant`, constructor) should
@@ -2894,8 +2868,8 @@ fn isFreshResourceAlloc(sexp: Sexp) bool {
 }
 
 /// Forms whose type comes from the other operand: `.variant`, `none`.
-fn isContextual(e: Sexp) bool {
-    return isHead(e, .@"enum_lit") or isHead(e, .@"null");
+fn isContextual(source: []const u8, e: Sexp) bool {
+    return isHead(e, .@"enum_lit") or std.mem.eql(u8, identAt(source, e) orelse "", "none");
 }
 
 fn isStatementForm(e: Sexp) bool {

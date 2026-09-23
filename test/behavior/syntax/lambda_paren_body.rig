@@ -1,0 +1,10 @@
+# A lambda's inline body may be a parenthesized expression: `|k| (k)`
+# yields the captured `k`.
+
+sub main()
+  k = 4
+  g = |k| (k)
+  print(g())
+
+# expect:
+# 4

@@ -1,0 +1,21 @@
+# A borrow bound in an inner block ends with the block, so the owner can
+# be dropped afterwards.
+
+struct Box
+  payload: Int
+
+  drop self: !Box
+    print("drop")
+
+sub main()
+  a = Box(payload: 3)
+  if true
+    r = ?a
+    print(r.payload)
+  -a
+  print("end")
+
+# expect:
+# 3
+# drop
+# end

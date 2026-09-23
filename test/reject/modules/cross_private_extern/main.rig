@@ -4,6 +4,6 @@ use a
 
 sub main()
   raw
-    a.puts("hi")
+    print(a.abs(-1))
 
-# error: `a.puts` is not public; mark it `pub` in module `a`
+# error: `a.abs` is not public; mark it `pub` in module `a`

@@ -1746,7 +1746,7 @@ const Coverage = struct {
         const text = self.r.source[leaf.src.pos..][0..leaf.src.len];
         if (std.mem.eql(u8, text, "print") or std.mem.eql(u8, text, "_")) return;
         if (!std.ascii.isAlphabetic(text[0]) and text[0] != '_') return;
-        if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return;
+        if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false") or std.mem.eql(u8, text, "none")) return;
         if (self.r.ctx.symbolOf(leaf) == null) {
             std.debug.print("no symbol for `{s}` at {d}\n", .{ text, leaf.src.pos });
             self.missing += 1;

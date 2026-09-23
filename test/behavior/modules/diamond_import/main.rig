@@ -1,0 +1,10 @@
+# main imports a and b, and b imports a: a is loaded and checked once
+# and both importers see the same module.
+use a
+use b
+
+sub main()
+  print(a.base() + b.twice())
+
+# expect:
+# 30

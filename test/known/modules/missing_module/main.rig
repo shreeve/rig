@@ -1,9 +1,0 @@
-# `use nope` names a module file that does not exist.
-# Known bug (A9): the "cannot read module" diagnostic has no
-# file:line:col; it should point at the `use nope` line.
-use nope
-
-sub main()
-  print(0)
-
-# error: cannot read module

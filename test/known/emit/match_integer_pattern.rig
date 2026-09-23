@@ -1,0 +1,13 @@
+# A match on an Int selects the arm whose literal equals the value.
+# Known bug: emit treats every bare-token pattern, including integer
+# literals, as the default arm, so Zig reports multiple else prongs.
+
+sub main()
+  n = 2
+  match n
+    1 => print "one"
+    2 => print "two"
+    else => print "other"
+
+# expect:
+# two

@@ -1,0 +1,20 @@
+# A borrow returned from a function borrows from the borrowed argument,
+# so `h` cannot be dropped while `r` is live.
+
+struct Box
+  payload: Int
+
+struct Holder
+  inner: *Box
+
+fun view(h: ?Holder) -> ?Holder
+  h
+
+sub main()
+  h = Holder(inner: *Box(payload: 5))
+  r = view(?h)
+  -h
+  x = +r.inner
+  print(x.payload)
+
+# error: cannot drop `h` while borrows are live

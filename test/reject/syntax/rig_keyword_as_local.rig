@@ -1,0 +1,7 @@
+# `else` is a Rig keyword and cannot name a local binding.
+
+sub main()
+  else = 3
+  print(else)
+
+# error: else

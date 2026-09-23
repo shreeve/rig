@@ -16,9 +16,8 @@ emits the fully-normalized IR shape directly for nearly every form** —
 the raw S-expression from `BaseParser` IS the semantic S-expression for
 all bindings, externs, cosmetic renames, and type modifiers.
 
-The Parser (sexp rewriter, `Parser` in `src/rig.zig`) is now responsible
-for **exactly one inspection-requiring transform** that can't be expressed
-declaratively:
+The Parser (sexp rewriter, `Parser` in `src/rig.zig`) does the two
+transforms that need to inspect the tree:
 
 > Promoting the `for` source's outer ownership wrapper into the for-mode slot.
 >
@@ -26,12 +25,11 @@ declaratively:
 > - `(for iter x _ (write xs) body)` → `(for write x _ xs body)`
 > - `(for iter x _ (move xs) body)` → `(for move x _ xs body)`
 >
-> The grammar can't do this because it requires inspecting the source's head Tag.
+> Turning a `-name` statement whose value is used into negation: the
+> last statement of a `fun` body, or of an `if` / `match` branch whose
+> value is used, becomes `(neg name)` instead of `(drop name)`.
 
-For everything else, raw == semantic. For example, with the bedrock examples,
-`bin/rig parse` (raw) and `bin/rig normalize` (semantic) produce byte-identical
-output for `borrow`, `drop`, `fixed`, `move`, `shadow`. Only `showcase` differs,
-and only on the one for-loop that uses `?users`.
+For everything else, raw == semantic (`bin/rig parse` vs `bin/rig normalize`).
 
 ## Shapes the grammar emits directly
 
@@ -45,7 +43,6 @@ and only on the one for-loop that uses `?users`.
 | `x: T = expr`       | `(set _      x T    expr)`  | typed `=`                                     |
 | `x: T =! expr`      | `(set fixed  x T    expr)`  | typed `=!`                                    |
 | `extern x: T`       | `(extern _     x T)`        | extern var                                    |
-| `extern const x: T` | `(extern fixed x T)`        | extern const                                  |
 | `extern fun foo(p: T) -> R` | `(extern_fun foo (...) R)`  | M23: body-less extern function decl   |
 | `extern sub foo(p: T)`      | `(extern_sub foo (...))`    | M23: body-less extern sub decl        |
 | `obj.name`          | `(member obj name)`         | cosmetic (was `(. obj name)`)                 |
@@ -64,8 +61,7 @@ and only on the one for-loop that uses `?users`.
 | `(for iter x _ (read xs) body)`  | `(for read x _ xs body)`  | inspect source's head, promote into mode |
 | `(for iter x _ (write xs) body)` | `(for write x _ xs body)` | (same)                                   |
 | `(for iter x _ (move xs) body)`  | `(for move x _ xs body)`  | (same)                                   |
-
-That's it. Everything else passes through unchanged.
+| `(drop x)` in value position     | `(neg x)`                 | needs the enclosing construct            |
 
 ## Full IR shape
 
@@ -80,28 +76,24 @@ That's it. Everything else passes through unchanged.
 ```
 (fun name params returns body)
 (sub name params body)
-(lambda captures params returns body)    ; bare-bar closure `|...| body`
-                                         ; captures shape documented below
-                                         ; M24: `|+v| (a: Int) call_expr` shape
-                                         ; uses `captures "(" L(field) ")" inline_body`
-                                         ; lambda form for arity-bearing owned closures
+(lambda captures params returns body)    ; closure `|...| body`; params are
+                                         ; typed `(a: Int)` or `_`; returns is
+                                         ; always `_`; an inline body is
+                                         ; wrapped in (block ...)
 (type name typeexpr)             ; type alias
 (generic_type name params? members)
+(generic_enum name params members)
 (struct name members)
 (enum   name members)
 (errors name members)
-(opaque name)
+(drop_decl (params...) body)     ; `drop self: !T`
 (use name)
 (test desc body)
-(extern <kind> name type)        ; standalone decl; kind = _ (var) | fixed (const)
-                                 ; (distinct from the 2-child decoration wrapper `(extern <child>)`)
-(extern_fun name params returns) ; M23: body-less extern function declaration
-(extern_sub name params)         ; M23: body-less extern sub (returns Void)
-(zig string)                     ; raw Zig escape hatch (M2: unsafe)
-(labeled name stmt)
-
-; decoration wrappers (chainable)
-(pub child) (extern child) (export child) (packed child) (callconv name child)
+(extern _ name type)             ; `extern name: T`
+(extern_fun name params returns) ; body-less extern function declaration
+(extern_sub name params)         ; body-less extern sub (returns Void)
+(zig string)                     ; reserved: rejected by sema
+(pub decl)
 ```
 
 ### Bindings
@@ -166,53 +158,52 @@ Multi-capture (`|+a, +b|`) shipped in M28; the list contains one
 ### Control flow
 
 ```
-(if cond then else?)
-(while cond body else?)
-(while cond cont body else?)     ; `while c : cont body` form
+(if cond then else?)             ; block `if`; also the inline ternary
+                                 ; `a if c else b` → (if c a b), and a
+                                 ; guard `stmt if c` → (if c (block stmt))
+(while cond _ body else:?)
+(while cond cont body else:?)    ; `while c : cont` form
 (for <mode> binding1 binding2-or-_ source body else?)
                                             ; mode = iter (default) | read | write | move | ptr
                                             ; binding2 is `_` for single-binding `for x in xs`
                                             ; or a name for `for x, i in xs` / `for *x, i in xs`
 (match scrutinee arms...)
-(arm pattern binding? body)
-(range_pattern lo hi)
-(enum_pattern name)
+(arm pattern _ body)             ; pattern: name, `else`, literal, (neg INT),
+                                 ; (enum_lit n), (variant_pattern n names...),
+                                 ; (range_pattern lo hi)
 (block stmts...)
-(return value? if?)
-(break label? value? if?)
-(continue label? if?)
+(return value?)
+(break value-or-_ label?)
+(continue label?)
+(labeled name stmt)              ; `:name stmt`
 (defer body)
 (errdefer body)
-(try expr)                       ; prefix `try expr`
-(try_block body catch_block?)    ; value-yielding try
+(raw_block body)
+(try_block body catch_block?)    ; reserved: rejected by sema
 (catch_block name body)
-(catch expr name? body)          ; postfix `expr catch ...`
+(catch expr name-or-_ handler)   ; `expr catch |e| handler`, `expr catch handler`
 (propagate expr)                 ; suffix `expr!`
-(ternary cond then else)
 ```
 
 ### Calls and access
 
 ```
-(call callee args...)            ; positional args, kwarg interspersed as (kwarg n v)
+(call callee args...)            ; `f(a, b)` and paren-free `f a, b`;
+                                 ; kwargs interspersed as (kwarg n v)
 (kwarg name value)               ; named arg
 (member obj name)                ; obj.name
-(deref expr)                     ; obj.*
 (index expr idx)                 ; obj[idx]
-(record TypeName members...)     ; only from `Type{...}` braced form (Zag-record)
-(anon_init members...)           ; .{ ... }
 (array elems...)                 ; [a, b, c]
 (builtin name args...)           ; @name(args)
-(addr_of expr)                   ; &x
 (enum_lit name)                  ; .strict
 ```
 
 ### Literals
 
 ```
-(null)                           ; `none`, the absent optional
-(true) (false) (undefined) (unreachable)
-INTEGER REAL STRING_SQ STRING_DQ                ; raw parser src refs
+true false INTEGER REAL STRING_SQ STRING_DQ     ; raw parser src refs
+none                                            ; the absent optional: a name
+                                                ; sema reserves and types
 ```
 
 ### Types
@@ -222,26 +213,25 @@ INTEGER REAL STRING_SQ STRING_DQ                ; raw parser src refs
 (error_union T)                  ; from `T!`  (suffix fallible)
 (borrow_read T)                  ; from `?T`  (prefix in type position — read-borrowed param/return)
 (borrow_write T)                 ; from `!T`  (prefix in type position — write-borrowed param/return)
-(ptr T) (const_ptr T) (volatile_ptr T)
-(slice T) (sentinel_slice S T)
-(array_type N T)
-(many_ptr T) (sentinel_ptr S T)
-(fun_type params ret)                 ; from function-type expression `fun(...)` (M30 unified)
-(typed name type)                ; field decl shape
+(shared T) (weak T)              ; `*T`, `~T`
+(generic_inst Name args...)      ; `Box(Int)`
+(slice T)                        ; `[]T`
+(array_type N T)                 ; `[N]T`
+(fun_type (params...) ret)       ; `fun(A, B) R`
+(: name type)                    ; parameter / field
 (default name type expr)         ; field default
-(aligned name type alignexpr)
 (pre_param name type)            ; pre-time parameter
 ```
 
 ### Operators
 
 ```
-(+ a b) (- a b) (* a b) (/ a b) (% a b) (** a b)
+(+ a b) (- a b) (* a b) (/ a b) (% a b)
 (== a b) (!= a b) (< a b) (> a b) (<= a b) (>= a b)
-(&& a b) (|| a b) (& a b) (| a b) (^ a b) (<< a b) (>> a b)
-(|> a b)                         ; pipe
+(and a b) (or a b) (not x)       ; `and` / `or` / `not`
+(& a b) (| a b) (^ a b) (<< a b) (>> a b)
 (.. a b)                         ; range
-(neg x) (not x)                  ; unary
+(neg x)                          ; `-x` in expression or value position
 (?? a b)                         ; `a ?? b`: value of optional `a`, else `b`
 ```
 
@@ -253,12 +243,6 @@ INTEGER REAL STRING_SQ STRING_DQ                ; raw parser src refs
 (pre_param name type)            ; member-position `pre name : type`
 ```
 
-### Misc
-
-```
-(inline expr)                    ; Zig-style inline call (kept for V1)
-```
-
 ## Notes for M2 (ownership checker)
 
 - `(set _ x ...)` may be either a fresh bind or a rebind — the checker decides per scope.
@@ -267,7 +251,7 @@ INTEGER REAL STRING_SQ STRING_DQ                ; raw parser src refs
 - `(move x)`, `(read x)`, `(write x)`, `(drop x)` are the primary borrow-check operations.
 - `(member obj name)` should be treated as a borrow of the path; the checker preserves field paths in diagnostics.
 - `(propagate x)` requires the enclosing function to have an `error_union` return type — this is a **semantic** check at M2 boundary or M3 emit.
-- Raw escape hatches (`(raw x)`, `(zig string)`, `(builtin name ...)` for unchecked builtins, `(extern ...)`, `(volatile_ptr ...)`) bypass ownership checking; the checker may emit a warning class but should not block.
+- Raw escape hatches (`(raw x)`, `(zig string)`, `(builtin name ...)` for unchecked builtins, `(extern ...)`) bypass ownership checking; the checker may emit a warning class but should not block.
 
 ## Notes for M3 (Zig emitter)
 
@@ -278,4 +262,4 @@ INTEGER REAL STRING_SQ STRING_DQ                ; raw parser src refs
 - `(for read x _ xs body)` lowers to `for (xs) |x| { ... }` (Zig's iteration over a const ref) — borrow semantics enforced by the checker, not the emitted Zig.
 - `(for move x _ xs body)` lowers to a consuming iteration (Zig `for (&xs) |x| {...}` with consumption is a future concern; V1 may model this with explicit element-by-element move + `xs.deinit()`).
 - `(for ptr x _ xs body)` could lower to `for (xs) |*x| { ... }` for pointer iteration; V1 emits plain `for (xs) |x| { ... }` and lets Zig figure out the binding shape from context.
-- `(record T (kwarg name v) ...)` and `(call T (kwarg name v) ...)` both lower to `T{ .name = v }` Zig struct literal whenever ANY arg is a `(kwarg ...)`. M5 type checking will tighten this so `T` must actually be a struct type; for now the heuristic relies on Rig source authors only using kwargs with constructors.
+- `(call T (kwarg name v) ...)` lowers to `T{ .name = v }` Zig struct literal whenever ANY arg is a `(kwarg ...)`. M5 type checking will tighten this so `T` must actually be a struct type; for now the heuristic relies on Rig source authors only using kwargs with constructors.

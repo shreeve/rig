@@ -1,8 +1,0 @@
-# Closure parameters need type annotations.
-
-sub main()
-  v: *Cell(Int) = *Cell(value: 0)
-  cb: *Closure1(Int) = *Closure1(Int)(|+v| (a) v.set(a))
-  cb(1)
-
-# error: parameter `a` needs a type annotation

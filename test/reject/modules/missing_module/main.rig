@@ -1,0 +1,7 @@
+# `use nope` names a module file that does not exist.
+use nope
+
+sub main()
+  print(0)
+
+# error: cannot read module

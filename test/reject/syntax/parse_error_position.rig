@@ -1,0 +1,7 @@
+# A parse error is reported with the file:line:col of the offending token.
+
+sub main()
+  x = )
+  print(x)
+
+# error: unexpected

@@ -1,0 +1,14 @@
+# A move inside a `for` body is seen by the next iteration.
+
+struct Box
+  payload: Int
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub main()
+  rc = *Box(payload: 1)
+  for i in 0..3
+    eat(<rc)
+
+# error: use of `rc` after move

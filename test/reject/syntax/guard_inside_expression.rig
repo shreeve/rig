@@ -1,0 +1,8 @@
+# A postfix `if` guards a whole statement; inside an expression a value
+# needs both branches: `a if c else b`.
+
+sub main()
+  x = 1
+  print(x if x > 0)
+
+# error: a postfix `if` guard must end a statement

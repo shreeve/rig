@@ -1,0 +1,7 @@
+# main imports a, a imports b, and b imports a: the cycle is rejected.
+use a
+
+sub main()
+  print(a.fa())
+
+# error: cyclic import

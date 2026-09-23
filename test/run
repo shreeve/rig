@@ -20,7 +20,17 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
 RIG="$ROOT/bin/rig"
-NEXUS="$ROOT/../nexus/bin/nexus"
+# Nexus: $NEXUS, else nexus/bin/nexus next to this checkout or any parent
+# directory (so git worktrees nested inside the checkout find it too).
+find_nexus() {
+    local dir=$ROOT
+    while [[ "$dir" != "/" ]]; do
+        dir=$(dirname "$dir")
+        [[ -x "$dir/nexus/bin/nexus" ]] && { echo "$dir/nexus/bin/nexus"; return; }
+    done
+    echo "$ROOT/../nexus/bin/nexus"
+}
+NEXUS=${NEXUS:-$(find_nexus)}
 PANIC_RE='Segmentation fault|panic:|panic at|reached unreachable|index out of bounds|General protection|GENERAL PROTECTION|Bus error|Illegal instruction'
 POS_RE='\.rig:[0-9]+:[0-9]+'
 LEAK_RE='rig: memory leak detected'

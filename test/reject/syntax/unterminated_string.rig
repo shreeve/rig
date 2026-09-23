@@ -1,0 +1,8 @@
+# A string literal with no closing quote is reported as unterminated at
+# its line and column.
+
+sub main()
+  x = "abc
+  print(x)
+
+# error: unterminated string

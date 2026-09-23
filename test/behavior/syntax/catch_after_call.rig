@@ -1,0 +1,12 @@
+# `f() catch 0` recovers from a failure of `f()` with 0; here `may`
+# succeeds, so the result is its value.
+
+fun may() -> Int!
+  return 42
+
+sub main()
+  y = may() catch 0
+  print(y)
+
+# expect:
+# 42

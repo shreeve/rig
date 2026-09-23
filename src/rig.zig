@@ -1,30 +1,19 @@
-//! Rig `@lang` module — the single source of truth for all Rig-specific
-//! behavior layered on top of Nexus's generated parser.
+//! Rig language module for the Nexus-generated parser (src/parser.zig).
 //!
-//! The generated parser has two stages, each with a Nexus-generated raw
-//! producer and a Rig-specific wrapper auto-wired in via `@hasDecl`:
+//! The generated parser has two stages, each wrapped here and auto-wired
+//! in by Nexus through `@hasDecl`:
 //!
-//!   stage    raw producer (parser.zig, generated)   wrapper (this file)
-//!   ─────    ────────────────────────────────────   ───────────────────
-//!   lex      BaseLexer                              Lexer
-//!   parse    BaseParser   (grammar actions → Sexp)  Parser  (rewrites
-//!                                                            into the
-//!                                                            normalized
-//!                                                            semantic IR)
+//!   stage   generated (parser.zig)   wrapper (this file)
+//!   lex     BaseLexer                Lexer   — layout, keywords, spacing
+//!   parse   BaseParser               Parser  — post-parse IR rewrites,
+//!                                              diagnostics
 //!
-//! `parser.Parser` (the auto-wire alias) resolves to `rig.Parser` here,
-//! so `parser.Parser.init(allocator, source).parseProgram()` returns
-//! the fully-rewritten IR in one call. Rig is the first Nexus consumer
-//! to actually exercise the `Parser` auto-wire end-to-end.
+//! so `parser.Parser.init(allocator, source).parseProgram()` returns the
+//! semantic IR described in docs/IR.md.
 //!
-//! Plus the supporting tables/enums:
-//!
-//!   * `Tag`         — semantic node-type enum (head Tags + kind markers)
-//!   * `BindingKind` — exhaustive enum used by the M2/M3 kind dispatches
-//!   * `keywordAs`   — identifier → keyword promotion for the parser
-//!
-//! Anything language-specific that isn't expressible in `rig.grammar`
-//! belongs here.
+//! Also here: the IR `Tag` enum, `BindingKind`, source positions
+//! (`lineCol`), and the identifier escaping that emit needs
+//! (`writeZigIdent`).
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -35,291 +24,173 @@ const TokenCat = parser.TokenCat;
 const Sexp = parser.Sexp;
 
 // =============================================================================
-// Tag enum — semantic node types for S-expression output
+// Tag — IR node heads and marker tags
 // =============================================================================
-//
-// Inherited from Zag with renames per SPEC:
-//   - `comptime` paths are renamed to `pre`
-// Added by Rig:
-//   - ownership: move, read, write, clone, drop, share, weak, pin, raw
-//   - bindings:  the unified `(set <kind> name type-or-_ expr)` head
-//   - control:   try_block, catch_block, propagate
-//   - iteration: for-mode tags `iter`, `read`, `write`, `move`, `ptr`
-//                in the unified `(for <mode> binding1 binding2-or-_ source body)` shape
-//   - meta:      pre, pre_param, pre_block
-//
-// The grammar now emits the normalized IR shape directly via Nexus's
-// tag-literal-at-child-position support (Nexus 0.10.x+), so the Tag
-// enum is sized to the **normalized** vocabulary — not the historical
-// raw-vs-normalized union. See docs/IR.md for the full
-// emitted-shape catalog.
 
 pub const Tag = enum(u8) {
-    // Module structure
+    // Declarations
     @"module",
     @"use",
-    @"enum",
-    @"struct",
-    @"packed",
-    @"labeled",
-    @"type",
-    @"pub",
-    @"extern",
-    @"export",
-    @"callconv",
-    @"opaque",
-    @"generic_type",    // type Box(T) ...
-    @"generic_inst",    // M14: type-position generic instantiation `Box(Int)` → (generic_inst Box (Int))
-    @"fixed",           // generic "fixed/immutable" kind marker (used in extern, etc.)
-    @"array_type",
-    @"aligned",
-    @"errors",
-    @"test",
-    @"zig",
-    @"null",
-    @"unreachable",
-    @"undefined",
-    @"as",
-    @"??",
-    @"catch",
-    @"ternary",
-    @"builtin",
-    @"error_union",
-
-    // Routines
     @"fun",
     @"sub",
-    @"return",
+    @"lambda",
+    @"struct",
+    @"enum",
+    @"errors",
+    @"type",            // type alias: (type Name T)
+    @"generic_type",    // (generic_type Name params? members...)
+    @"generic_enum",    // (generic_enum Name params members...)
+    @"test",
+    @"pub",
+    @"extern",          // (extern _ name T): extern variable
+    @"extern_fun",      // (extern_fun name params? returns?)
+    @"extern_sub",      // (extern_sub name params?)
+    @"drop_decl",       // (drop_decl (param) block): user-defined drop
+    @"zig",             // reserved: rejected by sema
+    @"labeled",         // (labeled name stmt)
 
-    // M23: body-less extern function declarations.
-    // Surface: `extern fun name(...) -> T` / `extern sub name(...)`
-    // — no body block. Distinct from the body-bearing `(extern (fun
-    // ...))` form: sema and emit branch on tag.
-    @"extern_fun",
-    @"extern_sub",
+    // Members and parameters
+    @":",               // (: name T)
+    @"default",         // (default name T expr)
+    @"valued",          // enum member with a value: (valued name expr)
+    @"variant",         // payload variant: (variant name params)
+    @"pre_param",       // (pre_param name T)
 
-    // M25(1/5): user-defined Drop declaration in a nominal body.
-    // Surface: `drop self: !Self` followed by an indented block.
-    // IR shape: `(drop_decl params block)` — no user-supplied name
-    // (drop is implicit per the type's contract). The full design
-    // (validation, ownership, emit) lands in M25(2/5)–(5/5); this
-    // sub-commit ships parse + IR + clean sema rejection per the
-    // M22.1 fake-surface invariant.
-    @"drop_decl",
-
-    // Bindings (Rig)
-    //
-    // ALL binding forms share a single uniform 5-child shape, emitted
-    // directly by the grammar via Nexus tag-literal-at-child support:
-    //
-    //   (set <kind> name type-or-_ expr)
-    //
-    // where <kind> is one of:
-    //   _       — default `=` (M2 disambiguates bind vs rebind)
-    //   fixed   — `=!` (immutable bind)
-    //   shadow  — `new x = expr` (explicit shadow)
-    //   move    — `x <- expr` (move-assign sugar)
-    //   +=, -=, *=, /=  — compound assignment (op as kind tag)
-    //
-    // `shadow` and `move` Tag entries serve dual purposes: as kind tags
-    // in the set's slot, AND as ownership-wrapper / shadow-marker Tags
-    // in their other contexts. Position disambiguates (items[1] of `set`
-    // is a kind; everywhere else it's the wrapper meaning).
+    // Bindings: (set <kind> target type-or-_ expr); see BindingKind.
     @"set",
+    @"fixed",
     @"shadow",
-    @"=",
     @"+=",
     @"-=",
     @"*=",
     @"/=",
+    @"drop",            // (drop name): `-name` statement
 
     // Control flow
-    @"if",
-    @"while",
-    // for: (for <mode> binding1 binding2-or-_ source body else?)
-    //   mode is one of `iter` (default), `read`, `write`, `move`, `ptr`
-    // The grammar emits the unified shape directly (no separate `for_ptr`).
-    @"for",
+    @"if",              // (if cond then else?): block if, ternary, guard
+    @"while",           // (while cond cont-or-_ body else:?)
+    @"for",             // (for mode binding index-or-_ source body else?)
+    @"iter",            // for modes
+    @"ptr",
     @"match",
-    @"arm",
+    @"arm",             // (arm pattern _ body)
     @"range_pattern",
-    @"enum_pattern",
-    @"variant_pattern", // .circle(r) / .triangle(a, b) — payload destructure pattern
-    @"enum_lit",        // .strict (inferred-type enum value)
-    @"break",
-    @"continue",
+    @"variant_pattern", // .circle(r)
+    @"enum_lit",        // .red
+    @"return",
+    @"break",           // (break value-or-_ label?)
+    @"continue",        // (continue label?)
     @"defer",
     @"errdefer",
-    // M22: raw escape. Single IR tag (the M19 `unsafe_decl`
-    // decl-modifier-wrap tag was dropped because the
-    // `unsafe sub`/`unsafe fun` form has no V1 use case per
-    // GPT-5.5 entry 38).
-    //
-    //   `raw_block` — `raw INDENT body OUTDENT` statement form.
-    //                 Body executes in a raw context (raw `%x`,
-    //                 unsafe builtins, extern calls all allowed).
-    //                 Parallel to `(defer block)`. The block IS
-    //                 the audit boundary; there is no V1 fn-level
-    //                 marker for "calling this requires raw."
     @"raw_block",
-    @"try",             // prefix: try expr
-    @"try_block",       // value-yielding try INDENT body OUTDENT
-    @"catch_block",     // catch |err| INDENT body OUTDENT
-    @"propagate",       // expr?  (suffix propagation)
-    @"inline",
-    @"lambda",
-    // M20g: closure capture list and per-capture mode tags.
-    // Lambda IR shape extends to `(lambda captures params returns body)`;
-    // captures slot is `_` (nil) for non-capturing lambdas or a
-    // `(captures cap_node...)` list.
-    //
-    // Capture modes (per GPT-5.5's M20g design pass):
-    //   `|x|`   — `(cap_copy NAME)`   Copy-only; resource handles
-    //                                  must use explicit mode below.
-    //   `|+x|`  — `(cap_clone NAME)`  refcount-bump for `*T`/`~T`;
-    //                                  Copy clone for other types.
-    //   `|~x|`  — `(cap_weak NAME)`   requires `*T`; captures `~T`.
-    //   `|<x|`  — `(cap_move NAME)`   transfers ownership; disarms
-    //                                  outer guard.
-    //
-    // `*x` is intentionally NOT a capture mode — `*` already means
-    // "allocate Rc by moving expr in"; overloading it would be
-    // confusing per the M20g design discussion.
+    @"pre_block",       // reserved: rejected by sema
+    @"pre",             // reserved: rejected by sema
+    @"try_block",       // reserved: rejected by sema
+    @"catch_block",
+    @"catch",           // (catch expr name-or-_ handler)
+    @"propagate",       // expr!
+    @"block",
+
+    // Closures
     @"captures",
-    @"cap_copy",
-    @"cap_clone",
-    @"cap_weak",
-    @"cap_move",
+    @"cap_copy",        // |x|
+    @"cap_clone",       // |+x|
+    @"cap_weak",        // |~x|
+    @"cap_move",        // |<x|
 
     // Calls and access
-    @"addr_of",
     @"call",
-    @"member",          // obj.name (grammar emits this directly)
-    @"deref",
+    @"builtin",         // @name(args)
+    @"member",
     @"index",
     @"array",
-    @"record",
-    @"kwarg",           // name: value (kwarg / record-field; grammar emits directly)
+    @"kwarg",
 
-    // Operators — arithmetic
+    // Operators
     @"+",
     @"-",
     @"*",
     @"/",
     @"%",
-    @"**",
     @"neg",
     @"not",
-
-    // Operators — comparison
+    @"and",
+    @"or",
     @"==",
     @"!=",
     @"<",
     @">",
     @"<=",
     @">=",
-
-    // Operators — logical
-    @"||",
-    @"&&",
-
-    // Operators — bitwise
     @"&",
     @"|",
     @"^",
     @"<<",
     @">>",
-
-    // Operators — pipe and range
-    @"|>",
+    @"??",
     @"..",
 
-    // Type annotations and type constructors
-    @"typed",
-    @"valued",
-    @"variant",         // payload-bearing enum variant: `circle(radius: Int)` → (variant circle ((: radius Int)))
-    @"generic_enum",    // M20c: enum Option(T) → (generic_enum Option (T) members...) — generic version of `enum`
-    @"default",
-    @":",
-    @"optional",        // `T?` (suffix optional; grammar emits directly)
-    @"borrow_read",     // `?T` in type position — read-borrowed parameter/return
-    @"borrow_write",    // `!T` in type position — write-borrowed parameter/return
-    @"shared",          // M20d: `*T` in type position — Rc<T> handle type.
-                        //   DISTINCT from expression-position `share` (M3 Tag below):
-                        //   `(shared T)`  appears under `resolveType` (type Sexp)
-                        //   `(share x)`   appears under `synthExpr`   (expression Sexp)
-                        //   GPT-5.5's M20d design pass: keep the tags separate so
-                        //   phase walkers don't have to disambiguate by context.
-                        //
-                        //   `weak` is REUSED across both positions (single Tag,
-                        //   `(weak ...)` for both type and expr) because there's
-                        //   no existing expression-vs-type collision risk for `~`.
-    @"ptr",             // for-mode: `for *x in xs` (Zag-style pointer iter)
-    @"iter",            // for-mode: default value iteration (no sigil, no `*`)
-    @"sentinel_slice",
-    @"fun_type",
-    @"error_merge",
-    @"pre_param",       // (Zag: comptime_param)
-    @"anon_init",
-    @"slice",
-
-    // Rig ownership ops (expression position; from atom rules and rewriter)
+    // Ownership sigils in expression position
     @"move",            // <x
     @"read",            // ?x
     @"write",           // !x
     @"clone",           // +x
-    @"drop",            // -x  (statement position)
     @"share",           // *x
-    @"weak",            // ~x
-    @"pin",             // @x
+    @"weak",            // ~x (also ~T in type position)
+    @"pin",             // @x, reserved
     @"raw",             // %x
 
-    // Compile-time
-    @"pre",             // pre block / pre fun / pre-call (Zag: comptime)
-    @"pre_block",       // pre INDENT body OUTDENT
+    // Types
+    @"optional",        // T?
+    @"error_union",     // T!
+    @"borrow_read",     // ?T
+    @"borrow_write",    // !T
+    @"shared",          // *T
+    @"generic_inst",    // Box(Int)
+    @"slice",           // []T
+    @"array_type",      // [N]T
+    @"fun_type",        // fun(A, B) R
 
-    // Structure
-    @"block",
+    // Not produced by the grammar; still named by other passes.
+    @"packed",
+    @"export",
+    @"callconv",
+    @"opaque",
+    @"aligned",
+    @"record",
+    @"anon_init",
+    @"deref",
+    @"addr_of",
+    @"try",
+    @"ternary",
+    @"enum_pattern",
+    @"**",
 
     _,
 };
 
 // =============================================================================
-// BindingKind — exhaustive enum for the kind slot of `(set <kind> ...)`
+// BindingKind — the kind slot of (set <kind> ...)
 // =============================================================================
-//
-// The normalized binding shape is:
-//
-//     (set <kind> name type-or-_ expr)
-//
-// `<kind>` is one of: `_` (nil), or a Tag (`.fixed`, `.shadow`, `.@"move"`,
-// `.@"+="`, etc.). At dispatch sites we want Zig to FORCE us to handle
-// every kind — so we map the kind slot into this exhaustive enum (no
-// trailing `_,` member). `rig.bindingKindOf(kind_slot)` is the
-// converter; consumers (M2 walkSet, M3 emitSet, scanMutations) switch on
-// this enum and the compiler refuses to build a switch missing any arm.
 
+/// Exhaustive view of the kind slot, so dispatch sites must handle every
+/// kind: `_` → default, `fixed` (`=!`), `shadow` (`new x =`), `move`
+/// (`<-`), and the compound assignments.
 pub const BindingKind = enum {
-    default,    // `=`            — kind slot is `_` (nil)
-    fixed,      // `=!`           — kind slot is `.fixed`
-    shadow,     // `new x = ...`  — kind slot is `.shadow`
-    @"move",    // `<-`           — kind slot is `.@"move"`
-    @"+=",      // compound add-assign
-    @"-=",      // compound sub-assign
-    @"*=",      // compound mul-assign
-    @"/=",      // compound div-assign
+    default,
+    fixed,
+    shadow,
+    @"move",
+    @"+=",
+    @"-=",
+    @"*=",
+    @"/=",
 };
 
 pub const BindingKindError = error{InvalidBindingKind};
 
-/// Decode the kind slot of a normalized binding form `(set <kind> ...)`
-/// into the exhaustive `BindingKind` enum.
-///
-/// Errors on any kind slot we don't recognize. The grammar emits only
-/// the kinds listed in `BindingKind`, so an unknown kind always
-/// indicates either a grammar/parser bug or a corrupt IR — silently
-/// defaulting to `.default` would mask both. Consumers must propagate
-/// or explicitly handle the error.
+/// Decode the kind slot of `(set <kind> ...)`. An unknown kind means the
+/// IR is corrupt, so it is an error rather than a silent default.
 pub fn bindingKindOf(kind_slot: Sexp) BindingKindError!BindingKind {
     if (kind_slot == .nil) return .default;
     if (kind_slot != .tag) return error.InvalidBindingKind;
@@ -336,182 +207,239 @@ pub fn bindingKindOf(kind_slot: Sexp) BindingKindError!BindingKind {
 }
 
 // =============================================================================
-// Keyword lookup — maps identifier text to parser symbol IDs
+// Source positions and diagnostics
 // =============================================================================
-//
-// Inherited from Zag set, with these Rig deltas:
-//   removed: `comptime`  (replaced by `pre`)
-//   added:   `pre`, `new`
 
-pub const KeywordId = enum(u16) {
-    FUN,
-    SUB,
-    USE,
-    IF,
-    ELSE,
-    WHILE,
-    FOR,
-    IN,
-    MATCH,
-    RETURN,
-    BREAK,
-    CONTINUE,
-    DEFER,
-    ERRDEFER,
-    TRY,
-    PUB,
-    EXTERN,
-    EXPORT,
-    INLINE,
-    VOLATILE,
-    CONST,
-    ALIGN,
-    CALLCONV,
-    ENUM,
-    STRUCT,
-    PACKED,
-    OPAQUE,
-    ERROR,
-    TYPE,
-    TEST,
-    PRE,            // Rig: replaces COMPTIME
-    NEW,            // Rig: explicit shadowing
-    RAW,            // M22: `raw` block keyword (M19's `unsafe`
-                    //   renamed for sigil-alignment with `%x`).
-                    //   The fn-modifier form `unsafe sub` is
-                    //   dropped in M22 (no V1 use case).
-    DROP,           // M25(1/5): user-defined Drop declaration in
-                    //   nominal body. Distinct from `DROP_STMT`
-                    //   (the `-x` rewriter token for statement-
-                    //   level discharge); they share the visual
-                    //   sigil "drop" but live in different
-                    //   grammatical positions.
-    ZIG,
-    NULL,
-    UNREACHABLE,
-    UNDEFINED,
-    AS,
-    CATCH,
-    TRUE,
-    FALSE,
-    AND,
-    OR,
-    NOT,
-    COMMENT,
-    NEWLINE,
-    IDENT,
-    INTEGER,
-    REAL,
-    STRING_SQ,
-    STRING_DQ,
-    INDENT,
-    OUTDENT,
+pub const LineCol = struct { line: u32, col: u32 };
+
+/// 1-based line and column (in bytes) of `pos` in `source`.
+pub fn lineCol(source: []const u8, pos: u32) LineCol {
+    const end = @min(pos, source.len);
+    var line: u32 = 1;
+    var line_start: usize = 0;
+    for (source[0..end], 0..) |c, i| {
+        if (c == '\n') {
+            line += 1;
+            line_start = i + 1;
+        }
+    }
+    return .{ .line = line, .col = @intCast(end - line_start + 1) };
+}
+
+/// A front-end error: a byte position and a message.
+pub const Diagnostic = struct {
+    pos: u32,
+    message: []const u8,
 };
 
-const keywordMap = std.StaticStringMap(KeywordId).initComptime(.{
-    .{ "fun", .FUN },
-    .{ "sub", .SUB },
-    .{ "use", .USE },
-    .{ "if", .IF },
-    .{ "else", .ELSE },
-    .{ "while", .WHILE },
-    .{ "for", .FOR },
-    .{ "in", .IN },
-    .{ "match", .MATCH },
-    .{ "return", .RETURN },
-    .{ "break", .BREAK },
-    .{ "continue", .CONTINUE },
-    .{ "defer", .DEFER },
-    .{ "errdefer", .ERRDEFER },
-    .{ "try", .TRY },
-    .{ "pub", .PUB },
-    .{ "extern", .EXTERN },
-    .{ "export", .EXPORT },
-    .{ "inline", .INLINE },
-    .{ "volatile", .VOLATILE },
-    .{ "const", .CONST },
-    .{ "align", .ALIGN },
-    .{ "callconv", .CALLCONV },
-    .{ "enum", .ENUM },
-    .{ "struct", .STRUCT },
-    .{ "packed", .PACKED },
-    .{ "opaque", .OPAQUE },
-    .{ "error", .ERROR },
-    .{ "type", .TYPE },
-    .{ "test", .TEST },
-    .{ "pre", .PRE },         // Rig
-    .{ "new", .NEW },         // Rig
-    .{ "raw", .RAW },         // Rig: M22 raw escape (M19 unsafe renamed)
-    .{ "drop", .DROP },       // Rig: M25 user-defined Drop declaration
-    .{ "zig", .ZIG },
-    .{ "none", .NULL },
-    .{ "unreachable", .UNREACHABLE },
-    .{ "undefined", .UNDEFINED },
-    .{ "as", .AS },
-    .{ "catch", .CATCH },
-    .{ "true", .TRUE },
-    .{ "false", .FALSE },
-    .{ "and", .AND },
-    .{ "or", .OR },
-    .{ "not", .NOT },
+// =============================================================================
+// Keywords
+// =============================================================================
+
+/// Every Rig keyword is reserved, except `new`, which is a keyword only
+/// at the start of a statement followed by a name (`new x = ...`), so
+/// `fun new(...)` and `Point.new(...)` stay ordinary names.
+const keywords = std.StaticStringMap(TokenCat).initComptime(.{
+    .{ "and", .@"and" },
+    .{ "break", .@"break" },
+    .{ "catch", .@"catch" },
+    .{ "continue", .@"continue" },
+    .{ "defer", .@"defer" },
+    .{ "drop", .@"drop" },
+    .{ "else", .@"else" },
+    .{ "enum", .@"enum" },
+    .{ "errdefer", .@"errdefer" },
+    .{ "error", .@"error" },
+    .{ "extern", .@"extern" },
+    .{ "false", .@"false" },
+    .{ "for", .@"for" },
+    .{ "fun", .@"fun" },
+    .{ "if", .@"if" },
+    .{ "in", .@"in" },
+    .{ "match", .@"match" },
+    .{ "new", .@"new" },
+    .{ "not", .@"not" },
+    .{ "or", .@"or" },
+    .{ "pre", .@"pre" },
+    .{ "pub", .@"pub" },
+    .{ "raw", .@"raw" },
+    .{ "return", .@"return" },
+    .{ "struct", .@"struct" },
+    .{ "sub", .@"sub" },
+    .{ "test", .@"test" },
+    .{ "true", .@"true" },
+    .{ "try", .@"try" },
+    .{ "type", .@"type" },
+    .{ "use", .@"use" },
+    .{ "while", .@"while" },
+    .{ "zig", .@"zig" },
 });
 
-pub fn keywordAs(name: []const u8) ?KeywordId {
-    return keywordMap.get(name);
+/// The token category of a reserved word, or null for a plain name.
+pub fn keyword(word: []const u8) ?TokenCat {
+    return keywords.get(word);
+}
+
+pub fn isKeyword(word: []const u8) bool {
+    return keywords.has(word);
 }
 
 // =============================================================================
-// Lexer — indentation + sigil-classifying wrapper around generated BaseLexer
+// Zig identifiers for emitted code
+// =============================================================================
+
+const zig_keywords = std.StaticStringMap(void).initComptime(.{
+    .{"addrspace"},   .{"align"},       .{"allowzero"},   .{"and"},
+    .{"anyframe"},    .{"anytype"},     .{"asm"},         .{"break"},
+    .{"callconv"},    .{"catch"},       .{"comptime"},    .{"const"},
+    .{"continue"},    .{"defer"},       .{"else"},        .{"enum"},
+    .{"errdefer"},    .{"error"},       .{"export"},      .{"extern"},
+    .{"fn"},          .{"for"},         .{"if"},          .{"inline"},
+    .{"linksection"}, .{"noalias"},     .{"noinline"},    .{"nosuspend"},
+    .{"opaque"},      .{"or"},          .{"orelse"},      .{"packed"},
+    .{"pub"},         .{"resume"},      .{"return"},      .{"struct"},
+    .{"suspend"},     .{"switch"},      .{"test"},        .{"threadlocal"},
+    .{"try"},         .{"union"},       .{"unreachable"}, .{"var"},
+    .{"volatile"},    .{"while"},
+});
+
+const zig_primitives = std.StaticStringMap(void).initComptime(.{
+    .{"anyerror"},       .{"anyopaque"},     .{"bool"},        .{"c_char"},
+    .{"c_int"},          .{"c_long"},        .{"c_longdouble"}, .{"c_longlong"},
+    .{"c_short"},        .{"c_uint"},        .{"c_ulong"},     .{"c_ulonglong"},
+    .{"c_ushort"},       .{"comptime_float"}, .{"comptime_int"}, .{"f128"},
+    .{"f16"},            .{"f32"},           .{"f64"},         .{"f80"},
+    .{"false"},          .{"isize"},         .{"noreturn"},    .{"null"},
+    .{"true"},           .{"type"},          .{"undefined"},   .{"usize"},
+    .{"void"},
+});
+
+/// Names the emitted prelude declares, and the prefix of emitter
+/// temporaries. A Rig name that collides with one of these is renamed.
+const emitter_names = std.StaticStringMap(void).initComptime(.{
+    .{"std"}, .{"rig"},
+});
+const emitter_prefix = "__rig";
+
+fn isZigIntType(name: []const u8) bool {
+    if (name.len < 2 or (name[0] != 'i' and name[0] != 'u')) return false;
+    for (name[1..]) |c| if (c < '0' or c > '9') return false;
+    return true;
+}
+
+/// Write `name` as a Zig identifier that denotes the Rig name and nothing
+/// else:
+///   * a Zig keyword or primitive (`var`, `fn`, `u8`, `type`) is quoted:
+///     `@"var"`;
+///   * a name the emitter itself declares (`std`, `rig`, `__rig*`) gets a
+///     `'` suffix, which no Rig identifier can contain: `@"rig'"`;
+///   * anything else is written as is.
+pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!void {
+    if (emitter_names.has(name) or std.mem.startsWith(u8, name, emitter_prefix)) {
+        try w.print("@\"{s}'\"", .{name});
+    } else if (zig_keywords.has(name) or zig_primitives.has(name) or isZigIntType(name)) {
+        try w.print("@\"{s}\"", .{name});
+    } else {
+        try w.writeAll(name);
+    }
+}
+
+// =============================================================================
+// Lexer — layout and token classification over the generated BaseLexer
 // =============================================================================
 //
-// Indentation logic copied verbatim from Zag's well-tested implementation.
+// Layout
+//   Leading spaces set a line's indentation; deeper lines open a block
+//   (INDENT), shallower ones close blocks (OUTDENT) and must land on an
+//   enclosing level. Blank and comment-only lines are ignored. Inside
+//   ( ) and [ ] newlines are whitespace, so an expression may span lines.
+//   A trailing `\` also joins the next line. Tabs are rejected in
+//   indentation.
 //
-// Rig-specific classifications layered on top:
+// Spacing
+//   A character that touches its operand and not the preceding value is a
+//   prefix; otherwise it is infix (or a suffix when it touches the value):
 //
-//   <x   tight + expression-start  → move_pfx     (else `lt`)
-//   +x   tight + expression-start  → clone_pfx    (else `plus`)
-//   %x   tight + expression-start  → raw_pfx      (else `percent`)
-//   @x   tight + expression-start  → pin_pfx      (when ident not followed by `(`;
-//                                                  builtin call `@name(...)` stays `at`)
-//   -x   tight + statement-start   → drop_stmt    (else `minus_prefix` per Zag rule
-//                                                  or infix `minus`)
-//   x?   tight + value-ender prev  → suffix_q     (else `question`)
+//     `a < b`, `a<b` less-than        `<x`, `f <x` move
+//     `a * b`         multiply        `*x`, `f *x` share, `*T` shared type
+//     `a | b`         bitwise or      `|x| ...`    closure captures
+//     `f(x)`, `a[i]`  call, index     `f (x)`, `f [1]`  new operand of f
+//     `a.b`           member          `.red`, `f .red`  enum literal
+//     `x!`, `T?`      suffix          `!x`, `?x`   write / read borrow
 //
-// Ownership prefixes that ALSO need rewriter classification (because
-// the bare token is also infix or has a type-rule role that would
-// conflict with the atom-rule alternative):
-//   ?x   tight + expression context  → read_pfx    (else `question` for postfix unused)
-//   !x   tight + expression context  → write_pfx   (else `not_sym`)
-//   *x   tight + expression context  → share_pfx   (else `star`; `.*` deref preserved
-//                                                   by the `last_cat == .dot` exclusion)
+//   `-x` at the start of a statement that is nothing but `-name` is a
+//   drop; otherwise `-x` is negation.
 //
-// `~x` (weak) needs no rewriter token: `~` has no infix role in Rig V1
-// (we drop Zag's bit-not), so the grammar's `unary = "~" unary → (weak 2)`
-// is unambiguous.
+// `if`
+//   After `return`/`break`/`continue` or a value, `if` is a postfix guard
+//   (`return x if done`), or the inline ternary when an `else` follows on
+//   the same logical line (`a if c else b`). Elsewhere it opens a block.
 
 pub const Lexer = struct {
     base: BaseLexer,
 
-    // Indentation tracking (mirrored from Zag)
-    indent_level: u32 = 0,
-    indent_stack: [64]u32 = .{0} ** 64,
-    indent_depth: u8 = 0,
-    indent_pending: u8 = 0,
-    indent_queued: ?Token = null,
-    indent_trailing_newline: bool = false,
+    // Indentation: `levels[0..depth]` are the enclosing block columns.
+    levels: [max_indent_depth]u32 = undefined,
+    depth: u32 = 0,
+    /// Per depth: the current line there opened a block that `else` or
+    /// `catch` may continue (it has a block `if`, `while`, `for`, or
+    /// `try`). An `else` after any other block (a match arm) is a new
+    /// line.
+    takes_else: [max_indent_depth + 1]bool = @splat(false),
+    column: u32 = 0,
+    pending_outdents: u32 = 0,
+    pending_newline: bool = false,
+    pending_pos: u32 = 0,
 
-    // Rewriter context
+    // Open ( and [; newlines inside them are whitespace.
+    brackets: [max_nesting]u8 = undefined,
+    nesting: u32 = 0,
+
+    /// Category of the last token returned.
     last_cat: TokenCat = .eof,
-    flow_if_active: bool = false,
-    bracket_depth: u8 = 0,
+    /// End of the last real (non-layout) token: where an unexpected end
+    /// of block or file is reported.
+    prev_end: u32 = 0,
+    /// A newline or `\` continuation was skipped since the last token.
+    joined: bool = false,
+    /// Position of the `|` that closes the capture list being lexed.
+    capture_close: ?u32 = null,
 
-    // After classifying an opening `|` as bar_capture, expect the closing
-    // `|` (after the captured ident) to also be bar_capture. Cleared on
-    // any structural / break token before the closing `|` is seen, so a
-    // malformed input like `| 1 + 2 |` doesn't bleed bar_capture into a
-    // later unrelated `|`. Tokens that DON'T clear it: `.bar` (the close
-    // we're looking for) and `.ident` (the captured name).
-    pending_close_bar: bool = false,
+    /// Why the last `.err` token was produced.
+    err: LexError = .none,
+
+    pub const max_indent_depth = 64;
+    pub const max_nesting = 512;
+
+    pub const LexError = enum {
+        none,
+        bad_char,
+        unterminated_string,
+        tab_indent,
+        bad_dedent,
+        first_line_indented,
+        indent_too_deep,
+        nesting_too_deep,
+        and_operator,
+        or_operator,
+        power_operator,
+
+        pub fn message(e: LexError) []const u8 {
+            return switch (e) {
+                .none => "invalid token",
+                .bad_char => "invalid character",
+                .unterminated_string => "unterminated string",
+                .tab_indent => "tab in indentation; indent with spaces",
+                .bad_dedent => "indentation does not match any enclosing block",
+                .first_line_indented => "unexpected indentation",
+                .indent_too_deep => "indentation is nested too deeply",
+                .nesting_too_deep => "brackets are nested too deeply",
+                .and_operator => "`&&` is not a Rig operator; use `and`",
+                .or_operator => "`||` is not a Rig operator; use `or`",
+                .power_operator => "`**` is not a Rig operator",
+            };
+        }
+    };
 
     pub fn init(source: []const u8) Lexer {
         return .{ .base = BaseLexer.init(source) };
@@ -522,627 +450,403 @@ pub const Lexer = struct {
     }
 
     pub fn reset(self: *Lexer) void {
-        self.base.reset();
-        self.indent_level = 0;
-        self.indent_depth = 0;
-        self.indent_pending = 0;
-        self.indent_queued = null;
-        self.indent_trailing_newline = false;
-        self.last_cat = .eof;
-        self.flow_if_active = false;
-        self.bracket_depth = 0;
-        self.pending_close_bar = false;
+        self.* = init(self.base.source);
     }
 
     pub fn next(self: *Lexer) Token {
-        if (self.indent_queued) |q| {
-            self.indent_queued = null;
-            self.last_cat = q.cat;
-            return q;
+        const tok = self.produce();
+        self.last_cat = tok.cat;
+        if (tok.len > 0) { // a real token, not layout
+            self.joined = false;
+            self.prev_end = tok.pos + tok.len;
         }
-        if (self.indent_pending > 0) {
-            self.indent_pending -= 1;
-            if (self.indent_pending == 0 and self.indent_trailing_newline) {
-                self.indent_trailing_newline = false;
-                self.indent_queued = Token{ .cat = .newline, .pre = 0, .pos = @intCast(self.base.pos), .len = 0 };
-            }
-            self.last_cat = .outdent;
-            return Token{ .cat = .outdent, .pre = 0, .pos = @intCast(self.base.pos), .len = 0 };
+        return tok;
+    }
+
+    fn produce(self: *Lexer) Token {
+        if (self.pending_outdents > 0) {
+            self.pending_outdents -= 1;
+            return synthetic(.outdent, self.pending_pos);
+        }
+        if (self.pending_newline) {
+            self.pending_newline = false;
+            return synthetic(.newline, self.pending_pos);
         }
 
         while (true) {
             const tok = self.base.matchRules();
-
-            // Skip comment tokens
-            if (tok.cat == .comment) continue;
-
-            // Collapse repeated newlines, but still process indent changes on the last one
-            if (tok.cat == .newline and (self.last_cat == .newline or self.last_cat == .indent or self.last_cat == .outdent or self.last_cat == .eof)) {
-                var ws: u32 = 0;
-                while (self.base.pos + ws < self.base.source.len) {
-                    const ch = self.base.source[self.base.pos + ws];
-                    if (ch == ' ' or ch == '\t') {
-                        ws += 1;
-                    } else break;
-                }
-                const dup_at_eof = self.base.pos + ws >= self.base.source.len;
-                const dup_next = if (!dup_at_eof) self.base.source[self.base.pos + ws] else 0;
-                const dup_is_empty = dup_at_eof or dup_next == '\n' or dup_next == '\r';
-                if (dup_is_empty) continue;
-                if (dup_next == '#' and ws == self.indent_level) continue;
-                if (ws != self.indent_level) {
-                    self.flow_if_active = false;
-                    const result = self.handleIndent(tok);
-                    self.last_cat = result.cat;
-                    return result;
-                }
-                continue;
-            }
-
-            if (tok.cat == .newline) {
-                self.flow_if_active = false;
-                const result = self.handleIndent(tok);
-                self.last_cat = result.cat;
-                return result;
-            }
-
-            if (tok.cat == .eof) {
-                self.flow_if_active = false;
-                if (self.indent_depth > 0) {
-                    self.indent_depth -= 1;
-                    if (self.indent_depth > 0) {
-                        self.indent_pending = self.indent_depth;
-                        self.indent_depth = 0;
+            switch (tok.cat) {
+                .comment => continue,
+                .skip => { // `\` line continuation
+                    self.joined = true;
+                    continue;
+                },
+                .newline => {
+                    if (self.nesting > 0 or self.last_cat == .eof) {
+                        self.joined = true;
+                        continue;
                     }
-                    self.indent_level = 0;
-                    self.indent_trailing_newline = false;
-                    self.last_cat = .outdent;
-                    return Token{ .cat = .outdent, .pre = 0, .pos = @intCast(self.base.pos), .len = 0 };
-                }
-                self.last_cat = .eof;
-                return tok;
+                    return self.lineBreak(tok);
+                },
+                .eof => return self.endOfInput(tok),
+                else => {},
             }
-
-            // Bracket depth tracking
-            if (tok.cat == .lbracket) self.bracket_depth += 1;
-            if (tok.cat == .rbracket and self.bracket_depth > 0) self.bracket_depth -= 1;
-
-            // .{ → fuse into dot_lbrace token for anonymous struct init
-            if (tok.cat == .dot and self.base.pos < self.base.source.len and
-                self.base.source[self.base.pos] == '{')
-            {
-                var fused = tok;
-                fused.cat = .dot_lbrace;
-                fused.len = 2;
-                self.base.pos += 1;
-                self.base.brace += 1;
-                self.last_cat = .dot_lbrace;
-                return fused;
+            if (self.last_cat == .eof and self.columnOf(tok.pos) > 0) {
+                return self.fail(.first_line_indented, tok.pos);
             }
-
-            // . → dot | dot_lit
-            //
-            // dot_lit fires when at expression-start (last_cat is not a
-            // value-ender) AND the next char starts an ident. This is the
-            // enum literal form `.strict`. Member-access `obj.name` stays
-            // as `dot` (last_cat is ident → value-ender).
-            if (tok.cat == .dot and !isValueCat(self.last_cat) and
-                self.base.pos < self.base.source.len and
-                isIdentStart(self.base.source[self.base.pos]))
-            {
-                var dl = tok;
-                dl.cat = .dot_lit;
-                self.last_cat = .dot_lit;
-                return dl;
-            }
-
-            // -----------------------------------------------------------------
-            // Rig sigil classification (in order of token category)
-            // -----------------------------------------------------------------
-
-            // - → minus | minus_prefix | drop_stmt
-            if (tok.cat == .minus) {
-                var classified = tok;
-                classified.cat = self.classifyMinus(tok);
-                self.last_cat = classified.cat;
-                return classified;
-            }
-
-            // < → lt | move_pfx
-            if (tok.cat == .lt) {
-                if (self.isPrefixSigil(tok)) {
-                    var move = tok;
-                    move.cat = .move_pfx;
-                    self.last_cat = .move_pfx;
-                    return move;
-                }
-            }
-
-            // + → plus | clone_pfx
-            if (tok.cat == .plus) {
-                if (self.isPrefixSigil(tok)) {
-                    var clone = tok;
-                    clone.cat = .clone_pfx;
-                    self.last_cat = .clone_pfx;
-                    return clone;
-                }
-            }
-
-            // % → percent | raw_pfx
-            if (tok.cat == .percent) {
-                if (self.isPrefixSigil(tok)) {
-                    var raw = tok;
-                    raw.cat = .raw_pfx;
-                    self.last_cat = .raw_pfx;
-                    return raw;
-                }
-            }
-
-            // @ → at | pin_pfx
-            //
-            // pin_pfx wins when: looks like a prefix sigil AND the next ident
-            // is NOT followed by `(` (which would make it a builtin call).
-            if (tok.cat == .at) {
-                if (self.isPrefixSigil(tok) and self.atIsPinNotBuiltin()) {
-                    var pin = tok;
-                    pin.cat = .pin_pfx;
-                    self.last_cat = .pin_pfx;
-                    return pin;
-                }
-            }
-
-            // ? → question | suffix_q | read_pfx
-            //
-            //   tight + value-ender preceding   → suffix_q   (T? optional suffix in type
-            //                                                 context; reserved for future
-            //                                                 optional-propagation in expr
-            //                                                 context — `?` family is
-            //                                                 optional / null)
-            //   isPrefixSigil                   → read_pfx   (`?T`, `?x`, `?user`)
-            //   else                            → question
-            if (tok.cat == .question) {
-                if (tok.pre == 0 and isValueCat(self.last_cat)) {
-                    var prop = tok;
-                    prop.cat = .suffix_q;
-                    self.last_cat = .suffix_q;
-                    return prop;
-                }
-                if (self.isPrefixSigil(tok)) {
-                    var rp = tok;
-                    rp.cat = .read_pfx;
-                    self.last_cat = .read_pfx;
-                    return rp;
-                }
-            }
-
-            // ! → not_sym | write_pfx | suffix_bang
-            //
-            //   tight + value-ender preceding   → suffix_bang   (T! fallible type;
-            //                                                    parser-state-dispatched
-            //                                                    so this is type-only — see
-            //                                                    grammar's `type SUFFIX_BANG`)
-            //   isPrefixSigil                   → write_pfx     (`!user`, `!T` write borrow)
-            //   else                            → not_sym
-            if (tok.cat == .not_sym) {
-                if (tok.pre == 0 and isValueCat(self.last_cat)) {
-                    var sb = tok;
-                    sb.cat = .suffix_bang;
-                    self.last_cat = .suffix_bang;
-                    return sb;
-                }
-                if (self.isPrefixSigil(tok)) {
-                    var wp = tok;
-                    wp.cat = .write_pfx;
-                    self.last_cat = .write_pfx;
-                    return wp;
-                }
-            }
-
-            // * → star | share_pfx
-            //
-            //   isPrefixSigil  → share_pfx   (`*user`, `*T`; `.*` deref excluded
-            //                                  via the `last_cat == .dot` check
-            //                                  inside isPrefixSigil)
-            //   else           → star
-            if (tok.cat == .star) {
-                if (self.isPrefixSigil(tok)) {
-                    var sp = tok;
-                    sp.cat = .share_pfx;
-                    self.last_cat = .share_pfx;
-                    return sp;
-                }
-            }
-
-            // | → bar | bar_capture
-            //
-            // Opening `|` is classified when probe sees `ident |` ahead.
-            // After that, `pending_close_bar` is set and the next `|`
-            // (after the captured ident) is auto-classified.
-            if (tok.cat == .bar) {
-                if (self.pending_close_bar) {
-                    self.pending_close_bar = false;
-                    var cap = tok;
-                    cap.cat = .bar_capture;
-                    self.last_cat = .bar_capture;
-                    return cap;
-                }
-                if (self.isCapturePipe()) {
-                    var cap = tok;
-                    cap.cat = .bar_capture;
-                    self.last_cat = .bar_capture;
-                    self.pending_close_bar = true;
-                    return cap;
-                }
-            } else if (self.pending_close_bar and !Lexer.isCaptureContentCat(tok.cat)) {
-                // M20g: allow capture-mode sigil tokens (`+` clone, `<`
-                // move, `~` weak) AND the captured `ident` to flow
-                // through without clearing the bar_capture pending
-                // state. Other tokens (binary operators, brackets, etc.)
-                // still clear the flag so a later unrelated `|` isn't
-                // misclassified.
-                self.pending_close_bar = false;
-            }
-
-            // if → if | post_if | ternary_if (Zag classification, kept verbatim)
-            if (tok.cat == .ident) {
-                const ident_text = self.base.source[tok.pos..][0..tok.len];
-                if (std.mem.eql(u8, ident_text, "if") and self.flow_if_active and
-                    self.base.paren == 0 and self.base.brace == 0 and self.bracket_depth == 0)
-                {
-                    var post = tok;
-                    post.cat = .post_if;
-                    self.flow_if_active = false;
-                    self.last_cat = .post_if;
-                    return post;
-                }
-                if (std.mem.eql(u8, ident_text, "if") and !self.flow_if_active and
-                    isValueCat(self.last_cat) and self.hasElseOnLine())
-                {
-                    var ternary = tok;
-                    ternary.cat = .ternary_if;
-                    self.last_cat = .ternary_if;
-                    return ternary;
-                }
-                if (std.mem.eql(u8, ident_text, "return") or
-                    std.mem.eql(u8, ident_text, "break") or
-                    std.mem.eql(u8, ident_text, "continue"))
-                {
-                    self.flow_if_active = true;
-                }
-
-                // ident → kwarg_name when inside parens AND immediately followed
-                // by `:` (constructor / call kwarg sugar). The grammar's `arg`
-                // rule then accepts `KWARG_NAME ":" expr → (pair 1 3)`.
-                if (self.base.paren > 0 and self.nextSignificantIsColon()) {
-                    var kw = tok;
-                    kw.cat = .kwarg_name;
-                    self.last_cat = .kwarg_name;
-                    return kw;
-                }
-            }
-
-            self.last_cat = tok.cat;
-            return tok;
+            return self.classify(tok);
         }
+    }
+
+    fn synthetic(cat: TokenCat, pos: u32) Token {
+        return .{ .cat = cat, .pre = 0, .pos = pos, .len = 0 };
+    }
+
+    fn fail(self: *Lexer, e: LexError, pos: u32) Token {
+        self.err = e;
+        return .{ .cat = .err, .pre = 0, .pos = pos, .len = 0 };
+    }
+
+    fn columnOf(self: *const Lexer, pos: u32) u32 {
+        var i = pos;
+        while (i > 0 and self.base.source[i - 1] != '\n') i -= 1;
+        return pos - i;
     }
 
     // -------------------------------------------------------------------------
-    // Sigil classification helpers
+    // Layout
     // -------------------------------------------------------------------------
 
-    /// True when this `<sigil>` token should be reclassified as a prefix
-    /// operator. Mirrors Zag's `classifyMinus` rule, which handles three
-    /// surface forms uniformly:
-    ///
-    ///   `<x`         (statement start)        prefix
-    ///   `f <x`       (Ruby-style arg pos)     prefix          (last_cat value, pre > 0)
-    ///   `a < b`      (infix less-than)        NOT prefix      (space after)
-    ///   `a<b`        (compact infix)          NOT prefix      (last_cat value, pre == 0)
-    ///   `= <x`       (after assign etc.)      prefix          (last_cat NOT value)
-    ///
-    /// Conditions:
-    ///   1. Operand-like char immediately follows (no space after).
-    ///   2. Either (a) we're in expression-start context, or
-    ///      (b) we're in arg position (value-ender preceded with space).
-    fn isPrefixSigil(self: *const Lexer, tok: Token) bool {
-        const end = tok.pos + tok.len;
-        if (end >= self.base.source.len) return false;
-        const c = self.base.source[end];
-        if (c == ' ' or c == '\t' or c == '\n' or c == '\r') return false;
-        if (!isOperandStart(c)) return false;
-
-        // `.*` is postfix deref, not share/anything. Don't rewrite.
-        if (self.last_cat == .dot) return false;
-
-        if (!isValueCat(self.last_cat)) return true;
-        if (tok.pre > 0) return true;
-        return false;
-    }
-
-    /// `@` is pin (not builtin) when followed by ident NOT followed by `(`.
-    /// `@name(` is a builtin call; `@name` (no paren) is pin.
-    fn atIsPinNotBuiltin(self: *const Lexer) bool {
-        var p = self.base.pos;
-        // Already past the `@`. Must have an ident-start char.
-        if (p >= self.base.source.len) return false;
-        const c0 = self.base.source[p];
-        if (!isIdentStart(c0)) return false;
-        // Skip the ident
-        p += 1;
-        while (p < self.base.source.len and isIdentCont(self.base.source[p])) : (p += 1) {}
-        // If followed by `(` it's a builtin call; otherwise pin
-        if (p >= self.base.source.len) return true;
-        return self.base.source[p] != '(';
-    }
-
-    /// Reclassify `-` per Zag's rule, plus drop_stmt at statement-start.
-    fn classifyMinus(self: *const Lexer, tok: Token) TokenCat {
-        const end = tok.pos + tok.len;
-        const space_after = end >= self.base.source.len or
-            self.base.source[end] == ' ' or self.base.source[end] == '\t' or
-            self.base.source[end] == '\n' or self.base.source[end] == '\r';
-
-        // Drop statement: `-x` at statement start, tight, ident operand
-        if (!space_after and isStmtStart(self.last_cat)) {
-            const c = self.base.source[end];
-            if (isIdentStart(c)) return .drop_stmt;
-        }
-
-        if (space_after) return .minus;
-        if (!canEndExpr(self.last_cat) or tok.pre > 0) return .minus_prefix;
-        return .minus;
-    }
-
-    fn canEndExpr(cat: TokenCat) bool {
-        return switch (cat) {
-            .ident, .integer, .real, .string_sq, .string_dq,
-            .true, .false,
-            .rparen, .rbracket, .rbrace,
-            // Both type/expression suffixes are value-enders so chained
-            // suffixes (`T?`, `T!`, `expr!.bar`) parse correctly.
-            .suffix_q, .suffix_bang,
-            => true,
-            else => false,
-        };
-    }
-
-    fn isStmtStart(cat: TokenCat) bool {
-        return switch (cat) {
-            .newline, .indent, .outdent, .eof => true,
-            else => false,
-        };
-    }
-
-    fn isValueCat(cat: TokenCat) bool {
-        return switch (cat) {
-            .ident, .integer, .real, .string_sq, .string_dq,
-            .true, .false,
-            .rparen, .rbracket, .rbrace,
-            .suffix_q, .suffix_bang,
-            => true,
-            else => false,
-        };
-    }
-
-    fn isOperandStart(c: u8) bool {
-        return isIdentStart(c) or
-            (c >= '0' and c <= '9') or
-            c == '(' or c == '[' or c == '{' or
-            c == '"' or c == '\'' or
-            // sigils chaining is allowed in V1 lexer; the parser/normalizer
-            // decides legality (e.g., `<+x` would parse but normalize will
-            // typically reject)
-            c == '<' or c == '?' or c == '!' or c == '+' or c == '-' or
-            c == '*' or c == '~' or c == '@' or c == '%' or c == '.';
-    }
-
-    fn isIdentStart(c: u8) bool {
-        return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_';
-    }
-
-    fn isIdentCont(c: u8) bool {
-        return isIdentStart(c) or (c >= '0' and c <= '9');
-    }
-
-    // -------------------------------------------------------------------------
-    // Indentation handling — copied verbatim from Zag (well-tested)
-    // -------------------------------------------------------------------------
-
-    fn handleIndent(self: *Lexer, nl_tok: Token) Token {
-        if (self.base.paren > 0 or self.base.brace > 0) return nl_tok;
-
-        var ws: u32 = 0;
-        while (self.base.pos + ws < self.base.source.len) {
-            const ch = self.base.source[self.base.pos + ws];
-            if (ch == ' ' or ch == '\t') {
-                ws += 1;
-            } else break;
-        }
-        // Scan past blank lines to find the first content line's indent
-        var line_start = self.base.pos;
-        while (line_start + ws < self.base.source.len) {
-            const ch = self.base.source[line_start + ws];
-            if (ch == '\n' or ch == '\r') {
-                line_start = line_start + ws + 1;
-                ws = 0;
-                while (line_start + ws < self.base.source.len) {
-                    const wc = self.base.source[line_start + ws];
-                    if (wc == ' ' or wc == '\t') {
-                        ws += 1;
-                    } else break;
-                }
-                continue;
+    /// A newline outside brackets: find the next line with content and
+    /// turn its indentation into NEWLINE, INDENT, or OUTDENTs.
+    fn lineBreak(self: *Lexer, nl: Token) Token {
+        const src = self.base.source;
+        var line: u32 = nl.pos + nl.len;
+        while (true) {
+            var p = line;
+            var tab: ?u32 = null;
+            while (p < src.len and (src[p] == ' ' or src[p] == '\t')) : (p += 1) {
+                if (src[p] == '\t' and tab == null) tab = p;
             }
-            break;
-        }
-        const at_eof = line_start + ws >= self.base.source.len;
-        if (!at_eof) {
-            const next_ch = self.base.source[line_start + ws];
-            if (next_ch == '#' and ws == self.indent_level) {
-                return nl_tok;
+            if (p >= src.len) {
+                self.base.pos = @intCast(src.len);
+                return self.endOfInput(synthetic(.eof, @intCast(src.len)));
             }
-        }
-        var ws_eff = ws;
-        if (at_eof) ws_eff = 0;
-
-        if (ws_eff > self.indent_level) {
-            if (self.indent_depth >= 63)
-                return Token{ .cat = .err, .pre = 0, .pos = @intCast(self.base.pos), .len = 0 };
-            self.indent_stack[self.indent_depth] = self.indent_level;
-            self.indent_depth += 1;
-            self.indent_level = ws_eff;
-            return Token{ .cat = .indent, .pre = 0, .pos = @intCast(self.base.pos), .len = 0 };
-        } else if (ws_eff < self.indent_level) {
-            var count: u8 = 0;
-            var next_level = self.indent_level;
-            while (next_level > ws_eff) {
-                if (self.indent_depth == 0)
-                    return Token{ .cat = .err, .pre = 0, .pos = @intCast(self.base.pos), .len = 0 };
-                self.indent_depth -= 1;
-                next_level = self.indent_stack[self.indent_depth];
-                count += 1;
+            switch (src[p]) {
+                '\n', '\r' => {
+                    line = p + 1;
+                    continue;
+                },
+                '#' => {
+                    while (p < src.len and src[p] != '\n') p += 1;
+                    line = p;
+                    continue;
+                },
+                else => {},
             }
-            if (next_level != ws_eff)
-                return Token{ .cat = .err, .pre = 0, .pos = @intCast(self.base.pos), .len = 0 };
-            self.indent_level = ws_eff;
-            if (count > 0) {
-                const needs_newline = !at_eof and !self.nextTokenIsElse();
-                if (count > 1) {
-                    self.indent_pending = count - 1;
-                    self.indent_trailing_newline = needs_newline;
-                } else if (needs_newline) {
-                    self.indent_queued = Token{ .cat = .newline, .pre = 0, .pos = @intCast(self.base.pos), .len = 0 };
-                }
-                return Token{ .cat = .outdent, .pre = 0, .pos = @intCast(self.base.pos), .len = 0 };
-            }
-            return nl_tok;
+            if (tab) |t| return self.fail(.tab_indent, t);
+            self.base.pos = line;
+            return self.indentTo(p - line, p, nl);
         }
-        return nl_tok;
     }
 
-    fn nextTokenIsElse(self: *const Lexer) bool {
+    fn indentTo(self: *Lexer, width: u32, pos: u32, nl: Token) Token {
+        if (width > self.column) {
+            if (self.depth == max_indent_depth) return self.fail(.indent_too_deep, pos);
+            self.levels[self.depth] = self.column;
+            self.depth += 1;
+            self.column = width;
+            self.takes_else[self.depth] = false;
+            return synthetic(.indent, pos);
+        }
+        if (width == self.column) {
+            self.takes_else[self.depth] = false;
+            return nl;
+        }
+
+        var closed: u32 = 0;
+        while (self.column > width) {
+            if (self.depth == 0) return self.fail(.bad_dedent, pos);
+            self.depth -= 1;
+            self.column = self.levels[self.depth];
+            closed += 1;
+        }
+        if (self.column != width) return self.fail(.bad_dedent, pos);
+
+        self.pending_outdents = closed - 1;
+        self.pending_pos = pos;
+        if (self.takes_else[self.depth] and self.startsWithContinuation(pos)) {
+            self.pending_newline = false;
+        } else {
+            self.pending_newline = true;
+            self.takes_else[self.depth] = false;
+        }
+        return synthetic(.outdent, pos);
+    }
+
+    /// The line at `pos` starts with `else` or `catch`, which continue the
+    /// block that just closed, so no NEWLINE separates them.
+    fn startsWithContinuation(self: *const Lexer, pos: u32) bool {
         var probe = self.base;
+        probe.pos = pos;
         const tok = probe.matchRules();
         if (tok.cat != .ident) return false;
-        const ident_text = self.base.source[tok.pos..][0..tok.len];
-        // Block-continuation keywords that should NOT be split off the
-        // preceding block by an injected newline.
-        return std.mem.eql(u8, ident_text, "else") or
-            std.mem.eql(u8, ident_text, "catch");
+        const word = self.base.text(tok);
+        return std.mem.eql(u8, word, "else") or std.mem.eql(u8, word, "catch");
     }
 
-    fn hasElseOnLine(self: *const Lexer) bool {
+    fn endOfInput(self: *Lexer, eof: Token) Token {
+        if (self.depth > 0) {
+            self.pending_outdents = self.depth - 1;
+            self.pending_pos = eof.pos;
+            self.depth = 0;
+            self.column = 0;
+            return synthetic(.outdent, eof.pos);
+        }
+        return eof;
+    }
+
+    // -------------------------------------------------------------------------
+    // Classification
+    // -------------------------------------------------------------------------
+
+    fn classify(self: *Lexer, tok: Token) Token {
+        var out = tok;
+        out.cat = switch (tok.cat) {
+            .ident => self.classifyWord(tok),
+            .dot => if (self.isEnumLiteralDot(tok)) .dot_lit else .dot,
+            .lparen, .lbracket => blk: {
+                if (self.nesting == max_nesting) return self.fail(.nesting_too_deep, tok.pos);
+                self.brackets[self.nesting] = self.base.source[tok.pos];
+                self.nesting += 1;
+                if (!self.touchesValue(tok)) break :blk tok.cat;
+                break :blk if (tok.cat == .lparen) .lparen_call else .lbracket_index;
+            },
+            .rparen, .rbracket => blk: {
+                if (self.nesting > 0) self.nesting -= 1;
+                break :blk tok.cat;
+            },
+            .minus => self.classifyMinus(tok),
+            .lt => if (self.isPrefix(tok)) .move_pfx else .lt,
+            .plus => if (self.isPrefix(tok)) .clone_pfx else .plus,
+            .percent => if (self.isPrefix(tok)) .raw_pfx else .percent,
+            .star => if (self.isPrefix(tok)) .share_pfx else .star,
+            .at => if (self.isPrefix(tok) and !self.isBuiltinCall(tok)) .pin_pfx else .at,
+            .question => if (self.touchesValue(tok)) .suffix_q else if (self.isPrefix(tok)) .read_pfx else .question,
+            .not_sym => if (self.touchesValue(tok)) .suffix_bang else if (self.isPrefix(tok)) .write_pfx else .not_sym,
+            .bar => if (self.isCaptureBar(tok)) .bar_capture else .bar,
+            .and_sym => return self.fail(.and_operator, tok.pos),
+            .or_sym => return self.fail(.or_operator, tok.pos),
+            .power => return self.fail(.power_operator, tok.pos),
+            .err => return self.fail(self.lexErrorAt(tok), tok.pos),
+            else => tok.cat,
+        };
+        switch (out.cat) {
+            .@"if", .@"while", .@"for", .@"try" => self.takes_else[self.depth] = true,
+            else => {},
+        }
+        return out;
+    }
+
+    fn classifyWord(self: *const Lexer, tok: Token) TokenCat {
+        const word = self.base.text(tok);
+        if (keyword(word)) |kw| switch (kw) {
+            .@"if" => {
+                switch (self.last_cat) {
+                    .@"return", .@"break", .@"continue" => return .post_if,
+                    else => {},
+                }
+                if (!isValue(self.last_cat)) return .@"if";
+                return if (self.elseFollows()) .ternary_if else .post_if;
+            },
+            .@"new" => return if (self.atStatementStart() and self.nextIsName()) .@"new" else .ident,
+            else => return kw,
+        };
+        if (self.inParens() and self.nextCat() == .colon) return .kwarg_name;
+        return .ident;
+    }
+
+    /// `-` is infix when spaced after or attached to a value (`a - b`,
+    /// `a-b`); otherwise a prefix: a drop when `-name` is a whole
+    /// statement, negation otherwise.
+    fn classifyMinus(self: *const Lexer, tok: Token) TokenCat {
+        if (!self.isPrefix(tok)) return .minus;
+        if ((self.atStatementStart() or self.last_cat == .@"defer" or self.last_cat == .@"errdefer") and
+            self.isWholeDropStatement())
+        {
+            return .drop_stmt;
+        }
+        return .minus_prefix;
+    }
+
+    /// After `-` comes a name and then the end of the line, a comment, or
+    /// a postfix guard.
+    fn isWholeDropStatement(self: *const Lexer) bool {
         var probe = self.base;
-        var depth: i32 = 0;
+        const name = probe.matchRules();
+        if (name.cat != .ident or name.pre != 0 or keyword(self.base.text(name)) != null) return false;
+        const after = probe.matchRules();
+        return switch (after.cat) {
+            .newline, .eof, .comment => true,
+            .ident => std.mem.eql(u8, self.base.text(after), "if"),
+            else => false,
+        };
+    }
+
+    /// The character touches its operand, and does not touch a preceding
+    /// value (`<x`, `f <x`, but not `a<b` or `a < b`).
+    fn isPrefix(self: *const Lexer, tok: Token) bool {
+        const end = tok.pos + tok.len;
+        if (end >= self.base.source.len or !isOperandStart(self.base.source[end])) return false;
+        return !isValue(self.last_cat) or self.spacedBefore(tok);
+    }
+
+    /// The token touches the value before it (`f(`, `a[`, `T?`, `x!`).
+    fn touchesValue(self: *const Lexer, tok: Token) bool {
+        return isValue(self.last_cat) and !self.spacedBefore(tok);
+    }
+
+    fn spacedBefore(self: *const Lexer, tok: Token) bool {
+        return tok.pre > 0 or self.joined;
+    }
+
+    /// `.name` starts an enum literal unless it touches a value (member
+    /// access). A `.` that begins a continuation line inside brackets is
+    /// member access, so method chains can be split across lines.
+    fn isEnumLiteralDot(self: *const Lexer, tok: Token) bool {
+        const end = tok.pos + tok.len;
+        if (end >= self.base.source.len or !isIdentStart(self.base.source[end])) return false;
+        if (!isValue(self.last_cat)) return true;
+        return tok.pre > 0 and !self.joined;
+    }
+
+    /// `@name(` is a builtin call; `@name` alone is the (reserved) pin.
+    fn isBuiltinCall(self: *const Lexer, tok: Token) bool {
+        var p = tok.pos + tok.len;
+        const src = self.base.source;
+        while (p < src.len and isIdentCont(src[p])) p += 1;
+        return p < src.len and src[p] == '(';
+    }
+
+    /// An opening capture bar touches its first capture and is followed by
+    /// `[+<~]name (, [+<~]name)*` and a closing bar touching the last
+    /// name. The closing bar is recognized by position.
+    fn isCaptureBar(self: *Lexer, tok: Token) bool {
+        if (self.capture_close) |close| if (close == tok.pos) {
+            self.capture_close = null;
+            return true;
+        };
+        if (!self.isPrefix(tok)) return false;
+        var probe = self.base;
         while (true) {
-            const tok = probe.matchRules();
-            switch (tok.cat) {
-                .newline, .eof => return false,
-                .lparen => depth += 1,
-                .rparen => depth -= 1,
-                .lbracket => depth += 1,
-                .rbracket => depth -= 1,
-                .lbrace => depth += 1,
-                .rbrace => depth -= 1,
-                .ident => {
-                    if (depth == 0 and tok.len == 4 and
-                        std.mem.eql(u8, self.base.source[tok.pos..][0..4], "else"))
-                        return true;
+            var t = probe.matchRules();
+            if (t.cat == .plus or t.cat == .lt or t.cat == .tilde) {
+                const name = probe.matchRules();
+                if (name.pre != 0) return false;
+                t = name;
+            }
+            if (t.cat != .ident or keyword(self.base.text(t)) != null) return false;
+            const sep = probe.matchRules();
+            switch (sep.cat) {
+                .bar => {
+                    if (sep.pre != 0) return false;
+                    self.capture_close = sep.pos;
+                    return true;
                 },
+                .comma => {},
+                else => return false,
+            }
+        }
+    }
+
+    /// Scan ahead on the current logical line for an `else` at this
+    /// nesting level (the ternary form `a if c else b`).
+    fn elseFollows(self: *const Lexer) bool {
+        var probe = self.base;
+        var depth: u32 = 0;
+        while (true) {
+            const t = probe.matchRules();
+            switch (t.cat) {
+                .eof => return false,
+                .newline => if (depth == 0 and self.nesting == 0) return false,
+                .lparen, .lbracket, .lbrace => depth += 1,
+                .rparen, .rbracket, .rbrace => {
+                    if (depth == 0) return false;
+                    depth -= 1;
+                },
+                .comma => if (depth == 0) return false,
+                .ident => if (depth == 0 and std.mem.eql(u8, self.base.text(t), "else")) return true,
                 else => {},
             }
         }
     }
 
-    /// True when the upcoming token sequence looks like a capture
-    /// pipe: optional capture-mode sigil (`+`/`<`/`~`), then ident,
-    /// then closing `|`. M20g extends the original `ident |` probe
-    /// to accept the sigil-prefixed lambda capture forms while
-    /// keeping the catch / for-each single-ident pattern intact.
-    fn isCapturePipe(self: *const Lexer) bool {
-        // Probe ahead for the multi-capture pattern (M28):
-        //
-        //   `|` (here)  [sigil]? ident  ( `,` [sigil]? ident )*  `|`
-        //
-        // M20g shipped single-capture only; M28 extended to comma-
-        // separated. Each capture is `[+|<|~]? ident` (the sigil is a
-        // raw `plus` / `lt` / `tilde` token here — full sigil
-        // classification fires AFTER this probe runs). Bounded at 32
-        // captures defensively (real captures lists are ~2-5).
-        var probe = self.base;
-        var captures: u8 = 0;
-        while (captures < 32) : (captures += 1) {
-            const sigil_tok = probe.matchRules();
-            const has_sigil = switch (sigil_tok.cat) {
-                .plus, .lt, .tilde => true,
-                else => false,
-            };
-            const ident_tok = if (has_sigil) probe.matchRules() else sigil_tok;
-            if (ident_tok.cat != .ident) return false;
-            const sep_tok = probe.matchRules();
-            switch (sep_tok.cat) {
-                .bar => return true,
-                .@"comma" => continue,
-                else => return false,
-            }
-        }
-        return false;
-    }
-
-    /// M20g: token categories that may appear inside a `|...|`
-    /// capture pipe without clearing `pending_close_bar`. The
-    /// opening pipe was already classified as `bar_capture`; we
-    /// want the sigil prefix (if any) and the bound identifier to
-    /// NOT clear the pending-close state. The closing `|` is
-    /// handled separately in the bar arm.
-    fn isCaptureContentCat(cat: TokenCat) bool {
-        return switch (cat) {
-            .ident,
-            // Sigil-classified forms produced inside capture context:
-            .clone_pfx, .move_pfx, .tilde,
-            // Raw forms (in case classification didn't fire by the time
-            // we check — defensive):
-            .plus,
-            // M28: comma is the multi-capture separator. Without
-            // this, `|+a, +b|` cleared `pending_close_bar` at
-            // the comma and the closing `|` was misclassified as
-            // a binary OR operator instead of bar_capture.
-            .@"comma",
-            => true,
+    fn atStatementStart(self: *const Lexer) bool {
+        return switch (self.last_cat) {
+            .newline, .indent, .outdent, .eof => true,
             else => false,
         };
     }
 
-    /// Probe ahead: is the next significant token a `:` ?
-    fn nextSignificantIsColon(self: *const Lexer) bool {
+    fn inParens(self: *const Lexer) bool {
+        return self.nesting > 0 and self.brackets[self.nesting - 1] == '(';
+    }
+
+    fn nextCat(self: *const Lexer) TokenCat {
         var probe = self.base;
-        const tok = probe.matchRules();
-        return tok.cat == .colon;
+        return probe.matchRules().cat;
+    }
+
+    fn nextIsName(self: *const Lexer) bool {
+        var probe = self.base;
+        const t = probe.matchRules();
+        return t.cat == .ident and keyword(self.base.text(t)) == null;
+    }
+
+    fn lexErrorAt(self: *const Lexer, tok: Token) LexError {
+        const c = self.base.source[tok.pos];
+        return if (c == '"' or c == '\'') .unterminated_string else .bad_char;
     }
 };
 
+/// Token categories that end an operand: a following `(` / `[` / `?` /
+/// `!` touching one of these is a suffix, not a prefix.
+fn isValue(cat: TokenCat) bool {
+    return switch (cat) {
+        .ident, .integer, .real, .string_sq, .string_dq, .@"true", .@"false",
+        .rparen, .rbracket, .suffix_q, .suffix_bang,
+        => true,
+        else => false,
+    };
+}
+
+fn isOperandStart(c: u8) bool {
+    return isIdentStart(c) or (c >= '0' and c <= '9') or switch (c) {
+        '(', '[', '"', '\'', '.', '<', '?', '!', '+', '-', '*', '~', '@', '%' => true,
+        else => false,
+    };
+}
+
+fn isIdentStart(c: u8) bool {
+    return (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or c == '_';
+}
+
+fn isIdentCont(c: u8) bool {
+    return isIdentStart(c) or (c >= '0' and c <= '9');
+}
+
 // =============================================================================
-// Parser — parse-stage rewriter (BaseParser + sexp normalization)
+// Parser — post-parse rewrites and diagnostics over the generated BaseParser
 // =============================================================================
-//
-// `BaseParser` (in parser.zig, generated by Nexus) is the parse-stage
-// raw producer — it consumes tokens from `Lexer` and emits raw S-
-// expressions via the grammar's per-rule actions.
-//
-// `Parser` (this struct) is the language-specific wrapper that runs
-// BaseParser, then walks the raw Sexp tree and rewrites it into the
-// normalized semantic IR documented in `docs/IR.md`. M2
-// (ownership checker) and M3 (Zig emitter) consume Parser's output, not
-// BaseParser's.
-//
-// Nexus auto-wires `parser.Parser = if (@hasDecl(rig, "Parser")) rig.Parser else BaseParser;`
-// at the parser.zig top level, so `parser.Parser.init(allocator, source)`
-// from anywhere in the Rig codebase picks up this wrapper automatically,
-// and `parser.parseProgram(allocator, source)` returns the fully-rewritten
-// IR via the top-level convenience helper.
 
 pub const Parser = struct {
     base: BaseParser,
+    /// Set when parsing succeeded but the tree was rejected.
+    failure: ?Diagnostic = null,
+
+    /// Every pass walks the tree recursively; deeper trees are rejected
+    /// here instead of exhausting the stack later.
+    pub const max_tree_depth = 1000;
 
     pub fn init(alloc: std.mem.Allocator, source: []const u8) Parser {
         return .{ .base = BaseParser.init(alloc, source) };
@@ -1152,124 +856,151 @@ pub const Parser = struct {
         self.base.deinit();
     }
 
-    pub fn printError(self: *Parser) void {
-        self.base.printError();
-    }
-
-    /// Expose the underlying raw token for diagnostics (callers reach
-    /// for this on parse failure to build a span).
-    pub fn current(self: *const Parser) Token {
-        return self.base.current;
-    }
-
-    /// Parse + rewrite. Returns the normalized semantic IR.
+    /// Parse and rewrite into the semantic IR. On `error.ParseError`,
+    /// `diagnostic()` describes the failure.
     pub fn parseProgram(self: *Parser) !Sexp {
-        const raw = try self.base.parseProgram();
-        return self.rewrite(raw);
+        return self.walk(try self.parseTree());
     }
 
-    /// Standalone rewriter — kept public so unit tests can feed in
-    /// hand-built raw Sexps without going through a real parse.
-    pub fn rewrite(self: *Parser, sexp: Sexp) !Sexp {
-        return self.walk(sexp);
+    /// Parse without the IR rewrites: the grammar's own output.
+    pub fn parseTree(self: *Parser) !Sexp {
+        // A file with no statements is an empty module; the grammar's
+        // `program` needs at least one.
+        if (self.base.current.cat == .eof) {
+            const empty = try self.allocator().alloc(Sexp, 1);
+            empty[0] = .{ .tag = .@"module" };
+            return .{ .list = empty };
+        }
+        const tree = try self.base.parseProgram();
+        if (tooDeep(tree, 0)) |pos| {
+            self.failure = .{ .pos = pos, .message = "expression is nested too deeply" };
+            return error.ParseError;
+        }
+        return tree;
+    }
+
+    /// Position inside the first subtree nested deeper than
+    /// `max_tree_depth`, or null.
+    fn tooDeep(sexp: Sexp, depth: u32) ?u32 {
+        const items = switch (sexp) {
+            .list => |l| l,
+            else => return null,
+        };
+        if (depth == max_tree_depth) return firstPos(sexp);
+        for (items) |item| if (tooDeep(item, depth + 1)) |pos| return pos;
+        return null;
+    }
+
+    /// The first source position in `sexp` (without recursion: the
+    /// subtree may be arbitrarily deep).
+    fn firstPos(sexp: Sexp) u32 {
+        var node = sexp;
+        descend: while (node == .list) {
+            for (node.list) |item| if (item == .src) return item.src.pos;
+            for (node.list) |item| if (item == .list) {
+                node = item;
+                continue :descend;
+            };
+            break;
+        }
+        return if (node == .src) node.src.pos else 0;
+    }
+
+    /// Why parsing failed: at the token where the parser stopped, or the
+    /// rejected tree.
+    pub fn diagnostic(self: *Parser) Diagnostic {
+        if (self.failure) |f| return f;
+        const tok = self.base.current;
+        const src = self.base.source;
+        const message: []const u8 = switch (tok.cat) {
+            .err => self.base.lexer.err.message(),
+            .eof => return .{ .pos = self.base.lexer.prev_end, .message = "unexpected end of file" },
+            .outdent => return .{ .pos = self.base.lexer.prev_end, .message = "unexpected end of block" },
+            .newline => "unexpected end of line",
+            .indent => "unexpected indentation",
+            .post_if => "a postfix `if` guard must end a statement; write `a if c else b` for a value",
+            .ident => self.format("unexpected name `{s}`", .{src[tok.pos..][0..tok.len]}),
+            else => if (keyword(src[tok.pos..][0..tok.len]) != null)
+                self.format("unexpected keyword `{s}`", .{src[tok.pos..][0..tok.len]})
+            else
+                self.format("unexpected `{s}`", .{src[tok.pos..][0..tok.len]}),
+        };
+        return .{ .pos = tok.pos, .message = message };
+    }
+
+    fn format(self: *Parser, comptime fmt: []const u8, args: anytype) []const u8 {
+        return std.fmt.allocPrint(self.allocator(), fmt, args) catch "unexpected token";
     }
 
     fn allocator(self: *Parser) std.mem.Allocator {
         return self.base.arena.allocator();
     }
 
-    /// The grammar emits the normalized IR shape directly for nearly
-    /// everything (using the tag-literal-at-child-position feature added
-    /// in Nexus 0.10.x+). The Parser's only remaining responsibility is
-    /// **inspection-requiring transforms** that can't be expressed in a
-    /// declarative grammar action — currently just one: consuming the
-    /// `for` source's outer ownership-wrapper (`(read xs)` etc.) into
-    /// the `for` form's mode slot.
-    ///
-    /// Walks children for everything else so cosmetic renames in nested
-    /// positions still work consistently.
+    // -------------------------------------------------------------------------
+    // Rewrites that need to inspect the tree:
+    //
+    //   * `for` source sigils move into the mode slot:
+    //       (for iter x _ (read xs) body)  →  (for read x _ xs body)
+    //   * a `-name` statement whose value is used is negation, not a drop:
+    //     the last statement of a `fun` body, or of a branch or arm whose
+    //     value is used, becomes (neg name).
+    // -------------------------------------------------------------------------
+
+    pub fn rewrite(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
+        return self.walk(sexp);
+    }
+
     fn walk(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
-        switch (sexp) {
-            .nil, .tag, .src, .str => return sexp,
-            .list => |items| {
-                if (items.len == 0) return sexp;
-                if (items[0] == .tag and items[0].tag == .@"for") {
-                    return try self.normFor(items);
-                }
-                return self.walkChildren(sexp);
+        const items = switch (sexp) {
+            .list => |l| l,
+            else => return sexp,
+        };
+        const out = try self.allocator().alloc(Sexp, items.len);
+        for (items, 0..) |child, i| out[i] = try self.walk(child);
+        if (out.len == 0 or out[0] != .tag) return .{ .list = out };
+        switch (out[0].tag) {
+            .@"for" => normFor(out),
+            // (fun name params returns body): the body's value is returned.
+            .@"fun" => if (out.len >= 5 and out[3] != .nil) valueTail(out[4]),
+            // (set kind target type expr): the expression's value is bound.
+            .@"set" => if (out.len >= 5) valueTail(out[4]),
+            else => {},
+        }
+        return .{ .list = out };
+    }
+
+    /// `sexp` (already walked, so its lists are freshly allocated) is in
+    /// value position: a trailing `(drop x)` there is `(neg x)`.
+    fn valueTail(sexp: Sexp) void {
+        if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return;
+        const items = @constCast(sexp.list);
+        switch (items[0].tag) {
+            .@"drop" => items[0] = .{ .tag = .@"neg" },
+            .@"block" => if (items.len >= 2) valueTail(items[items.len - 1]),
+            .@"if" => if (items.len >= 4) {
+                valueTail(items[2]);
+                valueTail(items[3]);
             },
+            .@"match" => for (items[2..]) |arm| {
+                if (arm == .list and arm.list.len >= 4) valueTail(arm.list[3]);
+            },
+            else => {},
         }
     }
 
-    fn walkChildren(self: *Parser, sexp: Sexp) !Sexp {
-        const items = sexp.list;
-        var out = try self.allocator().alloc(Sexp, items.len);
-        for (items, 0..) |child, i| {
-            out[i] = try self.walk(child);
+    /// Promote the source's `?xs` / `!xs` / `<xs` wrapper into the mode.
+    fn normFor(items: []Sexp) void {
+        if (items.len < 6) return;
+        if (items[1] != .tag or items[1].tag != .iter) return;
+        const source = items[4];
+        if (source != .list or source.list.len < 2 or source.list[0] != .tag) return;
+        switch (source.list[0].tag) {
+            .@"read", .@"write", .@"move" => {
+                items[1] = source.list[0];
+                items[4] = source.list[1];
+            },
+            else => {},
         }
-        return Sexp{ .list = out };
-    }
-
-    /// Consume the source's outer ownership wrapper into the for-mode slot.
-    ///
-    /// Raw from grammar:    (for <mode> binding1 binding2 source body else?)
-    /// where mode is one of:
-    ///   `iter` — default value iteration, no sigil and no `*`
-    ///   `ptr`  — `for *x in xs`
-    /// When mode is `iter`, the source MAY be a `(read X)` / `(write X)`
-    /// / `(move X)` wrapper from the source's `?xs` / `!xs` / `<xs`
-    /// sigil. We promote that wrapper into the mode slot and unwrap
-    /// the source to its inner expression — the one transform Nexus
-    /// can't do declaratively (it requires inspecting a child).
-    ///
-    /// `ptr` mode is left alone (V1 doesn't combine `*` and sigil).
-    fn normFor(self: *Parser, items: []const Sexp) !Sexp {
-        if (items.len < 6) return self.walkChildren(.{ .list = items });
-
-        const raw_mode = items[1];
-        const binding1 = try self.walk(items[2]);
-        const binding2 = try self.walk(items[3]);
-        const raw_source = items[4];
-        const source = try self.walk(raw_source);
-
-        var mode: Sexp = raw_mode;
-        var unwrapped_source = source;
-
-        const mode_is_iter = (raw_mode == .tag and raw_mode.tag == .iter);
-        if (mode_is_iter and source == .list and source.list.len >= 2 and
-            source.list[0] == .tag)
-        {
-            switch (source.list[0].tag) {
-                .@"read" => {
-                    mode = .{ .tag = .@"read" };
-                    unwrapped_source = source.list[1];
-                },
-                .@"write" => {
-                    mode = .{ .tag = .@"write" };
-                    unwrapped_source = source.list[1];
-                },
-                .@"move" => {
-                    mode = .{ .tag = .@"move" };
-                    unwrapped_source = source.list[1];
-                },
-                else => {},
-            }
-        }
-
-        const body = try self.walk(items[5]);
-        const has_else = items.len >= 7;
-        const else_body = if (has_else) try self.walk(items[6]) else Sexp{ .nil = {} };
-
-        const out_len: usize = if (has_else) 7 else 6;
-        const out = try self.allocator().alloc(Sexp, out_len);
-        out[0] = .{ .tag = .@"for" };
-        out[1] = mode;
-        out[2] = binding1;
-        out[3] = binding2;
-        out[4] = unwrapped_source;
-        out[5] = body;
-        if (has_else) out[6] = else_body;
-        return Sexp{ .list = out };
     }
 };
 
@@ -1277,143 +1008,92 @@ pub const Parser = struct {
 // Tests
 // =============================================================================
 
-test "keywordAs - core Rig keywords" {
-    try std.testing.expectEqual(KeywordId.FUN, keywordAs("fun").?);
-    try std.testing.expectEqual(KeywordId.SUB, keywordAs("sub").?);
-    try std.testing.expectEqual(KeywordId.PRE, keywordAs("pre").?);
-    try std.testing.expectEqual(KeywordId.NEW, keywordAs("new").?);
-    try std.testing.expectEqual(KeywordId.RAW, keywordAs("raw").?);
-    try std.testing.expectEqual(KeywordId.DROP, keywordAs("drop").?);
-    try std.testing.expectEqual(KeywordId.IF, keywordAs("if").?);
-    try std.testing.expectEqual(KeywordId.CATCH, keywordAs("catch").?);
-    try std.testing.expectEqual(KeywordId.TRY, keywordAs("try").?);
-    try std.testing.expectEqual(KeywordId.TRUE, keywordAs("true").?);
+const testing = std.testing;
+
+fn expectCats(source: []const u8, expected: []const TokenCat) !void {
+    var lx = Lexer.init(source);
+    for (expected) |want| {
+        const got = lx.next();
+        testing.expectEqual(want, got.cat) catch |e| {
+            std.debug.print("source: {s}\n  at `{s}`\n", .{ source, lx.text(got) });
+            return e;
+        };
+    }
 }
 
-test "keywordAs - comptime is gone (replaced by pre)" {
-    try std.testing.expect(keywordAs("comptime") == null);
+test "keywords are reserved; `new` only at statement start" {
+    try testing.expectEqual(TokenCat.@"else", keyword("else").?);
+    try testing.expect(keyword("fn") == null);
+    try testing.expect(keyword("var") == null);
+    try expectCats("new x = 1", &.{ .@"new", .ident, .assign, .integer });
+    try expectCats("p = Point.new(1)", &.{ .ident, .assign, .ident, .dot, .ident, .lparen_call, .integer, .rparen });
 }
 
-test "keywordAs - fn is gone (M30: folded into fun for both decls and types)" {
-    try std.testing.expect(keywordAs("fn") == null);
+test "spacing decides prefix vs infix" {
+    try expectCats("a < b", &.{ .ident, .lt, .ident });
+    try expectCats("a<b", &.{ .ident, .lt, .ident });
+    try expectCats("f <x", &.{ .ident, .move_pfx, .ident });
+    try expectCats("a * b", &.{ .ident, .star, .ident });
+    try expectCats("x = *b", &.{ .ident, .assign, .share_pfx, .ident });
+    try expectCats("a | b | c", &.{ .ident, .bar, .ident, .bar, .ident });
+    try expectCats("f = |a, +b| a", &.{ .ident, .assign, .bar_capture, .ident, .comma, .clone_pfx, .ident, .bar_capture, .ident });
+    try expectCats("f(x) f (x)", &.{ .ident, .lparen_call, .ident, .rparen, .ident, .lparen, .ident, .rparen });
+    try expectCats("a[i] f [1]", &.{ .ident, .lbracket_index, .ident, .rbracket, .ident, .lbracket, .integer, .rbracket });
+    try expectCats("a.b f .c", &.{ .ident, .dot, .ident, .ident, .dot_lit, .ident });
+    try expectCats("return .red", &.{ .@"return", .dot_lit, .ident });
+    try expectCats("T? x!", &.{ .ident, .suffix_q, .ident, .suffix_bang });
 }
 
-test "keywordAs - inherited from Zag still present" {
-    try std.testing.expectEqual(KeywordId.DEFER, keywordAs("defer").?);
-    try std.testing.expectEqual(KeywordId.ERRDEFER, keywordAs("errdefer").?);
-    try std.testing.expectEqual(KeywordId.EXTERN, keywordAs("extern").?);
-    try std.testing.expectEqual(KeywordId.PACKED, keywordAs("packed").?);
-    try std.testing.expectEqual(KeywordId.VOLATILE, keywordAs("volatile").?);
-    try std.testing.expectEqual(KeywordId.CALLCONV, keywordAs("callconv").?);
-    try std.testing.expectEqual(KeywordId.INLINE, keywordAs("inline").?);
-    try std.testing.expectEqual(KeywordId.ENUM, keywordAs("enum").?);
-    try std.testing.expectEqual(KeywordId.STRUCT, keywordAs("struct").?);
-    try std.testing.expectEqual(KeywordId.ERROR, keywordAs("error").?);
-    try std.testing.expectEqual(KeywordId.TEST, keywordAs("test").?);
-    try std.testing.expectEqual(KeywordId.ZIG, keywordAs("zig").?);
-    try std.testing.expectEqual(KeywordId.NULL, keywordAs("none").?);
-    try std.testing.expectEqual(KeywordId.UNDEFINED, keywordAs("undefined").?);
-    try std.testing.expectEqual(KeywordId.UNREACHABLE, keywordAs("unreachable").?);
+test "minus: infix, negation, drop" {
+    try expectCats("a - b", &.{ .ident, .minus, .ident });
+    try expectCats("a -b", &.{ .ident, .minus_prefix, .ident });
+    try expectCats("-x", &.{.drop_stmt, .ident});
+    try expectCats("-x + 1", &.{ .minus_prefix, .ident, .plus, .integer });
+    try expectCats("y = -x", &.{ .ident, .assign, .minus_prefix, .ident });
 }
 
-test "keywordAs - non-keywords" {
-    try std.testing.expect(keywordAs("loadUser") == null);
-    try std.testing.expect(keywordAs("user") == null);
-    try std.testing.expect(keywordAs("packet") == null);
-    try std.testing.expect(keywordAs("") == null);
-    try std.testing.expect(keywordAs("var") == null);    // intentionally not a keyword
-    try std.testing.expect(keywordAs("let") == null);    // intentionally not a keyword
+test "if: block, guard, ternary" {
+    try expectCats("if c", &.{ .@"if", .ident });
+    try expectCats("return if c", &.{ .@"return", .post_if, .ident });
+    try expectCats("return x if c", &.{ .@"return", .ident, .post_if, .ident });
+    try expectCats("x = a if c else b", &.{ .ident, .assign, .ident, .ternary_if, .ident, .@"else", .ident });
+    try expectCats("f(a if c else b)", &.{ .ident, .lparen_call, .ident, .ternary_if, .ident, .@"else", .ident, .rparen });
 }
 
-// -----------------------------------------------------------------------------
-// Parser (sexp rewriter) tests
-//
-// These tests exercise `Parser.rewrite` against hand-built raw Sexps,
-// without going through a real parse. `Parser` wraps a `BaseParser`
-// internally; for these tests we initialize it with an empty source and
-// never call `parseProgram`, just `rewrite`. The arena owned by the
-// BaseParser inside `Parser` provides the allocator for the rewritten
-// tree, and `Parser.deinit` frees it.
-// -----------------------------------------------------------------------------
+test "layout: indentation, joined lines, tabs" {
+    try expectCats("a\n  b\nc", &.{ .ident, .indent, .ident, .outdent, .newline, .ident, .eof });
+    try expectCats("f(1,\n  2)\nx", &.{ .ident, .lparen_call, .integer, .comma, .integer, .rparen, .newline, .ident });
+    try expectCats("a\n\tb", &.{ .ident, .err });
+    try expectCats("a\n    b\n  c", &.{ .ident, .indent, .ident, .err });
+}
 
-// The Parser (sexp rewriter) now does ONE inspection-requiring
-// transform: consuming the `for` source's outer ownership wrapper
-// into the for's mode slot. Everything else (binding renames,
-// kind-tagging, cosmetic renames like `.` → `member`, `pair` → `kwarg`)
-// is done by the grammar directly via the tag-literal-at-child-position
-// feature in Nexus 0.10.x+.
+test "lineCol" {
+    try testing.expectEqual(LineCol{ .line = 1, .col = 1 }, lineCol("ab\ncd", 0));
+    try testing.expectEqual(LineCol{ .line = 2, .col = 2 }, lineCol("ab\ncd", 4));
+}
 
-test "parser: for-sigil consumption (iter → read)" {
-    // Raw from grammar: (for iter x _ (read xs) body)
-    // Expected after rewrite: (for read x _ xs body)
-    const xs_src = Sexp{ .str = "xs" };
-    var read_items = [_]Sexp{ .{ .tag = .@"read" }, xs_src };
-    const read_wrap = Sexp{ .list = &read_items };
+test "writeZigIdent escapes Zig keywords and emitter names" {
+    var buf: [64]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try writeZigIdent(&w, "var");
+    try w.writeAll(" ");
+    try writeZigIdent(&w, "u8");
+    try w.writeAll(" ");
+    try writeZigIdent(&w, "rig");
+    try w.writeAll(" ");
+    try writeZigIdent(&w, "count");
+    try testing.expectEqualStrings("@\"var\" @\"u8\" @\"rig'\" count", w.buffered());
+}
 
-    const x_src = Sexp{ .str = "x" };
-    const body = Sexp{ .str = "body" };
+test "parser: for-source sigil moves into the mode slot" {
+    var read_items = [_]Sexp{ .{ .tag = .@"read" }, .{ .str = "xs" } };
     var raw_items = [_]Sexp{
-        .{ .tag = .@"for" },
-        .{ .tag = .iter }, // mode = iter (default from grammar)
-        x_src,
-        .{ .nil = {} },
-        read_wrap,
-        body,
+        .{ .tag = .@"for" },  .{ .tag = .iter }, .{ .str = "x" }, .nil,
+        .{ .list = &read_items }, .{ .str = "body" },
     };
-    const raw = Sexp{ .list = &raw_items };
-
-    var p = Parser.init(std.testing.allocator, "");
+    var p = Parser.init(testing.allocator, "");
     defer p.deinit();
-    const out = try p.rewrite(raw);
-
-    try std.testing.expectEqual(Tag.@"for", out.list[0].tag);
-    try std.testing.expect(out.list[1] == .tag);
-    try std.testing.expectEqual(Tag.@"read", out.list[1].tag); // mode promoted to read
-    try std.testing.expect(out.list[4] == .str);                // source unwrapped to xs
-}
-
-test "parser: for with no sigil keeps iter mode" {
-    const x_src = Sexp{ .str = "x" };
-    const xs_src = Sexp{ .str = "xs" };
-    const body = Sexp{ .str = "body" };
-    var raw_items = [_]Sexp{
-        .{ .tag = .@"for" },
-        .{ .tag = .iter },
-        x_src,
-        .{ .nil = {} },
-        xs_src,
-        body,
-    };
-    const raw = Sexp{ .list = &raw_items };
-
-    var p = Parser.init(std.testing.allocator, "");
-    defer p.deinit();
-    const out = try p.rewrite(raw);
-
-    try std.testing.expectEqual(Tag.@"for", out.list[0].tag);
-    try std.testing.expectEqual(Tag.iter, out.list[1].tag); // mode stays iter
-}
-
-test "parser: for ptr leaves source alone" {
-    // (for ptr p _ items body) — when grammar already set ptr mode,
-    // the Parser should NOT inspect/unwrap the source.
-    const p_src = Sexp{ .str = "p" };
-    const items_src = Sexp{ .str = "items" };
-    const body = Sexp{ .str = "body" };
-    var raw_items = [_]Sexp{
-        .{ .tag = .@"for" },
-        .{ .tag = .@"ptr" }, // mode = ptr (set by grammar)
-        p_src,
-        .{ .nil = {} },
-        items_src,
-        body,
-    };
-    const raw = Sexp{ .list = &raw_items };
-
-    var par = Parser.init(std.testing.allocator, "");
-    defer par.deinit();
-    const out = try par.rewrite(raw);
-
-    try std.testing.expectEqual(Tag.@"for", out.list[0].tag);
-    try std.testing.expectEqual(Tag.@"ptr", out.list[1].tag); // mode preserved
+    const out = try p.rewrite(.{ .list = &raw_items });
+    try testing.expectEqual(Tag.@"read", out.list[1].tag);
+    try testing.expect(out.list[4] == .str);
 }

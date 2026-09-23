@@ -1,0 +1,7 @@
+# `none` is the absent optional; it cannot name a binding.
+
+sub main()
+  none = 3
+  print(1)
+
+# error: `none` is the absent optional and cannot be used as a name

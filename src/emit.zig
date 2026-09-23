@@ -21,6 +21,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const types = @import("types.zig");
+const runtime = @import("runtime.zig");
 
 const Sexp = parser.Sexp;
 const Tag = rig.Tag;
@@ -201,7 +202,7 @@ pub const Emitter = struct {
         // M22.1.1: renamed from `_rig_runtime.zig` per Steve — the
         // `_` prefix already says "internal"; the `rig_` was
         // redundant inside an output dir literally named `rig_<name>/`.
-        try self.w.writeAll("const rig = @import(\"_runtime.zig\");\n");
+        try self.w.print("const rig = @import(\"{s}\");\n", .{runtime.filename});
         if (sexp == .list and sexp.list.len > 0 and sexp.list[0] == .tag and
             sexp.list[0].tag == .@"module")
         {
@@ -3686,6 +3687,8 @@ pub const Emitter = struct {
                     // for anything but a single-char literal. Emit a
                     // properly-escaped Zig string literal instead.
                     try self.emitSingleQuotedAsZigString(text);
+                } else if (self.isNoneLiteral(sexp)) {
+                    try self.w.writeAll("null");
                 } else {
                     try self.w.writeAll(text);
                 }
@@ -3704,6 +3707,14 @@ pub const Emitter = struct {
                 try self.emitExprList(items);
             },
         }
+    }
+
+    /// `none`, the absent optional. Sema reserves the name and records a
+    /// type for the literal; a variant named `none` has no such fact.
+    fn isNoneLiteral(self: *const Emitter, leaf: Sexp) bool {
+        if (!std.mem.eql(u8, self.source[leaf.src.pos..][0..leaf.src.len], "none")) return false;
+        const sema = self.sema orelse return true;
+        return sema.typeOf(leaf) != null;
     }
 
     fn emitExprList(self: *Emitter, items: []const Sexp) Error!void {
@@ -3887,7 +3898,7 @@ pub const Emitter = struct {
             // Infix arithmetic / comparison / logic — emit `(a OP b)`.
             .@"+", .@"-", .@"*", .@"/", .@"%",
             .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=",
-            .@"&&", .@"||", .@"&", .@"|", .@"^", .@"<<", .@">>",
+            .@"and", .@"or", .@"&", .@"|", .@"^", .@"<<", .@">>",
             => try self.emitInfix(items, head),
             // Block-as-expression (e.g., `if cond block else block` returning value)
             .@"block" => try self.emitBlock(.{ .list = items }),
@@ -3900,15 +3911,14 @@ pub const Emitter = struct {
             // blocks when they need them; single-expression branches
             // are emitted inline. See `emitIfExpr` / `emitBranchExpr`.
             .@"if" => try self.emitIfExpr(items),
-            // `none` is Zig's `null`.
-            .@"null" => try self.w.writeAll("null"),
             // `a ?? b` → `(a orelse b)`; `a catch b` → `(a catch b)`.
+            // Sema rejects a named `catch |e|`.
             .@"??", .@"catch" => {
-                if (items.len != 3) return;
+                const rhs = items[items.len - 1];
                 try self.w.writeAll("(");
                 try self.emitExpr(items[1]);
                 try self.w.writeAll(if (head == .@"??") " orelse " else " catch ");
-                try self.emitExpr(items[2]);
+                try self.emitExpr(rhs);
                 try self.w.writeAll(")");
             },
             else => {

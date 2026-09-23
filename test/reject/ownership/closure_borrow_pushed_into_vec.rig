@@ -1,0 +1,19 @@
+# Pushing a closure that captured a borrow into a Vec makes the Vec hold
+# that borrow.
+
+struct Box
+  payload: Int
+
+  drop self: !Box
+    print("drop")
+
+sub main()
+  cbs: Vec(*Closure()) = Vec()
+  a = Box(payload: 1)
+  r = ?a
+  (!cbs).push(*Closure(|<r| print(r.payload)))
+  -a
+  for cb in ?cbs
+    cb()
+
+# error: cannot drop `a` while borrows are live

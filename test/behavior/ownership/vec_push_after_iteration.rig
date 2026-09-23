@@ -1,0 +1,17 @@
+# Iterating a Vec borrows it for the loop only; it can be written again
+# after the loop.
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  (!v).push(2)
+  total = 0
+  for x in ?v
+    total += x
+  (!v).push(3)
+  print(total)
+  print(v.length())
+
+# expect:
+# 3
+# 3

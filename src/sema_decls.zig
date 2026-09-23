@@ -83,7 +83,6 @@ const SymbolResolver = struct {
             .@"arm" => try self.walkArm(sexp),
             .@"catch_block" => try self.walkCatchBlock(sexp),
             .@"catch" => try self.walkCatch(sexp),
-            .@"if", .@"while" => try self.walkConditional(sexp),
             else => for (items[1..]) |c| try self.walk(c),
         }
     }
@@ -115,6 +114,10 @@ const SymbolResolver = struct {
     fn declare(self: *SymbolResolver, name_node: Sexp, kind: types.SymbolKind, flags: types.SymbolFlags) Error!?SymbolId {
         const name = identAt(self.ctx.source, name_node) orelse return null;
         const pos = srcPos(name_node, 0);
+        if (std.mem.eql(u8, name, "none")) {
+            try self.ctx.err(pos, "`none` is the absent optional and cannot be used as a name", .{});
+            return null;
+        }
         if (self.scope == self.module_scope) {
             if (self.ctx.lookupInScopeOnly(self.scope, name)) |prev| {
                 const p = self.ctx.symbols.items[prev];
@@ -458,18 +461,18 @@ const SymbolResolver = struct {
         try self.walk(items[2]);
     }
 
-    /// `(catch expr handler)` or `(catch expr name handler)`.
+    /// `(catch expr name-or-_ handler)`.
     fn walkCatch(self: *SymbolResolver, node: Sexp) Error!void {
         const items = node.list;
         if (items.len < 3) return;
         try self.walk(items[1]);
-        if (items.len >= 4) {
+        if (items.len >= 4 and items[2] != .nil) {
             const prev = try self.enter(node, .block);
             defer self.scope = prev;
             _ = try self.bindFresh(items[2], "`catch` binding");
             try self.walk(items[3]);
         } else {
-            try self.walk(items[2]);
+            try self.walk(items[items.len - 1]);
         }
     }
 
@@ -480,7 +483,9 @@ const SymbolResolver = struct {
         defer self.scope = prev;
         const pattern = items[1];
         switch (pattern) {
-            .src => _ = try self.bindFresh(pattern, "pattern binding"),
+            .src => if (!isWildcardPattern(self.ctx.source, pattern)) {
+                _ = try self.bindFresh(pattern, "pattern binding");
+            },
             .list => if (isHead(pattern, .@"variant_pattern")) {
                 for (pattern.list[2..]) |b| _ = try self.bindFresh(b, "pattern binding");
             },
@@ -491,30 +496,6 @@ const SymbolResolver = struct {
         try self.walk(items[items.len - 1]);
     }
 
-    /// `(if cond then else?)` / `(while cond ...)`. When the condition is
-    /// `(as opt name)`, `name` is bound in a scope covering only the
-    /// branch taken when `opt` holds a value.
-    fn walkConditional(self: *SymbolResolver, node: Sexp) Error!void {
-        const items = node.list;
-        if (items.len < 3) return;
-        const cond = items[1];
-        if (isHead(cond, .@"as") and cond.list.len >= 3) {
-            try self.walk(cond.list[1]);
-            const is_while = items[0].tag == .@"while";
-            // while: (while cond cont? body else?) — the binding covers
-            // the continuation and the body, not the `else` block.
-            const covered_end: usize = if (is_while) (if (items.len >= 5) items.len - 1 else items.len) else 3;
-            {
-                const prev = try self.enter(cond, .block);
-                defer self.scope = prev;
-                _ = try self.bindFresh(cond.list[2], "`as` binding");
-                for (items[2..@min(covered_end, items.len)]) |c| try self.walk(c);
-            }
-            if (covered_end < items.len) for (items[covered_end..]) |c| try self.walk(c);
-            return;
-        }
-        for (items[1..]) |c| try self.walk(c);
-    }
 };
 
 // =============================================================================
@@ -1269,6 +1250,12 @@ fn dropPos(node: Sexp) u32 {
         }
     }
     return firstSrcPos(node);
+}
+
+/// A match pattern that matches anything without binding: `else`, `_`.
+pub fn isWildcardPattern(source: []const u8, pattern: Sexp) bool {
+    const text = identAt(source, pattern) orelse return false;
+    return std.mem.eql(u8, text, "else") or std.mem.eql(u8, text, "_");
 }
 
 pub fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {

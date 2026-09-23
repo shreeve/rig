@@ -1,0 +1,16 @@
+# `*Closure(|<rc| ...)` cannot take ownership of a borrowed parameter;
+# the caller still owns it.
+
+struct Box
+  payload: Int
+
+fun f(rc: ?*Box) -> *Closure()
+  *Closure(|<rc| print(rc.payload))
+
+sub main()
+  rc = *Box(payload: 5)
+  cb = f(?rc)
+  cb()
+  print(rc.payload)
+
+# error: cannot move-capture borrowed

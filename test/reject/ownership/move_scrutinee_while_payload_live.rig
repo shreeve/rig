@@ -1,0 +1,21 @@
+# A payload binding views the matched value, which cannot be moved while
+# the binding is in use.
+
+struct Box
+  payload: Int
+
+enum Slot
+  full(b: *Box)
+  empty
+
+sub both(s: Slot, b: ?*Box)
+  print(1)
+
+sub main()
+  rc = *Box(payload: 5)
+  s: Slot = .full(b: <rc)
+  match s
+    .full(b) => both(<s, ?b)
+    .empty => print(0)
+
+# error: cannot move `s` while it is read-borrowed

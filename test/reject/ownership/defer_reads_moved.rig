@@ -1,0 +1,14 @@
+# A deferred body runs at scope exit, after the move that follows it.
+
+struct Box
+  payload: Int
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+sub main()
+  rc = *Box(payload: 1)
+  defer print(rc.payload)
+  eat(<rc)
+
+# error: use of `rc` after move

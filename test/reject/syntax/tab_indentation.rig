@@ -1,0 +1,7 @@
+# Indentation is spaces only; a tab in a line's indentation is an error
+# at the tab.
+
+sub main()
+	print(1)
+
+# error: tab in indentation; indent with spaces
