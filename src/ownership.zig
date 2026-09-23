@@ -455,16 +455,25 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn err(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
+        return self.errSpan(.{ .start = pos, .end = pos }, fmt, args);
+    }
+
+    /// An error about `node`, reported at its span.
+    fn errAt(self: *Checker, node: Sexp, comptime fmt: []const u8, args: anytype) Error!void {
+        return self.errSpan(self.span(node), fmt, args);
+    }
+
+    fn errSpan(self: *Checker, at: diag.Span, comptime fmt: []const u8, args: anytype) Error!void {
         self.last_err_kept = false;
         if (self.quiet > 0) return;
         const msg = try std.fmt.allocPrint(self.gpa, fmt, args);
         for (self.diagnostics.items) |d| {
-            if (d.severity == .@"error" and d.pos == pos and std.mem.eql(u8, d.message, msg)) {
+            if (d.severity == .@"error" and d.pos == at.start and std.mem.eql(u8, d.message, msg)) {
                 self.gpa.free(msg);
                 return;
             }
         }
-        try self.diagnostics.append(self.gpa, .{ .severity = .@"error", .pos = pos, .message = msg });
+        try self.diagnostics.append(self.gpa, .{ .severity = .@"error", .pos = at.start, .end = at.end, .message = msg });
         self.last_err_kept = true;
     }
 
@@ -472,6 +481,18 @@ pub const Checker = struct {
         if (self.quiet > 0 or !self.last_err_kept) return;
         const msg = try std.fmt.allocPrint(self.gpa, fmt, args);
         try self.diagnostics.append(self.gpa, .{ .severity = .note, .pos = pos, .message = msg });
+    }
+
+    /// The source range of a node: its span from the parser, or from its
+    /// leaves when checking without sema.
+    fn span(self: *const Checker, node: Sexp) diag.Span {
+        if (self.sema) |s| return s.span(node);
+        return diag.leafSpan(node);
+    }
+
+    /// Where a node starts in the source.
+    fn startOf(self: *const Checker, node: Sexp) u32 {
+        return self.span(node).start;
     }
 
     /// Note pointing at the move or drop that invalidated `v`.
@@ -1040,9 +1061,8 @@ pub const Checker = struct {
 
     /// Walk one statement; its temporary borrows end with it.
     fn walkStmtValue(self: *Checker, stmt: Sexp) Error!Value {
-        // A jump's only position is its label, after the keyword.
-        const p = if (stmt.isKind(.@"break") or stmt.isKind(.@"continue")) 0 else innerPos(stmt);
-        if (p != 0) self.anchor = p;
+        const p = self.span(stmt);
+        if (!p.isEmpty()) self.anchor = p.start;
         if (!self.reachable) return .{};
         var saved: std.ArrayListUnmanaged(Loan) = .empty;
         defer saved.deinit(self.gpa);
@@ -1371,7 +1391,7 @@ pub const Checker = struct {
         try self.walkPlaceIndices(inner);
         const id = place.root;
         const v = self.vars.items[id];
-        const pos = innerPos(inner);
+        const pos = self.startOf(inner);
         if (v.closure) {
             try self.err(pos, "closure `{s}` cannot be borrowed; call it as `{s}()`", .{ v.name, v.name });
             return .{};
@@ -1425,7 +1445,7 @@ pub const Checker = struct {
     /// `<e`: move a whole binding, or reject moving out of a path.
     fn walkMove(self: *Checker, inner: Sexp, verb: MoveVerb) Error!Value {
         const place = (try self.resolvePlace(inner)) orelse return self.walk(inner);
-        if (place.whole) return self.moveVar(place.root, innerPos(inner), verb);
+        if (place.whole) return self.moveVar(place.root, self.startOf(inner), verb);
         return self.movePath(inner, place);
     }
 
@@ -1514,7 +1534,7 @@ pub const Checker = struct {
         if (ty != null and self.refOfType(ty) == .read) return value;
         const path = try self.placeText(inner);
         const root = self.vars.items[place.root].name;
-        const pos = innerPos(inner);
+        const pos = self.startOf(inner);
         if (place.through_borrow) {
             try self.err(pos, "cannot move out of `{s}`: `{s}` is borrowed", .{ path, root });
         } else if (place.through_shared) {
@@ -1661,10 +1681,10 @@ pub const Checker = struct {
                         if (self.namesType(ir.get(expr, .object))) return;
                         const ty = self.exprType(expr);
                         if (self.owningKind(ty)) |k| {
-                            return self.reportAlias(innerPos(expr), try self.placeText(expr), false, k, sink, ty);
+                            return self.reportAlias(self.startOf(expr), try self.placeText(expr), false, k, sink, ty);
                         }
                         if (sink != .argument and self.carriesWriteBorrow(ty)) {
-                            try self.err(innerPos(expr), "bare use of `{s}` in {s} would duplicate a write borrow; a field cannot be moved out of its parent", .{ try self.placeText(expr), sink.text() });
+                            try self.errAt(expr, "bare use of `{s}` in {s} would duplicate a write borrow; a field cannot be moved out of its parent", .{ try self.placeText(expr), sink.text() });
                         }
                     },
                     // A value returned through a branch moves out, like a bare return.
@@ -1867,7 +1887,7 @@ pub const Checker = struct {
         };
         try self.walkPlaceIndices(target);
         const id = place.root;
-        const pos = innerPos(target);
+        const pos = self.startOf(target);
         if (!try self.checkLive(id, pos)) return;
         const v = self.vars.items[id];
         if (self.findLoan(id, .any, null)) |l| {
@@ -1919,7 +1939,7 @@ pub const Checker = struct {
                 const recv_val = try self.walk(obj);
                 const id = p.root;
                 if (self.flowLive(id) and !self.isCopy(self.vars.items[id].ty)) {
-                    const pos = innerPos(obj);
+                    const pos = self.startOf(obj);
                     reservation = self.temps.items.len;
                     try self.addTemp(.{ .root = id, .kind = .read, .pos = pos });
                     recv_root = id;
@@ -1955,11 +1975,11 @@ pub const Checker = struct {
         if (stored.loans.len > 0) {
             if (recv_root) |id| {
                 const obj = ir.Member.object(callee);
-                if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, innerPos(obj));
+                if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, self.startOf(obj));
             }
             for (args) |a| {
                 const arg = if (a.isKind(.@"kwarg")) ir.Kwarg.value(a) else a;
-                if (try self.containerRoot(arg)) |id| try self.absorbLoans(id, stored, innerPos(arg));
+                if (try self.containerRoot(arg)) |id| try self.absorbLoans(id, stored, self.startOf(arg));
             }
         }
 
@@ -1975,7 +1995,7 @@ pub const Checker = struct {
                 break :blk null;
             };
             if (conflict) |l| {
-                const pos = innerPos(ir.Member.object(callee));
+                const pos = self.startOf(ir.Member.object(callee));
                 switch (l.kind) {
                     .read => try self.err(pos, "cannot write-borrow `{s}` while a read borrow is live", .{name}),
                     .write => try self.err(pos, "cannot take a second write borrow on `{s}`", .{name}),
@@ -2066,7 +2086,7 @@ pub const Checker = struct {
         const params = ir.Lambda.params(node);
         const body = ir.Lambda.body(node);
         if (!self.lambda_ok) {
-            try self.err(innerPos(node), "closures cannot escape their defining scope; bind the closure to a local (`f = |...| ...`) and call `f()`, or make it owned (`*|...| body`) to pass, store, or return it", .{});
+            try self.errAt(node, "closures cannot escape their defining scope; bind the closure to a local (`f = |...| ...`) and call `f()`, or make it owned (`*|...| body`) to pass, store, or return it", .{});
         }
         self.lambda_ok = false;
 
@@ -2346,7 +2366,7 @@ pub const Checker = struct {
                         if (b == .src and !std.mem.eql(u8, self.text(b), "_")) {
                             const id = try self.bindPayload(b, info, scrut_value);
                             for (binds, 0..) |other, j| {
-                                if (j != i and self.owningKind(self.exprType(other)) != null) self.vars.items[id].owning_sibling = innerPos(other);
+                                if (j != i and self.owningKind(self.exprType(other)) != null) self.vars.items[id].owning_sibling = self.startOf(other);
                             }
                         }
                     }
@@ -2444,7 +2464,7 @@ pub const Checker = struct {
                 const kind: LoanKind = if (mode == .@"write" or mode == .ptr) .write else .read;
                 spec.source_root = id;
                 spec.source_loan = kind;
-                spec.source_pos = innerPos(source);
+                spec.source_pos = self.startOf(source);
                 spec.resource_vec = mode == .@"read" and self.isResourceVec(self.exprType(source));
                 if (self.flowLive(id)) {
                     if (kind == .write) {
@@ -2504,7 +2524,7 @@ pub const Checker = struct {
             head = next;
         } else false;
         self.quiet -= 1;
-        if (!converged) try self.err(innerPos(spec.body), "this loop is too complex for the ownership checker; split it into smaller functions", .{});
+        if (!converged) try self.errAt(spec.body, "this loop is too complex for the ownership checker; split it into smaller functions", .{});
 
         try self.apply(head);
         const it = try self.loopIteration(spec, &ctx);
@@ -2584,35 +2604,15 @@ pub const Checker = struct {
         if (i == 0) return;
         const prev = stmts[i - 1];
         if (!(prev.isKind(.@"return") or prev.isKind(.@"break") or prev.isKind(.@"continue"))) return;
-        try self.err(self.stmtPos(stmts[i]), "unreachable code: this statement follows a `{s}`", .{@tagName(prev.kind().?)});
+        try self.errSpan(self.stmtSpan(stmts[i]), "unreachable code: this statement follows a `{s}`", .{@tagName(prev.kind().?)});
     }
 
-    /// A statement's position, finding the keyword of one that carries
-    /// none of its own.
-    fn stmtPos(self: *const Checker, s: Sexp) u32 {
-        if (s.isKind(.@"break")) return self.keywordPos("break");
-        if (s.isKind(.@"continue")) return self.keywordPos("continue");
-        const p = innerPos(s);
-        if (p != 0) return p;
-        if (s.isKind(.@"return")) return self.keywordPos("return");
-        return self.anchor;
-    }
-
-    /// The position of the first line starting with `word` at or after
-    /// the anchor: the keyword of a statement that carries no position.
-    fn keywordPos(self: *const Checker, word: []const u8) u32 {
-        var i: usize = self.anchor;
-        const src = self.source;
-        while (i < src.len) : (i += 1) {
-            if (!std.mem.startsWith(u8, src[i..], word)) continue;
-            const end = i + word.len;
-            if (end < src.len and (std.ascii.isAlphanumeric(src[end]) or src[end] == '_')) continue;
-            // Only indentation before it on its line.
-            var j = i;
-            while (j > 0 and src[j - 1] == ' ') j -= 1;
-            if (j == 0 or src[j - 1] == '\n') return @intCast(i);
-        }
-        return self.anchor;
+    /// A statement's range: its span, or the last statement position
+    /// when it has none (a bare `break` checked without the parser's
+    /// spans).
+    fn stmtSpan(self: *const Checker, s: Sexp) diag.Span {
+        const sp = self.span(s);
+        return if (sp.isEmpty()) .{ .start = self.anchor, .end = self.anchor } else sp;
     }
 
     /// `(break value-or-_ label?)` / `(continue label?)`: the state here
@@ -2629,16 +2629,16 @@ pub const Checker = struct {
             } else if (std.mem.eql(u8, t.label, label)) break;
         }
         const word = if (jump == .brk) "break" else "continue";
+        const at = self.stmtSpan(node);
         if (target == null) {
             const where = if (self.func.in_closure) " (a closure body cannot leave a loop around it)" else "";
-            const pos = self.keywordPos(word);
             if (label.len == 0) {
-                try self.err(pos, "`{s}` is not inside a loop{s}", .{ word, where });
+                try self.errSpan(at, "`{s}` is not inside a loop{s}", .{ word, where });
             } else {
-                try self.err(pos, "`{s} :{s}` names no enclosing loop or block{s}", .{ word, label, where });
+                try self.errSpan(at, "`{s} :{s}` names no enclosing loop or block{s}", .{ word, label, where });
             }
         } else if (jump == .cont and !target.?.is_loop) {
-            try self.err(self.keywordPos(word), "`continue :{s}` names a block, not a loop", .{label});
+            try self.errSpan(at, "`continue :{s}` names a block, not a loop", .{label});
         }
         if (target) |t| {
             const s = try self.exitState(t.point, t.scope_depth);
@@ -2733,7 +2733,7 @@ pub const Checker = struct {
         if (report_changes) {
             for (after.changes) |e| {
                 if (e.flow.status != self.flows.items[e.id].status) {
-                    try self.err(innerPos(body), "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
+                    try self.errAt(body, "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
                     break;
                 }
             }
@@ -3058,10 +3058,6 @@ fn extent(s: Sexp) struct { lo: u32, hi: u32 } {
         },
         else => return .{ .lo = std.math.maxInt(u32), .hi = 0 },
     }
-}
-
-fn innerPos(sexp: Sexp) u32 {
-    return diag.firstSrcPos(sexp);
 }
 
 // =============================================================================

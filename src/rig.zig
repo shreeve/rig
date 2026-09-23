@@ -878,8 +878,9 @@ pub const Parser = struct {
     /// Parse without the IR rewrites: the grammar's own output.
     pub fn parseTree(self: *Parser) !Sexp {
         const tree = try self.base.parseProgram();
-        if (tooDeep(tree, 0)) |pos| {
-            self.failure = .{ .severity = .@"error", .pos = pos, .message = "expression is nested too deeply" };
+        if (tooDeep(tree, 0)) |deep| {
+            const at = self.span(deep);
+            self.failure = .{ .severity = .@"error", .pos = at.start, .end = at.end, .message = "expression is nested too deeply" };
             return error.ParseError;
         }
         return tree;
@@ -890,28 +891,12 @@ pub const Parser = struct {
         return self.base.span(sexp);
     }
 
-    /// Position inside the first subtree nested deeper than
-    /// `max_tree_depth`, or null.
-    fn tooDeep(sexp: Sexp, depth: u32) ?u32 {
+    /// The first subtree nested `max_tree_depth` deep, or null.
+    fn tooDeep(sexp: Sexp, depth: u32) ?Sexp {
         if (sexp != .list) return null;
-        if (depth == max_tree_depth) return firstPos(sexp);
-        for (sexp.items()) |item| if (tooDeep(item, depth + 1)) |pos| return pos;
+        if (depth == max_tree_depth) return sexp;
+        for (sexp.items()) |item| if (tooDeep(item, depth + 1)) |deep| return deep;
         return null;
-    }
-
-    /// The first source position in `sexp` (without recursion: the
-    /// subtree may be arbitrarily deep).
-    fn firstPos(sexp: Sexp) u32 {
-        var node = sexp;
-        descend: while (node == .list) {
-            for (node.items()) |item| if (item == .src) return item.src.pos;
-            for (node.items()) |item| if (item == .list) {
-                node = item;
-                continue :descend;
-            };
-            break;
-        }
-        return if (node == .src) node.src.pos else 0;
     }
 
     /// Why parsing failed: at the token where the parser stopped, or the
@@ -933,7 +918,7 @@ pub const Parser = struct {
             else
                 self.format("unexpected `{s}`", .{src[tok.pos..][0..tok.len]}),
         };
-        return .{ .severity = .@"error", .pos = tok.pos, .message = message };
+        return .{ .severity = .@"error", .pos = tok.pos, .end = tok.pos + tok.len, .message = message };
     }
 
     fn format(self: *Parser, comptime fmt: []const u8, args: anytype) []const u8 {
@@ -998,7 +983,8 @@ pub const Parser = struct {
                 continue;
             }
             if (params.items.len > 0 and self.failure == null) {
-                self.failure = .{ .severity = .@"error", .pos = firstPos(e), .message = "captures come before parameters in a closure's bar list: `|+v, a| ...`" };
+                const at = self.span(e);
+                self.failure = .{ .severity = .@"error", .pos = at.start, .end = at.end, .message = "captures come before parameters in a closure's bar list: `|+v, a| ...`" };
             }
             try caps.append(self.allocator(), e);
         }

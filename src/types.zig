@@ -546,6 +546,9 @@ pub const GenericRequirement = struct {
 pub const SemContext = struct {
     allocator: std.mem.Allocator,
     source: []const u8,
+    /// The parser that built the module's tree, for node spans; null for
+    /// a tree checked without one (spans then come from the leaves).
+    parser: ?*const parser.Parser = null,
     /// Owns symbol names, messages, and every slice inside a Type.
     arena: std.heap.ArenaAllocator,
 
@@ -636,18 +639,42 @@ pub const SemContext = struct {
         try diag.write(self.diagnostics.items, self.source, file_path, w);
     }
 
+    /// The source range of an IR node: its span from the parser, which
+    /// includes keywords and sigils (`return x`, `<p`).
+    pub fn span(self: *const SemContext, node: Sexp) diag.Span {
+        if (self.parser) |p| return p.span(node);
+        return diag.leafSpan(node);
+    }
+
+    /// Where a node starts in the source.
+    pub fn startOf(self: *const SemContext, node: Sexp) u32 {
+        return self.span(node).start;
+    }
+
     pub fn err(self: *SemContext, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
-        const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
-        // The same finding reached twice is reported once.
-        for (self.diagnostics.items) |d| {
-            if (d.severity == .@"error" and d.pos == pos and std.mem.eql(u8, d.message, msg)) return;
-        }
-        try self.diagnostics.append(self.allocator, .{ .severity = .@"error", .pos = pos, .message = msg });
+        return self.report(.@"error", .{ .start = pos, .end = pos }, fmt, args);
     }
 
     pub fn note(self: *SemContext, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        return self.report(.note, .{ .start = pos, .end = pos }, fmt, args);
+    }
+
+    /// An error about `node`, reported at its span.
+    pub fn errAt(self: *SemContext, node: Sexp, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        return self.report(.@"error", self.span(node), fmt, args);
+    }
+
+    pub fn noteAt(self: *SemContext, node: Sexp, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        return self.report(.note, self.span(node), fmt, args);
+    }
+
+    fn report(self: *SemContext, severity: diag.Severity, at: diag.Span, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
         const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
-        try self.diagnostics.append(self.allocator, .{ .severity = .note, .pos = pos, .message = msg });
+        // The same finding reached twice is reported once.
+        if (severity == .@"error") for (self.diagnostics.items) |d| {
+            if (d.severity == .@"error" and d.pos == at.start and std.mem.eql(u8, d.message, msg)) return;
+        };
+        try self.diagnostics.append(self.allocator, .{ .severity = severity, .pos = at.start, .end = at.end, .message = msg });
     }
 
     pub fn pushScope(self: *SemContext, parent: ScopeId) !ScopeId {
@@ -807,15 +834,17 @@ pub const SemContext = struct {
 // Entry points
 // =============================================================================
 
-/// Check a single module with no imports.
+/// Check a single module with no imports, without the parser's spans.
 pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp) !SemContext {
-    return checkWithImports(allocator, source, tree, &.{}, &.{}, 0);
+    return checkWithImports(allocator, source, null, tree, &.{}, &.{}, 0);
 }
 
 /// Check a module whose `use` declarations resolve to `imports`.
 pub fn checkWithImports(
     allocator: std.mem.Allocator,
     source: []const u8,
+    /// The parser that built `tree`, for node spans in diagnostics.
+    p: ?*const parser.Parser,
     tree: Sexp,
     imports: []const ImportEntry,
     /// Modules the imports reach in turn: their types can appear here
@@ -826,6 +855,7 @@ pub fn checkWithImports(
     var ctx = try SemContext.init(allocator, source);
     errdefer ctx.deinit();
 
+    ctx.parser = p;
     ctx.module_id = module_id;
     // The caller's slice is temporary; the emitter reads the imports later.
     ctx.imports = try ctx.arena.allocator().dupe(ImportEntry, imports);
@@ -2454,7 +2484,7 @@ const Coverage = struct {
 
     fn expectType(self: *Coverage, node: Sexp) void {
         if (self.r.ctx.typeOf(node) == null) {
-            std.debug.print("no type for node at {d} ({s})\n", .{ diag.firstSrcPos(node), if (node.kind()) |h| @tagName(h) else "leaf" });
+            std.debug.print("no type for node at {d} ({s})\n", .{ diag.leafSpan(node).start, if (node.kind()) |h| @tagName(h) else "leaf" });
             self.missing += 1;
         }
     }

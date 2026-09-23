@@ -21,7 +21,6 @@ const diag = @import("diag.zig");
 const Sexp = parser.Sexp;
 const ir = parser.ir;
 const SemContext = types.SemContext;
-const firstSrcPos = diag.firstSrcPos;
 
 pub const Diagnostic = diag.Diagnostic;
 pub const Error = std.mem.Allocator.Error;
@@ -64,13 +63,21 @@ pub const Checker = struct {
     }
 
     fn err(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
-        const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
-        try self.diagnostics.append(self.allocator, .{ .severity = .@"error", .pos = pos, .message = msg });
+        return self.report(.@"error", .{ .start = pos, .end = pos }, fmt, args);
     }
 
     fn note(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
+        return self.report(.note, .{ .start = pos, .end = pos }, fmt, args);
+    }
+
+    /// An error about `node`, reported at its span.
+    fn errAt(self: *Checker, node: Sexp, comptime fmt: []const u8, args: anytype) Error!void {
+        return self.report(.@"error", self.sema.span(node), fmt, args);
+    }
+
+    fn report(self: *Checker, severity: diag.Severity, at: diag.Span, comptime fmt: []const u8, args: anytype) Error!void {
         const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
-        try self.diagnostics.append(self.allocator, .{ .severity = .note, .pos = pos, .message = msg });
+        try self.diagnostics.append(self.allocator, .{ .severity = severity, .pos = at.start, .end = at.end, .message = msg });
     }
 
     fn text(self: *Checker, node: Sexp) []const u8 {
@@ -86,7 +93,7 @@ pub const Checker = struct {
                 defer self.restore(saved);
                 self.can_propagate = false;
                 self.fn_name = "drop";
-                self.fn_pos = firstSrcPos(sexp);
+                self.fn_pos = self.sema.startOf(sexp);
                 try self.walk(ir.DropDecl.body(sexp), false);
             },
             .@"lambda" => {
@@ -122,7 +129,7 @@ pub const Checker = struct {
                 const name_node = ir.Builtin.name(sexp);
                 const name = self.text(name_node);
                 if (!isSafeBuiltin(name) and self.raw_depth == 0) {
-                    try self.err(name_node.src.pos, "builtin `@{s}` is not in the safe whitelist; wrap in a `raw` block. Safe builtins: `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`.", .{name});
+                    try self.errAt(name_node, "builtin `@{s}` is not in the safe whitelist; wrap in a `raw` block. Safe builtins: `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`.", .{name});
                 }
                 for (ir.Builtin.args(sexp)) |c| try self.walk(c, false);
             },
@@ -161,21 +168,20 @@ pub const Checker = struct {
     }
 
     fn checkPropagate(self: *Checker, operand: Sexp) Error!void {
-        const pos = firstSrcPos(operand);
         if (self.in_defer) {
-            try self.err(pos, "cannot use `!` inside `defer`; a deferred expression cannot propagate failure, so handle it with `catch`", .{});
+            try self.errAt(operand, "cannot use `!` inside `defer`; a deferred expression cannot propagate failure, so handle it with `catch`", .{});
         } else if (!self.can_propagate) {
             if (self.in_lambda) {
-                try self.err(pos, "use of `!` propagation requires a fallible enclosing function; a closure body cannot propagate failure, so handle it with `catch`", .{});
+                try self.errAt(operand, "use of `!` propagation requires a fallible enclosing function; a closure body cannot propagate failure, so handle it with `catch`", .{});
             } else {
-                try self.err(pos, "use of `!` propagation requires the enclosing function `{s}` to declare a fallible return type (`-> T!`)", .{self.fn_name});
+                try self.errAt(operand, "use of `!` propagation requires the enclosing function `{s}` to declare a fallible return type (`-> T!`)", .{self.fn_name});
                 if (self.fn_pos != 0) try self.note(self.fn_pos, "`{s}` declared here", .{self.fn_name});
             }
         }
         const ty = self.sema.typeOf(operand) orelse return;
         switch (self.sema.types.get(ty)) {
             .fallible, .unknown, .invalid => {},
-            else => try self.err(pos, "`!` needs a fallible operand; this expression has type `{s}` and cannot fail", .{try types.formatTypeIn(self.sema, self.arena.allocator(), ty)}),
+            else => try self.errAt(operand, "`!` needs a fallible operand; this expression has type `{s}` and cannot fail", .{try types.formatTypeIn(self.sema, self.arena.allocator(), ty)}),
         }
     }
 
@@ -186,7 +192,7 @@ pub const Checker = struct {
             if (self.sema.typeOf(node)) |ty| {
                 if (self.sema.types.get(ty) == .fallible) {
                     const name = try self.calleeName(callee);
-                    try self.err(firstSrcPos(callee), "fallible call to `{s}` must be wrapped with `!` (propagate) or `catch` (handle)", .{name});
+                    try self.errAt(callee, "fallible call to `{s}` must be wrapped with `!` (propagate) or `catch` (handle)", .{name});
                     if (self.sema.symbolOf(callee)) |id| {
                         const sym = self.sema.symbols.items[id];
                         if (sym.decl_pos != types.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared as fallible here", .{name});
@@ -197,7 +203,7 @@ pub const Checker = struct {
 
         if (self.raw_depth == 0) {
             if (self.externCallee(callee)) |name| {
-                try self.err(firstSrcPos(callee), "call to extern function `{s}` requires `raw` block; wrap the call in `raw INDENT body OUTDENT`. Extern declarations are the FFI boundary and bypass Rig's ownership and effect contracts.", .{name});
+                try self.errAt(callee, "call to extern function `{s}` requires `raw` block; wrap the call in `raw INDENT body OUTDENT`. Extern declarations are the FFI boundary and bypass Rig's ownership and effect contracts.", .{name});
             }
         }
 

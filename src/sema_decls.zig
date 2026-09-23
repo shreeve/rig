@@ -33,7 +33,6 @@ const Error = std.mem.Allocator.Error;
 
 const identAt = types.identAt;
 const srcPos = types.srcPos;
-const firstSrcPos = types.diag.firstSrcPos;
 
 // =============================================================================
 // Symbol resolution
@@ -187,7 +186,7 @@ const SymbolResolver = struct {
         const decl = self.ctx.lookupInScopeOnly(self.module_scope, name) orelse return;
         const sym = self.ctx.symbols.items[decl];
         if (sym.kind == .local or sym.decl_pos == types.builtin_decl_pos) return;
-        try self.ctx.err(srcPos(name_node, 0), "{s} `{s}` has the same name as the module-level declaration `{s}`; use a different name", .{ what, name, name });
+        try self.ctx.errAt(name_node, "{s} `{s}` has the same name as the module-level declaration `{s}`; use a different name", .{ what, name, name });
         try self.ctx.note(sym.decl_pos, "`{s}` declared here", .{name});
     }
 
@@ -215,7 +214,7 @@ const SymbolResolver = struct {
             const name_node = types.captureNameNode(cap) orelse continue;
             const name = identAt(self.ctx.source, name_node) orelse continue;
             if (self.ctx.lookupInScopeOnly(self.scope, name)) |first| {
-                try self.ctx.err(srcPos(name_node, 0), "duplicate capture name `{s}`", .{name});
+                try self.ctx.errAt(name_node, "duplicate capture name `{s}`", .{name});
                 try self.ctx.note(self.ctx.symbols.items[first].decl_pos, "first captured here", .{});
                 continue;
             }
@@ -236,7 +235,7 @@ const SymbolResolver = struct {
                 const cn = types.captureNameNode(cap) orelse continue;
                 if (std.mem.eql(u8, identAt(self.ctx.source, cn) orelse "", name)) {
                     try self.ctx.err(pos, "closure parameter `{s}` has the name of the capture `{s}`", .{ name, name });
-                    try self.ctx.note(srcPos(cn, 0), "captured here", .{});
+                    try self.ctx.noteAt(cn, "captured here", .{});
                     collides = true;
                 }
             }
@@ -277,7 +276,7 @@ const SymbolResolver = struct {
         self.scope = parent;
         defer self.scope = saved;
         if (self.visibleLocal(name)) |prev| {
-            try self.ctx.err(srcPos(name_node, 0), "closure parameter `{s}` has the name of the local `{s}`; to capture the local, give it a sigil (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|~{s}|` holds it weakly), or name the parameter differently", .{ name, name, name, name, name });
+            try self.ctx.errAt(name_node, "closure parameter `{s}` has the name of the local `{s}`; to capture the local, give it a sigil (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|~{s}|` holds it weakly), or name the parameter differently", .{ name, name, name, name, name });
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
             return;
         }
@@ -304,7 +303,7 @@ const SymbolResolver = struct {
     fn checkReserved(self: *SymbolResolver, name_node: Sexp) Error!bool {
         const name = identAt(self.ctx.source, name_node) orelse return true;
         if (!builtins.isReservedName(name)) return false;
-        try self.ctx.err(srcPos(name_node, 0), "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
+        try self.ctx.errAt(name_node, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
         return true;
     }
 
@@ -317,7 +316,7 @@ const SymbolResolver = struct {
         const params = ir.get(node, .params);
         if (params.items().len == 0) {
             const kind = if (node.isKind(.@"generic_enum")) "enum" else "type";
-            try self.ctx.err(name_node.src.pos, "generic {s} `{s}` must declare at least one type parameter; for a non-generic {s}, drop the `()`", .{ kind, name, kind });
+            try self.ctx.errAt(name_node, "generic {s} `{s}` must declare at least one type parameter; for a non-generic {s}, drop the `()`", .{ kind, name, kind });
         }
         var ids: std.ArrayListUnmanaged(SymbolId) = .empty;
         defer ids.deinit(self.ctx.allocator);
@@ -329,7 +328,7 @@ const SymbolResolver = struct {
                     if (std.mem.eql(u8, identAt(self.ctx.source, e) orelse "", pname)) dup = true;
                 }
                 if (dup) {
-                    try self.ctx.err(srcPos(p, 0), "duplicate generic parameter `{s}` on `{s}`", .{ pname, name });
+                    try self.ctx.errAt(p, "duplicate generic parameter `{s}` on `{s}`", .{ pname, name });
                     continue;
                 }
                 const pid = try self.addDetached(.{
@@ -396,7 +395,7 @@ const SymbolResolver = struct {
                 if (self.scope != self.module_scope) {
                     if (self.visibleLocal(identAt(self.ctx.source, target).?)) |prev| {
                         const name = self.ctx.symbols.items[prev].name;
-                        try self.ctx.err(srcPos(target, 0), "`{s}` is already bound; `=!` declares a new binding. Assign with `{s} = ...` or shadow with `new {s} = ...`", .{ name, name, name });
+                        try self.ctx.errAt(target, "`{s}` is already bound; `=!` declares a new binding. Assign with `{s} = ...` or shadow with `new {s} = ...`", .{ name, name, name });
                         try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
                         try self.ctx.recordName(target, prev);
                         return;
@@ -456,7 +455,7 @@ const SymbolResolver = struct {
         self.scope = parent;
         defer self.scope = saved;
         if (self.visibleLocal(name)) |prev| {
-            try self.ctx.err(srcPos(name_node, 0), "`{s}` inside the closure shadows the local `{s}` of the enclosing function; closures reach outer values only through captures", .{ name, name });
+            try self.ctx.errAt(name_node, "`{s}` inside the closure shadows the local `{s}` of the enclosing function; closures reach outer values only through captures", .{ name, name });
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
         }
     }
@@ -677,7 +676,7 @@ pub const TypeResolver = struct {
                     },
                     else => {},
                 }
-                try self.ctx.err(firstSrcPos(param), "unsupported parameter form", .{});
+                try self.ctx.errAt(param, "unsupported parameter form", .{});
                 return self.ctx.types.invalid_id;
             },
             else => return self.ctx.types.invalid_id,
@@ -694,7 +693,7 @@ pub const TypeResolver = struct {
         var ps: std.ArrayListUnmanaged(TypeId) = .empty;
         defer ps.deinit(self.ctx.allocator);
         for (params.items()) |p| {
-            if (p.isKind(.@"default")) try self.ctx.err(types.paramPos(p, firstSrcPos(p)), "an `extern` parameter cannot have a default value", .{});
+            if (p.isKind(.@"default")) try self.ctx.err(types.paramPos(p, self.ctx.startOf(p)), "an `extern` parameter cannot have a default value", .{});
             try ps.append(self.ctx.allocator, try self.resolveParamType(p));
         }
         const fn_ty = try self.ctx.intern(.{ .function = .{
@@ -816,14 +815,14 @@ pub const TypeResolver = struct {
                         },
                         .@"variant" => {
                             if (!is_enum or head == .@"errors") {
-                                try self.ctx.err(firstSrcPos(m), "only enums declare payload variants", .{});
+                                try self.ctx.errAt(m, "only enums declare payload variants", .{});
                                 continue;
                             }
                             try self.resolveVariant(m, &fields, sym_name);
                         },
                         .@"fun", .@"sub" => {
                             if (head == .@"errors") {
-                                try self.ctx.err(ir.get(m, .name).src.pos, "an error set cannot declare methods; write a function that takes the error", .{});
+                                try self.ctx.errAt(ir.get(m, .name), "an error set cannot declare methods; write a function that takes the error", .{});
                                 continue;
                             }
                             try self.resolveMethod(m, sym_id, &fields);
@@ -841,7 +840,7 @@ pub const TypeResolver = struct {
                                     .@"generic_type", .@"generic_enum" => "generic types",
                                     else => "enums",
                                 };
-                                try self.ctx.err(dropPos(m), "`drop` declarations on {s} are deferred (only plain structs can declare `drop`); {s}", .{
+                                try self.ctx.errAt(m, "`drop` declarations on {s} are deferred (only plain structs can declare `drop`); {s}", .{
                                     where,
                                     if (generic) "generic Drop requires bounds / monomorphized resource analysis" else "enum Drop requires per-variant payload drop",
                                 });
@@ -889,7 +888,7 @@ pub const TypeResolver = struct {
         {
             for (ir.Variant.params(variant).items()) |p| {
                 if (!p.isKind(.@":")) {
-                    try self.ctx.err(firstSrcPos(p), "variant payload fields need types (`name: T`)", .{});
+                    try self.ctx.errAt(p, "variant payload fields need types (`name: T`)", .{});
                     continue;
                 }
                 const field_name = ir.get(p, .name);
@@ -973,7 +972,7 @@ pub const TypeResolver = struct {
     }
 
     fn resolveDropDecl(self: *TypeResolver, node: Sexp, nominal_sym: SymbolId, fields: *std.ArrayListUnmanaged(Field)) Error!void {
-        const pos = dropPos(node);
+        const pos = self.ctx.startOf(node);
         for (fields.items) |f| {
             if (f.is_drop_method) {
                 try self.ctx.err(pos, "duplicate `drop` declaration on this struct; a struct has at most one `drop`", .{});
@@ -1031,21 +1030,21 @@ pub const TypeResolver = struct {
         const head = body.kind() orelse return;
         switch (head) {
             .@"drop" => if (self.isSelf(ir.Drop.name(body))) {
-                try self.ctx.err(ir.Drop.name(body).src.pos, "cannot drop `self` inside its own drop body; the binding is being destroyed by the runtime", .{});
+                try self.ctx.errAt(ir.Drop.name(body), "cannot drop `self` inside its own drop body; the binding is being destroyed by the runtime", .{});
             },
             .@"move" => {
                 const operand = ir.Move.operand(body);
                 if (self.isSelf(operand)) {
-                    try self.ctx.err(operand.src.pos, "cannot move `self` out of its own drop body; the binding is being destroyed by the runtime", .{});
+                    try self.ctx.errAt(operand, "cannot move `self` out of its own drop body; the binding is being destroyed by the runtime", .{});
                 } else try self.checkDropBodyField(operand, fields, "move");
             },
             .@"return" => if (self.isSelf(ir.Return.value(body))) {
-                try self.ctx.err(ir.Return.value(body).src.pos, "cannot return `self` from its own drop body", .{});
+                try self.ctx.errAt(ir.Return.value(body), "cannot return `self` from its own drop body", .{});
             },
             .@"set" => {
                 const target = ir.Set.target(body);
                 if (self.isSelf(target)) {
-                    try self.ctx.err(target.src.pos, "cannot reassign `self` inside its own drop body; dropping the old value would run this body again", .{});
+                    try self.ctx.errAt(target, "cannot reassign `self` inside its own drop body; dropping the old value would run this body again", .{});
                 } else try self.checkDropBodyField(target, fields, "reassign");
             },
             else => {},
@@ -1065,7 +1064,7 @@ pub const TypeResolver = struct {
         for (fields) |f| {
             if (f.is_method or f.is_variant or !std.mem.eql(u8, f.name, fname)) continue;
             if (types.typeHasDropGlue(self.ctx, f.ty)) {
-                try self.ctx.err(name.src.pos, "cannot {s} resource field `self.{s}` inside drop body; fields are dropped automatically after the user drop body returns, so a manual {s} would race the auto-generated drop and double-free", .{ op, fname, op });
+                try self.ctx.errAt(name, "cannot {s} resource field `self.{s}` inside drop body; fields are dropped automatically after the user drop body returns, so a manual {s} would race the auto-generated drop and double-free", .{ op, fname, op });
             }
             return;
         }
@@ -1130,7 +1129,7 @@ pub const TypeResolver = struct {
                     .@"error_union" => {
                         const inner = try self.resolveType(ir.ErrorUnion.type(sexp));
                         const ty = try self.ctx.intern(.{ .fallible = inner });
-                        try self.ctx.err(firstSrcPos(sexp), "a fallible type `{s}` is only allowed as a function's return type (a fallible handle is `(*T)!`)", .{try types.formatType(self.ctx, ty)});
+                        try self.ctx.errAt(sexp, "a fallible type `{s}` is only allowed as a function's return type (a fallible handle is `(*T)!`)", .{try types.formatType(self.ctx, ty)});
                         return t.invalid_id;
                     },
                     .@"borrow_read", .@"borrow_write", .@"slice" => {
@@ -1152,7 +1151,7 @@ pub const TypeResolver = struct {
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
                         if (self.ctx.types.get(inner) == .shared) {
-                            try self.ctx.err(firstSrcPos(inner_node), "nested shared type `**T` is not meaningful; use a single `*T`", .{});
+                            try self.ctx.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
                             return t.invalid_id;
                         }
                         if (self.ctx.types.get(inner) == .function) try self.checkOwnedClosureType(inner_node, inner);
@@ -1161,13 +1160,13 @@ pub const TypeResolver = struct {
                     .@"array_type" => {
                         const size = ir.ArrayType.size(sexp);
                         const len = types.parseIntegerLiteral(self.ctx.source, size) orelse {
-                            try self.ctx.err(size.src.pos, "array length must be an integer literal", .{});
+                            try self.ctx.errAt(size, "array length must be an integer literal", .{});
                             return t.invalid_id;
                         };
                         const elem_node = ir.ArrayType.type(sexp);
                         const elem = try self.resolveType(elem_node);
                         if (types.typeHasDropGlue(self.ctx, elem)) {
-                            try self.ctx.err(firstSrcPos(elem_node), "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try types.formatType(self.ctx, elem)});
+                            try self.ctx.errAt(elem_node, "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try types.formatType(self.ctx, elem)});
                             return t.invalid_id;
                         }
                         return self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
@@ -1186,7 +1185,7 @@ pub const TypeResolver = struct {
                     .@"generic_inst" => return self.resolveGenericInst(sexp),
                     .@"member" => return self.resolveQualified(ir.Member.object(sexp), ir.Member.name(sexp)),
                     else => {
-                        try self.ctx.err(firstSrcPos(sexp), "unsupported type expression", .{});
+                        try self.ctx.errAt(sexp, "unsupported type expression", .{});
                         return t.invalid_id;
                     },
                 }
@@ -1202,11 +1201,11 @@ pub const TypeResolver = struct {
         const name = identAt(self.ctx.source, name_node) orelse return t.invalid_id;
         const pos = srcPos(name_node, 0);
         const mod_id = self.ctx.lookup(self.scope, module_name) orelse {
-            try self.ctx.err(srcPos(module_node, 0), "use of unbound module `{s}`; import it with `use {s}`", .{ module_name, module_name });
+            try self.ctx.errAt(module_node, "use of unbound module `{s}`; import it with `use {s}`", .{ module_name, module_name });
             return t.invalid_id;
         };
         if (self.ctx.symbols.items[mod_id].kind != .module) {
-            try self.ctx.err(srcPos(module_node, 0), "`{s}` is not a module; a qualified type is written `module.Type`", .{module_name});
+            try self.ctx.errAt(module_node, "`{s}` is not a module; a qualified type is written `module.Type`", .{module_name});
             return t.invalid_id;
         }
         try self.ctx.recordName(module_node, mod_id);
@@ -1244,11 +1243,11 @@ pub const TypeResolver = struct {
         const nodes: []const Sexp = if (is_fun_type) ir.FunType.params(fun_type).items() else &.{};
         for (f.params, 0..) |p, i| {
             if (types.isClosureValue(self.ctx, p)) continue;
-            const pos = if (i < nodes.len) firstSrcPos(nodes[i]) else firstSrcPos(fun_type);
+            const pos = if (i < nodes.len) self.ctx.startOf(nodes[i]) else self.ctx.startOf(fun_type);
             try self.ctx.err(pos, "an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try types.formatType(self.ctx, p)});
         }
         if (!f.is_sub and !types.isClosureValue(self.ctx, f.returns)) {
-            const pos = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) firstSrcPos(ir.FunType.returns(fun_type)) else firstSrcPos(fun_type);
+            const pos = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) self.ctx.startOf(ir.FunType.returns(fun_type)) else self.ctx.startOf(fun_type);
             try self.ctx.err(pos, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try types.formatType(self.ctx, f.returns)});
         }
     }
@@ -1406,15 +1405,6 @@ pub const TypeResolver = struct {
         try leaks.append(self.ctx.allocator, sym_id);
     }
 };
-
-/// Where a `drop_decl` is reported: its first named parameter.
-fn dropPos(node: Sexp) u32 {
-    for (ir.DropDecl.params(node).items()) |p| {
-        const pp = types.paramPos(p, 0);
-        if (pp != 0) return pp;
-    }
-    return firstSrcPos(node);
-}
 
 /// A match pattern that matches anything without binding: `else`, `_`.
 pub fn isWildcardPattern(source: []const u8, pattern: Sexp) bool {

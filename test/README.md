@@ -15,7 +15,7 @@ when nothing fails and no known-failing test has started passing.
 | Path | Contract |
 |---|---|
 | `test/behavior/<area>/<name>.rig` | `rig run` exits 0, no leaks, stdout equals the `# expect:` block |
-| `test/reject/<area>/<name>.rig` | `rig check` exits non-zero with a `file:line:col` diagnostic containing each `# error:` text |
+| `test/reject/<area>/<name>.rig` | `rig check` exits non-zero with `file:line:col` diagnostics whose messages contain each `# error:` text |
 | `test/known/<area>/<name>.rig` | a known bug, written as a behavior or reject test of the *correct* behavior |
 | `examples/<name>.rig` | curated showcase programs; same contract as `behavior/` |
 | `test/ir/<name>.rig` | raw and semantic IR snapshots (`<name>.raw.sexp`, `<name>.sem.sexp`) |

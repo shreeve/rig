@@ -35,7 +35,6 @@ const Tag = rig.Tag;
 const Writer = std.Io.Writer;
 const TypeId = types.TypeId;
 const SymbolId = types.SymbolId;
-const firstSrcPos = diag.firstSrcPos;
 
 pub const Error = std.mem.Allocator.Error || Writer.Error || rig.BindingKindError || error{Unsupported};
 
@@ -3275,7 +3274,7 @@ pub const Emitter = struct {
     /// for rejecting it with a proper diagnostic; reaching this is a
     /// compiler bug.
     fn unsupported(self: *Emitter, node: Sexp, what: []const u8) Error {
-        const lc = diag.lineCol(self.source, firstSrcPos(node));
+        const lc = diag.lineCol(self.source, self.sema.startOf(node));
         std.debug.print("{d}:{d}: internal error: cannot emit {s} (sema should reject it)\n", .{ lc.line, lc.col, what });
         return error.Unsupported;
     }

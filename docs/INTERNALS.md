@@ -340,14 +340,33 @@ instead of re-deriving it by name:
 | `isExhaustive(match)` | whether the arms cover every value without a default |
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
 
-Leaves are keyed by source position and list nodes by the identity of
-their item slice, which is stable because every pass walks the same
-tree. Binding facts live on the `Symbol`: whether it is reassigned,
+Leaves are keyed by source position and list nodes by their node id:
+the parser numbers every node it builds (`List.id`), and the Parser
+wrapper's rewrites keep the number. Binding facts live on the `Symbol`: whether it is reassigned,
 written through, fixed, known at compile time, or bound by a pattern,
 and for a capture the binding it captures.
 
 Sema's job includes everything emit cannot lower: a construct the
 backend cannot express yet is rejected with a diagnostic that says so.
+
+### Diagnostics
+
+Every pass reports at a node where it can (`errAt(node, ...)`): the
+parser records each node's span, from its first to its last token,
+keywords and sigils included, and the diagnostic covers it. `rig`
+prints each one as `file:line:col: error: message` at the start of the
+span, then the source line with the span underlined (up to the end of
+that line):
+
+```text
+spans.rig:3:5: error: `return` needs a value of type `Int`
+    return
+    ^~~~~~
+```
+
+A diagnostic about a position rather than a node (a name that was
+used, a loan taken) is underlined with a single `^`. Notes follow the
+error they explain. `test/cli/diagnostics.sh` checks the format.
 
 ## Effects
 

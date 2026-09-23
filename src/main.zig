@@ -204,9 +204,11 @@ fn printTree(allocator: std.mem.Allocator, io: std.Io, path: []const u8, source:
         .semantic => p.parseProgram(),
     } catch |err| switch (err) {
         error.ParseError => {
-            const d = p.diagnostic();
-            const lc = diag.lineCol(source, d.pos);
-            fatal("{s}:{d}:{d}: error: {s}", .{ path, lc.line, lc.col, d.message });
+            var buffer: [4096]u8 = undefined;
+            var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
+            try diag.write(&.{p.diagnostic()}, source, path, &writer.interface);
+            try writer.interface.flush();
+            std.process.exit(1);
         },
         else => return err,
     };
