@@ -50,14 +50,19 @@ module-level bindings are not supported yet. `rig run` needs a
 `sub main()`.
 
 ```bash
-bin/rig run hello.rig      # check, emit Zig, build in Debug mode, run
-bin/rig check hello.rig    # check only
-bin/rig build hello.rig    # check, then print the emitted Zig
+bin/rig check hello.rig              # check only
+bin/rig run hello.rig                # check, build in Debug mode, run
+bin/rig run --release hello.rig      # the same, optimized (ReleaseSafe)
+bin/rig build hello.rig              # a native executable (--release too)
+bin/rig test hello.rig               # run the file's `test` blocks
+bin/rig emit hello.rig               # print the emitted Zig
 ```
 
 `rig run` builds in Debug mode with a leak-checking allocator: a program
-that leaks memory prints each leak and exits with an error. Integer
-overflow and out-of-bounds indexing panic.
+that leaks memory reports it and exits with an error. `--release` builds
+with Zig's ReleaseSafe, and `--release=fast` with ReleaseFast. Integer
+overflow, out-of-bounds indexing, and a numeric conversion whose value
+does not fit panic in Debug and ReleaseSafe builds.
 
 ---
 
@@ -601,8 +606,11 @@ sub main()
 
 ### Tests
 
-`test "name"` declares a block that is checked and emitted as a Zig
-`test`. There is no `rig test` command yet, so test blocks do not run.
+`test "name"` declares a block that is checked like a function body.
+`rig test file.rig` runs every test block of the file: it prints
+`ok    test "name"` for each one that finishes, or
+`FAIL  test "name": ...` with the reason, and then `N passed, M failed`.
+`rig run` ignores test blocks.
 
 ```rig
 fun area(w: Int, h: Int) -> Int
