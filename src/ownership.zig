@@ -11,19 +11,24 @@
 //!   it, so a var index is valid exactly while the var is in scope.
 //! * A `Loan` is a read or write borrow of a root var. Loans travel with
 //!   values: `r = ?a` stores a read loan on `a` in `r`; `View(box: ?a)`
-//!   carries it into the struct; a call whose result type can contain a
+//!   carries it into the struct; a call whose result type can hold a
 //!   borrow carries the loans of all of its arguments (so a returned
-//!   borrow borrows from every borrowed argument). A loan that is not
-//!   stored anywhere is a temporary and ends with its statement.
+//!   borrow borrows from every borrowed argument), and a call may store
+//!   its arguments' loans into its receiver, its `!x` arguments and the
+//!   shared handles it is given. A loan that is not stored anywhere is a
+//!   temporary and ends with its statement.
 //! * Borrowed parameters hold an *external* loan on themselves: it marks
-//!   a borrow that came from the caller, which may be returned, and it
-//!   never conflicts with anything.
+//!   a borrow that came from the caller, which may be returned or stored
+//!   into other borrowed parameters, and it never conflicts.
+//! * Types come from sema's symbol table (`exprType`); an unknown type is
+//!   assumed to be able to hold a borrow.
 //!
 //! Control flow
 //! ------------
 //! * `if`, `match`, ternaries and `catch` walk every branch from the same
-//!   entry state and join the results: a value moved or dropped on any
-//!   path is moved or dropped afterwards, and loans are unioned.
+//!   entry state and `join` the results: a value moved or dropped on any
+//!   path is moved or dropped afterwards, and loans are unioned. A match
+//!   without a catch-all arm also joins the state where no arm ran.
 //! * Loops iterate to a fixpoint over the back edge: the loop-head state
 //!   is the join of the entry state, the end of the body and every
 //!   `continue`. The state after the loop joins the condition-false state
@@ -38,26 +43,31 @@
 //! * Read borrows exclude writes, moves, drops and reassignment of their
 //!   root; write borrows exclude every other use. A method call borrows
 //!   its receiver for the whole call (`rc.show(<rc)` is rejected).
-//! * A borrow may not outlive its root: when a scope ends, no surviving
-//!   value may hold a loan on a var declared in it. A returned value may
-//!   only carry loans on borrowed parameters.
+//! * A borrow may not outlive its root: when a scope ends (normally or by
+//!   `break`, `continue` or `!`), no surviving value may hold a loan on a
+//!   var declared in it. A returned value, or one stored into something
+//!   the caller owns, may only carry borrows the caller handed in.
 //! * Values that own resources (`*T`, `~T`, `Vec(T)`, anything with drop
 //!   glue) cannot be copied implicitly. In a consuming position (binding,
 //!   argument, field, return, the branches of an `if`/`match` in such a
 //!   position) a place expression of such a type must be written `<x` or
-//!   `+x`. Copying a write borrow into a binding is rejected the same way.
+//!   `+x`; only a bare name returned directly moves implicitly. A value
+//!   holding a write borrow cannot be copied either, except as a call
+//!   argument (which reborrows it for the call).
 //! * Only whole bindings move. Moving a non-Copy value out of a field or
 //!   element (`<p.a`, `<v[0]`) is rejected: a borrowed or shared parent
 //!   still owns it, and an owned parent would drop it again.
-//! * Borrowed parameters cannot be dropped or move-captured.
+//! * Borrowed parameters cannot be dropped or move-captured. Functions may
+//!   read module-level bindings but not move, drop or replace owning ones.
 //! * A match payload binding views the scrutinee. Moving it out consumes
 //!   an owned local scrutinee and is rejected for a borrowed or shared one.
 //! * A closure literal may only be bound (`f = |...|`), called in place,
-//!   or wrapped in `*Closure(...)`; closure bindings cannot be copied.
-//!   Resources captured into a closure are owned by its environment: the
-//!   body may use and clone them but not move, drop or reassign them.
-//! * A `defer` body cannot move, drop or reassign outer bindings, and is
-//!   re-checked at every exit of its scope.
+//!   or wrapped in `*Closure(...)`; closure bindings cannot be copied. A
+//!   closure body may only use outer locals it captures. Resources
+//!   captured into a closure are owned by its environment: the body may
+//!   use and clone them but not move, drop or reassign them.
+//! * A `defer` body cannot move or drop outer bindings, and is re-checked
+//!   against the state at every exit of its scope.
 
 const std = @import("std");
 const parser = @import("parser.zig");
