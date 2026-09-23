@@ -635,7 +635,7 @@ From lowest to highest precedence:
 | `not` | Bool |
 | `==` `!=` `<` `>` `<=` `>=` | not chainable |
 | `??` | optional fallback; right-associative |
-| `..` | half-open range, only as a `for` source |
+| `..` | half-open range: a `for` source or a match pattern |
 | `\|` | bitwise or |
 | `^` | bitwise xor |
 | `&` | bitwise and |
@@ -894,20 +894,22 @@ enums, integers, and `Bool`.
 | `.name` | an enum variant |
 | `.name(a, b)` | a payload variant, binding its fields in order |
 | `42`, `-1`, `true` | a literal |
-| `lo..hi` | an integer in the inclusive range |
+| `lo..hi` | an integer from `lo` up to, not including, `hi` (constant bounds) |
 | `else`, `_`, or any other name | everything else |
 
 An arm is `pattern => statement` or a pattern followed by an indented
 block. A match whose value is used must cover every value; a statement
 match need not, and then runs no arm for the rest. Duplicate and
-unreachable arms are rejected.
+unreachable arms are rejected. A range pattern is half-open like every
+range, so `0..10` matches 0 through 9, and its end may be one past the
+type's largest value: `100..256` covers the rest of a `U8`.
 
 ```rig
 fun size(n: U8) -> String
   match n
-    0..9 => "small"
-    10..99 => "medium"
-    100..255 => "large"
+    0..10 => "small"
+    10..100 => "medium"
+    100..256 => "large"
 
 sub main()
   print(size(5), size(42), size(200))

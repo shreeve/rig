@@ -968,17 +968,7 @@ const Checker = struct {
                         try self.recordCovered(self.text(items[1]), firstSrcPos(pattern), covered);
                     },
                     .@"variant_pattern" => try self.checkVariantPattern(items, scrutinee, covered),
-                    .@"range_pattern" => {
-                        try self.checkExpr(items[1], scrutinee);
-                        try self.checkExpr(items[2], scrutinee);
-                        const lo = self.constInt(items[1]) orelse return;
-                        const hi = self.constInt(items[2]) orelse return;
-                        if (lo > hi) {
-                            try self.err(firstSrcPos(pattern), "empty range `{d}..{d}`: a range pattern runs from low to high", .{ lo, hi });
-                            return;
-                        }
-                        try self.coverInts(cov, lo, hi, firstSrcPos(pattern));
-                    },
+                    .@"range_pattern" => try self.checkRangePattern(items, scrutinee, cov),
                     else => {
                         try self.checkExpr(pattern, scrutinee);
                         if (self.constInt(pattern)) |v| try self.coverInts(cov, v, v, firstSrcPos(pattern));
@@ -987,6 +977,44 @@ const Checker = struct {
             },
             else => {},
         }
+    }
+
+    /// `lo..hi` matches `lo` up to, not including, `hi`, like every range.
+    /// Both bounds are constant integers; `hi` may be one past the
+    /// scrutinee type's largest value, so a range can reach it.
+    fn checkRangePattern(self: *Checker, items: []const Sexp, scrutinee: TypeId, cov: *MatchCoverage) Error!void {
+        const pos = firstSrcPos(items[1]);
+        try self.checkExpr(items[1], scrutinee);
+        const hi_node = items[2];
+        const hi_literal = isIntLiteralNode(self.ctx.source, hi_node);
+        const st = self.ctx.types.get(types.unwrapBorrows(self.ctx, scrutinee));
+        if (hi_literal and (st == .int or st == .int_literal)) {
+            // Record the bound's type without the fit check a value gets.
+            try self.ctx.recordType(hi_node, if (st == .int) types.unwrapBorrows(self.ctx, scrutinee) else self.t().int_id);
+            if (hi_node == .list) try self.ctx.recordType(hi_node.list[1], if (st == .int) types.unwrapBorrows(self.ctx, scrutinee) else self.t().int_id);
+        } else try self.checkExpr(hi_node, scrutinee);
+        if (self.isPoison(scrutinee)) return;
+        const lo = self.constInt(items[1]);
+        const hi = self.constInt(hi_node);
+        if (lo == null or hi == null) {
+            try self.err(pos, "the bounds of a range pattern must be constant integers", .{});
+            return;
+        }
+        if (st == .int) {
+            const info = st.int;
+            const bits: u8 = if (info.bits == 0) 64 else info.bits;
+            const max: i128 = if (info.signed) (@as(i128, 1) << @intCast(bits - 1)) - 1 else (@as(i128, 1) << @intCast(bits)) - 1;
+            const min: i128 = if (info.signed) -(@as(i128, 1) << @intCast(bits - 1)) else 0;
+            if (hi.? > max + 1 or hi.? <= min) {
+                try self.err(firstSrcPos(hi_node), "the end of range `{d}..{d}` does not fit `{s}`; it may be at most {d}, one past the largest value", .{ lo.?, hi.?, try self.tyName(scrutinee), max + 1 });
+                return;
+            }
+        }
+        if (lo.? >= hi.?) {
+            try self.err(pos, "empty range `{d}..{d}`: a range pattern matches from its start up to, not including, its end", .{ lo.?, hi.? });
+            return;
+        }
+        try self.coverInts(cov, lo.?, hi.? - 1, pos);
     }
 
     fn recordCovered(self: *Checker, name: []const u8, pos: u32, covered: *std.StringHashMapUnmanaged(u32)) Error!void {
@@ -3447,6 +3475,12 @@ fn isStatementForm(e: Sexp) bool {
         .@"set", .@"while", .@"for", .@"drop", .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .@"labeled" => true,
         else => false,
     };
+}
+
+/// An integer literal, possibly negated: `42`, `-1`.
+fn isIntLiteralNode(source: []const u8, e: Sexp) bool {
+    if (isHead(e, .@"neg")) return isIntLiteralNode(source, e.list[1]);
+    return e == .src and types.isIntLiteralText(identAt(source, e) orelse "");
 }
 
 fn isLiteralText(s: []const u8) bool {

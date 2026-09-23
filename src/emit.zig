@@ -1494,11 +1494,11 @@ pub const Emitter = struct {
                         }
                     },
                     .@"range_pattern" => {
-                        // Patterns are inclusive: `1..3` covers 1, 2, 3.
-                        try self.emitExpr(p[1]);
-                        try self.w.writeAll("...");
-                        try self.emitExpr(p[2]);
-                        try self.w.writeAll(" => ");
+                        // `lo..hi` is half-open; Zig's `lo...hi` is inclusive.
+                        // Sema checked both bounds are constants.
+                        const lo = types.constIntOf(self.sema, p[1]) orelse return self.unsupported(pattern, "this range pattern");
+                        const hi = types.constIntOf(self.sema, p[2]) orelse return self.unsupported(pattern, "this range pattern");
+                        try self.w.print("{d}...{d} => ", .{ lo, hi - 1 });
                     },
                     else => {
                         try self.emitExpr(pattern);

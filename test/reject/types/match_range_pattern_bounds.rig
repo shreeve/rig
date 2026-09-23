@@ -1,0 +1,22 @@
+# A range pattern is half-open: `n..n` matches nothing, its end may be
+# one past the type's largest value but no further, and its bounds are
+# constants.
+
+fun f(n: U8, k: Int) -> Int
+  match n
+    3..3 => 0
+    0..257 => 1
+    else => 2
+
+sub g(k: Int)
+  match k
+    0..k => print("dynamic")
+    else => print("other")
+
+sub main()
+  print(f(1, 2))
+  g(3)
+
+# error: empty range `3..3`
+# error: the end of range `0..257` does not fit `U8`; it may be at most 256
+# error: the bounds of a range pattern must be constant integers
