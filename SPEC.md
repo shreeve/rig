@@ -440,7 +440,38 @@ how the method uses the value, and the call site says the same thing:
 | `self: Self` | consumes the value | `(<p).m()`, or on a temporary |
 
 Write borrows and moves are never implicit, so calling a `!self` method
-as `p.m()` is an error. Inside a `!self` method, `self.field = v` and
+as `p.m()` on an owned `p` is an error. A binding that already holds a
+write borrow (a `!T` parameter, `self` in a `!self` method, a local
+`w = !p`) calls it directly, `w.m()`: the borrow it holds is lent to the
+call.
+
+```rig
+struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  sub bump_twice(!self)
+    self.bump()
+    self.bump()
+
+sub add_three(c: !Counter)
+  c.bump()
+  c.bump_twice()
+
+sub main()
+  c = Counter(n: 0)
+  add_three(!c)
+  (!c).bump()
+  print(c.n)
+```
+
+```output
+4
+```
+
+Inside a `!self` method, `self.field = v` and
 `self = v` write through to the caller's value. The sigil shorthand
 `?self` / `!self` is only for `self`; other parameters put the sigil on
 the type (`other: ?Point`).
