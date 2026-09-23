@@ -141,6 +141,9 @@ pub const Emitter = struct {
     /// The next expression sits in a delimited position (after `=`,
     /// between commas, inside parentheses) and needs no outer parentheses.
     bare: bool = false,
+    /// The value being emitted is a write borrow: a pointer local in tail
+    /// position yields the pointer, not the value behind it.
+    ptr_tail: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, w: *Writer, sema: *const types.SemContext) Emitter {
         return .{
@@ -464,7 +467,7 @@ pub const Emitter = struct {
         try self.emitParamList(params);
         try self.w.writeAll(") ");
         if (!is_sub and items[3] != .nil) {
-            try self.emitType(items[3]);
+            try self.emitParamType(items[3]);
         } else if (is_main and containsPropagate(body)) {
             try self.w.writeAll("!void");
         } else {
@@ -879,15 +882,17 @@ pub const Emitter = struct {
         const s = self.sema.symbols.items[sym];
         const ty = self.symType(sym);
         const is_borrow = !is_move and (isTagged(expr, .@"read") or isTagged(expr, .@"write"));
-        var local: Local = .{ .sym = sym, .zig_name = "", .ty = ty, .is_ptr = is_borrow };
-        if (!is_borrow) {
+        // A write borrow is held as a pointer however it was obtained.
+        const holds_ptr = is_borrow or (ty != null and self.sema.types.get(ty.?) == .borrow_write);
+        var local: Local = .{ .sym = sym, .zig_name = "", .ty = ty, .is_ptr = holds_ptr };
+        if (!holds_ptr) {
             if (ty) |t| local.kind = self.kindOf(t);
         }
         if (local.kind != null) local.guard = if (self.usage.consumed.contains(sym)) .flag else .scope;
 
         const needs_ptr_self = local.kind == .value or local.kind == .optional or
             (ty != null and self.isCellTy(ty.?));
-        const is_var = !is_borrow and (s.flags.reassigned or self.usage.mutated.contains(sym) or needs_ptr_self);
+        const is_var = s.flags.reassigned or (!holds_ptr and (self.usage.mutated.contains(sym) or needs_ptr_self));
 
         // Evaluate the value before the new name is visible, so a shadow
         // (`new x = x + 1`) reads the old binding.
@@ -896,12 +901,22 @@ pub const Emitter = struct {
             const saved_w = self.w;
             self.w = &value_buf.writer;
             defer self.w = saved_w;
-            if (is_borrow) try self.emitAddressOf(expr.list[1]) else try self.emitValueOf(expr, is_move);
+            if (is_borrow) {
+                try self.emitAddressOf(expr.list[1]);
+            } else if (holds_ptr) {
+                try self.emitBorrowValue(expr);
+            } else try self.emitValueOf(expr, is_move);
         }
 
         const stored = try self.declare(local, self.srcText(name_node));
         try self.w.print("{s} {s}", .{ if (is_var) "var" else "const", stored.zig_name });
-        if (!is_borrow) {
+        if (holds_ptr) {
+            // A rebindable borrow needs its pointer type spelled out.
+            if (is_var and ty != null) {
+                try self.w.writeAll(": ");
+                try self.emitPointerTy(ty.?);
+            }
+        } else {
             if (type_node != .nil) {
                 try self.w.writeAll(": ");
                 try self.emitType(type_node);
@@ -928,6 +943,12 @@ pub const Emitter = struct {
     /// after the new one has been computed (so `a = +a` works), and the
     /// guard is re-armed.
     fn emitRebind(self: *Emitter, local: Local, value: Sexp, is_move: bool) Error!void {
+        if (local.is_ptr and self.sema.symbols.items[local.sym].kind != .param) {
+            // A borrow local is rebound to borrow something else.
+            try self.w.print("{s} = ", .{local.zig_name});
+            if (isTagged(value, .@"read") or isTagged(value, .@"write")) try self.emitAddressOf(value.list[1]) else try self.emitBorrowValue(value);
+            return self.w.writeAll(";");
+        }
         if (local.is_ptr) {
             // Through a `!T` parameter: the caller's value is replaced.
             const pointee = if (local.ty) |t| self.peelBorrows(t) else null;
@@ -1054,6 +1075,7 @@ pub const Emitter = struct {
     /// position (directly, or through `if`/`match` branches) are moved
     /// out, so their scope-exit drop is disarmed.
     fn emitReturnValue(self: *Emitter, value: Sexp) Error!void {
+        if (self.fun.return_ty) |r| if (self.sema.types.get(r) == .borrow_write) return self.emitBorrowValue(value);
         self.bare = true;
         try self.emitValue(value, true);
     }
@@ -1509,6 +1531,7 @@ pub const Emitter = struct {
     fn emitName(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
         const name = self.srcText(sexp);
         if (self.localOf(sexp)) |local| {
+            if (tail and self.ptr_tail and local.is_ptr) return self.w.writeAll(local.zig_name);
             if (tail) if (self.consumeFlag(local)) |flag| return self.writeTake(flag, local);
             return self.writeLocalPlace(local);
         }
@@ -1523,6 +1546,30 @@ pub const Emitter = struct {
         try self.w.print("rig.take(&{s}, ", .{flag});
         try self.writeLocalPlace(local);
         try self.w.writeAll(")");
+    }
+
+    /// A write-borrow value: the pointer a `!T` expression denotes.
+    fn emitBorrowValue(self: *Emitter, e: Sexp) Error!void {
+        const saved = self.ptr_tail;
+        defer self.ptr_tail = saved;
+        self.ptr_tail = true;
+        self.bare = true;
+        try self.emitValue(e, true);
+    }
+
+    /// `*T` / `*const T` for a borrow type.
+    fn emitPointerTy(self: *Emitter, ty: TypeId) Error!void {
+        switch (self.sema.types.get(ty)) {
+            .borrow_write => |inner| {
+                try self.w.writeAll("*");
+                try self.emitTypeTy(inner);
+            },
+            .borrow_read => |inner| {
+                try self.w.writeAll("*const ");
+                try self.emitTypeTy(inner);
+            },
+            else => try self.emitTypeTy(ty),
+        }
     }
 
     /// `<x`: the value leaves its binding.
@@ -1543,7 +1590,10 @@ pub const Emitter = struct {
             },
             // `!x` as a value (an argument, a receiver) is the place's address.
             .@"write" => try self.emitAddressOf(items[1]),
-            .@"move" => try self.emitMoved(items[1]),
+            .@"move" => {
+                self.bare = bare;
+                if (tail and self.ptr_tail) try self.emitValue(items[1], true) else try self.emitMoved(items[1]);
+            },
             .@"share" => try self.emitShare(sexp),
             .@"clone" => {
                 // `+b` of a borrowed handle clones the handle it borrows.
@@ -1932,14 +1982,37 @@ pub const Emitter = struct {
     /// parameters' places and defaults for omitted ones.
     fn emitArgs(self: *Emitter, call: Sexp) Error!void {
         const args = call.list[2..];
-        if (self.sema.callSlotsOf(call)) |slots| return self.emitSlots(args, slots, null);
+        const params = self.paramTypes(call);
+        if (self.sema.callSlotsOf(call)) |slots| return self.emitSlots(args, slots, null, params);
         for (args, 0..) |a, i| {
             if (i > 0) try self.w.writeAll(", ");
-            try self.emitBare(a);
+            try self.emitArg(a, if (i < params.len) params[i] else null);
         }
     }
 
-    fn emitSlots(self: *Emitter, args: []const Sexp, slots: []const types.ArgSlot, temps: ?[]const ?[]const u8) Error!void {
+    /// An argument: a `!T` parameter receives a pointer.
+    fn emitArg(self: *Emitter, arg: Sexp, param: ?TypeId) Error!void {
+        const value = argValue(arg);
+        if (param) |p| if (self.sema.types.get(p) == .borrow_write) return self.emitBorrowValue(value);
+        try self.emitBare(value);
+    }
+
+    /// The parameter types a call's arguments fill (without a method's
+    /// receiver), or none when unknown.
+    fn paramTypes(self: *Emitter, call: Sexp) []const TypeId {
+        const callee = call.list[1];
+        const f = self.fnType(self.typeOf(callee)) orelse return &.{};
+        if (!isTagged(callee, .@"member")) return f.params;
+        // `Type.method(...)` and `module.f(...)` pass every parameter;
+        // `value.method(...)` passes all but the receiver.
+        if (self.sema.symbolOf(callee.list[1])) |obj| switch (self.sema.symbols.items[obj].kind) {
+            .nominal_type, .generic_type, .module => return f.params,
+            else => {},
+        };
+        return if (f.params.len > 0) f.params[1..] else f.params;
+    }
+
+    fn emitSlots(self: *Emitter, args: []const Sexp, slots: []const types.ArgSlot, temps: ?[]const ?[]const u8, params: []const TypeId) Error!void {
         for (slots, 0..) |slot, i| {
             if (i > 0) try self.w.writeAll(", ");
             switch (slot) {
@@ -1948,7 +2021,7 @@ pub const Emitter = struct {
                         try self.w.writeAll(name);
                         continue;
                     };
-                    try self.emitBare(argValue(args[ai]));
+                    try self.emitArg(args[ai], if (i < params.len) params[i] else null);
                 },
                 .default => |d| try writeLiteral(self.w, d.source, d.expr),
             }
@@ -1981,6 +2054,7 @@ pub const Emitter = struct {
     fn emitCallInSourceOrder(self: *Emitter, call: Sexp, slots: []const types.ArgSlot) Error!void {
         const callee = call.list[1];
         const args = call.list[2..];
+        const params = self.paramTypes(call);
         const id = self.nextId();
         const temps = try self.arena.allocator().alloc(?[]const u8, args.len);
         @memset(temps, null);
@@ -1998,14 +2072,17 @@ pub const Emitter = struct {
                 try self.emitTypeTy(t);
             };
             try self.w.writeAll(" = ");
-            try self.emitBare(value);
+            const param: ?TypeId = for (slots, 0..) |slot, pi| {
+                if (slot == .arg and slot.arg == ai and pi < params.len) break params[pi];
+            } else null;
+            try self.emitArg(a, param);
             try self.w.writeAll(";\n");
         }
         try self.writeIndent(self.indent);
         try self.w.print("break :rig_call_{d} ", .{id});
         if (isTagged(callee, .@"member")) try self.emitMember(callee) else try self.emitExpr(callee);
         try self.w.writeAll("(");
-        try self.emitSlots(args, slots, temps);
+        try self.emitSlots(args, slots, temps, params);
         try self.w.writeAll(");\n");
         self.indent -= 1;
         try self.writeIndent(self.indent);

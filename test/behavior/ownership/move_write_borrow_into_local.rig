@@ -1,0 +1,25 @@
+# Moving a write borrow into a local moves the borrow: writes through the
+# local reach the caller's value.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+struct C
+  b: *B
+
+sub rep(c: !C)
+  x = <c
+  x.b = *B(n: 2)
+
+sub main()
+  c = C(b: *B(n: 1))
+  rep(!c)
+  print("after", c.b.n)
+
+# expect:
+# drop 1
+# after 2
+# drop 2
