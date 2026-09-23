@@ -1,5 +1,5 @@
 # A write borrow cannot be taken while a read borrow of the same value
-# is live.
+# is live: used later.
 
 struct User
   name: String
@@ -11,5 +11,6 @@ sub main()
   user = User(name: "Steve")
   r = ?user
   rename !user
+  print(r.name)
 
 # error: cannot write-borrow `user` while a read borrow is live

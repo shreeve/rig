@@ -1,0 +1,20 @@
+# A closure that captured a borrow holds it for as long as the closure
+# lives.
+
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  drop self: !Box
+    print("drop", self.n)
+
+sub main()
+  x = Box(n: 1)
+  r = ?x
+  f = |<r| print(r.n)
+  (!x).bump()
+  f()
+
+# error: cannot write-borrow `x` while a read borrow is live

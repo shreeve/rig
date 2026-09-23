@@ -1,0 +1,29 @@
+# A compound assignment keeps its target's type: bitwise operators and
+# shifts need an integer target, arithmetic a numeric one, and the value
+# must fit the operator.
+
+struct P
+  name: String
+
+sub main()
+  f = 1.5
+  f <<= 1
+  f |= 2
+  s = "a"
+  s %= 2
+  p = P(name: "x")
+  p.name ^= 1
+  n = 8
+  n %= 0
+  n <<= 64
+  n >>= 1.5
+  n &= true
+
+# error: `<<=` requires an integer target; `f` has type `Float`
+# error: `|=` requires an integer target; `f` has type `Float`
+# error: `%=` requires a numeric target; `s` has type `String`
+# error: `^=` requires an integer target; this place has type `String`
+# error: division by zero
+# error: shift amount `64` is out of range for `Int` (0..63)
+# error: a shift amount must be an integer; got `Float`
+# error: type mismatch: expected `Int`, got `Bool`

@@ -6,16 +6,14 @@ be checked as thoroughly as what exists.
 
 ## Language
 
-- **Raising errors**: a way for a `T!` function to fail with an error-set value, and `catch |err|` to name it.
 - **Stack closures as arguments**: pass a non-escaping closure to a call without allocating it.
 - **Generic functions**: type parameters on functions, not only on types.
-- **Numeric conversions**: checked and truncating conversions without `raw`.
 - **Strings**: building and formatting strings, slices of strings and arrays.
-- **Iteration**: modifying (`for x in !v`) and consuming (`for x in <v`) loops.
 - **Optional propagation**: `e?` returns `none` from the enclosing function, mirroring `e!`.
 - **Module-level constants** and **field defaults**.
 - **Traits or interfaces** whose dispatch and ownership stay visible in the IR.
 - **Compile-time evaluation**: `pre` expressions and blocks beyond `pre` parameters.
+- **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
 - **Unique heap ownership**: a single-owner box without a reference count.
 - **A value-yielding `try` block** with a matching `catch` block.
 - **Drop bodies for enums and generic types.**

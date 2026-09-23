@@ -161,7 +161,6 @@ libraries are written in Rig itself (see
 | `-` | `-x` drop now (as a statement) | |
 | `*` | `*x` share: move into a counted box | `*T` shared handle |
 | `~` | `~x` weak handle | `~T` weak handle |
-| `%` | `%x` raw access, only inside `raw` | |
 
 A sigil is a prefix when it touches its operand, so `a < b` is still a
 comparison and `a * b` a product. The [language reference](SPEC.md)
@@ -208,8 +207,10 @@ then `zig build parser`.
 - shared `*T` and weak `~T` handles, `Cell`, `Vec`, and `Signal`
 - stack and owned closures with explicit captures, any arity, inferred
   parameter types, and return values
-- optionals with `none`, `??`, and `if x as v`; fallible functions with
-  `f()!` and `catch`
+- optionals with `none`, `??`, and `if x as v`; fallible functions that
+  fail with error values, handled with `f()!`, `catch`, and `catch |err|`
+- checked numeric conversions (`I32(x)`, `Float(n)`), and borrows that
+  end at their last use
 - modules with `pub`, `raw` blocks, and C functions through `extern`
 - a test suite where every program runs leak-checked, and every
   example in these docs is checked
@@ -218,10 +219,9 @@ then `zig build parser`.
 
 - a standard library (there is a small runtime and `print`)
 - concurrency and async
-- producing an error value from a fallible function, and `catch |err|`
 - passing a stack closure as an argument (owned closures work)
 - generic functions, traits or interfaces
-- numeric conversions without `raw`, string building, slices
+- string building, slices
 - module-level bindings, field defaults, a `rig test` runner
 
 ## Learn more

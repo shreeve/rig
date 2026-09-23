@@ -1,0 +1,30 @@
+# `<x` ends `x` for every type; a Copy value is copied out, and
+# assigning the name again makes it usable. A Copy field moved out of a
+# struct is copied, and the struct stays whole.
+
+struct P
+  n: Int
+
+fun twice(n: Int) -> Int
+  n * 2
+
+sub main()
+  n = 21
+  print(twice(<n))
+  n = 4
+  print(n)
+  i = 0
+  while i < 3 : i += 1
+    k = i
+    print(twice(<k))
+  p = P(n: 5)
+  m = <p.n
+  print(m + p.n)
+
+# expect:
+# 42
+# 4
+# 0
+# 2
+# 4
+# 10

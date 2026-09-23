@@ -1,13 +1,16 @@
-# A call whose result is discarded is still evaluated. Moving a Copy
-# value (`<n`) copies it, so `n` stays usable.
+# A call whose result is discarded is still evaluated. `<n` ends `n`,
+# even for a Copy value; assigning `n` again makes it usable.
 
 fun consume(n: Int) -> Int
+  print("consumed", n)
   n
 
 sub main()
   n = 1
   consume <n
+  n = 5
   print n
 
 # expect:
-# 1
+# consumed 1
+# 5

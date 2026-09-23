@@ -1,11 +1,53 @@
-# `Cell.set` needs an addressable receiver; a by-value Cell parameter is
-# not one.
+# `set` and `replace` need a Cell that has a place. A by-value parameter
+# is immutable, a loop or match binding is only a copy (so neither may
+# it be borrowed or given to a `?self` method that could change it), and
+# a temporary has no place at all.
+
+struct Counter
+  hits: Cell(Int)
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+struct Wrap
+  c: Counter
 
 sub bump(c: Cell(Int))
   c.set(1)
 
+fun swap(c: Cell(Int)) -> Int
+  c.replace(2)
+
+fun made() -> Counter
+  Counter(hits: Cell(value: 0))
+
+fun fresh() -> Cell(Int)
+  Cell(value: 3)
+
+sub touch(c: ?Cell(Int))
+  print(c.get())
+
 sub main()
   c: Cell(Int) = Cell(value: 0)
   bump(c)
+  print(swap(c))
+  cells: [2]Cell(Int) = [Cell(value: 1), Cell(value: 2)]
+  for x in cells
+    x.set(5)
+    touch(?x)
+  counters = [Counter(hits: Cell(value: 0))]
+  for k in counters
+    k.hit()
+  wrapped: [1]Wrap = [Wrap(c: Counter(hits: Cell(value: 0)))]
+  for w in wrapped
+    touch(?w.c.hits)
+  fresh().set(4)
+  made().hit()
 
-# error: `Cell.set` requires an addressable Cell receiver
+# error: `Cell.set` needs a Cell that has a place
+# error: `Cell.replace` needs a Cell that has a place
+# error: cannot borrow this: it holds a Cell, and `x` is a loop or match binding
+# error: cannot call `hit` here: the value holds a Cell the method may change, and `k` is a loop or match binding
+# error: cannot borrow this: it holds a Cell, and `w` is a loop or match binding
+# error: cannot call `hit` on a temporary that holds a Cell
+# error: `Cell.set` needs a Cell that has a place

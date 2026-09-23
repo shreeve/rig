@@ -1,0 +1,28 @@
+# A match payload views its scrutinee: moving the scrutinee out is
+# rejected while the payload is still used.
+
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  drop self: !Box
+    print("drop", self.n)
+
+enum Slot
+  full(b: Box)
+  empty
+
+sub discard(s: Slot)
+  print("discard")
+
+sub main()
+  s: Slot = .full(Box(n: 7))
+  match s
+    .full(p)
+      discard(<s)
+      print(p.n)
+    .empty => print("empty")
+
+# error: cannot move `s` while it is read-borrowed

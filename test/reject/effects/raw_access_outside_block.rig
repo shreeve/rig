@@ -1,8 +1,0 @@
-# Raw access `%x` outside a `raw` block is rejected.
-
-sub main()
-  x = 7
-  r = %x
-  print(r)
-
-# error: raw access `%x` requires `raw` block

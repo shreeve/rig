@@ -18,7 +18,6 @@ where it happens, so memory safety reads more cleanly than in Rust:
 | `-x` | drop now |
 | `*x` / `*T` | shared (refcounted) |
 | `~x` / `~T` | weak |
-| `%x` | raw pointer access (inside `raw` only) |
 | `expr!` / `T!` | propagate failure / fallible type |
 | `T?` | optional type |
 

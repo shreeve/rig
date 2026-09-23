@@ -1,0 +1,23 @@
+# A view is live while a borrow of it is: its last use as a value does
+# not end the borrow it holds.
+
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  drop self: !Box
+    print("drop", self.n)
+
+struct View
+  box: ?Box
+
+sub main()
+  x = Box(n: 1)
+  v = View(box: ?x)
+  rv = ?v
+  -x
+  print(rv.box.n)
+
+# error: cannot drop `x` while borrows are live

@@ -1,0 +1,19 @@
+# A clone of an owned closure that captured a borrow reaches that
+# borrow too: the borrowed value stays borrowed while the clone lives.
+
+struct Box
+  payload: Int
+
+  drop self: !Box
+    print("drop")
+
+sub main()
+  a = Box(payload: 1)
+  r = ?a
+  cb: *sub() = *|<r| print(r.payload)
+  keep = +cb
+  -cb
+  -a
+  keep()
+
+# error: cannot drop `a` while borrows are live

@@ -14,7 +14,8 @@
 //!
 //! Compatibility (`compatible`): identical types; a literal where a
 //! numeric type is expected; `none` where an optional is expected; any
-//! `T` where `T?` or `T!` is expected (the value is lifted); `!T` where
+//! `T` where `T?` or `T!` is expected (the value is lifted), and an
+//! error value where `T!` is expected (the function fails); `!T` where
 //! `?T` is expected; a borrow of a Copy value where the value is
 //! expected (`readValue`); and anything where poison (`unknown` /
 //! `invalid`) is involved, so one error does not cascade.
@@ -390,19 +391,10 @@ const Checker = struct {
         }
 
         switch (kind) {
-            .@"+=", .@"-=", .@"*=", .@"/=" => {
-                const target_ty = declared;
-                const op = @tagName(kind);
-                if (kind == .@"/=") if (self.constInt(rhs)) |v| if (v == 0) {
-                    try self.err(firstSrcPos(rhs), "division by zero", .{});
-                };
-                if (!self.isPoison(target_ty) and !types.isNumeric(self.ctx, target_ty)) {
-                    try self.err(target.src.pos, "`{s}` requires a numeric target; `{s}` has type `{s}`", .{ op, name, try self.tyName(target_ty) });
-                    _ = try self.synthExpr(rhs);
-                } else {
-                    try self.checkExpr(rhs, target_ty);
-                }
-                try self.ctx.recordType(target, target_ty);
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
+                const what = try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}` has type", .{name});
+                try self.checkCompound(kind, declared, rhs, target.src.pos, what);
+                try self.ctx.recordType(target, declared);
                 return;
             },
             else => {},
@@ -502,17 +494,50 @@ const Checker = struct {
             try self.err(firstSrcPos(target), "cannot replace an element of type `{s}` by assignment; the old handle would leak", .{try self.tyName(place_ty)});
             return;
         }
-        switch (kind) {
-            .@"+=", .@"-=", .@"*=", .@"/=" => {
-                if (!self.isPoison(place_ty) and !types.isNumeric(self.ctx, place_ty)) {
-                    try self.err(firstSrcPos(target), "`{s}` requires a numeric target; this place has type `{s}`", .{ @tagName(kind), try self.tyName(place_ty) });
-                    _ = try self.synthExpr(rhs);
-                    return;
-                }
-            },
-            else => {},
-        }
+        if (kind.operator() != null) return self.checkCompound(kind, place_ty, rhs, firstSrcPos(target), "this place has type");
         try self.checkExpr(rhs, place_ty);
+    }
+
+    /// `x op= e` is `x = x op e` with `x` evaluated once, and `x` keeps its
+    /// type: arithmetic needs a numeric target, bitwise operators and
+    /// shifts an integer one. `e` has the target's type, except a shift
+    /// amount, which may be any integer.
+    fn checkCompound(self: *Checker, kind: rig.BindingKind, target_ty: TypeId, rhs: Sexp, pos: u32, what: []const u8) Error!void {
+        const op = kind.operator().?;
+        const spelled = @tagName(kind);
+        if (self.isPoison(target_ty)) {
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        const integer_only = switch (op) {
+            .@"&", .@"|", .@"^", .@"<<", .@">>" => true,
+            else => false,
+        };
+        const ok = if (integer_only) types.isInteger(self.ctx, target_ty) else types.isNumeric(self.ctx, target_ty);
+        if (!ok) {
+            try self.err(pos, "`{s}` requires {s} target; {s} `{s}`", .{ spelled, if (integer_only) "an integer" else "a numeric", what, try self.tyName(target_ty) });
+            _ = try self.synthExpr(rhs);
+            return;
+        }
+        if (op == .@"<<" or op == .@">>") {
+            const amount = readValue(self.ctx, try self.synthExpr(rhs));
+            if (self.isPoison(amount)) return;
+            if (!types.isInteger(self.ctx, amount)) {
+                try self.err(firstSrcPos(rhs), "a shift amount must be an integer; got `{s}`", .{try self.tyName(amount)});
+                return;
+            }
+            if (amount == self.t().int_literal_id) try self.ctx.recordType(rhs, self.t().int_id);
+            const info = self.ctx.types.get(target_ty).int;
+            const bits: i128 = if (info.bits == 0) 64 else info.bits;
+            if (self.constInt(rhs)) |v| if (v < 0 or v >= bits) {
+                try self.err(firstSrcPos(rhs), "shift amount `{d}` is out of range for `{s}` (0..{d})", .{ v, try self.tyName(target_ty), bits - 1 });
+            };
+            return;
+        }
+        if (op == .@"/" or op == .@"%") if (self.constInt(rhs)) |v| if (v == 0) {
+            try self.err(firstSrcPos(rhs), "division by zero", .{});
+        };
+        try self.checkExpr(rhs, target_ty);
     }
 
     /// Writing to `place` (a name, or a field or element of one) writes
@@ -743,6 +768,10 @@ const Checker = struct {
     fn writeElement(self: *Checker, source: Sexp, inner_source: Sexp, elem: TypeId) Error!TypeId {
         if (!isFieldPath(inner_source)) {
             try self.err(firstSrcPos(source), "`for x in !xs` writes each element in place; `xs` must be a binding or a field of one", .{});
+        } else if (try self.placeThroughShared(inner_source)) {
+            try self.err(firstSrcPos(source), "cannot write-iterate through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell(T)` for mutation through shared ownership.", .{});
+        } else if (try self.placeThroughReadBorrow(inner_source)) |p| {
+            try self.err(p, "cannot write-iterate through a read borrow (`?T`); take a write borrow (`!T`) to mutate", .{});
         } else try self.checkWritable(inner_source, "write-iterate");
         return self.ctx.intern(.{ .borrow_write = elem });
     }
@@ -802,12 +831,12 @@ const Checker = struct {
         const scrut_pos = firstSrcPos(items[1]);
         if (scrutinee == self.t().int_literal_id) try self.checkLiteralFits(items[1], self.t().int_id);
         const matchable = switch (self.ctx.types.get(types.unwrapBorrows(self.ctx, scrutinee))) {
-            .int, .int_literal, .bool, .invalid, .unknown => true,
+            .int, .int_literal, .bool, .invalid, .unknown, .any_error => true,
             .nominal, .parameterized_nominal, .imported_nominal => types.enumVariantCount(self.ctx, scrutinee) != null,
             else => false,
         };
         if (!matchable) {
-            try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, integers, and Bool", .{try self.tyName(scrutinee)});
+            try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, errors, integers, and Bool", .{try self.tyName(scrutinee)});
         }
 
         var cov: MatchCoverage = .{};
@@ -944,17 +973,7 @@ const Checker = struct {
                         try self.recordCovered(self.text(items[1]), firstSrcPos(pattern), covered);
                     },
                     .@"variant_pattern" => try self.checkVariantPattern(items, scrutinee, covered),
-                    .@"range_pattern" => {
-                        try self.checkExpr(items[1], scrutinee);
-                        try self.checkExpr(items[2], scrutinee);
-                        const lo = self.constInt(items[1]) orelse return;
-                        const hi = self.constInt(items[2]) orelse return;
-                        if (lo > hi) {
-                            try self.err(firstSrcPos(pattern), "empty range `{d}..{d}`: a range pattern runs from low to high", .{ lo, hi });
-                            return;
-                        }
-                        try self.coverInts(cov, lo, hi, firstSrcPos(pattern));
-                    },
+                    .@"range_pattern" => try self.checkRangePattern(items, scrutinee, cov),
                     else => {
                         try self.checkExpr(pattern, scrutinee);
                         if (self.constInt(pattern)) |v| try self.coverInts(cov, v, v, firstSrcPos(pattern));
@@ -963,6 +982,44 @@ const Checker = struct {
             },
             else => {},
         }
+    }
+
+    /// `lo..hi` matches `lo` up to, not including, `hi`, like every range.
+    /// Both bounds are constant integers; `hi` may be one past the
+    /// scrutinee type's largest value, so a range can reach it.
+    fn checkRangePattern(self: *Checker, items: []const Sexp, scrutinee: TypeId, cov: *MatchCoverage) Error!void {
+        const pos = firstSrcPos(items[1]);
+        try self.checkExpr(items[1], scrutinee);
+        const hi_node = items[2];
+        const hi_literal = isIntLiteralNode(self.ctx.source, hi_node);
+        const st = self.ctx.types.get(types.unwrapBorrows(self.ctx, scrutinee));
+        if (hi_literal and (st == .int or st == .int_literal)) {
+            // Record the bound's type without the fit check a value gets.
+            try self.ctx.recordType(hi_node, if (st == .int) types.unwrapBorrows(self.ctx, scrutinee) else self.t().int_id);
+            if (hi_node == .list) try self.ctx.recordType(hi_node.list[1], if (st == .int) types.unwrapBorrows(self.ctx, scrutinee) else self.t().int_id);
+        } else try self.checkExpr(hi_node, scrutinee);
+        if (self.isPoison(scrutinee)) return;
+        const lo = self.constInt(items[1]);
+        const hi = self.constInt(hi_node);
+        if (lo == null or hi == null) {
+            try self.err(pos, "the bounds of a range pattern must be constant integers", .{});
+            return;
+        }
+        if (st == .int) {
+            const info = st.int;
+            const bits: u8 = if (info.bits == 0) 64 else info.bits;
+            const max: i128 = if (info.signed) (@as(i128, 1) << @intCast(bits - 1)) - 1 else (@as(i128, 1) << @intCast(bits)) - 1;
+            const min: i128 = if (info.signed) -(@as(i128, 1) << @intCast(bits - 1)) else 0;
+            if (hi.? > max + 1 or hi.? <= min) {
+                try self.err(firstSrcPos(hi_node), "the end of range `{d}..{d}` does not fit `{s}`; it may be at most {d}, one past the largest value", .{ lo.?, hi.?, try self.tyName(scrutinee), max + 1 });
+                return;
+            }
+        }
+        if (lo.? >= hi.?) {
+            try self.err(pos, "empty range `{d}..{d}`: a range pattern matches from its start up to, not including, its end", .{ lo.?, hi.? });
+            return;
+        }
+        try self.coverInts(cov, lo.?, hi.? - 1, pos);
     }
 
     fn recordCovered(self: *Checker, name: []const u8, pos: u32, covered: *std.StringHashMapUnmanaged(u32)) Error!void {
@@ -978,6 +1035,10 @@ const Checker = struct {
         const vname = self.text(items[1]);
         const vpos = srcPos(items[1], 0);
         try self.recordCovered(vname, vpos, covered);
+        if (types.unwrapBorrows(self.ctx, scrutinee) == self.t().any_error_id) {
+            try self.err(vpos, "an error has no payload to destructure; match it as `.{s}`", .{vname});
+            return;
+        }
         const resolved = (try types.lookupVariant(self.ctx, scrutinee, vname)) orelse {
             try self.reportMissingVariant(scrutinee, vname, vpos);
             return;
@@ -1169,7 +1230,6 @@ const Checker = struct {
             .@"share" => self.synthShare(items),
             .@"weak" => self.synthWeak(items),
             .@"clone" => self.synthClone(items),
-            .@"raw" => self.synthRawAccess(items),
             .@"pin" => blk: {
                 try self.err(firstSrcPos(e), "pinning sigil `@x` is reserved; Rig does not support pinned/stable-address values. Remove the `@` prefix, or call a builtin such as `@sizeOf(T)`.", .{});
                 break :blk self.t().invalid_id;
@@ -1383,6 +1443,9 @@ const Checker = struct {
             try self.require(tv, .equatable, firstSrcPos(l), op);
             return self.t().bool_id;
         }
+        // Any error compares with a member of any error set.
+        const any_err = self.t().any_error_id;
+        if ((a == any_err and types.isErrorValue(self.ctx, b)) or (b == any_err and types.isErrorValue(self.ctx, a))) return self.t().bool_id;
         if (a != b) {
             try self.err(firstSrcPos(l), "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
             return self.t().bool_id;
@@ -1410,7 +1473,7 @@ const Checker = struct {
     fn checkEquatable(self: *Checker, ty: TypeId, node: Sexp, op: []const u8) Error!void {
         if (self.isPoison(ty)) return;
         const ok = switch (self.ctx.types.get(ty)) {
-            .int, .float, .int_literal, .float_literal, .bool, .string => true,
+            .int, .float, .int_literal, .float_literal, .bool, .string, .any_error => true,
             .optional => |inner| satisfies(self.ctx, inner, .equatable),
             .nominal, .imported_nominal => types.isPlainEnum(self.ctx, ty),
             .type_var => |tv| blk: {
@@ -1471,13 +1534,20 @@ const Checker = struct {
     }
 
     /// `expr catch handler`: the value of fallible `expr`, or `handler`.
+    /// `expr catch |err| handler` names the error for the handler; it
+    /// may be any error, since functions do not declare their errors.
     fn synthCatch(self: *Checker, items: []const Sexp, expected: ?TypeId) Error!TypeId {
-        if (items[2] != .nil) {
-            try self.err(srcPos(items[2], firstSrcPos(.{ .list = items })), "naming the error in `catch |err|` is not supported yet; write `expr catch fallback`", .{});
-            return self.t().invalid_id;
-        }
         const handler = items[items.len - 1];
         const ty = try self.synthExpr(items[1]);
+        const prev = self.scope;
+        defer self.scope = prev;
+        if (items[2] != .nil) {
+            _ = self.enter(.{ .list = items });
+            if (self.ctx.symbolOf(items[2])) |sym| {
+                self.ctx.symbols.items[sym].ty = self.t().any_error_id;
+                try self.ctx.recordType(items[2], self.t().any_error_id);
+            }
+        }
         if (self.isPoison(ty)) {
             _ = try self.synthExpr(handler);
             return ty;
@@ -1513,7 +1583,29 @@ const Checker = struct {
     fn synthBorrow(self: *Checker, items: []const Sexp, kind: BorrowKind) Error!TypeId {
         const inner = try self.synthOperand(items[1]);
         if (self.isPoison(inner)) return inner;
-        if (kind == .write) try self.checkWritable(items[1], "write-borrow");
+        if (kind == .write) {
+            if (try self.placeThroughShared(items[1])) {
+                try self.err(firstSrcPos(items[1]), "cannot write-borrow through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell(T)` for mutation through shared ownership.", .{});
+                return self.t().invalid_id;
+            }
+            if (try self.placeThroughReadBorrow(items[1])) |pos| {
+                try self.err(pos, "cannot write-borrow through a read borrow (`?T`); take a write borrow (`!T`) to mutate", .{});
+                return self.t().invalid_id;
+            }
+            try self.checkWritable(items[1], "write-borrow");
+        }
+        // A borrow of a value holding a Cell can change the Cell, which a
+        // loop or match binding only copies.
+        if (kind == .read and types.holdsCellByValue(self.ctx, inner)) {
+            if (self.copiedBindingRoot(items[1])) |root| {
+                try self.err(firstSrcPos(items[1]), "cannot borrow this: it holds a Cell, and `{s}` is a loop or match binding, a copy, so changes through the borrow would be lost", .{self.text(root)});
+                return self.t().invalid_id;
+            }
+            if (!isPlaceExpr(items[1])) {
+                try self.err(firstSrcPos(items[1]), "cannot borrow a temporary that holds a Cell: a change through the borrow would have no place; bind it to a name first", .{});
+                return self.t().invalid_id;
+            }
+        }
         switch (self.ctx.types.get(inner)) {
             .borrow_read => {
                 if (kind == .read) return inner;
@@ -1573,10 +1665,6 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         return types.unwrapBorrows(self.ctx, inner);
-    }
-
-    fn synthRawAccess(self: *Checker, items: []const Sexp) Error!TypeId {
-        return self.synthOperand(items[1]);
     }
 
     /// Synthesize the operand of a borrow, clone, member access, index,
@@ -1956,6 +2044,10 @@ const Checker = struct {
             const name = self.text(callee);
             const id = self.lookupQuiet(callee) orelse {
                 if (std.mem.eql(u8, name, "print")) return self.checkPrint(args);
+                if (decls.isNumericTypeName(name)) {
+                    var r = self.resolver();
+                    return self.checkConversion(try r.resolveType(callee), name, args, callee.src.pos);
+                }
                 try self.err(callee.src.pos, "use of unbound name `{s}`", .{name});
                 try self.synthArgs(args);
                 return self.t().invalid_id;
@@ -1984,9 +2076,18 @@ const Checker = struct {
                     return self.t().invalid_id;
                 },
                 .generic_type => {
-                    try self.err(callee.src.pos, "generic constructor `{s}` requires an expected type; write `b: {s}(T) = {s}(...)`", .{ name, name, name });
-                    try self.synthArgs(args);
-                    return self.t().invalid_id;
+                    // The type arguments come from the fields' values.
+                    if (sym_id == self.ctx.vec_sym_id) {
+                        try self.err(callee.src.pos, "`Vec()` needs its element type from where it goes; write `v: Vec(T) = Vec()`", .{});
+                        try self.synthArgs(args);
+                        return self.t().invalid_id;
+                    }
+                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = sym.fields orelse &.{} }, callee.src.pos)) orelse {
+                        try self.synthArgs(args);
+                        return self.t().invalid_id;
+                    };
+                    _ = try self.instantiate(sym_id, subst.args, callee.src.pos);
+                    return self.construct(sym_id, args, callee.src.pos, subst, null);
                 },
                 .module => {
                     try self.err(callee.src.pos, "module `{s}` cannot be called", .{name});
@@ -2037,6 +2138,43 @@ const Checker = struct {
                 _ = try self.synthExpr(a.list[2]);
             } else _ = try self.synthExpr(a);
         }
+    }
+
+    /// `I32(x)`, `U8(x)`, `Float(n)`, `Int(f)`: a numeric conversion to
+    /// the named type. It is checked: a value that does not fit panics
+    /// when the program runs, and a float converted to an integer is
+    /// truncated toward zero. A constant argument is converted now, so
+    /// it must fit.
+    fn checkConversion(self: *Checker, target: TypeId, name: []const u8, args: []const Sexp, pos: u32) Error!TypeId {
+        if (args.len != 1 or isHead(args[0], .@"kwarg")) {
+            try self.err(pos, "`{s}(x)` converts one number; it takes exactly one argument", .{name});
+            try self.synthArgs(args);
+            return target;
+        }
+        const arg = args[0];
+        const from = readValue(self.ctx, try self.synthExpr(arg));
+        if (self.isPoison(from)) return target;
+        if (!types.isNumeric(self.ctx, from)) {
+            try self.err(firstSrcPos(arg), "`{s}(x)` converts a number; `x` has type `{s}`", .{ name, try self.tyName(from) });
+            return target;
+        }
+        const tt = self.ctx.types.get(target);
+        if (tt != .int) return target;
+        if (types.isInteger(self.ctx, from)) {
+            try self.checkLiteralFits(arg, target);
+            return target;
+        }
+        // A constant float: its integer part must fit.
+        if (constFloatOf(self.ctx.source, arg)) |f| {
+            const bits: u8 = if (tt.int.bits == 0) 64 else tt.int.bits;
+            const min: f64 = if (tt.int.signed) -std.math.pow(f64, 2, @floatFromInt(bits - 1)) else 0;
+            const limit: f64 = std.math.pow(f64, 2, @floatFromInt(if (tt.int.signed) bits - 1 else bits));
+            const whole = @trunc(f);
+            if (!(whole >= min and whole < limit)) {
+                try self.err(firstSrcPos(arg), "`{d}` does not fit in `{s}`", .{ f, try self.tyName(target) });
+            }
+        }
+        return target;
     }
 
     /// `print(a, b, ...)`: any number of values, printed on one line.
@@ -2350,7 +2488,7 @@ const Checker = struct {
                     },
                     .nominal_type, .generic_type => {
                         try self.ctx.recordName(obj, id);
-                        return self.associatedCall(id, method, pos, args);
+                        return self.associatedCall(obj, id, method, pos, args);
                     },
                     else => {},
                 }
@@ -2427,11 +2565,21 @@ const Checker = struct {
         try self.noteCallee(resolved.fn_ty);
         if (resolved.receiver != .value) try self.rejectResourceTemporary(obj, obj_ty);
 
+        // A `?self` method may change a Cell the value holds; a loop or
+        // match binding is only a copy of it.
+        if (resolved.nominal_sym != self.ctx.cell_sym_id and resolved.receiver == .read and types.holdsCellByValue(self.ctx, obj_ty)) {
+            if (self.copiedBindingRoot(obj)) |root| {
+                try self.err(firstSrcPos(obj), "cannot call `{s}` here: the value holds a Cell the method may change, and `{s}` is a loop or match binding, a copy, so the change would be lost", .{ method, self.text(root) });
+            } else if (!isPlaceExpr(obj)) {
+                try self.err(firstSrcPos(obj), "cannot call `{s}` on a temporary that holds a Cell the method may change; bind it to a name first", .{method});
+            }
+        }
         if (resolved.nominal_sym == self.ctx.cell_sym_id) {
-            if (std.mem.eql(u8, method, "set") and !self.isAddressableCell(obj, obj_ty)) {
-                try self.err(pos, "`Cell.set` requires an addressable Cell receiver: a local Cell binding or a shared Cell handle (`*Cell(T)`). Cell parameters, borrows, and temporaries cannot be mutated.", .{});
+            const stores = std.mem.eql(u8, method, "set") or std.mem.eql(u8, method, "replace");
+            if (stores and !self.cellSettable(obj)) {
+                try self.err(pos, "`Cell.{s}` needs a Cell that has a place: a local binding, a field of one, or one reached through a borrow (`?T` or `!T`) or a shared handle (`*T`). A by-value parameter, a loop or match binding (a copy), or a temporary cannot be changed.", .{method});
                 try self.synthArgs(args);
-                return self.t().void_id;
+                return if (std.mem.eql(u8, method, "set")) self.t().void_id else resolved.fn_ty.returns;
             }
             if (std.mem.eql(u8, method, "get")) {
                 if (cellElementType(self.ctx, obj_ty)) |elem| {
@@ -2473,7 +2621,7 @@ const Checker = struct {
     }
 
     /// `Type.method(args)` or `Type.variant(payload)`.
-    fn associatedCall(self: *Checker, sym_id: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!TypeId {
+    fn associatedCall(self: *Checker, obj: Sexp, sym_id: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!TypeId {
         const sym = self.ctx.symbols.items[sym_id];
         const members = sym.fields orelse {
             try self.err(pos, "opaque type `{s}` has no members", .{sym.name});
@@ -2485,21 +2633,37 @@ const Checker = struct {
             if (m.is_method and !m.is_drop_method) {
                 const fty = self.ctx.types.get(m.ty);
                 if (fty != .function) break;
+                var f = fty.function;
                 if (sym.kind == .generic_type) {
-                    try self.err(pos, "associated function `{s}.{s}` of a generic type needs its type arguments, which cannot be written here yet", .{ sym.name, name });
-                    try self.synthArgs(args);
-                    return self.t().invalid_id;
+                    // The type's arguments come from the call's arguments.
+                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .params = .{ .params = f.params, .names = m.param_names } }, pos)) orelse {
+                        try self.synthArgs(args);
+                        return self.t().invalid_id;
+                    };
+                    const inst = try self.instantiate(sym_id, subst.args, pos);
+                    try self.ctx.recordType(obj, inst);
+                    const sub_ty = try types.substituteType(self.ctx, m.ty, subst);
+                    f = self.ctx.types.get(sub_ty).function;
                 }
-                try self.noteCallee(fty.function);
-                try self.checkArgs(args, fty.function, self.methodParams(m, false), name, pos);
-                return fty.function.returns;
+                try self.noteCallee(f);
+                try self.checkArgs(args, f, self.methodParams(m, false), name, pos);
+                return f.returns;
             }
-            if (m.is_variant and sym.kind == .nominal_type) {
+            if (m.is_variant) {
                 const payload = m.payload orelse &.{};
                 if (payload.len == 0) {
                     try self.err(pos, "variant `{s}.{s}` takes no payload", .{ sym.name, name });
                     try self.synthArgs(args);
                     return self.t().invalid_id;
+                }
+                if (sym.kind == .generic_type) {
+                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = payload }, pos)) orelse {
+                        try self.synthArgs(args);
+                        return self.t().invalid_id;
+                    };
+                    const inst = try self.instantiate(sym_id, subst.args, pos);
+                    try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .pos = pos, .subst = subst, .kind = .variant });
+                    return inst;
                 }
                 try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .pos = pos, .kind = .variant });
                 return self.ctx.intern(.{ .nominal = sym_id });
@@ -2510,6 +2674,123 @@ const Checker = struct {
         if (sym.decl_pos != types.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
         try self.synthArgs(args);
         return self.t().invalid_id;
+    }
+
+    /// Where an inferred generic's arguments are matched: the fields a
+    /// constructor or variant fills, or an associated function's
+    /// parameters (with their names, for keyword arguments).
+    const InferFrom = union(enum) {
+        fields: []const Field,
+        params: struct { params: []const TypeId, names: ?[]const []const u8 },
+    };
+
+    /// The type arguments of generic `sym_id` that make `args` fit: each
+    /// argument's type is matched against the field or parameter it
+    /// fills, binding the type parameters that appear there. A literal
+    /// binds its default type (`Int`, `Float`). Null, after a diagnostic,
+    /// when some parameter is left unbound.
+    fn inferTypeArgs(self: *Checker, sym_id: SymbolId, args: []const Sexp, from: InferFrom, pos: u32) Error!?TypeSubst {
+        const sym = self.ctx.symbols.items[sym_id];
+        const params = sym.type_params orelse &.{};
+        const bound = try self.ctx.arena.allocator().alloc(TypeId, params.len);
+        @memset(bound, types.type_invalid);
+        var positional: usize = 0;
+        for (args) |a| {
+            var value = a;
+            var pattern: ?TypeId = null;
+            if (isHead(a, .@"kwarg")) {
+                value = a.list[2];
+                const kname = self.text(a.list[1]);
+                pattern = switch (from) {
+                    .fields => |fs| for (fs) |f| {
+                        if (!f.is_method and !f.is_variant and std.mem.eql(u8, f.name, kname)) break f.ty;
+                    } else null,
+                    .params => |p| blk: {
+                        const names = p.names orelse break :blk null;
+                        for (names, 0..) |n, j| {
+                            if (std.mem.eql(u8, n, kname) and j < p.params.len) break :blk p.params[j];
+                        }
+                        break :blk null;
+                    },
+                };
+            } else {
+                defer positional += 1;
+                pattern = switch (from) {
+                    .fields => |fs| blk: {
+                        var n: usize = 0;
+                        for (fs) |f| {
+                            if (f.is_method or f.is_variant) continue;
+                            if (n == positional) break :blk f.ty;
+                            n += 1;
+                        }
+                        break :blk null;
+                    },
+                    .params => |p| if (positional < p.params.len) p.params[positional] else null,
+                };
+            }
+            const pat = pattern orelse continue;
+            if (!types.containsTypeVar(self.ctx, pat)) continue;
+            const actual = try self.synthQuiet(value);
+            self.bindTypeVars(pat, actual, params, bound, 0);
+        }
+        for (params, bound) |p, b| {
+            if (b != types.type_invalid) continue;
+            try self.err(pos, "cannot infer `{s}` for `{s}` from the arguments; give the type where the value goes (`x: {s}(...) = ...`)", .{ self.ctx.symbols.items[p].name, sym.name, sym.name });
+            return null;
+        }
+        return .{ .params = params, .args = bound };
+    }
+
+    /// Bind the type parameters in `pattern` so that it matches `actual`.
+    /// The first binding of a parameter wins; a later argument that does
+    /// not fit it is reported when the arguments are checked.
+    fn bindTypeVars(self: *Checker, pattern: TypeId, actual: TypeId, params: []const SymbolId, bound: []TypeId, depth: u8) void {
+        if (depth > 32 or self.isPoison(actual)) return;
+        const a = self.ctx.types.get(actual);
+        switch (self.ctx.types.get(pattern)) {
+            .type_var => |tv| {
+                const value = self.canonical(readValue(self.ctx, actual));
+                switch (self.ctx.types.get(value)) {
+                    .none_literal, .noreturn, .void => return,
+                    else => {},
+                }
+                for (params, 0..) |p, i| {
+                    if (p == tv and bound[i] == types.type_invalid) bound[i] = value;
+                }
+            },
+            .optional => |pi| if (a == .optional) self.bindTypeVars(pi, a.optional, params, bound, depth + 1) else self.bindTypeVars(pi, actual, params, bound, depth + 1),
+            .borrow_read => |pi| if (a == .borrow_read) self.bindTypeVars(pi, a.borrow_read, params, bound, depth + 1) else if (a == .borrow_write) self.bindTypeVars(pi, a.borrow_write, params, bound, depth + 1),
+            .borrow_write => |pi| if (a == .borrow_write) self.bindTypeVars(pi, a.borrow_write, params, bound, depth + 1),
+            .shared => |pi| if (a == .shared) self.bindTypeVars(pi, a.shared, params, bound, depth + 1),
+            .weak => |pi| if (a == .weak) self.bindTypeVars(pi, a.weak, params, bound, depth + 1),
+            .array => |pa| if (a == .array) self.bindTypeVars(pa.elem, a.array.elem, params, bound, depth + 1),
+            .parameterized_nominal => |pn| if (a == .parameterized_nominal and a.parameterized_nominal.sym == pn.sym) {
+                for (pn.args, a.parameterized_nominal.args) |pa, aa| self.bindTypeVars(pa, aa, params, bound, depth + 1);
+            },
+            .function => |pf| if (a == .function and a.function.params.len == pf.params.len) {
+                for (pf.params, a.function.params) |pp, ap| self.bindTypeVars(pp, ap, params, bound, depth + 1);
+                self.bindTypeVars(pf.returns, a.function.returns, params, bound, depth + 1);
+            },
+            else => {},
+        }
+    }
+
+    /// The instance of generic `sym_id` at `args`, checked like a spelled
+    /// one: the built-in generics' element rules, and every generic's
+    /// requirements (through its instantiation site).
+    fn instantiate(self: *Checker, sym_id: SymbolId, args: []const TypeId, pos: u32) Error!TypeId {
+        var r = self.resolver();
+        if (try r.builtinArgError(sym_id, args)) |msg| try self.err(pos, "{s}", .{msg});
+        const ty = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = try self.ctx.dupeIds(args) } });
+        if (!types.containsTypeVar(self.ctx, ty)) {
+            const gop = try self.ctx.instantiation_sites.getOrPut(self.ctx.allocator, ty);
+            if (!gop.found_existing) gop.value_ptr.* = pos;
+        } else if (self.ctx.symbols.items[sym_id].decl_pos != types.builtin_decl_pos) {
+            for (self.ctx.generic_uses.items) |u| {
+                if (u == ty) break;
+            } else try self.ctx.generic_uses.append(self.ctx.allocator, ty);
+        }
+        return ty;
     }
 
     /// `module.function(args)` or `module.Type(fields)`.
@@ -2572,15 +2853,55 @@ const Checker = struct {
         return self.t().invalid_id;
     }
 
-    /// `Cell.set` mutates through a pointer, so the receiver must be a
-    /// local Cell (emitted as `var`) or a `*Cell(T)` handle.
-    fn isAddressableCell(self: *Checker, recv: Sexp, recv_ty: TypeId) bool {
-        const ty = self.ctx.types.get(recv_ty);
-        if (ty == .shared) return true;
-        if (ty == .borrow_read or ty == .borrow_write) return false;
-        if (recv != .src) return false;
-        const id = self.ctx.symbolOf(recv) orelse return false;
-        return self.ctx.symbols.items[id].kind == .local;
+    /// The loop or match binding a place is a part of, when the path to
+    /// it stays inside that binding (a copy of the value it came from)
+    /// rather than going through a borrow or handle.
+    fn copiedBindingRoot(self: *Checker, place: Sexp) ?Sexp {
+        var p = place;
+        while (headOf(p)) |h| {
+            if (h != .@"member" and h != .@"index") return null;
+            const obj = p.list[1];
+            if (self.ctx.typeOf(obj)) |ty| switch (self.ctx.types.get(ty)) {
+                .borrow_read, .borrow_write, .shared => return null,
+                else => {},
+            };
+            p = obj;
+        }
+        if (p != .src) return null;
+        const id = self.ctx.symbolOf(p) orelse return null;
+        const sym = self.ctx.symbols.items[id];
+        if (!sym.flags.pattern_bound) return null;
+        if (self.ctx.types.get(sym.ty) == .borrow_write or self.ctx.types.get(sym.ty) == .borrow_read) return null;
+        return p;
+    }
+
+    /// A Cell is interior-mutable: `set` and `replace` change it through
+    /// any path that reaches its storage, including a read borrow or a
+    /// shared handle. The storage is a local binding (or a field or
+    /// element of one), a capture held by a closure environment, or
+    /// anything behind a borrow or handle. A by-value parameter is
+    /// immutable, and a loop or match binding is a copy, so changing it
+    /// would not change the value it came from.
+    fn cellSettable(self: *Checker, recv: Sexp) bool {
+        var p = recv;
+        while (isHead(p, .@"read") or isHead(p, .@"write")) p = p.list[1];
+        while (true) {
+            if (self.ctx.typeOf(p)) |ty| switch (self.ctx.types.get(ty)) {
+                .borrow_read, .borrow_write, .shared => return true,
+                else => {},
+            };
+            const h = headOf(p) orelse break;
+            if (h != .@"member" and h != .@"index") return false;
+            p = p.list[1];
+        }
+        if (p != .src) return false;
+        const id = self.ctx.symbolOf(p) orelse return false;
+        const sym = self.ctx.symbols.items[id];
+        return switch (sym.kind) {
+            .local => !sym.flags.pattern_bound,
+            .capture => true,
+            else => false,
+        };
     }
 
     /// Receiver rules: `?self` auto-borrows; `!self` needs an explicit
@@ -2602,7 +2923,11 @@ const Checker = struct {
                     },
                     .read_explicit => try self.err(pos, "method `{s}` requires a write-borrowed receiver; got `?...`; use `(!receiver).{s}(...)`", .{ method, method }),
                     .move_explicit => try self.err(pos, "method `{s}` requires a write-borrowed receiver; cannot move; use `(!receiver).{s}(...)`", .{ method, method }),
-                    .lvalue_bare => try self.err(pos, "method `{s}` requires a write-borrowed receiver; use `(!receiver).{s}(...)`", .{ method, method }),
+                    // A binding that already holds a write borrow (`x: !T`,
+                    // `!self`) lends it to the call as it is.
+                    .lvalue_bare => if (kind != .write_borrow) {
+                        try self.err(pos, "method `{s}` requires a write-borrowed receiver; use `(!receiver).{s}(...)`", .{ method, method });
+                    },
                 }
             },
             .value => {
@@ -2677,6 +3002,15 @@ const Checker = struct {
                 return false;
             },
             .@"enum_lit" => {
+                // Where a `T!` is expected, `.name` that is not a variant
+                // of `T` is an error value.
+                if (self.ctx.types.get(expected) == .fallible and
+                    (try types.lookupVariant(self.ctx, target, self.text(items[1]))) == null and
+                    types.errorNameExists(self.ctx, self.text(items[1])))
+                {
+                    try self.ctx.recordType(e, self.t().any_error_id);
+                    return true;
+                }
                 try self.checkEnumLit(items[1], target);
                 try self.ctx.recordType(e, target);
                 return true;
@@ -2847,10 +3181,18 @@ const Checker = struct {
         }
     }
 
+    /// `.name` where any error is expected: a member of some error set.
+    fn checkErrorName(self: *Checker, name_node: Sexp) Error!void {
+        const name = self.text(name_node);
+        if (types.errorNameExists(self.ctx, name)) return;
+        try self.err(srcPos(name_node, 0), "no error set has a member `{s}`", .{name});
+    }
+
     fn checkEnumLit(self: *Checker, name_node: Sexp, expected: TypeId) Error!void {
         const name = self.text(name_node);
         const pos = srcPos(name_node, 0);
         if (self.isPoison(expected)) return;
+        if (expected == self.t().any_error_id) return self.checkErrorName(name_node);
         if (try types.lookupVariant(self.ctx, expected, name)) |v| {
             if (v.payload.len > 0) {
                 try self.err(pos, "variant `{s}` carries a payload; construct it with `.{s}(...)`", .{ name, name });
@@ -2863,6 +3205,7 @@ const Checker = struct {
     /// `.variant` as a pattern: any variant of the scrutinee's enum.
     fn checkVariantName(self: *Checker, name_node: Sexp, scrutinee: TypeId) Error!void {
         if (self.isPoison(scrutinee)) return;
+        if (types.unwrapBorrows(self.ctx, scrutinee) == self.t().any_error_id) return self.checkErrorName(name_node);
         const name = self.text(name_node);
         if ((try types.lookupVariant(self.ctx, scrutinee, name)) == null) {
             try self.reportMissingVariant(scrutinee, name, srcPos(name_node, 0));
@@ -3279,7 +3622,8 @@ pub fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool
             if (a == .none_literal) return true;
             return compatible(ctx, actual, inner);
         },
-        .fallible => |inner| return compatible(ctx, actual, inner),
+        // A `T!` holds a `T`, or the error it failed with.
+        .fallible => |inner| return compatible(ctx, actual, inner) or types.isErrorValue(ctx, actual),
         .borrow_read => |inner| if (a == .borrow_write) return a.borrow_write == inner,
         else => {},
     }
@@ -3303,21 +3647,23 @@ fn classifyReceiverType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
             };
         }
     }.f;
+    // A borrow of a shared handle (`(!h).m()` with `h: *T`) still reaches
+    // the value through the handle.
+    if (ctx.types.get(types.unwrapBorrows(ctx, ty_id)) == .shared) return .shared;
     return switch (ctx.types.get(ty_id)) {
         .nominal, .parameterized_nominal => if (matches(ctx, ty_id, nominal_sym)) .owned_nominal else .other,
         .borrow_read => |i| if (matches(ctx, i, nominal_sym)) .read_borrow else .other,
         .borrow_write => |i| if (matches(ctx, i, nominal_sym)) .write_borrow else .other,
-        .shared => |i| if (matches(ctx, i, nominal_sym)) .shared else .other,
         else => .other,
     };
 }
 
 fn classifyImportedReceiver(ctx: *const SemContext, ty_id: TypeId) ReceiverTypeKind {
+    if (ctx.types.get(types.unwrapBorrows(ctx, ty_id)) == .shared) return .shared;
     return switch (ctx.types.get(ty_id)) {
         .imported_nominal => .owned_nominal,
         .borrow_read => .read_borrow,
         .borrow_write => .write_borrow,
-        .shared => .shared,
         else => .other,
     };
 }
@@ -3423,6 +3769,20 @@ fn isStatementForm(e: Sexp) bool {
         .@"set", .@"while", .@"for", .@"drop", .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .@"labeled" => true,
         else => false,
     };
+}
+
+/// The value of a float literal, possibly negated: `2.5`, `-1e3`.
+fn constFloatOf(source: []const u8, e: Sexp) ?f64 {
+    if (isHead(e, .@"neg")) return -(constFloatOf(source, e.list[1]) orelse return null);
+    const t = identAt(source, e) orelse return null;
+    if (!types.isFloatLiteralText(t)) return null;
+    return std.fmt.parseFloat(f64, t) catch null;
+}
+
+/// An integer literal, possibly negated: `42`, `-1`.
+fn isIntLiteralNode(source: []const u8, e: Sexp) bool {
+    if (isHead(e, .@"neg")) return isIntLiteralNode(source, e.list[1]);
+    return e == .src and types.isIntLiteralText(identAt(source, e) orelse "");
 }
 
 fn isLiteralText(s: []const u8) bool {

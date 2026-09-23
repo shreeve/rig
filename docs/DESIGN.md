@@ -55,7 +55,9 @@ no unmarked unsafe code. What stays implicit is cheap and cannot
 surprise: copying plain data, reading through a shared handle, lending
 a receiver to a `?self` method, and moving a local out with `return x`,
 where its scope ends anyway. Writing through a receiver
-(`(!v).push(x)`) or consuming it (`(<u).close()`) is always spelled out.
+(`(!v).push(x)`) or consuming it (`(<u).close()`) is always spelled out;
+a binding that already holds a write borrow (`v: !Vec(Int)`) says so in
+its type, and lends it as it is (`v.push(x)`).
 
 **Effects survive into the IR.** Every sigil becomes a named node in
 the semantic IR (`(move x)`, `(read x)`, `(clone x)`, `(drop x)`,
@@ -105,7 +107,6 @@ For a value `x` of type `T`:
 | `-x` | (statement) | release now | runs the drop glue |
 | `*x` | `*T` | move into a new counted box | one allocation |
 | `~x` | `~U` when `T` is `*U` | a non-owning handle | a weak-count bump |
-| `%x` | `T` | raw access (inside `raw` only) | none |
 | `e!` | `T` when `e : T!` | propagate failure | a branch |
 
 Each operation has one meaning, becomes one IR node, and succeeds
@@ -228,7 +229,9 @@ rather than Rust's lifetime parameters. A borrow can live in a
 parameter, a local, a struct field, or a function's result, and the
 checker tracks where each one came from: a returned borrow borrows from
 every borrowed argument of the call, and a struct holding a borrow
-keeps its source borrowed. That rule is sound without annotations; the
+keeps its source borrowed. A borrow lasts until its last use, not to the
+end of its block, as in Rust's non-lexical lifetimes. That rule is sound
+without annotations; the
 price is that some programs Rust can express with explicit lifetimes
 are rejected. Rig takes that trade for now and will revisit it when
 real programs push against it.
@@ -271,8 +274,8 @@ pointer to the new ones.
 
 ### `raw` as a block
 
-`raw` marks the audit boundary: raw access, unchecked Zig builtins, and
-calls to C. It is block-only, so the boundary is a visible region, not
+`raw` marks the audit boundary: unchecked Zig builtins and calls to
+C. It is block-only, so the boundary is a visible region, not
 a modifier that can hide on a function. It is an audit boundary, not a
 performance ceiling: the code inside is ordinary Zig.
 

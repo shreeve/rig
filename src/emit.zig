@@ -25,6 +25,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const types = @import("types.zig");
+const sema_decls = @import("sema_decls.zig");
 const diag = @import("diag.zig");
 const runtime = @import("runtime.zig");
 
@@ -79,6 +80,9 @@ const Local = struct {
     scrutinee: ?SymbolId = null,
     /// The local of the same symbol this one hides until its scope ends.
     shadowed: ?LocalRef = null,
+    /// A by-value parameter copied into a `var` at the top of the body,
+    /// because it holds a Cell that a borrow of it may change.
+    mutable_copy: bool = false,
 };
 
 const LocalRef = struct { scope: u32, index: u32 };
@@ -138,8 +142,6 @@ pub const Emitter = struct {
     counter: u32 = 0,
     /// Every module-level Zig name, which locals must not shadow.
     module_names: std.StringHashMapUnmanaged(void) = .empty,
-    /// Error-set declarations, whose members are spelled `error.x`.
-    error_sets: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     usage: Usage = .{},
     /// `test` blocks emitted so far: the Rig name literal and the Zig function.
     tests: std.ArrayListUnmanaged(struct { name: []const u8, func: []const u8 }) = .empty,
@@ -181,7 +183,6 @@ pub const Emitter = struct {
         self.local_by_sym.deinit(self.allocator);
         self.local_names.deinit(self.allocator);
         self.module_names.deinit(self.allocator);
-        self.error_sets.deinit(self.allocator);
         self.usage.deinit(self.allocator);
         self.tests.deinit(self.allocator);
         self.arena.deinit();
@@ -216,9 +217,6 @@ pub const Emitter = struct {
             const name_node = if (d.list[0].tag == .@"extern") d.list[2] else d.list[1];
             const name = self.text(name_node) orelse continue;
             try self.module_names.put(a, try self.fmt("{f}", .{self.ident(name)}), {});
-            if (d.list[0].tag == .@"errors") {
-                if (self.sema.symbolOf(name_node)) |id| try self.error_sets.put(a, id, {});
-            }
         }
     }
 
@@ -529,6 +527,7 @@ pub const Emitter = struct {
                 local.is_ptr = true;
             } else if (ty) |t| {
                 local.kind = self.kindOf(t);
+                local.mutable_copy = local.kind == null and types.holdsCellByValue(self.sema, t);
             }
             if (local.kind != null) local.guard = if (self.usage.consumed.contains(sym)) .flag else .scope;
             _ = try self.declare(local, self.srcText(name_node));
@@ -537,7 +536,7 @@ pub const Emitter = struct {
 
     /// The Zig spelling of a parameter as the signature names it.
     fn paramZigName(self: *Emitter, local: *const Local) Error![]const u8 {
-        if (local.kind == .value or local.kind == .optional) return self.fmt("__rig_{s}", .{local.zig_name});
+        if (local.kind == .value or local.kind == .optional or local.mutable_copy) return self.fmt("__rig_{s}", .{local.zig_name});
         return local.zig_name;
     }
 
@@ -591,6 +590,10 @@ pub const Emitter = struct {
             const local = self.localOf(paramNameNode(p) orelse continue) orelse continue;
             if (local.kind == .value or local.kind == .optional) {
                 try self.line("var {s} = {s};", .{ local.zig_name, try self.paramZigName(local) });
+            } else if (local.mutable_copy) {
+                try self.line("var {s} = {s};", .{ local.zig_name, try self.paramZigName(local) });
+                try self.line("_ = &{s};", .{local.zig_name});
+                continue;
             }
             if (local.guard != .none) {
                 try self.writeIndent(self.indent);
@@ -870,21 +873,15 @@ pub const Emitter = struct {
         const expr = items[4];
         const is_move = kind == .move;
 
+        if (kind.operator()) |op| return self.emitCompound(target, op, expr);
         if (target != .src) {
             return switch (kind) {
                 .default, .move => self.emitPlaceAssign(target, expr, is_move),
-                .@"+=" => self.emitCompound(target, "+", expr),
-                .@"-=" => self.emitCompound(target, "-", expr),
-                .@"*=" => self.emitCompound(target, "*", expr),
-                .@"/=" => self.emitCompound(target, "/", expr),
-                .fixed, .shadow => self.unsupported(sexp, "this binding target"),
+                else => self.unsupported(sexp, "this binding target"),
             };
         }
         switch (kind) {
-            .@"+=" => try self.emitCompound(target, "+", expr),
-            .@"-=" => try self.emitCompound(target, "-", expr),
-            .@"*=" => try self.emitCompound(target, "*", expr),
-            .@"/=" => try self.emitCompound(target, "/", expr),
+            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => unreachable,
             .default, .move, .fixed, .shadow => {
                 if (std.mem.eql(u8, self.srcText(target), "_")) {
                     // A discarded resource is dropped at once.
@@ -948,8 +945,10 @@ pub const Emitter = struct {
         }
         if (local.kind != null) local.guard = if (self.usage.consumed.contains(sym)) .flag else .scope;
 
+        // A Cell can change through any path to it, so a value holding
+        // one lives in mutable storage.
         const needs_ptr_self = local.kind == .value or local.kind == .optional or
-            (ty != null and self.isCellTy(ty.?));
+            (ty != null and types.holdsCellByValue(self.sema, ty.?));
         // A constant initializer would make a Zig `const` compile-time
         // known, and Zig would then evaluate later arithmetic on it at
         // compile time; Rig treats it as a run-time value.
@@ -1091,28 +1090,42 @@ pub const Emitter = struct {
         try self.w.print("; rig.drop(__rig_slot_{d}); __rig_slot_{d}.* = __rig_new_{d}; }}", .{ id, id, id });
     }
 
-    /// `x op= e` on a name or place. Integer `/=` truncates.
-    fn emitCompound(self: *Emitter, target: Sexp, op: []const u8, value: Sexp) Error!void {
-        if (std.mem.eql(u8, op, "/") and !self.isFloatExpr(target)) {
+    /// `x op= e` on a name or place, with the place evaluated once. The
+    /// operators that lower to a builtin (`@divTrunc` for integer `/`,
+    /// `@rem`, `@shlExact`) assign the builtin's result; the others use
+    /// Zig's own compound assignment.
+    fn emitCompound(self: *Emitter, target: Sexp, op: Tag, value: Sexp) Error!void {
+        const builtin: ?[]const u8 = switch (op) {
+            .@"/" => if (self.isFloatExpr(target)) null else "@divTrunc",
+            .@"%" => "@rem",
+            .@"<<" => "@shlExact",
+            else => null,
+        };
+        const shift = op == .@"<<" or op == .@">>";
+        if (builtin) |b| {
+            var slot: []const u8 = "";
             if (target == .src) {
                 try self.emitPlace(target);
-                try self.w.writeAll(" = @divTrunc(");
+                try self.w.print(" = {s}(", .{b});
                 try self.emitPlace(target);
             } else {
-                // Evaluate the place once.
                 const id = self.nextId();
-                try self.w.print("{{ const __rig_slot_{d} = &", .{id});
+                slot = try self.fmt("__rig_slot_{d}", .{id});
+                try self.w.print("{{ const {s} = &", .{slot});
                 try self.emitPlace(target);
-                try self.w.print("; __rig_slot_{d}.* = @divTrunc(__rig_slot_{d}.*", .{ id, id });
+                try self.w.print("; {s}.* = {s}({s}.*", .{ slot, b, slot });
             }
-            try self.w.writeAll(", ");
+            try self.w.writeAll(if (shift) ", @intCast(" else ", ");
             try self.emitBare(value);
+            if (shift) try self.w.writeAll(")");
             try self.w.writeAll(if (target == .src) ");" else "); }");
             return;
         }
         try self.emitPlace(target);
-        try self.w.print(" {s}= ", .{op});
+        try self.w.print(" {s}= ", .{@tagName(op)});
+        if (shift) try self.w.writeAll("@intCast(");
         try self.emitBare(value);
+        if (shift) try self.w.writeAll(")");
         try self.w.writeAll(";");
     }
 
@@ -1526,11 +1539,11 @@ pub const Emitter = struct {
                         }
                     },
                     .@"range_pattern" => {
-                        // Patterns are inclusive: `1..3` covers 1, 2, 3.
-                        try self.emitExpr(p[1]);
-                        try self.w.writeAll("...");
-                        try self.emitExpr(p[2]);
-                        try self.w.writeAll(" => ");
+                        // `lo..hi` is half-open; Zig's `lo...hi` is inclusive.
+                        // Sema checked both bounds are constants.
+                        const lo = types.constIntOf(self.sema, p[1]) orelse return self.unsupported(pattern, "this range pattern");
+                        const hi = types.constIntOf(self.sema, p[2]) orelse return self.unsupported(pattern, "this range pattern");
+                        try self.w.print("{d}...{d} => ", .{ lo, hi - 1 });
                     },
                     else => {
                         try self.emitExpr(pattern);
@@ -1559,9 +1572,11 @@ pub const Emitter = struct {
     const Prelude = struct {
         aliases: []const Alias = &.{},
         optional: ?OptionalBinding = null,
+        /// The error a `catch |err|` handler names, captured as `tmp`.
+        err_capture: ?struct { zig_name: []const u8, tmp: []const u8 } = null,
 
         fn isEmpty(p: Prelude) bool {
-            return p.aliases.len == 0 and p.optional == null;
+            return p.aliases.len == 0 and p.optional == null and p.err_capture == null;
         }
     };
 
@@ -1607,6 +1622,7 @@ pub const Emitter = struct {
     fn emitPrelude(self: *Emitter, prelude: Prelude) Error!void {
         for (prelude.aliases) |a| try self.line("const {s} = __rig_payload.{f};", .{ a.zig_name, self.ident(a.field) });
         if (prelude.optional) |o| try self.bindOptionalResource(o);
+        if (prelude.err_capture) |c| try self.line("const {s}: anyerror = {s};", .{ c.zig_name, c.tmp });
     }
 
     /// `(expr) |capture| ` for `if expr as name` / `while expr as name`.
@@ -1897,7 +1913,7 @@ pub const Emitter = struct {
             else => {},
         }
         switch (head) {
-            .@"read", .@"raw" => {
+            .@"read" => {
                 // `?x` of a value held by pointer (a Cell) is its address.
                 if (head == .@"read" and self.isWriteBorrowExpr(sexp)) return self.emitAddressOf(items[1]);
                 self.bare = bare;
@@ -1994,11 +2010,21 @@ pub const Emitter = struct {
                 try self.w.writeAll(")");
             },
             .@"catch" => {
-                // `(catch expr _ handler)`: the handler replaces the value.
+                // `(catch expr name? handler)`: the handler replaces the
+                // value. A named error is held as `anyerror`, so it
+                // compares and matches with any error value.
                 try self.w.writeAll("(");
                 try self.emitExpr(items[1]);
                 try self.w.writeAll(" catch ");
-                try self.emitValue(items[3], true);
+                const sym: ?SymbolId = if (items[2] != .nil) self.sema.symbolOf(items[2]) else null;
+                if (sym != null and self.usage.used.contains(sym.?)) {
+                    const tmp = try self.fmt("__rig_err_{d}", .{self.nextId()});
+                    try self.w.print("|{s}| ", .{tmp});
+                    try self.pushScope();
+                    const local = try self.declare(.{ .sym = sym.?, .zig_name = "", .ty = self.symType(sym.?) }, self.srcText(items[2]));
+                    try self.emitValueBlock(items[3], .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp } });
+                    try self.popScope();
+                } else try self.emitValue(items[3], true);
                 try self.w.writeAll(")");
             },
             .@"if", .@"match" => {
@@ -2175,6 +2201,10 @@ pub const Emitter = struct {
         var o = obj;
         while (isTagged(o, .@"read") or isTagged(o, .@"write")) o = o.list[1];
         if (self.place_chain and isTagged(o, .@"index")) return self.emitIndex(o.list, true);
+        // `Box.make(...)` of a generic type: the instance sema inferred.
+        if (o == .src) if (self.sema.symbolOf(o)) |id| if (self.sema.symbols.items[id].kind == .generic_type) {
+            if (obj_ty) |t| return self.emitTypeTy(t);
+        };
         if (o == .src) if (self.localOf(o)) |local| {
             if (local.is_ptr and obj_ty != null and self.isStructLike(obj_ty.?)) return self.w.writeAll(local.zig_name);
             return self.writeLocalPlace(local);
@@ -2298,6 +2328,7 @@ pub const Emitter = struct {
         const args = items[2..];
 
         if (self.isPrintCall(sexp)) return self.emitPrint(args);
+        if (callee == .src and self.sema.symbolOf(callee) == null and sema_decls.isNumericTypeName(self.srcText(callee))) return self.emitConversion(sexp);
         if (isTagged(callee, .@"enum_lit")) return self.emitVariantLit(sexp);
         if (isTagged(callee, .@"lambda")) return self.emitInlineInvoke(sexp);
 
@@ -2343,6 +2374,22 @@ pub const Emitter = struct {
             return self.w.writeAll(" })");
         };
 
+        // `set` / `replace` change a Cell through any path to it: the
+        // receiver's address, which may be a `*const` read borrow, is
+        // cast to a mutable pointer. Sema keeps every Cell in mutable
+        // storage, so the cast is sound.
+        if (isTagged(callee, .@"member")) if (self.typeOf(callee.list[1])) |t| if (self.isCellTy(t) and self.sema.types.get(self.peelBorrows(t)) != .shared) {
+            const m = self.srcText(callee.list[2]);
+            if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "replace")) {
+                var obj = callee.list[1];
+                while (isTagged(obj, .@"read") or isTagged(obj, .@"write")) obj = obj.list[1];
+                try self.w.writeAll("@constCast(");
+                try self.emitAddressOf(obj);
+                try self.w.print(").{s}(", .{m});
+                try self.emitArgs(sexp);
+                return self.w.writeAll(")");
+            }
+        };
         if (self.sema.callSlotsOf(sexp)) |slots| {
             if (reordersEffects(slots, args)) return self.emitCallInSourceOrder(sexp, slots);
         }
@@ -2350,6 +2397,31 @@ pub const Emitter = struct {
         try self.w.writeAll("(");
         try self.emitArgs(sexp);
         try self.w.writeAll(")");
+    }
+
+    /// `I32(x)` → `@as(i32, @intCast(@as(i64, x)))`, with the builtin
+    /// chosen by the kinds of the two types. Zig checks that the value
+    /// fits in safe builds; `@intFromFloat` truncates toward zero.
+    fn emitConversion(self: *Emitter, call: Sexp) Error!void {
+        const target = self.typeOf(call) orelse return self.unsupported(call, "an untyped conversion");
+        const arg = argValue(call.list[2]);
+        const arg_ty = self.typeOf(arg) orelse return self.unsupported(call, "this conversion");
+        const from = switch (self.sema.types.get(self.peelBorrows(arg_ty))) {
+            .int, .float => self.peelBorrows(arg_ty),
+            .int_literal => self.sema.types.int_id,
+            .float_literal => self.sema.types.float_id,
+            else => return self.unsupported(call, "this conversion"),
+        };
+        const to_int = self.sema.types.get(target) == .int;
+        const from_int = self.sema.types.get(from) == .int;
+        const builtin = if (to_int) (if (from_int) "@intCast" else "@intFromFloat") else (if (from_int) "@floatFromInt" else "@floatCast");
+        try self.w.writeAll("@as(");
+        try self.emitTypeTy(target);
+        try self.w.print(", {s}(@as(", .{builtin});
+        try self.emitTypeTy(from);
+        try self.w.writeAll(", ");
+        try self.emitBare(arg);
+        try self.w.writeAll(")))");
     }
 
     /// `(|n| print n)()`: the closure is built and called in a block.
@@ -2940,6 +3012,7 @@ pub const Emitter = struct {
         const sema = self.sema;
         switch (sema.types.get(ty)) {
             .void => try self.w.writeAll("void"),
+            .any_error => try self.w.writeAll("anyerror"),
             .bool => try self.w.writeAll("bool"),
             .string => try self.w.writeAll("[]const u8"),
             .int_literal => try self.w.writeAll(int_zig),
@@ -3139,11 +3212,11 @@ pub const Emitter = struct {
         };
     }
 
+    /// An error set (local or imported) or any error: its members are
+    /// spelled `error.name`.
     fn isErrorSetTy(self: *Emitter, ty: TypeId) bool {
-        return switch (self.sema.types.get(self.peelBorrows(ty))) {
-            .nominal => |sym| self.error_sets.contains(sym),
-            else => false,
-        };
+        const t = self.peelBorrows(ty);
+        return self.sema.types.get(t) == .any_error or types.isErrorSet(self.sema, t);
     }
 
     fn isStringExpr(self: *Emitter, expr: Sexp) bool {

@@ -14,6 +14,7 @@ sub main()
   r = ?w
   for x in <w
     print(x.n)
+  print(r.length())
 
   u: Vec(*B) = Vec()
   i = 0

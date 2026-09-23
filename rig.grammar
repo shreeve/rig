@@ -17,7 +17,7 @@
 #     not the preceding value is a prefix; otherwise it is an infix
 #     operator or a suffix.
 #
-#       <x +x %x ?x !x *x ~x @x -x   ownership sigils / negation
+#       <x +x ?x !x *x ~x @x -x      ownership sigils / negation
 #       |+a, b|  ||  *|a|            closure bar list (vs bitwise `|`)
 #       f(x) a[i]                    call / index (vs `f (x)`, `f [1, 2]`,
 #                                    which pass a new operand to `f`)
@@ -109,6 +109,12 @@ tokens
     minus_assign    # -=
     star_assign     # *=
     slash_assign    # /=
+    percent_assign  # %=
+    amp_assign      # &=
+    bar_assign      # |=
+    caret_assign    # ^=
+    lshift_assign   # <<=
+    rshift_assign   # >>=
 
     # Punctuation
     lparen          # (  grouping, parameter list, or a new operand
@@ -141,7 +147,6 @@ tokens
     move_pfx        # <x  move
     clone_pfx       # +x  clone
     pin_pfx         # @x  pin (reserved)
-    raw_pfx         # %x  raw access
     read_pfx        # ?x  read borrow, ?T read-borrowed type
     write_pfx       # !x  write borrow, !T write-borrowed type
     share_pfx       # *x  share, *T shared type
@@ -175,6 +180,8 @@ tokens
 [0-9]+ [Ee] [+-]? [0-9]+                    → real
 [0-9]+                                      → integer
 
+"<<="                                       → lshift_assign
+">>="                                       → rshift_assign
 "**"                                        → power
 "=="                                        → eq
 "!="                                        → ne
@@ -188,6 +195,10 @@ tokens
 "-="                                        → minus_assign
 "*="                                        → star_assign
 "/="                                        → slash_assign
+"%="                                        → percent_assign
+"&="                                        → amp_assign
+"|="                                        → bar_assign
+"^="                                        → caret_assign
 "->"                                        → arrow
 "=>"                                        → fat_arrow
 "??"                                        → nullish
@@ -267,6 +278,12 @@ simple   = tail
          | postfix "-=" tail                → (set -=     1 _ 3)
          | postfix "*=" tail                → (set *=     1 _ 3)
          | postfix "/=" tail                → (set /=     1 _ 3)
+         | postfix "%=" tail                → (set %=     1 _ 3)
+         | postfix "&=" tail                → (set &=     1 _ 3)
+         | postfix "|=" tail                → (set |=     1 _ 3)
+         | postfix "^=" tail                → (set ^=     1 _ 3)
+         | postfix "<<=" tail               → (set <<=    1 _ 3)
+         | postfix ">>=" tail               → (set >>=    1 _ 3)
          | postfix "=!" tail                → (set fixed  1 _ 3)
          | postfix "<-" tail                → (set move   1 _ 3)
          | name ":" type "="  tail          → (set _      1 3 5)
@@ -558,7 +575,6 @@ unary    = MINUS_PREFIX unary               → (neg 2)
          | SHARE_PFX unary                  → (share 2)
          | "~"       unary                  → (weak 2)
          | PIN_PFX   unary                  → (pin 2)
-         | RAW_PFX   unary                  → (raw 2)
          | postfix
 
 postfix  = postfix "." name                 → (member 1 3)

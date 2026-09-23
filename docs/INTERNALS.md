@@ -127,7 +127,7 @@ hands the parser distinct tokens:
 | `f(x)`, `a[i]` vs `f (x)`, `f [1]` | `LPAREN_CALL`, `LBRACKET_INDEX` vs `(`, `[` | touching the preceding value continues it |
 | `a.b` vs `.red`, `f .red` | `.` vs `DOT_LIT` | `.name` touching a value is member access |
 | `a - b`, `a-b` vs `-x`, `f -x` | `MINUS` vs `MINUS_PREFIX` / `DROP_STMT` | a sigil touching its operand and not the value before it is a prefix; `-name` as a whole statement is a drop |
-| `<x +x *x ?x !x %x @x` | `MOVE_PFX` ... `PIN_PFX` | the same rule |
+| `<x +x *x ?x !x @x` | `MOVE_PFX` ... `PIN_PFX` | the same rule |
 | `T?`, `T!`, `f()!` | `SUFFIX_Q`, `SUFFIX_BANG` | touching the value before |
 | `a \| b` vs `\|a, +b\| body` | `BAR` vs `BAR_CAPTURE` | the spacing rule; the closing bar is the one the opening probe found |
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
@@ -194,7 +194,7 @@ tree.
 ## The semantic IR
 
 The IR's design rule: **every effect visible in the source stays a
-named node**: move, borrow, clone, drop, share, weak, raw access,
+named node**: move, borrow, clone, drop, share, weak,
 capture mode, propagation, and compile-time parameters. The parse stage
 adds no type information; sema records types separately, keyed by node.
 
@@ -245,7 +245,8 @@ Declarations:
 Statements and control flow:
 
 ```text
-(set kind target type-or-_ expr)      kind: _ fixed shadow move += -= *= /=
+(set kind target type-or-_ expr)      kind: _ fixed shadow move, or op= for
+                                      each binary arithmetic, bitwise, shift op
 (drop name)
 (block stmt...)
 (if cond then else-or-_)              also the ternary and `stmt if c`
@@ -268,7 +269,7 @@ Expressions:
 (array elem...)  (builtin name arg...)
 (lambda captures-or-_ params-or-_ _ body)
 (captures cap...)  (cap_clone x)  (cap_move x)  (cap_weak x)
-(move e) (read e) (write e) (clone e) (share e) (weak e) (raw e) (pin e)
+(move e) (read e) (write e) (clone e) (share e) (weak e) (pin e)
 (propagate e)  (catch e name-or-_ handler)
 (+ a b) (- a b) (* a b) (/ a b) (% a b)
 (== a b) (!= a b) (< a b) (> a b) (<= a b) (>= a b)
@@ -331,9 +332,11 @@ Types are interned in a `TypeStore`, so two `TypeId`s are equal exactly
 when the types are. `unknown` and `invalid` are poison: they appear only
 after a diagnostic and are compatible with everything, so one mistake
 does not cascade. `compatible` also accepts a literal where a numeric
-type is expected, `none` or a `T` where `T?` is expected, a `T` where
-`T!` is expected, `!T` where `?T` is expected, and a borrow of a Copy
-value where the value is expected.
+type is expected, `none` or a `T` where `T?` is expected, a `T` or an
+error value where `T!` is expected, `!T` where `?T` is expected, and a
+borrow of a Copy value where the value is expected. The error a
+`catch |err|` names has the type `error`: any error, since functions do
+not declare which errors they fail with.
 
 ### The facts table
 
@@ -366,7 +369,7 @@ backend cannot express yet is rejected with a diagnostic that says so.
   `catch`; `!` needs a fallible operand and an enclosing function that
   can fail (`-> T!`, or `sub main`, which is emitted as `!void`);
   closure bodies and deferred code cannot propagate;
-- **the raw boundary**: raw access `%x`, builtins outside the safe list
+- **the raw boundary**: builtins outside the safe list
   (`@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`), and calls to `extern`
   functions must be inside a `raw` block.
 
@@ -381,6 +384,14 @@ status (`live`, `moved`, `dropped`, with the position that caused it)
 and the **loans** its value holds. A `Loan` is a read or write borrow of
 a root var. Vars form a stack, truncated when a scope ends.
 
+The state is not copied at branches. Every write to a flow is recorded
+on a *trail* with the value it replaced, so going back to an earlier
+`Point` undoes the writes since. A branch, a loop iteration, or a jump
+captures its state as the flows that changed since the construct's
+point, and joins merge only those. Memory and time follow what a
+construct changes, not the number of vars in scope. What is allocated
+while checking a module-level function is freed when it is done.
+
 **Loans travel with values.** `r = ?a` stores a read loan on `a` in
 `r`; `View(box: ?a)` carries it into the struct; a call whose result
 type can hold a borrow carries the loans of all its borrowed arguments;
@@ -389,6 +400,20 @@ arguments, and the handles it is given. A loan not stored anywhere is a
 temporary and ends with its statement. A borrowed parameter holds an
 *external* loan on itself: a borrow from the caller, which may be
 returned or stored into other borrowed parameters and never conflicts.
+
+**Liveness.** A loan held by a var is in force only while the var is
+live: while it may still be used. Before checking a function, one walk
+records the last source position each symbol is used at (a capture's
+leaf counts as a use of what it captures) and the symbols deferred code
+uses. A var is live after the current statement when it is used at or
+after the statement's start, or anywhere in an enclosing loop it was
+declared outside of (the next iteration), or in deferred code, or when
+it owns a value with drop glue (dropped at scope exit), or when a live
+var or temporary holds a loan on it. A closure binding, a parameter, and
+the hidden var that keeps a `for` source borrowed are always live. The
+conflict checks and the "does not live long enough" checks at scope ends
+and jumps skip loans whose holder is not live. This is textual, so it is
+the same on every path, and conservative where paths differ.
 
 **Control flow.** `if`, `match`, ternaries, and `catch` walk every
 branch from the same entry state and join the results: moved or dropped

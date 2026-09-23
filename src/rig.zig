@@ -66,6 +66,12 @@ pub const Tag = enum(u8) {
     @"-=",
     @"*=",
     @"/=",
+    @"%=",
+    @"&=",
+    @"|=",
+    @"^=",
+    @"<<=",
+    @">>=",
     @"drop",            // (drop name): `-name` statement
 
     // Control flow
@@ -140,7 +146,6 @@ pub const Tag = enum(u8) {
     @"share",           // *x
     @"weak",            // ~x (also ~T in type position)
     @"pin",             // @x, reserved
-    @"raw",             // %x
 
     // Types
     @"optional",        // T?
@@ -162,7 +167,8 @@ pub const Tag = enum(u8) {
 
 /// Exhaustive view of the kind slot, so dispatch sites must handle every
 /// kind: `_` → default, `fixed` (`=!`), `shadow` (`new x =`), `move`
-/// (`<-`), and the compound assignments.
+/// (`<-`), and the compound assignments (`x op= e`, one per binary
+/// arithmetic, bitwise, and shift operator).
 pub const BindingKind = enum {
     default,
     fixed,
@@ -172,6 +178,30 @@ pub const BindingKind = enum {
     @"-=",
     @"*=",
     @"/=",
+    @"%=",
+    @"&=",
+    @"|=",
+    @"^=",
+    @"<<=",
+    @">>=",
+
+    /// The binary operator a compound assignment applies, or null for a
+    /// plain binding or assignment.
+    pub fn operator(k: BindingKind) ?Tag {
+        return switch (k) {
+            .default, .fixed, .shadow, .@"move" => null,
+            .@"+=" => .@"+",
+            .@"-=" => .@"-",
+            .@"*=" => .@"*",
+            .@"/=" => .@"/",
+            .@"%=" => .@"%",
+            .@"&=" => .@"&",
+            .@"|=" => .@"|",
+            .@"^=" => .@"^",
+            .@"<<=" => .@"<<",
+            .@">>=" => .@">>",
+        };
+    }
 };
 
 pub const BindingKindError = error{InvalidBindingKind};
@@ -189,6 +219,12 @@ pub fn bindingKindOf(kind_slot: Sexp) BindingKindError!BindingKind {
         .@"-=" => .@"-=",
         .@"*=" => .@"*=",
         .@"/=" => .@"/=",
+        .@"%=" => .@"%=",
+        .@"&=" => .@"&=",
+        .@"|=" => .@"|=",
+        .@"^=" => .@"^=",
+        .@"<<=" => .@"<<=",
+        .@">>=" => .@">>=",
         else => error.InvalidBindingKind,
     };
 }
@@ -680,7 +716,6 @@ pub const Lexer = struct {
             .minus => self.classifyMinus(tok),
             .lt => if (self.isPrefix(tok)) .move_pfx else .lt,
             .plus => if (self.isPrefix(tok)) .clone_pfx else .plus,
-            .percent => if (self.isPrefix(tok)) .raw_pfx else .percent,
             .star => if (self.isPrefix(tok) or self.isOwnedClosureStar(tok)) .share_pfx else .star,
             .at => if (self.isPrefix(tok) and !self.isBuiltinCall(tok)) .pin_pfx else .at,
             .question => if (self.touchesValue(tok)) .suffix_q else if (self.isPrefix(tok)) .read_pfx else .question,
@@ -914,7 +949,7 @@ fn isValue(cat: TokenCat) bool {
 
 fn isOperandStart(c: u8) bool {
     return isIdentStart(c) or (c >= '0' and c <= '9') or switch (c) {
-        '(', '[', '"', '\'', '.', '<', '?', '!', '+', '-', '*', '~', '@', '%' => true,
+        '(', '[', '"', '\'', '.', '<', '?', '!', '+', '-', '*', '~', '@' => true,
         else => false,
     };
 }

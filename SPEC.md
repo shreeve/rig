@@ -50,14 +50,19 @@ module-level bindings are not supported yet. `rig run` needs a
 `sub main()`.
 
 ```bash
-bin/rig run hello.rig      # check, emit Zig, build in Debug mode, run
-bin/rig check hello.rig    # check only
-bin/rig build hello.rig    # check, then print the emitted Zig
+bin/rig check hello.rig              # check only
+bin/rig run hello.rig                # check, build in Debug mode, run
+bin/rig run --release hello.rig      # the same, optimized (ReleaseSafe)
+bin/rig build hello.rig              # a native executable (--release too)
+bin/rig test hello.rig               # run the file's `test` blocks
+bin/rig emit hello.rig               # print the emitted Zig
 ```
 
 `rig run` builds in Debug mode with a leak-checking allocator: a program
-that leaks memory prints each leak and exits with an error. Integer
-overflow and out-of-bounds indexing panic.
+that leaks memory reports it and exits with an error. `--release` builds
+with Zig's ReleaseSafe, and `--release=fast` with ReleaseFast. Integer
+overflow, out-of-bounds indexing, and a numeric conversion whose value
+does not fit panic in Debug and ReleaseSafe builds.
 
 ---
 
@@ -166,7 +171,7 @@ single: "no escapes\n" double: 'x'	y
 ### The spacing rule
 
 Several characters are both operators and prefixes: `<` `+` `-` `*` `?`
-`!` `~` `%` `@`. One rule decides which, and it also governs `(`, `[`,
+`!` `~` `@`. One rule decides which, and it also governs `(`, `[`,
 and `.`:
 
 > A character that touches its operand and not the value before it is
@@ -204,8 +209,8 @@ sub main()
 
 | Type | Meaning | Zig |
 |---|---|---|
-| `Int` | 64-bit signed integer; the type of integer literals by default | `i64` |
-| `Float` | 64-bit float; the type of float literals by default | `f64` |
+| `Int` | 64-bit signed integer, the same type as `I64`; the type of integer literals by default | `i64` |
+| `Float` | 64-bit float, the same type as `F64`; the type of float literals by default | `f64` |
 | `I8` `I16` `I32` `I64` | signed integers | `i8` ... `i64` |
 | `U8` `U16` `U32` `U64` | unsigned integers | `u8` ... `u64` |
 | `F32` `F64` | floats | `f32`, `f64` |
@@ -213,10 +218,10 @@ sub main()
 | `String` | immutable UTF-8 bytes; a Copy value | `[]const u8` |
 | `Void` | no value (what a `sub` returns) | `void` |
 
-Every numeric type is distinct: there are no implicit conversions, and
-`Int` and `I64` are different types. A literal takes the numeric type
-its context expects, and must fit it. Constant arithmetic is checked
-at compile time.
+`Int` is `I64` and `Float` is `F64`: one type under two names. Every
+other numeric type is distinct, and there are no implicit conversions.
+A literal takes the numeric type its context expects, and must fit it.
+Constant arithmetic is checked at compile time.
 
 ```rig
 sub main()
@@ -248,11 +253,41 @@ sub main()
 ```
 
 ```error
-operands have different types `I32` and `I64`
+operands have different types `I32` and `Int`
 ```
 
-Converting between numeric types currently needs a `raw` block and a
-Zig cast builtin ([§16](#16-raw-code-and-ffi)).
+### Numeric conversions
+
+A numeric type's name converts a number to that type: `I32(x)`,
+`U8(x)`, `Float(n)`, `Int(f)`. A conversion is checked. An integer that
+does not fit the target type panics when the program runs, and so does
+a float whose integer part does not fit; a float becomes an integer by
+truncating toward zero, and `F32(x)` rounds (to an infinity when `x` is
+too large). A constant integer is converted at compile time, so it
+must fit. (Inside `raw`, Zig's unchecked cast builtins are also
+available, [§16](#16-raw-code-and-ffi).)
+
+```rig
+fun average(total: Int, count: Int) -> Float
+  Float(total) / Float(count)
+
+sub main()
+  big = 300
+  print(U8(big - 100), Int(-7.9), average(7, 2), I32(U8(255)) + 1)
+```
+
+```output
+200 -7 3.5 256
+```
+
+```rig reject
+sub main()
+  b = U8(256)
+```
+
+```error
+integer value `256` does not fit in `U8`
+```
 
 A `String` has a length `s.len` and can be indexed (`s[0]`), and a `for`
 loop over it yields its bytes as `U8`. Strings compare with `==` and
@@ -411,7 +446,38 @@ how the method uses the value, and the call site says the same thing:
 | `self: Self` | consumes the value | `(<p).m()`, or on a temporary |
 
 Write borrows and moves are never implicit, so calling a `!self` method
-as `p.m()` is an error. Inside a `!self` method, `self.field = v` and
+as `p.m()` on an owned `p` is an error. A binding that already holds a
+write borrow (a `!T` parameter, `self` in a `!self` method, a local
+`w = !p`) calls it directly, `w.m()`: the borrow it holds is lent to the
+call.
+
+```rig
+struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  sub bump_twice(!self)
+    self.bump()
+    self.bump()
+
+sub add_three(c: !Counter)
+  c.bump()
+  c.bump_twice()
+
+sub main()
+  c = Counter(n: 0)
+  add_three(!c)
+  (!c).bump()
+  print(c.n)
+```
+
+```output
+4
+```
+
+Inside a `!self` method, `self.field = v` and
 `self = v` write through to the caller's value. The sigil shorthand
 `?self` / `!self` is only for `self`; other parameters put the sigil on
 the type (`other: ?Point`).
@@ -479,11 +545,16 @@ timed out
 ### Generic types
 
 `type Name(T, ...)` declares a generic struct and `enum Name(T, ...)` a
-generic enum. An instance names its type arguments (`Box(Int)`), and a
-constructor takes its type arguments from the expected type, so a
-generic value needs an annotation. A generic body may only do with a
-`T` what every instantiation allows: operations on `T` are checked for
-each instantiation, and methods cannot be called on a type parameter.
+generic enum. An instance names its type arguments (`Box(Int)`). A
+constructor takes them from the expected type when there is one, and
+otherwise infers them from the values that fill it: a constructor's
+fields (`Pair(first: 1, second: "x")` is a `Pair(Int, String)`), a
+payload variant's fields (`Option.some(value: 7)`), or an associated
+function's arguments (`Pair.make(1, 2)`). A literal takes its default
+type. A parameter nothing fills, as in `Vec()`, needs the annotation. A
+generic body may only do with a `T` what every instantiation allows:
+operations on `T` are checked for each instantiation, inferred or
+spelled, and methods cannot be called on a type parameter.
 
 ```rig
 type Pair(T, U)
@@ -498,15 +569,18 @@ enum Option(T)
   nothing
 
 sub main()
-  p: Pair(Int, String) = Pair(first: 42, second: "answer")
+  p = Pair(first: 42, second: "answer")
   o: Option(Int) = .some(value: p.left())
   match o
     .some(v) => print(v, p.second)
     .nothing => print("none")
+  q = Option.some(value: 2.5)
+  print(q)
 ```
 
 ```output
 42 answer
+.some(2.5)
 ```
 
 There are no generic functions yet.
@@ -533,8 +607,11 @@ sub main()
 
 ### Tests
 
-`test "name"` declares a block that is checked and emitted as a Zig
-`test`. There is no `rig test` command yet, so test blocks do not run.
+`test "name"` declares a block that is checked like a function body.
+`rig test file.rig` runs every test block of the file: it prints
+`ok    test "name"` for each one that finishes, or
+`FAIL  test "name": ...` with the reason, and then `N passed, M failed`.
+`rig run` ignores test blocks.
 
 ```rig
 fun area(w: Int, h: Int) -> Int
@@ -561,9 +638,28 @@ declaration ([§15](#15-modules)), and `extern` declares a C symbol
 | `x =! e`, `x: T =! e` | bind a fixed local, which cannot be reassigned |
 | `new x = e` | bind a new `x` that shadows the visible one; `e` may read the old `x` |
 | `x <- y` | move-assign: `x = <y` |
-| `x += e` (`-=`, `*=`, `/=`) | compound assignment |
+| `x += e` (`-=` `*=` `/=` `%=` `<<=` `>>=` `&=` `\|=` `^=`) | compound assignment: `x = x op e`, with `x` evaluated once |
 | `p.f = e`, `xs[i] = e` | assign a field or an element |
 | `_ = e` | evaluate `e` and discard it; an owning value is dropped at once |
+
+A compound assignment keeps its target's type: an arithmetic operator
+needs a number, a bitwise operator or shift an integer, and a shift
+amount may be any integer. Each behaves like its operator
+([§6](#operators)): `/=` truncates, `%=` takes the dividend's sign, and
+`<<=` panics when bits are lost.
+
+```rig
+sub main()
+  x = 100
+  x %= 7
+  x <<= 3
+  x ^= 5
+  print(x)
+```
+
+```output
+21
+```
 
 A binding's type comes from its annotation or its value. Rig has no
 `var`, `let`, or `const`: the compiler emits a Zig `const` unless the
@@ -616,7 +712,7 @@ From lowest to highest precedence:
 | `not` | Bool |
 | `==` `!=` `<` `>` `<=` `>=` | not chainable |
 | `??` | optional fallback; right-associative |
-| `..` | half-open range, only as a `for` source |
+| `..` | half-open range: a `for` source or a match pattern |
 | `\|` | bitwise or |
 | `^` | bitwise xor |
 | `&` | bitwise and |
@@ -630,14 +726,16 @@ Arithmetic needs numeric operands of one type (a literal adapts to the
 other operand). Integer `/` truncates toward zero and `%` takes the sign
 of the dividend, so `(a / b) * b + a % b == a`. Unsigned values cannot be
 negated. Bitwise operators need integers; a shift amount may be any
-integer.
+integer, from 0 up to the width of the shifted type. A left shift that
+loses bits (or the sign) overflows: a constant one is rejected, and one
+computed when the program runs panics, like `+` and `*`.
 
 `==` and `!=` compare two values of the same type: numbers, `Bool`,
 `String` (by content), and enums (with each other or with a `.variant`).
 Structs have no `==`. Ordering comparisons need numbers.
 
 `and`, `or`, and `not` take `Bool`s; `not` binds looser than comparisons,
-so `not a == b` is `not (a == b)`. The spellings `&&`, `||`, and `**` are
+so `not a == b` is `not (a == b)`. The spellings `&&` and `||` are
 rejected with a hint.
 
 ```rig
@@ -841,9 +939,53 @@ found at 2
 not found
 ```
 
-Loop bindings are immutable, and may not reuse a visible name.
-Modifying iteration (`for x in !v`) and consuming iteration
-(`for x in <v`) are not supported yet.
+Loop bindings are immutable, and may not reuse a visible name. Two
+source sigils change that:
+
+- `for x in !xs` borrows each element of a `Vec` or array for writing:
+  assigning `x` (or a field of it) writes the element in place, and a
+  resource element that is replaced is dropped. `xs` must be a binding
+  or a field of one.
+- `for x in <v` consumes the Vec: each element is handed to `x`, which
+  owns it for one iteration and may move it on. Elements a `break` or
+  `return` leaves behind are dropped with the buffer, and `v` is moved.
+
+```rig
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+sub keep(b: *B)
+  print("kept", b.n)
+
+sub main()
+  xs = [1, 2, 3]
+  for x in !xs
+    x *= 10
+  print(xs)
+  v: Vec(*B) = Vec()
+  for i in 0..3
+    (!v).push(*B(n: i))
+  for b, i in <v
+    if i == 1
+      keep(<b)
+      continue
+    print("saw", b.n)
+  print("after")
+```
+
+```output
+[10, 20, 30]
+saw 0
+drop 0
+kept 1
+drop 1
+saw 2
+drop 2
+after
+```
 
 ### Labels, break, and continue
 
@@ -875,20 +1017,22 @@ enums, integers, and `Bool`.
 | `.name` | an enum variant |
 | `.name(a, b)` | a payload variant, binding its fields in order |
 | `42`, `-1`, `true` | a literal |
-| `lo..hi` | an integer in the inclusive range |
+| `lo..hi` | an integer from `lo` up to, not including, `hi` (constant bounds) |
 | `else`, `_`, or any other name | everything else |
 
 An arm is `pattern => statement` or a pattern followed by an indented
 block. A match whose value is used must cover every value; a statement
 match need not, and then runs no arm for the rest. Duplicate and
-unreachable arms are rejected.
+unreachable arms are rejected. A range pattern is half-open like every
+range, so `0..10` matches 0 through 9, and its end may be one past the
+type's largest value: `100..256` covers the rest of a `U8`.
 
 ```rig
 fun size(n: U8) -> String
   match n
-    0..9 => "small"
-    10..99 => "medium"
-    100..255 => "large"
+    0..10 => "small"
+    10..100 => "medium"
+    100..256 => "large"
 
 sub main()
   print(size(5), size(42), size(200))
@@ -941,10 +1085,22 @@ happens:
 | `*x` | share | move `x` into a new shared box ([§10](#10-shared-and-weak-handles)) |
 | `~x` | weak | a weak handle to a shared value ([§10](#10-shared-and-weak-handles)) |
 
-A Copy value can be used freely: a bare use copies it. An explicit `<x`
-still moves it, leaving the name unusable, except for numbers, `Bool`,
-and `String`, which `<x` copies. The rest of this section is about
-owning values.
+A Copy value can be used freely: a bare use copies it. `<x` always
+means "done with `x`", whatever its type: a Copy value or a borrow is
+copied out, and `x` is unusable until it is assigned again. (`<p.f` of a
+Copy field copies the field and leaves `p` whole.) The rest of this
+section is about owning values.
+
+```rig reject
+sub main()
+  n = 1
+  m = <n
+  print(n)
+```
+
+```error
+use of `n` after move
+```
 
 ### Moves
 
@@ -1095,9 +1251,61 @@ cannot write-borrow `u` while a read borrow is live
 **How long a borrow lives.** A borrow passed to a call ends when the
 call returns, so two calls in one statement may each write-borrow the
 same value. A method call borrows its receiver for the whole call, so
-`rc.show(<rc)` is rejected. A borrow stored in a binding lasts until the end of that
-binding's block, or until the binding is dropped with `-r` or
-reassigned.
+`rc.show(<rc)` is rejected. A borrow stored in a binding, or in a view
+([below](#second-class-borrows)), lasts until its last use. Every later
+use counts: a use further on, a use anywhere in a loop around it that
+the binding was declared outside of (the next iteration runs it again),
+a closure that captured it (and every use of that closure), a binding
+that borrows the view in turn, deferred code, and the drop at scope
+exit of a value whose type has drop glue. The binding's block ending,
+`-r`, or reassigning it also end the borrow.
+
+```rig
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+struct View
+  box: ?Box
+
+sub main()
+  x = Box(n: 1)
+  r = ?x
+  print(r.n)
+  (!x).bump()
+  v = View(box: ?x)
+  print(v.box.n)
+  x = Box(n: 7)
+  print(x.n)
+```
+
+```output
+1
+2
+7
+```
+
+```rig reject
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+sub main()
+  x = Box(n: 1)
+  r = ?x
+  i = 0
+  while i < 2 : i += 1
+    print(r.n)
+    (!x).bump()
+```
+
+```error
+cannot write-borrow `x` while a read borrow is live
+```
 
 #### Write borrows
 
@@ -1385,9 +1593,9 @@ write `<a` or `+a`. Sharing a value that is already a shared handle
 a handle automatically, including through fields and loop elements.
 Writing a field, calling a `!self` method, or consuming the value
 through a handle is rejected, because other handles share it; shared
-mutable state goes in a `Cell` ([§11](#cell)). The built-in `Vec` is
-the exception: `(!h).push(x)` works through a `*Vec(T)`, whose elements
-can never be borrowed.
+mutable state goes in a `Cell` ([§11](#cell)). The built-in `Vec` is no
+exception: `(!h).push(x)` through a `*Vec(T)` is rejected, and a shared
+Vec is a `*Cell(Vec(T))`.
 
 ```rig reject
 struct User
@@ -1469,40 +1677,68 @@ mutable value.
 copied out of a cell: it moves in with `set` / `replace` and moves out
 with `replace`.
 
+A Cell is interior-mutable: `set` and `replace` change it through any
+path to it, including a read borrow (`?Cell(T)`), a `?self` method of a
+struct holding one, and a shared handle. A by-value parameter is
+immutable, and a loop or match binding is only a copy, so neither can
+be changed (or lent to something that could change it).
+
 ```rig
+struct Counter
+  hits: Cell(Int)
+
+  sub hit(?self)
+    self.hits.set(self.hits.get() + 1)
+
+sub bump(c: ?Cell(Int))
+  c.set(c.get() + 10)
+
 sub main()
   count: *Cell(Int) = *Cell(value: 0)
   other = +count
   other.set(other.get() + 5)
-  print(count.get())
+  local: Cell(Int) = Cell(value: 1)
+  bump(?local)
+  k = Counter(hits: Cell(value: 0))
+  k.hit()
+  k.hit()
+  print(count.get(), local.get(), k.hits.get())
+
+  shared: *Cell(Vec(Int)) = *Cell(value: Vec())
+  v = shared.replace(Vec())
+  (!v).push(7)
+  shared.set(<v)
 ```
 
 ```output
-5
+5 11 2
 ```
 
 ### Vec
 
 `Vec(T)` is a growable array that owns its elements. The binding is the
 buffer: a `Vec` is an owning value even when its elements are Copy.
-Elements are Copy primitives (numbers, `Bool`, `String`), shared handles
-(including owned closures), or weak handles.
+Elements are Copy primitives (numbers, `Bool`, `String`), plain data
+(structs, enums, and optionals that own nothing and hold no borrow),
+shared handles (including owned closures), or weak handles.
 
 | Member | Meaning |
 |---|---|
 | `Vec()`, `Vec(capacity: n)` | an empty Vec (typed by context) |
 | `(!v).push(x)` | append; an owning `x` is moved or cloned in |
 | `v.length()` | the number of elements |
-| `v[i]`, `v[i] = x` | read or write an element (Copy `T`; bounds-checked) |
+| `v[i]`, `v[i] = x` | read or write an element, or a field of one (Copy `T`; bounds-checked) |
 | `v.get(i)` | the element as `T?` (Copy `T`) |
-| `(!v).pop()` | remove the last element, as `T?` (Copy `T`) |
+| `(!v).pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
 | `(!v).clear()` | drop every element |
 
 A `for` loop borrows the Vec for the whole loop, so it cannot be
 modified inside it. A Vec of Copy values may be walked by value
 (`for x in v`). A Vec of owning values is walked by borrowed slot with
-`for x in ?v`, where `v` must be a local: the element can be read and
-called, but not moved, dropped, cloned, or stored.
+`for x in ?v`, where `v` must be a binding or a field of one: the
+element can be read, called, and cloned (`+x` is a new handle), but not
+moved, dropped, or stored. `for x in !v` and `for x in <v` write and
+consume the elements ([§7](#for)).
 
 ```rig
 sub main()
@@ -1522,6 +1758,38 @@ sub main()
 
 ```output
 711 2
+```
+
+```rig
+struct P
+  x: Int
+  y: Int
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+sub main()
+  ps: Vec(P) = Vec()
+  (!ps).push(P(x: 1, y: 2))
+  ps[0].y = 5
+  print(ps[0], ps.length())
+  bs: Vec(*B) = Vec()
+  (!bs).push(*B(n: 1))
+  (!bs).push(*B(n: 2))
+  if (!bs).pop() as last
+    print("popped", last.n)
+  print("left", bs.length())
+```
+
+```output
+P(x: 1, y: 5) 1
+popped 2
+drop 2
+left 1
+drop 1
 ```
 
 ### Signal
@@ -1668,10 +1936,28 @@ sub main()
 | `fun(Int, Int) Int` | takes two `Int`s, returns an `Int` |
 | `sub(String)` | takes a `String`, returns nothing |
 | `*fun(Int) Int`, `*sub()` | an owned closure of that shape |
+| `~fun(Int) Int`, `~sub()` | a weak handle to an owned closure |
 
 Function types describe closures bound to locals, function names used
 as values, and `extern` function variables. Declarations write their
-return type after `->`; type expressions do not.
+return type after `->`; type expressions do not. An owned closure is a
+shared handle, so `~f` makes a weak handle to it, which upgrades like
+any other ([§10](#weak-handles)).
+
+```rig
+sub main()
+  f: *fun(Int) Int = *|a| a + 1
+  w: ~fun(Int) Int = ~f
+  if w.upgrade() as g
+    print(g(1))
+  -f
+  print(w.upgrade() == none)
+```
+
+```output
+2
+true
+```
 
 ### Stack closures
 
@@ -1865,10 +2151,70 @@ sub main()
 must be wrapped with `!` (propagate) or `catch` (handle)
 ```
 
-Two parts of the error story are not built yet: a function cannot
-produce an error value of its own, and `catch |err|` cannot name the
-error. Error sets ([§4](#error-sets)) can be declared and used as
-values.
+### Failing
+
+A fallible function fails by producing an error value where its `T` is
+expected: `return E.name` (a member of an error set,
+[§4](#error-sets)), a binding of an error set's type, an error it
+caught, or `.name` when `T` has no variant of that name. The failure
+leaves the function the way `!` does: every `defer` and `errdefer` of
+the scopes it leaves runs. Only a function returning `T!` can fail.
+
+### Naming the error
+
+`f() catch |err| handler` names the error for the handler. Functions do
+not declare which errors they fail with, so `err` may be any error: it
+is compared with error-set members (`err == E.name`, `err == .name`),
+matched by their names (`.name =>`, with a default arm where the match
+gives a value), printed, and returned from a fallible function. Every
+`.name` it is compared or matched with must be a member of some error
+set the module can see. The handler may be a block.
+
+```rig
+error ParseError
+  empty
+  too_long
+
+fun parse_len(s: String) -> Int!
+  return ParseError.empty if s == ""
+  return .too_long if s.len > 5
+  s.len
+
+fun describe(s: String) -> String
+  n = parse_len(s) catch |err|
+    match err
+      .empty => return "empty"
+      else => return "too long"
+  "length ok" if n > 2 else "short"
+
+sub main()
+  print(parse_len("abc") catch -1, parse_len("") catch -1)
+  print(describe(""), describe("abcdefg"), describe("abcd"))
+  x = parse_len("") catch |err|
+    print("failed with", err)
+    0
+  print(x)
+```
+
+```output
+3 -1
+empty too long length ok
+failed with .empty
+0
+```
+
+```rig reject
+error ParseError
+  empty
+
+fun plain(n: Int) -> Int
+  return ParseError.empty if n < 0
+  n
+```
+
+```error
+type mismatch: expected `Int`, got `ParseError`
+```
 
 ---
 
@@ -1876,16 +2222,25 @@ values.
 
 `use name` imports `name.rig` from the importing file's directory. The
 module's `pub` declarations are then reached as `name.decl`, and its
-types are named `name.Type` in annotations. Imports are checked in
-dependency order, each module once; a cycle is an error.
+types are named `name.Type` in annotations. A type's members are named
+through the module too: `name.Type.function(...)` calls an associated
+function, and `name.Enum.variant` names a variant. Imports are checked
+in dependency order, each module once; a cycle is an error.
 
 ```rig file=geo.rig
 pub struct Point
   x: Int
   y: Int
 
+  fun at(x: Int, y: Int) -> Point
+    Point(x: x, y: y)
+
   fun sum(?self) -> Int
     self.x + self.y
+
+pub enum Dir
+  north
+  east
 
 pub fun origin() -> Point
   Point(x: 0, y: 0)
@@ -1899,11 +2254,13 @@ fun total(p: ?geo.Point) -> Int
 
 sub main()
   p: geo.Point = geo.Point(x: 1, y: 2)
-  print(total(?p), geo.origin().sum())
+  q = geo.Point.at(3, 4)
+  d = geo.Dir.east
+  print(total(?p), geo.origin().sum(), q.sum(), d)
 ```
 
 ```output
-3 0
+3 0 7 .east
 ```
 
 Only `pub` declarations are visible to importers. A `pub` function whose
@@ -1922,10 +2279,10 @@ reserved.
 A `raw` block is the boundary of what the checker guarantees. Inside
 it, and only there, a program may:
 
-- write a raw access `%x`, which today reads `x` like a plain use (the
-  spelling is kept for raw pointer access, which Rig does not have yet);
 - call a builtin outside the safe list (`@intCast`, `@bitCast`, ...);
 - call an `extern` function.
+
+Rig has no raw pointers yet ([roadmap](docs/ROADMAP.md)).
 
 Everything else inside a `raw` block is still checked. A `raw` block
 can yield a value, and a safe function may wrap raw code, which is the
@@ -1942,7 +2299,7 @@ sub main()
   x: Int = 300
   raw
     small: U8 = @intCast(x - 100)
-    print(small, %x)
+    print(small, x)
   print(safe_abs(-5))
 ```
 
@@ -2041,13 +2398,11 @@ These parse, and are rejected with a diagnostic that says why:
 
 | Form | Status |
 |---|---|
-| `&&`, `\|\|`, `**` | not Rig operators; use `and`, `or` |
+| `&&`, `\|\|` | not Rig operators; use `and`, `or` |
 | `@x` (pin) | reserved: no pinning semantics yet |
 | `for *x in v` | reserved: by-reference loop binding |
-| `for x in !v`, `for x in <v` | not supported yet |
 | `pre expr`, `pre` blocks | reserved; only `pre` parameters exist |
 | `try` blocks with `catch` blocks | reserved; use `f()!` or `f() catch x` |
-| `catch \|err\| ...` | naming the error is not supported yet |
 | `zig "..."` | reserved: no inline Zig; use `raw` and `extern` |
 | `use std` | reserved |
 | module-level bindings | not supported yet |

@@ -1,6 +1,6 @@
 # The same character is an infix operator when spaced (`a < x`, `a * b`,
 # `a + b`, `a % b`, `a - b`) and an ownership sigil when tight against its
-# operand at expression start (`<s`, `*Box`, `+s`, `%x`, `?box`). `-x` is
+# operand at expression start (`<s`, `*Box`, `+s`, `?box`). `-x` is
 # negation in an expression and a drop at statement start; `@name(...)`
 # is a builtin call.
 
@@ -22,9 +22,6 @@ sub main()
   y = -x              # negation
   print(y)
   print(@sizeOf(Box)) # builtin call
-  raw
-    r = %x            # raw access
-    print(r)
   s = *Box(v: 10)     # share
   t = +s              # clone
   u = <s              # move
@@ -42,7 +39,6 @@ sub main()
 # 5
 # -3
 # 8
-# 3
 # 10
 # 10
 # 1

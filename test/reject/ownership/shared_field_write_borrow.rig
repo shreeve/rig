@@ -1,0 +1,27 @@
+# A shared handle is read-only all the way down: a field reached through
+# it cannot be write-borrowed, lent to a `!T` parameter, given to a
+# `!self` method, or write-iterated.
+
+struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+struct Holder
+  v: Vec(Int)
+  c: Counter
+
+sub inc(c: !Counter)
+  c.n += 1
+
+sub main()
+  h = *Holder(v: Vec(), c: Counter(n: 0))
+  (!h.v).push(1)
+  (!h.c).bump()
+  inc(!h.c)
+  for x in !h.v
+    x += 1
+
+# error: cannot write-borrow through a shared handle
+# error: cannot write-iterate through a shared handle
