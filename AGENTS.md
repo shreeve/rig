@@ -51,10 +51,13 @@ allocation, no hidden refcount traffic, no silent control flow.
 5. **Substrate in the language, libraries in userland.** No GC, no
    macros, no built-in reactive framework.
 6. **Never edit `src/parser.zig` by hand.** Edit `rig.grammar` and
-   run `zig build parser` (needs `../nexus/bin/nexus`; build it with
-   `cd ../nexus && zig build -Doptimize=ReleaseSafe`). Grammar
-   conflicts must be understood: every conflict that remains is
-   listed and justified in `docs/INTERNALS.md`.
+   run `zig build parser` (needs Nexus 1.0: `-Dnexus=path/to/nexus`,
+   or `../nexus/bin/nexus`; run the suite with `NEXUS=` set to the same
+   binary). The grammar's `@schema` declares every IR node and its
+   roles; the compiler reads the tree through the generated accessors
+   (`parser.ir`), by role, never by position. Grammar conflicts must
+   be understood: every conflict that remains is listed and justified
+   in `docs/INTERNALS.md`.
 7. **Comments explain the code as it is.** Milestone history,
    design-chat references, and changelogs belong in git history.
 
