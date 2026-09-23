@@ -1,0 +1,19 @@
+# A struct from another module is a different type from a local struct
+# with the same name; diagnostics name it through its module.
+
+use other
+
+struct Point
+  x: Int
+  y: Int
+
+fun mine(p: Point) -> Int
+  p.x * p.y
+
+sub main()
+  p = Point(x: 3, y: 4)
+  print(other.sumP(p))
+  q = other.make()
+  print(mine(q))
+
+# error: type mismatch: expected `other.Point`, got `Point`

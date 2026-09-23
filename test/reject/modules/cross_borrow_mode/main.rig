@@ -6,4 +6,4 @@ sub main()
   b = a.make_box(42)
   a.log_box(b)
 
-# error: type mismatch: expected `?Box`, got `Box`
+# error: type mismatch: expected `?a.Box`, got `a.Box`

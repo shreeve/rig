@@ -1292,7 +1292,12 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
         .imported_nominal => |in| blk: {
             const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk "<imported>";
             if (in.sym_id >= foreign.symbols.items.len) break :blk "<imported>";
-            break :blk foreign.symbols.items[in.sym_id].name;
+            const name = foreign.symbols.items[in.sym_id].name;
+            // Spelled the way this module names it: `other.Point`.
+            for (ctx.imports) |imp| {
+                if (imp.module_id == in.module_id) break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ imp.local_name, name });
+            }
+            break :blk name;
         },
         .parameterized_nominal => |pn| blk: {
             var buf: std.ArrayListUnmanaged(u8) = .empty;
