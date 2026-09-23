@@ -1,0 +1,19 @@
+# Imported resource types work in match payloads, Vec, and Cell, and
+# each value is dropped once.
+
+use lib
+
+sub main()
+  e = lib.mke(1)
+  match e
+    .one(b) => print("one", b.n)
+    .two(k) => print(k)
+  v: Vec(*lib.B) = Vec()
+  (!v).push(*lib.B(n: 2))
+  c: Cell(*lib.B) = Cell(value: *lib.B(n: 3))
+
+# expect:
+# one 1
+# drop 3
+# drop 2
+# drop 1

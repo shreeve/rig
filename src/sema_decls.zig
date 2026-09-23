@@ -541,12 +541,15 @@ pub fn resolveDeclarations(ctx: *SemContext, ir: Sexp, module_scope: ScopeId) Er
     if (!isHead(ir, .@"module")) return;
     var tr: TypeResolver = .{ .ctx = ctx, .scope = module_scope };
     for (ir.list[1..]) |decl| try tr.resolveDecl(decl);
+    try tr.checkPublicNominals();
 }
 
 pub const TypeResolver = struct {
     ctx: *SemContext,
     scope: ScopeId,
     nominal: NominalContext = NominalContext.none,
+    /// The first generic instance `collectLeaks` saw since the last report.
+    generic_leak: ?TypeId = null,
 
     fn resolveDecl(self: *TypeResolver, sexp: Sexp) Error!void {
         const head = headOf(sexp) orelse return;
@@ -1304,6 +1307,7 @@ pub const TypeResolver = struct {
         for (params) |p| try self.collectLeaks(p, &leaks);
         const f = self.ctx.symbols.items[fn_id];
         const is_sub = self.ctx.types.get(f.ty) == .function and self.ctx.types.get(f.ty).function.is_sub;
+        try self.reportGenericLeak(pos, if (is_sub) "sub" else "function", f.name);
         for (leaks.items) |leak| {
             const ln = self.ctx.symbols.items[leak].name;
             try self.ctx.err(pos, "public {s} `{s}` leaks private type `{s}`; either mark `{s}` `pub` so importers can construct/destructure it, or remove `{s}` from the public API", .{
@@ -1313,6 +1317,10 @@ pub const TypeResolver = struct {
     }
 
     fn collectLeaks(self: *TypeResolver, ty: TypeId, leaks: *std.ArrayListUnmanaged(SymbolId)) Error!void {
+        if (self.ctx.types.get(ty) == .parameterized_nominal) {
+            const pn = self.ctx.types.get(ty).parameterized_nominal;
+            if (self.ctx.symbols.items[pn.sym].decl_pos != types.builtin_decl_pos and self.generic_leak == null) self.generic_leak = ty;
+        }
         switch (self.ctx.types.get(ty)) {
             .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner| try self.collectLeaks(inner, leaks),
             .slice => |s| try self.collectLeaks(s.elem, leaks),
@@ -1327,6 +1335,38 @@ pub const TypeResolver = struct {
                 for (pn.args) |a| try self.collectLeaks(a, leaks);
             },
             else => {},
+        }
+    }
+
+    /// An instance of a generic type declared here cannot be named by an
+    /// importer, so it may not appear in the public surface.
+    fn reportGenericLeak(self: *TypeResolver, pos: u32, what: []const u8, name: []const u8) Error!void {
+        const ty = self.generic_leak orelse return;
+        self.generic_leak = null;
+        try self.ctx.err(pos, "public {s} `{s}` exposes `{s}`, an instance of a generic type; generic types cannot cross module boundaries yet", .{ what, name, try types.formatType(self.ctx, ty) });
+    }
+
+    /// The fields, methods, and variant payloads of a public struct or
+    /// enum are reachable from importers: none may name an instance of a
+    /// generic type declared here.
+    pub fn checkPublicNominals(self: *TypeResolver) Error!void {
+        var leaks: std.ArrayListUnmanaged(SymbolId) = .empty;
+        defer leaks.deinit(self.ctx.allocator);
+        for (self.ctx.symbols.items) |sym| {
+            if (!sym.flags.is_public) continue;
+            switch (sym.kind) {
+                .nominal_type => for (sym.fields orelse &.{}) |f| {
+                    if (f.is_variant) {
+                        for (f.payload orelse &.{}) |pf| try self.collectLeaks(pf.ty, &leaks);
+                    } else try self.collectLeaks(f.ty, &leaks);
+                    try self.reportGenericLeak(f.decl_pos, if (f.is_method) "method" else if (f.is_variant) "variant" else "field", f.name);
+                },
+                .type_alias, .@"extern" => {
+                    try self.collectLeaks(sym.ty, &leaks);
+                    try self.reportGenericLeak(sym.decl_pos, if (sym.kind == .type_alias) "type" else "extern", sym.name);
+                },
+                else => {},
+            }
         }
     }
 
