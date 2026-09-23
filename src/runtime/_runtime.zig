@@ -447,7 +447,7 @@ pub fn Vec(comptime T: type) type {
             return &self.buf[index(i, self.len)];
         }
 
-        /// Remove and return the last element. Plain-data `T` only.
+        /// Remove and return the last element; the caller owns it.
         pub fn pop(self: *Self) ?T {
             if (self.len == 0) return null;
             self.len -= 1;

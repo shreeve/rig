@@ -2351,7 +2351,9 @@ const Checker = struct {
                 }
             }
         }
-        if (resolved.nominal_sym == self.ctx.vec_sym_id and (std.mem.eql(u8, method, "get") or std.mem.eql(u8, method, "pop"))) {
+        // `pop` removes the element, so it hands over ownership; `get`
+        // would copy it out of the Vec.
+        if (resolved.nominal_sym == self.ctx.vec_sym_id and std.mem.eql(u8, method, "get")) {
             if (resolved.fn_ty.returns != self.t().invalid_id) {
                 const elem = self.ctx.types.get(resolved.fn_ty.returns).optional;
                 if ((try self.ownsResource(elem, pos, "copies an element out of a Vec"))) {
