@@ -498,7 +498,7 @@ pub const Emitter = struct {
             const sym = self.sema.symbolOf(name_node) orelse continue;
             const ty = self.symType(sym);
             var local: Local = .{ .sym = sym, .zig_name = "", .ty = ty };
-            if (paramIsWriteBorrow(p)) {
+            if (paramIsWriteBorrow(p) or (ty != null and self.isPtrBorrowTy(ty.?))) {
                 local.is_ptr = true;
             } else if (ty) |t| {
                 local.kind = self.kindOf(t);
@@ -537,7 +537,7 @@ pub const Emitter = struct {
             },
             // `?self` / `!self` receivers.
             .@"read", .@"write" => {
-                const ptr: []const u8 = if (p.list[0].tag == .@"write") "*" else "";
+                const ptr: []const u8 = if (p.list[0].tag == .@"write") "*" else if (local.is_ptr) "*const " else "";
                 try self.w.print("{s}: {s}{s}", .{ zig_name, ptr, self.nominal.?.name });
             },
             else => return self.unsupported(p, "this parameter"),
@@ -593,8 +593,8 @@ pub const Emitter = struct {
     fn declare(self: *Emitter, local: Local, rig_name: []const u8) Error!*Local {
         if (self.scopes.items.len == 0) try self.pushScope();
         var l = local;
-        // A write borrow is held as a pointer wherever it is bound.
-        if (l.ty) |t| if (self.sema.types.get(t) == .borrow_write) {
+        // A pointer borrow is held as a pointer wherever it is bound.
+        if (l.ty) |t| if (self.isPtrBorrowTy(t)) {
             l.is_ptr = true;
         };
         if (l.zig_name.len == 0) l.zig_name = try self.zigNameFor(rig_name);
@@ -906,7 +906,7 @@ pub const Emitter = struct {
         } else true;
         const is_borrow = !is_move and binds_borrow and (isTagged(expr, .@"read") or isTagged(expr, .@"write"));
         // A write borrow is held as a pointer however it was obtained.
-        const holds_ptr = is_borrow or (ty != null and self.sema.types.get(ty.?) == .borrow_write);
+        const holds_ptr = is_borrow or (ty != null and self.isPtrBorrowTy(ty.?));
         var local: Local = .{ .sym = sym, .zig_name = "", .ty = ty, .is_ptr = holds_ptr };
         if (!holds_ptr) {
             if (ty) |t| local.kind = self.kindOf(t);
@@ -1128,7 +1128,7 @@ pub const Emitter = struct {
     /// position (directly, or through `if`/`match` branches) are moved
     /// out, so their scope-exit drop is disarmed.
     fn emitReturnValue(self: *Emitter, value: Sexp) Error!void {
-        if (self.fun.return_ty) |r| if (self.sema.types.get(r) == .borrow_write) return self.emitBorrowValue(value);
+        if (self.fun.return_ty) |r| if (self.isPtrBorrowTy(r)) return self.emitBorrowValue(value);
         self.bare = true;
         try self.emitValue(value, true);
     }
@@ -1643,9 +1643,56 @@ pub const Emitter = struct {
         return isZigComptimeIn(self, e, 0);
     }
 
+    /// An expression whose value is a pointer borrow (see `isPtrBorrowTy`).
     fn isWriteBorrowExpr(self: *Emitter, e: Sexp) bool {
         const t = self.typeOf(e) orelse return false;
-        return self.sema.types.get(t) == .borrow_write;
+        return self.isPtrBorrowTy(t);
+    }
+
+    /// A borrow held as a pointer: a write borrow, and a read borrow of a
+    /// `Cell`, whose value can change while it is borrowed. Other read
+    /// borrows are held by value: nothing can change what they see.
+    fn isPtrBorrowTy(self: *Emitter, ty: TypeId) bool {
+        return switch (self.sema.types.get(ty)) {
+            .borrow_write => true,
+            .borrow_read => |inner| types.holdsCellByValue(self.sema, inner),
+            else => false,
+        };
+    }
+
+    /// `holdsCellByValue` for a type expression.
+    fn sexpHoldsCell(self: *Emitter, t: Sexp, depth: u8) bool {
+        if (depth > 32) return false;
+        switch (t) {
+            .src => {
+                const id = self.sema.symbolOf(t) orelse return false;
+                const sym = self.sema.symbols.items[id];
+                return switch (sym.kind) {
+                    .nominal_type => types.symHoldsCell(self.sema, id, 0),
+                    .type_alias => types.holdsCellByValue(self.sema, sym.ty),
+                    else => false,
+                };
+            },
+            .list => |items| switch (items[0].tag) {
+                .@"optional", .@"error_union" => return self.sexpHoldsCell(items[1], depth + 1),
+                .@"generic_inst" => {
+                    const id = self.sema.symbolOf(items[1]) orelse return false;
+                    if (id == self.sema.cell_sym_id) return true;
+                    if (id == self.sema.vec_sym_id or id == self.sema.signal_sym_id) return false;
+                    for (items[2..]) |a| if (self.sexpHoldsCell(a, depth + 1)) return true;
+                    return types.symHoldsCell(self.sema, id, 0);
+                },
+                else => return false,
+            },
+            else => return false,
+        }
+    }
+
+    /// `isPtrBorrowTy` for a type expression.
+    fn isPtrBorrowSexp(self: *Emitter, t: Sexp) bool {
+        if (isTagged(t, .@"borrow_write")) return true;
+        if (!isTagged(t, .@"borrow_read")) return false;
+        return self.sexpHoldsCell(t.list[1], 0);
     }
 
     /// A write-borrow value: the pointer a `!T` expression denotes.
@@ -1691,6 +1738,8 @@ pub const Emitter = struct {
         }
         switch (head) {
             .@"read", .@"raw" => {
+                // `?x` of a value held by pointer (a Cell) is its address.
+                if (head == .@"read" and self.isWriteBorrowExpr(sexp)) return self.emitAddressOf(items[1]);
                 self.bare = bare;
                 try self.emitValue(items[1], tail);
             },
@@ -2134,7 +2183,7 @@ pub const Emitter = struct {
     /// parameter a compile-time value.
     fn emitArg(self: *Emitter, arg: Sexp, param: ?TypeId, is_pre: bool) Error!void {
         const value = argValue(arg);
-        if (param) |p| if (self.sema.types.get(p) == .borrow_write) return self.emitBorrowValue(value);
+        if (param) |p| if (self.isPtrBorrowTy(p)) return self.emitBorrowValue(value);
         const saved = self.keep_comptime;
         defer self.keep_comptime = saved;
         if (is_pre) self.keep_comptime = true;
@@ -2487,7 +2536,7 @@ pub const Emitter = struct {
             try self.emitStmts(stmts[0 .. stmts.len - 1]);
             try self.writeIndent(self.indent);
             try self.w.writeAll("return ");
-            try self.emitValue(stmts[stmts.len - 1], true);
+            try self.emitReturnValue(stmts[stmts.len - 1]);
             try self.w.writeAll(";\n");
         } else {
             try self.emitStmts(stmts);
@@ -2592,8 +2641,12 @@ pub const Emitter = struct {
                     try self.w.writeAll("!");
                     try self.emitType(items[1]);
                 },
-                // A read borrow is held by value; a write borrow is a pointer.
-                .@"borrow_read" => try self.emitType(items[1]),
+                // A read borrow is held by value (a Cell's by pointer); a
+                // write borrow is a pointer.
+                .@"borrow_read" => {
+                    if (self.isPtrBorrowSexp(t)) try self.w.writeAll("*const ");
+                    try self.emitType(items[1]);
+                },
                 .@"borrow_write" => {
                     try self.w.writeAll("*");
                     try self.emitType(items[1]);
@@ -2661,7 +2714,10 @@ pub const Emitter = struct {
                 try self.w.writeAll("!");
                 try self.emitTypeTy(inner);
             },
-            .borrow_read => |inner| try self.emitTypeTy(inner),
+            .borrow_read => |inner| {
+                if (types.holdsCellByValue(sema, inner)) try self.w.writeAll("*const ");
+                try self.emitTypeTy(inner);
+            },
             .borrow_write => |inner| {
                 try self.w.writeAll("*");
                 try self.emitTypeTy(inner);

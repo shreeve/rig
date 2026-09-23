@@ -1258,6 +1258,43 @@ pub fn containsTypeVar(ctx: *const SemContext, ty_id: TypeId) bool {
     };
 }
 
+/// Whether a value of `ty` holds a `Cell` inline (not behind a handle,
+/// a borrow, or a Vec's buffer). A read borrow of such a value is held as
+/// a pointer, since the cell can change while it is borrowed.
+pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
+    return cellUnder(ctx, ty, 0);
+}
+
+fn cellUnder(ctx: *const SemContext, ty: TypeId, depth: u8) bool {
+    if (depth > 32) return false;
+    return switch (ctx.types.get(ty)) {
+        .optional, .fallible => |i| cellUnder(ctx, i, depth + 1),
+        .array => |a| cellUnder(ctx, a.elem, depth + 1),
+        .nominal => |sym| symHoldsCell(ctx, sym, depth),
+        .imported_nominal => |in| blk: {
+            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk false;
+            break :blk symHoldsCell(foreign, in.sym_id, depth);
+        },
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.cell_sym_id) break :blk true;
+            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
+            for (pn.args) |a| if (cellUnder(ctx, a, depth + 1)) break :blk true;
+            break :blk symHoldsCell(ctx, pn.sym, depth);
+        },
+        else => false,
+    };
+}
+
+pub fn symHoldsCell(ctx: *const SemContext, sym: SymbolId, depth: u8) bool {
+    for (ctx.symbols.items[sym].fields orelse &.{}) |f| {
+        if (f.is_method) continue;
+        if (f.is_variant) {
+            for (f.payload orelse &.{}) |pf| if (cellUnder(ctx, pf.ty, depth + 1)) return true;
+        } else if (cellUnder(ctx, f.ty, depth + 1)) return true;
+    }
+    return false;
+}
+
 /// A value that owns nothing and holds no borrow or type parameter: it
 /// can be copied freely, like a number.
 pub fn isPlainData(ctx: *const SemContext, ty: TypeId) bool {
