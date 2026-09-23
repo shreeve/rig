@@ -12,6 +12,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
+const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const modules = @import("modules.zig");
 const runtime = @import("runtime.zig");
@@ -85,7 +86,7 @@ fn dumpTokens(source: []const u8) void {
     var i: u32 = 0;
     while (true) : (i += 1) {
         const tok = lexer.next();
-        const lc = rig.lineCol(source, tok.pos);
+        const lc = diag.lineCol(source, tok.pos);
         std.debug.print("{d:4} {d}:{d} {s:15} \"{s}\"\n", .{ i, lc.line, lc.col, @tagName(tok.cat), lexer.text(tok) });
         if (tok.cat == .eof or tok.cat == .err) break;
     }
@@ -101,7 +102,7 @@ fn printTree(allocator: std.mem.Allocator, io: std.Io, path: []const u8, source:
     } catch |err| switch (err) {
         error.ParseError => {
             const d = p.diagnostic();
-            const lc = rig.lineCol(source, d.pos);
+            const lc = diag.lineCol(source, d.pos);
             fatal("{s}:{d}:{d}: error: {s}", .{ path, lc.line, lc.col, d.message });
         },
         else => return err,

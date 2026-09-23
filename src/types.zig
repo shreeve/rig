@@ -421,7 +421,6 @@ pub const Scope = struct {
     kind: ScopeKind = .block,
 };
 
-pub const Severity = diag.Severity;
 pub const Diagnostic = diag.Diagnostic;
 
 /// How a receiver expression is written, and what kind of value it is,
@@ -1109,11 +1108,6 @@ pub fn makeNominalContext(ctx: *SemContext, sym_id: SymbolId) std.mem.Allocator.
         },
         else => return NominalContext.none,
     }
-}
-
-pub fn isSelfTypeId(ctx: *const SemContext, ty_id: TypeId, nominal_ctx: NominalContext) bool {
-    _ = ctx;
-    return !nominal_ctx.isEmpty() and ty_id == nominal_ctx.self_type;
 }
 
 pub const ResolvedField = struct {

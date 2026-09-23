@@ -24,7 +24,6 @@ const headOf = types.headOf;
 const isHead = types.isHead;
 const firstSrcPos = diag.firstSrcPos;
 
-pub const Severity = diag.Severity;
 pub const Diagnostic = diag.Diagnostic;
 pub const Error = std.mem.Allocator.Error;
 
@@ -59,10 +58,6 @@ pub const Checker = struct {
 
     pub fn hasErrors(self: *const Checker) bool {
         return diag.hasErrorsIn(self.diagnostics.items);
-    }
-
-    pub fn writeDiagnostics(self: *const Checker, file_path: []const u8, w: anytype) !void {
-        try diag.write(self.diagnostics.items, self.source, file_path, w);
     }
 
     pub fn check(self: *Checker, ir: Sexp) Error!void {
@@ -111,7 +106,7 @@ pub const Checker = struct {
                 defer self.in_defer = prev;
                 for (items[1..]) |c| try self.walk(c, false);
             },
-            .@"propagate", .@"try" => {
+            .@"propagate" => {
                 if (items.len < 2) return;
                 try self.checkPropagate(items[1]);
                 try self.walk(items[1], true);

@@ -60,14 +60,12 @@ const SymbolResolver = struct {
                 try self.walk(items[1]);
                 if (self.ctx.symbols.items.len > before) self.ctx.symbols.items[before].flags.is_public = true;
             },
-            .@"export", .@"packed" => if (items.len >= 2) try self.walk(items[1]),
-            .@"callconv" => if (items.len >= 3) try self.walk(items[2]),
             .@"fun", .@"sub" => try self.walkFun(sexp, true),
             .@"lambda" => try self.walkLambda(sexp),
             .@"use" => try self.walkUse(items),
             .@"type" => try self.walkTypeAlias(items),
             .@"generic_type", .@"generic_enum" => try self.walkGenericType(items),
-            .@"struct", .@"enum", .@"errors", .@"opaque" => try self.walkNominalType(items),
+            .@"struct", .@"enum", .@"errors" => try self.walkNominalType(items),
             .@"extern" => try self.walkExtern(items),
             .@"extern_fun", .@"extern_sub" => if (items.len >= 2) {
                 _ = try self.declare(items[1], .@"extern", .{});
@@ -545,8 +543,7 @@ pub const TypeResolver = struct {
         const head = headOf(sexp) orelse return;
         const items = sexp.list;
         switch (head) {
-            .@"pub", .@"export", .@"packed" => if (items.len >= 2) try self.resolveDecl(items[1], is_extern),
-            .@"callconv" => if (items.len >= 3) try self.resolveDecl(items[2], is_extern),
+            .@"pub" => if (items.len >= 2) try self.resolveDecl(items[1], is_extern),
             .@"fun", .@"sub" => _ = try self.resolveFunction(sexp, types.symbol_invalid),
             .@"type" => if (items.len >= 2) {
                 const id = self.ctx.symbolOf(items[1]) orelse return;
@@ -786,14 +783,12 @@ pub const TypeResolver = struct {
                 .list => |mi| {
                     const h = headOf(m) orelse continue;
                     switch (h) {
-                        .@":", .@"default", .@"aligned" => {
+                        .@":", .@"default" => {
                             if (mi.len < 3) continue;
                             const fname = identAt(self.ctx.source, mi[1]) orelse continue;
                             const fpos = srcPos(mi[1], 0);
                             if (h == .@"default") {
                                 try self.ctx.err(fpos, "field default values are not supported yet; pass `{s}` in every constructor", .{fname});
-                            } else if (h == .@"aligned") {
-                                try self.ctx.err(fpos, "`align` on fields is not supported yet", .{});
                             }
                             if (is_enum) {
                                 try self.ctx.err(fpos, "an enum declares variants, not typed fields; write `{s}` or `{s}(field: T)`", .{ fname, fname });

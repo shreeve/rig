@@ -120,9 +120,6 @@ const Checker = struct {
         const items = sexp.list;
         switch (head) {
             .@"pub" => if (items.len >= 2) try self.checkDecl(items[1]),
-            .@"export", .@"packed", .@"callconv" => {
-                try self.err(firstSrcPos(sexp), "`{s}` declarations are not supported yet", .{@tagName(head)});
-            },
             .@"extern" => if (items.len == 2) {
                 try self.err(firstSrcPos(sexp), "an `extern` declaration with a body is not supported; declare the signature only (`extern fun f(x: Int) -> Int`)", .{});
             },
@@ -140,7 +137,6 @@ const Checker = struct {
                 try self.err(firstSrcPos(sexp), "module-level bindings are not supported yet; bind values inside a function", .{});
                 try self.checkSet(items);
             },
-            .@"opaque" => try self.err(firstSrcPos(sexp), "`opaque` types are not supported yet", .{}),
             .@"use", .@"type", .@"extern_fun", .@"extern_sub" => {},
             else => try self.err(firstSrcPos(sexp), "only declarations and bindings are allowed at module level; move this statement into a function", .{}),
         }
@@ -275,7 +271,7 @@ const Checker = struct {
             .@"defer", .@"errdefer" => if (items.len >= 2) try self.checkStmt(items[1]),
             .@"raw_block" => if (items.len >= 2) try self.checkStmt(items[1]),
             .@"labeled" => if (items.len >= 3) try self.checkStmt(items[2]),
-            .@"fun", .@"sub", .@"struct", .@"enum", .@"errors", .@"type", .@"generic_type", .@"generic_enum", .@"use", .@"extern", .@"extern_fun", .@"extern_sub", .@"test", .@"opaque", .@"pub" => {
+            .@"fun", .@"sub", .@"struct", .@"enum", .@"errors", .@"type", .@"generic_type", .@"generic_enum", .@"use", .@"extern", .@"extern_fun", .@"extern_sub", .@"test", .@"pub" => {
                 try self.err(firstSrcPos(stmt), "declarations are only allowed at module level", .{});
             },
             else => {
@@ -789,7 +785,7 @@ const Checker = struct {
             .list => |items| {
                 const h = headOf(pattern) orelse return;
                 switch (h) {
-                    .@"enum_lit", .@"enum_pattern" => {
+                    .@"enum_lit" => {
                         if (items.len < 2) return;
                         try self.checkVariantName(items[1], scrutinee);
                         try self.ctx.recordType(pattern, scrutinee);
@@ -968,9 +964,8 @@ const Checker = struct {
             .@"call" => self.synthCall(e),
             .@"member" => self.synthMember(items),
             .@"index" => self.synthIndex(items),
-            .@"propagate", .@"try" => self.synthPropagate(items),
+            .@"propagate" => self.synthPropagate(items),
             .@"if" => self.checkIfValue(e, null, .value),
-            .@"ternary" => self.synthTernary(items, null),
             .@"match" => self.checkMatch(e, .value, null),
             .@"block" => self.synthBlock(e, null),
             .@"raw_block" => if (items.len >= 2) self.synthExpr(items[1]) else self.t().void_id,
@@ -986,12 +981,6 @@ const Checker = struct {
                 break :blk self.t().invalid_id;
             },
             .@"+", .@"-", .@"*", .@"/", .@"%" => self.checkNumericOperands(items, @tagName(head), .numeric),
-            .@"**" => blk: {
-                try self.err(firstSrcPos(e), "operator `**` is not supported; multiply explicitly", .{});
-                _ = try self.synthExpr(items[1]);
-                _ = try self.synthExpr(items[2]);
-                break :blk self.t().invalid_id;
-            },
             .@"&", .@"|", .@"^", .@"<<", .@">>" => self.checkNumericOperands(items, @tagName(head), .integer),
             .@"<", .@">", .@"<=", .@">=" => blk: {
                 _ = try self.checkNumericOperands(items, @tagName(head), .ordered);
@@ -1043,14 +1032,6 @@ const Checker = struct {
             },
             .@"zig" => blk: {
                 try self.err(firstSrcPos(e), "inline `zig \"...\"` raw-Zig escape is reserved; the audit boundary is a `raw` block and the FFI boundary is `extern`", .{});
-                break :blk self.t().invalid_id;
-            },
-            .@"record" => blk: {
-                try self.err(firstSrcPos(e), "`Name {{...}}` record syntax is not supported; construct with `Name(field: value)`", .{});
-                break :blk self.t().invalid_id;
-            },
-            .@"anon_init" => blk: {
-                try self.err(firstSrcPos(e), "anonymous initializer `.{{...}}` is not supported; construct with `Type(field: value)`", .{});
                 break :blk self.t().invalid_id;
             },
             .@"kwarg" => blk: {
@@ -1206,19 +1187,6 @@ const Checker = struct {
         if (!ok) {
             try self.err(firstSrcPos(node), "`{s}` is not defined for `{s}`", .{ op, try self.tyName(ty) });
         }
-    }
-
-    fn synthTernary(self: *Checker, items: []const Sexp, expected: ?TypeId) Error!TypeId {
-        if (items.len < 4) return self.t().invalid_id;
-        try self.checkExpr(items[1], self.t().bool_id);
-        if (expected) |e| {
-            try self.checkExpr(items[2], e);
-            try self.checkExpr(items[3], e);
-            return e;
-        }
-        const a = try self.synthExpr(items[2]);
-        const b = try self.synthExpr(items[3]);
-        return (try self.unify(a, b, firstSrcPos(items[3]))) orelse self.t().invalid_id;
     }
 
     fn synthBlock(self: *Checker, node: Sexp, expected: ?TypeId) Error!TypeId {
@@ -2415,11 +2383,6 @@ const Checker = struct {
                 try self.ctx.recordType(e, expected);
                 return true;
             },
-            .@"ternary" => {
-                _ = try self.synthTernary(items, expected);
-                try self.ctx.recordType(e, expected);
-                return true;
-            },
             .@"match" => {
                 _ = try self.checkMatch(e, .value, expected);
                 try self.ctx.recordType(e, expected);
@@ -2939,7 +2902,7 @@ fn classifyReceiverShape(recv: Sexp) ReceiverShape {
         .@"read" => .read_explicit,
         .@"write" => .write_explicit,
         .@"move" => .move_explicit,
-        .@"call", .@"builtin", .@"record", .@"anon_init", .@"array", .@"clone", .@"share", .@"weak", .@"if", .@"match", .@"ternary", .@"catch", .@"try", .@"try_block", .@"propagate" => .rvalue,
+        .@"call", .@"builtin", .@"array", .@"clone", .@"share", .@"weak", .@"if", .@"match", .@"catch", .@"try_block", .@"propagate" => .rvalue,
         else => .lvalue_bare,
     };
 }

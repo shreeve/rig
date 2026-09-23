@@ -79,13 +79,9 @@ const Tag = rig.Tag;
 const TypeId = types.TypeId;
 const SymbolId = types.SymbolId;
 
-pub const Severity = enum { @"error", note };
+const diag = @import("diag.zig");
 
-pub const Diagnostic = struct {
-    severity: Severity,
-    pos: u32,
-    message: []const u8,
-};
+pub const Diagnostic = diag.Diagnostic;
 
 pub const Error = std.mem.Allocator.Error || rig.BindingKindError;
 
@@ -300,19 +296,7 @@ pub const Checker = struct {
     }
 
     pub fn hasErrors(self: *const Checker) bool {
-        for (self.diagnostics.items) |d| if (d.severity == .@"error") return true;
-        return false;
-    }
-
-    pub fn writeDiagnostics(self: *const Checker, file_path: []const u8, w: anytype) !void {
-        for (self.diagnostics.items) |d| {
-            const lc = lineCol(self.source, d.pos);
-            const tag = switch (d.severity) {
-                .@"error" => "error",
-                .note => "  note",
-            };
-            try w.print("{s}:{d}:{d}: {s}: {s}\n", .{ file_path, lc.line, lc.col, tag, d.message });
-        }
+        return diag.hasErrorsIn(self.diagnostics.items);
     }
 
     fn arena(self: *Checker) std.mem.Allocator {
@@ -464,16 +448,6 @@ pub const Checker = struct {
         return f.id;
     }
 
-    fn lookupCurrent(self: *Checker, name: []const u8) ?VarId {
-        const sc = self.scopes.items[self.scopes.items.len - 1];
-        var i = self.vars.items.len;
-        while (i > sc.start) {
-            i -= 1;
-            if (std.mem.eql(u8, self.vars.items[i].name, name)) return @intCast(i);
-        }
-        return null;
-    }
-
     // -------------------------------------------------------------------------
     // State: snapshot, restore, join
     // -------------------------------------------------------------------------
@@ -606,11 +580,11 @@ pub const Checker = struct {
             .@"fun", .@"sub" => if (items.len >= 4) try self.walkFun(items[1], items[2], items[3], items[4..]),
             .@"drop_decl" => if (items.len >= 3) try self.walkFun(.nil, items[1], .nil, items[2..3]),
             .@"struct", .@"enum", .@"errors", .@"generic_type" => for (items[1..]) |c| try self.walkDecl(c),
-            .@"pub", .@"export", .@"packed", .@"callconv", .@"extern" => {
+            .@"pub", .@"extern" => {
                 if (items.len >= 2) try self.walkDecl(items[items.len - 1]);
             },
             .@"test" => if (items.len >= 2) try self.walkFun(.nil, .nil, .nil, items[items.len - 1 ..]),
-            .@"use", .@"type", .@"opaque", .@"extern_fun", .@"extern_sub", .@"variant", .@":" => {},
+            .@"use", .@"type", .@"extern_fun", .@"extern_sub", .@"variant", .@":" => {},
             else => try self.walkStmt(sexp),
         }
     }
@@ -665,7 +639,7 @@ pub const Checker = struct {
             .list => |items| {
                 if (items.len >= 2 and items[0] == .tag) {
                     switch (items[0].tag) {
-                        .@":", .pre_param, .default, .aligned => {
+                        .@":", .pre_param, .default => {
                             name_node = items[1];
                             if (items.len >= 3) type_node = items[2];
                         },
@@ -792,7 +766,6 @@ pub const Checker = struct {
             .@"share" => self.walkShare(items),
             .@"lambda" => self.walkLambda(items),
             .@"if" => self.walkIf(items),
-            .@"ternary" => self.walkTernary(items),
             .@"while" => blk: {
                 try self.walkWhile(items);
                 break :blk .{};
@@ -820,7 +793,7 @@ pub const Checker = struct {
                 break :blk .{};
             },
             .@"catch" => self.walkCatch(items),
-            .@"propagate", .@"try" => self.walkPropagate(items),
+            .@"propagate" => self.walkPropagate(items),
             .@"defer", .@"errdefer" => blk: {
                 try self.walkDefer(items);
                 break :blk .{};
@@ -828,22 +801,16 @@ pub const Checker = struct {
             .@"call" => self.walkCall(items),
             .@"member" => self.walkMember(sexp),
             .@"index" => self.walkMember(sexp),
-            .@"deref" => if (items.len >= 2) self.walk(items[1]) else .{},
             .@"kwarg" => if (items.len >= 3) self.walkConsumed(items[2], .argument) else .{},
-            .@"record" => blk: {
-                var v: Value = .{};
-                for (items[2..]) |m| v = try self.valueUnion(v, try self.walk(m));
-                break :blk v;
-            },
             .@"array" => blk: {
                 var v: Value = .{};
                 for (items[1..]) |e| v = try self.valueUnion(v, try self.walkConsumed(e, .element));
                 break :blk v;
             },
             .@"raw_block" => if (items.len >= 2) self.walk(items[1]) else .{},
-            .@"enum_lit", .@"use", .@"type", .@"generic_type", .@"generic_inst", .@"opaque" => .{},
+            .@"enum_lit", .@"use", .@"type", .@"generic_type", .@"generic_inst" => .{},
             // Operators on values produce fresh Copy results.
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"**", .@"neg", .@"not", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"neg", .@"not", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
                 for (items[1..]) |c| _ = try self.walk(c);
                 break :blk .{};
             },
@@ -936,7 +903,6 @@ pub const Checker = struct {
                         }
                         return p;
                     },
-                    .@"deref" => return self.resolvePlace(items[1]),
                     else => return null,
                 }
             },
@@ -949,7 +915,7 @@ pub const Checker = struct {
         if (e != .list or e.list.len < 2 or e.list[0] != .tag) return;
         const items = e.list;
         switch (items[0].tag) {
-            .@"member", .@"deref" => try self.walkPlaceIndices(items[1]),
+            .@"member" => try self.walkPlaceIndices(items[1]),
             .@"index" => {
                 try self.walkPlaceIndices(items[1]);
                 for (items[2..]) |i| _ = try self.walk(i);
@@ -1272,7 +1238,6 @@ pub const Checker = struct {
                     },
                     // A value returned through a branch moves out, like a bare return.
                     .@"if" => for (items[2..]) |b| try self.checkNoImplicitCopy(tailOf(b), sink, top_return),
-                    .@"ternary" => for (items[2..]) |b| try self.checkNoImplicitCopy(tailOf(b), sink, top_return),
                     .@"match" => for (items[2..]) |arm| {
                         if (isTag(arm, .@"arm") and arm.list.len >= 2) {
                             try self.checkNoImplicitCopy(tailOf(arm.list[arm.list.len - 1]), sink, top_return);
@@ -1285,7 +1250,7 @@ pub const Checker = struct {
                         try self.checkNoImplicitCopy(items[1], sink, false);
                         try self.checkNoImplicitCopy(tailOf(items[items.len - 1]), sink, false);
                     },
-                    .@"propagate", .@"try" => try self.checkNoImplicitCopy(items[1], sink, false),
+                    .@"propagate" => try self.checkNoImplicitCopy(items[1], sink, false),
                     else => {},
                 }
             },
@@ -1636,7 +1601,7 @@ pub const Checker = struct {
         const params = items[2];
         const body = items[4];
         if (!self.lambda_ok) {
-            try self.err(firstSrcPos(.{ .list = items }), "closures cannot escape their defining scope; bind the closure to a local (`f = |...| ...`) and call `f()`, or wrap it in `*Closure(...)` to store or return it", .{});
+            try self.err(innerPos(.{ .list = items }), "closures cannot escape their defining scope; bind the closure to a local (`f = |...| ...`) and call `f()`, or wrap it in `*Closure(...)` to store or return it", .{});
         }
         self.lambda_ok = false;
 
@@ -1814,13 +1779,6 @@ pub const Checker = struct {
         _ = try self.addVar(.{ .name = self.text(name), .decl = pos, .ty = ty, .ref = self.refOfType(ty) }, .{
             .loans = if (self.mayCarryBorrow(ty)) value.loans else &.{},
         });
-    }
-
-    /// `(ternary cond then else)`
-    fn walkTernary(self: *Checker, items: []const Sexp) Error!Value {
-        if (items.len < 4) return .{};
-        _ = try self.walk(items[1]);
-        return self.walkBranches(items[2], items[3]);
     }
 
     fn walkBranches(self: *Checker, then_b: Sexp, else_b: ?Sexp) Error!Value {
@@ -2448,7 +2406,7 @@ pub const Checker = struct {
 // =============================================================================
 
 fn isTag(s: Sexp, tag: Tag) bool {
-    return s == .list and s.list.len > 0 and s.list[0] == .tag and s.list[0].tag == tag;
+    return types.isHead(s, tag);
 }
 
 fn isLambda(s: Sexp) bool {
@@ -2516,37 +2474,7 @@ fn sexpMentionsBorrow(t: Sexp) bool {
 }
 
 fn innerPos(sexp: Sexp) u32 {
-    return firstSrcPos(sexp);
-}
-
-fn firstSrcPos(s: Sexp) u32 {
-    return switch (s) {
-        .src => |x| x.pos,
-        .list => |items| blk: {
-            for (items) |c| {
-                const p = firstSrcPos(c);
-                if (p > 0) break :blk p;
-            }
-            break :blk 0;
-        },
-        else => 0,
-    };
-}
-
-const LineCol = struct { line: u32, col: u32 };
-
-fn lineCol(source: []const u8, pos: u32) LineCol {
-    var line: u32 = 1;
-    var col: u32 = 1;
-    var i: u32 = 0;
-    const end = @min(pos, source.len);
-    while (i < end) : (i += 1) {
-        if (source[i] == '\n') {
-            line += 1;
-            col = 1;
-        } else col += 1;
-    }
-    return .{ .line = line, .col = col };
+    return diag.firstSrcPos(sexp);
 }
 
 // =============================================================================

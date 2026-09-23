@@ -11,12 +11,12 @@
 //! so `parser.Parser.init(allocator, source).parseProgram()` returns the
 //! semantic IR described in docs/IR.md.
 //!
-//! Also here: the IR `Tag` enum, `BindingKind`, source positions
-//! (`lineCol`), and the identifier escaping that emit needs
-//! (`writeZigIdent`).
+//! Also here: the IR `Tag` enum, `BindingKind`, and the identifier
+//! escaping that emit needs (`writeZigIdent`).
 
 const std = @import("std");
 const parser = @import("parser.zig");
+const diag = @import("diag.zig");
 const BaseLexer = parser.BaseLexer;
 const BaseParser = parser.BaseParser;
 const Token = parser.Token;
@@ -152,21 +152,6 @@ pub const Tag = enum(u8) {
     @"array_type",      // [N]T
     @"fun_type",        // fun(A, B) R
 
-    // Not produced by the grammar; still named by other passes.
-    @"packed",
-    @"export",
-    @"callconv",
-    @"opaque",
-    @"aligned",
-    @"record",
-    @"anon_init",
-    @"deref",
-    @"addr_of",
-    @"try",
-    @"ternary",
-    @"enum_pattern",
-    @"**",
-
     _,
 };
 
@@ -206,32 +191,6 @@ pub fn bindingKindOf(kind_slot: Sexp) BindingKindError!BindingKind {
         else => error.InvalidBindingKind,
     };
 }
-
-// =============================================================================
-// Source positions and diagnostics
-// =============================================================================
-
-pub const LineCol = struct { line: u32, col: u32 };
-
-/// 1-based line and column (in bytes) of `pos` in `source`.
-pub fn lineCol(source: []const u8, pos: u32) LineCol {
-    const end = @min(pos, source.len);
-    var line: u32 = 1;
-    var line_start: usize = 0;
-    for (source[0..end], 0..) |c, i| {
-        if (c == '\n') {
-            line += 1;
-            line_start = i + 1;
-        }
-    }
-    return .{ .line = line, .col = @intCast(end - line_start + 1) };
-}
-
-/// A front-end error: a byte position and a message.
-pub const Diagnostic = struct {
-    pos: u32,
-    message: []const u8,
-};
 
 // =============================================================================
 // Keywords
@@ -280,10 +239,6 @@ const keywords = std.StaticStringMap(TokenCat).initComptime(.{
 /// The token category of a reserved word, or null for a plain name.
 pub fn keyword(word: []const u8) ?TokenCat {
     return keywords.get(word);
-}
-
-pub fn isKeyword(word: []const u8) bool {
-    return keywords.has(word);
 }
 
 // =============================================================================
@@ -449,10 +404,6 @@ pub const Lexer = struct {
 
     pub fn text(self: *const Lexer, tok: Token) []const u8 {
         return self.base.text(tok);
-    }
-
-    pub fn reset(self: *Lexer) void {
-        self.* = init(self.base.source);
     }
 
     pub fn next(self: *Lexer) Token {
@@ -844,7 +795,7 @@ fn isIdentCont(c: u8) bool {
 pub const Parser = struct {
     base: BaseParser,
     /// Set when parsing succeeded but the tree was rejected.
-    failure: ?Diagnostic = null,
+    failure: ?diag.Diagnostic = null,
 
     /// Every pass walks the tree recursively; deeper trees are rejected
     /// here instead of exhausting the stack later.
@@ -875,7 +826,7 @@ pub const Parser = struct {
         }
         const tree = try self.base.parseProgram();
         if (tooDeep(tree, 0)) |pos| {
-            self.failure = .{ .pos = pos, .message = "expression is nested too deeply" };
+            self.failure = .{ .severity = .@"error", .pos = pos, .message = "expression is nested too deeply" };
             return error.ParseError;
         }
         return tree;
@@ -910,14 +861,14 @@ pub const Parser = struct {
 
     /// Why parsing failed: at the token where the parser stopped, or the
     /// rejected tree.
-    pub fn diagnostic(self: *Parser) Diagnostic {
+    pub fn diagnostic(self: *Parser) diag.Diagnostic {
         if (self.failure) |f| return f;
         const tok = self.base.current;
         const src = self.base.source;
         const message: []const u8 = switch (tok.cat) {
             .err => self.base.lexer.err.message(),
-            .eof => return .{ .pos = self.base.lexer.prev_end, .message = "unexpected end of file" },
-            .outdent => return .{ .pos = self.base.lexer.prev_end, .message = "unexpected end of block" },
+            .eof => return .{ .severity = .@"error", .pos = self.base.lexer.prev_end, .message = "unexpected end of file" },
+            .outdent => return .{ .severity = .@"error", .pos = self.base.lexer.prev_end, .message = "unexpected end of block" },
             .newline => "unexpected end of line",
             .indent => "unexpected indentation",
             .post_if => "a postfix `if` guard must end a statement; write `a if c else b` for a value",
@@ -927,7 +878,7 @@ pub const Parser = struct {
             else
                 self.format("unexpected `{s}`", .{src[tok.pos..][0..tok.len]}),
         };
-        return .{ .pos = tok.pos, .message = message };
+        return .{ .severity = .@"error", .pos = tok.pos, .message = message };
     }
 
     fn format(self: *Parser, comptime fmt: []const u8, args: anytype) []const u8 {
@@ -1067,11 +1018,6 @@ test "layout: indentation, joined lines, tabs" {
     try expectCats("f(1,\n  2)\nx", &.{ .ident, .lparen_call, .integer, .comma, .integer, .rparen, .newline, .ident });
     try expectCats("a\n\tb", &.{ .ident, .err });
     try expectCats("a\n    b\n  c", &.{ .ident, .indent, .ident, .err });
-}
-
-test "lineCol" {
-    try testing.expectEqual(LineCol{ .line = 1, .col = 1 }, lineCol("ab\ncd", 0));
-    try testing.expectEqual(LineCol{ .line = 2, .col = 2 }, lineCol("ab\ncd", 4));
 }
 
 test "writeZigIdent escapes Zig keywords and emitter names" {

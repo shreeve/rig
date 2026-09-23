@@ -231,12 +231,12 @@ pub const ModuleGraph = struct {
         var eff = try effects.Checker.initWithSema(self.allocator, m.source, m.sema);
         defer eff.deinit();
         try eff.check(m.ir);
-        for (eff.diagnostics.items) |d| try self.addDiagnostic(id, if (d.severity == .@"error") .@"error" else .note, d.pos, d.message);
+        for (eff.diagnostics.items) |d| try self.addDiagnostic(id, d);
 
         var own = try ownership.Checker.initWithSema(self.allocator, m.source, m.sema);
         defer own.deinit();
         try own.check(m.ir);
-        for (own.diagnostics.items) |d| try self.addDiagnostic(id, if (d.severity == .@"error") .@"error" else .note, d.pos, d.message);
+        for (own.diagnostics.items) |d| try self.addDiagnostic(id, d);
 
         m.state = if (m.sema.hasErrors()) .failed else .checked;
     }
@@ -247,10 +247,10 @@ pub const ModuleGraph = struct {
         try m.sema.diagnostics.append(self.allocator, .{ .severity = .@"error", .pos = pos, .message = message });
     }
 
-    fn addDiagnostic(self: *ModuleGraph, id: ModuleId, severity: types.Severity, pos: u32, message: []const u8) Error!void {
+    fn addDiagnostic(self: *ModuleGraph, id: ModuleId, d: types.Diagnostic) Error!void {
         const m = self.get(id);
-        const owned = try m.sema.arena.allocator().dupe(u8, message);
-        try m.sema.diagnostics.append(self.allocator, .{ .severity = severity, .pos = pos, .message = owned });
+        const owned = try m.sema.arena.allocator().dupe(u8, d.message);
+        try m.sema.diagnostics.append(self.allocator, .{ .severity = d.severity, .pos = d.pos, .message = owned });
     }
 
     /// Write every diagnostic, as `path:line:col: error: message`.
