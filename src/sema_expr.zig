@@ -2757,7 +2757,10 @@ const Checker = struct {
             }
         }
         _ = target;
-        try self.err(firstSrcPos(e), "`none` needs an optional type; `{s}` is not optional (write `{s}?`)", .{ try self.tyName(expected), try self.tyName(expected) });
+        const name = try self.tyName(expected);
+        // A prefixed type takes parentheses before the `?`: `(*B)?`, `([2]Int)?`.
+        const wrap = name.len > 0 and std.mem.indexOfScalar(u8, "*~?![", name[0]) != null;
+        try self.err(firstSrcPos(e), "`none` needs an optional type; `{s}` is not optional (write `{s}{s}{s}?`)", .{ name, if (wrap) "(" else "", name, if (wrap) ")" else "" });
     }
 
     /// What a contextual form (literal, `.variant`, constructor) should
