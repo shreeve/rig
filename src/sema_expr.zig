@@ -76,6 +76,10 @@ const Checker = struct {
     current_call: ?Sexp = null,
     /// The `new x` binding whose value is being checked: not visible yet.
     pending: SymbolId = types.symbol_invalid,
+    /// The `return`s of the closure whose return type is being inferred.
+    lambda_returns: ?*std.ArrayListUnmanaged(ReturnSite) = null,
+
+    const ReturnSite = struct { pos: u32, ty: ?TypeId };
 
     fn err(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
         return self.ctx.err(pos, fmt, args);
@@ -298,6 +302,11 @@ const Checker = struct {
     fn checkReturn(self: *Checker, items: []const Sexp) Error!void {
         const value = items[1];
         const ret = self.fn_return;
+        if (self.lambda_returns) |sites| {
+            const ty: ?TypeId = if (value == .nil) null else try self.synthExpr(value);
+            try sites.append(self.ctx.allocator, .{ .pos = firstSrcPos(.{ .list = items }), .ty = ty });
+            return;
+        }
         if (value == .nil) {
             if (!self.is_sub and ret != self.t().void_id and !self.isPoison(ret)) {
                 try self.err(firstSrcPos(.{ .list = items }), "`return` needs a value of type `{s}`", .{try self.tyName(ret)});
@@ -2840,11 +2849,14 @@ const Checker = struct {
         const prev = self.enter(node);
         const prev_ret = self.fn_return;
         const prev_sub = self.is_sub;
+        const prev_sites = self.lambda_returns;
         defer {
             self.scope = prev;
             self.fn_return = prev_ret;
             self.is_sub = prev_sub;
+            self.lambda_returns = prev_sites;
         }
+        self.lambda_returns = null;
 
         if (self.ctx.bodyRoot(outer)) |root| {
             if (self.ctx.scopes.items[root].kind == .lambda) {
@@ -2898,7 +2910,11 @@ const Checker = struct {
 
         self.fn_return = self.t().unknown_id;
         self.is_sub = false;
+        var sites: std.ArrayListUnmanaged(ReturnSite) = .empty;
+        defer sites.deinit(self.ctx.allocator);
+        self.lambda_returns = &sites;
         var ret = self.t().void_id;
+        var ends_in_return = false;
         if (isHead(body, .@"block")) {
             const bprev = self.enter(body);
             defer self.scope = bprev;
@@ -2906,6 +2922,7 @@ const Checker = struct {
             if (stmts.len > 0) {
                 for (stmts[0 .. stmts.len - 1]) |s| try self.checkStmt(s);
                 const last = stmts[stmts.len - 1];
+                ends_in_return = isHead(last, .@"return");
                 // A closure ending in a statement, or an `if` without
                 // `else`, returns nothing.
                 const no_value = isStatementForm(last) or ifWithoutValue(last);
@@ -2915,13 +2932,44 @@ const Checker = struct {
                 } else try self.synthExpr(last);
             }
         } else ret = try self.synthExpr(body);
+        self.lambda_returns = null;
         ret = self.canonical(ret);
         if (ret == self.t().noreturn_id) ret = self.t().void_id;
+        ret = try self.reconcileReturns(sites.items, ret, ends_in_return, firstSrcPos(body));
         if (owned and ret != self.t().void_id and !types.isClosureValue(self.ctx, ret)) {
             try self.err(firstSrcPos(body), "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); this one returns `{s}`", .{try self.tyName(ret)});
         }
 
         return self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params.items), .returns = ret, .is_sub = ret == self.t().void_id } });
+    }
+
+    /// The return type of a closure inferred from its body's value `ret`
+    /// and its `return`s: a body ending in `return v` returns `v`'s type,
+    /// and every `return` must agree with the result.
+    fn reconcileReturns(self: *Checker, sites: []const ReturnSite, body_ret: TypeId, ends_in_return: bool, body_pos: u32) Error!TypeId {
+        var ret = body_ret;
+        if (ret == self.t().void_id) {
+            for (sites) |site| if (site.ty) |ty| {
+                ret = self.canonical(ty);
+                if (!ends_in_return and !self.isPoison(ret)) {
+                    try self.err(body_pos, "this closure returns `{s}` with `return`, so its body must end with a value or a `return`", .{try self.tyName(ret)});
+                }
+                break;
+            };
+        }
+        for (sites) |site| {
+            const ty = site.ty orelse {
+                if (ret != self.t().void_id and !self.isPoison(ret)) {
+                    // A bare `return` has no source position of its own.
+                    try self.err(if (site.pos != 0) site.pos else body_pos, "a bare `return` in a closure that returns `{s}`; give it a value", .{try self.tyName(ret)});
+                }
+                continue;
+            };
+            if (!compatible(self.ctx, ty, ret)) {
+                try self.err(site.pos, "this closure returns `{s}`, but this `return` gives `{s}`", .{ try self.tyName(ret), try self.tyName(ty) });
+            }
+        }
+        return ret;
     }
 
     /// `name` is a local of the function enclosing a closure. A closure

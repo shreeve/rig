@@ -1,0 +1,30 @@
+# `return` inside a closure body leaves the closure with a value. A
+# closure with no type from context returns the type of its last value,
+# or of its `return`s when it ends in one; `return` in a closure nested
+# inside another leaves only the inner one.
+
+sub main()
+  clamp = |x: Int|
+    if x > 100
+      return 100
+    x
+  triple = |x: Int|
+    return x * 3
+  outer = |x: Int|
+    inner: *fun(Int) Int = *|y|
+      if y > 100
+        return 0
+      y + 1
+    return inner(x) * 2
+  label: *fun(Int) String = *|n|
+    if n == 0
+      return "zero"
+    "other"
+  print(clamp(7), clamp(700), triple(2))
+  print(outer(1), outer(500))
+  print(label(0), label(1))
+
+# expect:
+# 7 100 6
+# 4 0
+# zero other
