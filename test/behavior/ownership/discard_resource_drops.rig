@@ -1,0 +1,22 @@
+# `_ = value` discards a value; a discarded resource is dropped at once.
+
+struct Box
+  n: Int
+
+  drop self: !Box
+    print("drop", self.n)
+
+fun make(n: Int) -> *Box
+  *Box(n: n)
+
+sub main()
+  _ = make(1)
+  rc = make(2)
+  _ = <rc
+  _ = 3
+  print("end")
+
+# expect:
+# drop 1
+# drop 2
+# end

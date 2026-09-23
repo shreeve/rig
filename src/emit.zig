@@ -837,6 +837,15 @@ pub const Emitter = struct {
             .@"/=" => try self.emitCompound(target, "/", expr),
             .default, .move, .fixed, .shadow => {
                 if (std.mem.eql(u8, self.srcText(target), "_")) {
+                    // A discarded resource is dropped at once.
+                    const owned: ?ResourceKind = if (self.typeOf(expr)) |t| self.kindOf(t) else null;
+                    if (owned != null) {
+                        const tmp = try self.fmt("__rig_discard_{d}", .{self.nextId()});
+                        try self.w.print("{{ var {s} = ", .{tmp});
+                        try self.emitValueOf(expr, is_move);
+                        try self.w.print("; rig.drop(&{s}); }}", .{tmp});
+                        return;
+                    }
                     try self.w.writeAll("_ = ");
                     try self.emitValueOf(expr, is_move);
                     try self.w.writeAll(";");

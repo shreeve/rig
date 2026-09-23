@@ -333,6 +333,10 @@ const Checker = struct {
         if (target != .src) return self.checkPlaceAssign(kind, target, type_node, rhs);
 
         const name = self.text(target);
+        if (std.mem.eql(u8, name, "_")) {
+            _ = try self.synthExpr(rhs);
+            return;
+        }
         const sym_id = self.ctx.symbolOf(target) orelse blk: {
             // `<-` and compound assignment name an existing binding.
             const id = (try self.useName(target)) orelse {

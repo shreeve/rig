@@ -388,6 +388,8 @@ const SymbolResolver = struct {
             try self.walk(target);
             return;
         }
+        // `_ = expr` discards the value; it binds nothing.
+        if (std.mem.eql(u8, identAt(self.ctx.source, target).?, "_")) return;
         switch (kind) {
             .default, .@"move" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
