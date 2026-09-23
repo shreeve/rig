@@ -1238,16 +1238,23 @@ pub const Checker = struct {
                 }
                 if (top_return) return;
                 if (self.owningKind(v.ty)) |k| return self.reportAlias(pos, name, true, k, sink);
-                if (v.ref == .write and sink != .argument) {
+                if (sink == .argument) return;
+                if (v.ref == .write) {
                     try self.err(pos, "bare use of write borrow `{s}` in {s} would duplicate a unique borrow; use `<{s}` to move it", .{ name, sink.text(), name });
+                } else if (self.carriesWriteBorrow(v.ty)) {
+                    try self.err(pos, "bare use of `{s}` in {s} would duplicate the write borrow it holds; use `<{s}` to move it", .{ name, sink.text(), name });
                 }
             },
             .list => |items| {
                 if (items.len == 0 or items[0] != .tag) return;
                 switch (items[0].tag) {
                     .@"member", .@"index" => {
-                        if (self.owningKind(self.exprType(expr))) |k| {
+                        const ty = self.exprType(expr);
+                        if (self.owningKind(ty)) |k| {
                             return self.reportAlias(innerPos(expr), try self.placeText(expr), false, k, sink);
+                        }
+                        if (sink != .argument and self.carriesWriteBorrow(ty)) {
+                            try self.err(innerPos(expr), "bare use of `{s}` in {s} would duplicate a write borrow; a field cannot be moved out of its parent", .{ try self.placeText(expr), sink.text() });
                         }
                     },
                     .@"if" => for (items[2..]) |b| try self.checkNoImplicitCopy(tailOf(b), sink, false),
@@ -2220,44 +2227,54 @@ pub const Checker = struct {
     /// assumed to.
     fn mayCarryBorrow(self: *const Checker, ty: ?TypeId) bool {
         const t = ty orelse return true;
-        return self.typeCarriesBorrow(t, 0);
+        return self.typeCarries(t, .any, 0);
     }
 
-    fn typeCarriesBorrow(self: *const Checker, t: TypeId, depth: u8) bool {
-        const sema = self.sema orelse return true;
-        if (depth > 8) return true;
+    /// Whether a value of this type holds a write borrow, which must not
+    /// be duplicated.
+    fn carriesWriteBorrow(self: *const Checker, ty: ?TypeId) bool {
+        const t = ty orelse return false;
+        return self.typeCarries(t, .write, 0);
+    }
+
+    const BorrowQuery = enum { any, write };
+
+    fn typeCarries(self: *const Checker, t: TypeId, q: BorrowQuery, depth: u8) bool {
+        const sema = self.sema orelse return q == .any;
+        if (depth > 8) return q == .any;
         return switch (sema.types.get(t)) {
             .invalid, .unknown => false,
             .void, .bool, .string, .int, .float, .int_literal, .float_literal, .function => false,
-            .borrow_read, .borrow_write, .slice => true,
-            .type_var, .imported_nominal => true,
-            .optional => |i| self.typeCarriesBorrow(i, depth + 1),
-            .fallible => |i| self.typeCarriesBorrow(i, depth + 1),
-            .shared => |i| self.typeCarriesBorrow(i, depth + 1),
-            .weak => |i| self.typeCarriesBorrow(i, depth + 1),
-            .array => |a| self.typeCarriesBorrow(a.elem, depth + 1),
-            .nominal => |s| self.fieldsCarryBorrow(s, depth),
+            .borrow_write => true,
+            .borrow_read, .slice => q == .any,
+            .type_var, .imported_nominal => q == .any,
+            .optional => |i| self.typeCarries(i, q, depth + 1),
+            .fallible => |i| self.typeCarries(i, q, depth + 1),
+            .shared => |i| self.typeCarries(i, q, depth + 1),
+            .weak => |i| self.typeCarries(i, q, depth + 1),
+            .array => |a| self.typeCarries(a.elem, q, depth + 1),
+            .nominal => |s| self.fieldsCarry(s, q, depth),
             .parameterized_nominal => |pn| blk: {
                 // A closure carries whatever its captures borrow.
-                if (pn.sym == sema.closure_sym_id or pn.sym == sema.closure1_sym_id or pn.sym == sema.closure2_sym_id) break :blk true;
-                for (pn.args) |a| if (self.typeCarriesBorrow(a, depth + 1)) break :blk true;
-                break :blk self.fieldsCarryBorrow(pn.sym, depth);
+                if (pn.sym == sema.closure_sym_id or pn.sym == sema.closure1_sym_id or pn.sym == sema.closure2_sym_id) break :blk q == .any;
+                for (pn.args) |a| if (self.typeCarries(a, q, depth + 1)) break :blk true;
+                break :blk self.fieldsCarry(pn.sym, q, depth);
             },
         };
     }
 
-    fn fieldsCarryBorrow(self: *const Checker, sid: SymbolId, depth: u8) bool {
+    fn fieldsCarry(self: *const Checker, sid: SymbolId, q: BorrowQuery, depth: u8) bool {
         const sema = self.sema.?;
         for (sema.symbols.items[sid].fields orelse &.{}) |f| {
             if (f.is_method) continue;
             if (f.is_variant) {
                 for (f.payload orelse &.{}) |pf| {
-                    if (self.typeCarriesBorrow(pf.ty, depth + 1)) return true;
+                    if (self.typeCarries(pf.ty, q, depth + 1)) return true;
                 }
                 continue;
             }
             if (sema.types.get(f.ty) == .type_var) continue; // covered by the args
-            if (self.typeCarriesBorrow(f.ty, depth + 1)) return true;
+            if (self.typeCarries(f.ty, q, depth + 1)) return true;
         }
         return false;
     }
