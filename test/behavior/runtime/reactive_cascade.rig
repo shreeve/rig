@@ -1,8 +1,7 @@
-# Known bug (D1): two reactive sources chained by a multi-capture closure
-# (count -> total -> print) produce the right output but leak: `body_a`
-# captures `count` and `body_b` captures `total`, and each source's list
-# holds its subscriber, forming strong Rc cycles. Safe Rig cannot write this
-# cycle-free until a weak capture's `upgrade()` result can be unwrapped.
+# Two reactive sources chained by a subscriber that reads one and sets
+# the other (count -> total -> print). Subscribers hold their sources
+# weakly (`|~count, ~total|`), so no source is kept alive by its own
+# subscriber list.
 
 struct IntSource
   value: *Cell(Int)
@@ -17,6 +16,8 @@ struct IntSource
   fun get(self: ?IntSource) -> Int
     self.value.get()
 
+  # A Cell holding a Vec gives no borrowed access, so the list is swapped
+  # out with `replace`, pushed to, and swapped back.
   sub subscribe(self: ?IntSource, cb: *Closure())
     empty: Vec(*Closure()) = Vec()
     current: Vec(*Closure()) = self.subs.replace(<empty)
@@ -31,14 +32,25 @@ struct IntSource
       cb()
     discarded: Vec(*Closure()) = self.subs.replace(<current)
 
+# Copy `from` into `to`, scaled, if both are still alive.
+sub relay(from: ?~IntSource, to: ?~IntSource)
+  if from.upgrade() as f
+    if to.upgrade() as t
+      t.set(f.get() * 10)
+
+# Print the source's value, if it is still alive.
+sub report(source: ?~IntSource)
+  if source.upgrade() as s
+    print(s.get())
+
 sub main()
   count = IntSource.new(0)
   total = IntSource.new(0)
 
-  body_a: *Closure() = *Closure(|+count, +total| total.set(count.get() * 10))
+  body_a: *Closure() = *Closure(|~count, ~total| relay(?count, ?total))
   count.subscribe(+body_a)
 
-  body_b: *Closure() = *Closure(|+total| print(total.get()))
+  body_b: *Closure() = *Closure(|~total| report(?total))
   total.subscribe(+body_b)
 
   count.set(1)        # total becomes 10, prints 10

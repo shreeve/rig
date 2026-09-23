@@ -1,8 +1,12 @@
-# Known bug (D1): the reactive substrate end to end (Cell, stack and owned
-# closures, Vec of closures, Signal) prints the right values but leaks:
-# `Signal.subscribe` clones the handle the caller already cloned with `+`,
-# so every subscriber leaks. The `log` subscriber also captures `sig`, which
-# holds `log`, a strong cycle that leaks even once D1 is fixed.
+# The reactive substrate end to end: a Cell shared by closures, stack and
+# owned closures, a Vec of closures, and Signals with subscribers. A
+# subscriber that reads its own Signal holds it weakly (`|~sig|`), so the
+# Signal and its subscriber do not keep each other alive.
+
+# Print the Signal's value, if it is still alive.
+sub report(sig: ?~Signal(Int))
+  if sig.upgrade() as s
+    print(s.get())
 
 sub main()
   # Cell interior mutability through a shared handle.
@@ -24,7 +28,7 @@ sub main()
 
   # Signal: `set` stores the value and calls every subscriber.
   sig: *Signal(Int) = *Signal(value: 0)
-  log: *Closure() = *Closure(|+sig| print(sig.get()))
+  log: *Closure() = *Closure(|~sig| report(?sig))
   sig.subscribe(+log)
   sig.set(7)                        # 7
   sig.set(99)                       # 99

@@ -1,8 +1,7 @@
-# Known bug (D1): a userland reactive source (`*Cell` value plus a
-# `*Cell(Vec(*Closure()))` subscriber list) notifies on `set` correctly but
-# leaks: `body` captures `count` strongly while `count`'s list holds `body`,
-# a strong Rc cycle. A `|~count|` capture would avoid it, but the `(*T)?`
-# from `upgrade()` cannot be unwrapped yet, so safe Rig has no cycle-free form.
+# A userland reactive source: a `*Cell` value plus a list of subscriber
+# closures, notified on every `set`. The subscriber holds the source
+# weakly (`|~count|`), so the source's list and the closure do not keep
+# each other alive.
 
 struct IntSource
   value: *Cell(Int)
@@ -33,9 +32,14 @@ struct IntSource
       cb()
     discarded: Vec(*Closure()) = self.subs.replace(<current)
 
+# Print the source's value, if it is still alive.
+sub report(source: ?~IntSource)
+  if source.upgrade() as s
+    print(s.get())
+
 sub main()
   count = IntSource.new(0)
-  body: *Closure() = *Closure(|+count| print(count.get()))
+  body: *Closure() = *Closure(|~count| report(?count))
   count.subscribe(+body)
   count.set(1)
   count.set(7)
