@@ -575,9 +575,10 @@ green.
   lists followed by a comma and something else are written as
   left-recursive rules (`exprs`, `callargs`), which shift the comma
   and decide by what follows it.
-- A label on a token fills its role with the token (a leaf), so a role
-  typed `tag(...)` is filled by an action literal: the compound
-  assignments are one alternative each (`→ (set op:+=)`) rather than
-  one alternative over a choice of operator tokens.
+- A label on a string literal (or a choice of them) whose role is typed
+  `tag(...)` fills the role with the tag the matched literal names:
+  `op:("+=" | "-=" | ...)` gives `(set += ...)`. Where the tag is not
+  the literal (`=!` is `fixed`), the action supplies it
+  (`→ (set op:fixed)`).
 - A choice `(A | B)` cannot sit inside an `[...]` group; `if ... else`
   is written as two alternatives for that reason.
