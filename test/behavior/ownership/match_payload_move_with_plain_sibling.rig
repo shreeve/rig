@@ -1,0 +1,31 @@
+# A payload field may be moved out of a matched value when the variant's
+# other fields are plain data; the matched value is consumed.
+
+struct Box
+  payload: Int
+
+  drop self: !Box
+    print("drop")
+
+sub eat(rc: *Box)
+  print(rc.payload)
+
+enum Slot
+  tagged(box: *Box, tag: Int)
+  empty
+
+sub main()
+  rc = *Box(payload: 5)
+  s: Slot = .tagged(box: <rc, tag: 9)
+  match s
+    .tagged(box, tag)
+      print(tag)
+      eat(<box)
+    .empty => print(0)
+  print("end")
+
+# expect:
+# 9
+# 5
+# drop
+# end

@@ -793,6 +793,7 @@ const Checker = struct {
             return;
         }
         for (bindings, resolved.payload) |b, f| {
+            try self.ctx.recordType(b, f.ty);
             const sym = self.ctx.symbolOf(b) orelse continue;
             self.ctx.symbols.items[sym].ty = f.ty;
             try self.ctx.recordType(b, f.ty);

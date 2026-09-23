@@ -20,8 +20,8 @@
 //! * Borrowed parameters hold an *external* loan on themselves: it marks
 //!   a borrow that came from the caller, which may be returned or stored
 //!   into other borrowed parameters, and it never conflicts.
-//! * Types come from sema's symbol table (`exprType`); an unknown type is
-//!   assumed to be able to hold a borrow.
+//! * Types come from sema's facts table (`typeOf`, `symbolAt`); an
+//!   unknown type is assumed to be able to hold a borrow.
 //!
 //! Control flow
 //! ------------
@@ -148,6 +148,10 @@ const Var = struct {
     /// Match payload binding: the scrutinee var it views.
     alias_of: ?VarId = null,
     via: Via = .owned,
+    /// Match payload binding whose variant has another field that owns
+    /// a resource: moving this one out would leave that one undropped.
+    /// Holds a position of such a field, for the diagnostic.
+    owning_sibling: ?u32 = null,
 };
 
 const ScopeKind = enum {
@@ -264,11 +268,6 @@ pub const Checker = struct {
     /// recorded error; duplicates from re-walked code are dropped).
     last_err_kept: bool = false,
 
-    /// Sema lookups, built once: declaration position → symbol, and
-    /// method declaration position → function type.
-    sym_at: std.AutoHashMapUnmanaged(u32, SymbolId) = .empty,
-    method_at: std.AutoHashMapUnmanaged(u32, TypeId) = .empty,
-
     pub fn init(allocator: std.mem.Allocator, source: []const u8) Error!Checker {
         var c = Checker{
             .gpa = allocator,
@@ -282,16 +281,6 @@ pub const Checker = struct {
     pub fn initWithSema(allocator: std.mem.Allocator, source: []const u8, sema: *const types.SemContext) Error!Checker {
         var c = try init(allocator, source);
         c.sema = sema;
-        for (sema.symbols.items, 0..) |sym, i| {
-            if (i == 0) continue;
-            const gop = try c.sym_at.getOrPut(allocator, sym.decl_pos);
-            if (!gop.found_existing) gop.value_ptr.* = @intCast(i);
-            if (sym.kind == .nominal_type) {
-                for (sym.fields orelse &.{}) |f| {
-                    if (f.is_method) try c.method_at.put(allocator, f.decl_pos, f.ty);
-                }
-            }
-        }
         return c;
     }
 
@@ -303,8 +292,6 @@ pub const Checker = struct {
         for (self.scopes.items) |*s| s.defers.deinit(self.gpa);
         self.scopes.deinit(self.gpa);
         self.temps.deinit(self.gpa);
-        self.sym_at.deinit(self.gpa);
-        self.method_at.deinit(self.gpa);
         self.arena_state.deinit();
     }
 
@@ -1083,6 +1070,11 @@ pub const Checker = struct {
     fn movePayload(self: *Checker, id: VarId, root: VarId, pos: u32, value: Value) Error!Value {
         const v = self.vars.items[id];
         const r = self.vars.items[root];
+        if (v.owning_sibling) |sib| {
+            try self.err(pos, "cannot move `{s}` out of `{s}`: another field of the variant owns a resource that would never be dropped", .{ v.name, r.name });
+            try self.note(sib, "this field also owns a resource", .{});
+            return .{};
+        }
         switch (v.via) {
             .borrowed => {
                 try self.err(pos, "cannot move out of `{s}`: it is borrowed from `{s}`", .{ v.name, r.name });
@@ -1470,13 +1462,12 @@ pub const Checker = struct {
         var reservation: usize = 0;
         if (isTag(callee, .@"member") and callee.list.len >= 3) {
             var obj = callee.list[1];
-            const method = self.text(callee.list[2]);
             var explicit_write = false;
             if ((isTag(obj, .@"write") or isTag(obj, .@"read")) and obj.list.len >= 2) {
                 explicit_write = isTag(obj, .@"write");
                 obj = obj.list[1];
             }
-            recv_mode = if (explicit_write) .write else self.receiverMode(obj, method);
+            recv_mode = if (explicit_write) .write else self.receiverMode(obj, callee);
             const place = if (recv_mode == .value) null else try self.resolvePlace(obj);
             if (place) |p| {
                 const recv_val = try self.walk(obj);
@@ -1542,7 +1533,7 @@ pub const Checker = struct {
             }
         };
 
-        if (!self.mayCarryBorrow(self.callResultType(items))) return .{};
+        if (!self.mayCarryBorrow(self.exprType(.{ .list = items }))) return .{};
         return result;
     }
 
@@ -1879,13 +1870,19 @@ pub const Checker = struct {
                 // Literal patterns match one value; an identifier binds the
                 // whole scrutinee and matches everything.
                 if (!isIdentStart(name[0]) or std.mem.eql(u8, name, "true") or std.mem.eql(u8, name, "false")) return false;
-                try self.bindPayload(pattern, info, scrut_value);
+                _ = try self.bindPayload(pattern, info, scrut_value);
                 return true;
             },
             .list => |items| {
                 if (items.len >= 2 and items[0] == .tag and items[0].tag == .@"variant_pattern") {
-                    for (items[2..]) |b| {
-                        if (b == .src and !std.mem.eql(u8, self.text(b), "_")) try self.bindPayload(b, info, scrut_value);
+                    const binds = items[2..];
+                    for (binds, 0..) |b, i| {
+                        if (b == .src and !std.mem.eql(u8, self.text(b), "_")) {
+                            const id = try self.bindPayload(b, info, scrut_value);
+                            for (binds, 0..) |other, j| {
+                                if (j != i and self.owningKind(self.exprType(other)) != null) self.vars.items[id].owning_sibling = innerPos(other);
+                            }
+                        }
                     }
                 }
                 return false;
@@ -1894,7 +1891,7 @@ pub const Checker = struct {
         }
     }
 
-    fn bindPayload(self: *Checker, node: Sexp, info: Scrutinee, scrut_value: Value) Error!void {
+    fn bindPayload(self: *Checker, node: Sexp, info: Scrutinee, scrut_value: Value) Error!VarId {
         const pos = node.src.pos;
         const ty = self.symType(pos);
         var v: Var = .{ .name = self.text(node), .decl = pos, .ty = ty, .kind = .pattern, .ref = self.refOfType(ty) };
@@ -1919,7 +1916,7 @@ pub const Checker = struct {
                 loans = scrut_value.loans;
             }
         }
-        _ = try self.addVar(v, .{ .loans = loans });
+        return self.addVar(v, .{ .loans = loans });
     }
 
     // -------------------------------------------------------------------------
@@ -2220,11 +2217,17 @@ pub const Checker = struct {
         return sema.types.get(id);
     }
 
+    /// The type of the symbol declared at `decl_pos`.
     fn symType(self: *const Checker, decl_pos: u32) ?TypeId {
         const sema = self.sema orelse return null;
-        const sid = self.sym_at.get(decl_pos) orelse return null;
-        const ty = sema.symbols.items[sid].ty;
-        return self.known(ty);
+        const sid = sema.symbolAt(decl_pos) orelse return null;
+        return self.known(sema.symbols.items[sid].ty);
+    }
+
+    /// The type sema recorded for an expression.
+    fn exprType(self: *const Checker, e: Sexp) ?TypeId {
+        const sema = self.sema orelse return null;
+        return self.known(sema.typeOf(e) orelse return null);
     }
 
     fn known(self: *const Checker, ty: TypeId) ?TypeId {
@@ -2238,11 +2241,9 @@ pub const Checker = struct {
         return self.typeOf(t) == .void;
     }
 
+    /// The declared return type of the function or method named at `name`.
     fn fnReturnType(self: *const Checker, name: Sexp) ?TypeId {
-        if (name != .src) return null;
-        const sema = self.sema orelse return null;
-        const fn_ty = if (self.method_at.get(name.src.pos)) |m| m else if (self.sym_at.get(name.src.pos)) |sid| sema.symbols.items[sid].ty else return null;
-        const t = sema.types.get(fn_ty);
+        const t = self.typeOf(self.exprType(name) orelse return null);
         if (t != .function) return null;
         return self.known(t.function.returns);
     }
@@ -2359,155 +2360,19 @@ pub const Checker = struct {
         return false;
     }
 
-    /// The nominal symbol behind a receiver type (through borrows and
-    /// shared handles), with its type arguments.
-    const NominalRef = struct { sym: SymbolId, args: []const TypeId = &.{} };
-
-    fn nominalOf(self: *const Checker, t: TypeId) ?NominalRef {
-        const sema = self.sema orelse return null;
-        return switch (sema.types.get(types.unwrapReadAccess(sema, t))) {
-            .nominal => |s| .{ .sym = s },
-            .parameterized_nominal => |pn| .{ .sym = pn.sym, .args = pn.args },
-            else => null,
-        };
-    }
-
-    /// Substitute a direct type variable with its argument; other
-    /// generic types are unknown here.
-    fn substitute(self: *const Checker, n: NominalRef, t: TypeId) ?TypeId {
-        const sema = self.sema.?;
-        switch (sema.types.get(t)) {
-            .type_var => |tv| {
-                const params = sema.symbols.items[n.sym].type_params orelse return null;
-                for (params, 0..) |p, i| if (p == tv and i < n.args.len) return n.args[i];
-                return null;
-            },
-            else => return self.known(t),
-        }
-    }
-
-    fn fieldType(self: *const Checker, recv: TypeId, name: []const u8) ?TypeId {
-        const n = self.nominalOf(recv) orelse return null;
-        for (self.sema.?.symbols.items[n.sym].fields orelse &.{}) |f| {
-            if (f.is_method or f.is_variant) continue;
-            if (std.mem.eql(u8, f.name, name)) return self.substitute(n, f.ty);
-        }
-        return null;
-    }
-
-    fn methodOf(self: *const Checker, recv: TypeId, name: []const u8) ?types.Field {
-        const n = self.nominalOf(recv) orelse return null;
-        for (self.sema.?.symbols.items[n.sym].fields orelse &.{}) |f| {
-            if (f.is_method and std.mem.eql(u8, f.name, name)) return f;
-        }
-        return null;
-    }
-
-    fn receiverMode(self: *const Checker, obj: Sexp, name: []const u8) types.MethodReceiver {
+    /// How a method call takes its receiver, from the signature sema
+    /// resolved for the callee: `!self` writes, a `Self` value is consumed,
+    /// anything else reads. A shared handle is only ever read through.
+    fn receiverMode(self: *const Checker, obj: Sexp, callee: Sexp) types.MethodReceiver {
         if (isTag(obj, .@"move")) return .value;
-        const t = self.exprType(obj) orelse return .read;
-        if (self.typeOf(t) == .shared) return .read;
-        const m = self.methodOf(t, name) orelse return .read;
-        return switch (m.receiver) {
-            .write => .write,
-            .value => .value,
+        if (self.exprType(obj)) |t| if (self.typeOf(t) == .shared) return .read;
+        const f = self.typeOf(self.exprType(callee) orelse return .read);
+        if (f != .function or f.function.params.len == 0) return .read;
+        return switch (self.typeOf(f.function.params[0])) {
+            .borrow_write => .write,
+            .nominal, .parameterized_nominal, .imported_nominal => .value,
             else => .read,
         };
-    }
-
-    /// The result type of a call, when known.
-    fn callResultType(self: *const Checker, items: []const Sexp) ?TypeId {
-        const sema = self.sema orelse return null;
-        const callee = items[1];
-        if (callee == .src) {
-            const name = self.text(callee);
-            // A local closure binding: closures return nothing that borrows.
-            if (self.find(name)) |f| {
-                if (self.vars.items[f.id].closure) return sema.types.void_id;
-                return null;
-            }
-            for (sema.symbols.items) |sym| {
-                if (sym.scope > 1 or !std.mem.eql(u8, sym.name, name)) continue;
-                switch (sym.kind) {
-                    .function, .@"extern" => {
-                        const t = sema.types.get(sym.ty);
-                        if (t == .function) return self.known(t.function.returns);
-                        return null;
-                    },
-                    .nominal_type, .generic_type => return self.findType(sym),
-                    else => {},
-                }
-            }
-            return null;
-        }
-        if (isTag(callee, .@"member") and callee.list.len >= 3) {
-            const name = self.text(callee.list[2]);
-            const obj = callee.list[1];
-            const recv = self.exprType(obj) orelse {
-                // `Type.method(...)` / `module.fn(...)` / builtins.
-                if (std.mem.eql(u8, name, "upgrade")) return sema.types.void_id;
-                return null;
-            };
-            if (std.mem.eql(u8, name, "upgrade") and self.typeOf(recv) == .weak) return sema.types.void_id;
-            const m = self.methodOf(recv, name) orelse return null;
-            const t = sema.types.get(m.ty);
-            if (t != .function) return null;
-            return self.substitute(self.nominalOf(recv).?, t.function.returns);
-        }
-        return null;
-    }
-
-    /// The TypeId sema interned for a nominal declaration.
-    fn findType(self: *const Checker, sym: types.Symbol) ?TypeId {
-        const sema = self.sema.?;
-        const sid: SymbolId = for (sema.symbols.items, 0..) |s, i| {
-            if (s.decl_pos == sym.decl_pos and std.mem.eql(u8, s.name, sym.name)) break @intCast(i);
-        } else return null;
-        for (sema.types.items.items, 0..) |t, i| {
-            if (t == .nominal and t.nominal == sid) return @intCast(i);
-        }
-        return null;
-    }
-
-    /// The type of an expression, as far as it can be read off sema's
-    /// symbol table. Null when unknown.
-    fn exprType(self: *const Checker, e: Sexp) ?TypeId {
-        if (self.sema == null) return null;
-        switch (e) {
-            .src => {
-                const f = self.find(self.text(e)) orelse return null;
-                return self.vars.items[f.id].ty;
-            },
-            .list => |items| {
-                if (items.len < 2 or items[0] != .tag) return null;
-                return switch (items[0].tag) {
-                    .@"member" => if (items.len >= 3) self.fieldType(self.exprType(items[1]) orelse return null, self.text(items[2])) else null,
-                    .@"index" => blk: {
-                        const sema = self.sema.?;
-                        const t = self.exprType(items[1]) orelse break :blk null;
-                        break :blk switch (sema.types.get(types.unwrapReadAccess(sema, t))) {
-                            .parameterized_nominal => |pn| if (pn.sym == sema.vec_sym_id and pn.args.len == 1) pn.args[0] else null,
-                            .array => |a| a.elem,
-                            .slice => |s| s.elem,
-                            else => null,
-                        };
-                    },
-                    .@"move", .@"clone", .@"deref", .@"pin" => self.exprType(items[1]),
-                    .@"propagate" => blk: {
-                        const t = self.exprType(items[1]) orelse break :blk null;
-                        break :blk switch (self.typeOf(t)) {
-                            .fallible => |i| i,
-                            else => t,
-                        };
-                    },
-                    .@"call" => self.callResultType(items),
-                    .@"block" => self.exprType(items[items.len - 1]),
-                    .@"if" => if (items.len >= 3) self.exprType(tailOf(items[2])) else null,
-                    else => null,
-                };
-            },
-            else => return null,
-        }
     }
 
     fn placeText(self: *Checker, e: Sexp) Error![]const u8 {
