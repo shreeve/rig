@@ -1,0 +1,17 @@
+# `_ = x` discards a use of `x`; `x` may be used elsewhere too.
+
+sub main()
+  x = 1
+  _ = x
+  print(x)
+  r = ?x
+  _ = r
+  _ = ?x
+  f = |x|
+    _ = x
+    print(x)
+  f()
+
+# expect:
+# 1
+# 1

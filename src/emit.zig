@@ -848,6 +848,15 @@ pub const Emitter = struct {
                         try self.w.print("; rig.drop(&{s}); }}", .{tmp});
                         return;
                     }
+                    // A named place is discarded by address: it may be used
+                    // elsewhere, and Zig rejects discarding a used name.
+                    var place = expr;
+                    if (isTagged(place, .@"read") or isTagged(place, .@"write")) place = place.list[1];
+                    if (!is_move and isPlace(place) and !isTagged(place, .@"index")) {
+                        try self.w.writeAll("_ = &");
+                        try self.emitPlace(place);
+                        return self.w.writeAll(";");
+                    }
                     try self.w.writeAll("_ = ");
                     try self.emitValueOf(expr, is_move);
                     try self.w.writeAll(";");
@@ -951,7 +960,8 @@ pub const Emitter = struct {
             const pointee = if (local.ty) |t| self.peelBorrows(t) else null;
             if (pointee != null and self.kindOf(pointee.?) != null) {
                 const id = self.nextId();
-                try self.w.print("{{ const __rig_new_{d} = ", .{id});
+                try self.w.writeAll("{ ");
+                try self.writeTemp(try self.fmt("__rig_new_{d}", .{id}), pointee);
                 try self.emitValueOf(value, is_move);
                 try self.w.print("; rig.drop({s}); {s}.* = __rig_new_{d}; }}", .{ local.zig_name, local.zig_name, id });
                 return;
@@ -965,7 +975,8 @@ pub const Emitter = struct {
             return;
         };
         const tmp = try self.fmt("__rig_new_{d}", .{self.nextId()});
-        try self.w.print("{{ const {s} = ", .{tmp});
+        try self.w.writeAll("{ ");
+        try self.writeTemp(tmp, local.ty);
         try self.emitValueOf(value, is_move);
         try self.w.writeAll("; ");
         if (local.guard == .flag) try self.w.print("if ({s}) ", .{local.flag});
@@ -973,6 +984,17 @@ pub const Emitter = struct {
         try self.w.print("; {s} = {s};", .{ local.zig_name, tmp });
         if (local.guard == .flag) try self.w.print(" {s} = true;", .{local.flag});
         try self.w.writeAll(" }");
+    }
+
+    /// `const name: T = ` for a temporary holding a new value; the type
+    /// lets a context-typed value (`Vec()`, `.variant(...)`) resolve.
+    fn writeTemp(self: *Emitter, name: []const u8, ty: ?TypeId) Error!void {
+        try self.w.print("const {s}", .{name});
+        if (ty) |t| {
+            try self.w.writeAll(": ");
+            try self.emitTypeTy(t);
+        }
+        try self.w.writeAll(" = ");
     }
 
     /// Assignment to a field or element. When the place may hold a
@@ -988,7 +1010,8 @@ pub const Emitter = struct {
             return;
         }
         const id = self.nextId();
-        try self.w.print("{{ const __rig_new_{d} = ", .{id});
+        try self.w.writeAll("{ ");
+        try self.writeTemp(try self.fmt("__rig_new_{d}", .{id}), place_ty);
         try self.emitValueOf(value, is_move);
         try self.w.print("; const __rig_slot_{d} = &", .{id});
         try self.emitPlace(target);
@@ -1814,7 +1837,7 @@ pub const Emitter = struct {
             return self.writeLocalPlace(local);
         };
         const needs_parens = if (headOf(o)) |h| switch (h) {
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"neg", .@"not", .@"if", .@"match", .@"??", .@"catch", .@"propagate" => true,
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"neg", .@"not", .@"if", .@"match", .@"??", .@"catch", .@"propagate", .@"call", .@"array" => true,
             else => false,
         } else false;
         if (needs_parens) try self.w.writeAll("(");

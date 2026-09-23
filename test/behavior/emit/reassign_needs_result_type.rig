@@ -1,0 +1,30 @@
+# Reassigning a binding, field, or `!T` parameter with a value that takes
+# its type from context (`Vec()`, `.variant(...)`) works.
+
+enum S
+  one(k: Int)
+  empty
+
+struct H
+  v: Vec(Int)
+
+sub reset(v: !Vec(Int))
+  v = Vec()
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  v = Vec()
+  print(v.length())
+  h = H(v: Vec())
+  h.v = Vec()
+  reset(!v)
+  s: S = .empty
+  s = .one(k: 2)
+  match s
+    .one(k) => print(k)
+    .empty => print(0)
+
+# expect:
+# 0
+# 2
