@@ -1,0 +1,11 @@
+# Methods of a type from another module take keyword arguments and
+# defaults.
+
+use shapes
+
+sub main()
+  r = shapes.Rect(w: 2, h: 3)
+  print(r.scaled(), r.scaled(plus: 1, by: 3))
+
+# expect:
+# 12 19

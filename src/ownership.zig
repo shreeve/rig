@@ -1223,9 +1223,9 @@ pub const Checker = struct {
                 if (top_return) return;
                 if (self.owningKind(v.ty)) |k| return self.reportAlias(pos, name, true, k, sink);
                 if (sink == .argument) return;
-                if (v.ref == .write) {
+                if (v.ref == .write and !self.isCopy(self.pointee(v.ty))) {
                     try self.err(pos, "bare use of write borrow `{s}` in {s} would duplicate a unique borrow; use `<{s}` to move it", .{ name, sink.text(), name });
-                } else if (self.carriesWriteBorrow(v.ty)) {
+                } else if (v.ref != .write and self.carriesWriteBorrow(v.ty)) {
                     try self.err(pos, "bare use of `{s}` in {s} would duplicate the write borrow it holds; use `<{s}` to move it", .{ name, sink.text(), name });
                 }
             },
@@ -1432,6 +1432,7 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn walkCall(self: *Checker, items: []const Sexp) Error!Value {
+        const temps_start = self.temps.items.len;
         const callee = items[1];
         const args = items[2..];
         var result: Value = .{};
@@ -1520,7 +1521,12 @@ pub const Checker = struct {
             }
         };
 
-        if (!self.mayCarryBorrow(self.exprType(.{ .list = items }))) return .{};
+        // The borrows passed to the call end when it returns, unless its
+        // result can carry them.
+        if (!self.mayCarryBorrow(self.exprType(.{ .list = items }))) {
+            self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+            return .{};
+        }
         return result;
     }
 
@@ -2278,6 +2284,15 @@ pub const Checker = struct {
             .borrow_read => .read,
             .borrow_write => .write,
             else => .none,
+        };
+    }
+
+    /// The type a borrow type refers to.
+    fn pointee(self: *const Checker, ty: ?TypeId) ?TypeId {
+        const t = ty orelse return null;
+        return switch (self.typeData(t)) {
+            .borrow_read, .borrow_write => |inner| inner,
+            else => t,
         };
     }
 

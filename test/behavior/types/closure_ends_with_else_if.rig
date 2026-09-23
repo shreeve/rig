@@ -1,0 +1,14 @@
+# A closure whose body ends in an `if ... else if ...` chain without a
+# final `else` returns nothing.
+
+sub main()
+  n = 2
+  f = |n|
+    if n == 1
+      print("one")
+    else if n == 2
+      print("two")
+  f()
+
+# expect:
+# two

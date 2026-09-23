@@ -1,0 +1,6 @@
+pub struct Rect
+  w: Int
+  h: Int
+
+  fun scaled(?self, by: Int = 2, plus: Int = 0) -> Int
+    self.w * self.h * by + plus

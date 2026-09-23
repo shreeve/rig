@@ -1,0 +1,13 @@
+# Binding a `!Int` parameter's value to a local copies the Int.
+
+sub bump(c: !Int)
+  old = c
+  c = old + 1
+
+sub main()
+  n = 1
+  bump(!n)
+  print(n)
+
+# expect:
+# 2

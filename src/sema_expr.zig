@@ -402,6 +402,9 @@ const Checker = struct {
             rhs_ty = declared;
         } else {
             rhs_ty = try self.synthExpr(rhs);
+            // Binding a borrowed Copy value copies the value; an explicit
+            // `?x` / `!x` binds the borrow.
+            if (!isHead(rhs, .@"read") and !isHead(rhs, .@"write")) rhs_ty = readValue(self.ctx, rhs_ty);
             rhs_ty = try self.defaultBindingType(rhs, rhs_ty, name);
         }
 
@@ -2393,7 +2396,9 @@ const Checker = struct {
             }
             try self.checkReceiverMode(obj, f.receiver, classifyImportedReceiver(self.ctx, obj_ty), method, pos);
             const rest: FunctionType = .{ .params = fty.params[1..], .returns = fty.returns, .is_sub = fty.is_sub, .pre_mask = fty.pre_mask >> 1 };
-            try self.checkArgs(args, rest, .{}, method, pos);
+            var params = self.methodParams(f, true);
+            params.source = foreign.source;
+            try self.checkArgs(args, rest, params, method, pos);
             return fty.returns;
         }
         try self.err(pos, "no method `{s}` on type `{s}`", .{ method, sym.name });
@@ -2861,7 +2866,7 @@ const Checker = struct {
                 const last = stmts[stmts.len - 1];
                 // A closure ending in a statement, or an `if` without
                 // `else`, returns nothing.
-                const no_value = isStatementForm(last) or (isHead(last, .@"if") and last.list[3] == .nil);
+                const no_value = isStatementForm(last) or ifWithoutValue(last);
                 ret = if (no_value) blk: {
                     try self.checkStmt(last);
                     break :blk self.t().void_id;
@@ -2872,6 +2877,14 @@ const Checker = struct {
         if (ret == self.t().noreturn_id) ret = self.t().void_id;
 
         return self.ctx.intern(.{ .function = .{ .params = try self.ctx.dupeIds(params.items), .returns = ret, .is_sub = ret == self.t().void_id } });
+    }
+
+    /// A Copy primitive, or an optional of one.
+    fn isCopyValue(self: *Checker, ty: TypeId) bool {
+        return switch (self.ctx.types.get(ty)) {
+            .optional => |inner| types.isCopyPrimitive(self.ctx, inner),
+            else => types.isCopyPrimitive(self.ctx, ty),
+        };
     }
 
     /// Validate one capture against the outer binding and give the
@@ -2900,14 +2913,14 @@ const Checker = struct {
                     try self.err(pos, "bare capture `|{s}|` of weak handle `~T` would hide a refcount bump; use `|+{s}|` to clone or `|<{s}|` to move", .{ name, name, name });
                     break :blk self.t().invalid_id;
                 },
-                else => if (types.isCopyPrimitive(self.ctx, outer_ty) or self.isPoison(outer_ty)) outer_ty else blk: {
+                else => if (self.isCopyValue(outer_ty) or self.isPoison(outer_ty)) outer_ty else blk: {
                     try self.err(pos, "bare capture `|{s}|` requires a Copy type; got `{s}`; use `|+{s}|` to clone or `|<{s}|` to move", .{ name, try self.tyName(outer_ty), name, name });
                     break :blk self.t().invalid_id;
                 },
             },
             .cap_clone => switch (oty) {
                 .shared, .weak => outer_ty,
-                else => if (types.isCopyPrimitive(self.ctx, outer_ty) or self.isPoison(outer_ty)) outer_ty else blk: {
+                else => if (self.isCopyValue(outer_ty) or self.isPoison(outer_ty)) outer_ty else blk: {
                     try self.err(pos, "clone-capture `|+{s}|` requires a shared `*T`, weak `~T`, or Copy type; got `{s}`", .{ name, try self.tyName(outer_ty) });
                     break :blk self.t().invalid_id;
                 },
@@ -3138,6 +3151,13 @@ pub fn isDefaultLiteral(source: []const u8, e: Sexp) bool {
             (isHead(e, .@"enum_lit") and items.len == 2),
         else => false,
     };
+}
+
+/// An `if` (or `else if` chain) that lacks a final `else`.
+fn ifWithoutValue(e: Sexp) bool {
+    if (!isHead(e, .@"if")) return false;
+    const other = e.list[3];
+    return other == .nil or ifWithoutValue(other);
 }
 
 fn isStatementForm(e: Sexp) bool {
