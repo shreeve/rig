@@ -1,0 +1,12 @@
+# A use of `x` before a later `new x = ...` in the same block reads the
+# earlier binding.
+
+sub main()
+  x = 1
+  print(x)
+  new x = "one"
+  print(x)
+
+# expect:
+# 1
+# one

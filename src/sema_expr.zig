@@ -73,6 +73,8 @@ const Checker = struct {
     callee_node: ?Sexp = null,
     /// The call being checked, for its argument-slot fact.
     current_call: ?Sexp = null,
+    /// The `new x` binding whose value is being checked: not visible yet.
+    pending: SymbolId = types.symbol_invalid,
 
     fn err(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
         return self.ctx.err(pos, fmt, args);
@@ -390,6 +392,9 @@ const Checker = struct {
             else => {},
         }
 
+        const saved_pending = self.pending;
+        defer self.pending = saved_pending;
+        if (kind == .shadow) self.pending = sym_id;
         var rhs_ty: TypeId = undefined;
         if (!self.isPoison(declared)) {
             try self.checkExpr(rhs, declared);
@@ -881,7 +886,7 @@ const Checker = struct {
         var crossed_lambda = false;
         while (sid) |s| {
             if (s == types.scope_invalid or s >= self.ctx.scopes.items.len) break;
-            if (self.ctx.lookupInScopeOnly(s, name)) |id| {
+            if (self.visibleIn(s, name, leaf.src.pos)) |id| {
                 try self.ctx.recordName(leaf, id);
                 const sym = self.ctx.symbols.items[id];
                 const kind = sym.kind;
@@ -898,6 +903,23 @@ const Checker = struct {
             sid = scope.parent;
         }
         try self.err(leaf.src.pos, "use of unbound name `{s}`", .{name});
+        return null;
+    }
+
+    /// The binding `name` denotes at `pos` among those declared directly
+    /// in `scope`: the latest one whose declaration comes before `pos`,
+    /// excluding a `new x = ...` whose value is still being checked (its
+    /// right side reads the previous `x`).
+    fn visibleIn(self: *Checker, scope: ScopeId, name: []const u8, pos: u32) ?SymbolId {
+        const syms = self.ctx.scopes.items[scope].symbols.items;
+        var i = syms.len;
+        while (i > 0) {
+            i -= 1;
+            const sym = self.ctx.symbols.items[syms[i]];
+            if (!std.mem.eql(u8, sym.name, name)) continue;
+            if (sym.kind == .local and (sym.decl_pos > pos or syms[i] == self.pending)) continue;
+            return syms[i];
+        }
         return null;
     }
 
