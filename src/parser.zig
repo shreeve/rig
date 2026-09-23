@@ -572,6 +572,10 @@ pub const BaseParser = struct {
 
     stateStack: std.ArrayListUnmanaged(u16) = .empty,
     valueStack: std.ArrayListUnmanaged(Sexp) = .empty,
+    /// Spare capacity of the lists `keepList` returned, by address.
+    listSpare: std.AutoHashMapUnmanaged(usize, ListSpare) = .empty,
+
+    const ListSpare = struct { len: usize, capacity: usize };
 
     pub fn init(backingAllocator: std.mem.Allocator, source: []const u8) BaseParser {
         var p = BaseParser{
@@ -698,6 +702,35 @@ pub const BaseParser = struct {
         return .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} };
     }
 
+    /// Start a list holding the items of `base` (a list, else
+    /// nothing) for an action that appends to it. A list from
+    /// `keepList` is reused with its spare capacity, so a
+    /// left-recursive list grows in amortized O(1) per element.
+    fn extendList(self: *BaseParser, base: Sexp) !std.ArrayListUnmanaged(Sexp) {
+        if (base != .list) return .empty;
+        const items = base.list;
+        if (items.len > 0) if (self.listSpare.get(@intFromPtr(items.ptr))) |spare| {
+            if (spare.len == items.len) {
+                _ = self.listSpare.remove(@intFromPtr(items.ptr));
+                return .{ .items = @constCast(items), .capacity = spare.capacity };
+            }
+        };
+        var out: std.ArrayListUnmanaged(Sexp) = .empty;
+        try out.appendSlice(self.allocator(), items);
+        return out;
+    }
+
+    /// Finish a list from `extendList`, recording its spare capacity.
+    fn keepList(self: *BaseParser, out: *std.ArrayListUnmanaged(Sexp)) Sexp {
+        if (out.items.len > 0 and out.capacity > out.items.len) {
+            self.listSpare.put(self.allocator(), @intFromPtr(out.items.ptr), .{
+                .len = out.items.len,
+                .capacity = out.capacity,
+            }) catch {};
+        }
+        return .{ .list = out.items };
+    }
+
     /// Build S-expression: (tag items...) with trailing nil trimming
     inline fn sexp(self: *BaseParser, comptime tag: Tag, items: []const Sexp) Sexp {
         if (items.len == 0) {
@@ -744,7 +777,7 @@ pub const BaseParser = struct {
         return switch (ruleId) {
             0 => self.sexpSpread(.@"module", pass[1]),
             1 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; out.append(self.allocator(), pass[0]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
-            2 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; if (pass[0] == .list) for (pass[0].list) |item| out.append(self.allocator(), item) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
+            2 => blk: { var out = self.extendList(pass[0]) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk self.keepList(&out); },
             3 => pass[0],
             4 => self.sexpSpread(.@"block", pass[1]),
             5 => self.sexp(.@"block", &.{}),
@@ -804,7 +837,7 @@ pub const BaseParser = struct {
             59 => self.spreadList(pass[0], pass[1]),
             60 => self.spreadList(pass[1], pass[2]),
             61 => .{ .list = &[_]Sexp{} },
-            62 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; if (pass[1] == .list) for (pass[1].list) |item| out.append(self.allocator(), item) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
+            62 => blk: { var out = self.extendList(pass[1]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk self.keepList(&out); },
             63 => .{ .list = &[_]Sexp{} },
             64 => self.list(pass),
             65 => self.list(pass),
@@ -824,7 +857,7 @@ pub const BaseParser = struct {
             79 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; out.append(self.allocator(), .{ .tag = .@"generic_type" }) catch break :blk .nil; out.append(self.allocator(), pass[1]) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; if (pass[4] == .list) for (pass[4].list) |item| out.append(self.allocator(), item) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
             80 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; out.append(self.allocator(), .{ .tag = .@"generic_type" }) catch break :blk .nil; out.append(self.allocator(), pass[1]) catch break :blk .nil; out.append(self.allocator(), .nil) catch break :blk .nil; if (pass[3] == .list) for (pass[3].list) |item| out.append(self.allocator(), item) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
             81 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; out.append(self.allocator(), pass[0]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
-            82 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; if (pass[0] == .list) for (pass[0].list) |item| out.append(self.allocator(), item) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
+            82 => blk: { var out = self.extendList(pass[0]) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk self.keepList(&out); },
             83 => pass[0],
             84 => self.list(pass),
             85 => self.sexp(.@"valued", &.{pass[0], pass[2]}),
@@ -832,7 +865,7 @@ pub const BaseParser = struct {
             87 => self.list(pass),
             88 => self.list(pass),
             89 => self.sexp(.@"drop_decl", &.{pass[1], pass[2]}),
-            90 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; if (pass[0] == .list) for (pass[0].list) |item| out.append(self.allocator(), item) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
+            90 => blk: { var out = self.extendList(pass[0]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk self.keepList(&out); },
             91 => self.sexp(.@"test", &.{pass[1], pass[2]}),
             92 => self.sexp(.@"extern", &.{.nil, pass[1], pass[3]}),
             93 => self.sexp(.@"extern_fun", &.{pass[2], pass[3], pass[4]}),
@@ -892,10 +925,10 @@ pub const BaseParser = struct {
             147 => self.list(pass),
             148 => self.sexpPosSpread(.@"call", pass[0], pass[1]),
             149 => pass[0],
-            150 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; if (pass[0] == .list) for (pass[0].list) |item| out.append(self.allocator(), item) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
+            150 => blk: { var out = self.extendList(pass[0]) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk self.keepList(&out); },
             151 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; out.append(self.allocator(), pass[0]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
             152 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; out.append(self.allocator(), pass[0]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
-            153 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; if (pass[0] == .list) for (pass[0].list) |item| out.append(self.allocator(), item) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
+            153 => blk: { var out = self.extendList(pass[0]) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk self.keepList(&out); },
             154 => self.list(pass),
             155 => self.list(pass),
             156 => self.list(pass),
@@ -917,7 +950,7 @@ pub const BaseParser = struct {
             172 => self.sexp(.@"for", &.{.{ .tag = .@"iter" }, pass[1], pass[3], pass[5], pass[6]}),
             173 => self.sexpPosSpread(.@"match", pass[1], pass[3]),
             174 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; out.append(self.allocator(), pass[0]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
-            175 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; if (pass[0] == .list) for (pass[0].list) |item| out.append(self.allocator(), item) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
+            175 => blk: { var out = self.extendList(pass[0]) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk self.keepList(&out); },
             176 => pass[0],
             177 => self.sexp(.@"arm", &.{pass[0], pass[2]}),
             178 => self.sexp(.@"arm", &.{pass[0], pass[1]}),
@@ -951,7 +984,7 @@ pub const BaseParser = struct {
             206 => self.spreadList(pass[0], pass[1]),
             207 => self.spreadList(pass[1], pass[2]),
             208 => .{ .list = &[_]Sexp{} },
-            209 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; if (pass[1] == .list) for (pass[1].list) |item| out.append(self.allocator(), item) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
+            209 => blk: { var out = self.extendList(pass[1]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk self.keepList(&out); },
             210 => .{ .list = &[_]Sexp{} },
             211 => pass[0],
             212 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; out.append(self.allocator(), .{ .tag = .@":" }) catch break :blk .nil; out.append(self.allocator(), pass[0]) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
@@ -976,11 +1009,11 @@ pub const BaseParser = struct {
             231 => self.sexp(.@"propagate", &.{pass[0]}),
             232 => self.list(pass),
             233 => pass[0],
-            234 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; if (pass[0] == .list) for (pass[0].list) |item| out.append(self.allocator(), item) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
+            234 => blk: { var out = self.extendList(pass[0]) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk self.keepList(&out); },
             235 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; out.append(self.allocator(), pass[0]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
             236 => .{ .list = &[_]Sexp{} },
             237 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; out.append(self.allocator(), pass[0]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
-            238 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; if (pass[0] == .list) for (pass[0].list) |item| out.append(self.allocator(), item) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
+            238 => blk: { var out = self.extendList(pass[0]) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk self.keepList(&out); },
             239 => self.sexp(.@"kwarg", &.{pass[0], pass[2]}),
             240 => self.list(pass),
             241 => self.list(pass),
@@ -997,7 +1030,7 @@ pub const BaseParser = struct {
             252 => self.spreadList(pass[0], pass[1]),
             253 => self.spreadList(pass[1], pass[2]),
             254 => .{ .list = &[_]Sexp{} },
-            255 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; if (pass[0] == .list) for (pass[0].list) |item| out.append(self.allocator(), item) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
+            255 => blk: { var out = self.extendList(pass[0]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk self.keepList(&out); },
             256 => .{ .list = &[_]Sexp{} },
             257 => self.list(pass),
             258 => blk: { var out: std.ArrayListUnmanaged(Sexp) = .empty; out.append(self.allocator(), .{ .tag = .@"==" }) catch break :blk .nil; out.append(self.allocator(), pass[0]) catch break :blk .nil; out.append(self.allocator(), pass[2]) catch break :blk .nil; while (out.items.len > 0 and out.items[out.items.len - 1] == .nil) _ = out.pop(); break :blk .{ .list = out.toOwnedSlice(self.allocator()) catch &[_]Sexp{} }; },
