@@ -44,10 +44,10 @@
 //! capture / ...), and for a capture the `origin` binding it captures.
 //!
 //! Leaves are keyed by source position (`src.pos`); list nodes by the
-//! identity of their item slice (`NodeKey`), which is stable because
-//! every pass walks the same IR tree that was passed to `check`. A node
-//! that sema never reached (dead code after an error, type positions)
-//! has no entry; callers treat `null` as "no information".
+//! node id the parser gave them (`List.id`), which the Parser wrapper's
+//! rewrites preserve. A node that sema never reached (dead code after an
+//! error, type positions) has no entry; callers treat `null` as "no
+//! information".
 //!
 //! Types are interned in `TypeStore`, so two TypeIds are the same type
 //! iff they are equal. `unknown` and `invalid` are poison: they appear
@@ -63,6 +63,7 @@ const decls = @import("sema_decls.zig");
 const exprs = @import("sema_expr.zig");
 
 const Sexp = parser.Sexp;
+const ir = parser.ir;
 const Tag = rig.Tag;
 
 // =============================================================================
@@ -454,15 +455,20 @@ pub const compatible = exprs.compatible;
 // Facts
 // =============================================================================
 
-/// Identity of an IR list node: the address and length of its item
-/// slice.
-pub const NodeKey = struct { addr: usize, len: usize };
+/// Identity of an IR list node: its node id.
+pub const NodeKey = parser.NodeId;
 
+/// The key of a list node the parser built; null for anything else (a
+/// leaf, `_`, or the Parser wrapper's `(captures ...)`, which has no
+/// node id and no facts).
 pub fn nodeKey(node: Sexp) ?NodeKey {
-    return switch (node) {
-        .list => |items| .{ .addr = @intFromPtr(items.ptr), .len = items.len },
-        else => null,
-    };
+    if (node != .list or node.list.id == 0) return null;
+    return node.list.id;
+}
+
+/// The key of a node a fact is recorded for: a node the parser built.
+fn recordKey(node: Sexp) NodeKey {
+    return nodeKey(node) orelse std.debug.panic("sema recorded a fact for a node without a node id: {s}", .{if (node.kind()) |k| @tagName(k) else @tagName(node)});
 }
 
 pub const Facts = struct {
@@ -540,6 +546,9 @@ pub const GenericRequirement = struct {
 pub const SemContext = struct {
     allocator: std.mem.Allocator,
     source: []const u8,
+    /// The parser that built the module's tree, for node spans; null for
+    /// a tree checked without one (spans then come from the leaves).
+    parser: ?*const parser.Parser = null,
     /// Owns symbol names, messages, and every slice inside a Type.
     arena: std.heap.ArenaAllocator,
 
@@ -630,18 +639,42 @@ pub const SemContext = struct {
         try diag.write(self.diagnostics.items, self.source, file_path, w);
     }
 
+    /// The source range of an IR node: its span from the parser, which
+    /// includes keywords and sigils (`return x`, `<p`).
+    pub fn span(self: *const SemContext, node: Sexp) diag.Span {
+        if (self.parser) |p| return p.span(node);
+        return diag.leafSpan(node);
+    }
+
+    /// Where a node starts in the source.
+    pub fn startOf(self: *const SemContext, node: Sexp) u32 {
+        return self.span(node).start;
+    }
+
     pub fn err(self: *SemContext, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
-        const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
-        // The same finding reached twice is reported once.
-        for (self.diagnostics.items) |d| {
-            if (d.severity == .@"error" and d.pos == pos and std.mem.eql(u8, d.message, msg)) return;
-        }
-        try self.diagnostics.append(self.allocator, .{ .severity = .@"error", .pos = pos, .message = msg });
+        return self.report(.@"error", .{ .start = pos, .end = pos }, fmt, args);
     }
 
     pub fn note(self: *SemContext, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        return self.report(.note, .{ .start = pos, .end = pos }, fmt, args);
+    }
+
+    /// An error about `node`, reported at its span.
+    pub fn errAt(self: *SemContext, node: Sexp, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        return self.report(.@"error", self.span(node), fmt, args);
+    }
+
+    pub fn noteAt(self: *SemContext, node: Sexp, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        return self.report(.note, self.span(node), fmt, args);
+    }
+
+    fn report(self: *SemContext, severity: diag.Severity, at: diag.Span, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
         const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
-        try self.diagnostics.append(self.allocator, .{ .severity = .note, .pos = pos, .message = msg });
+        // The same finding reached twice is reported once.
+        if (severity == .@"error") for (self.diagnostics.items) |d| {
+            if (d.severity == .@"error" and d.pos == at.start and std.mem.eql(u8, d.message, msg)) return;
+        };
+        try self.diagnostics.append(self.allocator, .{ .severity = severity, .pos = at.start, .end = at.end, .message = msg });
     }
 
     pub fn pushScope(self: *SemContext, parent: ScopeId) !ScopeId {
@@ -729,7 +762,7 @@ pub const SemContext = struct {
     pub fn typeOf(self: *const SemContext, node: Sexp) ?TypeId {
         return switch (node) {
             .src => |s| self.facts.leaf_types.get(s.pos),
-            .list => self.facts.node_types.get(nodeKey(node).?),
+            .list => self.facts.node_types.get(nodeKey(node) orelse return null),
             else => null,
         };
     }
@@ -771,24 +804,21 @@ pub const SemContext = struct {
     pub fn recordType(self: *SemContext, node: Sexp, ty: TypeId) !void {
         switch (node) {
             .src => |s| try self.facts.leaf_types.put(self.allocator, s.pos, ty),
-            .list => try self.facts.node_types.put(self.allocator, nodeKey(node).?, ty),
+            .list => try self.facts.node_types.put(self.allocator, recordKey(node), ty),
             else => {},
         }
     }
 
     pub fn recordScope(self: *SemContext, node: Sexp, scope: ScopeId) !void {
-        const key = nodeKey(node) orelse return;
-        try self.facts.scopes.put(self.allocator, key, scope);
+        try self.facts.scopes.put(self.allocator, recordKey(node), scope);
     }
 
     pub fn recordExhaustive(self: *SemContext, match: Sexp) !void {
-        const key = nodeKey(match) orelse return;
-        try self.facts.exhaustive.put(self.allocator, key, {});
+        try self.facts.exhaustive.put(self.allocator, recordKey(match), {});
     }
 
     pub fn recordCallSlots(self: *SemContext, call: Sexp, slots: []const ArgSlot) !void {
-        const key = nodeKey(call) orelse return;
-        try self.facts.call_slots.put(self.allocator, key, slots);
+        try self.facts.call_slots.put(self.allocator, recordKey(call), slots);
     }
 
     pub fn intern(self: *SemContext, ty: Type) std.mem.Allocator.Error!TypeId {
@@ -804,16 +834,18 @@ pub const SemContext = struct {
 // Entry points
 // =============================================================================
 
-/// Check a single module with no imports.
-pub fn check(allocator: std.mem.Allocator, source: []const u8, ir: Sexp) !SemContext {
-    return checkWithImports(allocator, source, ir, &.{}, &.{}, 0);
+/// Check a single module with no imports, without the parser's spans.
+pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp) !SemContext {
+    return checkWithImports(allocator, source, null, tree, &.{}, &.{}, 0);
 }
 
 /// Check a module whose `use` declarations resolve to `imports`.
 pub fn checkWithImports(
     allocator: std.mem.Allocator,
     source: []const u8,
-    ir: Sexp,
+    /// The parser that built `tree`, for node spans in diagnostics.
+    p: ?*const parser.Parser,
+    tree: Sexp,
     imports: []const ImportEntry,
     /// Modules the imports reach in turn: their types can appear here
     /// (`lib.make()` returning an `a.P`) without being named.
@@ -823,6 +855,7 @@ pub fn checkWithImports(
     var ctx = try SemContext.init(allocator, source);
     errdefer ctx.deinit();
 
+    ctx.parser = p;
     ctx.module_id = module_id;
     // The caller's slice is temporary; the emitter reads the imports later.
     ctx.imports = try ctx.arena.allocator().dupe(ImportEntry, imports);
@@ -832,11 +865,11 @@ pub fn checkWithImports(
 
     const module_scope = try ctx.pushScopeKind(scope_invalid, .module);
     try builtins.register(&ctx, module_scope);
-    try decls.resolveSymbols(&ctx, ir, module_scope);
-    try decls.resolveDeclarations(&ctx, ir, module_scope);
+    try decls.resolveSymbols(&ctx, tree, module_scope);
+    try decls.resolveDeclarations(&ctx, tree, module_scope);
     propagateDropGlue(&ctx);
     try checkInfiniteTypes(&ctx);
-    try exprs.checkModule(&ctx, ir, module_scope);
+    try exprs.checkModule(&ctx, tree, module_scope);
     try expandInstantiations(&ctx);
     try exprs.checkGenericInstantiations(&ctx);
     return ctx;
@@ -1761,7 +1794,6 @@ pub fn srcPos(sexp: Sexp, fallback: u32) u32 {
     return if (sexp == .src) sexp.src.pos else fallback;
 }
 
-/// Head tag of a list node, or null.
 /// The value of a constant integer expression: literals, constant
 /// bindings, and arithmetic on them. Null when not constant (or too
 /// large to compute).
@@ -1773,21 +1805,21 @@ pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?i128 {
             const id = ctx.symbolOf(e) orelse return null;
             return ctx.const_ints.get(id);
         },
-        .list => |items| {
-            const h = headOf(e) orelse return null;
-            if (h == .@"neg") return std.math.negate(constIntOf(ctx, items[1]) orelse return null) catch null;
+        .list => {
+            const h = e.kind() orelse return null;
+            if (h == .@"neg") return std.math.negate(constIntOf(ctx, ir.Neg.operand(e)) orelse return null) catch null;
             // `a if c else b` with a constant condition: Zig picks the
             // branch at compile time, so its value is constant.
-            if (h == .@"if" and items.len == 4 and items[3] != .nil) {
-                const c = constBoolOf(ctx, items[1]) orelse return null;
-                return constIntOf(ctx, if (c) items[2] else items[3]);
+            if (h == .@"if" and ir.If.@"else"(e) != .nil) {
+                const c = constBoolOf(ctx, ir.If.cond(e)) orelse return null;
+                return constIntOf(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e));
             }
             switch (h) {
                 .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {},
                 else => return null,
             }
-            const a = constIntOf(ctx, items[1]) orelse return null;
-            const b = constIntOf(ctx, items[2]) orelse return null;
+            const a = constIntOf(ctx, ir.get(e, .left)) orelse return null;
+            const b = constIntOf(ctx, ir.get(e, .right)) orelse return null;
             return switch (h) {
                 .@"+" => std.math.add(i128, a, b) catch null,
                 .@"-" => std.math.sub(i128, a, b) catch null,
@@ -1819,15 +1851,15 @@ pub fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
             if (std.mem.eql(u8, word, "false")) return false;
             return null;
         },
-        .list => |items| {
-            const h = headOf(e) orelse return null;
+        .list => {
+            const h = e.kind() orelse return null;
             switch (h) {
-                .@"not" => return !(constBoolOf(ctx, items[1]) orelse return null),
-                .@"and" => return (constBoolOf(ctx, items[1]) orelse return null) and (constBoolOf(ctx, items[2]) orelse return null),
-                .@"or" => return (constBoolOf(ctx, items[1]) orelse return null) or (constBoolOf(ctx, items[2]) orelse return null),
+                .@"not" => return !(constBoolOf(ctx, ir.Not.operand(e)) orelse return null),
+                .@"and" => return (constBoolOf(ctx, ir.And.left(e)) orelse return null) and (constBoolOf(ctx, ir.And.right(e)) orelse return null),
+                .@"or" => return (constBoolOf(ctx, ir.Or.left(e)) orelse return null) or (constBoolOf(ctx, ir.Or.right(e)) orelse return null),
                 .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
-                    const a = constIntOf(ctx, items[1]) orelse return null;
-                    const b = constIntOf(ctx, items[2]) orelse return null;
+                    const a = constIntOf(ctx, ir.get(e, .left)) orelse return null;
+                    const b = constIntOf(ctx, ir.get(e, .right)) orelse return null;
                     return switch (h) {
                         .@"==" => a == b,
                         .@"!=" => a != b,
@@ -1844,27 +1876,13 @@ pub fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
     }
 }
 
-pub fn headOf(sexp: Sexp) ?Tag {
-    if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return null;
-    return sexp.list[0].tag;
-}
-
-pub fn isHead(sexp: Sexp, tag: Tag) bool {
-    return headOf(sexp) == tag;
-}
-
 /// Name leaf of a parameter: `(: name T)`, `(pre_param name T)`,
-/// `(read self)`, `(write self)`, or a bare name.
+/// `(default name T value)`, `(read self)`, `(write self)`, or a bare
+/// name.
 pub fn paramNameNode(param: Sexp) ?Sexp {
-    return switch (param) {
-        .src => param,
-        .list => |items| blk: {
-            if (items.len < 2 or items[0] != .tag) break :blk null;
-            break :blk switch (items[0].tag) {
-                .@":", .@"pre_param", .@"read", .@"write", .@"default" => items[1],
-                else => null,
-            };
-        },
+    return switch (param.kind() orelse return if (param == .src) param else null) {
+        .@":", .@"pre_param", .@"default" => ir.get(param, .name),
+        .@"read", .@"write" => ir.get(param, .operand),
         else => null,
     };
 }
@@ -1879,16 +1897,13 @@ pub fn paramPos(param: Sexp, fallback: u32) u32 {
 }
 
 pub fn isBorrowedTypeNode(t: Sexp) bool {
-    const h = headOf(t) orelse return false;
-    return h == .borrow_read or h == .borrow_write;
+    return t.isKind(.borrow_read) or t.isKind(.borrow_write);
 }
 
 pub const CaptureMode = enum { cap_clone, cap_weak, cap_move };
 
 pub fn captureModeOf(cap: Sexp) ?CaptureMode {
-    const h = headOf(cap) orelse return null;
-    if (cap.list.len < 2) return null;
-    return switch (h) {
+    return switch (cap.kind() orelse return null) {
         .@"cap_clone" => .cap_clone,
         .@"cap_weak" => .cap_weak,
         .@"cap_move" => .cap_move,
@@ -1898,13 +1913,13 @@ pub fn captureModeOf(cap: Sexp) ?CaptureMode {
 
 pub fn captureNameNode(cap: Sexp) ?Sexp {
     _ = captureModeOf(cap) orelse return null;
-    return cap.list[1];
+    return ir.get(cap, .name);
 }
 
-/// Items of a `(captures ...)` node, or empty.
+/// The captures of a closure's `captures` slot (`_` when it has none).
 pub fn captureList(captures: Sexp) []const Sexp {
-    if (!isHead(captures, .@"captures")) return &.{};
-    return captures.list[1..];
+    if (captures == .nil) return &.{};
+    return ir.Captures.caps(captures);
 }
 
 pub fn parseIntegerLiteral(source: []const u8, sexp: Sexp) ?u64 {
@@ -2004,7 +2019,7 @@ test "check: tolerates an empty IR" {
 
 const FactsRun = struct {
     p: parser.Parser,
-    ir: Sexp,
+    tree: Sexp,
     ctx: SemContext,
     source: []const u8,
 
@@ -2042,10 +2057,10 @@ fn isWordChar(c: u8) bool {
 }
 
 fn factsRun(source: []const u8) !FactsRun {
-    var r: FactsRun = .{ .p = parser.Parser.init(std.testing.allocator, source), .ir = undefined, .ctx = undefined, .source = source };
+    var r: FactsRun = .{ .p = parser.Parser.init(std.testing.allocator, source), .tree = undefined, .ctx = undefined, .source = source };
     errdefer r.p.deinit();
-    r.ir = try r.p.parseProgram();
-    r.ctx = try check(std.testing.allocator, source, r.ir);
+    r.tree = try r.p.parseProgram();
+    r.ctx = try check(std.testing.allocator, source, r.tree);
     for (r.ctx.diagnostics.items) |d| std.debug.print("unexpected diagnostic: {s}\n", .{d.message});
     try std.testing.expect(!r.ctx.hasErrors());
     return r;
@@ -2053,9 +2068,9 @@ fn factsRun(source: []const u8) !FactsRun {
 
 /// Find the first list node with head `tag` (depth-first).
 fn findNode(node: Sexp, tag: Tag) ?Sexp {
-    if (headOf(node) == tag) return node;
+    if (node.kind() == tag) return node;
     if (node != .list) return null;
-    for (node.list) |c| {
+    for (node.items()) |c| {
         if (findNode(c, tag)) |n| return n;
     }
     return null;
@@ -2152,9 +2167,9 @@ test "facts: a match covering every value without a default is exhaustive" {
         \\
     );
     defer r.deinit();
-    const body = r.ir.list[1].list[4];
-    try std.testing.expect(r.ctx.isExhaustive(body.list[2]));
-    try std.testing.expect(!r.ctx.isExhaustive(body.list[4]));
+    const body = ir.Block.stmts(ir.Sub.body(ir.Module.decls(r.tree)[0]));
+    try std.testing.expect(r.ctx.isExhaustive(body[1]));
+    try std.testing.expect(!r.ctx.isExhaustive(body[3]));
 }
 
 test "facts: literals record the type their context gives them" {
@@ -2188,7 +2203,7 @@ test "facts: expression nodes carry their types" {
         \\
     );
     defer r.deinit();
-    const call = findNode(r.ir.list[2], .@"call").?;
+    const call = findNode(ir.Module.decls(r.tree)[1], .@"call").?;
     const add = findNode(call, .@"+").?;
     try std.testing.expectEqual(r.ctx.types.float_id, r.ctx.typeOf(add).?);
     const half_call = findNode(add, .@"call").?;
@@ -2267,10 +2282,10 @@ test "facts: scopes are keyed by the node that opens them" {
         \\
     );
     defer r.deinit();
-    const main_fn = r.ir.list[2];
+    const main_fn = ir.Module.decls(r.tree)[1];
     const fn_scope = r.ctx.scopeOf(main_fn).?;
     try std.testing.expectEqual(ScopeKind.function, r.ctx.scopes.items[fn_scope].kind);
-    const body = main_fn.list[4];
+    const body = ir.Sub.body(main_fn);
     const body_scope = r.ctx.scopeOf(body).?;
     try std.testing.expectEqual(fn_scope, r.ctx.scopes.items[body_scope].parent.?);
     const x = r.sym("x", 0).?;
@@ -2326,12 +2341,10 @@ test "facts: keyword and omitted arguments record their slots" {
         \\
     );
     defer r.deinit();
-    const main_fn = r.ir.list[2];
-    const first = findNode(main_fn.list[4].list[1], .@"call").?;
-    const inner1 = findNode(first.list[2], .@"call").?;
+    const main_body = ir.Block.stmts(ir.Sub.body(ir.Module.decls(r.tree)[1]));
+    const inner1 = ir.Call.args(main_body[0])[0];
     try std.testing.expect(r.ctx.callSlotsOf(inner1) == null);
-    const second = findNode(main_fn.list[4].list[2], .@"call").?;
-    const inner2 = findNode(second.list[2], .@"call").?;
+    const inner2 = ir.Call.args(main_body[1])[0];
     const slots = r.ctx.callSlotsOf(inner2).?;
     try std.testing.expectEqual(@as(usize, 3), slots.len);
     try std.testing.expectEqual(@as(u32, 1), slots[0].arg);
@@ -2471,7 +2484,7 @@ const Coverage = struct {
 
     fn expectType(self: *Coverage, node: Sexp) void {
         if (self.r.ctx.typeOf(node) == null) {
-            std.debug.print("no type for node at {d} ({s})\n", .{ diag.firstSrcPos(node), if (headOf(node)) |h| @tagName(h) else "leaf" });
+            std.debug.print("no type for node at {d} ({s})\n", .{ diag.leafSpan(node).start, if (node.kind()) |h| @tagName(h) else "leaf" });
             self.missing += 1;
         }
     }
@@ -2483,94 +2496,75 @@ const Coverage = struct {
                 self.expectName(e);
                 if (!std.mem.eql(u8, self.r.source[e.src.pos..][0..e.src.len], "print")) self.expectType(e);
             },
-            .list => |items| {
-                const h = headOf(e) orelse return;
-                switch (h) {
-                    .@"set" => {
-                        self.expectName(items[2]);
-                        if (items[2] != .src) self.expr(items[2]);
-                        self.expr(items[4]);
-                        return;
-                    },
-                    .@"block" => {
-                        for (items[1..]) |c| self.expr(c);
-                        return;
-                    },
-                    .@"if", .@"while" => {
-                        for (items[1..]) |c| self.expr(c);
-                        return;
-                    },
-                    .@"as" => {
-                        self.expr(items[1]);
-                        self.expectName(items[2]);
-                        self.expectType(items[2]);
-                        return;
-                    },
-                    .@"for" => {
-                        self.expectName(items[2]);
-                        if (items[3] != .nil) {
-                            self.expectName(items[3]);
-                            self.expectType(items[3]);
-                        }
-                        self.expr(items[4]);
-                        self.expr(items[5]);
-                        return;
-                    },
-                    .@"match" => {
-                        self.expr(items[1]);
-                        for (items[2..]) |arm| {
-                            const pat = arm.list[1];
-                            if (isHead(pat, .@"variant_pattern")) for (pat.list[2..]) |b| self.expectName(b);
-                            self.expr(arm.list[arm.list.len - 1]);
-                        }
-                        return;
-                    },
-                    .@"lambda" => {
-                        for (captureList(items[1])) |cap| self.expectName(captureNameNode(cap).?);
-                        self.expr(items[4]);
-                        return;
-                    },
-                    .@"member" => {
-                        self.expectType(e);
-                        self.expr(items[1]);
-                        return;
-                    },
-                    .@"call" => {
-                        self.expectType(e);
-                        if (items[1] == .src) {
-                            self.expectName(items[1]);
-                        } else self.expr(items[1]);
-                        for (items[2..]) |a| {
-                            if (isHead(a, .@"kwarg")) self.expr(a.list[2]) else self.expr(a);
-                        }
-                        return;
-                    },
-                    .@"return", .@"drop", .@"defer" => {
-                        for (items[1..]) |c| self.expr(c);
-                        return;
-                    },
-                    .@"enum_lit" => {
-                        self.expectType(e);
-                        return;
-                    },
-                    else => {
-                        self.expectType(e);
-                        for (items[1..]) |c| if (c != .tag) self.expr(c);
-                    },
-                }
+            .list => switch (e.kind() orelse return) {
+                .@"set" => {
+                    const target = ir.Set.target(e);
+                    self.expectName(target);
+                    if (target != .src) self.expr(target);
+                    self.expr(ir.Set.value(e));
+                },
+                .@"block" => for (ir.Block.stmts(e)) |c| self.expr(c),
+                .@"if", .@"while" => for (rig.children(e)) |c| self.expr(c),
+                .@"as" => {
+                    self.expr(ir.As.value(e));
+                    self.expectName(ir.As.name(e));
+                    self.expectType(ir.As.name(e));
+                },
+                .@"for" => {
+                    self.expectName(ir.For.@"var"(e));
+                    const index = ir.For.index(e);
+                    if (index != .nil) {
+                        self.expectName(index);
+                        self.expectType(index);
+                    }
+                    self.expr(ir.For.source(e));
+                    self.expr(ir.For.body(e));
+                },
+                .@"match" => {
+                    self.expr(ir.Match.subject(e));
+                    for (ir.Match.arms(e)) |arm| {
+                        const pat = ir.Arm.pattern(arm);
+                        if (pat.isKind(.@"variant_pattern")) for (ir.VariantPattern.bindings(pat)) |b| self.expectName(b);
+                        self.expr(ir.Arm.body(arm));
+                    }
+                },
+                .@"lambda" => {
+                    for (captureList(ir.Lambda.captures(e))) |cap| self.expectName(captureNameNode(cap).?);
+                    self.expr(ir.Lambda.body(e));
+                },
+                .@"member" => {
+                    self.expectType(e);
+                    self.expr(ir.Member.object(e));
+                },
+                .@"call" => {
+                    self.expectType(e);
+                    const callee = ir.Call.callee(e);
+                    if (callee == .src) {
+                        self.expectName(callee);
+                    } else self.expr(callee);
+                    for (ir.Call.args(e)) |a| {
+                        if (a.isKind(.@"kwarg")) self.expr(ir.Kwarg.value(a)) else self.expr(a);
+                    }
+                },
+                .@"return", .@"drop", .@"defer" => for (rig.children(e)) |c| self.expr(c),
+                .@"enum_lit" => self.expectType(e),
+                else => {
+                    self.expectType(e);
+                    for (rig.children(e)) |c| if (c != .tag) self.expr(c);
+                },
             },
             else => {},
         }
     }
 
     fn decl(self: *Coverage, d: Sexp) void {
-        const h = headOf(d) orelse return;
+        const h = d.kind() orelse return;
         switch (h) {
             .@"fun", .@"sub" => {
-                if (d.list[2] == .list) for (d.list[2].list) |p| self.expectName(paramNameNode(p).?);
-                self.expr(d.list[d.list.len - 1]);
+                for (ir.get(d, .params).items()) |p| self.expectName(paramNameNode(p).?);
+                self.expr(ir.get(d, .body));
             },
-            .@"struct", .@"enum", .@"generic_type" => for (d.list[2..]) |m| self.decl(m),
+            .@"struct", .@"enum", .@"generic_type" => for (ir.rest(d, .members)) |m| self.decl(m),
             else => {},
         }
     }
@@ -2641,7 +2635,7 @@ test "facts: every name and expression in a program has a fact" {
     );
     defer r.deinit();
     var cov: Coverage = .{ .r = &r };
-    for (r.ir.list[1..]) |d| cov.decl(d);
+    for (ir.Module.decls(r.tree)) |d| cov.decl(d);
     try std.testing.expectEqual(@as(usize, 0), cov.missing);
 }
 
@@ -2667,7 +2661,7 @@ test "facts: optional bindings, index bindings, defaults, and shadows have facts
     );
     defer r.deinit();
     var cov: Coverage = .{ .r = &r };
-    for (r.ir.list[1..]) |d| cov.decl(d);
+    for (ir.Module.decls(r.tree)) |d| cov.decl(d);
     try std.testing.expectEqual(@as(usize, 0), cov.missing);
     try std.testing.expectEqual(r.ctx.types.int_id, r.leafType("v", 0).?);
     try std.testing.expectEqual(r.ctx.types.int_id, r.leafType("i", 0).?);

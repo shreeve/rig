@@ -19,10 +19,8 @@ const types = @import("types.zig");
 const diag = @import("diag.zig");
 
 const Sexp = parser.Sexp;
+const ir = parser.ir;
 const SemContext = types.SemContext;
-const headOf = types.headOf;
-const isHead = types.isHead;
-const firstSrcPos = diag.firstSrcPos;
 
 pub const Diagnostic = diag.Diagnostic;
 pub const Error = std.mem.Allocator.Error;
@@ -60,18 +58,26 @@ pub const Checker = struct {
         return diag.hasErrorsIn(self.diagnostics.items);
     }
 
-    pub fn check(self: *Checker, ir: Sexp) Error!void {
-        try self.walk(ir, false);
+    pub fn check(self: *Checker, tree: Sexp) Error!void {
+        try self.walk(tree, false);
     }
 
     fn err(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
-        const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
-        try self.diagnostics.append(self.allocator, .{ .severity = .@"error", .pos = pos, .message = msg });
+        return self.report(.@"error", .{ .start = pos, .end = pos }, fmt, args);
     }
 
     fn note(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
+        return self.report(.note, .{ .start = pos, .end = pos }, fmt, args);
+    }
+
+    /// An error about `node`, reported at its span.
+    fn errAt(self: *Checker, node: Sexp, comptime fmt: []const u8, args: anytype) Error!void {
+        return self.report(.@"error", self.sema.span(node), fmt, args);
+    }
+
+    fn report(self: *Checker, severity: diag.Severity, at: diag.Span, comptime fmt: []const u8, args: anytype) Error!void {
         const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
-        try self.diagnostics.append(self.allocator, .{ .severity = .note, .pos = pos, .message = msg });
+        try self.diagnostics.append(self.allocator, .{ .severity = severity, .pos = at.start, .end = at.end, .message = msg });
     }
 
     fn text(self: *Checker, node: Sexp) []const u8 {
@@ -80,17 +86,15 @@ pub const Checker = struct {
 
     /// `handled`: `sexp` is the direct operand of `!` or `catch`.
     fn walk(self: *Checker, sexp: Sexp, handled: bool) Error!void {
-        const head = headOf(sexp) orelse return;
-        const items = sexp.list;
-        switch (head) {
+        switch (sexp.kind() orelse return) {
             .@"fun", .@"sub" => try self.walkFunction(sexp),
             .@"drop_decl" => {
                 const saved = self.save();
                 defer self.restore(saved);
                 self.can_propagate = false;
                 self.fn_name = "drop";
-                self.fn_pos = firstSrcPos(sexp);
-                for (items[1..]) |c| try self.walk(c, false);
+                self.fn_pos = self.sema.startOf(sexp);
+                try self.walk(ir.DropDecl.body(sexp), false);
             },
             .@"lambda" => {
                 const saved = self.save();
@@ -98,38 +102,38 @@ pub const Checker = struct {
                 self.can_propagate = false;
                 self.in_lambda = true;
                 self.in_defer = false;
-                for (items[1..]) |c| try self.walk(c, false);
+                try self.walk(ir.Lambda.body(sexp), false);
             },
             .@"defer", .@"errdefer" => {
                 const prev = self.in_defer;
                 self.in_defer = true;
                 defer self.in_defer = prev;
-                for (items[1..]) |c| try self.walk(c, false);
+                try self.walk(ir.get(sexp, .body), false);
             },
             .@"propagate" => {
-                try self.checkPropagate(items[1]);
-                try self.walk(items[1], true);
+                const operand = ir.Propagate.value(sexp);
+                try self.checkPropagate(operand);
+                try self.walk(operand, true);
             },
             .@"catch" => {
-                try self.walk(items[1], true);
-                for (items[2..]) |c| try self.walk(c, false);
+                try self.walk(ir.Catch.value(sexp), true);
+                try self.walk(ir.Catch.handler(sexp), false);
             },
             .@"call" => try self.walkCall(sexp, handled),
             .@"raw_block" => {
                 self.raw_depth += 1;
                 defer self.raw_depth -= 1;
-                for (items[1..]) |c| try self.walk(c, false);
+                try self.walk(ir.RawBlock.body(sexp), false);
             },
             .@"builtin" => {
-                if (items[1] == .src) {
-                    const name = self.text(items[1]);
-                    if (!isSafeBuiltin(name) and self.raw_depth == 0) {
-                        try self.err(items[1].src.pos, "builtin `@{s}` is not in the safe whitelist; wrap in a `raw` block. Safe builtins: `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`.", .{name});
-                    }
+                const name_node = ir.Builtin.name(sexp);
+                const name = self.text(name_node);
+                if (!isSafeBuiltin(name) and self.raw_depth == 0) {
+                    try self.errAt(name_node, "builtin `@{s}` is not in the safe whitelist; wrap in a `raw` block. Safe builtins: `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`.", .{name});
                 }
-                for (items[2..]) |c| try self.walk(c, false);
+                for (ir.Builtin.args(sexp)) |c| try self.walk(c, false);
             },
-            else => for (items[1..]) |c| try self.walk(c, false),
+            else => for (rig.children(sexp)) |c| try self.walk(c, false),
         }
     }
 
@@ -147,50 +151,48 @@ pub const Checker = struct {
         self.in_defer = s.in_defer;
     }
 
+    /// A `fun` or `sub`.
     fn walkFunction(self: *Checker, node: Sexp) Error!void {
-        const items = node.list;
         const saved = self.save();
         defer self.restore(saved);
-        const is_sub = items[0].tag == .@"sub";
-        self.fn_name = self.text(items[1]);
-        self.fn_pos = types.srcPos(items[1], 0);
+        const name = ir.get(node, .name);
+        self.fn_name = self.text(name);
+        self.fn_pos = name.src.pos;
         self.in_lambda = false;
         self.in_defer = false;
-        self.can_propagate = if (is_sub)
+        self.can_propagate = if (node.isKind(.@"sub"))
             std.mem.eql(u8, self.fn_name, "main")
         else
-            isHead(items[3], .@"error_union");
-        try self.walk(items[items.len - 1], false);
+            ir.Fun.returns(node).isKind(.@"error_union");
+        try self.walk(ir.get(node, .body), false);
     }
 
     fn checkPropagate(self: *Checker, operand: Sexp) Error!void {
-        const pos = firstSrcPos(operand);
         if (self.in_defer) {
-            try self.err(pos, "cannot use `!` inside `defer`; a deferred expression cannot propagate failure, so handle it with `catch`", .{});
+            try self.errAt(operand, "cannot use `!` inside `defer`; a deferred expression cannot propagate failure, so handle it with `catch`", .{});
         } else if (!self.can_propagate) {
             if (self.in_lambda) {
-                try self.err(pos, "use of `!` propagation requires a fallible enclosing function; a closure body cannot propagate failure, so handle it with `catch`", .{});
+                try self.errAt(operand, "use of `!` propagation requires a fallible enclosing function; a closure body cannot propagate failure, so handle it with `catch`", .{});
             } else {
-                try self.err(pos, "use of `!` propagation requires the enclosing function `{s}` to declare a fallible return type (`-> T!`)", .{self.fn_name});
+                try self.errAt(operand, "use of `!` propagation requires the enclosing function `{s}` to declare a fallible return type (`-> T!`)", .{self.fn_name});
                 if (self.fn_pos != 0) try self.note(self.fn_pos, "`{s}` declared here", .{self.fn_name});
             }
         }
         const ty = self.sema.typeOf(operand) orelse return;
         switch (self.sema.types.get(ty)) {
             .fallible, .unknown, .invalid => {},
-            else => try self.err(pos, "`!` needs a fallible operand; this expression has type `{s}` and cannot fail", .{try types.formatTypeIn(self.sema, self.arena.allocator(), ty)}),
+            else => try self.errAt(operand, "`!` needs a fallible operand; this expression has type `{s}` and cannot fail", .{try types.formatTypeIn(self.sema, self.arena.allocator(), ty)}),
         }
     }
 
     fn walkCall(self: *Checker, node: Sexp, handled: bool) Error!void {
-        const items = node.list;
-        const callee = items[1];
+        const callee = ir.Call.callee(node);
 
         if (!handled) {
             if (self.sema.typeOf(node)) |ty| {
                 if (self.sema.types.get(ty) == .fallible) {
                     const name = try self.calleeName(callee);
-                    try self.err(firstSrcPos(callee), "fallible call to `{s}` must be wrapped with `!` (propagate) or `catch` (handle)", .{name});
+                    try self.errAt(callee, "fallible call to `{s}` must be wrapped with `!` (propagate) or `catch` (handle)", .{name});
                     if (self.sema.symbolOf(callee)) |id| {
                         const sym = self.sema.symbols.items[id];
                         if (sym.decl_pos != types.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared as fallible here", .{name});
@@ -201,19 +203,20 @@ pub const Checker = struct {
 
         if (self.raw_depth == 0) {
             if (self.externCallee(callee)) |name| {
-                try self.err(firstSrcPos(callee), "call to extern function `{s}` requires `raw` block; wrap the call in `raw INDENT body OUTDENT`. Extern declarations are the FFI boundary and bypass Rig's ownership and effect contracts.", .{name});
+                try self.errAt(callee, "call to extern function `{s}` requires `raw` block; wrap the call in `raw INDENT body OUTDENT`. Extern declarations are the FFI boundary and bypass Rig's ownership and effect contracts.", .{name});
             }
         }
 
-        for (items[1..]) |c| try self.walk(c, false);
+        try self.walk(callee, false);
+        for (ir.Call.args(node)) |c| try self.walk(c, false);
     }
 
     /// How the callee is spelled, for messages: `f`, `a.f`, or `.m`.
     fn calleeName(self: *Checker, callee: Sexp) Error![]const u8 {
         if (callee == .src) return self.text(callee);
-        if (isHead(callee, .@"member")) {
-            const obj = callee.list[1];
-            const name = self.text(callee.list[2]);
+        if (callee.isKind(.@"member")) {
+            const obj = ir.Member.object(callee);
+            const name = self.text(ir.Member.name(callee));
             if (obj == .src) return std.fmt.allocPrint(self.arena.allocator(), "{s}.{s}", .{ self.text(obj), name });
             return name;
         }
@@ -227,14 +230,14 @@ pub const Checker = struct {
             const id = self.sema.symbolOf(callee) orelse return null;
             return if (self.sema.symbols.items[id].kind == .@"extern") self.text(callee) else null;
         }
-        if (!isHead(callee, .@"member")) return null;
-        const obj = callee.list[1];
+        if (!callee.isKind(.@"member")) return null;
+        const obj = ir.Member.object(callee);
         const id = self.sema.symbolOf(obj) orelse return null;
         if (self.sema.symbols.items[id].kind != .module) return null;
         const origin = self.sema.module_refs.get(id) orelse return null;
         const foreign = self.sema.foreign_semas.get(origin) orelse return null;
         if (foreign.scopes.items.len < 2) return null;
-        const name = self.text(callee.list[2]);
+        const name = self.text(ir.Member.name(callee));
         const fid = foreign.lookupInScopeOnly(1, name) orelse return null;
         const fsym = foreign.symbols.items[fid];
         if (fsym.kind != .@"extern" or !fsym.flags.is_public) return null;
@@ -279,11 +282,11 @@ fn run(source: []const u8) !Run {
     var r: Run = undefined;
     r.p = parser.Parser.init(allocator, source);
     errdefer r.p.deinit();
-    const ir = try r.p.parseProgram();
-    r.sema = try types.check(allocator, source, ir);
+    const tree = try r.p.parseProgram();
+    r.sema = try types.check(allocator, source, tree);
     errdefer r.sema.deinit();
     r.eff = try Checker.initWithSema(allocator, source, &r.sema);
-    try r.eff.check(ir);
+    try r.eff.check(tree);
     return r;
 }
 

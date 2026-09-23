@@ -20,7 +20,7 @@ const rig = @import("rig.zig");
 const types = @import("types.zig");
 const effects = @import("effects.zig");
 const ownership = @import("ownership.zig");
-const ir_check = @import("ir.zig");
+const ir = parser.ir;
 
 pub const max_source_bytes = 16 * 1024 * 1024;
 
@@ -139,17 +139,21 @@ pub const ModuleGraph = struct {
         });
         try self.by_path.put(self.allocator, canonical, id);
 
-        const ir = p.parseProgram() catch |err| switch (err) {
+        const tree = p.parseProgram() catch |err| switch (err) {
             error.ParseError => {
                 const d = p.diagnostic();
-                try self.errorAt(id, d.pos, "{s}", .{d.message});
+                try self.errorAt(id, .{ .start = d.pos, .end = d.end }, "{s}", .{d.message});
+                self.get(id).state = .failed;
+                return id;
+            },
+            error.InputTooLarge => {
+                try self.errorAt(id, .{ .start = 0, .end = 0 }, "source file is too large to parse (4 GiB or more)", .{});
                 self.get(id).state = .failed;
                 return id;
             },
             else => |e| return e,
         };
-        ir_check.assertValid(ir, source, display);
-        self.get(id).ir = ir;
+        self.get(id).ir = tree;
 
         if (!try self.loadImports(id)) {
             self.get(id).state = .failed;
@@ -163,20 +167,21 @@ pub const ModuleGraph = struct {
     /// not be loaded and checked.
     fn loadImports(self: *ModuleGraph, id: ModuleId) Error!bool {
         const a = self.arena.allocator();
-        const ir = self.get(id).ir;
-        if (ir != .list) return true;
+        const tree = self.get(id).ir;
+        if (tree == .nil) return true;
         var ok = true;
 
-        for (ir.list[1..]) |decl| {
-            if (decl != .list or decl.list.len < 2 or decl.list[0] != .tag or decl.list[0].tag != .@"use") continue;
-            const name_node = decl.list[1];
-            if (name_node != .src) continue;
+        for (ir.Module.decls(tree)) |decl| {
+            if (!decl.isKind(.@"use")) continue;
+            const name_node = ir.Use.name(decl);
             const m = self.get(id);
             const local_name = m.source[name_node.src.pos..][0..name_node.src.len];
             const pos = name_node.src.pos;
+            // Import problems are reported at the `use`.
+            const at = m.parser.span(decl);
 
             if (std.mem.eql(u8, local_name, "std")) {
-                try self.errorAt(id, pos, "`use std` is reserved: Rig has no `std` module", .{});
+                try self.errorAt(id, at, "`use std` is reserved: Rig has no `std` module", .{});
                 ok = false;
                 continue;
             }
@@ -187,21 +192,21 @@ pub const ModuleGraph = struct {
             const target = try std.fs.path.join(a, &.{ dir, file });
 
             const canonical = std.Io.Dir.cwd().realPathFileAlloc(self.io, target, a) catch |err| {
-                try self.errorAt(id, pos, "cannot read module `{s}` ({s}): {s}", .{ local_name, display, @errorName(err) });
+                try self.errorAt(id, at, "cannot read module `{s}` ({s}): {s}", .{ local_name, display, @errorName(err) });
                 ok = false;
                 continue;
             };
 
             const target_id = if (self.by_path.get(canonical)) |existing| blk: {
                 if (self.get(existing).state == .loading) {
-                    try self.errorAt(id, pos, "cyclic import: `{s}` is still being loaded when `{s}` imports it", .{ local_name, m.name });
+                    try self.errorAt(id, at, "cyclic import: `{s}` is still being loaded when `{s}` imports it", .{ local_name, m.name });
                     ok = false;
                     continue;
                 }
                 break :blk existing;
             } else blk: {
                 const source = std.Io.Dir.cwd().readFileAlloc(self.io, canonical, a, .limited(max_source_bytes)) catch |err| {
-                    try self.errorAt(id, pos, "cannot read module `{s}` ({s}): {s}", .{ local_name, display, @errorName(err) });
+                    try self.errorAt(id, at, "cannot read module `{s}` ({s}): {s}", .{ local_name, display, @errorName(err) });
                     ok = false;
                     continue;
                 };
@@ -249,7 +254,7 @@ pub const ModuleGraph = struct {
         }
 
         m.sema.deinit();
-        m.sema.* = try types.checkWithImports(self.allocator, m.source, m.ir, entries.items, reached.items, id);
+        m.sema.* = try types.checkWithImports(self.allocator, m.source, m.parser, m.ir, entries.items, reached.items, id);
 
         var eff = try effects.Checker.initWithSema(self.allocator, m.source, m.sema);
         defer eff.deinit();
@@ -264,16 +269,16 @@ pub const ModuleGraph = struct {
         m.state = if (m.sema.hasErrors()) .failed else .checked;
     }
 
-    fn errorAt(self: *ModuleGraph, id: ModuleId, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
+    fn errorAt(self: *ModuleGraph, id: ModuleId, at: parser.Span, comptime fmt: []const u8, args: anytype) Error!void {
         const m = self.get(id);
         const message = try std.fmt.allocPrint(m.sema.arena.allocator(), fmt, args);
-        try m.sema.diagnostics.append(self.allocator, .{ .severity = .@"error", .pos = pos, .message = message });
+        try m.sema.diagnostics.append(self.allocator, .{ .severity = .@"error", .pos = at.start, .end = at.end, .message = message });
     }
 
     fn addDiagnostic(self: *ModuleGraph, id: ModuleId, d: types.Diagnostic) Error!void {
         const m = self.get(id);
         const owned = try m.sema.arena.allocator().dupe(u8, d.message);
-        try m.sema.diagnostics.append(self.allocator, .{ .severity = d.severity, .pos = d.pos, .message = owned });
+        try m.sema.diagnostics.append(self.allocator, .{ .severity = d.severity, .pos = d.pos, .end = d.end, .message = owned });
     }
 
     /// Write every diagnostic, as `path:line:col: error: message`.

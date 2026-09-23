@@ -51,10 +51,12 @@ allocation, no hidden refcount traffic, no silent control flow.
 5. **Substrate in the language, libraries in userland.** No GC, no
    macros, no built-in reactive framework.
 6. **Never edit `src/parser.zig` by hand.** Edit `rig.grammar` and
-   run `zig build parser` (needs `../nexus/bin/nexus`; build it with
-   `cd ../nexus && zig build -Doptimize=ReleaseSafe`). Grammar
-   conflicts must be understood: every conflict that remains is
-   listed and justified in `docs/INTERNALS.md`.
+   run `zig build parser` (Nexus 1.0.0 or later; see Workflow). The
+   grammar's `@schema` declares every IR node and its roles; the
+   compiler reads the tree through the generated accessors
+   (`parser.ir`), by role, never by position. Grammar conflicts must
+   be understood: every conflict that remains is listed and justified
+   in `docs/INTERNALS.md`.
 7. **Comments explain the code as it is.** Milestone history,
    design-chat references, and changelogs belong in git history.
 
@@ -70,6 +72,13 @@ bin/rig build --release -o prog file.rig   # optimized executable (ReleaseSafe)
 RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 ```
 
+- Nexus: `zig build parser` and `./test/run` (whose parser check
+  regenerates `src/parser.zig` and compares) use `nexus/bin/nexus` in
+  the nearest parent directory, normally `../nexus/bin/nexus` beside
+  this checkout. It must be Nexus 1.0.0 or later; an older build there
+  fails generation or the parser check. To use another binary, name it
+  in both places: `zig build parser -Dnexus=PATH` and
+  `NEXUS=PATH ./test/run`.
 - Fixing a bug starts with a failing test that reproduces it.
 - Every change keeps `./test/run` green.
 - Commit messages are short, imperative, and describe the change.
@@ -79,10 +88,9 @@ RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 
 | Path | Role |
 |---|---|
-| `rig.grammar` | Nexus grammar (source of truth for syntax and IR shape) |
-| `src/rig.zig` | Lexer and parser wrappers (layout, spacing, IR rewrites), IR tags |
-| `src/parser.zig` | Generated — do not edit |
-| `src/ir.zig` | The schema of every IR node |
+| `rig.grammar` | Nexus grammar: syntax, and the IR schema every node follows |
+| `src/rig.zig` | Lexer and parser wrappers (layout, spacing, IR rewrites) |
+| `src/parser.zig` | Generated — do not edit: lexer, parser, IR tags and accessors |
 | `src/modules.zig` | Module graph and `use` resolution |
 | `src/types.zig`, `src/sema_*.zig` | Semantic analysis: names, types, the facts table |
 | `src/effects.zig` | Fallibility and the `raw` boundary |

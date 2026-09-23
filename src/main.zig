@@ -9,11 +9,11 @@
 const std = @import("std");
 const build_options = @import("build_options");
 const parser = @import("parser.zig");
+const ir = parser.ir;
 const rig = @import("rig.zig");
 const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const modules = @import("modules.zig");
-const ir = @import("ir.zig");
 const runtime = @import("runtime.zig");
 
 const usage =
@@ -29,6 +29,9 @@ const usage =
     \\  emit      Check, then print the root module's Zig to stdout
     \\
     \\Options:
+    \\  --facts                Print the root module's syntax facts after
+    \\                         checking it (check): every IR node with its
+    \\                         kind, span, and role-named children
     \\  --release[=safe|fast]  Optimize (run, build, test): `--release` and
     \\                         `--release=safe` are ReleaseSafe, which keeps
     \\                         overflow and bounds checks; `--release=fast`
@@ -74,6 +77,7 @@ const Options = struct {
     path: []const u8,
     mode: Mode = .debug,
     out_path: ?[]const u8 = null,
+    facts: bool = false,
 };
 
 const Env = struct {
@@ -115,6 +119,7 @@ pub fn main(init: std.process.Init) !void {
         .check => {
             var graph = try loadProject(allocator, io, opts.path);
             defer graph.deinit();
+            if (opts.facts) try printFacts(io, graph.root());
         },
         .emit => try emitCommand(allocator, io, env, opts.path),
         .run => try runCommand(allocator, io, env, opts),
@@ -128,6 +133,7 @@ fn parseArgs(args: []const []const u8) Options {
     var path: ?[]const u8 = null;
     var mode: Mode = .debug;
     var out_path: ?[]const u8 = null;
+    var facts = false;
     var i: usize = 0;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
@@ -141,6 +147,8 @@ fn parseArgs(args: []const []const u8) Options {
             mode = .safe;
         } else if (eql(arg, "--release=fast")) {
             mode = .fast;
+        } else if (eql(arg, "--facts")) {
+            facts = true;
         } else if (eql(arg, "-o")) {
             i += 1;
             if (i == args.len) usageError("-o needs a path", .{});
@@ -162,11 +170,13 @@ fn parseArgs(args: []const []const u8) Options {
     if (mode != .debug and cmd != .run and cmd != .build and cmd != .@"test")
         usageError("`--release` applies to run, build, and test", .{});
     if (out_path != null and cmd != .build) usageError("`-o` applies to build", .{});
+    if (facts and cmd != .check) usageError("`--facts` applies to check", .{});
     return .{
         .command = cmd,
         .path = path orelse usageError("`rig {s}` needs a .rig file", .{@tagName(cmd)}),
         .mode = mode,
         .out_path = out_path,
+        .facts = facts,
     };
 }
 
@@ -204,19 +214,32 @@ fn printTree(allocator: std.mem.Allocator, io: std.Io, path: []const u8, source:
         .semantic => p.parseProgram(),
     } catch |err| switch (err) {
         error.ParseError => {
-            const d = p.diagnostic();
-            const lc = diag.lineCol(source, d.pos);
-            fatal("{s}:{d}:{d}: error: {s}", .{ path, lc.line, lc.col, d.message });
+            var buffer: [4096]u8 = undefined;
+            var writer = std.Io.File.stderr().writerStreaming(io, &buffer);
+            try diag.write(&.{p.diagnostic()}, source, path, &writer.interface);
+            try writer.interface.flush();
+            std.process.exit(1);
         },
         else => return err,
     };
-
-    if (stage == .semantic) ir.assertValid(tree, source, path);
 
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
     try tree.write(source, &writer.interface);
     try writer.interface.writeAll("\n");
+    try writer.interface.flush();
+}
+
+/// `rig check --facts`: the root module's IR as flat facts, one per
+/// line (see `BaseParser.writeFacts` in the generated parser):
+///
+///   (node ID KIND START END)   every node the parser built, with its span
+///   (role ID ROLE CHILD...)    each non-empty role: a node id, `leaf POS
+///                              LEN`, or `tag NAME`
+fn printFacts(io: std.Io, m: *const modules.Module) !void {
+    var buffer: [4096]u8 = undefined;
+    var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
+    try m.parser.base.writeFacts(&writer.interface, m.ir);
     try writer.interface.flush();
 }
 
@@ -338,13 +361,11 @@ fn runZig(io: std.Io, argv: []const []const u8) !u8 {
 }
 
 fn declaresMain(m: *const modules.Module) bool {
-    if (m.ir != .list) return false;
-    for (m.ir.list[1..]) |top| {
-        var decl = top;
-        if (decl == .list and decl.list.len == 2 and decl.list[0] == .tag and decl.list[0].tag == .@"pub") decl = decl.list[1];
-        if (decl != .list or decl.list.len < 2 or decl.list[0] != .tag) continue;
-        if (decl.list[0].tag != .@"sub" and decl.list[0].tag != .@"fun") continue;
-        if (std.mem.eql(u8, decl.list[1].getText(m.source), "main")) return true;
+    if (m.ir == .nil) return false;
+    for (ir.Module.decls(m.ir)) |top| {
+        const decl = if (top.isKind(.@"pub")) ir.Pub.decl(top) else top;
+        if (!decl.isKind(.@"sub") and !decl.isKind(.@"fun")) continue;
+        if (std.mem.eql(u8, ir.get(decl, .name).getText(m.source), "main")) return true;
     }
     return false;
 }

@@ -118,9 +118,10 @@ check_reject() {
     if [[ $rc -eq 124 ]]; then REASON="timed out"; return 1; fi
     if [[ $rc -gt 128 ]] || grep -qE "$PANIC_RE" <<<"$out"; then REASON="compiler crashed"; return 1; fi
     if [[ $rc -eq 0 ]]; then REASON="accepted (expected rejection)"; return 1; fi
-    # Match `# error:` text against messages only, not the file paths.
+    # Match `# error:` text against the diagnostic lines' messages only:
+    # not the file paths, and not the source excerpts under them.
     local want msgs
-    msgs=$(sed -E 's/^[^ ]*\.rig:[0-9]+:[0-9]+: //' <<<"$out")
+    msgs=$(grep -E "$POS_RE" <<<"$out" | sed -E 's/^[^ ]*\.rig:[0-9]+:[0-9]+: //')
     while IFS= read -r want; do
         [[ -z "$want" ]] && continue
         if ! grep -qF -- "$want" <<<"$msgs"; then
@@ -173,6 +174,18 @@ check_parse() {
     return 1
 }
 
+# check_facts <entry> <expected> <logfile>: `rig check --facts` prints
+# exactly the expected facts.
+check_facts() {
+    local out
+    out=$(timeout "$TIMEOUT" "$RIG" check --facts "$1" 2>&1 </dev/null)
+    local rc=$?
+    echo "$out" >"$3"
+    if [[ $rc -ne 0 ]]; then REASON="rejected: $(head -1 <<<"$out")"; return 1; fi
+    if ! diff "$2" <(printf '%s\n' "$out") >>"$3" 2>&1; then REASON='facts differ from the facts block'; return 1; fi
+    return 0
+}
+
 # A doc example: a directory extracted from a ```rig block, with its
 # mode in `mode` (see extract_docs).
 check_doc() {
@@ -183,6 +196,7 @@ check_doc() {
         check)    check_accept "$entry" "$log" ;;
         reject)   check_reject "$entry" "$log" ;;
         fragment) check_parse "$entry" "$log" ;;
+        facts)    check_facts "$entry" "$dir/facts" "$log" ;;
         *)        REASON=$mode; return 1 ;;
     esac
     ok=$?
@@ -339,6 +353,8 @@ for p in test/cli/[!_]*.sh; do [[ -e "$p" ]] && add "cli/$(basename "$p" .sh)" "
 #   ```rig reject      `rig check` rejects it; a following ```error block
 #                      lists text each diagnostic must contain, one a line
 #   ```rig fragment    only parsed
+#   ```rig facts       `rig check --facts` prints exactly the following
+#                      ```facts block
 #   ```rig file=m.rig  module `m.rig`, imported by the next example
 #
 # Each example becomes a directory holding main.rig (the directives
@@ -363,6 +379,7 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
             }
             close(dir "/main.rig")
             for (f in pending) { printf "%s", pending[f] > (dir "/" f); close(dir "/" f); delete pending[f] }
+            if (mode == "facts") { printf "%s", extra > (dir "/facts"); close(dir "/facts") }
             print mode > (dir "/mode"); close(dir "/mode")
             printf "doc/%s/L%d\t%s\n", doc, start, dir
         }
@@ -376,7 +393,7 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
                 for (k = 1; k <= n; k++) {
                     w = words[k]
                     if (w == "") continue
-                    if (w == "reject" || w == "fragment") mode = w
+                    if (w == "reject" || w == "fragment" || w == "facts") mode = w
                     else if (w ~ /^file=[A-Za-z_][A-Za-z0-9_]*\.rig$/) fname = substr(w, 6)
                     else fail("unknown word `" w "` after ```rig")
                 }
@@ -387,7 +404,7 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
                 j = i
                 while (j <= NR && line[j] ~ /^[ \t]*$/) j++
                 kind = ""; extra = ""
-                if (j <= NR && (line[j] == "```output" || line[j] == "```error")) {
+                if (j <= NR && (line[j] == "```output" || line[j] == "```error" || line[j] == "```facts")) {
                     kind = substr(line[j], 4)
                     for (j++; j <= NR && line[j] != "```"; j++) extra = extra line[j] "\n"
                     i = j + 1
@@ -398,7 +415,9 @@ extract_docs() { # extract_docs <file.md> <outdir> → "id<TAB>dir" lines
                 }
                 if (kind == "output") { if (mode == "check") mode = "run"; else fail("```output follows a program") }
                 else if (kind == "error") { if (mode != "reject") fail("```error follows a ```rig reject block") }
+                else if (kind == "facts") { if (mode != "facts") fail("```facts follows a ```rig facts block") }
                 else if (mode == "reject") fail("```rig reject needs an ```error block")
+                else if (mode == "facts") fail("```rig facts needs a ```facts block")
                 emit()
             }
             for (f in pending) { start = pending_at[f]; body = ""; fail("file=" f " is not followed by a program"); emit(); break }
