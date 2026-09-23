@@ -1820,6 +1820,12 @@ pub const Checker = struct {
             try self.noteLoan(l);
             return .{};
         }
+        // A cloned or weak handle is independent of any borrow it was
+        // made through.
+        if (self.symType(pos)) |t| switch (self.typeData(t)) {
+            .shared, .weak => return .{},
+            else => {},
+        };
         return self.varValue(id);
     }
 

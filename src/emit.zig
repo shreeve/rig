@@ -2604,7 +2604,9 @@ pub const Emitter = struct {
             switch (c.mode) {
                 .@"cap_clone" => {
                     try self.writeLocalPlace(&outer);
-                    if (outer.kind) |k| switch (k) {
+                    // A borrowed handle clones the handle it borrows.
+                    const kind = if (outer.kind) |k| k else if (outer.ty) |t| self.kindOf(self.peelBorrows(t)) else null;
+                    if (kind) |k| switch (k) {
                         .shared => try self.w.writeAll(".cloneStrong()"),
                         .weak => try self.w.writeAll(".cloneWeak()"),
                         else => {},

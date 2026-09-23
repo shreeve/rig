@@ -1,0 +1,36 @@
+# `|+b|` of a borrowed handle (a `for b in ?v` element, a `?*B`
+# parameter) clones the handle into the closure, which then outlives the
+# borrow and the Vec.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+fun keep(b: ?*B) -> *fun() Int
+  *|+b| b.n * 100
+
+sub main()
+  v: Vec(*B) = Vec()
+  (!v).push(*B(n: 1))
+  (!v).push(*B(n: 2))
+  fs: Vec(*fun() Int) = Vec()
+  for b in ?v
+    (!fs).push(*|+b| b.n * 10)
+  -v
+  print("vec gone")
+  for f in ?fs
+    print(f())
+  x = *B(n: 3)
+  g = keep(?x)
+  print(g())
+
+# expect:
+# vec gone
+# 10
+# 20
+# 300
+# drop 3
+# drop 2
+# drop 1
