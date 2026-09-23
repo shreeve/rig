@@ -354,7 +354,8 @@ const Checker = struct {
         if (!is_decl and sym.kind == .capture) {
             try self.err(target.src.pos, "cannot assign to captured `{s}`; captures are fixed when the closure is created", .{name});
         }
-        if (!is_decl and sym.flags.pattern_bound) {
+        const writes_through = sym.kind == .param or sym.flags.pattern_bound;
+        if (!is_decl and sym.flags.pattern_bound and self.ctx.types.get(sym.ty) != .borrow_write) {
             try self.err(target.src.pos, "cannot assign to `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ name, name, name });
         }
 
@@ -368,8 +369,9 @@ const Checker = struct {
         } else if (!is_decl or sym.ty != self.t().unknown_id) {
             declared = sym.ty;
         }
-        // Assigning a `!T` parameter writes through to the caller's `T`.
-        if (!is_decl and sym.kind == .param) switch (self.ctx.types.get(declared)) {
+        // Assigning a `!T` parameter (or the element of `for x in !xs`)
+        // writes through to the borrowed `T`.
+        if (!is_decl and writes_through) switch (self.ctx.types.get(declared)) {
             .borrow_write => |inner| declared = inner,
             else => {},
         };
@@ -538,7 +540,7 @@ const Checker = struct {
             .capture => try self.err(pos, "cannot {s} captured `{s}`; captures are fixed when the closure is created", .{ verb, name }),
             .local => if (sym.flags.fixed) {
                 try self.err(pos, "cannot {s} fixed binding `{s}` (bound with `=!`)", .{ verb, name });
-            } else if (sym.flags.pattern_bound) {
+            } else if (sym.flags.pattern_bound and self.ctx.types.get(sym.ty) != .borrow_write) {
                 try self.err(pos, "cannot {s} `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ verb, name, name, name });
             },
             else => {},
@@ -670,10 +672,8 @@ const Checker = struct {
         if (mode == .ptr) {
             try self.err(source_pos, "by-reference for-loop binding `for *x in ...` is reserved; write `for x in ?xs` to read-iterate a Vec of resources, or `for x in xs` to iterate values", .{});
         }
-        if (mode == .@"write" or mode == .@"move") {
-            try self.err(source_pos, "{s} iteration (`for x in {s}xs`) is not supported yet; iterate by value or with `?xs`", .{
-                if (mode == .@"write") "mutable" else "consuming", if (mode == .@"write") "!" else "<",
-            });
+        if (mode == .@"move") {
+            try self.err(source_pos, "consuming iteration (`for x in <xs`) is not supported yet; iterate by value or with `?xs`", .{});
         }
         if (index_binding != .nil and isHead(source, .@"..")) {
             try self.err(firstSrcPos(index_binding), "a range has no index binding; the element is already the position (`for i in a..b`)", .{});
@@ -724,6 +724,15 @@ const Checker = struct {
         return elem;
     }
 
+    /// The element of `for x in !xs`: a write borrow of each slot. The
+    /// source must be a place the loop may write.
+    fn writeElement(self: *Checker, source: Sexp, inner_source: Sexp, elem: TypeId) Error!TypeId {
+        if (!isFieldPath(inner_source)) {
+            try self.err(firstSrcPos(source), "`for x in !xs` writes each element in place; `xs` must be a binding or a field of one", .{});
+        } else try self.checkWritable(inner_source, "write-iterate");
+        return self.ctx.intern(.{ .borrow_write = elem });
+    }
+
     fn elementTypeForLoop(self: *Checker, source: Sexp, inner_source: Sexp, source_ty: TypeId, mode: ?Tag) Error!TypeId {
         const pos = firstSrcPos(source);
         if (self.isPoison(source_ty)) return self.t().invalid_id;
@@ -743,11 +752,23 @@ const Checker = struct {
                         try self.err(pos, "resource Vec(T) iteration requires a Vec binding or a field of one as the source; got an expression. Bind the result to a `Vec(T)` local first.", .{});
                     }
                 }
+                if (mode == .@"write") return self.writeElement(source, inner_source, elem);
                 return if (is_resource) try self.ctx.intern(.{ .borrow_read = elem }) else elem;
             },
-            .array => |a| return a.elem,
-            .slice => |s| return s.elem,
-            .string => return try self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } }),
+            .array => |a| {
+                if (mode == .@"write") return self.writeElement(source, inner_source, a.elem);
+                return a.elem;
+            },
+            .slice, .string => {
+                if (mode == .@"write") {
+                    try self.err(pos, "cannot write-iterate a `{s}`; its elements are read-only", .{try self.tyName(source_ty)});
+                    return self.t().invalid_id;
+                }
+                return switch (self.ctx.types.get(peeled)) {
+                    .slice => |sl| sl.elem,
+                    else => try self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } }),
+                };
+            },
             else => {},
         }
         try self.err(pos, "cannot iterate over `{s}`; a `for` source must be a range `a..b`, an array, a String, or a `Vec`", .{try self.tyName(source_ty)});

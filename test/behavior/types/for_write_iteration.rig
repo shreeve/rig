@@ -1,0 +1,71 @@
+# `for x in !xs` borrows each element of a Vec or array for writing:
+# assigning `x` (or its fields) writes the element in place, and a
+# resource element that is replaced is dropped.
+
+struct P
+  x: Int
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+struct H
+  v: Vec(Int)
+
+sub bump(xs: !Vec(Int))
+  for x in !xs
+    x += 1
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  (!v).push(2)
+  for x in !v
+    x += 10
+  for x, i in !v
+    x = x * i
+  bump(!v)
+  print(v[0], v[1])
+
+  a = [1, 2, 3]
+  for y in !a
+    y *= 3
+  print(a[0], a[2])
+
+  ps: Vec(P) = Vec()
+  (!ps).push(P(x: 1))
+  for p in !ps
+    p.x = 7
+  print(ps[0].x)
+
+  h = H(v: Vec())
+  (!h.v).push(4)
+  for e in !h.v
+    e *= 2
+  print(h.v[0])
+
+  bs: Vec(*B) = Vec()
+  (!bs).push(*B(n: 1))
+  (!bs).push(*B(n: 2))
+  for b in !bs
+    b = *B(n: b.n + 10)
+  for b in ?bs
+    print(b.n)
+  for b in !bs
+    -b
+  print("end")
+
+# expect:
+# 1 13
+# 3 9
+# 7
+# 8
+# drop 1
+# drop 2
+# 11
+# 12
+# end
+# drop 12
+# drop 11

@@ -1,0 +1,26 @@
+# `for x in !xs` write-borrows `xs` for the whole loop, and needs a place
+# it may write.
+
+fun make() -> Vec(Int)
+  Vec()
+
+sub read_only(xs: ?Vec(Int))
+  for x in !xs
+    x += 1
+
+sub main()
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  r = ?v
+  for x in !v
+    x = 2
+  print(r.length())
+  for c in !"abc"
+    print(c)
+  for y in !make()
+    y = 1
+
+# error: cannot write-iterate parameter `xs`
+# error: cannot write-borrow `v` while a read borrow is live
+# error: cannot write-iterate a `String`
+# error: `xs` must be a binding or a field of one

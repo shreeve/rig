@@ -970,7 +970,8 @@ pub const Emitter = struct {
     /// after the new one has been computed (so `a = +a` works), and the
     /// guard is re-armed.
     fn emitRebind(self: *Emitter, local: Local, value: Sexp, is_move: bool) Error!void {
-        if (local.is_ptr and self.sema.symbols.items[local.sym].kind != .param) {
+        const writes_through = self.sema.symbols.items[local.sym].kind == .param or self.sema.symbols.items[local.sym].flags.pattern_bound;
+        if (local.is_ptr and !writes_through) {
             // A borrow local is rebound to borrow something else.
             try self.w.print("{s} = ", .{local.zig_name});
             if (isTagged(value, .@"read") or isTagged(value, .@"write")) try self.emitAddressOf(value.list[1]) else try self.emitBorrowValue(value);
@@ -1090,7 +1091,13 @@ pub const Emitter = struct {
 
     /// `-x`: drop now.
     fn emitDrop(self: *Emitter, sexp: Sexp) Error!void {
-        const local = self.localOf(sexp.list[1]) orelse return self.unsupported(sexp, "this drop");
+        const local = self.localOf(sexp.list[1]) orelse {
+            // An unused borrow or plain value: nothing to release.
+            const sym = self.sema.symbolOf(sexp.list[1]) orelse return self.unsupported(sexp, "this drop");
+            const ty = self.symType(sym) orelse return self.unsupported(sexp, "this drop");
+            if (self.kindOf(ty) == null) return self.w.writeAll("{}");
+            return self.unsupported(sexp, "this drop");
+        };
         if (local.kind) |kind| {
             if (local.guard == .flag) {
                 try self.w.print("{s} = false; ", .{local.flag});
@@ -1292,7 +1299,9 @@ pub const Emitter = struct {
         try self.pushScope();
         try self.writeLabel(label);
         try self.w.writeAll("for (");
-        try self.emitExpr(source);
+        // Writing an array's elements in place iterates through a pointer.
+        const array_ptr = by_ptr and !is_vec and src_ty != null and self.sema.types.get(self.peelBorrows(src_ty.?)) == .array;
+        if (array_ptr) try self.emitAddressOf(source) else try self.emitExpr(source);
         if (is_vec) try self.w.writeAll(".items()");
         // An index nobody reads needs no counter.
         const index_sym: ?SymbolId = if (self.sema.symbolOf(index_binding)) |i| (if (self.usage.used.contains(i)) i else null) else null;
