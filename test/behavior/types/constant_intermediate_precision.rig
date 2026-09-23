@@ -1,0 +1,17 @@
+# A constant expression is computed exactly, so an intermediate value may
+# exceed `Int` as long as the value used fits.
+
+fun rt(x: Int) -> Int
+  x
+
+sub main()
+  a = rt(3)
+  print(((9223372036854775807 + 100) / 2) >> 5)
+  print((9223372036854775807 * 4 / 8) + a)
+  xs = [1, 9223372036854775807 * 2 / 2]
+  print(xs[1])
+
+# expect:
+# 144115188075855873
+# 4611686018427387906
+# 9223372036854775807

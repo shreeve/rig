@@ -1688,6 +1688,88 @@ pub fn srcPos(sexp: Sexp, fallback: u32) u32 {
 }
 
 /// Head tag of a list node, or null.
+/// The value of a constant integer expression: literals, constant
+/// bindings, and arithmetic on them. Null when not constant (or too
+/// large to compute).
+pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?i128 {
+    switch (e) {
+        .src => {
+            const text_ = identAt(ctx.source, e) orelse "";
+            if (isIntLiteralText(text_)) return std.fmt.parseInt(i128, text_, 0) catch null;
+            const id = ctx.symbolOf(e) orelse return null;
+            return ctx.const_ints.get(id);
+        },
+        .list => |items| {
+            const h = headOf(e) orelse return null;
+            if (h == .@"neg") return std.math.negate(constIntOf(ctx, items[1]) orelse return null) catch null;
+            // `a if c else b` with a constant condition: Zig picks the
+            // branch at compile time, so its value is constant.
+            if (h == .@"if" and items.len == 4 and items[3] != .nil) {
+                const c = constBoolOf(ctx, items[1]) orelse return null;
+                return constIntOf(ctx, if (c) items[2] else items[3]);
+            }
+            switch (h) {
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {},
+                else => return null,
+            }
+            const a = constIntOf(ctx, items[1]) orelse return null;
+            const b = constIntOf(ctx, items[2]) orelse return null;
+            return switch (h) {
+                .@"+" => std.math.add(i128, a, b) catch null,
+                .@"-" => std.math.sub(i128, a, b) catch null,
+                .@"*" => std.math.mul(i128, a, b) catch null,
+                .@"/" => if (b == 0) null else @divTrunc(a, b),
+                .@"%" => if (b == 0) null else @rem(a, b),
+                .@"<<" => if (b < 0 or b > 126) null else blk: {
+                    const r = a << @intCast(b);
+                    break :blk if (r >> @intCast(b) == a) r else null;
+                },
+                .@">>" => if (b < 0 or b > 127) null else a >> @intCast(b),
+                .@"&" => a & b,
+                .@"|" => a | b,
+                .@"^" => a ^ b,
+                else => null,
+            };
+        },
+        else => return null,
+    }
+}
+
+/// The value of a constant Bool expression: literals, `not`, `and`,
+/// `or`, and comparisons of constant integers.
+pub fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
+    switch (e) {
+        .src => {
+            const word = identAt(ctx.source, e) orelse "";
+            if (std.mem.eql(u8, word, "true")) return true;
+            if (std.mem.eql(u8, word, "false")) return false;
+            return null;
+        },
+        .list => |items| {
+            const h = headOf(e) orelse return null;
+            switch (h) {
+                .@"not" => return !(constBoolOf(ctx, items[1]) orelse return null),
+                .@"and" => return (constBoolOf(ctx, items[1]) orelse return null) and (constBoolOf(ctx, items[2]) orelse return null),
+                .@"or" => return (constBoolOf(ctx, items[1]) orelse return null) or (constBoolOf(ctx, items[2]) orelse return null),
+                .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
+                    const a = constIntOf(ctx, items[1]) orelse return null;
+                    const b = constIntOf(ctx, items[2]) orelse return null;
+                    return switch (h) {
+                        .@"==" => a == b,
+                        .@"!=" => a != b,
+                        .@"<" => a < b,
+                        .@">" => a > b,
+                        .@"<=" => a <= b,
+                        else => a >= b,
+                    };
+                },
+                else => return null,
+            }
+        },
+        else => return null,
+    }
+}
+
 pub fn headOf(sexp: Sexp) ?Tag {
     if (sexp != .list or sexp.list.len == 0 or sexp.list[0] != .tag) return null;
     return sexp.list[0].tag;

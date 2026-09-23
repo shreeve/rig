@@ -1692,6 +1692,18 @@ pub const Emitter = struct {
         try self.emitBare(e);
     }
 
+    fn emitIntConstant(self: *Emitter, sexp: Sexp, v: i128) Error!void {
+        const t = self.typeOf(sexp);
+        const concrete = t != null and self.sema.types.get(t.?) == .int;
+        if (concrete) {
+            try self.w.writeAll("@as(");
+            try self.emitTypeTy(t.?);
+            return self.w.print(", {d})", .{v});
+        }
+        if (v < 0) return self.w.print("({d})", .{v});
+        try self.w.print("{d}", .{v});
+    }
+
     /// The number type an expression yields, with literal types at their
     /// defaults; null for anything else.
     fn numericValueTy(self: *Emitter, e: Sexp) ?TypeId {
@@ -1804,6 +1816,15 @@ pub const Emitter = struct {
         const saved_rt = self.rt_names;
         defer self.rt_names = saved_rt;
         switch (head) {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^", .@"neg", .@"if" => {
+                // Sema computed a constant integer expression (and checked
+                // that it fits); its value is written as a literal, so Zig
+                // does not evaluate it again with other intermediate types.
+                if (types.constIntOf(self.sema, sexp)) |v| return self.emitIntConstant(sexp, v);
+            },
+            else => {},
+        }
+        switch (head) {
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"neg", .@"index" => self.rt_names = true,
             else => {},
         }
@@ -1872,15 +1893,25 @@ pub const Emitter = struct {
                 try self.emitExpr(items[2]);
                 if (!bare) try self.w.writeAll(")");
             },
-            .@"<<", .@">>" => {
-                // The shift amount is cast to the width Zig requires; the
-                // shifted value has the expression's type.
+            .@"<<" => {
+                // Like `+`, a left shift that loses bits (or the sign)
+                // overflows. The shift amount is cast to the width Zig
+                // requires; the shifted value has the expression's type.
+                try self.w.writeAll("@shlExact(@as(");
+                try self.emitTypeTy(self.typeOf(sexp) orelse self.sema.types.int_id);
+                try self.w.writeAll(", ");
+                try self.emitBare(items[1]);
+                try self.w.writeAll("), @intCast(");
+                try self.emitBare(items[2]);
+                try self.w.writeAll("))");
+            },
+            .@">>" => {
                 if (!bare) try self.w.writeAll("(");
                 try self.w.writeAll("@as(");
                 try self.emitTypeTy(self.typeOf(sexp) orelse self.sema.types.int_id);
                 try self.w.writeAll(", ");
                 try self.emitBare(items[1]);
-                try self.w.print(") {s} @intCast(", .{@tagName(head)});
+                try self.w.writeAll(") >> @intCast(");
                 try self.emitBare(items[2]);
                 try self.w.writeAll(")");
                 if (!bare) try self.w.writeAll(")");

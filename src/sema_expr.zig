@@ -606,7 +606,19 @@ const Checker = struct {
         }
         const else_ty = try self.branch(else_node, expected, position);
         if (expected) |e| return e;
-        return (try self.unify(then_ty, else_ty, firstSrcPos(else_node))) orelse self.t().invalid_id;
+        const u = (try self.unify(then_ty, else_ty, firstSrcPos(else_node))) orelse return self.t().invalid_id;
+        try self.adaptLiteral(then_node, then_ty, u);
+        try self.adaptLiteral(else_node, else_ty, u);
+        return u;
+    }
+
+    /// A branch or element whose value is a literal (`int_literal`) takes
+    /// the type the others settled on, and must fit it.
+    fn adaptLiteral(self: *Checker, node: Sexp, ty: TypeId, target: TypeId) Error!void {
+        if (ty == target) return;
+        var value = node;
+        while (isHead(value, .@"block") and value.list.len >= 2) value = value.list[value.list.len - 1];
+        try self.recordAdapted(value, ty, target);
     }
 
     fn branch(self: *Checker, node: Sexp, expected: ?TypeId, position: Position) Error!TypeId {
@@ -784,6 +796,7 @@ const Checker = struct {
         }
         const scrutinee = try self.synthOperand(items[1]);
         const scrut_pos = firstSrcPos(items[1]);
+        if (scrutinee == self.t().int_literal_id) try self.checkLiteralFits(items[1], self.t().int_id);
         const matchable = switch (self.ctx.types.get(types.unwrapBorrows(self.ctx, scrutinee))) {
             .int, .int_literal, .bool, .invalid, .unknown => true,
             .nominal, .parameterized_nominal, .imported_nominal => types.enumVariantCount(self.ctx, scrutinee) != null,
@@ -794,6 +807,9 @@ const Checker = struct {
         }
 
         var cov: MatchCoverage = .{};
+        const ArmValue = struct { node: Sexp, ty: TypeId };
+        var arm_values: std.ArrayListUnmanaged(ArmValue) = .empty;
+        defer arm_values.deinit(self.ctx.allocator);
         defer cov.deinit(self.ctx.allocator);
         var result: ?TypeId = expected;
 
@@ -815,14 +831,17 @@ const Checker = struct {
                         } else {
                             const ty = try self.synthExpr(body);
                             result = (try self.unify(r, ty, firstSrcPos(body))) orelse r;
+                            try arm_values.append(self.ctx.allocator, .{ .node = body, .ty = ty });
                         }
                     } else {
                         result = try self.synthExpr(body);
+                        if (expected == null) try arm_values.append(self.ctx.allocator, .{ .node = body, .ty = result.? });
                     }
                 },
             }
         }
 
+        if (result) |r| for (arm_values.items) |av| try self.adaptLiteral(av.node, av.ty, r);
         const exhaustive = self.coversAll(&cov, scrutinee);
         if (exhaustive) try self.ctx.recordExhaustive(node);
         if (position == .value and !cov.has_default and !exhaustive and !self.isPoison(scrutinee)) {
@@ -1122,7 +1141,12 @@ const Checker = struct {
             .@"+", .@"-", .@"*", .@"/", .@"%" => self.checkNumericOperands(items, @tagName(head), .numeric),
             .@"&", .@"|", .@"^", .@"<<", .@">>" => self.checkNumericOperands(items, @tagName(head), .integer),
             .@"<", .@">", .@"<=", .@">=" => blk: {
-                _ = try self.checkNumericOperands(items, @tagName(head), .ordered);
+                const ty = try self.checkNumericOperands(items, @tagName(head), .ordered);
+                // Two literal operands are compared as `Int`s.
+                if (ty == self.t().int_literal_id) {
+                    try self.checkLiteralFits(items[1], self.t().int_id);
+                    try self.checkLiteralFits(items[2], self.t().int_id);
+                }
                 break :blk self.t().bool_id;
             },
             .@"==", .@"!=" => self.synthEquality(items),
@@ -1210,86 +1234,12 @@ const Checker = struct {
         return ty;
     }
 
-    /// The value of a constant integer expression: literals, constant
-    /// bindings, and arithmetic on them. Null when not constant (or too
-    /// large to compute).
     fn constInt(self: *Checker, e: Sexp) ?i128 {
-        switch (e) {
-            .src => {
-                const text_ = self.text(e);
-                if (types.isIntLiteralText(text_)) return std.fmt.parseInt(i128, text_, 0) catch null;
-                const id = self.ctx.symbolOf(e) orelse return null;
-                return self.ctx.const_ints.get(id);
-            },
-            .list => |items| {
-                const h = headOf(e) orelse return null;
-                if (h == .@"neg") return std.math.negate(self.constInt(items[1]) orelse return null) catch null;
-                // `a if c else b` with a constant condition: Zig picks the
-                // branch at compile time, so its value is constant.
-                if (h == .@"if" and items.len == 4 and items[3] != .nil) {
-                    const c = self.constBool(items[1]) orelse return null;
-                    return self.constInt(if (c) items[2] else items[3]);
-                }
-                switch (h) {
-                    .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {},
-                    else => return null,
-                }
-                const a = self.constInt(items[1]) orelse return null;
-                const b = self.constInt(items[2]) orelse return null;
-                return switch (h) {
-                    .@"+" => std.math.add(i128, a, b) catch null,
-                    .@"-" => std.math.sub(i128, a, b) catch null,
-                    .@"*" => std.math.mul(i128, a, b) catch null,
-                    .@"/" => if (b == 0) null else @divTrunc(a, b),
-                    .@"%" => if (b == 0) null else @rem(a, b),
-                    .@"<<" => if (b < 0 or b > 126) null else blk: {
-                        const r = a << @intCast(b);
-                        break :blk if (r >> @intCast(b) == a) r else null;
-                    },
-                    .@">>" => if (b < 0 or b > 127) null else a >> @intCast(b),
-                    .@"&" => a & b,
-                    .@"|" => a | b,
-                    .@"^" => a ^ b,
-                    else => null,
-                };
-            },
-            else => return null,
-        }
+        return types.constIntOf(self.ctx, e);
     }
 
-    /// The value of a constant Bool expression: literals, `not`, `and`,
-    /// `or`, and comparisons of constant integers.
     fn constBool(self: *Checker, e: Sexp) ?bool {
-        switch (e) {
-            .src => {
-                const word = self.text(e);
-                if (std.mem.eql(u8, word, "true")) return true;
-                if (std.mem.eql(u8, word, "false")) return false;
-                return null;
-            },
-            .list => |items| {
-                const h = headOf(e) orelse return null;
-                switch (h) {
-                    .@"not" => return !(self.constBool(items[1]) orelse return null),
-                    .@"and" => return (self.constBool(items[1]) orelse return null) and (self.constBool(items[2]) orelse return null),
-                    .@"or" => return (self.constBool(items[1]) orelse return null) or (self.constBool(items[2]) orelse return null),
-                    .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => {
-                        const a = self.constInt(items[1]) orelse return null;
-                        const b = self.constInt(items[2]) orelse return null;
-                        return switch (h) {
-                            .@"==" => a == b,
-                            .@"!=" => a != b,
-                            .@"<" => a < b,
-                            .@">" => a > b,
-                            .@"<=" => a <= b,
-                            else => a >= b,
-                        };
-                    },
-                    else => return null,
-                }
-            },
-            else => return null,
-        }
+        return types.constBoolOf(self.ctx, e);
     }
 
     fn numericOperands(self: *Checker, items: []const Sexp, op: []const u8, req: Requirement) Error!TypeId {
@@ -1411,6 +1361,11 @@ const Checker = struct {
         const b_lit = b == self.t().int_literal_id or b == self.t().float_literal_id;
         if (a_lit and !b_lit) return self.checkExpr(items[1], b);
         if (b_lit and !a_lit) return self.checkExpr(items[2], a);
+        // Two literal operands are compared as `Int`s.
+        if (a == self.t().int_literal_id and b == self.t().int_literal_id) {
+            try self.checkLiteralFits(items[1], self.t().int_id);
+            try self.checkLiteralFits(items[2], self.t().int_id);
+        }
         if (!a_lit and a != b) {
             try self.err(firstSrcPos(items[1]), "cannot compare `{s}` with `{s}` using `{s}`", .{ try self.tyName(a), try self.tyName(b), op });
         }
@@ -1878,6 +1833,7 @@ const Checker = struct {
             try self.err(firstSrcPos(items[2]), "an index must be an integer; got `{s}`", .{try self.tyName(idx_ty)});
         } else if (idx_ty == self.t().int_literal_id) {
             try self.ctx.recordType(items[2], self.t().int_id);
+            try self.checkLiteralFits(items[2], self.t().int_id);
         }
         if (self.isPoison(obj_ty)) return obj_ty;
         const peeled = types.unwrapReadAccess(self.ctx, obj_ty);
@@ -1913,15 +1869,18 @@ const Checker = struct {
             try self.err(firstSrcPos(node), "an empty array literal needs a type annotation (`xs: [0]Int = []`)", .{});
             return self.t().invalid_id;
         }
+        const elem_tys = try self.ctx.arena.allocator().alloc(TypeId, elems.len);
         var elem = try self.synthExpr(elems[0]);
-        for (elems[1..]) |e| {
+        elem_tys[0] = elem;
+        for (elems[1..], 1..) |e, i| {
             const ty = try self.synthExpr(e);
+            elem_tys[i] = ty;
             elem = (try self.unify(elem, ty, firstSrcPos(e))) orelse return self.t().invalid_id;
         }
         const concrete = self.canonical(elem);
         if (concrete != elem) {
             for (elems) |e| try self.checkExpr(e, concrete);
-        }
+        } else for (elems, elem_tys) |e, ty| try self.adaptLiteral(e, ty, concrete);
         if ((try self.ownsResource(concrete, firstSrcPos(node), "puts in an array a value"))) {
             try self.err(firstSrcPos(node), "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try self.tyName(concrete)});
             return self.t().invalid_id;
