@@ -1,5 +1,5 @@
 # A generic body is checked once, for any `T`. Where it copies a `T`,
-# discards one, or leaves one as a temporary, every instantiation must
+# discards one, leaves one as a temporary, or copies one into a closure, every instantiation must
 # use plain data for `T`, including instantiations reached through
 # another generic's body (`Opt(*B)` through `Holder(*B)`).
 
@@ -30,6 +30,13 @@ enum Opt(T)
       .some(v) => v
       .nothing => <d
 
+type Counter(T)
+  v: T
+
+  fun count(?self, x: T) -> Int
+    f = |+x| 1
+    f()
+
 type Holder(T)
   v: T
 
@@ -44,7 +51,11 @@ sub main()
   b: Box(*B) = Box(v: *B(n: 1))
   k: Keeper(*B) = Keeper(v: *B(n: 2))
   h: Holder(*B) = Holder(v: *B(n: 3))
+  c: Counter(*B) = Counter(v: *B(n: 4))
+  i: Counter(Int) = Counter(v: 4)
+  print(i.count(5))
 
 # error: `Box(*B)` cannot use `T = *B`: the generic body copies a `T`
 # error: `Keeper(*B)` cannot use `T = *B`: the generic body discards a value that holds a `T`
 # error: `Opt(*B)` cannot use `T = *B`: the generic body copies a `T`
+# error: `Counter(*B)` cannot use `T = *B`: the generic body copies into a closure a value that holds a `T`

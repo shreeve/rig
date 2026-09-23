@@ -3095,7 +3095,9 @@ const Checker = struct {
         const bound: TypeId = switch (mode) {
             .cap_clone => switch (oty) {
                 .shared, .weak => outer_ty,
-                else => if (self.isCopyValue(outer_ty) or self.isPoison(outer_ty)) outer_ty else blk: {
+                // Inside a generic body, copying a `T` requires plain data.
+                else => if (self.isCopyValue(outer_ty) or self.isPoison(outer_ty) or
+                    (types.maybeDropGlue(self.ctx, outer_ty) and !(try self.ownsResource(outer_ty, pos, "copies into a closure a value")))) outer_ty else blk: {
                     try self.err(pos, "`|+{s}|` copies a Copy value or clones a `*T` / `~T` handle, but `{s}` is `{s}`; move it in with `|<{s}|`, or clone a handle into a local first and capture that", .{ name, name, try self.tyName(outer_ty), name });
                     break :blk self.t().invalid_id;
                 },

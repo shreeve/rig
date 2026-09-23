@@ -1298,15 +1298,18 @@ pub fn symHoldsCell(ctx: *const SemContext, sym: SymbolId, depth: u8) bool {
 /// A value that owns nothing and holds no borrow or type parameter: it
 /// can be copied freely, like a number.
 pub fn isPlainData(ctx: *const SemContext, ty: TypeId) bool {
-    return plainUnder(ctx, ty, 0) and !typeHasDropGlue(ctx, ty);
+    return plainUnder(ctx, ty, false, 0) and !typeHasDropGlue(ctx, ty);
 }
 
-fn plainUnder(ctx: *const SemContext, ty: TypeId, depth: u8) bool {
+/// A type parameter is plain only inside the fields of an instance whose
+/// arguments were checked (`Box(Int)`, `in_fields`); on its own it may be
+/// anything.
+fn plainUnder(ctx: *const SemContext, ty: TypeId, in_fields: bool, depth: u8) bool {
     if (depth > 32) return false;
     return switch (ctx.types.get(ty)) {
         .bool, .int, .float, .string => true,
-        .optional => |i| plainUnder(ctx, i, depth + 1),
-        .array => |a| plainUnder(ctx, a.elem, depth + 1),
+        .optional => |i| plainUnder(ctx, i, in_fields, depth + 1),
+        .array => |a| plainUnder(ctx, a.elem, in_fields, depth + 1),
         .nominal => |sym| fieldsPlain(ctx, ctx.symbols.items[sym].fields orelse return false, depth),
         .imported_nominal => |in| blk: {
             const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk false;
@@ -1314,10 +1317,10 @@ fn plainUnder(ctx: *const SemContext, ty: TypeId, depth: u8) bool {
         },
         .parameterized_nominal => |pn| blk: {
             if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
-            for (pn.args) |a| if (!plainUnder(ctx, a, depth + 1)) break :blk false;
+            for (pn.args) |a| if (!plainUnder(ctx, a, in_fields, depth + 1)) break :blk false;
             break :blk fieldsPlain(ctx, ctx.symbols.items[pn.sym].fields orelse break :blk false, depth);
         },
-        .type_var => true, // covered by the instance's arguments
+        .type_var => in_fields,
         else => false,
     };
 }
@@ -1326,8 +1329,8 @@ fn fieldsPlain(ctx: *const SemContext, fields: []const Field, depth: u8) bool {
     for (fields) |f| {
         if (f.is_method) continue;
         if (f.is_variant) {
-            for (f.payload orelse &.{}) |pf| if (!plainUnder(ctx, pf.ty, depth + 1)) return false;
-        } else if (!plainUnder(ctx, f.ty, depth + 1)) return false;
+            for (f.payload orelse &.{}) |pf| if (!plainUnder(ctx, pf.ty, true, depth + 1)) return false;
+        } else if (!plainUnder(ctx, f.ty, true, depth + 1)) return false;
     }
     return true;
 }
