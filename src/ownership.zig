@@ -138,6 +138,9 @@ const Var = struct {
     /// Element of `for x in ?vec` over a resource Vec: a borrowed view of
     /// the slot.
     loop_borrow: bool = false,
+    /// A loop element: the var holding the collection it walks, whose
+    /// loans are the borrows its elements may hold.
+    elem_of: ?VarId = null,
     /// Resource captured into a closure environment (`|+x|`, `|~x|`,
     /// `|<x|`): the body sees a borrowed view of the env slot.
     capture_resource: bool = false,
@@ -992,8 +995,8 @@ pub const Checker = struct {
     /// Reading `id`: it must be live and not write-borrowed.
     fn checkReadable(self: *Checker, id: VarId, pos: u32) Error!void {
         const v = self.vars.items[id];
-        if (self.isCopy(v.ty)) return;
         if (!try self.checkLive(id, pos)) return;
+        if (self.isCopy(v.ty)) return;
         if (self.findLoan(id, .write, null)) |l| {
             try self.err(pos, "use of `{s}` while a write borrow is live", .{v.name});
             try self.noteLoan(l);
@@ -1169,10 +1172,10 @@ pub const Checker = struct {
             return .{};
         }
         const value = self.varValue(id);
-        if (self.isCopy(v.ty)) return value;
         if (try self.rejectGlobal(id, pos, vt)) return .{};
 
-        if (v.alias_of) |root| return self.movePayload(id, root, pos, value);
+        // A Copy payload is copied out of its scrutinee, which stays whole.
+        if (v.alias_of) |root| if (!self.isCopy(v.ty)) return self.movePayload(id, root, pos, value);
 
         if (self.findLoan(id, .any, null)) |l| {
             switch (l.kind) {
@@ -1182,8 +1185,8 @@ pub const Checker = struct {
             try self.noteLoan(l);
             return .{};
         }
-        // Moving a read borrow copies it; it stays usable.
-        if (v.ref == .read) return value;
+        // `<x` ends `x`, whatever its type: a Copy value or a borrow is
+        // copied out, and the name is done.
         self.markInvalid(id, .moved, pos);
         return value;
     }
@@ -1278,20 +1281,27 @@ pub const Checker = struct {
     }
 
     /// `+x` / `~x`. A new strong or weak handle is independent of the
-    /// borrow it was made through (a loop element, a `?*T` parameter).
+    /// borrow it was made through (a loop element, a `?*T` parameter),
+    /// unless the shared value itself holds borrows (an owned closure
+    /// that captured one, a view): then the new handle reaches them too.
     fn walkCloneWeak(self: *Checker, items: []const Sexp) Error!Value {
         const inner = items[1];
         const v = try self.walk(inner);
         const t = self.pointee(self.exprType(inner)) orelse return v;
-        const handle = switch (self.typeData(t)) {
-            .shared, .weak => true,
+        const boxed: TypeId = switch (self.typeData(t)) {
+            .shared, .weak => |b| b,
             .optional => |o| switch (self.typeData(o)) {
-                .shared, .weak => true,
-                else => false,
+                .shared, .weak => |b| b,
+                else => return v,
             },
-            else => false,
+            else => return v,
         };
-        return if (handle) .{} else v;
+        if (self.typeData(boxed) != .function and !self.typeCarries(boxed, .any, 0)) return .{};
+        // A loop element's own borrows are the ones its collection holds.
+        if (inner == .src) if (self.find(self.text(inner))) |f| if (!f.crossed) {
+            if (self.vars.items[f.id].elem_of) |c| return .{ .loans = self.flows.items[c].loans };
+        };
+        return v;
     }
 
     fn walkDrop(self: *Checker, items: []const Sexp) Error!void {
@@ -1854,9 +1864,9 @@ pub const Checker = struct {
             return .{};
         }
         // A cloned or weak handle is independent of any borrow it was
-        // made through.
+        // made through, but not of borrows the shared value holds.
         if (self.symType(pos)) |t| switch (self.typeData(t)) {
-            .shared, .weak => return .{},
+            .shared, .weak => |b| if (self.typeData(b) != .function and !self.typeCarries(b, .any, 0)) return .{},
             else => {},
         };
         return self.varValue(id);
@@ -2254,6 +2264,7 @@ pub const Checker = struct {
                 .kind = .loop_elem,
                 .ref = self.refOfType(ty),
                 .loop_borrow = spec.resource_vec,
+                .elem_of = if (elem_loans.len > 0) spec.source_root else null,
             }, .{ .loans = if (self.mayCarryBorrow(ty)) elem_loans else &.{} });
         }
         if (spec.elem2 == .src) {

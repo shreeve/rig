@@ -991,10 +991,22 @@ happens:
 | `*x` | share | move `x` into a new shared box ([§10](#10-shared-and-weak-handles)) |
 | `~x` | weak | a weak handle to a shared value ([§10](#10-shared-and-weak-handles)) |
 
-A Copy value can be used freely: a bare use copies it. An explicit `<x`
-still moves it, leaving the name unusable, except for numbers, `Bool`,
-and `String`, which `<x` copies. The rest of this section is about
-owning values.
+A Copy value can be used freely: a bare use copies it. `<x` always
+means "done with `x`", whatever its type: a Copy value or a borrow is
+copied out, and `x` is unusable until it is assigned again. (`<p.f` of a
+Copy field copies the field and leaves `p` whole.) The rest of this
+section is about owning values.
+
+```rig reject
+sub main()
+  n = 1
+  m = <n
+  print(n)
+```
+
+```error
+use of `n` after move
+```
 
 ### Moves
 
