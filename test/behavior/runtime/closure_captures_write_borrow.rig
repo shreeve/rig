@@ -1,0 +1,27 @@
+# A write borrow moved into a closure (`|<w|`) writes through to the
+# borrowed value, from a stack closure or an owned one.
+
+struct Box
+  n: Int
+
+sub main()
+  b = Box(n: 1)
+  if true
+    w = !b
+    f = |<w|
+      w.n += 10
+    f()
+    f()
+  print(b.n)
+  if true
+    v = !b
+    g: *sub() = *|<v|
+      v.n *= 2
+    g()
+    h = +g
+    h()
+  print(b.n)
+
+# expect:
+# 21
+# 84

@@ -3052,10 +3052,7 @@ const Checker = struct {
 
     /// A Copy primitive, or an optional of one.
     fn isCopyValue(self: *Checker, ty: TypeId) bool {
-        return switch (self.ctx.types.get(ty)) {
-            .optional => |inner| types.isCopyPrimitive(self.ctx, inner),
-            else => types.isCopyPrimitive(self.ctx, ty),
-        };
+        return types.isPlainData(self.ctx, ty);
     }
 
     /// Validate one capture against the outer binding and give the
