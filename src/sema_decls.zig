@@ -810,17 +810,26 @@ pub const TypeResolver = struct {
                                 try self.ctx.err(srcPos(mi[1], 0), "field `{s}` needs a type (`{s}: T = value`)", .{ vname, vname });
                                 continue;
                             }
+                            if (head == .@"errors") {
+                                try self.ctx.err(srcPos(mi[1], 0), "error set members have no values; write `{s}`", .{vname});
+                            }
                             if (try self.checkDuplicateMember(fields.items, vname, srcPos(mi[1], 0), sym_name)) continue;
                             try fields.append(self.ctx.allocator, .{ .name = vname, .ty = self.ctx.types.void_id, .decl_pos = srcPos(mi[1], 0), .is_variant = true });
                         },
 .@"variant" => {
-                            if (!is_enum) {
+                            if (!is_enum or head == .@"errors") {
                                 try self.ctx.err(firstSrcPos(m), "only enums declare payload variants", .{});
                                 continue;
                             }
                             try self.resolveVariant(mi, &fields, sym_name);
                         },
-                        .@"fun", .@"sub" => try self.resolveMethod(m, sym_id, &fields),
+                        .@"fun", .@"sub" => {
+                            if (head == .@"errors") {
+                                try self.ctx.err(srcPos(mi[1], 0), "an error set cannot declare methods; write a function that takes the error", .{});
+                                continue;
+                            }
+                            try self.resolveMethod(m, sym_id, &fields);
+                        },
                         .@"read", .@"write" => {
                             const n = identAt(self.ctx.source, mi[1]) orelse "name";
                             try self.ctx.err(types.paramPos(m, 0), "sigil-prefixed member (`?{s}` / `!{s}`) is not allowed in a nominal body; sigil-prefix sugar is only valid for the `self` parameter of a method", .{ n, n });

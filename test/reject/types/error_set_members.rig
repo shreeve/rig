@@ -1,0 +1,17 @@
+# An error set lists plain members: no payloads, values, or methods.
+
+error NetErr
+  timeout
+  refused(code: Int)
+  reset = 3
+
+  fun describe(?self) -> String
+    "err"
+
+sub main()
+  e: NetErr = .timeout
+  print(e)
+
+# error: only enums declare payload variants
+# error: error set members have no values; write `reset`
+# error: an error set cannot declare methods
