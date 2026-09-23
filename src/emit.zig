@@ -133,6 +133,8 @@ pub const Emitter = struct {
     /// Error-set declarations, whose members are spelled `error.x`.
     error_sets: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
     usage: Usage = .{},
+    /// `test` blocks emitted so far: the Rig name literal and the Zig function.
+    tests: std.ArrayListUnmanaged(struct { name: []const u8, func: []const u8 }) = .empty,
     fun: FunState = .{},
     /// Closure bodies being emitted around the current point. Each names
     /// its environment `__rig_self`, `__rig_self1`, ... so a closure
@@ -171,6 +173,7 @@ pub const Emitter = struct {
         self.module_names.deinit(self.allocator);
         self.error_sets.deinit(self.allocator);
         self.usage.deinit(self.allocator);
+        self.tests.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -186,6 +189,7 @@ pub const Emitter = struct {
             try self.w.writeAll("\n");
             try self.emitDecl(decl);
         }
+        try self.emitTestTable();
     }
 
     // =========================================================================
@@ -274,11 +278,22 @@ pub const Emitter = struct {
         try self.w.writeAll(";\n");
     }
 
+    /// `(test "name" body)` → a function listed in the module's
+    /// `__rig_tests` table, which `rig test` runs (`rig.runTests`).
     fn emitTest(self: *Emitter, items: []const Sexp) Error!void {
-        try self.w.print("test {s} ", .{self.srcText(items[1])});
+        const func = try self.fmt("__rig_test_{d}", .{self.tests.items.len});
+        try self.tests.append(self.allocator, .{ .name = self.srcText(items[1]), .func = func });
+        try self.w.print("fn {s}() anyerror!void ", .{func});
         self.fun = .{};
         try self.emitBlock(items[2]);
         try self.w.writeAll("\n");
+    }
+
+    fn emitTestTable(self: *Emitter) Error!void {
+        if (self.tests.items.len == 0) return;
+        try self.w.writeAll("\npub const __rig_tests = [_]rig.Test{\n");
+        for (self.tests.items) |t| try self.w.print("    .{{ .name = {s}, .func = {s} }},\n", .{ t.name, t.func });
+        try self.w.writeAll("};\n");
     }
 
     // -------------------------------------------------------------------------
@@ -470,6 +485,8 @@ pub const Emitter = struct {
 
         self.fun = .{ .return_ty = return_ty, .params = params, .leak_check = is_main };
 
+        // The runtime's panic handler flushes buffered `print` output first.
+        if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
         try self.w.print("pub fn {f}(", .{self.ident(name)});
         try self.pushScope();
         defer self.popScope() catch {};
@@ -549,13 +566,13 @@ pub const Emitter = struct {
         try self.emitType(t);
     }
 
-    /// Statements at the top of a function body: the leak check in
-    /// `main`, parameter copies and guards, and discards for unused
-    /// parameters.
+    /// Statements at the top of a function body: in `main`, the deferred
+    /// `rig.finish()` (flush output, check for leaks), then parameter
+    /// copies and guards, and discards for unused parameters.
     fn emitFunPrologue(self: *Emitter) Error!void {
         if (self.fun.leak_check) {
             self.fun.leak_check = false;
-            try self.line("defer rig.checkLeaks();", .{});
+            try self.line("defer rig.finish();", .{});
         }
         const params = self.fun.params orelse return;
         self.fun.params = null;

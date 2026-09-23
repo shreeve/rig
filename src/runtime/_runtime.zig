@@ -1,5 +1,5 @@
 //! The Rig runtime. `bin/rig` writes this file verbatim next to every
-//! emitted program as `_runtime.zig`; emitted code refers to it as `rig`.
+//! emitted program as `rig/runtime.zig`; emitted code refers to it as `rig`.
 //!
 //! Ownership conventions shared with the emitter:
 //!
@@ -157,16 +157,53 @@ pub fn RcBox(comptime T: type) type {
 
         /// Release one strong handle. The last one drops the value (with
         /// `strong == 0`, so an `upgrade` from inside that drop fails)
-        /// and then the strong side's share of the weak count.
+        /// and then the strong side's share of the weak count. Deep
+        /// chains of boxes are released through `drop_queue` rather than
+        /// by unbounded recursion.
         pub fn dropStrong(self: *Self) void {
             std.debug.assert(self.strong > 0);
             self.strong -= 1;
             if (self.strong > 0) return;
+            if (comptime !needsDrop(T)) return self.releaseValue();
+            if (drop_depth >= max_drop_depth) {
+                drop_queue.append(std.heap.smp_allocator, .{ .box = self, .release = releaseErased }) catch oom();
+                return;
+            }
+            drop_depth += 1;
+            self.releaseValue();
+            drop_depth -= 1;
+            if (drop_depth == 0) drainDropQueue();
+        }
+
+        /// Drop the value, then give up the strong side's weak count.
+        fn releaseValue(self: *Self) void {
             dropElement(T, &self.value);
             self.weak -= 1;
             if (self.weak == 0) self.allocator.destroy(self);
         }
+
+        fn releaseErased(box: *anyopaque) void {
+            releaseValue(@ptrCast(@alignCast(box)));
+        }
     };
+}
+
+// Releasing a box can release the boxes its value holds, recursively: a
+// 200k-node `*Node` list nests 200k drops. Past `max_drop_depth` nested
+// releases, a box whose last strong handle goes is queued instead, and the
+// outermost release drains the queue. Drops still happen in the same
+// order for a chain (each box's value before the next box's), and a
+// queued box already has `strong == 0`, so `upgrade` fails on it.
+
+const max_drop_depth = 256;
+var drop_depth: u32 = 0;
+var drop_queue: std.ArrayListUnmanaged(struct { box: *anyopaque, release: *const fn (*anyopaque) void }) = .empty;
+
+fn drainDropQueue() void {
+    drop_depth += 1;
+    while (drop_queue.pop()) |pending| pending.release(pending.box);
+    drop_depth -= 1;
+    drop_queue.clearAndFree(std.heap.smp_allocator);
 }
 
 /// `~T`: a non-owning handle to an `RcBox(T)`.
@@ -528,39 +565,230 @@ fn oom() noreturn {
 // Process support
 // -----------------------------------------------------------------------------
 
-const leak_checked = @import("builtin").mode == .Debug;
-var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+// Allocation. Debug builds check for leaks: every allocation goes through
+// `LeakChecker`, which records each live block's address and size (no
+// stack traces, so it costs a hash-map update per allocation). At exit a
+// leak is reported with its count and size, and a double or mismatched
+// free panics. Built with `RIG_LEAK_TRACE=1`, the emitted root module
+// declares `__rig_leak_trace`, and the checker sits on Zig's
+// `DebugAllocator`, which prints the stack trace of every leaked
+// allocation (and of double frees) at the cost of capturing one per
+// allocation. Release builds allocate from `smp_allocator` directly.
 
-/// The allocator behind every runtime allocation: a leak-checking
-/// `DebugAllocator` in Debug builds, `smp_allocator` otherwise.
+const builtin = @import("builtin");
+const root = @import("root");
+const leak_checked = builtin.mode == .Debug;
+const leak_trace = leak_checked and @hasDecl(root, "__rig_leak_trace") and root.__rig_leak_trace;
+
+var trace_allocator: std.heap.DebugAllocator(.{}) = .init;
+var leak_checker: LeakChecker = .{};
+
+/// The allocator behind every runtime allocation.
 pub fn defaultAllocator() std.mem.Allocator {
-    return if (leak_checked) debug_allocator.allocator() else std.heap.smp_allocator;
+    return if (leak_checked) leak_checker.allocator() else std.heap.smp_allocator;
+}
+
+/// Tracks every live allocation by address. Its own table lives in
+/// `smp_allocator`, outside the count.
+const LeakChecker = struct {
+    live: std.AutoHashMapUnmanaged(usize, usize) = .empty,
+    bytes: usize = 0,
+
+    const table_allocator = std.heap.smp_allocator;
+
+    fn backing() std.mem.Allocator {
+        return if (leak_trace) trace_allocator.allocator() else std.heap.smp_allocator;
+    }
+
+    fn allocator(self: *LeakChecker) std.mem.Allocator {
+        return .{ .ptr = self, .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free } };
+    }
+
+    fn alloc(ctx: *anyopaque, n: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        const self: *LeakChecker = @ptrCast(@alignCast(ctx));
+        const ptr = backing().rawAlloc(n, alignment, ret_addr) orelse return null;
+        self.live.put(table_allocator, @intFromPtr(ptr), n) catch oom();
+        self.bytes += n;
+        return ptr;
+    }
+
+    /// The recorded size of `memory`, which must be a live allocation.
+    fn entry(self: *LeakChecker, memory: []u8) *usize {
+        const size = self.live.getPtr(@intFromPtr(memory.ptr)) orelse
+            @panic("rig: double free or free of memory that was never allocated");
+        if (size.* != memory.len) @panic("rig: free with the wrong size");
+        return size;
+    }
+
+    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        const self: *LeakChecker = @ptrCast(@alignCast(ctx));
+        const size = self.entry(memory);
+        if (!backing().rawResize(memory, alignment, new_len, ret_addr)) return false;
+        self.bytes = self.bytes - size.* + new_len;
+        size.* = new_len;
+        return true;
+    }
+
+    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+        const self: *LeakChecker = @ptrCast(@alignCast(ctx));
+        _ = self.entry(memory);
+        const ptr = backing().rawRemap(memory, alignment, new_len, ret_addr) orelse return null;
+        _ = self.live.remove(@intFromPtr(memory.ptr));
+        self.live.put(table_allocator, @intFromPtr(ptr), new_len) catch oom();
+        self.bytes = self.bytes - memory.len + new_len;
+        return ptr;
+    }
+
+    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+        const self: *LeakChecker = @ptrCast(@alignCast(ctx));
+        // Under RIG_LEAK_TRACE, let DebugAllocator report a bad free
+        // with its stack traces first.
+        if (leak_trace and !self.live.contains(@intFromPtr(memory.ptr))) backing().rawFree(memory, alignment, ret_addr);
+        _ = self.entry(memory);
+        _ = self.live.remove(@intFromPtr(memory.ptr));
+        self.bytes -= memory.len;
+        backing().rawFree(memory, alignment, ret_addr);
+    }
+};
+
+/// Live allocations and their total size (Debug builds; zero otherwise).
+pub const Usage = struct { count: usize, bytes: usize };
+
+pub fn usage() Usage {
+    return .{ .count = leak_checker.live.count(), .bytes = leak_checker.bytes };
+}
+
+/// Report the allocations live now beyond `before`; true when there are any.
+fn reportLeaks(before: Usage) bool {
+    if (!leak_checked) return false;
+    const now = usage();
+    if (now.count <= before.count) return false;
+    const n = now.count - before.count;
+    std.debug.print("error: rig: memory leak detected: {d} allocation{s} ({d} bytes) never freed\n", .{
+        n, if (n == 1) "" else "s", now.bytes - before.bytes,
+    });
+    if (!leak_trace) std.debug.print("note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig run ...`) to see where each was allocated\n", .{});
+    return true;
 }
 
 /// Deferred first in the emitted `main`, so it runs after all of `main`'s
-/// drops. The allocator has already logged each leak with a stack trace;
-/// exit non-zero so a leaking program never passes.
-pub fn checkLeaks() void {
-    if (!leak_checked) return;
-    if (debug_allocator.deinit() == .leak) {
-        std.debug.print("error: rig: memory leak detected\n", .{});
-        std.process.exit(1);
+/// drops: flush `print` output, then exit non-zero if anything leaked, so
+/// a leaking program never passes.
+pub fn finish() void {
+    flush();
+    if (!reportLeaks(.{ .count = 0, .bytes = 0 })) return;
+    if (leak_trace) _ = trace_allocator.deinit();
+    std.process.exit(1);
+}
+
+// Output. `print` writes to one process-wide buffer, flushed when the
+// program finishes, before a panic message, and after every `print`
+// when stdout is a terminal.
+
+var stdout_buffer: [8192]u8 = undefined;
+var stdout_writer: ?std.Io.File.Writer = null;
+var stdout_is_tty = false;
+
+fn stdout() *std.Io.Writer {
+    if (stdout_writer == null) {
+        const io = std.Io.Threaded.global_single_threaded.io();
+        const file = std.Io.File.stdout();
+        stdout_is_tty = file.isTty(io) catch false;
+        stdout_writer = file.writerStreaming(io, &stdout_buffer);
     }
+    return &stdout_writer.?.interface;
+}
+
+/// Write out everything `print` has buffered.
+pub fn flush() void {
+    if (stdout_writer) |*w| w.interface.flush() catch {};
 }
 
 /// `print(a, b, ...)`: the values separated by single spaces, then a
-/// newline; flushed per call, so output interleaves correctly with
-/// panics and diagnostics on stderr.
+/// newline.
 pub fn print(args: anytype) void {
-    var buffer: [1024]u8 = undefined;
-    var fw = std.Io.File.stdout().writerStreaming(std.Io.Threaded.global_single_threaded.io(), &buffer);
-    const w = &fw.interface;
+    const w = stdout();
     inline for (std.meta.fields(@TypeOf(args)), 0..) |f, i| {
         if (i > 0) w.writeAll(" ") catch {};
         writeValue(w, @field(args, f.name), true) catch {};
     }
     w.writeAll("\n") catch {};
-    w.flush() catch {};
+    if (stdout_is_tty) flush();
+}
+
+/// The root panic handler of every emitted program: buffered output
+/// comes first, then the panic message and stack trace on stderr.
+pub const panic = std.debug.FullPanic(panicAfterFlush);
+
+var panicking = false;
+
+fn panicAfterFlush(msg: []const u8, first_trace_addr: ?usize) noreturn {
+    if (!panicking) {
+        panicking = true;
+        if (current_test) |t| stdout().print("FAIL  {f}: panicked\n", .{t}) catch {};
+        flush();
+    }
+    std.debug.defaultPanic(msg, first_trace_addr orelse @returnAddress());
+}
+
+// Tests. `rig test` builds a driver whose `main` calls `runTests` with
+// the `__rig_tests` table of every module. Each test runs in order; it
+// fails when it returns an error or (in Debug builds) leaks. A panic
+// ends the run, naming the test that panicked.
+
+/// One `test "name"` block.
+pub const Test = struct {
+    name: []const u8,
+    func: *const fn () anyerror!void,
+};
+
+/// The tests of one module; `module` is empty for the root module.
+pub const TestModule = struct {
+    module: []const u8,
+    tests: []const Test,
+};
+
+const TestName = struct {
+    module: []const u8,
+    name: []const u8,
+
+    pub fn format(self: TestName, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        try w.print("test \"{s}\"", .{self.name});
+        if (self.module.len > 0) try w.print(" ({s})", .{self.module});
+    }
+};
+
+var current_test: ?TestName = null;
+
+/// Run every test, reporting each on stdout; exit 1 if any failed.
+pub fn runTests(modules: []const TestModule) void {
+    const w = stdout();
+    var passed: usize = 0;
+    var failed: usize = 0;
+    for (modules) |m| for (m.tests) |t| {
+        const name: TestName = .{ .module = m.module, .name = t.name };
+        current_test = name;
+        const before = usage();
+        const result = t.func();
+        current_test = null;
+        flush();
+        if (result) |_| {
+            if (reportLeaks(before)) {
+                w.print("FAIL  {f}: memory leak\n", .{name}) catch {};
+                failed += 1;
+            } else {
+                w.print("ok    {f}\n", .{name}) catch {};
+                passed += 1;
+            }
+        } else |err| {
+            w.print("FAIL  {f}: error.{s}\n", .{ name, @errorName(err) }) catch {};
+            failed += 1;
+        }
+        flush();
+    };
+    w.print("{d} passed, {d} failed\n", .{ passed, failed }) catch {};
+    flush();
+    if (failed > 0) std.process.exit(1);
 }
 
 fn isString(comptime T: type) bool {
@@ -825,6 +1053,36 @@ test "values print the way Rig writes them" {
     try w.writeAll(" ");
     try writeValue(&w, @as(?[]const u8, "hi"), true);
     try testing.expectEqualStrings("P(name: \"a\", n: none) .rect(w: 2, h: 3) [\"x\", \"y\"] hi", w.buffered());
+}
+
+test "the leak checker counts live allocations" {
+    if (!leak_checked) return error.SkipZigTest;
+    const a = defaultAllocator();
+    const before = usage();
+    const block = try a.alloc(u8, 10);
+    try testing.expectEqual(before.count + 1, usage().count);
+    try testing.expectEqual(before.bytes + 10, usage().bytes);
+    const grown = try a.realloc(block, 4000);
+    try testing.expectEqual(before.bytes + 4000, usage().bytes);
+    a.free(grown);
+    try testing.expectEqual(before, usage());
+}
+
+test "dropping a long chain of boxes does not recurse per link" {
+    const Link = struct {
+        next: ?*RcBox(@This()),
+        drops: *usize,
+        pub fn __rig_drop(self: *@This()) void {
+            self.drops.* += 1;
+            dropFields(self);
+        }
+    };
+    var drops: usize = 0;
+    var head: ?*RcBox(Link) = null;
+    for (0..100_000) |_| head = try RcBox(Link).new(testing.allocator, .{ .next = head, .drops = &drops });
+    drop(&head);
+    try testing.expectEqual(100_000, drops);
+    try testing.expectEqual(0, drop_depth);
 }
 
 test "take clears the alive flag" {
