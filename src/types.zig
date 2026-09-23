@@ -321,7 +321,7 @@ pub const SymbolKind = enum {
     function,
     param,
     /// Block-local binding: `x = ...`, `new x = ...`, loop and pattern
-    /// bindings, `catch` / `as` names.
+    /// bindings, and `catch` names.
     local,
     /// `type UserId = Int`. Transparent: the alias's `ty` is its target.
     type_alias,
@@ -355,7 +355,7 @@ pub const SymbolFlags = packed struct(u8) {
     /// Value known at compile time: a `pre` parameter, or a `=!` binding
     /// initialized with a compile-time-known expression.
     comptime_known: bool = false,
-    /// Bound by a `for` loop, a match pattern, or `as`: not assignable.
+    /// Bound by a `for` loop or a match pattern: not assignable.
     pattern_bound: bool = false,
     /// Assigned again after its declaration (`=`, `<-`, `+=`, ...):
     /// lowers to a Zig `var`.

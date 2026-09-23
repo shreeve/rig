@@ -1,5 +1,5 @@
 //! Expression checking: the bodies of functions, methods, lambdas, and
-//! tests, plus module-level bindings.
+//! tests.
 //!
 //! Two entry points drive everything:
 //!
