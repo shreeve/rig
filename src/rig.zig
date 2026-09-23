@@ -381,6 +381,11 @@ pub const Lexer = struct {
     // Indentation: `levels[0..depth]` are the enclosing block columns.
     levels: [max_indent_depth]u32 = undefined,
     depth: u32 = 0,
+    /// Per depth: the current line there opened a block that `else` or
+    /// `catch` may continue (it has a block `if`, `while`, `for`, or
+    /// `try`). An `else` after any other block (a match arm) is a new
+    /// line.
+    takes_else: [max_indent_depth + 1]bool = @splat(false),
     column: u32 = 0,
     pending_outdents: u32 = 0,
     pending_newline: bool = false,
@@ -392,6 +397,9 @@ pub const Lexer = struct {
 
     /// Category of the last token returned.
     last_cat: TokenCat = .eof,
+    /// End of the last real (non-layout) token: where an unexpected end
+    /// of block or file is reported.
+    prev_end: u32 = 0,
     /// A newline or `\` continuation was skipped since the last token.
     joined: bool = false,
     /// Position of the `|` that closes the capture list being lexed.
@@ -448,7 +456,10 @@ pub const Lexer = struct {
     pub fn next(self: *Lexer) Token {
         const tok = self.produce();
         self.last_cat = tok.cat;
-        if (tok.cat != .newline and tok.cat != .indent and tok.cat != .outdent) self.joined = false;
+        if (tok.len > 0) { // a real token, not layout
+            self.joined = false;
+            self.prev_end = tok.pos + tok.len;
+        }
         return tok;
     }
 
@@ -545,9 +556,13 @@ pub const Lexer = struct {
             self.levels[self.depth] = self.column;
             self.depth += 1;
             self.column = width;
+            self.takes_else[self.depth] = false;
             return synthetic(.indent, pos);
         }
-        if (width == self.column) return nl;
+        if (width == self.column) {
+            self.takes_else[self.depth] = false;
+            return nl;
+        }
 
         var closed: u32 = 0;
         while (self.column > width) {
@@ -559,23 +574,25 @@ pub const Lexer = struct {
         if (self.column != width) return self.fail(.bad_dedent, pos);
 
         self.pending_outdents = closed - 1;
-        self.pending_newline = !self.continuesBlock(pos);
         self.pending_pos = pos;
+        if (self.takes_else[self.depth] and self.startsWithContinuation(pos)) {
+            self.pending_newline = false;
+        } else {
+            self.pending_newline = true;
+            self.takes_else[self.depth] = false;
+        }
         return synthetic(.outdent, pos);
     }
 
-    /// True when the line at `pos` continues the construct whose block
-    /// just closed: `else ...` (but not an `else =>` match arm) or
-    /// `catch ...`. No NEWLINE separates the two.
-    fn continuesBlock(self: *const Lexer, pos: u32) bool {
+    /// The line at `pos` starts with `else` or `catch`, which continue the
+    /// block that just closed, so no NEWLINE separates them.
+    fn startsWithContinuation(self: *const Lexer, pos: u32) bool {
         var probe = self.base;
         probe.pos = pos;
         const tok = probe.matchRules();
         if (tok.cat != .ident) return false;
         const word = self.base.text(tok);
-        if (std.mem.eql(u8, word, "catch")) return true;
-        if (!std.mem.eql(u8, word, "else")) return false;
-        return probe.matchRules().cat != .fat_arrow;
+        return std.mem.eql(u8, word, "else") or std.mem.eql(u8, word, "catch");
     }
 
     fn endOfInput(self: *Lexer, eof: Token) Token {
@@ -624,6 +641,10 @@ pub const Lexer = struct {
             .err => return self.fail(self.lexErrorAt(tok), tok.pos),
             else => tok.cat,
         };
+        switch (out.cat) {
+            .@"if", .@"while", .@"for", .@"try" => self.takes_else[self.depth] = true,
+            else => {},
+        }
         return out;
     }
 
@@ -820,6 +841,12 @@ fn isIdentCont(c: u8) bool {
 
 pub const Parser = struct {
     base: BaseParser,
+    /// Set when parsing succeeded but the tree was rejected.
+    failure: ?Diagnostic = null,
+
+    /// Every pass walks the tree recursively; deeper trees are rejected
+    /// here instead of exhausting the stack later.
+    pub const max_tree_depth = 1000;
 
     pub fn init(alloc: std.mem.Allocator, source: []const u8) Parser {
         return .{ .base = BaseParser.init(alloc, source) };
@@ -832,20 +859,65 @@ pub const Parser = struct {
     /// Parse and rewrite into the semantic IR. On `error.ParseError`,
     /// `diagnostic()` describes the failure.
     pub fn parseProgram(self: *Parser) !Sexp {
-        const raw = try self.base.parseProgram();
-        return self.rewrite(raw);
+        return self.walk(try self.parseTree());
     }
 
-    /// The error at the token where parsing stopped.
+    /// Parse without the IR rewrites: the grammar's own output.
+    pub fn parseTree(self: *Parser) !Sexp {
+        // A file with no statements is an empty module; the grammar's
+        // `program` needs at least one.
+        if (self.base.current.cat == .eof) {
+            const empty = try self.allocator().alloc(Sexp, 1);
+            empty[0] = .{ .tag = .@"module" };
+            return .{ .list = empty };
+        }
+        const tree = try self.base.parseProgram();
+        if (tooDeep(tree, 0)) |pos| {
+            self.failure = .{ .pos = pos, .message = "expression is nested too deeply" };
+            return error.ParseError;
+        }
+        return tree;
+    }
+
+    /// Position inside the first subtree nested deeper than
+    /// `max_tree_depth`, or null.
+    fn tooDeep(sexp: Sexp, depth: u32) ?u32 {
+        const items = switch (sexp) {
+            .list => |l| l,
+            else => return null,
+        };
+        if (depth == max_tree_depth) return firstPos(sexp);
+        for (items) |item| if (tooDeep(item, depth + 1)) |pos| return pos;
+        return null;
+    }
+
+    /// The first source position in `sexp` (without recursion: the
+    /// subtree may be arbitrarily deep).
+    fn firstPos(sexp: Sexp) u32 {
+        var node = sexp;
+        descend: while (node == .list) {
+            for (node.list) |item| if (item == .src) return item.src.pos;
+            for (node.list) |item| if (item == .list) {
+                node = item;
+                continue :descend;
+            };
+            break;
+        }
+        return if (node == .src) node.src.pos else 0;
+    }
+
+    /// Why parsing failed: at the token where the parser stopped, or the
+    /// rejected tree.
     pub fn diagnostic(self: *Parser) Diagnostic {
+        if (self.failure) |f| return f;
         const tok = self.base.current;
         const src = self.base.source;
         const message: []const u8 = switch (tok.cat) {
             .err => self.base.lexer.err.message(),
-            .eof => "unexpected end of file",
+            .eof => return .{ .pos = self.base.lexer.prev_end, .message = "unexpected end of file" },
+            .outdent => return .{ .pos = self.base.lexer.prev_end, .message = "unexpected end of block" },
             .newline => "unexpected end of line",
             .indent => "unexpected indentation",
-            .outdent => "unexpected end of block",
             .post_if => "a postfix `if` guard must end a statement; write `a if c else b` for a value",
             .ident => self.format("unexpected name `{s}`", .{src[tok.pos..][0..tok.len]}),
             else => if (keyword(src[tok.pos..][0..tok.len]) != null)

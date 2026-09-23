@@ -438,9 +438,14 @@ cond     = value
 
 cmd      = postfix cmdargs                  → (call 1 ...2)
 
-cmdargs  = L(expr)                          → (...1)
-         | L(expr) "," cmdtail              → (...1 3)
+# These argument lists are written out rather than `L(expr)`: Nexus lists
+# are greedy, so `L(expr) "," cmdtail` could never reach its cmdtail.
+cmdargs  = exprs                            → 1
+         | exprs "," cmdtail                → (...1 3)
          | cmdtail                          → (1)
+
+exprs    = expr                             → (1)
+         | exprs "," expr                   → (...1 3)
 
 cmdtail  = cmd
          | captures lparams cbody           → (lambda 1 2 _ 3)
@@ -541,10 +546,13 @@ postfix  = postfix "." name                 → (member 1 3)
          | postfix SUFFIX_BANG              → (propagate 1)
          | atom
 
-args     = L(callarg)                       → (...1)
-         | L(callarg) "," cmdtail           → (...1 3)
+args     = callargs                         → 1
+         | callargs "," cmdtail             → (...1 3)
          | cmdtail                          → (1)
          |                                  → ()
+
+callargs = callarg                          → (1)
+         | callargs "," callarg             → (...1 3)
 
 callarg  = KWARG_NAME ":" expr              → (kwarg 1 3)
          | expr

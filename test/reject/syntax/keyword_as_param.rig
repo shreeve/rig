@@ -1,0 +1,9 @@
+# Every keyword is reserved: `in` cannot name a parameter.
+
+sub show(in: Int)
+  print(in)
+
+sub main()
+  show(1)
+
+# error: unexpected keyword `in`

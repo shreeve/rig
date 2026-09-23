@@ -96,7 +96,7 @@ fn printTree(allocator: std.mem.Allocator, io: std.Io, path: []const u8, source:
     var p = parser.Parser.init(allocator, source);
     defer p.deinit();
     const tree = switch (stage) {
-        .raw => p.base.parseProgram(),
+        .raw => p.parseTree(),
         .semantic => p.parseProgram(),
     } catch |err| switch (err) {
         error.ParseError => {
@@ -152,6 +152,7 @@ fn build(allocator: std.mem.Allocator, io: std.Io, env: *const std.process.Envir
 fn run(allocator: std.mem.Allocator, io: std.Io, env: *const std.process.Environ.Map, path: []const u8) !void {
     var graph = try loadProject(allocator, io, path);
     defer graph.deinit();
+    if (!declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
     const root_zig = try emitProject(allocator, io, env, &graph);
 
     var child = try std.process.spawn(io, .{
@@ -167,6 +168,18 @@ fn run(allocator: std.mem.Allocator, io: std.Io, env: *const std.process.Environ
         },
         else => std.process.exit(1),
     }
+}
+
+fn declaresMain(m: *const modules.Module) bool {
+    if (m.ir != .list) return false;
+    for (m.ir.list[1..]) |top| {
+        var decl = top;
+        if (decl == .list and decl.list.len == 2 and decl.list[0] == .tag and decl.list[0].tag == .@"pub") decl = decl.list[1];
+        if (decl != .list or decl.list.len < 2 or decl.list[0] != .tag) continue;
+        if (decl.list[0].tag != .@"sub" and decl.list[0].tag != .@"fun") continue;
+        if (std.mem.eql(u8, decl.list[1].getText(m.source), "main")) return true;
+    }
+    return false;
 }
 
 /// Write the runtime and every module to the output directory; return

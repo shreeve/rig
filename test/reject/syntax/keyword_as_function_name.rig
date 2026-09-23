@@ -1,0 +1,9 @@
+# Every keyword is reserved: `match` cannot name a function.
+
+fun match() -> Int
+  1
+
+sub main()
+  print(0)
+
+# error: unexpected keyword `match`
