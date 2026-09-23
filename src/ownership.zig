@@ -167,11 +167,32 @@ const Scope = struct {
     defers: std.ArrayListUnmanaged(Sexp) = .empty,
 };
 
-/// A snapshot of the flow state at one program point.
-const State = struct {
-    flows: []const Flow,
+/// One change to a var's flow, kept so it can be undone.
+const Change = struct { id: VarId, old: Flow };
+
+/// A program point to come back to: the length of the change trail and
+/// of the var stack there, the temporaries, and whether it is
+/// reachable. Branches, loops, and jumps capture their states relative
+/// to one, so a state costs what changed since, not the whole scope.
+const Point = struct {
+    trail: u32,
+    vars: u32,
     temps: []const Loan,
     reachable: bool,
+};
+
+/// The flow of one var in a captured state.
+const Entry = struct { id: VarId, flow: Flow };
+
+/// The state at a program point, relative to an earlier `Point`: the
+/// vars (of those in scope there) whose flow differs from it, sorted by
+/// var, plus the temporaries and reachability. States relative to one
+/// point are joined and compared only while the current state is that
+/// point's.
+const State = struct {
+    changes: []const Entry = &.{},
+    temps: []const Loan = &.{},
+    reachable: bool = true,
 };
 
 /// The abstract value of an expression: the loans it carries.
@@ -191,8 +212,9 @@ const FnCtx = struct {
 const LoopCtx = struct {
     /// The `:label` naming it, or empty.
     label: []const u8 = "",
-    /// Number of vars in scope at loop entry.
-    depth: u32,
+    /// The state at loop entry; `breaks` and `conts` are relative to it.
+    /// Its var count is the number of vars in scope at loop entry.
+    point: Point,
     /// Number of scopes open at loop entry.
     scope_depth: usize,
     breaks: std.ArrayListUnmanaged(State) = .empty,
@@ -203,11 +225,11 @@ const LoopCtx = struct {
 };
 
 const TryCtx = struct {
-    /// Number of vars and scopes at entry to the try body.
-    depth: u32,
+    /// The state at entry to the try body.
+    point: Point,
     scope_depth: usize,
-    /// Join of the states at every `!` propagation in the try body.
-    fail: ?State = null,
+    /// The states at every `!` propagation in the try body.
+    fails: std.ArrayListUnmanaged(State) = .empty,
 };
 
 /// Where a value is being consumed, for alias diagnostics.
@@ -261,7 +283,15 @@ const PlainRequirement = struct {
 
 pub const Checker = struct {
     gpa: std.mem.Allocator,
+    /// Allocations that outlive a function: module-level walks and the
+    /// instantiation checks.
     arena_state: std.heap.ArenaAllocator,
+    /// Allocations made while checking one module-level function (loans,
+    /// captured states, message text): reset when it is done, so memory
+    /// follows the function being checked, not the whole module.
+    fn_arena_state: std.heap.ArenaAllocator,
+    /// Depth of `walkFun` calls; `arena()` is the function arena inside one.
+    fn_depth: u32 = 0,
     source: []const u8,
     sema: ?*const types.SemContext = null,
     diagnostics: std.ArrayListUnmanaged(Diagnostic) = .empty,
@@ -276,6 +306,11 @@ pub const Checker = struct {
     /// statements without one of their own (`break`, `continue`).
     anchor: u32 = 0,
     flows: std.ArrayListUnmanaged(Flow) = .empty,
+    /// Every change to `flows`, so a branch can be undone back to a
+    /// `Point` instead of copying the whole state (see `setFlow`).
+    trail: std.ArrayListUnmanaged(Change) = .empty,
+    /// Scratch space for `capture`.
+    scratch: std.ArrayListUnmanaged(VarId) = .empty,
     scopes: std.ArrayListUnmanaged(Scope) = .empty,
     /// Loans taken by the current statement and not stored in a var.
     temps: std.ArrayListUnmanaged(Loan) = .empty,
@@ -304,6 +339,7 @@ pub const Checker = struct {
         var c = Checker{
             .gpa = allocator,
             .arena_state = std.heap.ArenaAllocator.init(allocator),
+            .fn_arena_state = std.heap.ArenaAllocator.init(allocator),
             .source = source,
         };
         try c.scopes.append(allocator, .{ .start = 0, .kind = .function });
@@ -322,9 +358,12 @@ pub const Checker = struct {
         self.vars.deinit(self.gpa);
         self.plain_reqs.deinit(self.gpa);
         self.flows.deinit(self.gpa);
+        self.trail.deinit(self.gpa);
+        self.scratch.deinit(self.gpa);
         for (self.scopes.items) |*s| s.defers.deinit(self.gpa);
         self.scopes.deinit(self.gpa);
         self.temps.deinit(self.gpa);
+        self.fn_arena_state.deinit();
         self.arena_state.deinit();
     }
 
@@ -379,6 +418,7 @@ pub const Checker = struct {
     }
 
     fn arena(self: *Checker) std.mem.Allocator {
+        if (self.fn_depth > 0) return self.fn_arena_state.allocator();
         return self.arena_state.allocator();
     }
 
@@ -449,12 +489,14 @@ pub const Checker = struct {
     /// Remove every loan on vars `>= start` from vars below `start` and
     /// from the temporaries, reporting each surviving loan when `report`.
     fn releaseVarsFrom(self: *Checker, start: u32, report: bool) Error!void {
-        for (self.flows.items[0..@min(start, self.flows.items.len)], 0..) |*f, holder| {
+        for (0..@min(start, self.flows.items.len)) |holder| {
+            var f = self.flows.items[holder];
             if (!hasLoanFrom(f.loans, start)) continue;
             if (report) {
                 for (f.loans) |l| if (l.root >= start) try self.reportShortLived(l, @intCast(holder));
             }
             f.loans = try self.filterLoansBelow(f.loans, start);
+            try self.setFlow(@intCast(holder), f);
         }
         var i: usize = 0;
         while (i < self.temps.items.len) {
@@ -528,63 +570,148 @@ pub const Checker = struct {
     }
 
     // -------------------------------------------------------------------------
-    // State: snapshot, restore, join
+    // State: points, captured states, join
     // -------------------------------------------------------------------------
 
-    fn snapshot(self: *Checker) Error!State {
+    /// Every write to a var's flow goes through here, so it can be undone.
+    fn setFlow(self: *Checker, id: VarId, flow: Flow) Error!void {
+        try self.trail.append(self.gpa, .{ .id = id, .old = self.flows.items[id] });
+        self.flows.items[id] = flow;
+    }
+
+    /// The current program point.
+    fn here(self: *Checker) Error!Point {
         return .{
-            .flows = try self.arena().dupe(Flow, self.flows.items),
+            .trail = @intCast(self.trail.items.len),
+            .vars = @intCast(self.vars.items.len),
             .temps = try self.arena().dupe(Loan, self.temps.items),
             .reachable = self.reachable,
         };
     }
 
-    fn restore(self: *Checker, s: State) Error!void {
-        const n = @min(s.flows.len, self.flows.items.len);
-        @memcpy(self.flows.items[0..n], s.flows[0..n]);
+    /// Go back to point `p`: undo every change since. The var stack is
+    /// back at `p`'s depth whenever this is called (scopes are balanced),
+    /// so changes to vars that have left scope since are skipped.
+    fn rewind(self: *Checker, p: Point) Error!void {
+        var i = self.trail.items.len;
+        while (i > p.trail) {
+            i -= 1;
+            const c = self.trail.items[i];
+            if (c.id < self.flows.items.len) self.flows.items[c.id] = c.old;
+        }
+        self.trail.shrinkRetainingCapacity(p.trail);
+        self.temps.clearRetainingCapacity();
+        try self.temps.appendSlice(self.gpa, p.temps);
+        self.reachable = p.reachable;
+    }
+
+    /// The state at point `p` itself.
+    fn stateAt(p: Point) State {
+        return .{ .temps = p.temps, .reachable = p.reachable };
+    }
+
+    /// The current state relative to point `p`.
+    fn capture(self: *Checker, p: Point) Error!State {
+        return self.captureBelow(p, p.vars);
+    }
+
+    /// The current state relative to point `p`, keeping only the first
+    /// `len` vars and the loans on them: the state a jump carries out of
+    /// the scopes above `len`.
+    fn captureBelow(self: *Checker, p: Point, len: u32) Error!State {
+        self.scratch.clearRetainingCapacity();
+        for (self.trail.items[p.trail..]) |c| {
+            if (c.id < len and c.id < self.flows.items.len) try self.scratch.append(self.gpa, c.id);
+        }
+        std.mem.sort(VarId, self.scratch.items, {}, std.sort.asc(VarId));
+        var entries: std.ArrayListUnmanaged(Entry) = .empty;
+        var prev: ?VarId = null;
+        for (self.scratch.items) |id| {
+            if (prev == id) continue;
+            prev = id;
+            var f = self.flows.items[id];
+            f.loans = try self.filterLoansBelow(f.loans, len);
+            try entries.append(self.arena(), .{ .id = id, .flow = f });
+        }
+        return .{
+            .changes = entries.items,
+            .temps = try self.arena().dupe(Loan, try self.filterLoansBelow(self.temps.items, len)),
+            .reachable = self.reachable,
+        };
+    }
+
+    /// Make state `s` current. The current state must be its point's.
+    fn apply(self: *Checker, s: State) Error!void {
+        for (s.changes) |e| try self.setFlow(e.id, e.flow);
         self.temps.clearRetainingCapacity();
         try self.temps.appendSlice(self.gpa, s.temps);
         self.reachable = s.reachable;
     }
 
-    fn unreachableState(self: *Checker) Error!State {
-        var s = try self.snapshot();
-        s.reachable = false;
-        return s;
-    }
-
-    /// The single merge operator of the analysis.
+    /// The single merge operator of the analysis: moved or dropped on
+    /// either path is moved or dropped, and loans are unioned. `a` and `b`
+    /// are relative to one point, which must be the current state.
     fn join(self: *Checker, a: State, b: State) Error!State {
         if (!a.reachable) return b;
         if (!b.reachable) return a;
-        const n = @min(a.flows.len, b.flows.len);
-        const flows = try self.arena().alloc(Flow, n);
-        for (flows, a.flows[0..n], b.flows[0..n]) |*out, fa, fb| {
-            const status: Status = @enumFromInt(@max(@intFromEnum(fa.status), @intFromEnum(fb.status)));
-            out.* = .{
-                .status = status,
-                .at = if (fa.status == status) fa.at else fb.at,
-                .loans = try self.unionLoans(fa.loans, fb.loans),
-            };
+        var out: std.ArrayListUnmanaged(Entry) = .empty;
+        var i: usize = 0;
+        var j: usize = 0;
+        while (i < a.changes.len or j < b.changes.len) {
+            const id: VarId = if (j >= b.changes.len or (i < a.changes.len and a.changes[i].id < b.changes[j].id))
+                a.changes[i].id
+            else
+                b.changes[j].id;
+            const base = self.flows.items[id];
+            var fa = base;
+            var fb = base;
+            if (i < a.changes.len and a.changes[i].id == id) {
+                fa = a.changes[i].flow;
+                i += 1;
+            }
+            if (j < b.changes.len and b.changes[j].id == id) {
+                fb = b.changes[j].flow;
+                j += 1;
+            }
+            const joined = try self.joinFlow(fa, fb);
+            if (!flowEql(joined, base)) try out.append(self.arena(), .{ .id = id, .flow = joined });
         }
-        return .{ .flows = flows, .temps = try self.unionLoans(a.temps, b.temps), .reachable = true };
+        return .{ .changes = out.items, .temps = try self.unionLoans(a.temps, b.temps), .reachable = true };
     }
 
-    fn statesEql(a: State, b: State) bool {
+    fn joinFlow(self: *Checker, fa: Flow, fb: Flow) Error!Flow {
+        const status: Status = @enumFromInt(@max(@intFromEnum(fa.status), @intFromEnum(fb.status)));
+        return .{
+            .status = status,
+            .at = if (fa.status == status) fa.at else fb.at,
+            .loans = try self.unionLoans(fa.loans, fb.loans),
+        };
+    }
+
+    /// Whether two states relative to the current point are the same.
+    fn statesEql(self: *const Checker, a: State, b: State) bool {
         if (a.reachable != b.reachable) return false;
-        if (a.flows.len != b.flows.len) return false;
-        for (a.flows, b.flows) |fa, fb| {
-            if (fa.status != fb.status) return false;
-            if (!loanSetEql(fa.loans, fb.loans)) return false;
+        if (!loanSetEql(a.temps, b.temps)) return false;
+        var i: usize = 0;
+        var j: usize = 0;
+        while (i < a.changes.len or j < b.changes.len) {
+            const id: VarId = if (j >= b.changes.len or (i < a.changes.len and a.changes[i].id < b.changes[j].id))
+                a.changes[i].id
+            else
+                b.changes[j].id;
+            var fa = self.flows.items[id];
+            var fb = fa;
+            if (i < a.changes.len and a.changes[i].id == id) {
+                fa = a.changes[i].flow;
+                i += 1;
+            }
+            if (j < b.changes.len and b.changes[j].id == id) {
+                fb = b.changes[j].flow;
+                j += 1;
+            }
+            if (!flowEql(fa, fb)) return false;
         }
-        return loanSetEql(a.temps, b.temps);
-    }
-
-    /// Restrict a state to the first `len` vars (leaving their scopes).
-    fn truncState(self: *Checker, s: State, len: u32) Error!State {
-        const flows = try self.arena().dupe(Flow, s.flows[0..@min(len, s.flows.len)]);
-        for (flows) |*f| f.loans = try self.filterLoansBelow(f.loans, len);
-        return .{ .flows = flows, .temps = try self.filterLoansBelow(s.temps, len), .reachable = s.reachable };
+        return true;
     }
 
     fn unionLoans(self: *Checker, a: []const Loan, b: []const Loan) Error![]const Loan {
@@ -687,12 +814,20 @@ pub const Checker = struct {
         self.func = .{ .ret_may_borrow = returns_value and self.returnMayBorrow(ret_ty, returns) };
         self.loop = null;
         self.try_ctx = null;
+        // The body runs when called, not here: its effects on anything
+        // outside it are undone afterwards.
+        const outer = try self.here();
         self.reachable = true;
+        self.fn_depth += 1;
+        defer self.fn_depth -= 1;
 
         try self.pushScope(.function);
         if (params == .list) for (params.list) |p| try self.bindParam(p);
         try self.walkBody(body[0], returns_value);
         try self.popScope();
+        try self.rewind(outer);
+        // Nothing allocated for a module-level function outlives it.
+        if (self.fn_depth == 1) _ = self.fn_arena_state.reset(.{ .retain_with_limit = 1 << 20 });
     }
 
     /// Walk a function body in the current scope. When the function
@@ -774,10 +909,11 @@ pub const Checker = struct {
         const p = if (isTag(stmt, .@"break") or isTag(stmt, .@"continue")) 0 else innerPos(stmt);
         if (p != 0) self.anchor = p;
         if (!self.reachable) return .{};
-        const saved = try self.arena().dupe(Loan, self.temps.items);
+        var saved: std.ArrayListUnmanaged(Loan) = .empty;
+        defer saved.deinit(self.gpa);
+        try saved.appendSlice(self.gpa, self.temps.items);
         const v = try self.walk(stmt);
-        self.temps.clearRetainingCapacity();
-        try self.temps.appendSlice(self.gpa, try self.filterLoansBelow(saved, @intCast(self.vars.items.len)));
+        try self.restoreTemps(saved.items);
         return v;
     }
 
@@ -785,11 +921,19 @@ pub const Checker = struct {
     /// as its own statement: its temporary borrows end with it.
     fn walkConsumedStmt(self: *Checker, expr: Sexp) Error!Value {
         if (!self.reachable) return .{};
-        const saved = try self.arena().dupe(Loan, self.temps.items);
+        var saved: std.ArrayListUnmanaged(Loan) = .empty;
+        defer saved.deinit(self.gpa);
+        try saved.appendSlice(self.gpa, self.temps.items);
         const v = try self.walkConsumed(expr, .binding);
-        self.temps.clearRetainingCapacity();
-        try self.temps.appendSlice(self.gpa, try self.filterLoansBelow(saved, @intCast(self.vars.items.len)));
+        try self.restoreTemps(saved.items);
         return v;
+    }
+
+    /// The temporaries as they were before a statement, less those on
+    /// vars that have left scope since.
+    fn restoreTemps(self: *Checker, saved: []const Loan) Error!void {
+        self.temps.clearRetainingCapacity();
+        for (saved) |l| if (l.root < self.vars.items.len) try self.temps.append(self.gpa, l);
     }
 
     /// Walk a `(block ...)` in its own scope; its value is the value of
@@ -1187,7 +1331,7 @@ pub const Checker = struct {
         }
         // `<x` ends `x`, whatever its type: a Copy value or a borrow is
         // copied out, and the name is done.
-        self.markInvalid(id, .moved, pos);
+        try self.markInvalid(id, .moved, pos);
         return value;
     }
 
@@ -1222,8 +1366,8 @@ pub const Checker = struct {
             return .{};
         }
         // Moving the payload consumes the scrutinee.
-        self.markInvalid(root, .moved, pos);
-        self.markInvalid(id, .moved, pos);
+        try self.markInvalid(root, .moved, pos);
+        try self.markInvalid(id, .moved, pos);
         return value;
     }
 
@@ -1248,8 +1392,8 @@ pub const Checker = struct {
         return .{};
     }
 
-    fn markInvalid(self: *Checker, id: VarId, status: Status, pos: u32) void {
-        self.flows.items[id] = .{ .status = status, .at = pos };
+    fn markInvalid(self: *Checker, id: VarId, status: Status, pos: u32) Error!void {
+        try self.setFlow(id, .{ .status = status, .at = pos });
     }
 
     fn flowLive(self: *Checker, id: VarId) bool {
@@ -1336,7 +1480,7 @@ pub const Checker = struct {
         }
         if (v.alias_of) |root| {
             _ = try self.movePayload(id, root, pos, .{});
-            if (!self.flowLive(id)) self.markInvalid(id, .dropped, pos);
+            if (!self.flowLive(id)) try self.markInvalid(id, .dropped, pos);
             return;
         }
         if (self.findLoan(id, .any, null)) |l| {
@@ -1344,7 +1488,7 @@ pub const Checker = struct {
             try self.noteLoan(l);
             return;
         }
-        self.markInvalid(id, .dropped, pos);
+        try self.markInvalid(id, .dropped, pos);
     }
 
     // -------------------------------------------------------------------------
@@ -1577,7 +1721,7 @@ pub const Checker = struct {
         }
         // The old value is dropped (if still owned) and the binding is
         // live again with the new value.
-        self.flows.items[id] = .{ .loans = if (self.mayCarryBorrow(v.ty)) value.loans else &.{} };
+        try self.setFlow(id, .{ .loans = if (self.mayCarryBorrow(v.ty)) value.loans else &.{} });
     }
 
     /// `p.f = e` / `v[i] = e`.
@@ -1607,7 +1751,9 @@ pub const Checker = struct {
             };
             return;
         }
-        self.flows.items[id].loans = try self.unionLoans(self.flows.items[id].loans, value.loans);
+        var f = self.flows.items[id];
+        f.loans = try self.unionLoans(f.loans, value.loans);
+        try self.setFlow(id, f);
     }
 
     // -------------------------------------------------------------------------
@@ -1755,7 +1901,9 @@ pub const Checker = struct {
             };
             return;
         }
-        self.flows.items[id].loans = try self.unionLoans(self.flows.items[id].loans, out.items);
+        var f = self.flows.items[id];
+        f.loans = try self.unionLoans(f.loans, out.items);
+        try self.setFlow(id, f);
     }
 
     /// A loan on a value owned by the current function (as opposed to one
@@ -1800,7 +1948,7 @@ pub const Checker = struct {
 
         // The body is checked as its own function; it cannot affect the
         // enclosing state.
-        const snap = try self.snapshot();
+        const snap = try self.here();
         const saved_func = self.func;
         const saved_loop = self.loop;
         const saved_try = self.try_ctx;
@@ -1833,7 +1981,7 @@ pub const Checker = struct {
         self.func = saved_func;
         self.loop = saved_loop;
         self.try_ctx = saved_try;
-        try self.restore(snap);
+        try self.rewind(snap);
         return value;
     }
 
@@ -1943,16 +2091,18 @@ pub const Checker = struct {
     /// `name`, which the then-branch owns.
     fn walkIfAs(self: *Checker, cond: Sexp, then_b: Sexp, else_b: ?Sexp, t: ?Tail) Error!Value {
         const bound = try self.walkConsumed(cond.list[1], .binding);
-        const base = try self.snapshot();
+        const base = try self.here();
         try self.pushScope(.block);
         try self.bindOptional(cond.list[2], bound);
         var v1 = try self.walkTailBranch(then_b, t);
         v1 = try self.checkValueEscapesScope(v1);
         try self.popScope();
-        const s1 = try self.snapshot();
-        try self.restore(base);
+        const s1 = try self.capture(base);
+        try self.rewind(base);
         const v2 = if (else_b) |e| try self.walkTailBranch(e, t) else Value{};
-        try self.restore(try self.join(s1, try self.snapshot()));
+        const s2 = try self.capture(base);
+        try self.rewind(base);
+        try self.apply(try self.join(s1, s2));
         return self.valueUnion(v1, v2);
     }
 
@@ -1966,20 +2116,21 @@ pub const Checker = struct {
     }
 
     fn walkBranches(self: *Checker, then_b: Sexp, else_b: ?Sexp, t: ?Tail) Error!Value {
-        const base = try self.snapshot();
+        const base = try self.here();
         const v1 = try self.walkTailBranch(then_b, t);
-        const s1 = try self.snapshot();
-        try self.restore(base);
+        const s1 = try self.capture(base);
+        try self.rewind(base);
         const v2 = if (else_b) |e| try self.walkTailBranch(e, t) else Value{};
-        const s2 = try self.snapshot();
-        try self.restore(try self.join(s1, s2));
+        const s2 = try self.capture(base);
+        try self.rewind(base);
+        try self.apply(try self.join(s1, s2));
         return self.valueUnion(v1, v2);
     }
 
     /// `(catch expr name? handler)`: the handler runs when `expr` fails.
     fn walkCatch(self: *Checker, items: []const Sexp) Error!Value {
         const v1 = try self.walk(items[1]);
-        const base = try self.snapshot();
+        const base = try self.here();
         const handler = items[items.len - 1];
         try self.pushScope(.block);
         if (items[2] != .nil) {
@@ -1988,7 +2139,9 @@ pub const Checker = struct {
         var v2 = try self.walk(handler);
         v2 = try self.checkValueEscapesScope(v2);
         try self.popScope();
-        try self.restore(try self.join(base, try self.snapshot()));
+        const s = try self.capture(base);
+        try self.rewind(base);
+        try self.apply(try self.join(stateAt(base), s));
         return self.valueUnion(v1, v2);
     }
 
@@ -2018,7 +2171,7 @@ pub const Checker = struct {
         }
         const scrut_value = try self.walk(scrut);
 
-        const base = try self.snapshot();
+        const base = try self.here();
         var acc: ?State = null;
         var value: Value = .{};
         var catch_all = false;
@@ -2026,19 +2179,19 @@ pub const Checker = struct {
             if (!isTag(arm, .@"arm")) continue;
             const pattern = arm.list[1];
             const body = arm.list[arm.list.len - 1];
-            try self.restore(base);
             try self.pushScope(.block);
             if (try self.bindPattern(pattern, info, scrut_value)) catch_all = true;
             var v = try self.walkTailBranch(body, tail_ctx);
             v = try self.checkValueEscapesScope(v);
             try self.popScope();
             value = try self.valueUnion(value, v);
-            const s = try self.snapshot();
+            const s = try self.capture(base);
+            try self.rewind(base);
             acc = if (acc) |a| try self.join(a, s) else s;
         }
         // Without a catch-all arm, no arm may run.
-        if (!catch_all) acc = if (acc) |a| try self.join(a, base) else base;
-        try self.restore(acc orelse base);
+        if (!catch_all) acc = if (acc) |a| try self.join(a, stateAt(base)) else stateAt(base);
+        try self.apply(acc orelse stateAt(base));
         return value;
     }
 
@@ -2182,45 +2335,54 @@ pub const Checker = struct {
             self.pending_label = label;
             return self.walkStmt(stmt);
         }
-        var ctx: LoopCtx = .{ .label = label, .depth = @intCast(self.vars.items.len), .scope_depth = self.scopes.items.len, .parent = self.loop, .is_loop = false };
+        var ctx: LoopCtx = .{ .label = label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .is_loop = false };
         self.loop = &ctx;
         defer self.loop = ctx.parent;
         try self.walkStmt(stmt);
-        var out = try self.snapshot();
-        for (ctx.breaks.items) |b| out = try self.join(out, b);
-        try self.restore(out);
+        try self.joinBreaks(&ctx);
     }
 
     fn walkLoop(self: *Checker, spec: LoopSpec) Error!void {
-        var ctx: LoopCtx = .{ .label = self.pending_label, .depth = @intCast(self.vars.items.len), .scope_depth = self.scopes.items.len, .parent = self.loop };
+        var ctx: LoopCtx = .{ .label = self.pending_label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop };
         self.pending_label = "";
         self.loop = &ctx;
         defer self.loop = ctx.parent;
+        const entry = ctx.point;
 
-        const entry = try self.snapshot();
-        var head = entry;
+        // The loop head: relative to the entry, the join of the entry, the
+        // end of the body, and every `continue`.
+        var head = stateAt(entry);
         self.quiet += 1;
         // The join only grows the state, over finitely many variables and
         // loans, so this reaches a fixpoint. The bound is a backstop: a
         // loop the analysis cannot settle is rejected, never accepted.
         var rounds: usize = 0;
         const converged = while (rounds < 100_000) : (rounds += 1) {
-            try self.restore(head);
+            try self.apply(head);
             const it = try self.loopIteration(spec, &ctx);
+            try self.rewind(entry);
             const next = try self.join(head, it.back);
-            if (statesEql(next, head)) break true;
+            if (self.statesEql(next, head)) break true;
             head = next;
         } else false;
         self.quiet -= 1;
         if (!converged) try self.err(innerPos(spec.body), "this loop is too complex for the ownership checker; split it into smaller functions", .{});
 
-        try self.restore(head);
+        try self.apply(head);
         const it = try self.loopIteration(spec, &ctx);
-        try self.restore(it.exit);
+        try self.rewind(entry);
+        try self.apply(it.exit);
         if (spec.else_body) |e| try self.walkStmt(e);
-        var out = try self.snapshot();
+        try self.joinBreaks(&ctx);
+    }
+
+    /// After a loop or labeled block: the state where it ends joined
+    /// with the state at every `break` out of it.
+    fn joinBreaks(self: *Checker, ctx: *LoopCtx) Error!void {
+        var out = try self.capture(ctx.point);
+        try self.rewind(ctx.point);
         for (ctx.breaks.items) |b| out = try self.join(out, b);
-        try self.restore(out);
+        try self.apply(out);
     }
 
     fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!struct { back: State, exit: State } {
@@ -2230,7 +2392,7 @@ pub const Checker = struct {
         if (spec.cond) |c| {
             if (spec.cond_binding != .nil) bound = try self.walkConsumedStmt(c) else try self.walkStmt(c);
         }
-        const exit = if (spec.cond_always_true) try self.unreachableState() else try self.snapshot();
+        const exit: State = if (spec.cond_always_true) .{ .reachable = false } else try self.capture(ctx.point);
 
         try self.pushScope(.block);
         if (spec.cond_binding != .nil) try self.bindOptional(spec.cond_binding, bound);
@@ -2238,11 +2400,14 @@ pub const Checker = struct {
         try self.walkStmt(spec.body);
         try self.popScope();
 
-        var back = try self.snapshot();
-        for (ctx.conts.items) |c| back = try self.join(back, c);
-        try self.restore(back);
+        if (ctx.conts.items.len > 0) {
+            var end = try self.capture(ctx.point);
+            try self.rewind(ctx.point);
+            for (ctx.conts.items) |c| end = try self.join(end, c);
+            try self.apply(end);
+        }
         if (spec.cont) |c| try self.walkStmt(c);
-        return .{ .back = try self.snapshot(), .exit = exit };
+        return .{ .back = try self.capture(ctx.point), .exit = exit };
     }
 
     fn bindLoopElems(self: *Checker, spec: LoopSpec) Error!void {
@@ -2338,7 +2503,7 @@ pub const Checker = struct {
             try self.err(self.keywordPos(word), "`continue :{s}` names a block, not a loop", .{label});
         }
         if (target) |t| {
-            const s = try self.exitState(t.depth, t.scope_depth);
+            const s = try self.exitState(t.point, t.scope_depth);
             switch (jump) {
                 .brk => try t.breaks.append(self.arena(), s),
                 .cont => try t.conts.append(self.arena(), s),
@@ -2347,15 +2512,16 @@ pub const Checker = struct {
         self.reachable = false;
     }
 
-    /// The state at a jump out of the scopes above `depth` vars /
-    /// `scope_depth` scopes: their defers run, and nothing that survives
-    /// may borrow what is left behind.
-    fn exitState(self: *Checker, depth: u32, scope_depth: usize) Error!State {
+    /// The state at a jump out to point `target` (leaving the scopes
+    /// above `scope_depth`), relative to it: the scopes' defers run, and
+    /// nothing that survives may borrow what is left behind.
+    fn exitState(self: *Checker, target: Point, scope_depth: usize) Error!State {
         try self.runDefersTo(scope_depth);
+        const depth = target.vars;
         for (self.flows.items[0..depth], 0..) |f, holder| {
             for (f.loans) |l| if (l.root >= depth) try self.reportShortLived(l, @intCast(holder));
         }
-        return self.truncState(try self.snapshot(), depth);
+        return self.captureBelow(target, depth);
     }
 
     /// `e!`: on failure, control leaves for the enclosing `catch` or the
@@ -2364,8 +2530,7 @@ pub const Checker = struct {
         const v = try self.walk(items[1]);
         if (!self.reachable) return v;
         if (self.try_ctx) |t| {
-            const s = try self.exitState(t.depth, t.scope_depth);
-            t.fail = if (t.fail) |f| try self.join(f, s) else s;
+            try t.fails.append(self.arena(), try self.exitState(t.point, t.scope_depth));
         } else {
             try self.runDefersTo(0);
         }
@@ -2374,23 +2539,27 @@ pub const Checker = struct {
 
     fn walkTryBlock(self: *Checker, items: []const Sexp) Error!void {
         // (try_block body (catch_block name body)?)
-        var ctx: TryCtx = .{ .depth = @intCast(self.vars.items.len), .scope_depth = self.scopes.items.len };
+        var ctx: TryCtx = .{ .point = try self.here(), .scope_depth = self.scopes.items.len };
         const saved = self.try_ctx;
         self.try_ctx = &ctx;
         try self.walkStmt(items[1]);
         self.try_ctx = saved;
-        const after = try self.snapshot();
-        const fail = ctx.fail orelse try self.unreachableState();
+        const after = try self.capture(ctx.point);
+        try self.rewind(ctx.point);
+        var fail: State = .{ .reachable = false };
+        for (ctx.fails.items) |f| fail = try self.join(fail, f);
         if (items[2] != .nil) {
             const cb = items[2].list;
-            try self.restore(fail);
+            try self.apply(fail);
             try self.pushScope(.block);
             if (cb[1] == .src) _ = try self.addVar(.{ .name = self.text(cb[1]), .decl = cb[1].src.pos, .ty = self.symType(cb[1].src.pos) }, .{});
             try self.walkStmt(cb[2]);
             try self.popScope();
-            try self.restore(try self.join(after, try self.snapshot()));
+            const handled = try self.capture(ctx.point);
+            try self.rewind(ctx.point);
+            try self.apply(try self.join(after, handled));
         } else {
-            try self.restore(try self.join(after, fail));
+            try self.apply(try self.join(after, fail));
         }
     }
 
@@ -2408,7 +2577,7 @@ pub const Checker = struct {
     }
 
     fn checkDeferBody(self: *Checker, body: Sexp, report_changes: bool) Error!void {
-        const snap = try self.snapshot();
+        const snap = try self.here();
         const saved_loop = self.loop;
         const saved_try = self.try_ctx;
         const saved_in_defer = self.in_defer;
@@ -2419,15 +2588,16 @@ pub const Checker = struct {
         self.loop = saved_loop;
         self.try_ctx = saved_try;
         self.in_defer = saved_in_defer;
+        const after = try self.capture(snap);
+        try self.rewind(snap);
         if (report_changes) {
-            for (snap.flows, self.flows.items[0..snap.flows.len], 0..) |before, after, i| {
-                if (before.status != after.status) {
-                    try self.err(innerPos(body), "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[i].name});
+            for (after.changes) |e| {
+                if (e.flow.status != self.flows.items[e.id].status) {
+                    try self.err(innerPos(body), "a `defer` body cannot move or drop `{s}`; it runs when the scope exits", .{self.vars.items[e.id].name});
                     break;
                 }
             }
         }
-        try self.restore(snap);
     }
 
     fn runDefers(self: *Checker, scope_idx: usize) Error!void {
@@ -2688,6 +2858,12 @@ fn loanMatches(l: Loan, root: VarId, q: Checker.LoanQuery) bool {
 fn containsLoan(set: []const Loan, l: Loan) bool {
     for (set) |x| if (x.sameAs(l)) return true;
     return false;
+}
+
+/// Two flows agree for the analysis (the position of a move is only
+/// for messages).
+fn flowEql(a: Flow, b: Flow) bool {
+    return a.status == b.status and loanSetEql(a.loans, b.loans);
 }
 
 fn loanSetEql(a: []const Loan, b: []const Loan) bool {
