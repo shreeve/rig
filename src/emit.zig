@@ -4,7 +4,7 @@
 //! source. Boring lowering first; clever later.
 //!
 //! Per GPT-5.5 review:
-//!   - `print x` lowers to `std.debug.print("{s}\n", .{x})` for strings,
+//!   - `print x` lowers to `rig.print("{s}\n", .{x})` (stdout) for strings,
 //!     `{any}` otherwise.
 //!   - `(set x e)` first occurrence in fn scope → `var x = e;` ; rebind
 //!     → `x = e;`. Tracked via per-scope symbol table.
@@ -144,6 +144,12 @@ pub const Emitter = struct {
     /// parameter. Set by `emitFun` before delegating to the body
     /// emitter; cleared by whichever body emitter consumed it.
     pending_param_guards: ?Sexp = null,
+
+    /// Set by `emitFun` for the top-level `main`; the body emitter
+    /// consumes it right after the open brace to install
+    /// `defer rig.checkLeaks();`, which runs after every other
+    /// scope-exit drop in `main`.
+    pending_leak_check: bool = false,
 
     /// M20f(3/4): the LHS type annotation Sexp currently being emitted
     /// into, threaded by `emitSetOrBind` so deep emit paths can
@@ -843,6 +849,7 @@ pub const Emitter = struct {
         // resource-binding guards for each `*T` / `~T` param right
         // after the open brace. Cleared by the body emit.
         self.pending_param_guards = params;
+        self.pending_leak_check = self.indent == 0 and std.mem.eql(u8, name, "main");
         if (is_sub) {
             try self.emitBlock(body);
         } else {
@@ -896,6 +903,11 @@ pub const Emitter = struct {
     /// pointer means nested `emitBlock` calls (if/while bodies)
     /// don't accidentally re-emit guards.
     fn flushPendingParamGuards(self: *Emitter) Error!void {
+        if (self.pending_leak_check) {
+            self.pending_leak_check = false;
+            try self.indentSpaces();
+            try self.w.writeAll("defer rig.checkLeaks();\n");
+        }
         const params = self.pending_param_guards orelse return;
         self.pending_param_guards = null;
         if (params != .list) return;
@@ -3891,7 +3903,7 @@ pub const Emitter = struct {
 
     fn emitCall(self: *Emitter, items: []const Sexp) Error!void {
         // (call fn args...)
-        // Special: `print` as builtin → std.debug.print.
+        // Special: `print` as builtin → rig.print (stdout).
         if (items.len >= 2 and items[1] == .src) {
             const fn_name = self.source[items[1].src.pos..][0..items[1].src.len];
             if (std.mem.eql(u8, fn_name, "print")) {
@@ -4155,14 +4167,14 @@ pub const Emitter = struct {
 
     fn emitPrint(self: *Emitter, args: []const Sexp) Error!void {
         if (args.len == 0) {
-            try self.w.writeAll("std.debug.print(\"\\n\", .{})");
+            try self.w.writeAll("rig.print(\"\\n\", .{})");
             return;
         }
         // V1: single arg only.
         const arg = args[0];
         const is_str = self.isStringLiteral(arg);
         const fmt: []const u8 = if (is_str) "{s}\\n" else "{any}\\n";
-        try self.w.print("std.debug.print(\"{s}\", .{{ ", .{fmt});
+        try self.w.print("rig.print(\"{s}\", .{{ ", .{fmt});
         try self.emitExpr(arg);
         try self.w.writeAll(" })");
     }
@@ -4758,7 +4770,7 @@ test "emit: hello world" {
     const out = try emitSourceToString(std.testing.allocator, source);
     defer std.testing.allocator.free(out);
     try std.testing.expect(std.mem.indexOf(u8, out, "pub fn main()") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out, "std.debug.print") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "rig.print") != null);
     try std.testing.expect(std.mem.indexOf(u8, out, "\"hello, rig\"") != null);
 }
 

@@ -50,9 +50,14 @@ const usage =
     \\
 ;
 
+/// Output directory for emitted Zig, from `RIG_OUT_DIR` when set
+/// (the test suite gives each test its own directory).
+var out_dir_override: ?[]const u8 = null;
+
 pub fn main(init: std.process.Init) !void {
     const allocator = init.arena.allocator();
     const io = init.io;
+    out_dir_override = init.environ_map.get("RIG_OUT_DIR");
 
     const args = try init.minimal.args.toSlice(allocator);
 
@@ -271,7 +276,8 @@ fn emitProjectToTmp(
     // Pick a temp dir based on the root module's name.
     const root = &graph.modules.items[1]; // module 1 is always root
     var tmpdir_buf: [256]u8 = undefined;
-    const tmpdir = std.fmt.bufPrint(&tmpdir_buf, "/tmp/rig_{s}", .{root.name}) catch "/tmp/rig_out";
+    const tmpdir = out_dir_override orelse
+        (std.fmt.bufPrint(&tmpdir_buf, "/tmp/rig_{s}", .{root.name}) catch "/tmp/rig_out");
 
     // Make the dir (best-effort; exists is fine).
     std.Io.Dir.cwd().createDir(io, tmpdir, .default_dir) catch |e| switch (e) {

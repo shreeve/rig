@@ -18,6 +18,9 @@
 //!   - `rcNew(anytype)` is the constructor helper the emitter calls for
 //!     `*expr`. It uses `defaultAllocator()` so the emitter doesn't need
 //!     expression-type info to construct an `RcBox`.
+//!   - `defaultAllocator()` is a leak-checking `DebugAllocator` in Debug
+//!     builds (`checkLeaks` runs at the end of `main`) and
+//!     `smp_allocator` otherwise.
 //!   - V1 has no user `Drop` and no auto-drop. Strong-to-zero frees
 //!     the value's slot but does not run user destructors. M20e adds
 //!     compiler-synthesized scope-exit drops.
@@ -738,12 +741,37 @@ pub const source =
     \\    };
     \\}
     \\
-    \\/// V1 default allocator for `*expr` boxes. Single-threaded, page-
-    \\/// based. Later milestones may surface an allocator parameter; for
-    \\/// V1 the runtime hides the choice so `*expr` is a one-liner in
-    \\/// emitted Zig.
+    \\/// Allocator behind every runtime allocation (`*expr` boxes, closure
+    \\/// envs, `Vec` buffers). Debug builds use a `DebugAllocator`, which
+    \\/// detects double frees and lets `checkLeaks` report leaks when
+    \\/// `main` returns; release builds use the general-purpose
+    \\/// `smp_allocator`.
     \\pub fn defaultAllocator() std.mem.Allocator {
-    \\    return std.heap.page_allocator;
+    \\    return if (leak_checked) debug_allocator.allocator() else std.heap.smp_allocator;
+    \\}
+    \\
+    \\const leak_checked = @import("builtin").mode == .Debug;
+    \\var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+    \\
+    \\/// Deferred first thing in the emitted `main`, so it runs after all of
+    \\/// `main`'s scope-exit drops. On a leak the allocator has already
+    \\/// logged each leaked allocation with its stack trace; exit non-zero
+    \\/// so a leaking program never looks like a passing one.
+    \\pub fn checkLeaks() void {
+    \\    if (!leak_checked) return;
+    \\    if (debug_allocator.deinit() == .leak) {
+    \\        std.debug.print("error: rig: memory leak detected\n", .{});
+    \\        std.process.exit(1);
+    \\    }
+    \\}
+    \\
+    \\/// Output for `print`: formatted and flushed to stdout per call, so it
+    \\/// interleaves correctly with panics and diagnostics on stderr.
+    \\pub fn print(comptime fmt: []const u8, args: anytype) void {
+    \\    var buffer: [1024]u8 = undefined;
+    \\    var fw = std.Io.File.stdout().writerStreaming(std.Io.Threaded.global_single_threaded.io(), &buffer);
+    \\    fw.interface.print(fmt, args) catch {};
+    \\    fw.interface.flush() catch {};
     \\}
     \\
     \\/// Construct an `RcBox(T)` from a value, using the default allocator.
