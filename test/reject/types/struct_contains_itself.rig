@@ -1,0 +1,28 @@
+# A type that holds itself by value, directly, through an optional, or
+# through another type, has no finite size.
+
+struct Node
+  n: Int
+  next: Node?
+
+struct A
+  b: B
+
+struct B
+  a: A?
+
+type List(T)
+  head: T
+  tail: List(T)?
+
+enum Tree
+  leaf(n: Int)
+  pair(l: Tree, r: Int)
+
+sub main()
+  print(1)
+
+# error: `Node` contains itself by value through `next`
+# error: `A` contains itself by value through `b`
+# error: `List(...)` contains itself by value through `tail`
+# error: `Tree` contains itself by value through `pair`

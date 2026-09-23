@@ -794,6 +794,7 @@ pub fn checkWithImports(
     try decls.resolveSymbols(&ctx, ir, module_scope);
     try decls.resolveDeclarations(&ctx, ir, module_scope);
     propagateDropGlue(&ctx);
+    try checkInfiniteTypes(&ctx);
     try exprs.checkModule(&ctx, ir, module_scope);
     try exprs.checkGenericInstantiations(&ctx);
     return ctx;
@@ -821,6 +822,65 @@ fn propagateDropGlue(ctx: *SemContext) void {
             }
         }
     }
+}
+
+/// A struct or enum may not contain itself by value (directly or through
+/// other types held by value): it would have no finite size.
+fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
+    for (ctx.symbols.items, 0..) |sym, i| {
+        if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
+        if (sym.decl_pos == builtin_decl_pos) continue;
+        const root: SymbolId = @intCast(i);
+        for (sym.fields orelse &.{}) |f| {
+            if (f.is_method) continue;
+            const hit = if (f.is_variant) blk: {
+                for (f.payload orelse &.{}) |pf| if (containsByValue(ctx, pf.ty, root, null, 0)) break :blk true;
+                break :blk false;
+            } else containsByValue(ctx, f.ty, root, null, 0);
+            if (hit) {
+                const shown = if (sym.kind == .generic_type) try std.fmt.allocPrint(ctx.arena.allocator(), "{s}(...)", .{sym.name}) else sym.name;
+                try ctx.err(f.decl_pos, "`{s}` contains itself by value through `{s}`, so it would have no finite size; hold it through a shared handle (`*{s}`)", .{ shown, f.name, shown });
+                break;
+            }
+        }
+    }
+}
+
+/// Whether a value of type `ty` holds a `root` inline (not behind a
+/// handle, a borrow, or a Vec's heap buffer).
+fn containsByValue(ctx: *const SemContext, ty: TypeId, root: SymbolId, subst: ?*const GlueSubst, depth: u8) bool {
+    if (depth > 64) return false;
+    return switch (ctx.types.get(ty)) {
+        .optional, .fallible => |inner| containsByValue(ctx, inner, root, subst, depth + 1),
+        .array => |a| containsByValue(ctx, a.elem, root, subst, depth + 1),
+        .type_var => |sym| blk: {
+            const sb = subst orelse break :blk false;
+            for (sb.params, 0..) |p, i| {
+                if (p == sym and i < sb.args.len) break :blk containsByValue(ctx, sb.args[i], root, sb.outer, depth + 1);
+            }
+            break :blk false;
+        },
+        .nominal => |sym| sym == root or nominalContains(ctx, sym, root, null, depth),
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
+            if (pn.sym == root) break :blk true;
+            const base = ctx.symbols.items[pn.sym];
+            const inner: GlueSubst = .{ .params = base.type_params orelse &.{}, .args = pn.args, .outer = subst };
+            if (pn.sym == ctx.cell_sym_id) break :blk pn.args.len == 1 and containsByValue(ctx, pn.args[0], root, subst, depth + 1);
+            break :blk nominalContains(ctx, pn.sym, root, &inner, depth);
+        },
+        else => false,
+    };
+}
+
+fn nominalContains(ctx: *const SemContext, sym_id: SymbolId, root: SymbolId, subst: ?*const GlueSubst, depth: u8) bool {
+    for (ctx.symbols.items[sym_id].fields orelse &.{}) |f| {
+        if (f.is_method) continue;
+        if (f.is_variant) {
+            for (f.payload orelse &.{}) |pf| if (containsByValue(ctx, pf.ty, root, subst, depth + 1)) return true;
+        } else if (containsByValue(ctx, f.ty, root, subst, depth + 1)) return true;
+    }
+    return false;
 }
 
 fn payloadHasDropGlue(ctx: *const SemContext, f: Field) bool {

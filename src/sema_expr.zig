@@ -739,8 +739,8 @@ const Checker = struct {
                     if (mode != .@"read" and mode != .ptr and mode != .@"write" and mode != .@"move") {
                         try self.err(pos, "resource Vec(T) iteration requires an explicit read borrow; write `for x in ?vec`", .{});
                     }
-                    if (inner_source != .src) {
-                        try self.err(pos, "resource Vec(T) iteration requires a bare local Vec binding as the source; got an expression. Bind the result to a `Vec(T)` local first.", .{});
+                    if (!isFieldPath(inner_source)) {
+                        try self.err(pos, "resource Vec(T) iteration requires a Vec binding or a field of one as the source; got an expression. Bind the result to a `Vec(T)` local first.", .{});
                     }
                 }
                 return if (is_resource) try self.ctx.intern(.{ .borrow_read = elem }) else elem;
@@ -3131,6 +3131,13 @@ fn isPlaceExpr(e: Sexp) bool {
         .@"member", .@"index", .@"read", .@"write" => true,
         else => false,
     };
+}
+
+/// A name or a chain of fields off one: `v`, `t.kids`, `a.b.c`.
+fn isFieldPath(e: Sexp) bool {
+    if (e == .src) return true;
+    if (!isHead(e, .@"member")) return false;
+    return isFieldPath(e.list[1]);
 }
 
 /// Forms whose type comes from the other operand: `.variant`, `none`.

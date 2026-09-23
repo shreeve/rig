@@ -1,0 +1,37 @@
+# The element of `for x in ?v` borrows its slot; cloning it (`+x`) makes
+# an independent strong handle, which may be kept after the loop and
+# outlive the Vec.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+sub main()
+  count: *Cell(Int) = *Cell(value: 0)
+  subs: Vec(*sub()) = Vec()
+  (!subs).push(*|+count| count.set(count.get() + 1))
+  other: Vec(*sub()) = Vec()
+  for cb in ?subs
+    (!other).push(+cb)
+  -subs
+  for cb in ?other
+    cb()
+  print(count.get())
+
+  v: Vec(*B) = Vec()
+  (!v).push(*B(n: 1))
+  (!v).push(*B(n: 2))
+  held = *B(n: 0)
+  for b in ?v
+    held = +b
+  -v
+  print("held", held.n)
+
+# expect:
+# 1
+# drop 0
+# drop 1
+# held 2
+# drop 2

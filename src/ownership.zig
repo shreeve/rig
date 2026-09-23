@@ -1153,19 +1153,21 @@ pub const Checker = struct {
         return true;
     }
 
+    /// `+x` / `~x`. A new strong or weak handle is independent of the
+    /// borrow it was made through (a loop element, a `?*T` parameter).
     fn walkCloneWeak(self: *Checker, items: []const Sexp) Error!Value {
         const inner = items[1];
-        if (inner == .src) {
-            if (try self.lookup(inner.src.pos, self.text(inner))) |id| {
-                const v = self.vars.items[id];
-                if (v.loop_borrow) {
-                    const op = if (items[0].tag == .@"clone") "clone" else "take a weak reference to";
-                    _ = try self.rejectBorrowedView(id, inner.src.pos, op);
-                    return .{};
-                }
-            }
-        }
-        return self.walk(inner);
+        const v = try self.walk(inner);
+        const t = self.pointee(self.exprType(inner)) orelse return v;
+        const handle = switch (self.typeData(t)) {
+            .shared, .weak => true,
+            .optional => |o| switch (self.typeData(o)) {
+                .shared, .weak => true,
+                else => false,
+            },
+            else => false,
+        };
+        return if (handle) .{} else v;
     }
 
     fn walkDrop(self: *Checker, items: []const Sexp) Error!void {
@@ -1976,7 +1978,7 @@ pub const Checker = struct {
                 spec.source_root = id;
                 spec.source_loan = kind;
                 spec.source_pos = innerPos(source);
-                spec.resource_vec = mode == .@"read" and source == .src and self.isResourceVec(self.vars.items[id].ty);
+                spec.resource_vec = mode == .@"read" and self.isResourceVec(self.exprType(source));
                 if (self.flowLive(id)) {
                     if (kind == .write) {
                         if (self.findLoan(id, .any, null)) |l| {
