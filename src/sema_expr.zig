@@ -15,8 +15,9 @@
 //! Compatibility (`compatible`): identical types; a literal where a
 //! numeric type is expected; `none` where an optional is expected; any
 //! `T` where `T?` or `T!` is expected (the value is lifted); `!T` where
-//! `?T` is expected; and anything where poison (`unknown` / `invalid`)
-//! is involved, so one error does not cascade.
+//! `?T` is expected; a borrow of a Copy value where the value is
+//! expected (`readValue`); and anything where poison (`unknown` /
+//! `invalid`) is involved, so one error does not cascade.
 //!
 //! Anything accepted here must be lowerable by emit. Constructs the
 //! backend cannot express yet are rejected with a diagnostic that says
