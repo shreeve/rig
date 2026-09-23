@@ -1,6 +1,4 @@
 # 128 nested parentheses around a literal are just the literal.
-# Known bug (A7): the lexer's paren depth is an i8, so the 128th `(`
-# overflows it and the compiler panics.
 
 sub main()
   x = ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))

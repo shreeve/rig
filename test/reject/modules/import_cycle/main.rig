@@ -1,6 +1,4 @@
 # main imports a, a imports b, and b imports a: the cycle is rejected.
-# Known bug (A9): the "cyclic import" diagnostic has no file:line:col;
-# it should point at the `use` that closes the cycle.
 use a
 
 sub main()

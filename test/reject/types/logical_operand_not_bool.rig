@@ -1,7 +1,7 @@
-# `&&` and `||` require Bool operands.
+# `and` and `or` require Bool operands.
 
 sub main()
-  x = true && 1
+  x = true and 1
   print x
 
 # error: type mismatch: expected `Bool`, got `<int literal>`

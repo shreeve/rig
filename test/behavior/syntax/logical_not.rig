@@ -1,6 +1,4 @@
 # `not a` is logical negation of a Bool.
-# Known bug (A5): the grammar has no production for `not`, so `not` is
-# parsed as an identifier and check reports "use of unbound name `not`".
 
 sub main()
   a = false

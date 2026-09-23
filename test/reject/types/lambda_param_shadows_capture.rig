@@ -2,7 +2,7 @@
 
 sub main()
   x =! 10
-  f = |x|(x)
+  f = |x|(x: Int)
     x
   print(f(99))
 

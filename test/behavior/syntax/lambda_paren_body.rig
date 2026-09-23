@@ -1,7 +1,5 @@
 # A lambda's inline body may be a parenthesized expression: `|k| (k)`
 # yields the captured `k`.
-# Known bug (A12): a reduce/reduce conflict between the lambda body and a
-# parenthesized atom makes this a parse error.
 
 sub main()
   k = 4

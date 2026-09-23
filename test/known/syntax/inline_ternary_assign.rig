@@ -1,7 +1,7 @@
 # `x = a if c else b` is the inline ternary expression.
-# Known bug (A2): `else` is only promoted from identifier to keyword when
-# the parser can shift it immediately; here a reduce comes first, so the
-# line is a parse error.
+# Known bug: it parses to (set _ x _ (if c 1 2)), but emit writes
+# `const x = if (c) 1 else 2;` with no type, and Zig rejects the
+# comptime_int result of runtime control flow.
 
 fun f(c: Bool) -> Int
   x = 1 if c else 2

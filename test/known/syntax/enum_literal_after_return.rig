@@ -1,8 +1,7 @@
 # `return .red` returns the enum literal `.red` of the declared return
 # type.
-# Known bug (A3): the keyword reaches the lexer rewriter as an identifier,
-# so `.red` is classified as member access (`return.red`) and the file
-# fails to parse.
+# Known bug (B10): it parses, but emit's match lowering adds an `else`
+# prong to the exhaustive switch and Zig rejects it as unreachable.
 
 enum Color
   red

@@ -1,46 +1,18 @@
-//! Rig Module System (M15).
+//! Module graph: loads a program and the modules it `use`s, and runs
+//! every checker on each.
 //!
-//! Multi-file projects: `use foo` resolves to `foo.rig` in the same
-//! directory as the importing file. Each `.rig` becomes its own
-//! `.zig` in a generated output directory; the root file's emitted
-//! Zig imports its dependencies via `@import("foo.zig")`.
+//!   use foo          # loads foo.rig from the importing file's directory
+//!   foo.bar(...)     # qualified access to foo's `pub` declarations
 //!
-//! Per the M15 design pass with GPT-5.5 (conversation
-//! `c_7552c1a82c518dcf`):
+//! Modules are identified by their canonical (real) path, so one file
+//! reached through different spellings (`./m/a.rig`, `m/../m/a.rig`) is
+//! loaded once. A module is checked after its imports; a cycle, a
+//! missing module, or an import that fails to check is reported at the
+//! `use` that caused it, and the importing module is not checked further
+//! (its errors would only be consequences).
 //!
-//! ## Surface (V1)
-//!
-//!   use foo                   # same-dir lookup, simple ident only
-//!   foo.bar(...)              # qualified access, fn call
-//!   foo.User(name: "Steve")   # qualified construction
-//!   foo.Color.red             # qualified enum access
-//!
-//! Deferred: aliases (`use foo as f`), package paths (`use std.io`),
-//! unqualified imports (`use foo.bar` → bare `bar` in scope),
-//! visibility enforcement.
-//!
-//! ## Compilation model
-//!
-//! Recursive load with cycle detection. Each module is parsed,
-//! sema'd, effects-checked, ownership-checked, then emitted to its
-//! own `.zig` file in a generated output directory.
-//!
-//! Cycle detection uses the standard tri-state walk (unvisited /
-//! visiting / done). Re-imports of an already-loaded module return
-//! the cached `ModuleId`.
-//!
-//! ## Cross-module type checking — M15 v1 deferred
-//!
-//! Sema recognizes `use foo` as a `.module`-kinded symbol but does
-//! NOT yet look up `foo.bar` in foo's `SemContext`. Member access
-//! on a module-kinded LHS silently types as `unknown` and lowers
-//! to literal `foo.bar` Zig syntax — Zig's type checker handles
-//! the cross-file resolution at compile time.
-//!
-//! This means cross-module call type-checking, constructor-arg
-//! validation, etc. all happen in Zig rather than Rig at this
-//! milestone. M15b will add proper sema-driven cross-module
-//! resolution.
+//! Each module emits to `<name>.zig` in one output directory. Because
+//! `use` resolves within a directory, module names are unique.
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -49,415 +21,252 @@ const types = @import("types.zig");
 const effects = @import("effects.zig");
 const ownership = @import("ownership.zig");
 
+pub const max_source_bytes = 16 * 1024 * 1024;
+
 pub const ModuleId = u32;
-pub const invalid_module: ModuleId = 0;
-
-/// Tri-state used for cycle detection during recursive load.
-pub const LoadState = enum { visiting, done };
-
-/// Per-module loading outcome. Set on every module at slot creation
-/// (`.loading`), updated to `.loaded` after sema + effects + ownership
-/// succeed, OR `.failed` if any earlier pass produced an error.
-///
-/// Downstream code (`writeAllDiagnostics`, `emit`, `buildAndRun`) MUST
-/// consult this before assuming the module is usable. `writeAll-
-/// Diagnostics` is the one exception: it walks every module regardless
-/// of state because failed modules still have diagnostics worth
-/// reporting.
-pub const ModuleState = enum { loading, loaded, failed };
-
-/// All errors the module driver can produce. Declared explicitly so
-/// the recursive `loadByPath` ↔ `collectAndLoadImports` pair doesn't
-/// trip Zig's inferred-error-set cycle detection.
-pub const Error =
-    std.mem.Allocator.Error ||
-    rig.BindingKindError ||
-    error{Overflow};
 
 pub const Import = struct {
-    local_name: []const u8, // arena-borrowed; the `foo` in `use foo`
+    local_name: []const u8,
     target: ModuleId,
-    pos: u32, // source pos of the `use` keyword (for cycle diagnostics)
+    pos: u32, // position of the module name in `use NAME`
 };
 
-/// Per-module state held in the graph.
-///
-/// **Invariants (M16 no-panic contract):**
-/// - `modules[0]` is the sentinel; it may have null `p`/`sema`.
-/// - Every real module (`id >= 1`) has a non-null `sema` from slot
-///   creation onward, even before parse runs. Diagnostic walks may
-///   call `m.sema.?.writeDiagnostics(...)` on any real module
-///   regardless of `state`.
-/// - `state == .loaded` modules additionally have non-null `p`,
-///   non-empty `source`, and a parsed `ir`. Only loaded modules
-///   are safe to emit.
-/// - `state == .failed` modules may have partial IR / sema but must
-///   stay diagnostic-safe. The graph as a whole exits with errors if
-///   any module is `.failed`.
 pub const Module = struct {
+    /// 1-based; also the module's identity for cross-module nominal types.
     id: ModuleId,
-    /// Canonical absolute path of the source `.rig` file. Used as the
-    /// dedup key in the graph and as the basis for the emitted `.zig`
-    /// path.
+    /// Canonical absolute path: the graph's dedup key.
     path: []const u8,
-    /// Local name — basename of `path` minus `.rig`. This is what
-    /// appears in `use NAME` forms when other modules import this one.
+    /// The path as written by the user (or derived from the importer's),
+    /// used in diagnostics.
+    display: []const u8,
+    /// Basename without `.rig`: the name other modules `use`.
     name: []const u8,
-    /// Source text — owned in the graph's arena. Empty string if the
-    /// source couldn't be read (state == .failed).
-    source: []const u8,
-    /// Parser instance — keeps the IR arena alive for the module's
-    /// lifetime. Pointer-stable; we never reallocate. `null` only for
-    /// the sentinel module at slot 0.
-    p: ?*parser.Parser,
-    /// Normalized IR — points into `p`'s arena. `.nil` if parse failed.
-    ir: parser.Sexp,
-    /// Per-module sema context. Pointer-stable so other modules can
-    /// hold references for cross-module symbol lookup (M15b+).
-    /// **Invariant:** always points at a valid SemContext from slot
-    /// creation onward (even before parsing) so downstream code can
-    /// safely call `m.sema.writeDiagnostics` regardless of `state`.
-    /// `null` only for the sentinel module at slot 0.
-    sema: ?*types.SemContext,
-    /// Resolved imports in declaration order.
-    imports: std.ArrayListUnmanaged(Import) = .empty,
-    /// Output `.zig` path (basename only; e.g., `foo.zig`).
+    /// Emitted file name: `<name>.zig`.
     out_basename: []const u8,
-    /// Loading outcome. See `ModuleState` doc for the invariants.
-    state: ModuleState = .loading,
+    source: []const u8,
+    parser: *parser.Parser,
+    /// Semantic IR; `.nil` if parsing failed.
+    ir: parser.Sexp = .nil,
+    /// Always valid, so diagnostics (including parse and import errors)
+    /// can be recorded against the module's source.
+    sema: *types.SemContext,
+    imports: std.ArrayListUnmanaged(Import) = .empty,
+    state: State = .loading,
+
+    pub const State = enum { loading, checked, failed };
 };
 
-pub const Diagnostic = struct {
-    /// Module that owns the position. May be `invalid_module` for
-    /// global-graph errors (e.g., file-not-found).
-    module: ModuleId,
-    pos: u32,
-    message: []const u8,
-};
-
-/// Module graph. Owns all loaded modules + their sema contexts +
-/// all arena memory used during the driver pass.
 pub const ModuleGraph = struct {
     allocator: std.mem.Allocator,
-    /// I/O context for file reads. Set on init.
     io: std.Io,
-    /// Owns paths, names, source text, copies of imports.
     arena: std.heap.ArenaAllocator,
-    /// Slot 0 reserved for `invalid_module`.
+    /// Modules in load order; the root is first.
     modules: std.ArrayListUnmanaged(Module) = .empty,
-    /// Canonical-path → ModuleId for dedup.
     by_path: std.StringHashMapUnmanaged(ModuleId) = .empty,
-    /// Load state (cycle detection).
-    state: std.AutoHashMapUnmanaged(ModuleId, LoadState) = .empty,
-    /// Diagnostics from any pass (parse / sema / effects / ownership /
-    /// graph load). Per-module diagnostics also live on each module's
-    /// sema/effects/ownership checker; the graph keeps a list for
-    /// cycle/missing-file errors that don't belong to a single module.
-    diagnostics: std.ArrayListUnmanaged(Diagnostic) = .empty,
+    /// Errors with no source position (the root file cannot be read).
+    errors: std.ArrayListUnmanaged([]const u8) = .empty,
+
+    pub const Error = std.mem.Allocator.Error || rig.BindingKindError || error{Overflow};
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io) ModuleGraph {
-        var g: ModuleGraph = .{
-            .allocator = allocator,
-            .io = io,
-            .arena = std.heap.ArenaAllocator.init(allocator),
-        };
-        // Sentinel slot 0 = invalid_module. Uses `null` for the
-        // pointer fields — never iterated for diagnostics (the
-        // `modules.items[1..]` loops skip it).
-        g.modules.append(allocator, .{
-            .id = invalid_module,
-            .path = "",
-            .name = "",
-            .source = "",
-            .p = null,
-            .ir = .{ .nil = {} },
-            .sema = null,
-            .out_basename = "",
-            .state = .failed,
-        }) catch {};
-        return g;
+        return .{ .allocator = allocator, .io = io, .arena = std.heap.ArenaAllocator.init(allocator) };
     }
 
     pub fn deinit(self: *ModuleGraph) void {
-        // Drop sema contexts + parsers for every loaded module. The
-        // sentinel at slot 0 has null pointers and is skipped.
-        for (self.modules.items[1..]) |*m| {
-            if (m.sema) |s| {
-                s.deinit();
-                self.allocator.destroy(s);
-            }
-            if (m.p) |p| {
-                p.deinit();
-                self.allocator.destroy(p);
-            }
+        for (self.modules.items) |*m| {
+            m.sema.deinit();
+            self.allocator.destroy(m.sema);
+            m.parser.deinit();
+            self.allocator.destroy(m.parser);
             m.imports.deinit(self.allocator);
         }
         self.modules.deinit(self.allocator);
         self.by_path.deinit(self.allocator);
-        self.state.deinit(self.allocator);
-        for (self.diagnostics.items) |d| self.allocator.free(d.message);
-        self.diagnostics.deinit(self.allocator);
+        self.errors.deinit(self.allocator);
         self.arena.deinit();
     }
 
+    pub fn root(self: *ModuleGraph) *Module {
+        return &self.modules.items[0];
+    }
+
+    pub fn get(self: *ModuleGraph, id: ModuleId) *Module {
+        return &self.modules.items[id - 1];
+    }
+
     pub fn hasErrors(self: *const ModuleGraph) bool {
-        for (self.diagnostics.items) |_| return true; // any diag is fatal at the graph level
-        for (self.modules.items[1..]) |m| {
-            if (m.state == .failed) return true;
-            if (m.sema) |s| {
-                if (s.hasErrors()) return true;
-            }
-        }
+        if (self.errors.items.len > 0) return true;
+        for (self.modules.items) |m| if (m.state != .checked or m.sema.hasErrors()) return true;
         return false;
     }
 
-    /// Load the root file (and recursively all reachable imports) into
-    /// the graph. Returns the root's ModuleId. Diagnostics — including
-    /// cycle detection, missing files, parse errors, sema/effects/
-    /// ownership errors — are accumulated on the graph and on each
-    /// module's checkers.
-    pub fn loadRoot(self: *ModuleGraph, abs_path: []const u8) Error!ModuleId {
-        return try self.loadByPath(abs_path);
+    /// Load and check the program rooted at `path`. Problems are recorded
+    /// as diagnostics; the error set is only for resource failures.
+    pub fn loadRoot(self: *ModuleGraph, path: []const u8) Error!void {
+        const a = self.arena.allocator();
+        const canonical = std.Io.Dir.cwd().realPathFileAlloc(self.io, path, a) catch |err| {
+            try self.errors.append(self.allocator, try std.fmt.allocPrint(a, "cannot read `{s}`: {s}", .{ path, @errorName(err) }));
+            return;
+        };
+        const source = std.Io.Dir.cwd().readFileAlloc(self.io, canonical, a, .limited(max_source_bytes)) catch |err| {
+            try self.errors.append(self.allocator, try std.fmt.allocPrint(a, "cannot read `{s}`: {s}", .{ path, @errorName(err) }));
+            return;
+        };
+        _ = try self.load(canonical, path, source);
     }
 
-    /// Load a module by path. Recursive entry point. Cycles are
-    /// detected and reported; diamonds (re-import of an already-
-    /// loaded module) return the cached id.
-    ///
-    /// **Robustness invariant (M16):** every module slot is created
-    /// with a valid `*types.SemContext` BEFORE parsing. Each
-    /// failure path (file-read fail, parse fail, sema/effects/
-    /// ownership errors) marks the module `.failed` but leaves the
-    /// sema valid — downstream diagnostic printing can safely walk
-    /// every module without checking state.
-    fn loadByPath(self: *ModuleGraph, path: []const u8) Error!ModuleId {
-        // Already loaded?
-        if (self.by_path.get(path)) |existing| {
-            const st = self.state.get(existing) orelse .done;
-            if (st == .visiting) {
-                try self.errAt(invalid_module, 0, "cyclic import involving `{s}`", .{path});
-                return existing;
-            }
-            return existing;
-        }
+    fn load(self: *ModuleGraph, canonical: []const u8, display: []const u8, source: []const u8) Error!ModuleId {
+        const a = self.arena.allocator();
+        const name = moduleName(display);
 
-        // Allocate module slot FIRST with valid (empty) sema. This
-        // ensures every subsequent failure path leaves the slot in
-        // a state safe to deinit + safe to walk for diagnostics.
-        const id: ModuleId = @intCast(self.modules.items.len);
-        const owned_path = try self.arena.allocator().dupe(u8, path);
-        const owned_name = basenameNoExt(self.arena.allocator(), path) catch path;
-        const out_basename = try std.fmt.allocPrint(self.arena.allocator(), "{s}.zig", .{owned_name});
+        const sema = try self.allocator.create(types.SemContext);
+        errdefer self.allocator.destroy(sema);
+        sema.* = try types.SemContext.init(self.allocator, source);
+        const p = try self.allocator.create(parser.Parser);
+        p.* = parser.Parser.init(self.allocator, source);
 
-        const sema_ptr = try self.allocator.create(types.SemContext);
-        sema_ptr.* = try types.SemContext.init(self.allocator, "");
-
+        const id: ModuleId = @intCast(self.modules.items.len + 1);
         try self.modules.append(self.allocator, .{
             .id = id,
-            .path = owned_path,
-            .name = owned_name,
-            .source = "",
-            .p = null,
-            .ir = .{ .nil = {} },
-            .sema = sema_ptr,
-            .out_basename = out_basename,
-            .state = .loading,
+            .path = canonical,
+            .display = display,
+            .name = name,
+            .out_basename = try std.fmt.allocPrint(a, "{s}.zig", .{name}),
+            .source = source,
+            .parser = p,
+            .sema = sema,
         });
-        try self.by_path.put(self.allocator, owned_path, id);
-        try self.state.put(self.allocator, id, .visiting);
+        try self.by_path.put(self.allocator, canonical, id);
 
-        // Read source via the I/O context. Handles relative + absolute
-        // paths uniformly through std.Io.Dir.cwd().
-        const source = std.Io.Dir.cwd().readFileAlloc(
-            self.io,
-            path,
-            self.arena.allocator(),
-            .limited(16 * 1024 * 1024),
-        ) catch {
-            try self.errAt(id, 0, "cannot read module `{s}`", .{path});
-            self.modules.items[id].state = .failed;
-            try self.state.put(self.allocator, id, .done);
-            return id;
+        const ir = p.parseProgram() catch |err| switch (err) {
+            error.ParseError => {
+                const d = p.diagnostic();
+                try self.errorAt(id, d.pos, "{s}", .{d.message});
+                self.get(id).state = .failed;
+                return id;
+            },
+            else => |e| return e,
         };
-        self.modules.items[id].source = source;
+        self.get(id).ir = ir;
 
-        // Re-init sema with the real source so any parse-stage
-        // diagnostics get proper line:col via lineCol(source, pos).
-        // (We already had an empty SemContext as a safety net; the
-        // real-source one replaces it before parse runs.)
-        sema_ptr.deinit();
-        sema_ptr.* = try types.SemContext.init(self.allocator, source);
-
-        // Allocate the parser now that we have source.
-        const p_ptr = try self.allocator.create(parser.Parser);
-        p_ptr.* = parser.Parser.init(self.allocator, source);
-        self.modules.items[id].p = p_ptr;
-
-        // Parse. Failure: keep the valid empty sema, mark .failed.
-        const ir = p_ptr.parseProgram() catch {
-            try self.errAt(id, 0, "parse error in `{s}`", .{path});
-            self.modules.items[id].state = .failed;
-            try self.state.put(self.allocator, id, .done);
+        if (!try self.loadImports(id)) {
+            self.get(id).state = .failed;
             return id;
-        };
-        self.modules.items[id].ir = ir;
-
-        // Discover imports syntactically + recursively load them.
-        try self.collectAndLoadImports(id, ir, path);
-
-        // Sema for this module. We discard the source-bearing empty
-        // SemContext we set up after read and replace with the real
-        // checked one (which carries its own copies via types.check).
-        //
-        // M15b per GPT-5.5 entry 39: build the per-import descriptor
-        // list (`ImportEntry`) from the already-loaded imports and
-        // hand it to `types.checkWithImports`. The SymbolResolver
-        // consults it via `walkUse` to populate `module_refs`, which
-        // `synthMember` reads to dispatch qualified access into the
-        // foreign SemContext. Single-file builds (no `use` statements)
-        // produce an empty `ImportEntry` slice; behavior degrades
-        // gracefully to the M15-era same-file-only checking.
-        var import_entries: std.ArrayListUnmanaged(types.ImportEntry) = .empty;
-        defer import_entries.deinit(self.allocator);
-        for (self.modules.items[id].imports.items) |imp| {
-            const target_sema = self.modules.items[imp.target].sema orelse continue;
-            try import_entries.append(self.allocator, .{
-                .local_name = imp.local_name,
-                .sema = target_sema,
-                .module_id = imp.target,
-            });
         }
-        sema_ptr.deinit();
-        sema_ptr.* = try types.checkWithImports(self.allocator, source, ir, import_entries.items, id);
-
-        // Effects + ownership.
-        var eff = try effects.Checker.initWithSema(self.allocator, source, sema_ptr);
-        defer eff.deinit();
-        try eff.check(ir);
-        for (eff.diagnostics.items) |d| {
-            const owned_msg = try self.allocator.dupe(u8, d.message);
-            try sema_ptr.diagnostics.append(self.allocator, .{
-                .severity = if (d.severity == .@"error") .@"error" else .note,
-                .pos = d.pos,
-                .message = owned_msg,
-            });
-        }
-
-        var checker = try ownership.Checker.initWithSema(self.allocator, source, sema_ptr);
-        defer checker.deinit();
-        try checker.check(ir);
-        for (checker.diagnostics.items) |d| {
-            const owned_msg = try self.allocator.dupe(u8, d.message);
-            try sema_ptr.diagnostics.append(self.allocator, .{
-                .severity = if (d.severity == .@"error") .@"error" else .note,
-                .pos = d.pos,
-                .message = owned_msg,
-            });
-        }
-
-        const has_errors = sema_ptr.hasErrors() or eff.hasErrors() or checker.hasErrors();
-        self.modules.items[id].state = if (has_errors) .failed else .loaded;
-        try self.state.put(self.allocator, id, .done);
+        try self.check(id);
         return id;
     }
 
-    /// Walk the module's IR for `(use NAME)` declarations, resolve
-    /// each to an absolute path in the same directory as the importing
-    /// file, recursively load, and append to the module's `imports`
-    /// list.
-    fn collectAndLoadImports(self: *ModuleGraph, id: ModuleId, ir: parser.Sexp, importer_path: []const u8) Error!void {
-        if (ir != .list or ir.list.len == 0 or ir.list[0] != .tag) return;
-        if (ir.list[0].tag != .@"module") return;
+    /// Load every `use` of module `id`. Returns false if any import could
+    /// not be loaded and checked.
+    fn loadImports(self: *ModuleGraph, id: ModuleId) Error!bool {
+        const a = self.arena.allocator();
+        const ir = self.get(id).ir;
+        if (ir != .list) return true;
+        var ok = true;
 
-        const dir = std.fs.path.dirname(importer_path) orelse ".";
+        for (ir.list[1..]) |decl| {
+            if (decl != .list or decl.list.len < 2 or decl.list[0] != .tag or decl.list[0].tag != .@"use") continue;
+            const name_node = decl.list[1];
+            if (name_node != .src) continue;
+            const m = self.get(id);
+            const local_name = m.source[name_node.src.pos..][0..name_node.src.len];
+            const pos = name_node.src.pos;
 
-        for (ir.list[1..]) |child| {
-            if (child != .list or child.list.len < 2 or child.list[0] != .tag) continue;
-            if (child.list[0].tag != .@"use") continue;
-            if (child.list[1] != .src) continue;
-
-            const m = &self.modules.items[id];
-            const local_name = m.source[child.list[1].src.pos..][0..child.list[1].src.len];
-            const pos: u32 = child.list[1].src.pos;
-
-            // M15b(4/5) per GPT-5.5 entry 39: `use std` is reserved
-            // in V1. Pre-M15b(4/5) this silently no-op'd, leaving
-            // `std.foo()` to type as `unknown` and lower to literal
-            // `std.foo()` Zig — pure fake-surface (the same anti-
-            // pattern M22.1 closed for `@x` / `try_block` / `zig
-            // "..."`). V1 doesn't expose a `std` namespace; if it
-            // returns in V2 it needs a real design pass (Rig
-            // re-exports vs Zig stdlib pass-through vs something
-            // else). For now, emit a clean Rig diagnostic so users
-            // see the reservation explicitly.
             if (std.mem.eql(u8, local_name, "std")) {
-                try self.errAt(id, pos, "`use std` is reserved in V1; Rig does not yet expose a std module namespace. Future syntax (likely `use zig.std` or an explicit raw/extern interop form) needs a real design pass.", .{});
+                try self.errorAt(id, pos, "`use std` is reserved: Rig has no `std` module", .{});
+                ok = false;
                 continue;
             }
 
-            // Build the candidate path: <importer_dir>/<local_name>.rig.
-            const filename = try std.fmt.allocPrint(self.arena.allocator(), "{s}.rig", .{local_name});
-            const candidate = try std.fs.path.resolve(self.arena.allocator(), &.{ dir, filename });
+            const file = try std.fmt.allocPrint(a, "{s}.rig", .{local_name});
+            const dir = std.fs.path.dirname(m.path) orelse ".";
+            const display = if (std.fs.path.dirname(m.display)) |d| try std.fs.path.join(a, &.{ d, file }) else file;
+            const target = try std.fs.path.join(a, &.{ dir, file });
 
-            const target_id = try self.loadByPath(candidate);
-            if (target_id != invalid_module) {
-                try self.modules.items[id].imports.append(self.allocator, .{
-                    .local_name = local_name,
-                    .target = target_id,
-                    .pos = pos,
-                });
+            const canonical = std.Io.Dir.cwd().realPathFileAlloc(self.io, target, a) catch |err| {
+                try self.errorAt(id, pos, "cannot read module `{s}` ({s}): {s}", .{ local_name, display, @errorName(err) });
+                ok = false;
+                continue;
+            };
+
+            const target_id = if (self.by_path.get(canonical)) |existing| blk: {
+                if (self.get(existing).state == .loading) {
+                    try self.errorAt(id, pos, "cyclic import: `{s}` is still being loaded when `{s}` imports it", .{ local_name, m.name });
+                    ok = false;
+                    continue;
+                }
+                break :blk existing;
+            } else blk: {
+                const source = std.Io.Dir.cwd().readFileAlloc(self.io, canonical, a, .limited(max_source_bytes)) catch |err| {
+                    try self.errorAt(id, pos, "cannot read module `{s}` ({s}): {s}", .{ local_name, display, @errorName(err) });
+                    ok = false;
+                    continue;
+                };
+                break :blk try self.load(canonical, display, source);
+            };
+
+            if (self.get(target_id).state != .checked) {
+                ok = false;
+                continue;
             }
+            try self.get(id).imports.append(self.allocator, .{ .local_name = local_name, .target = target_id, .pos = pos });
         }
+        return ok;
     }
 
-    /// Iterate every loaded module's diagnostic stream and write to `w`.
-    /// Defensive: any module slot may carry diagnostics regardless of
-    /// `.state`. The only module without a sema is the slot-0 sentinel,
-    /// which we skip explicitly.
-    pub fn writeAllDiagnostics(self: *const ModuleGraph, w: anytype) !void {
-        // Graph-level diagnostics first (cycles, missing files).
-        for (self.diagnostics.items) |d| {
-            try w.print("error: {s}\n", .{d.message});
+    /// Run sema, effects, and ownership on a parsed module whose imports
+    /// are all checked.
+    fn check(self: *ModuleGraph, id: ModuleId) Error!void {
+        const m = self.get(id);
+        var entries: std.ArrayListUnmanaged(types.ImportEntry) = .empty;
+        defer entries.deinit(self.allocator);
+        for (m.imports.items) |imp| {
+            try entries.append(self.allocator, .{ .local_name = imp.local_name, .sema = self.get(imp.target).sema, .module_id = imp.target });
         }
-        // Then per-module diagnostics in load order. Skip slot 0
-        // (sentinel) and any module whose sema somehow ended up null
-        // (defensive against future regressions).
-        for (self.modules.items[1..]) |m| {
-            const sema = m.sema orelse continue;
-            try sema.writeDiagnostics(m.path, w);
-        }
+
+        m.sema.deinit();
+        m.sema.* = try types.checkWithImports(self.allocator, m.source, m.ir, entries.items, id);
+
+        var eff = try effects.Checker.initWithSema(self.allocator, m.source, m.sema);
+        defer eff.deinit();
+        try eff.check(m.ir);
+        for (eff.diagnostics.items) |d| try self.addDiagnostic(id, if (d.severity == .@"error") .@"error" else .note, d.pos, d.message);
+
+        var own = try ownership.Checker.initWithSema(self.allocator, m.source, m.sema);
+        defer own.deinit();
+        try own.check(m.ir);
+        for (own.diagnostics.items) |d| try self.addDiagnostic(id, if (d.severity == .@"error") .@"error" else .note, d.pos, d.message);
+
+        m.state = if (m.sema.hasErrors()) .failed else .checked;
     }
 
-    fn errAt(self: *ModuleGraph, module: ModuleId, pos: u32, comptime fmt: []const u8, args: anytype) !void {
-        const msg = try std.fmt.allocPrint(self.allocator, fmt, args);
-        try self.diagnostics.append(self.allocator, .{
-            .module = module,
-            .pos = pos,
-            .message = msg,
-        });
+    fn errorAt(self: *ModuleGraph, id: ModuleId, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
+        const m = self.get(id);
+        const message = try std.fmt.allocPrint(m.sema.arena.allocator(), fmt, args);
+        try m.sema.diagnostics.append(self.allocator, .{ .severity = .@"error", .pos = pos, .message = message });
+    }
+
+    fn addDiagnostic(self: *ModuleGraph, id: ModuleId, severity: types.Severity, pos: u32, message: []const u8) Error!void {
+        const m = self.get(id);
+        const owned = try m.sema.arena.allocator().dupe(u8, message);
+        try m.sema.diagnostics.append(self.allocator, .{ .severity = severity, .pos = pos, .message = owned });
+    }
+
+    /// Write every diagnostic, as `path:line:col: error: message`.
+    pub fn writeAllDiagnostics(self: *const ModuleGraph, w: *std.Io.Writer) !void {
+        for (self.errors.items) |message| try w.print("error: {s}\n", .{message});
+        for (self.modules.items) |m| try m.sema.writeDiagnostics(m.display, w);
     }
 };
 
-/// Extract `<basename>` from `<dir>/<basename>.rig`. Returns
-/// arena-owned slice. If the path has no `.rig` extension, returns
-/// the bare basename.
-fn basenameNoExt(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    var base = std.fs.path.basename(path);
-    if (std.mem.endsWith(u8, base, ".rig")) base = base[0 .. base.len - 4];
-    return try allocator.dupe(u8, base);
+/// `dir/name.rig` → `name`.
+fn moduleName(path: []const u8) []const u8 {
+    const base = std.fs.path.basename(path);
+    return if (std.mem.endsWith(u8, base, ".rig")) base[0 .. base.len - 4] else base;
 }
 
-// =============================================================================
-// Tests
-// =============================================================================
-
-test "basenameNoExt strips .rig suffix" {
-    const allocator = std.testing.allocator;
-    const a = try basenameNoExt(allocator, "/foo/bar/baz.rig");
-    defer allocator.free(a);
-    try std.testing.expectEqualStrings("baz", a);
-
-    const b = try basenameNoExt(allocator, "qux");
-    defer allocator.free(b);
-    try std.testing.expectEqualStrings("qux", b);
+test "moduleName strips the directory and .rig" {
+    try std.testing.expectEqualStrings("baz", moduleName("/foo/bar/baz.rig"));
+    try std.testing.expectEqualStrings("qux", moduleName("qux"));
 }

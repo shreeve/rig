@@ -1,6 +1,4 @@
 # `continue if c` skips the rest of the body only when `c` holds.
-# Known bug (A1): emit ignores the guard, so every iteration continues and
-# the emitted Zig fails to compile (unreachable code after `continue`).
 
 sub main()
   i = 0

@@ -1,6 +1,4 @@
 # `break if c` leaves the loop only when `c` holds.
-# Known bug (A1): emit ignores the guard, so the loop breaks after the
-# first iteration and prints only 1.
 
 sub main()
   i = 0

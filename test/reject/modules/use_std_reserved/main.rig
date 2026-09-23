@@ -1,6 +1,4 @@
 # `use std` is reserved: Rig does not expose a std module namespace.
-# Known bug (A9): the diagnostic is printed without a file:line:col; it
-# should point at the `use std` line.
 use std
 
 sub main()

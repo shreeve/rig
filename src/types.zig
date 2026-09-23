@@ -6174,7 +6174,7 @@ const ExprChecker = struct {
             // Arithmetic / comparison / logical infixes.
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"**" => try self.synthArith(items),
             .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=" => try self.synthCompare(items),
-            .@"&&", .@"||", .@"not" => try self.synthLogical(items),
+            .@"and", .@"or", .@"not" => try self.synthLogical(items),
             .@"neg" => {
                 if (items.len >= 2) return self.synthExpr(items[1]);
                 return self.ctx.types.unknown_id;

@@ -21,6 +21,7 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const types = @import("types.zig");
+const runtime = @import("runtime.zig");
 
 const Sexp = parser.Sexp;
 const Tag = rig.Tag;
@@ -201,7 +202,7 @@ pub const Emitter = struct {
         // M22.1.1: renamed from `_rig_runtime.zig` per Steve — the
         // `_` prefix already says "internal"; the `rig_` was
         // redundant inside an output dir literally named `rig_<name>/`.
-        try self.w.writeAll("const rig = @import(\"_runtime.zig\");\n");
+        try self.w.print("const rig = @import(\"{s}\");\n", .{runtime.filename});
         if (sexp == .list and sexp.list.len > 0 and sexp.list[0] == .tag and
             sexp.list[0].tag == .@"module")
         {
@@ -3880,7 +3881,7 @@ pub const Emitter = struct {
             // Infix arithmetic / comparison / logic — emit `(a OP b)`.
             .@"+", .@"-", .@"*", .@"/", .@"%",
             .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=",
-            .@"&&", .@"||", .@"&", .@"|", .@"^", .@"<<", .@">>",
+            .@"and", .@"or", .@"&", .@"|", .@"^", .@"<<", .@">>",
             => try self.emitInfix(items, head),
             // Block-as-expression (e.g., `if cond block else block` returning value)
             .@"block" => try self.emitBlock(.{ .list = items }),

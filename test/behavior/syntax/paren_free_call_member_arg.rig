@@ -1,5 +1,5 @@
-# Known bug: in a paren-free call, a member access binds to the call
-# instead of the argument: `print p.x` parses as `(print p).x`.
+# A paren-free call takes the rest of the line as its arguments, so a
+# member access belongs to the argument: `print p.x` is `print(p.x)`.
 
 struct Point
   x: Int

@@ -1,6 +1,5 @@
-# Known bug: `print f(x)` parses as `(print f)(x)`, so the emitted Zig
-# prints the function itself and then calls the result of print.
-# Per SPEC "Function Calls", paren-free calls take the rest of the line.
+# A paren-free call takes the rest of the line as its arguments:
+# `print double(21)` is `print(double(21))`.
 
 fun double(n: Int) -> Int
   n * 2
