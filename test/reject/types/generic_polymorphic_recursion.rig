@@ -1,0 +1,17 @@
+# A generic body that uses a deeper instance of its own type (`Box(T)`
+# using `Box(Box(T))`) would need ever deeper instances; it is rejected
+# rather than expanded forever.
+
+struct B
+  n: Int
+
+type Box(T)
+  v: T
+
+  fun wrap(self: Box(T)) -> Box(Box(T))
+    Box(v: <self)
+
+sub main()
+  b: Box(*B) = Box(v: *B(n: 1))
+
+# error: `Box(*B)` leads to ever deeper instances of generic types (through `Box(Box(T))`)

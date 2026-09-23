@@ -816,28 +816,53 @@ pub fn checkWithImports(
 /// every instantiation.
 fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
     if (ctx.generic_uses.items.len == 0) return;
-    var work: std.ArrayListUnmanaged(TypeId) = .empty;
+    const Item = struct { inst: TypeId, root: TypeId };
+    var work: std.ArrayListUnmanaged(Item) = .empty;
     defer work.deinit(ctx.allocator);
     var it = ctx.instantiation_sites.keyIterator();
-    while (it.next()) |k| try work.append(ctx.allocator, k.*);
-    while (work.pop()) |inst| {
-        const pn = switch (ctx.types.get(inst)) {
+    while (it.next()) |k| try work.append(ctx.allocator, .{ .inst = k.*, .root = k.* });
+    while (work.pop()) |item| {
+        const pn = switch (ctx.types.get(item.inst)) {
             .parameterized_nominal => |pn| pn,
             else => continue,
         };
         const params = ctx.symbols.items[pn.sym].type_params orelse continue;
-        const site = ctx.instantiation_sites.get(inst) orelse continue;
+        const site = ctx.instantiation_sites.get(item.inst) orelse continue;
         const subst: TypeSubst = .{ .params = params, .args = pn.args };
         for (ctx.generic_uses.items) |use| {
             if (!usesParams(ctx, use, params)) continue;
             const concrete = try substituteType(ctx, use, subst);
             if (containsTypeVar(ctx, concrete)) continue;
+            // A generic whose body uses ever-deeper instances of itself
+            // (`Box(T)` using `Box(Box(T))`) would expand forever.
+            if (typeDepth(ctx, concrete, 0) > max_instance_depth) {
+                try ctx.err(site, "`{s}` leads to ever deeper instances of generic types (through `{s}`); a generic type's body cannot nest itself in its own type arguments", .{ try formatType(ctx, item.root), try formatType(ctx, use) });
+                return;
+            }
             const gop = try ctx.instantiation_sites.getOrPut(ctx.allocator, concrete);
             if (gop.found_existing) continue;
             gop.value_ptr.* = site;
-            try work.append(ctx.allocator, concrete);
+            try work.append(ctx.allocator, .{ .inst = concrete, .root = item.root });
         }
     }
+}
+
+const max_instance_depth = 24;
+
+/// How deeply generic instances nest in `ty` (capped).
+fn typeDepth(ctx: *const SemContext, ty: TypeId, depth: u8) u8 {
+    if (depth > max_instance_depth) return depth;
+    return switch (ctx.types.get(ty)) {
+        .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range => |i| typeDepth(ctx, i, depth + 1),
+        .array => |a| typeDepth(ctx, a.elem, depth + 1),
+        .slice => |sl| typeDepth(ctx, sl.elem, depth + 1),
+        .parameterized_nominal => |pn| blk: {
+            var most = depth + 1;
+            for (pn.args) |a| most = @max(most, typeDepth(ctx, a, depth + 1));
+            break :blk most;
+        },
+        else => depth,
+    };
 }
 
 /// Whether `ty` mentions any of `params`.
