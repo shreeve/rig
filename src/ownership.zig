@@ -1432,7 +1432,7 @@ pub const Checker = struct {
         if (v.ref != .none or place.through_borrow or place.through_shared or self.isGlobal(id)) {
             // Stored into something the caller owns: only borrows the
             // caller handed in may go there.
-            for (value.loans) |l| if (self.isLocalLoan(l)) {
+            for (value.loans) |l| if (self.isLocalLoan(l) or self.isGlobal(id)) {
                 try self.err(pos, "cannot store a borrow of `{s}` in `{s}`: `{s}` outlives it", .{ self.vars.items[l.root].name, try self.placeText(target), v.name });
                 return;
             };
@@ -1562,8 +1562,9 @@ pub const Checker = struct {
         const c = self.vars.items[id];
         if (c.ref != .none or self.isGlobal(id)) {
             // The caller accounts for borrows it passed in; only borrows
-            // of this function's own values cannot be stored.
-            for (out.items) |l| if (self.isLocalLoan(l)) {
+            // of this function's own values cannot be stored. Nothing
+            // borrowed may be stored in a module-level binding.
+            for (out.items) |l| if (self.isLocalLoan(l) or self.isGlobal(id)) {
                 try self.err(pos, "cannot let this call store a borrow of `{s}` in `{s}`: `{s}` outlives it", .{ self.vars.items[l.root].name, c.name, c.name });
                 return;
             };
@@ -2319,8 +2320,10 @@ pub const Checker = struct {
             .array => |a| self.typeCarries(a.elem, q, depth + 1),
             .nominal => |s| self.fieldsCarry(s, q, depth),
             .parameterized_nominal => |pn| blk: {
-                // A closure carries whatever its captures borrow.
-                if (pn.sym == sema.closure_sym_id or pn.sym == sema.closure1_sym_id or pn.sym == sema.closure2_sym_id) break :blk q == .any;
+                // A closure carries whatever its captures borrow, and a
+                // Signal whatever its subscribers borrow.
+                if (pn.sym == sema.closure_sym_id or pn.sym == sema.closure1_sym_id or
+                    pn.sym == sema.closure2_sym_id or pn.sym == sema.signal_sym_id) break :blk q == .any;
                 for (pn.args) |a| if (self.typeCarries(a, q, depth + 1)) break :blk true;
                 break :blk self.fieldsCarry(pn.sym, q, depth);
             },
