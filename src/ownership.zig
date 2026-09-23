@@ -845,7 +845,7 @@ pub const Checker = struct {
             .@"raw_block" => if (items.len >= 2) self.walk(items[1]) else .{},
             .@"enum_lit", .@"use", .@"type", .@"generic_type", .@"generic_inst", .@"opaque" => .{},
             // Operators on values produce fresh Copy results.
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"**", .@"neg", .@"not", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"||", .@"&&", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"**", .@"neg", .@"not", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
                 for (items[1..]) |c| _ = try self.walk(c);
                 break :blk .{};
             },
@@ -1281,7 +1281,7 @@ pub const Checker = struct {
                         try self.checkNoImplicitCopy(items[1], sink, false);
                         try self.checkNoImplicitCopy(tailOf(items[items.len - 1]), sink, false);
                     },
-                    .@"propagate", .@"try", .@"as" => try self.checkNoImplicitCopy(items[1], sink, false),
+                    .@"propagate", .@"try" => try self.checkNoImplicitCopy(items[1], sink, false),
                     else => {},
                 }
             },
@@ -2948,7 +2948,7 @@ test "move inside try is seen by catch" {
         \\    eat(<rc)
         \\    risky()!
         \\    rc = make()
-        \\  catch as e
+        \\  catch |e|
         \\    look(?rc)
         \\
     , "use of `rc` after move");
