@@ -28,6 +28,7 @@ const Sexp = parser.Sexp;
 // Tag — IR node heads and marker tags
 // =============================================================================
 
+/// Node shapes are defined in `ir.zig`; an absent optional slot is `_`.
 pub const Tag = enum(u8) {
     // Declarations
     @"module",
@@ -39,13 +40,13 @@ pub const Tag = enum(u8) {
     @"enum",
     @"errors",
     @"type",            // type alias: (type Name T)
-    @"generic_type",    // (generic_type Name params? members...)
+    @"generic_type",    // (generic_type Name params-or-_ members...)
     @"generic_enum",    // (generic_enum Name params members...)
     @"test",
     @"pub",
     @"extern",          // (extern _ name T): extern variable
-    @"extern_fun",      // (extern_fun name params? returns?)
-    @"extern_sub",      // (extern_sub name params?)
+    @"extern_fun",      // (extern_fun name params returns)
+    @"extern_sub",      // (extern_sub name params)
     @"drop_decl",       // (drop_decl (param) block): user-defined drop
     @"zig",             // reserved: rejected by sema
     @"labeled",         // (labeled name stmt)
@@ -68,10 +69,10 @@ pub const Tag = enum(u8) {
     @"drop",            // (drop name): `-name` statement
 
     // Control flow
-    @"if",              // (if cond then else?): block if, ternary, guard
+    @"if",              // (if cond then else): block if, ternary, guard
     @"as",              // (as expr name): optional binding in an if/while condition
-    @"while",           // (while cond cont-or-_ body else:?)
-    @"for",             // (for mode binding index-or-_ source body else?)
+    @"while",           // (while cond step body else)
+    @"for",             // (for mode binding index source body else)
     @"iter",            // for modes
     @"ptr",
     @"match",
@@ -80,8 +81,8 @@ pub const Tag = enum(u8) {
     @"variant_pattern", // .circle(r)
     @"enum_lit",        // .red
     @"return",
-    @"break",           // (break value-or-_ label?)
-    @"continue",        // (continue label?)
+    @"break",           // (break value label)
+    @"continue",        // (continue label)
     @"defer",
     @"errdefer",
     @"raw_block",
@@ -89,7 +90,7 @@ pub const Tag = enum(u8) {
     @"pre",             // reserved: rejected by sema
     @"try_block",       // reserved: rejected by sema
     @"catch_block",
-    @"catch",           // (catch expr name-or-_ handler)
+    @"catch",           // (catch expr name handler)
     @"propagate",       // expr!
     @"block",
 
