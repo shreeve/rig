@@ -1352,7 +1352,6 @@ pub const Emitter = struct {
         self.indent += 1;
 
         var has_default = false;
-        var variants_seen: usize = 0;
         for (items[2..]) |arm| {
             const pattern = arm.list[1];
             const body = arm.list[arm.list.len - 1];
@@ -1376,7 +1375,6 @@ pub const Emitter = struct {
                 .list => |p| switch (p[0].tag) {
                     .@"enum_lit", .@"variant_pattern" => {
                         const vname = self.srcText(p[1]);
-                        variants_seen += 1;
                         try self.w.print("{s}{f} => ", .{ if (error_set) "error." else ".", self.ident(vname) });
                         const captures = p[2..];
                         if (captures.len == 1) {
@@ -1403,8 +1401,10 @@ pub const Emitter = struct {
             try self.emitArmBody(body, .{ .aliases = aliases }, value_pos);
             try self.w.writeAll(",\n");
         }
-        if (!has_default and !self.matchIsExhaustive(scrut_ty, variants_seen)) {
-            try self.line("else => @panic(\"no match arm matched\"),", .{});
+        // A statement match whose arms leave some values out runs no arm
+        // for them (sema requires a value-position match to be complete).
+        if (!has_default and !self.sema.isExhaustive(sexp)) {
+            try self.line("else => {{}},", .{});
         }
         self.indent -= 1;
         try self.writeIndent(self.indent);
@@ -1529,12 +1529,6 @@ pub const Emitter = struct {
         try self.writeIndent(self.indent);
         try self.emitGuard(local);
         try self.w.writeAll("\n");
-    }
-
-    fn matchIsExhaustive(self: *Emitter, scrut_ty: ?TypeId, variants_seen: usize) bool {
-        const t = scrut_ty orelse return false;
-        const count = types.enumVariantCount(self.sema, t) orelse return false;
-        return variants_seen >= count;
     }
 
     // =========================================================================

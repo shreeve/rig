@@ -1,0 +1,9 @@
+# A value-position match on a Bool must cover both values.
+
+sub main()
+  b = false
+  s = match b
+    true => "yes"
+  print(s)
+
+# error: value-position `match` on `Bool` needs

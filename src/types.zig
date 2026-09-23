@@ -27,6 +27,8 @@
 //!                                      symbol a leaf names
 //!   ctx.scopeOf(node)    -> ?ScopeId   the scope a fun/sub/method/lambda/
 //!                                      block/for/arm/catch node opens
+//!   ctx.isExhaustive(match) -> bool   the match's arms cover every value
+//!                                      without a default arm
 //!   ctx.callSlotsOf(call) -> ?[]ArgSlot for a call with keyword or
 //!                                      omitted arguments: which argument
 //!                                      (or default value) fills each
@@ -461,6 +463,8 @@ pub const Facts = struct {
     /// Call node -> how its arguments fill the parameters, for calls
     /// with keyword arguments or omitted (defaulted) parameters.
     call_slots: std.AutoHashMapUnmanaged(NodeKey, []const ArgSlot) = .empty,
+    /// Match nodes whose non-default arms cover every value.
+    exhaustive: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         self.names.deinit(allocator);
@@ -468,6 +472,7 @@ pub const Facts = struct {
         self.node_types.deinit(allocator);
         self.scopes.deinit(allocator);
         self.call_slots.deinit(allocator);
+        self.exhaustive.deinit(allocator);
     }
 };
 
@@ -708,6 +713,13 @@ pub const SemContext = struct {
         return self.facts.scopes.get(key);
     }
 
+    /// Whether a match's arms, without a default arm, cover every value
+    /// of its scrutinee.
+    pub fn isExhaustive(self: *const SemContext, match: Sexp) bool {
+        const key = nodeKey(match) orelse return false;
+        return self.facts.exhaustive.contains(key);
+    }
+
     /// Parameter-order argument slots of a call with keyword arguments
     /// or omitted parameters; null when the arguments are positional
     /// and complete.
@@ -734,6 +746,11 @@ pub const SemContext = struct {
     pub fn recordScope(self: *SemContext, node: Sexp, scope: ScopeId) !void {
         const key = nodeKey(node) orelse return;
         try self.facts.scopes.put(self.allocator, key, scope);
+    }
+
+    pub fn recordExhaustive(self: *SemContext, match: Sexp) !void {
+        const key = nodeKey(match) orelse return;
+        try self.facts.exhaustive.put(self.allocator, key, {});
     }
 
     pub fn recordCallSlots(self: *SemContext, call: Sexp, slots: []const ArgSlot) !void {
@@ -1614,6 +1631,24 @@ test "facts: constant bindings keep their value; changed ones do not" {
     try std.testing.expect(r.ctx.const_ints.get(r.sym("c", 0).?) == null);
     try std.testing.expect(r.ctx.const_ints.get(r.sym("d", 0).?) == null);
     try std.testing.expect(r.ctx.symbols.items[r.sym("d", 0).?].flags.written);
+}
+
+test "facts: a match covering every value without a default is exhaustive" {
+    var r = try factsRun(
+        \\sub main()
+        \\  b = true
+        \\  match b
+        \\    true => print(1)
+        \\    false => print(2)
+        \\  n = 3
+        \\  match n
+        \\    1 => print(1)
+        \\
+    );
+    defer r.deinit();
+    const body = r.ir.list[1].list[4];
+    try std.testing.expect(r.ctx.isExhaustive(body.list[2]));
+    try std.testing.expect(!r.ctx.isExhaustive(body.list[4]));
 }
 
 test "facts: literals record the type their context gives them" {

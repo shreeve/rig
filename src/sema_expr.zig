@@ -760,16 +760,18 @@ const Checker = struct {
             try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, integers, and Bool", .{try self.tyName(scrutinee)});
         }
 
-        var covered: std.StringHashMapUnmanaged(u32) = .empty;
-        defer covered.deinit(self.ctx.allocator);
-        var has_default = false;
+        var cov: MatchCoverage = .{};
+        defer cov.deinit(self.ctx.allocator);
         var result: ?TypeId = expected;
 
         for (items[2..]) |arm| {
             if (!isHead(arm, .@"arm")) continue;
             const prev = self.enter(arm);
             defer self.scope = prev;
-            try self.checkPattern(arm.list[1], scrutinee, &covered, &has_default);
+            if (cov.has_default or self.coversAll(&cov, scrutinee)) {
+                try self.err(firstSrcPos(arm.list[1]), "this arm never runs: the arms before it cover every value", .{});
+            }
+            try self.checkPattern(arm.list[1], scrutinee, &cov);
             const body = arm.list[arm.list.len - 1];
             switch (position) {
                 .statement => try self.checkStmt(body),
@@ -788,12 +790,12 @@ const Checker = struct {
             }
         }
 
-        if (position == .value and !has_default) {
+        const exhaustive = self.coversAll(&cov, scrutinee);
+        if (exhaustive) try self.ctx.recordExhaustive(node);
+        if (position == .value and !cov.has_default and !exhaustive and !self.isPoison(scrutinee)) {
             if (types.enumVariantCount(self.ctx, scrutinee)) |total| {
-                if (covered.count() < total) {
-                    try self.err(scrut_pos, "value-position `match` is not exhaustive (covered {d} of {d} variants and no default arm)", .{ covered.count(), total });
-                }
-            } else if (!self.isPoison(scrutinee) and self.ctx.types.get(scrutinee) != .bool) {
+                try self.err(scrut_pos, "value-position `match` is not exhaustive (covered {d} of {d} variants and no default arm)", .{ cov.variants.count(), total });
+            } else {
                 try self.err(scrut_pos, "value-position `match` on `{s}` needs a default arm", .{try self.tyName(scrutinee)});
             }
         }
@@ -801,15 +803,75 @@ const Checker = struct {
         return result orelse self.t().invalid_id;
     }
 
-    fn checkPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, covered: *std.StringHashMapUnmanaged(u32), has_default: *bool) Error!void {
+    /// What the arms of a match have covered so far.
+    const MatchCoverage = struct {
+        variants: std.StringHashMapUnmanaged(u32) = .empty,
+        bools: [2]bool = .{ false, false },
+        /// Inclusive integer intervals.
+        ints: std.ArrayListUnmanaged([2]i128) = .empty,
+        has_default: bool = false,
+
+        fn deinit(c: *MatchCoverage, a: std.mem.Allocator) void {
+            c.variants.deinit(a);
+            c.ints.deinit(a);
+        }
+    };
+
+    /// Whether the arms so far match every value of the scrutinee type.
+    fn coversAll(self: *Checker, cov: *MatchCoverage, scrutinee: TypeId) bool {
+        const ty = types.unwrapBorrows(self.ctx, scrutinee);
+        if (types.enumVariantCount(self.ctx, ty)) |total| return cov.variants.count() >= total;
+        switch (self.ctx.types.get(ty)) {
+            .bool => return cov.bools[0] and cov.bools[1],
+            .int, .int_literal => {
+                const info: types.IntInfo = if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{};
+                const bits: u8 = if (info.bits == 0) 64 else info.bits;
+                var next: i128 = if (info.signed) -(@as(i128, 1) << @intCast(bits - 1)) else 0;
+                const max: i128 = if (info.signed) (@as(i128, 1) << @intCast(bits - 1)) - 1 else (@as(i128, 1) << @intCast(bits)) - 1;
+                // Sweep the intervals in order of their low ends.
+                std.mem.sort([2]i128, cov.ints.items, {}, struct {
+                    fn lt(_: void, a: [2]i128, b: [2]i128) bool {
+                        return a[0] < b[0];
+                    }
+                }.lt);
+                for (cov.ints.items) |iv| {
+                    if (iv[0] > next) return false;
+                    if (iv[1] >= next) next = iv[1] + 1;
+                    if (next > max) return true;
+                }
+                return false;
+            },
+            else => return false,
+        }
+    }
+
+    /// Record an integer interval a pattern matches; it may not overlap
+    /// an earlier one.
+    fn coverInts(self: *Checker, cov: *MatchCoverage, lo: i128, hi: i128, pos: u32) Error!void {
+        for (cov.ints.items) |iv| {
+            if (hi >= iv[0] and lo <= iv[1]) {
+                try self.err(pos, "this pattern overlaps an earlier arm", .{});
+                return;
+            }
+        }
+        try cov.ints.append(self.ctx.allocator, .{ lo, hi });
+    }
+
+    fn checkPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, cov: *MatchCoverage) Error!void {
+        const covered = &cov.variants;
         switch (pattern) {
             .src => {
                 const name = self.text(pattern);
                 if (isLiteralText(name)) {
                     try self.checkExpr(pattern, scrutinee);
+                    if (std.mem.eql(u8, name, "true") or std.mem.eql(u8, name, "false")) {
+                        const i: usize = if (name[0] == 't') 1 else 0;
+                        if (cov.bools[i]) try self.err(pattern.src.pos, "this pattern overlaps an earlier arm", .{});
+                        cov.bools[i] = true;
+                    } else if (self.constInt(pattern)) |v| try self.coverInts(cov, v, v, pattern.src.pos);
                     return;
                 }
-                has_default.* = true;
+                cov.has_default = true;
                 if (!decls.isWildcardPattern(self.ctx.source, pattern)) {
                     if (self.ctx.symbolOf(pattern)) |sym| {
                         self.ctx.symbols.items[sym].ty = scrutinee;
@@ -829,8 +891,18 @@ const Checker = struct {
                     .@"range_pattern" => {
                         try self.checkExpr(items[1], scrutinee);
                         try self.checkExpr(items[2], scrutinee);
+                        const lo = self.constInt(items[1]) orelse return;
+                        const hi = self.constInt(items[2]) orelse return;
+                        if (lo > hi) {
+                            try self.err(firstSrcPos(pattern), "empty range `{d}..{d}`: a range pattern runs from low to high", .{ lo, hi });
+                            return;
+                        }
+                        try self.coverInts(cov, lo, hi, firstSrcPos(pattern));
                     },
-                    else => try self.checkExpr(pattern, scrutinee),
+                    else => {
+                        try self.checkExpr(pattern, scrutinee);
+                        if (self.constInt(pattern)) |v| try self.coverInts(cov, v, v, firstSrcPos(pattern));
+                    },
                 }
             },
             else => {},

@@ -1,0 +1,14 @@
+# Integer ranges that together cover every value of the type make a
+# complete match, needing no default arm.
+
+fun size(n: U8) -> String
+  match n
+    0..9 => "small"
+    10..99 => "medium"
+    100..255 => "large"
+
+sub main()
+  print(size(5), size(42), size(200))
+
+# expect:
+# small medium large
