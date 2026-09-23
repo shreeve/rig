@@ -2183,6 +2183,18 @@ pub const Emitter = struct {
                 }
             }
         }
+        // A variant named through its enum: `Shape.circle(r: 2)`,
+        // `m.Shape.circle(r: 2)`.
+        if (isTagged(callee, .@"member")) if (self.typeOf(sexp)) |t| {
+            const vname = self.srcText(callee.list[2]);
+            if (self.sema.typeOf(callee) == null and self.variantPayload(t, vname) != null) {
+                try self.w.writeAll("@as(");
+                try self.emitTypeTy(t);
+                try self.w.writeAll(", ");
+                try self.emitVariantPayload(sexp, t, vname);
+                return self.w.writeAll(")");
+            }
+        };
         // A cross-module constructor: `m.Type(field: v)`.
         if (isTagged(callee, .@"member")) if (self.typeOf(sexp)) |t| {
             if (self.sema.types.get(t) == .imported_nominal and self.sema.typeOf(callee) == null) {
@@ -2259,11 +2271,23 @@ pub const Emitter = struct {
         const callee = call.list[1];
         const f = self.fnType(self.typeOf(callee)) orelse return 0;
         if (!isTagged(callee, .@"member")) return f.pre_mask;
-        if (self.sema.symbolOf(callee.list[1])) |obj| switch (self.sema.symbols.items[obj].kind) {
-            .nominal_type, .generic_type, .module => return f.pre_mask,
-            else => {},
-        };
+        if (self.isTypeCallee(callee.list[1])) return f.pre_mask;
         return f.pre_mask >> 1;
+    }
+
+    /// The object of `Type.f(...)`, `module.f(...)`, or
+    /// `module.Type.f(...)`: a call passing every parameter.
+    fn isTypeCallee(self: *Emitter, obj: Sexp) bool {
+        if (isTagged(obj, .@"member")) {
+            const m = obj.list[1];
+            const id = self.sema.symbolOf(m) orelse return false;
+            return self.sema.symbols.items[id].kind == .module;
+        }
+        const id = self.sema.symbolOf(obj) orelse return false;
+        return switch (self.sema.symbols.items[id].kind) {
+            .nominal_type, .generic_type, .module => true,
+            else => false,
+        };
     }
 
     /// The parameter types a call's arguments fill (without a method's
@@ -2274,10 +2298,7 @@ pub const Emitter = struct {
         if (!isTagged(callee, .@"member")) return f.params;
         // `Type.method(...)` and `module.f(...)` pass every parameter;
         // `value.method(...)` passes all but the receiver.
-        if (self.sema.symbolOf(callee.list[1])) |obj| switch (self.sema.symbols.items[obj].kind) {
-            .nominal_type, .generic_type, .module => return f.params,
-            else => {},
-        };
+        if (self.isTypeCallee(callee.list[1])) return f.params;
         return if (f.params.len > 0) f.params[1..] else f.params;
     }
 
@@ -2404,9 +2425,13 @@ pub const Emitter = struct {
     /// payload is the value itself; several fields form a struct.
     fn emitVariantLit(self: *Emitter, call: Sexp) Error!void {
         const vname = self.srcText(call.list[1].list[1]);
-        const args = call.list[2..];
-        if (args.len == 0) return self.w.print(".{f}", .{self.ident(vname)});
+        if (call.list.len == 2) return self.w.print(".{f}", .{self.ident(vname)});
         const enum_ty = self.typeOf(call) orelse return self.unsupported(call, "an untyped variant");
+        return self.emitVariantPayload(call, enum_ty, vname);
+    }
+
+    fn emitVariantPayload(self: *Emitter, call: Sexp, enum_ty: TypeId, vname: []const u8) Error!void {
+        const args = call.list[2..];
         const fields = self.variantPayload(enum_ty, vname) orelse return self.unsupported(call, "this variant");
         try self.w.print(".{{ .{f} = ", .{self.ident(vname)});
         if (fields.len == 1) {

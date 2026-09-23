@@ -1635,6 +1635,9 @@ const Checker = struct {
             if (try self.qualifiedMember(obj, field_node)) |ty| return ty;
         }
 
+        // `module.Enum.variant`
+        if (try self.qualifiedImportedType(obj)) |found| return self.importedTypeMember(found, field, pos);
+
         const obj_ty = try self.synthOperand(obj);
         if (self.isPoison(obj_ty)) return obj_ty;
         const peeled = types.unwrapReadAccess(self.ctx, obj_ty);
@@ -1758,6 +1761,80 @@ const Checker = struct {
         id: SymbolId,
         sym: types.Symbol,
     };
+
+    /// `module.Type` written as the object of a member access: the type,
+    /// when it is one.
+    fn qualifiedImportedType(self: *Checker, obj: Sexp) Error!?Foreign {
+        if (!isHead(obj, .@"member") or obj.list[1] != .src) return null;
+        const id = self.lookupQuiet(obj.list[1]) orelse return null;
+        if (self.ctx.symbols.items[id].kind != .module) return null;
+        try self.ctx.recordName(obj.list[1], id);
+        const found = (try self.foreignSymbol(id, self.text(obj.list[2]), srcPos(obj.list[2], 0))) orelse return null;
+        if (found.sym.kind != .nominal_type) return null;
+        return found;
+    }
+
+    fn importedTypeOf(self: *Checker, found: Foreign) Error!TypeId {
+        return self.ctx.intern(.{ .imported_nominal = .{ .module_id = found.module_id, .sym_id = found.id } });
+    }
+
+    /// `module.Enum.variant` (a bare variant).
+    fn importedTypeMember(self: *Checker, found: Foreign, field: []const u8, pos: u32) Error!TypeId {
+        for (found.sym.fields orelse &.{}) |m| {
+            if (!std.mem.eql(u8, m.name, field)) continue;
+            if (m.is_method) {
+                try self.err(pos, "method `{s}.{s}` must be called; a bare method reference is not supported", .{ found.sym.name, field });
+                return self.t().invalid_id;
+            }
+            if (m.is_variant) {
+                if (m.payload != null and m.payload.?.len > 0) {
+                    try self.err(pos, "variant `{s}.{s}` carries a payload; construct it with `{s}.{s}(...)`", .{ found.sym.name, field, found.sym.name, field });
+                    return self.t().invalid_id;
+                }
+                return self.importedTypeOf(found);
+            }
+            break;
+        }
+        try self.err(pos, "no member `{s}` on type `{s}`", .{ field, found.sym.name });
+        return self.t().invalid_id;
+    }
+
+    /// `module.Type.function(args)` or `module.Enum.variant(payload)`.
+    fn importedAssociatedCall(self: *Checker, found: Foreign, name: []const u8, pos: u32, args: []const Sexp) Error!TypeId {
+        for (found.sym.fields orelse &.{}) |m| {
+            if (!std.mem.eql(u8, m.name, name)) continue;
+            if (m.is_method and !m.is_drop_method) {
+                const local = try types.importType(self.ctx, found.ctx, m.ty, found.module_id);
+                const fty = self.ctx.types.get(local);
+                if (fty != .function) break;
+                if (m.receiver != .none) {
+                    try self.err(pos, "method `{s}` takes `self`; call it on a value (`x.{s}(...)`)", .{ name, name });
+                    try self.synthArgs(args);
+                    return self.t().invalid_id;
+                }
+                try self.noteCallee(fty.function);
+                var params = self.methodParams(m, false);
+                params.source = found.ctx.source;
+                try self.checkArgs(args, fty.function, params, name, pos);
+                return fty.function.returns;
+            }
+            if (m.is_variant) {
+                const ty = try self.importedTypeOf(found);
+                const resolved = (try types.lookupVariant(self.ctx, ty, name)) orelse break;
+                if (resolved.payload.len == 0) {
+                    try self.err(pos, "variant `{s}.{s}` takes no payload", .{ found.sym.name, name });
+                    try self.synthArgs(args);
+                    return self.t().invalid_id;
+                }
+                try self.checkFieldArgs(args, resolved.payload, .{ .owner = name, .decl_pos = types.builtin_decl_pos, .pos = pos, .kind = .variant });
+                return ty;
+            }
+            break;
+        }
+        try self.err(pos, "no method `{s}` on type `{s}`", .{ name, found.sym.name });
+        try self.synthArgs(args);
+        return self.t().invalid_id;
+    }
 
     /// A public module-level symbol of an imported module.
     fn foreignSymbol(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32) Error!?Foreign {
@@ -2284,6 +2361,8 @@ const Checker = struct {
                 }
             }
         }
+
+        if (try self.qualifiedImportedType(obj)) |found| return self.importedAssociatedCall(found, method, pos, args);
 
         // A consuming (`self: Self`) method may take a temporary; any
         // other receiver must already have an owner.
