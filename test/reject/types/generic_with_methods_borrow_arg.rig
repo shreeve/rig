@@ -1,0 +1,18 @@
+# The methods of a generic type are checked for a `T` that holds no
+# borrow, so such a type cannot be instantiated with a borrow. (A generic
+# type without methods can hold one.)
+
+struct P
+  n: Int
+
+type Box(T)
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+sub main()
+  p = P(n: 1)
+  b: Box(?P) = Box(v: ?p)
+
+# error: `Box(?P)` cannot use `T = ?P`: the methods of `Box` are checked for a `T` that holds no borrow

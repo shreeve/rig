@@ -151,6 +151,9 @@ pub const Emitter = struct {
     rt_names: bool = false,
     /// Emitting a `pre` argument, which must stay compile-time known.
     keep_comptime: bool = false,
+    /// Emitting the object chain of an assignment target: an indexed
+    /// element in it is a slot, not a copy.
+    place_chain: bool = false,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, w: *Writer, sema: *const types.SemContext) Emitter {
         return .{
@@ -1072,6 +1075,11 @@ pub const Emitter = struct {
     fn emitPlace(self: *Emitter, target: Sexp) Error!void {
         if (target == .src) if (self.localOf(target)) |local| return self.writeLocalPlace(local);
         if (isTagged(target, .@"index")) return self.emitIndex(target.list, true);
+        // A field of an element (`v[i].x = ...`) is reached through the
+        // element's slot.
+        const saved = self.place_chain;
+        defer self.place_chain = saved;
+        self.place_chain = true;
         try self.emitExpr(target);
     }
 
@@ -1871,15 +1879,20 @@ pub const Emitter = struct {
         const base = items[1];
         const index = items[2];
         const base_ty = self.typeOf(base);
+        // The index itself is a value, even inside an assignment target.
+        const saved_chain = self.place_chain;
+        defer self.place_chain = saved_chain;
         if (base_ty != null and self.isVecTy(base_ty.?)) {
             try self.emitExpr(base);
             try self.w.writeAll(if (as_place) ".slot(" else ".at(");
+            self.place_chain = false;
             try self.emitBare(index);
             try self.w.writeAll(if (as_place) ").*" else ")");
             return;
         }
         try self.emitExpr(base);
         try self.w.writeAll("[");
+        self.place_chain = false;
         // Sema checked a constant index against an array's length; a
         // string's length is only known when it runs.
         const is_array = if (base_ty) |t| self.sema.types.get(self.peelBorrows(t)) == .array else false;
@@ -1918,6 +1931,7 @@ pub const Emitter = struct {
     fn emitMemberBase(self: *Emitter, obj: Sexp, obj_ty: ?TypeId) Error!void {
         var o = obj;
         while (isTagged(o, .@"read") or isTagged(o, .@"write")) o = o.list[1];
+        if (self.place_chain and isTagged(o, .@"index")) return self.emitIndex(o.list, true);
         if (o == .src) if (self.localOf(o)) |local| {
             if (local.is_ptr and obj_ty != null and self.isStructLike(obj_ty.?)) return self.w.writeAll(local.zig_name);
             return self.writeLocalPlace(local);
@@ -2768,7 +2782,10 @@ pub const Emitter = struct {
             .shared => .shared,
             .weak => .weak,
             .optional => |inner| if (self.kindOf(inner) != null) .optional else null,
-            .nominal, .parameterized_nominal, .imported_nominal => if (types.typeHasDropGlue(self.sema, ty)) .value else null,
+            .nominal, .parameterized_nominal, .imported_nominal => if (types.typeHasDropGlue(self.sema, ty) or types.maybeDropGlue(self.sema, ty)) .value else null,
+            // A type parameter's value is dropped with `rig.drop`, which
+            // does nothing for plain data.
+            .type_var => .value,
             else => null,
         };
     }

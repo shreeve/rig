@@ -1,0 +1,78 @@
+# A generic type's methods work for an argument that owns a resource as
+# long as they move `T` values (`<x`) rather than copy them: values of
+# `T` are dropped when they go out of scope, a replaced field drops its
+# old value, and a consumed enum yields its payload.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+type Box(T)
+  v: T
+
+  sub put(!self, x: T)
+    self.v = <x
+
+  sub ignore(self: Box(T), extra: T)
+    print("ignored")
+
+  fun keep(self: Box(T), x: T) -> T
+    y = <x
+    if true
+      z = <y
+      return <z
+    <y
+
+  sub juggle(self: Box(T), x: T, y: T)
+    a = <x
+    a = <y
+    print("replaced")
+    -a
+    print("dropped")
+
+enum Opt(T)
+  some(v: T)
+  nothing
+
+  fun or_else(self: Opt(T), d: T) -> T
+    match self
+      .some(v) => v
+      .nothing => <d
+
+sub main()
+  b: Box(*B) = Box(v: *B(n: 1))
+  (!b).put(*B(n: 2))
+  print("put")
+  (<b).ignore(*B(n: 3))
+  c: Box(*B) = Box(v: *B(n: 4))
+  k = (<c).keep(*B(n: 5))
+  print("kept", k.n)
+  d: Box(*B) = Box(v: *B(n: 6))
+  (<d).juggle(*B(n: 7), *B(n: 8))
+  o: Opt(*B) = .some(v: *B(n: 9))
+  x = (<o).or_else(*B(n: 10))
+  print("got", x.n)
+  i: Box(Int) = Box(v: 7)
+  (!i).put(8)
+  print(i.v)
+
+# expect:
+# drop 1
+# put
+# ignored
+# drop 3
+# drop 2
+# drop 4
+# kept 5
+# drop 7
+# replaced
+# drop 8
+# dropped
+# drop 6
+# drop 10
+# got 9
+# 8
+# drop 9
+# drop 5

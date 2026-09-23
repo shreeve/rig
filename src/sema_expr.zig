@@ -275,7 +275,7 @@ const Checker = struct {
             },
             else => {
                 const ty = try self.synthExpr(stmt);
-                if (types.typeHasDropGlue(self.ctx, ty)) {
+                if ((try self.ownsResource(ty, firstSrcPos(stmt), "discards a value"))) {
                     try self.err(firstSrcPos(stmt), "expression result of type `{s}` carries drop glue and would leak as a discarded statement; bind it to a name (`old = {s}.replace(<new)`), explicitly drop with `-name`, or move it into a receiver", .{
                         try self.tyName(ty), self.discardedReceiverName(stmt),
                     });
@@ -492,7 +492,7 @@ const Checker = struct {
         }
         const place_ty = try self.synthExpr(target);
         try self.checkWritable(target, "assign to");
-        if (head == .@"index" and types.typeHasDropGlue(self.ctx, place_ty)) {
+        if (head == .@"index" and (try self.ownsResource(place_ty, firstSrcPos(target), "overwrites an element"))) {
             try self.err(firstSrcPos(target), "cannot replace an element of type `{s}` by assignment; the old handle would leak", .{try self.tyName(place_ty)});
             return;
         }
@@ -638,7 +638,7 @@ const Checker = struct {
             .optional => |i| inner = i,
             else => try self.err(firstSrcPos(expr), "`as` binds the value inside an optional; this expression has type `{s}`", .{try self.tyName(ty)}),
         };
-        if (types.typeHasDropGlue(self.ctx, inner) and (isHead(expr, .@"read") or isHead(expr, .@"write"))) {
+        if ((try self.ownsResource(inner, firstSrcPos(expr), "moves out of a borrow a value")) and (isHead(expr, .@"read") or isHead(expr, .@"write"))) {
             try self.err(firstSrcPos(expr), "a borrow cannot give up the resource inside it; bind a new handle with `+x` instead", .{});
         }
         self.scope = self.ctx.scopeOf(node) orelse self.scope;
@@ -1446,7 +1446,7 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
         };
-        if (types.typeHasDropGlue(self.ctx, inner)) {
+        if ((try self.ownsResource(inner, firstSrcPos(items[1]), "copies out with `??` a value"))) {
             try self.err(firstSrcPos(items[1]), "`??` on an optional `{s}` would copy an owning handle out of it; optionals of resource handles can only be compared with `none`", .{try self.tyName(opt)});
             return self.t().invalid_id;
         }
@@ -1556,7 +1556,7 @@ const Checker = struct {
             },
             else => {},
         }
-        if (types.typeHasDropGlue(self.ctx, inner)) {
+        if ((try self.ownsResource(inner, firstSrcPos(items[1]), "clones a value"))) {
             try self.err(firstSrcPos(items[1]), "`+x` cannot clone a `{s}`; only `*T` and `~T` handles (or optionals of them) and plain values can be cloned", .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
@@ -1581,10 +1581,24 @@ const Checker = struct {
         return ty;
     }
 
+    /// Whether a value of `ty` owns a resource, for a check that rejects
+    /// `op` on one. Inside a generic body a type holding type parameters
+    /// may or may not: `op` is then allowed, and every instantiation must
+    /// supply plain data for them.
+    fn ownsResource(self: *Checker, ty: TypeId, pos: u32, op: []const u8) Error!bool {
+        if (types.typeHasDropGlue(self.ctx, ty)) return true;
+        if (!types.maybeDropGlue(self.ctx, ty)) return false;
+        var held: std.ArrayListUnmanaged(SymbolId) = .empty;
+        defer held.deinit(self.ctx.allocator);
+        try types.heldTypeVars(self.ctx, ty, &held, self.ctx.allocator);
+        for (held.items) |param| try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = param, .req = .plain, .pos = pos, .op = op });
+        return false;
+    }
+
     /// A fresh value (a call result, `*x`, `+x`, `<x`, ...) that owns a
     /// resource, where nothing takes ownership of it.
     fn rejectResourceTemporary(self: *Checker, operand: Sexp, ty: TypeId) Error!void {
-        if (isPlaceExpr(operand) or !types.typeHasDropGlue(self.ctx, ty)) return;
+        if (isPlaceExpr(operand) or !(try self.ownsResource(ty, firstSrcPos(operand), "leaves a temporary"))) return;
         try self.err(firstSrcPos(operand), "this `{s}` is a temporary that owns a resource, and nothing would drop it; bind it to a name first", .{try self.tyName(ty)});
     }
 
@@ -1621,7 +1635,7 @@ const Checker = struct {
 
         if (std.mem.eql(u8, field, "value")) {
             if (cellElementType(self.ctx, obj_ty)) |elem| {
-                if (types.typeHasDropGlue(self.ctx, elem)) {
+                if ((try self.ownsResource(elem, pos, "reads `cell.value`"))) {
                     try self.err(pos, "`cell.value` reads `T` by value but `T = {s}` has drop glue; a copy would alias the cell's owned value. Use `cell.replace(<new)` to swap-and-yield the old value.", .{try self.tyName(elem)});
                     return self.t().invalid_id;
                 }
@@ -1781,7 +1795,7 @@ const Checker = struct {
             .slice => |s| return s.elem,
             .string => return self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } }),
             .parameterized_nominal => |pn| if (pn.sym == self.ctx.vec_sym_id and pn.args.len == 1) {
-                if (types.typeHasDropGlue(self.ctx, pn.args[0])) {
+                if ((try self.ownsResource(pn.args[0], firstSrcPos(items[1]), "copies an element out of a Vec"))) {
                     try self.err(firstSrcPos(items[1]), "indexing a `{s}` would copy an owning handle out of the Vec; iterate with `for x in ?v` instead", .{try self.tyName(peeled)});
                     return self.t().invalid_id;
                 }
@@ -1810,7 +1824,7 @@ const Checker = struct {
         if (concrete != elem) {
             for (elems) |e| try self.checkExpr(e, concrete);
         }
-        if (types.typeHasDropGlue(self.ctx, concrete)) {
+        if ((try self.ownsResource(concrete, firstSrcPos(node), "puts in an array a value"))) {
             try self.err(firstSrcPos(node), "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try self.tyName(concrete)});
             return self.t().invalid_id;
         }
@@ -2329,7 +2343,7 @@ const Checker = struct {
             }
             if (std.mem.eql(u8, method, "get")) {
                 if (cellElementType(self.ctx, obj_ty)) |elem| {
-                    if (types.typeHasDropGlue(self.ctx, elem)) {
+                    if ((try self.ownsResource(elem, pos, "copies out with `Cell.get` a value"))) {
                         try self.err(pos, "`Cell.get` returns `T` by value but `T = {s}` has drop glue; a copy would alias the cell's owned value. Use `cell.replace(<new)` to swap-and-yield the old value.", .{try self.tyName(elem)});
                         try self.synthArgs(args);
                         return self.t().invalid_id;
@@ -2340,7 +2354,7 @@ const Checker = struct {
         if (resolved.nominal_sym == self.ctx.vec_sym_id and (std.mem.eql(u8, method, "get") or std.mem.eql(u8, method, "pop"))) {
             if (resolved.fn_ty.returns != self.t().invalid_id) {
                 const elem = self.ctx.types.get(resolved.fn_ty.returns).optional;
-                if (types.typeHasDropGlue(self.ctx, elem)) {
+                if ((try self.ownsResource(elem, pos, "copies an element out of a Vec"))) {
                     try self.err(pos, "`Vec.{s}` would copy an owning handle out of a `Vec` of `{s}`; iterate with `for x in ?v` instead", .{ method, try self.tyName(elem) });
                     try self.synthArgs(args);
                     return self.t().invalid_id;
@@ -3257,6 +3271,13 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
             for (ctx.generic_requirements.items) |req| {
                 if (req.param != param or satisfies(ctx, arg, req.req)) continue;
                 const pname = ctx.symbols.items[param].name;
+                if (req.req == .plain) {
+                    try ctx.err(entry.value_ptr.*, "`{s}` cannot use `{s} = {s}`: the generic body {s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{
+                        try types.formatType(ctx, entry.key_ptr.*), pname, try types.formatType(ctx, arg), req.op, pname, try types.formatType(ctx, arg),
+                    });
+                    try ctx.note(req.pos, "here", .{});
+                    break;
+                }
                 try ctx.err(entry.value_ptr.*, "`{s}` cannot use `{s} = {s}`: the generic body applies `{s}` to `{s}`, which `{s}` does not support", .{
                     try types.formatType(ctx, entry.key_ptr.*), pname, try types.formatType(ctx, arg), req.op, pname, try types.formatType(ctx, arg),
                 });
@@ -3271,6 +3292,7 @@ fn satisfies(ctx: *const SemContext, ty: TypeId, req: Requirement) bool {
     return switch (req) {
         .numeric, .ordered => types.isNumeric(ctx, ty),
         .integer => types.isInteger(ctx, ty),
+        .plain => !types.typeHasDropGlue(ctx, ty),
         .equatable => switch (ctx.types.get(ty)) {
             .int, .float, .bool => true,
             .nominal, .imported_nominal => types.isPlainEnum(ctx, ty),

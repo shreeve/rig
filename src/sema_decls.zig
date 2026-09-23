@@ -1270,6 +1270,12 @@ pub const TypeResolver = struct {
         if (!types.containsTypeVar(self.ctx, ty)) {
             const gop = try self.ctx.instantiation_sites.getOrPut(self.ctx.allocator, ty);
             if (!gop.found_existing) gop.value_ptr.* = pos;
+        } else if (sym.decl_pos != types.builtin_decl_pos) {
+            // Spelled inside a generic declaration: each instantiation of
+            // that generic instantiates this too.
+            for (self.ctx.generic_uses.items) |u| {
+                if (u == ty) break;
+            } else try self.ctx.generic_uses.append(self.ctx.allocator, ty);
         }
         return ty;
     }
@@ -1284,6 +1290,9 @@ pub const TypeResolver = struct {
         if (sym_id == self.ctx.vec_sym_id) {
             const ok = types.isCopyPrimitive(self.ctx, args[0]) or switch (self.ctx.types.get(args[0])) {
                 .shared, .weak => true,
+                // Plain data: a struct, enum, or optional that owns nothing
+                // and holds no borrow is copied like a number.
+                .nominal, .imported_nominal, .parameterized_nominal, .optional => types.isPlainData(self.ctx, args[0]),
                 else => false,
             };
             if (ok) return null;

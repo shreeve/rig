@@ -230,6 +230,22 @@ const Owning = union(enum) {
     weak,
     vec,
     drop_glue: []const u8, // type name
+    /// A value inside a generic body whose type holds type parameters:
+    /// it owns a resource if an instantiation's argument does.
+    generic,
+};
+
+/// The consuming context of a branching value; `node` is its list.
+const Tail = struct {
+    node: [*]const Sexp,
+    sink: Sink,
+};
+
+/// A generic body copies a value of a type parameter: every
+/// instantiation's argument for it must be plain data.
+const PlainRequirement = struct {
+    param: SymbolId,
+    pos: u32,
 };
 
 // =============================================================================
@@ -244,6 +260,11 @@ pub const Checker = struct {
     diagnostics: std.ArrayListUnmanaged(Diagnostic) = .empty,
 
     vars: std.ArrayListUnmanaged(Var) = .empty,
+    plain_reqs: std.ArrayListUnmanaged(PlainRequirement) = .empty,
+    /// A branching value (`if` / `match` / block) whose result is taken
+    /// (bound, passed, returned): the tails of its branches leave them.
+    /// Set just before walking that node; see `takeTail`.
+    tail: ?Tail = null,
     flows: std.ArrayListUnmanaged(Flow) = .empty,
     scopes: std.ArrayListUnmanaged(Scope) = .empty,
     /// Loans taken by the current statement and not stored in a var.
@@ -289,6 +310,7 @@ pub const Checker = struct {
         for (self.diagnostics.items) |d| self.gpa.free(d.message);
         self.diagnostics.deinit(self.gpa);
         self.vars.deinit(self.gpa);
+        self.plain_reqs.deinit(self.gpa);
         self.flows.deinit(self.gpa);
         for (self.scopes.items) |*s| s.defers.deinit(self.gpa);
         self.scopes.deinit(self.gpa);
@@ -298,6 +320,48 @@ pub const Checker = struct {
 
     pub fn check(self: *Checker, sexp: Sexp) Error!void {
         try self.walkDecl(sexp);
+        try self.checkInstantiations();
+    }
+
+    /// Generic bodies are checked once, for a `T` that may own a resource
+    /// and holds no borrow. Each instantiation the module spells must fit
+    /// that: an argument with drop glue only where the bodies never copy
+    /// a `T`, and no borrows in the arguments of a type with methods.
+    fn checkInstantiations(self: *Checker) Error!void {
+        const sema = self.sema orelse return;
+        var it = sema.instantiation_sites.iterator();
+        while (it.next()) |entry| {
+            const pn = switch (sema.types.get(entry.key_ptr.*)) {
+                .parameterized_nominal => |pn| pn,
+                else => continue,
+            };
+            const base = sema.symbols.items[pn.sym];
+            if (base.decl_pos == types.builtin_decl_pos) continue;
+            const params = base.type_params orelse continue;
+            const site = entry.value_ptr.*;
+            const shown = try types.formatTypeIn(sema, self.arena(), entry.key_ptr.*);
+            var has_methods = false;
+            for (base.fields orelse &.{}) |f| {
+                if (f.is_method and !f.is_drop_method) has_methods = true;
+            }
+            for (params, 0..) |param, i| {
+                if (i >= pn.args.len) break;
+                const arg = pn.args[i];
+                const pname = sema.symbols.items[param].name;
+                const aname = try types.formatTypeIn(sema, self.arena(), arg);
+                if (has_methods and self.typeCarries(arg, .any, 0)) {
+                    try self.err(site, "`{s}` cannot use `{s} = {s}`: the methods of `{s}` are checked for a `{s}` that holds no borrow", .{ shown, pname, aname, base.name, pname });
+                    continue;
+                }
+                if (!types.typeHasDropGlue(sema, arg)) continue;
+                for (self.plain_reqs.items) |r| {
+                    if (r.param != param) continue;
+                    try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, which would duplicate the resource `{s}` owns", .{ shown, pname, aname, pname, aname });
+                    try self.note(r.pos, "`{s}` copied here; move it with `<` instead", .{pname});
+                    break;
+                }
+            }
+        }
     }
 
     pub fn hasErrors(self: *const Checker) bool {
@@ -838,7 +902,55 @@ pub const Checker = struct {
         // its holder is write-borrowed for as long as the result may keep
         // the borrow.
         if (sink == .argument and self.isWriteBorrowPlace(expr)) return self.walkBorrow(expr, .write);
+        self.setTail(expr, sink);
         return self.walk(expr);
+    }
+
+    /// Mark `expr`, if it branches, as consumed by `sink`.
+    fn setTail(self: *Checker, expr: Sexp, sink: Sink) void {
+        const e = tailOf(expr);
+        if (e != .list or e.list.len == 0) return;
+        if (isTag(e, .@"if") or isTag(e, .@"match")) {
+            self.tail = .{ .node = e.list.ptr, .sink = sink };
+        }
+    }
+
+    /// The consuming context of the branching node `items`, if any.
+    fn takeTail(self: *Checker, items: []const Sexp) ?Tail {
+        const t = self.tail orelse return null;
+        if (t.node != items.ptr) return null;
+        self.tail = null;
+        return t;
+    }
+
+    /// Walk a branch of a consumed branching value: its tail leaves it.
+    /// A match payload named there moves out of its scrutinee, which the
+    /// check before the walk could not see (the name is bound in the arm).
+    fn walkTailBranch(self: *Checker, body: Sexp, t: ?Tail) Error!Value {
+        const ctx = t orelse return self.walk(body);
+        const tail = tailOf(body);
+        self.setTail(tail, ctx.sink);
+        const v = try self.walk(body);
+        self.tail = null;
+        if (tail == .src) try self.consumeTailName(tail);
+        return v;
+    }
+
+    fn consumeTailName(self: *Checker, node: Sexp) Error!void {
+        const sema = self.sema orelse return;
+        const sym = sema.symbolOf(node) orelse return;
+        const f = self.find(self.text(node)) orelse return;
+        if (f.crossed) return;
+        const v = self.vars.items[f.id];
+        if (v.decl != sema.symbols.items[sym].decl_pos) return;
+        const root = v.alias_of orelse return;
+        if (!self.flowLive(f.id)) return;
+        const k = self.owningKind(v.ty) orelse return;
+        if (k == .generic and v.via != .owned) {
+            // A copy for plain data; each instantiation is checked.
+            return self.reportAlias(node.src.pos, v.name, true, k, .binding, v.ty);
+        }
+        _ = try self.movePayload(f.id, root, node.src.pos, .{});
     }
 
     fn isWriteBorrowPlace(self: *Checker, expr: Sexp) bool {
@@ -1237,7 +1349,7 @@ pub const Checker = struct {
                     return;
                 }
                 if (top_return) return;
-                if (self.owningKind(v.ty)) |k| return self.reportAlias(pos, name, true, k, sink);
+                if (self.owningKind(v.ty)) |k| return self.reportAlias(pos, name, true, k, sink, v.ty);
                 if (sink == .argument) return;
                 if (v.ref == .write and !self.isCopy(self.pointee(v.ty))) {
                     try self.err(pos, "bare use of write borrow `{s}` in {s} would duplicate a unique borrow; use `<{s}` to move it", .{ name, sink.text(), name });
@@ -1251,7 +1363,7 @@ pub const Checker = struct {
                     .@"member", .@"index" => {
                         const ty = self.exprType(expr);
                         if (self.owningKind(ty)) |k| {
-                            return self.reportAlias(innerPos(expr), try self.placeText(expr), false, k, sink);
+                            return self.reportAlias(innerPos(expr), try self.placeText(expr), false, k, sink, ty);
                         }
                         if (sink != .argument and self.carriesWriteBorrow(ty)) {
                             try self.err(innerPos(expr), "bare use of `{s}` in {s} would duplicate a write borrow; a field cannot be moved out of its parent", .{ try self.placeText(expr), sink.text() });
@@ -1279,9 +1391,21 @@ pub const Checker = struct {
         }
     }
 
-    fn reportAlias(self: *Checker, pos: u32, what: []const u8, is_name: bool, k: Owning, sink: Sink) Error!void {
+    fn reportAlias(self: *Checker, pos: u32, what: []const u8, is_name: bool, k: Owning, sink: Sink, ty: ?TypeId) Error!void {
         const ctx = sink.text();
         switch (k) {
+            .generic => {
+                // Fine for plain data: each instantiation is checked.
+                const sema = self.sema orelse return;
+                const t = ty orelse return;
+                var held: std.ArrayListUnmanaged(SymbolId) = .empty;
+                try types.heldTypeVars(sema, t, &held, self.arena());
+                for (held.items) |param| {
+                    for (self.plain_reqs.items) |r| {
+                        if (r.param == param and r.pos == pos) break;
+                    } else try self.plain_reqs.append(self.gpa, .{ .param = param, .pos = pos });
+                }
+            },
             .shared, .weak => {
                 const kind = if (k == .shared) "shared (`*T`)" else "weak (`~T`)";
                 if (is_name) {
@@ -1731,6 +1855,7 @@ pub const Checker = struct {
             }
         } else if (isValueExpr(expr)) {
             try self.checkNoImplicitCopy(expr, .ret, true);
+            self.setTail(expr, .ret);
             value = try self.walk(expr);
         } else {
             _ = try self.walk(expr);
@@ -1758,25 +1883,26 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn walkIf(self: *Checker, items: []const Sexp) Error!Value {
+        const t = self.takeTail(items);
         const else_b: ?Sexp = if (items[3] != .nil) items[3] else null;
-        if (isTag(items[1], .@"as")) return self.walkIfAs(items[1], items[2], else_b);
+        if (isTag(items[1], .@"as")) return self.walkIfAs(items[1], items[2], else_b, t);
         _ = try self.walk(items[1]);
-        return self.walkBranches(items[2], else_b);
+        return self.walkBranches(items[2], else_b, t);
     }
 
     /// `if expr as name`: the value inside the optional moves into
     /// `name`, which the then-branch owns.
-    fn walkIfAs(self: *Checker, cond: Sexp, then_b: Sexp, else_b: ?Sexp) Error!Value {
+    fn walkIfAs(self: *Checker, cond: Sexp, then_b: Sexp, else_b: ?Sexp, t: ?Tail) Error!Value {
         const bound = try self.walkConsumed(cond.list[1], .binding);
         const base = try self.snapshot();
         try self.pushScope(.block);
         try self.bindOptional(cond.list[2], bound);
-        var v1 = try self.walk(then_b);
+        var v1 = try self.walkTailBranch(then_b, t);
         v1 = try self.checkValueEscapesScope(v1);
         try self.popScope();
         const s1 = try self.snapshot();
         try self.restore(base);
-        const v2 = if (else_b) |e| try self.walk(e) else Value{};
+        const v2 = if (else_b) |e| try self.walkTailBranch(e, t) else Value{};
         try self.restore(try self.join(s1, try self.snapshot()));
         return self.valueUnion(v1, v2);
     }
@@ -1790,12 +1916,12 @@ pub const Checker = struct {
         });
     }
 
-    fn walkBranches(self: *Checker, then_b: Sexp, else_b: ?Sexp) Error!Value {
+    fn walkBranches(self: *Checker, then_b: Sexp, else_b: ?Sexp, t: ?Tail) Error!Value {
         const base = try self.snapshot();
-        const v1 = try self.walk(then_b);
+        const v1 = try self.walkTailBranch(then_b, t);
         const s1 = try self.snapshot();
         try self.restore(base);
-        const v2 = if (else_b) |e| try self.walk(e) else Value{};
+        const v2 = if (else_b) |e| try self.walkTailBranch(e, t) else Value{};
         const s2 = try self.snapshot();
         try self.restore(try self.join(s1, s2));
         return self.valueUnion(v1, v2);
@@ -1823,6 +1949,7 @@ pub const Checker = struct {
     };
 
     fn walkMatch(self: *Checker, items: []const Sexp) Error!Value {
+        const tail_ctx = self.takeTail(items);
         const scrut = items[1];
         var info: Scrutinee = .{};
         var node = scrut;
@@ -1853,7 +1980,7 @@ pub const Checker = struct {
             try self.restore(base);
             try self.pushScope(.block);
             if (try self.bindPattern(pattern, info, scrut_value)) catch_all = true;
-            var v = try self.walk(body);
+            var v = try self.walkTailBranch(body, tail_ctx);
             v = try self.checkValueEscapesScope(v);
             try self.popScope();
             value = try self.valueUnion(value, v);
@@ -2331,9 +2458,11 @@ pub const Checker = struct {
             .parameterized_nominal => |pn| blk: {
                 if (pn.sym == sema.vec_sym_id) break :blk .vec;
                 if (types.typeHasDropGlue(sema, t)) break :blk .{ .drop_glue = sema.symbols.items[pn.sym].name };
+                if (types.maybeDropGlue(sema, t)) break :blk .generic;
                 break :blk null;
             },
             .nominal => |s| if (sema.symbols.items[s].flags.has_drop_glue) .{ .drop_glue = sema.symbols.items[s].name } else null,
+            .type_var => .generic,
             .imported_nominal => if (types.typeHasDropGlue(sema, t)) .{ .drop_glue = types.nominalDecl(sema, t).?.symbol().name } else null,
             else => null,
         };
@@ -2365,7 +2494,10 @@ pub const Checker = struct {
             .none_literal, .noreturn, .range => false,
             .borrow_write => true,
             .borrow_read, .slice => q == .any,
-            .type_var, .imported_nominal => q == .any,
+            // Generic bodies are checked for a `T` without borrows; an
+            // instantiation with one is rejected (`checkInstantiations`).
+            .type_var => false,
+            .imported_nominal => q == .any,
             .optional => |i| self.typeCarries(i, q, depth + 1),
             .fallible => |i| self.typeCarries(i, q, depth + 1),
             // An owned closure carries whatever its captures borrow.

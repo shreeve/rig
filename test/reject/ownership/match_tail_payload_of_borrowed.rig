@@ -1,0 +1,30 @@
+# A match that yields a payload of a borrowed scrutinee as its value
+# would copy the handle out of the borrowed value (and drop it twice),
+# whether the match is returned or bound.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+enum Opt
+  some(v: *B)
+  nothing
+
+  fun copy_out(?self, d: *B) -> *B
+    match self
+      .some(v) => v
+      .nothing => <d
+
+fun get(o: ?Opt, d: *B) -> *B
+  x = match o
+    .some(v) => v
+    .nothing => <d
+  <x
+
+sub main()
+  print(1)
+
+# error: cannot move out of `v`: it is borrowed from `self`
+# error: cannot move out of `v`: it is borrowed from `o`

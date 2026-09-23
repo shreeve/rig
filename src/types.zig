@@ -497,6 +497,9 @@ pub const Requirement = enum {
     ordered,
     equatable,
     integer,
+    /// Owns no resource: the body copies, discards, or leaves a
+    /// temporary of the parameter's value.
+    plain,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -504,6 +507,7 @@ pub const Requirement = enum {
             .ordered => "ordering comparison",
             .equatable => "`==` / `!=`",
             .integer => "integer operators",
+            .plain => "a value that owns no resource",
         };
     }
 };
@@ -553,6 +557,10 @@ pub const SemContext = struct {
     generic_requirements: std.ArrayListUnmanaged(GenericRequirement) = .empty,
     /// Instantiated generic type -> position of its first spelling.
     instantiation_sites: std.AutoHashMapUnmanaged(TypeId, u32) = .empty,
+    /// Instances of user generics spelled with type parameters, inside
+    /// generic declarations (`Opt(T)` in `Box(T)`'s methods). See
+    /// `expandInstantiations`.
+    generic_uses: std.ArrayListUnmanaged(TypeId) = .empty,
     /// Integer constants: bindings never reassigned or written whose
     /// value is a constant expression. The emitted Zig computes these at
     /// compile time, so sema checks their arithmetic.
@@ -589,6 +597,7 @@ pub const SemContext = struct {
         self.alias_in_progress.deinit(self.allocator);
         self.generic_requirements.deinit(self.allocator);
         self.instantiation_sites.deinit(self.allocator);
+        self.generic_uses.deinit(self.allocator);
         self.const_ints.deinit(self.allocator);
         self.arena.deinit();
     }
@@ -796,8 +805,55 @@ pub fn checkWithImports(
     propagateDropGlue(&ctx);
     try checkInfiniteTypes(&ctx);
     try exprs.checkModule(&ctx, ir, module_scope);
+    try expandInstantiations(&ctx);
     try exprs.checkGenericInstantiations(&ctx);
     return ctx;
+}
+
+/// Add the instances a program reaches through generic bodies: when
+/// `Box(*B)` is spelled and `Box(T)`'s methods use `Opt(T)`, `Opt(*B)` is
+/// instantiated too, at the same site. The requirement checks then see
+/// every instantiation.
+fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
+    if (ctx.generic_uses.items.len == 0) return;
+    var work: std.ArrayListUnmanaged(TypeId) = .empty;
+    defer work.deinit(ctx.allocator);
+    var it = ctx.instantiation_sites.keyIterator();
+    while (it.next()) |k| try work.append(ctx.allocator, k.*);
+    while (work.pop()) |inst| {
+        const pn = switch (ctx.types.get(inst)) {
+            .parameterized_nominal => |pn| pn,
+            else => continue,
+        };
+        const params = ctx.symbols.items[pn.sym].type_params orelse continue;
+        const site = ctx.instantiation_sites.get(inst) orelse continue;
+        const subst: TypeSubst = .{ .params = params, .args = pn.args };
+        for (ctx.generic_uses.items) |use| {
+            if (!usesParams(ctx, use, params)) continue;
+            const concrete = try substituteType(ctx, use, subst);
+            if (containsTypeVar(ctx, concrete)) continue;
+            const gop = try ctx.instantiation_sites.getOrPut(ctx.allocator, concrete);
+            if (gop.found_existing) continue;
+            gop.value_ptr.* = site;
+            try work.append(ctx.allocator, concrete);
+        }
+    }
+}
+
+/// Whether `ty` mentions any of `params`.
+fn usesParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) bool {
+    return switch (ctx.types.get(ty)) {
+        .type_var => |sym| for (params) |p| {
+            if (p == sym) break true;
+        } else false,
+        .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range => |i| usesParams(ctx, i, params),
+        .array => |a| usesParams(ctx, a.elem, params),
+        .slice => |sl| usesParams(ctx, sl.elem, params),
+        .parameterized_nominal => |pn| for (pn.args) |a| {
+            if (usesParams(ctx, a, params)) break true;
+        } else false,
+        else => false,
+    };
 }
 
 /// `has_drop_glue` depends on field types, which may name structs
@@ -1196,6 +1252,80 @@ pub fn containsTypeVar(ctx: *const SemContext, ty_id: TypeId) bool {
         },
         .parameterized_nominal => |pn| blk: {
             for (pn.args) |a| if (containsTypeVar(ctx, a)) break :blk true;
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
+/// A value that owns nothing and holds no borrow or type parameter: it
+/// can be copied freely, like a number.
+pub fn isPlainData(ctx: *const SemContext, ty: TypeId) bool {
+    return plainUnder(ctx, ty, 0) and !typeHasDropGlue(ctx, ty);
+}
+
+fn plainUnder(ctx: *const SemContext, ty: TypeId, depth: u8) bool {
+    if (depth > 32) return false;
+    return switch (ctx.types.get(ty)) {
+        .bool, .int, .float, .string => true,
+        .optional => |i| plainUnder(ctx, i, depth + 1),
+        .array => |a| plainUnder(ctx, a.elem, depth + 1),
+        .nominal => |sym| fieldsPlain(ctx, ctx.symbols.items[sym].fields orelse return false, depth),
+        .imported_nominal => |in| blk: {
+            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk false;
+            break :blk fieldsPlain(foreign, foreign.symbols.items[in.sym_id].fields orelse break :blk false, depth);
+        },
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
+            for (pn.args) |a| if (!plainUnder(ctx, a, depth + 1)) break :blk false;
+            break :blk fieldsPlain(ctx, ctx.symbols.items[pn.sym].fields orelse break :blk false, depth);
+        },
+        .type_var => true, // covered by the instance's arguments
+        else => false,
+    };
+}
+
+fn fieldsPlain(ctx: *const SemContext, fields: []const Field, depth: u8) bool {
+    for (fields) |f| {
+        if (f.is_method) continue;
+        if (f.is_variant) {
+            for (f.payload orelse &.{}) |pf| if (!plainUnder(ctx, pf.ty, depth + 1)) return false;
+        } else if (!plainUnder(ctx, f.ty, depth + 1)) return false;
+    }
+    return true;
+}
+
+/// Whether a value of `ty` owns a resource depends on type parameters
+/// that `ty` holds by value (a `T`, `T?`, `Box(T)` inside a generic
+/// body): it has no drop glue of its own, but an instantiation may. Such
+/// values are moved and dropped like resources.
+pub fn maybeDropGlue(ctx: *const SemContext, ty: TypeId) bool {
+    if (typeHasDropGlue(ctx, ty)) return false;
+    return holdsTypeVar(ctx, ty, 0);
+}
+
+/// The type parameters `ty` holds by value, appended to `out`.
+pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnmanaged(SymbolId), a: std.mem.Allocator) std.mem.Allocator.Error!void {
+    switch (ctx.types.get(ty)) {
+        .type_var => |sym| {
+            for (out.items) |x| if (x == sym) return;
+            try out.append(a, sym);
+        },
+        .optional, .fallible => |i| try heldTypeVars(ctx, i, out, a),
+        .array => |arr| try heldTypeVars(ctx, arr.elem, out, a),
+        .parameterized_nominal => |pn| for (pn.args) |arg| try heldTypeVars(ctx, arg, out, a),
+        else => {},
+    }
+}
+
+fn holdsTypeVar(ctx: *const SemContext, ty: TypeId, depth: u8) bool {
+    if (depth > 64) return true;
+    return switch (ctx.types.get(ty)) {
+        .type_var => true,
+        .optional, .fallible => |i| holdsTypeVar(ctx, i, depth + 1),
+        .array => |a| holdsTypeVar(ctx, a.elem, depth + 1),
+        .parameterized_nominal => |pn| blk: {
+            for (pn.args) |arg| if (holdsTypeVar(ctx, arg, depth + 1)) break :blk true;
             break :blk false;
         },
         else => false,
