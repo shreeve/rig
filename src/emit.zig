@@ -537,10 +537,6 @@ pub const Emitter = struct {
 
     /// A parameter type: `!T` is a pointer, everything else by value.
     fn emitParamType(self: *Emitter, t: Sexp) Error!void {
-        if (isTagged(t, .@"borrow_write")) {
-            try self.w.writeAll("*");
-            return self.emitType(t.list[1]);
-        }
         try self.emitType(t);
     }
 
@@ -588,6 +584,10 @@ pub const Emitter = struct {
     fn declare(self: *Emitter, local: Local, rig_name: []const u8) Error!*Local {
         if (self.scopes.items.len == 0) try self.pushScope();
         var l = local;
+        // A write borrow is held as a pointer wherever it is bound.
+        if (l.ty) |t| if (self.sema.types.get(t) == .borrow_write) {
+            l.is_ptr = true;
+        };
         if (l.zig_name.len == 0) l.zig_name = try self.zigNameFor(rig_name);
         if (l.guard == .flag and l.flag.len == 0) {
             l.flag = try self.fmt("__rig_alive_{s}", .{if (isPlainIdent(l.zig_name)) l.zig_name else try self.fresh(rig_name)});
@@ -891,7 +891,11 @@ pub const Emitter = struct {
 
         const s = self.sema.symbols.items[sym];
         const ty = self.symType(sym);
-        const is_borrow = !is_move and (isTagged(expr, .@"read") or isTagged(expr, .@"write"));
+        const binds_borrow = if (ty) |t| switch (self.sema.types.get(t)) {
+            .borrow_read, .borrow_write => true,
+            else => false,
+        } else true;
+        const is_borrow = !is_move and binds_borrow and (isTagged(expr, .@"read") or isTagged(expr, .@"write"));
         // A write borrow is held as a pointer however it was obtained.
         const holds_ptr = is_borrow or (ty != null and self.sema.types.get(ty.?) == .borrow_write);
         var local: Local = .{ .sym = sym, .zig_name = "", .ty = ty, .is_ptr = holds_ptr };
@@ -1005,6 +1009,13 @@ pub const Emitter = struct {
     /// resource, the old value is dropped after the new one is computed.
     fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp, is_move: bool) Error!void {
         const place_ty = self.typeOf(target);
+        if (target != .src and self.isWriteBorrowExpr(target)) {
+            // A field or element holding a write borrow is rebound.
+            try self.emitBorrowValue(target);
+            try self.w.writeAll(" = ");
+            try self.emitBorrowValue(value);
+            return self.w.writeAll(";");
+        }
         const may_own = if (place_ty) |t| self.kindOf(t) != null else true;
         if (!may_own) {
             try self.emitPlace(target);
@@ -1588,6 +1599,18 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
+    /// A value stored into a field, payload, or element: a write borrow is
+    /// stored as its pointer.
+    fn emitStored(self: *Emitter, e: Sexp) Error!void {
+        if (self.isWriteBorrowExpr(e)) return self.emitBorrowValue(e);
+        try self.emitBare(e);
+    }
+
+    fn isWriteBorrowExpr(self: *Emitter, e: Sexp) bool {
+        const t = self.typeOf(e) orelse return false;
+        return self.sema.types.get(t) == .borrow_write;
+    }
+
     /// A write-borrow value: the pointer a `!T` expression denotes.
     fn emitBorrowValue(self: *Emitter, e: Sexp) Error!void {
         const saved = self.ptr_tail;
@@ -1653,8 +1676,12 @@ pub const Emitter = struct {
                 try self.w.writeAll(".weakRef()");
             },
             .@"call" => try self.emitCall(sexp),
-            .@"member" => try self.emitMember(sexp),
-            .@"index" => try self.emitIndex(items, false),
+            .@"member", .@"index" => {
+                if (head == .@"member") try self.emitMember(sexp) else try self.emitIndex(items, false);
+                // A field or element holding a write borrow denotes the
+                // borrowed value, unless the pointer itself is wanted.
+                if (self.isWriteBorrowExpr(sexp) and !(tail and self.ptr_tail)) try self.w.writeAll(".*");
+            },
             .@"builtin" => try self.emitBuiltin(items),
             .@"propagate" => {
                 try self.w.writeAll("try ");
@@ -1732,6 +1759,7 @@ pub const Emitter = struct {
         if (place == .src) if (self.localOf(place)) |local| {
             if (local.is_ptr) return self.w.writeAll(local.zig_name);
         };
+        if (self.isWriteBorrowExpr(place)) return self.emitBorrowValue(place);
         try self.w.writeAll("&");
         try self.emitPlace(place);
     }
@@ -1791,7 +1819,7 @@ pub const Emitter = struct {
         try self.w.writeAll("{");
         for (elems, 0..) |e, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
-            try self.emitBare(e);
+            try self.emitStored(e);
         }
         try self.w.writeAll(if (elems.len > 0) " }" else "}");
     }
@@ -2160,7 +2188,7 @@ pub const Emitter = struct {
         for (args, 0..) |a, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
             try self.w.print(".{f} = ", .{self.ident(self.srcText(a.list[1]))});
-            try self.emitBare(a.list[2]);
+            try self.emitStored(a.list[2]);
         }
         try self.w.writeAll(if (args.len > 0) " }" else "}");
     }
@@ -2194,14 +2222,14 @@ pub const Emitter = struct {
         const fields = self.variantPayload(enum_ty, vname) orelse return self.unsupported(call, "this variant");
         try self.w.print(".{{ .{f} = ", .{self.ident(vname)});
         if (fields.len == 1) {
-            try self.emitBare(argValue(args[0]));
+            try self.emitStored(argValue(args[0]));
         } else {
             try self.w.writeAll(".{");
             for (args, 0..) |a, i| {
                 try self.w.writeAll(if (i == 0) " " else ", ");
                 const fname = if (isTagged(a, .@"kwarg")) self.srcText(a.list[1]) else fields[i].name;
                 try self.w.print(".{f} = ", .{self.ident(fname)});
-                try self.emitBare(argValue(a));
+                try self.emitStored(argValue(a));
             }
             try self.w.writeAll(" }");
         }
@@ -2318,13 +2346,7 @@ pub const Emitter = struct {
     /// A parameter of sema type `ty`: `!T` is a pointer, everything else
     /// by value.
     fn emitParamTypeTy(self: *Emitter, ty: TypeId) Error!void {
-        switch (self.sema.types.get(ty)) {
-            .borrow_write => |inner| {
-                try self.w.writeAll("*");
-                try self.emitTypeTy(inner);
-            },
-            else => try self.emitTypeTy(ty),
-        }
+        try self.emitTypeTy(ty);
     }
 
     fn emitCaptureFields(self: *Emitter, caps: []const Capture) Error!void {
@@ -2480,8 +2502,12 @@ pub const Emitter = struct {
                     try self.w.writeAll("!");
                     try self.emitType(items[1]);
                 },
-                // A borrow is a pointer only as a parameter (see `emitParamType`).
-                .@"borrow_read", .@"borrow_write" => try self.emitType(items[1]),
+                // A read borrow is held by value; a write borrow is a pointer.
+                .@"borrow_read" => try self.emitType(items[1]),
+                .@"borrow_write" => {
+                    try self.w.writeAll("*");
+                    try self.emitType(items[1]);
+                },
                 .@"shared" => {
                     try self.w.writeAll("*rig.RcBox(");
                     if (isTagged(items[1], .@"fun_type")) {
@@ -2556,7 +2582,11 @@ pub const Emitter = struct {
                 try self.w.writeAll("!");
                 try self.emitTypeTy(inner);
             },
-            .borrow_read, .borrow_write => |inner| try self.emitTypeTy(inner),
+            .borrow_read => |inner| try self.emitTypeTy(inner),
+            .borrow_write => |inner| {
+                try self.w.writeAll("*");
+                try self.emitTypeTy(inner);
+            },
             .shared => |inner| {
                 try self.w.writeAll("*rig.RcBox(");
                 switch (sema.types.get(inner)) {

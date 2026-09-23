@@ -1,0 +1,48 @@
+# A struct may hold a write borrow (a view): writes through the view
+# reach the borrowed value, whether the view is built locally, returned
+# from a function, nested in another struct, passed on, or rebound.
+
+struct Box
+  n: Int
+
+struct Ed
+  t: !Box
+
+struct Outer
+  e: Ed
+
+fun mk(b: !Box) -> Ed
+  Ed(t: b)
+
+sub bump(x: !Box)
+  x.n += 10
+
+sub set(e: Ed)
+  e.t.n = 100
+
+sub main()
+  a = Box(n: 1)
+  b = Box(n: 2)
+  if true
+    e = Ed(t: !a)
+    e.t.n = 5
+    bump(e.t)
+    bump(!e.t)
+    e.t = !b
+    e.t.n = 6
+  print(a.n, b.n)
+  if true
+    v = mk(!a)
+    v.t.n += 1
+    o = Outer(e: <v)
+    o.e.t.n *= 2
+  print(a.n)
+  if true
+    w = Ed(t: !b)
+    set(<w)
+  print(b.n)
+
+# expect:
+# 25 6
+# 52
+# 100
