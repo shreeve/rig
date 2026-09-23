@@ -107,7 +107,7 @@ hands the parser distinct tokens:
 | `f(x)`, `a[i]` vs `f (x)`, `f [1]` | `LPAREN_CALL`, `LBRACKET_INDEX` vs `(`, `[` | touching the preceding value continues it |
 | `a.b` vs `.red`, `f .red` | `.` vs `DOT_LIT` | `.name` touching a value is member access |
 | `a - b`, `a-b` vs `-x`, `f -x` | `MINUS` vs `MINUS_PREFIX` / `DROP_STMT` | a sigil touching its operand and not the value before it is a prefix; `-name` as a whole statement is a drop |
-| `<x +x *x ?x !x %x @x` | `MOVE_PFX` ... `PIN_PFX` | the same rule |
+| `<x +x *x ?x !x @x` | `MOVE_PFX` ... `PIN_PFX` | the same rule |
 | `T?`, `T!`, `f()!` | `SUFFIX_Q`, `SUFFIX_BANG` | touching the value before |
 | `a \| b` vs `\|a, +b\| body` | `BAR` vs `BAR_CAPTURE` | the spacing rule; the closing bar is the one the opening probe found |
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
@@ -174,7 +174,7 @@ tree.
 ## The semantic IR
 
 The IR's design rule: **every effect visible in the source stays a
-named node**: move, borrow, clone, drop, share, weak, raw access,
+named node**: move, borrow, clone, drop, share, weak,
 capture mode, propagation, and compile-time parameters. The parse stage
 adds no type information; sema records types separately, keyed by node.
 
@@ -347,7 +347,7 @@ backend cannot express yet is rejected with a diagnostic that says so.
   `catch`; `!` needs a fallible operand and an enclosing function that
   can fail (`-> T!`, or `sub main`, which is emitted as `!void`);
   closure bodies and deferred code cannot propagate;
-- **the raw boundary**: raw access `%x`, builtins outside the safe list
+- **the raw boundary**: builtins outside the safe list
   (`@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`), and calls to `extern`
   functions must be inside a `raw` block.
 

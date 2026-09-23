@@ -1865,7 +1865,7 @@ pub const Emitter = struct {
             else => {},
         }
         switch (head) {
-            .@"read", .@"raw" => {
+            .@"read" => {
                 // `?x` of a value held by pointer (a Cell) is its address.
                 if (head == .@"read" and self.isWriteBorrowExpr(sexp)) return self.emitAddressOf(items[1]);
                 self.bare = bare;

@@ -113,7 +113,7 @@ pub fn shapeOf(tag: Tag) ?Shape {
         .@"neg", .@"not" => fixed(&.{.node}),
 
         // Ownership sigils (and `~T`, `?T`, `!T`, `*T` in type position)
-        .@"move", .@"read", .@"write", .@"clone", .@"share", .@"weak", .@"pin", .@"raw" => fixed(&.{.node}),
+        .@"move", .@"read", .@"write", .@"clone", .@"share", .@"weak", .@"pin" => fixed(&.{.node}),
 
         // Types
         .@"optional", .@"error_union", .@"borrow_read", .@"borrow_write", .@"shared", .@"slice" => fixed(&.{.node}),
@@ -301,7 +301,7 @@ test "every form the grammar produces matches its schema" {
         \\  o = 1 if c else 2
         \\  defer print(1)
         \\  raw
-        \\    print(%x)
+        \\    print(@intCast(x))
         \\  print(+a, <b, ?c, !d, *e, ~f, v.w[0])
         \\  n: fun() Int = f
         \\  n2: *sub(Int, ?Box(Int)) = h

@@ -166,7 +166,7 @@ single: "no escapes\n" double: 'x'	y
 ### The spacing rule
 
 Several characters are both operators and prefixes: `<` `+` `-` `*` `?`
-`!` `~` `%` `@`. One rule decides which, and it also governs `(`, `[`,
+`!` `~` `@`. One rule decides which, and it also governs `(`, `[`,
 and `.`:
 
 > A character that touches its operand and not the value before it is
@@ -1943,10 +1943,10 @@ reserved.
 A `raw` block is the boundary of what the checker guarantees. Inside
 it, and only there, a program may:
 
-- write a raw access `%x`, which today reads `x` like a plain use (the
-  spelling is kept for raw pointer access, which Rig does not have yet);
 - call a builtin outside the safe list (`@intCast`, `@bitCast`, ...);
 - call an `extern` function.
+
+Rig has no raw pointers yet ([roadmap](docs/ROADMAP.md)).
 
 Everything else inside a `raw` block is still checked. A `raw` block
 can yield a value, and a safe function may wrap raw code, which is the
@@ -1963,7 +1963,7 @@ sub main()
   x: Int = 300
   raw
     small: U8 = @intCast(x - 100)
-    print(small, %x)
+    print(small, x)
   print(safe_abs(-5))
 ```
 

@@ -30,5 +30,5 @@ sub main()
   y <- x
 
   raw
-    p = %y
-    print p
+    p: I32 = @intCast(y)
+    print(p)

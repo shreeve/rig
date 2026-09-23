@@ -16,6 +16,7 @@ be checked as thoroughly as what exists.
 - **Module-level constants** and **field defaults**.
 - **Traits or interfaces** whose dispatch and ownership stay visible in the IR.
 - **Compile-time evaluation**: `pre` expressions and blocks beyond `pre` parameters.
+- **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
 - **Unique heap ownership**: a single-owner box without a reference count.
 - **A value-yielding `try` block** with a matching `catch` block.
 - **Drop bodies for enums and generic types.**

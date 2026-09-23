@@ -146,7 +146,6 @@ pub const Tag = enum(u8) {
     @"share",           // *x
     @"weak",            // ~x (also ~T in type position)
     @"pin",             // @x, reserved
-    @"raw",             // %x
 
     // Types
     @"optional",        // T?
@@ -716,7 +715,6 @@ pub const Lexer = struct {
             .minus => self.classifyMinus(tok),
             .lt => if (self.isPrefix(tok)) .move_pfx else .lt,
             .plus => if (self.isPrefix(tok)) .clone_pfx else .plus,
-            .percent => if (self.isPrefix(tok)) .raw_pfx else .percent,
             .star => if (self.isPrefix(tok) or self.isOwnedClosureStar(tok)) .share_pfx else .star,
             .at => if (self.isPrefix(tok) and !self.isBuiltinCall(tok)) .pin_pfx else .at,
             .question => if (self.touchesValue(tok)) .suffix_q else if (self.isPrefix(tok)) .read_pfx else .question,
@@ -950,7 +948,7 @@ fn isValue(cat: TokenCat) bool {
 
 fn isOperandStart(c: u8) bool {
     return isIdentStart(c) or (c >= '0' and c <= '9') or switch (c) {
-        '(', '[', '"', '\'', '.', '<', '?', '!', '+', '-', '*', '~', '@', '%' => true,
+        '(', '[', '"', '\'', '.', '<', '?', '!', '+', '-', '*', '~', '@' => true,
         else => false,
     };
 }

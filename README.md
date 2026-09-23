@@ -161,7 +161,6 @@ libraries are written in Rig itself (see
 | `-` | `-x` drop now (as a statement) | |
 | `*` | `*x` share: move into a counted box | `*T` shared handle |
 | `~` | `~x` weak handle | `~T` weak handle |
-| `%` | `%x` raw access, only inside `raw` | |
 
 A sigil is a prefix when it touches its operand, so `a < b` is still a
 comparison and `a * b` a product. The [language reference](SPEC.md)

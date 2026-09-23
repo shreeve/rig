@@ -105,7 +105,6 @@ For a value `x` of type `T`:
 | `-x` | (statement) | release now | runs the drop glue |
 | `*x` | `*T` | move into a new counted box | one allocation |
 | `~x` | `~U` when `T` is `*U` | a non-owning handle | a weak-count bump |
-| `%x` | `T` | raw access (inside `raw` only) | none |
 | `e!` | `T` when `e : T!` | propagate failure | a branch |
 
 Each operation has one meaning, becomes one IR node, and succeeds
@@ -271,8 +270,8 @@ pointer to the new ones.
 
 ### `raw` as a block
 
-`raw` marks the audit boundary: raw access, unchecked Zig builtins, and
-calls to C. It is block-only, so the boundary is a visible region, not
+`raw` marks the audit boundary: unchecked Zig builtins and calls to
+C. It is block-only, so the boundary is a visible region, not
 a modifier that can hide on a function. It is an audit boundary, not a
 performance ceiling: the code inside is ordinary Zig.
 

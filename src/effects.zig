@@ -9,8 +9,8 @@
 //! a `fun ... -> T!`, or `sub main` (lowered to `!void`). Closure bodies
 //! and `defer` / `errdefer` expressions cannot propagate.
 //!
-//! The raw boundary. Raw access `%x`, builtins outside the safe list,
-//! and calls to `extern` functions must be inside a `raw` block.
+//! The raw boundary. Builtins outside the safe list and calls to
+//! `extern` functions must be inside a `raw` block.
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -118,12 +118,6 @@ pub const Checker = struct {
             .@"raw_block" => {
                 self.raw_depth += 1;
                 defer self.raw_depth -= 1;
-                for (items[1..]) |c| try self.walk(c, false);
-            },
-            .@"raw" => {
-                if (self.raw_depth == 0) {
-                    try self.err(firstSrcPos(sexp), "raw access `%x` requires `raw` block; wrap the operation in `raw INDENT body OUTDENT`", .{});
-                }
                 for (items[1..]) |c| try self.walk(c, false);
             },
             .@"builtin" => {

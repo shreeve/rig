@@ -1221,7 +1221,6 @@ const Checker = struct {
             .@"share" => self.synthShare(items),
             .@"weak" => self.synthWeak(items),
             .@"clone" => self.synthClone(items),
-            .@"raw" => self.synthRawAccess(items),
             .@"pin" => blk: {
                 try self.err(firstSrcPos(e), "pinning sigil `@x` is reserved; Rig does not support pinned/stable-address values. Remove the `@` prefix, or call a builtin such as `@sizeOf(T)`.", .{});
                 break :blk self.t().invalid_id;
@@ -1625,10 +1624,6 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         return types.unwrapBorrows(self.ctx, inner);
-    }
-
-    fn synthRawAccess(self: *Checker, items: []const Sexp) Error!TypeId {
-        return self.synthOperand(items[1]);
     }
 
     /// Synthesize the operand of a borrow, clone, member access, index,
