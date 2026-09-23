@@ -1373,6 +1373,8 @@ pub const Checker = struct {
                 if (items.len == 0 or items[0] != .tag) return;
                 switch (items[0].tag) {
                     .@"member", .@"index" => {
+                        // `Enum.variant` is a new value, not a field.
+                        if (self.namesType(items[1])) return;
                         const ty = self.exprType(expr);
                         if (self.owningKind(ty)) |k| {
                             return self.reportAlias(innerPos(expr), try self.placeText(expr), false, k, sink, ty);
@@ -1401,6 +1403,25 @@ pub const Checker = struct {
             },
             else => {},
         }
+    }
+
+    /// Whether `e` names a type (`Shape`, `lib.Shape`) rather than a value.
+    fn namesType(self: *const Checker, e: Sexp) bool {
+        const sema = self.sema orelse return false;
+        const leaf = if (isTag(e, .@"member")) e.list[2] else e;
+        if (leaf != .src) return false;
+        if (isTag(e, .@"member")) {
+            // `module.Type`: the module has no value.
+            const m = e.list[1];
+            if (m != .src) return false;
+            const id = sema.symbolOf(m) orelse return false;
+            return sema.symbols.items[id].kind == .module;
+        }
+        const id = sema.symbolOf(e) orelse return false;
+        return switch (sema.symbols.items[id].kind) {
+            .nominal_type, .generic_type, .type_alias => true,
+            else => false,
+        };
     }
 
     fn reportAlias(self: *Checker, pos: u32, what: []const u8, is_name: bool, k: Owning, sink: Sink, ty: ?TypeId) Error!void {
