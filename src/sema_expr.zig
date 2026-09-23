@@ -68,6 +68,9 @@ const Checker = struct {
     fn_return: TypeId,
     is_sub: bool = true,
     nominal: NominalContext = NominalContext.none,
+    /// Callee node of the method call being checked; its resolved
+    /// signature is recorded as the node's type.
+    callee_node: ?Sexp = null,
 
     fn err(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
         return self.ctx.err(pos, fmt, args);
@@ -248,7 +251,7 @@ const Checker = struct {
                 for (items[1..]) |c| try self.checkStmt(c);
             },
             .@"drop" => if (items.len >= 2) {
-                _ = try self.useName(items[1]);
+                _ = try self.synthExpr(items[1]);
             },
             .@"break", .@"continue" => try self.checkJump(items),
             .@"defer", .@"errdefer" => if (items.len >= 2) try self.checkStmt(items[1]),
@@ -1627,6 +1630,9 @@ const Checker = struct {
             const sym_id = (try self.useName(callee)).?;
             _ = id;
             const sym = self.ctx.symbols.items[sym_id];
+            if (sym.kind != .nominal_type and sym.kind != .generic_type and sym.kind != .type_alias and sym.kind != .module) {
+                try self.ctx.recordType(callee, sym.ty);
+            }
             switch (sym.kind) {
                 .function, .@"extern" => {
                     const fty = self.ctx.types.get(sym.ty);
@@ -1931,7 +1937,24 @@ const Checker = struct {
 
     // ---- method calls -----------------------------------------------------------
 
+    /// Method calls also record the callee `(member obj name)` node's
+    /// type: the resolved method's signature.
     fn synthMemberCall(self: *Checker, callee: []const Sexp, args: []const Sexp) Error!TypeId {
+        const saved = self.callee_node;
+        self.callee_node = .{ .list = callee };
+        defer self.callee_node = saved;
+        return self.synthMemberCallInner(callee, args);
+    }
+
+    fn noteCallee(self: *Checker, f: FunctionType) Error!void {
+        try self.noteCalleeType(try self.ctx.intern(.{ .function = f }));
+    }
+
+    fn noteCalleeType(self: *Checker, ty: TypeId) Error!void {
+        if (self.callee_node) |n| try self.ctx.recordType(n, ty);
+    }
+
+    fn synthMemberCallInner(self: *Checker, callee: []const Sexp, args: []const Sexp) Error!TypeId {
         const obj = callee[1];
         const name_node = callee[2];
         const method = self.text(name_node);
@@ -1971,7 +1994,9 @@ const Checker = struct {
                         try self.err(pos, "weak `upgrade` takes no arguments; got {d}", .{args.len});
                         try self.synthArgs(args);
                     }
-                    return self.ctx.intern(.{ .optional = try self.ctx.intern(.{ .shared = inner }) });
+                    const result = try self.ctx.intern(.{ .optional = try self.ctx.intern(.{ .shared = inner }) });
+                    try self.noteCallee(.{ .params = try self.ctx.dupeIds(&.{obj_ty}), .returns = result, .is_sub = false });
+                    return result;
                 },
                 .shared => if (!types.hasMethodNamed(self.ctx, obj_ty, method)) {
                     try self.err(pos, "`upgrade` is only available on weak handles (`~T`); receiver here is a shared handle (`*T`). Use `~rc` to obtain a weak reference, then `.upgrade()` on the weak.", .{});
@@ -2001,7 +2026,10 @@ const Checker = struct {
         const resolved = (try types.lookupMethod(self.ctx, obj_ty, method)) orelse {
             // A data field holding a closure handle is called like one.
             if (try types.lookupDataField(self.ctx, obj_ty, method)) |f| {
-                if (ownedClosureArgs(self.ctx, f.ty) != null) return self.callValue(.{ .list = callee }, f.ty, args, method);
+                if (ownedClosureArgs(self.ctx, f.ty) != null) {
+                    try self.noteCalleeType(f.ty);
+                    return self.callValue(.{ .list = callee }, f.ty, args, method);
+                }
             }
             if (types.nominalSymOfReceiver(self.ctx, peeled)) |owner| {
                 const sym = self.ctx.symbols.items[owner];
@@ -2014,6 +2042,7 @@ const Checker = struct {
             return self.t().invalid_id;
         };
         const owner = self.ctx.symbols.items[resolved.nominal_sym];
+        try self.noteCallee(resolved.fn_ty);
 
         if (resolved.nominal_sym == self.ctx.cell_sym_id) {
             if (std.mem.eql(u8, method, "set") and !self.isAddressableCell(obj, obj_ty)) {
@@ -2083,6 +2112,7 @@ const Checker = struct {
                     try self.synthArgs(args);
                     return self.t().invalid_id;
                 }
+                try self.noteCallee(fty.function);
                 try self.checkArgs(args, fty.function, self.methodParamNames(m, false), name, pos);
                 return fty.function.returns;
             }
@@ -2121,6 +2151,7 @@ const Checker = struct {
                     try self.synthArgs(args);
                     return self.t().invalid_id;
                 }
+                try self.noteCallee(fty.function);
                 try self.checkArgs(args, fty.function, found.sym.param_names, qualified, pos);
                 return fty.function.returns;
             },
@@ -2143,6 +2174,7 @@ const Checker = struct {
             if (!f.is_method or f.is_drop_method or !std.mem.eql(u8, f.name, method)) continue;
             const local = try types.importType(self.ctx, foreign, f.ty, in.module_id);
             const fty = self.ctx.types.get(local).function;
+            try self.noteCalleeType(local);
             if (f.receiver == .none) {
                 try self.err(pos, "method `{s}` has no `self` receiver; call as `{s}.{s}(...)`", .{ method, sym.name, method });
                 try self.synthArgs(args);
@@ -2277,6 +2309,7 @@ const Checker = struct {
             .@"call" => {
                 if (items.len >= 2 and isHead(items[1], .@"enum_lit")) {
                     try self.checkPayloadVariant(items, target);
+                    try self.ctx.recordType(items[1], target);
                     try self.ctx.recordType(e, target);
                     return true;
                 }

@@ -28,6 +28,12 @@
 //!   ctx.scopeOf(node)    -> ?ScopeId   the scope a fun/sub/method/lambda/
 //!                                      block/for/arm/catch node opens
 //!
+//! A call's callee gets a type too: a function name its signature, and a
+//! method callee `(member obj m)` the resolved method signature with the
+//! receiver's generic arguments applied. Binding facts live on the
+//! Symbol: `flags.reassigned`, `flags.fixed`, `flags.comptime_known`,
+//! `flags.pattern_bound`, `kind` (local / param / capture / ...).
+//!
 //! Leaves are keyed by source position (`src.pos`); list nodes by the
 //! identity of their item slice (`NodeKey`), which is stable because
 //! every pass walks the same IR tree that was passed to `check`. A node
@@ -1721,4 +1727,188 @@ test "declarations: struct fields, methods, and enum variants" {
     try std.testing.expect(shape[1].payload == null);
     const net = r.ctx.symbols.items[r.ctx.lookup(1, "NetError").?].fields.?;
     try std.testing.expectEqualStrings("timeout", net[0].name);
+}
+
+/// Walk every expression position of a body and report nodes sema left
+/// without a fact. Used to keep the facts table complete.
+const Coverage = struct {
+    r: *const FactsRun,
+    missing: usize = 0,
+
+    fn expectName(self: *Coverage, leaf: Sexp) void {
+        if (leaf != .src) return;
+        const text = self.r.source[leaf.src.pos..][0..leaf.src.len];
+        if (std.mem.eql(u8, text, "print") or std.mem.eql(u8, text, "_")) return;
+        if (!std.ascii.isAlphabetic(text[0]) and text[0] != '_') return;
+        if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return;
+        if (self.r.ctx.symbolOf(leaf) == null) {
+            std.debug.print("no symbol for `{s}` at {d}\n", .{ text, leaf.src.pos });
+            self.missing += 1;
+        }
+    }
+
+    fn expectType(self: *Coverage, node: Sexp) void {
+        if (self.r.ctx.typeOf(node) == null) {
+            std.debug.print("no type for node at {d} ({s})\n", .{ diag.firstSrcPos(node), if (headOf(node)) |h| @tagName(h) else "leaf" });
+            self.missing += 1;
+        }
+    }
+
+    /// `e` is in expression position.
+    fn expr(self: *Coverage, e: Sexp) void {
+        switch (e) {
+            .src => {
+                self.expectName(e);
+                if (!std.mem.eql(u8, self.r.source[e.src.pos..][0..e.src.len], "print")) self.expectType(e);
+            },
+            .list => |items| {
+                const h = headOf(e) orelse return;
+                switch (h) {
+                    .@"set" => {
+                        self.expectName(items[2]);
+                        if (items[2] != .src) self.expr(items[2]);
+                        self.expr(items[4]);
+                        return;
+                    },
+                    .@"block" => {
+                        for (items[1..]) |c| self.expr(c);
+                        return;
+                    },
+                    .@"if", .@"while" => {
+                        for (items[1..]) |c| self.expr(c);
+                        return;
+                    },
+                    .@"for" => {
+                        self.expectName(items[2]);
+                        self.expr(items[4]);
+                        self.expr(items[5]);
+                        return;
+                    },
+                    .@"match" => {
+                        self.expr(items[1]);
+                        for (items[2..]) |arm| {
+                            const pat = arm.list[1];
+                            if (isHead(pat, .@"variant_pattern")) for (pat.list[2..]) |b| self.expectName(b);
+                            self.expr(arm.list[arm.list.len - 1]);
+                        }
+                        return;
+                    },
+                    .@"lambda" => {
+                        for (captureList(items[1])) |cap| self.expectName(captureNameNode(cap).?);
+                        self.expr(items[4]);
+                        return;
+                    },
+                    .@"member" => {
+                        self.expectType(e);
+                        self.expr(items[1]);
+                        return;
+                    },
+                    .@"call" => {
+                        self.expectType(e);
+                        if (items[1] == .src) {
+                            self.expectName(items[1]);
+                        } else self.expr(items[1]);
+                        for (items[2..]) |a| {
+                            if (isHead(a, .@"kwarg")) self.expr(a.list[2]) else self.expr(a);
+                        }
+                        return;
+                    },
+                    .@"return", .@"drop", .@"defer" => {
+                        for (items[1..]) |c| self.expr(c);
+                        return;
+                    },
+                    .@"enum_lit" => {
+                        self.expectType(e);
+                        return;
+                    },
+                    else => {
+                        self.expectType(e);
+                        for (items[1..]) |c| if (c != .tag) self.expr(c);
+                    },
+                }
+            },
+            else => {},
+        }
+    }
+
+    fn decl(self: *Coverage, d: Sexp) void {
+        const h = headOf(d) orelse return;
+        switch (h) {
+            .@"fun", .@"sub" => {
+                if (d.list[2] == .list) for (d.list[2].list) |p| self.expectName(paramNameNode(p).?);
+                self.expr(d.list[d.list.len - 1]);
+            },
+            .@"struct", .@"enum", .@"generic_type" => for (d.list[2..]) |m| self.decl(m),
+            else => {},
+        }
+    }
+};
+
+test "facts: every name and expression in a program has a fact" {
+    var r = try factsRun(
+        \\struct Account
+        \\  owner: String
+        \\  balance: Int
+        \\
+        \\  fun doubled(?self) -> Int
+        \\    self.balance * 2
+        \\
+        \\  sub deposit(!self, n: Int)
+        \\    self.balance += n
+        \\
+        \\enum Shape
+        \\  circle(radius: Int)
+        \\  dot
+        \\
+        \\type Box(T)
+        \\  value: T
+        \\
+        \\  fun get(?self) -> T
+        \\    self.value
+        \\
+        \\fun balance_of(a: ?Account) -> Int
+        \\  a.balance
+        \\
+        \\fun area(s: Shape) -> Int
+        \\  match s
+        \\    .circle(r) => r * r * 3
+        \\    .dot => 0
+        \\
+        \\fun maybe(n: Int) -> Int?
+        \\  if n > 0
+        \\    n
+        \\  else
+        \\    none
+        \\
+        \\sub main()
+        \\  acct = Account(owner: "ada", balance: 100)
+        \\  print(balance_of(?acct))
+        \\  (!acct).deposit(5)
+        \\  print(acct.doubled())
+        \\  moved = <acct
+        \\  shared = *Account(owner: "bob", balance: 7)
+        \\  other = +shared
+        \\  -shared
+        \\  print(other.balance)
+        \\  total = 0
+        \\  v: Vec(Int) = Vec()
+        \\  (!v).push(3)
+        \\  for x in v
+        \\    total += x
+        \\  print(total + moved.balance)
+        \\  b: Box(Int) = Box(value: 4)
+        \\  print(b.get())
+        \\  print(area(.circle(radius: 2)))
+        \\  print(maybe(-1) ?? 9)
+        \\  c: *Cell(Int) = *Cell(value: 1)
+        \\  f = |+c|
+        \\    c.set(c.get() + 1)
+        \\  f()
+        \\  print(c.get())
+        \\
+    );
+    defer r.deinit();
+    var cov: Coverage = .{ .r = &r };
+    for (r.ir.list[1..]) |d| cov.decl(d);
+    try std.testing.expectEqual(@as(usize, 0), cov.missing);
 }
