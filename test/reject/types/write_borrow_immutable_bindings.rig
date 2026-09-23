@@ -1,0 +1,28 @@
+# `!x` writes through `x`, so `x` must be mutable: a plain parameter, a
+# fixed binding, a capture, and a loop or `as` binding are not.
+
+sub bump(c: !Int)
+  c = c + 1
+
+sub f(n: Int)
+  bump(!n)
+
+sub main()
+  y =! 1
+  bump(!y)
+  k = 1
+  g = |k|
+    bump(!k)
+  g()
+  for x in [1, 2]
+    bump(!x)
+  m: Int? = 3
+  if m as v
+    bump(!v)
+  f(1)
+
+# error: cannot write-borrow parameter `n`
+# error: cannot write-borrow fixed binding `y`
+# error: cannot write-borrow captured `k`
+# error: cannot write-borrow `x`; loop and pattern bindings are immutable
+# error: cannot write-borrow `v`; loop and pattern bindings are immutable

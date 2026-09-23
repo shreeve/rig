@@ -1,0 +1,13 @@
+# A field of a plain parameter cannot be assigned: the parameter is an
+# immutable value. Take `p: !Point` to write through to the caller.
+
+struct Point
+  x: Int
+
+sub reset(p: Point)
+  p.x = 0
+
+sub main()
+  reset(Point(x: 1))
+
+# error: cannot assign to parameter `p`

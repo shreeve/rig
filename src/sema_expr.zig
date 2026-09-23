@@ -473,6 +473,7 @@ const Checker = struct {
             return;
         }
         const place_ty = try self.synthExpr(target);
+        try self.checkWritable(target, "assign to");
         if (head == .@"index" and types.typeHasDropGlue(self.ctx, place_ty)) {
             try self.err(firstSrcPos(target), "cannot replace an element of type `{s}` by assignment; the old handle would leak", .{try self.tyName(place_ty)});
             return;
@@ -488,6 +489,42 @@ const Checker = struct {
             else => {},
         }
         try self.checkExpr(rhs, place_ty);
+    }
+
+    /// Writing to `place` (a name, or a field or element of one) writes
+    /// the binding it is rooted in, unless the path goes through a
+    /// pointer: that binding must be mutable. Fixed (`=!`), loop and
+    /// pattern bindings, captures, and parameters other than `!T` ones
+    /// are not.
+    fn checkWritable(self: *Checker, place: Sexp, verb: []const u8) Error!void {
+        var p = place;
+        while (headOf(p)) |h| {
+            if (h != .@"member" and h != .@"index") return;
+            const obj = p.list[1];
+            const obj_ty = self.ctx.typeOf(obj) orelse return;
+            switch (self.ctx.types.get(obj_ty)) {
+                .borrow_read, .borrow_write, .shared => return,
+                else => {},
+            }
+            p = obj;
+        }
+        if (p != .src) return;
+        const id = self.ctx.symbolOf(p) orelse return;
+        const sym = self.ctx.symbols.items[id];
+        const name = sym.name;
+        const pos = p.src.pos;
+        switch (sym.kind) {
+            .param => if (self.ctx.types.get(sym.ty) != .borrow_write) {
+                try self.err(pos, "cannot {s} parameter `{s}`; parameters are immutable (take `{s}: !T` to write through to the caller)", .{ verb, name, name });
+            },
+            .capture => try self.err(pos, "cannot {s} captured `{s}`; captures are fixed when the closure is created", .{ verb, name }),
+            .local => if (sym.flags.fixed) {
+                try self.err(pos, "cannot {s} fixed binding `{s}` (bound with `=!`)", .{ verb, name });
+            } else if (sym.flags.pattern_bound) {
+                try self.err(pos, "cannot {s} `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ verb, name, name, name });
+            },
+            else => {},
+        }
     }
 
     /// Does an assignment target reach its storage through a `*T`?
@@ -1261,6 +1298,7 @@ const Checker = struct {
     fn synthBorrow(self: *Checker, items: []const Sexp, kind: BorrowKind) Error!TypeId {
         const inner = try self.synthOperand(items[1]);
         if (self.isPoison(inner)) return inner;
+        if (kind == .write) try self.checkWritable(items[1], "write-borrow");
         switch (self.ctx.types.get(inner)) {
             .borrow_read => {
                 if (kind == .read) return inner;

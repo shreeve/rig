@@ -1,0 +1,15 @@
+# A field of a `!T` parameter is assigned in the caller's value.
+
+struct Point
+  x: Int
+
+sub reset(p: !Point)
+  p.x = 0
+
+sub main()
+  q = Point(x: 1)
+  reset(!q)
+  print(q.x)
+
+# expect:
+# 0
