@@ -116,11 +116,11 @@ the finished semantic IR.
 
 ### Conflicts policy
 
-The grammar has **no** LALR(1) conflicts (`@conflicts = 0`), and uses no
-precedence hints to hide any. Nexus fails generation on any conflict
-the grammar does not declare, so a new conflict is a deliberate
-decision: it goes in an `@conflicts` manifest entry with its rationale,
-and is justified here.
+The grammar has **no** LALR(1) conflicts (it has no `@conflicts`
+block), and uses no precedence hints to hide any. Nexus fails
+generation on any conflict the grammar does not declare, so a new
+conflict is a deliberate decision: it goes in an `@conflicts` entry
+with its rationale, and is justified here.
 
 The ambiguities in Rig's surface are real; they are resolved in the
 lexer rewriter, which can see spacing and look ahead on the line, and
@@ -299,23 +299,23 @@ fun double(n: Int) -> Int
 ```
 
 ```facts
-(node 9 module 0 34)
-(role 9 decls 7)
-(node 7 fun 0 34)
-(role 7 name leaf 4 6)
-(role 7 params 3)
-(role 7 returns leaf 22 3)
-(role 7 body 6)
-(node 3 group 10 18)
-(role 3 0 1)
+(node 6 module 0 34)
+(role 6 decls 5)
+(node 5 fun 0 34)
+(role 5 name leaf 4 6)
+(role 5 params 2)
+(role 5 returns leaf 22 3)
+(role 5 body 4)
+(node 2 group 10 18)
+(role 2 0 1)
 (node 1 : 11 17)
 (role 1 name leaf 11 1)
 (role 1 type leaf 14 3)
-(node 6 block 28 34)
-(role 6 stmts 4)
-(node 4 * 28 33)
-(role 4 left leaf 28 1)
-(role 4 right leaf 32 1)
+(node 4 block 28 34)
+(role 4 stmts 3)
+(node 3 * 28 33)
+(role 3 left leaf 28 1)
+(role 3 right leaf 32 1)
 ```
 
 Node ids are the ones sema keys its facts by. These are the syntax
@@ -570,11 +570,11 @@ green.
 
 ## Nexus notes
 
-- `L(X)` lists are greedy: an internal prefer-shift keeps consuming
-  `, X`, and the conflicts this hides are not reported. A rule like
-  `L(expr) "," cmd` therefore never reaches `cmd`; lists followed by a
-  comma and something else are written as left-recursive rules
-  (`exprs`, `callargs`).
+- An `L(X)` list followed by its own separator is a shift/reduce
+  conflict (`L(expr) "," cmd`: another `, expr` or the `, cmd`?), so
+  lists followed by a comma and something else are written as
+  left-recursive rules (`exprs`, `callargs`), which shift the comma
+  and decide by what follows it.
 - A label on a token fills its role with the token (a leaf), so a role
   typed `tag(...)` is filled by an action literal: the compound
   assignments are one alternative each (`→ (set op:+=)`) rather than

@@ -375,10 +375,6 @@ tokens
     pattern: "a pattern", arm: "a match arm", params: "a parameter list"
     unary: "an operand"
 
-# No LALR(1) conflicts, and no precedence hints hiding any; see
-# docs/INTERNALS.md (Conflicts policy).
-@conflicts = 0
-
 # ==============================================================================
 # PROGRAM STRUCTURE
 # ==============================================================================
@@ -572,8 +568,8 @@ cond     = value
 
 cmd      = callee:postfix args:cmdargs              → (call)
 
-# These argument lists are written out rather than `L(expr)`: Nexus lists
-# are greedy, so `L(expr) "," cmdtail` could never reach its cmdtail.
+# These argument lists are written out rather than `L(expr)`:
+# `L(expr) "," cmdtail` conflicts on the comma.
 cmdargs  = exprs                                    → 1
          | exprs "," cmdtail                        → (...1 3)
          | cmdtail                                  → (1)
