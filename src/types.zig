@@ -853,7 +853,9 @@ const GlueSubst = struct {
 /// when any field or variant payload does under its arguments.
 fn hasDropGlueUnder(ctx: *const SemContext, ty_id: TypeId, subst: ?*const GlueSubst, depth: u8) bool {
     if (ty_id == ctx.types.invalid_id or ty_id == ctx.types.unknown_id) return false;
-    if (depth > 16) return false;
+    // Past any real nesting depth, assume glue: treating a Copy type as
+    // owning only costs a rejected copy, the reverse would leak.
+    if (depth > 64) return true;
     return switch (ctx.types.get(ty_id)) {
         .shared, .weak => true,
         .optional => |inner| hasDropGlueUnder(ctx, inner, subst, depth + 1),

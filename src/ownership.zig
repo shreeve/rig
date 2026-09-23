@@ -2007,15 +2007,19 @@ pub const Checker = struct {
         const entry = try self.snapshot();
         var head = entry;
         self.quiet += 1;
+        // The join only grows the state, over finitely many variables and
+        // loans, so this reaches a fixpoint. The bound is a backstop: a
+        // loop the analysis cannot settle is rejected, never accepted.
         var rounds: usize = 0;
-        while (rounds < 64) : (rounds += 1) {
+        const converged = while (rounds < 100_000) : (rounds += 1) {
             try self.restore(head);
             const it = try self.loopIteration(spec, &ctx);
             const next = try self.join(head, it.back);
-            if (statesEql(next, head)) break;
+            if (statesEql(next, head)) break true;
             head = next;
-        }
+        } else false;
         self.quiet -= 1;
+        if (!converged) try self.err(innerPos(spec.body), "this loop is too complex for the ownership checker; split it into smaller functions", .{});
 
         try self.restore(head);
         const it = try self.loopIteration(spec, &ctx);
@@ -2336,7 +2340,8 @@ pub const Checker = struct {
 
     fn typeCarries(self: *const Checker, t: TypeId, q: BorrowQuery, depth: u8) bool {
         const sema = self.sema orelse return q == .any;
-        if (depth > 8) return q == .any;
+        // Past any real nesting depth, assume the worst.
+        if (depth > 64) return true;
         return switch (sema.types.get(t)) {
             .invalid, .unknown => false,
             .void, .bool, .string, .int, .float, .int_literal, .float_literal, .function => false,

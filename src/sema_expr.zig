@@ -2557,14 +2557,14 @@ const Checker = struct {
                 }
                 if (types.ownedClosureFn(self.ctx, target) != null) {
                     try self.err(firstSrcPos(e), "`{s}` is an owned closure; write `*|...| body` to make one", .{try self.tyName(target)});
-                    try self.ctx.recordType(e, try self.checkLambda(e, self.ctx.types.get(target).shared, false));
+                    try self.ctx.recordType(e, try self.checkLambda(e, self.ctx.types.get(types.unwrapBorrows(self.ctx, target)).shared, false));
                     return true;
                 }
                 return false;
             },
             .@"share" => {
                 if (isHead(items[1], .@"lambda")) {
-                    const fn_ty: ?TypeId = if (types.ownedClosureFn(self.ctx, target) != null) self.ctx.types.get(target).shared else null;
+                    const fn_ty: ?TypeId = if (types.ownedClosureFn(self.ctx, target) != null) self.ctx.types.get(types.unwrapBorrows(self.ctx, target)).shared else null;
                     const ty = try self.ownedClosure(items[1], fn_ty);
                     try self.ctx.recordType(e, ty);
                     if (!compatible(self.ctx, ty, expected)) {

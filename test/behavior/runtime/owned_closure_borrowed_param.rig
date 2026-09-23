@@ -1,0 +1,14 @@
+# A named owned closure can be lent to a `?*fun` parameter; the caller
+# keeps it.
+
+fun apply(f: ?*fun(Int) Int, x: Int) -> Int
+  f(x)
+
+sub main()
+  inc: *fun(Int) Int = *|x| x + 1
+  print(apply(?inc, 1), apply(?inc, 2))
+  print(inc(10))
+
+# expect:
+# 2 3
+# 11
