@@ -2698,44 +2698,36 @@ pub const Checker = struct {
         };
     }
 
+    /// A primitive copied freely: numbers, `Bool`, `String`, errors.
     fn isCopy(self: *const Checker, ty: ?TypeId) bool {
+        const sema = self.sema orelse return false;
         const t = ty orelse return false;
-        return switch (self.typeData(t)) {
-            .bool, .int, .float, .string, .int_literal, .float_literal, .any_error => true,
-            else => false,
-        };
+        return types.isCopyPrimitive(sema, t) or sema.types.get(t) == .any_error;
     }
 
+    /// A Vec whose elements own resources: walked by borrowed slot.
     fn isResourceVec(self: *const Checker, ty: ?TypeId) bool {
         const sema = self.sema orelse return false;
         const t = ty orelse return false;
         const pt = sema.types.get(types.unwrapBorrows(sema, t));
         if (pt != .parameterized_nominal or pt.parameterized_nominal.sym != sema.vec_sym_id) return false;
         if (pt.parameterized_nominal.args.len != 1) return false;
-        return switch (sema.types.get(pt.parameterized_nominal.args[0])) {
-            .shared, .weak => true,
-            else => false,
-        };
+        return types.typeHasDropGlue(sema, pt.parameterized_nominal.args[0]);
     }
 
-    /// Values of this type own a resource and cannot be copied implicitly.
+    /// Values of this type own a resource (sema's drop glue) and cannot
+    /// be copied implicitly. The kind only chooses the diagnostic.
     fn owningKind(self: *const Checker, ty: ?TypeId) ?Owning {
         const sema = self.sema orelse return null;
         const t = ty orelse return null;
-        return switch (sema.types.get(t)) {
+        if (!types.typeHasDropGlue(sema, t)) return if (types.maybeDropGlue(sema, t)) .generic else null;
+        var inner = t;
+        while (sema.types.get(inner) == .optional) inner = sema.types.get(inner).optional;
+        return switch (sema.types.get(inner)) {
             .shared => .shared,
             .weak => .weak,
-            .optional => |child| self.owningKind(child),
-            .parameterized_nominal => |pn| blk: {
-                if (pn.sym == sema.vec_sym_id) break :blk .vec;
-                if (types.typeHasDropGlue(sema, t)) break :blk .{ .drop_glue = sema.symbols.items[pn.sym].name };
-                if (types.maybeDropGlue(sema, t)) break :blk .generic;
-                break :blk null;
-            },
-            .nominal => |s| if (sema.symbols.items[s].flags.has_drop_glue) .{ .drop_glue = sema.symbols.items[s].name } else null,
-            .type_var => .generic,
-            .imported_nominal => if (types.typeHasDropGlue(sema, t)) .{ .drop_glue = types.nominalDecl(sema, t).?.symbol().name } else null,
-            else => null,
+            .parameterized_nominal => |pn| if (pn.sym == sema.vec_sym_id) .vec else .{ .drop_glue = sema.symbols.items[pn.sym].name },
+            else => .{ .drop_glue = if (types.nominalDecl(sema, inner)) |d| d.symbol().name else "value" },
         };
     }
 
