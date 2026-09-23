@@ -444,7 +444,7 @@ const keywordMap = std.StaticStringMap(KeywordId).initComptime(.{
     .{ "raw", .RAW },         // Rig: M22 raw escape (M19 unsafe renamed)
     .{ "drop", .DROP },       // Rig: M25 user-defined Drop declaration
     .{ "zig", .ZIG },
-    .{ "null", .NULL },
+    .{ "none", .NULL },
     .{ "unreachable", .UNREACHABLE },
     .{ "undefined", .UNDEFINED },
     .{ "as", .AS },
@@ -1311,7 +1311,7 @@ test "keywordAs - inherited from Zag still present" {
     try std.testing.expectEqual(KeywordId.ERROR, keywordAs("error").?);
     try std.testing.expectEqual(KeywordId.TEST, keywordAs("test").?);
     try std.testing.expectEqual(KeywordId.ZIG, keywordAs("zig").?);
-    try std.testing.expectEqual(KeywordId.NULL, keywordAs("null").?);
+    try std.testing.expectEqual(KeywordId.NULL, keywordAs("none").?);
     try std.testing.expectEqual(KeywordId.UNDEFINED, keywordAs("undefined").?);
     try std.testing.expectEqual(KeywordId.UNREACHABLE, keywordAs("unreachable").?);
 }
