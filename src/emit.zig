@@ -1851,6 +1851,8 @@ pub const Emitter = struct {
                 try self.emitExpr(items[1]);
             },
             .@"neg" => {
+                // Zig rejects the literal `-0` as ambiguous; `0 - 0` is 0.
+                if (items[1] == .src and isIntZeroText(self.srcText(items[1]))) return self.w.writeAll("0");
                 try self.w.writeAll("-");
                 try self.emitExpr(items[1]);
             },
@@ -3262,6 +3264,12 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
         },
         else => return true,
     }
+}
+
+fn isIntZeroText(t: []const u8) bool {
+    if (!types.isIntLiteralText(t)) return false;
+    const v = std.fmt.parseInt(i128, t, 0) catch return false;
+    return v == 0;
 }
 
 fn isPreSlot(mask: u32, i: usize) bool {
