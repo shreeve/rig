@@ -20,6 +20,7 @@ const rig = @import("rig.zig");
 const types = @import("types.zig");
 const effects = @import("effects.zig");
 const ownership = @import("ownership.zig");
+const ir = parser.ir;
 
 pub const max_source_bytes = 16 * 1024 * 1024;
 
@@ -138,7 +139,7 @@ pub const ModuleGraph = struct {
         });
         try self.by_path.put(self.allocator, canonical, id);
 
-        const ir = p.parseProgram() catch |err| switch (err) {
+        const tree = p.parseProgram() catch |err| switch (err) {
             error.ParseError => {
                 const d = p.diagnostic();
                 try self.errorAt(id, d.pos, "{s}", .{d.message});
@@ -147,7 +148,7 @@ pub const ModuleGraph = struct {
             },
             else => |e| return e,
         };
-        self.get(id).ir = ir;
+        self.get(id).ir = tree;
 
         if (!try self.loadImports(id)) {
             self.get(id).state = .failed;
@@ -161,14 +162,13 @@ pub const ModuleGraph = struct {
     /// not be loaded and checked.
     fn loadImports(self: *ModuleGraph, id: ModuleId) Error!bool {
         const a = self.arena.allocator();
-        const ir = self.get(id).ir;
-        if (ir != .list) return true;
+        const tree = self.get(id).ir;
+        if (tree == .nil) return true;
         var ok = true;
 
-        for (ir.items()[1..]) |decl| {
-            if (decl != .list or decl.items().len < 2 or decl.items()[0] != .tag or decl.items()[0].tag != .@"use") continue;
-            const name_node = decl.items()[1];
-            if (name_node != .src) continue;
+        for (ir.Module.decls(tree)) |decl| {
+            if (!decl.isKind(.@"use")) continue;
+            const name_node = ir.Use.name(decl);
             const m = self.get(id);
             const local_name = m.source[name_node.src.pos..][0..name_node.src.len];
             const pos = name_node.src.pos;

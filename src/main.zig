@@ -9,6 +9,7 @@
 const std = @import("std");
 const build_options = @import("build_options");
 const parser = @import("parser.zig");
+const ir = parser.ir;
 const rig = @import("rig.zig");
 const diag = @import("diag.zig");
 const emit = @import("emit.zig");
@@ -335,13 +336,11 @@ fn runZig(io: std.Io, argv: []const []const u8) !u8 {
 }
 
 fn declaresMain(m: *const modules.Module) bool {
-    if (m.ir != .list) return false;
-    for (m.ir.items()[1..]) |top| {
-        var decl = top;
-        if (decl == .list and decl.items().len == 2 and decl.items()[0] == .tag and decl.items()[0].tag == .@"pub") decl = decl.items()[1];
-        if (decl != .list or decl.items().len < 2 or decl.items()[0] != .tag) continue;
-        if (decl.items()[0].tag != .@"sub" and decl.items()[0].tag != .@"fun") continue;
-        if (std.mem.eql(u8, decl.items()[1].getText(m.source), "main")) return true;
+    if (m.ir == .nil) return false;
+    for (ir.Module.decls(m.ir)) |top| {
+        const decl = if (top.isKind(.@"pub")) ir.Pub.decl(top) else top;
+        if (!decl.isKind(.@"sub") and !decl.isKind(.@"fun")) continue;
+        if (std.mem.eql(u8, ir.get(decl, .name).getText(m.source), "main")) return true;
     }
     return false;
 }
