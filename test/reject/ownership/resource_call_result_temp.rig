@@ -11,4 +11,4 @@ sub main()
   a = make_user().age
   print(a)
 
-# error: resource-valued call result used as an anonymous temporary
+# error: bind it to a name first

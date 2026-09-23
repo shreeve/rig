@@ -1,0 +1,16 @@
+# Printing a temporary that owns a resource is rejected: nothing would
+# drop it. Bind it to a name first.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+fun mk(n: Int) -> B
+  B(n: n)
+
+sub main()
+  print(mk(1))
+
+# error: bind it to a name first

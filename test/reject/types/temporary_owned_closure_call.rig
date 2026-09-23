@@ -1,0 +1,8 @@
+# Calling an owned closure built in place would never drop it.
+
+sub main()
+  c: *Cell(Int) = *Cell(value: 1)
+  (*Closure(|+c| c.set(2)))()
+  print(c.get())
+
+# error: bind it to a name first

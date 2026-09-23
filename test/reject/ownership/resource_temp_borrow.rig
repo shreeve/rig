@@ -5,4 +5,4 @@ sub main()
   c = ?(*Cell(value: 0))
   print(c.get())
 
-# error: resource allocation `*Cell` used as an anonymous temporary
+# error: bind it to a name first

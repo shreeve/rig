@@ -8,4 +8,4 @@ sub main()
   a = (*User(age: 5)).age
   print(a)
 
-# error: resource allocation `*User` used as an anonymous temporary
+# error: bind it to a name first

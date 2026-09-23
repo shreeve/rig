@@ -1,9 +1,9 @@
-# Using a field of an imported function's `*Box` result without binding
-# it would leak the Rc (no auto-drop guard on an anonymous temporary), so
-# the anonymous-resource-temporary rule applies across modules too.
+# Reading a field of an imported function's `*Box` result without
+# binding it is rejected: nothing would drop the temporary handle.
+
 use a
 
 sub main()
   print(a.make_box().value)
 
-# error: resource-valued call result used as an anonymous temporary
+# error: bind it to a name first

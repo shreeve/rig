@@ -740,7 +740,10 @@ const Checker = struct {
 
     fn checkMatch(self: *Checker, node: Sexp, position: Position, expected: ?TypeId) Error!TypeId {
         const items = node.list;
-        const scrutinee = try self.synthExpr(items[1]);
+        if (isHead(items[1], .@"move")) {
+            try self.err(firstSrcPos(items[1]), "a `match` reads its scrutinee, so moving it in would leave nothing to drop it; match the binding itself (`match s`)", .{});
+        }
+        const scrutinee = try self.synthOperand(items[1]);
         const scrut_pos = firstSrcPos(items[1]);
         switch (self.ctx.types.get(types.unwrapBorrows(self.ctx, scrutinee))) {
             .string, .optional, .fallible, .shared, .weak, .array, .slice, .float, .function => {
@@ -1361,25 +1364,24 @@ const Checker = struct {
     }
 
     /// Synthesize the operand of a borrow, clone, member access, index,
-    /// or method call. Such an operand is not bound to a name, so a fresh
-    /// `*Foo(...)` or a call returning `*T` there would never be dropped.
+    /// or method call. The operand is not bound to a name, so a fresh
+    /// value that owns a resource there would never be dropped.
     fn synthOperand(self: *Checker, operand: Sexp) Error!TypeId {
-        if (isFreshResourceAlloc(operand)) {
-            try self.err(firstSrcPos(operand), "resource allocation `*{s}` used as an anonymous temporary; bind it to a name first so it is dropped at scope exit", .{self.freshAllocName(operand)});
+        // `*Name(...)` is a new allocation whatever its type turns out to be.
+        if (isHead(operand, .@"share") and isHead(operand.list[1], .@"call") and operand.list[1].list[1] == .src) {
+            try self.err(firstSrcPos(operand), "this `*{s}` is a temporary that owns a resource, and nothing would drop it; bind it to a name first", .{self.text(operand.list[1].list[1])});
             return self.t().invalid_id;
         }
         const ty = try self.synthExpr(operand);
-        if (isHead(operand, .@"call") and self.ctx.types.get(ty) == .shared) {
-            try self.err(firstSrcPos(operand), "resource-valued call result used as an anonymous temporary; bind it to a name first so it is dropped at scope exit", .{});
-            return self.t().invalid_id;
-        }
+        try self.rejectResourceTemporary(operand, ty);
         return ty;
     }
 
-    fn freshAllocName(self: *Checker, operand: Sexp) []const u8 {
-        const call = operand.list[1];
-        if (call.list[1] == .src) return self.text(call.list[1]);
-        return "Ctor";
+    /// A fresh value (a call result, `*x`, `+x`, `<x`, ...) that owns a
+    /// resource, where nothing takes ownership of it.
+    fn rejectResourceTemporary(self: *Checker, operand: Sexp, ty: TypeId) Error!void {
+        if (isPlaceExpr(operand) or !types.typeHasDropGlue(self.ctx, ty)) return;
+        try self.err(firstSrcPos(operand), "this `{s}` is a temporary that owns a resource, and nothing would drop it; bind it to a name first", .{try self.tyName(ty)});
     }
 
     // ---- member access and indexing -------------------------------------------
@@ -1685,7 +1687,7 @@ const Checker = struct {
             return self.t().invalid_id;
         }
 
-        const callee_ty = try self.synthExpr(callee);
+        const callee_ty = try self.synthOperand(callee);
         return self.callValue(callee, callee_ty, args, "expression");
     }
 
@@ -1731,7 +1733,7 @@ const Checker = struct {
                 try self.err(firstSrcPos(a), "`print` takes no keyword arguments", .{});
                 continue;
             }
-            const ty = try self.synthExpr(a);
+            const ty = try self.synthOperand(a);
             switch (self.ctx.types.get(ty)) {
                 .void => try self.err(firstSrcPos(a), "`print` needs a value; this expression produces no value (`Void`)", .{}),
                 .none_literal => try self.err(firstSrcPos(a), "cannot print a bare `none`", .{}),
@@ -2037,7 +2039,9 @@ const Checker = struct {
             }
         }
 
-        const obj_ty = try self.synthOperand(obj);
+        // A consuming (`self: Self`) method may take a temporary; any
+        // other receiver must already have an owner.
+        const obj_ty = try self.synthExpr(obj);
         if (self.isPoison(obj_ty)) {
             try self.synthArgs(args);
             return obj_ty;
@@ -2046,6 +2050,7 @@ const Checker = struct {
         if (std.mem.eql(u8, method, "upgrade")) {
             switch (self.ctx.types.get(types.unwrapBorrows(self.ctx, obj_ty))) {
                 .weak => |inner| {
+                    try self.rejectResourceTemporary(obj, obj_ty);
                     if (args.len != 0) {
                         try self.err(pos, "weak `upgrade` takes no arguments; got {d}", .{args.len});
                         try self.synthArgs(args);
@@ -2070,7 +2075,10 @@ const Checker = struct {
                 try self.synthArgs(args);
                 return self.t().invalid_id;
             },
-            .imported_nominal => |in| return self.importedMethodCall(obj, obj_ty, in, method, pos, args),
+            .imported_nominal => |in| {
+                try self.rejectResourceTemporary(obj, obj_ty);
+                return self.importedMethodCall(obj, obj_ty, in, method, pos, args);
+            },
             .type_var => {
                 try self.err(pos, "a generic parameter `{s}` has no methods; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) });
                 try self.synthArgs(args);
@@ -2083,6 +2091,7 @@ const Checker = struct {
             // A data field holding a closure handle is called like one.
             if (try types.lookupDataField(self.ctx, obj_ty, method)) |f| {
                 if (ownedClosureArgs(self.ctx, f.ty) != null) {
+                    try self.rejectResourceTemporary(obj, obj_ty);
                     try self.noteCalleeType(f.ty);
                     return self.callValue(.{ .list = callee }, f.ty, args, method);
                 }
@@ -2099,6 +2108,7 @@ const Checker = struct {
         };
         const owner = self.ctx.symbols.items[resolved.nominal_sym];
         try self.noteCallee(resolved.fn_ty);
+        if (resolved.receiver != .value) try self.rejectResourceTemporary(obj, obj_ty);
 
         if (resolved.nominal_sym == self.ctx.cell_sym_id) {
             if (std.mem.eql(u8, method, "set") and !self.isAddressableCell(obj, obj_ty)) {
@@ -2963,8 +2973,14 @@ fn isPlainEnum(ctx: *const SemContext, sym_id: SymbolId) bool {
     return any;
 }
 
-fn isFreshResourceAlloc(sexp: Sexp) bool {
-    return isHead(sexp, .@"share") and isHead(sexp.list[1], .@"call");
+/// Storage that already has an owner: a name, a field or element of
+/// one, or a borrow of one.
+fn isPlaceExpr(e: Sexp) bool {
+    const h = headOf(e) orelse return e == .src;
+    return switch (h) {
+        .@"member", .@"index", .@"read", .@"write" => true,
+        else => false,
+    };
 }
 
 /// Forms whose type comes from the other operand: `.variant`, `none`.
