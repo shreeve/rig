@@ -2055,6 +2055,7 @@ pub const Emitter = struct {
         // The index itself is a value, even inside an assignment target.
         const saved_chain = self.place_chain;
         defer self.place_chain = saved_chain;
+
         if (base_ty != null and self.isVecTy(base_ty.?)) {
             try self.emitExpr(base);
             try self.w.writeAll(if (as_place) ".slot(" else ".at(");
@@ -2063,14 +2064,26 @@ pub const Emitter = struct {
             try self.w.writeAll(if (as_place) ").*" else ")");
             return;
         }
+        // An array literal is indexed through parentheses: `([_]T{ ... })[i]`.
+        const literal = isTagged(base, .@"array");
+        if (literal) try self.w.writeAll("(");
         try self.emitExpr(base);
+        if (literal) try self.w.writeAll(")");
         try self.w.writeAll("[");
         self.place_chain = false;
         // Sema checked a constant index against an array's length; a
         // string's length is only known when it runs.
-        const is_array = if (base_ty) |t| self.sema.types.get(self.peelBorrows(t)) == .array else false;
-        if (is_array and isNonNegativeIntLiteral(self.source, index)) {
+        const array_len: ?usize = if (base_ty) |t| switch (self.sema.types.get(self.peelBorrows(t))) {
+            .array => |a| a.len,
+            else => null,
+        } else null;
+        if (array_len != null and isNonNegativeIntLiteral(self.source, index)) {
             try self.emitExpr(index);
+        } else if (array_len) |n| {
+            // The length is part of the type; the base is evaluated once.
+            try self.w.writeAll("rig.index(");
+            try self.emitBare(index);
+            try self.w.print(", {d})", .{n});
         } else {
             try self.w.writeAll("rig.index(");
             try self.emitBare(index);
