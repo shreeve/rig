@@ -1,0 +1,7 @@
+# A binding initialized with `none` needs an annotation giving its type.
+
+sub main()
+  x = none
+  print(1)
+
+# error: cannot infer the type of `none`

@@ -1,0 +1,7 @@
+# Only nominal types have methods.
+
+sub main()
+  x = 3
+  print(x.twice())
+
+# error: type `Int` has no method `twice`

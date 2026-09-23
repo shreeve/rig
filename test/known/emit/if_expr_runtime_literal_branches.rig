@@ -1,0 +1,18 @@
+# An `if` expression whose branches are literals, chosen at run time,
+# binds an `Int`.
+# Known bug (new, emit): the binding is emitted `const x = if (...) 10
+# else 20;` without a type, and Zig rejects a `comptime_int` that depends
+# on runtime control flow. Sema records the binding's type (`Int`).
+
+fun big(n: Int) -> Bool
+  n > 1
+
+sub main()
+  x = if big(3)
+    10
+  else
+    20
+  print(x)
+
+# expect:
+# 10

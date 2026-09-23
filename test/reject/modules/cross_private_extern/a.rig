@@ -1,7 +1,7 @@
 # Not `pub`: a private extern behind a `pub` safe wrapper is the
 # idiom; the extern itself is invisible to importers.
-extern puts: fun(String) Int
+extern abs: fun(Int) Int
 
-pub sub safe_puts(s: String)
+pub fun safe_abs(n: Int) -> Int
   raw
-    puts(s)
+    abs(n)

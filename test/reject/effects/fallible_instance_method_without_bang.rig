@@ -1,0 +1,14 @@
+# A fallible instance method called without `!` or `catch` is rejected.
+
+struct User
+  name: String
+
+  fun check(?self) -> Int!
+    1
+
+sub main()
+  u = User(name: "x")
+  n = u.check()
+  print(n)
+
+# error: must be wrapped with `!` (propagate) or `catch` (handle)

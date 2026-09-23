@@ -10,4 +10,4 @@ sub main()
     .red => 1
     .green => "no"
 
-# error: incompatible types `<int literal>` and `String`
+# error: incompatible types `Int` and `String`

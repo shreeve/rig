@@ -1,0 +1,9 @@
+# `match` works on enums, integers, and Bool.
+
+sub main()
+  s = "a"
+  match s
+    "a" => print(1)
+    other => print(2)
+
+# error: cannot `match` on a value of type `String`

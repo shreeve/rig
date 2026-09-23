@@ -1,0 +1,12 @@
+# A generic body cannot call methods on a type parameter.
+
+type Box(T)
+  value: T
+
+  fun show(?self) -> Int
+    self.value.len()
+
+sub main()
+  print(1)
+
+# error: a generic parameter `T` has no methods

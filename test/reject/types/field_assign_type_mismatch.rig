@@ -1,0 +1,11 @@
+# Assigning to a field checks the value against the field's type.
+
+struct User
+  name: String
+
+sub main()
+  u = User(name: "x")
+  u.name = 5
+  print(u.name)
+
+# error: expected `String`

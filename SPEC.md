@@ -1951,7 +1951,7 @@ Failure should remain visible through result handling.
 # Fallibility / Error Propagation
 
 Rig uses suffix `!` for error propagation. The `!` family is errors;
-the `?` family is optionality / null. Each spelling has exactly one
+the `?` family is optionality (`none`). Each spelling has exactly one
 meaning — see "## The ?/! Triangle" above.
 
 ## Propagation
@@ -2070,6 +2070,46 @@ this function returns User-or-failure
 ```
 
 The suffix `!` on a type makes it **fallible** (an error union).
+A fallible type is only allowed as a function's return type.
+
+A plain `T` is accepted where `T!` is expected, so a fallible function
+returns its successful value directly:
+
+```rig
+fun double(n: Int) -> Int!
+  n * 2
+```
+
+A call to a fallible function must be wrapped with `!` or `catch`, and
+`!` applies only to something that can fail. A closure body and a
+`defer` expression cannot propagate with `!`.
+
+---
+
+## Optionals
+
+`T?` holds a `T` or nothing. `none` is the absent value; a plain `T` is
+accepted where `T?` is expected. `a ?? b` yields the value inside `a`,
+or `b` when `a` is `none`, and `== none` tests for absence:
+
+```rig
+fun positive(n: Int) -> Int?
+  if n > 0
+    n
+  else
+    none
+
+sub main()
+  print(positive(3) ?? 0)     # 3
+  print(positive(-1) ?? 0)    # 0
+  m: Int? = none
+  print(m == none)            # true
+```
+
+Fields and methods are not reachable through an optional; take the
+value out with `??` first. `none` is a reserved name, needs a known
+optional type (`x: Int? = none`), and `??` refuses optionals of
+resource handles, whose value would be copied out.
 
 ---
 
@@ -2083,17 +2123,17 @@ distinct role, and by giving each *family* a single domain:
    !x   prefix on expression  write borrow
    ?T   prefix on type        read-borrowed parameter / return
    !T   prefix on type        write-borrowed parameter / return
-   T?   suffix on type        optional T (T or null)
+   T?   suffix on type        optional T (T or none)
    T!   suffix on type        fallible T (T or error)
    x!   suffix on expression  propagate failure
    x?   suffix on expression  RESERVED for future optional-propagation
-                              (Swift-style "if null, propagate null")
+                              (Swift-style "if none, propagate none")
 ```
 
 So:
 - **Prefix `?` / `!`** = borrow (in either expression or type position).
-- **`?` family** = optionality / null. Suffix-on-type and (future)
-  suffix-on-expression both belong to the optional/null world.
+- **`?` family** = optionality / none. Suffix-on-type and (future)
+  suffix-on-expression both belong to the optional world.
 - **`!` family** = errors / failure. Suffix-on-type (`T!` fallible)
   and suffix-on-expression (`x!` propagate) both belong to the
   error-handling world.
@@ -2101,7 +2141,7 @@ So:
 The propagation symbol matches the type it operates on: a function
 returning `User!` is called with `f()!` to propagate the error; a
 function returning `User?` (someday) is called with `f()?` to
-propagate the null.
+propagate the `none`.
 
 The two halves never collide; each spelling has exactly one meaning.
 

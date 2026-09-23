@@ -10,4 +10,4 @@ sub main()
   u = User(name: "Steve")
   print(u.greet())
 
-# error: type mismatch: expected `String`, got `<int literal>`
+# error: type mismatch: expected `String`, got `Int`

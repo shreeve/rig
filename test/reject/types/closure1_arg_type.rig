@@ -1,0 +1,9 @@
+# Invoking a `*Closure1(Int)` checks the argument against `Int`.
+
+sub main()
+  v: *Cell(Int) = *Cell(value: 0)
+  cb: *Closure1(Int) = *Closure1(Int)(|+v| (a: Int) v.set(a))
+  cb("seven")
+  print(v.get())
+
+# error: expected `Int`, got `String`

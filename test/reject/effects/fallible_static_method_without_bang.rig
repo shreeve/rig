@@ -1,0 +1,13 @@
+# A fallible associated method called without `!` or `catch` is rejected.
+
+struct User
+  name: String
+
+  fun make() -> User!
+    User(name: "x")
+
+sub main()
+  u = User.make()
+  print(u.name)
+
+# error: must be wrapped with `!` (propagate) or `catch` (handle)

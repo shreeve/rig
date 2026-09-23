@@ -4,4 +4,4 @@ sub main()
   while 1
     print "loop"
 
-# error: type mismatch: expected `Bool`, got `<int literal>`
+# error: type mismatch: expected `Bool`, got `Int`

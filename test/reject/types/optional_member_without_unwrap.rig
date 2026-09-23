@@ -1,0 +1,13 @@
+# Field access on an optional (`u.name` with `u: User?`) requires
+# unwrapping it first.
+
+struct User
+  name: String
+
+fun name_of(u: User?) -> String
+  u.name
+
+sub main()
+  print("unused")
+
+# error: `User?`

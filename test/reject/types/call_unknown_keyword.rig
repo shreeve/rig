@@ -1,0 +1,9 @@
+# A keyword argument must name a parameter.
+
+fun sub_ab(a: Int, b: Int) -> Int
+  a - b
+
+sub main()
+  print(sub_ab(a: 1, c: 2))
+
+# error: `sub_ab` has no parameter `c`

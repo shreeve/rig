@@ -1,0 +1,7 @@
+# A new binding cannot refer to itself in its own initializer.
+
+sub main()
+  x = x + 1
+  print(x)
+
+# error: `x` is used before it has a value

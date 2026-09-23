@@ -1,0 +1,7 @@
+# An array literal must have the annotated length.
+
+sub main()
+  xs: [3]Int = [1, 2]
+  print(xs[0])
+
+# error: array literal has 2 elements; `[3]Int` needs 3

@@ -1,0 +1,8 @@
+# Only arrays, slices, Strings, and Vecs can be indexed.
+
+sub main()
+  x = 3
+  y = x[0]
+  print(y)
+
+# error: `Int`

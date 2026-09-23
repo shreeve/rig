@@ -1,0 +1,9 @@
+# Default parameter values are not supported yet.
+
+fun greet(times: Int = 1) -> Int
+  times
+
+sub main()
+  print(greet(2))
+
+# error: default parameter values are not supported yet

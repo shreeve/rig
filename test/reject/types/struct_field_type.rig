@@ -7,4 +7,4 @@ struct User
 sub main()
   u = User(name: 42, age: 30)
 
-# error: type mismatch: expected `String`, got `<int literal>`
+# error: type mismatch: expected `String`, got `Int`

@@ -1,0 +1,10 @@
+# Iterating a String yields its bytes as `U8`.
+
+sub main()
+  total: U8 = 0
+  for c in "ab"
+    total += c - 96
+  print(total)
+
+# expect:
+# 3

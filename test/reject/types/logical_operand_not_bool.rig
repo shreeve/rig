@@ -4,4 +4,4 @@ sub main()
   x = true and 1
   print x
 
-# error: type mismatch: expected `Bool`, got `<int literal>`
+# error: type mismatch: expected `Bool`, got `Int`

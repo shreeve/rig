@@ -202,6 +202,8 @@ Multi-capture (`|+a, +b|`) shipped in M28; the list contains one
 
 ```
 true false INTEGER REAL STRING_SQ STRING_DQ     ; raw parser src refs
+none                                            ; the absent optional: a name
+                                                ; sema reserves and types
 ```
 
 ### Types
@@ -230,7 +232,7 @@ true false INTEGER REAL STRING_SQ STRING_DQ     ; raw parser src refs
 (& a b) (| a b) (^ a b) (<< a b) (>> a b)
 (.. a b)                         ; range
 (neg x)                          ; `-x` in expression or value position
-(?? a b)                         ; nullish coalesce
+(?? a b)                         ; `a ?? b`: value of optional `a`, else `b`
 ```
 
 ### Compile-time

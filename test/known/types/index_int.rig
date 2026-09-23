@@ -1,8 +1,0 @@
-# Known bug (B6): indexing an Int is accepted; only Zig rejects it.
-
-sub main()
-  x = 3
-  y = x[0]
-  print(y)
-
-# error: `Int`

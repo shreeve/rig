@@ -4,4 +4,4 @@ sub main()
   if 42
     print "yes"
 
-# error: type mismatch: expected `Bool`, got `<int literal>`
+# error: type mismatch: expected `Bool`, got `Int`

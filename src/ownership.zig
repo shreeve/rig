@@ -2322,6 +2322,7 @@ pub const Checker = struct {
         return switch (sema.types.get(t)) {
             .invalid, .unknown => false,
             .void, .bool, .string, .int, .float, .int_literal, .float_literal, .function => false,
+            .none_literal, .noreturn, .range => false,
             .borrow_write => true,
             .borrow_read, .slice => q == .any,
             .type_var, .imported_nominal => q == .any,

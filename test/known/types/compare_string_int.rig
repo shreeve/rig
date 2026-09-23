@@ -1,9 +1,0 @@
-# Known bug (B5): comparison operands are unchecked; `String == Int` is
-# accepted and only Zig rejects it.
-
-sub main()
-  s = "a"
-  if s == 1
-    print("eq")
-
-# error: `String`

@@ -1,0 +1,9 @@
+# A parameter cannot be given twice.
+
+fun sub_ab(a: Int, b: Int) -> Int
+  a - b
+
+sub main()
+  print(sub_ab(1, a: 2))
+
+# error: parameter `a` of `sub_ab` is given twice

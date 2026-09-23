@@ -1,0 +1,8 @@
+# `==` needs both operands of one type; `String == Int` is rejected.
+
+sub main()
+  s = "a"
+  if s == 1
+    print("eq")
+
+# error: `String`

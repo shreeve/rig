@@ -1,0 +1,10 @@
+# Parameters are immutable; assigning to one is rejected.
+
+fun bump(n: Int) -> Int
+  n = n + 1
+  n
+
+sub main()
+  print(bump(1))
+
+# error: cannot assign to parameter `n`

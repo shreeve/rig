@@ -1603,6 +1603,15 @@ pub const Emitter = struct {
         return self.emitValue(sexp, false);
     }
 
+    /// `none`, the absent optional. Sema reserves the name and records a
+    /// type for the literal; a local or variant named `none` has no such fact.
+    fn isNoneLiteral(self: *Emitter, leaf: Sexp, name: []const u8) bool {
+        if (!std.mem.eql(u8, name, "none")) return false;
+        if (self.lookup(name) != null) return false;
+        const sema = self.sema orelse return true;
+        return sema.typeOf(leaf) != null;
+    }
+
     /// An expression in a delimited position: no outer parentheses.
     fn emitBare(self: *Emitter, sexp: Sexp) Error!void {
         self.bare = true;
@@ -1637,6 +1646,7 @@ pub const Emitter = struct {
 
     fn emitName(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
         const name = self.srcText(sexp);
+        if (self.isNoneLiteral(sexp, name)) return self.w.writeAll("null");
         if (self.lookup(name)) |local| {
             if (tail and local.guard == .flag) return self.writeTake(local);
             return self.writeLocalPlace(local);
@@ -3439,7 +3449,7 @@ fn isLiteralText(t: []const u8) bool {
     if (t.len == 0) return false;
     if (std.ascii.isDigit(t[0]) or t[0] == '"' or t[0] == '\'') return true;
     return std.mem.eql(u8, t, "true") or std.mem.eql(u8, t, "false") or
-        std.mem.eql(u8, t, "null") or std.mem.eql(u8, t, "undefined");
+        std.mem.eql(u8, t, "null");
 }
 
 fn unwrapNeg(s: Sexp) Sexp {

@@ -1,0 +1,10 @@
+# Struct fields are set by name.
+
+struct P
+  x: Int
+
+sub main()
+  p = P(1)
+  print(p.x)
+
+# error: fields of `P` are set by name

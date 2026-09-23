@@ -1,0 +1,10 @@
+# An `if` used as a value needs an `else`.
+
+fun f(c: Bool) -> Int
+  if c
+    1
+
+sub main()
+  print(f(true))
+
+# error: requires an `else` branch

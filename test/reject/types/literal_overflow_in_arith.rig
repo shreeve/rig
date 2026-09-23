@@ -1,0 +1,7 @@
+# A literal operand takes the other operand's type and must fit it.
+
+sub main()
+  a: U8 = 1
+  print(a + 300)
+
+# error: `300` does not fit in `U8`

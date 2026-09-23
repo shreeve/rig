@@ -1,0 +1,11 @@
+# A `-> T!` function may produce a plain `T`; the value is lifted into
+# the error union.
+
+fun double(n: Int) -> Int!
+  n * 2
+
+sub main()
+  print(double(4)!)
+
+# expect:
+# 8

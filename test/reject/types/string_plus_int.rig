@@ -1,0 +1,8 @@
+# Arithmetic operands must be numeric; `"a" + 1` is rejected.
+
+sub main()
+  s = "a"
+  t = s + 1
+  print(t)
+
+# error: `String`

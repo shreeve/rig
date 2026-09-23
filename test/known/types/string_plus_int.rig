@@ -1,9 +1,0 @@
-# Known bug (B5): arithmetic operands are unchecked; `"a" + 1` is
-# accepted and only Zig rejects it.
-
-sub main()
-  s = "a"
-  t = s + 1
-  print(t)
-
-# error: `String`

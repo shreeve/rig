@@ -1,0 +1,19 @@
+# `for x, i in xs` walks an array (or a Vec) with each element's index.
+# Known bug: sema rejects `for x, i` although emit lowers it
+
+sub main()
+  xs = [10, 20, 30]
+  total = 0
+  for x, i in xs
+    total += x * i
+  print(total)
+  v: Vec(Int) = Vec()
+  (!v).push(7)
+  (!v).push(8)
+  for n, k in v
+    print(n + k)
+
+# expect:
+# 80
+# 7
+# 9

@@ -1,0 +1,7 @@
+# `??` needs an optional on its left.
+
+sub main()
+  x = 3
+  print(x ?? 4)
+
+# error: `??` needs an optional on its left

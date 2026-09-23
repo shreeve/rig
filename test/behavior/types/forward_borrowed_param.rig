@@ -1,0 +1,18 @@
+# A read-borrowed parameter can be forwarded: `?b` with `b: ?B` reborrows
+# as `?B` rather than nesting.
+
+struct B
+  n: Int
+
+fun g(b: ?B) -> Int
+  b.n
+
+fun f(b: ?B) -> Int
+  g(?b)
+
+sub main()
+  x = B(n: 1)
+  print(f(?x))
+
+# expect:
+# 1

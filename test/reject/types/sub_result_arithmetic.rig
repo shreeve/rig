@@ -1,0 +1,11 @@
+# A `sub` produces no value, so binding its result is rejected.
+
+sub g()
+  print(1)
+
+sub main()
+  x = g()
+  y = x + 1
+  print(y)
+
+# error: `Void`

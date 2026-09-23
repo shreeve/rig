@@ -1,0 +1,8 @@
+# A `for` source must be iterable; an Int is not.
+
+sub main()
+  x = 3
+  for i in x
+    print(i)
+
+# error: `Int`
