@@ -1534,6 +1534,12 @@ pub const Emitter = struct {
         }
         if (std.mem.eql(u8, name, "none")) return self.w.writeAll("null");
         if (name[0] == '\'') return writeSingleQuoted(self.w, name);
+        if (types.isFloatLiteralText(name)) {
+            // Typed, so arithmetic on literals rounds like run-time Float math.
+            try self.w.writeAll("@as(");
+            try self.emitTypeTy(self.typeOf(sexp) orelse self.sema.types.float_id);
+            return self.w.print(", {s}{s})", .{ if (name[0] == '.') "0" else "", name });
+        }
         if (isLiteralText(name)) return self.w.writeAll(name);
         try self.w.print("{f}", .{self.ident(name)});
     }

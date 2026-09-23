@@ -1,0 +1,13 @@
+# Float literal arithmetic gives the same result as the same arithmetic
+# on 64-bit values at run time.
+
+sub main()
+  print(0.1 + 0.2)
+  a = 0.1
+  print(a + 0.2)
+  print(1.0 / 3.0)
+
+# expect:
+# 0.30000000000000004
+# 0.30000000000000004
+# 0.3333333333333333
