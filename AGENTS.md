@@ -96,7 +96,7 @@ RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 | `src/effects.zig` | Fallibility and the `raw` boundary |
 | `src/ownership.zig` | Move / borrow / drop checking |
 | `src/emit.zig` | Zig code generation |
-| `src/runtime/_runtime.zig` | Runtime support shipped with every program (embedded by `src/runtime.zig`) |
+| `src/runtime.zig` | Runtime support shipped with every program (embedded by `src/emit.zig`) |
 | `src/main.zig` | CLI |
 | `test/` | The test suite (see `test/README.md`) |
 | `examples/` | Curated example programs, all run by the suite |

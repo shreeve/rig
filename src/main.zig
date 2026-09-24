@@ -14,7 +14,6 @@ const rig = @import("rig.zig");
 const diag = @import("diag.zig");
 const emit = @import("emit.zig");
 const modules = @import("modules.zig");
-const runtime = @import("runtime.zig");
 
 const usage =
     \\Rig: a systems language with visible ownership, compiled to Zig.
@@ -269,7 +268,7 @@ fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
     var writer = std.Io.File.stdout().writerStreaming(io, &buffer);
     try writer.interface.writeAll(pkg.root_source);
     try writer.interface.flush();
-    std.debug.print("note: the package (every module and the runtime, {s}) is in {s}\n", .{ runtime.filename, pkg.dir });
+    std.debug.print("note: the package (every module and the runtime, {s}) is in {s}\n", .{ emit.runtime_filename, pkg.dir });
 }
 
 fn runCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options) !void {
@@ -312,7 +311,7 @@ fn testCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options
         \\
         \\pub const panic = rig.panic;
         \\
-    , .{runtime.filename});
+    , .{emit.runtime_filename});
     if (env.leakTrace()) try w.writeAll("pub const __rig_leak_trace = true;\n");
     try w.writeAll(
         \\
@@ -384,7 +383,7 @@ const Package = struct {
 fn emitPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *modules.ModuleGraph) !Package {
     const dir = try outputDir(allocator, io, env, graph.root());
 
-    try writeFile(io, try std.fs.path.join(allocator, &.{ dir, runtime.filename }), runtime.source);
+    try writeFile(io, try std.fs.path.join(allocator, &.{ dir, emit.runtime_filename }), emit.runtime_source);
 
     var root_source: []const u8 = "";
     for (graph.modules.items, 0..) |*m, i| {
