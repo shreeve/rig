@@ -4,14 +4,14 @@
 //! `SemContext`, which every later pass (effects, ownership, emit)
 //! reads:
 //!
-//!   1. builtins     `sema_builtins.zig`  Cell, Vec, Signal
-//!   2. symbols      `sema_decls.zig`     every declaration gets a Symbol in
-//!                                        a Scope; scopes are keyed by the IR
-//!                                        node that opens them
-//!   3. declarations `sema_decls.zig`     type expressions become TypeIds;
-//!                                        signatures, fields, variants, aliases
-//!   4. expressions  `sema_expr.zig`      bodies are type-checked; every
-//!                                        expression's type is recorded
+//!   1. builtins     `resolve.zig`    Cell, Vec, Signal
+//!   2. symbols      `resolve.zig`    every declaration gets a Symbol in a
+//!                                    Scope; scopes are keyed by the IR node
+//!                                    that opens them
+//!   3. declarations `resolve.zig`    type expressions become TypeIds;
+//!                                    signatures, fields, variants, aliases
+//!   4. expressions  `typecheck.zig`  bodies are type-checked; every
+//!                                    expression's type is recorded
 //!
 //! ## The facts table
 //!
@@ -45,7 +45,7 @@
 //!
 //! Leaves are keyed by source position (`src.pos`); list nodes by the
 //! node id the parser gave them (`List.id`), which the Parser wrapper's
-//! rewrites preserve. A node that sema never reached (dead code after an
+//! rewrites preserve. A node that ctx never reached (dead code after an
 //! error, type positions) has no entry; callers treat `null` as "no
 //! information".
 //!
@@ -58,9 +58,8 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 pub const diag = @import("diag.zig");
-const builtins = @import("sema_builtins.zig");
-const decls = @import("sema_decls.zig");
-const exprs = @import("sema_expr.zig");
+const resolve = @import("resolve.zig");
+const typecheck = @import("typecheck.zig");
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
@@ -169,7 +168,7 @@ pub const ImportedNominal = struct {
     sym_id: SymbolId,
 };
 
-/// One resolved `use NAME` of the module being checked. `sema` must
+/// One resolved `use NAME` of the module being checked. `ctx` must
 /// outlive the importing SemContext.
 pub const ImportEntry = struct {
     local_name: []const u8,
@@ -417,7 +416,7 @@ pub const Symbol = struct {
     scope: ScopeId,
     flags: SymbolFlags = .{},
     /// Members of a nominal or generic type; null for other kinds and
-    /// for opaque types.
+    /// for opaque sema.
     fields: ?[]const Field = null,
     /// Generic parameters of a generic type, in declaration order.
     type_params: ?[]const SymbolId = null,
@@ -447,9 +446,9 @@ pub const Diagnostic = diag.Diagnostic;
 
 /// How a receiver expression is written, and what kind of value it is,
 /// for the method receiver-mode rules.
-pub const ReceiverShape = exprs.ReceiverShape;
-pub const ReceiverTypeKind = exprs.ReceiverTypeKind;
-pub const compatible = exprs.compatible;
+pub const ReceiverShape = typecheck.ReceiverShape;
+pub const ReceiverTypeKind = typecheck.ReceiverTypeKind;
+pub const compatible = typecheck.compatible;
 
 // =============================================================================
 // Facts
@@ -589,7 +588,7 @@ pub const SemContext = struct {
     generic_uses: std.ArrayListUnmanaged(TypeId) = .empty,
     /// Integer constants: bindings never reassigned or written whose
     /// value is a constant expression. The emitted Zig computes these at
-    /// compile time, so sema checks their arithmetic.
+    /// compile time, so ctx checks their arithmetic.
     const_ints: std.AutoHashMapUnmanaged(SymbolId, i128) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
@@ -794,7 +793,7 @@ pub const SemContext = struct {
         return self.facts.call_slots.get(key);
     }
 
-    // ---- facts: recording (sema passes only) -----------------------------
+    // ---- facts: recording (ctx passes only) -----------------------------
 
     pub fn recordName(self: *SemContext, node: Sexp, sym: SymbolId) !void {
         if (node != .src or sym == symbol_invalid) return;
@@ -864,14 +863,14 @@ pub fn checkWithImports(
     for (transitive) |imp| try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
 
     const module_scope = try ctx.pushScopeKind(scope_invalid, .module);
-    try builtins.register(&ctx, module_scope);
-    try decls.resolveSymbols(&ctx, tree, module_scope);
-    try decls.resolveDeclarations(&ctx, tree, module_scope);
+    try resolve.registerBuiltins(&ctx, module_scope);
+    try resolve.resolveSymbols(&ctx, tree, module_scope);
+    try resolve.resolveDeclarations(&ctx, tree, module_scope);
     propagateDropGlue(&ctx);
     try checkInfiniteTypes(&ctx);
-    try exprs.checkModule(&ctx, tree, module_scope);
+    try typecheck.checkModule(&ctx, tree, module_scope);
     try expandInstantiations(&ctx);
-    try exprs.checkGenericInstantiations(&ctx);
+    try typecheck.checkGenericInstantiations(&ctx);
     return ctx;
 }
 
@@ -1780,7 +1779,7 @@ fn formatSuffixed(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, s
 }
 
 // =============================================================================
-// IR helpers shared by the sema passes
+// IR helpers shared by the ctx passes
 // =============================================================================
 
 pub fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
@@ -1946,9 +1945,8 @@ pub fn isFloatLiteralText(text: []const u8) bool {
 
 test {
     _ = diag;
-    _ = builtins;
-    _ = decls;
-    _ = exprs;
+    _ = resolve;
+    _ = typecheck;
 }
 
 test "TypeStore: primitives are pre-interned and distinct" {
@@ -2464,7 +2462,7 @@ test "declarations: struct fields, methods, and enum variants" {
     try std.testing.expectEqualStrings("timeout", net[0].name);
 }
 
-/// Walk every expression position of a body and report nodes sema left
+/// Walk every expression position of a body and report nodes ctx left
 /// without a fact. Used to keep the facts table complete.
 const Coverage = struct {
     r: *const FactsRun,

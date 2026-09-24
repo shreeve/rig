@@ -65,7 +65,7 @@ pub fn build(b: *std.Build) void {
     const test_roots = [_][]const u8{
         "src/rig.zig",
         "src/modules.zig",
-        "src/types.zig",
+        "src/sema.zig",
         "src/effects.zig",
         "src/ownership.zig",
         "src/emit.zig",

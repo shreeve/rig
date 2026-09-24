@@ -268,7 +268,7 @@ pub fn rcNew(value: anytype) *RcBox(@TypeOf(value)) {
 // -----------------------------------------------------------------------------
 
 /// `Cell(T)`: interior mutability. `get` is only offered for plain-data
-/// `T` (sema enforces this); resource payloads move in and out with
+/// `T` (ctx enforces this); resource payloads move in and out with
 /// `set` and `replace`.
 pub fn Cell(comptime T: type) type {
     return struct {

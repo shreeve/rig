@@ -92,7 +92,9 @@ RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 | `src/rig.zig` | Lexer and parser wrappers (layout, spacing, IR rewrites) |
 | `src/parser.zig` | Generated — do not edit: lexer, parser, IR tags and accessors |
 | `src/modules.zig` | Module graph and `use` resolution |
-| `src/types.zig`, `src/sema_*.zig` | Semantic analysis: names, types, the facts table |
+| `src/sema.zig` | Semantic analysis front door: types, symbols, the facts table |
+| `src/resolve.zig` | Declaration pass: names, type resolution, builtins, drop glue |
+| `src/typecheck.zig` | Expression pass: types every expression, records facts |
 | `src/effects.zig` | Fallibility and the `raw` boundary |
 | `src/ownership.zig` | Move / borrow / drop checking |
 | `src/emit.zig` | Zig code generation |

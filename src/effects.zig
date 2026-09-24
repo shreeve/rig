@@ -1,6 +1,6 @@
 //! Effects: fallibility and the `raw` boundary.
 //!
-//! Runs after sema and reads its facts table: the type sema recorded
+//! Runs after ctx and reads its facts table: the type ctx recorded
 //! for each expression and the symbol it resolved for each name.
 //!
 //! Fallibility. A call whose type is `T!` must be the operand of `!`
@@ -15,12 +15,12 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
-const types = @import("types.zig");
+const sema = @import("sema.zig");
 const diag = @import("diag.zig");
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
-const SemContext = types.SemContext;
+const SemContext = sema.SemContext;
 
 pub const Diagnostic = diag.Diagnostic;
 pub const Error = std.mem.Allocator.Error;
@@ -40,11 +40,11 @@ pub const Checker = struct {
     in_defer: bool = false,
     raw_depth: usize = 0,
 
-    pub fn initWithSema(allocator: std.mem.Allocator, source: []const u8, sema: *const SemContext) Error!Checker {
+    pub fn initWithSema(allocator: std.mem.Allocator, source: []const u8, ctx: *const SemContext) Error!Checker {
         return .{
             .allocator = allocator,
             .source = source,
-            .sema = sema,
+            .sema = ctx,
             .arena = std.heap.ArenaAllocator.init(allocator),
         };
     }
@@ -81,7 +81,7 @@ pub const Checker = struct {
     }
 
     fn text(self: *Checker, node: Sexp) []const u8 {
-        return types.identAt(self.source, node) orelse "";
+        return sema.identAt(self.source, node) orelse "";
     }
 
     /// `handled`: `sexp` is the direct operand of `!` or `catch`.
@@ -181,7 +181,7 @@ pub const Checker = struct {
         const ty = self.sema.typeOf(operand) orelse return;
         switch (self.sema.types.get(ty)) {
             .fallible, .unknown, .invalid => {},
-            else => try self.errAt(operand, "`!` needs a fallible operand; this expression has type `{s}` and cannot fail", .{try types.formatTypeIn(self.sema, self.arena.allocator(), ty)}),
+            else => try self.errAt(operand, "`!` needs a fallible operand; this expression has type `{s}` and cannot fail", .{try sema.formatTypeIn(self.sema, self.arena.allocator(), ty)}),
         }
     }
 
@@ -195,7 +195,7 @@ pub const Checker = struct {
                     try self.errAt(callee, "fallible call to `{s}` must be wrapped with `!` (propagate) or `catch` (handle)", .{name});
                     if (self.sema.symbolOf(callee)) |id| {
                         const sym = self.sema.symbols.items[id];
-                        if (sym.decl_pos != types.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared as fallible here", .{name});
+                        if (sym.decl_pos != sema.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared as fallible here", .{name});
                     }
                 }
             }
@@ -283,7 +283,7 @@ fn run(source: []const u8) !Run {
     r.p = parser.Parser.init(allocator, source);
     errdefer r.p.deinit();
     const tree = try r.p.parseProgram();
-    r.sema = try types.check(allocator, source, tree);
+    r.sema = try sema.check(allocator, source, tree);
     errdefer r.sema.deinit();
     r.eff = try Checker.initWithSema(allocator, source, &r.sema);
     try r.eff.check(tree);

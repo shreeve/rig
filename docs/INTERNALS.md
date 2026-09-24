@@ -17,7 +17,7 @@ source.rig
   │  Parser       src/rig.zig      a few tree rewrites → semantic IR
   ▼
 modules          src/modules.zig   load `use`d files, check in dependency order
-  │  sema        src/types.zig     names, types, the facts table
+  │  sema        src/sema.zig      names, types, the facts table
   │  effects     src/effects.zig   fallibility, the raw boundary
   │  ownership   src/ownership.zig moves, borrows, drops, aliasing
   ▼
@@ -74,10 +74,9 @@ and the exit status is 1 if any test failed.
 | `src/rig.zig` | `Lexer` and `Parser` wrappers, `BindingKind`, IR helpers (`children`, `returnType`), `writeZigIdent` |
 | `src/diag.zig` | diagnostics: source ranges, line and column, the printed format |
 | `src/modules.zig` | the module graph |
-| `src/types.zig` | sema's data: types, symbols, scopes, the facts table; the entry point `check` |
-| `src/sema_builtins.zig` | `Cell`, `Vec`, `Signal` as built-in generic types |
-| `src/sema_decls.zig` | symbol resolution and declaration types |
-| `src/sema_expr.zig` | expression checking |
+| `src/sema.zig` | sema's front door: types, symbols, scopes, the facts table; the entry point `check` |
+| `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Signal` as built-in generics, symbol resolution, declaration types, drop glue |
+| `src/typecheck.zig` | the expression pass: types every expression and records its facts |
 | `src/effects.zig` | fallibility and the raw boundary |
 | `src/ownership.zig` | the ownership checker |
 | `src/emit.zig` | Zig code generation |
@@ -343,18 +342,18 @@ against the imported signature exactly as a local one.
 `types.check` (via `checkWithImports`) runs four passes and returns a
 `SemContext`, which every later pass reads:
 
-1. **builtins** (`sema_builtins.zig`): `Cell(T)`, `Vec(T)`, and
+1. **builtins** (`resolve.zig`): `Cell(T)`, `Vec(T)`, and
    `Signal(T)` are registered as generic types whose methods are
    ordinary method fields, so calls to them go through the same lookup
    and substitution as user generics.
-2. **symbols** (`sema_decls.zig`): one walk creates a `Symbol` for every
+2. **symbols** (`resolve.zig`): one walk creates a `Symbol` for every
    declaration and binding, and a `Scope` for every node that opens
    one, recorded under that node.
-3. **declarations** (`sema_decls.zig`): type expressions become
+3. **declarations** (`resolve.zig`): type expressions become
    `TypeId`s: signatures, fields, variants, aliases, drop glue (computed
    to a fixed point), and the checks on public signatures and built-in
    element types.
-4. **expressions** (`sema_expr.zig`): bodies are type-checked
+4. **expressions** (`typecheck.zig`): bodies are type-checked
    bidirectionally. `synthExpr(e)` infers a type from `e` alone;
    `checkExpr(e, expected)` checks it against the type its context
    needs, which is how literals, `none`, `.variant`, generic
