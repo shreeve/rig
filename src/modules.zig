@@ -172,7 +172,7 @@ pub const ModuleGraph = struct {
         var ok = true;
 
         for (ir.Module.decls(tree)) |decl| {
-            if (!decl.isKind(.@"use")) continue;
+            if (!decl.isKind(.use)) continue;
             const name_node = ir.Use.name(decl);
             const m = self.get(id);
             const local_name = m.source[name_node.src.pos..][0..name_node.src.len];

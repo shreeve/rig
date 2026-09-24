@@ -87,8 +87,8 @@ pub const Checker = struct {
     /// `handled`: `sexp` is the direct operand of `!` or `catch`.
     fn walk(self: *Checker, sexp: Sexp, handled: bool) Error!void {
         switch (sexp.kind() orelse return) {
-            .@"fun", .@"sub" => try self.walkFunction(sexp),
-            .@"drop_decl" => {
+            .fun, .sub => try self.walkFunction(sexp),
+            .drop_decl => {
                 const saved = self.save();
                 defer self.restore(saved);
                 self.can_propagate = false;
@@ -96,7 +96,7 @@ pub const Checker = struct {
                 self.fn_pos = self.sema.startOf(sexp);
                 try self.walk(ir.DropDecl.body(sexp), false);
             },
-            .@"lambda" => {
+            .lambda => {
                 const saved = self.save();
                 defer self.restore(saved);
                 self.can_propagate = false;
@@ -110,7 +110,7 @@ pub const Checker = struct {
                 defer self.in_defer = prev;
                 try self.walk(ir.get(sexp, .body), false);
             },
-            .@"propagate" => {
+            .propagate => {
                 const operand = ir.Propagate.value(sexp);
                 try self.checkPropagate(operand);
                 try self.walk(operand, true);
@@ -119,13 +119,13 @@ pub const Checker = struct {
                 try self.walk(ir.Catch.value(sexp), true);
                 try self.walk(ir.Catch.handler(sexp), false);
             },
-            .@"call" => try self.walkCall(sexp, handled),
-            .@"raw_block" => {
+            .call => try self.walkCall(sexp, handled),
+            .raw_block => {
                 self.raw_depth += 1;
                 defer self.raw_depth -= 1;
                 try self.walk(ir.RawBlock.body(sexp), false);
             },
-            .@"builtin" => {
+            .builtin => {
                 const name_node = ir.Builtin.name(sexp);
                 const name = self.text(name_node);
                 if (!isSafeBuiltin(name) and self.raw_depth == 0) {
@@ -160,10 +160,10 @@ pub const Checker = struct {
         self.fn_pos = name.src.pos;
         self.in_lambda = false;
         self.in_defer = false;
-        self.can_propagate = if (node.isKind(.@"sub"))
+        self.can_propagate = if (node.isKind(.sub))
             std.mem.eql(u8, self.fn_name, "main")
         else
-            ir.Fun.returns(node).isKind(.@"error_union");
+            ir.Fun.returns(node).isKind(.error_union);
         try self.walk(ir.get(node, .body), false);
     }
 
@@ -214,7 +214,7 @@ pub const Checker = struct {
     /// How the callee is spelled, for messages: `f`, `a.f`, or `.m`.
     fn calleeName(self: *Checker, callee: Sexp) Error![]const u8 {
         if (callee == .src) return self.text(callee);
-        if (callee.isKind(.@"member")) {
+        if (callee.isKind(.member)) {
             const obj = ir.Member.object(callee);
             const name = self.text(ir.Member.name(callee));
             if (obj == .src) return std.fmt.allocPrint(self.arena.allocator(), "{s}.{s}", .{ self.text(obj), name });
@@ -230,7 +230,7 @@ pub const Checker = struct {
             const id = self.sema.symbolOf(callee) orelse return null;
             return if (self.sema.symbols.items[id].kind == .@"extern") self.text(callee) else null;
         }
-        if (!callee.isKind(.@"member")) return null;
+        if (!callee.isKind(.member)) return null;
         const obj = ir.Member.object(callee);
         const id = self.sema.symbolOf(obj) orelse return null;
         if (self.sema.symbols.items[id].kind != .module) return null;

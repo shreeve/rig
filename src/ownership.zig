@@ -932,13 +932,13 @@ pub const Checker = struct {
 
     fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
         switch (sexp.kind() orelse return) {
-            .@"module" => for (ir.Module.decls(sexp)) |c| try self.walkDecl(c),
-            .@"fun", .@"sub" => try self.walkFun(ir.get(sexp, .name), ir.get(sexp, .params), rig.returnType(sexp), ir.get(sexp, .body)),
-            .@"drop_decl" => try self.walkFun(.nil, ir.DropDecl.params(sexp), .nil, ir.DropDecl.body(sexp)),
-            .@"struct", .@"enum", .@"errors", .@"generic_type" => for (ir.rest(sexp, .members)) |c| try self.walkDecl(c),
+            .module => for (ir.Module.decls(sexp)) |c| try self.walkDecl(c),
+            .fun, .sub => try self.walkFun(ir.get(sexp, .name), ir.get(sexp, .params), rig.returnType(sexp), ir.get(sexp, .body)),
+            .drop_decl => try self.walkFun(.nil, ir.DropDecl.params(sexp), .nil, ir.DropDecl.body(sexp)),
+            .@"struct", .@"enum", .errors, .generic_type => for (ir.rest(sexp, .members)) |c| try self.walkDecl(c),
             .@"pub" => try self.walkDecl(ir.Pub.decl(sexp)),
             .@"test" => try self.walkFun(.nil, .nil, .nil, ir.Test.body(sexp)),
-            .@"use", .@"type", .@"extern", .@"extern_fun", .@"extern_sub", .@"variant", .@":" => {},
+            .use, .type, .@"extern", .extern_fun, .extern_sub, .variant, .@":" => {},
             else => try self.walkStmt(sexp),
         }
     }
@@ -990,7 +990,7 @@ pub const Checker = struct {
     /// Walk a function body in the current scope. When the function
     /// returns a value, its last expression is the return value.
     fn walkBody(self: *Checker, body: Sexp, returns_value: bool) Error!void {
-        const stmts: []const Sexp = if (body.isKind(.@"block")) ir.Block.stmts(body) else (&body)[0..1];
+        const stmts: []const Sexp = if (body.isKind(.block)) ir.Block.stmts(body) else (&body)[0..1];
         for (stmts, 0..) |stmt, i| {
             try self.checkAfterJump(stmts, i);
             if (!self.reachable) break;
@@ -1017,11 +1017,11 @@ pub const Checker = struct {
                     type_node = ir.get(p, .type);
                 },
                 // `?self` / `!self` sugar.
-                .@"read" => {
+                .read => {
                     name_node = ir.Read.operand(p);
                     sugar = .read;
                 },
-                .@"write" => {
+                .write => {
                     name_node = ir.Write.operand(p);
                     sugar = .write;
                 },
@@ -1135,26 +1135,26 @@ pub const Checker = struct {
         const kind = sexp.kind() orelse return .{};
         const children = rig.children(sexp);
         return switch (kind) {
-            .@"fun", .@"sub", .@"drop_decl", .@"struct", .@"enum", .@"errors" => blk: {
+            .fun, .sub, .drop_decl, .@"struct", .@"enum", .errors => blk: {
                 try self.walkDecl(sexp);
                 break :blk .{};
             },
-            .@"block" => self.walkBlock(sexp),
-            .@"set" => blk: {
+            .block => self.walkBlock(sexp),
+            .set => blk: {
                 try self.walkSet(sexp);
                 break :blk .{};
             },
-            .@"drop" => blk: {
+            .drop => blk: {
                 try self.walkDrop(sexp);
                 break :blk .{};
             },
-            .@"move" => self.walkMove(ir.Move.operand(sexp), .move),
-            .@"read" => self.walkBorrow(ir.Read.operand(sexp), .read),
-            .@"write" => self.walkBorrow(ir.Write.operand(sexp), .write),
-            .@"clone", .@"weak" => self.walkCloneWeak(sexp),
-            .@"pin" => self.walk(ir.Pin.operand(sexp)),
-            .@"share" => self.walkShare(sexp),
-            .@"lambda" => self.walkLambda(sexp),
+            .move => self.walkMove(ir.Move.operand(sexp), .move),
+            .read => self.walkBorrow(ir.Read.operand(sexp), .read),
+            .write => self.walkBorrow(ir.Write.operand(sexp), .write),
+            .clone, .weak => self.walkCloneWeak(sexp),
+            .pin => self.walk(ir.Pin.operand(sexp)),
+            .share => self.walkShare(sexp),
+            .lambda => self.walkLambda(sexp),
             .@"if" => self.walkIf(sexp),
             .@"while" => blk: {
                 try self.walkWhile(sexp);
@@ -1164,11 +1164,11 @@ pub const Checker = struct {
                 try self.walkFor(sexp);
                 break :blk .{};
             },
-            .@"labeled" => blk: {
+            .labeled => blk: {
                 try self.walkLabeled(sexp);
                 break :blk .{};
             },
-            .@"match" => self.walkMatch(sexp),
+            .match => self.walkMatch(sexp),
             .@"return" => blk: {
                 try self.walkReturn(sexp);
                 break :blk .{};
@@ -1181,29 +1181,29 @@ pub const Checker = struct {
                 try self.walkJump(sexp, .cont);
                 break :blk .{};
             },
-            .@"try_block" => blk: {
+            .try_block => blk: {
                 try self.walkTryBlock(sexp);
                 break :blk .{};
             },
             .@"catch" => self.walkCatch(sexp),
-            .@"propagate" => self.walkPropagate(sexp),
+            .propagate => self.walkPropagate(sexp),
             .@"defer", .@"errdefer" => blk: {
                 try self.walkDefer(sexp);
                 break :blk .{};
             },
-            .@"call" => self.walkCall(sexp),
-            .@"member" => self.walkMember(sexp),
-            .@"index" => self.walkMember(sexp),
-            .@"kwarg" => self.walkConsumed(ir.Kwarg.value(sexp), .argument),
-            .@"array" => blk: {
+            .call => self.walkCall(sexp),
+            .member => self.walkMember(sexp),
+            .index => self.walkMember(sexp),
+            .kwarg => self.walkConsumed(ir.Kwarg.value(sexp), .argument),
+            .array => blk: {
                 var v: Value = .{};
                 for (ir.Array.elems(sexp)) |e| v = try self.valueUnion(v, try self.walkConsumed(e, .element));
                 break :blk v;
             },
-            .@"raw_block" => self.walk(ir.RawBlock.body(sexp)),
-            .@"enum_lit", .@"use", .@"type", .@"generic_type", .@"generic_inst" => .{},
+            .raw_block => self.walk(ir.RawBlock.body(sexp)),
+            .enum_lit, .use, .type, .generic_type, .generic_inst => .{},
             // Operators on values produce fresh Copy results.
-            .@"+", .@"-", .@"*", .@"/", .@"%", .@"neg", .@"not", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
+            .@"+", .@"-", .@"*", .@"/", .@"%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
                 for (children) |c| _ = try self.walk(c);
                 break :blk .{};
             },
@@ -1230,7 +1230,7 @@ pub const Checker = struct {
     /// Mark `expr`, if it branches, as consumed by `sink`.
     fn setTail(self: *Checker, expr: Sexp, sink: Sink) void {
         const e = tailOf(expr);
-        if (e.isKind(.@"if") or e.isKind(.@"match")) {
+        if (e.isKind(.@"if") or e.isKind(.match)) {
             self.tail = .{ .node = e.list.id, .sink = sink };
         }
     }
@@ -1278,7 +1278,7 @@ pub const Checker = struct {
         if (self.typeData(t) != .borrow_write) return false;
         return switch (expr) {
             .src => true,
-            .list => expr.isKind(.@"member") or expr.isKind(.@"index"),
+            .list => expr.isKind(.member) or expr.isKind(.index),
             else => false,
         };
     }
@@ -1344,14 +1344,14 @@ pub const Checker = struct {
                 return .{ .root = id, .whole = true, .through_borrow = self.vars.items[id].ref != .none };
             },
             .list => switch (e.kind() orelse return null) {
-                .@"member", .@"index" => {
+                .member, .index => {
                     const object = ir.get(e, .object);
                     var p = (try self.resolvePlace(object)) orelse return null;
                     p.whole = false;
-                    if (e.isKind(.@"index")) p.indexed = true;
+                    if (e.isKind(.index)) p.indexed = true;
                     if (self.exprType(object)) |t| {
-                            const ty = self.typeData(t);
-                            if (ty == .shared) p.through_shared = true;
+                        const ty = self.typeData(t);
+                        if (ty == .shared) p.through_shared = true;
                         if (ty == .borrow_read or ty == .borrow_write) p.through_borrow = true;
                     }
                     return p;
@@ -1365,8 +1365,8 @@ pub const Checker = struct {
     /// Walk the index expressions inside a place.
     fn walkPlaceIndices(self: *Checker, e: Sexp) Error!void {
         switch (e.kind() orelse return) {
-            .@"member" => try self.walkPlaceIndices(ir.Member.object(e)),
-            .@"index" => {
+            .member => try self.walkPlaceIndices(ir.Member.object(e)),
+            .index => {
                 try self.walkPlaceIndices(ir.Index.object(e));
                 _ = try self.walk(ir.Index.index(e));
             },
@@ -1377,7 +1377,7 @@ pub const Checker = struct {
     /// A `member` or `index`.
     fn walkMember(self: *Checker, e: Sexp) Error!Value {
         const obj = try self.walk(ir.get(e, .object));
-        if (e.isKind(.@"index")) _ = try self.walk(ir.Index.index(e));
+        if (e.isKind(.index)) _ = try self.walk(ir.Index.index(e));
         if (!self.mayCarryBorrow(self.exprType(e))) return .{};
         return obj;
     }
@@ -1676,7 +1676,7 @@ pub const Checker = struct {
             },
             .list => {
                 switch (expr.kind() orelse return) {
-                    .@"member", .@"index" => {
+                    .member, .index => {
                         // `Enum.variant` is a new value, not a field.
                         if (self.namesType(ir.get(expr, .object))) return;
                         const ty = self.exprType(expr);
@@ -1692,10 +1692,10 @@ pub const Checker = struct {
                         try self.checkNoImplicitCopy(tailOf(ir.If.then(expr)), sink, top_return);
                         try self.checkNoImplicitCopy(tailOf(ir.If.@"else"(expr)), sink, top_return);
                     },
-                    .@"match" => for (ir.Match.arms(expr)) |arm| {
+                    .match => for (ir.Match.arms(expr)) |arm| {
                         try self.checkNoImplicitCopy(tailOf(ir.Arm.body(arm)), sink, top_return);
                     },
-                    .@"block" => if (ir.Block.stmts(expr).len > 0) try self.checkNoImplicitCopy(tailOf(expr), sink, top_return),
+                    .block => if (ir.Block.stmts(expr).len > 0) try self.checkNoImplicitCopy(tailOf(expr), sink, top_return),
                     // Operators that yield one of their operands.
                     .@"??" => {
                         try self.checkNoImplicitCopy(ir.@"??".left(expr), sink, false);
@@ -1705,7 +1705,7 @@ pub const Checker = struct {
                         try self.checkNoImplicitCopy(ir.Catch.value(expr), sink, false);
                         try self.checkNoImplicitCopy(tailOf(ir.Catch.handler(expr)), sink, false);
                     },
-                    .@"propagate" => try self.checkNoImplicitCopy(ir.Propagate.value(expr), sink, false),
+                    .propagate => try self.checkNoImplicitCopy(ir.Propagate.value(expr), sink, false),
                     else => {},
                 }
             },
@@ -1716,9 +1716,9 @@ pub const Checker = struct {
     /// Whether `e` names a type (`Shape`, `lib.Shape`) rather than a value.
     fn namesType(self: *const Checker, e: Sexp) bool {
         const ctx = self.sema orelse return false;
-        const leaf = if (e.isKind(.@"member")) ir.Member.name(e) else e;
+        const leaf = if (e.isKind(.member)) ir.Member.name(e) else e;
         if (leaf != .src) return false;
-        if (e.isKind(.@"member")) {
+        if (e.isKind(.member)) {
             // `module.Type`: the module has no value.
             const m = ir.Member.object(e);
             if (m != .src) return false;
@@ -1781,12 +1781,12 @@ pub const Checker = struct {
             else => false,
         };
 
-        if (target != .src) return self.walkFieldAssign(target, expr, kind == .@"move");
+        if (target != .src) return self.walkFieldAssign(target, expr, kind == .move);
 
         const pos = target.src.pos;
         const name = self.text(target);
         const is_lambda = isLambda(expr);
-        const value: Value = if (kind == .@"move")
+        const value: Value = if (kind == .move)
             try self.walkMove(expr, .move)
         else if (compound)
             try self.walk(expr)
@@ -1800,7 +1800,7 @@ pub const Checker = struct {
         switch (kind) {
             .shadow => try self.bindNew(name, pos, false, is_lambda, value),
             .fixed => try self.bindNew(name, pos, true, is_lambda, value),
-            .default, .@"move" => {
+            .default, .move => {
                 if (try self.lookup(pos, name)) |id| {
                     try self.reassign(id, pos, value);
                 } else if (self.find(name) == null) {
@@ -1926,11 +1926,11 @@ pub const Checker = struct {
         var recv_root: ?VarId = null;
         var recv_mode: sema.MethodReceiver = .read;
         var reservation: usize = 0;
-        if (callee.isKind(.@"member")) {
+        if (callee.isKind(.member)) {
             var obj = ir.Member.object(callee);
             var explicit_write = false;
-            if (obj.isKind(.@"write") or obj.isKind(.@"read")) {
-                explicit_write = obj.isKind(.@"write");
+            if (obj.isKind(.write) or obj.isKind(.read)) {
+                explicit_write = obj.isKind(.write);
                 obj = ir.get(obj, .operand);
             }
             recv_mode = if (explicit_write) .write else self.receiverMode(obj, callee);
@@ -1978,7 +1978,7 @@ pub const Checker = struct {
                 if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, self.startOf(obj));
             }
             for (args) |a| {
-                const arg = if (a.isKind(.@"kwarg")) ir.Kwarg.value(a) else a;
+                const arg = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
                 if (try self.containerRoot(arg)) |id| try self.absorbLoans(id, stored, self.startOf(arg));
             }
         }
@@ -2023,8 +2023,8 @@ pub const Checker = struct {
     /// shared handle or write borrow passed by name (or cloned).
     fn containerRoot(self: *Checker, arg: Sexp) Error!?VarId {
         var inner = arg;
-        const explicit_write = arg.isKind(.@"write");
-        if (explicit_write or arg.isKind(.@"clone")) inner = ir.get(arg, .operand);
+        const explicit_write = arg.isKind(.write);
+        if (explicit_write or arg.isKind(.clone)) inner = ir.get(arg, .operand);
         const place = (try self.resolvePlace(inner)) orelse return null;
         const ty = self.exprType(inner);
         // What the callee could store into is the value behind a borrow.
@@ -2234,7 +2234,7 @@ pub const Checker = struct {
         const t = self.takeTail(node);
         const cond = ir.If.cond(node);
         const else_b: ?Sexp = if (ir.If.@"else"(node) != .nil) ir.If.@"else"(node) else null;
-        if (cond.isKind(.@"as")) return self.walkIfAs(cond, ir.If.then(node), else_b, t);
+        if (cond.isKind(.as)) return self.walkIfAs(cond, ir.If.then(node), else_b, t);
         _ = try self.walk(cond);
         return self.walkBranches(ir.If.then(node), else_b, t);
     }
@@ -2308,7 +2308,7 @@ pub const Checker = struct {
         const scrut = ir.Match.subject(match);
         var info: Scrutinee = .{};
         var node = scrut;
-        if (scrut.isKind(.@"read") or scrut.isKind(.@"write")) {
+        if (scrut.isKind(.read) or scrut.isKind(.write)) {
             node = ir.get(scrut, .operand);
             info.via = .borrowed;
         }
@@ -2360,7 +2360,7 @@ pub const Checker = struct {
                 return true;
             },
             .list => {
-                if (pattern.isKind(.@"variant_pattern")) {
+                if (pattern.isKind(.variant_pattern)) {
                     const binds = ir.VariantPattern.bindings(pattern);
                     for (binds, 0..) |b, i| {
                         if (b == .src and !std.mem.eql(u8, self.text(b), "_")) {
@@ -2429,7 +2429,7 @@ pub const Checker = struct {
     };
 
     fn walkWhile(self: *Checker, node: Sexp) Error!void {
-        const as_cond = ir.While.cond(node).isKind(.@"as");
+        const as_cond = ir.While.cond(node).isKind(.as);
         const cond = if (as_cond) ir.As.value(ir.While.cond(node)) else ir.While.cond(node);
         const step = ir.While.step(node);
         const else_ = ir.While.@"else"(node);
@@ -2455,17 +2455,17 @@ pub const Checker = struct {
             .elem2 = ir.For.index(node),
             .start = extent(node).lo,
         };
-        if (mode == .@"move") {
+        if (mode == .move) {
             _ = try self.walkMove(source, .move);
         } else {
             _ = try self.walk(source);
             if (try self.resolvePlace(source)) |p| {
                 const id = p.root;
-                const kind: LoanKind = if (mode == .@"write" or mode == .ptr) .write else .read;
+                const kind: LoanKind = if (mode == .write or mode == .ptr) .write else .read;
                 spec.source_root = id;
                 spec.source_loan = kind;
                 spec.source_pos = self.startOf(source);
-                spec.resource_vec = mode == .@"read" and self.isResourceVec(self.exprType(source));
+                spec.resource_vec = mode == .read and self.isResourceVec(self.exprType(source));
                 if (self.flowLive(id)) {
                     if (kind == .write) {
                         if (self.findLoan(id, .any, null)) |l| {
@@ -2938,7 +2938,7 @@ pub const Checker = struct {
     /// resolved for the callee: `!self` writes, a `Self` value is consumed,
     /// anything else reads. A shared handle is only ever read through.
     fn receiverMode(self: *const Checker, obj: Sexp, callee: Sexp) sema.MethodReceiver {
-        if (obj.isKind(.@"move")) return .value;
+        if (obj.isKind(.move)) return .value;
         if (self.exprType(obj)) |t| if (self.typeData(t) == .shared) return .read;
         const f = self.typeData(self.exprType(callee) orelse return .read);
         if (f != .function or f.function.params.len == 0) return .read;
@@ -2953,8 +2953,8 @@ pub const Checker = struct {
         switch (e) {
             .src => return self.text(e),
             .list => switch (e.kind() orelse return "expression") {
-                .@"member" => return std.fmt.allocPrint(self.arena(), "{s}.{s}", .{ try self.placeText(ir.Member.object(e)), self.text(ir.Member.name(e)) }),
-                .@"index" => return std.fmt.allocPrint(self.arena(), "{s}[...]", .{try self.placeText(ir.Index.object(e))}),
+                .member => return std.fmt.allocPrint(self.arena(), "{s}.{s}", .{ try self.placeText(ir.Member.object(e)), self.text(ir.Member.name(e)) }),
+                .index => return std.fmt.allocPrint(self.arena(), "{s}[...]", .{try self.placeText(ir.Index.object(e))}),
                 // A sigil or other wrapper: the place it wraps.
                 else => {
                     const children = rig.children(e);
@@ -2971,7 +2971,7 @@ pub const Checker = struct {
 // =============================================================================
 
 fn isLambda(s: Sexp) bool {
-    return s.isKind(.@"lambda");
+    return s.isKind(.lambda);
 }
 
 fn isIdentStart(c: u8) bool {
@@ -3007,7 +3007,7 @@ fn hasLoanFrom(loans: []const Loan, start: u32) bool {
 /// The expression whose value a branch produces: the last statement of
 /// a block, or the branch itself.
 fn tailOf(s: Sexp) Sexp {
-    if (s.isKind(.@"block")) {
+    if (s.isKind(.block)) {
         const stmts = ir.Block.stmts(s);
         if (stmts.len == 0) return .nil;
         return tailOf(stmts[stmts.len - 1]);
@@ -3020,7 +3020,7 @@ fn tailOf(s: Sexp) Sexp {
 fn isValueExpr(s: Sexp) bool {
     if (s != .list) return s == .src;
     return switch (s.kind() orelse return false) {
-        .@"set", .@"return", .@"break", .@"continue", .@"while", .@"for", .@"drop", .@"defer", .@"errdefer", .@"labeled" => false,
+        .set, .@"return", .@"break", .@"continue", .@"while", .@"for", .drop, .@"defer", .@"errdefer", .labeled => false,
         else => true,
     };
 }
