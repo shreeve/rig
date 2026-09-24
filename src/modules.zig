@@ -17,7 +17,7 @@
 const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
-const types = @import("types.zig");
+const sema = @import("sema.zig");
 const effects = @import("effects.zig");
 const ownership = @import("ownership.zig");
 const ir = parser.ir;
@@ -33,7 +33,7 @@ pub const Import = struct {
 };
 
 pub const Module = struct {
-    /// 1-based; also the module's identity for cross-module nominal types.
+    /// 1-based; also the module's identity for cross-module nominal sema.
     id: ModuleId,
     /// Canonical absolute path: the graph's dedup key.
     path: []const u8,
@@ -50,7 +50,7 @@ pub const Module = struct {
     ir: parser.Sexp = .nil,
     /// Always valid, so diagnostics (including parse and import errors)
     /// can be recorded against the module's source.
-    sema: *types.SemContext,
+    sema: *sema.SemContext,
     imports: std.ArrayListUnmanaged(Import) = .empty,
     state: State = .loading,
 
@@ -120,9 +120,9 @@ pub const ModuleGraph = struct {
         const a = self.arena.allocator();
         const name = moduleName(display);
 
-        const sema = try self.allocator.create(types.SemContext);
-        errdefer self.allocator.destroy(sema);
-        sema.* = try types.SemContext.init(self.allocator, source);
+        const ctx = try self.allocator.create(sema.SemContext);
+        errdefer self.allocator.destroy(ctx);
+        ctx.* = try sema.SemContext.init(self.allocator, source);
         const p = try self.allocator.create(parser.Parser);
         p.* = parser.Parser.init(self.allocator, source);
 
@@ -135,7 +135,7 @@ pub const ModuleGraph = struct {
             .out_basename = try std.fmt.allocPrint(a, "{s}.zig", .{name}),
             .source = source,
             .parser = p,
-            .sema = sema,
+            .sema = ctx,
         });
         try self.by_path.put(self.allocator, canonical, id);
 
@@ -172,7 +172,7 @@ pub const ModuleGraph = struct {
         var ok = true;
 
         for (ir.Module.decls(tree)) |decl| {
-            if (!decl.isKind(.@"use")) continue;
+            if (!decl.isKind(.use)) continue;
             const name_node = ir.Use.name(decl);
             const m = self.get(id);
             const local_name = m.source[name_node.src.pos..][0..name_node.src.len];
@@ -222,18 +222,18 @@ pub const ModuleGraph = struct {
         return ok;
     }
 
-    /// Run sema, effects, and ownership on a parsed module whose imports
+    /// Run ctx, effects, and ownership on a parsed module whose imports
     /// are all checked.
     fn check(self: *ModuleGraph, id: ModuleId) Error!void {
         const m = self.get(id);
-        var entries: std.ArrayListUnmanaged(types.ImportEntry) = .empty;
+        var entries: std.ArrayListUnmanaged(sema.ImportEntry) = .empty;
         defer entries.deinit(self.allocator);
         for (m.imports.items) |imp| {
             try entries.append(self.allocator, .{ .local_name = imp.local_name, .sema = self.get(imp.target).sema, .module_id = imp.target });
         }
 
         // Modules the imports reach in turn.
-        var reached: std.ArrayListUnmanaged(types.ImportEntry) = .empty;
+        var reached: std.ArrayListUnmanaged(sema.ImportEntry) = .empty;
         defer reached.deinit(self.allocator);
         var work: std.ArrayListUnmanaged(ModuleId) = .empty;
         defer work.deinit(self.allocator);
@@ -254,7 +254,7 @@ pub const ModuleGraph = struct {
         }
 
         m.sema.deinit();
-        m.sema.* = try types.checkWithImports(self.allocator, m.source, m.parser, m.ir, entries.items, reached.items, id);
+        m.sema.* = try sema.checkWithImports(self.allocator, m.source, m.parser, m.ir, entries.items, reached.items, id);
 
         var eff = try effects.Checker.initWithSema(self.allocator, m.source, m.sema);
         defer eff.deinit();
@@ -275,7 +275,7 @@ pub const ModuleGraph = struct {
         try m.sema.diagnostics.append(self.allocator, .{ .severity = .@"error", .pos = at.start, .end = at.end, .message = message });
     }
 
-    fn addDiagnostic(self: *ModuleGraph, id: ModuleId, d: types.Diagnostic) Error!void {
+    fn addDiagnostic(self: *ModuleGraph, id: ModuleId, d: sema.Diagnostic) Error!void {
         const m = self.get(id);
         const owned = try m.sema.arena.allocator().dupe(u8, d.message);
         try m.sema.diagnostics.append(self.allocator, .{ .severity = d.severity, .pos = d.pos, .end = d.end, .message = owned });

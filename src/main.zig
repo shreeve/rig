@@ -363,7 +363,7 @@ fn declaresMain(m: *const modules.Module) bool {
     if (m.ir == .nil) return false;
     for (ir.Module.decls(m.ir)) |top| {
         const decl = if (top.isKind(.@"pub")) ir.Pub.decl(top) else top;
-        if (!decl.isKind(.@"sub") and !decl.isKind(.@"fun")) continue;
+        if (!decl.isKind(.sub) and !decl.isKind(.fun)) continue;
         if (std.mem.eql(u8, ir.get(decl, .name).getText(m.source), "main")) return true;
     }
     return false;
