@@ -27,10 +27,15 @@ const rig = @import("rig.zig");
 const types = @import("types.zig");
 const sema_decls = @import("sema_decls.zig");
 const diag = @import("diag.zig");
-const runtime = @import("runtime.zig");
 
 const Sexp = parser.Sexp;
 const ir = parser.ir;
+
+/// The runtime shipped with every emitted program: `src/runtime.zig`,
+/// written byte for byte next to the emitted modules, which import it
+/// as `rig`.
+pub const runtime_filename = "rig/runtime.zig";
+pub const runtime_source = @embedFile("runtime.zig");
 const Tag = rig.Tag;
 const Writer = std.Io.Writer;
 const TypeId = types.TypeId;
@@ -190,7 +195,7 @@ pub const Emitter = struct {
 
     pub fn emit(self: *Emitter, sexp: Sexp) Error!void {
         try self.w.writeAll("const std = @import(\"std\");\n");
-        try self.w.print("const rig = @import(\"{s}\");\n", .{runtime.filename});
+        try self.w.print("const rig = @import(\"{s}\");\n", .{runtime_filename});
         if (!sexp.isKind(.@"module")) return;
         const decls = ir.Module.decls(sexp);
         try self.collectModule(decls);

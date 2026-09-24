@@ -22,7 +22,7 @@ modules          src/modules.zig   load `use`d files, check in dependency order
   │  ownership   src/ownership.zig moves, borrows, drops, aliasing
   ▼
 emit             src/emit.zig      one Zig file per module
-runtime          src/runtime/_runtime.zig, written next to them
+runtime          src/runtime.zig    written next to them as rig/runtime.zig
   ▼
 zig run / zig build-exe            Debug (leak-checked), ReleaseSafe, or ReleaseFast
 ```
@@ -81,8 +81,7 @@ and the exit status is 1 if any test failed.
 | `src/effects.zig` | fallibility and the raw boundary |
 | `src/ownership.zig` | the ownership checker |
 | `src/emit.zig` | Zig code generation |
-| `src/runtime.zig` | embeds the runtime source |
-| `src/runtime/_runtime.zig` | the runtime shipped with every program |
+| `src/runtime.zig` | the runtime shipped with every program |
 | `src/main.zig` | the CLI |
 
 ## Front end
@@ -540,8 +539,10 @@ types comes from the facts table, never from name matching.
 
 ## The runtime
 
-`src/runtime/_runtime.zig` is a real Zig file, compiled and unit-tested
-with the compiler, and written verbatim next to every emitted program.
+`src/runtime.zig` is a real Zig file, compiled and unit-tested with the
+compiler. `src/emit.zig` embeds its source and writes it verbatim next to
+every emitted program as `rig/runtime.zig`, which the program imports as
+`rig`.
 It is trusted code: the checkers do not see it, so it is kept small and
 reviewed.
 
