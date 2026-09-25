@@ -2725,10 +2725,46 @@ const Checker = struct {
             switch (self.ctx.types.get(ty)) {
                 .void => try self.errAt(a, "`print` needs a value; this expression produces no value (`Void`)", .{}),
                 .none_literal => try self.errAt(a, "cannot print a bare `none`", .{}),
-                else => {},
+                else => {
+                    var seen: std.ArrayListUnmanaged(ByteSliceVisit) = .empty;
+                    defer seen.deinit(self.ctx.allocator);
+                    if (try holdsByteSlice(self.ctx, ty, &seen, self.ctx.allocator)) {
+                        const name = try self.tyName(ty);
+                        const direct = std.mem.eql(u8, name, "[]U8");
+                        try self.errAt(a, "cannot print a `{s}`: {s}would print as text, like a String; print the bytes one by one", .{ name, if (direct) "it " else "the `[]U8` it holds " });
+                    }
+                },
             }
         }
         return self.t().void_id;
+    }
+
+    const ByteSliceVisit = struct { ctx: *const SemContext, sym: SymbolId };
+
+    /// Whether a value of `ty` holds a `[]U8`, directly or through a
+    /// wrapper, field, payload, or type argument. A `[]U8` and a String
+    /// are both Zig `[]const u8`, so `print` cannot tell them apart.
+    fn holdsByteSlice(ctx: *const SemContext, ty: TypeId, seen: *std.ArrayListUnmanaged(ByteSliceVisit), a: std.mem.Allocator) Error!bool {
+        switch (ctx.types.get(ty)) {
+            .slice => |sl| return switch (ctx.types.get(sl.elem)) {
+                .int => |i| i.bits == 8 and !i.signed,
+                else => holdsByteSlice(ctx, sl.elem, seen, a),
+            },
+            .optional, .fallible, .borrow_read, .borrow_write, .shared => |inner| return holdsByteSlice(ctx, inner, seen, a),
+            .array => |arr| return holdsByteSlice(ctx, arr.elem, seen, a),
+            .parameterized_nominal => |pn| for (pn.args) |arg| {
+                if (try holdsByteSlice(ctx, arg, seen, a)) return true;
+            },
+            .nominal, .imported_nominal => {},
+            else => return false,
+        }
+        const decl = sema.nominalDecl(ctx, ty) orelse return false;
+        for (seen.items) |v| if (v.ctx == decl.ctx and v.sym == decl.sym) return false;
+        try seen.append(a, .{ .ctx = decl.ctx, .sym = decl.sym });
+        for (decl.ctx.symbols.items[decl.sym].fields orelse &.{}) |*f| {
+            for (sema.dataFields(f)) |d| if (try holdsByteSlice(decl.ctx, d.ty, seen, a)) return true;
+        }
+        return false;
     }
 
     /// What a call needs to know about a callee's parameters beyond its

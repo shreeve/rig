@@ -2667,14 +2667,15 @@ a value.
 | `none` | `none` |
 | enum | `.green`, `.rect(w: 2, h: 3)` |
 | struct | `User(name: "ada", age: 36)` |
-| array, `Vec` | `[1, 2]` |
+| array, slice, `Vec` | `[1, 2]` |
 | shared handle | the value it holds |
 | weak handle | `~(alive)` or `~(gone)` |
 | owned closure | `<closure>` |
 | function | `<fun>` |
 
 A value nested more than 64 levels deep prints its deeper parts as
-`...`.
+`...`. A `[]U8` and a `String` are the same bytes at run time, so
+`print` rejects a value that holds a `[]U8`; print its bytes one by one.
 
 ```rig
 struct User
