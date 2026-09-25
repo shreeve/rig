@@ -1129,11 +1129,12 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn walkStmt(self: *Checker, stmt: Sexp) Error!void {
-        _ = try self.walkStmtValue(stmt);
+        _ = try self.walkStmtValue(stmt, null);
     }
 
-    /// Walk one statement; its temporary borrows end with it.
-    fn walkStmtValue(self: *Checker, stmt: Sexp) Error!Value {
+    /// Walk one statement; its temporary borrows end with it. With
+    /// `sink`, its value is consumed there (a loop's `as` condition).
+    fn walkStmtValue(self: *Checker, stmt: Sexp, sink: ?Sink) Error!Value {
         const p = self.span(stmt);
         if (!p.isEmpty()) self.anchor = p.start;
         if (!self.reachable) return .{};
@@ -1143,22 +1144,7 @@ pub const Checker = struct {
         const saved_stmt = self.cur_stmt;
         self.cur_stmt = stmt;
         defer self.cur_stmt = saved_stmt;
-        const v = try self.walk(stmt);
-        try self.restoreTemps(saved.items);
-        return v;
-    }
-
-    /// Walk an expression whose value is bound (a loop's `as` condition)
-    /// as its own statement: its temporary borrows end with it.
-    fn walkConsumedStmt(self: *Checker, expr: Sexp) Error!Value {
-        if (!self.reachable) return .{};
-        var saved: std.ArrayListUnmanaged(Loan) = .empty;
-        defer saved.deinit(self.gpa);
-        try saved.appendSlice(self.gpa, self.temps.items);
-        const saved_stmt = self.cur_stmt;
-        self.cur_stmt = expr;
-        defer self.cur_stmt = saved_stmt;
-        const v = try self.walkConsumed(expr, .binding);
+        const v = if (sink) |k| try self.walkConsumed(stmt, k) else try self.walk(stmt);
         try self.restoreTemps(saved.items);
         return v;
     }
@@ -1179,7 +1165,7 @@ pub const Checker = struct {
         for (stmts, 0..) |s, i| {
             try self.checkAfterJump(stmts, i);
             if (!self.reachable) break;
-            if (i == stmts.len - 1) v = try self.walkStmtValue(s) else try self.walkStmt(s);
+            if (i == stmts.len - 1) v = try self.walkStmtValue(s, null) else try self.walkStmt(s);
         }
         v = try self.checkValueEscapesScope(v);
         try self.popScope();
@@ -1221,7 +1207,7 @@ pub const Checker = struct {
                 try self.walkDrop(sexp);
                 break :blk .{};
             },
-            .move => self.walkMove(ir.Move.operand(sexp), .move),
+            .move => self.walkMove(ir.Move.operand(sexp)),
             .read => self.walkBorrow(ir.Read.operand(sexp), .read),
             .write => self.walkBorrow(ir.Write.operand(sexp), .write),
             .clone, .weak => self.walkCloneWeak(sexp),
@@ -1382,6 +1368,16 @@ pub const Checker = struct {
         }
     }
 
+    /// Report a capture of a moved or dropped var. Returns whether it is
+    /// live.
+    fn checkCapturable(self: *Checker, id: VarId, pos: u32) Error!bool {
+        if (self.flowLive(id)) return true;
+        const what = if (self.flows.items[id].status == .dropped) "drop" else "move";
+        try self.err(pos, "cannot capture `{s}` after {s}", .{ self.vars.items[id].name, what });
+        try self.noteInvalidated(id, pos);
+        return false;
+    }
+
     /// Report a use of a moved or dropped var. Returns whether it is live.
     fn checkLive(self: *Checker, id: VarId, pos: u32) Error!bool {
         const f = self.flows.items[id];
@@ -1506,9 +1502,9 @@ pub const Checker = struct {
     };
 
     /// `<e`: move a whole binding, or reject moving out of a path.
-    fn walkMove(self: *Checker, inner: Sexp, verb: MoveVerb) Error!Value {
+    fn walkMove(self: *Checker, inner: Sexp) Error!Value {
         const place = self.resolvePlace(inner) orelse return self.walk(inner);
-        if (place.whole) return self.moveVar(place.root, self.startOf(inner), verb);
+        if (place.whole) return self.moveVar(place.root, self.startOf(inner), .move);
         return self.movePath(inner, place);
     }
 
@@ -1524,15 +1520,7 @@ pub const Checker = struct {
             try self.err(pos, "cannot move-capture borrowed parameter `{s}`; the caller still owns it. Capture a clone with `|+{s}|`", .{ v.name, v.name });
             return .{};
         }
-        if (!self.flowLive(id)) {
-            if (verb == .capture) {
-                try self.err(pos, "cannot capture `{s}` after {s}", .{ v.name, if (self.flows.items[id].status == .dropped) "drop" else "move" });
-                try self.noteInvalidated(id, pos);
-            } else {
-                _ = try self.checkLive(id, pos);
-            }
-            return .{};
-        }
+        if (!(if (verb == .capture) try self.checkCapturable(id, pos) else try self.checkLive(id, pos))) return .{};
         const value = self.varValue(id);
         if (try self.rejectGlobal(id, pos, vt)) return .{};
 
@@ -1868,7 +1856,7 @@ pub const Checker = struct {
         const name = self.text(target);
         const is_lambda = isLambda(expr);
         const value: Value = if (kind == .move)
-            try self.walkMove(expr, .move)
+            try self.walkMove(expr)
         else if (compound)
             try self.walk(expr)
         else if (is_lambda) blk: {
@@ -1967,7 +1955,7 @@ pub const Checker = struct {
 
     /// `p.f = e` / `v[i] = e`.
     fn walkFieldAssign(self: *Checker, target: Sexp, expr: Sexp, is_move: bool) Error!void {
-        const value = if (is_move) try self.walkMove(expr, .move) else try self.walkConsumed(expr, .field);
+        const value = if (is_move) try self.walkMove(expr) else try self.walkConsumed(expr, .field);
         const place = self.resolvePlace(target) orelse {
             _ = try self.walk(target);
             return;
@@ -2268,11 +2256,7 @@ pub const Checker = struct {
             return .{};
         }
         if (mode == .cap_move) return self.moveVar(id, pos, .capture);
-        if (!self.flowLive(id)) {
-            try self.err(pos, "cannot capture `{s}` after {s}", .{ name, if (self.flows.items[id].status == .dropped) "drop" else "move" });
-            try self.noteInvalidated(id, pos);
-            return .{};
-        }
+        if (!try self.checkCapturable(id, pos)) return .{};
         if (self.findLoan(id, .write, null)) |l| {
             try self.err(pos, "cannot capture `{s}` while a write borrow is live", .{name});
             try self.noteLoan(l);
@@ -2574,7 +2558,7 @@ pub const Checker = struct {
             .start = extent(node).lo,
         };
         if (mode == .move) {
-            spec.moved = (try self.walkMove(source, .move)).loans;
+            spec.moved = (try self.walkMove(source)).loans;
         } else {
             _ = try self.walk(source);
             if (self.resolvePlace(source)) |p| {
@@ -2654,10 +2638,7 @@ pub const Checker = struct {
     fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!struct { back: State, exit: State } {
         ctx.breaks.clearRetainingCapacity();
         ctx.conts.clearRetainingCapacity();
-        var bound: Value = .{};
-        if (spec.cond) |c| {
-            if (spec.cond_binding != .nil) bound = try self.walkConsumedStmt(c) else try self.walkStmt(c);
-        }
+        const bound: Value = if (spec.cond) |c| try self.walkStmtValue(c, if (spec.cond_binding != .nil) .binding else null) else .{};
         const exit: State = if (spec.cond_always_true) .{ .reachable = false } else try self.capture(ctx.point);
 
         try self.pushScopeFor(.block, spec.body);
