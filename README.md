@@ -237,6 +237,8 @@ generic functions and passing a stack closure as an argument;
 
 ## Learn more
 
+- [SYNTAX.md](SYNTAX.md): the syntax, taught to Zig and Rust
+  programmers, from a tour to a full reference
 - [SPEC.md](SPEC.md): the language reference
 - [docs/DESIGN.md](docs/DESIGN.md): principles, the sigil algebra, and
   influences

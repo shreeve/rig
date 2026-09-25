@@ -104,6 +104,7 @@ RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 | `test/` | The test suite (see `test/README.md`) |
 | `examples/` | Curated example programs, all run by the suite |
 | `SPEC.md` | Language reference |
+| `SYNTAX.md` | Syntax guide for Zig and Rust programmers |
 | `docs/DESIGN.md` | Principles and rationale |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |
