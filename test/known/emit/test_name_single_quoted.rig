@@ -1,0 +1,12 @@
+# A test name may be single-quoted, like any string.
+# Today emit writes the name into the test table as is, which Zig
+# rejects (`'it''s ok'` is not a Zig string).
+
+test 'it''s ok'
+  print(2)
+
+sub main()
+  print(1)
+
+# expect:
+# 1

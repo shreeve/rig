@@ -1,0 +1,31 @@
+# A list written one item a line may end with a comma: an array, a call's
+# arguments, and a parameter list.
+
+enum Shape
+  rect(
+    w: Int,
+    h: Int,
+  )
+
+fun area(
+  w: Int,
+  h: Int,
+) -> Int
+  w * h
+
+sub main()
+  sizes = [
+    2,
+    3,
+  ]
+  s: Shape = .rect(w: 4, h: 5,)
+  match s
+    .rect(w, h) => print(area(w, h))
+  print(area(
+    sizes[0],
+    sizes[1],
+  ), [7,])
+
+# expect:
+# 20
+# 6 [7]

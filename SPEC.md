@@ -91,7 +91,8 @@ tab in indentation; indent with spaces
 ### Line joining
 
 Inside `( )` and `[ ]` a newline is plain whitespace, so arguments,
-expressions, and method chains can span lines at any indentation. A
+expressions, and method chains can span lines at any indentation. An
+array, a call's arguments, and a parameter list may end with a comma. A
 backslash at the end of a line joins the next line anywhere.
 
 ```rig
@@ -886,8 +887,8 @@ A guard ends a statement; inside an expression, write the ternary
 
 ### while
 
-`while cond` repeats its block. `while cond : step` runs `step` after
-each iteration (including after `continue`). `while e as x` repeats
+`while cond` repeats its block. `while cond : step` runs `step`, an
+assignment or a call, after each iteration (including after `continue`). `while e as x` repeats
 while the optional `e` has a value. An `else` block runs when the loop
 ends without `break`.
 
