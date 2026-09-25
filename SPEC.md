@@ -947,7 +947,11 @@ sub main()
 `f(a, b)` calls `f`. A **paren-free call** takes the rest of the line
 as its arguments, and a nested paren-free call can be its last
 argument: `print add 1, 2` is `print(add(1, 2))`. Paren-free calls read
-well for simple statements; use parentheses when nesting.
+well for simple statements. Inside parentheses every argument is an
+ordinary expression, so a call there takes its own parentheses:
+`print(1, twice(-3), 5)`, not `print(1, twice -3, 5)`. Only a closure
+body, which is a statement of its own, may be a paren-free call there
+(`each(3, *|i| print i)`).
 
 ```rig
 fun add(a: Int, b: Int) -> Int
@@ -963,6 +967,18 @@ sub main()
 3
 9
 3 7
+```
+
+```rig reject
+fun twice(n: Int) -> Int
+  n * 2
+
+sub main()
+  print(1, twice -3, 5)
+```
+
+```error
+a call inside parentheses needs its own parentheses: `twice(...)`
 ```
 
 Keyword arguments name parameters (`scaled(by: 4, n: 5)`), and

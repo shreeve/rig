@@ -1024,7 +1024,8 @@ pub const Parser = struct {
         };
         const expected = self.expectedHint();
         const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
-        const full = if (reservedHint(src, tok, expected orelse "")) |hint| self.format("{s}; {s}", .{ with_expected, hint }) else with_expected;
+        const hint = self.parenFreeCallHint(tok) orelse reservedHint(src, tok, expected orelse "");
+        const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
     }
 
@@ -1055,6 +1056,27 @@ pub const Parser = struct {
             .share_pfx => if (precededByFor(src, tok.pos)) "`for *x in` is reserved: iterate with `for x in xs`, `?xs`, or `!xs`" else null,
             else => null,
         };
+    }
+
+    /// Inside ( ), a name followed by an operand: a paren-free call,
+    /// which only a statement or a closure body takes.
+    fn parenFreeCallHint(self: *Parser, tok: Token) ?[]const u8 {
+        if (!self.base.lexer.inParens()) return null;
+        const src = self.base.source;
+        var end = tok.pos;
+        while (end > 0 and src[end - 1] == ' ') end -= 1;
+        if (end == tok.pos) return null;
+        var start = end;
+        while (start > 0 and isIdentCont(src[start - 1])) start -= 1;
+        const name = src[start..end];
+        if (name.len == 0 or !isIdentStart(name[0]) or keyword(name) != null) return null;
+        const operand = switch (tok.cat) {
+            .ident, .integer, .real, .string_sq, .string_dq, .true, .false, .dot_lit, .lparen, .lbracket => true,
+            .minus_prefix, .move_pfx, .clone_pfx, .read_pfx, .write_pfx, .share_pfx, .tilde, .not => true,
+            else => false,
+        };
+        if (!operand) return null;
+        return self.format("a call inside parentheses needs its own parentheses: `{s}(...)`", .{name});
     }
 
     /// The word before `pos` is `for`.

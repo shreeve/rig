@@ -1,0 +1,34 @@
+# A paren-free call is a statement, the value of a binding or `return`,
+# or the last argument of another paren-free call. Inside parentheses
+# it may only be a closure's body, which is a statement of its own.
+
+fun twice(n: Int) -> Int
+  n * 2
+
+fun add(a: Int, b: Int) -> Int
+  a + b
+
+sub each(n: Int, f: *sub(Int))
+  for i in 0..n
+    f(i)
+
+fun quad(n: Int) -> Int
+  return twice twice n
+
+sub main()
+  print add 1, 2
+  print (1 + 2) * 3
+  print add(1, 2), add 3, 4
+  x = twice 5
+  print(1, twice(-3), 5, x, quad(2))
+  each(2, *|i| print i * 10)
+  (|+x| print x)()
+
+# expect:
+# 3
+# 9
+# 3 7
+# 1 -6 5 10 8
+# 0
+# 10
+# 10

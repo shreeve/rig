@@ -526,7 +526,8 @@ tatom    = name
 #   tail    an expression, a paren-free call, or a closure whose body is one.
 #           Allowed where nothing can follow on the line: a statement, the
 #           right side of a binding, `return`, a match arm, the last
-#           argument of a call.
+#           argument of a paren-free call. Inside ( ) only the closure
+#           may appear (`cclosure`): a call there takes parentheses.
 #   expr    anything that yields a value, including block forms.
 #   value   an expression without a block or closure: conditions, operands,
 #           ternary branches.
@@ -560,7 +561,8 @@ cond     = value
 # --- Paren-free calls ---------------------------------------------------------
 #
 # `print p.x` is print(p.x); `send encode <packet` is send(encode(<packet)).
-# A nested paren-free call can only be the last argument.
+# A nested paren-free call can only be the last argument, and never
+# appears inside ( ).
 
 cmd      = callee:postfix args:cmdargs              → (call)
 
@@ -681,8 +683,8 @@ postfix  = object:postfix "." name:name             → (member)
 
 args     = callargs                                 → 1
          | callargs ","                             → 1
-         | callargs "," cmdtail                     → (...1 3)
-         | cmdtail                                  → (1)
+         | callargs "," cclosure                    → (...1 3)
+         | cclosure                                 → (1)
          |                                          → ()
 
 callargs = callarg                                  → (1)
@@ -702,7 +704,8 @@ atom     = name
          | "@" name:name LPAREN_CALL args:args ")"  → (builtin)
          | "[" [elems:exprs] "]"                    → (array)
          | "[" elems:exprs "," "]"                  → (array)
-         | "(" tail ")"                             → 2
+         | "(" expr ")"                             → 2
+         | "(" cclosure ")"                         → 2
 
 # ==============================================================================
 # INFIX OPERATORS (lowest precedence first; operands are `unary`)

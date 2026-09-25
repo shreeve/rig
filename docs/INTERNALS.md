@@ -141,10 +141,11 @@ The grammar's own shape settles the rest:
 | `\|k\| (k)`: parameter list or parenthesized body | parameters live in the bar list; `name:` is a `KWARG_NAME` |
 | `return` / `break` / `continue` inside conditions | they are statements; a guard applies to a whole simple statement |
 | dangling `else` in guards and ternaries | conditions are block-free values; the ternary has its own token; `else` only follows a block |
-| paren-free calls inside argument lists | paren-free calls (`cmd`) appear only in tail positions |
+| paren-free calls inside argument lists | paren-free calls (`cmd`) appear only in tail positions outside ( ); inside, only as a closure body (`cclosure`) |
 
 Grammar shapes worth knowing: `tail` is an expression, a paren-free
-call, or a closure, allowed where nothing follows on the line; `expr`
+call, or a closure, allowed where nothing follows on the line outside
+( ); `expr`
 adds block forms; `value` is an expression without blocks or closures
 (conditions, operands, ternary branches).
 
