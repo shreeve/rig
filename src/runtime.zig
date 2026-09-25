@@ -362,6 +362,45 @@ pub fn Cell(comptime T: type) type {
         pub fn __rig_drop(self: *Self) void {
             dropElement(T, &self.value);
         }
+
+        // A `Cell(Vec(E))` answers its Vec's members. No user code runs
+        // while the Vec is in use: `push`, `pop`, `len`, and the element
+        // reads and writes of a plain-data `E` run no destructor, and
+        // `clear` empties the cell before it drops the elements.
+
+        /// The element type when `T` is a Vec; referenced only then.
+        const E = @typeInfo(@FieldType(T, "buf")).pointer.child;
+
+        pub fn vecPush(self: *Self, value: E) void {
+            self.value.push(value);
+        }
+
+        pub fn vecPop(self: *Self) ?E {
+            return self.value.pop();
+        }
+
+        pub fn vecLen(self: *const Self) Int {
+            return len(self.value.len);
+        }
+
+        pub fn vecAt(self: *const Self, i: anytype) E {
+            return self.value.at(i);
+        }
+
+        pub fn vecGet(self: *const Self, i: Int) ?E {
+            return self.value.get(i);
+        }
+
+        pub fn vecSet(self: *Self, i: anytype, value: E) void {
+            self.value.slot(i).* = value;
+        }
+
+        /// A drop that reaches back into the cell finds an empty Vec.
+        pub fn vecClear(self: *Self) void {
+            var old = self.value;
+            self.value = .empty;
+            old.__rig_drop();
+        }
     };
 }
 

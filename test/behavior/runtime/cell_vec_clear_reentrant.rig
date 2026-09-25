@@ -1,0 +1,29 @@
+# `clear` on a Cell's Vec empties the cell before it drops the elements,
+# so a drop body that reaches back into the cell finds a valid, empty
+# Vec, and may even push to it.
+
+struct Item
+  id: Int
+  owner: ~Cell(Vec(*Item))
+
+  drop self: !Self
+    if self.owner.upgrade() as cell
+      print("drop", self.id, "sees", cell.len)
+      cell.push(*Item(id: self.id * 10, owner: +self.owner)) if self.id < 10
+
+sub main()
+  items: *Cell(Vec(*Item)) = *Cell(value: Vec())
+  items.push(*Item(id: 1, owner: ~items))
+  items.push(*Item(id: 2, owner: ~items))
+  items.clear()
+  print("after clear", items.len)
+  items.clear()
+  print("end", items.len)
+
+# expect:
+# drop 2 sees 0
+# drop 1 sees 1
+# after clear 2
+# drop 10 sees 0
+# drop 20 sees 0
+# end 0

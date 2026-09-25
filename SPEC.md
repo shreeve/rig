@@ -1974,11 +1974,24 @@ mutable value.
 | `c.get()` | a copy of the value (Copy `T` only) |
 | `c.set(v)` | store `v`; the old value is dropped |
 | `c.replace(v)` | store `v` and return the old value |
+| `c.push(x)`, `c.pop()`, `c.clear()`, `c.len` | a `Cell(Vec(T))`: its Vec's members |
+| `c[i]`, `c[i] = x`, `c.get(i)` | a `Cell(Vec(T))` of Copy `T`: an element, bounds-checked, or `T?` |
 
 `T` is a Copy primitive or an owning type. An owning value is never
 copied out of a cell: it moves in with `set` / `replace` and moves out
 with `replace`. What goes into a cell holds no borrow, since every
 handle to the cell reaches it.
+
+A `Cell(Vec(T))` answers its Vec's members as `set` does, without `!`:
+`push` moves or clones an owning element in (`<x`, `+x`), `pop` hands
+the last one out as `T?`, and `clear` drops them all. No user code runs
+while the cell's Vec is in use: `clear` leaves the cell holding an empty
+Vec before it drops the elements, so a `drop` body that reaches back
+into the cell finds a valid Vec. For the same reason an element is a
+copy: `c[i]` and `c.get(i)` read one and `c[i] = x` writes one only
+when `T` is Copy, an element cannot be borrowed, and a field of one is
+not written in place. The elements of a Vec of handles are taken out
+with `pop`, or by taking the whole Vec out with `replace`.
 
 A Cell is interior-mutable: `set` and `replace` change it through any
 path to it, including a read borrow (`?Cell(T)`), a `?self` method of a
@@ -2008,13 +2021,24 @@ sub main()
   print(count.get(), local.get(), k.hits.get())
 
   shared: *Cell(Vec(Int)) = *Cell(value: Vec())
+  shared.push(7)
+  shared.push(8)
+  shared[0] = shared[0] + 1
+  print(shared.len, shared[0], shared.get(1), shared.get(2))
+
+  # Anything else: take the value out, use it, and put it back.
   v = shared.replace(Vec())
-  (!v).push(7)
+  sum = 0
+  for x in v
+    sum += x
   shared.set(<v)
+  print(sum, shared.len)
 ```
 
 ```output
 5 11 2
+2 8 8 none
+16 2
 ```
 
 ### Vec

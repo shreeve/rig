@@ -1118,6 +1118,14 @@ pub const Emitter = struct {
     /// resource, the old value is dropped after the new one is computed.
     fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp, is_move: bool) Error!void {
         const place_ty = self.typeOf(target);
+        if (target.isKind(.index)) if (self.typeOf(ir.Index.object(target))) |t| if (self.isCellVecTy(t)) {
+            try self.emitCellPtr(ir.Index.object(target));
+            try self.w.writeAll(".vecSet(");
+            try self.emitBare(ir.Index.index(target));
+            try self.w.writeAll(", ");
+            try self.emitValueOf(value, is_move);
+            return self.w.writeAll(");");
+        };
         if (target != .src and self.isPtrBorrowExpr(target)) {
             // A field or element holding a write borrow is rebound.
             try self.emitBorrowValue(target);
@@ -2321,6 +2329,14 @@ pub const Emitter = struct {
         self.place_chain = as_place;
 
         if (index.isKind(.@"..")) return self.emitSlice(base, base_ty, index);
+        // An element of a Cell's Vec is a copy; `c[i] = x` is `emitPlaceAssign`'s.
+        if (base_ty != null and self.isCellVecTy(base_ty.?)) {
+            try self.emitCellPtr(base);
+            try self.w.writeAll(".vecAt(");
+            self.place_chain = false;
+            try self.emitBare(index);
+            return self.w.writeAll(")");
+        }
         if (base_ty != null and self.isVecTy(base_ty.?)) {
             try self.emitExpr(base);
             try self.w.writeAll(if (!as_place) ".at(" else if (self.read_place) ".constSlot(" else ".slot(");
@@ -2404,6 +2420,10 @@ pub const Emitter = struct {
             try self.emitMemberBase(obj, obj_ty);
             return self.w.print(".{f})", .{ident(field)});
         };
+        if (std.mem.eql(u8, field, "len") and obj_ty != null and self.isCellVecTy(obj_ty.?)) {
+            try self.emitCellPtr(obj);
+            return self.w.writeAll(".vecLen()");
+        }
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.hasLen(obj_ty.?)) {
             try self.w.writeAll("rig.len(");
             try self.emitMemberBase(obj, obj_ty);
@@ -2601,6 +2621,23 @@ pub const Emitter = struct {
         // receiver's address, which may be a `*const` read borrow, is
         // cast to a mutable pointer. Sema keeps every Cell in mutable
         // storage, so the cast is sound.
+        // A Cell holding a Vec answers the Vec's members.
+        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isCellVecTy(t)) {
+            const m = self.srcText(ir.Member.name(callee));
+            const method: ?[]const u8 = if (std.mem.eql(u8, m, "push"))
+                "vecPush"
+            else if (std.mem.eql(u8, m, "pop"))
+                "vecPop"
+            else if (std.mem.eql(u8, m, "clear"))
+                "vecClear"
+            else if (std.mem.eql(u8, m, "get") and ir.Call.args(sexp).len == 1) "vecGet" else null;
+            if (method) |name| {
+                try self.emitCellPtr(ir.Member.object(callee));
+                try self.w.print(".{s}(", .{name});
+                try self.emitArgs(sexp);
+                return self.w.writeAll(")");
+            }
+        };
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.sema.cell_sym_id)) {
             const m = self.srcText(ir.Member.name(callee));
             if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "replace")) {
@@ -2614,6 +2651,20 @@ pub const Emitter = struct {
         try self.emitExpr(callee);
         try self.w.writeAll("(");
         try self.emitArgs(sexp);
+        try self.w.writeAll(")");
+    }
+
+    /// A mutable pointer to the Cell `obj` denotes: a shared handle's
+    /// value, or the Cell's address, cast as for `set`.
+    fn emitCellPtr(self: *Emitter, obj: Sexp) Error!void {
+        const ty = self.typeOf(obj) orelse return self.unsupported(obj, "this Cell");
+        if (self.sema.types.get(self.peelBorrows(ty)) == .shared) {
+            try self.w.writeAll("(&");
+            try self.emitMemberBase(obj, ty);
+            return self.w.writeAll(".value)");
+        }
+        try self.w.writeAll("@constCast(");
+        try self.emitAddressOf(unborrowed(obj));
         try self.w.writeAll(")");
     }
 
@@ -3408,6 +3459,15 @@ pub const Emitter = struct {
             .parameterized_nominal => |pn| pn.sym == sym_id,
             else => false,
         };
+    }
+
+    /// A Cell holding a Vec, reached by value, borrow, or shared handle.
+    fn isCellVecTy(self: *Emitter, ty: TypeId) bool {
+        const cell = switch (self.sema.types.get(sema.unwrapReadAccess(self.sema, ty))) {
+            .parameterized_nominal => |pn| if (pn.sym == self.sema.cell_sym_id and pn.args.len == 1) pn.args[0] else return false,
+            else => return false,
+        };
+        return self.isVecTy(cell);
     }
 
     fn isVecTy(self: *Emitter, ty: TypeId) bool {

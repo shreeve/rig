@@ -594,6 +594,24 @@ const Checker = struct {
             else => {},
         }
         const place_ty = try self.synthExpr(target);
+        if (self.cellVecElementIn(target) != null) {
+            const whole = target.isKind(.index) and cellVecElement(self.ctx, self.ctx.typeOf(ir.Index.object(target)) orelse self.t().invalid_id) != null;
+            if (!whole or kind.operator() != null) {
+                try self.errAt(target, "an element of a Cell's Vec is written whole, with `c[i] = e`: copy it out, change the copy, and write it back", .{});
+                _ = try self.synthExpr(rhs);
+                return;
+            }
+            if (self.isPoison(place_ty)) {
+                _ = try self.synthExpr(rhs);
+                return;
+            }
+            if (!self.cellSettable(ir.Index.object(target))) {
+                try self.errAt(target, "`c[i] = e` needs a Cell that has a place: a local binding, a field of one, or one reached through a borrow (`?T` or `!T`) or a shared handle (`*T`). A by-value parameter, a loop or match binding (a copy), or a temporary cannot be changed.", .{});
+                _ = try self.synthExpr(rhs);
+                return;
+            }
+            return self.checkExpr(rhs, place_ty);
+        }
         if (!(try self.checkWritable(target, target, "assign to"))) {
             _ = try self.synthExpr(rhs);
             return;
@@ -764,7 +782,7 @@ const Checker = struct {
                     if (h == .index) {
                         if (base == .slice) path.read_only = .{ .what = .slice, .pos = self.startOf(obj) };
                         if (base == .string) path.read_only = .{ .what = .string, .pos = self.startOf(obj) };
-                    } else if ((base == .slice or base == .string or base == .array or vecElementType(self.ctx, base_ty) != null) and std.mem.eql(u8, self.text(ir.Member.name(p)), "len")) {
+                    } else if ((base == .slice or base == .string or base == .array or vecElementType(self.ctx, base_ty) != null or cellVecElement(self.ctx, base_ty) != null) and std.mem.eql(u8, self.text(ir.Member.name(p)), "len")) {
                         path.read_only = .{ .what = .len, .pos = self.startOf(ir.Member.name(p)) };
                     }
                 }
@@ -2067,6 +2085,10 @@ const Checker = struct {
         if (rig.isRangeIndex(operand)) return self.borrowSlice(operand, kind);
         const inner = try self.synthOperand(operand);
         if (self.isPoison(inner)) return inner;
+        if (self.cellVecElementIn(operand) != null) {
+            try self.errAt(operand, "cannot borrow an element of a Cell's Vec: the cell may change while the borrow lives; copy the element out with `c[i]`", .{});
+            return self.t().invalid_id;
+        }
         if (kind == .write and !(try self.checkWritable(operand, operand, "write-borrow"))) return self.t().invalid_id;
         // A borrow of a value holding a Cell can change the Cell, which a
         // loop or match binding only copies.
@@ -2225,7 +2247,7 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
             .array, .slice, .string => if (std.mem.eql(u8, field, "len")) return self.t().int_id,
-            .parameterized_nominal => if (vecElementType(self.ctx, peeled) != null and std.mem.eql(u8, field, "len")) return self.t().int_id,
+            .parameterized_nominal => if ((vecElementType(self.ctx, peeled) != null or cellVecElement(self.ctx, peeled) != null) and std.mem.eql(u8, field, "len")) return self.t().int_id,
             .type_var => {
                 try self.err(pos, "a generic parameter `{s}` has no fields; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) });
                 return self.t().invalid_id;
@@ -2465,6 +2487,12 @@ const Checker = struct {
             .parameterized_nominal => if (vecElementType(self.ctx, peeled)) |elem| {
                 if ((try self.ownsResource(elem, self.startOf(object), "copies an element out of a Vec"))) {
                     try self.errAt(object, "indexing a `{s}` would copy an owning handle out of the Vec; iterate with `for x in ?v` instead", .{try self.tyName(peeled)});
+                    return self.t().invalid_id;
+                }
+                return elem;
+            } else if (cellVecElement(self.ctx, peeled)) |elem| {
+                if ((try self.ownsResource(elem, self.startOf(object), "reads an element of a Cell's Vec"))) {
+                    try self.errAt(object, cell_vec_handle, .{try self.tyName(peeled)});
                     return self.t().invalid_id;
                 }
                 return elem;
@@ -3090,6 +3118,8 @@ const Checker = struct {
             else => {},
         }
 
+        if (cellVecElement(self.ctx, obj_ty)) |elem| if (try self.cellVecCall(obj, obj_ty, elem, method, pos, args)) |ty| return ty;
+
         const resolved = (try self.findMethod(obj_ty, method)) orelse {
             // A data field holding a function or a closure handle is
             // called like one.
@@ -3160,6 +3190,43 @@ const Checker = struct {
         };
         try self.checkArgs(args, rest, methodParams(resolved.field, true, resolved.source), method, pos);
         return resolved.fn_ty.returns;
+    }
+
+    /// A `Cell(Vec(E))` answers its Vec's `push`, `pop`, `clear`, and,
+    /// for a plain-data `E`, `get(i)`, through any path to the cell, as
+    /// `set` does. Null for the Cell's own members.
+    fn cellVecCall(self: *Checker, obj: Sexp, obj_ty: TypeId, elem: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
+        const Member = enum { push, pop, clear, get };
+        const member = std.meta.stringToEnum(Member, method) orelse return null;
+        if (member == .get and args.len == 0) return null;
+        const recv = try self.ctx.intern(.{ .borrow_read = sema.unwrapReadAccess(self.ctx, obj_ty) });
+        const opt_elem = try self.ctx.intern(.{ .optional = elem });
+        const params: []const TypeId = switch (member) {
+            .push => &.{ recv, elem },
+            .pop, .clear => &.{recv},
+            .get => &.{ recv, self.t().int_id },
+        };
+        const f: FunctionType = .{
+            .params = try self.ctx.dupeIds(params),
+            .returns = switch (member) {
+                .push, .clear => self.t().void_id,
+                .pop, .get => opt_elem,
+            },
+            .is_sub = member == .push or member == .clear,
+        };
+        try self.noteCallee(f);
+        if (member == .get) {
+            if (try self.ownsResource(elem, pos, "copies an element out of a Cell's Vec")) {
+                _ = try self.badCall(args, pos, cell_vec_handle, .{try self.tyName(sema.unwrapReadAccess(self.ctx, obj_ty))});
+                return f.returns;
+            }
+        } else if (!self.cellSettable(obj)) {
+            try self.err(pos, "`Cell.{s}` needs a Cell that has a place: a local binding, a field of one, or one reached through a borrow (`?T` or `!T`) or a shared handle (`*T`). A by-value parameter, a loop or match binding (a copy), or a temporary cannot be changed.", .{method});
+            try self.synthArgs(args);
+            return f.returns;
+        }
+        try self.checkArgs(args, .{ .params = f.params[1..], .returns = f.returns, .is_sub = f.is_sub }, .{}, method, pos);
+        return f.returns;
     }
 
     fn noteCallee(self: *Checker, f: FunctionType) Error!void {
@@ -3355,6 +3422,19 @@ const Checker = struct {
     /// anything behind a borrow or handle. A by-value parameter is
     /// immutable, and a loop or match binding is a copy, so changing it
     /// would not change the value it came from.
+    /// The `c[i]` a place goes through, where `c` is a `Cell(Vec(E))`:
+    /// such an element is a copy, read or written whole.
+    fn cellVecElementIn(self: *Checker, place: Sexp) ?Sexp {
+        var p = place;
+        while (p.kind()) |h| {
+            if (h != .member and h != .index) return null;
+            const obj = ir.get(p, .object);
+            if (h == .index) if (self.ctx.typeOf(obj)) |ty| if (cellVecElement(self.ctx, ty) != null) return p;
+            p = obj;
+        }
+        return null;
+    }
+
     fn cellSettable(self: *Checker, recv: Sexp) bool {
         var p = recv;
         while (p.isKind(.read) or p.isKind(.write)) p = ir.get(p, .operand);
@@ -4209,6 +4289,13 @@ fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
     if (pn.sym != ctx.cell_sym_id or pn.args.len != 1) return null;
     return pn.args[0];
 }
+
+/// The element type of a Cell holding a Vec (`Cell(Vec(E))`, `?Cell(Vec(E))`, `*Cell(Vec(E))`, ...).
+fn cellVecElement(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return vecElementType(ctx, cellElementType(ctx, ty) orelse return null);
+}
+
+const cell_vec_handle = "cannot read or overwrite an element of a `{s}` in place: its elements are handles, which would be copied out or released while the cell holds them; `pop` the element, or `replace` the Vec to work on it";
 
 /// The data field (not a method or variant) named `name`.
 fn findDataField(fields: []const Field, name: []const u8) ?Field {
