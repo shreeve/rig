@@ -2201,8 +2201,8 @@ sub main()
 | `*fun(Int) Int`, `*sub()` | an owned closure of that shape |
 | `~fun(Int) Int`, `~sub()` | a weak handle to an owned closure |
 
-Function types describe closures bound to locals, function names used
-as values, and `extern` function variables. Declarations write their
+Function types describe closures bound to locals and function names
+used as values. Declarations write their
 return type after `->`; type expressions do not. An owned closure is a
 shared handle, so `~f` makes a weak handle to it, which upgrades like
 any other ([§10](#weak-handles)).
@@ -2616,8 +2616,8 @@ sub main()
 ```
 
 `extern fun name(params) -> R` and `extern sub name(params)` declare C
-functions; `extern name: fun(A) R` declares a function variable. Only
-integers, floats, and `Bool` cross the C boundary, and a C function
+functions; `extern name: T` declares C data, which is an integer, a
+float, or a `Bool`. Only integers, floats, and `Bool` cross the C boundary, and a C function
 cannot return a Rig error union. An `extern` is visible to importers
 only through `pub` wrappers.
 

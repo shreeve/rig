@@ -1,0 +1,13 @@
+# `extern name: T` declares C data; a C function is declared with
+# `extern fun` or `extern sub`.
+
+extern abs: fun(Int) Int
+extern srand: sub(U32)
+
+sub main()
+  raw
+    srand(7)
+    print(abs(-5))
+
+# error: 4:8: a C function is declared with `extern fun abs(...)` or `extern sub abs(...)`; `extern name: T` is for C data
+# error: 5:8: a C function is declared with `extern fun srand(...)` or `extern sub srand(...)`; `extern name: T` is for C data

@@ -564,11 +564,15 @@ pub const TypeResolver = struct {
                 const name = ir.Extern.name(sexp);
                 const ty = try self.resolveType(ir.Extern.type(sexp));
                 const id = self.ctx.symbolOf(name) orelse return;
-                self.ctx.symbols.items[id].ty = ty;
+                const text = identAt(self.ctx.source, name) orelse "extern";
                 if (self.ctx.types.get(ty) == .function) {
-                    try self.checkExternSignature(name, ty);
-                } else if (!self.isCAbiType(ty)) {
-                    try self.ctx.errAt(name, "`extern` variable `{s}` cannot have type `{s}`; only integers, floats, and Bool cross the C boundary", .{ identAt(self.ctx.source, name) orelse "extern", try sema.formatType(self.ctx, ty) });
+                    try self.ctx.errAt(name, "a C function is declared with `extern fun {s}(...)` or `extern sub {s}(...)`; `extern name: T` is for C data", .{ text, text });
+                    self.ctx.symbols.items[id].ty = self.ctx.types.invalid_id;
+                    return;
+                }
+                self.ctx.symbols.items[id].ty = ty;
+                if (!self.isCAbiType(ty)) {
+                    try self.ctx.errAt(name, "`extern` variable `{s}` cannot have type `{s}`; only integers, floats, and Bool cross the C boundary", .{ text, try sema.formatType(self.ctx, ty) });
                 }
             },
             .extern_fun, .extern_sub => try self.resolveExternFun(sexp),

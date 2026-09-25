@@ -308,8 +308,8 @@ pub const Emitter = struct {
         try self.w.print("const {f} = @import(\"{s}.zig\");\n", .{ ident(name), name });
     }
 
-    /// `extern_fun` / `extern_sub`, and `(extern _ name type)`: a C
-    /// function or variable.
+    /// `extern_fun` / `extern_sub`, a C function, or `extern`, a C
+    /// variable.
     fn emitExtern(self: *Emitter, name_node: Sexp) Error!void {
         self.links_libc = true;
         const ty = try self.declType(name_node);
