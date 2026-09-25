@@ -1,0 +1,22 @@
+# Arithmetic on number literals is computed in the float type it takes
+# and must not overflow it; an integer literal in it must be exact.
+
+k: F32 =! 1e38 * 10.0
+
+sub main()
+  w: F32 = 1e38 * 10.0
+  v: F32 = 3.4e38 + 3.4e38
+  x: Float = 1e308 * 10.0
+  y = 1e308 * 10 / 100
+  z: F32 = 0.5 * 16777217
+  u = 0.5 * 12345678901234567891
+  print(k, w, v, x, y, z, u, 1e308 * 1e308)
+
+# error: 4:11: this constant expression overflows `F32`
+# error: 7:12: this constant expression overflows `F32`
+# error: 8:12: this constant expression overflows `F32`
+# error: 9:14: this constant expression overflows `Float`
+# error: 10:7: this constant expression overflows `Float`
+# error: 11:18: integer value `16777217` does not fit exactly in `F32`
+# error: 12:13: integer value `12345678901234567891` does not fit exactly in `Float`
+# error: 13:30: this constant expression overflows `Float`

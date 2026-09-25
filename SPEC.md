@@ -234,8 +234,11 @@ sub main()
 `Int` is `I64` and `Float` is `F64`: one type under two names. Every
 other numeric type is distinct, and there are no implicit conversions.
 A literal takes the numeric type its context expects, and must fit it
-(a float literal, its range).
-Constant arithmetic is checked at compile time.
+(a float literal, its range; an integer literal given a float type,
+exactly). Constant arithmetic is checked at compile time. Arithmetic on
+literals given a float type is computed in that type, so it rounds like
+run-time arithmetic and must not overflow it: `x: F32 = 1e38 * 10.0` is
+rejected.
 
 ```rig
 sub main()

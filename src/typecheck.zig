@@ -1605,6 +1605,8 @@ const Checker = struct {
         if (!(try self.checkDivisor(e.kind().?, ty, ir.get(e, .right)))) return self.t().invalid_id;
         // Constant operands are computed now, so the result must fit.
         if (self.ctx.types.get(ty) == .int) try self.checkLiteralFits(e, ty);
+        // Literals default to `Float` unless a type is given them later.
+        if (ty == self.t().float_literal_id) try self.checkFloatConstant(e, self.t().float_id);
         return ty;
     }
 
@@ -3597,44 +3599,58 @@ const Checker = struct {
         const target = self.liftTarget(expected);
         if (!sema.isNumeric(self.ctx, target)) return;
         try self.ctx.recordType(e, target);
-        if (actual == self.t().int_literal_id) try self.checkLiteralFits(e, target) else try self.checkFloatLiteralsFit(e, target);
+        if (actual == self.t().int_literal_id) try self.checkLiteralFits(e, target);
+        try self.checkFloatConstant(e, target);
     }
 
-    /// The float literals of a constant expression given type `target`
-    /// must be in its range.
-    fn checkFloatLiteralsFit(self: *Checker, e: Sexp, target: TypeId) Error!void {
+    /// The number literals of an expression given float type `target`
+    /// are values of it, and so is each operation on them, which the
+    /// program computes in that type: a float literal must be in range,
+    /// an integer literal exact, and a constant operation must not
+    /// overflow. What was already found in `Float` arithmetic, where
+    /// literals default to it, is not reported again for `F32`.
+    fn checkFloatConstant(self: *Checker, e: Sexp, target: TypeId) Error!void {
         const bits = switch (self.ctx.types.get(target)) {
             .float => |f| f.bits,
             else => return,
         };
-        if (bits != 32) return;
         switch (e) {
             .src => {
                 const s = self.text(e);
-                if (!sema.isFloatLiteralText(s)) return;
-                if (@abs(floatLiteralValue(s)) > std.math.floatMax(f32)) {
-                    try self.errAt(e, "float literal `{s}` does not fit in `{s}`", .{ s, try self.tyName(target) });
+                if (sema.isFloatLiteralText(s)) {
+                    const v = floatLiteralValue(s);
+                    if (bits == 32 and std.math.isFinite(v) and @abs(v) > std.math.floatMax(f32)) {
+                        try self.errAt(e, "float literal `{s}` does not fit in `{s}`", .{ s, try self.tyName(target) });
+                    }
+                } else if (sema.isIntLiteralText(s)) {
+                    const v = std.fmt.parseInt(i128, s, 0) catch return;
+                    if (!holdsInt(self.ctx, target, v) and (bits != 32 or holdsInt(self.ctx, self.t().float_id, v))) {
+                        try self.errAt(e, "integer value `{d}` does not fit exactly in `{s}`", .{ v, try self.tyName(target) });
+                    }
                 }
             },
-            .list => for (e.items()) |c| {
-                if (c == .list or c == .src) try self.checkFloatLiteralsFit(c, target);
+            .list => switch (e.kind() orelse return) {
+                .neg => try self.checkFloatConstant(ir.Neg.operand(e), target),
+                .@"if" => {
+                    try self.checkFloatConstant(ir.If.then(e), target);
+                    try self.checkFloatConstant(ir.If.@"else"(e), target);
+                },
+                .@"+", .@"-", .@"*", .@"/", .@"%" => {
+                    try self.checkFloatConstant(ir.get(e, .left), target);
+                    try self.checkFloatConstant(ir.get(e, .right), target);
+                    const overflows = if (bits == 32)
+                        floatOpOverflows(f32, self.ctx.source, e) and !floatOpOverflows(f64, self.ctx.source, e)
+                    else
+                        floatOpOverflows(f64, self.ctx.source, e);
+                    if (overflows) try self.errAt(e, "this constant expression overflows `{s}`", .{try self.tyName(target)});
+                },
+                else => {},
             },
             else => {},
         }
     }
 
-    /// The value of a float literal (`inf` when it is out of `F64`'s range).
-fn floatLiteralValue(lit: []const u8) f64 {
-    var buf: [128]u8 = undefined;
-    var n: usize = 0;
-    for (lit) |c| if (c != '_' and n < buf.len) {
-        buf[n] = c;
-        n += 1;
-    };
-    return std.fmt.parseFloat(f64, buf[0..n]) catch 0;
-}
-
-/// A constant integer expression must fit the numeric type it gets:
+    /// A constant integer expression must fit the numeric type it gets:
     /// in range for an integer type, exactly for a float type.
     fn checkLiteralFits(self: *Checker, e: Sexp, target: TypeId) Error!void {
         const tt = self.ctx.types.get(target);
@@ -4254,6 +4270,76 @@ fn intBounds(info: sema.IntInfo) IntBounds {
 /// Whether numeric type `ty` holds the integer `v`: in range for an
 /// integer type, exactly representable for a float type (Zig rejects a
 /// constant that would round).
+/// The value of a float literal (`inf` when it is out of `F64`'s range).
+fn floatLiteralValue(lit: []const u8) f64 {
+    return floatLiteralAs(f64, lit);
+}
+
+fn floatLiteralAs(comptime F: type, lit: []const u8) F {
+    var buf: [128]u8 = undefined;
+    var n: usize = 0;
+    for (lit) |c| if (c != '_' and n < buf.len) {
+        buf[n] = c;
+        n += 1;
+    };
+    return std.fmt.parseFloat(F, buf[0..n]) catch 0;
+}
+
+/// The value of a constant expression of number literals computed in
+/// float type `F` as the program computes it: each literal and each
+/// operation rounded to `F`. Null when `e` is not one, or when an
+/// operation in it overflows.
+fn floatConstIn(comptime F: type, source: []const u8, e: Sexp) ?F {
+    switch (e) {
+        .src => {
+            const t = identAt(source, e) orelse return null;
+            if (sema.isFloatLiteralText(t)) {
+                const v = floatLiteralAs(F, t);
+                return if (std.math.isFinite(v)) v else null;
+            }
+            if (!sema.isIntLiteralText(t)) return null;
+            return @floatFromInt(std.fmt.parseInt(i128, t, 0) catch return null);
+        },
+        .list => {
+            const h = e.kind() orelse return null;
+            if (h == .neg) return -(floatConstIn(F, source, ir.Neg.operand(e)) orelse return null);
+            switch (h) {
+                .@"+", .@"-", .@"*", .@"/", .@"%" => {},
+                else => return null,
+            }
+            const a = floatConstIn(F, source, ir.get(e, .left)) orelse return null;
+            const b = floatConstIn(F, source, ir.get(e, .right)) orelse return null;
+            return if (floatOverflows(F, h, a, b)) null else floatOp(F, h, a, b);
+        },
+        else => return null,
+    }
+}
+
+/// Whether the arithmetic node `e`, whose operands are constants in `F`,
+/// overflows `F`.
+fn floatOpOverflows(comptime F: type, source: []const u8, e: Sexp) bool {
+    const a = floatConstIn(F, source, ir.get(e, .left)) orelse return false;
+    const b = floatConstIn(F, source, ir.get(e, .right)) orelse return false;
+    return floatOverflows(F, e.kind().?, a, b);
+}
+
+/// An operation on finite values whose result is infinite. Division by
+/// zero gives an infinity or NaN instead.
+fn floatOverflows(comptime F: type, h: Tag, a: F, b: F) bool {
+    if (b == 0 and (h == .@"/" or h == .@"%")) return false;
+    return std.math.isFinite(a) and std.math.isFinite(b) and !std.math.isFinite(floatOp(F, h, a, b));
+}
+
+fn floatOp(comptime F: type, h: Tag, a: F, b: F) F {
+    return switch (h) {
+        .@"+" => a + b,
+        .@"-" => a - b,
+        .@"*" => a * b,
+        .@"/" => a / b,
+        else => if (b == 0) std.math.nan(F) else @rem(a, b),
+    };
+}
+
 fn holdsInt(ctx: *const SemContext, ty: TypeId, v: i128) bool {
     return switch (ctx.types.get(ty)) {
         .int => |info| v >= intBounds(info).min and v <= intBounds(info).max,

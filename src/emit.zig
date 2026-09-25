@@ -1795,9 +1795,10 @@ pub const Emitter = struct {
         self.literal_ty = null;
         defer self.literal_ty = literal_ty;
         switch (sexp) {
-            .src => if (literal_ty != null and sema.isIntLiteralText(self.srcText(sexp))) {
+            .src => if (literal_ty != null and isNumberText(self.srcText(sexp))) {
+                const text = self.srcText(sexp);
                 try self.writeAsOpen(literal_ty.?);
-                try self.w.print("{s})", .{self.srcText(sexp)});
+                try self.w.print("{s}{s})", .{ if (text[0] == '.') "0" else "", text });
             } else try self.emitName(sexp, tail),
             .list => try self.emitList(sexp, tail, bare, literal_ty),
             else => return self.unsupported(sexp, "this expression"),
@@ -3765,6 +3766,11 @@ fn isLiteralText(t: []const u8) bool {
     if (t.len == 0) return false;
     if (std.ascii.isDigit(t[0]) or t[0] == '"' or t[0] == '\'' or t[0] == '.') return true;
     return std.mem.eql(u8, t, "true") or std.mem.eql(u8, t, "false");
+}
+
+/// An integer or float literal.
+fn isNumberText(t: []const u8) bool {
+    return sema.isIntLiteralText(t) or sema.isFloatLiteralText(t);
 }
 
 fn isWildcard(t: []const u8) bool {
