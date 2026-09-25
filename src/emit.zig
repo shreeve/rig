@@ -3,7 +3,7 @@
 //! Lowers the semantic IR (`docs/INTERNALS.md`) of one checked module to Zig
 //! 0.16 source. The program has already passed sema and ownership
 //! checking; this pass only chooses a representation, and it
-//! reads everything it needs to know about names and types from ctx's
+//! reads everything it needs to know about names and types from sema's
 //! facts table (`sema.zig`): which symbol a name denotes, whether a
 //! `set` declares or reassigns, and the type of every expression.
 //!
@@ -18,7 +18,7 @@
 //! - Every Rig name is written with `rig.writeZigIdent`; a local that
 //!   would shadow another visible Zig name is renamed.
 //!
-//! Anything the emitter cannot lower is an internal error: ctx must
+//! Anything the emitter cannot lower is an internal error: sema must
 //! reject it first.
 
 const std = @import("std");
@@ -112,6 +112,8 @@ const FunState = struct {
     /// Parameters to bind at the top of the body.
     params: ?Sexp = null,
     leak_check: bool = false,
+    /// A closure's environment parameter, when no capture is used.
+    unused_env: []const u8 = "",
 };
 
 const Nominal = struct {
@@ -122,7 +124,7 @@ const Nominal = struct {
 };
 
 /// Facts about bindings the emitter derives from one walk over the
-/// module, keyed by ctx symbol.
+/// module, keyed by symbol.
 const Usage = struct {
     /// Referenced somewhere after the declaration.
     used: std.AutoHashMapUnmanaged(SymbolId, void) = .empty,
@@ -244,8 +246,9 @@ pub const Emitter = struct {
             const d = unwrapPub(d0);
             const kind = d.kind() orelse continue;
             if (!ir.has(kind, .name)) continue;
-            const name = self.text(ir.get(d, .name)) orelse continue;
-            try self.module_names.put(a, try self.fmt("{f}", .{self.ident(name)}), {});
+            const name = ir.get(d, .name);
+            if (name != .src) continue;
+            try self.module_names.put(a, try self.fmt("{f}", .{ident(self.srcText(name))}), {});
         }
     }
 
@@ -271,7 +274,7 @@ pub const Emitter = struct {
 
     fn emitUse(self: *Emitter, node: Sexp) Error!void {
         const name = self.srcText(ir.Use.name(node));
-        try self.w.print("const {f} = @import(\"{s}.zig\");\n", .{ self.ident(name), name });
+        try self.w.print("const {f} = @import(\"{s}.zig\");\n", .{ ident(name), name });
     }
 
     /// `extern_fun` / `extern_sub`, and `(extern _ name type)`: a C
@@ -279,11 +282,11 @@ pub const Emitter = struct {
     fn emitExtern(self: *Emitter, name_node: Sexp) Error!void {
         const ty = try self.declType(name_node);
         const f = self.fnType(ty) orelse {
-            try self.w.print("extern \"c\" var {f}: ", .{self.ident(self.srcText(name_node))});
+            try self.w.print("extern \"c\" var {f}: ", .{ident(self.srcText(name_node))});
             try self.emitTypeTy(ty);
             return self.w.writeAll(";\n");
         };
-        try self.w.print("extern \"c\" fn {f}(", .{self.ident(self.srcText(name_node))});
+        try self.w.print("extern \"c\" fn {f}(", .{ident(self.srcText(name_node))});
         for (f.params, 0..) |p, i| {
             if (i > 0) try self.w.writeAll(", ");
             try self.emitTypeTy(p);
@@ -295,7 +298,7 @@ pub const Emitter = struct {
 
     fn emitTypeAlias(self: *Emitter, node: Sexp) Error!void {
         const name = ir.Type.name(node);
-        try self.w.print("pub const {f} = ", .{self.ident(self.srcText(name))});
+        try self.w.print("pub const {f} = ", .{ident(self.srcText(name))});
         try self.emitTypeTy(try self.declType(name));
         try self.w.writeAll(";\n");
     }
@@ -332,7 +335,7 @@ pub const Emitter = struct {
     fn emitStruct(self: *Emitter, node: Sexp) Error!void {
         const name = self.srcText(ir.Struct.name(node));
         const members = ir.Struct.members(node);
-        try self.w.print("pub const {f} = struct {{\n", .{self.ident(name)});
+        try self.w.print("pub const {f} = struct {{\n", .{ident(name)});
         const prev = try self.enterNominal(ir.Struct.name(node), false, members);
         defer self.nominal = prev;
         try self.emitFields(1);
@@ -366,14 +369,14 @@ pub const Emitter = struct {
             if (m.isKind(.variant)) has_payloads = true;
         }
         if (has_payloads) {
-            try self.w.print("pub const {f} = union(enum) {{\n", .{self.ident(name)});
+            try self.w.print("pub const {f} = union(enum) {{\n", .{ident(name)});
             try self.emitUnionVariants(1);
         } else {
-            try self.w.print("pub const {f} = enum{s} {{\n", .{ self.ident(name), if (has_values) "(u32)" else "" });
+            try self.w.print("pub const {f} = enum{s} {{\n", .{ ident(name), if (has_values) "(u32)" else "" });
             for (members) |m| switch (m) {
-                .src => try self.w.print("    {f},\n", .{self.ident(self.srcText(m))}),
+                .src => try self.w.print("    {f},\n", .{ident(self.srcText(m))}),
                 .list => if (m.isKind(.valued)) {
-                    try self.w.print("    {f} = ", .{self.ident(self.srcText(ir.Valued.name(m)))});
+                    try self.w.print("    {f} = ", .{ident(self.srcText(ir.Valued.name(m)))});
                     try self.emitExpr(ir.Valued.value(m));
                     try self.w.writeAll(",\n");
                 },
@@ -397,15 +400,15 @@ pub const Emitter = struct {
 
     /// `(errors Name v...)` → a Zig error set.
     fn emitErrorSet(self: *Emitter, node: Sexp) Error!void {
-        try self.w.print("pub const {f} = error{{\n", .{self.ident(self.srcText(ir.Errors.name(node)))});
-        for (ir.Errors.members(node)) |v| if (v == .src) try self.w.print("    {f},\n", .{self.ident(self.srcText(v))});
+        try self.w.print("pub const {f} = error{{\n", .{ident(self.srcText(ir.Errors.name(node)))});
+        for (ir.Errors.members(node)) |v| if (v == .src) try self.w.print("    {f},\n", .{ident(self.srcText(v))});
         try self.w.writeAll("};\n");
     }
 
     fn enterNominal(self: *Emitter, name_node: Sexp, generic: bool, members: []const Sexp) Error!?Nominal {
         const prev = self.nominal;
         const sym = self.sema.symbolOf(name_node) orelse return self.unsupported(name_node, "an unresolved type");
-        const name = if (generic) "Self" else try self.fmt("{f}", .{self.ident(self.srcText(name_node))});
+        const name = if (generic) "Self" else try self.fmt("{f}", .{ident(self.srcText(name_node))});
         self.nominal = .{ .name = name, .sym = sym, .members = members };
         return prev;
     }
@@ -413,17 +416,17 @@ pub const Emitter = struct {
     /// `pub fn Name(comptime T: type, ...) type { return <container> {`,
     /// with a discard for each type parameter nothing in the body names.
     fn emitGenericHead(self: *Emitter, params: Sexp, members: []const Sexp, container: []const u8) Error!void {
-        try self.w.print("pub fn {s}(", .{try self.fmt("{f}", .{self.ident(self.sema.symbols.items[self.nominal.?.sym].name)})});
+        try self.w.print("pub fn {s}(", .{try self.fmt("{f}", .{ident(self.sema.symbols.items[self.nominal.?.sym].name)})});
         for (params.items(), 0..) |p, i| {
             if (i > 0) try self.w.writeAll(", ");
-            try self.w.print("comptime {f}: type", .{self.ident(self.srcText(p))});
+            try self.w.print("comptime {f}: type", .{ident(self.srcText(p))});
         }
         try self.w.writeAll(") type {\n");
         for (self.sema.symbols.items[self.nominal.?.sym].type_params orelse &.{}) |tp| {
             const used = for (members) |m| {
                 if (self.mentions(m, tp)) break true;
             } else false;
-            if (!used) try self.w.print("    _ = {f};\n", .{self.ident(self.sema.symbols.items[tp].name)});
+            if (!used) try self.w.print("    _ = {f};\n", .{ident(self.sema.symbols.items[tp].name)});
         }
         try self.w.print("    return {s} {{\n        const Self = @This();\n\n", .{container});
     }
@@ -449,7 +452,7 @@ pub const Emitter = struct {
         for (self.nominalFields()) |f| {
             if (f.is_method or f.is_variant) continue;
             try self.writeIndent(depth);
-            try self.w.print("{f}: ", .{self.ident(f.name)});
+            try self.w.print("{f}: ", .{ident(f.name)});
             try self.emitTypeTy(f.ty);
             try self.w.writeAll(",\n");
         }
@@ -461,7 +464,7 @@ pub const Emitter = struct {
         for (self.nominalFields()) |v| {
             if (!v.is_variant) continue;
             try self.writeIndent(depth);
-            try self.w.print("{f}: ", .{self.ident(v.name)});
+            try self.w.print("{f}: ", .{ident(v.name)});
             const fields = v.payload orelse &.{};
             if (fields.len == 0) {
                 try self.w.writeAll("void");
@@ -470,7 +473,7 @@ pub const Emitter = struct {
             } else {
                 try self.w.writeAll("struct { ");
                 for (fields) |f| {
-                    try self.w.print("{f}: ", .{self.ident(f.name)});
+                    try self.w.print("{f}: ", .{ident(f.name)});
                     try self.emitTypeTy(f.ty);
                     try self.w.writeAll(", ");
                 }
@@ -539,7 +542,7 @@ pub const Emitter = struct {
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
-        try self.w.print("pub fn {f}(", .{self.ident(name)});
+        try self.w.print("pub fn {f}(", .{ident(name)});
         try self.pushScope();
         defer self.popScope() catch {};
         try self.bindParams(params);
@@ -607,6 +610,10 @@ pub const Emitter = struct {
         if (self.fun.leak_check) {
             self.fun.leak_check = false;
             try self.line("defer rig.finish();", .{});
+        }
+        if (self.fun.unused_env.len > 0) {
+            try self.line("_ = {s};", .{self.fun.unused_env});
+            self.fun.unused_env = "";
         }
         const params = self.fun.params orelse return;
         self.fun.params = null;
@@ -696,7 +703,7 @@ pub const Emitter = struct {
     /// unless that would shadow a visible Zig name.
     fn zigNameFor(self: *Emitter, rig_name: []const u8) Error![]const u8 {
         if (std.mem.eql(u8, rig_name, "_")) return "_";
-        const base = try self.fmt("{f}", .{self.ident(rig_name)});
+        const base = try self.fmt("{f}", .{ident(rig_name)});
         if (!self.nameTaken(base)) return base;
         return self.fresh(rig_name);
     }
@@ -858,7 +865,7 @@ pub const Emitter = struct {
             .labeled => try self.emitLabeled(sexp),
             .match => try self.emitMatch(sexp, false),
             .block => try self.emitBlock(sexp),
-            // `raw` marks an audit boundary for ctx; it lowers to a block.
+            // `raw` marks an audit boundary for sema; it lowers to a block.
             .raw_block => try self.emitBlock(ir.RawBlock.body(sexp)),
             .@"defer", .@"errdefer" => {
                 try self.w.print("{s} ", .{@tagName(head)});
@@ -1311,7 +1318,7 @@ pub const Emitter = struct {
         if (!self.labelUsed(stmt, label)) return self.emitStmt(stmt);
         // Zig also rejects a label inside another of the same name.
         const zig = if (self.zigLabel(label) == null)
-            try self.fmt("{f}", .{self.ident(label)})
+            try self.fmt("{f}", .{ident(label)})
         else
             try self.fmt("__rig_label_{d}", .{self.nextId()});
         try self.labels.append(self.allocator, .{ .rig = label, .zig = zig });
@@ -1349,7 +1356,6 @@ pub const Emitter = struct {
     fn emitWhile(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
         const cond = ir.While.cond(sexp);
         const step = ir.While.step(sexp);
-        const else_ = ir.While.@"else"(sexp);
         try self.writeLabel(label);
         try self.w.writeAll("while ");
         try self.pushScope();
@@ -1363,46 +1369,48 @@ pub const Emitter = struct {
         }
         try self.emitBodyWith(ir.While.body(sexp), prelude);
         try self.popScope();
-        if (else_ != .nil) {
-            try self.w.writeAll(" else ");
-            try self.emitBranchStmt(else_);
-        }
+        try self.emitElse(ir.While.@"else"(sexp));
+    }
+
+    /// ` else { ... }` of a loop, if it has one.
+    fn emitElse(self: *Emitter, else_: Sexp) Error!void {
+        if (else_ == .nil) return;
+        try self.w.writeAll(" else ");
+        try self.emitBranchStmt(else_);
+    }
+
+    /// The index binding of `for x, i in ...` when the body reads it.
+    fn loopIndex(self: *Emitter, sexp: Sexp) ?SymbolId {
+        const sym = self.sema.symbolOf(ir.For.index(sexp)) orelse return null;
+        return if (self.usage.used.contains(sym)) sym else null;
+    }
+
+    /// `const i: Int = @intCast(counter);` at the top of a loop body.
+    fn bindLoopIndex(self: *Emitter, sexp: Sexp, counter: []const u8) Error!void {
+        const sym = self.loopIndex(sexp) orelse return;
+        const local = try self.declare(.{ .sym = sym, .zig_name = "", .ty = self.symType(sym) }, self.srcText(ir.For.index(sexp)));
+        try self.line("const {s}: {s} = @intCast({s});", .{ local.zig_name, int_zig, counter });
     }
 
     /// `(for mode binding index-binding source body else?)`.
     fn emitFor(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
         const mode = ir.For.mode(sexp).tag;
         const binding = ir.For.@"var"(sexp);
-        const index_binding = ir.For.index(sexp);
         const source = ir.For.source(sexp);
-        const body = ir.For.body(sexp);
-
         if (source.isKind(.@"..")) return self.emitRangeFor(sexp, label);
 
         const src_ty = self.typeOf(source);
         const is_vec = src_ty != null and self.isVecTy(src_ty.?);
-        if (is_vec and mode == .move) return self.emitConsumingFor(sexp, label);
+        // A Vec the loop consumes, or one its source expression creates,
+        // hands its elements over one at a time.
+        if (is_vec and (mode == .move or (!isPlace(source) and self.kindOf(src_ty.?) != null))) {
+            return self.emitConsumingFor(sexp, label);
+        }
         const elem_sym = self.sema.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
         // A resource element is a borrowed view of its slot.
         const by_ptr = mode == .write or
             (elem_ty != null and self.sema.types.get(elem_ty.?) == .borrow_read);
-        // A Vec the source expression creates is dropped after the loop.
-        const temp = is_vec and !isPlace(source) and self.kindOf(src_ty.?) != null;
-        if (temp) {
-            try self.openBrace();
-            const name = try self.fmt("__rig_src_{d}", .{self.nextId()});
-            try self.writeIndent(self.indent);
-            try self.w.print("var {s} = ", .{name});
-            try self.emitBare(source);
-            try self.w.writeAll(";\n");
-            try self.line("defer rig.drop(&{s});", .{name});
-            try self.writeIndent(self.indent);
-            try self.hoisted.append(self.allocator, .{ .node = source, .name = name });
-        }
-        defer if (temp) {
-            _ = self.hoisted.pop();
-        };
 
         try self.pushScope();
         try self.writeLabel(label);
@@ -1411,39 +1419,22 @@ pub const Emitter = struct {
         const array_ptr = by_ptr and !is_vec and src_ty != null and self.sema.types.get(self.peelBorrows(src_ty.?)) == .array;
         if (array_ptr) try self.emitAddressOf(source) else try self.emitExpr(source);
         if (is_vec) try self.w.writeAll(".items()");
+        const counter = try self.fmt("__rig_i_{d}", .{self.nextId()});
         // An index nobody reads needs no counter.
-        const index_sym: ?SymbolId = if (self.sema.symbolOf(index_binding)) |i| (if (self.usage.used.contains(i)) i else null) else null;
-        if (index_sym != null) try self.w.writeAll(", 0..");
-        try self.w.writeAll(") |");
-
+        const indexed = self.loopIndex(sexp) != null;
+        try self.w.writeAll(if (indexed) ", 0..) |" else ") |");
         var elem_name: []const u8 = "_";
         if (elem_sym) |s| if (self.usage.used.contains(s)) {
             const stored = try self.declare(.{ .sym = s, .zig_name = "", .ty = elem_ty, .is_ptr = by_ptr }, self.srcText(binding));
-            elem_name = stored.zig_name;
+            elem_name = try self.fmt("{s}{s}", .{ if (by_ptr) "*" else "", stored.zig_name });
         };
-        try self.w.print("{s}{s}", .{ if (by_ptr and !std.mem.eql(u8, elem_name, "_")) "*" else "", elem_name });
-
-        var index_decl: ?[]const u8 = null;
-        if (index_sym) |isym| {
-            const raw = try self.fmt("__rig_i_{d}", .{self.nextId()});
-            const stored = try self.declare(.{ .sym = isym, .zig_name = "", .ty = self.symType(isym) }, self.srcText(index_binding));
-            try self.w.print(", {s}", .{raw});
-            index_decl = try self.fmt("const {s}: {s} = @intCast({s});", .{ stored.zig_name, int_zig, raw });
-        }
-        try self.w.writeAll("| ");
+        try self.w.print("{s}{s}{s}| ", .{ elem_name, if (indexed) ", " else "", if (indexed) counter else "" });
         try self.openBrace();
-        if (index_decl) |d| try self.line("{s}", .{d});
-        try self.emitStmts(try self.stmtsOf(body));
+        try self.bindLoopIndex(sexp, counter);
+        try self.emitStmts(try self.stmtsOf(ir.For.body(sexp)));
         try self.closeBrace();
         try self.popScope();
-        if (ir.For.@"else"(sexp) != .nil) {
-            try self.w.writeAll(" else ");
-            try self.emitBranchStmt(ir.For.@"else"(sexp));
-        }
-        if (temp) {
-            try self.w.writeAll("\n");
-            try self.closeBrace();
-        }
+        try self.emitElse(ir.For.@"else"(sexp));
     }
 
     /// `for x in <v`: the Vec is consumed; each element is handed to `x`,
@@ -1454,47 +1445,36 @@ pub const Emitter = struct {
     ///       while (it.next()) |e| { var x = e; defer rig.drop(&x); ... } }
     fn emitConsumingFor(self: *Emitter, sexp: Sexp, label: ?[]const u8) Error!void {
         const binding = ir.For.@"var"(sexp);
-        const index_binding = ir.For.index(sexp);
-        const source = ir.For.source(sexp);
         const id = self.nextId();
         const it = try self.fmt("__rig_it_{d}", .{id});
         const tmp = try self.fmt("__rig_elem_{d}", .{id});
         const counter = try self.fmt("__rig_i_{d}", .{id});
-        const index_sym: ?SymbolId = if (self.sema.symbolOf(index_binding)) |i| (if (self.usage.used.contains(i)) i else null) else null;
+        const indexed = self.loopIndex(sexp) != null;
 
         try self.openBrace();
         try self.writeIndent(self.indent);
         try self.w.print("var {s} = ", .{it});
-        try self.emitMoved(source);
+        try self.emitMoved(ir.For.source(sexp));
         try self.w.writeAll(".intoIter();\n");
         try self.line("defer {s}.deinit();", .{it});
-        if (index_sym != null) try self.line("var {s}: usize = 0;", .{counter});
+        if (indexed) try self.line("var {s}: usize = 0;", .{counter});
         try self.writeIndent(self.indent);
         try self.writeLabel(label);
         try self.w.print("while ({s}.next()) |{s}| ", .{ it, tmp });
-        if (index_sym != null) try self.w.print(": ({s} += 1) ", .{counter});
-        try self.pushScope();
+        if (indexed) try self.w.print(": ({s} += 1) ", .{counter});
         try self.openBrace();
-        if (self.sema.symbolOf(binding)) |sym| {
-            const ty = self.symType(sym);
-            if (ty != null and self.kindOf(ty.?) != null) {
-                try self.bindOptionalResource(.{ .name = binding, .tmp = tmp });
-            } else if (self.usage.used.contains(sym)) {
-                const local = try self.declare(.{ .sym = sym, .zig_name = "", .ty = ty }, self.srcText(binding));
-                try self.line("const {s} = {s};", .{ local.zig_name, tmp });
-            } else try self.line("_ = {s};", .{tmp});
+        const sym = self.sema.symbolOf(binding);
+        const ty: ?TypeId = if (sym) |s| self.symType(s) else null;
+        if (ty != null and self.kindOf(ty.?) != null) {
+            try self.bindOptionalResource(.{ .name = binding, .tmp = tmp });
+        } else if (sym != null and self.usage.used.contains(sym.?)) {
+            const local = try self.declare(.{ .sym = sym.?, .zig_name = "", .ty = ty }, self.srcText(binding));
+            try self.line("const {s} = {s};", .{ local.zig_name, tmp });
         } else try self.line("_ = {s};", .{tmp});
-        if (index_sym) |isym| {
-            const local = try self.declare(.{ .sym = isym, .zig_name = "", .ty = self.symType(isym) }, self.srcText(index_binding));
-            try self.line("const {s}: {s} = @intCast({s});", .{ local.zig_name, int_zig, counter });
-        }
+        try self.bindLoopIndex(sexp, counter);
         try self.emitStmts(try self.stmtsOf(ir.For.body(sexp)));
         try self.closeBrace();
-        try self.popScope();
-        if (ir.For.@"else"(sexp) != .nil) {
-            try self.w.writeAll(" else ");
-            try self.emitBranchStmt(ir.For.@"else"(sexp));
-        }
+        try self.emitElse(ir.For.@"else"(sexp));
         try self.w.writeAll("\n");
         try self.closeBrace();
     }
@@ -1510,18 +1490,14 @@ pub const Emitter = struct {
         const int_ty: TypeId = if (sym) |s| (self.symType(s) orelse self.sema.types.int_id) else self.sema.types.int_id;
 
         try self.openBrace();
-        try self.writeIndent(self.indent);
-        try self.w.print("var {s}: ", .{counter});
-        try self.emitTypeTy(int_ty);
-        try self.w.writeAll(" = ");
-        try self.emitBare(ir.@"..".left(range));
-        try self.w.writeAll(";\n");
-        try self.writeIndent(self.indent);
-        try self.w.print("const {s}: ", .{end});
-        try self.emitTypeTy(int_ty);
-        try self.w.writeAll(" = ");
-        try self.emitBare(ir.@"..".right(range));
-        try self.w.writeAll(";\n");
+        for ([2][]const u8{ counter, end }, [2]Sexp{ ir.@"..".left(range), ir.@"..".right(range) }, [2][]const u8{ "var", "const" }) |name, bound, decl| {
+            try self.writeIndent(self.indent);
+            try self.w.print("{s} {s}: ", .{ decl, name });
+            try self.emitTypeTy(int_ty);
+            try self.w.writeAll(" = ");
+            try self.emitBare(bound);
+            try self.w.writeAll(";\n");
+        }
         try self.writeIndent(self.indent);
         try self.writeLabel(label);
         try self.w.print("while ({s} < {s}) : ({s} += 1) ", .{ counter, end, counter });
@@ -1532,10 +1508,7 @@ pub const Emitter = struct {
         };
         try self.emitStmts(try self.stmtsOf(ir.For.body(sexp)));
         try self.closeBrace();
-        if (ir.For.@"else"(sexp) != .nil) {
-            try self.w.writeAll(" else ");
-            try self.emitBranchStmt(ir.For.@"else"(sexp));
-        }
+        try self.emitElse(ir.For.@"else"(sexp));
         try self.w.writeAll("\n");
         try self.closeBrace();
     }
@@ -1583,7 +1556,7 @@ pub const Emitter = struct {
                 .list => switch (pattern.kind().?) {
                     .enum_lit, .variant_pattern => {
                         const vname = self.srcText(ir.get(pattern, .name));
-                        try self.w.print("{s}{f} => ", .{ if (error_set) "error." else ".", self.ident(vname) });
+                        try self.w.print("{s}{f} => ", .{ if (error_set) "error." else ".", ident(vname) });
                         const captures: []const Sexp = if (pattern.isKind(.variant_pattern)) ir.VariantPattern.bindings(pattern) else &.{};
                         if (captures.len == 1) {
                             try self.emitCapture(captures[0]);
@@ -1610,7 +1583,7 @@ pub const Emitter = struct {
             try self.w.writeAll(",\n");
         }
         // A statement match whose arms leave some values out runs no arm
-        // for them (ctx requires a value-position match to be complete).
+        // for them (sema requires a value-position match to be complete).
         if (!has_default and !self.sema.isExhaustive(sexp)) {
             try self.line("else => {{}},", .{});
         }
@@ -1674,7 +1647,7 @@ pub const Emitter = struct {
     }
 
     fn emitPrelude(self: *Emitter, prelude: Prelude) Error!void {
-        for (prelude.aliases) |a| try self.line("const {s} = __rig_payload.{f};", .{ a.zig_name, self.ident(a.field) });
+        for (prelude.aliases) |a| try self.line("const {s} = __rig_payload.{f};", .{ a.zig_name, ident(a.field) });
         if (prelude.optional) |o| try self.bindOptionalResource(o);
         if (prelude.err_capture) |c| try self.line("const {s}: anyerror = {s};", .{ c.zig_name, c.tmp });
     }
@@ -1806,7 +1779,7 @@ pub const Emitter = struct {
             try self.w.writeAll("__rig_module.");
             break;
         };
-        try self.w.print("{f}", .{self.ident(name)});
+        try self.w.print("{f}", .{ident(name)});
     }
 
     /// `rig.take(&flag, x)`: yields `x` and disarms a scope-exit drop.
@@ -1946,7 +1919,7 @@ pub const Emitter = struct {
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^", .neg, .@"if" => {
                 // Sema computed a constant integer expression (and checked
                 // that it fits); its value is written as a literal, so Zig
-                // does not evaluate it again with other intermediate sema.
+                // does not evaluate it again with other intermediate types.
                 if (sema.constIntOf(self.sema, sexp)) |v| if (self.onlyConstantLeaves(sexp)) return self.emitIntConstant(sexp, v);
             },
             else => {},
@@ -2014,7 +1987,7 @@ pub const Emitter = struct {
             },
             .enum_lit => {
                 const in_error_set = if (self.typeOf(sexp)) |t| self.isErrorSetTy(t) else false;
-                try self.w.print("{s}{f}", .{ if (in_error_set) "error." else ".", self.ident(self.srcText(ir.EnumLit.name(sexp))) });
+                try self.w.print("{s}{f}", .{ if (in_error_set) "error." else ".", ident(self.srcText(ir.EnumLit.name(sexp))) });
             },
             .@"+", .@"-", .@"*", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"&", .@"|", .@"^" => try self.emitInfix(sexp, bare),
             .@"and", .@"or" => {
@@ -2240,7 +2213,7 @@ pub const Emitter = struct {
             try self.emitTypeTy(t);
             try self.w.writeAll(", ");
             try self.emitMemberBase(obj, obj_ty);
-            return self.w.print(".{f})", .{self.ident(field)});
+            return self.w.print(".{f})", .{ident(field)});
         };
         if (std.mem.eql(u8, field, "len") and obj_ty != null and self.hasLen(obj_ty.?)) {
             try self.w.writeAll("rig.len(");
@@ -2250,7 +2223,7 @@ pub const Emitter = struct {
         }
         try self.emitMemberBase(obj, obj_ty);
         if (obj_ty) |t| if (self.isSharedTy(t)) try self.w.writeAll(".value");
-        try self.w.print(".{f}", .{self.ident(field)});
+        try self.w.print(".{f}", .{ident(field)});
     }
 
     /// The object of a member access. Borrow sigils on a receiver are
@@ -2260,7 +2233,7 @@ pub const Emitter = struct {
         var o = obj;
         while (o.isKind(.read) or o.isKind(.write)) o = ir.get(o, .operand);
         if (self.place_chain and o.isKind(.index)) return self.emitIndex(o, true);
-        // `Box.make(...)` of a generic type: the instance ctx inferred.
+        // `Box.make(...)` of a generic type: the instance sema inferred.
         if (o == .src) if (self.sema.symbolOf(o)) |id| if (self.sema.symbols.items[id].kind == .generic_type) {
             if (obj_ty) |t| return self.emitTypeTy(t);
         };
@@ -2277,7 +2250,7 @@ pub const Emitter = struct {
         if (needs_parens) try self.w.writeAll(")");
     }
 
-    /// `@name(args)`. Arguments that name Rig types are spelled as Zig sema.
+    /// `@name(args)`. Arguments that name Rig types are spelled as Zig types.
     fn emitBuiltin(self: *Emitter, sexp: Sexp) Error!void {
         try self.w.print("@{s}(", .{self.srcText(ir.Builtin.name(sexp))});
         for (ir.Builtin.args(sexp), 0..) |a, i| {
@@ -2299,7 +2272,10 @@ pub const Emitter = struct {
     fn emitShare(self: *Emitter, sexp: Sexp) Error!void {
         const inner = ir.Share.operand(sexp);
         if (inner.isKind(.lambda)) return self.emitOwnedClosure(inner);
-        const payload_ty: ?TypeId = if (self.typeOf(sexp)) |t| self.sharedInner(t) else null;
+        const payload_ty: ?TypeId = if (self.typeOf(sexp)) |t| switch (self.sema.types.get(t)) {
+            .shared => |p| p,
+            else => null,
+        } else null;
         try self.w.writeAll("rig.rcNew(");
         // A constructor call spells its own type: `rig.rcNew(Node{ ... })`.
         const typed = payload_ty != null and self.isConstructorCall(inner) and
@@ -2427,7 +2403,7 @@ pub const Emitter = struct {
             }
         };
         // An owned closure handle, held by a name or a field.
-        if (self.typeOf(callee)) |t| if (self.isOwnedClosureTy(t)) {
+        if (self.typeOf(callee)) |t| if (sema.ownedClosureFn(self.sema, t) != null) {
             if (callee.isKind(.member)) try self.emitMember(callee) else try self.emitExpr(callee);
             try self.w.writeAll(".value.invoke(.{ ");
             try self.emitArgs(sexp);
@@ -2457,7 +2433,7 @@ pub const Emitter = struct {
     }
 
     /// `I32(x)` → `@as(i32, @intCast(@as(i64, x)))`, with the builtin
-    /// chosen by the kinds of the two sema. Zig checks that the value
+    /// chosen by the kinds of the two types. Zig checks that the value
     /// fits in safe builds; `@intFromFloat` truncates toward zero.
     fn emitConversion(self: *Emitter, call: Sexp) Error!void {
         const target = self.typeOf(call) orelse return self.unsupported(call, "an untyped conversion");
@@ -2727,7 +2703,7 @@ pub const Emitter = struct {
     }
 
     /// Constructor call `Name(field: v, ...)`: a struct literal typed by
-    /// ctx (a generic type's arguments come from the call's type).
+    /// sema (a generic type's arguments come from the call's type).
     fn emitConstructor(self: *Emitter, call: Sexp, sym_id: SymbolId) Error!void {
         if (self.sema.symbols.items[sym_id].kind == .generic_type) {
             const ty = self.typeOf(call) orelse return self.unsupported(call, "an untyped generic constructor");
@@ -2743,7 +2719,7 @@ pub const Emitter = struct {
         try self.w.writeAll("{");
         for (args, 0..) |a, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
-            try self.w.print(".{f} = ", .{self.ident(self.srcText(ir.Kwarg.name(a)))});
+            try self.w.print(".{f} = ", .{ident(self.srcText(ir.Kwarg.name(a)))});
             try self.emitStored(ir.Kwarg.value(a));
         }
         try self.w.writeAll(if (args.len > 0) " }" else "}");
@@ -2773,7 +2749,7 @@ pub const Emitter = struct {
     /// payload is the value itself; several fields form a struct.
     fn emitVariantLit(self: *Emitter, call: Sexp) Error!void {
         const vname = self.srcText(ir.EnumLit.name(ir.Call.callee(call)));
-        if (ir.Call.args(call).len == 0) return self.w.print(".{f}", .{self.ident(vname)});
+        if (ir.Call.args(call).len == 0) return self.w.print(".{f}", .{ident(vname)});
         const enum_ty = self.typeOf(call) orelse return self.unsupported(call, "an untyped variant");
         return self.emitVariantPayload(call, enum_ty, vname);
     }
@@ -2781,7 +2757,7 @@ pub const Emitter = struct {
     fn emitVariantPayload(self: *Emitter, call: Sexp, enum_ty: TypeId, vname: []const u8) Error!void {
         const args = ir.Call.args(call);
         const fields = self.variantPayload(enum_ty, vname) orelse return self.unsupported(call, "this variant");
-        try self.w.print(".{{ .{f} = ", .{self.ident(vname)});
+        try self.w.print(".{{ .{f} = ", .{ident(vname)});
         if (fields.len == 1) {
             try self.emitStored(argValue(args[0]));
         } else {
@@ -2789,7 +2765,7 @@ pub const Emitter = struct {
             for (args, 0..) |a, i| {
                 try self.w.writeAll(if (i == 0) " " else ", ");
                 const fname = if (a.isKind(.kwarg)) self.srcText(ir.Kwarg.name(a)) else fields[i].name;
-                try self.w.print(".{f} = ", .{self.ident(fname)});
+                try self.w.print(".{f} = ", .{ident(fname)});
                 try self.emitStored(argValue(a));
             }
             try self.w.writeAll(" }");
@@ -2877,7 +2853,14 @@ pub const Emitter = struct {
 
         try self.w.writeAll("struct {\n");
         self.indent += 1;
-        try self.emitCaptureFields(caps);
+        var uses_env = false;
+        for (caps) |c| {
+            try self.writeIndent(self.indent);
+            try self.w.print("cap_{s}: ", .{c.name});
+            try self.emitTypeTy(c.ty);
+            try self.w.writeAll(",\n");
+            uses_env = uses_env or self.usage.used.contains(c.sym);
+        }
         try self.w.writeAll("\n");
         try self.writeIndent(self.indent);
         const env = try self.envName();
@@ -2888,32 +2871,22 @@ pub const Emitter = struct {
         defer self.closure_depth -= 1;
         const saved_fun = self.fun;
         defer self.fun = saved_fun;
-        self.fun = .{ .return_ty = ret, .params = params };
-        {
-            try self.bindParams(params);
-            for (params.items()) |p| {
-                try self.w.writeAll(", ");
-                try self.emitParam(p);
-            }
+        self.fun = .{ .return_ty = ret, .params = params, .unused_env = if (uses_env) "" else env };
+        try self.bindParams(params);
+        for (params.items()) |p| {
+            try self.w.writeAll(", ");
+            try self.emitParam(p);
         }
         try self.w.writeAll(") ");
         if (ret) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
         try self.w.writeAll(" ");
-        try self.emitClosureBody(ir.Lambda.body(lambda), caps, env, ret != null);
+        const body = ir.Lambda.body(lambda);
+        if (ret != null) try self.emitValueBody(body) else try self.emitBlock(body);
         try self.popScope();
         try self.w.writeAll("\n");
         self.indent -= 1;
         try self.writeIndent(self.indent);
         try self.w.writeAll("}");
-    }
-
-    fn emitCaptureFields(self: *Emitter, caps: []const Capture) Error!void {
-        for (caps) |c| {
-            try self.writeIndent(self.indent);
-            try self.w.print("cap_{s}: ", .{c.name});
-            try self.emitTypeTy(c.ty);
-            try self.w.writeAll(",\n");
-        }
     }
 
     /// The environment parameter of the closure about to be emitted.
@@ -2960,27 +2933,6 @@ pub const Emitter = struct {
             }
         }
         try self.w.writeAll(" }");
-    }
-
-    /// A closure body; its environment `env` is discarded when no
-    /// capture is used.
-    fn emitClosureBody(self: *Emitter, body: Sexp, caps: []const Capture, env: []const u8, returns_value: bool) Error!void {
-        try self.openBrace();
-        var uses_self = false;
-        for (caps) |c| uses_self = uses_self or self.usage.used.contains(c.sym);
-        if (!uses_self) try self.line("_ = {s};", .{env});
-        try self.emitFunPrologue();
-        const stmts = try self.stmtsOf(body);
-        if (returns_value and isValueStmt(stmts[stmts.len - 1])) {
-            try self.emitStmts(stmts[0 .. stmts.len - 1]);
-            try self.writeIndent(self.indent);
-            try self.w.writeAll("return ");
-            try self.emitReturnValue(stmts[stmts.len - 1]);
-            try self.w.writeAll(";\n");
-        } else {
-            try self.emitStmts(stmts);
-        }
-        try self.closeBrace();
     }
 
     /// `*|captures, params| body` → a heap-allocated environment, erased
@@ -3057,7 +3009,7 @@ pub const Emitter = struct {
             return self.w.writeAll(")");
         }
         if (t.isKind(.member)) {
-            return self.w.print("{f}.{f}", .{ self.ident(self.srcText(ir.Member.object(t))), self.ident(self.srcText(ir.Member.name(t))) });
+            return self.w.print("{f}.{f}", .{ ident(self.srcText(ir.Member.object(t))), ident(self.srcText(ir.Member.name(t))) });
         }
         if (t != .src) return self.unsupported(t, "this type argument");
         const name = self.srcText(t);
@@ -3074,10 +3026,10 @@ pub const Emitter = struct {
             .{ "Bool", "bool" }, .{ "String", "[]const u8" }, .{ "Void", "void" },
         };
         inline for (map) |m| if (std.mem.eql(u8, name, m[0])) return self.w.writeAll(m[1]);
-        try self.w.print("{f}", .{self.ident(name)});
+        try self.w.print("{f}", .{ident(name)});
     }
 
-    /// A ctx type.
+    /// A type sema resolved.
     fn emitTypeTy(self: *Emitter, ty: TypeId) Error!void {
         const ctx = self.sema;
         switch (ctx.types.get(ty)) {
@@ -3135,11 +3087,11 @@ pub const Emitter = struct {
                 const foreign = ctx.foreign_semas.get(in.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
                 const type_name = foreign.symbols.items[in.sym_id].name;
                 for (ctx.imports) |imp| {
-                    if (imp.module_id == in.module_id) return self.w.print("{f}.{f}", .{ self.ident(imp.local_name), self.ident(type_name) });
+                    if (imp.module_id == in.module_id) return self.w.print("{f}.{f}", .{ ident(imp.local_name), ident(type_name) });
                 }
                 // A module reached only through an import.
                 for (ctx.transitive) |t| {
-                    if (t.module_id == in.module_id) return self.w.print("@import(\"{s}.zig\").{f}", .{ t.local_name, self.ident(type_name) });
+                    if (t.module_id == in.module_id) return self.w.print("@import(\"{s}.zig\").{f}", .{ t.local_name, ident(type_name) });
                 }
                 return self.unsupported(.nil, "a type from an unimported module");
             },
@@ -3153,7 +3105,7 @@ pub const Emitter = struct {
                 }
                 try self.w.writeAll(")");
             },
-            .type_var => |sym_id| try self.w.print("{f}", .{self.ident(ctx.symbols.items[sym_id].name)}),
+            .type_var => |sym_id| try self.w.print("{f}", .{ident(ctx.symbols.items[sym_id].name)}),
             .function => |f| {
                 try self.w.writeAll("*const fn (");
                 for (f.params, 0..) |p, i| {
@@ -3191,10 +3143,10 @@ pub const Emitter = struct {
     }
 
     // -------------------------------------------------------------------------
-    // Type queries (all from ctx's facts)
+    // Type queries (all from sema's facts)
     // -------------------------------------------------------------------------
 
-    /// The type ctx recorded for an expression. Poison types count as
+    /// The type sema recorded for an expression. Poison types count as
     /// unknown.
     fn typeOf(self: *Emitter, expr: Sexp) ?TypeId {
         const ty = self.sema.typeOf(expr) orelse return null;
@@ -3231,13 +3183,6 @@ pub const Emitter = struct {
         return null;
     }
 
-    fn sharedInner(self: *Emitter, ty: TypeId) ?TypeId {
-        return switch (self.sema.types.get(ty)) {
-            .shared => |inner| inner,
-            else => null,
-        };
-    }
-
     /// How a value of this type is released, or null for plain data.
     /// Sema decides whether it owns anything (`typeHasDropGlue`, or
     /// `maybeDropGlue` for values of a type parameter, which `rig.drop`
@@ -3254,10 +3199,6 @@ pub const Emitter = struct {
 
     fn isSharedTy(self: *Emitter, ty: TypeId) bool {
         return self.sema.types.get(self.peelBorrows(ty)) == .shared;
-    }
-
-    fn isOwnedClosureTy(self: *Emitter, ty: TypeId) bool {
-        return sema.ownedClosureFn(self.sema, ty) != null;
     }
 
     fn isBuiltinInstance(self: *Emitter, ty: TypeId, sym_id: SymbolId) bool {
@@ -3332,20 +3273,8 @@ pub const Emitter = struct {
     // Output helpers
     // =========================================================================
 
-    fn text(self: *Emitter, sexp: Sexp) ?[]const u8 {
-        return switch (sexp) {
-            .src => |s| self.source[s.pos..][0..s.len],
-            else => null,
-        };
-    }
-
     fn srcText(self: *Emitter, sexp: Sexp) []const u8 {
         return self.source[sexp.src.pos..][0..sexp.src.len];
-    }
-
-    fn ident(self: *Emitter, name: []const u8) Ident {
-        _ = self;
-        return .{ .name = name };
     }
 
     fn writeIndent(self: *Emitter, depth: u32) Error!void {
@@ -3393,17 +3322,23 @@ const Scan = struct {
         }
     }
 
-    /// The name a branch yields, when it yields a bare name.
-    fn consumeTail(s: *Scan, branch: Sexp) Error!void {
-        const stmts = try s.e.stmtsOf(branch);
-        if (stmts.len > 0) try s.consume(stmts[stmts.len - 1]);
-    }
-
-    /// Every name in a value that may leave the function.
-    fn consumeAll(s: *Scan, node: Sexp) Error!void {
-        switch (node) {
-            .src => try s.consume(node),
-            .list => |items| for (items.items()) |c| try s.consumeAll(c),
+    /// The names a value moves out of their bindings when it leaves its
+    /// scope: a bare name in tail position, through blocks and branches
+    /// (the positions `emitValue` is given `tail` for).
+    fn consumeTail(s: *Scan, value: Sexp) Error!void {
+        if (value == .src) return s.consume(value);
+        switch (value.kind() orelse return) {
+            .block, .raw_block => {
+                const stmts = try s.e.stmtsOf(if (value.isKind(.raw_block)) ir.RawBlock.body(value) else value);
+                if (stmts.len > 0) try s.consumeTail(stmts[stmts.len - 1]);
+            },
+            .@"if" => {
+                try s.consumeTail(ir.If.then(value));
+                try s.consumeTail(ir.If.@"else"(value));
+            },
+            .match => for (ir.Match.arms(value)) |arm| try s.consumeTail(ir.Arm.body(arm)),
+            .@"??" => try s.consumeTail(ir.@"??".right(value)),
+            .@"catch" => try s.consumeTail(ir.Catch.handler(value)),
             else => {},
         }
     }
@@ -3431,13 +3366,12 @@ const Scan = struct {
                 if (s.e.kindOf(ty) != null) try s.put(&s.e.usage.used, sym);
                 return;
             },
-            .@"return", .@"break" => try s.consumeAll(ir.get(sexp, .value)),
+            .@"return" => try s.consumeTail(ir.Return.value(sexp)),
             .@"for" => if (ir.For.mode(sexp).tag == .move) try s.consume(ir.For.source(sexp)),
-            .@"if" => if (ir.If.@"else"(sexp) != .nil) {
-                // An `if` with `else` may be a value: its branches yield.
-                try s.consumeTail(ir.If.then(sexp));
-                try s.consumeTail(ir.If.@"else"(sexp));
-            },
+            // An `if` with `else`, a `match`, `??`, and `catch` may be
+            // values: their branches yield.
+            .@"if" => if (ir.If.@"else"(sexp) != .nil) try s.consumeTail(sexp),
+            .@"??", .@"catch" => try s.consumeTail(sexp),
             .match => {
                 var scrut = ir.Match.subject(sexp);
                 while (scrut.isKind(.read) or scrut.isKind(.write)) scrut = ir.get(scrut, .operand);
@@ -3448,8 +3382,8 @@ const Scan = struct {
                     if (scrut_sym) |ss| for (binds) |b| {
                         if (s.e.sema.symbolOf(b)) |bs| try s.e.usage.views.put(s.e.allocator, bs, ss);
                     };
-                    try s.consumeTail(ir.Arm.body(arm));
                 }
+                try s.consumeTail(sexp);
             },
             .cap_clone, .cap_weak, .cap_move => {
                 const cap = s.e.sema.symbolOf(ir.get(sexp, .name)) orelse return;
@@ -3460,14 +3394,8 @@ const Scan = struct {
                 }
                 return;
             },
-            .fun => if (ir.Fun.returns(sexp) != .nil) {
-                const stmts = try s.e.stmtsOf(ir.Fun.body(sexp));
-                try s.consumeAll(stmts[stmts.len - 1]);
-            },
-            .lambda => if (s.e.lambdaReturn(sexp) != null) {
-                const stmts = try s.e.stmtsOf(ir.Lambda.body(sexp));
-                try s.consumeAll(stmts[stmts.len - 1]);
-            },
+            .fun => if (ir.Fun.returns(sexp) != .nil) try s.consumeTail(ir.Fun.body(sexp)),
+            .lambda => if (s.e.lambdaReturn(sexp) != null) try s.consumeTail(ir.Lambda.body(sexp)),
             else => {},
         }
         for (rig.children(sexp)) |c| try s.walk(c);
@@ -3478,7 +3406,7 @@ const Scan = struct {
 // Free helpers
 // =============================================================================
 
-/// Zig spellings of Rig's default numeric sema.
+/// Zig spellings of Rig's default numeric types.
 const int_zig = "i64";
 const float_zig = "f64";
 
@@ -3490,6 +3418,10 @@ const Ident = struct {
         try rig.writeZigIdent(w, self.name);
     }
 };
+
+fn ident(name: []const u8) Ident {
+    return .{ .name = name };
+}
 
 /// A default argument value: a literal, written from the source of the
 /// module that declares it.
@@ -3534,7 +3466,6 @@ fn isPlainIdent(name: []const u8) bool {
     return name.len > 0 and name[0] != '@' and std.mem.indexOfScalar(u8, name, '.') == null;
 }
 
-/// Literal source text: numbers, quoted strings, and the value keywords.
 /// Whether Zig could evaluate `e` at compile time: it is built only from
 /// literals, compile-time names (`pre` parameters, `=!` constants),
 /// constructors, and operators. Conservative: true when unsure.
@@ -3590,6 +3521,7 @@ fn isPreSlot(mask: u32, i: usize) bool {
     return i < 32 and (mask >> @intCast(i)) & 1 == 1;
 }
 
+/// Literal source text: numbers, quoted strings, and the value keywords.
 fn isLiteralText(t: []const u8) bool {
     if (t.len == 0) return false;
     if (std.ascii.isDigit(t[0]) or t[0] == '"' or t[0] == '\'' or t[0] == '.') return true;
