@@ -52,6 +52,9 @@ const SymbolResolver = struct {
     ctx: *SemContext,
     scope: ScopeId,
     module_scope: ScopeId,
+    /// The generic parameters of the generic type whose members are
+    /// being walked.
+    type_params: []const SymbolId = &.{},
 
     fn walk(self: *SymbolResolver, sexp: Sexp) Error!void {
         switch (sexp.kind() orelse return) {
@@ -184,9 +187,15 @@ const SymbolResolver = struct {
     }
 
     /// A local or parameter may not reuse the name of a module-level
-    /// function, type, extern, or module: Zig rejects the shadowing.
+    /// function, type, extern, or module, or of a generic parameter of the
+    /// enclosing generic type: Zig rejects the shadowing.
     fn checkShadowsDeclaration(self: *SymbolResolver, name_node: Sexp, what: []const u8) Error!void {
         const name = identAt(self.ctx.source, name_node) orelse return;
+        for (self.type_params) |tp| {
+            if (!std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) continue;
+            try self.ctx.errAt(name_node, "{s} `{s}` has the name of the generic parameter `{s}`; use a different name", .{ what, name, name });
+            return;
+        }
         const decl = self.ctx.lookupInScopeOnly(self.module_scope, name) orelse return;
         const sym = self.ctx.symbols.items[decl];
         if (sym.kind == .local or sym.decl_pos == sema.builtin_decl_pos) return;
@@ -347,6 +356,8 @@ const SymbolResolver = struct {
             }
         }
         self.ctx.symbols.items[id].type_params = try self.ctx.arena.allocator().dupe(SymbolId, ids.items);
+        self.type_params = self.ctx.symbols.items[id].type_params.?;
+        defer self.type_params = &.{};
         try self.walkMembers(ir.rest(node, .members));
     }
 
@@ -885,9 +896,32 @@ pub const TypeResolver = struct {
         const owned = try self.ctx.arena.allocator().dupe(Field, fields.items);
         self.ctx.symbols.items[sym_id].fields = owned;
 
+        if (generic) try self.checkTypeParamNames(sym_id, members);
         if (head == .@"struct") {
             for (members) |m| {
                 if (m.isKind(.drop_decl)) try self.enforceDropBody(ir.DropDecl.body(m));
+            }
+        }
+    }
+
+    /// A generic parameter may not take a name that means something else
+    /// where it is used: a built-in or primitive type, `Self`, a
+    /// module-level declaration (the generic type itself included), or a
+    /// method of the type.
+    fn checkTypeParamNames(self: *TypeResolver, sym_id: SymbolId, members: []const Sexp) Error!void {
+        for (self.ctx.symbols.items[sym_id].type_params orelse &.{}) |tp| {
+            const p = self.ctx.symbols.items[tp];
+            if (primitiveTypeId(self.ctx, p.name) != null or isNumericTypeName(p.name) or std.mem.eql(u8, p.name, "Self")) {
+                try self.ctx.err(p.decl_pos, "generic parameter `{s}` has the name of a built-in type; use a different name, such as `T`", .{p.name});
+            } else if (self.ctx.lookupInScopeOnly(sema.module_scope, p.name)) |decl| {
+                try self.ctx.err(p.decl_pos, "generic parameter `{s}` has the same name as the module-level declaration `{s}`; use a different name", .{ p.name, p.name });
+                const d = self.ctx.symbols.items[decl];
+                if (d.decl_pos != sema.builtin_decl_pos) try self.ctx.note(d.decl_pos, "`{s}` declared here", .{p.name});
+            } else for (members) |m| {
+                if (!m.isKind(.fun) and !m.isKind(.sub)) continue;
+                if (!std.mem.eql(u8, identAt(self.ctx.source, ir.get(m, .name)) orelse "", p.name)) continue;
+                try self.ctx.err(p.decl_pos, "generic parameter `{s}` has the same name as a method of the type; use a different name", .{p.name});
+                break;
             }
         }
     }
