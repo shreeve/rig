@@ -1,0 +1,8 @@
+# A builtin Rig does not have is reported once, with the list of the
+# builtins it has.
+
+sub main()
+  x = @min(1, 2)
+  print(x)
+
+# error: builtin `@min` is not supported; the builtins are `@sizeOf`

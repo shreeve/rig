@@ -17,8 +17,7 @@ source.rig
   │  Parser       src/rig.zig      a few tree rewrites → semantic IR
   ▼
 modules          src/modules.zig   load `use`d files, check in dependency order
-  │  sema        src/sema.zig      names, types, the facts table
-  │  effects     src/effects.zig   fallibility, the raw boundary
+  │  sema        src/sema.zig      names, types, effects, the facts table
   │  ownership   src/ownership.zig moves, borrows, drops, aliasing
   ▼
 emit             src/emit.zig      one Zig file per module
@@ -76,8 +75,7 @@ and the exit status is 1 if any test failed.
 | `src/modules.zig` | the module graph |
 | `src/sema.zig` | sema's front door: types, symbols, scopes, the facts table; the entry point `check` |
 | `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Signal` as built-in generics, symbol resolution, declaration types, drop glue |
-| `src/typecheck.zig` | the expression pass: types every expression and records its facts |
-| `src/effects.zig` | fallibility and the raw boundary |
+| `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/ownership.zig` | the ownership checker |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | the runtime shipped with every program |
@@ -358,6 +356,7 @@ against the imported signature exactly as a local one.
    `checkExpr(e, expected)` checks it against the type its context
    needs, which is how literals, `none`, `.variant`, generic
    constructors, closure parameters, and branches get their types.
+   The same walk checks the effects (below).
 
 Types are interned in a `TypeStore`, so two `TypeId`s are equal exactly
 when the types are. `unknown` and `invalid` are poison: they appear only
@@ -412,17 +411,19 @@ A diagnostic about a position rather than a node (a name that was
 used, a loan taken) is underlined with a single `^`. Notes follow the
 error they explain. `test/cli/diagnostics.sh` checks the format.
 
-## Effects
+### Effects
 
-`effects.zig` checks two things, reading types from the facts table:
+`typecheck.zig` checks two effects where it types each expression:
 
 - **fallibility**: a call of type `T!` must be the operand of `!` or
-  `catch`; `!` needs a fallible operand and an enclosing function that
-  can fail (`-> T!`, or `sub main`, which is emitted as `!void`);
-  closure bodies and deferred code cannot propagate;
+  `catch`; `!` needs a fallible operand and an enclosing function or
+  test that can fail (`-> T!`, the top-level `sub main`, which is
+  emitted as `!void`, or a `test`, whose error `rig test` reports);
+  closure bodies, `drop` bodies, and deferred code cannot propagate;
 - **the raw boundary**: builtins outside the safe list
   (`@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`), and calls to `extern`
-  functions must be inside a `raw` block.
+  functions must be inside a `raw` block. An `extern` function can only
+  be called, so it cannot leave `raw` as a value.
 
 ## Ownership
 

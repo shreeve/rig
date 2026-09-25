@@ -1,0 +1,14 @@
+# An extern function can only be called, inside `raw`: storing it in a
+# field would let it be called later without `raw`.
+
+extern fun abs(n: Int) -> Int
+
+struct Op
+  f: fun(Int) Int
+
+sub main()
+  raw
+    op = Op(f: abs)
+    print(op.f(-1))
+
+# error: an extern function can only be called, inside `raw`

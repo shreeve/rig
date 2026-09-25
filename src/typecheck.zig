@@ -20,6 +20,12 @@
 //! expected (`readValue`); and anything where poison (`unknown` /
 //! `invalid`) is involved, so one error does not cascade.
 //!
+//! Effects are checked in the same walk. Fallibility: a call of type
+//! `T!` must be the operand of `!` or `catch`, and `!` needs a fallible
+//! operand and a place to send the failure (`fail_to`). The raw
+//! boundary: builtins outside the safe list and calls to `extern`
+//! functions must be inside `raw`.
+//!
 //! Anything accepted here must be lowerable by emit. Constructs the
 //! backend cannot express yet are rejected with a diagnostic that says
 //! so rather than being passed through.
@@ -77,8 +83,27 @@ const Checker = struct {
     pending: SymbolId = sema.symbol_invalid,
     /// The `return`s of the closure whose return type is being inferred.
     lambda_returns: ?*std.ArrayListUnmanaged(ReturnSite) = null,
+    /// Where a `!` in the code being checked sends its failure.
+    fail_to: FailTarget = .module,
+    /// Enclosing `raw` blocks.
+    raw_depth: u32 = 0,
+    /// The operand of the `!` or `catch` being checked: a fallible call
+    /// there is handled.
+    handled: Sexp = .nil,
 
     const ReturnSite = struct { node: Sexp, ty: ?TypeId };
+
+    const FailTarget = union(enum) {
+        /// The caller: in a `fun ... -> T!`, `sub main`, or a test.
+        caller,
+        /// A `fun` or `sub` that cannot fail; its name.
+        infallible: Sexp,
+        closure,
+        deferred,
+        drop,
+        /// Module-level code, which is rejected on its own.
+        module,
+    };
 
     fn err(self: *Checker, pos: u32, comptime fmt: []const u8, args: anytype) Error!void {
         return self.ctx.err(pos, fmt, args);
@@ -143,6 +168,10 @@ const Checker = struct {
             .@"test" => {
                 const prev_scope = self.enter(sexp);
                 defer self.scope = prev_scope;
+                // A test fails by returning an error, which `rig test`
+                // reports.
+                self.fail_to = .caller;
+                defer self.fail_to = .module;
                 try self.checkBody(ir.Test.body(sexp), self.t().void_id, true);
             },
             .set => {
@@ -183,6 +212,8 @@ const Checker = struct {
                     }
                     self.fn_return = self.t().void_id;
                     self.is_sub = true;
+                    self.fail_to = .drop;
+                    defer self.fail_to = .module;
                     try self.checkBody(ir.DropDecl.body(m), self.t().void_id, true);
                 },
                 else => {},
@@ -206,6 +237,11 @@ const Checker = struct {
         }
         self.fn_return = ret;
         self.is_sub = is_sub;
+        // `sub main` lowers to a fallible `main`.
+        const name = ir.get(node, .name);
+        const is_main = is_sub and self.nominal.isEmpty() and std.mem.eql(u8, self.text(name), "main");
+        self.fail_to = if (is_main or rig.returnType(node).isKind(.error_union)) .caller else .{ .infallible = name };
+        defer self.fail_to = .module;
         for (ir.get(node, .params).items()) |p| try self.checkDefault(p);
         try self.checkBody(ir.get(node, .body), ret, is_sub);
     }
@@ -283,8 +319,17 @@ const Checker = struct {
                 try self.errAt(ir.Break.value(stmt), "`break` with a value is not supported yet", .{});
             },
             .@"continue" => {},
-            .@"defer", .@"errdefer" => try self.checkStmt(ir.get(stmt, .body)),
-            .raw_block => try self.checkStmt(ir.RawBlock.body(stmt)),
+            .@"defer", .@"errdefer" => {
+                const prev = self.fail_to;
+                defer self.fail_to = prev;
+                self.fail_to = .deferred;
+                try self.checkStmt(ir.get(stmt, .body));
+            },
+            .raw_block => {
+                self.raw_depth += 1;
+                defer self.raw_depth -= 1;
+                try self.checkStmt(ir.RawBlock.body(stmt));
+            },
             .labeled => try self.checkStmt(ir.Labeled.stmt(stmt)),
             .fun, .sub, .@"struct", .@"enum", .errors, .type, .generic_type, .generic_enum, .use, .@"extern", .extern_fun, .extern_sub, .@"test", .@"pub" => {
                 try self.errAt(stmt, "declarations are only allowed at module level", .{});
@@ -1168,6 +1213,10 @@ const Checker = struct {
                 try self.errAt(leaf, "`{s}` is a module, not a value; use `{s}.name`", .{ s, s });
                 return self.t().invalid_id;
             },
+            .@"extern" => if (self.ctx.types.get(sym.ty) == .function) {
+                try self.errAt(leaf, "an extern function can only be called, inside `raw`", .{});
+                return self.t().invalid_id;
+            } else return sym.ty,
             else => return sym.ty,
         }
     }
@@ -1228,7 +1277,11 @@ const Checker = struct {
             .@"if" => self.checkIfValue(e, null, .value),
             .match => self.checkMatch(e, .value, null),
             .block => self.synthBlock(e, null),
-            .raw_block => self.synthExpr(ir.RawBlock.body(e)),
+            .raw_block => blk: {
+                self.raw_depth += 1;
+                defer self.raw_depth -= 1;
+                break :blk self.synthExpr(ir.RawBlock.body(e));
+            },
             .read => self.synthBorrow(e, .read),
             .write => self.synthBorrow(e, .write),
             .move => self.synthExpr(ir.Move.operand(e)),
@@ -1537,7 +1590,7 @@ const Checker = struct {
         const value = ir.Catch.value(e);
         const name = ir.Catch.name(e);
         const handler = ir.Catch.handler(e);
-        const ty = try self.synthExpr(value);
+        const ty = try self.synthHandled(value);
         const prev = self.scope;
         defer self.scope = prev;
         if (name != .nil) {
@@ -1564,13 +1617,36 @@ const Checker = struct {
         return inner;
     }
 
+    /// `e!`: the value of fallible `e`; its failure goes to `fail_to`.
     fn synthPropagate(self: *Checker, e: Sexp) Error!TypeId {
-        const ty = try self.synthExpr(ir.Propagate.value(e));
-        // Propagating a value that cannot fail is reported by effects.
+        const operand = ir.Propagate.value(e);
+        switch (self.fail_to) {
+            .caller, .module => {},
+            .deferred => try self.errAt(operand, "cannot use `!` inside `defer`; a deferred expression cannot propagate failure, so handle it with `catch`", .{}),
+            .closure => try self.errAt(operand, "use of `!` propagation requires a fallible enclosing function; a closure body cannot propagate failure, so handle it with `catch`", .{}),
+            .drop => try self.errAt(operand, "a `drop` body cannot propagate failure; handle it with `catch`", .{}),
+            .infallible => |name| {
+                try self.errAt(operand, "use of `!` propagation requires the enclosing function `{s}` to declare a fallible return type (`-> T!`)", .{self.text(name)});
+                try self.noteAt(name, "`{s}` declared here", .{self.text(name)});
+            },
+        }
+        const ty = try self.synthHandled(operand);
         return switch (self.ctx.types.get(ty)) {
             .fallible => |inner| inner,
-            else => ty,
+            .unknown, .invalid => ty,
+            else => {
+                try self.errAt(operand, "`!` needs a fallible operand; this expression has type `{s}` and cannot fail", .{try self.tyName(self.canonical(ty))});
+                return ty;
+            },
         };
+    }
+
+    /// The operand of `!` or `catch`, where a fallible call is handled.
+    fn synthHandled(self: *Checker, operand: Sexp) Error!TypeId {
+        const prev = self.handled;
+        defer self.handled = prev;
+        self.handled = operand;
+        return self.synthExpr(operand);
     }
 
     // ---- ownership sigils -----------------------------------------------------
@@ -2035,11 +2111,36 @@ const Checker = struct {
     // Calls
     // =========================================================================
 
+    /// A call whose type is `T!` must be the operand of `!` or `catch`:
+    /// the failure path is never implicit.
     fn synthCall(self: *Checker, node: Sexp) Error!TypeId {
+        const handled = sameNode(node, self.handled);
         const saved = self.current_call;
         self.current_call = node;
         defer self.current_call = saved;
-        return self.synthCallInner(node);
+        const ty = try self.synthCallInner(node);
+        if (!handled and self.ctx.types.get(ty) == .fallible) {
+            const callee = ir.Call.callee(node);
+            const name = try self.calleeName(callee);
+            try self.errAt(callee, "fallible call to `{s}` must be wrapped with `!` (propagate) or `catch` (handle)", .{name});
+            if (self.ctx.symbolOf(callee)) |id| {
+                const sym = self.ctx.symbols.items[id];
+                if (sym.decl_pos != sema.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared as fallible here", .{name});
+            }
+        }
+        return ty;
+    }
+
+    /// How a callee is spelled, for messages: `f`, `a.f`, or `.m`.
+    fn calleeName(self: *Checker, callee: Sexp) Error![]const u8 {
+        if (callee == .src) return self.text(callee);
+        if (callee.isKind(.member)) {
+            const obj = ir.Member.object(callee);
+            const name = self.text(ir.Member.name(callee));
+            if (obj == .src) return std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ self.text(obj), name });
+            return name;
+        }
+        return "expression";
     }
 
     fn synthCallInner(self: *Checker, node: Sexp) Error!TypeId {
@@ -2071,6 +2172,9 @@ const Checker = struct {
                         try self.errAt(callee, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(sym.ty) });
                         try self.synthArgs(args);
                         return self.t().invalid_id;
+                    }
+                    if (sym.kind == .@"extern" and self.raw_depth == 0) {
+                        try self.errAt(callee, "call to extern function `{s}` requires `raw` block; extern functions are the FFI boundary and bypass Rig's ownership and effect checks", .{name});
                     }
                     try self.checkArgs(args, fty.function, self.paramsOf(sym_id), name, callee.src.pos);
                     return fty.function.returns;
@@ -2971,8 +3075,8 @@ const Checker = struct {
             try self.recordAdapted(e, actual, expected);
             return;
         }
-        // A fallible call where its value is expected: effects reports
-        // the missing `!` / `catch`.
+        // A fallible call where its value is expected: `synthCall`
+        // reported the missing `!` / `catch`.
         const at = self.ctx.types.get(actual);
         if (at == .fallible and compatible(self.ctx, at.fallible, expected)) return;
         try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(expected), try self.tyName(actual) });
@@ -3105,6 +3209,8 @@ const Checker = struct {
                 return true;
             },
             .raw_block => {
+                self.raw_depth += 1;
+                defer self.raw_depth -= 1;
                 try self.checkExpr(ir.RawBlock.body(e), expected);
                 try self.ctx.recordType(e, expected);
                 return true;
@@ -3290,7 +3396,28 @@ const Checker = struct {
     // Builtins
     // =========================================================================
 
-    const builtin_casts = [_][]const u8{ "bitCast", "intCast", "floatCast", "truncate", "intFromFloat", "floatFromInt", "enumFromInt" };
+    /// Every builtin Rig has. The compile-time type queries are safe
+    /// anywhere; the casts only inside `raw`.
+    const Builtin = enum {
+        sizeOf,
+        alignOf,
+        typeName,
+        TypeOf,
+        bitCast,
+        intCast,
+        floatCast,
+        truncate,
+        intFromFloat,
+        floatFromInt,
+        enumFromInt,
+
+        fn isSafe(b: Builtin) bool {
+            return switch (b) {
+                .sizeOf, .alignOf, .typeName, .TypeOf => true,
+                else => false,
+            };
+        }
+    };
 
     fn synthBuiltin(self: *Checker, node: Sexp, expected: ?TypeId) Error!TypeId {
         const name_node = ir.Builtin.name(node);
@@ -3298,42 +3425,47 @@ const Checker = struct {
         const pos = name_node.src.pos;
         const args = ir.Builtin.args(node);
         const ty: TypeId = blk: {
-            if (std.mem.eql(u8, name, "sizeOf") or std.mem.eql(u8, name, "alignOf")) {
-                if (try self.builtinTypeArg(name, args, pos)) break :blk self.t().int_literal_id;
+            const builtin = std.meta.stringToEnum(Builtin, name) orelse {
+                try self.err(pos, "builtin `@{s}` is not supported; the builtins are `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`, and, inside `raw`, `@bitCast`, `@intCast`, `@floatCast`, `@truncate`, `@intFromFloat`, `@floatFromInt`, `@enumFromInt`", .{name});
+                try self.synthArgs(args);
                 break :blk self.t().invalid_id;
+            };
+            if (!builtin.isSafe() and self.raw_depth == 0) {
+                try self.err(pos, "builtin `@{s}` is not in the safe whitelist; wrap it in a `raw` block. Safe builtins: `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`", .{name});
             }
-            if (std.mem.eql(u8, name, "typeName")) {
-                if (try self.builtinTypeArg(name, args, pos)) break :blk self.t().string_id;
-                break :blk self.t().invalid_id;
-            }
-            for (builtin_casts) |c| {
-                if (!std.mem.eql(u8, name, c)) continue;
-                if (args.len != 1) {
-                    try self.err(pos, "`@{s}` takes one argument", .{name});
+            switch (builtin) {
+                .sizeOf, .alignOf => {
+                    if (try self.builtinTypeArg(name, args, pos)) break :blk self.t().int_literal_id;
+                    break :blk self.t().invalid_id;
+                },
+                .typeName => {
+                    if (try self.builtinTypeArg(name, args, pos)) break :blk self.t().string_id;
+                    break :blk self.t().invalid_id;
+                },
+                .TypeOf => {
+                    try self.err(pos, "`@TypeOf` is only allowed as the argument of `@sizeOf`, `@alignOf`, or `@typeName`", .{});
                     try self.synthArgs(args);
                     break :blk self.t().invalid_id;
-                }
-                const operand = readValue(self.ctx, try self.synthExpr(args[0]));
-                const target = expected orelse {
-                    try self.err(pos, "`@{s}` needs a known result type; bind it to an annotated name (`y: T = @{s}(x)`)", .{ name, name });
-                    break :blk self.t().invalid_id;
-                };
-                if (!self.isPoison(operand) and !self.isPoison(target)) {
-                    if (self.castProblem(name, operand, self.liftTarget(target))) |why| {
-                        try self.err(pos, "`@{s}` cannot turn `{s}` into `{s}`: {s}", .{ name, try self.tyName(operand), try self.tyName(target), why });
-                        break :blk self.t().invalid_id;
-                    }
-                }
-                break :blk target;
+                },
+                else => {},
             }
-            if (std.mem.eql(u8, name, "TypeOf")) {
-                try self.err(pos, "`@TypeOf` is only allowed as the argument of `@sizeOf`, `@alignOf`, or `@typeName`", .{});
+            if (args.len != 1) {
+                try self.err(pos, "`@{s}` takes one argument", .{name});
                 try self.synthArgs(args);
                 break :blk self.t().invalid_id;
             }
-            try self.err(pos, "builtin `@{s}` is not supported", .{name});
-            try self.synthArgs(args);
-            break :blk self.t().invalid_id;
+            const operand = readValue(self.ctx, try self.synthExpr(args[0]));
+            const target = expected orelse {
+                try self.err(pos, "`@{s}` needs a known result type; bind it to an annotated name (`y: T = @{s}(x)`)", .{ name, name });
+                break :blk self.t().invalid_id;
+            };
+            if (!self.isPoison(operand) and !self.isPoison(target)) {
+                if (self.castProblem(builtin, operand, self.liftTarget(target))) |why| {
+                    try self.err(pos, "`@{s}` cannot turn `{s}` into `{s}`: {s}", .{ name, try self.tyName(operand), try self.tyName(target), why });
+                    break :blk self.t().invalid_id;
+                }
+            }
+            break :blk target;
         };
         if (expected) |e| {
             if (!self.isPoison(ty) and !compatible(self.ctx, ty, e)) {
@@ -3346,36 +3478,34 @@ const Checker = struct {
         return ty;
     }
 
-    /// Why Zig would reject the cast builtin `name` from `from` to `to`,
+    /// Why Zig would reject the cast builtin `cast` from `from` to `to`,
     /// or null when it accepts it.
-    fn castProblem(self: *Checker, name: []const u8, from: TypeId, to: TypeId) ?[]const u8 {
+    fn castProblem(self: *Checker, cast: Builtin, from: TypeId, to: TypeId) ?[]const u8 {
         const f = self.ctx.types.get(from);
         const t_ = self.ctx.types.get(to);
         const f_int = f == .int or f == .int_literal;
         const f_float = f == .float or f == .float_literal;
-        const eq = std.mem.eql;
-        if (eq(u8, name, "intCast")) {
-            if (!f_int or t_ != .int) return "it converts one integer type to another";
-        } else if (eq(u8, name, "truncate")) {
-            if (!f_int or t_ != .int) return "it converts one integer type to another";
-            if (f == .int) {
-                const fb: u16 = if (f.int.bits == 0) 64 else f.int.bits;
-                const tb: u16 = if (t_.int.bits == 0) 64 else t_.int.bits;
-                if (f.int.signed != t_.int.signed) return "both must be signed, or both unsigned";
-                if (tb > fb) return "the result may not be wider";
-            }
-        } else if (eq(u8, name, "floatCast")) {
-            if (!f_float or t_ != .float) return "it converts one float type to another";
-        } else if (eq(u8, name, "intFromFloat")) {
-            if (!f_float or t_ != .int) return "it converts a float to an integer";
-        } else if (eq(u8, name, "floatFromInt")) {
-            if (!f_int or t_ != .float) return "it converts an integer to a float";
-        } else if (eq(u8, name, "enumFromInt")) {
-            if (!f_int or !sema.isPlainEnum(self.ctx, to)) return "it converts an integer to a plain enum";
-        } else if (eq(u8, name, "bitCast")) {
-            const fb = numericBits(f) orelse return "it reinterprets a number of the same size";
-            const tb = numericBits(t_) orelse return "it reinterprets a number of the same size";
-            if (fb != tb) return "both must have the same size";
+        switch (cast) {
+            .intCast => if (!f_int or t_ != .int) return "it converts one integer type to another",
+            .truncate => {
+                if (!f_int or t_ != .int) return "it converts one integer type to another";
+                if (f == .int) {
+                    const fb: u16 = if (f.int.bits == 0) 64 else f.int.bits;
+                    const tb: u16 = if (t_.int.bits == 0) 64 else t_.int.bits;
+                    if (f.int.signed != t_.int.signed) return "both must be signed, or both unsigned";
+                    if (tb > fb) return "the result may not be wider";
+                }
+            },
+            .floatCast => if (!f_float or t_ != .float) return "it converts one float type to another",
+            .intFromFloat => if (!f_float or t_ != .int) return "it converts a float to an integer",
+            .floatFromInt => if (!f_int or t_ != .float) return "it converts an integer to a float",
+            .enumFromInt => if (!f_int or !sema.isPlainEnum(self.ctx, to)) return "it converts an integer to a plain enum",
+            .bitCast => {
+                const fb = numericBits(f) orelse return "it reinterprets a number of the same size";
+                const tb = numericBits(t_) orelse return "it reinterprets a number of the same size";
+                if (fb != tb) return "both must have the same size";
+            },
+            .sizeOf, .alignOf, .typeName, .TypeOf => {},
         }
         return null;
     }
@@ -3425,13 +3555,16 @@ const Checker = struct {
         const prev_ret = self.fn_return;
         const prev_sub = self.is_sub;
         const prev_sites = self.lambda_returns;
+        const prev_fail = self.fail_to;
         defer {
             self.scope = prev;
             self.fn_return = prev_ret;
             self.is_sub = prev_sub;
             self.lambda_returns = prev_sites;
+            self.fail_to = prev_fail;
         }
         self.lambda_returns = null;
+        self.fail_to = .closure;
 
         if (self.ctx.bodyRoot(outer)) |root| {
             if (self.ctx.scopes.items[root].kind == .lambda) {
@@ -3748,6 +3881,11 @@ fn breaksOut(e: Sexp) bool {
 }
 
 /// A name or a chain of fields off one: `v`, `t.kids`, `a.b.c`.
+/// `a` and `b` are the same parsed node.
+fn sameNode(a: Sexp, b: Sexp) bool {
+    return a == .list and b == .list and a.list.ptr == b.list.ptr;
+}
+
 fn isFieldPath(e: Sexp) bool {
     if (e == .src) return true;
     if (!e.isKind(.member)) return false;
@@ -3961,4 +4099,75 @@ test "check: reborrow of a borrowed parameter" {
     defer r.p.deinit();
     defer r.ctx.deinit();
     try expectClean(&r.ctx);
+}
+
+test "check: a fallible call must be wrapped with `!` or `catch`" {
+    var r = try checkSource(std.testing.allocator,
+        \\fun load(id: Int) -> Int!
+        \\  id
+        \\
+        \\struct U
+        \\  n: Int
+        \\
+        \\  fun check(?self) -> Int!
+        \\    self.n
+        \\
+        \\sub main()
+        \\  x = load(1)
+        \\  u = U(n: 1)
+        \\  print(x, u.check())
+        \\
+    );
+    defer r.p.deinit();
+    defer r.ctx.deinit();
+    try expectDiagnostic(&r.ctx, "fallible call to `load` must be wrapped");
+    try expectDiagnostic(&r.ctx, "fallible call to `u.check` must be wrapped");
+}
+
+test "check: `!` in a fallible function, `sub main`, and a test" {
+    var r = try checkSource(std.testing.allocator,
+        \\fun load(id: Int) -> Int!
+        \\  id
+        \\
+        \\fun twice(id: Int) -> Int!
+        \\  load(id)! + load(id)!
+        \\
+        \\sub main()
+        \\  print(twice(2)!)
+        \\
+        \\test "twice"
+        \\  print(twice(1)!)
+        \\
+    );
+    defer r.p.deinit();
+    defer r.ctx.deinit();
+    try expectClean(&r.ctx);
+}
+
+test "check: `!` needs a fallible operand and a function that can fail" {
+    var r = try checkSource(std.testing.allocator,
+        \\fun one() -> Int
+        \\  1
+        \\
+        \\fun g() -> Int!
+        \\  3
+        \\
+        \\fun two() -> Int
+        \\  g()! + 1
+        \\
+        \\sub main()
+        \\  print(one()!)
+        \\  defer print(g()!)
+        \\  n = 1
+        \\  c = |+n|
+        \\    print(g()! + n)
+        \\  c()
+        \\
+    );
+    defer r.p.deinit();
+    defer r.ctx.deinit();
+    try expectDiagnostic(&r.ctx, "needs a fallible operand");
+    try expectDiagnostic(&r.ctx, "requires the enclosing function `two`");
+    try expectDiagnostic(&r.ctx, "inside `defer`");
+    try expectDiagnostic(&r.ctx, "a closure body cannot propagate");
 }

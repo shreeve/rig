@@ -1,0 +1,20 @@
+# A `drop` body cannot fail, so it cannot propagate with `!`.
+
+error E
+  bad
+
+fun check(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+struct P
+  n: Int
+
+  drop self: !P
+    print(check(self.n)!)
+
+sub main()
+  p = P(n: 1)
+  print(p.n)
+
+# error: a `drop` body cannot propagate failure; handle it with `catch`

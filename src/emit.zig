@@ -1,8 +1,8 @@
 //! Zig code generation.
 //!
 //! Lowers the semantic IR (`docs/INTERNALS.md`) of one checked module to Zig
-//! 0.16 source. The program has already passed ctx, effects, and
-//! ownership checking; this pass only chooses a representation, and it
+//! 0.16 source. The program has already passed sema and ownership
+//! checking; this pass only chooses a representation, and it
 //! reads everything it needs to know about names and types from ctx's
 //! facts table (`sema.zig`): which symbol a name denotes, whether a
 //! `set` declares or reassigns, and the type of every expression.

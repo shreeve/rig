@@ -1,0 +1,21 @@
+# Only the top-level `sub main` can fail; a method named `main` is an
+# ordinary `sub` and cannot propagate with `!`.
+
+error E
+  bad
+
+fun check(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+struct P
+  n: Int
+
+  sub main(?self)
+    print(check(self.n)!)
+
+sub main()
+  p = P(n: 1)
+  p.main()
+
+# error: use of `!` propagation requires the enclosing function `main` to declare a fallible return type

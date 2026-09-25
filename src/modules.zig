@@ -18,7 +18,6 @@ const std = @import("std");
 const parser = @import("parser.zig");
 const rig = @import("rig.zig");
 const sema = @import("sema.zig");
-const effects = @import("effects.zig");
 const ownership = @import("ownership.zig");
 const ir = parser.ir;
 
@@ -222,8 +221,8 @@ pub const ModuleGraph = struct {
         return ok;
     }
 
-    /// Run ctx, effects, and ownership on a parsed module whose imports
-    /// are all checked.
+    /// Run sema and ownership on a parsed module whose imports are all
+    /// checked.
     fn check(self: *ModuleGraph, id: ModuleId) Error!void {
         const m = self.get(id);
         var entries: std.ArrayListUnmanaged(sema.ImportEntry) = .empty;
@@ -255,11 +254,6 @@ pub const ModuleGraph = struct {
 
         m.sema.deinit();
         m.sema.* = try sema.checkWithImports(self.allocator, m.source, m.parser, m.ir, entries.items, reached.items, id);
-
-        var eff = try effects.Checker.initWithSema(self.allocator, m.source, m.sema);
-        defer eff.deinit();
-        try eff.check(m.ir);
-        for (eff.diagnostics.items) |d| try self.addDiagnostic(id, d);
 
         var own = try ownership.Checker.initWithSema(self.allocator, m.source, m.sema);
         defer own.deinit();

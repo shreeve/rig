@@ -607,7 +607,8 @@ sub main()
 
 ### Tests
 
-`test "name"` declares a block that is checked like a function body.
+`test "name"` declares a block that is checked like a function body
+that may fail: `f()!` in a test fails the test with that error.
 `rig test file.rig` runs every test block of the file: it prints
 `ok    test "name"` for each one that finishes, or
 `FAIL  test "name": ...` with the reason, and then `N passed, M failed`.
@@ -2113,14 +2114,14 @@ what happens to the failure, visibly:
 
 - `f()!` propagates it: the enclosing function fails with the same
   error. The enclosing function must itself return a `T!`, or be
-  `sub main`.
+  the top-level `sub main` or a `test`.
 - `f() catch fallback` handles it: the value of the call, or `fallback`
   when it fails.
 
 A bare call to a fallible function is rejected, and so is `!` on a call
-that cannot fail. A closure body and a `defer` cannot propagate. A
-fallible type is only allowed as a function's return type, and a plain
-`T` is accepted where `T!` is expected.
+that cannot fail. A closure body, a `drop` body, and a `defer` cannot
+propagate. A fallible type is only allowed as a function's return type,
+and a plain `T` is accepted where `T!` is expected.
 
 ```rig
 fun parse_len(s: String) -> Int!
@@ -2282,7 +2283,8 @@ it, and only there, a program may:
 - call a builtin outside the safe list (`@intCast`, `@bitCast`, ...);
 - call an `extern` function.
 
-Rig has no raw pointers yet ([roadmap](docs/ROADMAP.md)).
+An `extern` function can only be called; it cannot be bound, passed,
+or stored as a value, even inside `raw`. Rig has no raw pointers yet ([roadmap](docs/ROADMAP.md)).
 
 Everything else inside a `raw` block is still checked. A `raw` block
 can yield a value, and a safe function may wrap raw code, which is the
