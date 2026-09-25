@@ -67,7 +67,10 @@ const SymbolResolver = struct {
                 try self.walk(ir.Pub.decl(sexp));
                 if (self.ctx.symbols.items.len > before) self.ctx.symbols.items[before].flags.is_public = true;
             },
-            .fun, .sub => try self.walkFun(sexp, true),
+            .fun, .sub => {
+                _ = try self.declare(ir.get(sexp, .name), .function, .{});
+                try self.walkFun(sexp);
+            },
             .lambda => try self.walkLambda(sexp),
             .use => try self.walkUse(sexp),
             .type => try self.walkTypeAlias(sexp),
@@ -109,19 +112,6 @@ const SymbolResolver = struct {
         return prev;
     }
 
-    fn addSymbol(self: *SymbolResolver, sym: Symbol) Error!SymbolId {
-        const id: SymbolId = @intCast(self.ctx.symbols.items.len);
-        try self.ctx.symbols.append(self.ctx.allocator, sym);
-        try self.ctx.addToScope(sym.scope, id);
-        return id;
-    }
-
-    fn addDetached(self: *SymbolResolver, sym: Symbol) Error!SymbolId {
-        const id: SymbolId = @intCast(self.ctx.symbols.items.len);
-        try self.ctx.symbols.append(self.ctx.allocator, sym);
-        return id;
-    }
-
     /// Declare a named symbol in the current scope and record the name
     /// fact. Module-level declarations must have unique names.
     fn declare(self: *SymbolResolver, name_node: Sexp, kind: sema.SymbolKind, flags: sema.SymbolFlags) Error!?SymbolId {
@@ -139,23 +129,20 @@ const SymbolResolver = struct {
             .scope = self.scope,
             .flags = flags,
         };
-        if (self.scope == self.module_scope) {
-            if (self.ctx.lookupInScopeOnly(self.scope, name)) |prev| {
-                const p = self.ctx.symbols.items[prev];
-                if (p.decl_pos == sema.builtin_decl_pos) {
-                    try self.ctx.err(pos, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
-                } else {
-                    try self.ctx.err(pos, "duplicate declaration of `{s}`", .{name});
-                    try self.ctx.note(p.decl_pos, "`{s}` first declared here", .{name});
-                }
-                // Still resolved and checked, under a symbol no name
-                // reaches, so errors inside it are reported too.
-                const id = try self.addDetached(sym);
-                try self.ctx.recordName(name_node, id);
-                return id;
+        const dup = if (self.scope == self.module_scope) self.ctx.lookupInScopeOnly(self.scope, name) else null;
+        if (dup) |prev| {
+            const p = self.ctx.symbols.items[prev];
+            if (p.decl_pos == sema.builtin_decl_pos) {
+                try self.ctx.err(pos, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
+            } else {
+                try self.ctx.err(pos, "duplicate declaration of `{s}`", .{name});
+                try self.ctx.note(p.decl_pos, "`{s}` first declared here", .{name});
             }
         }
-        const id = try self.addSymbol(sym);
+        const id = try self.ctx.addSymbol(sym);
+        // A duplicate is still resolved and checked, under a symbol no
+        // name reaches, so errors inside it are reported too.
+        if (dup == null) try self.ctx.addToScope(self.scope, id);
         try self.ctx.recordName(name_node, id);
         return id;
     }
@@ -172,7 +159,7 @@ const SymbolResolver = struct {
     fn checkShadowing(self: *SymbolResolver, name_node: Sexp, what: []const u8) Error!void {
         const name = identAt(self.ctx.source, name_node) orelse return;
         const pos = srcPos(name_node, 0);
-        if (self.visibleLocal(name)) |prev| {
+        if (self.visibleLocal(self.scope, name)) |prev| {
             try self.ctx.err(pos, "{s} `{s}` shadows the local `{s}`; use a different name", .{ what, name, name });
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
             return;
@@ -180,10 +167,10 @@ const SymbolResolver = struct {
         if (self.scope != self.module_scope) try self.checkShadowsDeclaration(name_node, what);
     }
 
-    /// A local in the current function (through blocks and lambdas),
+    /// A local of the function `from` is in (through blocks and lambdas),
     /// excluding module-level names.
-    fn visibleLocal(self: *SymbolResolver, name: []const u8) ?SymbolId {
-        var sid: ?ScopeId = self.scope;
+    fn visibleLocal(self: *SymbolResolver, from: ScopeId, name: []const u8) ?SymbolId {
+        var sid: ?ScopeId = from;
         while (sid) |s| {
             if (s == self.module_scope or s == sema.scope_invalid) return null;
             if (self.ctx.lookupInScopeOnly(s, name)) |id| return id;
@@ -211,9 +198,8 @@ const SymbolResolver = struct {
         try self.ctx.note(sym.decl_pos, "`{s}` declared here", .{name});
     }
 
-    /// A `fun` or `sub`.
-    fn walkFun(self: *SymbolResolver, node: Sexp, add_symbol: bool) Error!void {
-        if (add_symbol) _ = try self.declare(ir.get(node, .name), .function, .{});
+    /// The parameters and body of a `fun`, `sub`, or `drop`.
+    fn walkFun(self: *SymbolResolver, node: Sexp) Error!void {
         const prev = try self.enter(node, .function);
         defer self.scope = prev;
         try self.bindParams(ir.get(node, .params), &.{});
@@ -293,10 +279,7 @@ const SymbolResolver = struct {
     fn checkShadowingThroughLambda(self: *SymbolResolver, name_node: Sexp) Error!void {
         const name = identAt(self.ctx.source, name_node) orelse return;
         const parent = self.ctx.scopes.items[self.scope].parent orelse return;
-        const saved = self.scope;
-        self.scope = parent;
-        defer self.scope = saved;
-        if (self.visibleLocal(name)) |prev| {
+        if (self.visibleLocal(parent, name)) |prev| {
             try self.ctx.errAt(name_node, "closure parameter `{s}` has the name of the local `{s}`; to capture the local, give it a sigil (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|~{s}|` holds it weakly), or name the parameter differently", .{ name, name, name, name, name });
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
             return;
@@ -333,27 +316,25 @@ const SymbolResolver = struct {
         }
         var ids: std.ArrayListUnmanaged(SymbolId) = .empty;
         defer ids.deinit(self.ctx.allocator);
-        {
-            for (params.items(), 0..) |p, i| {
-                const pname = identAt(self.ctx.source, p) orelse continue;
-                var dup = false;
-                for (params.items()[0..i]) |e| {
-                    if (std.mem.eql(u8, identAt(self.ctx.source, e) orelse "", pname)) dup = true;
-                }
-                if (dup) {
-                    try self.ctx.errAt(p, "duplicate generic parameter `{s}` on `{s}`", .{ pname, name });
-                    continue;
-                }
-                const pid = try self.addDetached(.{
-                    .name = pname,
-                    .kind = .generic_param,
-                    .ty = self.ctx.types.unknown_id,
-                    .decl_pos = srcPos(p, 0),
-                    .scope = self.scope,
-                });
-                try self.ctx.recordName(p, pid);
-                try ids.append(self.ctx.allocator, pid);
+        for (params.items(), 0..) |p, i| {
+            const pname = identAt(self.ctx.source, p) orelse continue;
+            const dup = for (params.items()[0..i]) |e| {
+                if (std.mem.eql(u8, identAt(self.ctx.source, e) orelse "", pname)) break true;
+            } else false;
+            if (dup) {
+                try self.ctx.errAt(p, "duplicate generic parameter `{s}` on `{s}`", .{ pname, name });
+                continue;
             }
+            // Detached: reached through the type's `type_params`.
+            const pid = try self.ctx.addSymbol(.{
+                .name = pname,
+                .kind = .generic_param,
+                .ty = self.ctx.types.unknown_id,
+                .decl_pos = srcPos(p, 0),
+                .scope = self.scope,
+            });
+            try self.ctx.recordName(p, pid);
+            try ids.append(self.ctx.allocator, pid);
         }
         self.ctx.symbols.items[id].type_params = try self.ctx.arena.allocator().dupe(SymbolId, ids.items);
         self.type_params = self.ctx.symbols.items[id].type_params.?;
@@ -369,17 +350,7 @@ const SymbolResolver = struct {
 
     fn walkMembers(self: *SymbolResolver, members: []const Sexp) Error!void {
         for (members) |m| {
-            const h = m.kind() orelse continue;
-            switch (h) {
-                .fun, .sub => try self.walkFun(m, false),
-                .drop_decl => {
-                    const prev = try self.enter(m, .function);
-                    defer self.scope = prev;
-                    try self.bindParams(ir.DropDecl.params(m), &.{});
-                    try self.walk(ir.DropDecl.body(m));
-                },
-                else => {},
-            }
+            if (m.isKind(.fun) or m.isKind(.sub) or m.isKind(.drop_decl)) try self.walkFun(m);
         }
     }
 
@@ -406,7 +377,7 @@ const SymbolResolver = struct {
             },
             .fixed => {
                 if (self.scope != self.module_scope) {
-                    if (self.visibleLocal(identAt(self.ctx.source, target).?)) |prev| {
+                    if (self.visibleLocal(self.scope, identAt(self.ctx.source, target).?)) |prev| {
                         const name = self.ctx.symbols.items[prev].name;
                         try self.ctx.errAt(target, "`{s}` is already bound; `=!` declares a new binding. Assign with `{s} = ...` or shadow with `new {s} = ...`", .{ name, name, name });
                         try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
@@ -465,10 +436,7 @@ const SymbolResolver = struct {
         const root = self.ctx.bodyRoot(self.scope) orelse return;
         if (self.ctx.scopes.items[root].kind != .lambda) return;
         const parent = self.ctx.scopes.items[root].parent orelse return;
-        const saved = self.scope;
-        self.scope = parent;
-        defer self.scope = saved;
-        if (self.visibleLocal(name)) |prev| {
+        if (self.visibleLocal(parent, name)) |prev| {
             try self.ctx.errAt(name_node, "`{s}` inside the closure shadows the local `{s}` of the enclosing function; closures reach outer values only through captures", .{ name, name });
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
         }
@@ -1513,18 +1481,11 @@ fn exposedInstance(ctx: *SemContext, ty: TypeId, exposed: *std.AutoHashMapUnmana
     return null;
 }
 
-/// A match pattern that matches anything without binding: `else`, `_`.
-fn isWildcardPattern(source: []const u8, pattern: Sexp) bool {
-    const text = identAt(source, pattern) orelse return false;
-    return std.mem.eql(u8, text, "else") or std.mem.eql(u8, text, "_");
-}
-
-/// A leaf match pattern that binds its name: not a wildcard, and not a
-/// literal (`1`, `true`).
+/// A leaf match pattern that binds its name: not a wildcard (`else`,
+/// `_`), and not a literal (`1`, `true`).
 pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
     const text = identAt(source, pattern) orelse return false;
-    if (isWildcardPattern(source, pattern)) return false;
-    if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return false;
+    for ([_][]const u8{ "else", "_", "true", "false" }) |word| if (std.mem.eql(u8, text, word)) return false;
     return !sema.isIntLiteralText(text) and !sema.isFloatLiteralText(text);
 }
 
@@ -1648,8 +1609,7 @@ const Generic = struct {
 };
 
 fn addGeneric(ctx: *SemContext, module_scope: ScopeId, name: []const u8, param_names: []const []const u8) Error!Generic {
-    const sym: SymbolId = @intCast(ctx.symbols.items.len);
-    try ctx.symbols.append(ctx.allocator, .{
+    const sym = try ctx.addSymbol(.{
         .name = name,
         .kind = .generic_type,
         .ty = ctx.types.unknown_id,
@@ -1663,8 +1623,7 @@ fn addGeneric(ctx: *SemContext, module_scope: ScopeId, name: []const u8, param_n
     const param_tys = try arena.alloc(TypeId, param_names.len);
     for (param_names, 0..) |pname, i| {
         // Generic parameters are detached: in the symbol table, not in a scope.
-        param_syms[i] = @intCast(ctx.symbols.items.len);
-        try ctx.symbols.append(ctx.allocator, .{
+        param_syms[i] = try ctx.addSymbol(.{
             .name = pname,
             .kind = .generic_param,
             .ty = ctx.types.unknown_id,

@@ -723,6 +723,13 @@ pub const SemContext = struct {
         return id;
     }
 
+    /// Add a symbol to the table, in no scope (see `addToScope`).
+    pub fn addSymbol(self: *SemContext, sym: Symbol) std.mem.Allocator.Error!SymbolId {
+        const id: SymbolId = @intCast(self.symbols.items.len);
+        try self.symbols.append(self.allocator, sym);
+        return id;
+    }
+
     /// Declare the symbol `id` in `scope_id`, after its earlier ones.
     pub fn addToScope(self: *SemContext, scope_id: ScopeId, id: SymbolId) std.mem.Allocator.Error!void {
         const scope = &self.scopes.items[scope_id];
