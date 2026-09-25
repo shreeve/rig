@@ -793,6 +793,22 @@ pub const Checker = struct {
         self.reachable = s.reachable;
     }
 
+    /// Leave the current path: its state relative to point `p`, after
+    /// going back to `p`.
+    fn leave(self: *Checker, p: Point) Error!State {
+        const s = try self.capture(p);
+        try self.rewind(p);
+        return s;
+    }
+
+    /// Make current the join of the current state with `states`, all
+    /// relative to point `p`.
+    fn joinAt(self: *Checker, p: Point, states: []const State) Error!void {
+        var out = try self.leave(p);
+        for (states) |s| out = try self.join(out, s);
+        try self.apply(out);
+    }
+
     /// The single merge operator of the analysis: moved or dropped on
     /// either path is moved or dropped, and loans are unioned. `a` and `b`
     /// are relative to one point, which must be the current state.
@@ -1905,38 +1921,34 @@ pub const Checker = struct {
         const kind = rig.bindingKindOf(ir.Set.op(node));
         const target = ir.Set.target(node);
         const expr = ir.Set.value(node);
-        const compound = switch (kind) {
-            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => true,
-            else => false,
-        };
-
         if (target != .src) return self.walkFieldAssign(target, expr, kind == .move);
 
         const pos = target.src.pos;
         const name = self.text(target);
         const is_lambda = isLambda(expr);
-        const value: Value = if (kind == .move)
-            try self.walkMove(expr)
-        else if (compound)
-            try self.walk(expr)
-        else if (is_lambda) blk: {
-            self.lambda_ok = true;
-            break :blk try self.walk(expr);
-        } else try self.walkConsumed(expr, .binding);
+        const value: Value = switch (kind) {
+            .move => try self.walkMove(expr),
+            .default, .fixed, .shadow => if (is_lambda) blk: {
+                self.lambda_ok = true;
+                break :blk try self.walk(expr);
+            } else try self.walkConsumed(expr, .binding),
+            else => try self.walk(expr),
+        };
 
         if (std.mem.eql(u8, name, "_")) return;
 
         switch (kind) {
-            .shadow => try self.bindNew(name, pos, false, is_lambda, value),
-            .fixed => try self.bindNew(name, pos, true, is_lambda, value),
+            .shadow => try self.bindNew(target, false, is_lambda, value),
+            .fixed => try self.bindNew(target, true, is_lambda, value),
             .default, .move => {
                 if (self.find(name)) |id| {
                     try self.reassign(id, pos, value);
                 } else {
-                    try self.bindNew(name, pos, false, is_lambda, value);
+                    try self.bindNew(target, false, is_lambda, value);
                 }
             },
-            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
+            // Compound assignment (`+=`, ...).
+            else => {
                 const id = self.find(name) orelse return;
                 try self.checkReadable(id, pos);
                 try self.checkAssignable(id, pos);
@@ -1944,10 +1956,12 @@ pub const Checker = struct {
         }
     }
 
-    fn bindNew(self: *Checker, name: []const u8, pos: u32, fixed: bool, closure: bool, value: Value) Error!void {
+    /// A new binding named by `node`, holding `value`.
+    fn bindNew(self: *Checker, node: Sexp, fixed: bool, closure: bool, value: Value) Error!void {
+        const pos = node.src.pos;
         const ty = self.symType(pos);
         _ = try self.addVar(.{
-            .name = name,
+            .name = self.text(node),
             .decl = pos,
             .ty = ty,
             .ref = self.refOfType(ty),
@@ -2401,48 +2415,23 @@ pub const Checker = struct {
     fn walkIf(self: *Checker, node: Sexp) Error!Value {
         const t = self.takeTail(node);
         const cond = ir.If.cond(node);
-        const else_b: ?Sexp = if (ir.If.@"else"(node) != .nil) ir.If.@"else"(node) else null;
-        if (cond.isKind(.as)) return self.walkIfAs(cond, ir.If.then(node), else_b, t);
-        _ = try self.walk(cond);
-        return self.walkBranches(ir.If.then(node), else_b, t);
-    }
-
-    /// `if expr as name`: the value inside the optional moves into
-    /// `name`, which the then-branch owns.
-    fn walkIfAs(self: *Checker, cond: Sexp, then_b: Sexp, else_b: ?Sexp, t: ?Tail) Error!Value {
-        const bound = try self.walkConsumed(ir.As.value(cond), .binding);
+        const then_b = ir.If.then(node);
+        const else_b = ir.If.@"else"(node);
+        // `if expr as name`: the value inside the optional moves into
+        // `name`, which the then-branch owns.
+        const as_cond = cond.isKind(.as);
+        const bound = if (as_cond) try self.walkConsumed(ir.As.value(cond), .binding) else try self.walk(cond);
         const base = try self.here();
-        try self.pushScopeFor(.block, then_b);
-        try self.bindOptional(ir.As.name(cond), bound);
-        var v1 = try self.walkTailBranch(then_b, t);
-        v1 = try self.checkValueEscapesScope(v1);
-        try self.popScope();
-        const s1 = try self.capture(base);
-        try self.rewind(base);
-        const v2 = if (else_b) |e| try self.walkTailBranch(e, t) else Value{};
-        const s2 = try self.capture(base);
-        try self.rewind(base);
-        try self.apply(try self.join(s1, s2));
-        return self.valueUnion(v1, v2);
-    }
-
-    /// The name an optional binding introduces, holding `value`.
-    fn bindOptional(self: *Checker, name: Sexp, value: Value) Error!void {
-        const pos = name.src.pos;
-        const ty = self.symType(pos);
-        _ = try self.addVar(.{ .name = self.text(name), .decl = pos, .ty = ty, .ref = self.refOfType(ty) }, .{
-            .loans = if (self.mayCarryBorrow(ty)) value.loans else &.{},
-        });
-    }
-
-    fn walkBranches(self: *Checker, then_b: Sexp, else_b: ?Sexp, t: ?Tail) Error!Value {
-        const base = try self.here();
-        const v1 = try self.walkTailBranch(then_b, t);
-        const s1 = try self.capture(base);
-        try self.rewind(base);
-        const v2 = if (else_b) |e| try self.walkTailBranch(e, t) else Value{};
-        const s2 = try self.capture(base);
-        try self.rewind(base);
+        var v1: Value = undefined;
+        if (as_cond) {
+            try self.pushScopeFor(.block, then_b);
+            try self.bindNew(ir.As.name(cond), false, false, bound);
+            v1 = try self.checkValueEscapesScope(try self.walkTailBranch(then_b, t));
+            try self.popScope();
+        } else v1 = try self.walkTailBranch(then_b, t);
+        const s1 = try self.leave(base);
+        const v2 = if (else_b != .nil) try self.walkTailBranch(else_b, t) else Value{};
+        const s2 = try self.leave(base);
         try self.apply(try self.join(s1, s2));
         return self.valueUnion(v1, v2);
     }
@@ -2460,8 +2449,7 @@ pub const Checker = struct {
         var v2 = try self.walk(handler);
         v2 = try self.checkValueEscapesScope(v2);
         try self.popScope();
-        const s = try self.capture(base);
-        try self.rewind(base);
+        const s = try self.leave(base);
         try self.apply(try self.join(stateAt(base), s));
         return self.valueUnion(v1, v2);
     }
@@ -2507,8 +2495,7 @@ pub const Checker = struct {
             v = try self.checkValueEscapesScope(v);
             try self.popScope();
             value = try self.valueUnion(value, v);
-            const s = try self.capture(base);
-            try self.rewind(base);
+            const s = try self.leave(base);
             acc = if (acc) |a| try self.join(a, s) else s;
         }
         // Without a catch-all arm, no arm may run.
@@ -2668,7 +2655,7 @@ pub const Checker = struct {
         self.loop = &ctx;
         defer self.loop = ctx.parent;
         try self.walkStmt(stmt);
-        try self.joinBreaks(&ctx);
+        try self.joinAt(ctx.point, ctx.breaks.items);
         return .{};
     }
 
@@ -2712,17 +2699,8 @@ pub const Checker = struct {
                 value = try self.valueUnion(value, try self.walkStmtValue(e, .brk));
             } else try self.walkStmt(e);
         }
-        try self.joinBreaks(&ctx);
+        try self.joinAt(ctx.point, ctx.breaks.items);
         return value;
-    }
-
-    /// After a loop or labeled block: the state where it ends joined
-    /// with the state at every `break` out of it.
-    fn joinBreaks(self: *Checker, ctx: *LoopCtx) Error!void {
-        var out = try self.capture(ctx.point);
-        try self.rewind(ctx.point);
-        for (ctx.breaks.items) |b| out = try self.join(out, b);
-        try self.apply(out);
     }
 
     fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!struct { back: State, exit: State } {
@@ -2733,17 +2711,12 @@ pub const Checker = struct {
         const exit: State = if (spec.cond_always_true) .{ .reachable = false } else try self.capture(ctx.point);
 
         try self.pushScopeFor(.block, spec.body);
-        if (spec.cond_binding != .nil) try self.bindOptional(spec.cond_binding, bound);
+        if (spec.cond_binding != .nil) try self.bindNew(spec.cond_binding, false, false, bound);
         try self.bindLoopElems(spec);
         try self.walkStmt(spec.body);
         try self.popScope();
 
-        if (ctx.conts.items.len > 0) {
-            var end = try self.capture(ctx.point);
-            try self.rewind(ctx.point);
-            for (ctx.conts.items) |c| end = try self.join(end, c);
-            try self.apply(end);
-        }
+        if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items);
         if (spec.cont) |c| try self.walkStmt(c);
         return .{ .back = try self.capture(ctx.point), .exit = exit };
     }
@@ -2881,8 +2854,7 @@ pub const Checker = struct {
         try self.walkStmt(body);
         self.loop = saved_loop;
         self.in_defer = saved_in_defer;
-        const after = try self.capture(snap);
-        try self.rewind(snap);
+        const after = try self.leave(snap);
         if (report_changes) {
             for (after.changes) |e| {
                 if (e.flow.status != self.flows.items[e.id].status) {
