@@ -102,6 +102,9 @@ pub const Error = std.mem.Allocator.Error;
 
 const VarId = u32;
 
+/// Which borrows a query looks for: any, or only write borrows.
+const BorrowQuery = enum { any, write };
+
 const LoanKind = enum(u1) { read, write };
 
 const Loan = struct {
@@ -275,6 +278,9 @@ const Sink = enum {
         };
     }
 };
+
+/// Why a loop-borrow alias cannot leave its slot, for diagnostics.
+const loop_borrow_rule = "a `for x in ?vec` element is a read borrow of the Vec slot and cannot be cloned, moved, dropped, or stored";
 
 /// Owning kinds that cannot be copied implicitly.
 const Owning = union(enum) {
@@ -522,10 +528,7 @@ pub const Checker = struct {
     }
 
     fn noteLoan(self: *Checker, loan: Loan) Error!void {
-        switch (loan.kind) {
-            .read => try self.note(loan.pos, "read borrow taken here", .{}),
-            .write => try self.note(loan.pos, "write borrow taken here", .{}),
-        }
+        try self.note(loan.pos, "{s} borrow taken here", .{@tagName(loan.kind)});
     }
 
     /// What is done to a var, for a borrow conflict.
@@ -558,11 +561,7 @@ pub const Checker = struct {
     // Vars and scopes
     // -------------------------------------------------------------------------
 
-    fn pushScope(self: *Checker, kind: ScopeKind) Error!void {
-        try self.pushScopeFor(kind, .nil);
-    }
-
-    /// A scope covering `node`.
+    /// A scope covering `node` (`.nil` when not known).
     fn pushScopeFor(self: *Checker, kind: ScopeKind, node: Sexp) Error!void {
         try self.scopes.append(self.gpa, .{ .start = @intCast(self.vars.items.len), .kind = kind, .node = node });
     }
@@ -793,6 +792,22 @@ pub const Checker = struct {
         self.reachable = s.reachable;
     }
 
+    /// Leave the current path: its state relative to point `p`, after
+    /// going back to `p`.
+    fn leave(self: *Checker, p: Point) Error!State {
+        const s = try self.capture(p);
+        try self.rewind(p);
+        return s;
+    }
+
+    /// Make current the join of the current state with `states`, all
+    /// relative to point `p`.
+    fn joinAt(self: *Checker, p: Point, states: []const State) Error!void {
+        var out = try self.leave(p);
+        for (states) |s| out = try self.join(out, s);
+        try self.apply(out);
+    }
+
     /// The single merge operator of the analysis: moved or dropped on
     /// either path is moved or dropped, and loans are unioned. `a` and `b`
     /// are relative to one point, which must be the current state.
@@ -800,26 +815,10 @@ pub const Checker = struct {
         if (!a.reachable) return b;
         if (!b.reachable) return a;
         var out: std.ArrayListUnmanaged(Entry) = .empty;
-        var i: usize = 0;
-        var j: usize = 0;
-        while (i < a.changes.len or j < b.changes.len) {
-            const id: VarId = if (j >= b.changes.len or (i < a.changes.len and a.changes[i].id < b.changes[j].id))
-                a.changes[i].id
-            else
-                b.changes[j].id;
-            const base = self.flows.items[id];
-            var fa = base;
-            var fb = base;
-            if (i < a.changes.len and a.changes[i].id == id) {
-                fa = a.changes[i].flow;
-                i += 1;
-            }
-            if (j < b.changes.len and b.changes[j].id == id) {
-                fb = b.changes[j].flow;
-                j += 1;
-            }
-            const joined = try self.joinFlow(fa, fb);
-            if (!flowEql(joined, base)) try out.append(self.arena(), .{ .id = id, .flow = joined });
+        var pairs: Pairs = .{ .a = a.changes, .b = b.changes };
+        while (pairs.next(self)) |p| {
+            const joined = try self.joinFlow(p.fa, p.fb);
+            if (!flowEql(joined, self.flows.items[p.id])) try out.append(self.arena(), .{ .id = p.id, .flow = joined });
         }
         return .{ .changes = out.items, .temps = try self.unionLoans(a.temps, b.temps), .reachable = true };
     }
@@ -837,27 +836,38 @@ pub const Checker = struct {
     fn statesEql(self: *const Checker, a: State, b: State) bool {
         if (a.reachable != b.reachable) return false;
         if (!loanSetEql(a.temps, b.temps)) return false;
-        var i: usize = 0;
-        var j: usize = 0;
-        while (i < a.changes.len or j < b.changes.len) {
-            const id: VarId = if (j >= b.changes.len or (i < a.changes.len and a.changes[i].id < b.changes[j].id))
-                a.changes[i].id
-            else
-                b.changes[j].id;
-            var fa = self.flows.items[id];
-            var fb = fa;
-            if (i < a.changes.len and a.changes[i].id == id) {
-                fa = a.changes[i].flow;
-                i += 1;
-            }
-            if (j < b.changes.len and b.changes[j].id == id) {
-                fb = b.changes[j].flow;
-                j += 1;
-            }
-            if (!flowEql(fa, fb)) return false;
-        }
+        var pairs: Pairs = .{ .a = a.changes, .b = b.changes };
+        while (pairs.next(self)) |p| if (!flowEql(p.fa, p.fb)) return false;
         return true;
     }
+
+    /// Walks the vars two states relative to the current point change,
+    /// in order, with each var's flow in both (its current flow in a
+    /// state that does not change it).
+    const Pairs = struct {
+        a: []const Entry,
+        b: []const Entry,
+        i: usize = 0,
+        j: usize = 0,
+
+        fn next(p: *Pairs, c: *const Checker) ?struct { id: VarId, fa: Flow, fb: Flow } {
+            const in_a = p.i < p.a.len;
+            const in_b = p.j < p.b.len;
+            if (!in_a and !in_b) return null;
+            const id = if (!in_b or (in_a and p.a[p.i].id < p.b[p.j].id)) p.a[p.i].id else p.b[p.j].id;
+            var fa = c.flows.items[id];
+            var fb = fa;
+            if (p.i < p.a.len and p.a[p.i].id == id) {
+                fa = p.a[p.i].flow;
+                p.i += 1;
+            }
+            if (p.j < p.b.len and p.b[p.j].id == id) {
+                fb = p.b[p.j].flow;
+                p.j += 1;
+            }
+            return .{ .id = id, .fa = fa, .fb = fb };
+        }
+    };
 
     fn unionLoans(self: *Checker, a: []const Loan, b: []const Loan) Error![]const Loan {
         if (b.len == 0) return a;
@@ -886,6 +896,13 @@ pub const Checker = struct {
         return out.items;
     }
 
+    /// A loan set holding just `l`.
+    fn oneLoan(self: *Checker, l: Loan) Error![]const Loan {
+        const one = try self.arena().alloc(Loan, 1);
+        one[0] = l;
+        return one;
+    }
+
     fn valueUnion(self: *Checker, a: Value, b: Value) Error!Value {
         return .{ .loans = try self.unionLoans(a.loans, b.loans) };
     }
@@ -894,12 +911,10 @@ pub const Checker = struct {
     // Loan queries
     // -------------------------------------------------------------------------
 
-    const LoanQuery = enum { any, write };
-
     /// A live, non-external loan on `root` held by a var or a temporary.
     /// Vars that view `skip_alias_of` (payload bindings of that scrutinee)
     /// are ignored.
-    fn findLoan(self: *Checker, root: VarId, q: LoanQuery, skip_alias_of: ?VarId) ?Loan {
+    fn findLoan(self: *Checker, root: VarId, q: BorrowQuery, skip_alias_of: ?VarId) ?Loan {
         if (self.isBorrowed(root)) for (self.flows.items, self.vars.items, 0..) |f, v, holder| {
             if (skip_alias_of != null and v.alias_of == skip_alias_of) continue;
             for (f.loans) |l| if (loanMatches(l, root, q)) {
@@ -1062,7 +1077,7 @@ pub const Checker = struct {
         self.fn_depth += 1;
         defer self.fn_depth -= 1;
 
-        try self.pushScope(.function);
+        try self.pushScopeFor(.function, .nil);
         for (params.items()) |p| try self.bindParam(p);
         try self.walkBody(body, returns_value);
         try self.popScope();
@@ -1129,9 +1144,7 @@ pub const Checker = struct {
         // Borrows handed in by the caller: an external loan on the param
         // itself marks them as returnable and conflict-free.
         if (ref != .none or (ty != null and self.mayCarryBorrow(ty))) {
-            const loans = try self.arena().alloc(Loan, 1);
-            loans[0] = .{ .root = id, .kind = if (ref == .write) .write else .read, .pos = pos, .ext = true };
-            self.replaceFlow(id, .{ .loans = loans });
+            self.replaceFlow(id, .{ .loans = try self.oneLoan(.{ .root = id, .kind = if (ref == .write) .write else .read, .pos = pos, .ext = true }) });
         }
     }
 
@@ -1156,15 +1169,11 @@ pub const Checker = struct {
         self.cur_stmt = stmt;
         defer self.cur_stmt = saved_stmt;
         const v = if (sink) |k| try self.walkConsumed(stmt, k) else try self.walk(stmt);
-        try self.restoreTemps(saved.items);
-        return v;
-    }
-
-    /// The temporaries as they were before a statement, less those on
-    /// vars that have left scope since.
-    fn restoreTemps(self: *Checker, saved: []const Loan) Error!void {
+        // The temporaries as they were before, less those on vars that
+        // have left scope since.
         self.temps.clearRetainingCapacity();
-        for (saved) |l| if (l.root < self.vars.items.len) try self.temps.append(self.gpa, l);
+        for (saved.items) |l| if (l.root < self.vars.items.len) try self.temps.append(self.gpa, l);
+        return v;
     }
 
     /// Walk a `(block ...)` in its own scope; its value is the value of
@@ -1186,8 +1195,12 @@ pub const Checker = struct {
     /// Report loans in `v` on vars of the innermost scope and drop them.
     fn checkValueEscapesScope(self: *Checker, v: Value) Error!Value {
         if (!self.reachable) return .{};
-        const start = self.scopes.items[self.scopes.items.len - 1].start;
-        if (!hasLoanFrom(v.loans, start)) return v;
+        return self.escapeVarsFrom(v, self.scopes.items[self.scopes.items.len - 1].start);
+    }
+
+    /// Value `v` leaving the scopes of the vars `>= start`: report its
+    /// loans on them and drop those.
+    fn escapeVarsFrom(self: *Checker, v: Value, start: u32) Error!Value {
         for (v.loans) |l| if (l.root >= start) try self.reportShortLived(l, null);
         return .{ .loans = try self.filterLoansBelow(v.loans, start) };
     }
@@ -1203,72 +1216,52 @@ pub const Checker = struct {
             else => return .{},
         }
         const kind = sexp.kind() orelse return .{};
-        const children = rig.children(sexp);
-        return switch (kind) {
-            .fun, .sub, .drop_decl, .@"struct", .@"enum", .errors => blk: {
-                try self.walkDecl(sexp);
-                break :blk .{};
+        switch (kind) {
+            .fun, .sub, .drop_decl, .@"struct", .@"enum", .errors => try self.walkDecl(sexp),
+            .set => try self.walkSet(sexp),
+            .drop => try self.walkDrop(sexp),
+            .@"return" => try self.walkReturn(sexp),
+            .@"break" => try self.walkJump(sexp, .brk),
+            .@"continue" => try self.walkJump(sexp, .cont),
+            .@"defer", .@"errdefer" => try self.walkDefer(sexp),
+            else => return switch (kind) {
+                .block => self.walkBlock(sexp),
+                .move => self.walkMove(ir.Move.operand(sexp)),
+                .read => self.walkBorrow(ir.Read.operand(sexp), .read),
+                .write => self.walkBorrow(ir.Write.operand(sexp), .write),
+                .clone, .weak => self.walkCloneWeak(sexp),
+                .share => self.walkShare(sexp),
+                .lambda => self.walkLambda(sexp, false),
+                .@"if" => self.walkIf(sexp),
+                .@"while" => self.walkWhile(sexp),
+                .@"for" => self.walkFor(sexp),
+                .labeled => self.walkLabeled(sexp),
+                .match => self.walkMatch(sexp),
+                .@"catch" => self.walkCatch(sexp),
+                .propagate, .propagate_none => self.walkPropagate(sexp),
+                .call => self.walkCall(sexp),
+                .member, .index => self.walkMember(sexp),
+                .kwarg => self.walkConsumed(ir.Kwarg.value(sexp), .argument),
+                .array => blk: {
+                    var v: Value = .{};
+                    for (ir.Array.elems(sexp)) |e| v = try self.valueUnion(v, try self.walkConsumed(e, .element));
+                    break :blk v;
+                },
+                .raw_block => self.walk(ir.RawBlock.body(sexp)),
+                .enum_lit, .use, .type, .generic_type, .generic_inst => .{},
+                // Operators on values produce fresh Copy results.
+                .@"+", .@"-", .@"*", .@"/", .@"%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
+                    for (rig.children(sexp)) |c| _ = try self.walk(c);
+                    break :blk .{};
+                },
+                else => blk: {
+                    var v: Value = .{};
+                    for (rig.children(sexp)) |c| v = try self.valueUnion(v, try self.walk(c));
+                    break :blk v;
+                },
             },
-            .block => self.walkBlock(sexp),
-            .set => blk: {
-                try self.walkSet(sexp);
-                break :blk .{};
-            },
-            .drop => blk: {
-                try self.walkDrop(sexp);
-                break :blk .{};
-            },
-            .move => self.walkMove(ir.Move.operand(sexp)),
-            .read => self.walkBorrow(ir.Read.operand(sexp), .read),
-            .write => self.walkBorrow(ir.Write.operand(sexp), .write),
-            .clone, .weak => self.walkCloneWeak(sexp),
-            .share => self.walkShare(sexp),
-            .lambda => self.walkLambda(sexp, false),
-            .@"if" => self.walkIf(sexp),
-            .@"while" => self.walkWhile(sexp),
-            .@"for" => self.walkFor(sexp),
-            .labeled => self.walkLabeled(sexp),
-            .match => self.walkMatch(sexp),
-            .@"return" => blk: {
-                try self.walkReturn(sexp);
-                break :blk .{};
-            },
-            .@"break" => blk: {
-                try self.walkJump(sexp, .brk);
-                break :blk .{};
-            },
-            .@"continue" => blk: {
-                try self.walkJump(sexp, .cont);
-                break :blk .{};
-            },
-            .@"catch" => self.walkCatch(sexp),
-            .propagate, .propagate_none => self.walkPropagate(sexp),
-            .@"defer", .@"errdefer" => blk: {
-                try self.walkDefer(sexp);
-                break :blk .{};
-            },
-            .call => self.walkCall(sexp),
-            .member => self.walkMember(sexp),
-            .index => self.walkMember(sexp),
-            .kwarg => self.walkConsumed(ir.Kwarg.value(sexp), .argument),
-            .array => blk: {
-                var v: Value = .{};
-                for (ir.Array.elems(sexp)) |e| v = try self.valueUnion(v, try self.walkConsumed(e, .element));
-                break :blk v;
-            },
-            .raw_block => self.walk(ir.RawBlock.body(sexp)),
-            .enum_lit, .use, .type, .generic_type, .generic_inst => .{},
-            // Operators on values produce fresh Copy results.
-            .@"+", .@"-", .@"*", .@"/", .@"%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
-                for (children) |c| _ = try self.walk(c);
-                break :blk .{};
-            },
-            else => blk: {
-                var v: Value = .{};
-                for (children) |c| v = try self.valueUnion(v, try self.walk(c));
-                break :blk v;
-            },
-        };
+        }
+        return .{};
     }
 
     /// Walk an expression in a position that takes ownership of its value.
@@ -1352,11 +1345,16 @@ pub const Checker = struct {
         const id = self.find(name) orelse return .{};
         const v = self.vars.items[id];
         if (v.closure and !as_callee) {
-            try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased; call it as `{s}()`, or make the literal owned (`*|...| body`) to pass it around", .{ name, name });
+            try self.errClosureValue(pos, name);
             return .{};
         }
         try self.checkReadable(id, pos);
         return self.varValue(id);
+    }
+
+    /// A closure binding used as a value.
+    fn errClosureValue(self: *Checker, pos: u32, name: []const u8) Error!void {
+        try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased; call it as `{s}()`, or make the literal owned (`*|...| body`) to pass it around", .{ name, name });
     }
 
     /// Reading `id`: it must be live and not write-borrowed.
@@ -1382,13 +1380,9 @@ pub const Checker = struct {
 
     /// Report a use of a moved or dropped var. Returns whether it is live.
     fn checkLive(self: *Checker, id: VarId, pos: u32) Error!bool {
-        const f = self.flows.items[id];
-        const name = self.vars.items[id].name;
-        switch (f.status) {
-            .live => return true,
-            .moved => try self.err(pos, "use of `{s}` after move", .{name}),
-            .dropped => try self.err(pos, "use of `{s}` after drop", .{name}),
-        }
+        if (self.flowLive(id)) return true;
+        const what = if (self.flows.items[id].status == .dropped) "drop" else "move";
+        try self.err(pos, "use of `{s}` after {s}", .{ self.vars.items[id].name, what });
         try self.noteInvalidated(id, pos);
         return false;
     }
@@ -1472,11 +1466,17 @@ pub const Checker = struct {
             try self.err(pos, "closure `{s}` cannot be borrowed; call it as `{s}()`", .{ v.name, v.name });
             return .{};
         }
-        if (!try self.checkLive(id, pos)) return .{};
-        if (try self.conflicts(id, if (kind == .write) .write else .read, pos)) return .{};
+        return (try self.borrowVar(id, kind, pos)) orelse .{};
+    }
+
+    /// Borrow a place in var `id` at `pos`: null when `id` is moved or
+    /// the borrow conflicts, both reported.
+    fn borrowVar(self: *Checker, id: VarId, kind: LoanKind, pos: u32) Error!?Value {
+        if (!try self.checkLive(id, pos)) return null;
+        if (try self.conflicts(id, if (kind == .write) .write else .read, pos)) return null;
         const loan: Loan = .{ .root = id, .kind = kind, .pos = pos };
         try self.addTemp(loan);
-        return self.reborrow(id, loan);
+        return try self.reborrow(id, loan);
     }
 
     /// `?xs[a..b]`. A slice of a String or a `[]T` views what that value
@@ -1494,15 +1494,9 @@ pub const Checker = struct {
         try self.walkPlaceIndices(slice);
         const id = place.root;
         const pos = self.startOf(slice);
-        if (!try self.checkLive(id, pos)) return .{};
-        if (try self.conflicts(id, .read, pos)) return .{};
-        const loan: Loan = .{ .root = id, .kind = .read, .pos = pos };
-        try self.addTemp(loan);
-        const v = try self.reborrow(id, loan);
+        const v = (try self.borrowVar(id, .read, pos)) orelse return .{};
         if (self.typeData(peeled) != .array or !self.inVarStorage(object)) return v;
-        const frame = try self.arena().alloc(Loan, 1);
-        frame[0] = .{ .root = id, .kind = .read, .pos = pos, .frame = true };
-        return .{ .loans = try self.unionLoans(v.loans, frame) };
+        return .{ .loans = try self.unionLoans(v.loans, try self.oneLoan(.{ .root = id, .kind = .read, .pos = pos, .frame = true })) };
     }
 
     /// Whether the value of place `e` is stored in the var the place
@@ -1528,8 +1522,7 @@ pub const Checker = struct {
         const v = self.vars.items[id];
         const held = self.flows.items[id].loans;
         if (v.ref == .read or v.alias_of != null) return .{ .loans = held };
-        const one = try self.arena().alloc(Loan, 1);
-        one[0] = loan;
+        const one = try self.oneLoan(loan);
         if (v.ref == .write) return .{ .loans = try self.unionLoans(one, held) };
         return .{ .loans = one };
     }
@@ -1557,7 +1550,7 @@ pub const Checker = struct {
         const v = self.vars.items[id];
         const vt = verb.text();
         if (v.closure) {
-            try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased; call it as `{s}()`, or make the literal owned (`*|...| body`) to pass it around", .{ v.name, v.name });
+            try self.errClosureValue(pos, v.name);
             return .{};
         }
         if (try self.rejectBorrowedView(id, pos, vt)) return .{};
@@ -1666,7 +1659,7 @@ pub const Checker = struct {
     fn rejectBorrowedView(self: *Checker, id: VarId, pos: u32, op: []const u8) Error!bool {
         const v = self.vars.items[id];
         if (v.loop_borrow) {
-            try self.err(pos, "cannot {s} loop-borrow alias `{s}`; a `for x in ?vec` element is a read borrow of the Vec slot and cannot be cloned, moved, dropped, or stored", .{ op, v.name });
+            try self.err(pos, "cannot {s} loop-borrow alias `{s}`; " ++ loop_borrow_rule, .{ op, v.name });
             return true;
         }
         if (v.capture_resource) {
@@ -1740,18 +1733,12 @@ pub const Checker = struct {
             return;
         }
         if (try self.rejectGlobal(id, pos, "drop")) return;
-        switch (self.flows.items[id].status) {
-            .live => {},
-            .moved => {
+        if (!self.flowLive(id)) {
+            if (self.flows.items[id].status == .moved) {
                 try self.err(pos, "cannot drop `{s}` after it was moved", .{name});
-                try self.noteInvalidated(id, pos);
-                return;
-            },
-            .dropped => {
-                try self.err(pos, "cannot drop `{s}` twice", .{name});
-                try self.noteInvalidated(id, pos);
-                return;
-            },
+            } else try self.err(pos, "cannot drop `{s}` twice", .{name});
+            try self.noteInvalidated(id, pos);
+            return;
         }
         if (v.alias_of != null) {
             _ = try self.movePayload(id, pos, "drop");
@@ -1780,7 +1767,7 @@ pub const Checker = struct {
                 const name = v.name;
                 if (v.closure) return; // reported by walkName
                 if (v.loop_borrow) {
-                    try self.err(pos, "bare use of loop-borrow alias `{s}` in {s} would smuggle the borrowed handle past the loop; a `for x in ?vec` element is a read borrow of the Vec slot and cannot be cloned, moved, dropped, or stored", .{ name, sink.text() });
+                    try self.err(pos, "bare use of loop-borrow alias `{s}` in {s} would smuggle the borrowed handle past the loop; " ++ loop_borrow_rule, .{ name, sink.text() });
                     return;
                 }
                 // A captured borrow passed to a call is lent for the call.
@@ -1905,38 +1892,34 @@ pub const Checker = struct {
         const kind = rig.bindingKindOf(ir.Set.op(node));
         const target = ir.Set.target(node);
         const expr = ir.Set.value(node);
-        const compound = switch (kind) {
-            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => true,
-            else => false,
-        };
-
         if (target != .src) return self.walkFieldAssign(target, expr, kind == .move);
 
         const pos = target.src.pos;
         const name = self.text(target);
         const is_lambda = isLambda(expr);
-        const value: Value = if (kind == .move)
-            try self.walkMove(expr)
-        else if (compound)
-            try self.walk(expr)
-        else if (is_lambda) blk: {
-            self.lambda_ok = true;
-            break :blk try self.walk(expr);
-        } else try self.walkConsumed(expr, .binding);
+        const value: Value = switch (kind) {
+            .move => try self.walkMove(expr),
+            .default, .fixed, .shadow => if (is_lambda) blk: {
+                self.lambda_ok = true;
+                break :blk try self.walk(expr);
+            } else try self.walkConsumed(expr, .binding),
+            else => try self.walk(expr),
+        };
 
         if (std.mem.eql(u8, name, "_")) return;
 
         switch (kind) {
-            .shadow => try self.bindNew(name, pos, false, is_lambda, value),
-            .fixed => try self.bindNew(name, pos, true, is_lambda, value),
+            .shadow => try self.bindNew(target, false, is_lambda, value),
+            .fixed => try self.bindNew(target, true, is_lambda, value),
             .default, .move => {
                 if (self.find(name)) |id| {
                     try self.reassign(id, pos, value);
                 } else {
-                    try self.bindNew(name, pos, false, is_lambda, value);
+                    try self.bindNew(target, false, is_lambda, value);
                 }
             },
-            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
+            // Compound assignment (`+=`, ...).
+            else => {
                 const id = self.find(name) orelse return;
                 try self.checkReadable(id, pos);
                 try self.checkAssignable(id, pos);
@@ -1944,10 +1927,12 @@ pub const Checker = struct {
         }
     }
 
-    fn bindNew(self: *Checker, name: []const u8, pos: u32, fixed: bool, closure: bool, value: Value) Error!void {
+    /// A new binding named by `node`, holding `value`.
+    fn bindNew(self: *Checker, node: Sexp, fixed: bool, closure: bool, value: Value) Error!void {
+        const pos = node.src.pos;
         const ty = self.symType(pos);
         _ = try self.addVar(.{
-            .name = name,
+            .name = self.text(node),
             .decl = pos,
             .ty = ty,
             .ref = self.refOfType(ty),
@@ -2380,10 +2365,9 @@ pub const Checker = struct {
         for (v.loans, 0..) |l, i| {
             if (!self.isLocalLoan(l)) continue;
             const r = self.vars.items[l.root];
-            var seen = false;
-            for (v.loans[0..i]) |p| if (p.root == l.root and !p.ext) {
-                seen = true;
-            };
+            const seen = for (v.loans[0..i]) |p| {
+                if (p.root == l.root and !p.ext) break true;
+            } else false;
             if (seen) continue;
             if (r.kind == .param) {
                 try self.err(l.pos, "cannot return a slice of `{s}`: a read-borrowed parameter of plain data is this function's own copy of the caller's value; take a `[]T` parameter to return part of an array", .{r.name});
@@ -2401,48 +2385,23 @@ pub const Checker = struct {
     fn walkIf(self: *Checker, node: Sexp) Error!Value {
         const t = self.takeTail(node);
         const cond = ir.If.cond(node);
-        const else_b: ?Sexp = if (ir.If.@"else"(node) != .nil) ir.If.@"else"(node) else null;
-        if (cond.isKind(.as)) return self.walkIfAs(cond, ir.If.then(node), else_b, t);
-        _ = try self.walk(cond);
-        return self.walkBranches(ir.If.then(node), else_b, t);
-    }
-
-    /// `if expr as name`: the value inside the optional moves into
-    /// `name`, which the then-branch owns.
-    fn walkIfAs(self: *Checker, cond: Sexp, then_b: Sexp, else_b: ?Sexp, t: ?Tail) Error!Value {
-        const bound = try self.walkConsumed(ir.As.value(cond), .binding);
+        const then_b = ir.If.then(node);
+        const else_b = ir.If.@"else"(node);
+        // `if expr as name`: the value inside the optional moves into
+        // `name`, which the then-branch owns.
+        const as_cond = cond.isKind(.as);
+        const bound = if (as_cond) try self.walkConsumed(ir.As.value(cond), .binding) else try self.walk(cond);
         const base = try self.here();
-        try self.pushScopeFor(.block, then_b);
-        try self.bindOptional(ir.As.name(cond), bound);
-        var v1 = try self.walkTailBranch(then_b, t);
-        v1 = try self.checkValueEscapesScope(v1);
-        try self.popScope();
-        const s1 = try self.capture(base);
-        try self.rewind(base);
-        const v2 = if (else_b) |e| try self.walkTailBranch(e, t) else Value{};
-        const s2 = try self.capture(base);
-        try self.rewind(base);
-        try self.apply(try self.join(s1, s2));
-        return self.valueUnion(v1, v2);
-    }
-
-    /// The name an optional binding introduces, holding `value`.
-    fn bindOptional(self: *Checker, name: Sexp, value: Value) Error!void {
-        const pos = name.src.pos;
-        const ty = self.symType(pos);
-        _ = try self.addVar(.{ .name = self.text(name), .decl = pos, .ty = ty, .ref = self.refOfType(ty) }, .{
-            .loans = if (self.mayCarryBorrow(ty)) value.loans else &.{},
-        });
-    }
-
-    fn walkBranches(self: *Checker, then_b: Sexp, else_b: ?Sexp, t: ?Tail) Error!Value {
-        const base = try self.here();
-        const v1 = try self.walkTailBranch(then_b, t);
-        const s1 = try self.capture(base);
-        try self.rewind(base);
-        const v2 = if (else_b) |e| try self.walkTailBranch(e, t) else Value{};
-        const s2 = try self.capture(base);
-        try self.rewind(base);
+        var v1: Value = undefined;
+        if (as_cond) {
+            try self.pushScopeFor(.block, then_b);
+            try self.bindNew(ir.As.name(cond), false, false, bound);
+            v1 = try self.checkValueEscapesScope(try self.walkTailBranch(then_b, t));
+            try self.popScope();
+        } else v1 = try self.walkTailBranch(then_b, t);
+        const s1 = try self.leave(base);
+        const v2 = if (else_b != .nil) try self.walkTailBranch(else_b, t) else Value{};
+        const s2 = try self.leave(base);
         try self.apply(try self.join(s1, s2));
         return self.valueUnion(v1, v2);
     }
@@ -2460,8 +2419,7 @@ pub const Checker = struct {
         var v2 = try self.walk(handler);
         v2 = try self.checkValueEscapesScope(v2);
         try self.popScope();
-        const s = try self.capture(base);
-        try self.rewind(base);
+        const s = try self.leave(base);
         try self.apply(try self.join(stateAt(base), s));
         return self.valueUnion(v1, v2);
     }
@@ -2507,8 +2465,7 @@ pub const Checker = struct {
             v = try self.checkValueEscapesScope(v);
             try self.popScope();
             value = try self.valueUnion(value, v);
-            const s = try self.capture(base);
-            try self.rewind(base);
+            const s = try self.leave(base);
             acc = if (acc) |a| try self.join(a, s) else s;
         }
         // Without a catch-all arm, no arm may run.
@@ -2561,9 +2518,7 @@ pub const Checker = struct {
                 // borrowed (write-borrowed when the view holds a write
                 // borrow, which must not be reached twice), and a borrowed
                 // root lends what it holds.
-                const one = try self.arena().alloc(Loan, 1);
-                one[0] = .{ .root = r, .kind = if (self.carriesWriteBorrow(ty)) .write else .read, .pos = pos };
-                loans = one;
+                loans = try self.oneLoan(.{ .root = r, .kind = if (self.carriesWriteBorrow(ty)) .write else .read, .pos = pos });
                 if (info.via == .borrowed) loans = try self.unionLoans(loans, self.flows.items[r].loans);
             } else {
                 loans = scrut_value.loans;
@@ -2577,13 +2532,14 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     const LoopSpec = struct {
+        /// The `while` or `for` node.
+        node: Sexp,
         cond: ?Sexp = null,
         cond_always_true: bool = false,
         /// `while expr as name`: the binding the condition's value moves into.
         cond_binding: Sexp = .nil,
         cont: ?Sexp = null,
         body: Sexp,
-        else_body: ?Sexp = null,
         /// `for` loops: element bindings and the source loan.
         elem1: Sexp = .nil,
         elem2: Sexp = .nil,
@@ -2594,10 +2550,6 @@ pub const Checker = struct {
         source_loan: LoanKind = .read,
         source_pos: u32 = 0,
         resource_vec: bool = false,
-        /// Where the loop starts in the source.
-        start: u32 = 0,
-        /// The loop is used as a value.
-        valued: bool = false,
     };
 
     /// An expression that yields a value, including a loop used as one.
@@ -2609,30 +2561,24 @@ pub const Checker = struct {
         const as_cond = ir.While.cond(node).isKind(.as);
         const cond = if (as_cond) ir.As.value(ir.While.cond(node)) else ir.While.cond(node);
         const step = ir.While.step(node);
-        const else_ = ir.While.@"else"(node);
         return self.walkLoop(.{
+            .node = node,
             .cond = cond,
             .cond_binding = if (as_cond) ir.As.name(ir.While.cond(node)) else .nil,
             .cond_always_true = cond == .src and std.mem.eql(u8, self.text(cond), "true"),
             .cont = if (step == .nil) null else step,
             .body = ir.While.body(node),
-            .else_body = if (else_ != .nil) else_ else null,
-            .start = extent(node).lo,
-            .valued = sema.hasValueBreaks(self.source, node),
         });
     }
 
     fn walkFor(self: *Checker, node: Sexp) Error!Value {
         const mode = ir.For.mode(node).tag;
         const source = ir.For.source(node);
-        const else_ = ir.For.@"else"(node);
         var spec: LoopSpec = .{
+            .node = node,
             .body = ir.For.body(node),
-            .else_body = if (else_ != .nil) else_ else null,
             .elem1 = ir.For.@"var"(node),
             .elem2 = ir.For.index(node),
-            .start = extent(node).lo,
-            .valued = sema.hasValueBreaks(self.source, node),
         };
         if (mode == .move) {
             spec.moved = (try self.walkMove(source)).loans;
@@ -2668,12 +2614,12 @@ pub const Checker = struct {
         self.loop = &ctx;
         defer self.loop = ctx.parent;
         try self.walkStmt(stmt);
-        try self.joinBreaks(&ctx);
+        try self.joinAt(ctx.point, ctx.breaks.items);
         return .{};
     }
 
     fn walkLoop(self: *Checker, spec: LoopSpec) Error!Value {
-        var ctx: LoopCtx = .{ .label = self.pending_label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .start = spec.start };
+        var ctx: LoopCtx = .{ .label = self.pending_label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .start = extent(spec.node).lo };
         self.pending_label = "";
         self.loop = &ctx;
         defer self.loop = ctx.parent;
@@ -2707,22 +2653,14 @@ pub const Checker = struct {
         // or a `break` value.
         self.loop = ctx.parent;
         var value = ctx.value;
-        if (spec.else_body) |e| {
-            if (spec.valued) {
+        const e = ir.get(spec.node, .@"else");
+        if (e != .nil) {
+            if (sema.hasValueBreaks(self.source, spec.node)) {
                 value = try self.valueUnion(value, try self.walkStmtValue(e, .brk));
             } else try self.walkStmt(e);
         }
-        try self.joinBreaks(&ctx);
+        try self.joinAt(ctx.point, ctx.breaks.items);
         return value;
-    }
-
-    /// After a loop or labeled block: the state where it ends joined
-    /// with the state at every `break` out of it.
-    fn joinBreaks(self: *Checker, ctx: *LoopCtx) Error!void {
-        var out = try self.capture(ctx.point);
-        try self.rewind(ctx.point);
-        for (ctx.breaks.items) |b| out = try self.join(out, b);
-        try self.apply(out);
     }
 
     fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!struct { back: State, exit: State } {
@@ -2733,17 +2671,12 @@ pub const Checker = struct {
         const exit: State = if (spec.cond_always_true) .{ .reachable = false } else try self.capture(ctx.point);
 
         try self.pushScopeFor(.block, spec.body);
-        if (spec.cond_binding != .nil) try self.bindOptional(spec.cond_binding, bound);
+        if (spec.cond_binding != .nil) try self.bindNew(spec.cond_binding, false, false, bound);
         try self.bindLoopElems(spec);
         try self.walkStmt(spec.body);
         try self.popScope();
 
-        if (ctx.conts.items.len > 0) {
-            var end = try self.capture(ctx.point);
-            try self.rewind(ctx.point);
-            for (ctx.conts.items) |c| end = try self.join(end, c);
-            try self.apply(end);
-        }
+        if (ctx.conts.items.len > 0) try self.joinAt(ctx.point, ctx.conts.items);
         if (spec.cont) |c| try self.walkStmt(c);
         return .{ .back = try self.capture(ctx.point), .exit = exit };
     }
@@ -2752,9 +2685,7 @@ pub const Checker = struct {
         var elem_loans: []const Loan = &.{};
         if (spec.source_root) |root| if (self.flowLive(root)) {
             // The source stays borrowed for the whole loop.
-            const one = try self.arena().alloc(Loan, 1);
-            one[0] = .{ .root = root, .kind = spec.source_loan, .pos = spec.source_pos };
-            elem_loans = one;
+            elem_loans = try self.oneLoan(.{ .root = root, .kind = spec.source_loan, .pos = spec.source_pos });
             _ = try self.addVar(.{ .name = "", .decl = spec.source_pos, .kind = .hidden }, .{ .loans = elem_loans });
         };
         if (spec.elem1 == .src) {
@@ -2798,7 +2729,6 @@ pub const Checker = struct {
     /// `(break value-or-_ label?)` / `(continue label?)`: the state here
     /// flows to the loop (or labeled block) the jump names, or the
     /// innermost loop.
-    /// A `break` or `continue`.
     fn walkJump(self: *Checker, node: Sexp, jump: Jump) Error!void {
         const label = self.text(ir.get(node, .label));
         const value = if (jump == .brk) ir.Break.value(node) else .nil;
@@ -2825,10 +2755,7 @@ pub const Checker = struct {
             try self.errSpan(at, "`continue :{s}` names a block, not a loop", .{label});
         }
         if (target) |t| {
-            if (value != .nil and hasLoanFrom(v.loans, t.point.vars)) {
-                for (v.loans) |l| if (l.root >= t.point.vars) try self.reportShortLived(l, null);
-            }
-            t.value = try self.valueUnion(t.value, .{ .loans = try self.filterLoansBelow(v.loans, t.point.vars) });
+            t.value = try self.valueUnion(t.value, try self.escapeVarsFrom(v, t.point.vars));
             const s = try self.exitState(t.point, t.scope_depth);
             switch (jump) {
                 .brk => try t.breaks.append(self.arena(), s),
@@ -2862,10 +2789,9 @@ pub const Checker = struct {
     // Defer
     // -------------------------------------------------------------------------
 
-    /// A deferred body runs at scope exit. It is checked where it is
-    /// written (and may not change outer state), then again at each exit
-    /// of its scope against the state there.
-    /// A `defer` or `errdefer`.
+    /// `defer` / `errdefer`: the body runs at scope exit. It is checked
+    /// where it is written (and may not change outer state), then again
+    /// at each exit of its scope against the state there.
     fn walkDefer(self: *Checker, node: Sexp) Error!void {
         const body = ir.get(node, .body);
         try self.checkDeferBody(body, true);
@@ -2881,8 +2807,7 @@ pub const Checker = struct {
         try self.walkStmt(body);
         self.loop = saved_loop;
         self.in_defer = saved_in_defer;
-        const after = try self.capture(snap);
-        try self.rewind(snap);
+        const after = try self.leave(snap);
         if (report_changes) {
             for (after.changes) |e| {
                 if (e.flow.status != self.flows.items[e.id].status) {
@@ -3076,13 +3001,15 @@ pub const Checker = struct {
         return sema.isCopyPrimitive(ctx, t) or ctx.types.get(t) == .any_error;
     }
 
-    /// A Vec whose elements own resources: walked by borrowed slot.
+    /// A `Vec(T)`.
     fn isVec(self: *const Checker, ty: TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ctx.types.get(ty);
         return t == .parameterized_nominal and t.parameterized_nominal.sym == ctx.vec_sym_id;
     }
 
+    /// A Vec (or a borrow of one) whose elements own resources: walked
+    /// by borrowed slot.
     fn isResourceVec(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ty orelse return false;
@@ -3122,8 +3049,6 @@ pub const Checker = struct {
         return self.typeCarries(t, .write, 0);
     }
 
-    const BorrowQuery = enum { any, write };
-
     fn typeCarries(self: *const Checker, t: TypeId, q: BorrowQuery, depth: u8) bool {
         const ctx = self.sema orelse return q == .any;
         // Past any real nesting depth, assume the worst.
@@ -3138,10 +3063,7 @@ pub const Checker = struct {
             // instantiation with one is rejected (`checkInstantiations`).
             .type_var => false,
             .imported_nominal => q == .any,
-            .optional => |i| self.typeCarries(i, q, depth + 1),
-            .fallible => |i| self.typeCarries(i, q, depth + 1),
-            .shared => |i| self.typeCarries(i, q, depth + 1),
-            .weak => |i| self.typeCarries(i, q, depth + 1),
+            .optional, .fallible, .shared, .weak => |i| self.typeCarries(i, q, depth + 1),
             .array => |a| self.typeCarries(a.elem, q, depth + 1),
             .nominal => |s| self.fieldsCarry(s, q, depth),
             .parameterized_nominal => |pn| blk: {
@@ -3213,7 +3135,7 @@ fn isIdentStart(c: u8) bool {
     return std.ascii.isAlphabetic(c) or c == '_';
 }
 
-fn loanMatches(l: Loan, root: VarId, q: Checker.LoanQuery) bool {
+fn loanMatches(l: Loan, root: VarId, q: BorrowQuery) bool {
     return l.root == root and !l.ext and (q == .any or l.kind == .write);
 }
 
