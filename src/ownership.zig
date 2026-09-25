@@ -1265,9 +1265,10 @@ pub const Checker = struct {
         _ = try self.movePayload(f.id, node.src.pos, "move");
     }
 
+    /// A place whose value holds a write borrow (`w`, `e.t`, a struct
+    /// with a `!T` field): passing it on lends that borrow.
     fn isWriteBorrowPlace(self: *Checker, expr: Sexp) bool {
-        const t = self.exprType(expr) orelse return false;
-        if (self.typeData(t) != .borrow_write) return false;
+        if (!self.carriesWriteBorrow(self.exprType(expr))) return false;
         return switch (expr) {
             .src => true,
             .list => expr.isKind(.member) or expr.isKind(.index),
