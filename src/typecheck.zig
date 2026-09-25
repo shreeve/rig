@@ -340,7 +340,13 @@ const Checker = struct {
                     try self.checkStmt(s);
                     const what = switch (s.kind().?) {
                         .set => "assignment",
-                        .@"while", .@"for", .labeled => "loop",
+                        .@"while", .@"for" => "loop",
+                        .labeled => switch (ir.Labeled.stmt(s).kind() orelse .labeled) {
+                            .@"while", .@"for" => "loop",
+                            .match => "labeled `match` (a label makes it a statement)",
+                            .raw_block => "labeled `raw` block (a label makes it a statement)",
+                            else => "labeled statement",
+                        },
                         .drop => "drop",
                         .@"defer", .@"errdefer" => "deferred statement",
                         else => "jump",
