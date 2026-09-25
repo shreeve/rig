@@ -63,6 +63,7 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
         .module_scope = module_scope,
         .body = .{ .ret = ctx.types.void_id },
     };
+    defer c.arg_types.deinit(ctx.allocator);
     for (ir.Module.decls(tree)) |decl| if (rig.isModuleConst(decl)) try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl)) try c.checkDecl(decl);
 }
@@ -95,6 +96,8 @@ const Checker = struct {
     /// about to be checked.
     loop_label: []const u8 = "",
     loop_value: ?*LoopValue = null,
+    /// The types inference found for arguments (`argType`).
+    arg_types: std.AutoHashMapUnmanaged(parser.NodeId, TypeId) = .empty,
 
     const Body = struct {
         /// Type `return` values must have; `unknown` while a closure's
@@ -3414,7 +3417,7 @@ const Checker = struct {
             }
             const pat = pattern orelse continue;
             if (!sema.containsTypeVar(self.ctx, pat)) continue;
-            try self.bindArg(&inf, pat, try self.synthQuiet(value), @intCast(number), 0);
+            try self.bindArg(&inf, pat, try self.argType(value), @intCast(number), 0);
         }
         for (inf.bound, 0..) |*b, i| for (inf.literals.items) |lit| {
             if (lit.param != i) continue;
@@ -3427,6 +3430,17 @@ const Checker = struct {
             }
         };
         return inf;
+    }
+
+    /// An argument's type for inference, synthesized once: the call checks
+    /// the argument again, and a generic call nested in its arguments
+    /// would otherwise be synthesized twice at every level.
+    fn argType(self: *Checker, e: Sexp) Error!TypeId {
+        if (e != .list or e.list.id == 0) return self.synthQuiet(e);
+        if (self.arg_types.get(e.list.id)) |ty| return ty;
+        const ty = try self.synthQuiet(e);
+        try self.arg_types.put(self.ctx.allocator, e.list.id, ty);
+        return ty;
     }
 
     /// The two types of a conflict, in argument order.
