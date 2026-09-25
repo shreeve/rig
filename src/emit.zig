@@ -2385,14 +2385,10 @@ pub const Emitter = struct {
         // A constructor call spells its own type: `rig.rcNew(Node{ ... })`.
         const typed = payload_ty != null and self.isConstructorCall(inner) and
             if (self.typeOf(inner)) |inner_ty| inner_ty == payload_ty.? else false;
-        if (payload_ty != null and !typed) {
-            try self.writeAsOpen(payload_ty.?);
-            try self.emitBare(inner);
-            try self.w.writeAll(")");
-        } else {
-            try self.emitBare(inner);
-        }
-        try self.w.writeAll(")");
+        const cast = payload_ty != null and !typed;
+        if (cast) try self.writeAsOpen(payload_ty.?);
+        try self.emitBare(inner);
+        try self.w.writeAll(if (cast) "))" else ")");
     }
 
     // -------------------------------------------------------------------------
@@ -2477,19 +2473,17 @@ pub const Emitter = struct {
                 if (self.isTypeSym(sym_id)) return self.emitConstructor(sexp, sym_id);
             }
         }
-        // A variant named through its enum: `Shape.circle(r: 2)`,
-        // `m.Shape.circle(r: 2)`.
-        if (callee.isKind(.member)) if (self.typeOf(sexp)) |t| {
+        // A member callee without a type of its own names a variant
+        // through its enum (`Shape.circle(r: 2)`, `m.Shape.circle(r: 2)`)
+        // or a type in another module (`m.Type(field: v)`).
+        if (callee.isKind(.member) and self.sema.typeOf(callee) == null) if (self.typeOf(sexp)) |t| {
             const vname = self.srcText(ir.Member.name(callee));
-            if (self.sema.typeOf(callee) == null and self.variantPayload(t, vname) != null) {
+            if (self.variantPayload(t, vname) != null) {
                 try self.writeAsOpen(t);
                 try self.emitVariantPayload(sexp, t, vname);
                 return self.w.writeAll(")");
             }
-        };
-        // A cross-module constructor: `m.Type(field: v)`.
-        if (callee.isKind(.member)) if (self.typeOf(sexp)) |t| {
-            if (self.sema.types.get(t) == .imported_nominal and self.sema.typeOf(callee) == null) {
+            if (self.sema.types.get(t) == .imported_nominal) {
                 try self.emitMember(callee);
                 return self.emitFieldInit(args);
             }
