@@ -191,9 +191,7 @@ pub const Emitter = struct {
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
     labels: std.ArrayListUnmanaged(struct { rig: []const u8, zig: []const u8 }) = .empty,
-    /// The loops used as values around the current point, innermost
-    /// last: each loop's Rig label (or none), the Zig block its `break`
-    /// values leave, and its type.
+    /// The loops used as values around the current point, innermost last.
     value_loops: std.ArrayListUnmanaged(ValueLoop) = .empty,
     /// The place being emitted is only read: a Vec element on its path
     /// is reached through `constSlot`.
@@ -1593,8 +1591,8 @@ pub const Emitter = struct {
         // `match ?t` / `match !t` switch on the value borrowed.
         try self.w.writeAll("switch (");
         try self.emitBare(unborrowed(scrutinee));
-        try self.w.writeAll(") {\n");
-        self.indent += 1;
+        try self.w.writeAll(") ");
+        try self.openBrace();
 
         var has_default = false;
         for (ir.Match.arms(sexp)) |arm| {
@@ -1652,9 +1650,7 @@ pub const Emitter = struct {
         if (!has_default and !self.sema.isExhaustive(sexp)) {
             try self.line("else => {{}},", .{});
         }
-        self.indent -= 1;
-        try self.writeIndent(self.indent);
-        try self.w.writeAll("}");
+        try self.closeBrace();
     }
 
     const Alias = struct { zig_name: []const u8, field: []const u8 };
@@ -2959,10 +2955,9 @@ pub const Emitter = struct {
         const params = ir.Lambda.params(lambda);
         const ret = self.lambdaReturn(lambda);
 
-        try self.w.writeAll("struct {\n");
-        self.indent += 1;
-        const env = try self.envName();
-        try self.pushScope();
+        try self.w.writeAll("struct ");
+        try self.openBrace();
+        const env = if (self.closure_depth == 0) "__rig_self" else try self.fmt("__rig_self{d}", .{self.closure_depth});
         var uses_env = false;
         for (caps) |c| {
             try self.writeIndent(self.indent);
@@ -2991,17 +2986,8 @@ pub const Emitter = struct {
         try self.w.writeAll(" ");
         const body = ir.Lambda.body(lambda);
         if (ret != null) try self.emitValueBody(body) else try self.emitBlock(body);
-        try self.popScope();
         try self.w.writeAll("\n");
-        self.indent -= 1;
-        try self.writeIndent(self.indent);
-        try self.w.writeAll("}");
-    }
-
-    /// The environment parameter of the closure about to be emitted.
-    fn envName(self: *Emitter) Error![]const u8 {
-        if (self.closure_depth == 0) return "__rig_self";
-        return self.fmt("__rig_self{d}", .{self.closure_depth});
+        try self.closeBrace();
     }
 
     /// `{ .cap_x = init, ... }` evaluated where the closure is created.
