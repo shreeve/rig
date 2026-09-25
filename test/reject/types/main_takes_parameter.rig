@@ -3,4 +3,4 @@
 sub main(x: Int)
   print(x)
 
-# error: `main` must be `sub main()`
+# error: `main` must be `sub main`

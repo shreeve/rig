@@ -9,7 +9,7 @@ with the error shown. For the reasons behind the rules, see
 [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ```rig
-sub main()
+sub main
   print("hello, rig")
 ```
 
@@ -47,7 +47,7 @@ A Rig program is a file of declarations: functions (`fun`, `sub`),
 types (`struct`, `enum`, `error`, `type`), constants (`name =! value`),
 imports (`use`), `extern` declarations, and `test` blocks. Statements
 live inside functions. The file's name ends in `.rig`, and a program
-that runs declares its entry point as `sub main()`, with no parameters.
+that runs declares its entry point as `sub main`, with no parameters.
 Only the program calls it: Rig code cannot call `main` or use it as a
 value.
 `rig check` checks a program, `rig run` checks, builds, and runs it,
@@ -86,7 +86,7 @@ enclosing line's indentation closes it. A tab in indentation is an
 error, and so is a dedent to a column that matches no enclosing block.
 
 ```rig reject
-sub main()
+sub main
 	print(1)
 ```
 
@@ -106,7 +106,7 @@ backslash at the end of a line joins the next line anywhere.
 fun add3(a: Int, b: Int, c: Int) -> Int
   a + b + c
 
-sub main()
+sub main
   total = add3(
     1,
     2,
@@ -154,7 +154,7 @@ struct Token
   fun error(?self) -> Bool
     self.type < 0
 
-sub main()
+sub main
   t = Token(type: -1, drop: false)
   print(t.type, t.drop, t.error())
 ```
@@ -192,7 +192,7 @@ Rig (`var`, `fn`, `const`) are ordinary names.
 There is no string interpolation; `print` takes several values instead.
 
 ```rig
-sub main()
+sub main
   print(0xff, 0b101, 0o17, 1.5E+2, 2e-3)
   print('single: "no escapes\n"', "double: 'x'\ty")
 ```
@@ -231,7 +231,7 @@ The rule is uniform, so it has one sharp edge worth knowing: `a -1`
 calls `a` with `-1`.
 
 ```rig reject
-sub main()
+sub main
   a = 5
   b = a -1
 ```
@@ -267,7 +267,7 @@ run-time arithmetic and must not overflow it: `x: F32 = 1e38 * 10.0` is
 rejected.
 
 ```rig
-sub main()
+sub main
   small: U8 = 200
   sum = small + 55          # 55 is a U8 here
   big = 9223372036854775807
@@ -279,7 +279,7 @@ sub main()
 ```
 
 ```rig reject
-sub main()
+sub main
   a: U8 = 250
   b = a + 10
 ```
@@ -289,7 +289,7 @@ sub main()
 ```
 
 ```rig reject
-sub main()
+sub main
   a: I32 = 1
   b: I64 = 2
   print(a + b)
@@ -314,7 +314,7 @@ available, [§16](#16-raw-code-and-ffi).)
 fun average(total: Int, count: Int) -> Float
   Float(total) / Float(count)
 
-sub main()
+sub main
   big = 300
   print(U8(big - 100), Int(-7.9), average(7, 2), I32(U8(255)) + 1)
 ```
@@ -324,7 +324,7 @@ sub main()
 ```
 
 ```rig reject
-sub main()
+sub main
   b = U8(256)
 ```
 
@@ -345,7 +345,7 @@ half-open range `0..xs.len` panics. Arrays hold plain data only; a
 collection of resources is a `Vec`.
 
 ```rig
-sub main()
+sub main
   xs = [10, 20, 30]
   xs[0] = 5
   ys: [2]U8 = [1, 2]
@@ -376,7 +376,7 @@ fun total(xs: []Int) -> Int
     n += x
   n
 
-sub main()
+sub main
   s = "hello, world"
   print(s[0..5], s[7..s.len])
   a = [1, 2, 3, 4]
@@ -436,7 +436,11 @@ ownership rules of [§8](#8-ownership) apply to them.
 
 `fun` declares a function that returns a value; `sub` declares one that
 does not. The return type follows `->`. A function's value is its last
-expression, or the value of a `return`.
+expression, or the value of a `return`. A function with no parameters
+may leave out the empty `()`: `sub main` and `sub main()` are the same
+declaration, and this reference writes the shorter one. A call always
+has its parentheses, `greet()`: the name alone, `greet`, is the function
+as a value.
 
 ```rig
 fun area(w: Int, h: Int) -> Int
@@ -448,7 +452,7 @@ fun sign(n: Int) -> Int
 sub report(label: String, n: Int)
   print(label, n)
 
-sub main()
+sub main
   report("area", area(3, 4))
   report("sign", sign(-7))
 ```
@@ -468,7 +472,7 @@ any order, and are evaluated in the order written.
 fun scaled(n: Int, by: Int = 10, _: Bool = false) -> Int
   n * by
 
-sub main()
+sub main
   print(scaled(3), scaled(3, 2), scaled(by: 4, n: 5))
 ```
 
@@ -497,7 +501,7 @@ struct Config
   name: String = "anon"
   verbose: Bool
 
-sub main()
+sub main
   c = Config(verbose: true)
   d = Config(retries: 5, verbose: false)
   print(c.retries, c.name, d.retries)
@@ -512,7 +516,7 @@ struct Point
   x: Int
   y: Int
 
-  fun origin() -> Self
+  fun origin -> Self
     Point(x: 0, y: 0)
 
   fun plus(?self, other: ?Point) -> Point
@@ -521,7 +525,7 @@ struct Point
   sub shift(!self, dx: Int)
     self.x += dx
 
-sub main()
+sub main
   p = Point.origin()
   q = Point(x: 1, y: 2)
   r = p.plus(?q)
@@ -565,7 +569,7 @@ sub add_three(c: !Counter)
   c.bump()
   c.bump_twice()
 
-sub main()
+sub main
   c = Counter(n: 0)
   add_three(!c)
   (!c).bump()
@@ -602,7 +606,7 @@ sub twice(f: sub(!Counter), c: !Counter)
   f(c)
   f(c)
 
-sub main()
+sub main
   c = Counter(n: 0)
   twice(Counter.bump, !c)
   get = Counter.get
@@ -635,7 +639,7 @@ enum Status
   ok = 200
   missing = 404
 
-sub main()
+sub main
   s: Shape = .rect(w: 2, h: 5)
   c: Shape = Shape.point
   print(s.area(), c.area(), s)
@@ -666,7 +670,7 @@ error NetworkError
   timeout
   refused
 
-sub main()
+sub main
   e: NetworkError = .timeout
   match e
     .timeout => print("timed out")
@@ -708,7 +712,7 @@ enum Option(T)
   some(value: T)
   nothing
 
-sub main()
+sub main
   p = Pair(first: 42, second: "answer")
   o: Option(Int) = .some(value: p.left())
   match o
@@ -736,7 +740,7 @@ type UserId = Int
 fun next(id: UserId) -> Int
   id + 1
 
-sub main()
+sub main
   x: UserId = 5
   print(next(x))
 ```
@@ -754,7 +758,7 @@ struct Point
   x: Int
   y: Int
 
-  fun origin() -> Point
+  fun origin -> Point
     Point(x: 0, y: 0)
 
 enum Color
@@ -764,7 +768,7 @@ enum Color
 type P = Point
 type C = Color
 
-sub main()
+sub main
   p = P(x: 3, y: 4)
   o = P.origin()
   c = C.green
@@ -812,7 +816,7 @@ names =! ["low", "high"]
 fun over(n: Int) -> Bool
   n > limit
 
-sub main()
+sub main
   print(limit, half, names[1], over(12))
 ```
 
@@ -851,7 +855,7 @@ amount may be any integer. Each behaves like its operator
 `<<=` panics when bits are lost.
 
 ```rig
-sub main()
+sub main
   x = 100
   x %= 7
   x <<= 3
@@ -872,7 +876,7 @@ visible local, parameter, or module-level declaration, and `x =! e`
 always declares. To reuse a name on purpose, write `new`:
 
 ```rig
-sub main()
+sub main
   x = 1
   new x = x + 10
   print(x)
@@ -886,10 +890,10 @@ now a string
 ```
 
 ```rig reject
-fun total() -> Int
+fun total -> Int
   0
 
-sub main()
+sub main
   total = 5
 ```
 
@@ -911,7 +915,7 @@ held only for its `drop` at the end of the scope is fine. Parameters
 are exempt.
 
 ```rig reject
-sub main()
+sub main
   total = 0
   totl = 5
   print(total)
@@ -968,7 +972,7 @@ so `not a == b` is `not (a == b)`. The spellings `&&` and `||` are
 rejected with a hint.
 
 ```rig
-sub main()
+sub main
   a = 7
   print(-7 / 2, -7 % 2, a & 3, a << 2, a ^ 1)
   print(not a == 3, a > 3 and a < 10, false or true)
@@ -982,7 +986,7 @@ true true true
 ```
 
 ```rig reject
-sub main()
+sub main
   a = true
   b = a && false
 ```
@@ -1006,7 +1010,7 @@ body, which is a statement of its own, may be a paren-free call there
 fun add(a: Int, b: Int) -> Int
   a + b
 
-sub main()
+sub main
   print add 1, 2
   print (1 + 2) * 3
   print add(1, 2), add 3, 4
@@ -1022,7 +1026,7 @@ sub main()
 fun twice(n: Int) -> Int
   n * 2
 
-sub main()
+sub main
   print(1, twice -3, 5)
 ```
 
@@ -1052,7 +1056,7 @@ fun classify(x: Int) -> String
   else
     "zero"
 
-sub main()
+sub main
   n = 5
   label = if n > 3
     doubled = n * 2
@@ -1070,6 +1074,25 @@ negative 11
 (the last line of a `fun`, or of a branch whose value is used): there
 it is negation.
 
+A statement must have some use. An expression whose value is used (the
+last line of a `fun`, a binding, an argument) may be anything, but one
+whose value would be thrown away must do something: call, propagate
+(`e!`, `e?`), or `catch`. A name, literal, field read, or borrow alone on
+a line has no use and is rejected, and a function name alone is taken
+for a forgotten call.
+
+```rig reject
+sub greet
+  print("hi")
+
+sub main
+  greet
+```
+
+```error
+`greet` is a function; call it with `greet()`
+```
+
 ### Builtins
 
 `@name(args)` calls a Zig builtin. `@sizeOf`, `@alignOf`, `@TypeOf`,
@@ -1084,7 +1107,7 @@ block ([§16](#16-raw-code-and-ffi)). Rig type names are translated
 ### if
 
 ```rig
-sub main()
+sub main
   x = 5
   if x > 10
     print("big")
@@ -1114,7 +1137,7 @@ fun first_over(limit: Int) -> Int
     break if i > limit
   return i
 
-sub main()
+sub main
   x = 5
   print(x) if x > 3
   print(first_over(3))
@@ -1139,7 +1162,7 @@ leaves the loop around this one. A loop can also yield a value
 ([Loops as values](#loops-as-values)).
 
 ```rig
-sub main()
+sub main
   i = 0
   while i < 3 : i += 1
     continue if i == 1
@@ -1171,7 +1194,7 @@ sub find(xs: ?[4]Int, target: Int)
   else
     print("not found")
 
-sub main()
+sub main
   total = 0
   for i in 0..5
     total += i
@@ -1208,7 +1231,7 @@ struct B
 sub keep(b: *B)
   print("kept", b.n)
 
-sub main()
+sub main
   xs = [1, 2, 3]
   for x in !xs
     x *= 10
@@ -1243,7 +1266,7 @@ labeled too, and `break :name` leaves it. A label may repeat an
 enclosing one's name; the innermost is meant.
 
 ```rig
-sub main()
+sub main
   :outer for i in 0..3
     for j in 0..3
       continue :outer if j > i
@@ -1276,7 +1299,7 @@ fun index_of(xs: ?[4]Int, target: Int) -> Int
   else
     -1
 
-sub main()
+sub main
   xs = [3, 1, 4, 1]
   print(index_of(?xs, 4), index_of(?xs, 9))
   n = 27
@@ -1321,7 +1344,7 @@ fun size(n: U8) -> String
     10..100 => "medium"
     100..256 => "large"
 
-sub main()
+sub main
   print(size(5), size(42), size(200))
   match 7
     1 => print("one")
@@ -1342,7 +1365,7 @@ outer bindings, or propagate with `!`. It runs after the values declared
 after it are dropped, so it may not read one through a borrow.
 
 ```rig
-sub main()
+sub main
   defer print("cleanup 1")
   defer
     print("cleanup 2")
@@ -1380,7 +1403,7 @@ Copy field copies the field and leaves `p` whole.) The rest of this
 section is about owning values.
 
 ```rig reject
-sub main()
+sub main
   n = 1
   m = <n
   print(n)
@@ -1408,7 +1431,7 @@ struct Packet
 sub send(p: Packet)
   print("sent", p.payload)
 
-sub main()
+sub main
   p = Packet(payload: 42)
   send(<p)
   p = Packet(payload: 7)     # reassigning makes `p` usable again
@@ -1432,7 +1455,7 @@ struct Packet
 sub send(p: Packet)
   print(p.payload)
 
-sub main()
+sub main
   p = Packet(payload: 42)
   send(<p)
   print(p.payload)
@@ -1450,7 +1473,7 @@ because two owners would release it twice. Write `<x` to move it or
 struct Box
   n: Int
 
-sub main()
+sub main
   a = *Box(n: 1)
   b = a
 ```
@@ -1471,7 +1494,7 @@ struct Box
 sub eat(b: *Box)
   print(b.n)
 
-sub main()
+sub main
   b = *Box(n: 1)
   i = 0
   while i < 2 : i += 1
@@ -1506,7 +1529,7 @@ fun balance_of(a: ?Account) -> Int
 sub deposit(a: !Account, n: Int)
   a.balance += n
 
-sub main()
+sub main
   acct = Account(balance: 100)
   deposit(!acct, 50)
   print(balance_of(?acct))
@@ -1525,7 +1548,7 @@ live the owner cannot be used at all.
 struct User
   name: String
 
-sub main()
+sub main
   u = User(name: "ada")
   r = ?u
   w = !u
@@ -1558,7 +1581,7 @@ struct Box
 struct View
   box: ?Box
 
-sub main()
+sub main
   x = Box(n: 1)
   r = ?x
   print(r.n)
@@ -1582,7 +1605,7 @@ struct Box
   sub bump(!self)
     self.n += 1
 
-sub main()
+sub main
   x = Box(n: 1)
   r = ?x
   i = 0
@@ -1615,7 +1638,7 @@ sub bump(c: !Counter)
 sub reset(c: !Counter)
   c = Counter(hits: 0)
 
-sub main()
+sub main
   c = Counter(hits: 5)
   bump(!c)
   print(c.hits)
@@ -1661,7 +1684,7 @@ fun pick(a: ?Box, b: ?Box, first: Bool) -> ?Box
   else
     b
 
-sub main()
+sub main
   x = Box(payload: 1)
   y = Box(payload: 2)
   r = pick(?x, ?y, false)
@@ -1677,7 +1700,7 @@ sub main()
 struct User
   name: String
 
-fun make() -> ?User
+fun make -> ?User
   u = User(name: "ada")
   ?u
 ```
@@ -1696,7 +1719,7 @@ struct Box
 fun first(a: ?Box, b: ?Box) -> ?Box
   a
 
-sub main()
+sub main
   x = Box(payload: 1)
   y = Box(payload: 2)
   r = first(?x, ?y)
@@ -1744,7 +1767,7 @@ sub run(early: Bool)
     print("dropped b early")
   print("end of run")
 
-sub main()
+sub main
   run(true)
   run(false)
 ```
@@ -1776,7 +1799,7 @@ would release it, so it must be bound to a name first.
 struct User
   age: Int
 
-sub main()
+sub main
   print((*User(age: 5)).age)
 ```
 
@@ -1798,7 +1821,7 @@ struct File
   drop self: !File
     print("closing", self.fd)
 
-sub main()
+sub main
   f = File(fd: 3)
   print("using", f.fd)
 ```
@@ -1829,7 +1852,7 @@ struct Pair
   drop self: !Pair
     print("pair")
 
-sub main()
+sub main
   p = Pair(a: *Noisy(id: 1), b: *Noisy(id: 2))
   print("built")
 ```
@@ -1869,7 +1892,7 @@ struct User
   drop self: !User
     print("released", self.name)
 
-sub main()
+sub main
   a = *User(name: "ada")
   b = +a
   -a
@@ -1904,7 +1927,7 @@ Vec is a `*Cell(Vec(T))`.
 struct User
   age: Int
 
-sub main()
+sub main
   u = *User(age: 1)
   u.age = 2
 ```
@@ -1932,7 +1955,7 @@ sub show(w: ?~Node)
   else
     print("gone")
 
-sub main()
+sub main
   rc = *Node(id: 7)
   w = ~rc
   show(?w)
@@ -2009,7 +2032,7 @@ struct Counter
 sub bump(c: ?Cell(Int))
   c.set(c.get() + 10)
 
-sub main()
+sub main
   count: *Cell(Int) = *Cell(value: 0)
   other = +count
   other.set(other.get() + 5)
@@ -2068,7 +2091,7 @@ moved, dropped, or stored. `for x in !v` and `for x in <v` write and
 consume the elements ([§7](#for)).
 
 ```rig
-sub main()
+sub main
   total: *Cell(Int) = *Cell(value: 0)
   steps: Vec(*sub()) = Vec()
   (!steps).push(*|+total| total.set(total.get() + 1))
@@ -2098,7 +2121,7 @@ struct B
   drop self: !B
     print("drop", self.n)
 
-sub main()
+sub main
   ps: Vec(P) = Vec()
   (!ps).push(P(x: 1, y: 2))
   ps[0].y = 5
@@ -2138,7 +2161,7 @@ subscriber panics. A subscriber that reads its own signal must capture
 it weakly, or the signal and its subscriber keep each other alive.
 
 ```rig
-sub main()
+sub main
   sig: *Signal(Int) = *Signal(value: 0)
   sig.subscribe(*|~sig|
     if sig.upgrade() as s
@@ -2174,7 +2197,7 @@ the closure's **captures** and its **parameters**, captures first:
 The body is an expression on the same line or an indented block.
 
 ```rig
-sub main()
+sub main
   n = 10
   cell: *Cell(Int) = *Cell(value: 0)
   plus_n = |+n, a: Int| a + n
@@ -2197,7 +2220,7 @@ sigils that would capture it, because the spelling alone decides what
 an entry is:
 
 ```rig reject
-sub main()
+sub main
   n = 1
   f = |n| n + 1
 ```
@@ -2232,7 +2255,7 @@ copy or clone an outer capture (`|+x|`) or hold it weakly (`|~x|`), but
 not move it (`|<x|`), since the outer closure may run again.
 
 ```rig
-sub main()
+sub main
   total: *Cell(Int) = *Cell(value: 0)
   add = |+total, k: Int|
     step = |+total, +k| total.set(total.get() + k)
@@ -2269,7 +2292,7 @@ fun apply(f: fun(Int) -> Int, x: Int) -> Int
 fun twice(n: Int) -> Int
   n * 2
 
-sub main()
+sub main
   add: fun(Int, Int) -> Int = |a, b| a + b
   clamp = |x: Int|
     return 100 if x > 100
@@ -2298,7 +2321,7 @@ shared handle, so `~f` makes a weak handle to it, which upgrades like
 any other ([§10](#weak-handles)).
 
 ```rig
-sub main()
+sub main
   f: *fun(Int) -> Int = *|a| a + 1
   w: ~fun(Int) -> Int = ~f
   if w.upgrade() as g
@@ -2322,7 +2345,7 @@ array element, a return value) it is rejected; make it owned instead. A
 closure binding is fixed and cannot be copied, moved, or passed on.
 
 ```rig reject
-fun make() -> fun() -> Int
+fun make -> fun() -> Int
   n = 1
   |+n| n
 ```
@@ -2345,7 +2368,7 @@ fun make_counter(start: Int) -> *fun(Int) -> Int
     count.set(count.get() + step)
     count.get()
 
-sub main()
+sub main
   next = make_counter(100)
   print(next(1), next(10))
   handlers: Vec(*fun(Int) -> Int) = Vec()
@@ -2381,7 +2404,7 @@ sub each(n: Int, f: *sub(Int))
   for i in 0..n
     f(i)
 
-sub main()
+sub main
   total: *Cell(Int) = *Cell(value: 0)
   each(3, *|+total, i|
     total.set(total.get() + i)
@@ -2433,7 +2456,7 @@ fun describe(m: Int?) -> Int
   else
     0
 
-sub main()
+sub main
   print(positive(3) ?? 0, positive(-1) ?? 0)
   print(describe(4), describe(none), positive(-5) == none)
 ```
@@ -2461,7 +2484,7 @@ fun find(id: Int) -> User?
 fun boss_name(id: Int) -> String?
   find(find(id)?.boss?)?.name
 
-sub main()
+sub main
   print(boss_name(1), boss_name(2), boss_name(3))
 ```
 
@@ -2479,7 +2502,7 @@ unwrapped the same way: `(<m)?`.
 struct User
   name: String
 
-sub main()
+sub main
   u: User? = none
   print(u.name)
 ```
@@ -2515,7 +2538,7 @@ fun parse_len(s: String) -> Int!
 fun double_len(s: String) -> Int!
   parse_len(s)! * 2
 
-sub main()
+sub main
   print(double_len("four")!)
   print(parse_len("abc") catch 0)
 ```
@@ -2529,7 +2552,7 @@ sub main()
 fun parse_len(s: String) -> Int!
   s.len
 
-sub main()
+sub main
   n = parse_len("abc")
 ```
 
@@ -2576,7 +2599,7 @@ fun describe(s: String) -> String
       _ => return "too long"
   "length ok" if n > 2 else "short"
 
-sub main()
+sub main
   print(parse_len("abc") catch -1, parse_len("") catch -1)
   print(describe(""), describe("abcdefg"), describe("abcd"))
   x = parse_len("") catch |err|
@@ -2634,7 +2657,7 @@ pub enum Dir
   north
   east
 
-pub fun origin() -> Point
+pub fun origin -> Point
   Point(x: 0, y: 0)
 ```
 
@@ -2644,7 +2667,7 @@ use geo
 fun total(p: ?geo.Point) -> Int
   p.sum()
 
-sub main()
+sub main
   p: geo.Point = geo.Point(x: 1, y: 2)
   q = geo.Point.at(3, 4)
   d = geo.Dir.east
@@ -2692,7 +2715,7 @@ fun safe_abs(n: I32) -> I32
   raw
     abs(n)
 
-sub main()
+sub main
   x: Int = 300
   raw
     small: U8 = @intCast(x - 100)
@@ -2714,7 +2737,7 @@ only through `pub` wrappers.
 ```rig reject
 extern fun abs(n: I32) -> I32
 
-sub main()
+sub main
   print(abs(-5))
 ```
 
@@ -2742,7 +2765,7 @@ fun check(pre mode: Mode, n: Int) -> Bool
   else
     n > 0
 
-sub main()
+sub main
   print(check(.strict, 5), check(.loose, 5))
 ```
 
@@ -2783,7 +2806,7 @@ struct User
   name: String
   age: Int
 
-sub main()
+sub main
   u = User(name: "ada", age: 36)
   n: Int? = none
   print(u, n, ["a", "b"], 2.5)
@@ -2799,7 +2822,7 @@ enum Shape
   circle(r: Float)
   rect(w: Int, h: Int)
 
-sub main()
+sub main
   print(Shape.dot, Shape.circle(r: 2.5), Shape.rect(w: 2, h: 3))
 ```
 
@@ -2838,7 +2861,7 @@ The rest parse, and the checker rejects them as not supported yet
 | an owned closure taking or returning an owning value | `` an owned closure takes plain Copy values `` |
 
 ```rig reject
-sub main()
+sub main
   zig "return;"
 ```
 

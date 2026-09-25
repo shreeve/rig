@@ -43,7 +43,7 @@ One file per test, discovered automatically; there is no list to edit.
 Directives are whole-line comments.
 
 ```rig
-sub main()
+sub main
   print 42
   print "done"
 

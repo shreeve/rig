@@ -25,7 +25,7 @@ fun size_of(p: ?Packet) -> Int
 sub send(p: Packet)
   print("sending", p.size)
 
-sub main()
+sub main
   p = Packet(size: 512)
   print(size_of(?p))      # lent for reading; `p` is still ours
   send(<p)                # handed over; `p` is gone from here on
@@ -184,7 +184,7 @@ struct Owner
 fun id_of(n: ?*Node) -> Int
   n.id
 
-sub main()
+sub main
   o = Owner(node: *Node(id: 1))
   shared = *<o                 # move `o`, then share it: *Owner
   first = +shared.node         # clone the handle in a field: *Node

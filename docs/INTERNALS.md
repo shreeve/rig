@@ -248,7 +248,7 @@ fun size_of(p: ?Packet) -> Int
 sub send(p: Packet)
   print(p.size)
 
-sub main()
+sub main
   p = Packet(size: 512)
   print(size_of(?p))
   count = 1

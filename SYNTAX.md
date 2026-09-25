@@ -100,7 +100,7 @@ bin/rig emit hello.rig       # print the Zig it generates
 ### Hello
 
 ```rig
-sub main()
+sub main
   print("hello, rig")
 ```
 
@@ -124,7 +124,7 @@ struct Account
   sub pay(!self, amount: Int)
     self.balance -= amount
 
-sub main()
+sub main
   a = Account(owner: "ada", balance: 100)
   if a.can_pay(30)
     (!a).pay(30)
@@ -151,7 +151,7 @@ struct File
 sub archive(f: File)
   print("archiving", f.name)
 
-sub main()
+sub main
   log = File(name: "log.txt")
   archive(<log)
   cfg = *File(name: "cfg.toml")
@@ -187,7 +187,7 @@ fun first_even(xs: ?[4]Int) -> Int?
     return x if x % 2 == 0
   none
 
-sub main()
+sub main
   print(parse_len("four")!, parse_len("") catch -1)
   print(first_even(?[1, 3, 4, 5]) ?? 0)
 ```
@@ -204,7 +204,7 @@ supplies a fallback.
 ### Closures
 
 ```rig
-sub main()
+sub main
   count: *Cell(Int) = *Cell(value: 0)
   step = 5
   tick = |+count, +step| count.set(count.get() + step)
@@ -263,7 +263,7 @@ would move, `~x` would hold a handle weakly.
 ## 4. Source files and layout
 
 A source file is UTF-8 and its name ends in `.rig`. A program that runs
-declares `sub main()`.
+declares `sub main`.
 
 **Comments** run from `#` to the end of the line. There are no block
 comments and no doc-comment syntax.
@@ -286,7 +286,7 @@ fun volume(
 ) -> Int
   w * h * d
 
-sub main()
+sub main
   v = volume(
     2,
     3,
@@ -334,7 +334,7 @@ one. One rule decides every case:
 fun twice(n: Int) -> Int
   n * 2
 
-sub main()
+sub main
   a = 5
   b = 3
   c = twice -b
@@ -349,7 +349,7 @@ The rule is uniform, so it has one edge to know: `a -1` calls `a` with
 `-1`. Write `a - 1`.
 
 ```rig reject
-sub main()
+sub main
   a = 5
   b = a -1
 ```
@@ -390,7 +390,7 @@ struct Token
   fun error(?self) -> Bool
     self.type < 0
 
-sub main()
+sub main
   t = Token(type: -1, in: true)
   print(t.type, t.in, t.error())
 ```
@@ -419,7 +419,7 @@ no raw control characters; write `\t` and `\n`. There is no string
 interpolation; `print` takes several values.
 
 ```rig
-sub main()
+sub main
   print(0xff, 0b101, 0o17, 1_000, .5, 1e3)
   print("tab\there", 'it''s raw: \n')
 ```
@@ -449,7 +449,7 @@ type: `I32(x)`, `Float(n)`, `Int(f)`. A conversion is checked: a value
 that does not fit panics (a constant one is rejected at compile time).
 
 ```rig
-sub main()
+sub main
   small: U8 = 200
   sum = small + 55
   avg = Float(7) / Float(2)
@@ -461,7 +461,7 @@ sub main()
 ```
 
 ```rig reject
-sub main()
+sub main
   a: I32 = 1
   b: Int = 2
   print(a + b)
@@ -524,7 +524,7 @@ dammit!": this value, final. The compiler emits a Zig
 `const` unless the binding is reassigned or written through.
 
 ```rig
-sub main()
+sub main
   x = 1
   x = x + 1
   limit =! 10
@@ -543,10 +543,10 @@ says the shadowing is intended. That also rules out a local that
 accidentally shares a name with a module-level function:
 
 ```rig reject
-fun total() -> Int
+fun total -> Int
   0
 
-sub main()
+sub main
   total = 5
 ```
 
@@ -561,7 +561,7 @@ with drop glue counts as used by its own release, so a guard that exists
 only to be released at the end of the block is fine.
 
 ```rig reject
-sub main()
+sub main
   total = 0
   totl = 5
   print(total)
@@ -588,7 +588,7 @@ fun sign(n: Int) -> Int
 sub report(label: String, n: Int)
   print(label, n)
 
-sub main()
+sub main
   report("area", area(3, 4))
   report("sign", sign(-7))
 ```
@@ -604,6 +604,48 @@ sign -1
   leaves early.
 - Declarations live only at module level: there are no nested
   functions. Use a closure.
+- A function with no parameters may drop the empty `()`: `sub main` is
+  the same as `sub main()`, and this guide writes the shorter one.
+- A name alone never runs code; parentheses or arguments always do.
+  `greet` is the function itself, a value; `greet()`, `greet(1)`, and
+  the paren-free `greet 1` call it. That is why a paren-free call needs
+  at least one argument.
+
+**Every statement must have some use.** A value that is returned,
+bound, or passed may be anything, but one that would be thrown away must
+come from something that does work: a call, a propagation (`e!`, `e?`),
+or a `catch`. A lone name, literal, or field read has no logical use and
+is an error, and a lone function name is taken for a forgotten call:
+
+```rig
+sub greet
+  print("hi")
+
+fun pick -> sub()
+  greet
+
+sub main
+  greet()
+  say = pick()
+  say()
+```
+
+```output
+hi
+hi
+```
+
+```rig reject
+sub greet
+  print("hi")
+
+sub main
+  greet
+```
+
+```error
+`greet` is a function; call it with `greet()`
+```
 
 ### Parameters
 
@@ -615,7 +657,7 @@ A parameter the body ignores may be named `_`.
 fun scaled(n: Int, by: Int = 10, _: Bool = false) -> Int
   n * by
 
-sub main()
+sub main
   print(scaled(3), scaled(3, 2), scaled(by: 4, n: 5))
 ```
 
@@ -645,7 +687,7 @@ expression, so a call there keeps its parentheses.
 fun add(a: Int, b: Int) -> Int
   a + b
 
-sub main()
+sub main
   print add 1, 2
   print add(1, 2), add 3, 4
   print (1 + 2) * 3
@@ -664,7 +706,7 @@ sub main()
 fun twice(n: Int) -> Int
   n * 2
 
-sub main()
+sub main
   print(1, twice -3, 5)
 ```
 
@@ -690,7 +732,7 @@ struct Counter
   sub bump(!self)
     self.n += 1
 
-sub main()
+sub main
   g = twice
   print(apply(g, 5), apply(twice, 1))
   c = Counter(n: 0)
@@ -745,7 +787,7 @@ From lowest to highest precedence:
 - There is no `**`; there is no `++` or `--`.
 
 ```rig
-sub main()
+sub main
   a = 7
   print(-7 / 2, -7 % 2, a & 3, a | 8, a ^ 1, a << 2, a >> 1)
   print(not a == 3, a > 3 and a < 10, false or true)
@@ -776,7 +818,7 @@ fun classify(x: Int) -> String
   else
     "zero"
 
-sub main()
+sub main
   n = 5
   label = if n > 3
     doubled = n * 2
@@ -805,7 +847,7 @@ fun first_over(limit: Int) -> Int
     i += 1
     return i if i > limit
 
-sub main()
+sub main
   x = 5
   print("big") if x > 3
   print(first_over(3))
@@ -819,7 +861,7 @@ big
 ### while
 
 ```rig
-sub main()
+sub main
   i = 0
   while i < 5 : i += 1
     continue if i == 1
@@ -855,7 +897,7 @@ done
 half-open: `0..3` is 0, 1, 2.
 
 ```rig
-sub main()
+sub main
   total = 0
   for i in 0..5
     total += i
@@ -891,7 +933,7 @@ Label a loop with `:name` and name it from an inner loop. A `match` or
 `raw` statement may be labeled too, and `break :name` leaves it.
 
 ```rig
-sub main()
+sub main
   :outer for i in 0..3
     for j in 0..3
       continue :outer if j > i
@@ -918,7 +960,7 @@ fun index_of(xs: ?[4]Int, target: Int) -> Int
   else
     -1
 
-sub main()
+sub main
   xs = [3, 1, 4, 1]
   print(index_of(?xs, 4), index_of(?xs, 9))
   n = 27
@@ -971,7 +1013,7 @@ fun size(n: U8) -> String
     10..100 => "medium"
     100..256 => "large"
 
-sub main()
+sub main
   print(area(?Shape.rect(w: 2, h: 5)), size(42))
   match 7
     1 => print("one")
@@ -991,7 +1033,7 @@ reverse order, exactly as in Zig. `errdefer` runs only when the function
 fails. Deferred code may not move or drop outer values or propagate.
 
 ```rig
-sub main()
+sub main
   defer print("cleanup 1")
   defer
     print("cleanup 2")
@@ -1015,7 +1057,7 @@ struct Point
   x: Int
   y: Int = 0
 
-  fun origin() -> Self
+  fun origin -> Self
     Point(x: 0)
 
   fun length2(?self) -> Int
@@ -1027,7 +1069,7 @@ struct Point
   sub shift(!self, dx: Int)
     self.x += dx
 
-sub main()
+sub main
   p = Point.origin()
   q = Point(x: 3, y: 4)
   r = p.plus(?q)
@@ -1064,7 +1106,7 @@ struct Counter
   sub bump(!self)
     self.n += 1
 
-sub main()
+sub main
   c = Counter(n: 0)
   c.bump()
 ```
@@ -1095,7 +1137,7 @@ enum Shape
       .circle(r) => 3 * r * r
       .rect(w, h) => w * h
 
-sub main()
+sub main
   s: Shape = .rect(w: 2, h: 5)
   c = Shape.circle(radius: 2)
   st: Status = .missing
@@ -1121,7 +1163,7 @@ error NetError
   timeout
   refused
 
-sub main()
+sub main
   e: NetError = .timeout
   print(e, e == NetError.timeout)
 ```
@@ -1151,7 +1193,7 @@ enum Option(T)
   some(value: T)
   nothing
 
-sub main()
+sub main
   p = Pair(first: 42, second: "answer")
   o: Option(Int) = .some(value: p.left())
   match o
@@ -1176,7 +1218,7 @@ struct Point
 
 type P = Point
 
-sub main()
+sub main
   id: UserId = 5
   p = P(x: id)
   print(p.x + 1)
@@ -1215,7 +1257,7 @@ fun make(id: Int) -> Packet
   p = Packet(id: id)
   p
 
-sub main()
+sub main
   p = make(1)
   send(<p)
   p = make(2)
@@ -1240,7 +1282,7 @@ struct Packet
 sub send(p: Packet)
   print(p.id)
 
-sub main()
+sub main
   p = Packet(id: 1)
   send(<p)
   print(p.id)
@@ -1258,7 +1300,7 @@ move, `+x` to clone a handle.
 struct Box
   n: Int
 
-sub main()
+sub main
   a = *Box(n: 1)
   b = a
 ```
@@ -1291,7 +1333,7 @@ fun balance_of(a: ?Account) -> Int
 sub deposit(a: !Account, n: Int)
   a.balance += n
 
-sub main()
+sub main
   acct = Account(balance: 100)
   deposit(!acct, 50)
   r = ?acct
@@ -1306,7 +1348,7 @@ sub main()
 struct User
   name: String
 
-sub main()
+sub main
   u = User(name: "ada")
   r = ?u
   w = !u
@@ -1342,7 +1384,7 @@ struct View
 fun pick(a: ?Box, b: ?Box, first: Bool) -> ?Box
   a if first else b
 
-sub main()
+sub main
   x = Box(payload: 1)
   y = Box(payload: 2)
   r = pick(?x, ?y, false)
@@ -1358,7 +1400,7 @@ sub main()
 struct User
   name: String
 
-fun make() -> ?User
+fun make -> ?User
   u = User(name: "ada")
   ?u
 ```
@@ -1419,7 +1461,7 @@ struct Pool
   drop self: !Pool
     print("pool")
 
-sub main()
+sub main
   p = Pool(a: *Conn(id: 1), b: *Conn(id: 2))
   print("built")
 ```
@@ -1449,7 +1491,7 @@ struct User
   drop self: !User
     print("released", self.name)
 
-sub main()
+sub main
   a = *User(name: "ada")
   b = +a
   -a
@@ -1473,7 +1515,7 @@ value. Shared mutable state goes in a `Cell`, so `*Cell(T)` is Rust's
 struct User
   age: Int
 
-sub main()
+sub main
   u = *User(age: 1)
   u.age = 2
 ```
@@ -1517,7 +1559,7 @@ struct Task
   drop self: !Task
     print("done", self.id)
 
-sub main()
+sub main
   nums: Vec(Int) = Vec()
   (!nums).push(3)
   (!nums).push(4)
@@ -1551,7 +1593,7 @@ empties the cell before it drops the elements), so it is sound without
 a borrow flag.
 
 ```rig
-sub main()
+sub main
   log: *Cell(Vec(Int)) = *Cell(value: Vec())
   other = +log
   log.push(1)
@@ -1575,7 +1617,7 @@ closures) that run on every `set`. It lives behind a shared handle,
 `*Signal(value: v)`.
 
 ```rig
-sub main()
+sub main
   clicks: *Signal(Int) = *Signal(value: 0)
   clicks.subscribe(*|~clicks|
     if clicks.upgrade() as c
@@ -1609,7 +1651,7 @@ A closure reaches outer locals only through captures, unlike Rust's
 implicit capture: the capture mode is written, not inferred.
 
 ```rig
-sub main()
+sub main
   n = 10
   add_n = |+n, a: Int| a + n
   hello = || print("hello")
@@ -1636,7 +1678,7 @@ fun apply(f: fun(Int) -> Int, x: Int) -> Int
 fun twice(n: Int) -> Int
   n * 2
 
-sub main()
+sub main
   add: fun(Int, Int) -> Int = |a, b| a + b
   print(add(2, 3), apply(twice, 4))
 ```
@@ -1665,7 +1707,7 @@ fun make_counter(start: Int) -> *fun(Int) -> Int
     count.set(count.get() + step)
     count.get()
 
-sub main()
+sub main
   next = make_counter(100)
   print(next(1), next(10))
   handlers: Vec(*fun(Int) -> Int) = Vec()
@@ -1682,7 +1724,7 @@ sub main()
 ```
 
 ```rig reject
-fun make() -> fun() -> Int
+fun make -> fun() -> Int
   n = 1
   |+n| n
 ```
@@ -1702,7 +1744,7 @@ sub each(n: Int, f: *sub(Int))
   for i in 0..n
     f(i)
 
-sub main()
+sub main
   each(2, *|i|
     print("saw", i))
   each 2, *|i|
@@ -1745,7 +1787,7 @@ fun find(id: Int) -> User?
 fun boss_name(id: Int) -> String?
   find(find(id)?.boss?)?.name
 
-sub main()
+sub main
   print(boss_name(1), boss_name(2))
   if find(2) as u
     print(u.name)
@@ -1784,7 +1826,7 @@ fun parse_len(s: String) -> Int!
 fun doubled(s: String) -> Int!
   parse_len(s)! * 2
 
-sub main()
+sub main
   print(doubled("abc")!, parse_len("") catch -1)
   n = parse_len("abcdefg") catch |err|
     print("failed:", err)
@@ -1805,7 +1847,7 @@ be ignored silently:
 fun parse_len(s: String) -> Int!
   s.len
 
-sub main()
+sub main
   n = parse_len("abc")
 ```
 
@@ -1839,7 +1881,7 @@ fun total(xs: []Int) -> Int
     n += x
   n
 
-sub main()
+sub main
   s = "hello, world"
   print(s[0..5], s.len, s[0])
   a = [1, 2, 3, 4]
@@ -1868,7 +1910,7 @@ pub struct Point
   fun sum(?self) -> Int
     self.x + self.y
 
-pub fun origin() -> Point
+pub fun origin -> Point
   Point(x: 0, y: 0)
 
 pub unit =! 10
@@ -1877,7 +1919,7 @@ pub unit =! 10
 ```rig
 use shapes
 
-sub main()
+sub main
   p: shapes.Point = shapes.Point(x: 1, y: 2)
   print(p.sum(), shapes.origin().sum(), shapes.unit)
 ```
@@ -1898,7 +1940,7 @@ limit =! 10
 half =! limit / 2
 names =! ["low", "high"]
 
-sub main()
+sub main
   print(limit, half, names[1])
 ```
 
@@ -1920,7 +1962,7 @@ fun safe_abs(n: I32) -> I32
   raw
     abs(n)
 
-sub main()
+sub main
   x = 300
   raw
     small: U8 = @intCast(x - 100)
@@ -1953,7 +1995,7 @@ enum Mode
 fun check(pre mode: Mode, n: Int) -> Bool
   n > 10 if mode == .strict else n > 0
 
-sub main()
+sub main
   print(check(.strict, 5), check(.loose, 5))
 ```
 
@@ -1974,7 +2016,7 @@ fun area(w: Int, h: Int) -> Int
 test "area of a square"
   print(area(3, 3))
 
-sub main()
+sub main
   print(area(2, 3))
 ```
 
@@ -1996,7 +2038,7 @@ enum Shape
   dot
   circle(r: Float)
 
-sub main()
+sub main
   u = User(name: "ada", age: 36)
   n: Int? = none
   h = *User(name: "bob", age: 1)
@@ -2098,7 +2140,7 @@ correspondences:
 | an owned closure | a counted, type-erased closure |
 | `defer`, `errdefer` | `defer`, `errdefer` |
 | `pre n: Int` | `comptime n: i64` |
-| `sub main()` | `pub fn main() void`, which checks for leaks on exit in Debug |
+| `sub main` | `pub fn main() void`, which checks for leaks on exit in Debug |
 
 The runtime (`src/runtime.zig`) is written next to every emitted
 program; [INTERNALS](docs/INTERNALS.md) describes it.

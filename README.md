@@ -22,7 +22,7 @@ prints exactly the output shown under it.
 ### Hello
 
 ```rig
-sub main()
+sub main
   print "hello, rig"
 ```
 
@@ -50,7 +50,7 @@ fun greeting(u: ?User) -> String
 sub visit(u: !User)
   u.visits += 1
 
-sub main()
+sub main
   ada = User(name: "Ada", visits: 1)
   visit(!ada)
   print(greeting(?ada), ada.name)
@@ -78,7 +78,7 @@ struct File
 sub archive(f: File)
   print("archiving", f.name)
 
-sub main()
+sub main
   log = File(name: "log.txt")
   data = File(name: "data.csv")
   archive(<log)
@@ -107,7 +107,7 @@ struct Config
   drop self: !Config
     print("config released")
 
-sub main()
+sub main
   a = *Config(level: 3)
   b = +a
   -a
@@ -126,7 +126,7 @@ value goes when its last owner does.
 ### Closures and a little reactivity
 
 ```rig
-sub main()
+sub main
   clicks: *Signal(Int) = *Signal(value: 0)
   total: *Cell(Int) = *Cell(value: 0)
   clicks.subscribe(*|~clicks, +total|
