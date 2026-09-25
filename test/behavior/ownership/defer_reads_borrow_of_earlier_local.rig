@@ -1,0 +1,18 @@
+# Deferred code may read a borrow of a local declared before the
+# `defer`, which is dropped after it runs.
+
+struct Res
+  v: Vec(Int)
+
+sub main()
+  y = Res(v: Vec())
+  (!y.v).push(7)
+  r = ?y
+  defer print("defer reads", r.v[0])
+  x = Res(v: Vec())
+  (!x.v).push(8)
+  print(x.v[0])
+
+# expect:
+# 8
+# defer reads 7

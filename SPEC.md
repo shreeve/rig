@@ -1259,7 +1259,8 @@ something else
 `defer stmt` (or `defer` with a block) runs when the enclosing block
 exits, in reverse order of the defers. `errdefer` runs only when the
 function exits with an error. A deferred body may not move or drop
-outer bindings, or propagate with `!`.
+outer bindings, or propagate with `!`. It runs after the values declared
+after it are dropped, so it may not read one through a borrow.
 
 ```rig
 sub main()

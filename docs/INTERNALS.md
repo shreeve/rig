@@ -542,7 +542,8 @@ consumed like a returned value and checked not to borrow the loop's own
 vars, and its `else` value. Diagnostics are reported only on the final
 walk. `return`, `break`, and `continue` make
 the rest of their block unreachable. A `defer` body is re-checked
-against the state at every exit of its scope.
+against the state at every exit of its scope, where what it reads may
+not borrow a var declared after the `defer` (dropped before it runs).
 
 **Rules** (SPEC §8 states them for users): no use of a moved or dropped
 value; read loans exclude writes, moves, drops, and reassignment, and

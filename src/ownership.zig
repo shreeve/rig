@@ -188,11 +188,15 @@ const ScopeKind = enum {
 const Scope = struct {
     start: u32,
     kind: ScopeKind,
-    defers: std.ArrayListUnmanaged(Sexp) = .empty,
+    defers: std.ArrayListUnmanaged(Deferred) = .empty,
     /// The code the scope covers, whose end is where its vars go out of
     /// scope; `.nil` when not known.
     node: Sexp = .nil,
 };
+
+/// A `defer` or `errdefer` body, and the number of vars declared before
+/// it: the rest are dropped before it runs.
+const Deferred = struct { body: Sexp, vars: u32 };
 
 /// One change to a var's flow, kept so it can be undone.
 const Change = struct { id: VarId, old: Flow };
@@ -378,6 +382,9 @@ pub const Checker = struct {
     hidden: ?struct { lo: usize, hi: usize } = null,
     /// Walking a deferred body.
     in_defer: bool = false,
+    /// Re-checking a deferred body at a scope exit: vars from this one on
+    /// were declared after the `defer`, so they are dropped before it runs.
+    defer_floor: ?u32 = null,
     /// Whether the last error was recorded (notes attach only to a
     /// recorded error; duplicates from re-walked code are dropped).
     last_err_kept: bool = false,
@@ -1384,11 +1391,32 @@ pub const Checker = struct {
 
     /// Report a use of a moved or dropped var. Returns whether it is live.
     fn checkLive(self: *Checker, id: VarId, pos: u32) Error!bool {
+        if (self.defer_floor) |floor| try self.checkDeferredReach(id, floor, pos);
         if (self.flowLive(id)) return true;
         const what = if (self.flows.items[id].status == .dropped) "drop" else "move";
         try self.err(pos, "use of `{s}` after {s}", .{ self.vars.items[id].name, what });
         try self.noteInvalidated(id, pos);
         return false;
+    }
+
+    /// Deferred code reading `id` reads what it borrows, directly or
+    /// through what that borrows, which must not be a var declared after
+    /// the `defer` (from `floor` on): that is dropped before it runs.
+    fn checkDeferredReach(self: *Checker, id: VarId, floor: u32, pos: u32) Error!void {
+        var reach: std.ArrayListUnmanaged(VarId) = .empty;
+        try reach.append(self.arena(), id);
+        var k: usize = 0;
+        while (k < reach.items.len) : (k += 1) {
+            for (self.flows.items[reach.items[k]].loans) |l| {
+                if (l.ext or std.mem.indexOfScalar(VarId, reach.items, l.root) != null) continue;
+                if (l.root >= floor) {
+                    try self.err(pos, "deferred code reads `{s}` through `{s}`, but `{s}` is declared after the `defer` and dropped before it runs", .{ self.vars.items[l.root].name, self.vars.items[id].name, self.vars.items[l.root].name });
+                    try self.noteLoan(l);
+                    return;
+                }
+                try reach.append(self.arena(), l.root);
+            }
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -2824,7 +2852,7 @@ pub const Checker = struct {
     fn walkDefer(self: *Checker, node: Sexp) Error!void {
         const body = ir.get(node, .body);
         try self.checkDeferBody(body, true);
-        try self.scopes.items[self.scopes.items.len - 1].defers.append(self.gpa, body);
+        try self.scopes.items[self.scopes.items.len - 1].defers.append(self.gpa, .{ .body = body, .vars = @intCast(self.vars.items.len) });
     }
 
     fn checkDeferBody(self: *Checker, body: Sexp, report_changes: bool) Error!void {
@@ -2853,10 +2881,14 @@ pub const Checker = struct {
         const saved = self.hidden;
         self.hidden = .{ .lo = scope_idx, .hi = self.scopes.items.len - 1 };
         defer self.hidden = saved;
+        const saved_floor = self.defer_floor;
+        defer self.defer_floor = saved_floor;
         var i = self.scopes.items[scope_idx].defers.items.len;
         while (i > 0) {
             i -= 1;
-            try self.checkDeferBody(self.scopes.items[scope_idx].defers.items[i], false);
+            const d = self.scopes.items[scope_idx].defers.items[i];
+            self.defer_floor = d.vars;
+            try self.checkDeferBody(d.body, false);
         }
     }
 
