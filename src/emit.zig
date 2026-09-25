@@ -1989,6 +1989,12 @@ pub const Emitter = struct {
                 try self.w.writeAll("try ");
                 try self.emitExpr(ir.Propagate.value(sexp));
             },
+            .propagate_none => {
+                const operand = ir.PropagateNone.value(sexp);
+                try self.w.writeAll("(");
+                if (self.isWriteBorrowExpr(operand)) try self.emitDeref(operand) else try self.emitExpr(operand);
+                try self.w.writeAll(" orelse return null)");
+            },
             .neg => {
                 const operand = ir.Neg.operand(sexp);
                 // Zig rejects the literal `-0` as ambiguous; `0 - 0` is 0.
@@ -3558,7 +3564,7 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
                     for (ir.Call.args(e)) |a| if (!isZigComptimeIn(em, argValue(a), depth + 1)) return false;
                     return true;
                 },
-                .share, .clone, .weak, .move, .read, .write, .lambda, .propagate, .@"catch" => return false,
+                .share, .clone, .weak, .move, .read, .write, .lambda, .propagate, .propagate_none, .@"catch" => return false,
                 else => {
                     for (rig.children(e)) |c| {
                         if (c == .tag or c == .nil) continue;
@@ -3615,12 +3621,12 @@ fn argValue(a: Sexp) Sexp {
     return if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
 }
 
-/// Whether evaluating `e` may leave the enclosing block: a `!`, or a
+/// Whether evaluating `e` may leave the enclosing block: a `!` or `?`, or a
 /// `return`, `break`, or `continue` (in a `catch` handler or a branch).
 fn mayLeave(e: Sexp) bool {
     if (e != .list) return false;
     if (e.kind()) |h| switch (h) {
-        .propagate, .@"return", .@"break", .@"continue" => return true,
+        .propagate, .propagate_none, .@"return", .@"break", .@"continue" => return true,
         .lambda => return false,
         else => {},
     };

@@ -1247,7 +1247,7 @@ pub const Checker = struct {
                 break :blk .{};
             },
             .@"catch" => self.walkCatch(sexp),
-            .propagate => self.walkPropagate(sexp),
+            .propagate, .propagate_none => self.walkPropagate(sexp),
             .@"defer", .@"errdefer" => blk: {
                 try self.walkDefer(sexp);
                 break :blk .{};
@@ -1817,7 +1817,7 @@ pub const Checker = struct {
                         try self.checkNoImplicitCopy(ir.Catch.value(expr), sink, false);
                         try self.checkNoImplicitCopy(tailOf(ir.Catch.handler(expr)), sink, false);
                     },
-                    .propagate => try self.checkNoImplicitCopy(ir.Propagate.value(expr), sink, false),
+                    .propagate, .propagate_none => try self.checkNoImplicitCopy(ir.get(expr, .value), sink, false),
                     else => {},
                 }
             },
@@ -2802,9 +2802,9 @@ pub const Checker = struct {
         return self.captureBelow(target, depth);
     }
 
-    /// `e!`: on failure, control leaves for the caller.
+    /// `e!` / `e?`: on failure or `none`, control leaves for the caller.
     fn walkPropagate(self: *Checker, node: Sexp) Error!Value {
-        const v = try self.walk(ir.Propagate.value(node));
+        const v = try self.walk(ir.get(node, .value));
         if (self.reachable) try self.runDefersTo(0);
         return v;
     }

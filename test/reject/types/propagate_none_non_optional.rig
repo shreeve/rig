@@ -1,0 +1,9 @@
+# `?` unwraps an optional; anything else has no `none` to return.
+
+fun f(m: Int) -> Int?
+  m?
+
+sub main()
+  print(f(1))
+
+# error: 4:3: `?` needs an optional operand; this expression has type `Int`

@@ -98,6 +98,8 @@ const Checker = struct {
         fail_to: FailTarget = .module,
         /// The `return`s of the closure whose return type is inferred.
         returns: ?*std.ArrayListUnmanaged(ReturnSite) = null,
+        /// The name of the `fun` or `sub` being checked, for messages.
+        name: Sexp = .nil,
     };
 
     const ReturnSite = struct { node: Sexp, ty: ?TypeId };
@@ -265,7 +267,7 @@ const Checker = struct {
         for (ir.get(node, .params).items()) |p| try self.checkDefault(p);
         // `sub main` lowers to a fallible `main`.
         const fallible = (is_main and is_sub) or rig.returnType(node).isKind(.error_union);
-        try self.checkBody(ir.get(node, .body), .{ .ret = ret, .is_sub = is_sub, .fail_to = if (fallible) .caller else .{ .infallible = name } });
+        try self.checkBody(ir.get(node, .body), .{ .ret = ret, .is_sub = is_sub, .fail_to = if (fallible) .caller else .{ .infallible = name }, .name = name });
     }
 
     /// A parameter's default value is a literal of the parameter's type:
@@ -1311,6 +1313,7 @@ const Checker = struct {
             .member => self.synthMember(e),
             .index => self.synthIndex(e),
             .propagate => self.synthPropagate(e),
+            .propagate_none => self.synthPropagateNone(e),
             .@"if" => self.checkIfValue(e, null, .value),
             .match => self.checkMatch(e, .value, null),
             .block => self.synthBlock(e, null),
@@ -1764,6 +1767,55 @@ const Checker = struct {
                 try self.errAt(operand, "`!` needs a fallible operand; this expression has type `{s}` and cannot fail", .{try self.tyName(self.canonical(ty))});
                 return ty;
             },
+        };
+    }
+
+    /// `e?`: the value inside optional `e`; when `e` is `none`, the
+    /// enclosing function returns `none`, so it must return an optional.
+    /// A resource inside `e` is handed over, so `e` cannot be a borrow.
+    fn synthPropagateNone(self: *Checker, e: Sexp) Error!TypeId {
+        const operand = ir.PropagateNone.value(e);
+        switch (self.body.fail_to) {
+            .deferred => try self.errAt(operand, "cannot use `?` inside `defer`; deferred code cannot return, so take the value out with `if x as v` or `??`", .{}),
+            .closure => try self.errAt(operand, "a closure body cannot return `none` with `?`; take the value out with `if x as v` or `??`", .{}),
+            .drop => try self.errAt(operand, "a `drop` body cannot return `none` with `?`; take the value out with `if x as v` or `??`", .{}),
+            .caller, .infallible, .module => if (!self.returnsOptional(self.body.ret)) {
+                const name = self.body.name;
+                if (name == .nil) {
+                    try self.errAt(operand, "use of `?` requires the enclosing function to return an optional (`-> T?`)", .{});
+                } else {
+                    try self.errAt(operand, "use of `?` requires the enclosing function `{s}` to return an optional (`-> T?`)", .{self.text(name)});
+                    try self.noteAt(name, "`{s}` declared here", .{self.text(name)});
+                }
+            },
+        }
+        const ty = try self.synthExpr(operand);
+        if (self.isPoison(ty)) return ty;
+        const inner = switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty))) {
+            .optional => |i| i,
+            else => {
+                try self.errAt(operand, "`?` needs an optional operand; this expression has type `{s}`", .{try self.tyName(self.canonical(ty))});
+                return self.t().invalid_id;
+            },
+        };
+        const borrowed = switch (self.ctx.types.get(ty)) {
+            .borrow_read, .borrow_write => true,
+            else => false,
+        };
+        if (borrowed and (try self.ownsResource(inner, self.startOf(operand), "moves out of a borrow a value"))) {
+            try self.errAt(operand, "a borrow cannot give up the resource inside it; take a new handle with `+x` instead", .{});
+            return self.t().invalid_id;
+        }
+        return inner;
+    }
+
+    /// A return type `e?` can leave with `none`: `T?`, or `T?!`.
+    fn returnsOptional(self: *Checker, ret: TypeId) bool {
+        if (self.isPoison(ret)) return true;
+        return switch (self.ctx.types.get(ret)) {
+            .optional => true,
+            .fallible => |inner| self.ctx.types.get(inner) == .optional,
+            else => false,
         };
     }
 
@@ -3824,7 +3876,7 @@ fn classifyReceiverShape(recv: Sexp) ReceiverShape {
         .read => .read_explicit,
         .write => .write_explicit,
         .move => .move_explicit,
-        .call, .builtin, .array, .clone, .share, .weak, .@"if", .match, .@"catch", .propagate => .rvalue,
+        .call, .builtin, .array, .clone, .share, .weak, .@"if", .match, .@"catch", .propagate, .propagate_none => .rvalue,
         else => .lvalue_bare,
     };
 }

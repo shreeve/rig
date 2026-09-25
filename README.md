@@ -209,7 +209,7 @@ Nexus next to this checkout, `cd ../nexus && zig build
 - shared `*T` and weak `~T` handles, `Cell`, `Vec`, and `Signal`
 - stack and owned closures with explicit captures, any arity, inferred
   parameter types, and return values
-- optionals with `none`, `??`, and `if x as v`; fallible functions that
+- optionals with `none`, `??`, `if x as v`, and `x?`; fallible functions that
   fail with error values, handled with `f()!`, `catch`, and `catch |err|`
 - checked numeric conversions (`I32(x)`, `Float(n)`), and borrows that
   end at their last use

@@ -1,0 +1,18 @@
+# `e?` returns `none` from the enclosing function, which must be able to
+# return it: a `-> T?` function. `sub main` and tests cannot.
+
+fun f(m: Int?) -> Int
+  m? + 1
+
+sub main()
+  x: Int? = 1
+  print(x?)
+  print(f(2))
+
+test "t"
+  y: Int? = none
+  print(y?)
+
+# error: 5:3: use of `?` requires the enclosing function `f` to return an optional (`-> T?`)
+# error: 9:9: use of `?` requires the enclosing function `main` to return an optional
+# error: 14:9: use of `?` requires the enclosing function to return an optional

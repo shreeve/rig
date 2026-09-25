@@ -1,0 +1,52 @@
+# `e?` is the value inside optional `e`; when `e` is `none`, the enclosing
+# function returns `none`. Deferred code runs on that path, and owning
+# values made earlier in the expression are dropped.
+
+struct User
+  name: String
+  age: Int
+
+struct Box
+  n: Int
+
+fun find(id: Int) -> User?
+  return User(name: "ada", age: 36) if id == 1
+  none
+
+fun age_of(id: Int) -> Int?
+  find(id)?.age
+
+fun both(a: Int, b: Int) -> Int?
+  defer print("leaving both")
+  find(a)?.age + find(b)?.age
+
+fun boxed(n: Int) -> (*Box)?
+  return *Box(n: n) if n > 0
+  none
+
+fun pair(a: *Box, b: *Box) -> Int
+  a.n + b.n
+
+fun sum_boxes(x: Int, y: Int) -> Int?
+  pair(boxed(x)?, boxed(y)?)
+
+fun moved(x: Int) -> Int?
+  m = boxed(x)
+  b = (<m)?
+  b.n
+
+sub main()
+  print(age_of(1), age_of(2))
+  print(both(1, 1))
+  print(both(1, 2))
+  print(sum_boxes(1, 2), sum_boxes(1, 0), sum_boxes(0, 1))
+  print(moved(5), moved(0))
+
+# expect:
+# 36 none
+# leaving both
+# 72
+# leaving both
+# none
+# 3 none none
+# 5 none

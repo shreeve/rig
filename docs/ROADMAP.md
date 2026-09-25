@@ -9,7 +9,6 @@ be checked as thoroughly as what exists.
 - **Stack closures as arguments**: pass a non-escaping closure to a call without allocating it.
 - **Generic functions**: type parameters on functions, not only on types.
 - **Strings**: building and formatting strings. A slice of a built (heap) string will be a borrow of it, as an array slice is today.
-- **Optional propagation**: `e?` returns `none` from the enclosing function, mirroring `e!`.
 - **Traits or interfaces** whose dispatch and ownership stay visible in the IR.
 - **Compile-time evaluation**: `pre` expressions and blocks beyond `pre` parameters.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.

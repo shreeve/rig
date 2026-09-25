@@ -186,6 +186,7 @@ and `.`:
 | `f -x` | `f(-x)` |
 | `f(x)`, `a[i]`, `a.b` | call, index, member access |
 | `f (x)`, `f [1, 2]`, `f .red` | paren-free call with the argument `(x)`, `[1, 2]`, `.red` |
+| `f()!`, `x?` | propagate a failure ([§14](#14-errors)) or `none` ([§13](#13-optionals)) |
 | `-x` alone on a line | drops `x` ([§8](#drop)), except where the line's value is used |
 
 The rule is uniform, so it has one sharp edge worth knowing: `a -1`
@@ -2248,9 +2249,10 @@ expected, and `none` needs a known optional type.
 | `a == v`, `a != v` | whether `a` holds the value `v` (a `T`, not a `String`) |
 | `if a as x` | run the block with `x` bound to the value inside `a`; `else` runs when `a` is `none` |
 | `while a as x` | repeat while `a` produces a value |
+| `a?` | the value inside `a`; when `a` is `none`, the enclosing function returns `none` |
 
 Fields and methods are not reachable through an optional; take the
-value out first. The name bound by `as` is visible only in its block,
+value out first (`a?.name` does). The name bound by `as` is visible only in its block,
 and `as _` tests without binding.
 
 ```rig
@@ -2276,10 +2278,37 @@ sub main()
 8 0 true
 ```
 
+`a?` mirrors `e!` ([§14](#14-errors)): it is allowed only in a
+function returning `T?` (or `T?!`), and not in a closure body or
+deferred code. The early return runs deferred code and drops what the
+function owns, including values already computed for the same call.
+
+```rig
+struct User
+  name: String
+  boss: Int?
+
+fun find(id: Int) -> User?
+  return User(name: "ada", boss: 2) if id == 1
+  return User(name: "grace", boss: none) if id == 2
+  none
+
+fun boss_name(id: Int) -> String?
+  find(find(id)?.boss?)?.name
+
+sub main()
+  print(boss_name(1), boss_name(2), boss_name(3))
+```
+
+```output
+grace none none
+```
+
 An optional of an owning value (such as `(*T)?` from `upgrade()`) owns
 what it holds. `if e as x` over a temporary gives `x` ownership, and it
 is dropped at the end of the block. An optional held in a binding is
-bound by moving or cloning it: `if <m as x`, `if +m as x`.
+bound by moving or cloning it: `if <m as x`, `if +m as x`, and
+unwrapped the same way: `(<m)?`.
 
 ```rig reject
 struct User

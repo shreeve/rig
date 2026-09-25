@@ -128,7 +128,7 @@ hands the parser distinct tokens:
 | `a.b` vs `.red`, `f .red` | `.` vs `DOT_LIT` | `.name` touching a value is member access |
 | `a - b`, `a-b` vs `-x`, `f -x` | `MINUS` vs `MINUS_PREFIX` / `DROP_STMT` | a sigil touching its operand and not the value before it is a prefix; `-name` as a whole statement is a drop |
 | `<x +x *x ?x !x` | `MOVE_PFX` ... `WRITE_PFX` | the same rule |
-| `T?`, `T!`, `f()!` | `SUFFIX_Q`, `SUFFIX_BANG` | touching the value before |
+| `T?`, `T!`, `f()!`, `f()?` | `SUFFIX_Q`, `SUFFIX_BANG` | touching the value before |
 | `a \| b` vs `\|a, +b\| body` | `BAR` vs `BAR_CAPTURE` | the spacing rule; the closing bar is the one the opening probe found |
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
 | `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter |
@@ -204,7 +204,8 @@ tree.
 
 The IR's design rule: **every effect visible in the source stays a
 named node**: move, borrow, clone, drop, share, weak,
-capture mode, propagation, and compile-time parameters. The parse stage
+capture mode, propagation (`propagate` for `e!`, `propagate_none` for
+`e?`), and compile-time parameters. The parse stage
 adds no type information; sema records types separately, keyed by node.
 
 The `@schema` block in `rig.grammar` declares every node kind and its
@@ -420,6 +421,8 @@ error they explain. `test/cli/diagnostics.sh` checks the format.
   test that can fail (`-> T!`, the top-level `sub main`, which is
   emitted as `!void`, or a `test`, whose error `rig test` reports);
   closure bodies, `drop` bodies, and deferred code cannot propagate;
+  likewise `e?` (`propagate_none`) needs an optional operand and a
+  function returning `T?` (or `T?!`) to return `none` from;
 - **the raw boundary**: builtins outside the safe list
   (`@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`), and calls to `extern`
   functions must be inside a `raw` block. An `extern` function can only
