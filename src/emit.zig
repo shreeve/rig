@@ -2866,6 +2866,11 @@ pub const Emitter = struct {
         try self.w.writeAll(" = ");
         try self.emitBare(recv);
         try self.w.writeAll(";\n");
+        // Sema rejects a borrowed temporary receiver that owns a resource
+        // (a consumed one is hoisted by `consumedTemporary`), so only a
+        // value holding a type parameter gets here (`self.twice()` of a
+        // `Box(T)`): plain data in every instance sema accepts, dropped
+        // like a resource in the generic body.
         if (kind) |k| {
             try self.writeIndent(self.indent);
             try self.w.writeAll("defer ");
