@@ -3566,6 +3566,8 @@ fn writeLiteral(w: *Writer, source: []const u8, e: Sexp) Error!void {
             const t = source[s.pos..][0..s.len];
             if (std.mem.eql(u8, t, "none")) return w.writeAll("null");
             if (t[0] == '\'') return writeSingleQuoted(w, t);
+            // Zig has no `.5`.
+            if (t[0] == '.') try w.writeAll("0");
             try w.writeAll(t);
         },
         // `-1`, `.red`: the sign or dot, then the literal.

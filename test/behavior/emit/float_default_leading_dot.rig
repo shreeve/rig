@@ -1,0 +1,14 @@
+# A float default written with a leading dot (`.5`, `-.25`).
+
+struct P
+  x: Float = .5
+
+fun f(y: Float = -.25) -> Float
+  y
+
+sub main()
+  p = P()
+  print(p.x + f())
+
+# expect:
+# 0.25
