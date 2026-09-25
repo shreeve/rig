@@ -897,8 +897,10 @@ From lowest to highest precedence:
 Arithmetic needs numeric operands of one type (a literal adapts to the
 other operand). Integer `/` truncates toward zero and `%` takes the sign
 of the dividend, so `(a / b) * b + a % b == a`. Integer literals in
-float arithmetic are floats, so `h: Float = 7 / 2` is `3.5`. Unsigned values cannot be
-negated. Bitwise operators need integers; a shift amount may be any
+float arithmetic are floats, so `h: Float = 7 / 2` is `3.5`. In
+arithmetic over a type parameter `T` they take `T`'s type in each
+instance: `self.v + 1 / 2` adds `0.5` when `T` is `Float` and `0` when
+it is `Int`. Unsigned values cannot be negated. Bitwise operators need integers; a shift amount may be any
 integer, from 0 up to the width of the shifted type. A left shift that
 loses bits (or the sign) overflows: a constant one is rejected, and one
 computed when the program runs panics, like `+` and `*`.

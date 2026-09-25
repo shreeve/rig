@@ -182,10 +182,10 @@ pub const Emitter = struct {
     rt_names: bool = false,
     /// Emitting a `pre` argument, which must stay compile-time known.
     keep_comptime: bool = false,
-    /// Emitting an operand of float arithmetic whose operands are
-    /// literals: an integer literal is a value of this float type, so
-    /// `7 / 2` in a `Float` is `3.5`.
-    float_literals: ?TypeId = null,
+    /// Emitting an operand of arithmetic in a float type or a type
+    /// parameter: an integer literal is a value of that type, so `7 / 2`
+    /// in a `Float` is `3.5`, and in a `T` divides as `T`'s instance does.
+    literal_ty: ?TypeId = null,
     /// Emitting the object chain of an assignment target: an indexed
     /// element in it is a slot, not a copy.
     place_chain: bool = false,
@@ -1791,15 +1791,15 @@ pub const Emitter = struct {
             if (h.flag.len > 0) return self.w.print("rig.take(&{s}, {s})", .{ h.flag, h.name });
             return self.w.writeAll(h.name);
         }
-        const float_literals = self.float_literals;
-        self.float_literals = null;
-        defer self.float_literals = float_literals;
+        const literal_ty = self.literal_ty;
+        self.literal_ty = null;
+        defer self.literal_ty = literal_ty;
         switch (sexp) {
-            .src => if (float_literals != null and sema.isIntLiteralText(self.srcText(sexp))) {
-                try self.writeAsOpen(float_literals.?);
+            .src => if (literal_ty != null and sema.isIntLiteralText(self.srcText(sexp))) {
+                try self.writeAsOpen(literal_ty.?);
                 try self.w.print("{s})", .{self.srcText(sexp)});
             } else try self.emitName(sexp, tail),
-            .list => try self.emitList(sexp, tail, bare, float_literals),
+            .list => try self.emitList(sexp, tail, bare, literal_ty),
             else => return self.unsupported(sexp, "this expression"),
         }
     }
@@ -2056,18 +2056,19 @@ pub const Emitter = struct {
         try self.emitBare(inner);
     }
 
-    fn emitList(self: *Emitter, sexp: Sexp, tail: bool, bare: bool, float_literals: ?TypeId) Error!void {
+    fn emitList(self: *Emitter, sexp: Sexp, tail: bool, bare: bool, literal_ty: ?TypeId) Error!void {
         const head = sexp.kind().?;
         const saved_rt = self.rt_names;
         defer self.rt_names = saved_rt;
         switch (head) {
-            // Literal operands of float arithmetic are floats.
-            .@"+", .@"-", .@"*", .@"/", .@"%", .neg => if (float_literals orelse self.floatTypeOf(sexp)) |f| {
-                self.float_literals = f;
+            // Literal operands of float or type-parameter arithmetic take
+            // its type.
+            .@"+", .@"-", .@"*", .@"/", .@"%", .neg => if (literal_ty orelse self.literalTypeOf(sexp)) |f| {
+                self.literal_ty = f;
             },
             else => {},
         }
-        if (self.float_literals == null) switch (head) {
+        if (self.literal_ty == null) switch (head) {
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^", .neg, .@"if" => {
                 // Sema computed a constant integer expression (and checked
                 // that it fits); its value is written as a literal, so Zig
@@ -3461,11 +3462,12 @@ pub const Emitter = struct {
         return self.sema.types.get(t) == .any_error or sema.isErrorSet(self.sema, t);
     }
 
-    /// The type of a float-typed expression (a `Float` literal is a `Float`).
-    fn floatTypeOf(self: *Emitter, e: Sexp) ?TypeId {
+    /// The type an integer literal takes in arithmetic of `e`'s type: a
+    /// float type (a `Float` literal is a `Float`) or a type parameter.
+    fn literalTypeOf(self: *Emitter, e: Sexp) ?TypeId {
         const ty = self.typeOf(e) orelse return null;
         return switch (self.sema.types.get(ty)) {
-            .float => ty,
+            .float, .type_var => ty,
             .float_literal => self.sema.types.float_id,
             else => null,
         };
@@ -3499,7 +3501,7 @@ pub const Emitter = struct {
     /// sign (`@rem`), for integers and floats alike.
     fn divBuiltin(self: *Emitter, op: Tag, left: Sexp, right: Sexp) ?[]const u8 {
         if (op == .@"%") return "@rem";
-        if (self.float_literals != null) return null;
+        if (self.literal_ty) |t| return if (self.sema.types.get(t) == .type_var) "rig.div" else null;
         var builtin: []const u8 = "@divTrunc";
         for ([2]Sexp{ left, right }) |e| {
             const ty = self.typeOf(e) orelse continue;
