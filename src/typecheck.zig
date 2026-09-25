@@ -232,9 +232,8 @@ const Checker = struct {
         defer self.scope = prev_scope;
         const name = ir.get(node, .name);
         const is_main = self.nominal.isEmpty() and std.mem.eql(u8, self.text(name), "main");
-        // The root module's `main` is the program's entry point. The
-        // module graph loads the root first, as module 1 (a lone file is 0).
-        if (is_main and self.ctx.module_id <= 1 and (!is_sub or ir.get(node, .params).items().len > 0)) {
+        // The root module's `main` is the program's entry point.
+        if (is_main and self.ctx.is_root and (!is_sub or ir.get(node, .params).items().len > 0)) {
             try self.errAt(name, "`main` must be `sub main()`: the program's entry point takes no parameters and returns no value", .{});
         }
         for (ir.get(node, .params).items()) |p| try self.checkDefault(p);

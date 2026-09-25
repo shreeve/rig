@@ -279,6 +279,7 @@ pub const ModuleGraph = struct {
             .imports = entries.items,
             .transitive = reached.items,
             .module_id = id,
+            .is_root = id == 1,
         });
 
         var own = try ownership.Checker.initWithSema(self.allocator, m.source, m.sema);

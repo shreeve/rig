@@ -589,8 +589,10 @@ pub const SemContext = struct {
     vec_sym_id: SymbolId = symbol_invalid,
     signal_sym_id: SymbolId = symbol_invalid,
 
-    /// Assigned by the module graph; 0 for a lone file.
+    /// Assigned by the module graph.
     module_id: u32 = 0,
+    /// The program's root module, whose `main` is the entry point.
+    is_root: bool = false,
     imports: []const ImportEntry = &.{},
     /// Modules reached only through imports; `local_name` is the module's
     /// file name.
@@ -904,6 +906,8 @@ pub const CheckOptions = struct {
     transitive: []const ImportEntry = &.{},
     /// Assigned by the module graph.
     module_id: u32 = 0,
+    /// The program's root module, whose `main` is the entry point.
+    is_root: bool = false,
 };
 
 /// Check one module.
@@ -913,6 +917,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
 
     ctx.parser = opts.parser;
     ctx.module_id = opts.module_id;
+    ctx.is_root = opts.is_root;
     // The caller's slices are temporary; the emitter reads the imports later.
     ctx.imports = try ctx.arena.allocator().dupe(ImportEntry, opts.imports);
     for (opts.imports) |imp| try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);

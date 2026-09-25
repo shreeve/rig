@@ -539,7 +539,7 @@ pub const Emitter = struct {
         const body = ir.get(node, .body);
         const f = self.fnType(self.sema.typeOf(name_node)) orelse return self.unsupported(name_node, "an untyped function");
         // Only the root module's `main` is the program's entry point.
-        const is_main = self.isRootModule() and self.nominal == null and node.isKind(.sub) and std.mem.eql(u8, name, "main");
+        const is_main = self.sema.is_root and self.nominal == null and node.isKind(.sub) and std.mem.eql(u8, name, "main");
         const return_ty: ?TypeId = if (f.returns == self.sema.types.void_id) null else f.returns;
 
         self.fun = .{ .return_ty = return_ty, .params = params, .leak_check = is_main };
@@ -564,11 +564,6 @@ pub const Emitter = struct {
         try self.w.writeAll(" ");
         if (return_ty != null) try self.emitValueBody(body) else try self.emitBlock(body);
         try self.w.writeAll("\n");
-    }
-
-    /// The module graph numbers the root module 1; a lone file is 0.
-    fn isRootModule(self: *Emitter) bool {
-        return self.sema.module_id <= 1;
     }
 
     /// Bind each parameter in the current scope. An owned value (or one
