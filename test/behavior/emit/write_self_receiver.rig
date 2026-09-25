@@ -11,7 +11,7 @@ sub main()
   b = Bag(items: <v)
   (!b).add(4)
   (!b).add(5)
-  print(b.items.length())
+  print(b.items.len)
 
 # expect:
 # 2

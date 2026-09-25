@@ -7,7 +7,7 @@ struct Box
 
   sub eat(!self, r: ?Box)
     self.v = Vec()
-    print(r.v.length())
+    print(r.v.len)
 
 struct Ed
   t: !Box
@@ -21,11 +21,11 @@ enum H
   two(a: Ed, b: Ed)
 
 sub race(a: ?Box, b: !Box)
-  print(a.v.length())
+  print(a.v.len)
   b.v = Vec()
 
 sub race2(a: Ed, b: !Box)
-  print(a.t.v.length())
+  print(a.t.v.len)
   b.v = Vec()
 
 sub read_then_write()
@@ -42,7 +42,7 @@ sub field_then_move()
   x = Box(v: Vec())
   r = ?x
   p = P(r: <r, b: <x)
-  print(p.r.v.length())
+  print(p.r.v.len)
 
 sub receiver_then_moved_arg()
   x = Box(v: Vec())

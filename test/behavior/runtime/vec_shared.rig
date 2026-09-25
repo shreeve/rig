@@ -14,7 +14,7 @@ sub main()
   other = +shared
   push_all(?other, 3)
   v = shared.replace(Vec())
-  print(v.length(), v[2])
+  print(v.len, v[2])
   shared.set(<v)
 
 # expect:

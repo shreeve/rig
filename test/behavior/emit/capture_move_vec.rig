@@ -6,7 +6,7 @@ sub main()
   (!v).push(1)
   (!v).push(2)
   f = |<v|
-    print(v.length())
+    print(v.len)
   f()
 
 # expect:

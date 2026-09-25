@@ -13,10 +13,10 @@ sub main()
   (!b.v).push(1)
   s = *Ed(t: !b)
   h = +s
-  k = |+s| print(s.t.v.length())
+  k = |+s| print(s.t.v.len)
   k()
   w = ~s
-  print(h.t.v.length())
+  print(h.t.v.len)
 
 # error: cannot clone `s`: it holds a write borrow
 # error: cannot take a weak handle to `s`: it holds a write borrow

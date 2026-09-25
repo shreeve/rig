@@ -15,15 +15,15 @@ sub main()
   (!v).push(+keep)
   (!v).push(*B(n: 2))
   (!v).clear()
-  print("len", v.length())
+  print("len", v.len)
   print("kept", keep.n)
   (!v).push(*B(n: 9))
-  print("len", v.length())
+  print("len", v.len)
 
   w: Vec(Int) = Vec()
   (!w).push(4)
   (!w).clear()
-  print("ints", w.length(), w)
+  print("ints", w.len, w)
 
 # expect:
 # drop 2

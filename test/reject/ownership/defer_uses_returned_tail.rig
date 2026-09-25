@@ -9,6 +9,6 @@ fun mk() -> Vec(Int)
 
 sub main()
   w = mk()
-  print(w.length())
+  print(w.len)
 
 # error: use of `v` after move

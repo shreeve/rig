@@ -9,13 +9,13 @@ struct B
     print("drop", self.n)
 
 sub kw(var: Vec(Int))
-  print(var.length())
+  print(var.len)
 
 sub ignore(_: Vec(Int), _: *B)
   print("ignored")
 
 sub flags(alive_b: Vec(Int), b: *B)
-  if alive_b.length() > 0
+  if alive_b.len > 0
     keep(<b)
 
 sub keep(b: *B)

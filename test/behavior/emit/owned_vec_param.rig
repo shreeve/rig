@@ -2,7 +2,7 @@
 # drops it on return.
 
 sub eat(v: Vec(Int))
-  print(v.length())
+  print(v.len)
 
 sub main()
   v: Vec(Int) = Vec()

@@ -46,7 +46,7 @@ sub main()
   i = 0
   while i < 3 : i += 1
     seen = ?nums
-    print("len", seen.length())
+    print("len", seen.len)
     (!nums).push(i)
 
   s: Slot = .full(Box(n: 7))

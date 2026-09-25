@@ -40,7 +40,7 @@ sub two(a: *B, b: *B)
   print("two", a.n, b.n)
 
 sub vec(v: Vec(Int), n: Int)
-  print("vec", v.length(), n)
+  print("vec", v.len, n)
 
 sub call(f: *fun() Int, n: Int)
   print("call", f(), n)

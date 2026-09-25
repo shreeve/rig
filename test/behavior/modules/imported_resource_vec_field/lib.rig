@@ -10,4 +10,4 @@ pub struct H
     (!self.items).push(<b)
 
   fun count(?self) -> Int
-    self.items.length()
+    self.items.len

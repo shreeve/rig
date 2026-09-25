@@ -520,10 +520,6 @@ pub fn Vec(comptime T: type) type {
             self.len += 1;
         }
 
-        pub fn length(self: *const Self) Int {
-            return @intCast(self.len);
-        }
-
         /// The element at `i`, or null when out of range. Plain-data `T` only.
         pub fn get(self: *const Self, i: Int) ?T {
             const idx = std.math.cast(usize, i) orelse return null;
@@ -1102,7 +1098,7 @@ test "Vec owns and drops its elements, last first" {
     var n: usize = 0;
     var v: Vec(*RcBox(Order)) = .empty;
     for (1..11) |i| v.push(rcNew(Order{ .log = &log, .n = &n, .id = @intCast(i) }));
-    try testing.expectEqual(10, v.length());
+    try testing.expectEqual(10, v.len);
     v.__rig_drop();
     try testing.expectEqualSlices(u8, &.{ 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 }, log[0..n]);
     try expectNoLeaks(before);
@@ -1119,7 +1115,7 @@ test "Vec of plain data" {
     try testing.expectEqual(null, v.get(3));
     try testing.expectEqual(null, v.get(-1));
     try testing.expectEqual(16, v.pop().?);
-    try testing.expectEqual(2, v.length());
+    try testing.expectEqual(2, v.len);
     v.__rig_drop();
     try expectNoLeaks(before);
 }

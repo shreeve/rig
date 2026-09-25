@@ -22,7 +22,7 @@ sub main()
         .none_ => print("none")
     .none_
       print("none")
-  print(x.v.length())
+  print(x.v.len)
 
 # expect:
 # 2

@@ -3,7 +3,7 @@
 
 fun early(c: Bool) -> Vec(Int)
   v: Vec(Int) = Vec()
-  defer print(v.length())
+  defer print(v.len)
   return v if c
   Vec()
 
@@ -19,7 +19,7 @@ fun pick(c: Bool) -> Vec(Int)
 sub main()
   x = early(true)
   y = pick(true)
-  print(x.length(), y.length())
+  print(x.len, y.len)
 
 # error: use of `v` after move
 # error: use of `a` after move

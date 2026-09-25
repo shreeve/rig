@@ -5,7 +5,7 @@ struct Box
   v: Vec(Int)
 
 sub show(a: ?Box)
-  print(a.v.length())
+  print(a.v.len)
 
 sub main()
   x = Box(v: Vec())

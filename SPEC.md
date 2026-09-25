@@ -1963,7 +1963,7 @@ shared handles (including owned closures), or weak handles.
 |---|---|
 | `Vec()`, `Vec(capacity: n)` | an empty Vec (typed by context) |
 | `(!v).push(x)` | append; an owning `x` is moved or cloned in |
-| `v.length()` | the number of elements |
+| `v.len` | the number of elements |
 | `v[i]`, `v[i] = x` | read or write an element, or a field of one (Copy `T`; bounds-checked) |
 | `v.get(i)` | the element as `T?` (Copy `T`) |
 | `(!v).pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
@@ -1990,7 +1990,7 @@ sub main()
   (!nums).push(4)
   while (!nums).pop() as n
     total.set(total.get() + n * 100)
-  print(total.get(), steps.length())
+  print(total.get(), steps.len)
 ```
 
 ```output
@@ -2012,13 +2012,13 @@ sub main()
   ps: Vec(P) = Vec()
   (!ps).push(P(x: 1, y: 2))
   ps[0].y = 5
-  print(ps[0], ps.length())
+  print(ps[0], ps.len)
   bs: Vec(*B) = Vec()
   (!bs).push(*B(n: 1))
   (!bs).push(*B(n: 2))
   if (!bs).pop() as last
     print("popped", last.n)
-  print("left", bs.length())
+  print("left", bs.len)
 ```
 
 ```output

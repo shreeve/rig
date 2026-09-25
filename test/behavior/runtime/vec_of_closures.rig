@@ -14,7 +14,7 @@ sub main()
   cb1()
   cb2()
   print(count.get())                # 11
-  print(subs.length())              # 2
+  print(subs.len)              # 2
 
 # expect:
 # 11

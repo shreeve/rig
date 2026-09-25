@@ -11,7 +11,7 @@ sub eat(b: B)
   print("eat", b.n)
 
 sub consume(v: Vec(Int))
-  print("consume", v.length())
+  print("consume", v.len)
 
 sub main()
   a = B(n: 1)
@@ -26,9 +26,9 @@ sub main()
     eat(<a)
   v: Vec(Int) = Vec()
   (!v).push(1)
-  n = (?v).length() if true else 0
+  n = (?v).len if true else 0
   w = ?v if n > 0 else ?v
-  print(w.length())
+  print(w.len)
   if n > 5
     consume(<v)
   print("end")

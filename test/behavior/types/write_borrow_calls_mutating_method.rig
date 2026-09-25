@@ -31,7 +31,7 @@ sub main()
   fill(!v)
   b = !v
   b.push(3)
-  print(v.length(), v[2])
+  print(v.len, v[2])
 
 # expect:
 # 5

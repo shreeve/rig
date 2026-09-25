@@ -8,7 +8,7 @@ struct Bag
   v: Vec(Int)
 
   fun consume(self: Self, n: Int) -> Int
-    self.v.length() + n
+    self.v.len + n
 
 fun mk() -> Bag
   v: Vec(Int) = Vec()

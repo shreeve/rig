@@ -19,7 +19,7 @@ sub main()
   _ = (!v).pop()
   while (!v).pop() as z
     print("z", z.n)
-  print("end", v.length())
+  print("end", v.len)
 
 # expect:
 # false

@@ -15,6 +15,6 @@ sub main()
     f = Ed(t: e.t)
     for x in ?f.t
       (!e.t).push(x)
-  print(v.length())
+  print(v.len)
 
 # error: use of `e` while a write borrow is live

@@ -7,7 +7,7 @@ sub main()
   v: Vec(Int) = Vec()
   (!v).push(1)
   helper.main()
-  print("after", v.length())
+  print("after", v.len)
 
 # expect:
 # helper main

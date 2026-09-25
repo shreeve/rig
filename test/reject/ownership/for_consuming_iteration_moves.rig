@@ -8,13 +8,13 @@ sub main()
   v: Vec(*B) = Vec()
   for x in <v
     print(x.n)
-  print(v.length())
+  print(v.len)
 
   w: Vec(*B) = Vec()
   r = ?w
   for x in <w
     print(x.n)
-  print(r.length())
+  print(r.len)
 
   u: Vec(*B) = Vec()
   i = 0

@@ -14,7 +14,7 @@ sub main()
   r = ?v
   for x in !v
     x = 2
-  print(r.length())
+  print(r.len)
   for c in !"abc"
     print(c)
   for y in !make()

@@ -14,7 +14,7 @@ fun g(ok: Bool) -> Int!
 
 fun take(v: Vec(Int), o: Int?, d: Dir, n: Int) -> Int
   k = 10 if d == .north else 20
-  v.length() + (o ?? 1) + n + k
+  v.len + (o ?? 1) + n + k
 
 fun run(ok: Bool) -> Int!
   take(Vec(), none, .north, g(ok)!)

@@ -49,7 +49,7 @@ sub main()
   keep: Vec(*B) = Vec()
   for x in <src
     (!keep).push(<x)
-  print(keep.length())
+  print(keep.len)
 
 # expect:
 # see 0

@@ -2401,7 +2401,7 @@ pub const Emitter = struct {
     }
 
     /// `(member obj name)`. A shared handle auto-dereferences through
-    /// `.value`; `.len` of an array, slice, or string is an `Int`.
+    /// `.value`; `.len` of an array, slice, string, or Vec is an `Int`.
     fn emitMember(self: *Emitter, sexp: Sexp) Error!void {
         const obj = ir.Member.object(sexp);
         const field = self.srcText(ir.Member.name(sexp));
@@ -3443,9 +3443,10 @@ pub const Emitter = struct {
     }
 
     fn hasLen(self: *Emitter, ty: TypeId) bool {
-        return switch (self.sema.types.get(self.peelBorrows(ty))) {
+        const peeled = self.peelBorrows(ty);
+        return switch (self.sema.types.get(peeled)) {
             .array, .slice, .string => true,
-            else => false,
+            else => self.isVecTy(peeled),
         };
     }
 

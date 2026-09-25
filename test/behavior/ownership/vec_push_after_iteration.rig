@@ -10,7 +10,7 @@ sub main()
     total += x
   (!v).push(3)
   print(total)
-  print(v.length())
+  print(v.len)
 
 # expect:
 # 3

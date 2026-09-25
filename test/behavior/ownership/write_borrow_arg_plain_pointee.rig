@@ -30,7 +30,7 @@ sub main()
   print(acc, y)
   v: Vec(Int) = Vec()
   fill(!v)
-  print(v.length(), v[0], v[1])
+  print(v.len, v[0], v[1])
 
 # expect:
 # 3 22

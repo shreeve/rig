@@ -7,7 +7,7 @@ sub main()
   v: Vec(*Cell(Int)) = Vec()
   (!v).push(<c1)
   (!v).push(<c2)
-  print(v.length())                 # 2
+  print(v.len)                 # 2
 
 # expect:
 # 2

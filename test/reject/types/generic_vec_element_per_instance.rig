@@ -10,7 +10,7 @@ struct Owner
 sub main()
   s: Stack(Vec(Int)) = Stack(items: Vec())
   o: Stack(Owner) = Stack(items: Vec())
-  print(s.items.length(), o.items.length())
+  print(s.items.len, o.items.len)
 
 # error: `Stack(Vec(Int))` instantiates `Vec(Vec(Int))`: `Vec(T)` requires `T` to be a Copy type
 # error: `Stack(Owner)` instantiates `Vec(Owner)`

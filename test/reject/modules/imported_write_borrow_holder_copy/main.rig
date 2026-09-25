@@ -9,6 +9,6 @@ sub main()
   a = wv.WV(b: !x)
   b = a
   b.b.v = Vec()
-  print(a.b.v.length())
+  print(a.b.v.len)
 
 # error: 10:7: bare use of `a` in binding would duplicate the write borrow it holds

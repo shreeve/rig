@@ -756,11 +756,12 @@ const Checker = struct {
             if (h == .member) path.module_member = p;
             if (self.ctx.typeOf(obj)) |ty| {
                 if (path.read_only == null) {
-                    const base = self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty));
+                    const base_ty = sema.unwrapBorrows(self.ctx, ty);
+                    const base = self.ctx.types.get(base_ty);
                     if (h == .index) {
                         if (base == .slice) path.read_only = .{ .what = .slice, .pos = self.startOf(obj) };
                         if (base == .string) path.read_only = .{ .what = .string, .pos = self.startOf(obj) };
-                    } else if ((base == .slice or base == .string or base == .array) and std.mem.eql(u8, self.text(ir.Member.name(p)), "len")) {
+                    } else if ((base == .slice or base == .string or base == .array or vecElementType(self.ctx, base_ty) != null) and std.mem.eql(u8, self.text(ir.Member.name(p)), "len")) {
                         path.read_only = .{ .what = .len, .pos = self.startOf(ir.Member.name(p)) };
                     }
                 }
@@ -2221,6 +2222,7 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
             .array, .slice, .string => if (std.mem.eql(u8, field, "len")) return self.t().int_id,
+            .parameterized_nominal => if (vecElementType(self.ctx, peeled) != null and std.mem.eql(u8, field, "len")) return self.t().int_id,
             .type_var => {
                 try self.err(pos, "a generic parameter `{s}` has no fields; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) });
                 return self.t().invalid_id;
@@ -3113,7 +3115,9 @@ const Checker = struct {
                     return self.callValue(callee, ty, args, method);
                 }
             }
-            if (sema.nominalDecl(self.ctx, peeled)) |decl| {
+            if (vecElementType(self.ctx, peeled) != null and std.mem.eql(u8, method, "length")) {
+                try self.err(pos, "a Vec has no `length()`; its length is `.len`, as for an array: `v.len`", .{});
+            } else if (sema.nominalDecl(self.ctx, peeled)) |decl| {
                 const sym = decl.symbol();
                 try self.err(pos, "no method `{s}` on type `{s}`", .{ method, sym.name });
                 try self.noteDeclared(sym, decl.module_id == null);

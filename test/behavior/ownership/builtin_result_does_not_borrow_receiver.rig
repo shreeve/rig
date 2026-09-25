@@ -6,7 +6,7 @@ sub main()
   (!v).push(*|| print("one"))
   (!v).push(*|| print("two"))
   f = (!v).pop()
-  print(v.length())
+  print(v.len)
   if <f as g
     g()
   c: Cell(*sub()) = Cell(value: *|| print("three"))

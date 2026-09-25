@@ -17,7 +17,7 @@ sub main()
     (!e.t).push(5)
     f = Ed(t: e.t)
     (!f.t).push(6)
-  print(v.length(), v[0], v[2])
+  print(v.len, v[0], v[2])
 
 # expect:
 # 3 4 6

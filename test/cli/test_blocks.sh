@@ -23,7 +23,7 @@ test "area"
 test "shared handles are released"
   v: Vec(*Cell(Int)) = Vec()
   (!v).push(*Cell(value: 1))
-  print(v.length())
+  print(v.len)
 EOF
 
 out=$("$RIG" test main.rig 2>&1); expect_rc $? 0 "passing tests"

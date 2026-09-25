@@ -2,7 +2,7 @@
 # Vec cannot be written or moved while the slice is live.
 
 sub eat(v: Vec(Int))
-  print(v.length())
+  print(v.len)
 
 sub main()
   v: Vec(Int) = Vec()
