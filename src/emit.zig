@@ -95,6 +95,8 @@ const Local = struct {
 
 const LocalRef = struct { scope: u32, index: u32 };
 
+const Division = enum { int, float, generic };
+
 /// An argument evaluated into the temporary `name`. An owned one is
 /// dropped at scope exit while `flag` is set; the call clears it.
 const Hoisted = struct { node: Sexp, name: []const u8, flag: []const u8 = "" };
@@ -1104,7 +1106,11 @@ pub const Emitter = struct {
     /// Zig's own compound assignment.
     fn emitCompound(self: *Emitter, target: Sexp, op: Tag, value: Sexp) Error!void {
         const builtin: ?[]const u8 = switch (op) {
-            .@"/" => if (self.isFloatExpr(target)) null else "@divTrunc",
+            .@"/" => switch (self.divisionOf(target, value)) {
+                .float => null,
+                .generic => "rig.div",
+                .int => "@divTrunc",
+            },
             .@"%" => "@rem",
             .@"<<" => "@shlExact",
             else => null,
@@ -1503,8 +1509,11 @@ pub const Emitter = struct {
         const scrut_ty = self.typeOf(scrutinee);
         const error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false;
 
+        // `match ?t` / `match !t` switch on the value borrowed.
+        var subject = scrutinee;
+        while (subject.isKind(.read) or subject.isKind(.write)) subject = ir.get(subject, .operand);
         try self.w.writeAll("switch (");
-        try self.emitBare(scrutinee);
+        try self.emitBare(subject);
         try self.w.writeAll(") {\n");
         self.indent += 1;
 
@@ -1962,7 +1971,7 @@ pub const Emitter = struct {
             },
             .call => try self.emitCall(sexp),
             .member, .index => {
-                if (head == .member) try self.emitMember(sexp) else try self.emitIndex(sexp, false);
+                if (head == .member) try self.emitMember(sexp) else try self.emitIndex(sexp, self.place_chain);
                 // A field or element holding a write borrow denotes the
                 // borrowed value, unless the pointer itself is wanted.
                 if (self.isWriteBorrowExpr(sexp) and !(tail and self.ptr_tail)) try self.w.writeAll(".*");
@@ -2119,10 +2128,11 @@ pub const Emitter = struct {
     fn emitDivision(self: *Emitter, sexp: Sexp, builtin: []const u8) Error!void {
         const left = ir.get(sexp, .left);
         const right = ir.get(sexp, .right);
-        if (sexp.isKind(.@"/") and (self.isFloatExpr(left) or self.isFloatExpr(right))) {
-            return self.emitInfix(sexp, false);
-        }
-        try self.w.print("{s}(", .{builtin});
+        if (sexp.isKind(.@"/")) switch (self.divisionOf(left, right)) {
+            .float => return self.emitInfix(sexp, false),
+            .generic => try self.w.writeAll("rig.div("),
+            .int => try self.w.print("{s}(", .{builtin}),
+        } else try self.w.print("{s}(", .{builtin});
         try self.emitBare(left);
         try self.w.writeAll(", ");
         try self.emitBare(right);
@@ -2146,23 +2156,39 @@ pub const Emitter = struct {
     }
 
     /// `x[i]`: bounds-checked element of an array, slice, string, or
-    /// `Vec` of plain data. As a place, a `Vec` element is `x.slot(i).*`.
+    /// `Vec` of plain data. As a place, a `Vec` element is `x.slot(i).*`,
+    /// and the base of any element is a place too.
     fn emitIndex(self: *Emitter, sexp: Sexp, as_place: bool) Error!void {
         const base = ir.Index.object(sexp);
         const index = ir.Index.index(sexp);
         const base_ty = self.typeOf(base);
-        // The index itself is a value, even inside an assignment target.
         const saved_chain = self.place_chain;
         defer self.place_chain = saved_chain;
+        self.place_chain = as_place;
 
         if (base_ty != null and self.isVecTy(base_ty.?)) {
             try self.emitExpr(base);
             try self.w.writeAll(if (as_place) ".slot(" else ".at(");
+            // The index itself is a value, even inside an assignment target.
             self.place_chain = false;
             try self.emitBare(index);
             try self.w.writeAll(if (as_place) ").*" else ")");
             return;
         }
+        const array_len: ?usize = if (base_ty) |t| switch (self.sema.types.get(self.peelBorrows(t))) {
+            .array => |a| a.len,
+            else => null,
+        } else null;
+        const n = array_len orelse {
+            // A string or slice, which is never assigned to: its length is
+            // only known when it runs, and `rig.at` evaluates it once.
+            try self.w.writeAll("rig.at(");
+            try self.emitBare(base);
+            try self.w.writeAll(", ");
+            self.place_chain = false;
+            try self.emitBare(index);
+            return self.w.writeAll(")");
+        };
         // An array literal is indexed through parentheses: `([_]T{ ... })[i]`.
         const literal = base.isKind(.array);
         if (literal) try self.w.writeAll("(");
@@ -2170,25 +2196,13 @@ pub const Emitter = struct {
         if (literal) try self.w.writeAll(")");
         try self.w.writeAll("[");
         self.place_chain = false;
-        // Sema checked a constant index against an array's length; a
-        // string's length is only known when it runs.
-        const array_len: ?usize = if (base_ty) |t| switch (self.sema.types.get(self.peelBorrows(t))) {
-            .array => |a| a.len,
-            else => null,
-        } else null;
-        if (array_len != null and isNonNegativeIntLiteral(self.source, index)) {
+        // Sema checked a constant index against the array's length.
+        if (isNonNegativeIntLiteral(self.source, index)) {
             try self.emitExpr(index);
-        } else if (array_len) |n| {
-            // The length is part of the type; the base is evaluated once.
-            try self.w.writeAll("rig.index(");
-            try self.emitBare(index);
-            try self.w.print(", {d})", .{n});
         } else {
             try self.w.writeAll("rig.index(");
             try self.emitBare(index);
-            try self.w.writeAll(", ");
-            try self.emitExpr(base);
-            try self.w.writeAll(".len)");
+            try self.w.print(", {d})", .{n});
         }
         try self.w.writeAll("]");
     }
@@ -3341,12 +3355,19 @@ pub const Emitter = struct {
         return self.sema.types.get(self.peelBorrows(ty)) == .string;
     }
 
-    fn isFloatExpr(self: *Emitter, expr: Sexp) bool {
-        const ty = self.typeOf(expr) orelse return false;
-        return switch (self.sema.types.get(self.peelBorrows(ty))) {
-            .float, .float_literal => true,
-            else => false,
-        };
+    /// How `left / right` divides: floats exactly, integers truncating,
+    /// and a type parameter's values by whichever its instance is.
+    fn divisionOf(self: *Emitter, left: Sexp, right: Sexp) Division {
+        var result: Division = .int;
+        for ([2]Sexp{ left, right }) |e| {
+            const ty = self.typeOf(e) orelse continue;
+            switch (self.sema.types.get(self.peelBorrows(ty))) {
+                .float, .float_literal => return .float,
+                .type_var => result = .generic,
+                else => {},
+            }
+        }
+        return result;
     }
 
     // =========================================================================

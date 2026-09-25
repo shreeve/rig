@@ -558,6 +558,19 @@ pub fn index(i: anytype, count: usize) usize {
     return idx;
 }
 
+/// `s[i]` for a string or slice: the element at `i`, with `s` evaluated
+/// once; panics when out of range.
+pub fn at(items: anytype, i: anytype) std.meta.Elem(@TypeOf(items)) {
+    return items[index(i, items.len)];
+}
+
+/// `a / b` on a type parameter's values: exact for floats, truncating
+/// toward zero for integers.
+pub fn div(a: anytype, b: anytype) @TypeOf(a, b) {
+    const T = @TypeOf(a, b);
+    return if (@typeInfo(T) == .float) @as(T, a) / @as(T, b) else @divTrunc(@as(T, a), @as(T, b));
+}
+
 /// A length or count as a Rig `Int`.
 pub fn len(n: usize) Int {
     return @intCast(n);
