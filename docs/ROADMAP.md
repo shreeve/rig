@@ -22,6 +22,7 @@ in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms).
 - **Compile-time evaluation**: `pre` expressions and blocks beyond `pre` parameters.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
 - **Unique heap ownership**: a single-owner box without a reference count.
+- **Private fields**: a field visible only inside its type's module unless marked `pub`, so setter methods can guard a type's invariants; Rig's tool for encapsulation, rather than properties.
 - **A value-yielding `try` block** with a matching `catch` block.
 - **Drop bodies for enums and generic types.**
 

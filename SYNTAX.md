@@ -1286,6 +1286,11 @@ is a compile error.
 reads stored data and never runs code; `x.name()` is a call. Rig has no
 properties or getters. So `xs.len` (an array's, string's, slice's, or
 `Vec`'s length) is a field read, and anything that computes is a method.
+The cost of that honesty: a stored field cannot later become a computed
+one without every `p.x` becoming `p.x()`, so a value that might ever be
+computed should be a method from the start. Fields are public wherever
+their struct is; private fields are on the
+[roadmap](docs/ROADMAP.md).
 
 ```rig reject
 struct Counter
@@ -2002,7 +2007,10 @@ A function returning `T!` may fail. It fails by producing an error
 value where a `T` is expected, usually `return E.name`. Every call to
 it says what happens to the failure:
 
-- `f()!` propagates it (Zig's `try`, Rust's `?`);
+- `f()!` propagates it (Zig's `try`, Rust's `?`). The operator is the
+  suffix of the type it acts on: a `T!` propagates with `e!`, as a
+  `T?` does with `e?` ([§19](#19-optionals)), so a line shows which kind
+  of early exit it can take;
 - `f() catch v` handles it with a fallback;
 - `f() catch |err| handler` names the error for the handler, which may
   be a block.
@@ -2221,7 +2229,9 @@ sub main
 ## 26. Printing
 
 `print(a, b, ...)`, or `print a, b`, writes its values separated by
-spaces, then a newline. It prints any value except a `[]U8`:
+spaces, then a newline. A whole `Float` keeps its point (`2.0`), and a
+NaN prints as `nan` on every platform. It prints any value except a
+`[]U8`:
 
 ```rig
 struct User
