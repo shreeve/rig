@@ -1,0 +1,14 @@
+# An imported struct holding a write borrow cannot be copied: the copy
+# would be a second writer.
+
+use wv
+
+sub main()
+  x: wv.Box = wv.Box(v: Vec())
+  (!x.v).push(1)
+  a = wv.WV(b: !x)
+  b = a
+  b.b.v = Vec()
+  print(a.b.v.length())
+
+# error: 10:7: bare use of `a` in binding would duplicate the write borrow it holds

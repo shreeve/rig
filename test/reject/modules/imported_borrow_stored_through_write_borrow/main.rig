@@ -1,0 +1,18 @@
+# An imported struct holding a write borrow carries the loans stored
+# through it, as a local one does: `put` stores `?x` into `holder`,
+# which outlives `x`.
+
+use a
+
+sub main()
+  y = a.Box(v: Vec())
+  (!y.v).push(1)
+  holder = a.Holder(b: ?y)
+  if true
+    x = a.Box(v: Vec())
+    (!x.v).push(42)
+    ed = a.Ed(t: !holder)
+    a.put(ed, ?x)
+  print(holder.b.v[0])
+
+# error: `x` does not live long enough

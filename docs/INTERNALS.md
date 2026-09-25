@@ -387,8 +387,9 @@ later pass reads. It runs these steps in order:
    become `TypeId`s: signatures, fields, variants, aliases, constants.
 4. **contents** (`computeContents`, then `checkInfiniteTypes`): what
    each declared type's values hold, computed once all declarations
-   are resolved: whether they need drop glue, hold a `Cell` inline, or
-   are plain data (`Symbol.contents` for each nominal and generic type,
+   are resolved: whether they need drop glue, hold a `Cell` inline,
+   hold a borrow or a write borrow (even through a handle, and across
+   modules), or are plain data (`Symbol.contents` for each nominal and generic type,
    `TypeInfo` for each interned type). Then a type that holds itself by
    value is rejected.
 5. **validation** (`resolve.checkDeclarations`): the rules on spelled

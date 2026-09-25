@@ -445,7 +445,7 @@ pub const Checker = struct {
                 const arg = pn.args[i];
                 const pname = ctx.symbols.items[param].name;
                 const aname = try sema.formatTypeIn(ctx, self.arena(), arg);
-                if (has_methods and self.typeCarries(arg, .any, 0)) {
+                if (has_methods and self.mayCarryBorrow(arg)) {
                     try self.err(site, "`{s}` cannot use `{s} = {s}`: the methods of `{s}` are checked for a `{s}` that holds no borrow", .{ shown, pname, aname, base.name, pname });
                     continue;
                 }
@@ -1716,7 +1716,7 @@ pub const Checker = struct {
             },
             else => return null,
         };
-        if (!self.typeCarries(boxed, .any, 0)) return .{};
+        if (!self.mayCarryBorrow(boxed)) return .{};
         if (id) |i| if (self.vars.items[i].elem_of) |c| return .{ .loans = self.flows.items[c].loans };
         return null;
     }
@@ -3038,57 +3038,15 @@ pub const Checker = struct {
     /// Whether a value of this type can hold a borrow. Unknown types are
     /// assumed to.
     fn mayCarryBorrow(self: *const Checker, ty: ?TypeId) bool {
-        const t = ty orelse return true;
-        return self.typeCarries(t, .any, 0);
+        const ctx = self.sema orelse return true;
+        return sema.holdsBorrow(ctx, ty orelse return true);
     }
 
     /// Whether a value of this type holds a write borrow, which must not
     /// be duplicated.
     fn carriesWriteBorrow(self: *const Checker, ty: ?TypeId) bool {
-        const t = ty orelse return false;
-        return self.typeCarries(t, .write, 0);
-    }
-
-    fn typeCarries(self: *const Checker, t: TypeId, q: BorrowQuery, depth: u8) bool {
-        const ctx = self.sema orelse return q == .any;
-        // Past any real nesting depth, assume the worst.
-        if (depth > 64) return true;
-        return switch (ctx.types.get(t)) {
-            .invalid, .unknown => false,
-            .void, .bool, .string, .int, .float, .int_literal, .float_literal, .function => false,
-            .none_literal, .noreturn, .range, .any_error => false,
-            .borrow_write => true,
-            .borrow_read, .slice => q == .any,
-            // Generic bodies are checked for a `T` without borrows; an
-            // instantiation with one is rejected (`checkInstantiations`).
-            .type_var => false,
-            .imported_nominal => q == .any,
-            .optional, .fallible, .shared, .weak => |i| self.typeCarries(i, q, depth + 1),
-            .array => |a| self.typeCarries(a.elem, q, depth + 1),
-            .nominal => |s| self.fieldsCarry(s, q, depth),
-            .parameterized_nominal => |pn| blk: {
-                // What a Cell or Signal holds holds no borrow (`walkCall`).
-                if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
-                for (pn.args) |a| if (self.typeCarries(a, q, depth + 1)) break :blk true;
-                break :blk self.fieldsCarry(pn.sym, q, depth);
-            },
-        };
-    }
-
-    fn fieldsCarry(self: *const Checker, sid: SymbolId, q: BorrowQuery, depth: u8) bool {
-        const ctx = self.sema.?;
-        for (ctx.symbols.items[sid].fields orelse &.{}) |f| {
-            if (f.is_method) continue;
-            if (f.is_variant) {
-                for (f.payload orelse &.{}) |pf| {
-                    if (self.typeCarries(pf.ty, q, depth + 1)) return true;
-                }
-                continue;
-            }
-            if (ctx.types.get(f.ty) == .type_var) continue; // covered by the args
-            if (self.typeCarries(f.ty, q, depth + 1)) return true;
-        }
-        return false;
+        const ctx = self.sema orelse return false;
+        return sema.holdsWriteBorrow(ctx, ty orelse return false);
     }
 
     /// How a method call takes its receiver, from the signature ctx

@@ -996,6 +996,21 @@ pub const Contents = struct {
     plain: bool = false,
     /// A generic type: which of its parameters it holds by value.
     held: []const bool = &.{},
+    /// Holds a borrow, or a write borrow (see `Borrows`).
+    borrows: Borrows = .{},
+};
+
+/// Whether values hold a borrow (`?T`, `!T`, a slice) and whether they
+/// hold a write borrow (`!T`), directly or through an optional, array,
+/// field, variant payload, shared or weak handle, or any argument of a
+/// generic instance. What a Cell or Signal holds holds no borrow.
+pub const Borrows = packed struct(u2) {
+    any: bool = false,
+    write: bool = false,
+
+    fn with(a: Borrows, b: Borrows) Borrows {
+        return .{ .any = a.any or b.any, .write = a.write or b.write };
+    }
 };
 
 /// Facts about an interned type, recorded when it is interned
@@ -1014,7 +1029,9 @@ pub const TypeInfo = packed struct(u16) {
     /// Holds no resource, borrow, or generic parameter. A struct with a
     /// user `drop` can be plain and still have glue (see `isPlainData`).
     plain: bool = false,
-    _: u3 = 0,
+    /// Holds a borrow, or a write borrow (see `Borrows`).
+    borrows: Borrows = .{},
+    _: u1 = 0,
     /// How deeply wrappers and generic instances nest in it (saturating).
     depth: u8 = 0,
 };
@@ -1039,6 +1056,7 @@ fn computeContents(ctx: *SemContext) std.mem.Allocator.Error!void {
         if (isTypeDecl(sym)) _ = try symbolContents(ctx, @intCast(i));
     }
     try computeCells(ctx);
+    try computeBorrows(ctx);
     ctx.contents_ready = true;
     ctx.type_info.clearRetainingCapacity();
     try ctx.syncTypeInfo();
@@ -1186,6 +1204,62 @@ fn cellEdges(ctx: *SemContext, ty: TypeId, owner: SymbolId, edges: *std.ArrayLis
     };
 }
 
+/// What each declared type's values borrow. A type borrows what the
+/// declared types it holds borrow, even through a handle, so the answers
+/// are propagated backwards from the types that hold a borrow directly,
+/// like `computeCells`.
+fn computeBorrows(ctx: *SemContext) std.mem.Allocator.Error!void {
+    var edges: std.ArrayListUnmanaged(CellEdge) = .empty;
+    defer edges.deinit(ctx.allocator);
+    var work: std.ArrayListUnmanaged(SymbolId) = .empty;
+    defer work.deinit(ctx.allocator);
+    for (ctx.symbols.items, 0..) |sym, i| {
+        if (!isTypeDecl(sym)) continue;
+        const id: SymbolId = @intCast(i);
+        var b: Borrows = .{};
+        for (sym.fields orelse &.{}) |*f| {
+            for (dataFields(f)) |d| b = b.with(try borrowEdges(ctx, d.ty, id, &edges));
+        }
+        ctx.symbols.items[id].contents.borrows = b;
+        if (b.any) try work.append(ctx.allocator, id);
+    }
+    std.mem.sort(CellEdge, edges.items, {}, CellEdge.lessThan);
+    while (work.pop()) |from| {
+        const b = ctx.symbols.items[from].contents.borrows;
+        var i = std.sort.partitionPoint(CellEdge, edges.items, from, CellEdge.before);
+        while (i < edges.items.len and edges.items[i].from == from) : (i += 1) {
+            const to = &ctx.symbols.items[edges.items[i].to].contents.borrows;
+            if (to.with(b) == to.*) continue;
+            to.* = to.with(b);
+            try work.append(ctx.allocator, edges.items[i].to);
+        }
+    }
+}
+
+/// What a field of type `ty` of `owner` borrows whatever the declared
+/// types it names borrow; adds an edge from each of those to `owner`.
+fn borrowEdges(ctx: *SemContext, ty: TypeId, owner: SymbolId, edges: *std.ArrayListUnmanaged(CellEdge)) std.mem.Allocator.Error!Borrows {
+    return switch (ctx.types.get(ty)) {
+        .borrow_read, .slice => .{ .any = true },
+        .borrow_write => .{ .any = true, .write = true },
+        .optional, .fallible, .shared, .weak => |inner| borrowEdges(ctx, inner, owner, edges),
+        .array => |a| borrowEdges(ctx, a.elem, owner, edges),
+        .nominal => |s| blk: {
+            try edges.append(ctx.allocator, .{ .from = s, .to = owner });
+            break :blk .{};
+        },
+        .imported_nominal => (nominalDecl(ctx, ty) orelse return .{}).symbol().contents.borrows,
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk .{};
+            try edges.append(ctx.allocator, .{ .from = pn.sym, .to = owner });
+            var b: Borrows = .{};
+            for (pn.args) |a| b = b.with(try borrowEdges(ctx, a, owner, edges));
+            break :blk b;
+        },
+        else => .{},
+    };
+}
+
 /// The facts of a type, from those of the types it is built from, which
 /// were interned before it.
 fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInfo {
@@ -1221,6 +1295,20 @@ fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInf
             break :blk false;
         },
         else => false,
+    };
+    info.borrows = switch (ty) {
+        .borrow_read, .slice => .{ .any = true },
+        .borrow_write => .{ .any = true, .write = true },
+        .optional, .fallible, .shared, .weak => |inner| ctx.type_info.items[inner].borrows,
+        .array => |a| ctx.type_info.items[a.elem].borrows,
+        .nominal, .imported_nominal => if (nominalDecl(ctx, id)) |decl| decl.symbol().contents.borrows else .{},
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk .{};
+            var b = ctx.symbols.items[pn.sym].contents.borrows;
+            for (pn.args) |a| b = b.with(ctx.type_info.items[a].borrows);
+            break :blk b;
+        },
+        else => .{},
     };
     return info;
 }
@@ -1587,6 +1675,17 @@ pub fn containsTypeVar(ctx: *const SemContext, ty_id: TypeId) bool {
 /// a pointer, since the cell can change while it is borrowed.
 pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).cell;
+}
+
+/// Whether a value of `ty` can hold a borrow (see `Borrows`). A generic
+/// parameter holds none: an instantiation with a borrow is checked apart.
+pub fn holdsBorrow(ctx: *const SemContext, ty: TypeId) bool {
+    return ctx.holds(ty).borrows.any;
+}
+
+/// Whether a value of `ty` holds a write borrow, which is unique.
+pub fn holdsWriteBorrow(ctx: *const SemContext, ty: TypeId) bool {
+    return ctx.holds(ty).borrows.write;
 }
 
 /// A value that owns nothing and holds no borrow or type parameter: it

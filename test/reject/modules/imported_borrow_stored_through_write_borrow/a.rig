@@ -1,0 +1,11 @@
+pub struct Box
+  v: Vec(Int)
+
+pub struct Holder
+  b: ?Box
+
+pub struct Ed
+  t: !Holder
+
+pub sub put(e: Ed, x: ?Box)
+  e.t.b = x
