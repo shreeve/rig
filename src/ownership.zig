@@ -1812,7 +1812,13 @@ pub const Checker = struct {
                         try self.checkNoImplicitCopy(ir.Catch.value(expr), sink, false);
                         try self.checkNoImplicitCopy(tailOf(ir.Catch.handler(expr)), sink, false);
                     },
-                    .propagate, .propagate_none => try self.checkNoImplicitCopy(ir.get(expr, .value), sink, false),
+                    .propagate => try self.checkNoImplicitCopy(ir.Propagate.value(expr), sink, false),
+                    // `m?` copies out the value inside `m`, which only
+                    // matters when that value owns or holds a write borrow.
+                    .propagate_none => {
+                        const ty = self.exprType(expr);
+                        if (self.owningKind(ty) != null or self.carriesWriteBorrow(ty)) try self.checkNoImplicitCopy(ir.PropagateNone.value(expr), sink, false);
+                    },
                     else => {},
                 }
             },
