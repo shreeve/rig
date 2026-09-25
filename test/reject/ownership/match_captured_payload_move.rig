@@ -1,0 +1,27 @@
+# A closure owns what it captured and may be called again: a payload of
+# a captured value cannot be moved or dropped out of it.
+
+enum E
+  full(c: *Cell(Int))
+  empty
+
+sub eat(c: *Cell(Int))
+  print(c.get())
+
+sub main()
+  e: E = .full(c: *Cell(value: 1))
+  f = |<e|
+    match e
+      .full(c) => eat(<c)
+      .empty => print(0)
+  f()
+  e2: E = .full(c: *Cell(value: 2))
+  g = *|<e2|
+    match e2
+      .full(c)
+        -c
+      .empty => print(0)
+  g()
+
+# error: cannot move captured resource `e`
+# error: cannot drop captured resource `e2`

@@ -1,6 +1,5 @@
 # A write borrow moved into a closure (`|<w|`) writes through to the
-# borrowed value, from a stack closure or an owned one; a moved read
-# borrow reads it.
+# borrowed value, on every call; a moved read borrow reads it.
 
 struct Box
   n: Int
@@ -16,11 +15,10 @@ sub main()
   print(b.n)
   if true
     v = !b
-    g: *sub() = *|<v|
+    g = |<v|
       v.n *= 2
     g()
-    h = +g
-    h()
+    g()
   print(b.n)
   r = ?b
   k = |<r| r.n + 1

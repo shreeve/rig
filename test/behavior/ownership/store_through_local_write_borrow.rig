@@ -1,0 +1,37 @@
+# A call may store a borrow through a write borrow it is given: the
+# store lands in the value the borrow leads to, which then holds it.
+
+struct In
+  n: Int
+
+struct Box
+  r: ?In
+
+struct Ed
+  t: !Box
+
+struct View
+  b: ?In
+
+sub fill(w: !View, b: ?In)
+  w.b = b
+
+sub fill_ed(e: Ed, b: ?In)
+  e.t.r = b
+
+sub main()
+  a = In(n: 1)
+  y = In(n: 2)
+  v = View(b: ?a)
+  if true
+    w = !v
+    fill(w, ?y)
+  print(v.b.n)
+  x = Box(r: ?a)
+  e = Ed(t: !x)
+  fill_ed(e, ?y)
+  print(x.r.n)
+
+# expect:
+# 2
+# 2

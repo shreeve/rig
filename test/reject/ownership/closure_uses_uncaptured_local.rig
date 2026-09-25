@@ -13,4 +13,4 @@ sub main()
     eat(<rc)
   f()
 
-# error: closure body uses `rc` without capturing it
+# error: `rc` is a local of the enclosing function; capture it

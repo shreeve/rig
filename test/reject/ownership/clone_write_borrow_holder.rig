@@ -1,0 +1,22 @@
+# A write borrow is unique: a shared handle whose value holds one cannot
+# be cloned, weakly referenced, or captured by clone, which would give
+# two handles that both write through it.
+
+struct Box
+  v: Vec(Int)
+
+struct Ed
+  t: !Box
+
+sub main()
+  b = Box(v: Vec())
+  (!b.v).push(1)
+  s = *Ed(t: !b)
+  h = +s
+  k = |+s| print(s.t.v.length())
+  k()
+  w = ~s
+  print(h.t.v.length())
+
+# error: cannot clone `s`: it holds a write borrow
+# error: cannot take a weak handle to `s`: it holds a write borrow
