@@ -1469,7 +1469,8 @@ drop 1
 ```
 
 Automatic drops at the end of a block run in reverse order of
-declaration.
+declaration. So a value whose drop runs a `drop` body may not borrow a
+value declared after it: that value is dropped first.
 
 ### Temporaries
 
