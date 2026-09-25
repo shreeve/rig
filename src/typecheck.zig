@@ -2916,10 +2916,16 @@ const Checker = struct {
                 return switch (h) {
                     .enum_lit => true,
                     .neg, .not => self.isComptimeKnown(ir.get(e, .operand)),
-                    .@"+", .@"-", .@"*", .@"/", .@"%", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => self.isComptimeKnown(ir.get(e, .left)) and self.isComptimeKnown(ir.get(e, .right)),
+                    .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => self.isComptimeKnown(ir.get(e, .left)) and self.isComptimeKnown(ir.get(e, .right)),
                     .member => ir.Member.object(e) == .src and blk: {
                         const id = self.lookupQuiet(ir.Member.object(e)) orelse break :blk false;
-                        break :blk self.ctx.symbols.items[id].kind == .nominal_type;
+                        const sym = self.ctx.symbols.items[id];
+                        if (sym.kind != .module) break :blk sym.kind == .nominal_type;
+                        // An imported module's constant.
+                        const origin = self.ctx.module_refs.get(id) orelse break :blk false;
+                        const foreign = self.ctx.foreign_semas.get(origin) orelse break :blk false;
+                        const member = foreign.lookupInScopeOnly(sema.module_scope, self.text(ir.Member.name(e))) orelse break :blk false;
+                        break :blk foreign.symbols.items[member].flags.comptime_known;
                     },
                     else => false,
                 };
