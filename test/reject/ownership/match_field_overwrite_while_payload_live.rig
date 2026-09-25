@@ -1,0 +1,32 @@
+# The matched value stays borrowed while a payload binding is in use:
+# overwriting it would drop the value the payload views.
+
+struct Tok
+  v: Vec(Int)
+
+enum Slot
+  empty
+  full(t: *Tok)
+
+struct Holder
+  s: Slot
+
+sub clear(h: !Slot)
+  match h
+    .full(t)
+      h = .empty
+      print(t.v[0])
+    .empty => print("empty")
+
+sub main()
+  t0 = Tok(v: Vec())
+  (!t0.v).push(1)
+  h = Holder(s: .full(*<t0))
+  match h.s
+    .full(t)
+      h.s = .empty
+      print(t.v[0])
+    .empty => print("empty")
+
+# error: cannot assign to `h.s` while `h` is borrowed
+# error: cannot reassign `h` while borrows are live

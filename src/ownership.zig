@@ -154,8 +154,10 @@ const Var = struct {
     /// Resource captured into a closure environment (`|+x|`, `|~x|`,
     /// `|<x|`): the body sees a borrowed view of the env slot.
     capture_resource: bool = false,
-    /// Match payload binding: the scrutinee var it views.
+    /// Match payload binding: the var the scrutinee is, or is a field
+    /// of, and the field's path (empty for the whole var).
     alias_of: ?VarId = null,
+    alias_path: []const u8 = "",
     via: Via = .owned,
     /// Match payload binding whose variant has another field that owns
     /// a resource: moving this one out would leave that one undropped.
@@ -1248,19 +1250,19 @@ pub const Checker = struct {
         const v = self.vars.items[f.id];
         if (v.decl != ctx.symbols.items[sym].decl_pos) return;
         if (!self.flowLive(f.id)) return;
-        const root = v.alias_of orelse {
+        if (v.alias_of == null) {
             // A bare owning name returned through a branch moves out.
             if (sink == .ret and !v.closure and !v.loop_borrow and !v.capture_resource and self.returnMoves(v)) {
                 _ = try self.moveVar(f.id, node.src.pos, .move);
             }
             return;
-        };
+        }
         const k = self.owningKind(v.ty) orelse return;
         if (k == .generic and v.via != .owned) {
             // A copy for plain data; each instantiation is checked.
             return self.reportAlias(node.src.pos, v.name, true, k, .binding, v.ty);
         }
-        _ = try self.movePayload(f.id, root, node.src.pos, .{});
+        _ = try self.movePayload(f.id, node.src.pos, "move");
     }
 
     fn isWriteBorrowPlace(self: *Checker, expr: Sexp) bool {
@@ -1327,16 +1329,20 @@ pub const Checker = struct {
         through_borrow: bool = false,
     };
 
-    fn resolvePlace(self: *Checker, e: Sexp) Error!?Place {
+    /// The var a place expression starts from, and how it gets there.
+    /// Null for anything else, and for a name the closure body did not
+    /// capture (walking the expression reports it).
+    fn resolvePlace(self: *const Checker, e: Sexp) ?Place {
         switch (e) {
             .src => {
-                const id = (try self.lookup(e.src.pos, self.text(e))) orelse return null;
-                return .{ .root = id, .whole = true, .through_borrow = self.vars.items[id].ref != .none };
+                const f = self.find(self.text(e)) orelse return null;
+                if (f.crossed) return null;
+                return .{ .root = f.id, .whole = true, .through_borrow = self.vars.items[f.id].ref != .none };
             },
             .list => switch (e.kind() orelse return null) {
                 .member, .index => {
                     const object = ir.get(e, .object);
-                    var p = (try self.resolvePlace(object)) orelse return null;
+                    var p = self.resolvePlace(object) orelse return null;
                     p.whole = false;
                     if (e.isKind(.index)) p.indexed = true;
                     if (self.exprType(object)) |t| {
@@ -1377,7 +1383,7 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn walkBorrow(self: *Checker, inner: Sexp, kind: LoanKind) Error!Value {
-        const place = (try self.resolvePlace(inner)) orelse return self.walk(inner);
+        const place = self.resolvePlace(inner) orelse return self.walk(inner);
         try self.walkPlaceIndices(inner);
         const id = place.root;
         const v = self.vars.items[id];
@@ -1434,7 +1440,7 @@ pub const Checker = struct {
 
     /// `<e`: move a whole binding, or reject moving out of a path.
     fn walkMove(self: *Checker, inner: Sexp, verb: MoveVerb) Error!Value {
-        const place = (try self.resolvePlace(inner)) orelse return self.walk(inner);
+        const place = self.resolvePlace(inner) orelse return self.walk(inner);
         if (place.whole) return self.moveVar(place.root, self.startOf(inner), verb);
         return self.movePath(inner, place);
     }
@@ -1464,7 +1470,7 @@ pub const Checker = struct {
         if (try self.rejectGlobal(id, pos, vt)) return .{};
 
         // A Copy payload is copied out of its scrutinee, which stays whole.
-        if (v.alias_of) |root| if (!self.isCopy(v.ty)) return self.movePayload(id, root, pos, value);
+        if (v.alias_of != null and !self.isCopy(v.ty)) return self.movePayload(id, pos, vt);
 
         if (self.findLoan(id, .any, null)) |l| {
             switch (l.kind) {
@@ -1480,9 +1486,11 @@ pub const Checker = struct {
         return value;
     }
 
-    /// Move a match payload binding out of its scrutinee.
-    fn movePayload(self: *Checker, id: VarId, root: VarId, pos: u32, value: Value) Error!Value {
+    /// Move (or drop, `op`) a match payload binding out of its
+    /// scrutinee. The value carries what the scrutinee held.
+    fn movePayload(self: *Checker, id: VarId, pos: u32, op: []const u8) Error!Value {
         const v = self.vars.items[id];
+        const root = v.alias_of.?;
         const r = self.vars.items[root];
         if (v.owning_sibling) |sib| {
             try self.err(pos, "cannot move `{s}` out of `{s}`: another field of the variant owns a resource that would never be dropped", .{ v.name, r.name });
@@ -1500,6 +1508,11 @@ pub const Checker = struct {
             },
             .owned => {},
         }
+        if (try self.rejectBorrowedView(root, pos, op)) return .{};
+        if (v.alias_path.len > 0) {
+            try self.err(pos, "cannot {s} `{s}` out of `{s}`: `{s}` still owns it (partial moves are not supported)", .{ op, v.name, v.alias_path, r.name });
+            return .{};
+        }
         if (!self.flowLive(root)) {
             try self.err(pos, "cannot move `{s}` out of `{s}`: `{s}` was already moved", .{ v.name, r.name, r.name });
             try self.noteInvalidated(root, pos);
@@ -1511,6 +1524,7 @@ pub const Checker = struct {
             return .{};
         }
         // Moving the payload consumes the scrutinee.
+        const value = self.varValue(root);
         try self.markInvalid(root, .moved, pos);
         try self.markInvalid(id, .moved, pos);
         return value;
@@ -1619,8 +1633,8 @@ pub const Checker = struct {
                 return;
             },
         }
-        if (v.alias_of) |root| {
-            _ = try self.movePayload(id, root, pos, .{});
+        if (v.alias_of != null) {
+            _ = try self.movePayload(id, pos, "drop");
             if (!self.flowLive(id)) try self.markInvalid(id, .dropped, pos);
             return;
         }
@@ -1871,7 +1885,7 @@ pub const Checker = struct {
     /// `p.f = e` / `v[i] = e`.
     fn walkFieldAssign(self: *Checker, target: Sexp, expr: Sexp, is_move: bool) Error!void {
         const value = if (is_move) try self.walkMove(expr, .move) else try self.walkConsumed(expr, .field);
-        const place = (try self.resolvePlace(target)) orelse {
+        const place = self.resolvePlace(target) orelse {
             _ = try self.walk(target);
             return;
         };
@@ -1924,7 +1938,7 @@ pub const Checker = struct {
                 obj = ir.get(obj, .operand);
             }
             recv_mode = if (explicit_write) .write else self.receiverMode(obj, callee);
-            const place = if (recv_mode == .value) null else try self.resolvePlace(obj);
+            const place = if (recv_mode == .value) null else self.resolvePlace(obj);
             if (place) |p| {
                 const recv_val = try self.walk(obj);
                 const id = p.root;
@@ -2015,7 +2029,7 @@ pub const Checker = struct {
         var inner = arg;
         const explicit_write = arg.isKind(.write);
         if (explicit_write or arg.isKind(.clone)) inner = ir.get(arg, .operand);
-        const place = (try self.resolvePlace(inner)) orelse return null;
+        const place = self.resolvePlace(inner) orelse return null;
         const ty = self.exprType(inner);
         // What the callee could store into is the value behind a borrow.
         if (!self.mayCarryBorrow(self.pointee(ty))) return null;
@@ -2295,6 +2309,8 @@ pub const Checker = struct {
     const Scrutinee = struct {
         root: ?VarId = null,
         via: Via = .owned,
+        /// The matched field (`h.s`) when it is not a whole binding.
+        path: []const u8 = "",
     };
 
     fn walkMatch(self: *Checker, match: Sexp) Error!Value {
@@ -2306,15 +2322,15 @@ pub const Checker = struct {
             node = ir.get(scrut, .operand);
             info.via = .borrowed;
         }
-        if (node == .src) {
-            if (self.find(self.text(node))) |f| if (!f.crossed) {
-                info.root = f.id;
-                const v = self.vars.items[f.id];
-                if (v.ref != .none or v.alias_of != null) info.via = .borrowed;
-                if (v.ty) |t| if (self.typeData(t) == .shared) {
-                    info.via = .shared;
-                };
+        if (self.resolvePlace(node)) |p| {
+            info.root = p.root;
+            const v = self.vars.items[p.root];
+            if (p.through_borrow or v.alias_of != null) info.via = .borrowed;
+            if (p.through_shared) info.via = .shared;
+            if (self.exprType(node)) |t| if (self.typeData(t) == .shared) {
+                info.via = .shared;
             };
+            if (!p.whole) info.path = try self.placeText(node);
         }
         const scrut_value = try self.walk(scrut);
 
@@ -2379,19 +2395,14 @@ pub const Checker = struct {
         if (!self.isCopy(ty)) {
             if (info.root) |r| {
                 v.alias_of = r;
+                v.alias_path = info.path;
                 v.via = info.via;
-                if (info.via == .borrowed) {
-                    loans = self.flows.items[r].loans;
-                    if (loans.len == 0) {
-                        const one = try self.arena().alloc(Loan, 1);
-                        one[0] = .{ .root = r, .kind = .read, .pos = pos };
-                        loans = one;
-                    }
-                } else {
-                    const one = try self.arena().alloc(Loan, 1);
-                    one[0] = .{ .root = r, .kind = .read, .pos = pos };
-                    loans = one;
-                }
+                // The binding views the matched value: its root stays
+                // read-borrowed, and a borrowed root lends what it holds.
+                const one = try self.arena().alloc(Loan, 1);
+                one[0] = .{ .root = r, .kind = .read, .pos = pos };
+                loans = one;
+                if (info.via == .borrowed) loans = try self.unionLoans(loans, self.flows.items[r].loans);
             } else {
                 loans = scrut_value.loans;
             }
@@ -2453,7 +2464,7 @@ pub const Checker = struct {
             _ = try self.walkMove(source, .move);
         } else {
             _ = try self.walk(source);
-            if (try self.resolvePlace(source)) |p| {
+            if (self.resolvePlace(source)) |p| {
                 const id = p.root;
                 const kind: LoanKind = if (mode == .write) .write else .read;
                 spec.source_root = id;

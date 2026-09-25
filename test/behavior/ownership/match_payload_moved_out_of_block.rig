@@ -1,0 +1,19 @@
+# A payload moved out of a match carries what the scrutinee held, not a
+# borrow of the scrutinee, so it may outlive the scrutinee's block.
+
+enum Slot
+  empty
+  full(f: *sub())
+
+sub main()
+  outer: Vec(*sub()) = Vec()
+  if true
+    s: Slot = .full(*|| print("hi"))
+    match s
+      .full(f) => (!outer).push(<f)
+      .empty => print("e")
+  for g in ?outer
+    g()
+
+# expect:
+# hi
