@@ -1357,7 +1357,7 @@ pub const Emitter = struct {
         const elem_sym = self.sema.symbolOf(binding);
         const elem_ty: ?TypeId = if (elem_sym) |s| self.symType(s) else null;
         // A resource element is a borrowed view of its slot.
-        const by_ptr = (mode == .ptr or mode == .write) or
+        const by_ptr = mode == .write or
             (elem_ty != null and self.sema.types.get(elem_ty.?) == .borrow_read);
 
         try self.pushScope();

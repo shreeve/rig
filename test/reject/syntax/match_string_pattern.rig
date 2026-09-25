@@ -1,0 +1,11 @@
+# A match pattern is a name, an integer, a Bool, or an enum variant;
+# a string literal is not a pattern.
+
+sub main()
+  s = "a"
+  match s
+    "a" => print(1)
+    else => print(2)
+
+# error: unexpected `"a"`
+# error: a pattern is a name, an integer, `true`, `false`, or an enum variant

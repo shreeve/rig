@@ -20,7 +20,7 @@
 #     not the preceding value is a prefix; otherwise it is an infix
 #     operator or a suffix.
 #
-#       <x +x ?x !x *x ~x @x -x      ownership sigils / negation
+#       <x +x ?x !x *x ~x -x         ownership sigils / negation
 #       |+a, b|  ||  *|a|            closure bar list (vs bitwise `|`)
 #       f(x) a[i]                    call / index (vs `f (x)`, `f [1, 2]`,
 #                                    which pass a new operand to `f`)
@@ -73,11 +73,11 @@ tokens
     struct
     sub
     test
-    try
+    try             # reserved; no form uses it
     type
     use
     while
-    zig
+    zig             # reserved; no form uses it
 
     # Operators
     plus            # +
@@ -122,8 +122,6 @@ tokens
     # Punctuation
     lparen          # (  grouping, parameter list, or a new operand
     rparen          # )
-    lbrace          # {  (not used by Rig)
-    rbrace          # }  (not used by Rig)
     lbracket        # [  array literal or slice/array type
     rbracket        # ]
     comma           # ,
@@ -149,7 +147,6 @@ tokens
     kwarg_name      # name directly followed by `:` inside ( )
     move_pfx        # <x  move
     clone_pfx       # +x  clone
-    pin_pfx         # @x  pin (reserved)
     read_pfx        # ?x  read borrow, ?T read-borrowed type
     write_pfx       # !x  write borrow, !T write-borrowed type
     share_pfx       # *x  share, *T shared type
@@ -173,7 +170,7 @@ tokens
 '\n'                                        → newline
 '\r'                                        → newline
 
-'"' ([^"\\$\n] | '\\' . | '$')* '"'         → string_dq
+'"' ([^"\\\n] | '\\' .)* '"'               → string_dq
 "'" ([^'\n] | "''")* "'"                    → string_sq
 
 '0' [xX] [0-9a-fA-F]+                       → integer
@@ -226,8 +223,6 @@ tokens
 '='                                         → assign
 '('                                         → lparen
 ')'                                         → rparen
-'{'                                         → lbrace
-'}'                                         → rbrace
 '['                                         → lbracket
 ']'                                         → rbracket
 ','                                         → comma
@@ -264,7 +259,6 @@ tokens
     # Declarations
     module                      ...decls
     use                         name:leaf
-    zig                         code:leaf
     fun                         name:leaf params:group? returns? body:block
     sub                         name:leaf params:group? body:block
     lambda                      captures:captures? params:group? body:block
@@ -293,7 +287,7 @@ tokens
     if                          cond then else?
     as                          value name:leaf
     while                       cond step? body:block else:block?
-    for                         mode:tag(iter|ptr|read|write|move) var:leaf index:leaf? source body:block else:block?
+    for                         mode:tag(iter|read|write|move) var:leaf index:leaf? source body:block else:block?
     match                       subject ...arms:arm
     arm                         pattern body
     range_pattern               lo hi
@@ -303,10 +297,8 @@ tokens
     break                       value? label:leaf?
     continue                    label:leaf?
     defer, errdefer             body
-    raw_block, pre_block        body:block
-    pre, propagate              value
-    try_block                   body:block catch:catch_block?
-    catch_block                 name:leaf body:block
+    raw_block                   body:block
+    propagate                   value
     catch                       value name:leaf? handler
     block                       ...stmts
 
@@ -332,7 +324,7 @@ tokens
 
     # Ownership sigils (`~T`, `?T`, `!T`, `*T` in type position are the
     # type kinds below, except `weak`, which is both)
-    move, read, write, clone, share, weak, pin  operand
+    move, read, write, clone, share, weak  operand
 
     # Types
     optional, error_union, borrow_read, borrow_write, shared, slice  type
@@ -351,7 +343,7 @@ tokens
     POST_IF: "`if`", TERNARY_IF: "`if`"
     BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`", DOT_LIT: "`.`"
     KWARG_NAME: "a keyword argument"
-    MOVE_PFX: "`<`", CLONE_PFX: "`+`", PIN_PFX: "`@`", READ_PFX: "`?`"
+    MOVE_PFX: "`<`", CLONE_PFX: "`+`", READ_PFX: "`?`"
     WRITE_PFX: "`!`", SHARE_PFX: "`*`", DROP_STMT: "`-`", MINUS_PREFIX: "`-`"
     SUFFIX_Q: "`?`", SUFFIX_BANG: "`!`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
@@ -394,7 +386,6 @@ stmt     = use
          | extvar
          | ext_fun
          | ext_sub
-         | zig
          | ":" label:name stmt:stmt                 → (labeled)
          | simple
          | simple POST_IF cond:value                → (if then:(block 1))
@@ -418,7 +409,6 @@ simple   = tail
          | CONTINUE [":" label:name]                → (continue)
          | DEFER body:(block | simple)              → (defer)
          | ERRDEFER body:(block | simple)           → (errdefer)
-         | PRE body:block                           → (pre_block)
          | RAW body:block                           → (raw_block)
 
 # ==============================================================================
@@ -484,8 +474,6 @@ extvar   = EXTERN name:name ":" type:type           → (extern)
 ext_fun  = EXTERN FUN name:name [params:params] [returns:returns] → (extern_fun)
 ext_sub  = EXTERN SUB name:name [params:params]     → (extern_sub)
 
-zig      = ZIG code:(STRING_DQ | STRING_SQ)         → (zig)
-
 # ==============================================================================
 # TYPES
 # ==============================================================================
@@ -534,10 +522,8 @@ expr     = value
          | while
          | for
          | match
-         | try_block
          | value:logic CATCH BAR_CAPTURE name:name BAR_CAPTURE handler:block → (catch)
          | closure
-         | PRE value:value                          → (pre)
 
 value    = then:logic TERNARY_IF cond:logic ELSE else:value → (if)
          | value:logic CATCH [BAR_CAPTURE name:name BAR_CAPTURE] handler:value → (catch)
@@ -586,9 +572,7 @@ while    = WHILE cond:ifcond [":" step:simple] body:block [ELSE else:block] → 
 
 # The Parser wrapper moves a `?xs` / `!xs` / `<xs` source sigil into the
 # mode slot.
-for      = FOR SHARE_PFX var:name ["," index:name] IN source:cond body:block [ELSE else:block]
-                                                    → (for mode:ptr)
-         | FOR var:name ["," index:name] IN source:cond body:block [ELSE else:block]
+for      = FOR var:name ["," index:name] IN source:cond body:block [ELSE else:block]
                                                     → (for mode:iter)
 
 match    = MATCH subject:cond INDENT arms:arms OUTDENT → (match)
@@ -607,18 +591,10 @@ patatom  = name
          | ELSE                                     # default arm
          | INTEGER
          | MINUS_PREFIX operand:INTEGER             → (neg)
-         | REAL
-         | STRING_SQ
-         | STRING_DQ
          | TRUE
          | FALSE
          | DOT_LIT name:name                        → (enum_lit)
          | DOT_LIT name:name LPAREN_CALL [bindings:L(name)] ")" → (variant_pattern)
-
-# The value-yielding try block is reserved; sema rejects it.
-try_block  = TRY body:block [catch:catch_part]      → (try_block)
-
-catch_part = CATCH BAR_CAPTURE name:name BAR_CAPTURE body:block → (catch_block)
 
 # --- Closures -----------------------------------------------------------------
 #
@@ -663,7 +639,6 @@ unary    = MINUS_PREFIX operand:unary               → (neg)
          | WRITE_PFX operand:unary                  → (write)
          | SHARE_PFX operand:unary                  → (share)
          | "~"       operand:unary                  → (weak)
-         | PIN_PFX   operand:unary                  → (pin)
          | postfix
 
 postfix  = object:postfix "." name:name             → (member)

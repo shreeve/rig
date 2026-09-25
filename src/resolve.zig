@@ -84,7 +84,6 @@ const SymbolResolver = struct {
             },
             .@"while" => try self.walkConditional(ir.While.cond(sexp), &.{ ir.While.step(sexp), ir.While.body(sexp) }, ir.While.@"else"(sexp)),
             .arm => try self.walkArm(sexp),
-            .catch_block => try self.walkCatchBlock(sexp),
             .@"catch" => try self.walkCatch(sexp),
             else => for (rig.children(sexp)) |c| try self.walk(c),
         }
@@ -487,13 +486,6 @@ const SymbolResolver = struct {
             for (bodies) |b| try self.walk(b);
         }
         try self.walk(else_);
-    }
-
-    fn walkCatchBlock(self: *SymbolResolver, node: Sexp) Error!void {
-        const prev = try self.enter(node, .block);
-        defer self.scope = prev;
-        _ = try self.bindFresh(ir.CatchBlock.name(node), "`catch` binding");
-        try self.walk(ir.CatchBlock.body(node));
     }
 
     /// `(catch value name-or-_ handler)`.

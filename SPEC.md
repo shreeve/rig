@@ -2394,7 +2394,9 @@ User(name: "ada", age: 36) none ["a", "b"] 2.5
 
 ## 19. Reserved and rejected forms
 
-These parse, and are rejected with a diagnostic that says why:
+These are rejected with a diagnostic that says why. The first group do
+not parse; their words and sigils stay reserved for possible future
+forms:
 
 | Form | Status |
 |---|---|
@@ -2402,8 +2404,14 @@ These parse, and are rejected with a diagnostic that says why:
 | `@x` (pin) | reserved: no pinning semantics yet |
 | `for *x in v` | reserved: by-reference loop binding |
 | `pre expr`, `pre` blocks | reserved; only `pre` parameters exist |
-| `try` blocks with `catch` blocks | reserved; use `f()!` or `f() catch x` |
+| `try` blocks | reserved; use `f()!` or `f() catch x` |
 | `zig "..."` | reserved: no inline Zig; use `raw` and `extern` |
+| string and float match patterns | not patterns; match works on enums, integers, and `Bool` |
+
+The rest parse and are rejected in sema:
+
+| Form | Status |
+|---|---|
 | `use std` | reserved |
 | module-level bindings | not supported yet |
 | field default values | not supported yet |
@@ -2417,5 +2425,6 @@ sub main()
 ```
 
 ```error
-inline `zig "..."` raw-Zig escape is reserved
+unexpected keyword `zig`
+inline Zig is reserved
 ```

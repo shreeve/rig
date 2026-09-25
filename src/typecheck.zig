@@ -713,11 +713,6 @@ const Checker = struct {
         const binding = ir.For.@"var"(node);
         const index_binding = ir.For.index(node);
         const source = ir.For.source(node);
-        const source_pos = self.startOf(source);
-
-        if (mode == .ptr) {
-            try self.err(source_pos, "by-reference for-loop binding `for *x in ...` is reserved; write `for x in ?xs` to read-iterate a Vec of resources, or `for x in xs` to iterate values", .{});
-        }
 
         if (index_binding != .nil and source.isKind(.@"..")) {
             try self.errAt(index_binding, "a range has no index binding; the element is already the position (`for i in a..b`)", .{});
@@ -796,7 +791,7 @@ const Checker = struct {
                     else => false,
                 };
                 if (is_resource) {
-                    if (mode != .read and mode != .ptr and mode != .write and mode != .move) {
+                    if (mode != .read and mode != .write and mode != .move) {
                         try self.err(pos, "resource Vec(T) iteration requires an explicit read borrow; write `for x in ?vec`", .{});
                     }
                     if (!isFieldPath(inner_source)) {
@@ -1240,10 +1235,6 @@ const Checker = struct {
             .share => self.synthShare(e),
             .weak => self.synthWeak(e),
             .clone => self.synthClone(e),
-            .pin => blk: {
-                try self.errAt(e, "pinning sigil `@x` is reserved; Rig does not support pinned/stable-address values. Remove the `@` prefix, or call a builtin such as `@sizeOf(T)`.", .{});
-                break :blk self.t().invalid_id;
-            },
             .@"+", .@"-", .@"*", .@"/", .@"%" => self.checkNumericOperands(e, @tagName(head), .numeric),
             .@"&", .@"|", .@"^", .@"<<", .@">>" => self.checkNumericOperands(e, @tagName(head), .integer),
             .@"<", .@">", .@"<=", .@">=" => blk: {
@@ -1292,18 +1283,6 @@ const Checker = struct {
             .@"break", .@"continue" => blk: {
                 try self.checkStmt(e);
                 break :blk self.t().noreturn_id;
-            },
-            .pre, .pre_block => blk: {
-                try self.errAt(e, "`pre` expression / block is reserved; only `pre` parameters (compile-time function parameters) are supported. Remove the `pre` modifier or use a regular binding.", .{});
-                break :blk self.t().invalid_id;
-            },
-            .try_block => blk: {
-                try self.errAt(e, "value-yielding `try INDENT body OUTDENT [catch |e| ...]` block is reserved; use `expr!` to propagate or `expr catch handler` to recover", .{});
-                break :blk self.t().invalid_id;
-            },
-            .zig => blk: {
-                try self.errAt(e, "inline `zig \"...\"` raw-Zig escape is reserved; the audit boundary is a `raw` block and the FFI boundary is `extern`", .{});
-                break :blk self.t().invalid_id;
             },
             .kwarg => blk: {
                 try self.errAt(e, "`name: value` is only allowed as a call argument", .{});
@@ -3713,7 +3692,7 @@ fn classifyReceiverShape(recv: Sexp) ReceiverShape {
         .read => .read_explicit,
         .write => .write_explicit,
         .move => .move_explicit,
-        .call, .builtin, .array, .clone, .share, .weak, .@"if", .match, .@"catch", .try_block, .propagate => .rvalue,
+        .call, .builtin, .array, .clone, .share, .weak, .@"if", .match, .@"catch", .propagate => .rvalue,
         else => .lvalue_bare,
     };
 }

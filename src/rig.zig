@@ -273,10 +273,9 @@ pub const Lexer = struct {
     // Indentation: `levels[0..depth]` are the enclosing block columns.
     levels: [max_indent_depth]u32 = undefined,
     depth: u32 = 0,
-    /// Per depth: the current line there opened a block that `else` or
-    /// `catch` may continue (it has a block `if`, `while`, `for`, or
-    /// `try`). An `else` after any other block (a match arm) is a new
-    /// line.
+    /// Per depth: the current line there opened a block that `else` may
+    /// continue (it has a block `if`, `while`, or `for`). An `else` after
+    /// any other block (a match arm) is a new line.
     takes_else: [max_indent_depth + 1]bool = @splat(false),
     column: u32 = 0,
     pending_outdents: u32 = 0,
@@ -330,6 +329,7 @@ pub const Lexer = struct {
         and_operator,
         or_operator,
         power_operator,
+        pin_sigil,
 
         pub fn message(e: LexError) []const u8 {
             return switch (e) {
@@ -344,6 +344,7 @@ pub const Lexer = struct {
                 .and_operator => "`&&` is not a Rig operator; use `and`",
                 .or_operator => "`||` is not a Rig operator; use `or`",
                 .power_operator => "`**` is not a Rig operator",
+                .pin_sigil => "the pin sigil `@x` is reserved; `@` only starts a builtin call, `@name(...)`",
             };
         }
     };
@@ -543,7 +544,7 @@ pub const Lexer = struct {
 
         self.pending_outdents = closed - 1;
         self.pending_pos = pos;
-        if (self.takes_else[self.depth] and self.startsWithContinuation(pos)) {
+        if (self.takes_else[self.depth] and self.startsWithElse(pos)) {
             self.pending_newline = false;
         } else {
             self.pending_newline = true;
@@ -552,15 +553,13 @@ pub const Lexer = struct {
         return synthetic(.outdent, pos);
     }
 
-    /// The line at `pos` starts with `else` or `catch`, which continue the
-    /// block that just closed, so no NEWLINE separates them.
-    fn startsWithContinuation(self: *const Lexer, pos: u32) bool {
+    /// The line at `pos` starts with `else`, which continues the block
+    /// that just closed, so no NEWLINE separates them.
+    fn startsWithElse(self: *const Lexer, pos: u32) bool {
         var probe = self.base;
         probe.pos = pos;
         const tok = probe.matchRules();
-        if (tok.cat != .ident) return false;
-        const word = self.base.text(tok);
-        return std.mem.eql(u8, word, "else") or std.mem.eql(u8, word, "catch");
+        return tok.cat == .ident and std.mem.eql(u8, self.base.text(tok), "else");
     }
 
     fn endOfInput(self: *Lexer, eof: Token) Token {
@@ -602,7 +601,7 @@ pub const Lexer = struct {
             .lt => if (self.isPrefix(tok)) .move_pfx else .lt,
             .plus => if (self.isPrefix(tok)) .clone_pfx else .plus,
             .star => if (self.isPrefix(tok) or self.isOwnedClosureStar(tok)) .share_pfx else .star,
-            .at => if (self.isPrefix(tok) and !self.isBuiltinCall(tok)) .pin_pfx else .at,
+            .at => if (self.isPrefix(tok) and !self.isBuiltinCall(tok)) return self.fail(.pin_sigil, tok.pos) else .at,
             .question => if (self.touchesValue(tok)) .suffix_q else if (self.isPrefix(tok)) .read_pfx else .question,
             .not_sym => if (self.touchesValue(tok)) .suffix_bang else if (self.isPrefix(tok)) .write_pfx else .not_sym,
             .bar => if (self.isCaptureBar(tok)) .bar_capture else .bar,
@@ -617,7 +616,7 @@ pub const Lexer = struct {
             else => tok.cat,
         };
         switch (out.cat) {
-            .@"if", .@"while", .@"for", .@"try" => self.takes_else[self.depth] = true,
+            .@"if", .@"while", .@"for" => self.takes_else[self.depth] = true,
             else => {},
         }
         return out;
@@ -695,7 +694,7 @@ pub const Lexer = struct {
         return tok.pre > 0 and !self.joined;
     }
 
-    /// `@name(` is a builtin call; `@name` alone is the (reserved) pin.
+    /// `@name(` is a builtin call; `@name` alone is the reserved pin sigil.
     fn isBuiltinCall(self: *const Lexer, tok: Token) bool {
         var p = tok.pos + tok.len;
         const src = self.base.source;
@@ -781,8 +780,8 @@ pub const Lexer = struct {
             switch (t.cat) {
                 .eof => return false,
                 .newline => if (depth == 0 and (self.nesting == 0 or self.inIsland())) return false,
-                .lparen, .lbracket, .lbrace => depth += 1,
-                .rparen, .rbracket, .rbrace => {
+                .lparen, .lbracket => depth += 1,
+                .rparen, .rbracket => {
                     if (depth == 0) return false;
                     depth -= 1;
                 },
@@ -934,8 +933,32 @@ pub const Parser = struct {
             else
                 self.format("unexpected `{s}`", .{src[tok.pos..][0..tok.len]}),
         };
-        const full = if (self.expectedHint()) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
+        const expected = self.expectedHint();
+        const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
+        const full = if (reservedHint(src, tok, expected orelse "")) |hint| self.format("{s}; {s}", .{ with_expected, hint }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
+    }
+
+    /// Why an unexpected token is not Rig: it starts a reserved form.
+    fn reservedHint(src: []const u8, tok: Token, expected: []const u8) ?[]const u8 {
+        return switch (tok.cat) {
+            .real, .string_sq, .string_dq => if (std.mem.indexOf(u8, expected, "a match arm") != null or std.mem.indexOf(u8, expected, "a pattern") != null)
+                "a pattern is a name, an integer, `true`, `false`, or an enum variant"
+            else
+                null,
+            .@"try" => "`try` blocks are reserved: propagate with `e!` or handle with `e catch ...`",
+            .zig => "inline Zig is reserved: use `raw` blocks and `extern` declarations",
+            .pre => "`pre` marks compile-time parameters only (`pre n: Int`)",
+            .share_pfx => if (precededByFor(src, tok.pos)) "`for *x in` is reserved: iterate with `for x in xs`, `?xs`, or `!xs`" else null,
+            else => null,
+        };
+    }
+
+    /// The word before `pos` is `for`.
+    fn precededByFor(src: []const u8, pos: u32) bool {
+        const before = std.mem.trimEnd(u8, src[0..pos], " ");
+        return std.mem.endsWith(u8, before, "for") and
+            (before.len == 3 or !isIdentCont(before[before.len - 4]));
     }
 
     /// The generated parser's expected set where it stopped (its
@@ -1280,8 +1303,6 @@ test "parser: every form parses" {
         \\    print(a[i])
         \\  else
         \\    print(0)
-        \\  for *p in xs
-        \\    print(p)
         \\  match s
         \\    .circle(r) => print(r)
         \\    1..3 => print(-1)

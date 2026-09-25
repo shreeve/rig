@@ -129,7 +129,7 @@ hands the parser distinct tokens:
 | `f(x)`, `a[i]` vs `f (x)`, `f [1]` | `LPAREN_CALL`, `LBRACKET_INDEX` vs `(`, `[` | touching the preceding value continues it |
 | `a.b` vs `.red`, `f .red` | `.` vs `DOT_LIT` | `.name` touching a value is member access |
 | `a - b`, `a-b` vs `-x`, `f -x` | `MINUS` vs `MINUS_PREFIX` / `DROP_STMT` | a sigil touching its operand and not the value before it is a prefix; `-name` as a whole statement is a drop |
-| `<x +x *x ?x !x @x` | `MOVE_PFX` ... `PIN_PFX` | the same rule |
+| `<x +x *x ?x !x` | `MOVE_PFX` ... `WRITE_PFX` | the same rule |
 | `T?`, `T!`, `f()!` | `SUFFIX_Q`, `SUFFIX_BANG` | touching the value before |
 | `a \| b` vs `\|a, +b\| body` | `BAR` vs `BAR_CAPTURE` | the spacing rule; the closing bar is the one the opening probe found |
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
@@ -165,11 +165,12 @@ adds block forms; `value` is an expression without blocks or closures
   list inside brackets: that opens a *layout island*, laid out in
   blocks until the bracket closes or a line returns to the closure's
   starting indentation;
-- lets `else` and `catch` continue the construct whose block just
+- lets `else` continue the `if`, `while`, or `for` whose block just
   closed;
 - classifies keywords, the spacing-dependent characters, `if`, and
   closure bars as above;
-- rejects `&&`, `||`, and `**` with a hint;
+- rejects `&&`, `||`, `**`, and the reserved pin sigil `@x` with a
+  hint;
 - bounds nesting (64 blocks, 512 brackets, 32 islands) so no input can
   overflow it.
 
@@ -181,7 +182,9 @@ adds block forms; `value` is an expression without blocks or closures
 into a positioned diagnostic (``unexpected `)`; expected an operand``:
 what the parser expected there, in the grammar's `@display` names for
 tokens and `@errors` names for rules, when that is at most three
-things), and makes the only rewrites that need to inspect the tree:
+things, and a hint when the token starts a reserved form such as a
+`try` block, `zig "..."`, or `for *x in`), and makes the only rewrites
+that need to inspect the tree:
 
 - a closure's bar-list entries are split into `(captures ...)` and a
   parameter list, and a capture after a parameter is an error;
@@ -255,7 +258,7 @@ an optional role, `...` a role that takes the remaining children:
 fun         name:leaf params:group? returns? body:block
 sub         name:leaf params:group? body:block
 set         op:tag(fixed|shadow|move|"+="|...)? target type? value
-for         mode:tag(iter|ptr|read|write|move) var:leaf index:leaf? source body:block else:block?
+for         mode:tag(iter|read|write|move) var:leaf index:leaf? source body:block else:block?
 match       subject ...arms:arm
 call        callee ...args
 "+", "-", "*", "/", "%"   left right
@@ -269,16 +272,13 @@ A few kinds serve more than one surface form:
 - `set`'s `op` is `_` for `=`, `fixed` for `=!`, `shadow` for
   `new x =`, `move` for `<-`, and the operator for a compound
   assignment.
-- `for`'s `mode` is `iter` or `ptr` (`for *x in ...`) from the grammar;
-  the Parser wrapper turns `for x in ?xs` / `!xs` / `<xs` into `read`,
-  `write`, `move`.
+- `for`'s `mode` is `iter` from the grammar; the Parser wrapper turns
+  `for x in ?xs` / `!xs` / `<xs` into `read`, `write`, `move`.
 - `lambda`'s `captures` is a `(captures cap...)` node the Parser wrapper
   builds from the bar list (the one `@wrapper` kind), or `_`.
 - `weak` is both `~x` and the type `~T`; `member` is both `a.b` and the
   qualified type `module.Type`; the other type kinds (`optional`,
   `shared`, `fun_type`, ...) appear only in type positions.
-- `pre`, `pre_block`, `try_block`, and `zig` are reserved: sema rejects
-  them.
 
 An owned closure is `(share (lambda ...))`, and its type
 `(shared (fun_type ...))`.

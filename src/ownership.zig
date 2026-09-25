@@ -41,7 +41,7 @@
 //!   `continue`. The state after the loop joins the condition-false state
 //!   with every `break`. Diagnostics are only reported on the final walk.
 //! * `return`, `break` and `continue` make the rest of their block
-//!   unreachable; a `!` propagation inside `try` feeds the `catch` state.
+//!   unreachable.
 //!
 //! Rules
 //! -----
@@ -240,14 +240,6 @@ const LoopCtx = struct {
     start: u32 = 0,
 };
 
-const TryCtx = struct {
-    /// The state at entry to the try body.
-    point: Point,
-    scope_depth: usize,
-    /// The states at every `!` propagation in the try body.
-    fails: std.ArrayListUnmanaged(State) = .empty,
-};
-
 /// Where a value is being consumed, for alias diagnostics.
 const Sink = enum {
     binding,
@@ -348,7 +340,6 @@ pub const Checker = struct {
     loop: ?*LoopCtx = null,
     /// The label of the loop about to be walked (`:name while ...`).
     pending_label: []const u8 = "",
-    try_ctx: ?*TryCtx = null,
     /// Set immediately before walking a lambda literal that sits in an
     /// allowed position (binding RHS, call callee, `*|...|`).
     lambda_ok: bool = false,
@@ -947,19 +938,16 @@ pub const Checker = struct {
     fn walkFun(self: *Checker, name: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
         const saved_func = self.func;
         const saved_loop = self.loop;
-        const saved_try = self.try_ctx;
         const saved_reachable = self.reachable;
         defer {
             self.func = saved_func;
             self.loop = saved_loop;
-            self.try_ctx = saved_try;
             self.reachable = saved_reachable;
         }
         const ret_ty = self.fnReturnType(name);
         const returns_value = returns != .nil and !self.isVoid(ret_ty);
         self.func = .{ .ret_may_borrow = returns_value and self.returnMayBorrow(ret_ty, returns) };
         self.loop = null;
-        self.try_ctx = null;
         // The body runs when called, not here: its effects on anything
         // outside it are undone afterwards.
         const outer = try self.here();
@@ -1152,7 +1140,6 @@ pub const Checker = struct {
             .read => self.walkBorrow(ir.Read.operand(sexp), .read),
             .write => self.walkBorrow(ir.Write.operand(sexp), .write),
             .clone, .weak => self.walkCloneWeak(sexp),
-            .pin => self.walk(ir.Pin.operand(sexp)),
             .share => self.walkShare(sexp),
             .lambda => self.walkLambda(sexp),
             .@"if" => self.walkIf(sexp),
@@ -1179,10 +1166,6 @@ pub const Checker = struct {
             },
             .@"continue" => blk: {
                 try self.walkJump(sexp, .cont);
-                break :blk .{};
-            },
-            .try_block => blk: {
-                try self.walkTryBlock(sexp);
                 break :blk .{};
             },
             .@"catch" => self.walkCatch(sexp),
@@ -2104,10 +2087,8 @@ pub const Checker = struct {
         const snap = try self.here();
         const saved_func = self.func;
         const saved_loop = self.loop;
-        const saved_try = self.try_ctx;
         self.func = .{ .in_closure = true };
         self.loop = null;
-        self.try_ctx = null;
         self.reachable = true;
         try self.pushScopeFor(.closure, body);
         for (caps, cap_values.items) |cap, cv| {
@@ -2131,7 +2112,6 @@ pub const Checker = struct {
         try self.popScope();
         self.func = saved_func;
         self.loop = saved_loop;
-        self.try_ctx = saved_try;
         try self.rewind(snap);
         return value;
     }
@@ -2461,7 +2441,7 @@ pub const Checker = struct {
             _ = try self.walk(source);
             if (try self.resolvePlace(source)) |p| {
                 const id = p.root;
-                const kind: LoanKind = if (mode == .write or mode == .ptr) .write else .read;
+                const kind: LoanKind = if (mode == .write) .write else .read;
                 spec.source_root = id;
                 spec.source_loan = kind;
                 spec.source_pos = self.startOf(source);
@@ -2663,43 +2643,11 @@ pub const Checker = struct {
         return self.captureBelow(target, depth);
     }
 
-    /// `e!`: on failure, control leaves for the enclosing `catch` or the
-    /// caller.
+    /// `e!`: on failure, control leaves for the caller.
     fn walkPropagate(self: *Checker, node: Sexp) Error!Value {
         const v = try self.walk(ir.Propagate.value(node));
-        if (!self.reachable) return v;
-        if (self.try_ctx) |t| {
-            try t.fails.append(self.arena(), try self.exitState(t.point, t.scope_depth));
-        } else {
-            try self.runDefersTo(0);
-        }
+        if (self.reachable) try self.runDefersTo(0);
         return v;
-    }
-
-    fn walkTryBlock(self: *Checker, node: Sexp) Error!void {
-        var ctx: TryCtx = .{ .point = try self.here(), .scope_depth = self.scopes.items.len };
-        const saved = self.try_ctx;
-        self.try_ctx = &ctx;
-        try self.walkStmt(ir.TryBlock.body(node));
-        self.try_ctx = saved;
-        const after = try self.capture(ctx.point);
-        try self.rewind(ctx.point);
-        var fail: State = .{ .reachable = false };
-        for (ctx.fails.items) |f| fail = try self.join(fail, f);
-        const catch_block = ir.TryBlock.@"catch"(node);
-        if (catch_block != .nil) {
-            const name = ir.CatchBlock.name(catch_block);
-            try self.apply(fail);
-            try self.pushScope(.block);
-            _ = try self.addVar(.{ .name = self.text(name), .decl = name.src.pos, .ty = self.symType(name.src.pos) }, .{});
-            try self.walkStmt(ir.CatchBlock.body(catch_block));
-            try self.popScope();
-            const handled = try self.capture(ctx.point);
-            try self.rewind(ctx.point);
-            try self.apply(try self.join(after, handled));
-        } else {
-            try self.apply(try self.join(after, fail));
-        }
     }
 
     // -------------------------------------------------------------------------
@@ -2719,14 +2667,11 @@ pub const Checker = struct {
     fn checkDeferBody(self: *Checker, body: Sexp, report_changes: bool) Error!void {
         const snap = try self.here();
         const saved_loop = self.loop;
-        const saved_try = self.try_ctx;
         const saved_in_defer = self.in_defer;
         self.loop = null;
-        self.try_ctx = null;
         self.in_defer = true;
         try self.walkStmt(body);
         self.loop = saved_loop;
-        self.try_ctx = saved_try;
         self.in_defer = saved_in_defer;
         const after = try self.capture(snap);
         try self.rewind(snap);
@@ -3367,20 +3312,6 @@ test "closure body must capture outer locals" {
         \\  f()
         \\
     , "closure body uses `rc` without capturing it");
-}
-
-test "move inside try is seen by catch" {
-    try expectError(
-        \\sub main()
-        \\  rc = make()
-        \\  try
-        \\    eat(<rc)
-        \\    risky()!
-        \\    rc = make()
-        \\  catch |e|
-        \\    look(?rc)
-        \\
-    , "use of `rc` after move");
 }
 
 test "a match without a catch-all arm may run no arm" {

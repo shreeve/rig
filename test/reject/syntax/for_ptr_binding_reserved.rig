@@ -1,5 +1,5 @@
-# `for *x in v` (by-reference loop binding) is reserved; iterate Copy
-# elements with `for x in v`.
+# `for *x in v` (by-reference loop binding) is reserved and does not
+# parse; iterate with `for x in v`, `?v`, or `!v`.
 
 sub main()
   v: Vec(Int) = Vec()
@@ -7,4 +7,4 @@ sub main()
   for *x in v
     print(x)
 
-# error: by-reference for-loop binding `for *x in ...` is reserved
+# error: `for *x in` is reserved
