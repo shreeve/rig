@@ -37,6 +37,9 @@ cp prog q.rig
 out=$("$RIG" build -o q.rig q.rig 2>&1); expect_rc $? 2 "-o naming a .rig file"
 expect_has "$out" "would write the executable over a .rig file" "-o naming a .rig file"
 expect_has "$(head -1 q.rig)" "sub main()" "the source survives -o"
+out=$("$RIG" build -o q.RIG q.rig 2>&1); expect_rc $? 2 "-o naming a .RIG file"
+expect_has "$out" "would write the executable over a .rig file" "-o naming a .RIG file"
+expect_has "$(head -1 q.rig)" "sub main()" "the source survives -o in another case"
 out=$("$RIG" check help 2>&1); expect_rc $? 2 "a file named help"
 expect_has "$out" "\`help\` is not a .rig file" "a file named help"
 

@@ -176,8 +176,9 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     // output.
     const base = std.fs.path.basename(file);
     if (!std.mem.endsWith(u8, base, ".rig") or base.len == ".rig".len) usageError("`{s}` is not a .rig file", .{file});
-    // Every source file ends in `.rig`, so an executable never replaces one.
-    if (out_path) |o| if (std.mem.endsWith(u8, o, ".rig")) usageError("`-o {s}` would write the executable over a .rig file", .{o});
+    // Every source file ends in `.rig`, so an executable never replaces
+    // one, even where file names ignore case.
+    if (out_path) |o| if (std.ascii.endsWithIgnoreCase(o, ".rig")) usageError("`-o {s}` would write the executable over a .rig file", .{o});
     return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts };
 }
 
