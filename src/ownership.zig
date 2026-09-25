@@ -2194,9 +2194,10 @@ pub const Checker = struct {
     }
 
     /// A loan on a value owned by the current function (as opposed to one
-    /// the caller handed in through a borrowed parameter).
+    /// the caller handed in through a borrowed parameter, or a
+    /// module-level constant, which outlives every function).
     fn isLocalLoan(self: *const Checker, l: Loan) bool {
-        if (l.ext) return false;
+        if (l.ext or self.isGlobal(l.root)) return false;
         if (l.frame) return true;
         const r = self.vars.items[l.root];
         return !(r.kind == .param and r.ref != .none);

@@ -2307,12 +2307,16 @@ pub const Emitter = struct {
         self.place_chain = false;
         try self.w.writeAll("rig.slice(");
         const ty = self.peelBorrows(base_ty orelse return self.unsupported(base, "a slice of an untyped value"));
+        // A constant is sliced where it is stored, not through a copy.
+        const saved_rt = self.rt_names;
+        self.rt_names = false;
         if (self.isVecTy(ty)) {
             try self.emitExpr(base);
             try self.w.writeAll(".items()");
         } else if (self.sema.types.get(ty) == .array) {
             try self.emitAddressOf(base);
         } else try self.emitBare(base);
+        self.rt_names = saved_rt;
         try self.w.writeAll(", ");
         try self.emitBare(ir.@"..".left(range));
         try self.w.writeAll(", ");
