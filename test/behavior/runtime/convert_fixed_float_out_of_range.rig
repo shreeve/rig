@@ -1,0 +1,13 @@
+# Converting a `=!` constant is checked when the program runs, like any
+# other value: an out-of-range float panics.
+
+sub main()
+  small =! 2.75
+  huge =! 1e300
+  print(Int(small))
+  print(Int(huge))
+
+# expect-panic: integer part of floating point value out of bounds
+
+# expect:
+# 2

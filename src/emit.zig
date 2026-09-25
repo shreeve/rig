@@ -2449,6 +2449,11 @@ pub const Emitter = struct {
         try self.w.print(", {s}(@as(", .{builtin});
         try self.emitTypeTy(from);
         try self.w.writeAll(", ");
+        // A constant is converted at run time, where Zig checks it as Rig
+        // does, not at compile time.
+        const saved_rt = self.rt_names;
+        defer self.rt_names = saved_rt;
+        self.rt_names = true;
         try self.emitBare(arg);
         try self.w.writeAll(")))");
     }
