@@ -1119,7 +1119,7 @@ pub const Emitter = struct {
     /// resource, the old value is dropped after the new one is computed.
     fn emitPlaceAssign(self: *Emitter, target: Sexp, value: Sexp, is_move: bool) Error!void {
         const place_ty = self.typeOf(target);
-        if (target != .src and self.isWriteBorrowExpr(target)) {
+        if (target != .src and self.isPtrBorrowExpr(target)) {
             // A field or element holding a write borrow is rebound.
             try self.emitBorrowValue(target);
             try self.w.writeAll(" = ");
@@ -1847,7 +1847,7 @@ pub const Emitter = struct {
     /// A value stored into a field, payload, or element: a write borrow is
     /// stored as its pointer.
     fn emitStored(self: *Emitter, e: Sexp) Error!void {
-        if (self.isWriteBorrowExpr(e)) return self.emitBorrowValue(e);
+        if (self.isPtrBorrowExpr(e)) return self.emitBorrowValue(e);
         try self.emitBare(e);
     }
 
@@ -1906,7 +1906,7 @@ pub const Emitter = struct {
     }
 
     /// An expression whose value is a pointer borrow (see `isPtrBorrowTy`).
-    fn isWriteBorrowExpr(self: *Emitter, e: Sexp) bool {
+    fn isPtrBorrowExpr(self: *Emitter, e: Sexp) bool {
         const t = self.typeOf(e) orelse return false;
         return self.isPtrBorrowTy(t);
     }
@@ -1932,7 +1932,7 @@ pub const Emitter = struct {
     /// `e` yielded where a value of `ty` goes: a write borrow of a Copy
     /// value (`!m`, or a call returning `!Int`) yields the value it reaches.
     fn emitValueAs(self: *Emitter, e: Sexp, ty: ?TypeId) Error!void {
-        if (ty != null and !self.isPtrBorrowTy(ty.?) and self.isWriteBorrowExpr(e)) return self.emitDeref(e);
+        if (ty != null and !self.isPtrBorrowTy(ty.?) and self.isPtrBorrowExpr(e)) return self.emitDeref(e);
         try self.emitValue(e, true);
     }
 
@@ -1998,7 +1998,7 @@ pub const Emitter = struct {
         switch (head) {
             .read => {
                 // `?x` of a value held by pointer (a Cell) is its address.
-                if (self.isWriteBorrowExpr(sexp)) return self.emitAddressOf(ir.Read.operand(sexp));
+                if (self.isPtrBorrowExpr(sexp)) return self.emitAddressOf(ir.Read.operand(sexp));
                 // A borrow never moves its operand, even in tail position.
                 self.bare = bare;
                 try self.emitValue(ir.Read.operand(sexp), false);
@@ -2034,7 +2034,7 @@ pub const Emitter = struct {
                 if (head == .member) try self.emitMember(sexp) else try self.emitIndex(sexp, self.place_chain);
                 // A field or element holding a write borrow denotes the
                 // borrowed value, unless the pointer itself is wanted.
-                if (self.isWriteBorrowExpr(sexp) and !(tail and self.ptr_tail)) try self.w.writeAll(".*");
+                if (self.isPtrBorrowExpr(sexp) and !(tail and self.ptr_tail)) try self.w.writeAll(".*");
             },
             .builtin => try self.emitBuiltin(sexp),
             .propagate => {
@@ -2044,7 +2044,7 @@ pub const Emitter = struct {
             .propagate_none => {
                 const operand = ir.PropagateNone.value(sexp);
                 try self.w.writeAll("(");
-                if (self.isWriteBorrowExpr(operand)) try self.emitDeref(operand) else try self.emitExpr(operand);
+                if (self.isPtrBorrowExpr(operand)) try self.emitDeref(operand) else try self.emitExpr(operand);
                 try self.w.writeAll(" orelse return null)");
             },
             .neg => {
@@ -2146,7 +2146,7 @@ pub const Emitter = struct {
         if (place == .src) if (self.localOf(place)) |local| {
             if (local.is_ptr) return self.w.writeAll(local.zig_name);
         };
-        if (self.isWriteBorrowExpr(place)) return self.emitBorrowValue(place);
+        if (self.isPtrBorrowExpr(place)) return self.emitBorrowValue(place);
         try self.w.writeAll("&");
         try self.emitPlace(place);
     }
@@ -2209,7 +2209,7 @@ pub const Emitter = struct {
         const borrows = self.isPtrBorrowTy(arr.array.elem);
         for (elems, 0..) |e, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
-            if (!borrows and self.isWriteBorrowExpr(e)) try self.emitDeref(e) else try self.emitStored(e);
+            if (!borrows and self.isPtrBorrowExpr(e)) try self.emitDeref(e) else try self.emitStored(e);
         }
         try self.w.writeAll(if (elems.len > 0) " }" else "}");
     }
