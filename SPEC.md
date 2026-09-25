@@ -1351,9 +1351,9 @@ tracks where every one came from.
 - A function may return a borrow only of something its caller lent it.
   The result then borrows from every borrowed argument of the call.
 - A struct holding a borrow keeps the borrowed value borrowed while the
-  struct is alive. So does a closure that captured a borrow, and a value
-  a call may have stored a borrow into (its receiver, its `!`
-  arguments, the handles it was given).
+  struct is alive. So does a stack closure that captured a borrow, and
+  a value a call may have stored a borrow into (its receiver, and what
+  its `!` arguments and other write borrows lead to).
 - A borrow may not outlive the value it borrows: not past the end of
   its block, not through `break`, and not out of the function.
 
@@ -1426,7 +1426,8 @@ and a field cannot be moved out of it.
 
 `+x` makes a new owner. For a shared or weak handle it bumps the
 count; for a Copy value it copies. A struct with drop glue has no
-clone. `+p.a` clones the handle in a field.
+clone. `+p.a` clones the handle in a field. A value holding a write
+borrow cannot be cloned or weakly referenced: the borrow is unique.
 
 ### Drop
 
@@ -1676,7 +1677,8 @@ mutable value.
 
 `T` is a Copy primitive or an owning type. An owning value is never
 copied out of a cell: it moves in with `set` / `replace` and moves out
-with `replace`.
+with `replace`. What goes into a cell holds no borrow, since every
+handle to the cell reaches it.
 
 A Cell is interior-mutable: `set` and `replace` change it through any
 path to it, including a read borrow (`?Cell(T)`), a `?self` method of a
@@ -2011,8 +2013,10 @@ sub main()
 
 An owned closure is type-erased at run time, so its parameters and
 result are plain Copy values: numbers, `Bool`, `String`, plain enums,
-and optionals of these. Pass owning values in as captures. `*` applies
-only to a closure literal, not to a function name or a closure binding.
+and optionals of these. Pass owning values in as captures. An owned
+closure can be stored anywhere, so it cannot capture a borrow or a
+value holding one; a stack closure can. `*` applies only to a closure
+literal, not to a function name or a closure binding.
 
 ### Multi-line closure bodies
 

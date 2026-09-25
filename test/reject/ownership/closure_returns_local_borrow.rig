@@ -1,5 +1,5 @@
-# An owned closure carries the borrows of its captures, so it cannot be
-# returned when it captured a borrow of a local.
+# An owned closure can be returned, so it cannot capture a borrow (here
+# of a local that the return would outlive).
 
 struct Box
   payload: Int
@@ -13,4 +13,4 @@ sub main()
   cb = mk()
   cb()
 
-# error: returned borrow of `b` does not originate from a borrowed parameter
+# error: an owned closure cannot capture `r`, which holds a borrow of `b`

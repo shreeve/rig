@@ -1,4 +1,4 @@
-# A clone of an owned closure that captured a borrow reaches that
+# A clone of a shared handle whose value holds a borrow reaches that
 # borrow too: the borrowed value stays borrowed while the clone lives.
 
 struct Box
@@ -7,13 +7,15 @@ struct Box
   drop self: !Box
     print("drop")
 
+struct View
+  b: ?Box
+
 sub main()
   a = Box(payload: 1)
-  r = ?a
-  cb: *sub() = *|<r| print(r.payload)
-  keep = +cb
-  -cb
+  v = *View(b: ?a)
+  keep = +v
+  -v
   -a
-  keep()
+  print(keep.b.payload)
 
 # error: cannot drop `a` while borrows are live

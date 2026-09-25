@@ -1,0 +1,20 @@
+# A value taken out of a Vec or Cell (`pop`, `replace`) is handed over:
+# it does not keep the container borrowed.
+
+sub main()
+  v: Vec(*sub()) = Vec()
+  (!v).push(*|| print("one"))
+  (!v).push(*|| print("two"))
+  f = (!v).pop()
+  print(v.length())
+  if <f as g
+    g()
+  c: Cell(*sub()) = Cell(value: *|| print("three"))
+  h = c.replace(*|| print("four"))
+  c.set(*|| print("five"))
+  h()
+
+# expect:
+# 1
+# two
+# three

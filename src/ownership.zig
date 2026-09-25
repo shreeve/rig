@@ -18,9 +18,12 @@
 //!   carries it into the struct; a call whose result type can hold a
 //!   borrow carries the loans of all of its arguments (so a returned
 //!   borrow borrows from every borrowed argument), and a call may store
-//!   its arguments' loans into its receiver, its `!x` arguments and the
-//!   shared handles it is given. A loan that is not stored anywhere is a
-//!   temporary and ends with its statement.
+//!   its arguments' loans into its receiver and into what its `!x`
+//!   arguments and other write borrows lead to. A loan that is not
+//!   stored anywhere is a temporary and ends with its statement.
+//! * Cells, Signals and owned closures hold no borrows: every handle to
+//!   one reaches what it holds, so tracking loans per handle var would
+//!   miss the other handles.
 //! * Borrowed parameters hold an *external* loan on themselves: it marks
 //!   a borrow that came from the caller, which may be returned or stored
 //!   into other borrowed parameters, and it never conflicts.
@@ -1144,7 +1147,7 @@ pub const Checker = struct {
             .write => self.walkBorrow(ir.Write.operand(sexp), .write),
             .clone, .weak => self.walkCloneWeak(sexp),
             .share => self.walkShare(sexp),
-            .lambda => self.walkLambda(sexp),
+            .lambda => self.walkLambda(sexp, false),
             .@"if" => self.walkIf(sexp),
             .@"while" => blk: {
                 try self.walkWhile(sexp);
@@ -1584,29 +1587,47 @@ pub const Checker = struct {
         return true;
     }
 
-    /// `+x` / `~x`. A new strong or weak handle is independent of the
-    /// borrow it was made through (a loop element, a `?*T` parameter),
-    /// unless the shared value itself holds borrows (an owned closure
-    /// that captured one, a view): then the new handle reaches them too.
-    /// A `clone` or `weak`.
+    /// `+x` / `~x`.
     fn walkCloneWeak(self: *Checker, e: Sexp) Error!Value {
         const inner = ir.get(e, .operand);
         const v = try self.walk(inner);
-        const t = self.pointee(self.exprType(inner)) orelse return v;
+        const p = self.resolvePlace(inner);
+        const id: ?VarId = if (p != null and p.?.whole) p.?.root else null;
+        return self.newHandle(self.startOf(inner), try self.placeText(inner), self.exprType(e), id, v, e.isKind(.weak));
+    }
+
+    /// The value of type `ty` that a clone or weak handle (`+x`, `~x`,
+    /// `|+x|`, `|~x|`) makes from var `id` or another value carrying `v`.
+    /// A new handle is independent of the borrow it was reached through
+    /// (a loop element, a `?*T` parameter), but reaches whatever the
+    /// shared value holds; a write borrow held there cannot be duplicated.
+    fn newHandle(self: *Checker, pos: u32, what: []const u8, ty: ?TypeId, id: ?VarId, v: Value, weak: bool) Error!Value {
+        if (!self.mayCarryBorrow(ty)) return .{};
+        const out = self.heldThroughHandle(ty, id) orelse v;
+        for (out.loans) |l| if (l.kind == .write) {
+            try self.err(pos, "cannot {s} `{s}`: it holds a write borrow, which cannot be duplicated", .{ if (weak) "take a weak handle to" else "clone", what });
+            try self.noteLoan(l);
+            return .{};
+        };
+        return out;
+    }
+
+    /// What a shared value of handle type `ty` holds: nothing when its
+    /// type holds no borrow, the loans of the collection a loop element
+    /// `id` walks, or null to use the handle's own loans.
+    fn heldThroughHandle(self: *const Checker, ty: ?TypeId, id: ?VarId) ?Value {
+        const t = self.pointee(ty) orelse return null;
         const boxed: TypeId = switch (self.typeData(t)) {
             .shared, .weak => |b| b,
             .optional => |o| switch (self.typeData(o)) {
                 .shared, .weak => |b| b,
-                else => return v,
+                else => return null,
             },
-            else => return v,
+            else => return null,
         };
-        if (self.typeData(boxed) != .function and !self.typeCarries(boxed, .any, 0)) return .{};
-        // A loop element's own borrows are the ones its collection holds.
-        if (inner == .src) if (self.find(self.text(inner))) |f| if (!f.crossed) {
-            if (self.vars.items[f.id].elem_of) |c| return .{ .loans = self.flows.items[c].loans };
-        };
-        return v;
+        if (!self.typeCarries(boxed, .any, 0)) return .{};
+        if (id) |i| if (self.vars.items[i].elem_of) |c| return .{ .loans = self.flows.items[c].loans };
+        return null;
     }
 
     fn walkDrop(self: *Checker, node: Sexp) Error!void {
@@ -1948,8 +1969,10 @@ pub const Checker = struct {
                     reservation = self.temps.items.len;
                     try self.addTemp(.{ .root = id, .kind = .read, .pos = pos });
                     recv_root = id;
+                    // A built-in's methods hand out values, never borrows
+                    // of the receiver.
                     const kind: LoanKind = if (recv_mode == .write) .write else .read;
-                    result = try self.valueUnion(recv_val, try self.reborrow(id, .{ .root = id, .kind = kind, .pos = pos }));
+                    result = if (self.builtinName(self.exprType(obj)) != null) recv_val else try self.valueUnion(recv_val, try self.reborrow(id, .{ .root = id, .kind = kind, .pos = pos }));
                 }
             } else {
                 result = try self.walk(ir.Member.object(callee));
@@ -1968,23 +1991,35 @@ pub const Checker = struct {
             for (args) |a| _ = try self.walk(a);
             return .{};
         }
+        // Every handle to a Cell or Signal reaches what it holds, so what
+        // goes in (`Cell(value: v)`, `set`, `replace`, `subscribe`) may
+        // not hold a borrow.
+        const into = if (callee.isKind(.member) and !self.namesType(callee))
+            self.builtinName(self.exprType(ir.Member.object(callee)))
+        else if (self.namesType(callee)) self.builtinName(self.exprType(node)) else null;
+        const cell: ?[]const u8 = if (into != null and !std.mem.eql(u8, into.?, "Vec")) into else null;
         var stored: Value = .{};
         for (args) |a| {
             const v = try self.walkConsumed(a, .argument);
+            if (cell != null and v.loans.len > 0) {
+                try self.errAt(a, "cannot store a borrow of `{s}` in a `{s}`: every handle to it could reach the borrow; a value stored in a Cell or Signal may not hold one", .{ self.vars.items[v.loans[0].root].name, cell.? });
+                continue;
+            }
             stored = try self.valueUnion(stored, v);
         }
         result = try self.valueUnion(result, stored);
 
         // The callee may store what its arguments borrow into anything it
-        // can mutate: the receiver, `!x` arguments, and shared handles.
+        // can mutate: the receiver, and the values `!x` arguments and
+        // other write borrows lead to.
         if (stored.loans.len > 0) {
             if (recv_root) |id| {
                 const obj = ir.Member.object(callee);
-                if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, self.startOf(obj));
+                if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, self.startOf(obj), &.{});
             }
             for (args) |a| {
                 const arg = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
-                if (try self.containerRoot(arg)) |id| try self.absorbLoans(id, stored, self.startOf(arg));
+                if (self.containerRoot(arg)) |id| try self.absorbLoans(id, stored, self.startOf(arg), &.{});
             }
         }
 
@@ -2024,33 +2059,47 @@ pub const Checker = struct {
         return self.find("print") == null;
     }
 
+    /// `Cell`, `Signal`, or `Vec` when a value of type `ty` is one,
+    /// through borrows and shared handles.
+    fn builtinName(self: *const Checker, ty: ?TypeId) ?[]const u8 {
+        const ctx = self.sema orelse return null;
+        var t = ty orelse return null;
+        while (true) switch (ctx.types.get(t)) {
+            .borrow_read, .borrow_write, .shared => |i| t = i,
+            .parameterized_nominal => |pn| {
+                if (pn.sym == ctx.cell_sym_id) return "Cell";
+                if (pn.sym == ctx.signal_sym_id) return "Signal";
+                if (pn.sym == ctx.vec_sym_id) return "Vec";
+                return null;
+            },
+            else => return null,
+        };
+    }
+
     /// The var behind an argument the callee can store into: `!x`, or a
-    /// shared handle or write borrow passed by name (or cloned).
-    fn containerRoot(self: *Checker, arg: Sexp) Error!?VarId {
-        var inner = arg;
-        const explicit_write = arg.isKind(.write);
-        if (explicit_write or arg.isKind(.clone)) inner = ir.get(arg, .operand);
-        const place = self.resolvePlace(inner) orelse return null;
-        const ty = self.exprType(inner);
+    /// value holding a write borrow (`w`, `e.t`, `e`).
+    fn containerRoot(self: *Checker, arg: Sexp) ?VarId {
+        const inner = if (arg.isKind(.write)) ir.Write.operand(arg) else if (self.isWriteBorrowPlace(arg)) arg else return null;
         // What the callee could store into is the value behind a borrow.
-        if (!self.mayCarryBorrow(self.pointee(ty))) return null;
-        if (!explicit_write) {
-            const t = ty orelse return null;
-            const tag = self.typeData(t);
-            if (tag != .shared and tag != .borrow_write) return null;
-        }
+        if (!self.mayCarryBorrow(self.pointee(self.exprType(inner)))) return null;
+        const place = self.resolvePlace(inner) orelse return null;
         return place.root;
     }
 
-    /// Record that var `id` may now hold the loans in `v`. A borrowed or
-    /// module-level container outlives this function's values: storing
-    /// any borrow into it is rejected.
-    fn absorbLoans(self: *Checker, id: VarId, v: Value, pos: u32) Error!void {
+    /// Record that var `id` may now hold the loans in `v`, and so may
+    /// every value it write-borrows: a store through a write borrow lands
+    /// there. `through` are the vars whose write borrows led to `id`;
+    /// their own loans are the path, not something stored. A borrowed
+    /// parameter or a module-level binding outlives this function's
+    /// values: storing a borrow of one into it is rejected.
+    fn absorbLoans(self: *Checker, id: VarId, v: Value, pos: u32, through: []const VarId) Error!void {
         var out: std.ArrayListUnmanaged(Loan) = .empty;
-        for (v.loans) |l| if (l.root != id) try out.append(self.arena(), l);
+        for (v.loans) |l| {
+            if (l.root != id and std.mem.indexOfScalar(VarId, through, l.root) == null) try out.append(self.arena(), l);
+        }
         if (out.items.len == 0) return;
         const c = self.vars.items[id];
-        if (c.ref != .none or self.isGlobal(id)) {
+        if ((c.kind == .param and c.ref != .none) or self.isGlobal(id)) {
             // The caller accounts for borrows it passed in; only borrows
             // of this function's own values cannot be stored. Nothing
             // borrowed may be stored in a module-level binding.
@@ -2061,8 +2110,14 @@ pub const Checker = struct {
             return;
         }
         var f = self.flows.items[id];
-        f.loans = try self.unionLoans(f.loans, out.items);
+        const held = f.loans;
+        f.loans = try self.unionLoans(held, out.items);
         try self.setFlow(id, f);
+        if (through.len > 16) return;
+        const next = try std.mem.concat(self.arena(), VarId, &.{ through, &.{id} });
+        for (held) |l| {
+            if (l.kind == .write and std.mem.indexOfScalar(VarId, next, l.root) == null) try self.absorbLoans(l.root, v, pos, next);
+        }
     }
 
     /// A loan on a value owned by the current function (as opposed to one
@@ -2082,12 +2137,13 @@ pub const Checker = struct {
         // `*|...| body`: an owned closure.
         if (isLambda(inner)) {
             self.lambda_ok = true;
-            return self.walk(inner);
+            return self.walkLambda(inner, true);
         }
         return self.walkConsumed(inner, .allocation);
     }
 
-    fn walkLambda(self: *Checker, node: Sexp) Error!Value {
+    /// A closure literal; `owned` for `*|...| body`.
+    fn walkLambda(self: *Checker, node: Sexp, owned: bool) Error!Value {
         const params = ir.Lambda.params(node);
         const body = ir.Lambda.body(node);
         if (!self.lambda_ok) {
@@ -2100,8 +2156,22 @@ pub const Checker = struct {
         var cap_values: std.ArrayListUnmanaged(Value) = .empty;
         const caps = sema.captureList(ir.Lambda.captures(node));
         for (caps) |cap| {
-            try cap_values.append(self.arena(), try self.applyCapture(cap));
-            value = try self.valueUnion(value, cap_values.items[cap_values.items.len - 1]);
+            const cv = try self.applyCapture(cap);
+            try cap_values.append(self.arena(), cv);
+            // An owned closure is a shared handle that may be stored
+            // anywhere, including in a Cell or Signal: it holds no borrow.
+            if (owned and cv.loans.len > 0) {
+                const name = self.text(sema.captureNameNode(cap).?);
+                const l = cv.loans[0];
+                try self.err(sema.captureNameNode(cap).?.src.pos, "an owned closure cannot capture `{s}`, which holds a borrow{s}{s}{s}; capture an owned value, or use a stack closure (`|...|`)", .{
+                    name,
+                    if (l.ext) "" else " of `",
+                    if (l.ext) "" else self.vars.items[l.root].name,
+                    if (l.ext) "" else "`",
+                });
+                try self.noteLoan(l);
+            }
+            value = try self.valueUnion(value, cv);
         }
 
         // The body is checked as its own function; it cannot affect the
@@ -2135,7 +2205,7 @@ pub const Checker = struct {
         self.func = saved_func;
         self.loop = saved_loop;
         try self.rewind(snap);
-        return value;
+        return if (owned) .{} else value;
     }
 
     fn applyCapture(self: *Checker, cap: Sexp) Error!Value {
@@ -2163,13 +2233,7 @@ pub const Checker = struct {
             try self.noteLoan(l);
             return .{};
         }
-        // A cloned or weak handle is independent of any borrow it was
-        // made through, but not of borrows the shared value holds.
-        if (self.symType(pos)) |t| switch (self.typeData(t)) {
-            .shared, .weak => |b| if (self.typeData(b) != .function and !self.typeCarries(b, .any, 0)) return .{},
-            else => {},
-        };
-        return self.varValue(id);
+        return self.newHandle(pos, name, self.symType(pos), id, self.varValue(id), mode == .cap_weak);
     }
 
     // -------------------------------------------------------------------------
@@ -2874,15 +2938,13 @@ pub const Checker = struct {
             .imported_nominal => q == .any,
             .optional => |i| self.typeCarries(i, q, depth + 1),
             .fallible => |i| self.typeCarries(i, q, depth + 1),
-            // An owned closure carries whatever its captures borrow.
-            .shared => |i| if (ctx.types.get(i) == .function) q == .any else self.typeCarries(i, q, depth + 1),
+            .shared => |i| self.typeCarries(i, q, depth + 1),
             .weak => |i| self.typeCarries(i, q, depth + 1),
             .array => |a| self.typeCarries(a.elem, q, depth + 1),
             .nominal => |s| self.fieldsCarry(s, q, depth),
             .parameterized_nominal => |pn| blk: {
-                // A closure carries whatever its captures borrow, and a
-                // Signal whatever its subscribers borrow.
-                if (pn.sym == ctx.signal_sym_id) break :blk q == .any;
+                // What a Cell or Signal holds holds no borrow (`walkCall`).
+                if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
                 for (pn.args) |a| if (self.typeCarries(a, q, depth + 1)) break :blk true;
                 break :blk self.fieldsCarry(pn.sym, q, depth);
             },
