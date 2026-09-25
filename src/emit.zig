@@ -1968,6 +1968,11 @@ pub const Emitter = struct {
     /// read borrow, `rig.lend` of it.
     fn emitBorrowOf(self: *Emitter, borrow: Sexp) Error!void {
         const operand = ir.get(borrow, .operand);
+        // A read borrow reaches a Vec element through a read-only slot, a
+        // write borrow through a writable one.
+        const saved_read = self.read_place;
+        defer self.read_place = saved_read;
+        self.read_place = borrow.isKind(.read);
         const reborrow = if (self.typeOf(operand)) |t| self.sema.types.get(t) == .borrow_read else false;
         if (reborrow or !borrow.isKind(.read) or self.genericReadBorrowOf(borrow) == null) return self.emitAddressOf(operand);
         try self.w.writeAll("rig.lend(");

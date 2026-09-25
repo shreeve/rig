@@ -1,0 +1,33 @@
+# A read borrow of a Vec element through a read-borrowed receiver reads
+# the element in place.
+
+struct P
+  x: Int
+  y: Int
+
+type Bag(T)
+  items: Vec(T)
+
+  fun first(?self) -> ?T
+    ?self.items[0]
+
+  fun at(?self, i: Int) -> ?T
+    ?self.items[i]
+
+sub main()
+  a: Bag(Int) = Bag(items: Vec())
+  (!a.items).push(4)
+  (!a.items).push(5)
+  print(a.first(), a.at(1))
+  b: Bag(P) = Bag(items: Vec())
+  (!b.items).push(P(x: 1, y: 2))
+  r = b.first()
+  print(r.y)
+  s: Bag(String) = Bag(items: Vec())
+  (!s.items).push("hi")
+  print(s.first())
+
+# expect:
+# 4 5
+# 2
+# hi
