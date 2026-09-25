@@ -802,7 +802,11 @@ const Checker = struct {
             elem_ty = try self.checkRange(source);
         } else {
             const peeled_source = if (source.isKind(.read)) ir.Read.operand(source) else source;
-            const source_ty = try self.synthExpr(source);
+            // `for x in ?xs[a..b]` walks a slice of `xs`.
+            const source_ty = if ((mode == .read or mode == .write) and rig.isRangeIndex(source))
+                try self.borrowSlice(source, if (mode == .read) .read else .write)
+            else
+                try self.synthExpr(source);
             elem_ty = try self.elementTypeForLoop(source, peeled_source, source_ty, mode);
         }
 
@@ -1779,6 +1783,7 @@ const Checker = struct {
     /// nesting (`?b` with `b: ?B` is `?B`).
     fn synthBorrow(self: *Checker, e: Sexp, kind: BorrowKind) Error!TypeId {
         const operand = ir.get(e, .operand);
+        if (rig.isRangeIndex(operand)) return self.borrowSlice(operand, kind);
         const inner = try self.synthOperand(operand);
         if (self.isPoison(inner)) return inner;
         if (kind == .write and !(try self.checkWritable(operand, operand, "write-borrow"))) return self.t().invalid_id;
@@ -1806,6 +1811,18 @@ const Checker = struct {
             else => {},
         }
         return self.ctx.intern(if (kind == .read) Type{ .borrow_read = inner } else Type{ .borrow_write = inner });
+    }
+
+    /// `?xs[a..b]`: a slice, read-only. A slice cannot be written through.
+    fn borrowSlice(self: *Checker, slice: Sexp, kind: BorrowKind) Error!TypeId {
+        if (kind == .write) {
+            _ = try self.synthSlice(slice, true);
+            try self.errAt(slice, "a slice is read-only; write the elements through `!xs` or `xs[i] = value`", .{});
+            return self.t().invalid_id;
+        }
+        const ty = try self.synthSlice(slice, true);
+        try self.ctx.recordType(slice, ty);
+        return ty;
     }
 
     fn synthShare(self: *Checker, e: Sexp) Error!TypeId {
@@ -2152,11 +2169,8 @@ const Checker = struct {
     fn synthIndex(self: *Checker, e: Sexp) Error!TypeId {
         const object = ir.Index.object(e);
         const index = ir.Index.index(e);
+        if (index.isKind(.@"..")) return self.synthSlice(e, false);
         const obj_ty = try self.synthOperand(object);
-        if (index.isKind(.@"..")) {
-            try self.errAt(index, "slicing `xs[a..b]` is not supported yet", .{});
-            return self.t().invalid_id;
-        }
         const idx_ty = readValue(self.ctx, try self.synthExpr(index));
         if (!self.isPoison(idx_ty) and !sema.isInteger(self.ctx, idx_ty)) {
             try self.errAt(index, "an index must be an integer; got `{s}`", .{try self.tyName(idx_ty)});
@@ -2188,6 +2202,71 @@ const Checker = struct {
         }
         try self.errAt(object, "cannot index a value of type `{s}`", .{try self.tyName(obj_ty)});
         return self.t().invalid_id;
+    }
+
+    /// `xs[a..b]`: the elements from `a` up to, not including, `b`. A
+    /// String gives a String, which borrows nothing: every String is a
+    /// static literal. A `[]T` gives a `[]T` viewing the same elements. An array or a `Vec` of plain data gives a `[]T` only as
+    /// `?xs[a..b]` (`borrowed`): the slice is a read borrow of `xs`.
+    fn synthSlice(self: *Checker, e: Sexp, borrowed: bool) Error!TypeId {
+        const object = ir.Index.object(e);
+        const range = ir.Index.index(e);
+        const obj_ty = try self.synthOperand(object);
+        const bound_ty = try self.checkNumericOperands(range, "..", .integer);
+        if (bound_ty == self.t().int_literal_id) {
+            for ([2]Sexp{ ir.@"..".left(range), ir.@"..".right(range) }) |b| {
+                try self.checkLiteralFits(b, self.t().int_id);
+                try self.ctx.recordType(b, self.t().int_id);
+            }
+        }
+        if (self.isPoison(obj_ty)) return obj_ty;
+        const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
+        const elem: TypeId = switch (self.ctx.types.get(peeled)) {
+            .string, .slice => {
+                try self.checkSliceBounds(range, null);
+                return peeled;
+            },
+            .array => |a| a.elem,
+            .parameterized_nominal => |pn| if (pn.sym == self.ctx.vec_sym_id and pn.args.len == 1) blk: {
+                if ((try self.ownsResource(pn.args[0], self.startOf(object), "slices a Vec"))) {
+                    try self.errAt(object, "cannot slice a `{s}`: a slice would copy owning handles out of the Vec; iterate with `for x in ?v` instead", .{try self.tyName(peeled)});
+                    return self.t().invalid_id;
+                }
+                break :blk pn.args[0];
+            } else return self.cannotSlice(object, obj_ty),
+            else => return self.cannotSlice(object, obj_ty),
+        };
+        const len: ?u64 = if (self.ctx.types.get(peeled) == .array) self.ctx.types.get(peeled).array.len else null;
+        try self.checkSliceBounds(range, len);
+        if (!borrowed) {
+            const sp = self.ctx.span(e);
+            try self.errAt(e, "a slice of an array or Vec borrows it; write `?{s}`", .{self.ctx.source[sp.start..sp.end]});
+            return self.t().invalid_id;
+        }
+        if (!isStoragePath(object)) {
+            try self.errAt(object, "only a named array or Vec, or a field or element of one, can be sliced; bind this value to a name first", .{});
+            return self.t().invalid_id;
+        }
+        return self.ctx.intern(.{ .slice = .{ .elem = elem } });
+    }
+
+    fn cannotSlice(self: *Checker, object: Sexp, ty: TypeId) Error!TypeId {
+        try self.errAt(object, "cannot slice a value of type `{s}`; slice a String, an array, a Vec, or a `[]T`", .{try self.tyName(ty)});
+        return self.t().invalid_id;
+    }
+
+    /// Constant bounds are checked now: `0 <= a <= b`, and `b <= len` for
+    /// an array, whose length is part of its type. Others are checked
+    /// when the slice is taken.
+    fn checkSliceBounds(self: *Checker, range: Sexp, len: ?u64) Error!void {
+        const lo = self.constInt(ir.@"..".left(range));
+        const hi = self.constInt(ir.@"..".right(range));
+        if (lo) |a| if (a < 0) return self.errAt(ir.@"..".left(range), "a slice bound cannot be negative; got `{d}`", .{a});
+        if (hi) |b| {
+            if (b < 0) return self.errAt(ir.@"..".right(range), "a slice bound cannot be negative; got `{d}`", .{b});
+            if (len) |n| if (b > n) return self.errAt(ir.@"..".right(range), "slice end `{d}` is past the end of an array of length {d}", .{ b, n });
+            if (lo) |a| if (a > b) return self.errAt(range, "slice `{d}..{d}` starts after it ends", .{ a, b });
+        }
     }
 
     // ---- array literals ------------------------------------------------------
@@ -3850,6 +3929,14 @@ fn sameNode(a: Sexp, b: Sexp) bool {
 }
 
 /// A name or a chain of fields off one: `v`, `t.kids`, `a.b.c`.
+/// A name, or a field or element of one: storage with an owner.
+fn isStoragePath(e: Sexp) bool {
+    if (e == .src) return true;
+    if (e.isKind(.member)) return isStoragePath(ir.Member.object(e));
+    if (e.isKind(.index) and !rig.isRangeIndex(e)) return isStoragePath(ir.Index.object(e));
+    return false;
+}
+
 fn isFieldPath(e: Sexp) bool {
     if (e == .src) return true;
     if (!e.isKind(.member)) return false;

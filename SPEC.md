@@ -313,10 +313,48 @@ sub main()
 [5, 20, 30] 3 30 [1, 2]
 ```
 
+### Slices
+
+`xs[a..b]` is the part of `xs` from index `a` up to, not including,
+`b`. Of a `String` it is a `String`. Of an array or a `Vec` of plain
+data it is written `?xs[a..b]`: a `[]T`, a read-only view that borrows
+`xs` like any `?` borrow ([§8](#8-ownership)), so `xs` cannot be
+written, moved, or dropped while the slice is in use, and the slice
+cannot outlive it. A `[]T` has `.len`, is indexed and iterated like an
+array, and is sliced again with `s[a..b]`, which views the same
+elements. The bounds must satisfy `0 <= a <= b <= len`; constant bounds
+are checked at compile time, others when the slice is taken, which
+panics when they do not.
+
+```rig
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+sub main()
+  s = "hello, world"
+  print(s[0..5], s[7..s.len])
+  a = [1, 2, 3, 4]
+  mid = ?a[1..3]
+  print(mid, mid.len, mid[0], total(mid), total(?a[0..4]))
+```
+
+```output
+hello world
+[2, 3] 2 2 5 10
+```
+
+A borrowed array parameter (`xs: ?[N]T`) is the function's own copy of
+the caller's array, so a slice of it cannot be returned; a function
+that returns part of its argument takes `xs: []T`.
+
 ### Composite and handle types
 
 | Type | Meaning | Section |
 |---|---|---|
+| `[]T` | slice: a read-only view of elements | [§3](#slices) |
 | `T?` | optional: a `T` or `none` | [§13](#13-optionals) |
 | `T!` | fallible: a `T` or an error; only as a return type, including a function type's | [§14](#14-errors) |
 | `?T` | read borrow of a `T` (parameters, returns, locals, fields) | [§8](#8-ownership) |

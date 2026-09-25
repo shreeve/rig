@@ -1,0 +1,8 @@
+# A slice is read-only; there is no writable slice.
+
+sub main()
+  a = [1, 2, 3]
+  s = !a[0..2]
+  print(s)
+
+# error: 5:8: a slice is read-only

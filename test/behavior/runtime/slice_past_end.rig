@@ -1,0 +1,8 @@
+# A slice end past the length panics, for a String as for an array.
+
+sub main()
+  s = "abc"
+  n = 4
+  print(s[0..n])
+
+# expect-panic: slice bounds out of range

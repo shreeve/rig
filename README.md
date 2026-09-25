@@ -224,7 +224,7 @@ Nexus next to this checkout, `cd ../nexus && zig build
 - concurrency and async
 - passing a stack closure as an argument (owned closures work)
 - generic functions, traits or interfaces
-- string building, slices
+- string building
 
 ## Learn more
 

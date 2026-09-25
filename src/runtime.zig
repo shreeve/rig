@@ -565,6 +565,19 @@ pub fn at(items: anytype, i: anytype) std.meta.Elem(@TypeOf(items)) {
     return items[index(i, items.len)];
 }
 
+/// `s[lo..hi]` of a string, slice, or array pointer: the elements from
+/// `lo` up to `hi`; panics unless `0 <= lo <= hi <= len`.
+pub fn slice(items: anytype, lo: anytype, hi: anytype) []const std.meta.Elem(@TypeOf(items)) {
+    const l = std.math.cast(usize, lo) orelse slicePanic();
+    const h = std.math.cast(usize, hi) orelse slicePanic();
+    if (l > h or h > items.len) slicePanic();
+    return items[l..h];
+}
+
+fn slicePanic() noreturn {
+    @panic("slice bounds out of range");
+}
+
 /// `a / b` on a type parameter's values: exact for floats, truncating
 /// toward zero for integers.
 pub fn div(a: anytype, b: anytype) @TypeOf(a, b) {

@@ -2176,6 +2176,7 @@ pub const Emitter = struct {
         defer self.place_chain = saved_chain;
         self.place_chain = as_place;
 
+        if (index.isKind(.@"..")) return self.emitSlice(base, base_ty, index);
         if (base_ty != null and self.isVecTy(base_ty.?)) {
             try self.emitExpr(base);
             try self.w.writeAll(if (as_place) ".slot(" else ".at(");
@@ -2215,6 +2216,26 @@ pub const Emitter = struct {
             try self.w.print(", {d})", .{n});
         }
         try self.w.writeAll("]");
+    }
+
+    /// `xs[a..b]` → `rig.slice(items, a, b)`, which checks the bounds. An
+    /// array is sliced in place, through its address; a Vec through its
+    /// items.
+    fn emitSlice(self: *Emitter, base: Sexp, base_ty: ?TypeId, range: Sexp) Error!void {
+        self.place_chain = false;
+        try self.w.writeAll("rig.slice(");
+        const ty = self.peelBorrows(base_ty orelse return self.unsupported(base, "a slice of an untyped value"));
+        if (self.isVecTy(ty)) {
+            try self.emitExpr(base);
+            try self.w.writeAll(".items()");
+        } else if (self.sema.types.get(ty) == .array) {
+            try self.emitAddressOf(base);
+        } else try self.emitBare(base);
+        try self.w.writeAll(", ");
+        try self.emitBare(ir.@"..".left(range));
+        try self.w.writeAll(", ");
+        try self.emitBare(ir.@"..".right(range));
+        try self.w.writeAll(")");
     }
 
     /// `(member obj name)`. A shared handle auto-dereferences through

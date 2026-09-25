@@ -1,0 +1,16 @@
+# A read borrow of plain data, and a loop element, are copies: a slice
+# of one points into the copy and cannot outlive it.
+
+sub main()
+  a = [1, 2, 3]
+  s = ?a[0..1]
+  if a[0] == 1
+    r = ?a
+    s = ?r[0..2]
+  g = [[1, 2], [3, 4]]
+  for row in g
+    s = ?row[0..2]
+  print(s)
+
+# error: 9:10: `r` does not live long enough
+# error: 12:10: `row` does not live long enough

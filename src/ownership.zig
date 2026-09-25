@@ -112,9 +112,13 @@ const Loan = struct {
     /// Borrow provided by the caller through a parameter: may be
     /// returned and never conflicts.
     ext: bool = false,
+    /// A slice of an array held in the root's own storage: it points
+    /// into this function's frame even when the root is a borrowed
+    /// parameter, which is a copy of the caller's value.
+    frame: bool = false,
 
     fn sameAs(a: Loan, b: Loan) bool {
-        return a.root == b.root and a.kind == b.kind and a.ext == b.ext;
+        return a.root == b.root and a.kind == b.kind and a.ext == b.ext and a.frame == b.frame;
     }
 };
 
@@ -1463,6 +1467,7 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn walkBorrow(self: *Checker, inner: Sexp, kind: LoanKind) Error!Value {
+        if (rig.isRangeIndex(inner)) return self.walkSlice(inner);
         const place = self.resolvePlace(inner) orelse return self.walk(inner);
         try self.walkPlaceIndices(inner);
         const id = place.root;
@@ -1477,6 +1482,32 @@ pub const Checker = struct {
         const loan: Loan = .{ .root = id, .kind = kind, .pos = pos };
         try self.addTemp(loan);
         return self.reborrow(id, loan);
+    }
+
+    /// `?xs[a..b]`. A slice of a String or a `[]T` views what that value
+    /// views. A slice of a Vec borrows the Vec, whose buffer it points
+    /// into. A slice of an array points into the storage of the var the
+    /// array is reached from, which may be a copy (a borrowed parameter,
+    /// a read borrow of plain data, a loop or pattern binding): it also
+    /// holds a frame loan on that var, so it cannot outlive it.
+    fn walkSlice(self: *Checker, slice: Sexp) Error!Value {
+        const object = ir.Index.object(slice);
+        const ty = self.exprType(object) orelse return self.walk(slice);
+        const peeled = self.pointee(ty) orelse ty;
+        if (self.typeData(peeled) != .array and !self.isVec(peeled)) return self.walk(slice);
+        const place = self.resolvePlace(slice) orelse return self.walk(slice);
+        try self.walkPlaceIndices(slice);
+        const id = place.root;
+        const pos = self.startOf(slice);
+        if (!try self.checkLive(id, pos)) return .{};
+        if (try self.conflicts(id, .read, pos)) return .{};
+        const loan: Loan = .{ .root = id, .kind = .read, .pos = pos };
+        try self.addTemp(loan);
+        const v = try self.reborrow(id, loan);
+        if (self.typeData(peeled) != .array) return v;
+        const frame = try self.arena().alloc(Loan, 1);
+        frame[0] = .{ .root = id, .kind = .read, .pos = pos, .frame = true };
+        return .{ .loans = try self.unionLoans(v.loans, frame) };
     }
 
     /// The loans of a borrow of (a path inside) var `id`. Borrowing
@@ -2171,6 +2202,7 @@ pub const Checker = struct {
     /// the caller handed in through a borrowed parameter).
     fn isLocalLoan(self: *const Checker, l: Loan) bool {
         if (l.ext) return false;
+        if (l.frame) return true;
         const r = self.vars.items[l.root];
         return !(r.kind == .param and r.ref != .none);
     }
@@ -2335,6 +2367,10 @@ pub const Checker = struct {
                 seen = true;
             };
             if (seen) continue;
+            if (r.kind == .param) {
+                try self.err(l.pos, "cannot return a slice of `{s}`: a borrowed array parameter is this function's copy of the caller's array; take `{s}: []T` to return part of it", .{ r.name, r.name });
+                continue;
+            }
             try self.err(l.pos, "returned borrow of `{s}` does not originate from a borrowed parameter", .{r.name});
             try self.note(r.decl, "`{s}` is local to this function", .{r.name});
         }
@@ -2992,6 +3028,12 @@ pub const Checker = struct {
     }
 
     /// A Vec whose elements own resources: walked by borrowed slot.
+    fn isVec(self: *const Checker, ty: TypeId) bool {
+        const ctx = self.sema orelse return false;
+        const t = ctx.types.get(ty);
+        return t == .parameterized_nominal and t.parameterized_nominal.sym == ctx.vec_sym_id;
+    }
+
     fn isResourceVec(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ty orelse return false;

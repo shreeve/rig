@@ -1,0 +1,22 @@
+# A borrowed array parameter is the function's own copy of the caller's
+# array, so a slice of it cannot be returned or stored in the caller's
+# values; a `[]T` parameter can be.
+
+struct View
+  xs: []Int
+
+fun f(a: ?[3]Int) -> []Int
+  ?a[0..2]
+
+sub keep(v: !View, a: ?[3]Int)
+  v.xs = ?a[0..2]
+
+sub main()
+  a = [1, 2, 3]
+  print(f(?a))
+  view = View(xs: ?a[0..1])
+  keep(!view, ?a)
+  print(view.xs)
+
+# error: 9:4: cannot return a slice of `a`
+# error: 12:3: cannot store a borrow of `a` in `v.xs`

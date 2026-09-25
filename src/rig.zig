@@ -45,6 +45,11 @@ pub fn isModuleConst(decl: Sexp) bool {
     return (if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl).isKind(.set);
 }
 
+/// A slice, `xs[a..b]`: an index node whose index is a range.
+pub fn isRangeIndex(e: Sexp) bool {
+    return e.isKind(.index) and ir.Index.index(e).isKind(.@"..");
+}
+
 /// Every child of a node, in slot order (absent optional slots are `_`),
 /// for passes that visit all of them; empty for a leaf. Passes that need
 /// a particular child read it by role (`parser.ir`).

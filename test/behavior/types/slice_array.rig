@@ -1,0 +1,50 @@
+# `?xs[a..b]` of an array or a Vec is a `[]T`: a read-only view of the
+# elements from `a` up to `b`, which borrows `xs`.
+
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+fun tail(xs: []Int) -> []Int
+  xs[1..xs.len]
+
+fun first_two(xs: ?[4]Int) -> Int
+  total(?xs[0..2])
+
+struct Grid
+  cells: [4]Int
+
+sub main()
+  a = [1, 2, 3, 4]
+  s = ?a[1..3]
+  print(s, s.len, s[0], total(s))
+  print(total(?a[0..4]), total(?a[2..2]))
+  print(tail(?a[0..4]), tail(s)[0])
+  print(s[1..2])
+  for x, i in ?a[2..4]
+    print(i, x)
+  print(first_two(?a))
+  g = Grid(cells: [5, 6, 7, 8])
+  print(total(?g.cells[1..4]))
+  v: Vec(Int) = Vec()
+  (!v).push(10)
+  (!v).push(20)
+  (!v).push(30)
+  w = ?v[1..v.length()]
+  print(w, total(w))
+  (!v).push(40)
+  print(v.length())
+
+# expect:
+# [2, 3] 2 2 5
+# 10 0
+# [2, 3, 4] 3
+# [3]
+# 0 3
+# 1 4
+# 3
+# 21
+# [20, 30] 50
+# 4

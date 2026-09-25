@@ -1,0 +1,10 @@
+# A slice is a read borrow of its array: the array cannot be written
+# while the slice is live.
+
+sub main()
+  a = [1, 2, 3]
+  s = ?a[0..2]
+  a[0] = 9
+  print(s)
+
+# error: 7:3: cannot assign to `a[...]` while `a` is borrowed

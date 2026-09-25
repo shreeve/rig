@@ -452,6 +452,11 @@ arguments, and the handles it is given. A loan not stored anywhere is a
 temporary and ends with its statement. A borrowed parameter holds an
 *external* loan on itself: a borrow from the caller, which may be
 returned or stored into other borrowed parameters and never conflicts.
+A slice of an array (`?xs[a..b]`) points into the storage of the var
+the array is reached from, which may be a copy of the caller's (a
+borrowed parameter, a read borrow of plain data, a loop or pattern
+binding), so it also holds a *frame* loan on that var: a local loan
+even when the var is a borrowed parameter.
 
 **Liveness.** A loan held by a var is in force only while the var is
 live: while it may still be used. Before checking a function, one walk
