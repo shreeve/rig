@@ -1422,11 +1422,6 @@ pub const TypeResolver = struct {
         }
         return ty;
     }
-
-    /// Element-type rules of the built-in generics.
-    pub fn builtinArgError(self: *TypeResolver, sym_id: SymbolId, args: []const TypeId) Error!?[]const u8 {
-        return builtinElementError(self.ctx, sym_id, args);
-    }
 };
 
 /// Element-type rules of the built-in generics. An instance over generic
@@ -1542,7 +1537,7 @@ fn exposedInstance(ctx: *SemContext, ty: TypeId, exposed: *std.AutoHashMapUnmana
 }
 
 /// A match pattern that matches anything without binding: `else`, `_`.
-pub fn isWildcardPattern(source: []const u8, pattern: Sexp) bool {
+fn isWildcardPattern(source: []const u8, pattern: Sexp) bool {
     const text = identAt(source, pattern) orelse return false;
     return std.mem.eql(u8, text, "else") or std.mem.eql(u8, text, "_");
 }
@@ -1556,7 +1551,7 @@ pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
     return !sema.isIntLiteralText(text) and !sema.isFloatLiteralText(text);
 }
 
-pub fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
+fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
     const t = &ctx.types;
     const table = [_]struct { []const u8, TypeId }{
         .{ "Int", t.int_id },
@@ -1573,7 +1568,7 @@ pub fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
 
 /// `I8`..`I64`, `U8`..`U64`, `F32`, `F64`. `I64` is `Int` and `F64` is
 /// `Float`: the same types under their sized names.
-pub fn sizedTypeId(ctx: *SemContext, name: []const u8) ?Error!TypeId {
+fn sizedTypeId(ctx: *SemContext, name: []const u8) ?Error!TypeId {
     if (name.len < 2 or name.len > 3) return null;
     const bits = std.fmt.parseInt(u8, name[1..], 10) catch return null;
     switch (name[0]) {

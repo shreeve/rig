@@ -989,7 +989,7 @@ const Checker = struct {
                     return;
                 }
                 cov.has_default = true;
-                if (!resolve.isWildcardPattern(self.ctx.source, pattern)) {
+                if (resolve.patternBinds(self.ctx.source, pattern)) {
                     if (self.ctx.symbolOf(pattern)) |sym| {
                         self.ctx.symbols.items[sym].ty = scrutinee;
                         try self.ctx.recordType(pattern, scrutinee);
@@ -2071,7 +2071,7 @@ const Checker = struct {
             return null;
         };
         const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
-        const fid = foreign.lookupInScopeOnly(1, name) orelse {
+        const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse {
             try self.err(pos, "no member `{s}` in module `{s}`", .{ name, module_name });
             return null;
         };
@@ -2862,13 +2862,12 @@ const Checker = struct {
     /// one: the built-in generics' element rules, and every generic's
     /// requirements (through its instantiation site).
     fn instantiate(self: *Checker, sym_id: SymbolId, args: []const TypeId, pos: u32) Error!TypeId {
-        var r = self.resolver();
-        if (try r.builtinArgError(sym_id, args)) |msg| try self.err(pos, "{s}", .{msg});
+        if (try resolve.builtinElementError(self.ctx, sym_id, args)) |msg| try self.err(pos, "{s}", .{msg});
         const ty = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = try self.ctx.dupeIds(args) } });
         if (!sema.containsTypeVar(self.ctx, ty)) {
             const gop = try self.ctx.instantiation_sites.getOrPut(self.ctx.allocator, ty);
             if (!gop.found_existing) gop.value_ptr.* = pos;
-        } else if (self.ctx.symbols.items[sym_id].decl_pos != sema.builtin_decl_pos) {
+        } else {
             for (self.ctx.generic_uses.items) |u| {
                 if (u == ty) break;
             } else try self.ctx.generic_uses.append(self.ctx.allocator, ty);
@@ -3624,7 +3623,7 @@ fn readValue(ctx: *const SemContext, ty: TypeId) TypeId {
 }
 
 /// Can a value of type `actual` be used where `expected` is required?
-pub fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
+fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
     if (actual == expected) return true;
     const ts = &ctx.types;
     if (actual == ts.invalid_id or actual == ts.unknown_id or expected == ts.invalid_id or expected == ts.unknown_id) return true;
@@ -3649,7 +3648,7 @@ pub fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool
     };
 }
 
-pub const ReceiverTypeKind = enum { owned_nominal, read_borrow, write_borrow, shared, other };
+const ReceiverTypeKind = enum { owned_nominal, read_borrow, write_borrow, shared, other };
 
 /// What kind of value a method's receiver is, for the type whose symbol
 /// is `nominal_sym` (`symbol_invalid` for an imported type).
@@ -3674,7 +3673,7 @@ fn classifyReceiverType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
     };
 }
 
-pub const ReceiverShape = enum { read_explicit, write_explicit, move_explicit, rvalue, lvalue_bare };
+const ReceiverShape = enum { read_explicit, write_explicit, move_explicit, rvalue, lvalue_bare };
 
 /// How the receiver expression is written. Only heads that certainly
 /// produce a fresh value count as rvalues; everything else is a place.

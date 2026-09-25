@@ -465,7 +465,7 @@ pub const Diagnostic = diag.Diagnostic;
 pub const NodeKey = parser.NodeId;
 
 /// The key of a list node the parser built; null for a leaf or `_`.
-pub fn nodeKey(node: Sexp) ?NodeKey {
+fn nodeKey(node: Sexp) ?NodeKey {
     if (node != .list or node.list.id == 0) return null;
     return node.list.id;
 }
@@ -1515,15 +1515,6 @@ pub fn unwrapReadAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
     }
 }
 
-/// The nominal symbol behind a receiver type, after peeling borrows.
-pub fn nominalSymOfReceiver(ctx: *const SemContext, ty_id: TypeId) ?SymbolId {
-    return switch (ctx.types.get(unwrapBorrows(ctx, ty_id))) {
-        .nominal => |s| s,
-        .parameterized_nominal => |pn| pn.sym,
-        else => null,
-    };
-}
-
 /// Where a nominal type is declared: the module's context and the
 /// symbol there. A type imported from another module resolves to that
 /// module's declaration.
@@ -1622,13 +1613,6 @@ pub fn containsTypeVar(ctx: *const SemContext, ty_id: TypeId) bool {
 /// a pointer, since the cell can change while it is borrowed.
 pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).cell;
-}
-
-/// `holdsCellByValue` for the declared members of a nominal or generic
-/// type (a generic parameter holds no `Cell`).
-pub fn symHoldsCell(ctx: *const SemContext, sym: SymbolId, _: u8) bool {
-    std.debug.assert(ctx.contents_ready);
-    return ctx.symbols.items[sym].contents.cell;
 }
 
 /// A value that owns nothing and holds no borrow or type parameter: it
@@ -2041,7 +2025,7 @@ pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?i128 {
 
 /// The value of a constant Bool expression: literals, `not`, `and`,
 /// `or`, and comparisons of constant integers.
-pub fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
+fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
     switch (e) {
         .src => {
             const word = identAt(ctx.source, e) orelse "";
