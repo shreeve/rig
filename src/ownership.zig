@@ -2096,29 +2096,32 @@ pub const Checker = struct {
             self.builtinName(self.exprType(ir.Member.object(callee)))
         else if (self.namesType(callee)) self.builtinName(self.exprType(node)) else null;
         const cell: ?[]const u8 = if (into != null and !std.mem.eql(u8, into.?, "Vec")) into else null;
+        // A consuming receiver is passed like an argument.
+        const consumed_recv = if (recv_mode == .value and callee.isKind(.member)) result else Value{};
+        const arg_values = try self.arena().alloc(Value, args.len);
         var stored: Value = .{};
-        for (args) |a| {
-            const v = try self.walkConsumed(a, .argument);
+        for (args, arg_values) |a, *v| {
+            v.* = try self.walkConsumed(a, .argument);
             if (cell != null and v.loans.len > 0) {
                 try self.errAt(a, "cannot store a borrow of `{s}` in a `{s}`: every handle to it could reach the borrow; a value stored in a Cell or Signal may not hold one", .{ self.vars.items[v.loans[0].root].name, cell.? });
+                v.* = .{};
                 continue;
             }
-            stored = try self.valueUnion(stored, v);
+            stored = try self.valueUnion(stored, v.*);
         }
         result = try self.valueUnion(result, stored);
 
         // The callee may store what its arguments borrow into anything it
-        // can mutate: the receiver, and the values `!x` arguments and
-        // other write borrows lead to.
+        // can mutate: the receiver, and whatever the write borrows passed
+        // to it lead to (`!x`, a write borrow passed on or moved in, a
+        // value holding one).
         if (stored.loans.len > 0) {
             if (recv_root) |id| {
                 const obj = ir.Member.object(callee);
                 if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, self.startOf(obj), &.{});
             }
-            for (args) |a| {
-                const arg = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
-                if (self.containerRoot(arg)) |id| try self.absorbLoans(id, stored, self.startOf(arg), &.{});
-            }
+            try self.absorbThroughWrites(consumed_recv, stored, self.startOf(callee));
+            for (args, arg_values) |a, v| try self.absorbThroughWrites(v, stored, self.startOf(a));
         }
 
         if (recv_root) |id| if (recv_mode == .write) {
@@ -2160,14 +2163,15 @@ pub const Checker = struct {
         };
     }
 
-    /// The var behind an argument the callee can store into: `!x`, or a
-    /// value holding a write borrow (`w`, `e.t`, `e`).
-    fn containerRoot(self: *Checker, arg: Sexp) ?VarId {
-        const inner = if (arg.isKind(.write)) ir.Write.operand(arg) else if (self.isWriteBorrowPlace(arg)) arg else return null;
-        // What the callee could store into is the value behind a borrow.
-        if (!self.mayCarryBorrow(self.pointee(self.exprType(inner)))) return null;
-        const place = self.resolvePlace(inner) orelse return null;
-        return place.root;
+    /// Record that the values the write loans in `v` lead to may now hold
+    /// the loans in `stored`. Those write loans are the path to them, not
+    /// something stored.
+    fn absorbThroughWrites(self: *Checker, v: Value, stored: Value, pos: u32) Error!void {
+        var roots: std.ArrayListUnmanaged(VarId) = .empty;
+        for (v.loans) |l| {
+            if (l.kind == .write and std.mem.indexOfScalar(VarId, roots.items, l.root) == null) try roots.append(self.arena(), l.root);
+        }
+        for (roots.items) |r| try self.absorbLoans(r, stored, pos, roots.items);
     }
 
     /// Record that var `id` may now hold the loans in `v`, and so may

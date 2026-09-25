@@ -1,0 +1,26 @@
+# A borrow stored through a moved write borrow is held by the value the
+# borrow leads to, whose `drop` body could read it after it is dropped.
+
+struct Res
+  v: Vec(Int)
+
+struct View
+  r: ?Res
+
+  drop self: !View
+    print("view drop reads", self.r.v[0])
+
+struct Outer
+  inner: View?
+
+sub fill(o: !Outer, r: ?Res)
+  o.inner = View(r: r)
+
+sub main()
+  o = Outer(inner: none)
+  x = Res(v: Vec())
+  (!x.v).push(5)
+  w = !o
+  fill(<w, ?x)
+
+# error: 24:13: `x` is dropped before `o`, whose `drop` body could still read it through this borrow
