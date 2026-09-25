@@ -1,0 +1,18 @@
+# SPEC §18 says a function prints as `<fun>`. Inside a struct or array it
+# does (test/behavior/runtime/print_handles.rig), but passing a function
+# value to `print` directly, whether a function name or a `fun(...)`
+# parameter, is rejected with "cannot print a function".
+
+fun twice(n: Int) -> Int
+  n * 2
+
+sub show(f: fun(Int) Int)
+  print("param", f, f(3))
+
+sub main()
+  print(twice)
+  show(twice)
+
+# expect:
+# <fun>
+# param <fun> 6

@@ -1,0 +1,30 @@
+# `print` shows a weak handle as `~(alive)` while its value lives and
+# `~(gone)` after, an owned closure as `<closure>`, and a function value
+# held in a struct or array as `<fun>`. A shared handle prints the value
+# it holds.
+
+struct B
+  n: Int
+
+struct H
+  f: fun(Int) Int
+  n: Int
+
+fun twice(n: Int) -> Int
+  n * 2
+
+sub main()
+  b = *B(n: 1)
+  w = ~b
+  f: *fun(Int) Int = *|a| a + 1
+  wf: ~fun(Int) Int = ~f
+  print(b, w, f, wf)
+  print(H(f: twice, n: 3), [twice])
+  -b
+  -f
+  print(w, wf)
+
+# expect:
+# B(n: 1) ~(alive) <closure> ~(alive)
+# H(f: <fun>, n: 3) [<fun>]
+# ~(gone) ~(gone)

@@ -1,0 +1,48 @@
+# `errdefer` runs only when the function exits with an error, whether it
+# fails with `return` or propagates a failure with `!`; `defer` runs on
+# every exit. Both run in reverse order, including those of inner scopes
+# the failure leaves.
+
+error E
+  bad
+
+fun check(n: Int) -> Int!
+  return E.bad if n < 0
+  n
+
+fun step(n: Int) -> Int!
+  defer print("defer", n)
+  errdefer print("errdefer", n)
+  if n > 10
+    errdefer print("inner errdefer", n)
+    return .bad
+  check(n)! + 1
+
+fun twice(n: Int) -> Int!
+  errdefer print("twice errdefer", n)
+  step(n)! + step(n)!
+
+sub main()
+  print(step(1) catch -1)
+  print(step(-1) catch -1)
+  print(step(11) catch -1)
+  print(twice(2) catch -1)
+  print(twice(-2) catch -1)
+
+# expect:
+# defer 1
+# 2
+# errdefer -1
+# defer -1
+# -1
+# inner errdefer 11
+# errdefer 11
+# defer 11
+# -1
+# defer 2
+# defer 2
+# 6
+# errdefer -2
+# defer -2
+# twice errdefer -2
+# -1
