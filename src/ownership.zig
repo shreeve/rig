@@ -161,6 +161,8 @@ const Var = struct {
     /// of, and the field's path (empty for the whole var).
     alias_of: ?VarId = null,
     alias_path: []const u8 = "",
+    /// The var with the same name this one hides, for name lookup.
+    shadows: ?VarId = null,
     via: Via = .owned,
     /// Match payload binding whose variant has another field that owns
     /// a resource: moving this one out would leave that one undropped.
@@ -311,6 +313,8 @@ pub const Checker = struct {
     diagnostics: std.ArrayListUnmanaged(Diagnostic) = .empty,
 
     vars: std.ArrayListUnmanaged(Var) = .empty,
+    /// The innermost var with each name (see `Var.shadows`).
+    names: std.StringHashMapUnmanaged(VarId) = .empty,
     plain_reqs: std.ArrayListUnmanaged(PlainRequirement) = .empty,
     /// A branching value (`if` / `match` / block) whose result is taken
     /// (bound, passed, returned): the tails of its branches leave them.
@@ -320,6 +324,9 @@ pub const Checker = struct {
     /// statements without one of their own (`break`, `continue`).
     anchor: u32 = 0,
     flows: std.ArrayListUnmanaged(Flow) = .empty,
+    /// For each var, the number of loans on it that flows hold, so the
+    /// checks can skip a scan for an unborrowed var.
+    loan_counts: std.ArrayListUnmanaged(u32) = .empty,
     /// Every change to `flows`, so a branch can be undone back to a
     /// `Point` instead of copying the whole state (see `setFlow`).
     trail: std.ArrayListUnmanaged(Change) = .empty,
@@ -378,8 +385,10 @@ pub const Checker = struct {
         for (self.diagnostics.items) |d| self.gpa.free(d.message);
         self.diagnostics.deinit(self.gpa);
         self.vars.deinit(self.gpa);
+        self.names.deinit(self.gpa);
         self.plain_reqs.deinit(self.gpa);
         self.flows.deinit(self.gpa);
+        self.loan_counts.deinit(self.gpa);
         self.trail.deinit(self.gpa);
         self.scratch.deinit(self.gpa);
         self.last_use.deinit(self.gpa);
@@ -537,8 +546,7 @@ pub const Checker = struct {
         const start = scope.start;
         const ext = extent(scope.node);
         try self.releaseVarsFrom(start, self.reachable, if (ext.hi >= ext.lo) ext.hi +| 1 else null);
-        self.vars.shrinkRetainingCapacity(start);
-        self.flows.shrinkRetainingCapacity(start);
+        self.truncateVars(start);
     }
 
     /// Remove every loan on vars `>= start` from vars below `start` and
@@ -546,7 +554,10 @@ pub const Checker = struct {
     /// and its holder is still live at position `end`, where the scope
     /// ends (or after the current statement when null).
     fn releaseVarsFrom(self: *Checker, start: u32, report: bool, end: ?u32) Error!void {
-        for (0..@min(start, self.flows.items.len)) |holder| {
+        const borrowed = for (self.loan_counts.items[@min(start, self.loan_counts.items.len)..]) |n| {
+            if (n > 0) break true;
+        } else false;
+        if (borrowed) for (0..@min(start, self.flows.items.len)) |holder| {
             var f = self.flows.items[holder];
             if (!hasLoanFrom(f.loans, start)) continue;
             if (report and self.holderLive(@intCast(holder), end)) {
@@ -554,7 +565,7 @@ pub const Checker = struct {
             }
             f.loans = try self.filterLoansBelow(f.loans, start);
             try self.setFlow(@intCast(holder), f);
-        }
+        };
         var i: usize = 0;
         while (i < self.temps.items.len) {
             if (self.temps.items[i].root >= start) {
@@ -582,36 +593,67 @@ pub const Checker = struct {
         if (v.kind != .hidden) if (self.sema) |ctx| {
             v.sym = ctx.symbolAt(v.decl);
         };
+        if (v.name.len > 0) {
+            const gop = try self.names.getOrPut(self.gpa, v.name);
+            v.shadows = if (gop.found_existing) gop.value_ptr.* else null;
+            gop.value_ptr.* = id;
+        }
         try self.vars.append(self.gpa, v);
         try self.flows.append(self.gpa, flow);
+        try self.loan_counts.append(self.gpa, 0);
+        self.countLoans(flow.loans, true);
         return id;
+    }
+
+    /// Drop the vars `>= start`, youngest first, so each name they hid
+    /// is visible again.
+    fn truncateVars(self: *Checker, start: u32) void {
+        var i = self.vars.items.len;
+        while (i > start) {
+            i -= 1;
+            const v = self.vars.items[i];
+            self.countLoans(self.flows.items[i].loans, false);
+            if (v.name.len == 0) continue;
+            if (v.shadows) |prev| {
+                self.names.putAssumeCapacity(v.name, prev);
+            } else {
+                _ = self.names.remove(v.name);
+            }
+        }
+        self.vars.shrinkRetainingCapacity(start);
+        self.flows.shrinkRetainingCapacity(start);
+        self.loan_counts.shrinkRetainingCapacity(start);
     }
 
     const Found = struct { id: VarId, crossed: bool };
 
-    /// Find the innermost var named `name`. `crossed` is set when it is a
-    /// local of a function enclosing the current closure body.
+    /// Find the innermost visible var named `name`. `crossed` is set when
+    /// it is a local of a function enclosing the current closure body.
     fn find(self: *const Checker, name: []const u8) ?Found {
-        if (name.len == 0) return null;
+        var id = self.names.get(name) orelse return null;
+        while (self.isHiddenVar(id)) id = self.vars.items[id].shadows orelse return null;
         var crossed = false;
         var si = self.scopes.items.len;
-        var end: usize = self.vars.items.len;
         while (si > 0) {
             si -= 1;
             const sc = self.scopes.items[si];
-            if (self.hidden) |h| if (si > h.lo and si <= h.hi) {
-                end = sc.start;
-                continue;
-            };
-            var i = end;
-            while (i > sc.start) {
-                i -= 1;
-                if (std.mem.eql(u8, self.vars.items[i].name, name)) return .{ .id = @intCast(i), .crossed = crossed and si > 0 };
-            }
-            end = sc.start;
-            if (sc.kind == .closure) crossed = true;
+            if (sc.start <= id) break;
+            if (sc.kind == .closure and !self.isHiddenScope(si)) crossed = true;
         }
-        return null;
+        return .{ .id = id, .crossed = crossed and si > 0 };
+    }
+
+    fn isHiddenScope(self: *const Checker, si: usize) bool {
+        const h = self.hidden orelse return false;
+        return si > h.lo and si <= h.hi;
+    }
+
+    fn isHiddenVar(self: *const Checker, id: VarId) bool {
+        const h = self.hidden orelse return false;
+        if (h.hi <= h.lo) return false;
+        const scopes = self.scopes.items;
+        const end = if (h.hi + 1 < scopes.len) scopes[h.hi + 1].start else self.vars.items.len;
+        return id >= scopes[h.lo + 1].start and id < end;
     }
 
     /// A module-level binding seen from inside a function body.
@@ -637,7 +679,27 @@ pub const Checker = struct {
     /// Every write to a var's flow goes through here, so it can be undone.
     fn setFlow(self: *Checker, id: VarId, flow: Flow) Error!void {
         try self.trail.append(self.gpa, .{ .id = id, .old = self.flows.items[id] });
+        self.replaceFlow(id, flow);
+    }
+
+    fn replaceFlow(self: *Checker, id: VarId, flow: Flow) void {
+        self.countLoans(self.flows.items[id].loans, false);
+        self.countLoans(flow.loans, true);
         self.flows.items[id] = flow;
+    }
+
+    /// Add (or remove) `loans` to (from) `loan_counts`.
+    fn countLoans(self: *Checker, loans: []const Loan, add: bool) void {
+        for (loans) |l| {
+            if (l.root >= self.loan_counts.items.len) continue;
+            if (add) self.loan_counts.items[l.root] += 1 else self.loan_counts.items[l.root] -= 1;
+        }
+    }
+
+    /// Whether some var's flow holds a loan on `root` (a temporary may
+    /// still).
+    fn isBorrowed(self: *const Checker, root: VarId) bool {
+        return self.loan_counts.items[root] > 0;
     }
 
     /// The current program point.
@@ -658,7 +720,7 @@ pub const Checker = struct {
         while (i > p.trail) {
             i -= 1;
             const c = self.trail.items[i];
-            if (c.id < self.flows.items.len) self.flows.items[c.id] = c.old;
+            if (c.id < self.flows.items.len) self.replaceFlow(c.id, c.old);
         }
         self.trail.shrinkRetainingCapacity(p.trail);
         self.temps.clearRetainingCapacity();
@@ -816,13 +878,13 @@ pub const Checker = struct {
     /// Vars that view `skip_alias_of` (payload bindings of that scrutinee)
     /// are ignored.
     fn findLoan(self: *Checker, root: VarId, q: LoanQuery, skip_alias_of: ?VarId) ?Loan {
-        for (self.flows.items, self.vars.items, 0..) |f, v, holder| {
+        if (self.isBorrowed(root)) for (self.flows.items, self.vars.items, 0..) |f, v, holder| {
             if (skip_alias_of != null and v.alias_of == skip_alias_of) continue;
             for (f.loans) |l| if (loanMatches(l, root, q)) {
                 if (self.holderLive(@intCast(holder), null)) return l;
                 break;
             };
-        }
+        };
         for (self.temps.items) |l| if (loanMatches(l, root, q)) return l;
         return null;
     }
@@ -885,13 +947,13 @@ pub const Checker = struct {
         const owns = v.alias_of == null and !v.loop_borrow and v.ref == .none;
         if (owns and (sema.typeHasDropGlue(ctx, ty) or sema.maybeDropGlue(ctx, ty))) return true;
         if (self.last_use.get(sym)) |last| if (last >= self.liveFrom(v.decl, at)) return true;
-        for (self.flows.items, 0..) |f, j| {
+        if (self.isBorrowed(id)) for (self.flows.items, 0..) |f, j| {
             if (j == id) continue;
             for (f.loans) |l| if (l.root == id and !l.ext) {
                 if (self.holderLiveDepth(@intCast(j), at, depth + 1)) return true;
                 break;
             };
-        }
+        };
         for (self.temps.items) |l| if (l.root == id) return true;
         return false;
     }
@@ -1044,7 +1106,7 @@ pub const Checker = struct {
         if (ref != .none or (ty != null and self.mayCarryBorrow(ty))) {
             const loans = try self.arena().alloc(Loan, 1);
             loans[0] = .{ .root = id, .kind = if (ref == .write) .write else .read, .pos = pos, .ext = true };
-            self.flows.items[id].loans = loans;
+            self.replaceFlow(id, .{ .loans = loans });
         }
     }
 
@@ -2042,7 +2104,7 @@ pub const Checker = struct {
                 for (self.temps.items, 0..) |l, i| {
                     if (i != reservation and loanMatches(l, id, .any)) break :blk l;
                 }
-                for (self.flows.items, 0..) |f, holder| for (f.loans) |l| {
+                if (self.isBorrowed(id)) for (self.flows.items, 0..) |f, holder| for (f.loans) |l| {
                     if (loanMatches(l, id, .any) and self.holderLive(@intCast(holder), null)) break :blk l;
                 };
                 break :blk null;
