@@ -1,0 +1,11 @@
+type Box(T)
+  v: T
+
+struct Q
+  b: Box(*Int)
+
+pub struct P
+  q: Q
+
+  fun make() -> P
+    P(q: Q(b: Box(v: *41)))

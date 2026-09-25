@@ -12,7 +12,8 @@
 //!   4. contents     `sema.zig`       what each declared type's values hold
 //!                                    (drop glue, a Cell, plain data), and
 //!                                    types that contain themselves
-//!   5. validation   `resolve.zig`    the declaration checks that need 4
+//!   5. validation   `resolve.zig`    the declaration checks that need 4,
+//!                                    and the public surface of the module
 //!   6. expressions  `typecheck.zig`  bodies are type-checked; every
 //!                                    expression's type is recorded;
 //!                                    fallibility and `raw` are checked
@@ -1686,15 +1687,18 @@ pub fn importType(
         },
         .nominal => |sym_id| return local_ctx.intern(.{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
         .imported_nominal => |n| return local_ctx.intern(.{ .imported_nominal = n }),
-        // Built-in generics (Vec, Cell, ...) have the same symbol ids in
-        // every module, so their ids carry over unchanged.
+        // Only the built-in generics (Vec, Cell, ...) cross module
+        // boundaries (`resolve.checkPublicSurface`); they have the same
+        // symbol ids in every module, so their ids carry over unchanged.
         .parameterized_nominal => |pn| {
+            if (foreign_ctx.symbols.items[pn.sym].decl_pos != builtin_decl_pos) return local_ctx.types.invalid_id;
             var args: std.ArrayListUnmanaged(TypeId) = .empty;
             defer args.deinit(local_ctx.allocator);
             for (pn.args) |a| try args.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, a, origin_module_id));
             return local_ctx.internCopy(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args.items } });
         },
-        .type_var => |sym| return local_ctx.intern(.{ .type_var = sym }),
+        // A generic parameter never leaves its generic type's module.
+        .type_var => return local_ctx.types.invalid_id,
     }
 }
 
