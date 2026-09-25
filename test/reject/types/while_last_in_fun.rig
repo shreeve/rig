@@ -8,4 +8,4 @@ fun f() -> Int
 sub main()
   print(f())
 
-# error: 5:3: a function returning `Int` must end with a value; this `while` produces none
+# error: 5:3: a function returning `Int` must end with a value; this loop produces none
