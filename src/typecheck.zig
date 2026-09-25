@@ -3964,13 +3964,15 @@ const Checker = struct {
             self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
             return;
         };
-        switch (self.ctx.symbols.items[outer_id].kind) {
-            .local, .param, .capture => {},
-            else => {
-                try self.err(pos, "only a local can be captured; `{s}` is declared at module level, so use it in the closure directly", .{name});
-                self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
-                return;
-            },
+        const outer_sym = self.ctx.symbols.items[outer_id];
+        const local = switch (outer_sym.kind) {
+            .local, .param, .capture => outer_sym.scope != sema.module_scope,
+            else => false,
+        };
+        if (!local) {
+            try self.err(pos, "only a local can be captured; `{s}` is declared at module level, so use it in the closure directly", .{name});
+            self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
+            return;
         }
         // A closure reaches outer locals only through its own captures,
         // so a closure nested in one captures from what that one holds.
