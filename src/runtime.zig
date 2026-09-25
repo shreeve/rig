@@ -856,6 +856,7 @@ pub fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Er
         .pointer => |p| {
             if (comptime isStrongHandle(T)) return writeValue(w, value.value, top);
             if (p.size == .slice) return writeList(w, value);
+            if (@typeInfo(p.child) == .@"fn") return w.writeAll("<fun>");
             return writeValue(w, value.*, top);
         },
         .array => try writeList(w, value),

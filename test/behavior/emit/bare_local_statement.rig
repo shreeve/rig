@@ -1,0 +1,17 @@
+# A bare expression statement that only reads a local is accepted and
+# does nothing.
+
+struct P
+  n: Int
+
+sub main()
+  x = 1
+  x
+  (x)
+  p = P(n: 2)
+  p.n
+  ?p
+  print(x, p.n)
+
+# expect:
+# 1 2

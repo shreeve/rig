@@ -1,0 +1,39 @@
+# A function bound without an annotation is a function value; values
+# holding functions print as `<fun>`.
+
+fun twice(n: Int) -> Int
+  n * 2
+
+fun thrice(n: Int) -> Int
+  n * 3
+
+fun half(n: Int) -> Int!
+  n / 2
+
+struct Op
+  f: fun(Int) Int
+  n: Int
+
+enum K
+  op(f: fun(Int) Int)
+  nothing
+
+sub main()
+  g = twice
+  print(g(2))
+  g = thrice
+  print(g(2))
+  h = half
+  print(h(8)!)
+  print(Op(f: twice, n: 1))
+  k: K = .op(twice)
+  print(k)
+  print([twice, thrice])
+
+# expect:
+# 4
+# 6
+# 4
+# Op(f: <fun>, n: 1)
+# .op(<fun>)
+# [<fun>, <fun>]
