@@ -594,7 +594,10 @@ lower is an internal error: sema must have rejected it.
   value: Zig parameters are immutable, and Zig passes large ones by
   reference. A `?T` of a type with drop glue or one holding a `Cell` is
   a `*const T`, since a copy of it would be dropped with whatever holds
-  it, and a borrowed `Cell` can change while it is borrowed.
+  it, and a borrowed `Cell` can change while it is borrowed. In a
+  generic type, where that depends on the type arguments (`?T`,
+  `?Self`), the borrow is a `rig.ReadBorrow(T)`, which applies the same
+  rule to each instance.
 - **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`, `T?`
   is `?T`, `T!` is `anyerror!T`, enums with payloads are tagged unions,
   and generic types are Zig functions from types to types. A struct
@@ -638,6 +641,7 @@ reviewed.
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade`, which returns a new strong handle or null once the value is gone |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace` |
+| `ReadBorrow(T)`, `lend`, `borrowed` | a generic type's read borrow of `T`: a `*const T` when `T` owns resources or holds a `Cell`, a copy otherwise; `lend` borrows through a pointer, `borrowed` reads the value |
 | `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place |
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `Signal(T)` | a value and a `Vec` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |

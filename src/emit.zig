@@ -1020,7 +1020,7 @@ pub const Emitter = struct {
             self.w = &value_buf.writer;
             defer self.w = saved_w;
             if (is_borrow) {
-                try self.emitAddressOf(ir.get(expr, .operand));
+                try self.emitBorrowOf(expr);
             } else if (holds_ptr) {
                 try self.emitBorrowValue(expr);
             } else try self.emitValueOf(expr, is_move);
@@ -1071,7 +1071,7 @@ pub const Emitter = struct {
         if (local.is_ptr and !writes_through) {
             // A borrow local is rebound to borrow something else.
             try self.w.print("{s} = ", .{local.zig_name});
-            if (value.isKind(.read) or value.isKind(.write)) try self.emitAddressOf(ir.get(value, .operand)) else try self.emitBorrowValue(value);
+            if (value.isKind(.read) or value.isKind(.write)) try self.emitBorrowOf(value) else try self.emitBorrowValue(value);
             return self.w.writeAll(";");
         }
         if (local.is_ptr) {
@@ -1189,6 +1189,11 @@ pub const Emitter = struct {
     }
 
     fn writeLocalPlace(self: *Emitter, local: *const Local) Error!void {
+        if (local.is_ptr) if (self.genericReadBorrow(local.ty orelse return self.w.writeAll(local.zig_name))) |inner| {
+            try self.writeBorrowedOpen(inner);
+            try self.w.writeAll(local.zig_name);
+            return self.w.writeAll(")");
+        };
         try self.w.writeAll(local.zig_name);
         if (local.is_ptr) try self.w.writeAll(".*");
     }
@@ -1925,6 +1930,46 @@ pub const Emitter = struct {
         return self.kindOf(inner) != null or sema.holdsCellByValue(self.sema, inner);
     }
 
+    /// The `T` of a read borrow `?T` whose form depends on a generic
+    /// type's arguments: `T` holds a type parameter and neither owns
+    /// resources nor holds a Cell on its own. It is emitted as
+    /// `rig.ReadBorrow(T)`, which applies `readBorrowIsPtr`'s rule to each
+    /// instance, so an instance agrees with the code that uses it
+    /// (`?Box(Int)` is a copy). Code that depends on the form goes through
+    /// `rig.lend` and `rig.borrowed`; the rest treats it as a pointer, since
+    /// Zig reaches fields and methods through either.
+    fn genericReadBorrow(self: *Emitter, ty: TypeId) ?TypeId {
+        const inner = switch (self.sema.types.get(ty)) {
+            .borrow_read => |inner| inner,
+            else => return null,
+        };
+        if (!sema.maybeDropGlue(self.sema, inner) or sema.holdsCellByValue(self.sema, inner)) return null;
+        return inner;
+    }
+
+    fn genericReadBorrowOf(self: *Emitter, e: Sexp) ?TypeId {
+        return self.genericReadBorrow(self.typeOf(e) orelse return null);
+    }
+
+    /// `?x` or `!x` held by pointer: the address of `x`, or for a generic
+    /// read borrow, `rig.lend` of it.
+    fn emitBorrowOf(self: *Emitter, borrow: Sexp) Error!void {
+        const operand = ir.get(borrow, .operand);
+        const reborrow = if (self.typeOf(operand)) |t| self.sema.types.get(t) == .borrow_read else false;
+        if (reborrow or !borrow.isKind(.read) or self.genericReadBorrowOf(borrow) == null) return self.emitAddressOf(operand);
+        try self.w.writeAll("rig.lend(");
+        try self.emitAddressOf(operand);
+        try self.w.writeAll(")");
+    }
+
+    /// `rig.borrowed(T, `: the value a generic read borrow reaches; the
+    /// caller writes the borrow and the `)`.
+    fn writeBorrowedOpen(self: *Emitter, inner: TypeId) Error!void {
+        try self.w.writeAll("rig.borrowed(");
+        try self.emitTypeTy(inner);
+        try self.w.writeAll(", ");
+    }
+
     /// `e` yielded where a value of `ty` goes: a write borrow of a Copy
     /// value (`!m`, or a call returning `!Int`) yields the value it reaches.
     fn emitValueAs(self: *Emitter, e: Sexp, ty: ?TypeId) Error!void {
@@ -1934,6 +1979,11 @@ pub const Emitter = struct {
 
     /// `(e).*`: the value a write borrow reaches.
     fn emitDeref(self: *Emitter, e: Sexp) Error!void {
+        if (self.genericReadBorrowOf(e)) |inner| {
+            try self.writeBorrowedOpen(inner);
+            try self.emitBorrowValue(e);
+            return self.w.writeAll(")");
+        }
         try self.w.writeAll("(");
         try self.emitBorrowValue(e);
         try self.w.writeAll(").*");
@@ -1957,6 +2007,7 @@ pub const Emitter = struct {
 
     /// `*T` / `*const T` for a borrow type.
     fn emitPointerTy(self: *Emitter, ty: TypeId) Error!void {
+        if (self.genericReadBorrow(ty) != null) return self.emitTypeTy(ty);
         switch (self.sema.types.get(ty)) {
             .borrow_read, .borrow_write => |inner| {
                 try self.w.writeAll(if (self.sema.types.get(ty) == .borrow_read) "*const " else "*");
@@ -1994,7 +2045,7 @@ pub const Emitter = struct {
         switch (head) {
             .read => {
                 // `?x` of a value held by pointer (a Cell) is its address.
-                if (self.isPtrBorrowExpr(sexp)) return self.emitAddressOf(ir.Read.operand(sexp));
+                if (self.isPtrBorrowExpr(sexp)) return self.emitBorrowOf(sexp);
                 // A borrow never moves its operand, even in tail position.
                 self.bare = bare;
                 try self.emitValue(ir.Read.operand(sexp), false);
@@ -2016,7 +2067,9 @@ pub const Emitter = struct {
                     try self.emitBare(operand);
                     return self.w.writeAll(")");
                 }
-                if (kind == .value) return self.unsupported(sexp, "a clone of a value with drop glue");
+                // A generic `T` is cloned only where each instance is plain
+                // data, so it is copied.
+                if (kind == .value and !sema.maybeDropGlue(self.sema, self.peelBorrows(self.typeOf(operand).?))) return self.unsupported(sexp, "a clone of a value with drop glue");
                 try self.emitExpr(operand);
                 if (kind == .shared) try self.w.writeAll(".cloneStrong()");
                 if (kind == .weak) try self.w.writeAll(".cloneWeak()");
@@ -2027,10 +2080,13 @@ pub const Emitter = struct {
             },
             .call => if (self.hoistsArgs(sexp)) try self.emitHoistedCall(sexp) else try self.emitCallDirect(sexp),
             .member, .index => {
-                if (head == .member) try self.emitMember(sexp) else try self.emitIndex(sexp, self.place_chain);
                 // A field or element holding a write borrow denotes the
                 // borrowed value, unless the pointer itself is wanted.
-                if (self.isPtrBorrowExpr(sexp) and !(tail and self.ptr_tail)) try self.w.writeAll(".*");
+                const deref = self.isPtrBorrowExpr(sexp) and !(tail and self.ptr_tail);
+                const generic = if (deref) self.genericReadBorrowOf(sexp) else null;
+                if (generic) |inner| try self.writeBorrowedOpen(inner);
+                if (head == .member) try self.emitMember(sexp) else try self.emitIndex(sexp, self.place_chain);
+                if (generic != null) try self.w.writeAll(")") else if (deref) try self.w.writeAll(".*");
             },
             .builtin => try self.emitBuiltin(sexp),
             .propagate => {
@@ -3104,6 +3160,11 @@ pub const Emitter = struct {
                 try self.emitTypeTy(inner);
             },
             .borrow_read => |inner| {
+                if (self.genericReadBorrow(ty) != null) {
+                    try self.w.writeAll("rig.ReadBorrow(");
+                    try self.emitTypeTy(inner);
+                    return self.w.writeAll(")");
+                }
                 if (self.readBorrowIsPtr(inner)) try self.w.writeAll("*const ");
                 try self.emitTypeTy(inner);
             },

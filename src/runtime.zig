@@ -58,6 +58,44 @@ pub fn needsDrop(comptime T: type) bool {
     };
 }
 
+/// True when a `T` holds a `Cell` by value (not behind a pointer or in
+/// a `Vec` or `Signal`).
+pub fn holdsCell(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .optional => |o| holdsCell(o.child),
+        .array => |a| holdsCell(a.child),
+        .@"struct" => |s| blk: {
+            if (@hasDecl(T, "__rig_cell")) break :blk true;
+            if (@hasDecl(T, "__rig_signal")) break :blk false;
+            inline for (s.fields) |f| if (holdsCell(f.type)) break :blk true;
+            break :blk false;
+        },
+        .@"union" => |u| blk: {
+            inline for (u.fields) |f| if (holdsCell(f.type)) break :blk true;
+            break :blk false;
+        },
+        else => false,
+    };
+}
+
+/// How a read borrow `?T` is held: a pointer when `T` owns resources or
+/// holds a `Cell`, a copy otherwise. The emitter decides this itself for
+/// a known `T`, and uses this in a generic type, where `T` depends on the
+/// type arguments.
+pub fn ReadBorrow(comptime T: type) type {
+    return if (needsDrop(T) or holdsCell(T)) *const T else T;
+}
+
+/// A read borrow of what `ptr` points to.
+pub fn lend(ptr: anytype) ReadBorrow(@TypeOf(ptr.*)) {
+    return if (comptime ReadBorrow(@TypeOf(ptr.*)) == @TypeOf(ptr.*)) ptr.* else ptr;
+}
+
+/// The `T` a read borrow `?T` reaches.
+pub fn borrowed(comptime T: type, borrow: ReadBorrow(T)) T {
+    return if (comptime ReadBorrow(T) == T) borrow else borrow.*;
+}
+
 /// Release whatever `value` owns: a strong handle drops its count, a
 /// type with `__rig_drop` runs it, and aggregates drop their parts.
 /// Plain data is a no-op, decided at compile time.
@@ -292,6 +330,7 @@ pub fn Cell(comptime T: type) type {
         value: T,
 
         const Self = @This();
+        pub const __rig_cell = {};
 
         pub fn get(self: *const Self) T {
             return self.value;
@@ -388,6 +427,7 @@ pub fn Signal(comptime T: type) type {
         pending: ?T = null,
 
         const Self = @This();
+        pub const __rig_signal = {};
 
         pub fn init(value: T) Self {
             return .{ .value = value, .subs = .empty };
