@@ -19,7 +19,7 @@ sub main()
   c = match a[0]
     3
       q
-    else
+    _
       0
   print(a[0], a[1], b, c)
 
@@ -32,7 +32,7 @@ sub main()
   f = match d[2]
     6
       !m
-    else
+    _
       2
   print(d[0], d[1], d[2], e, f)
 

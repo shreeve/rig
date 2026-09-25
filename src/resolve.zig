@@ -1465,11 +1465,11 @@ fn exposedInstance(ctx: *SemContext, ty: TypeId, exposed: *std.AutoHashMapUnmana
     return null;
 }
 
-/// A leaf match pattern that binds its name: not a wildcard (`else`,
-/// `_`), and not a literal (`1`, `true`).
+/// A leaf match pattern that binds its name: not the wildcard `_`, and
+/// not a literal (`1`, `true`).
 pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
     const text = identAt(source, pattern) orelse return false;
-    for ([_][]const u8{ "else", "_", "true", "false" }) |word| if (std.mem.eql(u8, text, word)) return false;
+    for ([_][]const u8{ "_", "true", "false" }) |word| if (std.mem.eql(u8, text, word)) return false;
     return !sema.isIntLiteralText(text) and !sema.isFloatLiteralText(text);
 }
 

@@ -11,14 +11,14 @@ sub run(k: Int)
   a = N(id: k)
   match k
     1 => print("one")
-    else => -a
+    _ => -a
   print("end", k)
 
 fun pick(k: Int) -> Int
   a = 5
   return match k
     1 => 1
-    else => -a
+    _ => -a
 
 sub main()
   run(1)

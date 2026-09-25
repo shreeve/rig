@@ -5,7 +5,7 @@ sub main()
   match n
     1 => print "one"
     2 => print "two"
-    else => print "other"
+    _ => print "other"
 
 # expect:
 # two

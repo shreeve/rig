@@ -2553,7 +2553,7 @@ pub const Checker = struct {
         switch (pattern) {
             .src => {
                 const name = self.text(pattern);
-                if (std.mem.eql(u8, name, "_") or std.mem.eql(u8, name, "else")) return true;
+                if (std.mem.eql(u8, name, "_")) return true;
                 // Literal patterns match one value; an identifier binds the
                 // whole scrutinee and matches everything.
                 if (!isIdentStart(name[0]) or std.mem.eql(u8, name, "true") or std.mem.eql(u8, name, "false")) return false;

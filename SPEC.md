@@ -1238,7 +1238,8 @@ enums, integers, and `Bool`.
 | `.name(a, b)` | a payload variant, binding its fields in order |
 | `42`, `-1`, `true` | a literal |
 | `lo..hi` | an integer from `lo` up to, not including, `hi` (constant bounds) |
-| `else`, `_`, or any other name | everything else |
+| `_` | everything else |
+| any other name | everything else, binding the value to the name |
 
 An arm is `pattern => statement` or a pattern followed by an indented
 block. A match whose value is used must cover every value; a statement
@@ -2459,7 +2460,7 @@ the scopes it leaves runs. Only a function returning `T!` can fail.
 `f() catch |err| handler` names the error for the handler. Functions do
 not declare which errors they fail with, so `err` may be any error: it
 is compared with error-set members (`err == E.name`, `err == .name`),
-matched by their names (`.name =>`, with a default arm where the match
+matched by their names (`.name =>`, with a `_` arm where the match
 gives a value), printed, and returned from a fallible function. Every
 `.name` it is compared or matched with must be a member of some error
 set the module can see. The handler may be a block. An error is
@@ -2481,7 +2482,7 @@ fun describe(s: String) -> String
   n = parse_len(s) catch |err|
     match err
       .empty => return "empty"
-      else => return "too long"
+      _ => return "too long"
   "length ok" if n > 2 else "short"
 
 sub main()

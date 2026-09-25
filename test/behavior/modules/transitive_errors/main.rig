@@ -9,7 +9,7 @@ fun name(s: String) -> String
     match err
       .empty => return "empty"
       .bad_digit => return "bad digit"
-      else => return "other"
+      _ => return "other"
   "ok"
 
 sub main()

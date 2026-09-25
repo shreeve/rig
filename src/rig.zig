@@ -1042,11 +1042,10 @@ pub const Parser = struct {
 
     /// Why an unexpected token is not Rig: it starts a reserved form.
     fn reservedHint(src: []const u8, tok: Token, expected: []const u8) ?[]const u8 {
+        const in_pattern = std.mem.indexOf(u8, expected, "a match arm") != null or std.mem.indexOf(u8, expected, "a pattern") != null;
         return switch (tok.cat) {
-            .real, .string_sq, .string_dq => if (std.mem.indexOf(u8, expected, "a match arm") != null or std.mem.indexOf(u8, expected, "a pattern") != null)
-                "a pattern is a name, an integer, `true`, `false`, or an enum variant"
-            else
-                null,
+            .real, .string_sq, .string_dq => if (in_pattern) "a pattern is a name, an integer, `true`, `false`, or an enum variant" else null,
+            .@"else" => if (in_pattern) "the catch-all arm is `_`, or a name that binds the value" else null,
             .@"try" => "`try` blocks are reserved: propagate with `e!` or handle with `e catch ...`",
             .zig => "inline Zig is reserved: use `raw` blocks and `extern` declarations",
             .pre => "`pre` marks compile-time parameters only (`pre n: Int`)",
@@ -1412,7 +1411,7 @@ test "parser: every form parses" {
         \\  match s
         \\    .circle(r) => print(r)
         \\    1..3 => print(-1)
-        \\    else
+        \\    _
         \\      print(2)
         \\  g = |+c, <d, ~e, k: Int, j| c + k
         \\  h = *|+c| c.set(@sizeOf(Int))

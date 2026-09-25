@@ -5,7 +5,7 @@ sub main()
   s = "a"
   match s
     "a" => print(1)
-    else => print(2)
+    _ => print(2)
 
 # error: unexpected `"a"`
 # error: a pattern is a name, an integer, `true`, `false`, or an enum variant

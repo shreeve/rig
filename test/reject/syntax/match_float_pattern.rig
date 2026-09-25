@@ -5,7 +5,7 @@ sub main()
   x = 1.5
   match x
     1.5 => print(1)
-    else => print(2)
+    _ => print(2)
 
 # error: unexpected `1.5`
 # error: a pattern is a name, an integer, `true`, `false`, or an enum variant

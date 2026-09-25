@@ -27,7 +27,7 @@ fun describe(s: String) -> String
     match err
       .empty => return "empty"
       .too_long => return "too long"
-      else => return "other"
+      _ => return "other"
   if n > 2
     "long enough"
   else

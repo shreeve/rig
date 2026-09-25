@@ -24,7 +24,7 @@ fun nested(limit: Int) -> Int
 fun kind(n: Int) -> String
   match n
     0 => "zero"
-    else
+    _
       i = 0
       while i < n : i += 1
         break "big" if i > 5

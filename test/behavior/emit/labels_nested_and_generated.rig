@@ -28,7 +28,7 @@ sub main()
       print("three")
       break :m if x > 1
       print("unreached")
-    else
+    _
       print("other")
   :r raw
     break :r if x > 1

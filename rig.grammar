@@ -611,7 +611,6 @@ pattern  = patatom
          | lo:patatom ".." hi:patatom               → (range_pattern)
 
 patatom  = name
-         | ELSE                                     # default arm
          | INTEGER
          | MINUS_PREFIX operand:INTEGER             → (neg)
          | TRUE

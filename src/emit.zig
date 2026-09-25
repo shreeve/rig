@@ -1624,7 +1624,7 @@ pub const Emitter = struct {
                     } else {
                         has_default = true;
                         try self.w.writeAll("else => ");
-                        if (!isWildcard(text_)) try self.emitCapture(pattern);
+                        if (!std.mem.eql(u8, text_, "_")) try self.emitCapture(pattern);
                     }
                 },
                 .list => switch (pattern.kind().?) {
@@ -3777,10 +3777,6 @@ fn isLiteralText(t: []const u8) bool {
 /// An integer or float literal.
 fn isNumberText(t: []const u8) bool {
     return sema.isIntLiteralText(t) or sema.isFloatLiteralText(t);
-}
-
-fn isWildcard(t: []const u8) bool {
-    return std.mem.eql(u8, t, "_") or std.mem.eql(u8, t, "else");
 }
 
 fn isNonNegativeIntLiteral(source: []const u8, s: Sexp) bool {

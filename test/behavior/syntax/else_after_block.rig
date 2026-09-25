@@ -1,6 +1,6 @@
 # A line starting with `else` continues the `if` (or `while` / `for`)
-# whose block just closed; after a match arm's block it is the default
-# arm.
+# whose block just closed, even inside a match arm; the arm after it
+# starts with its own pattern.
 
 enum Kind
   one
@@ -14,7 +14,7 @@ sub show(k: Kind, flag: Bool)
         print "one, flagged"
       else
         print "one"
-    else
+    _
       print "not one"
 
 sub main()
