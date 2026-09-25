@@ -22,7 +22,7 @@ sub main()
   f: F32 = 2.0
   print(f)
   print(W(f: 1.0))
-  print(E.pt(P(x: 1, y: 2)))
+  print(E.pt(p: P(x: 1, y: 2)))
   print(E.two(a: P(x: 1, y: 2), b: 3))
   xs: [3]U8 = [72, 105, 33]
   print(V(a: ?xs))

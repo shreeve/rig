@@ -26,7 +26,7 @@ sub main()
   h = half
   print(h(8)!)
   print(Op(f: twice, n: 1))
-  k: K = .op(twice)
+  k: K = .op(f: twice)
   print(k)
   print([twice, thrice])
 

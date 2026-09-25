@@ -622,9 +622,10 @@ sub main()
 true
 ```
 
-A payload variant is constructed with keyword fields
-(`.circle(radius: 2)`) or positionally, in field order (`.circle(2)`). Enums have no constructor call (`Shape(...)` is an
-error); plain enums compare with `==`. A plain enum's variants may take
+A payload variant is constructed with keyword fields, like a struct:
+`.circle(radius: 2)`, `Shape.circle(radius: 2)`. A pattern binds the
+fields in order (`.circle(r) =>`). Enums have no constructor call
+(`Shape(...)` is an error); plain enums compare with `==`. A plain enum's variants may take
 explicit values (`ok = 200`): constant integers from 0 to 4294967295,
 no two the same, where a variant without one takes the value after the
 previous variant's. Payload and generic enums take no values.

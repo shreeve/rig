@@ -8,7 +8,7 @@ enum Slot
 sub main()
   outer: Vec(*sub()) = Vec()
   if true
-    s: Slot = .full(*|| print("hi"))
+    s: Slot = .full(f: *|| print("hi"))
     match s
       .full(f) => (!outer).push(<f)
       .empty => print("e")

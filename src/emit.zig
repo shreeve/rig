@@ -3036,16 +3036,10 @@ pub const Emitter = struct {
         const fields = self.variantPayload(enum_ty, vname) orelse return self.unsupported(call, "this variant");
         try self.w.print(".{{ .{f} = ", .{ident(vname)});
         if (fields.len == 1) {
-            try self.emitStored(argValue(args[0]));
+            try self.emitStored(ir.Kwarg.value(args[0]));
         } else {
-            try self.w.writeAll(".{");
-            for (args, 0..) |a, i| {
-                try self.w.writeAll(if (i == 0) " " else ", ");
-                const fname = if (a.isKind(.kwarg)) self.srcText(ir.Kwarg.name(a)) else fields[i].name;
-                try self.w.print(".{f} = ", .{ident(fname)});
-                try self.emitStored(argValue(a));
-            }
-            try self.w.writeAll(" }");
+            try self.w.writeAll(".");
+            try self.emitFieldInit(args);
         }
         try self.w.writeAll(" }");
     }

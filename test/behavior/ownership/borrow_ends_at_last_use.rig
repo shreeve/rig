@@ -49,7 +49,7 @@ sub main()
     print("len", seen.len)
     (!nums).push(i)
 
-  s: Slot = .full(Box(n: 7))
+  s: Slot = .full(b: Box(n: 7))
   match s
     .full(p)
       print("payload", p.n)

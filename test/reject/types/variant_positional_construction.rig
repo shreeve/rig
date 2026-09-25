@@ -1,0 +1,14 @@
+# A payload variant's fields are set by name, like a struct's; only a
+# pattern binds them in order.
+
+enum Shape
+  circle(radius: Int)
+  rect(w: Int, h: Int)
+
+sub main()
+  a: Shape = .circle(2)
+  b = Shape.rect(2, h: 3)
+  print(a, b)
+
+# error: 9:15: variant fields are set by name: `.circle(radius: ...)`
+# error: 10:13: variant fields are set by name: `.rect(w: ...)`

@@ -2981,34 +2981,19 @@ const Checker = struct {
     };
 
     /// Keyword arguments against named fields: each names a real field
-    /// once, and every field without a default is given. Variants also
-    /// accept all-positional payloads.
+    /// once, and every field without a default is given.
     fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field, info: FieldArgs) Error!void {
-        var positional: usize = 0;
-        for (args) |a| {
-            if (!a.isKind(.kwarg)) positional += 1;
-        }
         const noun = if (info.kind == .constructor) "constructor of" else "variant";
-        if (positional > 0) {
-            if (info.kind == .variant and positional == args.len) {
-                var n: usize = 0;
-                for (fields) |f| {
-                    if (!f.is_method and !f.is_variant) n += 1;
-                }
-                if (args.len != n) {
-                    try self.err(info.pos, "variant `{s}` expects {d} payload field{s}, got {d}", .{ info.owner, n, plural(n), args.len });
-                    try self.synthArgs(args);
-                    return;
-                }
-                var i: usize = 0;
-                for (fields) |f| {
-                    if (f.is_method or f.is_variant) continue;
-                    try self.checkExpr(args[i], try self.fieldType(f, info));
-                    i += 1;
-                }
-                return;
+        for (args) |a| {
+            if (a.isKind(.kwarg)) continue;
+            if (info.kind == .variant) {
+                const first = for (fields) |f| {
+                    if (!f.is_method and !f.is_variant) break f.name;
+                } else "field";
+                try self.err(info.pos, "variant fields are set by name: `.{s}({s}: ...)`", .{ info.owner, first });
+            } else {
+                try self.err(info.pos, "fields of `{s}` are set by name: `{s}(field: value)`", .{ info.owner, info.owner });
             }
-            try self.err(info.pos, "fields of `{s}` are set by name: `{s}(field: value)`", .{ info.owner, info.owner });
             try self.synthArgs(args);
             return;
         }
@@ -3257,17 +3242,10 @@ const Checker = struct {
                     },
                 };
             } else {
+                // Fields are set only by name.
                 defer positional += 1;
                 pattern = switch (from) {
-                    .fields => |fs| blk: {
-                        var n: usize = 0;
-                        for (fs) |f| {
-                            if (f.is_method or f.is_variant) continue;
-                            if (n == positional) break :blk f.ty;
-                            n += 1;
-                        }
-                        break :blk null;
-                    },
+                    .fields => null,
                     .params => |p| if (positional < p.params.len) p.params[positional] else null,
                 };
             }
