@@ -2672,6 +2672,9 @@ pub const Checker = struct {
         const it = try self.loopIteration(spec, &ctx);
         try self.rewind(entry);
         try self.apply(it.exit);
+        // The `else` runs after the loop: a jump in it leaves the loop
+        // around this one.
+        self.loop = ctx.parent;
         if (spec.else_body) |e| try self.walkStmt(e);
         try self.joinBreaks(&ctx);
     }
