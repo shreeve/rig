@@ -754,7 +754,8 @@ pub const Lexer = struct {
     }
 
     /// An opening bar touches its first entry and is followed by
-    /// `entry (, entry)*` and a closing bar touching the last entry. An
+    /// `entry (, entry)* [,]` and a closing bar touching the last entry
+    /// or comma. An
     /// entry is a sigiled capture (`+x`, `<x`, `~x`) or a parameter name
     /// with an optional type (`a`, `a: Int`, `f: *fun(Int) Int`). The
     /// closing bar is recognized by position.
@@ -782,7 +783,14 @@ pub const Lexer = struct {
                     self.capture_close = sep.pos;
                     return true;
                 },
-                .comma => {},
+                .comma => {
+                    var after = probe;
+                    const close = after.matchRules();
+                    if (close.cat == .bar and close.pre == 0) {
+                        self.capture_close = close.pos;
+                        return true;
+                    }
+                },
                 else => return false,
             }
         }

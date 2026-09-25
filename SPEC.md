@@ -98,7 +98,8 @@ tab in indentation; indent with spaces
 
 Inside `( )` and `[ ]` a newline is plain whitespace, so arguments,
 expressions, and method chains can span lines at any indentation. An
-array, a call's arguments, and a parameter list may end with a comma. A
+array, a call's arguments, a parameter list, a closure's bar list, and a
+variant pattern's bindings may end with a comma. A
 backslash at the end of a line joins the next line anywhere.
 
 ```rig

@@ -617,7 +617,13 @@ patatom  = name
          | TRUE
          | FALSE
          | DOT_LIT name:name                        → (enum_lit)
-         | DOT_LIT name:name LPAREN_CALL [bindings:L(name)] ")" → (variant_pattern)
+         | DOT_LIT name:name LPAREN_CALL ")"        → (variant_pattern)
+         | DOT_LIT name:name LPAREN_CALL bindings:names [","] ")" → (variant_pattern)
+
+# Written out rather than `L(name)`, which conflicts with a trailing
+# comma.
+names    = name                                     → (1)
+         | names "," name                           → (...1 3)
 
 # --- Closures -----------------------------------------------------------------
 #
@@ -641,8 +647,11 @@ cclosure = clambda
 
 clambda  = params:bars cmd                          → (lambda body:(block 2))
 
-bars     = BAR_CAPTURE L(barent) BAR_CAPTURE        → (...2)
+bars     = BAR_CAPTURE barents [","] BAR_CAPTURE    → (...2)
          | BAR_EMPTY                                → ()
+
+barents  = barent                                   → (1)
+         | barents "," barent                       → (...1 3)
 
 barent   = fname
          | name:fname ":" type:type                 → (:)
