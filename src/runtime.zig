@@ -127,7 +127,6 @@ pub fn create(comptime T: type) *T {
 /// so the box outlives its value while weak handles remain.
 pub fn RcBox(comptime T: type) type {
     return struct {
-        allocator: std.mem.Allocator,
         strong: usize,
         weak: usize,
         value: T,
@@ -136,12 +135,6 @@ pub fn RcBox(comptime T: type) type {
         pub const __rig_rcbox = {};
 
         const Self = @This();
-
-        pub fn new(allocator: std.mem.Allocator, value: T) !*Self {
-            const box = try allocator.create(Self);
-            box.* = .{ .allocator = allocator, .strong = 1, .weak = 1, .value = value };
-            return box;
-        }
 
         pub fn cloneStrong(self: *Self) *Self {
             std.debug.assert(self.strong > 0);
@@ -179,7 +172,7 @@ pub fn RcBox(comptime T: type) type {
         fn releaseValue(self: *Self) void {
             dropElement(T, &self.value);
             self.weak -= 1;
-            if (self.weak == 0) self.allocator.destroy(self);
+            if (self.weak == 0) defaultAllocator().destroy(self);
         }
 
         fn releaseErased(box: *anyopaque) void {
@@ -221,33 +214,30 @@ fn drainDropQueue() void {
 /// `~T`: a non-owning handle to an `RcBox(T)`.
 pub fn WeakHandle(comptime T: type) type {
     return struct {
-        ptr: ?*RcBox(T),
+        ptr: *RcBox(T),
 
         const Self = @This();
 
         pub fn cloneWeak(self: Self) Self {
-            if (self.ptr) |p| p.weak += 1;
+            self.ptr.weak += 1;
             return self;
         }
 
         pub fn dropWeak(self: Self) void {
-            const p = self.ptr orelse return;
-            std.debug.assert(p.weak > 0);
-            p.weak -= 1;
-            if (p.weak == 0) p.allocator.destroy(p);
+            std.debug.assert(self.ptr.weak > 0);
+            self.ptr.weak -= 1;
+            if (self.ptr.weak == 0) defaultAllocator().destroy(self.ptr);
         }
 
         pub fn __rig_print(self: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
-            const alive = if (self.ptr) |p| p.strong > 0 else false;
-            try w.writeAll(if (alive) "~(alive)" else "~(gone)");
+            try w.writeAll(if (self.ptr.strong > 0) "~(alive)" else "~(gone)");
         }
 
         /// A new strong handle, or null once the value has been dropped.
         pub fn upgrade(self: Self) ?*RcBox(T) {
-            const p = self.ptr orelse return null;
-            if (p.strong == 0) return null;
-            p.strong += 1;
-            return p;
+            if (self.ptr.strong == 0) return null;
+            self.ptr.strong += 1;
+            return self.ptr;
         }
 
         pub fn __rig_drop(self: *Self) void {
@@ -272,7 +262,9 @@ pub fn isNone(value: anytype) bool {
 
 /// Allocate a new `*T` holding `value`.
 pub fn rcNew(value: anytype) *RcBox(@TypeOf(value)) {
-    return RcBox(@TypeOf(value)).new(defaultAllocator(), value) catch oom();
+    const box = create(RcBox(@TypeOf(value)));
+    box.* = .{ .strong = 1, .weak = 1, .value = value };
+    return box;
 }
 
 // -----------------------------------------------------------------------------
@@ -329,8 +321,7 @@ pub fn Closure(comptime params: []const type, comptime R: type) type {
     return struct {
         ctx: *anyopaque,
         invoke_fn: *const fn (*anyopaque, Args) R,
-        drop_fn: *const fn (*anyopaque, std.mem.Allocator) void,
-        allocator: std.mem.Allocator,
+        drop_fn: *const fn (*anyopaque) void,
 
         const Self = @This();
         pub const Args = std.meta.Tuple(params);
@@ -342,13 +333,13 @@ pub fn Closure(comptime params: []const type, comptime R: type) type {
                     const e: *Env = @ptrCast(@alignCast(ctx));
                     return @call(.auto, Env.invoke, .{e} ++ args);
                 }
-                fn dropEnv(ctx: *anyopaque, allocator: std.mem.Allocator) void {
+                fn dropEnv(ctx: *anyopaque) void {
                     const e: *Env = @ptrCast(@alignCast(ctx));
                     dropFields(e);
-                    allocator.destroy(e);
+                    defaultAllocator().destroy(e);
                 }
             };
-            return .{ .ctx = env, .invoke_fn = erased.invoke, .drop_fn = erased.dropEnv, .allocator = defaultAllocator() };
+            return .{ .ctx = env, .invoke_fn = erased.invoke, .drop_fn = erased.dropEnv };
         }
 
         pub fn __rig_print(_: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
@@ -360,7 +351,7 @@ pub fn Closure(comptime params: []const type, comptime R: type) type {
         }
 
         pub fn __rig_drop(self: *Self) void {
-            self.drop_fn(self.ctx, self.allocator);
+            self.drop_fn(self.ctx);
         }
     };
 }
@@ -386,7 +377,7 @@ pub fn Signal(comptime T: type) type {
         const Self = @This();
 
         pub fn init(value: T) Self {
-            return .{ .value = value, .subs = .init(defaultAllocator()) };
+            return .{ .value = value, .subs = .empty };
         }
 
         pub fn get(self: *const Self) T {
@@ -436,18 +427,15 @@ pub fn Signal(comptime T: type) type {
 /// the elements in reverse order, then frees the buffer.
 pub fn Vec(comptime T: type) type {
     return struct {
-        allocator: std.mem.Allocator,
         buf: []T = &.{},
         len: usize = 0,
 
         const Self = @This();
 
-        pub fn init(allocator: std.mem.Allocator) Self {
-            return .{ .allocator = allocator };
-        }
+        pub const empty: Self = .{};
 
-        pub fn initCapacity(allocator: std.mem.Allocator, capacity: Int) Self {
-            var v: Self = .init(allocator);
+        pub fn initCapacity(capacity: Int) Self {
+            var v: Self = .empty;
             v.reserve(toIndex(capacity));
             return v;
         }
@@ -463,11 +451,7 @@ pub fn Vec(comptime T: type) type {
 
         fn reserve(self: *Self, want: usize) void {
             if (want <= self.buf.len) return;
-            const cap = @max(want, 4, self.buf.len * 2);
-            const new_buf = self.allocator.alloc(T, cap) catch oom();
-            @memcpy(new_buf[0..self.len], self.buf[0..self.len]);
-            if (self.buf.len > 0) self.allocator.free(self.buf);
-            self.buf = new_buf;
+            self.buf = defaultAllocator().realloc(self.buf, @max(want, 4, self.buf.len * 2)) catch oom();
         }
 
         pub fn push(self: *Self, value: T) void {
@@ -541,7 +525,7 @@ pub fn Vec(comptime T: type) type {
 
         pub fn __rig_drop(self: *Self) void {
             self.clear();
-            if (self.buf.len > 0) self.allocator.free(self.buf);
+            defaultAllocator().free(self.buf);
             self.buf = &.{};
         }
     };
@@ -551,11 +535,15 @@ pub fn Vec(comptime T: type) type {
 // Integers and indexing
 // -----------------------------------------------------------------------------
 
-/// Convert a Rig index to `usize`, panicking unless `0 <= i < len`.
+/// Convert a Rig index to `usize`, panicking unless `0 <= i < len`. A
+/// negative index becomes a huge unsigned one, which fails the bound.
 pub fn index(i: anytype, count: usize) usize {
-    const idx = std.math.cast(usize, i) orelse indexPanic();
+    const idx: u64 = switch (@typeInfo(@TypeOf(i))) {
+        .int => |int| if (int.signedness == .signed) @bitCast(@as(i64, i)) else i,
+        else => std.math.cast(u64, i) orelse indexPanic(),
+    };
     if (idx >= count) indexPanic();
-    return idx;
+    return @intCast(idx);
 }
 
 /// `s[i]` for a string or slice: the element at `i`, with `s` evaluated
@@ -692,7 +680,7 @@ fn reportLeaks(before: Usage) bool {
     if (now.count <= before.count) return false;
     const n = now.count - before.count;
     std.debug.print("error: rig: memory leak detected: {d} allocation{s} ({d} bytes) never freed\n", .{
-        n, if (n == 1) "" else "s", now.bytes - before.bytes,
+        n, if (n == 1) "" else "s", now.bytes -| before.bytes,
     });
     if (!leak_trace) std.debug.print("note: build with RIG_LEAK_TRACE=1 set (`RIG_LEAK_TRACE=1 rig run ...`) to see where each was allocated\n", .{});
     return true;
@@ -780,7 +768,7 @@ const TestName = struct {
     name: []const u8,
 
     pub fn format(self: TestName, w: *std.Io.Writer) std.Io.Writer.Error!void {
-        try w.print("test \"{s}\"", .{self.name});
+        try w.print("test \"{f}\"", .{std.zig.fmtString(self.name)});
         if (self.module.len > 0) try w.print(" ({s})", .{self.module});
     }
 };
@@ -818,12 +806,14 @@ pub fn runTests(modules: []const TestModule) void {
     if (failed > 0) std.process.exit(1);
 }
 
+/// Text: a string literal (`*const [N:0]u8`) or a `String` slice. An
+/// array of bytes held by pointer is a list of numbers.
 fn isString(comptime T: type) bool {
     return switch (@typeInfo(T)) {
         .pointer => |p| switch (p.size) {
             .slice => p.child == u8,
             .one => switch (@typeInfo(p.child)) {
-                .array => |a| a.child == u8,
+                .array => |a| a.child == u8 and a.sentinel_ptr != null,
                 else => false,
             },
             else => false,
@@ -840,45 +830,59 @@ fn rigTypeName(comptime T: type) []const u8 {
     return full[start..end];
 }
 
+/// Values nested deeper than this print as `...`: a structure that
+/// reaches itself through handles would otherwise print forever.
+const max_print_depth = 64;
+var print_depth: u32 = 0;
+
 /// A value as Rig writes it: text as is at the top level and quoted
-/// inside other values, `none` for an absent optional, `Name(field: v)`
-/// for a struct, `.variant` / `.variant(payload)` for an enum, and
-/// `[a, b]` for arrays and Vecs. A shared handle prints its value.
+/// inside other values, a float with a decimal point, `none` for an
+/// absent optional, `Name(field: v)` for a struct, `.variant` /
+/// `.variant(payload)` for an enum, and `[a, b]` for arrays and Vecs. A
+/// shared handle prints its value, a function `<fun>`.
 pub fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
     const T = @TypeOf(value);
     if (comptime isString(T)) {
         return if (top) w.writeAll(value) else w.print("\"{s}\"", .{value});
     }
     switch (@typeInfo(T)) {
-        .int, .comptime_int, .float, .comptime_float => try w.print("{d}", .{value}),
-        .bool => try w.writeAll(if (value) "true" else "false"),
-        .optional => if (value) |v| try writeValue(w, v, top) else try w.writeAll("none"),
+        .int, .comptime_int => return w.print("{d}", .{value}),
+        .float, .comptime_float => {
+            const f: f64 = value;
+            try w.print("{d}", .{value});
+            if (std.math.isFinite(f) and f == @trunc(f)) try w.writeAll(".0");
+            return;
+        },
+        .bool => return w.writeAll(if (value) "true" else "false"),
+        .optional => return if (value) |v| writeValue(w, v, top) else w.writeAll("none"),
         .pointer => |p| {
             if (comptime isStrongHandle(T)) return writeValue(w, value.value, top);
-            if (p.size == .slice) return writeList(w, value);
             if (@typeInfo(p.child) == .@"fn") return w.writeAll("<fun>");
-            return writeValue(w, value.*, top);
+            if (p.size != .slice) return writeValue(w, value.*, top);
         },
-        .array => try writeList(w, value),
-        .@"enum" => try w.print(".{s}", .{@tagName(value)}),
-        .error_set => try w.print(".{s}", .{@errorName(value)}),
-        .@"union" => |u| {
-            if (u.tag_type == null) return w.writeAll("?");
-            switch (value) {
-                inline else => |payload, tag| {
-                    try w.print(".{s}", .{@tagName(tag)});
-                    const P = @TypeOf(payload);
-                    if (P == void) return;
-                    if (@typeInfo(P) == .@"struct" and !@hasDecl(P, "__rig_print") and !isStrongHandle(P)) {
-                        try w.writeAll("(");
-                        try writeFields(w, payload);
-                        return w.writeAll(")");
-                    }
-                    try w.writeAll("(");
+        .@"enum" => return w.print(".{s}", .{@tagName(value)}),
+        .error_set => return w.print(".{s}", .{@errorName(value)}),
+        else => {},
+    }
+    if (print_depth >= max_print_depth) return w.writeAll("...");
+    print_depth += 1;
+    defer print_depth -= 1;
+    switch (@typeInfo(T)) {
+        .pointer, .array => try writeList(w, value),
+        .@"union" => switch (value) {
+            inline else => |payload, tag| {
+                try w.print(".{s}", .{@tagName(tag)});
+                const P = @TypeOf(payload);
+                if (P == void) return;
+                try w.writeAll("(");
+                // Several payload fields are written as keyword arguments.
+                if (@typeInfo(P) == .@"struct" and @hasDecl(P, "__rig_payload")) {
+                    try writeFields(w, payload);
+                } else {
                     try writeValue(w, payload, false);
-                    try w.writeAll(")");
-                },
-            }
+                }
+                try w.writeAll(")");
+            },
         },
         .@"struct" => {
             if (@hasDecl(T, "__rig_print")) return value.__rig_print(w);
@@ -913,205 +917,19 @@ fn writeList(w: *std.Io.Writer, items: anytype) std.Io.Writer.Error!void {
 
 const testing = std.testing;
 
+// The tests allocate through `defaultAllocator`, like emitted programs;
+// `expectNoLeaks` checks that everything since `before` was freed.
+
+fn expectNoLeaks(before: Usage) !void {
+    try testing.expectEqual(before, usage());
+}
+
 const Counter = struct {
     drops: *usize,
     pub fn __rig_drop(self: *Counter) void {
         self.drops.* += 1;
     }
 };
-
-test "strong and weak handles free the box once" {
-    var drops: usize = 0;
-    const a = try RcBox(Counter).new(testing.allocator, .{ .drops = &drops });
-    const b = a.cloneStrong();
-    const w = a.weakRef();
-    a.dropStrong();
-    try testing.expectEqual(0, drops);
-    const up = w.upgrade().?;
-    up.dropStrong();
-    b.dropStrong();
-    try testing.expectEqual(1, drops);
-    try testing.expectEqual(null, w.upgrade());
-    w.dropWeak();
-}
-
-test "dropping a shared handle to a shared handle drops the inner one" {
-    var drops: usize = 0;
-    const inner = try RcBox(Counter).new(testing.allocator, .{ .drops = &drops });
-    const outer = try RcBox(*RcBox(Counter)).new(testing.allocator, inner);
-    outer.dropStrong();
-    try testing.expectEqual(1, drops);
-}
-
-test "optional handles drop their payload" {
-    var drops: usize = 0;
-    var some: ?*RcBox(Counter) = try RcBox(Counter).new(testing.allocator, .{ .drops = &drops });
-    var none: ?*RcBox(Counter) = null;
-    drop(&none);
-    drop(&some);
-    try testing.expectEqual(1, drops);
-    try testing.expect(needsDrop(?*RcBox(Counter)));
-    try testing.expect(!needsDrop(?i32));
-}
-
-test "Cell.set stores the new value before dropping the old one" {
-    const Probe = struct {
-        cell: *Cell(?*RcBox(@This())),
-        seen_new: *bool,
-        pub fn __rig_drop(self: *@This()) void {
-            self.seen_new.* = self.cell.value != null;
-        }
-    };
-    var seen_new = false;
-    var cell: Cell(?*RcBox(Probe)) = .{ .value = null };
-    const old = try RcBox(Probe).new(testing.allocator, .{ .cell = &cell, .seen_new = &seen_new });
-    cell.value = old;
-    const new = try RcBox(Probe).new(testing.allocator, .{ .cell = &cell, .seen_new = &seen_new });
-    cell.set(new);
-    try testing.expect(seen_new);
-    cell.__rig_drop();
-}
-
-test "Vec owns and drops its elements" {
-    var drops: usize = 0;
-    var v: Vec(*RcBox(Counter)) = .init(testing.allocator);
-    for (0..10) |_| v.push(try RcBox(Counter).new(testing.allocator, .{ .drops = &drops }));
-    try testing.expectEqual(10, v.length());
-    v.__rig_drop();
-    try testing.expectEqual(10, drops);
-}
-
-test "Vec of plain data" {
-    var v: Vec(i32) = .initCapacity(testing.allocator, 2);
-    defer v.__rig_drop();
-    v.push(4);
-    v.push(9);
-    v.push(16);
-    try testing.expectEqual(9, v.at(1));
-    try testing.expectEqual(16, v.get(2).?);
-    try testing.expectEqual(null, v.get(3));
-    try testing.expectEqual(null, v.get(-1));
-    try testing.expectEqual(16, v.pop().?);
-    try testing.expectEqual(2, v.length());
-}
-
-test "Signal takes ownership of subscribers and delivers reentrant sets" {
-    const Env = struct {
-        sig: *Signal(i32),
-        seen: *[4]i32,
-        n: *usize,
-        pub fn invoke(self: *@This()) void {
-            self.seen[self.n.*] = self.sig.value;
-            self.n.* += 1;
-            if (self.sig.value == 1) self.sig.set(2);
-        }
-    };
-    var sig: Signal(i32) = .{ .value = 0, .subs = .init(testing.allocator) };
-    defer sig.__rig_drop();
-    var seen: [4]i32 = undefined;
-    var n: usize = 0;
-    const env = try testing.allocator.create(Env);
-    env.* = .{ .sig = &sig, .seen = &seen, .n = &n };
-    var closure = Callback.init(Env, env);
-    closure.allocator = testing.allocator;
-    const cb = try RcBox(Callback).new(testing.allocator, closure);
-    sig.subscribe(cb);
-    sig.set(1);
-    try testing.expectEqualSlices(i32, &.{ 1, 2 }, seen[0..n]);
-}
-
-test "closures take any number of arguments and return values" {
-    const Env = struct {
-        base: i64,
-        pub fn invoke(self: *@This(), a: i64, b: i64, c: bool) i64 {
-            return if (c) self.base + a * b else self.base;
-        }
-    };
-    const env = try testing.allocator.create(Env);
-    env.* = .{ .base = 1 };
-    var closure = Closure(&.{ i64, i64, bool }, i64).init(Env, env);
-    closure.allocator = testing.allocator;
-    defer closure.__rig_drop();
-    try testing.expectEqual(7, closure.invoke(.{ 2, 3, true }));
-    try testing.expectEqual(1, closure.invoke(.{ 2, 3, false }));
-}
-
-test "aggregates drop their parts" {
-    var drops: usize = 0;
-    const H = *RcBox(Counter);
-    const Pair = struct { n: i32, a: H, b: ?H };
-    const Slot = union(enum) { full: H, pair: struct { x: H, y: i32 }, empty };
-    try testing.expect(needsDrop(Pair));
-    try testing.expect(needsDrop(Slot));
-    try testing.expect(!needsDrop(struct { n: i32 }));
-    try testing.expect(!needsDrop(union(enum) { a: i32, b }));
-
-    var pair: Pair = .{
-        .n = 1,
-        .a = try RcBox(Counter).new(testing.allocator, .{ .drops = &drops }),
-        .b = try RcBox(Counter).new(testing.allocator, .{ .drops = &drops }),
-    };
-    drop(&pair);
-    try testing.expectEqual(2, drops);
-
-    var slot: Slot = .{ .pair = .{ .x = try RcBox(Counter).new(testing.allocator, .{ .drops = &drops }), .y = 0 } };
-    drop(&slot);
-    var empty: Slot = .empty;
-    drop(&empty);
-    try testing.expectEqual(3, drops);
-
-    var arr: [2]H = .{
-        try RcBox(Counter).new(testing.allocator, .{ .drops = &drops }),
-        try RcBox(Counter).new(testing.allocator, .{ .drops = &drops }),
-    };
-    drop(&arr);
-    try testing.expectEqual(5, drops);
-}
-
-test "values print the way Rig writes them" {
-    var buf: [256]u8 = undefined;
-    var w = std.Io.Writer.fixed(&buf);
-    const P = struct { name: []const u8, n: ?i64 };
-    const U = union(enum) { dot, circle: i64, rect: struct { w: i64, h: i64 } };
-    try writeValue(&w, P{ .name = "a", .n = null }, true);
-    try w.writeAll(" ");
-    try writeValue(&w, U{ .rect = .{ .w = 2, .h = 3 } }, true);
-    try w.writeAll(" ");
-    try writeValue(&w, [_][]const u8{ "x", "y" }, true);
-    try w.writeAll(" ");
-    try writeValue(&w, @as(?[]const u8, "hi"), true);
-    try testing.expectEqualStrings("P(name: \"a\", n: none) .rect(w: 2, h: 3) [\"x\", \"y\"] hi", w.buffered());
-}
-
-test "the leak checker counts live allocations" {
-    if (!leak_checked) return error.SkipZigTest;
-    const a = defaultAllocator();
-    const before = usage();
-    const block = try a.alloc(u8, 10);
-    try testing.expectEqual(before.count + 1, usage().count);
-    try testing.expectEqual(before.bytes + 10, usage().bytes);
-    const grown = try a.realloc(block, 4000);
-    try testing.expectEqual(before.bytes + 4000, usage().bytes);
-    a.free(grown);
-    try testing.expectEqual(before, usage());
-}
-
-test "dropping a long chain of boxes does not recurse per link" {
-    const Link = struct {
-        next: ?*RcBox(@This()),
-        drops: *usize,
-        pub fn __rig_drop(self: *@This()) void {
-            self.drops.* += 1;
-            dropFields(self);
-        }
-    };
-    var drops: usize = 0;
-    var head: ?*RcBox(Link) = null;
-    for (0..100_000) |_| head = try RcBox(Link).new(testing.allocator, .{ .next = head, .drops = &drops });
-    drop(&head);
-    try testing.expectEqual(100_000, drops);
-    try testing.expectEqual(0, drop_depth);
-}
 
 /// Records the order values are dropped in.
 const Order = struct {
@@ -1124,10 +942,215 @@ const Order = struct {
     }
 };
 
+test "strong and weak handles free the box once" {
+    const before = usage();
+    var drops: usize = 0;
+    const a = rcNew(Counter{ .drops = &drops });
+    const b = a.cloneStrong();
+    const w = a.weakRef();
+    a.dropStrong();
+    try testing.expectEqual(0, drops);
+    const up = w.upgrade().?;
+    up.dropStrong();
+    b.dropStrong();
+    try testing.expectEqual(1, drops);
+    try testing.expectEqual(null, w.upgrade());
+    w.dropWeak();
+    try expectNoLeaks(before);
+}
+
+test "dropping a shared handle to a shared handle drops the inner one" {
+    const before = usage();
+    var drops: usize = 0;
+    rcNew(rcNew(Counter{ .drops = &drops })).dropStrong();
+    try testing.expectEqual(1, drops);
+    try expectNoLeaks(before);
+}
+
+test "optional handles drop, clone, and compare with none" {
+    const before = usage();
+    var drops: usize = 0;
+    var some: ?*RcBox(Counter) = rcNew(Counter{ .drops = &drops });
+    var none: ?*RcBox(Counter) = null;
+    var other = cloneOptional(some);
+    try testing.expectEqual(2, some.?.strong);
+    try testing.expectEqual(null, cloneOptional(none));
+    try testing.expect(!isNone(cloneOptional(some)));
+    try testing.expect(isNone(none));
+    drop(&none);
+    drop(&some);
+    try testing.expectEqual(0, drops);
+    drop(&other);
+    try testing.expectEqual(1, drops);
+    try testing.expect(needsDrop(?*RcBox(Counter)));
+    try testing.expect(!needsDrop(?i32));
+    try expectNoLeaks(before);
+}
+
+test "Cell.set stores the new value before dropping the old one" {
+    const before = usage();
+    const Probe = struct {
+        cell: *Cell(?*RcBox(@This())),
+        seen_new: *bool,
+        pub fn __rig_drop(self: *@This()) void {
+            self.seen_new.* = self.cell.value != null;
+        }
+    };
+    var seen_new = false;
+    var cell: Cell(?*RcBox(Probe)) = .{ .value = null };
+    cell.value = rcNew(Probe{ .cell = &cell, .seen_new = &seen_new });
+    cell.set(rcNew(Probe{ .cell = &cell, .seen_new = &seen_new }));
+    try testing.expect(seen_new);
+    cell.__rig_drop();
+    try expectNoLeaks(before);
+}
+
+test "Cell.replace hands the old value back without dropping it" {
+    const before = usage();
+    var drops: usize = 0;
+    var cell: Cell(*RcBox(Counter)) = .{ .value = rcNew(Counter{ .drops = &drops }) };
+    const old = cell.replace(rcNew(Counter{ .drops = &drops }));
+    try testing.expectEqual(0, drops);
+    old.dropStrong();
+    try testing.expectEqual(1, drops);
+    cell.__rig_drop();
+    try testing.expectEqual(2, drops);
+    try expectNoLeaks(before);
+}
+
+test "Vec owns and drops its elements, last first" {
+    const before = usage();
+    var log: [16]u8 = undefined;
+    var n: usize = 0;
+    var v: Vec(*RcBox(Order)) = .empty;
+    for (1..11) |i| v.push(rcNew(Order{ .log = &log, .n = &n, .id = @intCast(i) }));
+    try testing.expectEqual(10, v.length());
+    v.__rig_drop();
+    try testing.expectEqualSlices(u8, &.{ 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 }, log[0..n]);
+    try expectNoLeaks(before);
+}
+
+test "Vec of plain data" {
+    const before = usage();
+    var v: Vec(i32) = .initCapacity(2);
+    v.push(4);
+    v.push(9);
+    v.push(16);
+    try testing.expectEqual(9, v.at(1));
+    try testing.expectEqual(16, v.get(2).?);
+    try testing.expectEqual(null, v.get(3));
+    try testing.expectEqual(null, v.get(-1));
+    try testing.expectEqual(16, v.pop().?);
+    try testing.expectEqual(2, v.length());
+    v.__rig_drop();
+    try expectNoLeaks(before);
+}
+
+test "a consuming loop left early drops the rest last first" {
+    const before = usage();
+    var log: [16]u8 = undefined;
+    var n: usize = 0;
+    var v: Vec(Order) = .empty;
+    for (1..5) |i| v.push(.{ .log = &log, .n = &n, .id = @intCast(i) });
+    var it = v.intoIter();
+    var first = it.next().?;
+    first.__rig_drop();
+    it.deinit();
+    try testing.expectEqualSlices(u8, &.{ 1, 4, 3, 2 }, log[0..n]);
+    try expectNoLeaks(before);
+}
+
+test "Signal takes ownership of subscribers and delivers reentrant sets" {
+    const before = usage();
+    const Env = struct {
+        sig: *Signal(i32),
+        seen: *[4]i32,
+        n: *usize,
+        pub fn invoke(self: *@This()) void {
+            self.seen[self.n.*] = self.sig.value;
+            self.n.* += 1;
+            if (self.sig.value == 1) self.sig.set(2);
+        }
+    };
+    var sig: Signal(i32) = .init(0);
+    var seen: [4]i32 = undefined;
+    var n: usize = 0;
+    const env = create(Env);
+    env.* = .{ .sig = &sig, .seen = &seen, .n = &n };
+    sig.subscribe(rcNew(Callback.init(Env, env)));
+    sig.set(1);
+    try testing.expectEqualSlices(i32, &.{ 1, 2 }, seen[0..n]);
+    sig.__rig_drop();
+    try expectNoLeaks(before);
+}
+
+test "closures take any number of arguments and return values" {
+    const before = usage();
+    const Env = struct {
+        base: i64,
+        pub fn invoke(self: *@This(), a: i64, b: i64, c: bool) i64 {
+            return if (c) self.base + a * b else self.base;
+        }
+    };
+    const env = create(Env);
+    env.* = .{ .base = 1 };
+    var closure = Closure(&.{ i64, i64, bool }, i64).init(Env, env);
+    try testing.expectEqual(7, closure.invoke(.{ 2, 3, true }));
+    try testing.expectEqual(1, closure.invoke(.{ 2, 3, false }));
+    closure.__rig_drop();
+    try expectNoLeaks(before);
+}
+
+test "aggregates drop their parts" {
+    const before = usage();
+    var drops: usize = 0;
+    const H = *RcBox(Counter);
+    const Pair = struct { n: i32, a: H, b: ?H };
+    const Slot = union(enum) { full: H, pair: struct { x: H, y: i32 }, empty };
+    try testing.expect(needsDrop(Pair));
+    try testing.expect(needsDrop(Slot));
+    try testing.expect(!needsDrop(struct { n: i32 }));
+    try testing.expect(!needsDrop(union(enum) { a: i32, b }));
+
+    var pair: Pair = .{ .n = 1, .a = rcNew(Counter{ .drops = &drops }), .b = rcNew(Counter{ .drops = &drops }) };
+    drop(&pair);
+    try testing.expectEqual(2, drops);
+
+    var slot: Slot = .{ .pair = .{ .x = rcNew(Counter{ .drops = &drops }), .y = 0 } };
+    drop(&slot);
+    var empty: Slot = .empty;
+    drop(&empty);
+    try testing.expectEqual(3, drops);
+
+    var arr: [2]H = .{ rcNew(Counter{ .drops = &drops }), rcNew(Counter{ .drops = &drops }) };
+    drop(&arr);
+    try testing.expectEqual(5, drops);
+    try expectNoLeaks(before);
+}
+
+test "dropping a long chain of boxes does not recurse per link" {
+    const before = usage();
+    const Link = struct {
+        next: ?*RcBox(@This()),
+        drops: *usize,
+        pub fn __rig_drop(self: *@This()) void {
+            self.drops.* += 1;
+            dropFields(self);
+        }
+    };
+    var drops: usize = 0;
+    var head: ?*RcBox(Link) = null;
+    for (0..100_000) |_| head = rcNew(Link{ .next = head, .drops = &drops });
+    drop(&head);
+    try testing.expectEqual(100_000, drops);
+    try testing.expectEqual(0, drop_depth);
+    try expectNoLeaks(before);
+}
+
 test "queued drops keep the order of a recursive release" {
-    // A chain deep enough that the release of its last node is queued:
-    // that node's fields drop last first, then its child's, and the
-    // chain's own counter goes after them.
+    // At some depths the fields of the last node are released from the
+    // queue; they still drop last first, before the node's child.
+    const before = usage();
     const Tree = struct {
         next: ?*RcBox(@This()),
         a: ?*RcBox(Order),
@@ -1137,33 +1160,92 @@ test "queued drops keep the order of a recursive release" {
     var n: usize = 0;
     for ([_]usize{ 10, max_drop_depth - 1, max_drop_depth, max_drop_depth + 5 }) |depth| {
         n = 0;
-        const leaf_child = try RcBox(Tree).new(testing.allocator, .{
+        const child = rcNew(Tree{
             .next = null,
-            .a = try RcBox(Order).new(testing.allocator, .{ .log = &log, .n = &n, .id = 3 }),
-            .b = try RcBox(Order).new(testing.allocator, .{ .log = &log, .n = &n, .id = 4 }),
+            .a = rcNew(Order{ .log = &log, .n = &n, .id = 3 }),
+            .b = rcNew(Order{ .log = &log, .n = &n, .id = 4 }),
         });
-        var head: ?*RcBox(Tree) = try RcBox(Tree).new(testing.allocator, .{
-            .next = leaf_child,
-            .a = try RcBox(Order).new(testing.allocator, .{ .log = &log, .n = &n, .id = 1 }),
-            .b = try RcBox(Order).new(testing.allocator, .{ .log = &log, .n = &n, .id = 2 }),
+        var head: ?*RcBox(Tree) = rcNew(Tree{
+            .next = child,
+            .a = rcNew(Order{ .log = &log, .n = &n, .id = 1 }),
+            .b = rcNew(Order{ .log = &log, .n = &n, .id = 2 }),
         });
-        for (0..depth) |_| head = try RcBox(Tree).new(testing.allocator, .{ .next = head, .a = null, .b = null });
+        for (0..depth) |_| head = rcNew(Tree{ .next = head, .a = null, .b = null });
         drop(&head);
         try testing.expectEqualSlices(u8, &.{ 2, 1, 4, 3 }, log[0..n]);
         try testing.expectEqual(0, drop_depth);
     }
+    try expectNoLeaks(before);
 }
 
-test "a consuming loop left early drops the rest last first" {
-    var log: [16]u8 = undefined;
-    var n: usize = 0;
-    var v: Vec(Order) = .init(testing.allocator);
-    for (1..5) |i| v.push(.{ .log = &log, .n = &n, .id = @intCast(i) });
-    var it = v.intoIter();
-    var first = it.next().?;
-    first.__rig_drop();
-    it.deinit();
-    try testing.expectEqualSlices(u8, &.{ 1, 4, 3, 2 }, log[0..n]);
+test "values print the way Rig writes them" {
+    const before = usage();
+    var buf: [512]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    const P = struct { name: []const u8, n: ?i64 };
+    const U = union(enum) { dot, circle: i64, at: P, rect: struct {
+        w: i64,
+        h: i64,
+        pub const __rig_payload = {};
+    } };
+    const h = rcNew(P{ .name = "b", .n = 1 });
+    const weak = h.weakRef();
+    const Env = struct {
+        pub fn invoke(_: *@This()) void {}
+    };
+    var closure = Callback.init(Env, create(Env));
+    const bytes = [3]u8{ 72, 105, 33 };
+    try writeValue(&w, P{ .name = "a", .n = null }, true);
+    try w.writeAll(" ");
+    try writeValue(&w, U{ .rect = .{ .w = 2, .h = 3 } }, true);
+    try w.writeAll(" ");
+    try writeValue(&w, U{ .at = .{ .name = "c", .n = 2 } }, true);
+    try w.writeAll(" ");
+    try writeValue(&w, [_][]const u8{ "x", "y" }, true);
+    try w.writeAll(" ");
+    try writeValue(&w, @as(?[]const u8, "hi"), true);
+    inline for (.{ h, weak, closure, &bytes, @as(f64, 1), @as(f64, 2.5), @as(f64, -0.0), @as(f32, 1e10) }) |v| {
+        try w.writeAll(" ");
+        try writeValue(&w, v, true);
+    }
+    try testing.expectEqualStrings(
+        "P(name: \"a\", n: none) .rect(w: 2, h: 3) .at(P(name: \"c\", n: 2)) [\"x\", \"y\"] hi " ++
+            "P(name: \"b\", n: 1) ~(alive) <closure> [72, 105, 33] 1.0 2.5 -0.0 10000000000.0",
+        w.buffered(),
+    );
+    h.dropStrong();
+    w = .fixed(&buf);
+    try writeValue(&w, weak, true);
+    try testing.expectEqualStrings("~(gone)", w.buffered());
+    weak.dropWeak();
+    closure.__rig_drop();
+    try expectNoLeaks(before);
+}
+
+test "printing stops past a nesting depth" {
+    const before = usage();
+    const Node = struct { next: ?*RcBox(@This()) };
+    var head: ?*RcBox(Node) = null;
+    for (0..100) |_| head = rcNew(Node{ .next = head });
+    var buf: [4096]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try writeValue(&w, head, true);
+    try testing.expect(std.mem.endsWith(u8, w.buffered(), "Node(next: ...)" ++ ")" ** (max_print_depth - 1)));
+    drop(&head);
+    try expectNoLeaks(before);
+}
+
+test "the leak checker counts live allocations" {
+    if (!leak_checked) return error.SkipZigTest;
+    const a = defaultAllocator();
+    const before = usage();
+    const block = try a.alloc(u8, 10);
+    try testing.expectEqual(before.count + 1, usage().count);
+    try testing.expectEqual(before.bytes + 10, usage().bytes);
+    const grown = try a.realloc(block, 4000);
+    try testing.expectEqual(before.bytes + 4000, usage().bytes);
+    a.free(grown);
+    try expectNoLeaks(before);
 }
 
 test "take clears the alive flag" {
@@ -1172,7 +1254,11 @@ test "take clears the alive flag" {
     try testing.expect(!alive);
 }
 
-test "index bounds" {
+test "index bounds and division" {
     try testing.expectEqual(2, index(@as(i32, 2), 3));
     try testing.expectEqual(0, index(0, 1));
+    try testing.expectEqual(2, index(@as(u8, 2), 3));
+    try testing.expectEqual('b', at(@as([]const u8, "abc"), @as(i64, 1)));
+    try testing.expectEqual(2.5, div(@as(f64, 5), 2));
+    try testing.expectEqual(-2, div(@as(i64, -5), 2));
 }

@@ -2753,11 +2753,11 @@ pub const Emitter = struct {
     /// location.
     fn emitVecConstruction(self: *Emitter, args: []const Sexp) Error!void {
         if (args.len == 1) {
-            try self.w.writeAll(".initCapacity(rig.defaultAllocator(), ");
+            try self.w.writeAll(".initCapacity(");
             try self.emitBare(ir.Kwarg.value(args[0]));
             return self.w.writeAll(")");
         }
-        try self.w.writeAll(".init(rig.defaultAllocator())");
+        try self.w.writeAll(".empty");
     }
 
     /// `Signal(value: v)`.

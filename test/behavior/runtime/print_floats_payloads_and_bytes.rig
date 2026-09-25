@@ -1,0 +1,44 @@
+# A whole Float prints with its decimal point; a variant whose one
+# payload is a struct shows the struct's name; a borrowed byte array
+# prints as numbers; and a structure that reaches itself stops at `...`.
+
+struct P
+  x: Int
+  y: Int
+
+enum E
+  pt(p: P)
+  two(a: P, b: Int)
+
+struct V
+  a: ?[3]U8
+
+struct N
+  id: Int
+  next: Cell((*N)?)
+
+sub main()
+  print(1.0, 2.5, -3.0, 0.5 * 4.0)
+  f: F32 = 2.0
+  print(f)
+  print(W(f: 1.0))
+  print(E.pt(P(x: 1, y: 2)))
+  print(E.two(a: P(x: 1, y: 2), b: 3))
+  xs: [3]U8 = [72, 105, 33]
+  print(V(a: ?xs))
+  a = *N(id: 1, next: Cell(value: none))
+  (?a.next).set(+a)
+  print(a)
+  (?a.next).set(none)
+
+struct W
+  f: Float
+
+# expect:
+# 1.0 2.5 -3.0 2.0
+# 2.0
+# W(f: 1.0)
+# .pt(P(x: 1, y: 2))
+# .two(a: P(x: 1, y: 2), b: 3)
+# V(a: [72, 105, 33])
+# N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: N(id: 1, next: Cell(value: ...))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
