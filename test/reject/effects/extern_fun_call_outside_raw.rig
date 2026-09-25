@@ -1,6 +1,6 @@
 # Calling a body-less `extern fun` outside a `raw` block is rejected.
 
-extern fun abs(n: Int) -> Int
+extern fun abs(n: I32) -> I32
 
 sub main()
   print(abs(-1))

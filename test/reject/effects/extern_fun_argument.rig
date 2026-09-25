@@ -1,9 +1,9 @@
 # An extern function can only be called, inside `raw`: passing it as an
 # argument would let the callee call it without `raw`.
 
-extern abs: fun(Int) Int
+extern abs: fun(I32) I32
 
-fun apply(f: fun(Int) Int, n: Int) -> Int
+fun apply(f: fun(I32) I32, n: I32) -> I32
   f(n)
 
 sub main()

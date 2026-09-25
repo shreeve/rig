@@ -2589,9 +2589,9 @@ can yield a value, and a safe function may wrap raw code, which is the
 intended pattern: its callers need no `raw`.
 
 ```rig
-extern fun abs(n: Int) -> Int
+extern fun abs(n: I32) -> I32
 
-fun safe_abs(n: Int) -> Int
+fun safe_abs(n: I32) -> I32
   raw
     abs(n)
 
@@ -2615,7 +2615,7 @@ cannot return a Rig error union. An `extern` is visible to importers
 only through `pub` wrappers.
 
 ```rig reject
-extern fun abs(n: Int) -> Int
+extern fun abs(n: I32) -> I32
 
 sub main()
   print(abs(-5))

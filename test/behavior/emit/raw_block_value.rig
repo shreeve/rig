@@ -1,8 +1,8 @@
 # A `raw` block can be a function's value.
 
-extern fun abs(n: Int) -> Int
+extern fun abs(n: I32) -> I32
 
-fun safe_abs(n: Int) -> Int
+fun safe_abs(n: I32) -> I32
   raw
     abs(n)
 

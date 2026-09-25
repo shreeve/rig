@@ -13,9 +13,9 @@ chmod +x zigw
 export ZIG=$PWD/zigw
 
 cat >cabs.rig <<'EOF2'
-extern fun abs(n: Int) -> Int
+extern fun abs(n: I32) -> I32
 
-pub fun safe_abs(n: Int) -> Int
+pub fun safe_abs(n: I32) -> I32
   raw
     abs(n)
 EOF2

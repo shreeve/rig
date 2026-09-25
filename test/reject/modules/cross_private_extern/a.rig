@@ -1,7 +1,7 @@
 # Not `pub`: a private extern behind a `pub` safe wrapper is the
 # idiom; the extern itself is invisible to importers.
-extern abs: fun(Int) Int
+extern abs: fun(I32) I32
 
-pub fun safe_abs(n: Int) -> Int
+pub fun safe_abs(n: I32) -> I32
   raw
     abs(n)

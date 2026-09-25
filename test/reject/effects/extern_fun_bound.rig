@@ -1,11 +1,11 @@
 # An extern function can only be called, inside `raw`: binding it to a
 # name would let it be called later without `raw`.
 
-extern fun abs(n: Int) -> Int
+extern fun abs(n: I32) -> I32
 
 sub main()
   raw
-    f: fun(Int) Int = abs
+    f: fun(I32) I32 = abs
     print(f(-1))
 
 # error: an extern function can only be called, inside `raw`
