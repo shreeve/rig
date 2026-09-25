@@ -6,7 +6,7 @@ sub main()
   p = lib.P(n: 1)
   bump = lib.P.bump
   bump(!p)
-  get: fun(?lib.P) Int = lib.P.get
+  get: fun(?lib.P) -> Int = lib.P.get
   print(get(?p))
 
 # expect:

@@ -4,8 +4,8 @@ fun id(n: Int) -> Int
   n
 
 struct S
-  f: fun(Int) Int
-  g: *fun(Int) Int
+  f: fun(Int) -> Int
+  g: *fun(Int) -> Int
 
 sub main()
   s = S(f: id, g: *|n| n)

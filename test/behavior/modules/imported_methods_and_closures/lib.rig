@@ -16,5 +16,5 @@ pub struct B
 pub fun peek(b: ?B) -> Int
   b.n
 
-pub fun mkcl(k: Int) -> *fun(Int) Int
+pub fun mkcl(k: Int) -> *fun(Int) -> Int
   *|+k, a| a + k

@@ -12,7 +12,7 @@ sub main()
     .dot() => print(0)
   k = 10
   f = |+k, a: Int,| a + k
-  g: fun(Int, Int) Int = |a, b,| a * b
+  g: fun(Int, Int) -> Int = |a, b,| a * b
   print(f(1), g(2, 3))
 
 # expect:

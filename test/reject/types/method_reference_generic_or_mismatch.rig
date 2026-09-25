@@ -15,7 +15,7 @@ struct P
 
 sub main()
   g = Box.get
-  f: fun(Int) Int = P.get
+  f: fun(Int) -> Int = P.get
 
 # error: 17:11: method `Box.get` of a generic type must be called
-# error: 18:21: type mismatch: expected `fun(Int) Int`, got `fun(?P) Int`
+# error: 18:24: type mismatch: expected `fun(Int) -> Int`, got `fun(?P) -> Int`

@@ -15,7 +15,7 @@ sub main()
   button.click(5)
   print(total.get())
 
-  fs: Vec(*fun(Int) Int) = Vec()
+  fs: Vec(*fun(Int) -> Int) = Vec()
   (!fs).push(*|x| x + 1)
   (!fs).push(*|x| x * 10)
   for f in ?fs

@@ -3226,7 +3226,7 @@ pub const Emitter = struct {
         try self.closeBrace();
     }
 
-    /// The runtime closure behind `*fun(A, B) R`: `rig.Closure(&.{ A, B }, R)`.
+    /// The runtime closure behind `*fun(A, B) -> R`: `rig.Closure(&.{ A, B }, R)`.
     fn emitClosureTy(self: *Emitter, f: sema.FunctionType) Error!void {
         try self.w.writeAll("rig.Closure(&.{");
         for (f.params, 0..) |p, i| {

@@ -4,7 +4,7 @@
 fun twice(n: Int) -> Int
   n * 2
 
-sub show(f: fun(Int) Int)
+sub show(f: fun(Int) -> Int)
   print("param", f, f(3))
 
 sub main()

@@ -12,10 +12,10 @@ struct P
 
 sub main()
   g = rep
-  f: fun(Int, Int) Int = rep
+  f: fun(Int, Int) -> Int = rep
   h = P.times
   print(rep(2, 3))
 
 # error: 14:7: `rep` takes a `pre` parameter, so it can only be called
-# error: 15:26: `rep` takes a `pre` parameter, so it can only be called
+# error: 15:29: `rep` takes a `pre` parameter, so it can only be called
 # error: 16:9: `P.times` takes a `pre` parameter, so it can only be called

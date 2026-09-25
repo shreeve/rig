@@ -522,7 +522,7 @@ pub const DeferredCheck = union(enum) {
     array: struct { node: Sexp, elem: TypeId },
     /// `Vec(T)`, `Cell(T)`, or `Signal(T)` spelled at `pos`.
     builtin: struct { pos: u32, sym: SymbolId, args: []const TypeId },
-    /// `*fun(...) R`, with the function type spelled at `node`.
+    /// `*fun(...) -> R`, with the function type spelled at `node`.
     owned_closure: struct { node: Sexp, ty: TypeId },
 };
 
@@ -1386,7 +1386,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     return null;
 }
 
-/// `*fun(...) R` / `*sub(...)`: an owned closure passes plain Copy
+/// `*fun(...) -> R` / `*sub(...)`: an owned closure passes plain Copy
 /// values through its type-erased form.
 fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!void {
     const f = ctx.types.get(ty).function;

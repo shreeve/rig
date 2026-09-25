@@ -8,22 +8,22 @@ enum Sign
   pos
 
 sub main()
-  none_args: *fun() Int = *|| 42
-  one: *fun(Float) Float = *|x| x / 2.0
-  three: *fun(Int, Int, Bool) Int = *|a, b, sum| a + b if sum else a * b
-  five: *fun(Int, Int, Int, Int, Int) Int = *|a, b, c, d, e| a + b + c + d + e
-  sign: *fun(Int) Sign = *|n|
+  none_args: *fun() -> Int = *|| 42
+  one: *fun(Float) -> Float = *|x| x / 2.0
+  three: *fun(Int, Int, Bool) -> Int = *|a, b, sum| a + b if sum else a * b
+  five: *fun(Int, Int, Int, Int, Int) -> Int = *|a, b, c, d, e| a + b + c + d + e
+  sign: *fun(Int) -> Sign = *|n|
     if n < 0
       return .neg
     if n == 0
       return .zero
     .pos
-  name: *fun(Sign) String = *|s|
+  name: *fun(Sign) -> String = *|s|
     match s
       .neg => "negative"
       .zero => "zero"
       .pos => "positive"
-  half: *fun(Int) Int? = *|n| n / 2 if n % 2 == 0 else none
+  half: *fun(Int) -> Int? = *|n| n / 2 if n % 2 == 0 else none
   is_big = |n: Int| n > 100
 
   print(none_args(), one(5.0), three(2, 3, true), three(2, 3, false))

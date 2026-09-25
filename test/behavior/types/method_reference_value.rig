@@ -28,10 +28,10 @@ struct H
   fun take(self: Self) -> Int
     self.b.n
 
-fun apply(f: fun(Int) P, x: Int) -> P
+fun apply(f: fun(Int) -> P, x: Int) -> P
   f(x)
 
-fun read(f: fun(?P) Int, p: ?P) -> Int
+fun read(f: fun(?P) -> Int, p: ?P) -> Int
   f(p)
 
 sub write(f: sub(!P), p: !P)
@@ -45,7 +45,7 @@ sub main()
   print(p.x)
   g = P.get
   print(g(?p))
-  t: fun(P, Int) Int = P.total
+  t: fun(P, Int) -> Int = P.total
   print(t(p, 10))
   fs = [P.get, P.get]
   print(fs[1](?p))

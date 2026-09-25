@@ -1,7 +1,7 @@
 # `extern name: T` declares C data; a C function is declared with
 # `extern fun` or `extern sub`.
 
-extern abs: fun(Int) Int
+extern abs: fun(Int) -> Int
 extern srand: sub(U32)
 
 sub main()

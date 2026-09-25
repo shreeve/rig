@@ -42,7 +42,7 @@ sub two(a: *B, b: *B)
 sub vec(v: Vec(Int), n: Int)
   print("vec", v.len, n)
 
-sub call(f: *fun() Int, n: Int)
+sub call(f: *fun() -> Int, n: Int)
   print("call", f(), n)
 
 struct S

@@ -4,7 +4,7 @@
 extern fun abs(n: I32) -> I32
 
 struct Op
-  f: fun(I32) I32
+  f: fun(I32) -> I32
 
 sub main()
   raw

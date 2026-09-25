@@ -3903,15 +3903,15 @@ const Checker = struct {
     // =========================================================================
 
     /// `*|...| body`: an owned closure; `expected` is the function type
-    /// its context gives it (`*fun(Int) Int` gives `fun(Int) Int`).
+    /// its context gives it (`*fun(Int) -> Int` gives `fun(Int) -> Int`).
     fn ownedClosure(self: *Checker, lambda: Sexp, expected: ?TypeId) Error!TypeId {
         const lty = try self.checkLambda(lambda, expected, true);
         try self.ctx.recordType(lambda, lty);
         return self.ctx.intern(.{ .shared = lty });
     }
 
-    /// The function type of owned closure type `ty` (`fun(Int) Int` for
-    /// `*fun(Int) Int`, possibly borrowed).
+    /// The function type of owned closure type `ty` (`fun(Int) -> Int` for
+    /// `*fun(Int) -> Int`, possibly borrowed).
     fn ownedClosureType(self: *Checker, ty: TypeId) ?TypeId {
         if (sema.ownedClosureFn(self.ctx, ty) == null) return null;
         return self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty)).shared;
@@ -3957,7 +3957,7 @@ const Checker = struct {
             } else if (given) |g| {
                 pty = g;
             } else if (want == null and !self.namesOuterLocal(outer, name, srcPos(pn, 0))) {
-                try self.errAt(pn, "closure parameter `{s}` needs a type: annotate it (`|{s}: Int|`) or write the closure where its type is known (`f: fun(Int) Int = |{s}| ...`)", .{ name, name, name });
+                try self.errAt(pn, "closure parameter `{s}` needs a type: annotate it (`|{s}: Int|`) or write the closure where its type is known (`f: fun(Int) -> Int = |{s}| ...`)", .{ name, name, name });
             }
             if (owned and given == null and !sema.isClosureValue(self.ctx, pty)) {
                 try self.errAt(pn, "an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); parameter `{s}` is `{s}`", .{ name, try self.tyName(pty) });

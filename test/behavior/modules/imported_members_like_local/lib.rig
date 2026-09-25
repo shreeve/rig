@@ -3,7 +3,7 @@ pub fun inc(n: Int) -> Int
 
 pub struct P
   n: Int
-  f: fun(Int) Int
+  f: fun(Int) -> Int
 
   fun get(?self) -> Int
     self.n

@@ -22,7 +22,7 @@ sub main()
     g()
   print(f(2))
   b = *B(n: 7)
-  h: *fun() Int = *|+b|
+  h: *fun() -> Int = *|+b|
     q = *|+b| b.n * 2
     q()
   print(h())

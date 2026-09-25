@@ -378,8 +378,8 @@ that returns part of its argument takes `xs: []T`.
 | `!T` | write borrow of a `T` | [§8](#8-ownership) |
 | `*T` | shared handle: reference-counted, single-threaded | [§10](#10-shared-and-weak-handles) |
 | `~T` | weak handle to a shared value | [§10](#10-shared-and-weak-handles) |
-| `fun(A, B) R`, `sub(A)` | function and closure types | [§12](#12-closures) |
-| `*fun(A) R`, `*sub(A)` | owned closure (a shared handle) | [§12](#12-closures) |
+| `fun(A, B) -> R`, `sub(A)` | function and closure types | [§12](#12-closures) |
+| `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§12](#12-closures) |
 | `Cell(T)`, `Vec(T)`, `Signal(T)` | built-in generic types | [§11](#11-cell-vec-and-signal) |
 | `Name`, `Name(T)`, `mod.Name` | user types, generic instances, imported types | [§4](#4-declarations), [§15](#15-modules) |
 
@@ -2174,14 +2174,14 @@ or in an `if` without `else`, returns nothing. `return` inside a closure
 leaves the closure.
 
 ```rig
-fun apply(f: fun(Int) Int, x: Int) -> Int
+fun apply(f: fun(Int) -> Int, x: Int) -> Int
   f(x)
 
 fun twice(n: Int) -> Int
   n * 2
 
 sub main()
-  add: fun(Int, Int) Int = |a, b| a + b
+  add: fun(Int, Int) -> Int = |a, b| a + b
   clamp = |x: Int|
     return 100 if x > 100
     x
@@ -2196,21 +2196,22 @@ sub main()
 
 | Type | Meaning |
 |---|---|
-| `fun(Int, Int) Int` | takes two `Int`s, returns an `Int` |
+| `fun(Int, Int) -> Int` | takes two `Int`s, returns an `Int` |
 | `sub(String)` | takes a `String`, returns nothing |
-| `*fun(Int) Int`, `*sub()` | an owned closure of that shape |
-| `~fun(Int) Int`, `~sub()` | a weak handle to an owned closure |
+| `*fun(Int) -> Int`, `*sub()` | an owned closure of that shape |
+| `~fun(Int) -> Int`, `~sub()` | a weak handle to an owned closure |
 
 Function types describe closures bound to locals and function names
-used as values. Declarations write their
-return type after `->`; type expressions do not. An owned closure is a
+used as values. A function type writes its result after `->`, as a
+declaration does; a suffix belongs to the result, so `fun(Int) -> Int!`
+returns an `Int!`, and an optional function is `(fun(Int) -> Int)?`. An owned closure is a
 shared handle, so `~f` makes a weak handle to it, which upgrades like
 any other ([§10](#weak-handles)).
 
 ```rig
 sub main()
-  f: *fun(Int) Int = *|a| a + 1
-  w: ~fun(Int) Int = ~f
+  f: *fun(Int) -> Int = *|a| a + 1
+  w: ~fun(Int) -> Int = ~f
   if w.upgrade() as g
     print(g(1))
   -f
@@ -2232,7 +2233,7 @@ array element, a return value) it is rejected; make it owned instead. A
 closure binding is fixed and cannot be copied, moved, or passed on.
 
 ```rig reject
-fun make() -> fun() Int
+fun make() -> fun() -> Int
   n = 1
   |+n| n
 ```
@@ -2244,12 +2245,12 @@ closures cannot escape their defining scope
 ### Owned closures
 
 `*` before the bar list makes an **owned closure**: its environment is
-allocated on the heap behind a shared handle of type `*fun(...) R` or
+allocated on the heap behind a shared handle of type `*fun(...) -> R` or
 `*sub(...)`, which can be stored, passed, returned, cloned (`+cb`),
 held weakly, and dropped like any `*T`.
 
 ```rig
-fun make_counter(start: Int) -> *fun(Int) Int
+fun make_counter(start: Int) -> *fun(Int) -> Int
   count: *Cell(Int) = *Cell(value: start)
   *|+count, step|
     count.set(count.get() + step)
@@ -2258,7 +2259,7 @@ fun make_counter(start: Int) -> *fun(Int) Int
 sub main()
   next = make_counter(100)
   print(next(1), next(10))
-  handlers: Vec(*fun(Int) Int) = Vec()
+  handlers: Vec(*fun(Int) -> Int) = Vec()
   (!handlers).push(<next)
   (!handlers).push(*|x| x * 10)
   for h in ?handlers
@@ -2414,7 +2415,7 @@ what happens to the failure, visibly:
 A bare call to a fallible function is rejected, and so is `!` on a call
 that cannot fail. A closure body, a `drop` body, and a `defer` cannot
 propagate. A fallible type is only allowed as the return type of a
-function or of a function type (`fun(Int) Int!`, not for an owned
+function or of a function type (`fun(Int) -> Int!`, not for an owned
 closure), and a plain `T` is accepted where `T!` is expected. `E!` for an error
 set `E` is rejected: a failure and a success would both be `E` values.
 

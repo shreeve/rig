@@ -1460,7 +1460,7 @@ pub fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
     return ctx.holds(ty_id).glue;
 }
 
-/// The signature of an owned closure handle `*fun(...) R` / `*sub(...)`
+/// The signature of an owned closure handle `*fun(...) -> R` / `*sub(...)`
 /// (possibly borrowed), or null.
 pub fn ownedClosureFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
     return switch (ctx.types.get(unwrapBorrows(ctx, ty))) {
@@ -1938,7 +1938,7 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
         .function => |f| if (f.is_sub)
             try std.fmt.allocPrint(a, "sub({s})", .{try formatTypeList(ctx, a, f.params)})
         else
-            try std.fmt.allocPrint(a, "fun({s}) {s}", .{ try formatTypeList(ctx, a, f.params), try formatTypeIn(ctx, a, f.returns) }),
+            try std.fmt.allocPrint(a, "fun({s}) -> {s}", .{ try formatTypeList(ctx, a, f.params), try formatTypeIn(ctx, a, f.returns) }),
         .nominal => |sym| ctx.symbols.items[sym].name,
         .imported_nominal => |in| blk: {
             const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk "<imported>";
@@ -1972,6 +1972,8 @@ fn formatSuffixed(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, s
     const s = try formatTypeIn(ctx, a, inner);
     const parens = switch (ctx.types.get(inner)) {
         .shared, .weak, .borrow_read, .borrow_write => true,
+        // `fun(Int) -> Int?` returns an optional.
+        .function => |f| !f.is_sub,
         else => false,
     };
     return if (parens)

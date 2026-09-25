@@ -4,10 +4,10 @@ fun g(n: Int) -> Int
   n + 1
 
 struct S
-  f: fun(Int) Int
+  f: fun(Int) -> Int
 
 struct O
-  k: *fun(Int) Int
+  k: *fun(Int) -> Int
 
 fun via(s: ?S) -> Int
   s.f(10)

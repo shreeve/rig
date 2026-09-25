@@ -11,11 +11,11 @@ fun half(n: Int) -> Int!
   n / 2
 
 struct Op
-  f: fun(Int) Int
+  f: fun(Int) -> Int
   n: Int
 
 enum K
-  op(f: fun(Int) Int)
+  op(f: fun(Int) -> Int)
   nothing
 
 sub main()

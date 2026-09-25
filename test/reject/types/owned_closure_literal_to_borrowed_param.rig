@@ -1,12 +1,12 @@
 # A closure literal passed where a borrowed owned closure (`?*fun`) is
 # expected is rejected with a diagnostic (the checker used to crash).
 
-fun apply(f: ?*fun(Int) Int) -> Int
+fun apply(f: ?*fun(Int) -> Int) -> Int
   f(1)
 
 sub main()
   print(apply(*|x| x + 1))
   print(apply(|x| x + 1))
 
-# error: type mismatch: expected `?*fun(Int) Int`, got `*fun(Int) Int`
-# error: `?*fun(Int) Int` is an owned closure; write `*|...| body` to make one
+# error: type mismatch: expected `?*fun(Int) -> Int`, got `*fun(Int) -> Int`
+# error: `?*fun(Int) -> Int` is an owned closure; write `*|...| body` to make one

@@ -30,7 +30,7 @@ struct IntSource
       listener(v)
     _ = self.listeners.replace(<listeners)
 
-  fun map(self: ?IntSource, f: *fun(Int) Int) -> *IntSource
+  fun map(self: ?IntSource, f: *fun(Int) -> Int) -> *IntSource
     derived = IntSource.new(f(self.get()))
     self.subscribe(*|~derived, +f, v|
       if derived.upgrade() as d

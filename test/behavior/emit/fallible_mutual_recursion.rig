@@ -17,7 +17,7 @@ fun half(n: Int) -> Int!
   return Bad.negative if n < 0
   n / 2
 
-fun apply(f: fun(Int) Int!, x: Int) -> Int!
+fun apply(f: fun(Int) -> Int!, x: Int) -> Int!
   f(x)!
 
 sub main()

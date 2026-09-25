@@ -5,7 +5,7 @@ error Bad
   zero
 
 struct Job
-  run: fun(Int) Int!
+  run: fun(Int) -> Int!
 
 fun inv(n: Int) -> Int!
   return Bad.zero if n == 0
@@ -15,7 +15,7 @@ sub main()
   j = Job(run: inv)
   print(j.run(4)!)
   print(j.run(0) catch -1)
-  f: fun(Int) Int! = |n: Int|
+  f: fun(Int) -> Int! = |n: Int|
     return Bad.zero if n == 0
     n
   print(f(3)!)

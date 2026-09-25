@@ -757,7 +757,7 @@ pub const Lexer = struct {
     /// `entry (, entry)* [,]` and a closing bar touching the last entry
     /// or comma. An
     /// entry is a sigiled capture (`+x`, `<x`, `~x`) or a parameter name
-    /// with an optional type (`a`, `a: Int`, `f: *fun(Int) Int`). The
+    /// with an optional type (`a`, `a: Int`, `f: *fun(Int) -> Int`). The
     /// closing bar is recognized by position.
     fn isCaptureBar(self: *Lexer, tok: Token) bool {
         if (self.capture_close) |close| if (close == tok.pos) {
@@ -810,7 +810,7 @@ pub const Lexer = struct {
                     depth -= 1;
                 },
                 .comma, .bar => if (depth == 0) return t,
-                .ident, .integer, .dot, .question, .not_sym, .star, .tilde => {},
+                .ident, .integer, .dot, .question, .not_sym, .star, .tilde, .arrow => {},
                 else => return null,
             }
         }
@@ -1040,9 +1040,12 @@ pub const Parser = struct {
         return .{ .severity = .note, .pos = open, .end = open + 1, .message = self.format("the `{c}` opened here is not closed", .{src[open]}) };
     }
 
-    /// Why an unexpected token is not Rig: it starts a reserved form.
+    /// Why an unexpected token is not Rig: it starts a reserved form, or
+    /// Rig spells what it starts differently.
     fn reservedHint(src: []const u8, tok: Token, expected: []const u8) ?[]const u8 {
         const in_pattern = std.mem.indexOf(u8, expected, "a match arm") != null or std.mem.indexOf(u8, expected, "a pattern") != null;
+        // Only a function type's result must follow here.
+        if (std.mem.eql(u8, expected, "`->`")) return "a function type writes its result after `->`: `fun(Int) -> Int`";
         return switch (tok.cat) {
             .real, .string_sq, .string_dq => if (in_pattern) "a pattern is a name, an integer, `true`, `false`, or an enum variant" else null,
             .@"else" => if (in_pattern) "the catch-all arm is `_`, or a name that binds the value" else null,
@@ -1376,7 +1379,7 @@ test "parser: every form parses" {
         \\extern fun abs(n: Int) -> Int
         \\extern fun tick(n: Int)
         \\extern sub halt
-        \\extern ptr: fun(Int) Int
+        \\extern count: Int
         \\
         \\pub fun f(a: Int, b: Int = 2, pre c: Int) -> Int!
         \\  a
@@ -1425,7 +1428,7 @@ test "parser: every form parses" {
         \\  raw
         \\    print(@intCast(x))
         \\  print(+a, <b, ?c, !d, *e, ~f, v.w[0])
-        \\  n: fun() Int = f
+        \\  n: fun() -> Int = f
         \\  n2: *sub(Int, ?Box(Int)) = h
         \\  n3: sub() = i
         \\  o2: (*Box(Int))? = none

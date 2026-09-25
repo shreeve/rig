@@ -7,7 +7,7 @@ struct B
   n: Int
 
 struct H
-  f: fun(Int) Int
+  f: fun(Int) -> Int
   n: Int
 
 fun twice(n: Int) -> Int
@@ -16,8 +16,8 @@ fun twice(n: Int) -> Int
 sub main()
   b = *B(n: 1)
   w = ~b
-  f: *fun(Int) Int = *|a| a + 1
-  wf: ~fun(Int) Int = ~f
+  f: *fun(Int) -> Int = *|a| a + 1
+  wf: ~fun(Int) -> Int = ~f
   print(b, w, f, wf)
   print(H(f: twice, n: 3), [twice])
   -b

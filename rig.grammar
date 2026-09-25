@@ -505,7 +505,7 @@ type     = READ_PFX  type:type                      → (borrow_read)
          | "~"       operand:type                   → (weak)
          | "[" "]" type:type                        → (slice)
          | "[" size:INTEGER "]" type:type           → (array_type)
-         | FUN "(" [params:L(type)] ")" returns:type → (fun_type)   # `fun(Int) Int`
+         | FUN "(" [params:L(type)] ")" "->" returns:type → (fun_type)  # `fun(Int) -> Int`
          | SUB "(" [params:L(type)] ")"             → (fun_type)   # `sub(Int)`
          | tsuffix
 

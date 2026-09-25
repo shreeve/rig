@@ -1,0 +1,9 @@
+# A function type writes its result after `->`, as a declaration does.
+
+fun apply(f: fun(Int) Int, x: Int) -> Int
+  f(x)
+
+sub main()
+  print(apply(|a| a, 1))
+
+# error: 3:23: unexpected name `Int`; expected `->`; a function type writes its result after `->`: `fun(Int) -> Int`

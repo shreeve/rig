@@ -369,7 +369,7 @@ pub fn Cell(comptime T: type) type {
 // Owned closures
 // -----------------------------------------------------------------------------
 
-// An owned closure `*fun(A, B) R` / `*sub(A)` is a shared handle to a
+// An owned closure `*fun(A, B) -> R` / `*sub(A)` is a shared handle to a
 // `Closure(&.{ A, B }, R)`: a type-erased closure. Each closure literal
 // allocates its own environment `Env` (the captures plus an `invoke`
 // method taking the parameters); `init` erases it behind `ctx`, so every

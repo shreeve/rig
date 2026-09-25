@@ -19,7 +19,7 @@ sub main()
   # argument, and the next returns a value.
   add: *sub(Int) = *|+count, n| count.set(count.get() + n)
   add(10)
-  scaled: *fun(Int) Int = *|+count, n| count.get() * n
+  scaled: *fun(Int) -> Int = *|+count, n| count.get() * n
   print(count.get(), scaled(2))     # 13 26
 
   # A Signal calls every subscriber on `set`. This subscriber reads the

@@ -35,7 +35,7 @@ sub main()
   print(first_even(?[1, 3, 4, 5]), first_even(?[1, 3, 5, 7]))
   print(nested(10))
   print(kind(0), kind(3), kind(9))
-  f: fun(Int) Int = |n| for i in 0..n
+  f: fun(Int) -> Int = |n| for i in 0..n
     break i if i * 3 > n
   else
     n
