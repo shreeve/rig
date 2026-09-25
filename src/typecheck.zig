@@ -90,6 +90,8 @@ const Checker = struct {
     /// The operand of the `!` or `catch` being checked: a fallible call
     /// there is handled.
     handled: Sexp = .nil,
+    /// The operand of the `*x` being checked.
+    shared_operand: Sexp = .nil,
 
     const ReturnSite = struct { node: Sexp, ty: ?TypeId };
 
@@ -179,9 +181,13 @@ const Checker = struct {
                 try self.checkSet(sexp);
             },
             .use, .type, .@"extern", .extern_fun, .extern_sub => {},
-            else => try self.errAt(sexp, "only declarations and bindings are allowed at module level; move this statement into a function", .{}),
+            else => try self.errAt(sexp, not_at_module_level, .{}),
         }
     }
+
+    const not_at_module_level = "only declarations and bindings are allowed at module level; move this statement into a function";
+    const discard_read = "`_` discards a value; it cannot be read";
+    const stack_signal = "stack-local `Signal(T)` is not supported: a Signal lives behind a shared handle; construct it with `*Signal(value: ...)`";
 
     /// A `struct`, `enum`, `errors`, `generic_type`, or `generic_enum`.
     fn checkNominal(self: *Checker, node: Sexp) Error!void {
@@ -430,15 +436,6 @@ const Checker = struct {
             else => {},
         };
 
-        if (self.ctx.signal_sym_id != sema.symbol_invalid) {
-            const d = self.ctx.types.get(declared);
-            if (d == .parameterized_nominal and d.parameterized_nominal.sym == self.ctx.signal_sym_id) {
-                try self.errAt(target, "stack-local `Signal(T)` is not supported; Signal owns a subscriber `Vec` that requires heap ownership. Use `*Signal(T)` instead: `{s}: *Signal(...) = *Signal(value: ...)`", .{name});
-                self.poisonIfUntyped(sym_id);
-                return;
-            }
-        }
-
         switch (kind) {
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
                 const what = try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}` has type", .{name});
@@ -472,11 +469,6 @@ const Checker = struct {
         if (is_decl and s.kind == .local and !s.flags.reassigned and !s.flags.written and sema.isInteger(self.ctx, s.ty)) {
             if (self.constInt(rhs)) |v| try self.ctx.const_ints.put(self.ctx.allocator, sym_id, v);
         }
-    }
-
-    fn poisonIfUntyped(self: *Checker, id: SymbolId) void {
-        const sym = &self.ctx.symbols.items[id];
-        if (sym.ty == self.t().unknown_id) sym.ty = self.t().invalid_id;
     }
 
     /// The type an unannotated binding gets from its initializer.
@@ -1755,7 +1747,10 @@ const Checker = struct {
     fn synthShare(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Share.operand(e);
         if (operand.isKind(.lambda)) return self.ownedClosure(operand, null);
-        const inner = try self.synthExpr(operand);
+        const ty = try self.shareOperand(operand, null);
+        // A literal takes its default type.
+        if (ty == self.t().int_literal_id) try self.checkLiteralFits(operand, self.t().int_id);
+        const inner = self.canonical(ty);
         if (self.isPoison(inner)) return inner;
         if (self.ctx.types.get(inner) == .function) {
             try self.errAt(operand, "`*` makes an owned closure only from a closure literal: `*|...| body`", .{});
@@ -1766,6 +1761,17 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         return self.ctx.intern(.{ .shared = inner });
+    }
+
+    /// The operand of `*x`, checked against `expected` when given: the
+    /// one place a `Signal(...)` constructor may stand.
+    fn shareOperand(self: *Checker, operand: Sexp, expected: ?TypeId) Error!TypeId {
+        const prev = self.shared_operand;
+        defer self.shared_operand = prev;
+        self.shared_operand = operand;
+        const e = expected orelse return self.synthExpr(operand);
+        try self.checkExpr(operand, e);
+        return e;
     }
 
     fn synthWeak(self: *Checker, e: Sexp) Error!TypeId {
@@ -2245,6 +2251,11 @@ const Checker = struct {
                     // The type arguments come from the fields' values.
                     if (sym_id == self.ctx.vec_sym_id) {
                         try self.errAt(callee, "`Vec()` needs its element type from where it goes; write `v: Vec(T) = Vec()`", .{});
+                        try self.synthArgs(args);
+                        return self.t().invalid_id;
+                    }
+                    if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) {
+                        try self.errAt(callee, stack_signal, .{});
                         try self.synthArgs(args);
                         return self.t().invalid_id;
                     }
@@ -3203,7 +3214,10 @@ const Checker = struct {
                         if (self.lookupQuiet(callee)) |id| {
                             if (id == tt.parameterized_nominal.sym) {
                                 _ = try self.useName(callee);
-                                if (id == self.ctx.vec_sym_id) {
+                                if (id == self.ctx.signal_sym_id and !sameNode(e, self.shared_operand)) {
+                                    try self.errAt(callee, stack_signal, .{});
+                                    try self.synthArgs(ir.Call.args(e));
+                                } else if (id == self.ctx.vec_sym_id) {
                                     try self.checkVecConstruction(e);
                                 } else {
                                     const sym = self.ctx.symbols.items[id];
@@ -3246,7 +3260,7 @@ const Checker = struct {
                 }
                 const tt = self.ctx.types.get(target);
                 if (tt == .shared) {
-                    try self.checkExpr(operand, tt.shared);
+                    _ = try self.shareOperand(operand, tt.shared);
                     try self.ctx.recordType(e, target);
                     return true;
                 }

@@ -1,0 +1,9 @@
+# A Signal is constructed directly under `*`; sharing a stack one later
+# is rejected.
+
+sub main()
+  s = Signal(value: 1)
+  t = *<s
+  print(t.get())
+
+# error: stack-local `Signal(T)` is not supported

@@ -1,0 +1,8 @@
+# A Signal lives behind a shared handle: an unannotated stack Signal is
+# rejected too.
+
+sub main()
+  sig = Signal(value: 0)
+  print(sig.get())
+
+# error: stack-local `Signal(T)` is not supported
