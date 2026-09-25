@@ -293,7 +293,14 @@ const Checker = struct {
                 }
                 if (isStatementForm(s) and !s.isKind(.@"return")) {
                     try self.checkStmt(s);
-                    try self.errAt(s, "a function returning `{s}` must end with a value; this `{s}` produces none", .{ try self.tyName(ret), @tagName(s.kind().?) });
+                    const what = switch (s.kind().?) {
+                        .set => "assignment",
+                        .@"while", .@"for", .labeled => "loop",
+                        .drop => "drop",
+                        .@"defer", .@"errdefer" => "deferred statement",
+                        else => "jump",
+                    };
+                    try self.errAt(s, "a function returning `{s}` must end with a value; this {s} produces none", .{ try self.tyName(ret), what });
                     continue;
                 }
                 try self.checkExpr(s, ret);
@@ -349,20 +356,10 @@ const Checker = struct {
             else => {
                 const ty = try self.synthExpr(stmt);
                 if ((try self.ownsResource(ty, self.startOf(stmt), "discards a value"))) {
-                    try self.errAt(stmt, "expression result of type `{s}` carries drop glue and would leak as a discarded statement; bind it to a name (`old = {s}.replace(<new)`), explicitly drop with `-name`, or move it into a receiver", .{
-                        try self.tyName(ty), self.discardedReceiverName(stmt),
-                    });
+                    try self.errAt(stmt, "expression result of type `{s}` carries drop glue and would leak as a discarded statement; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver", .{try self.tyName(ty)});
                 }
             },
         }
-    }
-
-    fn discardedReceiverName(self: *Checker, stmt: Sexp) []const u8 {
-        if (stmt.isKind(.call) and ir.Call.callee(stmt).isKind(.member)) {
-            const obj = ir.Member.object(ir.Call.callee(stmt));
-            if (obj == .src) return self.text(obj);
-        }
-        return "expr";
     }
 
     fn checkReturn(self: *Checker, node: Sexp) Error!void {
@@ -1540,11 +1537,11 @@ const Checker = struct {
         const r = ir.get(e, .right);
         // A contextual operand (`.red`, `none`) takes the other side's type.
         if (isContextual(self.ctx.source, l) and !isContextual(self.ctx.source, r)) {
-            try self.checkExpr(l, try self.synthExpr(r));
+            try self.checkExpr(l, sema.unwrapBorrows(self.ctx, try self.synthExpr(r)));
             return self.t().bool_id;
         }
         if (isContextual(self.ctx.source, r)) {
-            try self.checkExpr(r, try self.synthExpr(l));
+            try self.checkExpr(r, sema.unwrapBorrows(self.ctx, try self.synthExpr(l)));
             return self.t().bool_id;
         }
         const a = readValue(self.ctx, try self.synthExpr(l));
@@ -1569,12 +1566,33 @@ const Checker = struct {
         // Any error compares with a member of any error set.
         const any_err = self.t().any_error_id;
         if ((a == any_err and sema.isErrorValue(self.ctx, b)) or (b == any_err and sema.isErrorValue(self.ctx, a))) return self.t().bool_id;
+        if (try self.comparesWithOptional(a, b, r)) {
+            try self.checkEquatable(a, l, op);
+            return self.t().bool_id;
+        }
+        if (try self.comparesWithOptional(b, a, l)) {
+            try self.checkEquatable(b, r, op);
+            return self.t().bool_id;
+        }
         if (a != b) {
             try self.errAt(l, "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
             return self.t().bool_id;
         }
         try self.checkEquatable(a, l, op);
         return self.t().bool_id;
+    }
+
+    /// Whether `opt` is a `T?` and `value` a `T` (or a literal that is
+    /// one): the two compare equal when the optional holds the value.
+    fn comparesWithOptional(self: *Checker, opt: TypeId, value: TypeId, value_node: Sexp) Error!bool {
+        const inner = switch (self.ctx.types.get(opt)) {
+            .optional => |i| i,
+            else => return false,
+        };
+        const literal = value == self.t().int_literal_id or value == self.t().float_literal_id;
+        if (value != inner and !(literal and compatible(self.ctx, value, inner))) return false;
+        try self.recordAdapted(value_node, value, inner);
+        return true;
     }
 
     /// Numeric equality: same rules as arithmetic, with operands already synthesized.
@@ -1647,15 +1665,23 @@ const Checker = struct {
             },
         };
         if ((try self.ownsResource(inner, self.startOf(left), "copies out with `??` a value"))) {
-            try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; optionals of resource handles can only be compared with `none`", .{try self.tyName(opt)});
+            try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; take the handle out with `if x as h`", .{try self.tyName(opt)});
             return self.t().invalid_id;
         }
-        const result = expected orelse inner;
-        if (expected != null and !compatible(self.ctx, inner, result)) {
-            try self.errAt(left, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(result), try self.tyName(inner) });
-        }
-        try self.checkExpr(right, inner);
-        return inner;
+        const result = self.fallbackType(inner, expected);
+        try self.checkExpr(right, result);
+        return result;
+    }
+
+    /// The type of `a ?? b` or `a catch b`, where `a` gives an `inner`:
+    /// `inner`, or the optional its context expects, which lets the
+    /// fallback `b` be `none` or another optional.
+    fn fallbackType(self: *Checker, inner: TypeId, expected: ?TypeId) TypeId {
+        const e = expected orelse return inner;
+        return switch (self.ctx.types.get(e)) {
+            .optional => |i| if (compatible(self.ctx, inner, i)) e else inner,
+            else => inner,
+        };
     }
 
     /// `expr catch handler`: the value of fallible `expr`, or `handler`.
@@ -1687,9 +1713,9 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
         };
-        _ = expected;
-        try self.checkExpr(handler, inner);
-        return inner;
+        const result = self.fallbackType(inner, expected);
+        try self.checkExpr(handler, result);
+        return result;
     }
 
     /// `e!`: the value of fallible `e`; its failure goes to `fail_to`.
@@ -2124,7 +2150,7 @@ const Checker = struct {
             try self.errAt(index, "slicing `xs[a..b]` is not supported yet", .{});
             return self.t().invalid_id;
         }
-        const idx_ty = try self.synthExpr(index);
+        const idx_ty = readValue(self.ctx, try self.synthExpr(index));
         if (!self.isPoison(idx_ty) and !sema.isInteger(self.ctx, idx_ty)) {
             try self.errAt(index, "an index must be an integer; got `{s}`", .{try self.tyName(idx_ty)});
         } else if (idx_ty == self.t().int_literal_id) {
@@ -2753,9 +2779,10 @@ const Checker = struct {
         }
 
         const resolved = (try sema.lookupMethod(self.ctx, obj_ty, method)) orelse {
-            // A data field holding a closure handle is called like one.
+            // A data field holding a function or a closure handle is
+            // called like one.
             if (try sema.lookupDataField(self.ctx, obj_ty, method)) |f| {
-                if (sema.ownedClosureFn(self.ctx, f.ty) != null) {
+                if (sema.ownedClosureFn(self.ctx, f.ty) != null or self.ctx.types.get(f.ty) == .function) {
                     try self.rejectResourceTemporary(obj, obj_ty);
                     try self.noteCalleeType(f.ty);
                     return self.callValue(callee, f.ty, args, method);
@@ -3186,7 +3213,7 @@ const Checker = struct {
             .src => {
                 const s = self.text(e);
                 if (std.mem.eql(u8, s, "none")) {
-                    try self.checkNone(e, expected, target);
+                    try self.checkNone(e, expected);
                     return true;
                 }
                 if (sema.isIntLiteralText(s) and sema.isInteger(self.ctx, target)) {
@@ -3315,8 +3342,8 @@ const Checker = struct {
                 try self.ctx.recordType(e, expected);
                 return true;
             },
-            .@"??" => {
-                const ty = try self.synthCoalesce(e, null);
+            .@"??", .@"catch" => {
+                const ty = if (head == .@"??") try self.synthCoalesce(e, expected) else try self.synthCatch(e, expected);
                 try self.ctx.recordType(e, ty);
                 if (!compatible(self.ctx, ty, expected)) {
                     try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(expected), try self.tyName(ty) });
@@ -3328,7 +3355,7 @@ const Checker = struct {
     }
 
     /// `none` where `expected` is required: an optional (possibly fallible).
-    fn checkNone(self: *Checker, e: Sexp, expected: TypeId, target: TypeId) Error!void {
+    fn checkNone(self: *Checker, e: Sexp, expected: TypeId) Error!void {
         var ty = expected;
         while (true) {
             switch (self.ctx.types.get(ty)) {
@@ -3340,7 +3367,6 @@ const Checker = struct {
                 else => break,
             }
         }
-        _ = target;
         const name = try self.tyName(expected);
         // A prefixed type takes parentheses before the `?`: `(*B)?`, `([2]Int)?`.
         const wrap = name.len > 0 and std.mem.indexOfScalar(u8, "*~?![", name[0]) != null;
@@ -3485,8 +3511,14 @@ const Checker = struct {
         if (self.isPoison(b) or b == self.t().noreturn_id) return a;
         if (a == self.t().none_id and self.ctx.types.get(b) == .optional) return b;
         if (b == self.t().none_id and self.ctx.types.get(a) == .optional) return a;
+        // Integer and float literals meet as a float literal.
+        if ((a == self.t().int_literal_id and b == self.t().float_literal_id) or (b == self.t().int_literal_id and a == self.t().float_literal_id)) return self.t().float_literal_id;
         if (compatible(self.ctx, a, b)) return b;
         if (compatible(self.ctx, b, a)) return a;
+        // A read-borrowed Copy value meets a value as the value.
+        const va = if (self.ctx.types.get(a) == .borrow_read) readValue(self.ctx, a) else a;
+        const vb = if (self.ctx.types.get(b) == .borrow_read) readValue(self.ctx, b) else b;
+        if (va != a or vb != b) return self.unify(va, vb, pos);
         try self.err(pos, "incompatible types `{s}` and `{s}`", .{ try self.tyName(a), try self.tyName(b) });
         return null;
     }
@@ -3863,11 +3895,12 @@ const Checker = struct {
 // Compatibility and classification
 // =============================================================================
 
-/// A borrow of a Copy value reads as the value itself: `n + 1` with
-/// `n: ?Int` or `n: !Int` is an `Int`.
-pub fn readValue(ctx: *const SemContext, ty: TypeId) TypeId {
+/// A borrow of a Copy value (a primitive, a plain enum, or an error)
+/// reads as the value itself: `n + 1` with `n: ?Int` or `n: !Int` is an
+/// `Int`.
+fn readValue(ctx: *const SemContext, ty: TypeId) TypeId {
     return switch (ctx.types.get(ty)) {
-        .borrow_read, .borrow_write => |inner| if (sema.isCopyPrimitive(ctx, inner)) inner else ty,
+        .borrow_read, .borrow_write => |inner| if (sema.isCopyPrimitive(ctx, inner) or sema.isPlainEnum(ctx, inner)) inner else ty,
         else => ty,
     };
 }
@@ -4001,22 +4034,35 @@ fn holdsInt(ctx: *const SemContext, ty: TypeId, v: i128) bool {
 /// `while true` with no `break` out of it: the loop only ends by
 /// `return`, so a function may end with it.
 fn loopsForever(source: []const u8, s: Sexp) bool {
-    if (!s.isKind(.@"while")) return false;
-    const cond = ir.While.cond(s);
+    var label: []const u8 = "";
+    var loop = s;
+    if (s.isKind(.labeled)) {
+        label = identAt(source, ir.Labeled.label(s)) orelse "";
+        loop = ir.Labeled.stmt(s);
+    }
+    if (!loop.isKind(.@"while")) return false;
+    const cond = ir.While.cond(loop);
     if (!std.mem.eql(u8, identAt(source, cond) orelse "", "true")) return false;
-    return !breaksOut(ir.While.body(s));
+    return !breaksOut(source, ir.While.body(loop), label, false);
 }
 
-/// Whether `e` holds a `break` that would leave the loop around it (one
-/// not inside a nested loop or closure).
-fn breaksOut(e: Sexp) bool {
+/// Whether `e` holds a `break` that leaves the loop around it: an
+/// unlabeled one outside nested loops, or one naming the loop's `label`,
+/// outside closures.
+fn breaksOut(source: []const u8, e: Sexp, label: []const u8, nested: bool) bool {
     const h = e.kind() orelse return false;
     switch (h) {
-        .@"break" => return true,
-        .@"while", .@"for", .lambda, .labeled => return false,
+        .@"break" => {
+            const l = ir.Break.label(e);
+            if (l == .nil) return !nested;
+            return label.len > 0 and std.mem.eql(u8, identAt(source, l) orelse "", label);
+        },
+        .lambda => return false,
         else => {},
     }
-    for (rig.children(e)) |c| if (breaksOut(c)) return true;
+    const in_loop = nested or h == .@"while" or h == .@"for";
+    if (in_loop and label.len == 0) return false;
+    for (rig.children(e)) |c| if (breaksOut(source, c, label, in_loop)) return true;
     return false;
 }
 

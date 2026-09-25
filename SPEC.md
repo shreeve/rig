@@ -2055,8 +2055,9 @@ expected, and `none` needs a known optional type.
 
 | Form | Meaning |
 |---|---|
-| `a ?? b` | the value inside `a`, or `b` when `a` is `none` |
+| `a ?? b` | the value inside `a`, or `b` when `a` is `none`; where a `T?` is expected, `b` may be a `T?` too (as may a `catch` handler) |
 | `a == none`, `a != none` | test for absence |
+| `a == v`, `a != v` | whether `a` holds the value `v` (a `T`, not a `String`) |
 | `if a as x` | run the block with `x` bound to the value inside `a`; `else` runs when `a` is `none` |
 | `while a as x` | repeat while `a` produces a value |
 

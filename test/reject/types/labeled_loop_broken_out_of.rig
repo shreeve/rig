@@ -1,0 +1,14 @@
+# A labeled `while true` left by a `break` naming it produces no value.
+
+fun f(n: Int) -> Int
+  i = 0
+  :a while true
+    while true
+      i += 1
+      if i > n
+        break :a
+
+sub main()
+  print(f(3))
+
+# error: a function returning `Int` must end with a value; this loop produces none

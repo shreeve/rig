@@ -1,0 +1,10 @@
+# An integer literal meets a float literal as a float.
+
+sub main()
+  c = true
+  y = 1 if c else 2.5
+  a = [1, 2.5, 3]
+  print(y == 1.0, a[1] == 2.5, a[2] == 3.0)
+
+# expect:
+# true true true
