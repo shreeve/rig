@@ -1895,7 +1895,10 @@ closure parameter `n` has the name of the local `n`
 The closure's environment owns what it captured and releases it once,
 when the closure is released, not after each call. The body may use,
 call, and clone a captured owning value, but not move, drop, or
-reassign it: the closure may be called again. A name may be captured
+reassign it: the closure may be called again. A captured borrow may be
+passed to a call, which borrows it for the call; through a captured
+write borrow the body can write fields and call `!self` methods, but
+not write-borrow it again with `!w`. A name may be captured
 once per list, and a closure nested in another cannot re-capture a name
 the outer one captured.
 

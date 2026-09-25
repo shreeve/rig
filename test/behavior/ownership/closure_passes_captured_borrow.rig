@@ -1,0 +1,31 @@
+# A closure may pass a borrow it captured to a call, which borrows it
+# for the call, and call methods through a captured write borrow; the
+# closure keeps the borrow for its next call.
+
+struct Box
+  n: Int
+
+  sub bump(!self)
+    self.n += 10
+
+sub poke(b: !Box)
+  b.n += 5
+
+fun peek(b: ?Box) -> Int
+  b.n
+
+sub main()
+  x = Box(n: 1)
+  if true
+    w = !x
+    f = |<w|
+      poke(w)
+      w.bump()
+    f()
+    f()
+  r = ?x
+  g = |<r| print(peek(r))
+  g()
+
+# expect:
+# 31
