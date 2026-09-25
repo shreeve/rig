@@ -3906,6 +3906,19 @@ const Checker = struct {
         };
     }
 
+    /// Whether looking `name` up from `scope` leaves a closure body
+    /// before finding it.
+    fn closureBetween(self: *Checker, scope: ScopeId, name: []const u8, pos: u32) bool {
+        var sid: ?ScopeId = scope;
+        while (sid) |s| {
+            if (s == sema.scope_invalid or s >= self.ctx.scopes.items.len) break;
+            if (self.visibleIn(s, name, pos) != null) return false;
+            if (self.ctx.scopes.items[s].kind == .lambda) return true;
+            sid = self.ctx.scopes.items[s].parent;
+        }
+        return false;
+    }
+
     /// Validate one capture against the outer binding and give the
     /// capture symbol its type.
     fn checkCapture(self: *Checker, cap: Sexp, outer: ScopeId) Error!void {
@@ -3927,6 +3940,13 @@ const Checker = struct {
                 self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
                 return;
             },
+        }
+        // A closure reaches outer locals only through its own captures,
+        // so a closure nested in one captures from what that one holds.
+        if (self.closureBetween(outer, name, pos)) {
+            try self.err(pos, "`{s}` is a local outside the enclosing closure; capture `{s}` in the enclosing closure first", .{ name, name });
+            self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
+            return;
         }
         const outer_ty = self.ctx.symbols.items[outer_id].ty;
         const bound: ?TypeId = switch (mode) {

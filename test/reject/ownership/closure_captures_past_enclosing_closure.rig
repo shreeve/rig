@@ -1,0 +1,17 @@
+# A closure nested in another captures from what the enclosing closure
+# holds, so a name the enclosing closure did not capture is out of reach.
+
+sub main()
+  n = 5
+  f = ||
+    g = |+n| print(n)
+    g()
+  f()
+  c: *Cell(Int) = *Cell(value: 0)
+  h = *||
+    k = |+c| c.set(1)
+    k()
+  h()
+
+# error: 7:11: capture `n` in the enclosing closure first
+# error: 12:11: capture `c` in the enclosing closure first
