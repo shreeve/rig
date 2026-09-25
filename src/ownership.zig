@@ -2222,7 +2222,11 @@ pub const Checker = struct {
         for (v.loans) |l| {
             if (l.kind == .write and std.mem.indexOfScalar(VarId, roots.items, l.root) == null) try roots.append(self.arena(), l.root);
         }
-        for (roots.items) |r| try self.absorbLoans(r, stored, pos, roots.items);
+        for (roots.items) |r| {
+            // Only a value that can hold a borrow can have one stored in it.
+            if (!self.mayCarryBorrow(self.pointee(self.vars.items[r].ty))) continue;
+            try self.absorbLoans(r, stored, pos, roots.items);
+        }
     }
 
     /// Record that var `id` may now hold the loans in `v`, and so may
