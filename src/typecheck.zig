@@ -900,19 +900,10 @@ const Checker = struct {
             const body = ir.Arm.body(arm);
             switch (position) {
                 .statement => try self.checkStmt(body),
-                .value => {
-                    if (result) |r| {
-                        if (expected != null) {
-                            try self.checkExpr(body, r);
-                        } else {
-                            const ty = try self.synthExpr(body);
-                            result = (try self.unify(r, ty, self.startOf(body))) orelse r;
-                            try arm_values.append(self.ctx.allocator, .{ .node = body, .ty = ty });
-                        }
-                    } else {
-                        result = try self.synthExpr(body);
-                        if (expected == null) try arm_values.append(self.ctx.allocator, .{ .node = body, .ty = result.? });
-                    }
+                .value => if (expected) |x| try self.checkExpr(body, x) else {
+                    const ty = try self.synthExpr(body);
+                    result = if (result) |r| (try self.unify(r, ty, self.startOf(body))) orelse r else ty;
+                    try arm_values.append(self.ctx.allocator, .{ .node = body, .ty = ty });
                 },
             }
         }
