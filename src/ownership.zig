@@ -279,6 +279,9 @@ const Sink = enum {
     }
 };
 
+/// Why a loop-borrow alias cannot leave its slot, for diagnostics.
+const loop_borrow_rule = "a `for x in ?vec` element is a read borrow of the Vec slot and cannot be cloned, moved, dropped, or stored";
+
 /// Owning kinds that cannot be copied implicitly.
 const Owning = union(enum) {
     shared,
@@ -558,11 +561,7 @@ pub const Checker = struct {
     // Vars and scopes
     // -------------------------------------------------------------------------
 
-    fn pushScope(self: *Checker, kind: ScopeKind) Error!void {
-        try self.pushScopeFor(kind, .nil);
-    }
-
-    /// A scope covering `node`.
+    /// A scope covering `node` (`.nil` when not known).
     fn pushScopeFor(self: *Checker, kind: ScopeKind, node: Sexp) Error!void {
         try self.scopes.append(self.gpa, .{ .start = @intCast(self.vars.items.len), .kind = kind, .node = node });
     }
@@ -1083,7 +1082,7 @@ pub const Checker = struct {
         self.fn_depth += 1;
         defer self.fn_depth -= 1;
 
-        try self.pushScope(.function);
+        try self.pushScopeFor(.function, .nil);
         for (params.items()) |p| try self.bindParam(p);
         try self.walkBody(body, returns_value);
         try self.popScope();
@@ -1175,15 +1174,11 @@ pub const Checker = struct {
         self.cur_stmt = stmt;
         defer self.cur_stmt = saved_stmt;
         const v = if (sink) |k| try self.walkConsumed(stmt, k) else try self.walk(stmt);
-        try self.restoreTemps(saved.items);
-        return v;
-    }
-
-    /// The temporaries as they were before a statement, less those on
-    /// vars that have left scope since.
-    fn restoreTemps(self: *Checker, saved: []const Loan) Error!void {
+        // The temporaries as they were before, less those on vars that
+        // have left scope since.
         self.temps.clearRetainingCapacity();
-        for (saved) |l| if (l.root < self.vars.items.len) try self.temps.append(self.gpa, l);
+        for (saved.items) |l| if (l.root < self.vars.items.len) try self.temps.append(self.gpa, l);
+        return v;
     }
 
     /// Walk a `(block ...)` in its own scope; its value is the value of
@@ -1226,72 +1221,52 @@ pub const Checker = struct {
             else => return .{},
         }
         const kind = sexp.kind() orelse return .{};
-        const children = rig.children(sexp);
-        return switch (kind) {
-            .fun, .sub, .drop_decl, .@"struct", .@"enum", .errors => blk: {
-                try self.walkDecl(sexp);
-                break :blk .{};
+        switch (kind) {
+            .fun, .sub, .drop_decl, .@"struct", .@"enum", .errors => try self.walkDecl(sexp),
+            .set => try self.walkSet(sexp),
+            .drop => try self.walkDrop(sexp),
+            .@"return" => try self.walkReturn(sexp),
+            .@"break" => try self.walkJump(sexp, .brk),
+            .@"continue" => try self.walkJump(sexp, .cont),
+            .@"defer", .@"errdefer" => try self.walkDefer(sexp),
+            else => return switch (kind) {
+                .block => self.walkBlock(sexp),
+                .move => self.walkMove(ir.Move.operand(sexp)),
+                .read => self.walkBorrow(ir.Read.operand(sexp), .read),
+                .write => self.walkBorrow(ir.Write.operand(sexp), .write),
+                .clone, .weak => self.walkCloneWeak(sexp),
+                .share => self.walkShare(sexp),
+                .lambda => self.walkLambda(sexp, false),
+                .@"if" => self.walkIf(sexp),
+                .@"while" => self.walkWhile(sexp),
+                .@"for" => self.walkFor(sexp),
+                .labeled => self.walkLabeled(sexp),
+                .match => self.walkMatch(sexp),
+                .@"catch" => self.walkCatch(sexp),
+                .propagate, .propagate_none => self.walkPropagate(sexp),
+                .call => self.walkCall(sexp),
+                .member, .index => self.walkMember(sexp),
+                .kwarg => self.walkConsumed(ir.Kwarg.value(sexp), .argument),
+                .array => blk: {
+                    var v: Value = .{};
+                    for (ir.Array.elems(sexp)) |e| v = try self.valueUnion(v, try self.walkConsumed(e, .element));
+                    break :blk v;
+                },
+                .raw_block => self.walk(ir.RawBlock.body(sexp)),
+                .enum_lit, .use, .type, .generic_type, .generic_inst => .{},
+                // Operators on values produce fresh Copy results.
+                .@"+", .@"-", .@"*", .@"/", .@"%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
+                    for (rig.children(sexp)) |c| _ = try self.walk(c);
+                    break :blk .{};
+                },
+                else => blk: {
+                    var v: Value = .{};
+                    for (rig.children(sexp)) |c| v = try self.valueUnion(v, try self.walk(c));
+                    break :blk v;
+                },
             },
-            .block => self.walkBlock(sexp),
-            .set => blk: {
-                try self.walkSet(sexp);
-                break :blk .{};
-            },
-            .drop => blk: {
-                try self.walkDrop(sexp);
-                break :blk .{};
-            },
-            .move => self.walkMove(ir.Move.operand(sexp)),
-            .read => self.walkBorrow(ir.Read.operand(sexp), .read),
-            .write => self.walkBorrow(ir.Write.operand(sexp), .write),
-            .clone, .weak => self.walkCloneWeak(sexp),
-            .share => self.walkShare(sexp),
-            .lambda => self.walkLambda(sexp, false),
-            .@"if" => self.walkIf(sexp),
-            .@"while" => self.walkWhile(sexp),
-            .@"for" => self.walkFor(sexp),
-            .labeled => self.walkLabeled(sexp),
-            .match => self.walkMatch(sexp),
-            .@"return" => blk: {
-                try self.walkReturn(sexp);
-                break :blk .{};
-            },
-            .@"break" => blk: {
-                try self.walkJump(sexp, .brk);
-                break :blk .{};
-            },
-            .@"continue" => blk: {
-                try self.walkJump(sexp, .cont);
-                break :blk .{};
-            },
-            .@"catch" => self.walkCatch(sexp),
-            .propagate, .propagate_none => self.walkPropagate(sexp),
-            .@"defer", .@"errdefer" => blk: {
-                try self.walkDefer(sexp);
-                break :blk .{};
-            },
-            .call => self.walkCall(sexp),
-            .member => self.walkMember(sexp),
-            .index => self.walkMember(sexp),
-            .kwarg => self.walkConsumed(ir.Kwarg.value(sexp), .argument),
-            .array => blk: {
-                var v: Value = .{};
-                for (ir.Array.elems(sexp)) |e| v = try self.valueUnion(v, try self.walkConsumed(e, .element));
-                break :blk v;
-            },
-            .raw_block => self.walk(ir.RawBlock.body(sexp)),
-            .enum_lit, .use, .type, .generic_type, .generic_inst => .{},
-            // Operators on values produce fresh Copy results.
-            .@"+", .@"-", .@"*", .@"/", .@"%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
-                for (children) |c| _ = try self.walk(c);
-                break :blk .{};
-            },
-            else => blk: {
-                var v: Value = .{};
-                for (children) |c| v = try self.valueUnion(v, try self.walk(c));
-                break :blk v;
-            },
-        };
+        }
+        return .{};
     }
 
     /// Walk an expression in a position that takes ownership of its value.
@@ -1375,11 +1350,16 @@ pub const Checker = struct {
         const id = self.find(name) orelse return .{};
         const v = self.vars.items[id];
         if (v.closure and !as_callee) {
-            try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased; call it as `{s}()`, or make the literal owned (`*|...| body`) to pass it around", .{ name, name });
+            try self.errClosureValue(pos, name);
             return .{};
         }
         try self.checkReadable(id, pos);
         return self.varValue(id);
+    }
+
+    /// A closure binding used as a value.
+    fn errClosureValue(self: *Checker, pos: u32, name: []const u8) Error!void {
+        try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased; call it as `{s}()`, or make the literal owned (`*|...| body`) to pass it around", .{ name, name });
     }
 
     /// Reading `id`: it must be live and not write-borrowed.
@@ -1405,13 +1385,9 @@ pub const Checker = struct {
 
     /// Report a use of a moved or dropped var. Returns whether it is live.
     fn checkLive(self: *Checker, id: VarId, pos: u32) Error!bool {
-        const f = self.flows.items[id];
-        const name = self.vars.items[id].name;
-        switch (f.status) {
-            .live => return true,
-            .moved => try self.err(pos, "use of `{s}` after move", .{name}),
-            .dropped => try self.err(pos, "use of `{s}` after drop", .{name}),
-        }
+        if (self.flowLive(id)) return true;
+        const what = if (self.flows.items[id].status == .dropped) "drop" else "move";
+        try self.err(pos, "use of `{s}` after {s}", .{ self.vars.items[id].name, what });
         try self.noteInvalidated(id, pos);
         return false;
     }
@@ -1579,7 +1555,7 @@ pub const Checker = struct {
         const v = self.vars.items[id];
         const vt = verb.text();
         if (v.closure) {
-            try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased; call it as `{s}()`, or make the literal owned (`*|...| body`) to pass it around", .{ v.name, v.name });
+            try self.errClosureValue(pos, v.name);
             return .{};
         }
         if (try self.rejectBorrowedView(id, pos, vt)) return .{};
@@ -1688,7 +1664,7 @@ pub const Checker = struct {
     fn rejectBorrowedView(self: *Checker, id: VarId, pos: u32, op: []const u8) Error!bool {
         const v = self.vars.items[id];
         if (v.loop_borrow) {
-            try self.err(pos, "cannot {s} loop-borrow alias `{s}`; a `for x in ?vec` element is a read borrow of the Vec slot and cannot be cloned, moved, dropped, or stored", .{ op, v.name });
+            try self.err(pos, "cannot {s} loop-borrow alias `{s}`; " ++ loop_borrow_rule, .{ op, v.name });
             return true;
         }
         if (v.capture_resource) {
@@ -1802,7 +1778,7 @@ pub const Checker = struct {
                 const name = v.name;
                 if (v.closure) return; // reported by walkName
                 if (v.loop_borrow) {
-                    try self.err(pos, "bare use of loop-borrow alias `{s}` in {s} would smuggle the borrowed handle past the loop; a `for x in ?vec` element is a read borrow of the Vec slot and cannot be cloned, moved, dropped, or stored", .{ name, sink.text() });
+                    try self.err(pos, "bare use of loop-borrow alias `{s}` in {s} would smuggle the borrowed handle past the loop; " ++ loop_borrow_rule, .{ name, sink.text() });
                     return;
                 }
                 // A captured borrow passed to a call is lent for the call.
@@ -2773,7 +2749,6 @@ pub const Checker = struct {
     /// `(break value-or-_ label?)` / `(continue label?)`: the state here
     /// flows to the loop (or labeled block) the jump names, or the
     /// innermost loop.
-    /// A `break` or `continue`.
     fn walkJump(self: *Checker, node: Sexp, jump: Jump) Error!void {
         const label = self.text(ir.get(node, .label));
         const value = if (jump == .brk) ir.Break.value(node) else .nil;
@@ -2834,10 +2809,9 @@ pub const Checker = struct {
     // Defer
     // -------------------------------------------------------------------------
 
-    /// A deferred body runs at scope exit. It is checked where it is
-    /// written (and may not change outer state), then again at each exit
-    /// of its scope against the state there.
-    /// A `defer` or `errdefer`.
+    /// `defer` / `errdefer`: the body runs at scope exit. It is checked
+    /// where it is written (and may not change outer state), then again
+    /// at each exit of its scope against the state there.
     fn walkDefer(self: *Checker, node: Sexp) Error!void {
         const body = ir.get(node, .body);
         try self.checkDeferBody(body, true);
@@ -3047,13 +3021,15 @@ pub const Checker = struct {
         return sema.isCopyPrimitive(ctx, t) or ctx.types.get(t) == .any_error;
     }
 
-    /// A Vec whose elements own resources: walked by borrowed slot.
+    /// A `Vec(T)`.
     fn isVec(self: *const Checker, ty: TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ctx.types.get(ty);
         return t == .parameterized_nominal and t.parameterized_nominal.sym == ctx.vec_sym_id;
     }
 
+    /// A Vec (or a borrow of one) whose elements own resources: walked
+    /// by borrowed slot.
     fn isResourceVec(self: *const Checker, ty: ?TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ty orelse return false;
