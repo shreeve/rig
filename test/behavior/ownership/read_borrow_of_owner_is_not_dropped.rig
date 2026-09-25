@@ -1,5 +1,6 @@
 # A read borrow of a value that owns resources is held by pointer, so a
 # struct, box, or closure holding the borrow never drops what it borrows.
+# (Owned closures cannot capture borrows; stack closures can.)
 
 struct Box
   v: Vec(Int)
@@ -25,14 +26,14 @@ sub main()
   h = Holder(own: Vec(), b: ?x)
   print(h.b.v[0])
   vw = View(b: ?x)
-  f = *|<vw| print("closure", vw.b.v[0])
+  f = |<vw| print("closure", vw.b.v[0])
   f()
   r = ?x
-  g = *|<r| print("captured", r.v[0])
+  g = |<r| print("captured", r.v[0])
   g()
   t = *Tracked(n: 7)
   rt = ?t
-  k = *|<rt| print("handle", rt.n)
+  k = |<rt| print("handle", rt.n)
   k()
   -k
   print("after", t.n)

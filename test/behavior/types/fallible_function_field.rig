@@ -1,0 +1,28 @@
+# A function type may be fallible: a field, and a stack closure bound
+# to a fallible function type.
+
+error Bad
+  zero
+
+struct Job
+  run: fun(Int) Int!
+
+fun inv(n: Int) -> Int!
+  return Bad.zero if n == 0
+  100 / n
+
+sub main()
+  j = Job(run: inv)
+  print(j.run(4)!)
+  print(j.run(0) catch -1)
+  f: fun(Int) Int! = |n: Int|
+    return Bad.zero if n == 0
+    n
+  print(f(3)!)
+  print(f(0) catch -1)
+
+# expect:
+# 25
+# -1
+# 3
+# -1

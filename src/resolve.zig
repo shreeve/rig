@@ -1309,9 +1309,7 @@ pub const TypeResolver = struct {
                         var ps: std.ArrayListUnmanaged(TypeId) = .empty;
                         defer ps.deinit(self.ctx.allocator);
                         for (ir.FunType.params(sexp).items()) |p| try ps.append(self.ctx.allocator, try self.resolveType(p));
-                        // Not a declaration's return type: a function type
-                        // cannot be fallible.
-                        const ret = try self.resolveType(ir.FunType.returns(sexp));
+                        const ret = try self.resolveReturnType(ir.FunType.returns(sexp));
                         return self.ctx.intern(.{ .function = .{
                             .params = try self.ctx.dupeIds(ps.items),
                             .returns = ret,

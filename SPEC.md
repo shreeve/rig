@@ -319,7 +319,7 @@ sub main()
 | Type | Meaning | Section |
 |---|---|---|
 | `T?` | optional: a `T` or `none` | [§13](#13-optionals) |
-| `T!` | fallible: a `T` or an error; only as a return type | [§14](#14-errors) |
+| `T!` | fallible: a `T` or an error; only as a return type, including a function type's | [§14](#14-errors) |
 | `?T` | read borrow of a `T` (parameters, returns, locals, fields) | [§8](#8-ownership) |
 | `!T` | write borrow of a `T` | [§8](#8-ownership) |
 | `*T` | shared handle: reference-counted, single-threaded | [§10](#10-shared-and-weak-handles) |
@@ -2141,8 +2141,9 @@ what happens to the failure, visibly:
 
 A bare call to a fallible function is rejected, and so is `!` on a call
 that cannot fail. A closure body, a `drop` body, and a `defer` cannot
-propagate. A fallible type is only allowed as a function's return type,
-and a plain `T` is accepted where `T!` is expected. `E!` for an error
+propagate. A fallible type is only allowed as the return type of a
+function or of a function type (`fun(Int) Int!`, not for an owned
+closure), and a plain `T` is accepted where `T!` is expected. `E!` for an error
 set `E` is rejected: a failure and a success would both be `E` values.
 
 ```rig
