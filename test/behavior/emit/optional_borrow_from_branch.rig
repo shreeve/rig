@@ -1,0 +1,72 @@
+# An `if`, ternary, or `match` yielding a borrow where an optional
+# borrow is expected yields the borrow itself.
+
+struct D
+  n: Int
+
+  drop self: !D
+    print("drop", self.n)
+
+fun pick(a: ?D, k: Int) -> (?D)?
+  ?a if k == 0 else none
+
+fun choose(a: ?D, k: Int) -> (?D)?
+  if k == 0
+    ?a
+  else
+    none
+
+fun which(a: ?D, k: Int) -> (?D)?
+  match k
+    0 => ?a
+    _ => none
+
+fun whole(a: ?D) -> (?D)?
+  a
+
+fun slot(m: !Int, k: Int) -> (!Int)?
+  m if k == 0 else none
+
+fun cell(m: !Int) -> (!Int)?
+  m
+
+type Box(T)
+  v: T
+
+  fun get(?self, k: Int) -> (?T)?
+    ?self.v if k == 0 else none
+
+sub main()
+  d = D(n: 7)
+  if pick(?d, 0) as r
+    print r.n
+  if choose(?d, 0) as r
+    print r.n
+  if which(?d, 0) as r
+    print r.n
+  print pick(?d, 1) == none
+  if whole(?d) as r
+    print r.n
+  x = 3
+  if slot(!x, 0) as r
+    r += 1
+  if cell(!x) as r
+    r += 10
+  w: (!Int)? = !x if x > 0 else none
+  if <w as r
+    r += 100
+  print x
+  b = Box(v: D(n: 8))
+  if b.get(0) as r
+    print r.n
+
+# expect:
+# 7
+# 7
+# 7
+# true
+# 7
+# 114
+# 8
+# drop 8
+# drop 7

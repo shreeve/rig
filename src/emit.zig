@@ -1247,7 +1247,7 @@ pub const Emitter = struct {
     /// position (directly, or through `if`/`match` branches) are moved
     /// out, so their scope-exit drop is disarmed.
     fn emitReturnValue(self: *Emitter, value: Sexp) Error!void {
-        if (self.fun.return_ty) |r| if (self.isPtrBorrowTy(r)) return self.emitBorrowValue(value);
+        if (self.fun.return_ty) |r| if (self.isPtrBorrowTy(self.unwrapOptional(r))) return self.emitBorrowValue(value);
         self.bare = true;
         try self.emitValue(value, true);
     }
@@ -1985,9 +1985,22 @@ pub const Emitter = struct {
 
     /// `e` yielded where a value of `ty` goes: a write borrow of a Copy
     /// value (`!m`, or a call returning `!Int`) yields the value it reaches.
+    /// A borrow yielded where a borrow or an optional borrow goes stays a
+    /// borrow.
     fn emitValueAs(self: *Emitter, e: Sexp, ty: ?TypeId) Error!void {
-        if (ty != null and !self.isPtrBorrowTy(ty.?) and self.isPtrBorrowExpr(e)) return self.emitDeref(e);
+        if (ty) |t| if (self.isPtrBorrowExpr(e)) {
+            if (self.isPtrBorrowTy(self.unwrapOptional(t))) return self.emitBorrowValue(e);
+            return self.emitDeref(e);
+        };
         try self.emitValue(e, true);
+    }
+
+    /// The type an optional `ty` holds; any other type itself.
+    fn unwrapOptional(self: *Emitter, ty: TypeId) TypeId {
+        return switch (self.sema.types.get(ty)) {
+            .optional => |inner| inner,
+            else => ty,
+        };
     }
 
     /// `(e).*`: the value a write borrow reaches.
