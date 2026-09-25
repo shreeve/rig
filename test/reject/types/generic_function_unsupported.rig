@@ -1,11 +1,12 @@
 # `pre T: type` would declare a generic function, which Rig does not
-# support yet; the function is reported once, not at each use of `T`.
+# support yet; the function is reported once, not at each use of `T` or
+# at its calls.
 
 fun size(pre T: type, x: T) -> Int
   y: T = x
   3
 
 sub main()
-  print(1)
+  print(size(Int, 5))
 
 # error: generic functions are not supported yet: `pre T: type` would make `size` generic

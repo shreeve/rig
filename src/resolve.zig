@@ -1513,6 +1513,11 @@ fn sizedTypeId(ctx: *SemContext, name: []const u8) ?Error!TypeId {
     };
 }
 
+/// Whether `name` spells a built-in type: `Int`, `String`, `U8`, ...
+pub fn isBuiltinTypeName(ctx: *const SemContext, name: []const u8) bool {
+    return primitiveTypeId(ctx, name) != null or sizedTypeBits(name) != null;
+}
+
 /// Whether `name` spells a numeric type: `Int`, `Float`, or a sized one.
 /// Called like a function, such a name converts a number to that type.
 pub fn isNumericTypeName(name: []const u8) bool {

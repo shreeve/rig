@@ -2749,10 +2749,24 @@ const Checker = struct {
     }
 
     fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize, callee: []const u8) Error!void {
+        // A poison parameter (of a rejected generic function) may be
+        // given a type; there is nothing more to report about it.
+        if (self.isPoison(f.params[i]) and self.namesType(arg)) return;
         try self.checkExpr(arg, f.params[i]);
         if (f.isPre(i) and !self.isComptimeKnown(arg)) {
             try self.errAt(arg, "argument {d} of `{s}` is a `pre` parameter and must be known at compile time; pass a literal, an enum value, a `pre` parameter, or a `=!` binding of one", .{ i + 1, callee });
         }
+    }
+
+    /// Whether `e` is a bare type name: `Int`, `String`, `Point`.
+    fn namesType(self: *Checker, e: Sexp) bool {
+        if (e != .src) return false;
+        if (resolve.isBuiltinTypeName(self.ctx, self.text(e))) return true;
+        const id = self.lookupQuiet(e) orelse return false;
+        return switch (self.ctx.symbols.items[id].kind) {
+            .nominal_type, .generic_type, .type_alias => true,
+            else => false,
+        };
     }
 
     /// Values Zig can evaluate at compile time.
@@ -4374,4 +4388,25 @@ test "check: `!` needs a fallible operand and a function that can fail" {
     try expectDiagnostic(&r.ctx, "requires the enclosing function `two`");
     try expectDiagnostic(&r.ctx, "inside `defer`");
     try expectDiagnostic(&r.ctx, "a closure body cannot propagate");
+}
+
+test "check: a generic function is reported once, not at its calls" {
+    var r = try checkSource(std.testing.allocator,
+        \\struct P
+        \\  a: Int
+        \\
+        \\fun size(pre T: type, x: T) -> Int
+        \\  y: T = x
+        \\  3
+        \\
+        \\sub main()
+        \\  print(size(Int, 5))
+        \\  print(size(P, P(a: 1)))
+        \\
+    );
+    defer r.p.deinit();
+    defer r.ctx.deinit();
+    try expectDiagnostic(&r.ctx, "generic functions are not supported yet");
+    if (r.ctx.diagnostics.items.len != 1) for (r.ctx.diagnostics.items) |d| std.debug.print("  got: {s}\n", .{d.message});
+    try std.testing.expectEqual(1, r.ctx.diagnostics.items.len);
 }
