@@ -1905,7 +1905,6 @@ mutable value.
 |---|---|
 | `Cell(value: v)` | construct |
 | `c.get()` | a copy of the value (Copy `T` only) |
-| `c.value` | the same (Copy `T` only) |
 | `c.set(v)` | store `v`; the old value is dropped |
 | `c.replace(v)` | store `v` and return the old value |
 

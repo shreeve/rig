@@ -19,7 +19,7 @@ sub main()
   m = 1
   _ = f(y: m + 0, x: bump(!m))
   c = Cell(value: 1)
-  _ = f(y: c.value, x: poke(?c))
+  _ = f(y: c.get(), x: poke(?c))
   print(n, m, c.get())
 
 # expect:

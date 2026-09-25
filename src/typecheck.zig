@@ -2230,13 +2230,10 @@ const Checker = struct {
             else => {},
         }
 
-        if (std.mem.eql(u8, field, "value")) {
-            if (cellElementType(self.ctx, obj_ty)) |elem| {
-                if ((try self.ownsResource(elem, pos, "reads `cell.value`"))) {
-                    try self.err(pos, "`cell.value` reads `T` by value but `T = {s}` has drop glue; a copy would alias the cell's owned value. Use `cell.replace(<new)` to swap-and-yield the old value.", .{try self.tyName(elem)});
-                    return self.t().invalid_id;
-                }
-            }
+        // `value` names a Cell's constructor argument, not a field to read.
+        if (std.mem.eql(u8, field, "value") and cellElementType(self.ctx, peeled) != null) {
+            try self.err(pos, "a Cell is read with `c.get()` and written with `c.set(v)`, not through `.value`", .{});
+            return self.t().invalid_id;
         }
 
         if (try self.dataField(obj_ty, field)) |ty| return ty;
