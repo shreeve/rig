@@ -45,6 +45,11 @@ pub fn isModuleConst(decl: Sexp) bool {
     return (if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl).isKind(.set);
 }
 
+/// `x[...]`: an index, or compile-time arguments (sema tells which).
+pub fn isBracketList(e: Sexp) bool {
+    return e.isKind(.index) or e.isKind(.inst);
+}
+
 /// A slice, `xs[a..b]`: an index node whose index is a range.
 pub fn isRangeIndex(e: Sexp) bool {
     return e.isKind(.index) and ir.Index.index(e).isKind(.@"..");
@@ -140,7 +145,6 @@ const keywords = std.StaticStringMap(TokenCat).initComptime(.{
     .{ "new", .new },
     .{ "not", .not },
     .{ "or", .@"or" },
-    .{ "pre", .pre },
     .{ "pub", .@"pub" },
     .{ "raw", .raw },
     .{ "return", .@"return" },
@@ -252,7 +256,9 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //     `a < b`, `a<b` less-than        `<x`, `f <x` move
 //     `a * b`         multiply        `*x`, `f *x` share, `*T` shared type
 //     `a | b`         bitwise or      `|x| ...`    closure bar list
-//     `f(x)`, `a[i]`  call, index     `f (x)`, `f [1]`  new operand of f
+//     `f(x)`, `a[i]`  call, index or  `f (x)`, `f [1]`  new operand of f
+//                     compile-time
+//                     arguments
 //     `a.b`           member          `.red`, `f .red`  enum literal
 //     `x!`, `T?`      suffix          `!x`, `?x`   write / read borrow
 //
@@ -1052,7 +1058,7 @@ pub const Parser = struct {
         };
         const expected = self.expectedHint();
         const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
-        const hint = self.parenFreeCallHint(tok) orelse reservedHint(src, tok, expected orelse "");
+        const hint = self.parenFreeCallHint(tok) orelse self.bracketHint(tok) orelse reservedHint(src, tok, expected orelse "");
         const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
     }
@@ -1080,10 +1086,47 @@ pub const Parser = struct {
             .@"else" => if (in_pattern) "the catch-all arm is `_`, or a name that binds the value" else null,
             .@"try" => "`try` blocks are reserved: propagate with `e!` or handle with `e catch ...`",
             .zig => "inline Zig is reserved: use `raw` blocks and `extern` declarations",
-            .pre => "`pre` marks compile-time parameters only (`pre n: Int`)",
             .share_pfx => if (precededByFor(src, tok.pos)) "`for *x in` is reserved: iterate with `for x in xs`, `?xs`, or `!xs`" else null,
             else => null,
         };
+    }
+
+    /// Compile-time parameters and arguments written where Rig does not
+    /// take them: in parentheses (`type Box(T)`, `Vec(Int)` in a type,
+    /// `pre n: Int`), in brackets apart from the name (`type Box [T]`),
+    /// or as a type an expression cannot spell (`Vec[[]Int]()`).
+    fn bracketHint(self: *Parser, tok: Token) ?[]const u8 {
+        const src = self.base.source;
+        const before = std.mem.trimEnd(u8, src[0..tok.pos], " ");
+        var start = before.len;
+        while (start > 0 and isIdentCont(before[start - 1])) start -= 1;
+        const word = before[start..];
+        const declared = std.mem.trimEnd(u8, before[0..start], " ");
+        const decl_kw: ?[]const u8 = for ([_][]const u8{ "type", "enum", "fun", "sub" }) |kw| {
+            if (std.mem.endsWith(u8, declared, kw) and (declared.len == kw.len or !isIdentCont(declared[declared.len - kw.len - 1]))) break kw;
+        } else null;
+        switch (tok.cat) {
+            .lparen_call => {
+                if (word.len == 0) return null;
+                if (decl_kw) |kw| if (kw[0] == 't' or kw[0] == 'e') return self.format("type parameters go in brackets touching the name: `{s} {s}[T]`", .{ kw, word });
+                if (std.ascii.isUpper(word[0])) return self.format("type arguments go in brackets: `{s}[...]`", .{word});
+                return null;
+            },
+            .lbracket => if (decl_kw) |kw| if (word.len > 0) {
+                return self.format("compile-time parameters go in brackets touching the name: `{s} {s}[...]`", .{ kw, word });
+            },
+            .fun, .sub => if (self.base.lexer.nesting > 0 and src[self.base.lexer.brackets[self.base.lexer.nesting - 1]] == '[') {
+                return "a function type has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead";
+            },
+            else => {},
+        }
+        if (std.mem.eql(u8, word, "pre") and self.base.lexer.inParens()) {
+            return "compile-time parameters go in brackets after the name, before the run-time ones: `fun f[n: Int](x: Int)`";
+        }
+        if (tok.cat == .ident and tok.pos > 0 and src[tok.pos - 1] == ']') {
+            return "a slice or array type has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead";
+        }
+        return null;
     }
 
     /// Inside ( ), a name followed by an operand: a paren-free call,
@@ -1237,17 +1280,20 @@ pub const Parser = struct {
             n += 1;
             e = switch (e.kind() orelse break) {
                 .propagate, .propagate_none => ir.get(e, .value),
-                .member, .index => ir.get(e, .object),
+                .member, .index, .inst => ir.get(e, .object),
                 .call => ir.Call.callee(e),
                 else => return node,
             };
         }
         // Grow the place up from the head through fields and elements,
-        // stopping at the member a call follows: the method.
+        // stopping at the member a call follows, directly or after a
+        // bracket list (`!v.put[2](x)`, compile-time arguments): the
+        // method.
         var top = n - 1;
         while (top > 0) {
             const up = spine[top - 1];
             if (up.isKind(.member) and top >= 2 and spine[top - 2].isKind(.call)) break;
+            if (up.isKind(.member) and top >= 3 and isBracketList(spine[top - 2]) and spine[top - 3].isKind(.call)) break;
             if (!up.isKind(.member) and !up.isKind(.index)) return node;
             top -= 1;
         }
@@ -1264,6 +1310,7 @@ pub const Parser = struct {
                 .propagate_none => ir.slot(.propagate_none, .value),
                 .member => ir.slot(.member, .object),
                 .index => ir.slot(.index, .object),
+                .inst => ir.slot(.inst, .object),
                 .call => ir.slot(.call, .callee),
                 else => unreachable,
             };
@@ -1374,6 +1421,14 @@ test "spacing decides prefix vs infix" {
     try expectCats("a.b f .c", &.{ .ident, .dot, .ident, .ident, .dot_lit, .ident });
     try expectCats("return .red", &.{ .@"return", .dot_lit, .ident });
     try expectCats("T? x!", &.{ .ident, .suffix_q, .ident, .suffix_bang });
+}
+
+test "compile-time brackets touch the name; `name:` inside them is a name" {
+    try expectCats("type Box[T]", &.{ .type, .ident, .lbracket_index, .ident, .rbracket });
+    try expectCats("type Box [T]", &.{ .type, .ident, .lbracket, .ident, .rbracket });
+    try expectCats("fun f[n: Int](x: Int)", &.{ .fun, .ident, .lbracket_index, .ident, .colon, .ident, .rbracket, .lparen_call, .kwarg_name, .colon, .ident, .rparen });
+    try expectCats("Pair[Int, String].make(1)", &.{ .ident, .lbracket_index, .ident, .comma, .ident, .rbracket, .dot, .ident, .lparen_call, .integer, .rparen });
+    try expectCats("pre = 1", &.{ .ident, .assign, .integer });
 }
 
 test "minus: infix, negation, drop" {
@@ -1501,7 +1556,7 @@ test "parser: every form parses" {
         \\
         \\type Id = U64
         \\
-        \\type Box(T)
+        \\type Box[T]
         \\  value: T
         \\
         \\  fun get(?self) -> T
@@ -1529,7 +1584,7 @@ test "parser: every form parses" {
         \\extern sub halt
         \\extern count: Int
         \\
-        \\pub fun f(a: Int, b: Int = 2, pre c: Int) -> Int!
+        \\pub fun f[c: Int](a: Int, b: Int = 2) -> Int!
         \\  a
         \\
         \\test "t"
@@ -1577,9 +1632,10 @@ test "parser: every form parses" {
         \\    print(@intCast(x))
         \\  print(+a, <b, ?c, !d, *e, ~f, v.w[0])
         \\  n: fun() -> Int = f
-        \\  n2: *sub(Int, ?Box(Int)) = h
+        \\  n2: *sub(Int, ?Box[Int]) = h
         \\  n3: sub() = i
-        \\  o2: (*Box(Int))? = none
+        \\  o2: (*Box[Int])? = none
+        \\  p2 = Pair[Int, String].make(f[3](1), v[0])
         \\  o3: []~Int = o
         \\  return x
         \\

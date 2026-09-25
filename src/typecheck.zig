@@ -247,7 +247,7 @@ const Checker = struct {
 
     const not_at_module_level = "only declarations and bindings are allowed at module level; move this statement into a function";
     const discard_read = "`_` discards a value; it cannot be read";
-    const stack_signal = "stack-local `Signal(T)` is not supported: a Signal lives behind a shared handle; construct it with `*Signal(value: ...)`";
+    const stack_signal = "stack-local `Signal[T]` is not supported: a Signal lives behind a shared handle; construct it with `*Signal(value: ...)`";
 
     /// A `struct`, `enum`, `errors`, `generic_type`, or `generic_enum`.
     fn checkNominal(self: *Checker, node: Sexp) Error!void {
@@ -433,10 +433,17 @@ const Checker = struct {
     /// over (`!`, `?`), or handle a failure. One that only reads a value
     /// and drops it is a mistake; a function name was meant as a call.
     fn checkExprStmt(self: *Checker, stmt: Sexp) Error!void {
-        const ty = try self.synthExpr(stmt);
+        // `show[3]`: a function with compile-time arguments, called.
+        const implicit = if (rig.isBracketList(stmt)) try self.implicitCall(stmt) else null;
+        const ty = implicit orelse try self.synthExpr(stmt);
         // A closure literal alone is reported by the ownership checker.
         if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
-        if (!hasEffect(stmt)) {
+        if (implicit != null) {
+            if (self.ctx.types.get(ty) == .fallible) {
+                const call = try self.sourceText(stmt);
+                try self.errAt(stmt, "fallible call to `{s}` must be wrapped with `!` (propagate) or `catch` (handle); write `{s}()!`", .{ call, call });
+            }
+        } else if (!hasEffect(stmt)) {
             if (stmt.kind() == null and self.ctx.types.get(ty) == .function)
                 return self.errAt(stmt, "`{s}` is a function; call it with `{s}()`", .{ self.text(stmt), self.text(stmt) });
             return self.errAt(stmt, "this expression does nothing as a statement; use its value, or discard it with `_ = ...`", .{});
@@ -702,7 +709,7 @@ const Checker = struct {
         const assign = std.mem.eql(u8, verb, "assign to");
         const through = if (assign) "assign" else verb;
         if (path.shared) {
-            try self.errAt(at, "cannot {s} through {s}shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell(T)` for mutation through shared ownership.", .{ through, if (assign) "" else "a " });
+            try self.errAt(at, "cannot {s} through {s}shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.", .{ through, if (assign) "" else "a " });
             return false;
         }
         if (path.read_only) |ro| {
@@ -1098,10 +1105,10 @@ const Checker = struct {
                 };
                 if (is_resource) {
                     if (mode != .read and mode != .write and mode != .move) {
-                        try self.err(pos, "resource Vec(T) iteration requires an explicit read borrow; write `for x in ?vec`", .{});
+                        try self.err(pos, "resource Vec[T] iteration requires an explicit read borrow; write `for x in ?vec`", .{});
                     }
                     if (!isFieldPath(inner_source)) {
-                        try self.err(pos, "resource Vec(T) iteration requires a Vec binding or a field of one as the source; got an expression. Bind the result to a `Vec(T)` local first.", .{});
+                        try self.err(pos, "resource Vec[T] iteration requires a Vec binding or a field of one as the source; got an expression. Bind the result to a `Vec[T]` local first.", .{});
                     }
                 }
                 if (mode == .write) return self.writeElement(source, inner_source, elem);
@@ -1506,12 +1513,12 @@ const Checker = struct {
         return self.ctx.is_root and sym.kind == .function and sym.scope == sema.module_scope and std.mem.eql(u8, sym.name, "main");
     }
 
-    /// A function named as a value. One with `pre` parameters has a
-    /// compile-time instance per call, and no single function value.
+    /// A function named as a value. One with compile-time parameters has
+    /// an instance per call, and no single function value.
     fn functionValue(self: *Checker, ty: TypeId, name: []const u8, pos: u32) Error!TypeId {
         const f = self.ctx.types.get(ty);
-        if (f == .function and f.function.pre_mask != 0) {
-            try self.err(pos, "`{s}` takes a `pre` parameter, so it can only be called, not used as a value", .{name});
+        if (f == .function and f.function.ct_params.len != 0) {
+            try self.err(pos, "`{s}` takes compile-time parameters, so it can only be called, not used as a value", .{name});
             return self.t().invalid_id;
         }
         return ty;
@@ -1575,7 +1582,7 @@ const Checker = struct {
         return switch (head) {
             .call => self.synthCall(e),
             .member => self.synthMember(e),
-            .index => self.synthIndex(e),
+            .index, .inst => self.synthIndex(e),
             .propagate => self.synthPropagate(e),
             .propagate_none => self.synthPropagateNone(e),
             .@"if" => self.checkIfValue(e, null, .value),
@@ -2290,8 +2297,14 @@ const Checker = struct {
 
         if (try self.moduleMember(obj, field, pos)) |ty| return ty;
         if (try self.namedType(obj)) |nt| return self.typeMember(nt, field, pos);
+        return self.memberOf(e, obj, try self.synthOperand(obj));
+    }
 
-        const obj_ty = try self.synthOperand(obj);
+    /// Member `e` of `obj`, a value of type `obj_ty`.
+    fn memberOf(self: *Checker, e: Sexp, obj: Sexp, obj_ty: TypeId) Error!TypeId {
+        const field_node = ir.Member.name(e);
+        const field = self.text(field_node);
+        const pos = srcPos(field_node, self.startOf(obj));
         if (self.isPoison(obj_ty)) return obj_ty;
         const peeled = sema.unwrapReadAccess(self.ctx, obj_ty);
 
@@ -2391,9 +2404,20 @@ const Checker = struct {
         sym: sema.Symbol,
         /// Where an imported type is declared.
         foreign: ?ForeignFields = null,
+        /// A generic type's arguments, when given (`Pair[Int, String]`).
+        args: ?[]const TypeId = null,
     };
 
     fn namedType(self: *Checker, obj: Sexp) Error!?NamedType {
+        if (rig.isBracketList(obj)) {
+            const target = (try self.instTarget(ir.get(obj, .object))) orelse return null;
+            if (target != .generic) return null;
+            var nt = target.generic;
+            const ty = try self.typeInstance(obj, nt);
+            const arity = if (nt.sym.type_params) |tps| tps.len else 0;
+            nt.args = if (self.isPoison(ty)) try self.poisonArgs(arity) else self.ctx.types.get(ty).parameterized_nominal.args;
+            return nt;
+        }
         if (obj == .src) {
             var id = self.lookupQuiet(obj) orelse return null;
             if (self.aliasedNominal(id)) |target| id = target;
@@ -2447,19 +2471,229 @@ const Checker = struct {
                 return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos);
             }
             if (!m.is_variant) break;
-            if (nt.sym.kind == .generic_type) {
-                try self.err(pos, "variant of generic enum `{s}` needs its type; write `.{s}` where a `{s}(...)` is expected", .{ nt.sym.name, field, nt.sym.name });
+            if (nt.sym.kind == .generic_type and nt.args == null) {
+                try self.err(pos, "variant of generic enum `{s}` needs its type; write `{s}[...].{s}`, or `.{s}` where a `{s}[...]` is expected", .{ nt.sym.name, nt.sym.name, field, field, nt.sym.name });
                 return self.t().invalid_id;
             }
             if (m.payload != null and m.payload.?.len > 0) {
                 try self.err(pos, "variant `{s}.{s}` carries a payload; construct it with `{s}.{s}(...)`", .{ nt.sym.name, field, nt.sym.name, field });
                 return self.t().invalid_id;
             }
+            if (nt.args) |given| return self.instantiate(nt.id, given, pos);
             return self.namedTypeValue(nt);
         }
         try self.err(pos, "no member `{s}` on type `{s}`", .{ field, nt.sym.name });
         try self.noteDeclared(nt.sym, nt.foreign == null);
         return self.t().invalid_id;
+    }
+
+    // ---- compile-time arguments ---------------------------------------------
+    //
+    // `x[...]` is an `index` (one argument) or an `inst` (more) in the IR.
+    // It gives compile-time arguments when `x` names a generic type or a
+    // function; otherwise it indexes. Each bracket list read as
+    // compile-time arguments is recorded as an instance
+    // (`SemContext.instanceOf`).
+
+    /// What the object of a bracket list names, when that makes the list
+    /// compile-time arguments; null when it is an index.
+    const InstTarget = union(enum) {
+        /// A generic type, local or built in: `Vec[Int]`.
+        generic: NamedType,
+        /// A function, named directly, through its module, or through
+        /// its type: `check[.strict]`, `m.f[2]`, `Pair.make[1]`.
+        function: struct { takes_args: bool },
+        /// `value.name[...]`: a method's compile-time arguments, or an
+        /// element of a field; the receiver's type tells which.
+        value_member,
+        /// A type that takes no type arguments; its name.
+        not_generic: []const u8,
+    };
+
+    fn instTarget(self: *Checker, obj: Sexp) Error!?InstTarget {
+        if (obj == .src) {
+            const id = self.lookupQuiet(obj) orelse {
+                const name = self.text(obj);
+                return if (resolve.isBuiltinTypeName(self.ctx, name)) .{ .not_generic = name } else null;
+            };
+            const sym = self.ctx.symbols.items[id];
+            switch (sym.kind) {
+                .function, .@"extern" => return .{ .function = .{ .takes_args = takesArgs(self.ctx, sym.ty) } },
+                .generic_type => {
+                    try self.ctx.recordName(obj, id);
+                    return .{ .generic = .{ .id = id, .sym = sym } };
+                },
+                .nominal_type, .type_alias => return .{ .not_generic = sym.name },
+                else => return null,
+            }
+        }
+        if (!obj.isKind(.member)) return null;
+        const inner = ir.Member.object(obj);
+        const name = self.text(ir.Member.name(obj));
+        if (inner == .src) if (self.lookupQuiet(inner)) |id| if (self.ctx.symbols.items[id].kind == .module) {
+            const origin = self.ctx.module_refs.get(id) orelse return null;
+            const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
+            const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse return null;
+            const fsym = foreign.symbols.items[fid];
+            return switch (fsym.kind) {
+                .function, .@"extern" => .{ .function = .{ .takes_args = takesArgs(foreign, fsym.ty) } },
+                .nominal_type, .type_alias, .generic_type => .{ .not_generic = try self.sourceText(obj) },
+                else => null,
+            };
+        };
+        if (try self.namedType(inner)) |nt| {
+            for (nt.sym.fields orelse &.{}) |m| {
+                if (m.is_method and !m.is_drop_method and std.mem.eql(u8, m.name, name)) return .{ .function = .{ .takes_args = takesArgs(if (nt.foreign) |fo| fo.ctx else self.ctx, m.ty) } };
+            }
+            return null;
+        }
+        return .value_member;
+    }
+
+    /// Whether function type `ty` (of `ctx`) has run-time parameters.
+    fn takesArgs(ctx: *const SemContext, ty: TypeId) bool {
+        const f = ctx.types.get(ty);
+        return f != .function or f.function.params.len > 0;
+    }
+
+    /// The source text of a node, for messages.
+    fn sourceText(self: *Checker, node: Sexp) Error![]const u8 {
+        const sp = self.ctx.span(node);
+        return self.ctx.source[sp.start..sp.end];
+    }
+
+    /// `n` poison type arguments, for a generic whose given arguments
+    /// were rejected.
+    fn poisonArgs(self: *Checker, n: usize) Error![]const TypeId {
+        const out = try self.ctx.arena.allocator().alloc(TypeId, n);
+        @memset(out, self.t().invalid_id);
+        return out;
+    }
+
+    /// A bracket list of compile-time arguments where a value is
+    /// expected: a type, or a function that is not called.
+    fn misusedInstance(self: *Checker, e: Sexp, target: InstTarget) Error!TypeId {
+        switch (target) {
+            .generic => |nt| {
+                if (!self.isPoison(try self.typeInstance(e, nt))) try self.errAt(e, "`{s}` is a type, not a value", .{try self.sourceText(e)});
+            },
+            .function => {
+                const call = try self.sourceText(e);
+                try self.errAt(e, "`{s}` is a function with compile-time arguments; call it with `{s}(...)`", .{ call, call });
+            },
+            .not_generic => |name| try self.errAt(e, "`{s}` is not a generic type; it takes no type arguments", .{name}),
+            .value_member => unreachable,
+        }
+        return self.t().invalid_id;
+    }
+
+    /// The instance of generic type `nt` that bracket list `e` names
+    /// (`Pair[Int, String]`), recorded for `e`; poison after a
+    /// diagnostic.
+    fn typeInstance(self: *Checker, e: Sexp, nt: NamedType) Error!TypeId {
+        const params = nt.sym.type_params orelse &.{};
+        const given = sema.bracketArgs(e);
+        if (given.len != params.len) {
+            try self.errAt(e, "generic type `{s}` expects {d} type argument{s}, got {d}", .{ nt.sym.name, params.len, plural(params.len), given.len });
+            return self.t().invalid_id;
+        }
+        const args = try self.ctx.arena.allocator().alloc(TypeId, given.len);
+        var bad = false;
+        for (given, args) |g, *a| {
+            a.* = try self.typeArg(g);
+            if (self.isPoison(a.*)) bad = true;
+        }
+        if (bad) return self.t().invalid_id;
+        const ty = try self.instantiate(nt.id, args, self.startOf(e));
+        try self.ctx.recordInstance(e, .{ .type = ty });
+        return ty;
+    }
+
+    /// A type argument written in an expression (`Vec[*Node]()`): a
+    /// name, `module.Type`, `*T`, `~T`, `?T`, `!T`, `T?`, or `X[Y]`.
+    fn typeArg(self: *Checker, e: Sexp) Error!TypeId {
+        var r = self.resolver();
+        switch (e) {
+            .src => if (!isLiteralText(self.text(e))) return r.resolveType(e),
+            .list => switch (e.kind() orelse return self.t().invalid_id) {
+                .member => if (ir.Member.object(e) == .src) return r.resolveType(e),
+                .share, .weak, .read, .write, .propagate_none => {
+                    const inner_node = ir.get(e, if (e.isKind(.propagate_none)) .value else .operand);
+                    const inner = try self.typeArg(inner_node);
+                    if (self.isPoison(inner)) return inner;
+                    if (e.isKind(.share) and self.ctx.types.get(inner) == .shared) {
+                        try self.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
+                        return self.t().invalid_id;
+                    }
+                    return self.ctx.intern(switch (e.kind().?) {
+                        .share => .{ .shared = inner },
+                        .weak => .{ .weak = inner },
+                        .read => .{ .borrow_read = inner },
+                        .write => .{ .borrow_write = inner },
+                        else => .{ .optional = inner },
+                    });
+                },
+                .propagate => {
+                    try self.errAt(e, "a fallible type `{s}` is only allowed as a function's return type", .{try self.sourceText(e)});
+                    return self.t().invalid_id;
+                },
+                .index, .inst => if (try self.instTarget(ir.get(e, .object))) |target| switch (target) {
+                    .generic => |nt| return self.typeInstance(e, nt),
+                    .not_generic => |name| {
+                        try self.errAt(e, "`{s}` is not a generic type; it takes no type arguments", .{name});
+                        return self.t().invalid_id;
+                    },
+                    else => {},
+                },
+                else => {},
+            },
+            else => {},
+        }
+        try self.errAt(e, "`{s}` is not a type; a type argument in an expression is a name, `module.Type`, `*T`, `~T`, `?T`, `!T`, `T?`, or `X[T]`", .{try self.sourceText(e)});
+        return self.t().invalid_id;
+    }
+
+    /// `Box[Int](v: 3)`, `Vec[Int]()`: a generic type constructed at the
+    /// given arguments.
+    fn constructInstance(self: *Checker, call: Sexp, e: Sexp, nt: NamedType, args: []const Sexp) Error!TypeId {
+        const ty = try self.typeInstance(e, nt);
+        if (self.isPoison(ty)) return self.skipCall(args);
+        if (nt.id == self.ctx.vec_sym_id) {
+            try self.checkVecConstruction(call);
+            return ty;
+        }
+        if (nt.id == self.ctx.signal_sym_id and !sameNode(call, self.shared_operand)) return self.badCall(args, e, stack_signal, .{});
+        const subst: TypeSubst = .{ .params = nt.sym.type_params orelse &.{}, .args = self.ctx.types.get(ty).parameterized_nominal.args };
+        return self.construct(nt.id, args, self.startOf(e), subst, null);
+    }
+
+    /// A statement `f[...]`: a function with compile-time arguments and no
+    /// run-time parameters, called. Null when `e` is not one.
+    fn implicitCall(self: *Checker, e: Sexp) Error!?TypeId {
+        const obj = ir.get(e, .object);
+        const target = (try self.instTarget(obj)) orelse return null;
+        if (target != .function) return null;
+        if (target.function.takes_args) {
+            const call = try self.sourceText(e);
+            try self.errAt(e, "`{s}` takes run-time arguments; call it with `{s}(...)`", .{ call, call });
+            return self.t().invalid_id;
+        }
+        const saved = self.current_call;
+        self.current_call = null;
+        defer self.current_call = saved;
+        const ty = if (obj == .src) blk: {
+            const sym = self.ctx.symbols.items[(try self.useName(obj)).?];
+            try self.ctx.recordType(obj, sym.ty);
+            break :blk try self.functionCall(obj, sym, e, &.{});
+        } else
+            try self.synthMemberCall(obj, &.{}, e);
+        if (self.ctx.instanceOf(e)) |inst| if (inst == .function) {
+            var f = inst.function;
+            f.call = true;
+            try self.ctx.recordInstance(e, .{ .function = f });
+        };
+        try self.ctx.recordType(e, self.canonical(ty));
+        return ty;
     }
 
     /// The module a name leaf denotes, recorded as its symbol; null when
@@ -2517,10 +2751,22 @@ const Checker = struct {
     }
 
     fn synthIndex(self: *Checker, e: Sexp) Error!TypeId {
-        const object = ir.Index.object(e);
+        const object = ir.get(e, .object);
+        if (try self.instTarget(object)) |target| if (target != .value_member) return self.misusedInstance(e, target);
+        if (e.isKind(.index) and ir.Index.index(e).isKind(.@"..")) return self.synthSlice(e, false);
+        return self.indexInto(e, try self.synthOperand(object));
+    }
+
+    /// Element `e` (an `index` node) of a value of type `obj_ty`.
+    fn indexInto(self: *Checker, e: Sexp, obj_ty: TypeId) Error!TypeId {
+        const object = ir.get(e, .object);
+        if (e.isKind(.inst)) {
+            for (ir.Inst.args(e)) |a| _ = try self.synthQuiet(a);
+            if (self.isPoison(obj_ty)) return obj_ty;
+            try self.errAt(e, "an index is one value; a bracket list of {d} gives compile-time arguments, which only a generic type or a function with compile-time parameters takes", .{ir.Inst.args(e).len});
+            return self.t().invalid_id;
+        }
         const index = ir.Index.index(e);
-        if (index.isKind(.@"..")) return self.synthSlice(e, false);
-        const obj_ty = try self.synthOperand(object);
         const idx_ty = readValue(self.ctx, try self.synthExpr(index));
         if (!self.isPoison(idx_ty) and !sema.isInteger(self.ctx, idx_ty)) {
             try self.errAt(index, "an index must be an integer; got `{s}`", .{try self.tyName(idx_ty)});
@@ -2690,8 +2936,20 @@ const Checker = struct {
     }
 
     fn synthCallInner(self: *Checker, node: Sexp) Error!TypeId {
-        const callee = ir.Call.callee(node);
+        var callee = ir.Call.callee(node);
         const args = ir.Call.args(node);
+
+        // `f[...](args)`, `Box[Int](args)`: compile-time arguments.
+        var ct: ?Sexp = null;
+        if (rig.isBracketList(callee)) if (try self.instTarget(ir.get(callee, .object))) |target| switch (target) {
+            .generic => |nt| return self.constructInstance(node, callee, nt, args),
+            .function => {
+                ct = callee;
+                callee = ir.get(callee, .object);
+            },
+            .value_member => return self.synthMemberCall(ir.get(callee, .object), args, callee),
+            .not_generic => |name| return self.badCall(args, callee, "`{s}` is not a generic type; it takes no type arguments", .{name}),
+        };
 
         if (callee == .src) {
             const name = self.text(callee);
@@ -2712,22 +2970,12 @@ const Checker = struct {
                 try self.ctx.recordType(callee, sym.ty);
             }
             switch (sym.kind) {
-                .function, .@"extern" => {
-                    if (self.isEntryPoint(sym)) return self.badCall(args, callee, entry_point_use, .{});
-                    if (self.isPoison(sym.ty)) return self.skipCall(args);
-                    const fty = self.ctx.types.get(sym.ty);
-                    if (fty != .function) return self.badCall(args, callee, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(sym.ty) });
-                    if (sym.kind == .@"extern" and self.raw_depth == 0) {
-                        try self.errAt(callee, "call to extern function `{s}` requires `raw` block; extern functions are the FFI boundary and bypass Rig's ownership and effect checks", .{name});
-                    }
-                    try self.checkArgs(args, fty.function, paramsOf(sym, self.ctx.source), name, callee.src.pos);
-                    return fty.function.returns;
-                },
+                .function, .@"extern" => return self.functionCall(callee, sym, ct, args),
                 .nominal_type => return self.construct(sym_id, args, callee.src.pos, TypeSubst.empty, null),
                 .type_alias => return self.badCall(args, callee, "`{s}` is a type alias for `{s}` and cannot be called as a constructor; construct the aliased type directly", .{ name, try self.tyName(sym.ty) }),
                 .generic_type => {
                     // The type arguments come from the fields' values.
-                    if (sym_id == self.ctx.vec_sym_id) return self.badCall(args, callee, "`Vec()` needs its element type from where it goes; write `v: Vec(T) = Vec()`", .{});
+                    if (sym_id == self.ctx.vec_sym_id) return self.badCall(args, callee, "`Vec()` needs its element type: name it (`Vec[T]()`), or give it where the value goes (`v: Vec[T] = Vec()`)", .{});
                     if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
                     const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = sym.fields orelse &.{} }, callee.src.pos)) orelse return self.skipCall(args);
                     _ = try self.instantiate(sym_id, subst.args, callee.src.pos);
@@ -2738,12 +2986,28 @@ const Checker = struct {
             }
         }
 
-        if (callee.isKind(.member)) return self.synthMemberCall(callee, args);
+        if (callee.isKind(.member)) return self.synthMemberCall(callee, args, ct);
 
         if (callee.isKind(.enum_lit)) return self.badCall(args, callee, "variant `.{s}(...)` needs a known enum type; annotate the binding", .{self.text(ir.EnumLit.name(callee))});
 
         const callee_ty = try self.synthOperand(callee);
         return self.callValue(callee, callee_ty, args, "expression");
+    }
+
+    /// Call function `sym`, named by `callee`, with the compile-time
+    /// arguments in bracket list `ct` (null for none).
+    fn functionCall(self: *Checker, callee: Sexp, sym: sema.Symbol, ct: ?Sexp, args: []const Sexp) Error!TypeId {
+        const name = self.text(callee);
+        if (self.isEntryPoint(sym)) return self.badCall(args, callee, entry_point_use, .{});
+        if (self.isPoison(sym.ty)) return self.skipCall(args);
+        const fty = self.ctx.types.get(sym.ty);
+        if (fty != .function) return self.badCall(args, callee, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(sym.ty) });
+        if (sym.kind == .@"extern" and self.raw_depth == 0) {
+            try self.errAt(callee, "call to extern function `{s}` requires `raw` block; extern functions are the FFI boundary and bypass Rig's ownership and effect checks", .{name});
+        }
+        try self.checkCtArgs(ct, fty.function, name, callee.src.pos, .{});
+        try self.checkArgs(args, fty.function, paramsOf(sym, self.ctx.source), name, callee.src.pos);
+        return fty.function.returns;
     }
 
     /// Call a value: a function-typed binding, a closure, or an owned
@@ -2905,9 +3169,8 @@ const Checker = struct {
     }
 
     /// Arguments against a signature: arity, types, keyword arguments
-    /// by parameter name, defaults for omitted parameters, and
-    /// compile-time-known values for `pre` parameters. A call that uses
-    /// keywords or defaults records its argument slots.
+    /// by parameter name, and defaults for omitted parameters. A call
+    /// that uses keywords or defaults records its argument slots.
     fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info: ParamInfo, callee: []const u8, pos: u32) Error!void {
         const call = self.current_call;
         var first_kw: ?usize = null;
@@ -2944,7 +3207,7 @@ const Checker = struct {
         @memset(slots, null);
         for (positional, 0..) |a, i| {
             slots[i] = .{ .arg = @intCast(i) };
-            try self.checkArg(a, f, i, callee);
+            try self.checkArg(a, f, i);
         }
         for (keyword, positional.len..) |kw, ai| {
             const kname_node = ir.Kwarg.name(kw);
@@ -2962,7 +3225,7 @@ const Checker = struct {
                 continue;
             }
             slots[idx] = .{ .arg = @intCast(ai) };
-            try self.checkArg(ir.Kwarg.value(kw), f, idx, callee);
+            try self.checkArg(ir.Kwarg.value(kw), f, idx);
         }
         var complete = true;
         for (slots, 0..) |*slot, i| {
@@ -2982,13 +3245,38 @@ const Checker = struct {
         try self.ctx.recordCallSlots(call_node, out);
     }
 
-    fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize, callee: []const u8) Error!void {
+    fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize) Error!void {
         // A poison parameter (of a rejected generic function) may be
         // given a type; there is nothing more to report about it.
         if (self.isPoison(f.params[i]) and self.namesType(arg)) return;
         try self.checkExpr(arg, f.params[i]);
-        if (f.isPre(i) and !self.isComptimeKnown(arg)) {
-            try self.errAt(arg, "argument {d} of `{s}` is a `pre` parameter and must be known at compile time; pass a literal, an enum value, a `pre` parameter, or a `=!` binding of one", .{ i + 1, callee });
+    }
+
+    /// The compile-time arguments of a call (`ct`, its bracket list, or
+    /// null for none) against the callee's compile-time parameters. Each
+    /// must be known at compile time.
+    fn checkCtArgs(self: *Checker, ct: ?Sexp, f: FunctionType, callee: []const u8, pos: u32, inst: sema.FunctionInstance) Error!void {
+        const args: []const Sexp = if (ct) |b| sema.bracketArgs(b) else &.{};
+        if (ct) |b| try self.ctx.recordInstance(b, .{ .function = inst });
+        // A rejected generic function's compile-time parameters are
+        // poison; its calls have nothing more to report.
+        for (f.ct_params) |ty| if (self.isPoison(ty)) return;
+        if (args.len != f.ct_params.len) {
+            const n = f.ct_params.len;
+            if (n == 0) {
+                try self.errAt(ct.?, "`{s}` takes no compile-time arguments; call it with `{s}(...)`", .{ callee, callee });
+            } else if (args.len == 0) {
+                try self.err(pos, "`{s}` takes {d} compile-time argument{s} in brackets: `{s}[...](...)`", .{ callee, n, plural(n), callee });
+            } else {
+                try self.errAt(ct.?, "`{s}` expects {d} compile-time argument{s}, got {d}", .{ callee, n, plural(n), args.len });
+            }
+            return;
+        }
+        for (args, f.ct_params, 0..) |a, ty, i| {
+            try self.checkExpr(a, ty);
+            if (!self.isComptimeKnown(a)) {
+                try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a compile-time parameter, or a `=!` binding of one", .{ i + 1, callee });
+            }
         }
     }
 
@@ -3126,7 +3414,10 @@ const Checker = struct {
 
     /// A call whose callee is `(member obj name)`. The callee node's type
     /// is recorded too: the resolved method's signature.
-    fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp) Error!TypeId {
+    /// `obj.name(args)`; `ct` is the bracket list of `obj.name[...](args)`,
+    /// compile-time arguments for a method, or the index of an element of
+    /// a field holding functions.
+    fn synthMemberCall(self: *Checker, callee: Sexp, args: []const Sexp, ct: ?Sexp) Error!TypeId {
         const saved = self.callee_node;
         self.callee_node = callee;
         defer self.callee_node = saved;
@@ -3144,8 +3435,8 @@ const Checker = struct {
                 obj = place;
             }
         }
-        if (try self.moduleNamed(obj)) |id| return self.crossModuleCall(id, method, pos, args);
-        if (try self.namedType(obj)) |nt| return self.associatedCall(obj, nt, method, pos, args);
+        if (try self.moduleNamed(obj)) |id| return self.crossModuleCall(id, method, pos, args, ct);
+        if (try self.namedType(obj)) |nt| return self.associatedCall(obj, nt, method, pos, args, ct);
 
         // A consuming (`self: Self`) method may take a temporary; any
         // other receiver must already have an owner.
@@ -3153,6 +3444,16 @@ const Checker = struct {
         if (self.isPoison(obj_ty)) {
             try self.synthArgs(args);
             return obj_ty;
+        }
+
+        const resolved_method = try self.findMethod(obj_ty, method);
+        // `x.f[i](args)` where `f` is a field: its element is called.
+        if (ct != null and resolved_method == null) {
+            const field_ty = try self.memberOf(callee, obj, obj_ty);
+            try self.ctx.recordType(callee, field_ty);
+            const elem_ty = try self.indexInto(ct.?, field_ty);
+            try self.ctx.recordType(ct.?, elem_ty);
+            return self.callValue(ct.?, elem_ty, args, "expression");
         }
 
         if (std.mem.eql(u8, method, "upgrade")) {
@@ -3187,7 +3488,7 @@ const Checker = struct {
             return ty;
         };
 
-        const resolved = (try self.findMethod(obj_ty, method)) orelse {
+        const resolved = resolved_method orelse {
             // A data field holding a function or a closure handle is
             // called like one.
             if (try self.dataField(obj_ty, method)) |ty| {
@@ -3256,13 +3557,13 @@ const Checker = struct {
             .params = resolved.fn_ty.params[1..],
             .returns = resolved.fn_ty.returns,
             .is_sub = resolved.fn_ty.is_sub,
-            .pre_mask = resolved.fn_ty.pre_mask >> 1,
         };
+        try self.checkCtArgs(ct, resolved.fn_ty, method, pos, .{});
         try self.checkArgs(args, rest, methodParams(resolved.field, true, resolved.source), method, pos);
         return resolved.fn_ty.returns;
     }
 
-    /// A `Cell(Vec(E))` answers its Vec's `push`, `pop`, `clear`, and,
+    /// A `Cell[Vec[E]]` answers its Vec's `push`, `pop`, `clear`, and,
     /// for a plain-data `E`, `get(i)`, through any path to the cell, as
     /// `set` does. Null for the Cell's own members.
     fn cellVecCall(self: *Checker, obj: Sexp, obj_ty: TypeId, elem: TypeId, method: []const u8, pos: u32, args: []const Sexp) Error!?TypeId {
@@ -3309,7 +3610,7 @@ const Checker = struct {
 
     /// `Type.function(args)` or `Type.variant(payload)`, for a type of
     /// this module or an imported one.
-    fn associatedCall(self: *Checker, obj: Sexp, nt: NamedType, name: []const u8, pos: u32, args: []const Sexp) Error!TypeId {
+    fn associatedCall(self: *Checker, obj: Sexp, nt: NamedType, name: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
         const members = nt.sym.fields orelse return self.badCall(args, pos, "opaque type `{s}` has no members", .{nt.sym.name});
         const generic = nt.sym.kind == .generic_type;
         for (members) |m| {
@@ -3319,22 +3620,28 @@ const Checker = struct {
                 if (fty != .function) break;
                 var f = fty.function;
                 if (generic) {
-                    // The type's arguments come from the call's arguments.
-                    const subst = (try self.inferTypeArgs(nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names } }, pos)) orelse return self.skipCall(args);
-                    try self.ctx.recordType(obj, try self.instantiate(nt.id, subst.args, pos));
+                    // The type's arguments are given (`Pair[Int, String].make`)
+                    // or come from the call's arguments.
+                    const subst = if (nt.args) |given| TypeSubst{ .params = nt.sym.type_params orelse &.{}, .args = given } else (try self.inferTypeArgs(nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names } }, pos)) orelse return self.skipCall(args);
+                    if (nt.args == null) try self.ctx.recordType(obj, try self.instantiate(nt.id, subst.args, pos));
                     f = self.ctx.types.get(try sema.substituteType(self.ctx, m.ty, subst)).function;
                 }
                 try self.noteCallee(f);
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.ctx.source;
+                try self.checkCtArgs(ct, f, name, pos, .{ .receiver_arg = m.receiver != .none });
                 try self.checkArgs(args, f, methodParams(m, false, source), name, pos);
                 return f.returns;
             }
+            if (ct) |b| return self.badCall(args, b, "`{s}.{s}` is not a function; it takes no compile-time arguments", .{ nt.sym.name, name });
             if (!m.is_variant) break;
             const payload = m.payload orelse &.{};
             if (payload.len == 0) return self.badCall(args, pos, "variant `{s}.{s}` takes no payload", .{ nt.sym.name, name });
             var subst = TypeSubst.empty;
             var ty = try self.namedTypeValue(nt);
-            if (generic) {
+            if (nt.args) |given| {
+                subst = .{ .params = nt.sym.type_params orelse &.{}, .args = given };
+                ty = try self.instantiate(nt.id, given, pos);
+            } else if (generic) {
                 subst = (try self.inferTypeArgs(nt.id, args, .{ .fields = payload }, pos)) orelse return self.skipCall(args);
                 ty = try self.instantiate(nt.id, subst.args, pos);
             }
@@ -3396,7 +3703,7 @@ const Checker = struct {
         }
         for (params, bound) |p, b| {
             if (b != sema.type_invalid) continue;
-            try self.err(pos, "cannot infer `{s}` for `{s}` from the arguments; give the type where the value goes (`x: {s}(...) = ...`)", .{ self.ctx.symbols.items[p].name, sym.name, sym.name });
+            try self.err(pos, "cannot infer `{s}` for `{s}` from the arguments; name it (`{s}[...]`), or give the type where the value goes (`x: {s}[...] = ...`)", .{ self.ctx.symbols.items[p].name, sym.name, sym.name, sym.name });
             return null;
         }
         return .{ .params = params, .args = bound };
@@ -3454,7 +3761,7 @@ const Checker = struct {
     }
 
     /// `module.function(args)` or `module.Type(fields)`.
-    fn crossModuleCall(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!TypeId {
+    fn crossModuleCall(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
         const module_name = self.ctx.symbols.items[module_sym].name;
         const found = (try self.foreignSymbol(module_sym, name, pos)) orelse return self.skipCall(args);
         const qualified = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ module_name, name });
@@ -3464,10 +3771,11 @@ const Checker = struct {
                 const fty = self.ctx.types.get(local);
                 if (fty != .function) return self.badCall(args, pos, "`{s}` cannot be called", .{qualified});
                 try self.noteCallee(fty.function);
+                try self.checkCtArgs(ct, fty.function, qualified, pos, .{});
                 try self.checkArgs(args, fty.function, paramsOf(found.sym, found.ctx.source), qualified, pos);
                 return fty.function.returns;
             },
-            .nominal_type => return self.construct(found.id, args, pos, TypeSubst.empty, .{ .ctx = found.ctx, .module_id = found.module_id }),
+            .nominal_type => if (ct == null) return self.construct(found.id, args, pos, TypeSubst.empty, .{ .ctx = found.ctx, .module_id = found.module_id }) else return self.badCall(args, ct.?, "`{s}` is not a generic type; it takes no type arguments", .{qualified}),
             else => return self.badCall(args, pos, "`{s}` cannot be called", .{qualified}),
         }
     }
@@ -3492,7 +3800,7 @@ const Checker = struct {
     /// anything behind a borrow or handle. A by-value parameter is
     /// immutable, and a loop or match binding is a copy, so changing it
     /// would not change the value it came from.
-    /// The `c[i]` a place goes through, where `c` is a `Cell(Vec(E))`:
+    /// The `c[i]` a place goes through, where `c` is a `Cell[Vec[E]]`:
     /// such an element is a copy, read or written whole.
     fn cellVecElementIn(self: *Checker, place: Sexp) ?Sexp {
         var p = place;
@@ -3572,7 +3880,7 @@ const Checker = struct {
             },
             .write => {
                 if (kind == .read_borrow) return self.err(pos, "method `{s}` requires a write-borrowed receiver; cannot upgrade a read borrow to a write borrow", .{method});
-                if (kind == .shared) return self.err(pos, "cannot call write-receiver method `{s}` through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell(T)` for mutation through shared ownership.", .{method});
+                if (kind == .shared) return self.err(pos, "cannot call write-receiver method `{s}` through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell[T]` for mutation through shared ownership.", .{method});
                 switch (shape) {
                     .write_explicit => {},
                     .rvalue => if (kind != .owned_nominal and kind != .write_borrow and kind != .other) {
@@ -3680,7 +3988,7 @@ const Checker = struct {
                     try self.ctx.recordType(callee, target);
                     return target;
                 }
-                // `Box(...)` where a `Box(Int)` is expected.
+                // `Box(...)` where a `Box[Int]` is expected.
                 const tt = self.ctx.types.get(target);
                 if (callee != .src or tt != .parameterized_nominal) return null;
                 const id = self.lookupQuiet(callee) orelse return null;
@@ -4392,7 +4700,7 @@ fn classifyReceiverShape(recv: Sexp) ReceiverShape {
     };
 }
 
-/// The element type of a Cell receiver (`Cell(T)`, `?Cell(T)`, `*Cell(T)`, ...).
+/// The element type of a Cell receiver (`Cell[T]`, `?Cell[T]`, `*Cell[T]`, ...).
 fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
     const pn = switch (ctx.types.get(sema.unwrapReadAccess(ctx, ty))) {
         .parameterized_nominal => |pn| pn,
@@ -4402,7 +4710,7 @@ fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return pn.args[0];
 }
 
-/// The element type of a Cell holding a Vec (`Cell(Vec(E))`, `?Cell(Vec(E))`, `*Cell(Vec(E))`, ...).
+/// The element type of a Cell holding a Vec (`Cell[Vec[E]]`, `?Cell[Vec[E]]`, `*Cell[Vec[E]]`, ...).
 fn cellVecElement(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return vecElementType(ctx, cellElementType(ctx, ty) orelse return null);
 }
@@ -4417,7 +4725,7 @@ fn findDataField(fields: []const Field, name: []const u8) ?Field {
     return null;
 }
 
-/// The element type of a `Vec(T)`.
+/// The element type of a `Vec[T]`.
 fn vecElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
     const pn = switch (ctx.types.get(ty)) {
         .parameterized_nominal => |pn| pn,
@@ -4875,13 +5183,14 @@ test "check: a generic function is reported once, not at its calls" {
         \\struct P
         \\  a: Int
         \\
-        \\fun size(pre T: type, x: T) -> Int
+        \\fun size[T](x: T) -> Int
         \\  y: T = x
         \\  3
         \\
         \\sub main()
-        \\  print(size(Int, 5))
-        \\  print(size(P, P(a: 1)))
+        \\  print(size[Int](5))
+        \\  print(size[P](P(a: 1)))
+        \\  print(size(7))
         \\
     );
     defer r.p.deinit();

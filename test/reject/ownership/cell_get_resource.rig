@@ -6,7 +6,7 @@ struct User
 
 sub main()
   u: *User = *User(age: 30)
-  c: Cell(*User) = Cell(value: <u)
+  c: Cell[*User] = Cell(value: <u)
   copy = c.get()
   print(0)
 

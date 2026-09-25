@@ -2,7 +2,7 @@
 # subscriber list is being walked. Subscribers before the panic still ran.
 
 sub main()
-  sig: *Signal(Int) = *Signal(value: 0)
+  sig: *Signal[Int] = *Signal(value: 0)
   sig.subscribe(*|~sig|
     print("notified")
     if sig.upgrade() as s

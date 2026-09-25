@@ -2,7 +2,7 @@
 # must consume it (`self: Self`); a call's result moves without `<`.
 
 struct Stack
-  items: Vec(Int)
+  items: Vec[Int]
   fun top(?self) -> Int?
     self.items.get(0)
   fun pop(!self) -> Int?

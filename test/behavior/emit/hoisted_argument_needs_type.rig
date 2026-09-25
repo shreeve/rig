@@ -12,7 +12,7 @@ fun g(ok: Bool) -> Int!
   return E.bad if not ok
   7
 
-fun take(v: Vec(Int), o: Int?, d: Dir, n: Int) -> Int
+fun take(v: Vec[Int], o: Int?, d: Dir, n: Int) -> Int
   k = 10 if d == .north else 20
   v.len + (o ?? 1) + n + k
 

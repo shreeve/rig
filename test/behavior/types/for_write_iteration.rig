@@ -12,14 +12,14 @@ struct B
     print("drop", self.n)
 
 struct H
-  v: Vec(Int)
+  v: Vec[Int]
 
-sub bump(xs: !Vec(Int))
+sub bump(xs: !Vec[Int])
   for x in !xs
     x += 1
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(1)
   !v.push(2)
   for x in !v
@@ -34,7 +34,7 @@ sub main()
     y *= 3
   print(a[0], a[2])
 
-  ps: Vec(P) = Vec()
+  ps: Vec[P] = Vec()
   !ps.push(P(x: 1))
   for p in !ps
     p.x = 7
@@ -46,7 +46,7 @@ sub main()
     e *= 2
   print(h.v[0])
 
-  bs: Vec(*B) = Vec()
+  bs: Vec[*B] = Vec()
   !bs.push(*B(n: 1))
   !bs.push(*B(n: 2))
   for b in !bs

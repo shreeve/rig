@@ -1,0 +1,57 @@
+# Compile-time arguments go in brackets before the run-time ones, for a
+# function, a method called on a value or through its type, and an
+# associated function. A compile-time parameter can be passed on to
+# another, and a function with no run-time parameters is called by a
+# statement `show[3]` as by `show[3]()`. A paren-free call takes its
+# compile-time arguments the same way.
+
+enum Mode
+  strict
+  lax
+
+fun check[mode: Mode](n: Int) -> Bool
+  if mode == .strict
+    return n > 3
+  n > 0
+
+fun both[mode: Mode](a: Int, b: Int) -> Bool
+  check[mode](a) and check[mode](b)
+
+sub show[n: Int]
+  print(n)
+
+sub report[mode: Mode, n: Int](label: String)
+  print(label, check[mode](n))
+
+struct Scale
+  k: Int
+
+  fun times[n: Int](?self) -> Int
+    self.k * n
+
+  sub bump[by: Int](!self)
+    self.k += by
+
+  fun unit[n: Int] -> Scale
+    Scale(k: n)
+
+sub main()
+  print(check[.strict](5), check[.lax](0), both[.strict](4, 9))
+  show[3]
+  show[4]()
+  report[.lax, 2]("lax 2")
+  report[.strict, 2] "strict 2"
+  s = Scale.unit[6]()
+  !s.bump[1]()
+  print(s.times[5](), Scale.times[2](?s))
+  limit =! 7
+  show[limit]
+
+# expect:
+# true false true
+# 3
+# 4
+# lax 2 true
+# strict 2 false
+# 35 14
+# 7

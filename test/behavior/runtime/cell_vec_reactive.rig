@@ -1,9 +1,9 @@
 # A reactive counter without Signal: watchers are owned closures that
-# each capture a shared `*Cell(Vec(Int))` and push to it in one call.
+# each capture a shared `*Cell[Vec[Int]]` and push to it in one call.
 
 struct Counter
-  value: Cell(Int)
-  watchers: Vec(*sub(Int))
+  value: Cell[Int]
+  watchers: Vec[*sub(Int)]
 
   sub watch(!self, f: *sub(Int))
     !self.watchers.push(<f)
@@ -14,8 +14,8 @@ struct Counter
       w(self.value.get())
 
 sub main()
-  log: *Cell(Vec(Int)) = *Cell(value: Vec())
-  doubled: *Cell(Vec(Int)) = *Cell(value: Vec())
+  log: *Cell[Vec[Int]] = *Cell(value: Vec())
+  doubled: *Cell[Vec[Int]] = *Cell(value: Vec())
   c = Counter(value: Cell(value: 0), watchers: Vec())
   !c.watch(*|+log, n| log.push(n))
   !c.watch(*|+doubled, n| doubled.push(n * 2))

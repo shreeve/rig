@@ -2,7 +2,7 @@
 # then returns nothing. Here it upgrades a weak capture.
 
 sub main()
-  c: *Cell(Int) = *Cell(value: 13)
+  c: *Cell[Int] = *Cell(value: 13)
   peek = |~c|
     if c.upgrade() as h
       print("peek", h.get())

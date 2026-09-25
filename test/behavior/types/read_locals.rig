@@ -29,15 +29,15 @@ fun fails() -> Int!
 fun ignore(n: Int) -> Int
   0
 
-sub take(v: Vec(Int))
+sub take(v: Vec[Int])
   print("took", v.len)
 
 sub main()
   lock = Lock(id: 1)
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   r = ?v
   print(r.len)
-  w: Vec(Int) = Vec()
+  w: Vec[Int] = Vec()
   take(<w)
   p = P(n: 1)
   q = +p

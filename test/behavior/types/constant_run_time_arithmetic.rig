@@ -1,9 +1,9 @@
 # Arithmetic that Rig does not compute ahead of time runs when the
 # program runs, even on constants: a value chosen by a run-time
-# condition, a `pre` parameter, and an index into a string. (Overflow
+# condition, a compile-time parameter, and an index into a string. (Overflow
 # there is a run-time panic, not a Zig compile error.)
 
-sub scaled(pre n: U8, k: U8)
+sub scaled[n: U8](k: U8)
   print(n + k)
 
 fun pick(big: Bool) -> U8
@@ -12,7 +12,7 @@ fun pick(big: Bool) -> U8
 
 sub main()
   print(pick(true), pick(false))
-  scaled(10, 20)
+  scaled[10](20)
   s = "abc"
   i = 1
   print(s[i], "xyz"[2])

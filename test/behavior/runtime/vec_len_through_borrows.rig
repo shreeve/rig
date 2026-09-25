@@ -1,17 +1,17 @@
 # `.len` of a Vec reads through a read or write borrow and a shared
 # handle, like `.len` of an array.
 
-fun count(v: ?Vec(Int)) -> Int
+fun count(v: ?Vec[Int]) -> Int
   v.len
 
-sub grow(v: !Vec(Int))
+sub grow(v: !Vec[Int])
   v.push(v.len * 10)
 
 struct Bag
-  items: Vec(Int)
+  items: Vec[Int]
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   grow(!v)
   grow(!v)
   print(count(?v), v.len, v[1])

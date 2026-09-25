@@ -4,7 +4,7 @@ pub struct B
     print("drop", self.n)
 
 pub struct H
-  items: Vec(*B)
+  items: Vec[*B]
 
   sub add(!self, b: *B)
     !self.items.push(<b)

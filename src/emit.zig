@@ -113,6 +113,9 @@ const FunState = struct {
     return_ty: ?TypeId = null,
     /// Parameters to bind at the top of the body.
     params: ?Sexp = null,
+    /// Compile-time parameters, discarded at the top of the body when
+    /// unused.
+    tparams: Sexp = .nil,
     leak_check: bool = false,
     /// A closure's environment parameter, when no capture is used.
     unused_env: []const u8 = "",
@@ -177,10 +180,10 @@ pub const Emitter = struct {
     /// position yields the pointer, not the value behind it.
     ptr_tail: bool = false,
     /// Emitting an operand of arithmetic or an index: compile-time names
-    /// (`pre` parameters, `=!` constants) are read through `rig.rt` so Zig
+    /// (compile-time parameters, `=!` constants) are read through `rig.rt` so Zig
     /// evaluates the operation at run time, as Rig checked it.
     rt_names: bool = false,
-    /// Emitting a `pre` argument, which must stay compile-time known.
+    /// Emitting a compile-time argument, which must stay compile-time known.
     keep_comptime: bool = false,
     /// Emitting an operand of arithmetic in a float type or a type
     /// parameter: an integer literal is a value of that type, so `7 / 2`
@@ -381,7 +384,7 @@ pub const Emitter = struct {
         const members = ir.GenericType.members(node);
         const prev = try self.enterNominal(ir.GenericType.name(node), true, members);
         defer self.nominal = prev;
-        try self.emitGenericHead(ir.GenericType.params(node), members, "struct");
+        try self.emitGenericHead(ir.GenericType.tparams(node), members, "struct");
         try self.emitFields(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
@@ -425,7 +428,7 @@ pub const Emitter = struct {
         const members = ir.GenericEnum.members(node);
         const prev = try self.enterNominal(ir.GenericEnum.name(node), true, members);
         defer self.nominal = prev;
-        try self.emitGenericHead(ir.GenericEnum.params(node), members, "union(enum)");
+        try self.emitGenericHead(ir.GenericEnum.tparams(node), members, "union(enum)");
         try self.emitUnionVariants(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
@@ -569,18 +572,26 @@ pub const Emitter = struct {
         const is_main = self.sema.is_root and self.nominal == null and node.isKind(.sub) and std.mem.eql(u8, name, "main");
         const return_ty: ?TypeId = if (f.returns == self.sema.types.void_id) null else f.returns;
 
-        self.fun = .{ .return_ty = return_ty, .params = params, .leak_check = is_main };
+        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = sema.tparamsOf(node), .leak_check = is_main };
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
         try self.w.print("pub fn {f}(", .{ident(name)});
         try self.pushScope();
         defer self.popScope() catch {};
+        // Compile-time parameters come first, after a method's receiver,
+        // which Zig's method call syntax needs first.
+        const tparams = sema.tparamsOf(node);
+        try self.bindParams(tparams);
         try self.bindParams(params);
-        for (params.items(), 0..) |p, i| {
-            if (i > 0) try self.w.writeAll(", ");
-            try self.emitParam(p);
-        }
+        const rt = params.items();
+        const recv: usize = @intFromBool(self.nominal != null and rt.len > 0 and self.isReceiverParam(rt[0]));
+        var n: usize = 0;
+        for ([_][]const Sexp{ rt[0..recv], tparams.items(), rt[recv..] }, 0..) |group, g| for (group) |p| {
+            if (n > 0) try self.w.writeAll(", ");
+            n += 1;
+            try self.emitParam(p, g == 1);
+        };
         try self.w.writeAll(") ");
         if (return_ty) |r| {
             try self.emitTypeTy(r);
@@ -621,12 +632,17 @@ pub const Emitter = struct {
         }
     }
 
-    /// `name: T` in a signature; `comptime` for a `pre` parameter.
-    fn emitParam(self: *Emitter, p: Sexp) Error!void {
+    /// `name: T` in a signature; `comptime` for a compile-time parameter.
+    fn emitParam(self: *Emitter, p: Sexp, ct: bool) Error!void {
         const local = self.localOf(sema.paramNameNode(p).?).?;
         const name = if (local.param_name.len > 0) local.param_name else local.zig_name;
-        try self.w.print("{s}{s}: ", .{ if (p.isKind(.pre_param)) "comptime " else "", name });
+        try self.w.print("{s}{s}: ", .{ if (ct) "comptime " else "", name });
         try self.emitTypeTy(local.ty.?);
+    }
+
+    /// A method's receiver: `?self`, `!self`, or `self: T`.
+    fn isReceiverParam(self: *Emitter, p: Sexp) bool {
+        return std.mem.eql(u8, sema.paramName(self.source, p) orelse "", "self");
     }
 
     /// Statements at the top of a function body: in `main`, the deferred
@@ -641,6 +657,11 @@ pub const Emitter = struct {
             try self.line("_ = {s};", .{self.fun.unused_env});
             self.fun.unused_env = "";
         }
+        for (self.fun.tparams.items()) |p| {
+            const local = self.localOf(sema.paramNameNode(p) orelse continue) orelse continue;
+            if (!self.usage.used.contains(local.sym)) try self.line("_ = {s};", .{local.zig_name});
+        }
+        self.fun.tparams = .nil;
         const params = self.fun.params orelse return;
         self.fun.params = null;
         if (params != .list) return;
@@ -916,17 +937,48 @@ pub const Emitter = struct {
     fn discardsValue(self: *Emitter, expr: Sexp) bool {
         var e = expr;
         while (e.isKind(.propagate)) e = ir.Propagate.value(e);
-        if (!e.isKind(.call)) return true;
+        if (!e.isKind(.call) and !self.isImplicitCall(e)) return true;
+        if (!e.isKind(.call)) return !self.yieldsNothing(e);
         if (self.isPrintCall(e)) return false;
         // A call lowered to a labeled block is an expression Zig will not
         // take as a statement.
-        if (ir.Call.callee(e).isKind(.lambda)) return true;
+        if (self.sema.calleeOf(e).isKind(.lambda)) return true;
         if (self.hoistsArgs(e)) return true;
-        const ty = self.typeOf(e) orelse return true;
+        return !self.yieldsNothing(e);
+    }
+
+    /// An expression of type `Void` or `noreturn`.
+    fn yieldsNothing(self: *Emitter, e: Sexp) bool {
+        const ty = self.typeOf(e) orelse return false;
         return switch (self.sema.types.get(ty)) {
-            .void, .noreturn => false,
-            else => true,
+            .void, .noreturn => true,
+            else => false,
         };
+    }
+
+    /// A statement `show[3]`: compile-time arguments that are the call.
+    fn isImplicitCall(self: *Emitter, e: Sexp) bool {
+        const inst = self.sema.instanceOf(e) orelse return false;
+        return inst == .function and inst.function.call;
+    }
+
+    /// A bracket list of compile-time arguments: the type it names
+    /// (`Pair(i64, []const u8)`), or the function it passes them to,
+    /// called when the list is the call (`show(3)`).
+    fn emitInstance(self: *Emitter, e: Sexp, inst: sema.Instance) Error!void {
+        switch (inst) {
+            .type => |ty| try self.emitTypeTy(ty),
+            .function => |f| {
+                try self.emitExpr(ir.get(e, .object));
+                if (!f.call) return;
+                try self.w.writeAll("(");
+                for (sema.bracketArgs(e), 0..) |a, i| {
+                    if (i > 0) try self.w.writeAll(", ");
+                    try self.emitComptime(a);
+                }
+                try self.w.writeAll(")");
+            },
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -1948,7 +2000,7 @@ pub const Emitter = struct {
     /// resources nor holds a Cell on its own. It is emitted as
     /// `rig.ReadBorrow(T)`, which applies `readBorrowIsPtr`'s rule to each
     /// instance, so an instance agrees with the code that uses it
-    /// (`?Box(Int)` is a copy). Code that depends on the form goes through
+    /// (`?Box[Int]` is a copy). Code that depends on the form goes through
     /// `rig.lend` and `rig.borrowed`; the rest treats it as a pointer, since
     /// Zig reaches fields and methods through either.
     fn genericReadBorrow(self: *Emitter, ty: TypeId) ?TypeId {
@@ -2120,7 +2172,9 @@ pub const Emitter = struct {
                 try self.w.writeAll(".weakRef()");
             },
             .call => if (self.hoistsArgs(sexp)) try self.emitHoistedCall(sexp) else try self.emitCallDirect(sexp),
+            .inst => try self.emitInstance(sexp, self.sema.instanceOf(sexp) orelse return self.unsupported(sexp, "an unresolved bracket list")),
             .member, .index => {
+                if (self.sema.instanceOf(sexp)) |inst| return self.emitInstance(sexp, inst);
                 // A field or element holding a write borrow denotes the
                 // borrowed value, unless the pointer itself is wanted.
                 const deref = self.isPtrBorrowExpr(sexp) and !(tail and self.ptr_tail);
@@ -2462,6 +2516,8 @@ pub const Emitter = struct {
         // in place, reached through the element's slot, unless it was
         // hoisted to run before the arguments.
         if (obj.isKind(.write) and (o.isKind(.index) or o.isKind(.member)) and self.hoistedOf(o) == null) return self.emitPlace(o);
+        // `Pair[Int, String].make(...)`: the instance named.
+        if (self.sema.instanceOf(o)) |inst| if (inst == .type) return self.emitTypeTy(inst.type);
         // `Box.make(...)` of a generic type: the instance sema inferred.
         if (o == .src) if (self.sema.symbolOf(o)) |id| if (self.sema.symbols.items[id].kind == .generic_type) {
             if (obj_ty) |t| return self.emitTypeTy(t);
@@ -2575,12 +2631,12 @@ pub const Emitter = struct {
     // -------------------------------------------------------------------------
 
     fn isPrintCall(self: *Emitter, call: Sexp) bool {
-        const callee = ir.Call.callee(call);
+        const callee = self.sema.calleeOf(call);
         return callee == .src and self.sema.symbolOf(callee) == null and std.mem.eql(u8, self.srcText(callee), "print");
     }
 
     fn emitCallDirect(self: *Emitter, sexp: Sexp) Error!void {
-        const callee = ir.Call.callee(sexp);
+        const callee = self.sema.calleeOf(sexp);
         const args = ir.Call.args(sexp);
 
         if (self.isPrintCall(sexp)) return self.emitPrint(args);
@@ -2595,7 +2651,7 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             };
             if (self.sema.symbolOf(callee)) |sym_id| {
-                if (sym_id == self.sema.vec_sym_id) return self.emitVecConstruction(args);
+                if (sym_id == self.sema.vec_sym_id) return self.emitVecConstruction(sexp);
                 if (sym_id == self.sema.signal_sym_id) return self.emitSignalConstruction(sexp);
                 if (self.isTypeSym(sym_id)) return self.emitConstructor(sexp, sym_id);
             }
@@ -2722,58 +2778,64 @@ pub const Emitter = struct {
         try self.closeBrace();
     }
 
-    /// A call's arguments in parameter order: keyword arguments in their
-    /// parameters' places and defaults for omitted ones.
+    /// A call's arguments in parameter order: its compile-time arguments
+    /// (after a receiver passed as an argument), then its run-time ones,
+    /// keyword arguments in their parameters' places and defaults for
+    /// omitted ones.
     fn emitArgs(self: *Emitter, call: Sexp) Error!void {
         const args = ir.Call.args(call);
         const params = self.callParams(call);
-        const slots = self.sema.callSlotsOf(call) orelse {
-            for (args, 0..) |a, i| {
-                if (i > 0) try self.w.writeAll(", ");
-                try self.emitArg(a, params, i);
-            }
-            return;
-        };
-        for (slots, 0..) |slot, i| {
-            if (i > 0) try self.w.writeAll(", ");
-            switch (slot) {
+        const ct = self.sema.ctArgsOf(call);
+        const ct_at: usize = if (self.sema.instanceOf(ir.Call.callee(call))) |inst| (if (inst == .function and inst.function.receiver_arg) 1 else 0) else 0;
+        const slots = self.sema.callSlotsOf(call);
+        const n = if (slots) |sl| sl.len else args.len;
+        var written: usize = 0;
+        for (0..n + 1) |i| {
+            if (i == @min(ct_at, n)) for (ct) |a| {
+                if (written > 0) try self.w.writeAll(", ");
+                written += 1;
+                try self.emitComptime(a);
+            };
+            if (i == n) break;
+            if (written > 0) try self.w.writeAll(", ");
+            written += 1;
+            if (slots) |sl| switch (sl[i]) {
                 .arg => |ai| try self.emitArg(args[ai], params, i),
                 .default => |d| try writeLiteral(self.w, d.source, d.expr),
-            }
+            } else try self.emitArg(args[i], params, i);
         }
     }
 
     /// The argument filling parameter slot `i`: a `!T` parameter receives
-    /// a pointer; a `pre` parameter a compile-time value.
-    fn emitArg(self: *Emitter, arg: Sexp, params: CallParams, i: usize) Error!void {
+    /// a pointer.
+    fn emitArg(self: *Emitter, arg: Sexp, params: []const TypeId, i: usize) Error!void {
         const value = argValue(arg);
-        if (i < params.tys.len and self.isPtrBorrowTy(params.tys[i])) return self.emitBorrowValue(value);
-        const saved = self.keep_comptime;
-        defer self.keep_comptime = saved;
-        if (i < 32 and (params.pre >> @intCast(i)) & 1 == 1) self.keep_comptime = true;
+        if (i < params.len and self.isPtrBorrowTy(params[i])) return self.emitBorrowValue(value);
         try self.emitBare(value);
     }
 
-    /// The parameters a call's arguments fill, in slot order.
-    const CallParams = struct {
-        tys: []const TypeId = &.{},
-        /// Which slots are `pre` parameters, one bit per slot.
-        pre: u32 = 0,
-    };
+    /// A compile-time argument: a value Zig knows at compile time.
+    fn emitComptime(self: *Emitter, arg: Sexp) Error!void {
+        const saved = self.keep_comptime;
+        defer self.keep_comptime = saved;
+        self.keep_comptime = true;
+        try self.emitBare(arg);
+    }
 
-    /// The parameters a call's arguments fill: all of them for `f(...)`,
-    /// `Type.method(...)`, and `module.f(...)`; all but the receiver for
-    /// `value.method(...)`.
-    fn callParams(self: *Emitter, call: Sexp) CallParams {
-        const callee = ir.Call.callee(call);
-        const f = self.fnType(self.typeOf(callee)) orelse return .{};
-        if (!callee.isKind(.member) or self.isTypeCallee(ir.Member.object(callee))) return .{ .tys = f.params, .pre = f.pre_mask };
-        return .{ .tys = if (f.params.len > 0) f.params[1..] else f.params, .pre = f.pre_mask >> 1 };
+    /// The types of the run-time parameters a call's arguments fill, in
+    /// slot order: all of them for `f(...)`, `Type.method(...)`, and
+    /// `module.f(...)`; all but the receiver for `value.method(...)`.
+    fn callParams(self: *Emitter, call: Sexp) []const TypeId {
+        const callee = self.sema.calleeOf(call);
+        const f = self.fnType(self.typeOf(callee)) orelse return &.{};
+        if (!callee.isKind(.member) or self.isTypeCallee(ir.Member.object(callee))) return f.params;
+        return if (f.params.len > 0) f.params[1..] else f.params;
     }
 
     /// The object of `Type.f(...)`, `module.f(...)`, or
     /// `module.Type.f(...)`: a call passing every parameter.
     fn isTypeCallee(self: *Emitter, obj: Sexp) bool {
+        if (self.sema.instanceOf(obj)) |inst| return inst == .type;
         if (obj.isKind(.member)) {
             const m = ir.Member.object(obj);
             const id = self.sema.symbolOf(m) orelse return false;
@@ -2809,7 +2871,7 @@ pub const Emitter = struct {
                 last = ai;
             }
         }
-        const callee = ir.Call.callee(call);
+        const callee = self.sema.calleeOf(call);
         // Zig passes a temporary receiver to a `!self` method as a constant.
         if (self.receiverOf(call)) |recv| if (!isPlace(recv) and recv.kind() != .move and self.receiverWrites(call)) return true;
         var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or self.consumedTemporary(call) != null;
@@ -2826,7 +2888,7 @@ pub const Emitter = struct {
     /// The receiver of `value.method(...)` when it is an owned temporary
     /// the method consumes (`mk().consume(...)`).
     fn consumedTemporary(self: *Emitter, call: Sexp) ?Sexp {
-        const callee = ir.Call.callee(call);
+        const callee = self.sema.calleeOf(call);
         if (!callee.isKind(.member)) return null;
         const obj = ir.Member.object(callee);
         if (isPlace(obj) or obj.isKind(.move) or self.isTypeCallee(obj) or !self.isOwnedValue(obj)) return null;
@@ -2870,7 +2932,7 @@ pub const Emitter = struct {
 
     /// The receiver of `value.method(...)`.
     fn receiverOf(self: *Emitter, call: Sexp) ?Sexp {
-        const callee = ir.Call.callee(call);
+        const callee = self.sema.calleeOf(call);
         if (!callee.isKind(.member)) return null;
         const obj = ir.Member.object(callee);
         if (self.isTypeCallee(obj)) return null;
@@ -2879,7 +2941,7 @@ pub const Emitter = struct {
 
     /// Whether the method of `value.method(...)` takes `!self`.
     fn receiverWrites(self: *Emitter, call: Sexp) bool {
-        const f = self.fnType(self.typeOf(ir.Call.callee(call))) orelse return false;
+        const f = self.fnType(self.typeOf(self.sema.calleeOf(call))) orelse return false;
         return f.params.len > 0 and self.sema.types.get(f.params[0]) == .borrow_write;
     }
 
@@ -2917,7 +2979,7 @@ pub const Emitter = struct {
         // Sema rejects a borrowed temporary receiver that owns a resource
         // (a consumed one is hoisted by `consumedTemporary`), so only a
         // value holding a type parameter gets here (`self.twice()` of a
-        // `Box(T)`): plain data in every instance sema accepts, dropped
+        // `Box[T]`): plain data in every instance sema accepts, dropped
         // like a resource in the generic body.
         if (kind) |k| {
             try self.writeIndent(self.indent);
@@ -2933,7 +2995,7 @@ pub const Emitter = struct {
     /// call itself runs last. An owned temporary, including a receiver
     /// the method consumes, is dropped if a later argument leaves, and
     /// handed to the callee (its flag cleared) only when the call runs.
-    /// `pair(mk(1)!, mk(2)!)`, with `mk` returning a `Vec(Int)`:
+    /// `pair(mk(1)!, mk(2)!)`, with `mk` returning a `Vec[Int]`:
     ///
     ///     __rig_call_N: {
     ///         var __rig_arg_N_0: rig.Vec(i64) = try mk(1);
@@ -2953,7 +3015,7 @@ pub const Emitter = struct {
         try self.openBrace();
         const first = self.hoisted.items.len;
         if (self.consumedTemporary(call)) |recv| {
-            try self.hoist(.{ .node = recv, .name = try self.fmt("__rig_recv_{d}", .{id}), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, .{}, 0, false);
+            try self.hoist(.{ .node = recv, .name = try self.fmt("__rig_recv_{d}", .{id}), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, &.{}, 0, false);
         } else try self.hoistReceiver(call, id);
         for (args, 0..) |a, ai| {
             const value = argValue(a);
@@ -2975,9 +3037,9 @@ pub const Emitter = struct {
     /// field value when the call `fields` builds a value), into the
     /// temporary `h.name`. One that owns a resource is dropped at the end
     /// of the call's block unless the call takes it, clearing `h.flag`.
-    fn hoist(self: *Emitter, h: Hoisted, params: CallParams, slot: usize, fields: bool) Error!void {
+    fn hoist(self: *Emitter, h: Hoisted, params: []const TypeId, slot: usize, fields: bool) Error!void {
         const ty = self.typeOf(h.node);
-        const ptr = slot < params.tys.len and self.isPtrBorrowTy(params.tys[slot]);
+        const ptr = slot < params.len and self.isPtrBorrowTy(params[slot]);
         const kind: ?ResourceKind = if (ptr) null else if (ty) |t| self.kindOf(t) else null;
         try self.writeIndent(self.indent);
         try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", h.name });
@@ -3012,7 +3074,7 @@ pub const Emitter = struct {
     /// A call whose arguments become the fields of the value it builds:
     /// a constructor or a variant.
     fn buildsValue(self: *Emitter, call: Sexp) bool {
-        const callee = ir.Call.callee(call);
+        const callee = self.sema.calleeOf(call);
         if (callee.isKind(.enum_lit)) return true;
         if (callee.isKind(.member)) return self.sema.typeOf(callee) == null;
         return self.isConstructorCall(call);
@@ -3021,9 +3083,9 @@ pub const Emitter = struct {
     /// A call `emitCall` lowers with `emitConstructor`, whose Zig spells
     /// the value's type.
     fn isConstructorCall(self: *Emitter, e: Sexp) bool {
-        if (!e.isKind(.call) or ir.Call.callee(e) != .src) return false;
-        if (self.localOf(ir.Call.callee(e))) |local| if (local.stack_closure) return false;
-        const sym_id = self.sema.symbolOf(ir.Call.callee(e)) orelse return false;
+        if (!e.isKind(.call) or self.sema.calleeOf(e) != .src) return false;
+        if (self.localOf(self.sema.calleeOf(e))) |local| if (local.stack_closure) return false;
+        const sym_id = self.sema.symbolOf(self.sema.calleeOf(e)) orelse return false;
         return sym_id != self.sema.vec_sym_id and sym_id != self.sema.signal_sym_id and self.isTypeSym(sym_id);
     }
 
@@ -3039,6 +3101,13 @@ pub const Emitter = struct {
         try self.emitFieldInit(ir.Call.args(call));
     }
 
+    /// The type a constructor's bracket list gives (`Vec[Int]()`), before
+    /// the decl literal that builds it.
+    fn emitGivenType(self: *Emitter, call: Sexp) Error!void {
+        const inst = self.sema.instanceOf(ir.Call.callee(call)) orelse return;
+        if (inst == .type) try self.emitTypeTy(inst.type);
+    }
+
     /// `{ .a = x, ... }` from keyword arguments.
     fn emitFieldInit(self: *Emitter, args: []const Sexp) Error!void {
         try self.w.writeAll("{");
@@ -3051,8 +3120,10 @@ pub const Emitter = struct {
     }
 
     /// `Vec()` / `Vec(capacity: n)`: a decl literal typed by its result
-    /// location.
-    fn emitVecConstruction(self: *Emitter, args: []const Sexp) Error!void {
+    /// location, or by the type given (`Vec[Int]()`).
+    fn emitVecConstruction(self: *Emitter, call: Sexp) Error!void {
+        const args = ir.Call.args(call);
+        try self.emitGivenType(call);
         if (args.len == 1) {
             try self.w.writeAll(".initCapacity(");
             try self.emitBare(ir.Kwarg.value(args[0]));
@@ -3065,6 +3136,7 @@ pub const Emitter = struct {
     fn emitSignalConstruction(self: *Emitter, call: Sexp) Error!void {
         const args = ir.Call.args(call);
         if (args.len != 1) return self.unsupported(call, "this Signal construction");
+        try self.emitGivenType(call);
         try self.w.writeAll(".init(");
         try self.emitBare(ir.Kwarg.value(args[0]));
         try self.w.writeAll(")");
@@ -3188,7 +3260,7 @@ pub const Emitter = struct {
         try self.bindParams(params);
         for (params.items()) |p| {
             try self.w.writeAll(", ");
-            try self.emitParam(p);
+            try self.emitParam(p, false);
         }
         try self.w.writeAll(") ");
         if (ret) |r| try self.emitTypeTy(r) else try self.w.writeAll("void");
@@ -3757,7 +3829,7 @@ fn isPlainIdent(name: []const u8) bool {
 }
 
 /// Whether Zig could evaluate `e` at compile time: it is built only from
-/// literals, compile-time names (`pre` parameters, `=!` constants),
+/// literals, compile-time names (compile-time parameters, `=!` constants),
 /// constructors, and operators. Conservative: true when unsure.
 fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
     if (depth > 32) return true;
@@ -3778,7 +3850,7 @@ fn isZigComptimeIn(em: *Emitter, e: Sexp, depth: u8) bool {
                 .call => {
                     // A constructor or variant of constant arguments is
                     // constant; a function call is not.
-                    const callee = ir.Call.callee(e);
+                    const callee = em.sema.calleeOf(e);
                     const ctor = callee.isKind(.enum_lit) or (callee == .src and if (em.sema.symbolOf(callee)) |id| em.isTypeSym(id) else false);
                     if (!ctor) return false;
                     for (ir.Call.args(e)) |a| if (!isZigComptimeIn(em, argValue(a), depth + 1)) return false;

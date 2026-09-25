@@ -2,7 +2,7 @@
 # write borrow leads to, so it may not outlive that value.
 
 struct In
-  v: Vec(Int)
+  v: Vec[Int]
 
 struct Box
   r: ?In

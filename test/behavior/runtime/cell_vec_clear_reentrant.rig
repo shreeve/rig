@@ -4,7 +4,7 @@
 
 struct Item
   id: Int
-  owner: ~Cell(Vec(*Item))
+  owner: ~Cell[Vec[*Item]]
 
   drop self: !Self
     if self.owner.upgrade() as cell
@@ -12,7 +12,7 @@ struct Item
       cell.push(*Item(id: self.id * 10, owner: +self.owner)) if self.id < 10
 
 sub main()
-  items: *Cell(Vec(*Item)) = *Cell(value: Vec())
+  items: *Cell[Vec[*Item]] = *Cell(value: Vec())
   items.push(*Item(id: 1, owner: ~items))
   items.push(*Item(id: 2, owner: ~items))
   items.clear()

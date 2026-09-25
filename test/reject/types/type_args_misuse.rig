@@ -1,0 +1,40 @@
+# Brackets after a name give compile-time arguments only to a generic
+# type or a function that declares them; anything else must be
+# indexable, and a type argument must be a type.
+
+type Pair[T, U]
+  a: T
+  b: U
+
+struct Point
+  x: Int
+
+fun plain(n: Int) -> Int
+  n
+
+fun scaled[k: Int](n: Int) -> Int
+  n * k
+
+sub main()
+  n = 5
+  print(n[0])
+  print(n[Int, Int])
+  p = Pair[Int](a: 1, b: 2)
+  q = Point[Int](x: 1)
+  print(plain[3](4))
+  print(scaled[2, 3](4))
+  print(scaled(4))
+  b = Pair[3, Int](a: 1, b: 2)
+  t = Pair[Int, String]
+  scaled[2]
+
+# error: 20:9: cannot index a value of type `Int`
+# error: 21:9: an index is one value; a bracket list of 2 gives compile-time arguments
+# error: 22:7: generic type `Pair` expects 2 type arguments, got 1
+# error: 23:7: `Point` is not a generic type; it takes no type arguments
+# error: 24:9: `plain` takes no compile-time arguments; call it with `plain(...)`
+# error: 25:9: `scaled` expects 1 compile-time argument, got 2
+# error: 26:9: `scaled` takes 1 compile-time argument in brackets: `scaled[...](...)`
+# error: 27:12: `3` is not a type
+# error: 28:7: `Pair[Int, String]` is a type, not a value
+# error: 29:3: `scaled[2]` takes run-time arguments; call it with `scaled[2](...)`

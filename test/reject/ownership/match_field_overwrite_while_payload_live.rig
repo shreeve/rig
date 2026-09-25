@@ -2,7 +2,7 @@
 # overwriting it would drop the value the payload views.
 
 struct Tok
-  v: Vec(Int)
+  v: Vec[Int]
 
 enum Slot
   empty

@@ -3,10 +3,10 @@
 # the second iterates while the first would push, freeing the buffer).
 
 struct Ed
-  t: !Vec(Int)
+  t: !Vec[Int]
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(1)
   !v.push(2)
   !v.push(3)

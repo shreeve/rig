@@ -203,7 +203,9 @@ const SymbolResolver = struct {
     fn walkFun(self: *SymbolResolver, node: Sexp) Error!void {
         const prev = try self.enter(node, .function);
         defer self.scope = prev;
-        try self.bindParams(ir.get(node, .params), &.{});
+        const tparams = sema.tparamsOf(node);
+        try self.bindParams(tparams, .compile_time, .nil, &.{});
+        try self.bindParams(ir.get(node, .params), .run_time, tparams, &.{});
         try self.walk(ir.get(node, .body));
     }
 
@@ -228,12 +230,15 @@ const SymbolResolver = struct {
             }
             _ = try self.declare(name_node, .capture, .{});
         }
-        try self.bindParams(ir.Lambda.params(node), captures);
+        try self.bindParams(ir.Lambda.params(node), .run_time, .nil, captures);
         try self.walk(ir.Lambda.body(node));
     }
 
-    /// `params`: a parameter group, or `_`.
-    fn bindParams(self: *SymbolResolver, params: Sexp, captures: []const Sexp) Error!void {
+    /// `params`: a parameter group, or `_`. `earlier`: the group bound
+    /// before it (a function's compile-time parameters, before its
+    /// run-time ones), whose names it may not reuse, or `_`.
+    fn bindParams(self: *SymbolResolver, params: Sexp, when: enum { compile_time, run_time }, earlier: Sexp, captures: []const Sexp) Error!void {
+        const ct = when == .compile_time;
         for (params.items(), 0..) |p, i| {
             const name_node = sema.paramNameNode(p) orelse continue;
             const name = identAt(self.ctx.source, name_node) orelse continue;
@@ -249,29 +254,33 @@ const SymbolResolver = struct {
             }
             if (collides) continue;
             // Any number of parameters may be ignored as `_`.
-            for (params.items()[0..i]) |earlier| {
+            for ([_][]const Sexp{ earlier.items(), params.items()[0..i] }) |before| for (before) |e| {
                 if (std.mem.eql(u8, name, "_")) break;
-                if (std.mem.eql(u8, sema.paramName(self.ctx.source, earlier) orelse "", name)) {
+                if (std.mem.eql(u8, sema.paramName(self.ctx.source, e) orelse "", name)) {
                     try self.ctx.err(pos, "duplicate parameter `{s}`", .{name});
                     collides = true;
                     break;
                 }
-            }
+            };
             if (collides) continue;
             if (self.ctx.scopes.items[self.scope].kind == .lambda) {
                 try self.checkShadowingThroughLambda(name_node);
             } else {
                 try self.checkShadowsDeclaration(name_node, "parameter");
             }
+            // A bare name among compile-time parameters is a type
+            // parameter.
+            if (ct and p == .src) {
+                _ = try self.declare(name_node, .generic_param, .{});
+                continue;
+            }
             const h = p.kind();
             const borrowed = h == .read or h == .write or
-                ((h == .@":" or h == .pre_param or h == .default) and
+                ((h == .@":" or h == .default) and
                     (ir.get(p, .type).isKind(.borrow_read) or ir.get(p, .type).isKind(.borrow_write)));
-            const is_pre = h == .pre_param;
             _ = try self.declare(name_node, .param, .{
                 .borrowed_param = borrowed,
-                .is_pre = is_pre,
-                .comptime_known = is_pre,
+                .comptime_known = ct,
             });
         }
     }
@@ -311,14 +320,17 @@ const SymbolResolver = struct {
         const name_node = ir.get(node, .name);
         const id = (try self.declare(name_node, .generic_type, .{})) orelse return;
         const name = self.ctx.symbols.items[id].name;
-        const params = ir.get(node, .params);
+        const params = ir.get(node, .tparams);
         if (params.items().len == 0) {
-            const kind = if (node.isKind(.generic_enum)) "enum" else "type";
-            try self.ctx.errAt(name_node, "generic {s} `{s}` must declare at least one type parameter; for a non-generic {s}, drop the `()`", .{ kind, name, kind });
+            try self.ctx.errAt(name_node, "generic type `{s}` must declare at least one type parameter (`type {s}[T]`); a type without them is a `struct`", .{ name, name });
         }
         var ids: std.ArrayListUnmanaged(SymbolId) = .empty;
         defer ids.deinit(self.ctx.allocator);
         for (params.items(), 0..) |p, i| {
+            if (p.isKind(.@":")) {
+                try self.ctx.errAt(p, "a generic type's parameters are types; a compile-time value parameter (`{s}: T`) is not supported on a type", .{sema.paramName(self.ctx.source, p) orelse "n"});
+                continue;
+            }
             const pname = identAt(self.ctx.source, p) orelse continue;
             const dup = for (params.items()[0..i]) |e| {
                 if (std.mem.eql(u8, identAt(self.ctx.source, e) orelse "", pname)) break true;
@@ -526,7 +538,7 @@ pub fn checkDeclarations(ctx: *SemContext) Error!void {
 pub const DeferredCheck = union(enum) {
     /// `[N]T`, with `T` spelled at `node`.
     array: struct { node: Sexp, elem: TypeId },
-    /// `Vec(T)`, `Cell(T)`, or `Signal(T)` spelled at `pos`.
+    /// `Vec[T]`, `Cell[T]`, or `Signal[T]` spelled at `pos`.
     builtin: struct { pos: u32, sym: SymbolId, args: []const TypeId },
     /// `*fun(...) -> R`, with the function type spelled at `node`.
     owned_closure: struct { node: Sexp, ty: TypeId },
@@ -609,24 +621,22 @@ pub const TypeResolver = struct {
 
         var param_types: std.ArrayListUnmanaged(TypeId) = .empty;
         defer param_types.deinit(self.ctx.allocator);
-        var pre_mask: u32 = 0;
-        for (params.items(), 0..) |p, i| {
+        var ct_types: std.ArrayListUnmanaged(TypeId) = .empty;
+        defer ct_types.deinit(self.ctx.allocator);
+        for ([_]Sexp{ sema.tparamsOf(node), params }, 0..) |group, g| for (group.items()) |p| {
+            // A type parameter makes the function generic, which
+            // `rejectGenericFunction` reported: every type is poison.
             const pty = if (generic) self.ctx.types.invalid_id else try self.resolveParamType(p);
-            try param_types.append(self.ctx.allocator, pty);
-            if (p.isKind(.pre_param) and !generic) {
-                if (i < 32) {
-                    pre_mask |= @as(u32, 1) << @intCast(i);
-                } else try self.ctx.err(sema.paramPos(p, self.ctx.startOf(p)), "a `pre` parameter must be one of the first 32 parameters", .{});
-            }
+            try (if (g == 0) &ct_types else &param_types).append(self.ctx.allocator, pty);
             if (sema.paramNameNode(p)) |pn| {
                 if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
             }
-        }
+        };
         const fn_ty = try self.ctx.intern(.{ .function = .{
             .params = try self.ctx.dupeIds(param_types.items),
             .returns = return_ty,
             .is_sub = is_sub,
-            .pre_mask = pre_mask,
+            .ct_params = try self.ctx.dupeIds(ct_types.items),
         } });
         try self.ctx.recordType(name, fn_ty);
         if (nominal_sym == sema.symbol_invalid) {
@@ -639,13 +649,13 @@ pub const TypeResolver = struct {
         return fn_ty;
     }
 
-    /// `pre T: type` would make a function generic, which Rig does not
-    /// support yet.
+    /// A type parameter (`fun max[T](a: T, b: T) -> T`) would make a
+    /// function generic, which Rig does not support yet.
     fn rejectGenericFunction(self: *TypeResolver, node: Sexp) Error!bool {
-        const at = for (ir.get(node, .params).items()) |p| {
-            if (p.isKind(.pre_param) and std.mem.eql(u8, identAt(self.ctx.source, ir.get(p, .type)) orelse "", "type")) break p;
+        const at = for (sema.tparamsOf(node).items()) |p| {
+            if (p == .src) break p;
         } else return false;
-        try self.ctx.errAt(at, "generic functions are not supported yet: `pre {s}: type` would make `{s}` generic; use a generic type, or write the function for each type", .{ sema.paramName(self.ctx.source, at) orelse "T", identAt(self.ctx.source, ir.get(node, .name)) orelse "it" });
+        try self.ctx.errAt(at, "generic functions are not supported yet: the type parameter `{s}` would make `{s}` generic; use a generic type, or write the function for each type", .{ identAt(self.ctx.source, at) orelse "T", identAt(self.ctx.source, ir.get(node, .name)) orelse "it" });
         return true;
     }
 
@@ -697,7 +707,7 @@ pub const TypeResolver = struct {
             .list => {
                 const h = param.kind() orelse return self.ctx.types.invalid_id;
                 switch (h) {
-                    .@":", .pre_param, .default => return self.resolveType(ir.get(param, .type)),
+                    .@":", .default => return self.resolveType(ir.get(param, .type)),
                     .read, .write => {
                         const operand = ir.get(param, .operand);
                         const name = identAt(self.ctx.source, operand) orelse return self.ctx.types.invalid_id;
@@ -1185,16 +1195,12 @@ pub const TypeResolver = struct {
                         },
                         .generic_type => {
                             const arity = if (sym.type_params) |tps| tps.len else 0;
-                            if (arity > 0) {
-                                try self.ctx.err(s.pos, "generic type `{s}` requires type arguments; write `{s}(T)`", .{ name, name });
-                            } else {
-                                try self.ctx.err(s.pos, "generic type `{s}` must be written with empty parentheses; write `{s}()`", .{ name, name });
-                            }
+                            try self.ctx.err(s.pos, "generic type `{s}` requires type arguments; write `{s}[{s}]`", .{ name, name, if (arity > 1) "T, ..." else "T" });
                             return t.invalid_id;
                         },
                         else => {
-                            // A `pre T: type` parameter was reported with its function.
-                            if (!(sym.flags.is_pre and sym.ty == t.invalid_id)) try self.ctx.err(s.pos, "`{s}` is not a type", .{name});
+                            // A function's type parameter was reported with the function.
+                            if (sym.kind != .generic_param) try self.ctx.err(s.pos, "`{s}` is not a type", .{name});
                             return t.invalid_id;
                         },
                     }
@@ -1364,7 +1370,7 @@ pub const TypeResolver = struct {
 };
 
 /// Element-type rules of the built-in generics. An instance over generic
-/// parameters (`Vec(T)` in `Stack(T)`) is checked for each instantiation
+/// parameters (`Vec[T]` in `Stack[T]`) is checked for each instantiation
 /// instead (`sema.expandInstantiations`).
 pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const TypeId) Error!?[]const u8 {
     if (args.len != 1 or sema.containsTypeVar(ctx, args[0])) return null;
@@ -1372,7 +1378,7 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
     const arg = try sema.formatType(ctx, args[0]);
     if (sym_id == ctx.cell_sym_id) {
         if (sema.isCopyPrimitive(ctx, args[0]) or sema.typeHasDropGlue(ctx, args[0])) return null;
-        return try std.fmt.allocPrint(a, "`Cell(T)` requires `T` to be a Copy primitive (Int, Bool, Float, String) or a type with drop glue (`*T`, `~T`, `Vec(T)`, `*sub()`, a struct with resource fields or a user `drop`); got `{s}`", .{arg});
+        return try std.fmt.allocPrint(a, "`Cell[T]` requires `T` to be a Copy primitive (Int, Bool, Float, String) or a type with drop glue (`*T`, `~T`, `Vec[T]`, `*sub()`, a struct with resource fields or a user `drop`); got `{s}`", .{arg});
     }
     if (sym_id == ctx.vec_sym_id) {
         const ok = sema.isCopyPrimitive(ctx, args[0]) or switch (ctx.types.get(args[0])) {
@@ -1383,11 +1389,11 @@ pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const Typ
             else => false,
         };
         if (ok) return null;
-        return try std.fmt.allocPrint(a, "`Vec(T)` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, or optional that owns nothing), a shared handle (`*T`), or a weak handle (`~T`); got `{s}`", .{arg});
+        return try std.fmt.allocPrint(a, "`Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, or optional that owns nothing), a shared handle (`*T`), or a weak handle (`~T`); got `{s}`", .{arg});
     }
     if (sym_id == ctx.signal_sym_id) {
         if (sema.isCopyPrimitive(ctx, args[0])) return null;
-        return try std.fmt.allocPrint(a, "`Signal(T)` requires `T` to be a Copy type (Int, Bool, Float, String); got `{s}`", .{arg});
+        return try std.fmt.allocPrint(a, "`Signal[T]` requires `T` to be a Copy type (Int, Bool, Float, String); got `{s}`", .{arg});
     }
     return null;
 }
@@ -1537,7 +1543,7 @@ pub fn isNumericTypeName(name: []const u8) bool {
 // =============================================================================
 // Built-in generic types
 //
-// `Cell(T)`, `Vec(T)`, and `Signal(T)`, registered in every module scope
+// `Cell[T]`, `Vec[T]`, and `Signal[T]`, registered in every module scope
 // before user declarations. Their methods are ordinary method Fields on
 // generic symbols, so calls go through the same lookup and substitution as
 // user generics; the runtime (`runtime.zig`) implements them.
@@ -1546,7 +1552,7 @@ pub fn isNumericTypeName(name: []const u8) bool {
 const builtin_pos = sema.builtin_decl_pos;
 
 pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
-    // Cell(T): interior-mutable slot. Methods take `?self`; the runtime
+    // Cell[T]: interior-mutable slot. Methods take `?self`; the runtime
     // mutates through its own pointer.
     {
         const g = try addGeneric(ctx, module_scope, "Cell", &.{"T"});
@@ -1562,7 +1568,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         });
     }
 
-    // Vec(T): growable buffer that owns its elements.
+    // Vec[T]: growable buffer that owns its elements.
     {
         const g = try addGeneric(ctx, module_scope, "Vec", &.{"T"});
         ctx.vec_sym_id = g.sym;
@@ -1578,7 +1584,7 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         });
     }
 
-    // Signal(T): a Copy value plus subscriber closures notified on `set`.
+    // Signal[T]: a Copy value plus subscriber closures notified on `set`.
     {
         const g = try addGeneric(ctx, module_scope, "Signal", &.{"T"});
         ctx.signal_sym_id = g.sym;
@@ -1600,7 +1606,7 @@ const Generic = struct {
     sym: SymbolId,
     /// `type_var` TypeIds of the parameters, in order.
     params: []const TypeId,
-    /// The type applied to its own parameters: `Vec(T)`.
+    /// The type applied to its own parameters: `Vec[T]`.
     self_ty: TypeId,
 };
 

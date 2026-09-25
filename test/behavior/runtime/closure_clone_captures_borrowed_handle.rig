@@ -12,10 +12,10 @@ fun keep(b: ?*B) -> *fun() -> Int
   *|+b| b.n * 100
 
 sub main()
-  v: Vec(*B) = Vec()
+  v: Vec[*B] = Vec()
   !v.push(*B(n: 1))
   !v.push(*B(n: 2))
-  fs: Vec(*fun() -> Int) = Vec()
+  fs: Vec[*fun() -> Int] = Vec()
   for b in ?v
     !fs.push(*|+b| b.n * 10)
   -v

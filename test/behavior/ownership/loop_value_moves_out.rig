@@ -5,23 +5,23 @@
 struct Box
   n: Int
 
-fun pick(boxes: Vec(*Box), want: Int) -> (*Box)?
+fun pick(boxes: Vec[*Box], want: Int) -> (*Box)?
   for b in <boxes
     break <b if b.n == want
   else
     none
 
 sub main()
-  v: Vec(*Box) = Vec()
+  v: Vec[*Box] = Vec()
   !v.push(*Box(n: 1))
   !v.push(*Box(n: 2))
   !v.push(*Box(n: 3))
   if pick(<v, 2) as b
     print(b.n)
-  w: Vec(*Box) = Vec()
+  w: Vec[*Box] = Vec()
   !w.push(*Box(n: 1))
   print(pick(<w, 9) == none)
-  u: Vec(*Box) = Vec()
+  u: Vec[*Box] = Vec()
   !u.push(*Box(n: 4))
   !u.push(*Box(n: 5))
   fallback = *Box(n: 0)

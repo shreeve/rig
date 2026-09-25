@@ -3,7 +3,7 @@
 # pointer to a value that owns resources or holds a Cell. Both sides of a
 # method call, a field, and a payload agree.
 
-type Box(T)
+type Box[T]
   v: T
 
   fun get(?self) -> ?T
@@ -23,20 +23,20 @@ type Box(T)
     r = self.get()
     print(r)
 
-type Num(T)
+type Num[T]
   v: T
 
   fun copy(?self) -> T
     r = ?self.v
     +r
 
-type Ref(T)
+type Ref[T]
   r: ?T
 
   fun val(?self) -> ?T
     self.r
 
-enum Opt(T)
+enum Opt[T]
   some(v: ?T)
   nothing
 
@@ -56,10 +56,10 @@ sub main()
   match o
     .some(v) => print(v + 1)
     .nothing => print(0)
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(4)
   va = Box(v: <v)
-  w: Vec(Int) = Vec()
+  w: Vec[Int] = Vec()
   vb = Box(v: <w)
   print(va.same(?vb))
   print(va.get().len)

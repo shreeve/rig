@@ -10,7 +10,7 @@ struct B
 
 sub main()
   keep = *B(n: 1)
-  v: Vec(*B) = Vec()
+  v: Vec[*B] = Vec()
   !v.push(*B(n: 0))
   !v.push(+keep)
   !v.push(*B(n: 2))
@@ -20,7 +20,7 @@ sub main()
   !v.push(*B(n: 9))
   print("len", v.len)
 
-  w: Vec(Int) = Vec()
+  w: Vec[Int] = Vec()
   !w.push(4)
   !w.clear()
   print("ints", w.len, w)

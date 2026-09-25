@@ -2,7 +2,7 @@
 # `defer`, which is dropped after it runs.
 
 struct Res
-  v: Vec(Int)
+  v: Vec[Int]
 
 sub main()
   y = Res(v: Vec())

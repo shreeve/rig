@@ -16,7 +16,7 @@ sub add_three(c: !Counter)
   c.bump()
   c.bump_twice()
 
-sub fill(v: !Vec(Int))
+sub fill(v: !Vec[Int])
   v.push(1)
   v.push(2)
 
@@ -27,7 +27,7 @@ sub main()
   w = !c
   w.bump()
   print(c.n)
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   fill(!v)
   b = !v
   b.push(3)

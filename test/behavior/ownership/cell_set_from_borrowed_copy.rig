@@ -1,16 +1,16 @@
 # A borrow of a Copy value put in a Cell is read by value: the Cell
 # holds the number, not the borrow.
 
-sub put(c: ?Cell(Int), k: ?Int)
+sub put(c: ?Cell[Int], k: ?Int)
   c.set(k)
 
 sub main()
-  c: Cell(Int) = Cell(value: 1)
+  c: Cell[Int] = Cell(value: 1)
   n = 7
   put(?c, ?n)
   q = ?n
   c.set(c.get() + q)
-  d: Cell(Int) = Cell(value: q)
+  d: Cell[Int] = Cell(value: q)
   n = 9
   print(c.get(), d.get(), n)
 

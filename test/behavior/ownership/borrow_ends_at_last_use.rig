@@ -42,7 +42,7 @@ sub main()
     r2 = ?b
     print("inner", r2.n)
 
-  nums: Vec(Int) = Vec()
+  nums: Vec[Int] = Vec()
   i = 0
   while i < 3 : i += 1
     seen = ?nums

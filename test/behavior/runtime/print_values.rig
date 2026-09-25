@@ -21,7 +21,7 @@ sub main()
   n: Int? = none
   print(m, n)
   print(["a", "b"], [1, 2])
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(3)
   !v.push(4)
   print(?v)

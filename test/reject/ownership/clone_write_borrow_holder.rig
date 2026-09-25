@@ -3,7 +3,7 @@
 # two handles that both write through it.
 
 struct Box
-  v: Vec(Int)
+  v: Vec[Int]
 
 struct Ed
   t: !Box

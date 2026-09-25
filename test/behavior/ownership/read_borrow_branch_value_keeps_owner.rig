@@ -10,7 +10,7 @@ struct B
 sub eat(b: B)
   print("eat", b.n)
 
-sub consume(v: Vec(Int))
+sub consume(v: Vec[Int])
   print("consume", v.len)
 
 sub main()
@@ -24,7 +24,7 @@ sub main()
   print(r.n)
   if not c
     eat(<a)
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(1)
   n = (?v).len if true else 0
   w = ?v if n > 0 else ?v

@@ -1,7 +1,7 @@
 # A borrow binding and a local of a closure body must be read too.
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   r = ?v
   f = ||
     inner = 4

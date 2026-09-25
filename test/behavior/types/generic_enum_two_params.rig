@@ -1,13 +1,13 @@
-# A two-parameter generic enum `Result(T, E)`: each variant's payload is
+# A two-parameter generic enum `Result[T, E]`: each variant's payload is
 # substituted independently.
 
-enum Result(T, E)
+enum Result[T, E]
   ok(value: T)
   err(reason: E)
 
 sub main()
-  good: Result(Int, String) = .ok(value: 42)
-  bad: Result(Int, String) = .err(reason: "oops")
+  good: Result[Int, String] = .ok(value: 42)
+  bad: Result[Int, String] = .err(reason: "oops")
 
   match good
     .ok(v) => print(v)

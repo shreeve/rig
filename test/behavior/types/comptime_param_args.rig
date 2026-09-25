@@ -1,0 +1,32 @@
+# A compile-time parameter, `[n: Int]`, accepts literals, enum values,
+# compile-time parameters, and `=!` bindings of compile-time values. A
+# call gives those arguments in brackets, before its run-time ones.
+
+enum Mode
+  fast
+  safe
+
+sub show[n: Int]
+  print(n)
+
+sub mode[m: Mode]
+  print(m == .safe)
+
+fun scale[factor: Int](x: Int) -> Int
+  x * factor
+
+fun twice[factor: Int](x: Int) -> Int
+  scale[factor](scale[factor](x))
+
+sub main()
+  show[3]()
+  k =! 4
+  show[k]()
+  mode[.safe]()
+  print(scale[3](5), twice[2](5))
+
+# expect:
+# 3
+# 4
+# true
+# 15 20

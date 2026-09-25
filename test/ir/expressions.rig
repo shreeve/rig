@@ -1,4 +1,7 @@
-# Operators, literals, calls, and member access.
+# Operators, literals, calls, member access, indexing, and bracket
+# lists of compile-time arguments (the grammar builds `index` for one
+# argument and `inst` for more; sema tells an index from compile-time
+# arguments).
 
 struct Point
   x: Int
@@ -23,5 +26,10 @@ sub main()
   print(scale(?p, 3))
   print(p.x)
   q = Point.new
-  v: Vec(Int) = Vec(capacity: 4)
+  v: Vec[Int] = Vec(capacity: 4)
   !v.push(1)
+  w = Vec[Int]()
+  m = Pair[Int, String].make(1, "x")
+  print(check[.strict](5), xs[0], grid[1][2])
+  show[3]
+  check[.lax] 7

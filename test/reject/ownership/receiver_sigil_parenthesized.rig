@@ -2,7 +2,7 @@
 # not to the receiver.
 
 sub main
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(1)
   n = !(v.pop())
   print(n ?? 0)

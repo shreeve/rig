@@ -6,7 +6,7 @@ enum Slot
   full(f: *sub())
 
 sub main()
-  outer: Vec(*sub()) = Vec()
+  outer: Vec[*sub()] = Vec()
   if true
     s: Slot = .full(f: *|| print("hi"))
     match s

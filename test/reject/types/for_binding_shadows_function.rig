@@ -5,7 +5,7 @@ fun total() -> Int
   42
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(1)
   for total in v
     print(total)

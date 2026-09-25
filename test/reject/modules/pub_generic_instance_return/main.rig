@@ -7,4 +7,4 @@ sub main()
   b = lib.make(1)
   print(b.v)
 
-# error: public function `make` exposes `Box(Int)`, an instance of a generic type
+# error: public function `make` exposes `Box[Int]`, an instance of a generic type

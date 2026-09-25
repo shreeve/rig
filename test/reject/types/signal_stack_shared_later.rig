@@ -6,4 +6,4 @@ sub main()
   t = *<s
   print(t.get())
 
-# error: stack-local `Signal(T)` is not supported
+# error: stack-local `Signal[T]` is not supported

@@ -18,10 +18,10 @@ struct Tree
     ?self.leaf
 
 struct Pair
-  v: Vec(Int)
+  v: Vec[Int]
   name: String
 
-sub fill(v: !Vec(Int))
+sub fill(v: !Vec[Int])
   !v.push(1)
 
 sub show(p: ?Point)

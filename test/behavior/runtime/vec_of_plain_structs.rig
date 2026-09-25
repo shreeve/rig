@@ -11,7 +11,7 @@ enum Shape
   dot
 
 sub main()
-  v: Vec(P) = Vec()
+  v: Vec[P] = Vec()
   !v.push(P(x: 1, y: 2))
   !v.push(P(x: 3, y: 4))
   print(v[0].x + v[1].y)
@@ -23,7 +23,7 @@ sub main()
     print("popped", last.x)
   print(v.len, v.get(1) == none)
 
-  shapes: Vec(Shape) = Vec()
+  shapes: Vec[Shape] = Vec()
   !shapes.push(.circle(r: 2))
   !shapes.push(.dot)
   for s in shapes
@@ -31,7 +31,7 @@ sub main()
       .circle(r) => print("circle", r)
       .dot => print("dot")
 
-  maybe: Vec(Int?) = Vec()
+  maybe: Vec[Int?] = Vec()
   !maybe.push(3)
   !maybe.push(none)
   for m in maybe

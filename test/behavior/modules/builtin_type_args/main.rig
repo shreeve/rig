@@ -13,7 +13,7 @@ struct P
 
 type P2 = P
 
-type Box(T)
+type Box[T]
   v: T
 
   fun size(?self) -> Int
@@ -21,7 +21,7 @@ type Box(T)
 
 sub main()
   p = P(x: 1, y: 2)
-  b: Box(U16) = Box(v: 7)
+  b: Box[U16] = Box(v: 7)
   print(@sizeOf(P2), p.size(), @sizeOf(lib.Q), @sizeOf(U8), b.size(), @typeName(Bool), @alignOf(U16))
 
 # expect:

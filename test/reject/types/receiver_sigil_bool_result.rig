@@ -2,7 +2,7 @@
 # borrow in parentheses, so `!set.insert(k)` never reads as negation.
 
 struct Set
-  items: Vec(Int)
+  items: Vec[Int]
   fun insert(!self, k: Int) -> Bool
     for x in ?self.items
       return false if x == k

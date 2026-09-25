@@ -1,7 +1,7 @@
 # Literals combined with a generic `T` take the instance's type: the
 # instances here hold every literal the body uses.
 
-type Acc(T)
+type Acc[T]
   total: T
 
   fun bumped(?self) -> T
@@ -14,16 +14,16 @@ type Acc(T)
     self.total += x
     self.total -= 1
 
-type Bits(T)
+type Bits[T]
   v: T
 
   fun doubled(?self) -> T
     self.v << 1
 
 sub main()
-  a: Acc(Int) = Acc(total: 5)
-  f: Acc(Float) = Acc(total: 2.5)
-  u: Bits(U8) = Bits(v: 7)
+  a: Acc[Int] = Acc(total: 5)
+  f: Acc[Float] = Acc(total: 2.5)
+  u: Bits[U8] = Bits(v: 7)
   !a.add(3)
   print(a.bumped(), a.negated(), a.total)
   print(f.bumped(), f.negated())

@@ -4,12 +4,12 @@
 struct P
   n: Int
 
-type Box(T)
+type Box[T]
   value: T
 
 sub main()
   h: *P = *P(n: 5)
-  b: Box(Box(Box(Box(Box(Box(Box(Box(Box(Box(*P)))))))))) = Box(value: Box(value: Box(value: Box(value: Box(value: Box(value: Box(value: Box(value: Box(value: Box(value: <h))))))))))
+  b: Box[Box[Box[Box[Box[Box[Box[Box[Box[Box[*P]]]]]]]]]] = Box(value: Box(value: Box(value: Box(value: Box(value: Box(value: Box(value: Box(value: Box(value: Box(value: <h))))))))))
   c = b
   print(c.value.value.value.value.value.value.value.value.value.value.n)
 

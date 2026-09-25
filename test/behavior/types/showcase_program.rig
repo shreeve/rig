@@ -1,6 +1,6 @@
 # The original language showcase: fallible functions return plain
-# values, `?input` reborrows a borrowed parameter, `pre` specializes at
-# compile time, and a user type may be named `Bytes`.
+# values, `?input` reborrows a borrowed parameter, a compile-time
+# parameter specializes the function, and a user type may be named `Bytes`.
 
 struct User
   name: String
@@ -38,14 +38,14 @@ fun loadUser(id: U64) -> User!
 fun loadProfile(id: U64) -> Profile!
   Profile(name: "Steve")
 
-# Compile-time specialization: `pre` replaces Zig's `comptime`.
-fun parse(pre mode: ParseMode, input: ?Bytes) -> Ast
+# Compile-time specialization: `[mode: ParseMode]` is Zig's `comptime`.
+fun parse[mode: ParseMode](input: ?Bytes) -> Ast
   if mode == .strict
     parseStrict ?input
   else
     parseLoose ?input
 
-type Box(T)
+type Box[T]
   value: T
 
 sub main()
@@ -63,10 +63,10 @@ sub main()
   print view.user.id
 
   bytes = Bytes(data: 0)
-  ast = parse(.strict, ?bytes)
+  ast = parse[.strict](?bytes)
   print ast.ok
 
-  b: Box(Int) = Box(value: 5)
+  b: Box[Int] = Box(value: 5)
   print b.value
 
   -other                       # drop now

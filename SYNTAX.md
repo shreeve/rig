@@ -208,7 +208,7 @@ supplies a fallback.
 
 ```rig
 sub main
-  count: *Cell(Int) = *Cell(value: 0)
+  count: *Cell[Int] = *Cell(value: 0)
   step = 5
   tick = |+count, +step| count.set(count.get() + step)
   tick()
@@ -248,14 +248,15 @@ would move, `~x` would hold a handle weakly.
 | borrow | `&x`, `&mut x` | `&x` | `?x`, `!x` |
 | reference count | `Rc::new(x)`, `Rc::clone(&r)` | by hand | `*x`, `+r` |
 | weak | `Rc::downgrade(&r)`, `w.upgrade()` | by hand | `~r`, `w.upgrade()` |
-| interior mutability | `RefCell<T>` / `Cell<T>` | by hand | `Cell(T)` |
-| growable array | `Vec<T>` | `std.ArrayList(T)` | `Vec(T)` |
+| interior mutability | `RefCell<T>` / `Cell<T>` | by hand | `Cell[T]` |
+| growable array | `Vec<T>` | `std.ArrayList(T)` | `Vec[T]` |
 | closure | `move \|a\| a + n` | a struct with a method | `\|+n, a\| a + n` |
 | drop early | `drop(x)` | `x.deinit()` | `-x` |
 | destructor | `impl Drop` | `deinit` + `defer` | `drop self: !Self` |
 | cleanup | scope guard | `defer`, `errdefer` | `defer`, `errdefer` |
-| generic type | `struct Box<T>` | `fn Box(comptime T: type) type` | `type Box(T)` |
-| compile-time param | const generics | `comptime n: i64` | `pre n: Int` |
+| generic type | `struct Box<T>` | `fn Box(comptime T: type) type` | `type Box[T]` |
+| type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `Vec[Int]()` |
+| compile-time param | const generics | `comptime n: i64` | `fun f[n: Int](x: Int)`, called `f[3](x)` |
 | unsafe | `unsafe { }` | (everything) | `raw` block |
 | logical ops | `&&`, `\|\|`, `!` | `and`, `or`, `!` | `and`, `or`, `not` |
 | ternary | `if c { a } else { b }` | `if (c) a else b` | `a if c else b` |
@@ -329,7 +330,7 @@ one. One rule decides every case:
 | `f -x` | `f(-x)` |
 | `a * b` | multiplication |
 | `f *x` | `f(*x)`: call `f` with `x` shared |
-| `f(x)`, `a[i]`, `a.b` | call, index, member access |
+| `f(x)`, `a[i]`, `a.b` | call, index or compile-time arguments (`Vec[Int]`), member access |
 | `f (x)`, `f [1, 2]`, `f .red` | a paren-free call whose argument is `(x)`, `[1, 2]`, `.red` |
 | `T?`, `T!`, `e!`, `e?` | suffixes: optional, fallible, propagate |
 | `-x` alone on a line | drop `x` (negation where the line's value is used) |
@@ -376,7 +377,7 @@ alone discards: `_ = f()`, or an ignored parameter.
 
 ```text
 and  as  break  catch  continue  defer  drop  else  enum  errdefer
-error  extern  false  for  fun  if  in  match  not  or  pre  pub  raw
+error  extern  false  for  fun  if  in  match  not  or  pub  raw
 return  struct  sub  test  true  try  type  use  while  zig
 ```
 
@@ -489,8 +490,8 @@ operands have different types `I32` and `Int`
 | `[]T` | read-only slice | `&[T]` | `[]const T` |
 | `fun(A, B) -> R`, `sub(A)` | function or stack closure | `fn(A, B) -> R`, `impl Fn` | `*const fn (A, B) R` |
 | `*fun(A) -> R`, `*sub(A)` | owned closure | `Rc<dyn Fn(A) -> R>` | a boxed closure |
-| `Cell(T)`, `Vec(T)`, `Signal(T)` | built-in generics | `RefCell<T>`, `Vec<T>` | runtime types |
-| `Name(T)` | generic instance | `Name<T>` | `Name(T)` |
+| `Cell[T]`, `Vec[T]`, `Signal[T]` | built-in generics | `RefCell<T>`, `Vec<T>` | runtime types |
+| `Name[T]` | generic instance | `Name<T>` | `Name[T]` |
 | `mod.Name` | imported type | `mod::Name` | `mod.Name` |
 
 Suffixes bind tighter than prefixes: `*User?` is a shared handle to an
@@ -614,6 +615,9 @@ sign -1
   `greet` is the function itself, a value; `greet()`, `greet(1)`, and
   the paren-free `greet 1` call it. That is why a paren-free call needs
   at least one argument.
+- Square brackets hold compile-time parameters and arguments, and
+  parentheses run-time ones: `fun check[mode: Mode](n: Int)` is called
+  `check[.strict](5)` ([§24](#24-compile-time-parameters)).
 
 **Every statement must have some use.** A value that is returned,
 bound, or passed may be anything, but one that would be thrown away must
@@ -1162,7 +1166,7 @@ whole expression:
 - `+n.first()` clones the handle `first` returns.
 - `-a.len` negates the length.
 - `!x.v` with no call after it borrows the field `x.v`, as for a
-  `v: !Vec(Int)` parameter.
+  `v: !Vec[Int]` parameter.
 
 The long form stays valid everywhere, and parentheses around the call
 keep their meaning: `!(v.pop())` borrows the result (and is rejected,
@@ -1170,7 +1174,7 @@ since a temporary cannot be write-borrowed).
 
 ```rig
 struct Stack
-  items: Vec(Int)
+  items: Vec[Int]
 
   sub push(!self, k: Int)
     !self.items.push(k)
@@ -1217,7 +1221,7 @@ same habit:
 
 ```rig reject
 struct Queue
-  items: Vec(Int)
+  items: Vec[Int]
 
   fun is_empty(?self) -> Bool
     self.items.len == 0
@@ -1237,7 +1241,7 @@ so `!set.insert(k)` can never be read as "not inserted":
 
 ```rig reject
 struct Set
-  items: Vec(Int)
+  items: Vec[Int]
 
   fun insert(!self, k: Int) -> Bool
     for x in ?self.items
@@ -1257,7 +1261,7 @@ a write-borrowing call that returns `Bool` is written `(!set).insert(...)`, so i
 
 ```rig
 struct Set
-  items: Vec(Int)
+  items: Vec[Int]
 
   fun insert(!self, k: Int) -> Bool
     for x in ?self.items
@@ -1367,36 +1371,48 @@ sub main
 
 ### Generic types
 
-`type Name(T, ...)` declares a generic struct and `enum Name(T, ...)` a
-generic enum. Type arguments are inferred from the constructor's values
-or named in the type (`Box(Int)`). There are no generic functions yet,
-and no traits: a generic body may only do with `T` what every
-instantiation allows, which is checked per instance, like Zig's
-`comptime T: type`.
+`type Name[T, ...]` declares a generic struct and `enum Name[T, ...]` a
+generic enum; the brackets touch the name. Type arguments go in
+brackets too, in a type (`Box[Int]`) and in an expression
+(`Box[Int](value: 3)`, `Vec[Int]()`, `Option[Int].some(value: 7)`), or
+are inferred from the constructor's values or the type expected where
+the value goes. There are no generic functions yet, and no traits: a
+generic body may only do with `T` what every instantiation allows,
+which is checked per instance, like Zig's `comptime T: type`.
 
 ```rig
-type Pair(T, U)
+type Pair[T, U]
   first: T
   second: U
 
   fun left(?self) -> T
     self.first
 
-enum Option(T)
+enum Option[T]
   some(value: T)
   nothing
 
 sub main
   p = Pair(first: 42, second: "answer")
-  o: Option(Int) = .some(value: p.left())
+  o: Option[Int] = .some(value: p.left())
   match o
     .some(v) => print(v, p.second)
     .nothing => print("none")
+  q = Pair[Int, Float](first: 1, second: 2.5)
+  v = Vec[Option[Int]]()
+  !v.push(Option[Int].some(value: q.left()))
+  print(q.second, v[0])
 ```
 
 ```output
 42 answer
+2.5 .some(value: 1)
 ```
+
+In an expression, `x[...]` is type arguments when `x` names a generic
+type, and an index otherwise. A type argument there is spelled as an
+expression: a name, `mod.Type`, `*T`, `~T`, `?T`, `!T`, `T?`, or an
+instance. For a slice, array, or function type, use a `type` alias.
 
 ### Aliases
 
@@ -1707,7 +1723,7 @@ true
 ```
 
 Access through a handle is **read-only**: other handles see the same
-value. Shared mutable state goes in a `Cell`, so `*Cell(T)` is Rust's
+value. Shared mutable state goes in a `Cell`, so `*Cell[T]` is Rust's
 `Rc<RefCell<T>>` without the run-time borrow flag.
 
 ```rig reject
@@ -1732,14 +1748,14 @@ handles leaks, as in Rust; break it with a weak handle.
 These three built-in generic types are the substrate for mutable,
 growable, and reactive state.
 
-**`Cell(T)`** holds one value that can be replaced through any path,
+**`Cell[T]`** holds one value that can be replaced through any path,
 including a read borrow or a shared handle: `c.get()` copies it out
 (Copy `T`), `c.set(v)` stores, and `c.replace(v)` stores and returns the
 old value. These calls need no `!`: a Cell's contents are never lent
 out, only replaced, so any holder may change them. That is also why
 there is no run-time borrow flag, unlike Rust's `RefCell`.
 
-**`Vec(T)`** is a growable array that owns its elements, like Rust's
+**`Vec[T]`** is a growable array that owns its elements, like Rust's
 `Vec<T>`. Elements are Copy values, plain data, or handles.
 
 | Member | Meaning |
@@ -1759,12 +1775,12 @@ struct Task
     print("done", self.id)
 
 sub main
-  nums: Vec(Int) = Vec()
+  nums: Vec[Int] = Vec()
   !nums.push(3)
   !nums.push(4)
   nums[0] = 30
   print(nums, nums.len)
-  tasks: Vec(*Task) = Vec()
+  tasks: Vec[*Task] = Vec()
   !tasks.push(*Task(id: 1))
   !tasks.push(*Task(id: 2))
   for t in ?tasks
@@ -1783,7 +1799,7 @@ popped 1
 done 1
 ```
 
-**`Cell(Vec(T))`** is the shared, growable list. It answers the Vec's own
+**`Cell[Vec[T]]`** is the shared, growable list. It answers the Vec's own
 members through any path to the cell, without `!` (`!c.push(x)` is
 rejected), like `set`: `c.push(x)`, `c.pop()`, `c.clear()`, `c.len`, and for Copy elements
 `c[i]`, `c.get(i)`, and `c[i] = x`. Each is done at once inside the
@@ -1793,7 +1809,7 @@ a borrow flag.
 
 ```rig
 sub main
-  log: *Cell(Vec(Int)) = *Cell(value: Vec())
+  log: *Cell[Vec[Int]] = *Cell(value: Vec())
   other = +log
   log.push(1)
   other.push(2)
@@ -1811,13 +1827,13 @@ popped 2
 For anything else, take the value out with `replace`, change it, and
 put it back: `v = c.replace(Vec())`, `!v.push(x)`, `c.set(<v)`.
 
-**`Signal(T)`** holds a Copy value and a list of subscribers (owned
+**`Signal[T]`** holds a Copy value and a list of subscribers (owned
 closures) that run on every `set`. It lives behind a shared handle,
 `*Signal(value: v)`.
 
 ```rig
 sub main
-  clicks: *Signal(Int) = *Signal(value: 0)
+  clicks: *Signal[Int] = *Signal(value: 0)
   clicks.subscribe(*|~clicks|
     if clicks.upgrade() as c
       print("clicked", c.get()))
@@ -1901,7 +1917,7 @@ cannot capture a borrow.
 
 ```rig
 fun make_counter(start: Int) -> *fun(Int) -> Int
-  count: *Cell(Int) = *Cell(value: start)
+  count: *Cell[Int] = *Cell(value: start)
   *|+count, step|
     count.set(count.get() + step)
     count.get()
@@ -1909,7 +1925,7 @@ fun make_counter(start: Int) -> *fun(Int) -> Int
 sub main
   next = make_counter(100)
   print(next(1), next(10))
-  handlers: Vec(*fun(Int) -> Int) = Vec()
+  handlers: Vec[*fun(Int) -> Int] = Vec()
   !handlers.push(<next)
   !handlers.push(*|x| x * 10)
   for h in ?handlers
@@ -2185,25 +2201,41 @@ sub main
 
 ## 24. Compile-time parameters
 
-`pre name: T` marks a parameter known at compile time, lowered to a Zig
-`comptime` parameter. Its argument must be a literal, an enum value, a
-constant, or another `pre` parameter.
+Square brackets hold what is known at compile time, parentheses what
+is known when the program runs. Compile-time parameters go in brackets
+touching the function's name, before its run-time parameters, and
+lower to Zig `comptime` parameters; a call gives their arguments in
+brackets. Each argument must be a literal, an enum value, a constant,
+or another compile-time parameter. With no run-time parameters, the
+parentheses are optional, and a whole-statement call `show[3]` runs
+`show` as `show[3]()` does.
 
 ```rig
 enum Mode
   strict
   loose
 
-fun check(pre mode: Mode, n: Int) -> Bool
+fun check[mode: Mode](n: Int) -> Bool
   n > 10 if mode == .strict else n > 0
 
+sub show[n: Int]
+  print(n)
+
 sub main
-  print(check(.strict, 5), check(.loose, 5))
+  print(check[.strict](5), check[.loose](5))
+  show[3]
 ```
 
 ```output
 false true
+3
 ```
+
+| Rust | Zig | Rig |
+|---|---|---|
+| `fn f<const N: usize>(x: i64)` | `fn f(comptime n: usize, x: i64)` | `fun f[n: Int](x: Int)` |
+| `f::<3>(x)` | `f(3, x)` | `f[3](x)` |
+| `Vec::<i64>::new()` | `std.ArrayList(i64).empty` | `Vec[Int]()` |
 
 ## 25. Tests
 
@@ -2323,7 +2355,7 @@ move-assign, `new x =` shadow, compound `+=` `-=` `*=` `/=` `%=` `&=`
 | control | `if` `else` `while` `for` `in` `match` `break` `continue` `return` `defer` `errdefer` |
 | expressions | `and` `or` `not` `as` `catch` `true` `false` |
 | bindings | `new` (statement start only) |
-| boundaries | `raw` `pre` |
+| boundaries | `raw` |
 | reserved | `try` `zig` |
 
 ## B. How Rig lowers to Zig
@@ -2336,18 +2368,18 @@ correspondences:
 | `Int`, `U8`, `Float`, `String` | `i64`, `u8`, `f64`, `[]const u8` |
 | `struct`, plain `enum`, payload `enum` | `struct`, `enum`, `union(enum)` |
 | `error E` | an error set |
-| `type Box(T)` | `fn Box(comptime T: type) type` |
+| `type Box[T]` | `fn Box(comptime T: type) type` |
 | `T?`, `none`, `a ?? b` | `?T`, `null`, `a orelse b` |
 | `T!`, `f()!`, `catch` | `anyerror!T`, `try f()`, `catch` |
 | `?T` parameter | the value for plain data; `*const T` for owning types |
 | `!T` | `*T` |
 | `*T`, `~T` | runtime `RcBox(T)` pointer, weak handle |
-| `Vec(T)`, `Cell(T)` | runtime generic types |
+| `Vec[T]`, `Cell[T]` | runtime generic types |
 | an owning local | a `defer` that releases it, guarded by a flag if it may move first |
 | a stack closure | a local struct holding its captures, with an `invoke` method |
 | an owned closure | a counted, type-erased closure |
 | `defer`, `errdefer` | `defer`, `errdefer` |
-| `pre n: Int` | `comptime n: i64` |
+| `fun f[n: Int]` | `fn f(comptime n: i64)` |
 | `sub main` | `pub fn main() void`, which checks for leaks on exit in Debug |
 
 The runtime (`src/runtime.zig`) is written next to every emitted
@@ -2364,16 +2396,17 @@ program   = decl*
 decl      = ["pub"] (fun | sub | struct | enum | errors | typedef | const | test)
           | use | extern
 use       = "use" name
-fun       = "fun" name ["(" params ")"] ["->" type] block
-sub       = "sub" name ["(" params ")"] block
-param     = name ":" type ["=" literal] | "pre" name ":" type | "?self" | "!self"
+fun       = "fun" name ["[" tparam, ... "]"] ["(" params ")"] ["->" type] block
+sub       = "sub" name ["[" tparam, ... "]"] ["(" params ")"] block
+tparam    = name | name ":" type      # a type, or a compile-time value
+param     = name ":" type ["=" literal] | "?self" | "!self"
 struct    = "struct" name INDENT (field | fun | sub | drop)* DEDENT
 field     = name ":" type ["=" literal]
-enum      = "enum" name ["(" params ")"] INDENT (variant | fun | sub)* DEDENT
+enum      = "enum" name ["[" name, ... "]"] INDENT (variant | fun | sub)* DEDENT
 variant   = name | name "=" integer | name "(" field, ... ")"
 errors    = "error" name INDENT name* DEDENT
 typedef   = "type" name "=" type
-          | "type" name "(" params ")" INDENT (field | fun | sub)* DEDENT
+          | "type" name "[" name, ... "]" INDENT (field | fun | sub)* DEDENT
 const     = name [":" type] "=!" expr
 drop      = "drop" "self" ":" "!Self" block
 test      = "test" string block
@@ -2382,7 +2415,7 @@ extern    = "extern" ("fun" | "sub") name ["(" params ")"] ["->" type]
 
 type      = ("?" | "!" | "*" | "~" | "[" [integer] "]") type
           | type ("?" | "!")
-          | name | name "(" type, ... ")" | mod "." name | "(" type ")"
+          | name | name "[" type, ... "]" | mod "." name | "(" type ")"
           | "fun" "(" type, ... ")" "->" type | "sub" "(" type, ... ")"
 
 stmt      = simple ["if" expr] | ":" label stmt
@@ -2407,7 +2440,7 @@ value     = logic "if" logic "else" value | logic "catch" ["|" name "|"] value |
 logic     = logic "or" logic | logic "and" logic | "not" logic | infix
 infix     = unary (op unary)*          # precedence table in section 10
 unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~") unary | postfix
-postfix   = postfix ("." name | "[" expr "]" | "(" args ")" | "!" | "?") | atom
+postfix   = postfix ("." name | "[" expr, ... "]" | "(" args ")" | "!" | "?") | atom
 args      = (expr | name ":" expr), ...
 atom      = name | literal | "." name | "@" name "(" args ")" | "[" expr, ... "]" | "(" expr ")"
 ```
@@ -2429,7 +2462,9 @@ call onto the place, giving the tree of `(!v).push(x)`
 - There are no lifetimes to write, no `mut`, and no `let`.
 - `?` is spelled `!` for errors (`f()!`) and `?` only for optionals
   (`x?`); a prefix `?x` is a borrow.
-- `Rc<RefCell<T>>` is `*Cell(T)`; there is no run-time borrow flag,
+- Generics use brackets, not angle brackets, and need no turbofish:
+  `Vec[Int]()` is `Vec::<i64>::new()`.
+- `Rc<RefCell<T>>` is `*Cell[T]`; there is no run-time borrow flag,
   because a Cell's contents are only replaced, never borrowed.
 - Closures capture nothing implicitly: list every capture with its
   mode.
@@ -2460,6 +2495,9 @@ call onto the place, giving the tree of `(!v).push(x)`
   a subtraction.
 - A function with no parameters needs no `()` in its declaration,
   `sub greet`, but a call still does, `greet()`.
+- `comptime` parameters go in brackets before the run-time ones:
+  `fn f(comptime n: i64, x: i64)` is `fun f[n: Int](x: Int)`, called
+  `f[3](x)`, and a generic type is `type Box[T]`.
 - A value nobody uses is an error, as in Zig; `_ = e` discards on
   purpose.
 - `switch` is `match`, and its `else =>` arm is `_ =>`.

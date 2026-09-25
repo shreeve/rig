@@ -1,0 +1,10 @@
+# A generic type's parameters are types: a compile-time value parameter
+# on a type is not supported.
+
+type Ring[n: Int]
+  first: Int
+
+sub main()
+  print(1)
+
+# error: 4:11: a generic type's parameters are types; a compile-time value parameter (`n: T`) is not supported on a type

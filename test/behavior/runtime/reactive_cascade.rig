@@ -3,11 +3,11 @@
 # weakly (`|~count, ~total|`), so no source is kept alive by its own
 # subscriber list.
 
-type Subscribers = Vec(*sub())
+type Subscribers = Vec[*sub()]
 
 struct IntSource
-  value: *Cell(Int)
-  subs: *Cell(Subscribers)
+  value: *Cell[Int]
+  subs: *Cell[Subscribers]
 
   fun new(initial: Int) -> *IntSource
     *IntSource(value: *Cell(value: initial), subs: *Cell(value: Vec()))

@@ -1,0 +1,7 @@
+# A compile-time parameter goes in brackets after the function's name;
+# `pre` is an ordinary name, not a keyword.
+
+fun scale(pre n: Int, x: Int) -> Int
+  x * n
+
+# error: 4:15: compile-time parameters go in brackets after the name, before the run-time ones: `fun f[n: Int](x: Int)`

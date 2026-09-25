@@ -8,10 +8,10 @@ sub f(a: !Int, b: !Int)
 sub g(acc: !Int, y: ?Int)
   acc += y
 
-sub h(out: !Vec(Int), k: ?Int)
+sub h(out: !Vec[Int], k: ?Int)
   out.push(k)
 
-sub fill(out: !Vec(Int))
+sub fill(out: !Vec[Int])
   t = 5
   h(!out, ?t)
   t += 1
@@ -28,7 +28,7 @@ sub main()
   y += 1
   g(!acc, ?y)
   print(acc, y)
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   fill(!v)
   print(v.len, v[0], v[1])
 

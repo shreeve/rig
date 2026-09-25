@@ -5,4 +5,4 @@ sub main()
   sig = Signal(value: 0)
   print(sig.get())
 
-# error: stack-local `Signal(T)` is not supported
+# error: stack-local `Signal[T]` is not supported

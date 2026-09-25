@@ -5,7 +5,7 @@ struct B
   n: Int
 
 sub main()
-  w: Vec(*B) = Vec()
+  w: Vec[*B] = Vec()
   !w.push(*B(n: 1))
   t = 0
   while !w.pop() as b : t += b.n

@@ -3,7 +3,7 @@
 # held by a struct moved in, or held by a constructed argument.
 
 struct Res
-  v: Vec(Int)
+  v: Vec[Int]
 
 struct View
   r: ?Res

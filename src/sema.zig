@@ -41,6 +41,11 @@
 //!                                      omitted arguments: which argument
 //!                                      (or default value) fills each
 //!                                      parameter, in parameter order
+//!   ctx.instanceOf(node) -> ?Instance  for a bracket list (`index` or
+//!                                      `inst`) of compile-time arguments
+//!                                      rather than an index: the generic
+//!                                      type's instance, or a function's
+//!                                      compile-time arguments
 //!
 //! A call's callee gets a type too: a function name its signature, and a
 //! method callee `(member obj m)` the resolved method signature with the
@@ -108,12 +113,10 @@ pub const FunctionType = struct {
     params: []const TypeId,
     returns: TypeId,
     is_sub: bool,
-    /// Bit i set: parameter i is a `pre` (compile-time) parameter.
-    pre_mask: u32 = 0,
-
-    pub fn isPre(self: FunctionType, i: usize) bool {
-        return i < 32 and (self.pre_mask >> @intCast(i)) & 1 == 1;
-    }
+    /// The types of its compile-time value parameters, in order: `Mode`
+    /// for `fun check[mode: Mode](n: Int)`. A call fills them in
+    /// brackets (`check[.strict](5)`); `params` are the run-time ones.
+    ct_params: []const TypeId = &.{},
 };
 
 pub const SliceType = struct { elem: TypeId };
@@ -163,9 +166,9 @@ pub const Type = union(enum) {
     /// A nominal declared in another module. Identity is the origin
     /// module plus the symbol there, never the shape.
     imported_nominal: ImportedNominal,
-    /// A generic type applied to arguments: `Box(Int)`.
+    /// A generic type applied to arguments: `Box[Int]`.
     parameterized_nominal: ParamNominal,
-    /// A generic parameter (`T` inside `type Box(T)`).
+    /// A generic parameter (`T` inside `type Box[T]`).
     type_var: SymbolId,
 };
 
@@ -295,7 +298,7 @@ pub const TypeStore = struct {
             .invalid, .unknown, .void, .bool, .string, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => true,
             .function => |af| af.is_sub == b.function.is_sub and
                 af.returns == b.function.returns and
-                af.pre_mask == b.function.pre_mask and
+                std.mem.eql(TypeId, af.ct_params, b.function.ct_params) and
                 std.mem.eql(TypeId, af.params, b.function.params),
             .parameterized_nominal => |x| x.sym == b.parameterized_nominal.sym and
                 std.mem.eql(TypeId, x.args, b.parameterized_nominal.args),
@@ -318,10 +321,11 @@ pub const SymbolKind = enum {
     local,
     /// `type UserId = Int`. Transparent: the alias's `ty` is its target.
     type_alias,
-    /// `type Box(T)` / `enum Option(T)` and the built-in generics.
+    /// `type Box[T]` / `enum Option[T]` and the built-in generics.
     generic_type,
-    /// `T` in `type Box(T)`. Detached: not in any scope; reached through
-    /// the owning type's `type_params`.
+    /// `T` in `type Box[T]`, detached: not in any scope, reached through
+    /// the owning type's `type_params`. Also `T` in `fun max[T]`, bound
+    /// in the function's scope; such a function is rejected as generic.
     generic_param,
     /// struct / enum / error set / opaque.
     nominal_type,
@@ -340,9 +344,8 @@ pub const SymbolFlags = packed struct(u16) {
     is_public: bool = false,
     /// Parameter declared with a borrowed type (`?T` / `!T`).
     borrowed_param: bool = false,
-    /// `pre` parameter.
-    is_pre: bool = false,
-    /// Value known at compile time: a `pre` parameter, or a `=!` binding
+    /// Value known at compile time: a compile-time parameter
+    /// (`fun f[n: Int]`), or a `=!` binding
     /// initialized with a compile-time-known expression.
     comptime_known: bool = false,
     /// Bound by a `for` loop or a match pattern: not assignable.
@@ -355,7 +358,7 @@ pub const SymbolFlags = packed struct(u16) {
     written: bool = false,
     /// An `error` declaration: its variants are error values.
     error_set: bool = false,
-    _: u7 = 0,
+    _: u8 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -452,6 +455,9 @@ pub const Facts = struct {
     call_slots: std.AutoHashMapUnmanaged(NodeKey, []const ArgSlot) = .empty,
     /// Match nodes whose non-default arms cover every value.
     exhaustive: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Bracket-list node (`index` / `inst`) -> what it instantiates,
+    /// for one that gives compile-time arguments rather than an index.
+    instances: std.AutoHashMapUnmanaged(NodeKey, Instance) = .empty,
     /// Positions of names assigned to (`x = e`, `x <- e`, `x += e` after
     /// `x` is declared): a use there writes the binding, not reads it.
     writes: std.AutoHashMapUnmanaged(u32, void) = .empty,
@@ -464,8 +470,39 @@ pub const Facts = struct {
         self.scopes.deinit(allocator);
         self.call_slots.deinit(allocator);
         self.exhaustive.deinit(allocator);
+        self.instances.deinit(allocator);
     }
 };
+
+/// What a bracket list `x[...]` that is not an index instantiates. The
+/// parser builds `(index x a)` for one argument and `(inst x a b ...)`
+/// for more; sema decides by what `x` names (a generic type or a
+/// function with compile-time parameters instantiates, anything else
+/// is indexed) and records the instances here.
+pub const Instance = union(enum) {
+    /// `Vec[Int]`, `Pair[Int, String]`: the generic type's instance.
+    type: TypeId,
+    /// `check[.strict]`, `p.scale[2]`: a function's compile-time
+    /// arguments.
+    function: FunctionInstance,
+};
+
+pub const FunctionInstance = struct {
+    /// The bracket list is itself the call: a statement `show[3]`, which
+    /// passes no run-time arguments.
+    call: bool = false,
+    /// The call passes a method's receiver as its first argument
+    /// (`Point.scale[2](p)`); Zig takes the receiver first, then the
+    /// compile-time arguments.
+    receiver_arg: bool = false,
+};
+
+/// The arguments of a bracket list: the index of `(index x i)`, or every
+/// argument of `(inst x a b ...)`.
+pub fn bracketArgs(node: Sexp) []const Sexp {
+    if (node.isKind(.inst)) return ir.Inst.args(node);
+    return node.items()[ir.slot(.index, .index)..][0..1];
+}
 
 /// What fills one parameter of a call: the argument at an index of the
 /// call's argument list (a `(kwarg ...)` stands for its value), or the
@@ -581,7 +618,7 @@ pub const SemContext = struct {
     /// Instantiated generic type -> position of its first spelling.
     instantiation_sites: std.AutoHashMapUnmanaged(TypeId, u32) = .empty,
     /// Instances of user generics spelled with type parameters, inside
-    /// generic declarations (`Opt(T)` in `Box(T)`'s methods). See
+    /// generic declarations (`Opt[T]` in `Box[T]`'s methods). See
     /// `expandInstantiations`.
     generic_uses: std.ArrayListUnmanaged(TypeId) = .empty,
     /// Integer constants: bindings never reassigned or written whose
@@ -793,6 +830,31 @@ pub const SemContext = struct {
         return self.facts.call_slots.get(key);
     }
 
+    /// What a bracket list instantiates; null for an index (or a node
+    /// sema never reached).
+    pub fn instanceOf(self: *const SemContext, node: Sexp) ?Instance {
+        if (!rig.isBracketList(node)) return null;
+        return self.facts.instances.get(nodeKey(node) orelse return null);
+    }
+
+    /// A call's callee without its compile-time arguments: `f` for
+    /// `f[3](x)`, `p.scale` for `p.scale[2]()`, `Box` for
+    /// `Box[Int](v: 3)` (whose instance `instanceOf` the bracket list
+    /// gives).
+    pub fn calleeOf(self: *const SemContext, call: Sexp) Sexp {
+        const callee = ir.Call.callee(call);
+        if (self.instanceOf(callee) == null) return callee;
+        return ir.get(callee, .object);
+    }
+
+    /// The compile-time arguments a call passes in brackets: `.strict`
+    /// in `check[.strict](5)`; empty for a call without.
+    pub fn ctArgsOf(self: *const SemContext, call: Sexp) []const Sexp {
+        const callee = ir.Call.callee(call);
+        const inst = self.instanceOf(callee) orelse return &.{};
+        return if (inst == .function) bracketArgs(callee) else &.{};
+    }
+
     // ---- facts: recording (sema passes only) ----------------------------
 
     pub fn recordName(self: *SemContext, node: Sexp, sym: SymbolId) !void {
@@ -818,6 +880,10 @@ pub const SemContext = struct {
 
     pub fn recordCallSlots(self: *SemContext, call: Sexp, slots: []const ArgSlot) !void {
         try self.facts.call_slots.put(self.allocator, recordKey(call), slots);
+    }
+
+    pub fn recordInstance(self: *SemContext, node: Sexp, inst: Instance) !void {
+        try self.facts.instances.put(self.allocator, recordKey(node), inst);
     }
 
     pub fn intern(self: *SemContext, ty: Type) std.mem.Allocator.Error!TypeId {
@@ -852,7 +918,10 @@ pub const SemContext = struct {
         if (self.types.find(ty)) |id| return id;
         var owned = ty;
         switch (owned) {
-            .function => |*f| f.params = try self.dupeIds(f.params),
+            .function => |*f| {
+                f.params = try self.dupeIds(f.params);
+                f.ct_params = try self.dupeIds(f.ct_params);
+            },
             .parameterized_nominal => |*pn| pn.args = try self.dupeIds(pn.args),
             else => {},
         }
@@ -954,10 +1023,10 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
 }
 
 /// Add the instances a program reaches through generic bodies: when
-/// `Box(*B)` is spelled and `Box(T)`'s methods use `Opt(T)`, `Opt(*B)` is
+/// `Box[*B]` is spelled and `Box[T]`'s methods use `Opt[T]`, `Opt[*B]` is
 /// instantiated too, at the same site. The requirement checks then see
-/// every instantiation, and a built-in generic reached this way (`Vec(T)`
-/// in `Stack(T)`) has its element rules checked for the argument.
+/// every instantiation, and a built-in generic reached this way (`Vec[T]`
+/// in `Stack[T]`) has its element rules checked for the argument.
 fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
     if (ctx.generic_uses.items.len == 0) return;
     const Item = struct { inst: TypeId, root: TypeId };
@@ -979,7 +1048,7 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
             const info = ctx.typeInfo(concrete);
             if (info.has_type_var) continue;
             // A generic whose body uses ever-deeper instances of itself
-            // (`Box(T)` using `Box(Box(T))`) would expand forever.
+            // (`Box[T]` using `Box[Box[T]]`) would expand forever.
             if (info.depth > max_instance_depth) {
                 try ctx.err(site, "`{s}` leads to ever deeper instances of generic types (through `{s}`); a generic type's body cannot nest itself in its own type arguments", .{ try formatType(ctx, item.root), try formatType(ctx, use) });
                 return;
@@ -1384,7 +1453,7 @@ fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
             // `low` names the component after the search.
             for (targets.items) |t| if (s.low[t] == s.low[i]) break :fields f;
         } else continue;
-        const shown = if (sym.kind == .generic_type) try std.fmt.allocPrint(ctx.arena.allocator(), "{s}(...)", .{sym.name}) else sym.name;
+        const shown = if (sym.kind == .generic_type) try std.fmt.allocPrint(ctx.arena.allocator(), "{s}[...]", .{sym.name}) else sym.name;
         try ctx.err(f.decl_pos, "`{s}` contains itself by value through `{s}`, so it would have no finite size; hold it through a shared handle (`*{s}`)", .{ shown, f.name, shown });
     }
 }
@@ -1690,9 +1759,12 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
             var params: std.ArrayListUnmanaged(TypeId) = .empty;
             defer params.deinit(ctx.allocator);
             for (f.params) |p| try params.append(ctx.allocator, try substituteType(ctx, p, subst));
+            var ct: std.ArrayListUnmanaged(TypeId) = .empty;
+            defer ct.deinit(ctx.allocator);
+            for (f.ct_params) |p| try ct.append(ctx.allocator, try substituteType(ctx, p, subst));
             const ret = try substituteType(ctx, f.returns, subst);
-            if (ret == f.returns and std.mem.eql(TypeId, params.items, f.params)) return ty_id;
-            return ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .pre_mask = f.pre_mask } });
+            if (ret == f.returns and std.mem.eql(TypeId, params.items, f.params) and std.mem.eql(TypeId, ct.items, f.ct_params)) return ty_id;
+            return ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items } });
         },
         .parameterized_nominal => |pn| {
             var args: std.ArrayListUnmanaged(TypeId) = .empty;
@@ -1736,7 +1808,7 @@ pub fn isPlainData(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// Whether a value of `ty` owns a resource depends on type parameters
-/// that `ty` holds by value (a `T`, `T?`, `Box(T)` inside a generic
+/// that `ty` holds by value (a `T`, `T?`, `Box[T]` inside a generic
 /// body): it has no drop glue of its own, but an instantiation may. Such
 /// values are moved and dropped like resources.
 pub fn maybeDropGlue(ctx: *const SemContext, ty: TypeId) bool {
@@ -1782,8 +1854,11 @@ pub fn importType(
             var params: std.ArrayListUnmanaged(TypeId) = .empty;
             defer params.deinit(local_ctx.allocator);
             for (f.params) |p| try params.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, p, origin_module_id));
+            var ct: std.ArrayListUnmanaged(TypeId) = .empty;
+            defer ct.deinit(local_ctx.allocator);
+            for (f.ct_params) |p| try ct.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, p, origin_module_id));
             const ret = try importType(local_ctx, foreign_ctx, f.returns, origin_module_id);
-            return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .pre_mask = f.pre_mask } });
+            return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items } });
         },
         .nominal => |sym_id| return local_ctx.intern(.{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
         .imported_nominal => |n| return local_ctx.intern(.{ .imported_nominal = n }),
@@ -1816,7 +1891,7 @@ pub const NominalContext = struct {
     }
 };
 
-/// `Self` is `nominal(sym)` for plain types and `Box(T)` (applied to
+/// `Self` is `nominal(sym)` for plain types and `Box[T]` (applied to
 /// its own parameters) for generic ones.
 pub fn makeNominalContext(ctx: *SemContext, sym_id: SymbolId) std.mem.Allocator.Error!NominalContext {
     const sym = ctx.symbols.items[sym_id];
@@ -1991,7 +2066,7 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
             // A module reached only through an import, by its file name.
             break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, name });
         },
-        .parameterized_nominal => |pn| try std.fmt.allocPrint(a, "{s}({s})", .{ ctx.symbols.items[pn.sym].name, try formatTypeList(ctx, a, pn.args) }),
+        .parameterized_nominal => |pn| try std.fmt.allocPrint(a, "{s}[{s}]", .{ ctx.symbols.items[pn.sym].name, try formatTypeList(ctx, a, pn.args) }),
         .type_var => |sym| ctx.symbols.items[sym].name,
     };
 }
@@ -2185,12 +2260,18 @@ fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
     }
 }
 
-/// Name leaf of a parameter: `(: name T)`, `(pre_param name T)`,
-/// `(default name T value)`, `(read self)`, `(write self)`, or a bare
-/// name.
+/// The compile-time parameter group of a `fun`, `sub`, generic type, or
+/// generic enum (`[T]`, `[n: Int]`); `_` for none, and for other kinds.
+pub fn tparamsOf(node: Sexp) Sexp {
+    const kind = node.kind() orelse return .nil;
+    return if (ir.has(kind, .tparams)) ir.get(node, .tparams) else .nil;
+}
+
+/// Name leaf of a parameter: `(: name T)`, `(default name T value)`,
+/// `(read self)`, `(write self)`, or a bare name.
 pub fn paramNameNode(param: Sexp) ?Sexp {
     return switch (param.kind() orelse return if (param == .src) param else null) {
-        .@":", .pre_param, .default => ir.get(param, .name),
+        .@":", .default => ir.get(param, .name),
         .read, .write => ir.get(param, .operand),
         else => null,
     };
@@ -2277,7 +2358,8 @@ test "TypeStore: composites intern by structure" {
     const f1 = try store.intern(a, .{ .function = .{ .params = &p1, .returns = store.int_id, .is_sub = false } });
     const f2 = try store.intern(a, .{ .function = .{ .params = &p2, .returns = store.int_id, .is_sub = false } });
     const f3 = try store.intern(a, .{ .function = .{ .params = &p3, .returns = store.int_id, .is_sub = false } });
-    const f4 = try store.intern(a, .{ .function = .{ .params = &p1, .returns = store.int_id, .is_sub = false, .pre_mask = 1 } });
+    const ct = [_]TypeId{store.int_id};
+    const f4 = try store.intern(a, .{ .function = .{ .params = &p1, .returns = store.int_id, .is_sub = false, .ct_params = &ct } });
     try std.testing.expectEqual(f1, f2);
     try std.testing.expect(f1 != f3);
     try std.testing.expect(f1 != f4);
@@ -2550,7 +2632,7 @@ test "facts: loop and pattern bindings" {
         \\  dot
         \\
         \\sub main()
-        \\  v: Vec(Int) = Vec()
+        \\  v: Vec[Int] = Vec()
         \\  !v.push(3)
         \\  for x in v
         \\    print(x)
@@ -2685,12 +2767,12 @@ test "symbols: binding flags" {
         \\fun read(u: ?U) -> Int
         \\  u.n
         \\
-        \\sub show(pre k: Int)
+        \\sub show[k: Int]
         \\  print(k)
         \\
         \\sub main()
         \\  y =! 2
-        \\  show(y)
+        \\  show[y]()
         \\  print(read(?U(n: y)))
         \\
     );
@@ -2700,9 +2782,10 @@ test "symbols: binding flags" {
     try std.testing.expect(y.flags.fixed);
     try std.testing.expect(y.flags.comptime_known);
     const k = r.ctx.symbols.items[r.sym("k", 0).?];
-    try std.testing.expect(k.flags.is_pre);
+    try std.testing.expect(k.flags.comptime_known);
     const show = r.ctx.types.get(r.ctx.symbols.items[r.ctx.lookup(1, "show").?].ty).function;
-    try std.testing.expect(show.isPre(0));
+    try std.testing.expectEqual(@as(usize, 1), show.ct_params.len);
+    try std.testing.expectEqual(@as(usize, 0), show.params.len);
 }
 
 test "declarations: wrapper, sized, and alias types" {
@@ -2885,7 +2968,7 @@ test "facts: every name and expression in a program has a fact" {
         \\  circle(radius: Int)
         \\  dot
         \\
-        \\type Box(T)
+        \\type Box[T]
         \\  value: T
         \\
         \\  fun get(?self) -> T
@@ -2916,16 +2999,16 @@ test "facts: every name and expression in a program has a fact" {
         \\  -shared
         \\  print(other.balance)
         \\  total = 0
-        \\  v: Vec(Int) = Vec()
+        \\  v: Vec[Int] = Vec()
         \\  !v.push(3)
         \\  for x in v
         \\    total += x
         \\  print(total + moved.balance)
-        \\  b: Box(Int) = Box(value: 4)
+        \\  b: Box[Int] = Box(value: 4)
         \\  print(b.get())
         \\  print(area(.circle(radius: 2)))
         \\  print(maybe(-1) ?? 9)
-        \\  c: *Cell(Int) = *Cell(value: 1)
+        \\  c: *Cell[Int] = *Cell(value: 1)
         \\  f = |+c|
         \\    c.set(c.get() + 1)
         \\  f()
@@ -2950,7 +3033,7 @@ test "facts: optional bindings, index bindings, defaults, and shadows have facts
         \\  xs = [1, 2]
         \\  for x, i in xs
         \\    print(x + i)
-        \\  w: Vec(Int) = Vec()
+        \\  w: Vec[Int] = Vec()
         \\  while !w.pop() as y
         \\    print(y)
         \\  k = 1

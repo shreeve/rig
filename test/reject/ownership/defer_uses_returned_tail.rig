@@ -1,8 +1,8 @@
 # Returning a bare local moves it out; a `defer` that runs at that exit
 # sees it moved.
 
-fun mk() -> Vec(Int)
-  v: Vec(Int) = Vec()
+fun mk() -> Vec[Int]
+  v: Vec[Int] = Vec()
   !v.push(1)
   defer !v.push(2)
   v

@@ -1,6 +1,6 @@
 # A `drop` body is only for a struct, not a generic type.
 
-type Box(T)
+type Box[T]
   value: T
 
   drop self: !Self

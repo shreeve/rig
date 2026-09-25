@@ -2,7 +2,7 @@
 # `replace(v)`; `value` names only its constructor argument.
 
 sub main()
-  c: Cell(Int) = Cell(value: 7)
+  c: Cell[Int] = Cell(value: 7)
   print(c.value)
   c.value = 8
 

@@ -1,16 +1,16 @@
 # A type parameter the body never uses is still a valid parameter.
 
-type Tag(T)
+type Tag[T]
   n: Int
 
-enum Marker(T)
+enum Marker[T]
   one
   two
 
 sub main()
-  t: Tag(String) = Tag(n: 1)
+  t: Tag[String] = Tag(n: 1)
   print(t.n)
-  m: Marker(Int) = .two
+  m: Marker[Int] = .two
   print(m)
 
 # expect:

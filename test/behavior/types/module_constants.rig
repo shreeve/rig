@@ -18,7 +18,7 @@ small: U8 =! 200
 xs =! [1, 2, 3]
 neg =! -limit
 
-fun rep(pre n: Int, x: Int) -> Int
+fun rep[n: Int](x: Int) -> Int
   x * n
 
 fun scale(k: Float) -> Float
@@ -26,7 +26,7 @@ fun scale(k: Float) -> Float
 
 sub main()
   print(limit, half, name, ratio, on, mode, small, xs, neg)
-  print(xs[1], rep(limit, 3), scale(2.0), early(2))
+  print(xs[1], rep[limit](3), scale(2.0), early(2))
   f = |a: Int| a + limit
   print(f(1))
   new limit = 3

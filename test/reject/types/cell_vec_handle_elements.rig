@@ -6,7 +6,7 @@ struct N
   id: Int
 
 sub main()
-  hs: Cell(Vec(*N)) = Cell(value: Vec())
+  hs: Cell[Vec[*N]] = Cell(value: Vec())
   hs.push(*N(id: 1))
   a = hs[0]
   b = hs.get(0)
@@ -14,7 +14,7 @@ sub main()
   c = hs.get()
   print(a, b, c)
 
-# error: 11:7: cannot read or overwrite an element of a `Cell(Vec(*N))` in place
-# error: 12:10: cannot read or overwrite an element of a `Cell(Vec(*N))` in place
-# error: 13:3: cannot read or overwrite an element of a `Cell(Vec(*N))` in place
-# error: 14:10: `Cell.get` returns `T` by value but `T = Vec(*N)` has drop glue
+# error: 11:7: cannot read or overwrite an element of a `Cell[Vec[*N]]` in place
+# error: 12:10: cannot read or overwrite an element of a `Cell[Vec[*N]]` in place
+# error: 13:3: cannot read or overwrite an element of a `Cell[Vec[*N]]` in place
+# error: 14:10: `Cell.get` returns `T` by value but `T = Vec[*N]` has drop glue

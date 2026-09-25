@@ -3,17 +3,17 @@
 # function's arguments. An annotation is still allowed, and a literal
 # takes its default type.
 
-type Pair(A, B)
+type Pair[A, B]
   first: A
   second: B
 
-  fun make(a: A, b: B) -> Pair(A, B)
+  fun make(a: A, b: B) -> Pair[A, B]
     Pair(first: a, second: b)
 
-  fun swap(?self) -> Pair(B, A)
+  fun swap(?self) -> Pair[B, A]
     Pair(first: self.second, second: self.first)
 
-enum Option(T)
+enum Option[T]
   some(value: T)
   nothing
 
@@ -22,7 +22,7 @@ enum Option(T)
       .some(v) => v
       .nothing => fallback
 
-type Holder(T)
+type Holder[T]
   item: T
   count: Int
 
@@ -40,7 +40,7 @@ sub main()
   print(r)
   o = Option.some(value: 7)
   print(o.unwrap_or(0))
-  n: Option(Int) = .nothing
+  n: Option[Int] = .nothing
   print(n.unwrap_or(-1))
   c = Cell(value: 3)
   c.set(c.get() + 1)
@@ -49,7 +49,7 @@ sub main()
   print(h.item.n, h.count)
   s = *Signal(value: 5)
   print(s.get())
-  explicit: Pair(Int, Int) = Pair(first: 1, second: 2)
+  explicit: Pair[Int, Int] = Pair(first: 1, second: 2)
   print(explicit.second)
 
 # expect:

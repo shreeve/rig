@@ -56,7 +56,7 @@ surprise: copying plain data, reading through a shared handle, lending
 a receiver to a `?self` method, and moving a local out with `return x`,
 where its scope ends anyway. Writing through a receiver
 (`!v.push(x)`) or consuming it (`<u.close()`) is always spelled out;
-a binding that already holds a write borrow (`v: !Vec(Int)`) says so in
+a binding that already holds a write borrow (`v: !Vec[Int]`) says so in
 its type, and lends it as it is (`v.push(x)`).
 
 **Effects survive into the IR.** Every sigil becomes a named node in
@@ -151,7 +151,7 @@ tighter than prefixes, in types and in expressions:
 | `?*Node` | a read borrow of a shared handle |
 | `*User?` | a shared handle to an optional `User` |
 | `(*User)?` | an optional shared handle (what `upgrade()` returns) |
-| `*Cell(Vec(*sub()))` | a shared cell holding a list of owned closures |
+| `*Cell[Vec[*sub()]]` | a shared cell holding a list of owned closures |
 | `+n.first()` | clone the handle `first` returns |
 | `!v.push(x)` | write-borrow `v`, then call a writing method |
 
@@ -293,6 +293,18 @@ reads its receiver (`!q.is_empty()`), and a `!` call that returns a
 `Bool` without its parentheses. A habit can make a program fail to
 compile, never change what it means.
 
+### Brackets for compile time
+
+Square brackets hold everything known at compile time, and parentheses
+what is known when the program runs: `type Box[T]`, `Vec[Int]()`,
+`fun check[mode: Mode](n: Int)`, `check[.strict](5)`. One spelling
+covers type arguments and compile-time values, as Zig's `comptime`
+does for both, and a call shows which of its arguments shape the code
+and which it computes with. In an expression, `x[...]` indexes unless
+`x` names a generic type or a function, as in Go: the checker tells
+them apart by what the name denotes, so the grammar needs no second
+kind of bracket.
+
 ### `raw` as a block
 
 `raw` marks the audit boundary: unchecked Zig builtins and calls to
@@ -305,10 +317,10 @@ performance ceiling: the code inside is ordinary Zig.
 Zig already solves code generation: an optimizer, cross-compilation,
 linking, and a C ABI. Its semantics fit Rig closely: `defer` is exactly
 what automatic drop needs, error unions are `T!`, optionals are `T?`,
-`comptime` parameters are `pre`, and generic types are functions from
-types to types. Emitting Zig source rather than Zig IR or LLVM IR keeps
-Rig independent of backend internals, at the cost of one extra compile
-step.
+`comptime` parameters are Rig's compile-time parameters in brackets
+(`fun f[n: Int]`), and generic types are functions from types to types.
+Emitting Zig source rather than Zig IR or LLVM IR keeps Rig independent
+of backend internals, at the cost of one extra compile step.
 
 ### No garbage collector
 
@@ -360,7 +372,7 @@ goals, and says no where they don't.
 | Source | Taken | Left behind |
 |---|---|---|
 | **Rust** | ownership, moves, the shared-or-exclusive borrow rule, `Rc`/`Weak` semantics, RAII drop in reverse field order, enums and `match`, errors as types, "a type with drop glue is not Copy" | lifetime syntax, traits (for now), heavy generic machinery, effects hidden in trait impls |
-| **Zig** | the backend itself; `comptime` as `pre`; error unions; `defer`/`errdefer`; no GC; generic types as type functions | its async history as a cautionary tale; leaving aliasing and lifetimes to convention |
+| **Zig** | the backend itself; `comptime` as bracketed compile-time parameters; error unions; `defer`/`errdefer`; no GC; generic types as type functions | its async history as a cautionary tale; leaving aliasing and lifetimes to convention |
 | **Python** | indentation, `and`/`or`/`not`, readable one-line calls, `print` with several values, bindings without declarations | dynamic typing, implicit shadowing |
 | **Ruby** | paren-free calls, short keywords, readability first | `valid?` names, implicit mutation |
 | **CoffeeScript, Rip** | the aesthetic; Rip (a CoffeeScript-style language by Rig's author) and Zag (its Zig-targeted sibling) supplied the indentation lexer and much of the surface | reactive operators in the core language |

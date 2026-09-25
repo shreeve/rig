@@ -1,12 +1,12 @@
 # A method call through a generic struct's shared-handle field
 # (`h.value.get()`) auto-dereferences the handle.
 
-type Holder(T)
+type Holder[T]
   value: T
 
 sub main()
-  c: *Cell(Int) = *Cell(value: 8)
-  h: Holder(*Cell(Int)) = Holder(value: <c)
+  c: *Cell[Int] = *Cell(value: 8)
+  h: Holder[*Cell[Int]] = Holder(value: <c)
   print(h.value.get())
 
 # expect:

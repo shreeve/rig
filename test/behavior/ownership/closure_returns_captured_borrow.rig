@@ -2,7 +2,7 @@
 # value; the result borrows what the closure holds.
 
 struct Box
-  v: Vec(Int)
+  v: Vec[Int]
 
 sub main()
   x = Box(v: Vec())

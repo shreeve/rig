@@ -2,7 +2,7 @@
 # clone keeps the factory's local cell alive after the factory returns.
 
 fun make_reporter() -> *sub()
-  value: *Cell(Int) = *Cell(value: 42)
+  value: *Cell[Int] = *Cell(value: 42)
   *|+value| print(value.get())
 
 sub main()

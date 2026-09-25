@@ -2,7 +2,7 @@
 # only reads it is the habit of `!` as negation: use `not`.
 
 struct Queue
-  items: Vec(Int)
+  items: Vec[Int]
   fun is_empty(?self) -> Bool
     self.items.len == 0
   fun peek(?self) -> Int?

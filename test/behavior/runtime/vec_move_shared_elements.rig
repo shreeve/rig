@@ -1,10 +1,10 @@
-# Moving shared handles into a `Vec(*Cell(Int))` transfers ownership;
+# Moving shared handles into a `Vec[*Cell[Int]]` transfers ownership;
 # the Vec drops each element when it goes out of scope.
 
 sub main()
-  c1: *Cell(Int) = *Cell(value: 7)
-  c2: *Cell(Int) = *Cell(value: 13)
-  v: Vec(*Cell(Int)) = Vec()
+  c1: *Cell[Int] = *Cell(value: 7)
+  c2: *Cell[Int] = *Cell(value: 13)
+  v: Vec[*Cell[Int]] = Vec()
   !v.push(<c1)
   !v.push(<c2)
   print(v.len)                 # 2

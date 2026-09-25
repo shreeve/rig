@@ -8,9 +8,9 @@ sub main()
   match e
     .one(b) => print("one", b.n)
     .two(k) => print(k)
-  v: Vec(*lib.B) = Vec()
+  v: Vec[*lib.B] = Vec()
   !v.push(*lib.B(n: 2))
-  c: Cell(*lib.B) = Cell(value: *lib.B(n: 3))
+  c: Cell[*lib.B] = Cell(value: *lib.B(n: 3))
 
 # expect:
 # one 1

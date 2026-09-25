@@ -2,7 +2,7 @@
 # each instance: `1 / 2` is `0.5` where `T` is `Float` and `0` where it
 # is `Int`.
 
-type Box(T)
+type Box[T]
   v: T
 
   fun half(?self) -> T

@@ -2,7 +2,7 @@
 # is no `length()` method.
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(1)
   print(v.length())
 

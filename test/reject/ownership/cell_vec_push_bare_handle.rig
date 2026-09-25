@@ -5,7 +5,7 @@ struct N
   id: Int
 
 sub main()
-  hs: *Cell(Vec(*N)) = *Cell(value: Vec())
+  hs: *Cell[Vec[*N]] = *Cell(value: Vec())
   a = *N(id: 1)
   hs.push(a)
   print(hs.len, a.id)

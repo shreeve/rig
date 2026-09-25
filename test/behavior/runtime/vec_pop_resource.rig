@@ -9,7 +9,7 @@ struct B
     print("drop", self.n)
 
 sub main()
-  v: Vec(*B) = Vec()
+  v: Vec[*B] = Vec()
   for i in 0..4
     !v.push(*B(n: i))
   x = !v.pop()

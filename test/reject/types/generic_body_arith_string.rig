@@ -1,15 +1,15 @@
 # A generic body's operations on `T` are requirements on every
-# instantiation: `self.value + 1` needs a numeric `T`, so `Box(String)` is
+# instantiation: `self.value + 1` needs a numeric `T`, so `Box[String]` is
 # rejected.
 
-type Box(T)
+type Box[T]
   value: T
 
   fun bump(?self) -> T
     self.value + 1
 
 sub main()
-  b: Box(String) = Box(value: "a")
+  b: Box[String] = Box(value: "a")
   print(b.bump())
 
-# error: 12:6: `Box(String)` cannot use `T = String`: the generic body applies `+` to `T`, which `String` does not support
+# error: 12:6: `Box[String]` cannot use `T = String`: the generic body applies `+` to `T`, which `String` does not support

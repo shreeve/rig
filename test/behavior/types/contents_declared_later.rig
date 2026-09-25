@@ -3,8 +3,8 @@
 # over a plain enum, each spelled before the type it names is declared.
 
 struct A
-  c: Cell(B)
-  v: Vec(P)
+  c: Cell[B]
+  v: Vec[P]
   f: *fun(Color) -> Int
 
 struct B

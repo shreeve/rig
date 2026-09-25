@@ -1,7 +1,7 @@
 # A generic enum can declare instance methods; `is_some` dispatches on
-# `Option(Int)` values.
+# `Option[Int]` values.
 
-enum Option(T)
+enum Option[T]
   some(value: T)
   none
 
@@ -11,8 +11,8 @@ enum Option(T)
       .none => false
 
 sub main()
-  o1: Option(Int) = .some(value: 1)
-  o2: Option(Int) = .none
+  o1: Option[Int] = .some(value: 1)
+  o2: Option[Int] = .none
   print(o1.is_some())
   print(o2.is_some())
 

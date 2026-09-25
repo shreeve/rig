@@ -1,7 +1,7 @@
 # Invoking a `*sub(Int)` checks the argument against `Int`.
 
 sub main()
-  v: *Cell(Int) = *Cell(value: 0)
+  v: *Cell[Int] = *Cell(value: 0)
   cb: *sub(Int) = *|+v, a: Int| v.set(a)
   cb("seven")
   print(v.get())

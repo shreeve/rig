@@ -8,7 +8,7 @@ sub stack()
   print(f(1))
 
 sub owned()
-  c: *Cell(Int) = *Cell(value: 0)
+  c: *Cell[Int] = *Cell(value: 0)
   g: *sub(Int) = *|+c, ctx: Int| c.set(ctx)
   g(5)
   print(c.get())

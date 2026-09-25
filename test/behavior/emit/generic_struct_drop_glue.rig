@@ -1,7 +1,7 @@
-# A generic struct instantiated with a handle (`Holder(*Noisy)`) drops the
+# A generic struct instantiated with a handle (`Holder[*Noisy]`) drops the
 # handle it holds.
 
-type Holder(T)
+type Holder[T]
   value: T
   id: Int
 
@@ -13,7 +13,7 @@ struct Noisy
 
 sub main()
   n = *Noisy(id: 6)
-  h: Holder(*Noisy) = Holder(value: <n, id: 1)
+  h: Holder[*Noisy] = Holder(value: <n, id: 1)
   print(h.id)
 
 # expect:

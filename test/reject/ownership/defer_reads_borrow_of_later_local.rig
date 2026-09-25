@@ -2,7 +2,7 @@
 # dropped, so it cannot read one through a borrow taken later.
 
 struct Res
-  v: Vec(Int)
+  v: Vec[Int]
 
 error Bad
   oops

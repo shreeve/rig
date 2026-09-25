@@ -1,0 +1,23 @@
+# A function with a compile-time parameter is instantiated per call, so
+# it can only be called, not used as a function value.
+
+fun rep[n: Int](x: Int) -> Int
+  x * n
+
+struct P
+  x: Int
+
+  fun times[n: Int](?self) -> Int
+    self.x * n
+
+sub main()
+  g = rep
+  f: fun(Int) -> Int = rep
+  h = P.times
+  k = rep[2]
+  print(rep[2](3))
+
+# error: 14:7: `rep` takes compile-time parameters, so it can only be called
+# error: 15:24: `rep` takes compile-time parameters, so it can only be called
+# error: 16:9: `P.times` takes compile-time parameters, so it can only be called
+# error: 17:7: `rep[2]` is a function with compile-time arguments; call it with `rep[2](...)`

@@ -20,7 +20,7 @@ struct Token
   drop self: !Self
     print("dropping", self.type)
 
-type Box(T)
+type Box[T]
   type: T
 
   fun error(?self) -> T

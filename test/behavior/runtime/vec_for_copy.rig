@@ -2,7 +2,7 @@
 # in insertion order.
 
 sub main()
-  nums: Vec(Int) = Vec()
+  nums: Vec[Int] = Vec()
   !nums.push(10)
   !nums.push(20)
   !nums.push(30)

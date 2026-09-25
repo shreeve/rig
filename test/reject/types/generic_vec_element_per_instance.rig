@@ -1,16 +1,16 @@
-# `Vec(T)` in a generic type is checked for each instance: the element
+# `Vec[T]` in a generic type is checked for each instance: the element
 # rules reject a Vec of Vecs and a Vec of an owning struct.
 
-type Stack(T)
-  items: Vec(T)
+type Stack[T]
+  items: Vec[T]
 
 struct Owner
   h: *Int
 
 sub main()
-  s: Stack(Vec(Int)) = Stack(items: Vec())
-  o: Stack(Owner) = Stack(items: Vec())
+  s: Stack[Vec[Int]] = Stack(items: Vec())
+  o: Stack[Owner] = Stack(items: Vec())
   print(s.items.len, o.items.len)
 
-# error: `Stack(Vec(Int))` instantiates `Vec(Vec(Int))`: `Vec(T)` requires `T` to be a Copy type
-# error: `Stack(Owner)` instantiates `Vec(Owner)`
+# error: `Stack[Vec[Int]]` instantiates `Vec[Vec[Int]]`: `Vec[T]` requires `T` to be a Copy type
+# error: `Stack[Owner]` instantiates `Vec[Owner]`

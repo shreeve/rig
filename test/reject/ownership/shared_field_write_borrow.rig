@@ -9,7 +9,7 @@ struct Counter
     self.n += 1
 
 struct Holder
-  v: Vec(Int)
+  v: Vec[Int]
   c: Counter
 
 sub inc(c: !Counter)

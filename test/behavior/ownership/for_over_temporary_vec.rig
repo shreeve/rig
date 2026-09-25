@@ -1,8 +1,8 @@
 # A loop over a Vec that its source expression creates drops the Vec
 # when the loop ends, however it ends.
 
-fun mk(n: Int) -> Vec(Int)
-  v: Vec(Int) = Vec()
+fun mk(n: Int) -> Vec[Int]
+  v: Vec[Int] = Vec()
   for i in 0..n
     !v.push(i * 10)
   v

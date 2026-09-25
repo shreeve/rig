@@ -3,7 +3,7 @@
 # read, and a loop walks such elements with `for x in !xs`.
 
 struct Holder
-  v: Vec(Int)
+  v: Vec[Int]
 
 struct Ed
   t: !Holder

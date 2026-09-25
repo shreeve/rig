@@ -1,14 +1,14 @@
 # A generic `T` compares with another `T` or a literal, not with a value
 # of a concrete type.
 
-type Acc(T)
+type Acc[T]
   total: T
 
   fun is(?self, n: Int) -> Bool
     self.total == n
 
 sub main()
-  a: Acc(Float) = Acc(total: 1.5)
+  a: Acc[Float] = Acc(total: 1.5)
   print(a.is(1))
 
 # error: cannot compare `T` with `Int`

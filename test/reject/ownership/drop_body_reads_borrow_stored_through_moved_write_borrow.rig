@@ -2,7 +2,7 @@
 # borrow leads to, whose `drop` body could read it after it is dropped.
 
 struct Res
-  v: Vec(Int)
+  v: Vec[Int]
 
 struct View
   r: ?Res

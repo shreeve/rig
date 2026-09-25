@@ -9,10 +9,10 @@ struct B
     print("drop", self.n)
 
 sub main()
-  count: *Cell(Int) = *Cell(value: 0)
-  subs: Vec(*sub()) = Vec()
+  count: *Cell[Int] = *Cell(value: 0)
+  subs: Vec[*sub()] = Vec()
   !subs.push(*|+count| count.set(count.get() + 1))
-  other: Vec(*sub()) = Vec()
+  other: Vec[*sub()] = Vec()
   for cb in ?subs
     !other.push(+cb)
   -subs
@@ -20,7 +20,7 @@ sub main()
     cb()
   print(count.get())
 
-  v: Vec(*B) = Vec()
+  v: Vec[*B] = Vec()
   !v.push(*B(n: 1))
   !v.push(*B(n: 2))
   held = *B(n: 0)

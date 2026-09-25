@@ -3,13 +3,13 @@
 # (Owned closures cannot capture borrows; stack closures can.)
 
 struct Box
-  v: Vec(Int)
+  v: Vec[Int]
 
 struct View
   b: ?Box
 
 struct Holder
-  own: Vec(Int)
+  own: Vec[Int]
   b: ?Box
 
 struct Tracked

@@ -1,6 +1,6 @@
 # The `Vec` constructor takes no positional arguments.
 
 sub main()
-  v: Vec(Int) = Vec(10)
+  v: Vec[Int] = Vec(10)
 
 # error: `Vec` constructor takes no positional arguments

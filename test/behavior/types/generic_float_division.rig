@@ -1,7 +1,7 @@
 # `/` on a type parameter's values divides floats exactly and integers
 # truncating toward zero, whichever the instance holds.
 
-type Acc(T)
+type Acc[T]
   total: T
 
   fun div(?self, x: T) -> T

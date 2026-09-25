@@ -1,12 +1,12 @@
-# Arithmetic on a `pre` parameter runs when the program runs: an overflow
+# Arithmetic on a compile-time parameter runs when the program runs: an overflow
 # panics instead of failing to compile.
 
-sub show(pre n: U8)
+sub show[n: U8]
   print(n + 250)
 
 sub main()
-  show(1)
-  show(10)
+  show[1]
+  show[10]()
 
 # expect-panic: integer overflow
 

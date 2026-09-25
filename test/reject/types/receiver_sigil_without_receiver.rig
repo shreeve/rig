@@ -17,7 +17,7 @@ struct Hooks
 sub main
   a = !Point.origin()
   b = <Point.origin()
-  log: Cell(Vec(Int)) = Cell(value: Vec())
+  log: Cell[Vec[Int]] = Cell(value: Vec())
   !log.push(1)
   h = *Node(n: 1)
   w = ~h

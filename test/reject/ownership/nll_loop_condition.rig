@@ -11,7 +11,7 @@ struct Box
     print("drop", self.n)
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   r = ?v
   while r.len < 3
     !v.push(1)

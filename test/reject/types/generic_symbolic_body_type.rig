@@ -1,7 +1,7 @@
 # Inside a generic body, constructor fields are checked symbolically:
 # a String is not a `T`.
 
-type Box(T)
+type Box[T]
   value: T
 
   fun bad(?self) -> Self
@@ -9,7 +9,7 @@ type Box(T)
     b
 
 sub main()
-  b: Box(Int) = Box(value: 5)
+  b: Box[Int] = Box(value: 5)
   print(b.value)
 
 # error: type mismatch: expected `T`, got `String`

@@ -11,13 +11,13 @@ struct B
 sub eat(b: *B)
   print("eat", b.n)
 
-fun first(v: Vec(*B)) -> Int
+fun first(v: Vec[*B]) -> Int
   for x in <v
     return x.n
   -1
 
 sub main()
-  v: Vec(*B) = Vec()
+  v: Vec[*B] = Vec()
   for i in 0..4
     !v.push(*B(n: i))
   for x, i in <v
@@ -29,12 +29,12 @@ sub main()
     print("see", x.n)
   print("after")
 
-  w: Vec(*B) = Vec()
+  w: Vec[*B] = Vec()
   !w.push(*B(n: 7))
   !w.push(*B(n: 8))
   print(first(<w))
 
-  nums: Vec(Int) = Vec()
+  nums: Vec[Int] = Vec()
   !nums.push(3)
   !nums.push(4)
   total = 0
@@ -44,9 +44,9 @@ sub main()
     print("all")
   print(total)
 
-  src: Vec(*B) = Vec()
+  src: Vec[*B] = Vec()
   !src.push(*B(n: 9))
-  keep: Vec(*B) = Vec()
+  keep: Vec[*B] = Vec()
   for x in <src
     !keep.push(<x)
   print(keep.len)

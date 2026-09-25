@@ -1,11 +1,11 @@
 # A generic constructor's fields are checked against the substituted
-# type from the expected `Box(Int)`.
+# type from the expected `Box[Int]`.
 
-type Box(T)
+type Box[T]
   value: T
 
 sub main()
-  b: Box(Int) = Box(value: "hello")
+  b: Box[Int] = Box(value: "hello")
   print(b.value)
 
 # error: type mismatch: expected `Int`, got `String`

@@ -6,7 +6,7 @@ struct Tok
   n: Int
 
 struct Box
-  v: Vec(*Tok)
+  v: Vec[*Tok]
 
 struct Ed
   t: !Box

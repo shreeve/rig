@@ -2,7 +2,7 @@
 # captured, so it cannot outlive the borrowed value.
 
 struct Box
-  v: Vec(Int)
+  v: Vec[Int]
 
 sub main()
   y = Box(v: Vec())

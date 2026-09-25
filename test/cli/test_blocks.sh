@@ -21,7 +21,7 @@ test "area"
   print(area(2, 3))
 
 test "shared handles are released"
-  v: Vec(*Cell(Int)) = Vec()
+  v: Vec[*Cell[Int]] = Vec()
   (!v).push(*Cell(value: 1))
   print(v.len)
 EOF
@@ -35,7 +35,7 @@ expect_has "$out" "1 passed, 0 failed" "tests without main"
 
 cat >failing.rig <<'EOF'
 struct Node
-  next: *Cell((*Node)?)
+  next: *Cell[(*Node)?]
 
 fun pick(xs: [3]Int, i: Int) -> Int
   xs[i]

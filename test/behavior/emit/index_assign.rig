@@ -6,7 +6,7 @@ sub main()
   i = 2
   xs[i] = 30
   print(xs[0] + xs[1] + xs[2])
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(4)
   !v.push(5)
   v[1] = 50

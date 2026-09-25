@@ -1,8 +1,8 @@
-type Box(T)
+type Box[T]
   v: T
 
 struct Q
-  b: Box(*Int)
+  b: Box[*Int]
 
 pub struct P
   q: Q

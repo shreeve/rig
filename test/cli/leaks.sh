@@ -5,7 +5,7 @@ source "$ROOT/test/cli/_lib.sh"
 
 cat >cycle.rig <<'EOF'
 struct Node
-  next: *Cell((*Node)?)
+  next: *Cell[(*Node)?]
 
 sub main()
   a = *Node(next: *Cell(value: none))

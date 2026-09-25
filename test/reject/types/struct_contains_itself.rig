@@ -11,9 +11,9 @@ struct A
 struct B
   a: A?
 
-type List(T)
+type List[T]
   head: T
-  tail: List(T)?
+  tail: List[T]?
 
 enum Tree
   leaf(n: Int)
@@ -24,5 +24,5 @@ sub main()
 
 # error: `Node` contains itself by value through `next`
 # error: `A` contains itself by value through `b`
-# error: `List(...)` contains itself by value through `tail`
+# error: `List[...]` contains itself by value through `tail`
 # error: `Tree` contains itself by value through `pair`

@@ -6,8 +6,8 @@
 
 sub main()
   n = 10
-  cell: *Cell(Int) = *Cell(value: 0)
-  v: Vec(Int) = Vec()
+  cell: *Cell[Int] = *Cell(value: 0)
+  v: Vec[Int] = Vec()
   !v.push(1)
 
   copy = |+n| n + 1

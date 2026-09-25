@@ -5,7 +5,7 @@ fun side(k: Int) -> Int
   print("side", k)
   k
 
-type Box(T)
+type Box[T]
   v: T
 
   fun bump(!self, k: Int) -> Int
@@ -14,7 +14,7 @@ type Box(T)
   fun get(?self, a: Int, b: Int) -> Int
     a * 10 + b
 
-  fun twice(?self) -> Box(T)
+  fun twice(?self) -> Box[T]
     Box(v: self.v)
 
   fun again(?self) -> Int

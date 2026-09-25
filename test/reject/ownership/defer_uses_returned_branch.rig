@@ -1,15 +1,15 @@
 # `return v` and a bare `v` in a returned branch move `v` out before the
 # defers of the function run.
 
-fun early(c: Bool) -> Vec(Int)
-  v: Vec(Int) = Vec()
+fun early(c: Bool) -> Vec[Int]
+  v: Vec[Int] = Vec()
   defer print(v.len)
   return v if c
   Vec()
 
-fun pick(c: Bool) -> Vec(Int)
-  a: Vec(Int) = Vec()
-  b: Vec(Int) = Vec()
+fun pick(c: Bool) -> Vec[Int]
+  a: Vec[Int] = Vec()
+  b: Vec[Int] = Vec()
   defer !a.push(1)
   if c
     a

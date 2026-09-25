@@ -3,7 +3,7 @@
 # `y = count`.
 
 sub main()
-  count: *Cell(Int) = *Cell(value: 0)
+  count: *Cell[Int] = *Cell(value: 0)
   f = |+count|
     y = if true
       count

@@ -1,7 +1,7 @@
 # A closure's value cannot borrow the closure's own locals.
 
 struct Box
-  v: Vec(Int)
+  v: Vec[Int]
 
 sub main()
   s = ||

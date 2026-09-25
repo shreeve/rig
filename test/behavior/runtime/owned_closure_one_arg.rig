@@ -3,7 +3,7 @@
 # from the binding's annotation.
 
 sub main()
-  v: *Cell(Int) = *Cell(value: 0)
+  v: *Cell[Int] = *Cell(value: 0)
   cb: *sub(Int) = *|+v, a| v.set(a)
   cb(7)
   print(v.get())            # 7

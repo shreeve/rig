@@ -2,7 +2,7 @@
 # parse; iterate with `for x in v`, `?v`, or `!v`.
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(1)
   for *x in v
     print(x)

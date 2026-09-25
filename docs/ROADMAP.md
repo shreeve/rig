@@ -19,7 +19,7 @@ in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms).
 - **Aliases of imported and generic types** used as constructors and namespaces.
 - **A labeled value loop on the right of a binding** (`x = :l for ...`), which needs a grammar change without conflicts.
 - **Traits or interfaces** whose dispatch and ownership stay visible in the IR.
-- **Compile-time evaluation**: `pre` expressions and blocks beyond `pre` parameters.
+- **Compile-time evaluation**: computing values at compile time beyond compile-time parameters (`fun f[n: Int]`).
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
 - **Unique heap ownership**: a single-owner box without a reference count.
 - **Private fields**: a field visible only inside its type's module unless marked `pub`, so setter methods can guard a type's invariants; Rig's tool for encapsulation, rather than properties.

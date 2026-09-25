@@ -23,7 +23,7 @@ enum Mixed
   plain = 2
   code(n: Int)
 
-enum Opt(T)
+enum Opt[T]
   none = 0
   some(value: T)
 

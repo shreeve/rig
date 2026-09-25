@@ -5,13 +5,13 @@ error E
   bad
 
 struct Bag
-  v: Vec(Int)
+  v: Vec[Int]
 
   fun consume(self: Self, n: Int) -> Int
     self.v.len + n
 
 fun mk() -> Bag
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(1)
   Bag(v: <v)
 

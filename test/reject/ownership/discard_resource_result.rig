@@ -7,7 +7,7 @@ struct User
 sub main()
   ua: *User = *User(age: 30)
   ub: *User = *User(age: 99)
-  c: Cell(*User) = Cell(value: <ua)
+  c: Cell[*User] = Cell(value: <ua)
   c.replace(<ub)
   print(0)
 

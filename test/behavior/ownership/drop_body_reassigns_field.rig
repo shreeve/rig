@@ -2,10 +2,10 @@
 # with the other fields after the body returns.
 
 struct Owner
-  cell: *Cell(Int)
+  cell: *Cell[Int]
 
   drop self: !Owner
-    fresh: *Cell(Int) = *Cell(value: 7)
+    fresh: *Cell[Int] = *Cell(value: 7)
     self.cell = <fresh
     print("replaced", self.cell.get())
 

@@ -1,10 +1,10 @@
-# A struct holds a Signal through a shared handle (`s: *Signal(Int)`).
+# A struct holds a Signal through a shared handle (`s: *Signal[Int]`).
 
 struct H
-  s: Signal(Int)
+  s: Signal[Int]
 
 sub main()
   h = H(s: Signal(value: 1))
   print(h.s.get())
 
-# error: stack-local `Signal(T)` is not supported
+# error: stack-local `Signal[T]` is not supported

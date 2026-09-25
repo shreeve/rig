@@ -2,7 +2,7 @@
 # the next statement can write the root again.
 
 struct Box
-  v: Vec(Int)
+  v: Vec[Int]
 
 sub show(a: ?Box)
   print(a.v.len)

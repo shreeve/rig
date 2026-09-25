@@ -2,7 +2,7 @@
 # through a binding that is never reassigned.
 
 sub main()
-  c: Cell(Int) = Cell(value: 0)
+  c: Cell[Int] = Cell(value: 0)
   c.set(5)
   print(c.get())
   c.set(c.get() + 10)

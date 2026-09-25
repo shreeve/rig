@@ -3,7 +3,7 @@
 # later argument cannot borrow or move the same root.
 
 struct Box
-  v: Vec(Int)
+  v: Vec[Int]
 
   sub eat(!self, r: ?Box)
     self.v = Vec()

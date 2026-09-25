@@ -6,7 +6,7 @@ struct Node
   n: Int
 
 struct Holder
-  v: Vec(*Node)
+  v: Vec[*Node]
 
   sub reset(!self)
     !self.v.clear()

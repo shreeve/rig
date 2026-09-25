@@ -2,7 +2,7 @@
 # automatically after the body returns.
 
 struct Owner
-  cell: *Cell(Int)
+  cell: *Cell[Int]
 
   drop self: !Owner
     stash = <self.cell

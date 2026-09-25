@@ -3,12 +3,12 @@
 # with the signal.
 
 sub main()
-  notes: *Cell(Int) = *Cell(value: 0)
+  notes: *Cell[Int] = *Cell(value: 0)
   one:   *sub() = *|+notes| notes.set(notes.get() + 1)
   ten:   *sub() = *|+notes| notes.set(notes.get() + 10)
   cent:  *sub() = *|+notes| notes.set(notes.get() + 100)
 
-  sig: *Signal(Int) = *Signal(value: 0)
+  sig: *Signal[Int] = *Signal(value: 0)
   sig.subscribe(+one)
   sig.subscribe(+ten)
   sig.subscribe(+cent)

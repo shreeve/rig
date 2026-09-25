@@ -2,7 +2,7 @@
 # scrutinee is usable again once the payload binding is done.
 
 struct Box
-  v: Vec(Int)
+  v: Vec[Int]
 
 struct Ed
   t: !Box

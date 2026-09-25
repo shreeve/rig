@@ -1,7 +1,7 @@
 # A generic type in type position needs its type arguments: `Box`
-# alone is not a type, `Box(Int)` is.
+# alone is not a type, `Box[Int]` is.
 
-type Box(T)
+type Box[T]
   value: T
 
 sub main()

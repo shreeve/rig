@@ -11,7 +11,7 @@ struct View
   b: ?Box
 
 sub main()
-  vs: Vec(*View) = Vec()
+  vs: Vec[*View] = Vec()
   a = Box(payload: 1)
   !vs.push(*View(b: ?a))
   -a

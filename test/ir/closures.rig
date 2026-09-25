@@ -3,7 +3,7 @@
 
 sub main()
   n = 1
-  count: *Cell(Int) = *Cell(value: 0)
+  count: *Cell[Int] = *Cell(value: 0)
   copied = |+n| print n
   cloned = |+count| count.set(count.get() + 1)
   weak = |~count| print "weak"

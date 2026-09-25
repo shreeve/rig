@@ -7,7 +7,7 @@ sub main()
     g = |+n| print(n)
     g()
   f()
-  c: *Cell(Int) = *Cell(value: 0)
+  c: *Cell[Int] = *Cell(value: 0)
   h = *||
     k = |+c| c.set(1)
     k()

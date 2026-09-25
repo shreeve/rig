@@ -8,7 +8,7 @@ struct Box
     print("drop")
 
 sub main()
-  sig: *Signal(Int) = *Signal(value: 0)
+  sig: *Signal[Int] = *Signal(value: 0)
   a = Box(payload: 1)
   r = ?a
   cb: *sub() = *|<r| print(r.payload)

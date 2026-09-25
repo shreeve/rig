@@ -2,7 +2,7 @@
 # strong handle, and the outer `rc` stays usable.
 
 sub main()
-  rc: *Cell(Int) = *Cell(value: 0)
+  rc: *Cell[Int] = *Cell(value: 0)
   read = |+rc|
     rc.get()
   print(read())

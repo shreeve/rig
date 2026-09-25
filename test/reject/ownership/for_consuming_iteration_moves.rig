@@ -5,18 +5,18 @@ struct B
   n: Int
 
 sub main()
-  v: Vec(*B) = Vec()
+  v: Vec[*B] = Vec()
   for x in <v
     print(x.n)
   print(v.len)
 
-  w: Vec(*B) = Vec()
+  w: Vec[*B] = Vec()
   r = ?w
   for x in <w
     print(x.n)
   print(r.len)
 
-  u: Vec(*B) = Vec()
+  u: Vec[*B] = Vec()
   i = 0
   while i < 2
     for x in <u

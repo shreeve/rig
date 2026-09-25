@@ -3,7 +3,7 @@
 # would capture it, in a stack closure and in an owned closure.
 
 sub main()
-  rc: *Cell(Int) = *Cell(value: 0)
+  rc: *Cell[Int] = *Cell(value: 0)
   f = |rc| rc.get()
   print(f())
   n = 3

@@ -1,15 +1,15 @@
 # `for x in !xs` write-borrows `xs` for the whole loop, and needs a place
 # it may write.
 
-fun make() -> Vec(Int)
+fun make() -> Vec[Int]
   Vec()
 
-sub read_only(xs: ?Vec(Int))
+sub read_only(xs: ?Vec[Int])
   for x in !xs
     x += 1
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(1)
   r = ?v
   for x in !v

@@ -1,10 +1,10 @@
-# A `Box(String)` field types as String, so print formats it as text.
+# A `Box[String]` field types as String, so print formats it as text.
 
-type Box(T)
+type Box[T]
   value: T
 
 sub main()
-  b: Box(String) = Box(value: "hi")
+  b: Box[String] = Box(value: "hi")
   print(b.value)
 
 # expect:

@@ -1,7 +1,7 @@
 # `v[i]` reads an element of a Vec of Copy values (bounds-checked).
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(4)
   !v.push(9)
   print(v[1])

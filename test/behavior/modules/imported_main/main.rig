@@ -4,7 +4,7 @@
 use helper
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(1)
   helper.main()
   print("after", v.len)

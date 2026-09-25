@@ -5,7 +5,7 @@ fun bump(n: !Int) -> Int
   n += 100
   7
 
-fun poke(c: ?Cell(Int)) -> Int
+fun poke(c: ?Cell[Int]) -> Int
   c.set(c.get() + 100)
   7
 

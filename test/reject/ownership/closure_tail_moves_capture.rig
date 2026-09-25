@@ -2,7 +2,7 @@
 # owning value, even as the last expression of its body.
 
 struct Box
-  v: Vec(Int)
+  v: Vec[Int]
 
 sub main()
   x = Box(v: Vec())

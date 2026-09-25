@@ -1,12 +1,12 @@
 # `[N]T` in a generic type needs plain data for `T`: an instance whose
 # argument owns a resource is rejected.
 
-type Box(T)
+type Box[T]
   xs: [2]T
 
 sub main()
-  a: Box(Int) = Box(xs: [1, 2])
-  b: Box(*Int) = Box(xs: [*1, *2])
+  a: Box[Int] = Box(xs: [1, 2])
+  b: Box[*Int] = Box(xs: [*1, *2])
   print(a.xs[0], b.xs[0])
 
-# error: `Box(*Int)` cannot use `T = *Int`: the generic body keeps in an array a value that holds a `T`
+# error: `Box[*Int]` cannot use `T = *Int`: the generic body keeps in an array a value that holds a `T`

@@ -39,7 +39,7 @@ sub share(a: *B, n: Int)
 sub two(a: *B, b: *B)
   print("two", a.n, b.n)
 
-sub vec(v: Vec(Int), n: Int)
+sub vec(v: Vec[Int], n: Int)
   print("vec", v.len, n)
 
 sub call(f: *fun() -> Int, n: Int)
@@ -83,7 +83,7 @@ fun cloned() -> Int!
   0
 
 fun buffer() -> Int!
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(1)
   vec(<v, fail(1)!)
   0

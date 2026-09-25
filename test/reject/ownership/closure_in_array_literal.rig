@@ -2,7 +2,7 @@
 # rejected.
 
 sub main()
-  count: *Cell(Int) = *Cell(value: 0)
+  count: *Cell[Int] = *Cell(value: 0)
   xs = [|+count| count.set(count.get() + 1)]
   _ = xs
 

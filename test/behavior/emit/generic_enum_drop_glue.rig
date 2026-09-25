@@ -1,7 +1,7 @@
-# A generic enum instantiated with a handle (`Maybe(*Noisy)`) drops the
+# A generic enum instantiated with a handle (`Maybe[*Noisy]`) drops the
 # handle it holds.
 
-enum Maybe(T)
+enum Maybe[T]
   some(value: T)
   none
 
@@ -13,7 +13,7 @@ struct Noisy
 
 sub main()
   n = *Noisy(id: 6)
-  m: Maybe(*Noisy) = .some(value: <n)
+  m: Maybe[*Noisy] = .some(value: <n)
   match m
     .some => print("some")
     .none => print("none")

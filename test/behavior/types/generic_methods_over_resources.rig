@@ -9,52 +9,52 @@ struct B
   drop self: !B
     print("drop", self.n)
 
-type Box(T)
+type Box[T]
   v: T
 
   sub put(!self, x: T)
     self.v = <x
 
-  sub ignore(self: Box(T), extra: T)
+  sub ignore(self: Box[T], extra: T)
     print("ignored")
 
-  fun keep(self: Box(T), x: T) -> T
+  fun keep(self: Box[T], x: T) -> T
     y = <x
     if true
       z = <y
       return <z
     <y
 
-  sub juggle(self: Box(T), x: T, y: T)
+  sub juggle(self: Box[T], x: T, y: T)
     a = <x
     a = <y
     print("replaced")
     -a
     print("dropped")
 
-enum Opt(T)
+enum Opt[T]
   some(v: T)
   nothing
 
-  fun or_else(self: Opt(T), d: T) -> T
+  fun or_else(self: Opt[T], d: T) -> T
     match self
       .some(v) => v
       .nothing => <d
 
 sub main()
-  b: Box(*B) = Box(v: *B(n: 1))
+  b: Box[*B] = Box(v: *B(n: 1))
   !b.put(*B(n: 2))
   print("put")
   <b.ignore(*B(n: 3))
-  c: Box(*B) = Box(v: *B(n: 4))
+  c: Box[*B] = Box(v: *B(n: 4))
   k = <c.keep(*B(n: 5))
   print("kept", k.n)
-  d: Box(*B) = Box(v: *B(n: 6))
+  d: Box[*B] = Box(v: *B(n: 6))
   <d.juggle(*B(n: 7), *B(n: 8))
-  o: Opt(*B) = .some(v: *B(n: 9))
+  o: Opt[*B] = .some(v: *B(n: 9))
   x = <o.or_else(*B(n: 10))
   print("got", x.n)
-  i: Box(Int) = Box(v: 7)
+  i: Box[Int] = Box(v: 7)
   !i.put(8)
   print(i.v)
 

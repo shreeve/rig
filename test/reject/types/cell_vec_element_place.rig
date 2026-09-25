@@ -5,11 +5,11 @@ struct P
   x: Int
 
 sub main()
-  ps: Cell(Vec(P)) = Cell(value: Vec())
+  ps: Cell[Vec[P]] = Cell(value: Vec())
   ps.push(P(x: 1))
   r = ?ps[0]
   ps[0].x = 2
-  ns: Cell(Vec(Int)) = Cell(value: Vec())
+  ns: Cell[Vec[Int]] = Cell(value: Vec())
   ns.push(1)
   ns[0] += 1
   ns.len = 3

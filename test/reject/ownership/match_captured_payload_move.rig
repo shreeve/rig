@@ -2,10 +2,10 @@
 # a captured value cannot be moved or dropped out of it.
 
 enum E
-  full(c: *Cell(Int))
+  full(c: *Cell[Int])
   empty
 
-sub eat(c: *Cell(Int))
+sub eat(c: *Cell[Int])
   print(c.get())
 
 sub main()

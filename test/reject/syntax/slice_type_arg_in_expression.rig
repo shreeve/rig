@@ -1,0 +1,11 @@
+# A slice or array type has no expression spelling, so it cannot be a
+# type argument in an expression; a `type` alias or an annotation can
+# name it.
+
+type Box[T]
+  v: T
+
+sub main()
+  b = Box[[]Int](v: [])
+
+# error: 9:13: a slice or array type has no expression spelling

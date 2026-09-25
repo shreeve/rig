@@ -2,17 +2,17 @@
 # element moved elsewhere cannot outlive what it borrows.
 
 struct Box
-  v: Vec(Int)
+  v: Vec[Int]
 
 struct View
   b: ?Box
 
 sub main()
-  outer: Vec(*View) = Vec()
+  outer: Vec[*View] = Vec()
   if true
     y = Box(v: Vec())
     !y.v.push(42)
-    v: Vec(*View) = Vec()
+    v: Vec[*View] = Vec()
     !v.push(*View(b: ?y))
     for f in <v
       !outer.push(<f)

@@ -1,8 +1,8 @@
-# `Vec(Int)`: push three values and read the length; the buffer is
+# `Vec[Int]`: push three values and read the length; the buffer is
 # freed at scope exit.
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(10)
   !v.push(20)
   !v.push(30)

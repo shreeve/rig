@@ -6,13 +6,13 @@ enum S
   empty
 
 struct H
-  v: Vec(Int)
+  v: Vec[Int]
 
-sub reset(v: !Vec(Int))
+sub reset(v: !Vec[Int])
   v = Vec()
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(1)
   v = Vec()
   print(v.len)

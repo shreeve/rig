@@ -3,7 +3,7 @@
 # would write through one borrow.
 
 struct Box
-  v: Vec(Int)
+  v: Vec[Int]
 
 struct WV
   b: !Box

@@ -1,5 +1,5 @@
 # A Cell holding a Vec answers the Vec's members through any path to the
-# cell, without `!`, like `set`: a `?Cell(Vec(T))` parameter, a Cell
+# cell, without `!`, like `set`: a `?Cell[Vec[T]]` parameter, a Cell
 # field reached from a `?self` method, and a shared handle. `push` moves
 # or clones an owning element in, `pop` hands one out, `clear` drops
 # them all; a plain-data element is read and written by index or `get`.
@@ -15,7 +15,7 @@ struct N
     print("drop", self.id)
 
 struct Holder
-  items: Cell(Vec(Int))
+  items: Cell[Vec[Int]]
 
   sub add(?self, n: Int)
     self.items.push(n)
@@ -28,13 +28,13 @@ struct Holder
       i += 1
     t
 
-sub fill(c: ?Cell(Vec(Int)))
+sub fill(c: ?Cell[Vec[Int]])
   c.push(10)
   c.push(20)
   c[0] = c[0] + 1
 
 sub main()
-  c: Cell(Vec(Int)) = Cell(value: Vec())
+  c: Cell[Vec[Int]] = Cell(value: Vec())
   fill(?c)
   print(c.len, c[0], c[1], c.get(1), c.get(5))
   print(c.pop(), c.len)
@@ -44,12 +44,12 @@ sub main()
   h.add(3)
   h.add(4)
   print(h.total())
-  s: *Cell(Vec(P)) = *Cell(value: Vec())
+  s: *Cell[Vec[P]] = *Cell(value: Vec())
   t = +s
   t.push(P(x: 1, y: 2))
   s[0] = P(x: 5, y: 6)
   print(s[0].y, t.len)
-  ns: *Cell(Vec(*N)) = *Cell(value: Vec())
+  ns: *Cell[Vec[*N]] = *Cell(value: Vec())
   a = *N(id: 1)
   ns.push(+a)
   ns.push(*N(id: 2))

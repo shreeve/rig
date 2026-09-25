@@ -4,7 +4,7 @@ struct B
   n: Int
 
 sub main()
-  v: Vec(*B) = Vec()
+  v: Vec[*B] = Vec()
   print(?v[0..1])
 
-# error: 8:10: cannot slice a `Vec(*B)`
+# error: 8:10: cannot slice a `Vec[*B]`

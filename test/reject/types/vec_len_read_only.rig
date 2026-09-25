@@ -2,7 +2,7 @@
 # removed with `pop` or `clear`.
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   (!v).len = 0
   print(v.len)
 

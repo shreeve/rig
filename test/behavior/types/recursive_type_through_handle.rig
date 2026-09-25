@@ -6,7 +6,7 @@ struct Node
 
 struct Tree
   n: Int
-  kids: Vec(*Tree)
+  kids: Vec[*Tree]
 
 fun sum(t: ?*Tree) -> Int
   total = t.n
@@ -20,7 +20,7 @@ sub main()
   print(b.n, a.n)
   leaf1 = *Tree(n: 3, kids: Vec())
   leaf2 = *Tree(n: 4, kids: Vec())
-  kids: Vec(*Tree) = Vec()
+  kids: Vec[*Tree] = Vec()
   !kids.push(<leaf1)
   !kids.push(<leaf2)
   root = *Tree(n: 5, kids: <kids)

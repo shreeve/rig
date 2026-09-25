@@ -57,7 +57,7 @@
 //!   `break`, `continue` or `!`), no surviving value may hold a loan on a
 //!   var declared in it. A returned value, or one stored into something
 //!   the caller owns, may only carry borrows the caller handed in.
-//! * Values that own resources (`*T`, `~T`, `Vec(T)`, anything with drop
+//! * Values that own resources (`*T`, `~T`, `Vec[T]`, anything with drop
 //!   glue) cannot be copied implicitly. In a consuming position (binding,
 //!   argument, field, return, the branches of an `if`/`match` in such a
 //!   position) a place expression of such a type must be written `<x` or
@@ -1046,18 +1046,19 @@ pub const Checker = struct {
                 for (ir.Module.decls(sexp)) |c| if (rig.isModuleConst(c)) try self.walkDecl(c);
                 for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try self.walkDecl(c);
             },
-            .fun, .sub => try self.walkFun(ir.get(sexp, .name), ir.get(sexp, .params), rig.returnType(sexp), ir.get(sexp, .body)),
-            .drop_decl => try self.walkFun(.nil, ir.DropDecl.params(sexp), .nil, ir.DropDecl.body(sexp)),
+            .fun, .sub => try self.walkFun(ir.get(sexp, .name), sema.tparamsOf(sexp), ir.get(sexp, .params), rig.returnType(sexp), ir.get(sexp, .body)),
+            .drop_decl => try self.walkFun(.nil, .nil, ir.DropDecl.params(sexp), .nil, ir.DropDecl.body(sexp)),
             .@"struct", .@"enum", .errors, .generic_type => for (ir.rest(sexp, .members)) |c| try self.walkDecl(c),
             .@"pub" => try self.walkDecl(ir.Pub.decl(sexp)),
-            .@"test" => try self.walkFun(.nil, .nil, .nil, ir.Test.body(sexp)),
+            .@"test" => try self.walkFun(.nil, .nil, .nil, .nil, ir.Test.body(sexp)),
             .use, .type, .@"extern", .extern_fun, .extern_sub, .variant, .@":" => {},
             else => try self.walkStmt(sexp),
         }
     }
 
-    /// Walk a function, method, drop body or test body.
-    fn walkFun(self: *Checker, name: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
+    /// Walk a function, method, drop body or test body. `tparams`: its
+    /// compile-time parameters, whose values (`n: Int`) are Copy.
+    fn walkFun(self: *Checker, name: Sexp, tparams: Sexp, params: Sexp, returns: Sexp, body: Sexp) Error!void {
         const saved_func = self.func;
         const saved_loop = self.loop;
         const saved_reachable = self.reachable;
@@ -1089,6 +1090,7 @@ pub const Checker = struct {
         defer self.fn_depth -= 1;
 
         try self.pushScopeFor(.function, .nil);
+        for (tparams.items()) |p| if (p != .src) try self.bindParam(p);
         for (params.items()) |p| try self.bindParam(p);
         try self.walkBody(body, returns_value);
         try self.popScope();
@@ -1122,7 +1124,7 @@ pub const Checker = struct {
         switch (p) {
             .src => name_node = p,
             .list => switch (p.kind() orelse return) {
-                .@":", .pre_param, .default => {
+                .@":", .default => {
                     name_node = ir.get(p, .name);
                     type_node = ir.get(p, .type);
                 },
@@ -1251,7 +1253,7 @@ pub const Checker = struct {
                 .@"catch" => self.walkCatch(sexp),
                 .propagate, .propagate_none => self.walkPropagate(sexp),
                 .call => self.walkCall(sexp),
-                .member, .index => self.walkMember(sexp),
+                .member, .index, .inst => if (self.isInstance(sexp)) .{} else self.walkMember(sexp),
                 .kwarg => self.walkConsumed(ir.Kwarg.value(sexp), .argument),
                 .array => blk: {
                     var v: Value = .{};
@@ -2074,7 +2076,8 @@ pub const Checker = struct {
 
     fn walkCall(self: *Checker, node: Sexp) Error!Value {
         const temps_start = self.temps.items.len;
-        const callee = ir.Call.callee(node);
+        // Compile-time arguments (`f[3](x)`) are constants: no effect.
+        const callee = if (self.sema) |s| s.calleeOf(node) else ir.Call.callee(node);
         const args = ir.Call.args(node);
         var result: Value = .{};
 
@@ -3079,7 +3082,7 @@ pub const Checker = struct {
         return sema.isCopyPrimitive(ctx, t) or ctx.types.get(t) == .any_error;
     }
 
-    /// A `Vec(T)`.
+    /// A `Vec[T]`.
     fn isVec(self: *const Checker, ty: TypeId) bool {
         const ctx = self.sema orelse return false;
         const t = ctx.types.get(ty);
@@ -3130,6 +3133,13 @@ pub const Checker = struct {
     /// How a method call takes its receiver, from the signature ctx
     /// resolved for the callee: `!self` writes, a `Self` value is consumed,
     /// anything else reads. A shared handle is only ever read through.
+    /// A bracket list of compile-time arguments (`Vec[Int]`, `show[3]`),
+    /// which names a type or a function and holds no value.
+    fn isInstance(self: *const Checker, e: Sexp) bool {
+        const s = self.sema orelse return false;
+        return s.instanceOf(e) != null;
+    }
+
     fn receiverMode(self: *const Checker, obj: Sexp, callee: Sexp) sema.MethodReceiver {
         if (obj.isKind(.move)) return .value;
         if (self.exprType(obj)) |t| if (self.typeData(t) == .shared) return .read;

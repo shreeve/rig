@@ -7,7 +7,7 @@ struct B
   drop self: !B
     print("drop", self.n)
 
-type Box(T)
+type Box[T]
   v: T
 
   fun get(?self) -> ?T

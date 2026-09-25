@@ -1,0 +1,33 @@
+# `x[i]` still indexes whatever is not a generic type or a function:
+# an array, a slice, a Vec, a String, a Cell holding a Vec, a nested
+# element, and a field holding functions, whose element is then called.
+
+fun double(n: Int) -> Int
+  n * 2
+
+fun next(n: Int) -> Int
+  n + 1
+
+struct Table
+  ops: [2]fun(Int) -> Int
+
+  fun apply(?self, i: Int, x: Int) -> Int
+    self.ops[i](x)
+
+sub main()
+  xs = [10, 20, 30]
+  view = ?xs[0..2]
+  v = Vec[Int]()
+  !v.push(7)
+  s = "rig"
+  c = *Cell[Vec[Int]](value: Vec())
+  c.push(4)
+  grid = [[1, 2, 3], [4, 5, 6]]
+  t = Table(ops: [double, next])
+  i = 1
+  print(xs[i], view[1], v[0], s[0], c[0], grid[1][2])
+  print(t.apply(0, 5), t.ops[1](5))
+
+# expect:
+# 20 20 7 114 4 6
+# 10 6

@@ -5,7 +5,7 @@
 
 sub main()
   # Cell: interior mutability through a shared handle.
-  count: *Cell(Int) = *Cell(value: 0)
+  count: *Cell[Int] = *Cell(value: 0)
   count.set(1)
   print(count.get())                # 1
 
@@ -24,7 +24,7 @@ sub main()
 
   # A Signal calls every subscriber on `set`. This subscriber reads the
   # Signal it listens to, so it holds it weakly.
-  sig: *Signal(Int) = *Signal(value: 0)
+  sig: *Signal[Int] = *Signal(value: 0)
   sig.subscribe(*|~sig|
     if sig.upgrade() as s
       print("sig", s.get()))
@@ -32,8 +32,8 @@ sub main()
   sig.set(99)                       # sig 99
 
   # A Vec of closures, walked by borrowed slot.
-  notes: *Cell(Int) = *Cell(value: 0)
-  steps: Vec(*sub()) = Vec()
+  notes: *Cell[Int] = *Cell(value: 0)
+  steps: Vec[*sub()] = Vec()
   !steps.push(*|+notes| notes.set(notes.get() + 1))
   !steps.push(*|+notes| notes.set(notes.get() + 10))
   !steps.push(*|+notes| notes.set(notes.get() + 100))
@@ -42,8 +42,8 @@ sub main()
   print(notes.get())                # 111
 
   # Subscribers run in subscription order, each with its own captures.
-  tally: *Cell(Int) = *Cell(value: 0)
-  multi: *Signal(Int) = *Signal(value: 0)
+  tally: *Cell[Int] = *Cell(value: 0)
+  multi: *Signal[Int] = *Signal(value: 0)
   for weight in [1, 10, 100]
     multi.subscribe(*|+tally, +weight| tally.set(tally.get() * 2 + weight))
   multi.set(42)

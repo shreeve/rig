@@ -11,7 +11,7 @@ struct Cell2
     self.n += 1
 
 struct Bag
-  items: Vec(Int)
+  items: Vec[Int]
   sub add(!self, k: Int)
     !self.items.push(k)
   fun take(!self) -> Int!
@@ -27,7 +27,7 @@ struct Conn
     self.name.len
 
 struct Builder
-  parts: Vec(Int)
+  parts: Vec[Int]
   fun with(self: Self, k: Int) -> Builder
     b = <self
     !b.parts.push(k)
@@ -39,7 +39,7 @@ struct Builder
     total
 
 struct Holder
-  v: Vec(Int)
+  v: Vec[Int]
 
 struct Row
   cell: Cell2
@@ -51,7 +51,7 @@ sub send(n: Int)
   print("sent", n)
 
 sub main
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   !v.push(1)
   !v.push 2
   (!v).push(3)
@@ -59,12 +59,12 @@ sub main
   !v.push(5) if false
   print(v.len, v[3])
 
-  grid: Vec(Cell2) = Vec()
+  grid: Vec[Cell2] = Vec()
   !grid.push(Cell2(n: 0))
   !grid[0].bump()
   (!grid[0]).bump()
   print(grid[0].n)
-  rows: Vec(Row) = Vec()
+  rows: Vec[Row] = Vec()
   !rows.push(Row(cell: Cell2(n: 5)))
   !rows[0].cell.bump()
   print(rows[0].cell.n)
@@ -80,7 +80,7 @@ sub main
   print(!bag.items.pop() ?? 0)
   print(drain(!bag) catch -1)
 
-  q: Vec(Int) = Vec()
+  q: Vec[Int] = Vec()
   i = 0
   while i < 3 : !q.push(i)
     i += 1

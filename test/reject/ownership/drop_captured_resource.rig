@@ -2,7 +2,7 @@
 # the closure env, and a retained closure may be called again.
 
 sub main()
-  sig: *Signal(Int) = *Signal(value: 0)
+  sig: *Signal[Int] = *Signal(value: 0)
   bump = |+sig|
     -sig
   bump()

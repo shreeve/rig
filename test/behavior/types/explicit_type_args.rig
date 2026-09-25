@@ -1,0 +1,71 @@
+# A generic type's arguments may be named in an expression, in brackets:
+# a constructor (`Box[Int](v: 3)`, `Vec[Int]()`), a variant
+# (`Option[Int].some(...)`, `Option[Int].none`), and an associated
+# function (`Pair[Int, String].make(...)`). The arguments nest, and may
+# be any type an expression can spell.
+
+type Box[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+type Pair[T, U]
+  a: T
+  b: U
+
+  fun make(a: T, b: U) -> Pair[T, U]
+    Pair(a: a, b: b)
+
+  fun swap(?self) -> Pair[U, T]
+    Pair[U, T](a: self.b, b: self.a)
+
+enum Option[T]
+  some(value: T)
+  none
+
+struct Node
+  n: Int
+
+type Holder[T]
+  h: T
+
+sub main()
+  v = Vec[Int]()
+  !v.push(3)
+  !v.push(4)
+  print(v.len, v[1])
+  b = Box[Int](v: 3)
+  print(b.get())
+  o = Option[Int].some(value: 7)
+  e = Option[String].none
+  print(o, e)
+  p = Pair[Int, String].make(1, "x")
+  q = p.swap()
+  print(p.a, p.b, q.a, q.b)
+  log = Cell[Vec[Int]](value: Vec())
+  log.push(5)
+  print(log.len, log[0])
+  boxes = Vec[Box[Int]]()
+  !boxes.push(Box(v: 8))
+  print(boxes.len, boxes[0].v)
+  node = *Node(n: 9)
+  held = Holder[~Node](h: ~node)
+  nodes = Vec[*Node]()
+  !nodes.push(<node)
+  maybe = Vec[Int?](capacity: 2)
+  !maybe.push(none)
+  print(nodes.len, maybe.len, held.h.upgrade() != none)
+  s = *Signal[Int](value: 1)
+  s.set(2)
+  print(s.get())
+
+# expect:
+# 2 4
+# 3
+# .some(value: 7) .none
+# 1 x x 1
+# 1 5
+# 1 8
+# 1 1 true
+# 2

@@ -1,14 +1,14 @@
-# `Vec(T)` holds plain data or handles: not a struct holding a borrow,
+# `Vec[T]` holds plain data or handles: not a struct holding a borrow,
 # and not a Vec by value.
 
 struct View
   n: ?Int
 
-sub takeVec(v: Vec(View))
+sub takeVec(v: Vec[View])
   print("placeholder")
 
 sub main()
-  w: Vec(Vec(Int)) = Vec()
+  w: Vec[Vec[Int]] = Vec()
 
-# error: 7:16: `Vec(T)` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, or optional that owns nothing), a shared handle (`*T`), or a weak handle (`~T`); got `View`
-# error: 11:6: `Vec(T)` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, or optional that owns nothing), a shared handle (`*T`), or a weak handle (`~T`); got `Vec(Int)`
+# error: 7:16: `Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, or optional that owns nothing), a shared handle (`*T`), or a weak handle (`~T`); got `View`
+# error: 11:6: `Vec[T]` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, or optional that owns nothing), a shared handle (`*T`), or a weak handle (`~T`); got `Vec[Int]`

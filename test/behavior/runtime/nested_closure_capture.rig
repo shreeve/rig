@@ -7,7 +7,7 @@ struct B
     print("drop", self.n)
 
 sub main()
-  rc: *Cell(Int) = *Cell(value: 0)
+  rc: *Cell[Int] = *Cell(value: 0)
   outer = |+rc|
     inner = |+rc|
       rc.set(rc.get() + 2)

@@ -1,7 +1,7 @@
-# A generic struct instantiated with a resource (`Holder(*Box)`) owns it;
+# A generic struct instantiated with a resource (`Holder[*Box]`) owns it;
 # copying the struct would drop the handle twice.
 
-type Holder(T)
+type Holder[T]
   value: T
 
 struct Box
@@ -9,7 +9,7 @@ struct Box
 
 sub main()
   rc = *Box(n: 5)
-  h: Holder(*Box) = Holder(value: <rc)
+  h: Holder[*Box] = Holder(value: <rc)
   g = h
   print(g.value.n)
 

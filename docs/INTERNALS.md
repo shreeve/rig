@@ -129,7 +129,7 @@ parser distinct tokens:
 | `T?`, `T!`, `f()!`, `f()?` | `SUFFIX_Q`, `SUFFIX_BANG` | touching the value before |
 | `a \| b` vs `\|a, +b\| body` | `BAR` vs `BAR_CAPTURE` | the spacing rule; the closing bar is the one the opening probe found |
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
-| `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter |
+| `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
 | keywords | one token each | every keyword is reserved; `new` only at statement start |
 | `t.type`, `(type: 1)`, a member `type: Int`, `fun type` in a member list | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`; sema rejects a keyword parameter |
 
@@ -201,7 +201,9 @@ that need to inspect the tree:
   `(call (member (write (member x v)) push) 1)`, the tree
   `(!x.v).push(1)` gives. Postfixes after the call stay outside it
   (`!v.pop()?`), and in a chain the place is its head
-  (`!a.b().c(x)` is `(!a).b().c(x)`). A chain that is all place
+  (`!a.b().c(x)` is `(!a).b().c(x)`). A bracket list between the method
+  and its call (`!v.put[2](x)`) may be compile-time arguments, so the
+  member before it is taken as the method. A chain that is all place
   (`!x.v`), whose head is called (`!f(x).g()`), or that is
   parenthesized (`!(v.pop())`) keeps the sigil outside. The grammar
   drops parentheses, so the last is told by span: every node of the
@@ -285,9 +287,9 @@ area of the language in `test/ir/`.
 $ rig normalize packet.rig
 (module
   (struct Packet (: size Int))
-  (fun size_of ((: p (borrow_read Packet))) Int (block (member p size)))
-  (sub send ((: p Packet)) (block (call print (member p size))))
-  (sub main () (block
+  (fun size_of _ ((: p (borrow_read Packet))) Int (block (member p size)))
+  (sub send _ ((: p Packet)) (block (call print (member p size))))
+  (sub main _ () (block
     (set _ p _ (call Packet (kwarg size 512)))
     (call print (call size_of (read p)))
     (set _ count _ 1)
@@ -305,8 +307,8 @@ same roles), giving each role's name and type in slot order. `?` marks
 an optional role, `...` a role that takes the remaining children:
 
 ```text
-fun         name:leaf params:group? returns? body:block
-sub         name:leaf params:group? body:block
+fun         name:leaf tparams:group? params:group? returns? body:block
+sub         name:leaf tparams:group? params:group? body:block
 set         op:tag(fixed|shadow|move|"+="|...)? target type? value
 for         mode:tag(iter|read|write|move) var:leaf index:leaf? source body:block else:block?
 match       subject ...arms:arm
@@ -329,6 +331,21 @@ A few kinds serve more than one surface form:
 - `weak` is both `~x` and the type `~T`; `member` is both `a.b` and the
   qualified type `module.Type`; the other type kinds (`optional`,
   `shared`, `fun_type`, ...) appear only in type positions.
+- A bracket list touching a value is `(index object index)` with one
+  argument and `(inst object args...)` with more. The parser cannot
+  tell `xs[0]` from `Vec[Int]` or `check[.strict]`, so sema decides by
+  what the object names: a generic type or a function (named directly,
+  through its module, or through its type, or a method of the
+  receiver's type) makes it compile-time arguments, and anything else
+  an index. Sema records each bracket list it reads as compile-time
+  arguments (`instanceOf`, below); the IR node is unchanged, and every
+  pass asks before treating an `index` as an element. An `inst` that is
+  not compile-time arguments is rejected.
+- A declaration's compile-time parameters are its `tparams` group (a
+  `fun` or `sub`'s `[mode: Mode]`, a generic type's `[T, U]`): a bare
+  name is a type parameter, `(: name T)` a compile-time value. The list
+  says what a parameter is, so the parameter nodes are the same as in
+  `params`.
 
 An owned closure is `(share (lambda ...))`, and its type
 `(shared (fun_type ...))`.
@@ -399,8 +416,8 @@ signature exactly as a local one.
 id, and whether it is the root) and returns a `SemContext`, which every
 later pass reads. It runs these steps in order:
 
-1. **builtins** (`resolve.registerBuiltins`): `Cell(T)`, `Vec(T)`, and
-   `Signal(T)` are registered as generic types whose methods are
+1. **builtins** (`resolve.registerBuiltins`): `Cell[T]`, `Vec[T]`, and
+   `Signal[T]` are registered as generic types whose methods are
    ordinary method fields, so calls to them go through the same lookup
    and substitution as user generics.
 2. **symbols** (`resolve.resolveSymbols`): one walk creates a `Symbol`
@@ -469,6 +486,8 @@ instead of re-deriving it by name:
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
 | `isExhaustive(match)` | whether the arms cover every value without a default |
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
+| `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`Vec[Int]`), or a function's arguments, noting a statement `show[3]` that is itself the call and a receiver passed as an argument (`P.scale[2](p)`) |
+| `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Box` for `Box[Int](v: 3)`), and its compile-time arguments |
 
 Leaves are keyed by source position and list nodes by their node id:
 the parser numbers every node it builds (`List.id`), and the Parser
@@ -635,6 +654,11 @@ lower is an internal error: sema must have rejected it.
   holding the loop without its `else`, then `break :block else_value`;
   each `break v` leaves the block, so the `else` value is reached only
   when no `break` gave one, for every form of loop.
+- **Compile-time parameters** are Zig `comptime` parameters, first in
+  the signature, after a method's receiver (Zig's method call syntax
+  needs the receiver first): `fun times[n: Int](?self)` is
+  `fn times(self: P, comptime n: i64) i64`. A call passes its bracket
+  arguments in the same place, and a statement `show[3]` is `show(3)`.
 - **Calls.** Arguments are evaluated in source order, into temporaries
   when needed: when binding keyword arguments reorders two with side
   effects, or when an argument may leave (`!`, a `catch` that returns)

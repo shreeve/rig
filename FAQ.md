@@ -78,7 +78,7 @@ invalidate.
 
 ```rig
 sub main
-  hits: *Cell(Int) = *Cell(value: 0)
+  hits: *Cell[Int] = *Cell(value: 0)
   record = |+hits| hits.set(hits.get() + 1)
   record()
   record()

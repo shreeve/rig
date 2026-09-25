@@ -1,8 +1,8 @@
-# A stack-local `Cell(Int)` is built with the `value:` kwarg and its
+# A stack-local `Cell[Int]` is built with the `value:` kwarg and its
 # Copy payload is read with `get()`.
 
 sub main()
-  c: Cell(Int) = Cell(value: 7)
+  c: Cell[Int] = Cell(value: 7)
   print(c.get())
 
 # expect:

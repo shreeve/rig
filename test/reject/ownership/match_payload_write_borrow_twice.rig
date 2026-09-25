@@ -3,7 +3,7 @@
 # second view of that borrow.
 
 struct Box
-  v: Vec(Int)
+  v: Vec[Int]
 
 struct Ed
   t: !Box

@@ -2,7 +2,7 @@
 # (`o2 = o1`) is rejected: both bindings would run the destructor.
 
 struct Owner
-  cell: *Cell(Int)
+  cell: *Cell[Int]
 
 sub main()
   o1 = Owner(cell: *Cell(value: 0))

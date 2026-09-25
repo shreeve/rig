@@ -1,10 +1,10 @@
 # `+x` clones only handles and plain values; a struct with drop glue has no clone.
 
 struct Holder
-  inner: *Cell(Int)
+  inner: *Cell[Int]
 
 sub main()
-  c: *Cell(Int) = *Cell(value: 1)
+  c: *Cell[Int] = *Cell(value: 1)
   h = Holder(inner: <c)
   k = +h
   print(1)

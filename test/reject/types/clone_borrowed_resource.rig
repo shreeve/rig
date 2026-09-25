@@ -3,7 +3,7 @@
 # no clone.
 
 struct Bag
-  v: Vec(Int)
+  v: Vec[Int]
 
   fun n(self: Self) -> Int
     self.v.len
@@ -12,7 +12,7 @@ fun f(b: ?Bag) -> Int
   (+b).n()
 
 sub main()
-  v: Vec(Int) = Vec()
+  v: Vec[Int] = Vec()
   b = Bag(v: <v)
   print(f(?b))
 

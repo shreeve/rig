@@ -6,7 +6,7 @@ enum Shape
   circle(radius: Int)
   rect(w: Int, h: Int)
 
-enum Option(T)
+enum Option[T]
   some(value: T)
   nothing
 

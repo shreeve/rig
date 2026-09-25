@@ -4,7 +4,7 @@
 # read it after.
 
 struct Box
-  v: Vec(Int)
+  v: Vec[Int]
 
 struct View
   b: ?Box

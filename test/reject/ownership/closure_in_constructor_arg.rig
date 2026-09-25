@@ -5,7 +5,7 @@ struct Holder
   cb: Int
 
 sub main()
-  count: *Cell(Int) = *Cell(value: 0)
+  count: *Cell[Int] = *Cell(value: 0)
   h = Holder(cb: |+count| count.set(count.get() + 1))
   _ = h
 

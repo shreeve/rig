@@ -1,0 +1,6 @@
+# In a type, type arguments go in brackets: `Vec[Int]`, not `Vec(Int)`.
+
+sub main()
+  v: Vec(Int) = Vec()
+
+# error: 4:9: type arguments go in brackets: `Vec[...]`

@@ -127,8 +127,8 @@ value goes when its last owner does.
 
 ```rig
 sub main
-  clicks: *Signal(Int) = *Signal(value: 0)
-  total: *Cell(Int) = *Cell(value: 0)
+  clicks: *Signal[Int] = *Signal(value: 0)
+  total: *Cell[Int] = *Cell(value: 0)
   clicks.subscribe(*|~clicks, +total|
     if clicks.upgrade() as c
       total.set(total.get() + c.get())

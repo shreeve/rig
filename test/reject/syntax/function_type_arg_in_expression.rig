@@ -1,0 +1,7 @@
+# A function type has no expression spelling, so it cannot be a type
+# argument in an expression.
+
+sub main()
+  v = Vec[*fun(Int) -> Int]()
+
+# error: 5:12: a function type has no expression spelling

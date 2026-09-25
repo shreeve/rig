@@ -8,7 +8,7 @@ enum Slot
   held(b: !Box)
   empty
 
-type W(T)
+type W[T]
   v: T
 
 sub main()
@@ -25,7 +25,7 @@ sub main()
       r.n = 3
   print(b.n)
   if true
-    w: W(!Box) = W(v: !b)
+    w: W[!Box] = W(v: !b)
     w.v.n = 4
   print(b.n)
   if true

@@ -22,7 +22,7 @@ struct P
   h: (*Tok)? = none
   u: U8 = 7
 
-type Box(T)
+type Box[T]
   v: T
   n: Int = 5
 

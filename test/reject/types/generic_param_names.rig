@@ -5,22 +5,22 @@
 struct Item
   n: Int
 
-type Shadow(Item)
+type Shadow[Item]
   v: Item
 
-type Prim(Int)
+type Prim[Int]
   v: Int
 
-type Builtin(Vec)
+type Builtin[Vec]
   v: Vec
 
-type Own(T)
+type Own[T]
   v: T
 
   fun T(?self) -> Int
     1
 
-type Uses(U)
+type Uses[U]
   v: U
 
   fun f(?self, U: Int) -> Int

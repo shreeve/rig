@@ -4,11 +4,11 @@
 # source that follows this one through a function; its listener holds
 # the derived source weakly, so the chain does not keep itself alive.
 
-type Listeners = Vec(*sub(Int))
+type Listeners = Vec[*sub(Int)]
 
 struct IntSource
-  value: *Cell(Int)
-  listeners: *Cell(Listeners)
+  value: *Cell[Int]
+  listeners: *Cell[Listeners]
 
   fun new(initial: Int) -> *IntSource
     *IntSource(value: *Cell(value: initial), listeners: *Cell(value: Vec()))

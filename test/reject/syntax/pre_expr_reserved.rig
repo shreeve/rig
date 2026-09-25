@@ -1,9 +1,0 @@
-# A `pre <expr>` expression is reserved and does not parse; only `pre`
-# function parameters are compile-time forms.
-
-sub main()
-  x = pre 42
-  print(x)
-
-# error: unexpected keyword `pre`
-# error: `pre` marks compile-time parameters only

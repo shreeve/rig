@@ -2,7 +2,7 @@
 # owned, with `*` before its bar list.
 
 sub main()
-  count: *Cell(Int) = *Cell(value: 0)
+  count: *Cell[Int] = *Cell(value: 0)
   cb: *sub() = |+count| count.set(count.get() + 1)
 
 # error: `*sub()` is an owned closure; write `*|...| body` to make one

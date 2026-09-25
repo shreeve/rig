@@ -24,7 +24,8 @@
 #
 #       <x +x ?x !x *x ~x -x         ownership sigils / negation
 #       |+a, b|  ||  *|a|            closure bar list (vs bitwise `|`)
-#       f(x) a[i]                    call / index (vs `f (x)`, `f [1, 2]`,
+#       f(x) a[i] Vec[Int]           call / index or compile-time
+#                                    arguments (vs `f (x)`, `f [1, 2]`,
 #                                    which pass a new operand to `f`)
 #       .red                         enum literal (vs member access a.b)
 #       T? T! x! x?                  type / propagation suffixes
@@ -68,7 +69,6 @@ tokens
     new             # a keyword only at statement start (`new x = ...`)
     not
     or
-    pre
     pub
     raw
     return
@@ -139,8 +139,9 @@ tokens
     newline
 
     # Rewriter-classified tokens
-    lparen_call     # (  touching the preceding value: call / generic args
-    lbracket_index  # [  touching the preceding value: index
+    lparen_call     # (  touching the preceding value: call
+    lbracket_index  # [  touching the preceding value: index, or
+                    #    compile-time arguments and parameters
     post_if         # if  postfix guard: `stmt if cond`
     ternary_if      # if  inline ternary: `a if cond else b`
     bar_capture     # |   closure bar list delimiter: `|+a, b|`
@@ -267,11 +268,11 @@ tokens
     # Declarations
     module                      ...decls
     use                         name:leaf
-    fun                         name:leaf params:group? returns? body:block
-    sub                         name:leaf params:group? body:block
+    fun                         name:leaf tparams:group? params:group? returns? body:block
+    sub                         name:leaf tparams:group? params:group? body:block
     lambda                      captures:captures? params:group? body:block
     struct, enum, errors        name:leaf ...members
-    generic_type, generic_enum  name:leaf params:group? ...members
+    generic_type, generic_enum  name:leaf tparams:group? ...members
     type                        name:leaf type
     test                        name:leaf body:block
     pub                         decl:fun|sub|struct|enum|errors|type|generic_type|generic_enum|test|set
@@ -282,7 +283,7 @@ tokens
     labeled                     label:leaf stmt
 
     # Parameters, fields, and enum members
-    ":", pre_param              name:leaf type
+    ":"                         name:leaf type
     default                     name:leaf type value
     valued                      name:leaf value
     variant                     name:leaf params:group
@@ -320,6 +321,7 @@ tokens
     builtin                     name:leaf ...args
     member                      object name:leaf
     index                       object index
+    inst                        object ...args
     array                       ...elems
     kwarg                       name:leaf value
 
@@ -357,7 +359,7 @@ tokens
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
-    MATCH: "`match`", NEW: "`new`", NOT: "`not`", OR: "`or`", PRE: "`pre`", PUB: "`pub`"
+    MATCH: "`match`", NEW: "`new`", NOT: "`not`", OR: "`or`", PUB: "`pub`"
     RAW: "`raw`", RETURN: "`return`", STRUCT: "`struct`", SUB: "`sub`", TEST: "`test`", TRY: "`try`"
     TYPE: "`type`", USE: "`use`", WHILE: "`while`", ZIG: "`zig`"
     "=": "`=`", "+=": "`+=`", "-=": "`-=`", "*=": "`*=`", "/=": "`/=`", "%=": "`%=`"
@@ -437,8 +439,8 @@ defn     = fun | sub | enum | struct | errors | typedef | test
 
 use      = USE name:name                            → (use)
 
-fun      = FUN name:name [params:params] [returns:returns] body:block → (fun)
-sub      = SUB name:name [params:params] body:block → (sub)
+fun      = FUN name:name [tparams:tparams] [params:params] [returns:returns] body:block → (fun)
+sub      = SUB name:name [tparams:tparams] [params:params] body:block → (sub)
 
 returns  = "->" type                                → 2
 
@@ -446,6 +448,16 @@ params   = !lparen fields [","] ")"                 → (...2)
          | !lparen          ")"                     → ()
 
 lparen   = LPAREN_CALL | "("
+
+# Compile-time parameters, in brackets touching the declared name: a
+# bare name is a type parameter, `name: Type` a compile-time value.
+tparams  = LBRACKET_INDEX tfields [","] "]"         → (...2)
+
+tfields  = tfield                                   → (1)
+         | tfields "," tfield                       → (...1 3)
+
+tfield   = name
+         | name:name ":" type:type                  → (:)
 
 # Written out rather than `L(field)`, which conflicts with a trailing
 # comma.
@@ -456,7 +468,6 @@ fields   = field                                    → (1)
 field    = fname
          | name:fname ":" type:type                 → (:)
          | name:fname ":" type:type "=" value:expr  → (default)
-         | PRE name:fname ":" type:type             → (pre_param)
          | READ_PFX  operand:fname                  → (read)       # `?self`
          | WRITE_PFX operand:fname                  → (write)      # `!self`
 
@@ -464,13 +475,13 @@ field    = fname
 fname    = name | KWARG_NAME
 
 enum     = ENUM name:name INDENT members:members OUTDENT     → (enum)
-         | ENUM name:name params:params INDENT members:members OUTDENT
+         | ENUM name:name tparams:tparams INDENT members:members OUTDENT
                                                     → (generic_enum)
 errors   = ERROR name:name INDENT members:members OUTDENT    → (errors)
 struct   = STRUCT name:name INDENT members:members OUTDENT   → (struct)
 
 typedef  = TYPE name:name "=" type:type             → (type)
-         | TYPE name:name [params:params] INDENT members:members OUTDENT
+         | TYPE name:name [tparams:tparams] INDENT members:members OUTDENT
                                                     → (generic_type)
 
 members  = member                                   → (1)
@@ -517,8 +528,7 @@ tsuffix  = type:tsuffix SUFFIX_Q                    → (optional)
 
 tatom    = name
          | object:name "." name:name                → (member)     # `geo.Point`
-         | TYPE                                     # `pre T: type`
-         | name:name LPAREN_CALL [args:L(type)] ")" → (generic_inst)
+         | name:name LBRACKET_INDEX args:L(type) "]" → (generic_inst)
          | "(" type ")"                             → 2
 
 # ==============================================================================
@@ -684,6 +694,7 @@ unary    = MINUS_PREFIX operand:unary               → (neg)
 
 postfix  = object:postfix "." name:name             → (member)
          | object:postfix LBRACKET_INDEX index:expr "]" → (index)
+         | object:postfix LBRACKET_INDEX args:targs "]" → (inst)
          | callee:postfix LPAREN_CALL args:args ")" → (call)
          | value:postfix SUFFIX_BANG                → (propagate)
          | value:postfix SUFFIX_Q                   → (propagate_none)
@@ -694,6 +705,12 @@ args     = callargs                                 → 1
          | callargs "," cclosure                    → (...1 3)
          | cclosure                                 → (1)
          |                                          → ()
+
+# Two or more compile-time arguments (`Pair[Int, String]`); sema reads
+# one (`Vec[Int]`, an `index`) as compile-time arguments or an index by
+# what the object names.
+targs    = expr "," expr                            → (1 3)
+         | targs "," expr                           → (...1 3)
 
 callargs = callarg                                  → (1)
          | callargs "," callarg                     → (...1 3)
