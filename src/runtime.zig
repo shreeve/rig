@@ -867,6 +867,7 @@ pub fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Er
             return;
         },
         .bool => return w.writeAll(if (value) "true" else "false"),
+        .@"fn" => return w.writeAll("<fun>"),
         .optional => return if (value) |v| writeValue(w, v, top) else w.writeAll("none"),
         .pointer => |p| {
             if (comptime isStrongHandle(T)) return writeValue(w, value.value, top);

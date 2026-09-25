@@ -2409,7 +2409,6 @@ const Checker = struct {
             switch (self.ctx.types.get(ty)) {
                 .void => try self.errAt(a, "`print` needs a value; this expression produces no value (`Void`)", .{}),
                 .none_literal => try self.errAt(a, "cannot print a bare `none`", .{}),
-                .function => try self.errAt(a, "cannot print a function", .{}),
                 else => {},
             }
         }
