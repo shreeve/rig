@@ -330,9 +330,15 @@ const Checker = struct {
             if (wants_value) try self.errAt(body, "function body is empty but must produce a `{s}`", .{try self.tyName(ret)});
             return;
         }
+        // A `Void!` function has no value to end with: its last statement
+        // may be any statement.
+        const ends_void = switch (self.ctx.types.get(ret)) {
+            .fallible => |inner| inner == self.t().void_id,
+            else => false,
+        };
         for (stmts, 0..) |s, i| {
             if (wants_value and i == stmts.len - 1) {
-                if (loopsForever(self.ctx.source, s)) {
+                if (loopsForever(self.ctx.source, s) or (ends_void and (self.yieldsNoValue(s) or isIfWithoutElse(s)))) {
                     try self.checkStmt(s);
                     continue;
                 }
@@ -4426,6 +4432,11 @@ fn constFloatOf(source: []const u8, e: Sexp) ?f64 {
     const t = identAt(source, e) orelse return null;
     if (!sema.isFloatLiteralText(t)) return null;
     return std.fmt.parseFloat(f64, t) catch null;
+}
+
+/// `if c` with no `else`: a statement, never a value.
+fn isIfWithoutElse(s: Sexp) bool {
+    return s.isKind(.@"if") and ir.If.@"else"(s) == .nil;
 }
 
 /// An integer literal, possibly negated: `42`, `-1`.

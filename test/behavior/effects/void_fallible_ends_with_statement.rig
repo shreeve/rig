@@ -1,0 +1,40 @@
+# A `Void!` function has no value to end with: its last statement may
+# be a guard, an `if` with no `else`, an assignment, or a loop.
+
+error E
+  bad
+
+fun check(i: Int) -> Void!
+  print(i)
+  return E.bad if i == 3
+
+fun block_guard(i: Int) -> Void!
+  if i == 3
+    return E.bad
+
+fun ends_in_set(c: !Int, i: Int) -> Void!
+  return .bad if i == 3
+  c = i
+
+fun ends_in_loop(i: Int) -> Void!
+  for k in 0..i
+    return E.bad if k == 3
+
+sub main()
+  check(1) catch |e| print("caught", e)
+  check(3) catch |e| print("caught", e)
+  block_guard(2) catch |e| print("caught", e)
+  block_guard(3) catch |e| print("caught", e)
+  n = 0
+  ends_in_set(!n, 7) catch |e| print("caught", e)
+  print(n)
+  ends_in_loop(2) catch |e| print("caught", e)
+  ends_in_loop(5) catch |e| print("caught", e)
+
+# expect:
+# 1
+# 3
+# caught .bad
+# caught .bad
+# 7
+# caught .bad
