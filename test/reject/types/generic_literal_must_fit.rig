@@ -1,0 +1,34 @@
+# A literal in a generic body becomes a `T`, so every instance must hold
+# it; negation needs a signed `T`, and a constant shift a wide enough one.
+
+type Half(T)
+  v: T
+  fun get(?self) -> T
+    self.v * 1.5
+
+type Big(T)
+  v: T
+  fun get(?self) -> T
+    self.v + 300
+
+type Neg(T)
+  v: T
+  fun get(?self) -> T
+    -self.v
+
+type Wide(T)
+  v: T
+  fun get(?self) -> T
+    self.v << 9
+
+sub main()
+  a: Half(Int) = Half(v: 1)
+  b: Big(U8) = Big(v: 1)
+  c: Neg(U8) = Neg(v: 1)
+  d: Wide(U8) = Wide(v: 1)
+  print(a.get(), b.get(), c.get(), d.get())
+
+# error: `Half(Int)` cannot use `T = Int`: the generic body applies `*` to `T`, which `Int` does not support
+# error: the generic body applies `+` to a `T` and the literal `300`, which `U8` cannot hold
+# error: `Neg(U8)` cannot use `T = U8`: the generic body applies `-` to `T`
+# error: `Wide(U8)` cannot use `T = U8`: the generic body applies `<<` to `T`, which `U8` does not support

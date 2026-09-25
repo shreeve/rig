@@ -1,0 +1,51 @@
+# A read borrow of a Copy value (a number, a plain enum, an error) reads
+# as the value: in branches, array elements, comparisons, and indexes.
+
+enum E
+  bad
+  good
+
+error Oops
+  boom
+  bang
+
+fun mix(a: ?Int, c: Bool) -> Int
+  x = if c
+    a
+  else
+    5
+  y = 5 if c else a
+  z = [a, 5]
+  w = match c
+    true => a
+    false => 7
+  x + y + z[1] + w
+
+fun same(e: ?E) -> Bool
+  x = e
+  e == E.bad and x == E.bad
+
+fun is_boom(o: ?Oops) -> Bool
+  o == Oops.boom
+
+fun at(a: ?[3]Int, i: ?Int, j: !Int) -> Int
+  a[i] + a[j]
+
+fun empty(a: ?Int?) -> Bool
+  a == none
+
+sub main()
+  n = 1
+  m = 2
+  b = E.bad
+  p = Oops.boom
+  none_: Int? = none
+  some: Int? = 3
+  print(mix(?n, true), mix(?n, false))
+  print(same(?b), is_boom(?p), at(?[1, 2, 3], ?n, !m))
+  print(empty(?none_), empty(?some))
+
+# expect:
+# 12 18
+# true true 5
+# true false

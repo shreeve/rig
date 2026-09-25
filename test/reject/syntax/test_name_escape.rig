@@ -1,0 +1,9 @@
+# A test name is a string, and its escapes are checked.
+
+sub main()
+  print(1)
+
+test "a\zb"
+  print(2)
+
+# error: invalid escape `\z` in a string

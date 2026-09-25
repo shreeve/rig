@@ -1,0 +1,12 @@
+# A shift of literals is checked against `Int`, the type the result
+# takes.
+
+sub main()
+  a = 1 << 127
+  b = 3 << 126
+  c = 922337203685 << 4775807
+  print(a, b, c)
+
+# error: shift amount `127` is out of range for `Int` (0..63)
+# error: shift amount `126` is out of range for `Int` (0..63)
+# error: shift amount `4775807` is out of range for `Int` (0..63)

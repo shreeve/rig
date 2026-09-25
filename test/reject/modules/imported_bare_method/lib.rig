@@ -1,0 +1,5 @@
+pub struct P
+  n: Int
+
+  fun get(?self) -> Int
+    self.n

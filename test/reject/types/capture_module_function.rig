@@ -1,0 +1,11 @@
+# Only a local can be captured; a closure uses a module-level function
+# directly.
+
+fun dbl(x: Int) -> Int
+  x * 2
+
+sub main()
+  f = |<dbl, y: Int| dbl(y)
+  print(f(2))
+
+# error: only a local can be captured; `dbl` is declared at module level

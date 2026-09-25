@@ -1,0 +1,25 @@
+# Where an optional is expected, the fallback of `??` or `catch` may be
+# `none` or another optional.
+
+error Bad
+  nope
+
+fun g(ok: Bool) -> Int!
+  if ok
+    3
+  else
+    Bad.nope
+
+fun pick(a: Int?, b: Int?) -> Int?
+  a ?? b
+
+sub main()
+  x: Int? = g(false) catch none
+  y: Int? = g(true) catch none
+  a: Int? = none
+  b: Int? = 4
+  c: Int? = a ?? b
+  print(x ?? 0, y ?? 0, c ?? 1, pick(none, 7) ?? 0)
+
+# expect:
+# 0 3 4 7

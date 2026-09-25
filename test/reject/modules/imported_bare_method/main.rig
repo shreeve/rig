@@ -1,0 +1,23 @@
+# A method is called, not named, whether its type is local or imported.
+
+use lib
+
+struct Q
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+sub main()
+  p = lib.P(n: 1)
+  q = Q(n: 2)
+  a = p.get
+  b = lib.P.get
+  c = q.get
+  d = Q.get
+  print(p.nope, q.nope)
+
+# error: method `P.get` must be called; a bare method reference is not supported
+# error: method `Q.get` must be called; a bare method reference is not supported
+# error: no field `nope` on type `P`
+# error: no field `nope` on type `Q`

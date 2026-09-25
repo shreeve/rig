@@ -1,0 +1,6 @@
+# The program's entry point is `sub main()`.
+
+fun main() -> Int
+  3
+
+# error: `main` must be `sub main()`

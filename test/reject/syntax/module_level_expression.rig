@@ -1,0 +1,10 @@
+# A bare expression at module level is not a declaration.
+
+sub main()
+  print(1)
+
+2
+foo
+"s"
+
+# error: only declarations and bindings are allowed at module level

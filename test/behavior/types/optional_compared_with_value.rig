@@ -1,0 +1,15 @@
+# `T?` compares with a `T`: equal when it holds that value.
+
+enum E
+  a
+  b
+
+sub main()
+  a: Int? = 5
+  u: U8? = none
+  k = 5
+  e: E? = E.b
+  print(a == 5, a != 6, 5 == a, u == 3, a == k, e == E.b)
+
+# expect:
+# true true true false true true
