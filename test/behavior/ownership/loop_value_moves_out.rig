@@ -1,0 +1,44 @@
+# A `break` value leaves its loop like a returned value leaves its
+# function: an owning value moves out (the rest of a consumed Vec is
+# dropped), and a borrow keeps what it borrows borrowed.
+
+struct Box
+  n: Int
+
+fun pick(boxes: Vec(*Box), want: Int) -> (*Box)?
+  for b in <boxes
+    break <b if b.n == want
+  else
+    none
+
+sub main()
+  v: Vec(*Box) = Vec()
+  (!v).push(*Box(n: 1))
+  (!v).push(*Box(n: 2))
+  (!v).push(*Box(n: 3))
+  if pick(<v, 2) as b
+    print(b.n)
+  w: Vec(*Box) = Vec()
+  (!w).push(*Box(n: 1))
+  print(pick(<w, 9) == none)
+  u: Vec(*Box) = Vec()
+  (!u).push(*Box(n: 4))
+  (!u).push(*Box(n: 5))
+  fallback = *Box(n: 0)
+  r = for b in ?u
+    break ?b if b.n == 5
+  else
+    ?fallback
+  print(r.n)
+  held = *Box(n: 6)
+  moved = for i in 0..3
+    break <held if i == 1
+  else
+    *Box(n: 7)
+  print(moved.n)
+
+# expect:
+# 2
+# true
+# 5
+# 6

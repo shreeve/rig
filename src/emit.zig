@@ -101,6 +101,10 @@ const Division = enum { int, float, generic };
 /// dropped at scope exit while `flag` is set; the call clears it.
 const Hoisted = struct { node: Sexp, name: []const u8, flag: []const u8 = "" };
 
+/// A loop used as a value: its Rig label (empty when it has none), the
+/// Zig block its `break` values leave, and its type.
+const ValueLoop = struct { rig: []const u8, block: []const u8, ty: TypeId };
+
 const Scope = struct {
     locals: std.ArrayListUnmanaged(Local) = .empty,
 };
@@ -189,6 +193,13 @@ pub const Emitter = struct {
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
     labels: std.ArrayListUnmanaged(struct { rig: []const u8, zig: []const u8 }) = .empty,
+    /// The loops used as values around the current point, innermost
+    /// last: each loop's Rig label (or none), the Zig block its `break`
+    /// values leave, and its type.
+    value_loops: std.ArrayListUnmanaged(ValueLoop) = .empty,
+    /// The `else` of the loop used as a value being emitted, which is
+    /// written after the loop as the block's value.
+    value_else: Sexp = .nil,
     /// A name was qualified as `__rig_module.name` (`writeModuleName`).
     uses_module: bool = false,
     /// The module declares an `extern "c"`, so the program links libc.
@@ -217,6 +228,7 @@ pub const Emitter = struct {
         self.tests.deinit(self.allocator);
         self.hoisted.deinit(self.allocator);
         self.labels.deinit(self.allocator);
+        self.value_loops.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -848,7 +860,7 @@ pub const Emitter = struct {
         const last = stmts.len - 1;
         try self.emitStmts(stmts[0..last]);
         try self.writeIndent(self.indent);
-        if (isValueStmt(stmts[last])) {
+        if (self.yieldsValue(stmts[last])) {
             try self.w.writeAll("return ");
             try self.emitReturnValue(stmts[last]);
             try self.w.writeAll(";");
@@ -1244,8 +1256,18 @@ pub const Emitter = struct {
         try self.emitValue(value, true);
     }
 
-    /// `(break value-or-_ label?)`.
+    /// `(break value-or-_ label?)`. A value leaves the block of the loop
+    /// it gives a value to.
     fn emitBreak(self: *Emitter, node: Sexp) Error!void {
+        const value = ir.Break.value(node);
+        if (value != .nil) {
+            const label = ir.Break.label(node);
+            const target = self.valueLoop(if (label == .nil) "" else self.srcText(label)) orelse return self.unsupported(node, "a `break` value outside a loop used as a value");
+            try self.w.print("break :{s} ", .{target.block});
+            self.bare = true;
+            try self.emitValueAs(value, target.ty);
+            return self.w.writeAll(";");
+        }
         try self.w.writeAll("break");
         try self.writeJumpLabel(ir.Break.label(node));
         try self.w.writeAll(";");
@@ -1345,6 +1367,8 @@ pub const Emitter = struct {
         if (node != .list) return false;
         if (node.kind()) |k| switch (k) {
             .@"break", .@"continue" => {
+                // A `break` value leaves the block of its loop instead.
+                if (k == .@"break" and ir.Break.value(node) != .nil) return false;
                 const l = ir.get(node, .label);
                 return l != .nil and std.mem.eql(u8, self.srcText(l), label);
             },
@@ -1380,9 +1404,55 @@ pub const Emitter = struct {
         try self.emitElse(ir.While.@"else"(sexp));
     }
 
+    /// The innermost loop used as a value with Rig label `label`, or the
+    /// innermost one for an unlabeled `break`.
+    fn valueLoop(self: *Emitter, label: []const u8) ?ValueLoop {
+        var i = self.value_loops.items.len;
+        while (i > 0) {
+            i -= 1;
+            const l = self.value_loops.items[i];
+            if (label.len == 0 or std.mem.eql(u8, l.rig, label)) return l;
+        }
+        return null;
+    }
+
+    /// A loop used as a value: a labeled block holding the loop without
+    /// its `else`, then the `else` value, which runs when no `break`
+    /// leaves the block with a value first.
+    ///
+    ///     @as(T, __rig_loop_N: {
+    ///         for (xs) |x| { ... break :__rig_loop_N v; ... }
+    ///         break :__rig_loop_N else_value;
+    ///     })
+    fn emitLoopValue(self: *Emitter, sexp: Sexp) Error!void {
+        const labeled = sexp.isKind(.labeled);
+        const loop = if (labeled) ir.Labeled.stmt(sexp) else sexp;
+        const ty = self.typeOf(loop) orelse return self.unsupported(sexp, "an untyped loop value");
+        const block = try self.fmt("__rig_loop_{d}", .{self.nextId()});
+        try self.w.writeAll("@as(");
+        try self.emitTypeTy(ty);
+        try self.w.print(", {s}: ", .{block});
+        try self.openBrace();
+        try self.value_loops.append(self.allocator, .{ .rig = if (labeled) self.srcText(ir.Labeled.label(sexp)) else "", .block = block, .ty = ty });
+        const else_ = ir.get(loop, .@"else");
+        const saved_else = self.value_else;
+        self.value_else = else_;
+        try self.emitStmts(&.{sexp});
+        self.value_else = saved_else;
+        _ = self.value_loops.pop();
+        if (else_ != .nil) {
+            try self.writeIndent(self.indent);
+            try self.w.print("break :{s} ", .{block});
+            try self.emitValueBlock(else_, .{}, ty);
+            try self.w.writeAll(";\n");
+        }
+        try self.closeBrace();
+        try self.w.writeAll(")");
+    }
+
     /// ` else { ... }` of a loop, if it has one.
     fn emitElse(self: *Emitter, else_: Sexp) Error!void {
-        if (else_ == .nil) return;
+        if (else_ == .nil or sameNode(else_, self.value_else)) return;
         try self.w.writeAll(" else ");
         try self.emitBranchStmt(else_);
     }
@@ -2084,9 +2154,15 @@ pub const Emitter = struct {
             },
             .block => try self.emitValueBlock(sexp, .{}, self.typeOf(sexp)),
             .raw_block => try self.emitValueBlock(ir.RawBlock.body(sexp), .{}, self.typeOf(sexp)),
+            .@"while", .@"for", .labeled => if (sema.hasValueBreaks(self.source, sexp)) try self.emitLoopValue(sexp) else return self.unsupported(sexp, "a loop without a value in value position"),
             .array => try self.emitArray(sexp),
             else => return self.unsupported(sexp, "this expression"),
         }
+    }
+
+    /// A statement that produces a value, including a loop used as one.
+    fn yieldsValue(self: *Emitter, s: Sexp) bool {
+        return isValueStmt(s) or sema.hasValueBreaks(self.source, s);
     }
 
     fn isNoneLeaf(self: *Emitter, e: Sexp) bool {
@@ -2380,10 +2456,10 @@ pub const Emitter = struct {
         const stmts = try self.stmtsOf(body);
         if (stmts.len == 0) return self.unsupported(body, "an empty block in value position");
         const last = stmts[stmts.len - 1];
-        if (stmts.len == 1 and prelude.isEmpty() and isValueStmt(last)) return self.emitValueAs(last, result);
+        if (stmts.len == 1 and prelude.isEmpty() and self.yieldsValue(last)) return self.emitValueAs(last, result);
 
         const terminates = isTerminatingStmt(last);
-        if (!terminates and !isValueStmt(last)) return self.unsupported(last, "a block without a value in value position");
+        if (!terminates and !self.yieldsValue(last)) return self.unsupported(last, "a block without a value in value position");
         var label: []const u8 = "";
         if (!terminates) {
             label = try self.fmt("__rig_blk_{d}", .{self.nextId()});

@@ -480,8 +480,12 @@ branch from the same entry state and join the results: moved or dropped
 on any path means moved or dropped after, and loans are unioned. Loops
 iterate to a fixpoint over the back edge: the loop-head state joins the
 entry, the end of the body, and every `continue`; the state after the
-loop joins the exit condition with every `break`. Diagnostics are
-reported only on the final walk. `return`, `break`, and `continue` make
+loop joins the exit condition with every `break`. A loop's `else` is
+walked after the loop, where a jump leaves the enclosing loop. The value
+of a loop used as a value is the union of its `break` values, each
+consumed like a returned value and checked not to borrow the loop's own
+vars, and its `else` value. Diagnostics are reported only on the final
+walk. `return`, `break`, and `continue` make
 the rest of their block unreachable. A `defer` body is re-checked
 against the state at every exit of its scope.
 
@@ -533,7 +537,11 @@ types comes from the facts table, never from name matching.
   with drop glue gets a `__rig_drop` method: the user `drop` body, then
   the owning fields in reverse order.
 - **Values.** `if` and `match` in value position become labeled blocks
-  when a branch needs statements; `match` is a `switch`.
+  when a branch needs statements; `match` is a `switch`. A loop used as
+  a value (one a `break` leaves with a value) becomes a labeled block
+  holding the loop without its `else`, then `break :block else_value`;
+  each `break v` leaves the block, so the `else` value is reached only
+  when no `break` gave one, for every form of loop.
 - **Closures.** A stack closure is a local struct holding its captures,
   with an `invoke` method. An owned closure allocates an environment
   struct per literal and erases it behind `rig.Closure(params, R)`, so

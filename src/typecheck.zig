@@ -88,6 +88,10 @@ const Checker = struct {
     handled: Sexp = .nil,
     /// The operand of the `*x` being checked.
     shared_operand: Sexp = .nil,
+    /// The label, and the value when it is used as one, of the loop
+    /// about to be checked.
+    loop_label: []const u8 = "",
+    loop_value: ?*LoopValue = null,
 
     const Body = struct {
         /// Type `return` values must have; `unknown` while a closure's
@@ -100,6 +104,28 @@ const Checker = struct {
         returns: ?*std.ArrayListUnmanaged(ReturnSite) = null,
         /// The name of the `fun` or `sub` being checked, for messages.
         name: Sexp = .nil,
+        /// The loops and labeled blocks around the code being checked,
+        /// innermost first: what a `break` leaves.
+        loops: ?*LoopFrame = null,
+    };
+
+    const LoopFrame = struct {
+        label: []const u8,
+        /// False for a labeled block, which only `break :label` leaves.
+        is_loop: bool = true,
+        /// The value of a loop used as one.
+        value: ?*LoopValue = null,
+        parent: ?*LoopFrame,
+    };
+
+    /// A loop used as a value: its `break` values and its `else` value.
+    const LoopValue = struct {
+        expected: ?TypeId,
+        /// The type the values settle on, without `expected`.
+        ty: ?TypeId = null,
+        values: std.ArrayListUnmanaged(Typed) = .empty,
+
+        const Typed = struct { node: Sexp, ty: TypeId };
     };
 
     const ReturnSite = struct { node: Sexp, ty: ?TypeId };
@@ -313,7 +339,7 @@ const Checker = struct {
                     try self.checkStmt(s);
                     continue;
                 }
-                if (isStatementForm(s) and !s.isKind(.@"return")) {
+                if (self.yieldsNoValue(s) and !s.isKind(.@"return")) {
                     try self.checkStmt(s);
                     const what = switch (s.kind().?) {
                         .set => "assignment",
@@ -341,6 +367,11 @@ const Checker = struct {
             _ = try self.synthExpr(stmt);
             return;
         };
+        if (self.isValueLoop(stmt)) {
+            try self.errAt(stmt, "the value of this loop is not used; bind it (`x = for ...`) or `break` without a value", .{});
+            _ = try self.checkLoopValue(stmt, null, false);
+            return;
+        }
         switch (head) {
             .set => try self.checkSet(stmt),
             .@"return" => try self.checkReturn(stmt),
@@ -356,14 +387,17 @@ const Checker = struct {
             .drop => {
                 _ = try self.synthExpr(ir.Drop.name(stmt));
             },
-            .@"break" => if (ir.Break.value(stmt) != .nil) {
-                try self.errAt(ir.Break.value(stmt), "`break` with a value is not supported yet", .{});
-            },
+            .@"break" => try self.checkBreak(stmt),
             .@"continue" => {},
             .@"defer", .@"errdefer" => {
                 const prev = self.body.fail_to;
-                defer self.body.fail_to = prev;
+                const prev_loops = self.body.loops;
+                defer {
+                    self.body.fail_to = prev;
+                    self.body.loops = prev_loops;
+                }
                 self.body.fail_to = .deferred;
+                self.body.loops = null;
                 try self.checkStmt(ir.get(stmt, .body));
             },
             .raw_block => {
@@ -371,7 +405,18 @@ const Checker = struct {
                 defer self.raw_depth -= 1;
                 try self.checkStmt(ir.RawBlock.body(stmt));
             },
-            .labeled => try self.checkStmt(ir.Labeled.stmt(stmt)),
+            .labeled => {
+                const inner = ir.Labeled.stmt(stmt);
+                const label = self.text(ir.Labeled.label(stmt));
+                if (inner.isKind(.@"while") or inner.isKind(.@"for")) {
+                    self.loop_label = label;
+                    return self.checkStmt(inner);
+                }
+                var frame: LoopFrame = .{ .label = label, .is_loop = false, .parent = self.body.loops };
+                self.body.loops = &frame;
+                defer self.body.loops = frame.parent;
+                try self.checkStmt(inner);
+            },
             .fun, .sub, .@"struct", .@"enum", .errors, .type, .generic_type, .generic_enum, .use, .@"extern", .extern_fun, .extern_sub, .@"test", .@"pub" => {
                 try self.errAt(stmt, "declarations are only allowed at module level", .{});
             },
@@ -768,7 +813,28 @@ const Checker = struct {
         }
     }
 
+    /// The frame of the loop being entered, which takes the pending label
+    /// and value.
+    fn enterLoop(self: *Checker, frame: *LoopFrame) void {
+        frame.* = .{ .label = self.loop_label, .value = self.loop_value, .parent = self.body.loops };
+        self.loop_label = "";
+        self.loop_value = null;
+        self.body.loops = frame;
+    }
+
+    /// A loop's `else`, after the loop: a `break` there leaves the loop
+    /// around it. In a loop used as a value, it is the value when no
+    /// `break` gives one.
+    fn checkLoopElse(self: *Checker, frame: *LoopFrame, else_: Sexp) Error!void {
+        self.body.loops = frame.parent;
+        if (else_ == .nil) return;
+        if (frame.value) |lv| return self.loopValue(lv, else_);
+        try self.checkStmt(else_);
+    }
+
     fn checkWhile(self: *Checker, node: Sexp) Error!void {
+        var frame: LoopFrame = undefined;
+        self.enterLoop(&frame);
         const prev = self.scope;
         const cond = ir.While.cond(node);
         try self.checkCondition(cond);
@@ -785,11 +851,12 @@ const Checker = struct {
         }
         try self.checkStmt(ir.While.body(node));
         self.scope = prev;
-        const else_ = ir.While.@"else"(node);
-        if (else_ != .nil) try self.checkStmt(else_);
+        try self.checkLoopElse(&frame, ir.While.@"else"(node));
     }
 
     fn checkFor(self: *Checker, node: Sexp) Error!void {
+        var frame: LoopFrame = undefined;
+        self.enterLoop(&frame);
         const mode = ir.For.mode(node).tag;
         const binding = ir.For.@"var"(node);
         const index_binding = ir.For.index(node);
@@ -825,8 +892,74 @@ const Checker = struct {
             }
             try self.checkStmt(ir.For.body(node));
         }
-        const else_ = ir.For.@"else"(node);
-        if (else_ != .nil) try self.checkStmt(else_);
+        try self.checkLoopElse(&frame, ir.For.@"else"(node));
+    }
+
+    /// A loop with a `break` that carries a value: its value is used.
+    fn isValueLoop(self: *Checker, e: Sexp) bool {
+        return sema.hasValueBreaks(self.ctx.source, e);
+    }
+
+    /// A statement that yields no value: a binding, a jump, a loop other
+    /// than a value loop.
+    fn yieldsNoValue(self: *Checker, e: Sexp) bool {
+        return isStatementForm(e) and !self.isValueLoop(e);
+    }
+
+    /// A loop used as a value: its `break` values and its `else` value
+    /// meet in one type (`expected`, when the context gives one). Without
+    /// an `else` the loop has no value when its condition fails, so only
+    /// `while true` may omit it.
+    fn checkLoopValue(self: *Checker, node: Sexp, expected: ?TypeId, used: bool) Error!TypeId {
+        const loop = if (node.isKind(.labeled)) ir.Labeled.stmt(node) else node;
+        var lv: LoopValue = .{ .expected = expected };
+        defer lv.values.deinit(self.ctx.allocator);
+        const else_ = ir.get(loop, .@"else");
+        const forever = loop.isKind(.@"while") and std.mem.eql(u8, self.text(ir.While.cond(loop)), "true");
+        if (used and else_ == .nil and !forever) {
+            try self.errAt(loop, "a loop used as a value needs an `else` giving its value when no `break` does", .{});
+        }
+        if (node.isKind(.labeled)) self.loop_label = self.text(ir.Labeled.label(node));
+        self.loop_value = &lv;
+        if (loop.isKind(.@"while")) try self.checkWhile(loop) else try self.checkFor(loop);
+        const ty = if (expected) |e| e else self.canonical(lv.ty orelse self.t().invalid_id);
+        if (expected == null) for (lv.values.items) |v| try self.adaptLiteral(v.node, v.ty, ty);
+        if (used and ty == self.t().void_id) try self.errAt(node, "a loop used as a value cannot yield `Void`", .{});
+        try self.ctx.recordType(loop, ty);
+        return ty;
+    }
+
+    /// A `break` value or an `else` value of a loop used as a value.
+    fn loopValue(self: *Checker, lv: *LoopValue, value: Sexp) Error!void {
+        if (lv.expected) |e| return self.checkExpr(value, e);
+        const ty = try self.synthExpr(value);
+        try lv.values.append(self.ctx.allocator, .{ .node = value, .ty = ty });
+        lv.ty = if (lv.ty) |cur| (try self.unify(cur, ty, self.startOf(value))) orelse self.t().invalid_id else ty;
+    }
+
+    /// `(break value? label?)`: a loop used as a value takes a value from
+    /// every `break` that leaves it, and no other `break` carries one.
+    fn checkBreak(self: *Checker, node: Sexp) Error!void {
+        const value = ir.Break.value(node);
+        const label = ir.Break.label(node);
+        var target = self.body.loops;
+        while (target) |f| : (target = f.parent) {
+            if (label == .nil) {
+                if (f.is_loop) break;
+            } else if (std.mem.eql(u8, f.label, self.text(label))) break;
+        }
+        const lv: ?*LoopValue = if (target) |f| f.value else null;
+        if (value == .nil) {
+            if (lv != null) try self.errAt(node, "this `break` leaves a loop used as a value; give it the value (`break value`)", .{});
+            return;
+        }
+        if (lv) |v| return self.loopValue(v, value);
+        _ = try self.synthExpr(value);
+        if (target) |f| {
+            if (f.is_loop) {
+                try self.errAt(value, "`break` with a value needs a loop whose value is used (`x = for ...`)", .{});
+            } else try self.errAt(value, "a labeled block has no value; `break :{s}` cannot carry one", .{f.label});
+        }
     }
 
     /// `a..b` as a loop source: both bounds integers of one type.
@@ -1366,7 +1499,11 @@ const Checker = struct {
                 try self.errAt(e, "a range `a..b` can only be used as a `for` loop source", .{});
                 break :blk self.t().invalid_id;
             },
-            .set, .@"while", .@"for", .drop, .@"defer", .@"errdefer", .labeled => blk: {
+            .@"while", .@"for", .labeled => if (self.isValueLoop(e)) self.checkLoopValue(e, null, true) else blk: {
+                try self.checkStmt(e);
+                break :blk self.t().void_id;
+            },
+            .set, .drop, .@"defer", .@"errdefer" => blk: {
                 try self.checkStmt(e);
                 break :blk self.t().void_id;
             },
@@ -3288,6 +3425,10 @@ const Checker = struct {
             .array => return self.checkArray(e, target),
             .@"if" => _ = try self.checkIfValue(e, expected, .value),
             .match => _ = try self.checkMatch(e, .value, expected),
+            .@"while", .@"for", .labeled => {
+                if (!self.isValueLoop(e)) return null;
+                _ = try self.checkLoopValue(e, expected, true);
+            },
             .block => _ = try self.synthBlock(e, expected),
             .raw_block => {
                 self.raw_depth += 1;
@@ -3694,7 +3835,7 @@ const Checker = struct {
                 ends_in_return = last.isKind(.@"return");
                 // A closure ending in a statement, or an `if` without
                 // `else`, returns nothing.
-                const no_value = isStatementForm(last) or ifWithoutValue(last);
+                const no_value = self.yieldsNoValue(last) or ifWithoutValue(last);
                 ret = if (no_value) blk: {
                     try self.checkStmt(last);
                     break :blk self.t().void_id;
@@ -3945,27 +4086,7 @@ fn loopsForever(source: []const u8, s: Sexp) bool {
     if (!loop.isKind(.@"while")) return false;
     const cond = ir.While.cond(loop);
     if (!std.mem.eql(u8, identAt(source, cond) orelse "", "true")) return false;
-    return !breaksOut(source, ir.While.body(loop), label, false);
-}
-
-/// Whether `e` holds a `break` that leaves the loop around it: an
-/// unlabeled one outside nested loops, or one naming the loop's `label`,
-/// outside closures.
-fn breaksOut(source: []const u8, e: Sexp, label: []const u8, nested: bool) bool {
-    const h = e.kind() orelse return false;
-    switch (h) {
-        .@"break" => {
-            const l = ir.Break.label(e);
-            if (l == .nil) return !nested;
-            return label.len > 0 and std.mem.eql(u8, identAt(source, l) orelse "", label);
-        },
-        .lambda => return false,
-        else => {},
-    }
-    const in_loop = nested or h == .@"while" or h == .@"for";
-    if (in_loop and label.len == 0) return false;
-    for (rig.children(e)) |c| if (breaksOut(source, c, label, in_loop)) return true;
-    return false;
+    return !sema.breaksOut(source, ir.While.body(loop), label, false, false);
 }
 
 /// The first name in `node` that denotes symbol `sym`.

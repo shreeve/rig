@@ -1,0 +1,15 @@
+# A `break` value needs a loop whose value is used.
+
+sub main()
+  for i in 0..3
+    break i if i == 2
+  else
+    0
+  n = 0
+  while n < 3
+    n += 1
+    for j in 0..2
+      break 5 if j == 1
+
+# error: 4:3: the value of this loop is not used
+# error: 11:5: the value of this loop is not used

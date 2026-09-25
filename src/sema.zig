@@ -1955,6 +1955,43 @@ pub fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
     };
 }
 
+/// Whether `e` holds a `break` (with a value, when `valued`) that leaves
+/// the loop whose body it is: an unlabeled one outside nested loops, or
+/// one naming the loop's `label`, outside closures. A nested loop's
+/// `else` runs after that loop, so its jumps are the outer loop's.
+pub fn breaksOut(source: []const u8, e: Sexp, label: []const u8, nested: bool, valued: bool) bool {
+    const h = e.kind() orelse return false;
+    switch (h) {
+        .@"break" => {
+            if (valued and ir.Break.value(e) == .nil) return false;
+            const l = ir.Break.label(e);
+            if (l == .nil) return !nested;
+            return label.len > 0 and std.mem.eql(u8, identAt(source, l) orelse "", label);
+        },
+        .lambda => return false,
+        .@"while", .@"for" => {
+            if (breaksOut(source, ir.get(e, .@"else"), label, nested, valued)) return true;
+            return label.len > 0 and breaksOut(source, ir.get(e, .body), label, true, valued);
+        },
+        else => {},
+    }
+    for (rig.children(e)) |c| if (breaksOut(source, c, label, nested, valued)) return true;
+    return false;
+}
+
+/// A loop used as a value: a `while` or `for`, labeled or not, that a
+/// `break` with a value leaves.
+pub fn hasValueBreaks(source: []const u8, e: Sexp) bool {
+    var label: []const u8 = "";
+    var loop = e;
+    if (e.isKind(.labeled)) {
+        label = identAt(source, ir.Labeled.label(e)) orelse "";
+        loop = ir.Labeled.stmt(e);
+    }
+    if (!loop.isKind(.@"while") and !loop.isKind(.@"for")) return false;
+    return breaksOut(source, ir.get(loop, .body), label, false, true);
+}
+
 pub fn srcPos(sexp: Sexp, fallback: u32) u32 {
     return if (sexp == .src) sexp.src.pos else fallback;
 }

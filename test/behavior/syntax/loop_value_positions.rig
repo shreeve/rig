@@ -1,0 +1,68 @@
+# Loops used as values in every value position: a returned value, a
+# nested loop, a match arm, closure bodies, and with a type from context.
+
+struct P
+  n: Int
+
+fun first_even(xs: ?[4]Int) -> Int
+  return for x in xs
+    break x if x % 2 == 0
+  else
+    return -1
+
+fun nested(limit: Int) -> Int
+  x = for i in 1..10
+    j = for k in 1..10
+      break k if k * i > limit
+    else
+      0
+    break i * 100 + j if j > 0 and j < 3
+  else
+    0
+  x
+
+fun kind(n: Int) -> String
+  match n
+    0 => "zero"
+    else
+      i = 0
+      while i < n : i += 1
+        break "big" if i > 5
+      else
+        "small"
+
+sub main()
+  print(first_even(?[1, 3, 4, 5]), first_even(?[1, 3, 5, 7]))
+  print(nested(10))
+  print(kind(0), kind(3), kind(9))
+  f: fun(Int) Int = |n| for i in 0..n
+    break i if i * 3 > n
+  else
+    n
+  print(f(10), f(0))
+  g = |n: Int| for i in 0..n
+    break i * 2 if i == 2
+  else
+    -1
+  print(g(5), g(1))
+  a = P(n: 1)
+  b = P(n: 2)
+  r = for i in 0..2
+    break ?a if i == 1
+  else
+    ?b
+  print(r.n)
+  u8v: U8 = for i in 0..3
+    break 200 if i == 1
+  else
+    7
+  print(u8v)
+
+# expect:
+# 4 -1
+# 602
+# zero small big
+# 4 0
+# 4 -1
+# 1
+# 200

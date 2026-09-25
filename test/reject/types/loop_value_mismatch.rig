@@ -1,0 +1,13 @@
+# The `break` values and the `else` value of a loop meet in one type.
+
+sub main()
+  x = for i in 0..3
+    break "two" if i == 2
+  else
+    0
+  y: Int = while true
+    break "one"
+  print(x, y)
+
+# error: 7:5: incompatible types `String` and `Int`
+# error: 9:11: type mismatch: expected `Int`, got `String`

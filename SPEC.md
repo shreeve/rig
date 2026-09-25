@@ -1046,7 +1046,9 @@ A guard ends a statement; inside an expression, write the ternary
 `while cond` repeats its block. `while cond : step` runs `step`, an
 assignment or a call, after each iteration (including after `continue`). `while e as x` repeats
 while the optional `e` has a value. An `else` block runs when the loop
-ends without `break`.
+ends without `break`, after the loop: a `break` or `continue` in it
+leaves the loop around this one. A loop can also yield a value
+([Loops as values](#loops-as-values)).
 
 ```rig
 sub main()
@@ -1163,6 +1165,42 @@ sub main()
 0 0
 1 0
 1 1
+```
+
+### Loops as values
+
+A loop that `break` leaves with a value (`break v`, or `break :name v`
+from an inner loop) is an expression. Its value is the value of the
+`break` that leaves it, or, when the loop ends without one, the value
+of its `else` block, which it therefore needs (only `while true` can do
+without). Every `break` leaving it carries a value, and they and the
+`else` value meet in one type. A `break` value is consumed like a
+returned value: an owning binding is moved out with `<x`, and a borrow
+may not outlive what it borrows. The value must be used; a `break`
+cannot carry a value out of a loop whose value is not.
+
+```rig
+fun index_of(xs: ?[4]Int, target: Int) -> Int
+  for x, i in xs
+    break i if x == target
+  else
+    -1
+
+sub main()
+  xs = [3, 1, 4, 1]
+  print(index_of(?xs, 4), index_of(?xs, 9))
+  n = 27
+  steps = 0
+  last = while true
+    break steps if n == 1
+    n = n / 2 if n % 2 == 0 else 3 * n + 1
+    steps += 1
+  print(last)
+```
+
+```output
+2 -1
+111
 ```
 
 ### match

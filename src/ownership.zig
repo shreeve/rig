@@ -243,6 +243,8 @@ const LoopCtx = struct {
     scope_depth: usize,
     breaks: std.ArrayListUnmanaged(State) = .empty,
     conts: std.ArrayListUnmanaged(State) = .empty,
+    /// The loans of the values `break` gives a loop used as a value.
+    value: Value = .{},
     parent: ?*LoopCtx,
     /// False for a labeled block: only `break :label` leaves it.
     is_loop: bool = true,
@@ -259,6 +261,7 @@ const Sink = enum {
     element,
     allocation,
     ret,
+    brk,
 
     fn text(s: Sink) []const u8 {
         return switch (s) {
@@ -268,6 +271,7 @@ const Sink = enum {
             .element => "array element",
             .allocation => "shared allocation",
             .ret => "return value",
+            .brk => "`break` value",
         };
     }
 };
@@ -1074,7 +1078,7 @@ pub const Checker = struct {
         for (stmts, 0..) |stmt, i| {
             try self.checkAfterJump(stmts, i);
             if (!self.reachable) break;
-            if (returns_value and i == stmts.len - 1 and isValueExpr(stmt)) {
+            if (returns_value and i == stmts.len - 1 and self.isValue(stmt)) {
                 const saved_stmt = self.cur_stmt;
                 self.cur_stmt = stmt;
                 defer self.cur_stmt = saved_stmt;
@@ -1221,18 +1225,9 @@ pub const Checker = struct {
             .share => self.walkShare(sexp),
             .lambda => self.walkLambda(sexp, false),
             .@"if" => self.walkIf(sexp),
-            .@"while" => blk: {
-                try self.walkWhile(sexp);
-                break :blk .{};
-            },
-            .@"for" => blk: {
-                try self.walkFor(sexp);
-                break :blk .{};
-            },
-            .labeled => blk: {
-                try self.walkLabeled(sexp);
-                break :blk .{};
-            },
+            .@"while" => self.walkWhile(sexp),
+            .@"for" => self.walkFor(sexp),
+            .labeled => self.walkLabeled(sexp),
             .match => self.walkMatch(sexp),
             .@"return" => blk: {
                 try self.walkReturn(sexp);
@@ -2339,7 +2334,7 @@ pub const Checker = struct {
                     }
                 }
             }
-        } else if (isValueExpr(expr)) {
+        } else if (self.isValue(expr)) {
             try self.checkNoImplicitCopy(expr, .ret, true);
             self.setTail(expr, .ret);
             value = try self.walk(expr);
@@ -2578,14 +2573,21 @@ pub const Checker = struct {
         resource_vec: bool = false,
         /// Where the loop starts in the source.
         start: u32 = 0,
+        /// The loop is used as a value.
+        valued: bool = false,
     };
 
-    fn walkWhile(self: *Checker, node: Sexp) Error!void {
+    /// An expression that yields a value, including a loop used as one.
+    fn isValue(self: *const Checker, e: Sexp) bool {
+        return isValueExpr(e) or sema.hasValueBreaks(self.source, e);
+    }
+
+    fn walkWhile(self: *Checker, node: Sexp) Error!Value {
         const as_cond = ir.While.cond(node).isKind(.as);
         const cond = if (as_cond) ir.As.value(ir.While.cond(node)) else ir.While.cond(node);
         const step = ir.While.step(node);
         const else_ = ir.While.@"else"(node);
-        try self.walkLoop(.{
+        return self.walkLoop(.{
             .cond = cond,
             .cond_binding = if (as_cond) ir.As.name(ir.While.cond(node)) else .nil,
             .cond_always_true = cond == .src and std.mem.eql(u8, self.text(cond), "true"),
@@ -2593,10 +2595,11 @@ pub const Checker = struct {
             .body = ir.While.body(node),
             .else_body = if (else_ != .nil) else_ else null,
             .start = extent(node).lo,
+            .valued = sema.hasValueBreaks(self.source, node),
         });
     }
 
-    fn walkFor(self: *Checker, node: Sexp) Error!void {
+    fn walkFor(self: *Checker, node: Sexp) Error!Value {
         const mode = ir.For.mode(node).tag;
         const source = ir.For.source(node);
         const else_ = ir.For.@"else"(node);
@@ -2606,6 +2609,7 @@ pub const Checker = struct {
             .elem1 = ir.For.@"var"(node),
             .elem2 = ir.For.index(node),
             .start = extent(node).lo,
+            .valued = sema.hasValueBreaks(self.source, node),
         };
         if (mode == .move) {
             spec.moved = (try self.walkMove(source)).loans;
@@ -2623,26 +2627,29 @@ pub const Checker = struct {
                 }
             }
         }
-        try self.walkLoop(spec);
+        return self.walkLoop(spec);
     }
 
     /// `(labeled name stmt)`: a labeled loop, or a labeled block that
     /// `break :name` leaves.
-    fn walkLabeled(self: *Checker, node: Sexp) Error!void {
+    fn walkLabeled(self: *Checker, node: Sexp) Error!Value {
         const label = self.text(ir.Labeled.label(node));
         const stmt = ir.Labeled.stmt(node);
         if (stmt.isKind(.@"while") or stmt.isKind(.@"for")) {
             self.pending_label = label;
-            return self.walkStmt(stmt);
+            const v = try self.walk(stmt);
+            self.pending_label = "";
+            return v;
         }
         var ctx: LoopCtx = .{ .label = label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .is_loop = false };
         self.loop = &ctx;
         defer self.loop = ctx.parent;
         try self.walkStmt(stmt);
         try self.joinBreaks(&ctx);
+        return .{};
     }
 
-    fn walkLoop(self: *Checker, spec: LoopSpec) Error!void {
+    fn walkLoop(self: *Checker, spec: LoopSpec) Error!Value {
         var ctx: LoopCtx = .{ .label = self.pending_label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .start = spec.start };
         self.pending_label = "";
         self.loop = &ctx;
@@ -2673,10 +2680,17 @@ pub const Checker = struct {
         try self.rewind(entry);
         try self.apply(it.exit);
         // The `else` runs after the loop: a jump in it leaves the loop
-        // around this one.
+        // around this one. A loop used as a value yields the `else` value
+        // or a `break` value.
         self.loop = ctx.parent;
-        if (spec.else_body) |e| try self.walkStmt(e);
+        var value = ctx.value;
+        if (spec.else_body) |e| {
+            if (spec.valued) {
+                value = try self.valueUnion(value, try self.walkStmtValue(e, .brk));
+            } else try self.walkStmt(e);
+        }
         try self.joinBreaks(&ctx);
+        return value;
     }
 
     /// After a loop or labeled block: the state where it ends joined
@@ -2691,6 +2705,7 @@ pub const Checker = struct {
     fn loopIteration(self: *Checker, spec: LoopSpec, ctx: *LoopCtx) Error!struct { back: State, exit: State } {
         ctx.breaks.clearRetainingCapacity();
         ctx.conts.clearRetainingCapacity();
+        ctx.value = .{};
         const bound: Value = if (spec.cond) |c| try self.walkStmtValue(c, if (spec.cond_binding != .nil) .binding else null) else .{};
         const exit: State = if (spec.cond_always_true) .{ .reachable = false } else try self.capture(ctx.point);
 
@@ -2763,7 +2778,11 @@ pub const Checker = struct {
     /// A `break` or `continue`.
     fn walkJump(self: *Checker, node: Sexp, jump: Jump) Error!void {
         const label = self.text(ir.get(node, .label));
-        if (jump == .brk) _ = try self.walk(ir.Break.value(node));
+        const value = if (jump == .brk) ir.Break.value(node) else .nil;
+        // A `break` value leaves the loop like a returned value leaves the
+        // function: it is consumed, and it may not borrow what the loop
+        // declared.
+        const v: Value = if (value != .nil) try self.walkConsumed(value, .brk) else .{};
         var target = self.loop;
         while (target) |t| : (target = t.parent) {
             if (label.len == 0) {
@@ -2783,6 +2802,10 @@ pub const Checker = struct {
             try self.errSpan(at, "`continue :{s}` names a block, not a loop", .{label});
         }
         if (target) |t| {
+            if (value != .nil and hasLoanFrom(v.loans, t.point.vars)) {
+                for (v.loans) |l| if (l.root >= t.point.vars) try self.reportShortLived(l, null);
+            }
+            t.value = try self.valueUnion(t.value, .{ .loans = try self.filterLoansBelow(v.loans, t.point.vars) });
             const s = try self.exitState(t.point, t.scope_depth);
             switch (jump) {
                 .brk => try t.breaks.append(self.arena(), s),

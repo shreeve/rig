@@ -202,7 +202,8 @@ Nexus next to this checkout, `cd ../nexus && zig build
   aliases, methods with explicit receivers, field defaults, exhaustive
   `match`
 - `Int` and `Float` (64-bit), sized numbers, compile-time checked
-  constant arithmetic, arrays, strings
+  constant arithmetic, arrays, strings, slices (`s[a..b]`, `?xs[a..b]`)
+- loops as values (`x = for ... break v ... else w`), labeled loops
 - moves, read and write borrows (including borrows returned from
   functions and held in structs), clones, drops, automatic drop on every
   path, drop glue, user `drop` bodies

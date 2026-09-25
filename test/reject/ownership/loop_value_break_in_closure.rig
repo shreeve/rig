@@ -1,0 +1,12 @@
+# A closure body cannot leave a loop around it, with or without a value.
+
+sub main()
+  x = for i in 0..3
+    f = ||
+      break 1
+    f()
+  else
+    0
+  print(x)
+
+# error: 6:7: `break` is not inside a loop (a closure body cannot leave a loop around it)

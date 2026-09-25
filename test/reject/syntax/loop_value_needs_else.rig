@@ -1,0 +1,9 @@
+# A loop used as a value has no value when its condition fails, so it
+# needs an `else`; only `while true` can do without one.
+
+sub main()
+  x = for i in 0..3
+    break i if i == 2
+  print(x)
+
+# error: 5:7: a loop used as a value needs an `else` giving its value when no `break` does

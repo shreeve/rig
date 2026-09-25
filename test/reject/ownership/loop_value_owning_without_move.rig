@@ -1,0 +1,14 @@
+# A `break` value is consumed: an owning binding is moved with `<b`.
+
+struct Box
+  n: Int
+
+sub main()
+  b = *Box(n: 1)
+  x = for i in 0..3
+    break b if i == 2
+  else
+    *Box(n: 0)
+  print(x.n)
+
+# error: 9:11: bare use of shared (`*T`) handle `b` in `break` value would alias the handle; use `<b` to move or `+b` to clone
