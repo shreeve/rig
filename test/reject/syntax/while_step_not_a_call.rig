@@ -1,0 +1,8 @@
+# A `while` step is an assignment or a call.
+
+sub main()
+  j = 0
+  while j < 2 : j
+    j += 1
+
+# error: 5:17: a `while` step is an assignment or a call

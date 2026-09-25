@@ -1058,7 +1058,8 @@ A guard ends a statement; inside an expression, write the ternary
 ### while
 
 `while cond` repeats its block. `while cond : step` runs `step`, an
-assignment or a call, after each iteration (including after `continue`). `while e as x` repeats
+assignment or a call (which may propagate, `f()!`), after each
+iteration (including after `continue`). `while e as x` repeats
 while the optional `e` has a value. An `else` block runs when the loop
 ends without `break`, after the loop: a `break` or `continue` in it
 leaves the loop around this one. A loop can also yield a value

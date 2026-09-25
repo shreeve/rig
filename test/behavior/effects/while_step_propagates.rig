@@ -1,0 +1,32 @@
+# A `while` step may be a call that propagates its failure.
+
+error E
+  bad
+
+fun ok(n: !Int) -> Int!
+  return E.bad if n > 5
+  n += 1
+  n
+
+fun run(limit: Int) -> Int!
+  i = 0
+  while i < limit : ok(!i)!
+    print(i)
+  i
+
+sub main()
+  print(run(2) catch 0)
+  print(run(9) catch -1)
+
+# expect:
+# 0
+# 1
+# 2
+# 0
+# 1
+# 2
+# 3
+# 4
+# 5
+# 6
+# -1

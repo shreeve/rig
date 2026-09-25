@@ -892,7 +892,10 @@ const Checker = struct {
         const cond = ir.While.cond(node);
         try self.checkCondition(cond);
         const step = ir.While.step(node);
-        if (step != .nil) {
+        const call_step = step.isKind(.call) or (step.isKind(.propagate) and ir.Propagate.value(step).isKind(.call));
+        if (step != .nil and !step.isKind(.set) and !call_step) {
+            try self.errAt(step, "a `while` step is an assignment or a call", .{});
+        } else if (step != .nil) {
             try self.checkStmt(step);
             // The body drops an owning `as` binding before the step runs.
             if (cond.isKind(.as)) if (self.ctx.symbolOf(ir.As.name(cond))) |b| {

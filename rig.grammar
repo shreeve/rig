@@ -588,9 +588,10 @@ if       = IF cond:ifcond then:block [ELSE else:block] → (if)
 
 while    = WHILE cond:ifcond [":" step:step] body:block [ELSE else:block] → (while)
 
-# A `while` step runs after each iteration: an assignment or a call.
+# A `while` step runs after each iteration: an assignment, or a call,
+# which may propagate its failure (the checker rejects other forms).
 step     = assign
-         | callee:postfix LPAREN_CALL args:args ")" → (call)
+         | postfix
 
 # The Parser wrapper moves a `?xs` / `!xs` / `<xs` source sigil into the
 # mode slot.
