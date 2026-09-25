@@ -1,0 +1,8 @@
+# A `main` in an imported module is not the entry point, so it cannot
+# propagate failure with `!`.
+use tool
+
+sub main()
+  tool.main()
+
+# error: use of `!` propagation requires the enclosing function `main` to declare a fallible return type

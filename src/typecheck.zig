@@ -286,9 +286,10 @@ const Checker = struct {
         const prev_scope = self.enter(node);
         defer self.scope = prev_scope;
         const name = ir.get(node, .name);
-        const is_main = self.nominal.isEmpty() and std.mem.eql(u8, self.text(name), "main");
-        // The root module's `main` is the program's entry point.
-        if (is_main and self.ctx.is_root and (!is_sub or ir.get(node, .params).items().len > 0)) {
+        // The root module's `main` is the program's entry point; in any
+        // other module `main` is an ordinary function.
+        const is_main = self.ctx.is_root and self.nominal.isEmpty() and std.mem.eql(u8, self.text(name), "main");
+        if (is_main and (!is_sub or ir.get(node, .params).items().len > 0)) {
             try self.errAt(name, "`main` must be `sub main()`: the program's entry point takes no parameters and returns no value", .{});
         }
         for (ir.get(node, .params).items()) |p| if (p.isKind(.default)) {
@@ -4220,7 +4221,7 @@ fn checkSource(allocator: std.mem.Allocator, source: []const u8) !struct { ctx: 
     var p = parser.Parser.init(allocator, source);
     errdefer p.deinit();
     const tree = try p.parseProgram();
-    const ctx = try sema.check(allocator, source, tree, .{});
+    const ctx = try sema.check(allocator, source, tree, .{ .is_root = true });
     return .{ .ctx = ctx, .p = p, .tree = tree };
 }
 
