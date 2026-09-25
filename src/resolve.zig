@@ -602,7 +602,11 @@ pub const TypeResolver = struct {
                 const ty = try self.resolveType(ir.Extern.type(sexp));
                 const id = self.ctx.symbolOf(name) orelse return;
                 self.ctx.symbols.items[id].ty = ty;
-                if (self.ctx.types.get(ty) == .function) try self.checkExternSignature(name, ty);
+                if (self.ctx.types.get(ty) == .function) {
+                    try self.checkExternSignature(name, ty);
+                } else if (!self.isCAbiType(ty)) {
+                    try self.ctx.errAt(name, "`extern` variable `{s}` cannot have type `{s}`; only integers, floats, and Bool cross the C boundary", .{ identAt(self.ctx.source, name) orelse "extern", try sema.formatType(self.ctx, ty) });
+                }
             },
             .extern_fun, .extern_sub => try self.resolveExternFun(sexp),
             .@"struct", .@"enum", .errors, .generic_type, .generic_enum => try self.resolveNominal(sexp),
@@ -619,8 +623,13 @@ pub const TypeResolver = struct {
         const is_sub = node.isKind(.sub);
         const name = ir.get(node, .name);
         const params = ir.get(node, .params);
+        // Its parameter and return types are poison, so nothing else about
+        // it is reported.
+        const generic = try self.rejectGenericFunction(node);
         const returns = rig.returnType(node);
-        const return_ty = if (returns == .nil)
+        const return_ty = if (generic)
+            self.ctx.types.invalid_id
+        else if (returns == .nil)
             self.ctx.types.void_id
         else
             try self.resolveReturnType(returns);
@@ -629,9 +638,13 @@ pub const TypeResolver = struct {
         defer param_types.deinit(self.ctx.allocator);
         var pre_mask: u32 = 0;
         for (params.items(), 0..) |p, i| {
-            const pty = try self.resolveParamType(p);
+            const pty = if (generic) self.ctx.types.invalid_id else try self.resolveParamType(p);
             try param_types.append(self.ctx.allocator, pty);
-            if (p.isKind(.pre_param) and i < 32) pre_mask |= @as(u32, 1) << @intCast(i);
+            if (p.isKind(.pre_param) and !generic) {
+                if (i < 32) {
+                    pre_mask |= @as(u32, 1) << @intCast(i);
+                } else try self.ctx.err(sema.paramPos(p, self.ctx.startOf(p)), "a `pre` parameter must be one of the first 32 parameters", .{});
+            }
             if (sema.paramNameNode(p)) |pn| {
                 if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
             }
@@ -651,6 +664,16 @@ pub const TypeResolver = struct {
             }
         }
         return fn_ty;
+    }
+
+    /// `pre T: type` would make a function generic, which Rig does not
+    /// support yet.
+    fn rejectGenericFunction(self: *TypeResolver, node: Sexp) Error!bool {
+        const at = for (ir.get(node, .params).items()) |p| {
+            if (p.isKind(.pre_param) and std.mem.eql(u8, identAt(self.ctx.source, ir.get(p, .type)) orelse "", "type")) break p;
+        } else return false;
+        try self.ctx.errAt(at, "generic functions are not supported yet: `pre {s}: type` would make `{s}` generic; use a generic type, or write the function for each type", .{ sema.paramName(self.ctx.source, at) orelse "T", identAt(self.ctx.source, ir.get(node, .name)) orelse "it" });
+        return true;
     }
 
     /// The default value of each parameter, or null when none has one.
@@ -677,6 +700,11 @@ pub const TypeResolver = struct {
     fn resolveReturnType(self: *TypeResolver, node: Sexp) Error!TypeId {
         if (node.isKind(.error_union)) {
             const inner = try self.resolveType(ir.ErrorUnion.type(node));
+            if (sema.isErrorSet(self.ctx, inner)) {
+                const e = try sema.formatType(self.ctx, inner);
+                try self.ctx.errAt(node, "`{s}!` would make a failure and a success both `{s}` values; return `{s}` or `{s}?`, or a struct that holds one", .{ e, e, e, e });
+                return self.ctx.types.invalid_id;
+            }
             return self.ctx.intern(.{ .fallible = inner });
         }
         return self.resolveType(node);
@@ -997,6 +1025,7 @@ pub const TypeResolver = struct {
                 }
                 const field_name = ir.get(p, .name);
                 const fname = identAt(self.ctx.source, field_name) orelse continue;
+                if (try self.checkDuplicateMember(payload.items, fname, srcPos(field_name, 0), vname)) continue;
                 try payload.append(self.ctx.allocator, .{
                     .name = fname,
                     .ty = try self.resolveType(ir.get(p, .type)),
@@ -1194,7 +1223,8 @@ pub const TypeResolver = struct {
                             return t.invalid_id;
                         },
                         else => {
-                            try self.ctx.err(s.pos, "`{s}` is not a type", .{name});
+                            // A `pre T: type` parameter was reported with its function.
+                            if (!(sym.flags.is_pre and sym.ty == t.invalid_id)) try self.ctx.err(s.pos, "`{s}` is not a type", .{name});
                             return t.invalid_id;
                         },
                     }
@@ -1256,7 +1286,9 @@ pub const TypeResolver = struct {
                         var ps: std.ArrayListUnmanaged(TypeId) = .empty;
                         defer ps.deinit(self.ctx.allocator);
                         for (ir.FunType.params(sexp).items()) |p| try ps.append(self.ctx.allocator, try self.resolveType(p));
-                        const ret = try self.resolveReturnType(ir.FunType.returns(sexp));
+                        // Not a declaration's return type: a function type
+                        // cannot be fallible.
+                        const ret = try self.resolveType(ir.FunType.returns(sexp));
                         return self.ctx.intern(.{ .function = .{
                             .params = try self.ctx.dupeIds(ps.items),
                             .returns = ret,

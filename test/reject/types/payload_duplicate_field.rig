@@ -1,0 +1,9 @@
+# A payload variant's fields have distinct names.
+
+enum Shape
+  rect(w: Int, w: Int)
+
+sub main()
+  print(1)
+
+# error: duplicate member `w` in `rect`
