@@ -121,9 +121,7 @@ pub fn main(init: std.process.Init) !void {
             if (opts.facts) try printFacts(io, graph.root());
         },
         .emit => try emitCommand(allocator, io, env, opts.path),
-        .run => try runCommand(allocator, io, env, opts),
-        .build => try buildCommand(allocator, io, env, opts),
-        .@"test" => try testCommand(allocator, io, env, opts),
+        .run, .build, .@"test" => try buildCommand(allocator, io, env, opts),
     }
 }
 
@@ -178,13 +176,7 @@ fn parseArgs(io: std.Io, args: []const []const u8) Options {
     // output.
     const base = std.fs.path.basename(file);
     if (!std.mem.endsWith(u8, base, ".rig") or base.len == ".rig".len) usageError("`{s}` is not a .rig file", .{file});
-    return .{
-        .command = cmd,
-        .path = file,
-        .mode = mode,
-        .out_path = out_path,
-        .facts = facts,
-    };
+    return .{ .command = cmd, .path = file, .mode = mode, .out_path = out_path, .facts = facts };
 }
 
 fn eql(a: []const u8, b: []const u8) bool {
@@ -303,38 +295,30 @@ fn emitCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, path: []const
     std.debug.print("note: the package (every module and the runtime, {s}) is in {s}\n", .{ emit.runtime_filename, pkg.dir });
 }
 
-fn runCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options) !void {
-    var graph = try loadProject(allocator, io, opts.path);
-    defer graph.deinit();
-    requireMain(&graph);
-    const pkg = try emitPackage(allocator, io, env, &graph);
-    // Zig's own errors name the emitted files; any other failure is the
-    // program's.
-    const code = try runZig(allocator, io, pkg, &.{ env.zig(), "run", opts.mode.zigFlag(), "--cache-dir", pkg.zig_cache, pkg.root_zig });
-    if (code != 0) std.process.exit(code);
-}
-
+/// `rig run`, `build`, and `test`: emit the package and hand it to Zig.
+/// Zig's own errors name the emitted files; any other failure of `run`
+/// or `test` is the program's.
 fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options) !void {
     var graph = try loadProject(allocator, io, opts.path);
     defer graph.deinit();
-    requireMain(&graph);
+    if (opts.command != .@"test" and !declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
     const pkg = try emitPackage(allocator, io, env, &graph);
-    const out = opts.out_path orelse try std.fmt.allocPrint(allocator, "{s}", .{graph.root().name});
-    const emit_bin = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{out});
-    const code = try runZig(allocator, io, pkg, &.{ env.zig(), "build-exe", opts.mode.zigFlag(), "--cache-dir", pkg.zig_cache, pkg.root_zig, emit_bin });
-    if (code != 0) {
-        std.debug.print("note: emitted Zig is in {s}\n", .{pkg.dir});
-        std.process.exit(code);
-    }
+    const zig = env.zig();
+    const flag = opts.mode.zigFlag();
+    const code = switch (opts.command) {
+        .run => try runZig(allocator, io, pkg, &.{ zig, "run", flag, "--cache-dir", pkg.zig_cache, pkg.root_zig }),
+        .build => try runZig(allocator, io, pkg, &.{ zig, "build-exe", flag, "--cache-dir", pkg.zig_cache, pkg.root_zig, try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{opts.out_path orelse graph.root().name}) }),
+        else => try runZig(allocator, io, pkg, &.{ zig, "run", flag, "--cache-dir", pkg.zig_cache, try writeTestDriver(allocator, io, env, &graph, pkg.dir) }),
+    };
+    if (code == 0) return;
+    if (opts.command == .build) std.debug.print("note: emitted Zig is in {s}\n", .{pkg.dir});
+    std.process.exit(code);
 }
 
 /// `rig test`: a driver module next to the emitted ones runs the
-/// `__rig_tests` table of every module (see `rig.runTests`).
-fn testCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options) !void {
-    var graph = try loadProject(allocator, io, opts.path);
-    defer graph.deinit();
-    const pkg = try emitPackage(allocator, io, env, &graph);
-
+/// `__rig_tests` table of every module (see `rig.runTests`). Returns its
+/// path.
+fn writeTestDriver(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *const modules.ModuleGraph, dir: []const u8) ![]const u8 {
     var driver: std.Io.Writer.Allocating = .init(allocator);
     const w = &driver.writer;
     try w.print(
@@ -358,17 +342,9 @@ fn testCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options
         try w.print("        .{{ .module = \"{s}\", .tests = testsOf(@import(\"{s}\")) }},\n", .{ if (i == 0) "" else m.name, m.out_basename });
     }
     try w.writeAll("    });\n}\n");
-    const driver_path = try std.fs.path.join(allocator, &.{ pkg.dir, test_driver });
-    try writeFile(io, driver_path, driver.written());
-
-    const code = try runZig(allocator, io, pkg, &.{ env.zig(), "run", opts.mode.zigFlag(), "--cache-dir", pkg.zig_cache, driver_path });
-    if (code != 0) std.process.exit(code);
-}
-
-const test_driver = "__rig_test.zig";
-
-fn requireMain(graph: *modules.ModuleGraph) void {
-    if (!declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
+    const path = try std.fs.path.join(allocator, &.{ dir, "__rig_test.zig" });
+    try writeFile(io, path, driver.written());
+    return path;
 }
 
 /// Run the Zig toolchain on `pkg` with inherited stdio, linking libc

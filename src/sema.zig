@@ -281,67 +281,25 @@ pub const TypeStore = struct {
         return id;
     }
 
+    /// By structure: the contents of the slices inside, not their addresses.
     fn hashType(t: Type) u64 {
         var h = std.hash.Wyhash.init(0);
-        const tag: u8 = @intFromEnum(std.meta.activeTag(t));
-        h.update(&.{tag});
-        switch (t) {
-            .invalid, .unknown, .void, .bool, .string, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => {},
-            .int => |i| h.update(&.{ i.bits, @intFromBool(i.signed) }),
-            .float => |f| h.update(&.{f.bits}),
-            .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner| hashId(&h, inner),
-            .slice => |s| hashId(&h, s.elem),
-            .array => |a| {
-                hashId(&h, a.elem);
-                h.update(std.mem.asBytes(&a.len));
-            },
-            .function => |f| {
-                for (f.params) |p| hashId(&h, p);
-                hashId(&h, f.returns);
-                h.update(&.{@intFromBool(f.is_sub)});
-                h.update(std.mem.asBytes(&f.pre_mask));
-            },
-            .nominal, .type_var => |s| hashId(&h, s),
-            .imported_nominal => |n| {
-                hashId(&h, n.module_id);
-                hashId(&h, n.sym_id);
-            },
-            .parameterized_nominal => |pn| {
-                hashId(&h, pn.sym);
-                for (pn.args) |a| hashId(&h, a);
-            },
-        }
+        std.hash.autoHashStrat(&h, t, .Deep);
         return h.final();
-    }
-
-    fn hashId(h: *std.hash.Wyhash, id: u32) void {
-        h.update(std.mem.asBytes(&id));
     }
 
     fn typeEqual(a: Type, b: Type) bool {
         if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
         return switch (a) {
             .invalid, .unknown, .void, .bool, .string, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => true,
-            .int => |ai| ai.bits == b.int.bits and ai.signed == b.int.signed,
-            .float => |af| af.bits == b.float.bits,
-            .optional => |x| x == b.optional,
-            .fallible => |x| x == b.fallible,
-            .borrow_read => |x| x == b.borrow_read,
-            .borrow_write => |x| x == b.borrow_write,
-            .shared => |x| x == b.shared,
-            .weak => |x| x == b.weak,
-            .range => |x| x == b.range,
-            .slice => |s| s.elem == b.slice.elem,
-            .array => |x| x.elem == b.array.elem and x.len == b.array.len,
             .function => |af| af.is_sub == b.function.is_sub and
                 af.returns == b.function.returns and
                 af.pre_mask == b.function.pre_mask and
                 std.mem.eql(TypeId, af.params, b.function.params),
-            .nominal => |x| x == b.nominal,
-            .type_var => |x| x == b.type_var,
-            .imported_nominal => |x| x.module_id == b.imported_nominal.module_id and x.sym_id == b.imported_nominal.sym_id,
             .parameterized_nominal => |x| x.sym == b.parameterized_nominal.sym and
                 std.mem.eql(TypeId, x.args, b.parameterized_nominal.args),
+            // The rest hold ids and numbers only.
+            inline else => |x, tag| std.meta.eql(x, @field(b, @tagName(tag))),
         };
     }
 };
@@ -672,10 +630,6 @@ pub const SemContext = struct {
         return diag.hasErrorsIn(self.diagnostics.items);
     }
 
-    pub fn writeDiagnostics(self: *const SemContext, file_path: []const u8, w: anytype) !void {
-        try diag.write(self.diagnostics.items, self.source, file_path, w);
-    }
-
     /// The source range of an IR node: its span from the parser, which
     /// includes keywords and sigils (`return x`, `<p`).
     pub fn span(self: *const SemContext, node: Sexp) diag.Span {
@@ -720,6 +674,13 @@ pub const SemContext = struct {
             .parent = if (parent == scope_invalid) null else parent,
             .kind = kind,
         });
+        return id;
+    }
+
+    /// Add a symbol to the table, in no scope (see `addToScope`).
+    pub fn addSymbol(self: *SemContext, sym: Symbol) std.mem.Allocator.Error!SymbolId {
+        const id: SymbolId = @intCast(self.symbols.items.len);
+        try self.symbols.append(self.allocator, sym);
         return id;
     }
 
@@ -1438,8 +1399,7 @@ pub fn isClosureValue(ctx: *const SemContext, ty: TypeId) bool {
 /// A value of an error set, or any error: what a fallible function
 /// fails with.
 pub fn isErrorValue(ctx: *const SemContext, ty: TypeId) bool {
-    if (ctx.types.get(ty) == .any_error) return true;
-    return isErrorSet(ctx, ty);
+    return ctx.types.get(ty) == .any_error or isErrorSet(ctx, ty);
 }
 
 /// A type declared with `error`.
@@ -1807,35 +1767,22 @@ pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std
     return null;
 }
 
-/// An enum variant of the receiver's nominal.
+/// An enum variant of the receiver's nominal, local or imported.
 pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedVariant {
-    if (ctx.types.get(unwrapBorrows(ctx, receiver_ty)) == .imported_nominal) {
-        const decl = nominalDecl(ctx, receiver_ty) orelse return null;
-        const foreign: *SemContext = @constCast(decl.ctx);
-        for (decl.symbol().fields orelse return null) |f| {
-            if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
-            const orig = f.payload orelse &.{};
-            const payload = try ctx.arena.allocator().alloc(Field, orig.len);
-            for (orig, 0..) |pf, i| {
-                payload[i] = pf;
-                payload[i].ty = try importType(ctx, foreign, pf.ty, decl.module_id.?);
-            }
-            return .{ .field = f, .payload = payload, .nominal_sym = symbol_invalid, .owner_name = decl.symbol().name };
-        }
-        return null;
-    }
-    const m = membersOf(ctx, unwrapBorrows(ctx, receiver_ty)) orelse return null;
-    for (m.fields) |f| {
+    const decl = nominalDecl(ctx, receiver_ty) orelse return null;
+    const subst = if (membersOf(ctx, unwrapBorrows(ctx, receiver_ty))) |m| m.subst else TypeSubst.empty;
+    for (decl.symbol().fields orelse return null) |f| {
         if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
-        const orig = f.payload orelse &.{};
-        const owner = ctx.symbols.items[m.sym].name;
-        if (orig.len == 0 or m.subst.isEmpty()) return .{ .field = f, .payload = orig, .nominal_sym = m.sym, .owner_name = owner };
-        const payload = try ctx.arena.allocator().alloc(Field, orig.len);
-        for (orig, 0..) |pf, i| {
-            payload[i] = pf;
-            payload[i].ty = try substituteType(ctx, pf.ty, m.subst);
+        var payload = f.payload orelse &.{};
+        if (payload.len > 0 and (decl.module_id != null or !subst.isEmpty())) {
+            const typed = try ctx.arena.allocator().dupe(Field, payload);
+            for (typed) |*pf| pf.ty = if (decl.module_id) |origin|
+                try importType(ctx, @constCast(decl.ctx), pf.ty, origin)
+            else
+                try substituteType(ctx, pf.ty, subst);
+            payload = typed;
         }
-        return .{ .field = f, .payload = payload, .nominal_sym = m.sym, .owner_name = owner };
+        return .{ .field = f, .payload = payload, .nominal_sym = if (decl.module_id == null) decl.sym else symbol_invalid, .owner_name = decl.symbol().name };
     }
     return null;
 }
@@ -1889,20 +1836,10 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
         .slice => |s| try std.fmt.allocPrint(a, "[]{s}", .{try formatTypeIn(ctx, a, s.elem)}),
         .array => |arr| try std.fmt.allocPrint(a, "[{d}]{s}", .{ arr.len, try formatTypeIn(ctx, a, arr.elem) }),
         .range => |e| try std.fmt.allocPrint(a, "range of {s}", .{try formatTypeIn(ctx, a, e)}),
-        .function => |f| blk: {
-            var buf: std.ArrayListUnmanaged(u8) = .empty;
-            try buf.appendSlice(a, if (f.is_sub) "sub(" else "fun(");
-            for (f.params, 0..) |p, i| {
-                if (i > 0) try buf.appendSlice(a, ", ");
-                try buf.appendSlice(a, try formatTypeIn(ctx, a, p));
-            }
-            try buf.append(a, ')');
-            if (!f.is_sub) {
-                try buf.appendSlice(a, " ");
-                try buf.appendSlice(a, try formatTypeIn(ctx, a, f.returns));
-            }
-            break :blk buf.items;
-        },
+        .function => |f| if (f.is_sub)
+            try std.fmt.allocPrint(a, "sub({s})", .{try formatTypeList(ctx, a, f.params)})
+        else
+            try std.fmt.allocPrint(a, "fun({s}) {s}", .{ try formatTypeList(ctx, a, f.params), try formatTypeIn(ctx, a, f.returns) }),
         .nominal => |sym| ctx.symbols.items[sym].name,
         .imported_nominal => |in| blk: {
             const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk "<imported>";
@@ -1915,19 +1852,19 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
             // A module reached only through an import, by its file name.
             break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, name });
         },
-        .parameterized_nominal => |pn| blk: {
-            var buf: std.ArrayListUnmanaged(u8) = .empty;
-            try buf.appendSlice(a, ctx.symbols.items[pn.sym].name);
-            try buf.append(a, '(');
-            for (pn.args, 0..) |arg, i| {
-                if (i > 0) try buf.appendSlice(a, ", ");
-                try buf.appendSlice(a, try formatTypeIn(ctx, a, arg));
-            }
-            try buf.append(a, ')');
-            break :blk buf.items;
-        },
+        .parameterized_nominal => |pn| try std.fmt.allocPrint(a, "{s}({s})", .{ ctx.symbols.items[pn.sym].name, try formatTypeList(ctx, a, pn.args) }),
         .type_var => |sym| ctx.symbols.items[sym].name,
     };
+}
+
+/// Types separated by `, `.
+fn formatTypeList(ctx: *const SemContext, a: std.mem.Allocator, ids: []const TypeId) std.mem.Allocator.Error![]const u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    for (ids, 0..) |id, i| {
+        if (i > 0) try buf.appendSlice(a, ", ");
+        try buf.appendSlice(a, try formatTypeIn(ctx, a, id));
+    }
+    return buf.items;
 }
 
 /// `T?` / `T!`, parenthesizing prefix forms: `(*T)?` is an optional
@@ -2127,10 +2064,6 @@ pub fn paramPos(param: Sexp, fallback: u32) u32 {
     return srcPos(n, fallback);
 }
 
-pub fn isBorrowedTypeNode(t: Sexp) bool {
-    return t.isKind(.borrow_read) or t.isKind(.borrow_write);
-}
-
 pub const CaptureMode = enum { cap_clone, cap_weak, cap_move };
 
 pub fn captureModeOf(cap: Sexp) ?CaptureMode {
@@ -2151,11 +2084,6 @@ pub fn captureNameNode(cap: Sexp) ?Sexp {
 pub fn captureList(captures: Sexp) []const Sexp {
     if (captures == .nil) return &.{};
     return ir.Captures.caps(captures);
-}
-
-pub fn parseIntegerLiteral(source: []const u8, sexp: Sexp) ?u64 {
-    const text = identAt(source, sexp) orelse return null;
-    return std.fmt.parseInt(u64, text, 0) catch null;
 }
 
 pub fn isIntLiteralText(text: []const u8) bool {
