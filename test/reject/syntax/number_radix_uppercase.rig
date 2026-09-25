@@ -1,0 +1,6 @@
+# Radix prefixes are lowercase.
+
+sub main()
+  print(0B11)
+
+# error: 4:9: radix prefixes are lowercase: `0x`, `0b`, `0o`

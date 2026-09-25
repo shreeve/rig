@@ -1,0 +1,10 @@
+# Two operands need a space or an operator between them: `t.5` is not a
+# call of `t` with `.5`.
+
+fun t(x: Float) -> Float
+  x
+
+sub main()
+  print(t.5)
+
+# error: 8:10: missing space or operator between `t` and `.5`

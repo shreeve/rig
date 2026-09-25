@@ -1,0 +1,6 @@
+# `_` separates digits: it cannot end a number.
+
+sub main()
+  print(1_000_)
+
+# error: 4:9: malformed number

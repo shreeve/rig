@@ -1,0 +1,17 @@
+# The last line of a `catch` handler whose value is used is its value:
+# `-y` there is negation, not a drop.
+
+error E
+  bad
+
+fun g() -> Int!
+  return E.bad
+
+sub main()
+  y = 4
+  x = g() catch |e|
+    -y
+  print(x)
+
+# expect:
+# -4

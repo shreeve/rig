@@ -193,22 +193,45 @@ pub const BaseLexer = struct {
 
     const cls1 = blk: {
         var t: [256]bool = @splat(false);
-        for (0x00..10) |c| t[c] = true;
-        for (0x0B..34) |c| t[c] = true;
+        for (' '..34) |c| t[c] = true;
         for ('#'..92) |c| t[c] = true;
-        for (']'..256) |c| t[c] = true;
+        for (']'..127) |c| t[c] = true;
+        for (0x80..256) |c| t[c] = true;
         break :blk t;
     };
 
     const cls2 = blk: {
         var t: [256]bool = @splat(false);
-        for (0x00..10) |c| t[c] = true;
-        for (0x0B..39) |c| t[c] = true;
-        for ('('..256) |c| t[c] = true;
+        for (' '..39) |c| t[c] = true;
+        for ('('..127) |c| t[c] = true;
+        for (0x80..256) |c| t[c] = true;
         break :blk t;
     };
 
     const cls3 = blk: {
+        var t: [256]bool = @splat(false);
+        for ('0'..58) |c| t[c] = true;
+        for ('A'..69) |c| t[c] = true;
+        for ('F'..91) |c| t[c] = true;
+        t['_'] = true;
+        t['a'] = true;
+        for ('c'..101) |c| t[c] = true;
+        for ('f'..111) |c| t[c] = true;
+        for ('p'..120) |c| t[c] = true;
+        for ('y'..123) |c| t[c] = true;
+        break :blk t;
+    };
+
+    const cls4 = blk: {
+        var t: [256]bool = @splat(false);
+        for ('A'..69) |c| t[c] = true;
+        for ('F'..91) |c| t[c] = true;
+        for ('a'..101) |c| t[c] = true;
+        for ('f'..123) |c| t[c] = true;
+        break :blk t;
+    };
+
+    const cls5 = blk: {
         var t: [256]bool = @splat(false);
         for ('0'..58) |c| t[c] = true;
         for ('A'..91) |c| t[c] = true;
@@ -217,11 +240,67 @@ pub const BaseLexer = struct {
         break :blk t;
     };
 
-    const cls4 = blk: {
+    const cls6 = blk: {
+        var t: [256]bool = @splat(false);
+        for ('2'..58) |c| t[c] = true;
+        for ('A'..91) |c| t[c] = true;
+        t['_'] = true;
+        for ('a'..123) |c| t[c] = true;
+        break :blk t;
+    };
+
+    const cls7 = blk: {
+        var t: [256]bool = @splat(false);
+        for ('8'..58) |c| t[c] = true;
+        for ('A'..91) |c| t[c] = true;
+        t['_'] = true;
+        for ('a'..123) |c| t[c] = true;
+        break :blk t;
+    };
+
+    const cls8 = blk: {
+        var t: [256]bool = @splat(false);
+        for ('G'..91) |c| t[c] = true;
+        t['_'] = true;
+        for ('g'..123) |c| t[c] = true;
+        break :blk t;
+    };
+
+    const cls9 = blk: {
+        var t: [256]bool = @splat(false);
+        for ('A'..91) |c| t[c] = true;
+        for ('a'..123) |c| t[c] = true;
+        break :blk t;
+    };
+
+    const cls10 = blk: {
+        var t: [256]bool = @splat(false);
+        for ('2'..58) |c| t[c] = true;
+        for ('A'..91) |c| t[c] = true;
+        for ('a'..123) |c| t[c] = true;
+        break :blk t;
+    };
+
+    const cls11 = blk: {
+        var t: [256]bool = @splat(false);
+        for ('8'..58) |c| t[c] = true;
+        for ('A'..91) |c| t[c] = true;
+        for ('a'..123) |c| t[c] = true;
+        break :blk t;
+    };
+
+    const cls12 = blk: {
         var t: [256]bool = @splat(false);
         for ('0'..58) |c| t[c] = true;
         for ('A'..71) |c| t[c] = true;
         for ('a'..103) |c| t[c] = true;
+        break :blk t;
+    };
+
+    const cls13 = blk: {
+        var t: [256]bool = @splat(false);
+        for ('G'..91) |c| t[c] = true;
+        for ('g'..123) |c| t[c] = true;
         break :blk t;
     };
 
@@ -304,7 +383,7 @@ pub const BaseLexer = struct {
                     else => {},
                 };
                 self.pos = @intCast(p);
-                return token(.@"newline", pre, start, p);
+                return token(.@"err", pre, start, p);
             },
             4 => {
                 if (p < n) switch (src[p]) {
@@ -315,7 +394,7 @@ pub const BaseLexer = struct {
                 return token(.@"not_sym", pre, start, p);
             },
             5 => {
-                acc = 61;
+                acc = 62;
                 accEnd = p;
                 if (p < n and cls1[src[p]]) {
                     p += 1;
@@ -352,7 +431,7 @@ pub const BaseLexer = struct {
                 return token(.@"ampersand", pre, start, p);
             },
             9 => {
-                acc = 61;
+                acc = 62;
                 accEnd = p;
                 if (p < n and cls2[src[p]]) {
                     p += 1;
@@ -411,13 +490,16 @@ pub const BaseLexer = struct {
             18 => {
                 acc = 12;
                 accEnd = p;
+                if (p < n and cls3[src[p]]) {
+                    p += 1;
+                    continue :dfa 52;
+                }
                 if (p < n) switch (src[p]) {
                     '.' => { p += 1; continue :dfa 51; },
-                    '0'...'9' => { p += 1; continue :dfa 19; },
-                    'B', 'b' => { p += 1; continue :dfa 52; },
                     'E', 'e' => { p += 1; continue :dfa 53; },
-                    'O', 'o' => { p += 1; continue :dfa 54; },
-                    'X', 'x' => { p += 1; continue :dfa 55; },
+                    'b' => { p += 1; continue :dfa 54; },
+                    'o' => { p += 1; continue :dfa 55; },
+                    'x' => { p += 1; continue :dfa 56; },
                     else => {},
                 };
                 self.pos = @intCast(p);
@@ -427,9 +509,14 @@ pub const BaseLexer = struct {
                 while (p < n and src[p] -% '0' <= 9) p += 1;
                 acc = 12;
                 accEnd = p;
+                if (p < n and cls4[src[p]]) {
+                    p += 1;
+                    continue :dfa 52;
+                }
                 if (p < n) switch (src[p]) {
                     '.' => { p += 1; continue :dfa 51; },
                     'E', 'e' => { p += 1; continue :dfa 53; },
+                    '_' => { p += 1; continue :dfa 57; },
                     else => {},
                 };
                 self.pos = @intCast(p);
@@ -438,7 +525,7 @@ pub const BaseLexer = struct {
             21 => {
                 if (p < n) switch (src[p]) {
                     '-' => { p += 1; self.pos = @intCast(p); return token(.@"move_assign", pre, start, p); },
-                    '<' => { p += 1; continue :dfa 57; },
+                    '<' => { p += 1; continue :dfa 59; },
                     '=' => { p += 1; self.pos = @intCast(p); return token(.@"le", pre, start, p); },
                     else => {},
                 };
@@ -458,7 +545,7 @@ pub const BaseLexer = struct {
             23 => {
                 if (p < n) switch (src[p]) {
                     '=' => { p += 1; self.pos = @intCast(p); return token(.@"ge", pre, start, p); },
-                    '>' => { p += 1; continue :dfa 63; },
+                    '>' => { p += 1; continue :dfa 65; },
                     else => {},
                 };
                 self.pos = @intCast(p);
@@ -473,13 +560,16 @@ pub const BaseLexer = struct {
                 return token(.@"question", pre, start, p);
             },
             26 => {
-                while (p < n and cls3[src[p]]) p += 1;
+                while (p < n and cls5[src[p]]) p += 1;
                 self.pos = @intCast(p);
                 return token(.@"ident", pre, start, p);
             },
             28 => {
+                acc = 62;
+                accEnd = p;
                 if (p < n) switch (src[p]) {
                     '\n' => { p += 1; self.pos = @intCast(p); return token(.@"skip", pre, start, p); },
+                    '\r' => { p += 1; continue :dfa 68; },
                     else => {},
                 };
                 self.pos = @intCast(p);
@@ -503,7 +593,7 @@ pub const BaseLexer = struct {
                 return token(.@"bar", pre, start, p);
             },
             35 => {
-                p = scanUntil(src, p, &.{'\n', '"', '\\'});
+                while (p < n and cls1[src[p]]) p += 1;
                 if (p < n) switch (src[p]) {
                     '"' => { p += 1; self.pos = @intCast(p); return token(.@"string_dq", pre, start, p); },
                     '\\' => { p += 1; continue :dfa 37; },
@@ -513,12 +603,13 @@ pub const BaseLexer = struct {
             },
             37 => {
                 if (p < n) switch (src[p]) {
-                    0x00...0xFF => { p += 1; continue :dfa 35; },
+                    ' '...'~', 0x80...0xFF => { p += 1; continue :dfa 35; },
+                    else => {},
                 };
                 break :dfa;
             },
             41 => {
-                p = scanUntil(src, p, &.{'\n', '\''});
+                while (p < n and cls2[src[p]]) p += 1;
                 if (p < n) switch (src[p]) {
                     '\'' => { p += 1; continue :dfa 42; },
                     else => {},
@@ -540,7 +631,8 @@ pub const BaseLexer = struct {
                 acc = 10;
                 accEnd = p;
                 if (p < n) switch (src[p]) {
-                    'E', 'e' => { p += 1; continue :dfa 69; },
+                    'E', 'e' => { p += 1; continue :dfa 72; },
+                    '_' => { p += 1; continue :dfa 51; },
                     else => {},
                 };
                 self.pos = @intCast(p);
@@ -554,35 +646,74 @@ pub const BaseLexer = struct {
                 break :dfa;
             },
             52 => {
-                if (p < n) switch (src[p]) {
-                    '0'...'1' => { p += 1; continue :dfa 70; },
-                    else => {},
-                };
-                break :dfa;
+                while (p < n and cls5[src[p]]) p += 1;
+                self.pos = @intCast(p);
+                return token(.@"err", pre, start, p);
             },
             53 => {
+                acc = 13;
+                accEnd = p;
+                if (p < n and cls0[src[p]]) {
+                    p += 1;
+                    continue :dfa 52;
+                }
                 if (p < n) switch (src[p]) {
-                    '+', '-' => { p += 1; continue :dfa 71; },
-                    '0'...'9' => { p += 1; continue :dfa 72; },
+                    '+', '-' => { p += 1; continue :dfa 73; },
+                    '0'...'9' => { p += 1; continue :dfa 74; },
                     else => {},
                 };
-                break :dfa;
+                self.pos = @intCast(p);
+                return token(.@"err", pre, start, p);
             },
             54 => {
+                if (p < n and cls6[src[p]]) {
+                    p += 1;
+                    continue :dfa 52;
+                }
                 if (p < n) switch (src[p]) {
-                    '0'...'7' => { p += 1; continue :dfa 73; },
+                    '0'...'1' => { p += 1; continue :dfa 75; },
                     else => {},
                 };
-                break :dfa;
+                self.pos = @intCast(p);
+                return token(.@"err", pre, start, p);
             },
             55 => {
+                if (p < n and cls7[src[p]]) {
+                    p += 1;
+                    continue :dfa 52;
+                }
                 if (p < n) switch (src[p]) {
-                    '0'...'9', 'A'...'F', 'a'...'f' => { p += 1; continue :dfa 74; },
+                    '0'...'7' => { p += 1; continue :dfa 76; },
                     else => {},
                 };
-                break :dfa;
+                self.pos = @intCast(p);
+                return token(.@"err", pre, start, p);
+            },
+            56 => {
+                if (p < n and cls8[src[p]]) {
+                    p += 1;
+                    continue :dfa 52;
+                }
+                if (p < n) switch (src[p]) {
+                    '0'...'9', 'A'...'F', 'a'...'f' => { p += 1; continue :dfa 77; },
+                    else => {},
+                };
+                self.pos = @intCast(p);
+                return token(.@"err", pre, start, p);
             },
             57 => {
+                if (p < n and cls0[src[p]]) {
+                    p += 1;
+                    continue :dfa 52;
+                }
+                if (p < n) switch (src[p]) {
+                    '0'...'9' => { p += 1; continue :dfa 19; },
+                    else => {},
+                };
+                self.pos = @intCast(p);
+                return token(.@"err", pre, start, p);
+            },
+            59 => {
                 if (p < n) switch (src[p]) {
                     '=' => { p += 1; self.pos = @intCast(p); return token(.@"lshift_assign", pre, start, p); },
                     else => {},
@@ -590,7 +721,7 @@ pub const BaseLexer = struct {
                 self.pos = @intCast(p);
                 return token(.@"lshift", pre, start, p);
             },
-            63 => {
+            65 => {
                 if (p < n) switch (src[p]) {
                     '=' => { p += 1; self.pos = @intCast(p); return token(.@"rshift_assign", pre, start, p); },
                     else => {},
@@ -598,57 +729,125 @@ pub const BaseLexer = struct {
                 self.pos = @intCast(p);
                 return token(.@"rshift", pre, start, p);
             },
-            69 => {
+            68 => {
                 if (p < n) switch (src[p]) {
-                    '+', '-' => { p += 1; continue :dfa 77; },
-                    '0'...'9' => { p += 1; continue :dfa 78; },
-                    else => {},
-                };
-                break :dfa;
-            },
-            70 => {
-                while (p < n and src[p] -% '0' <= 1) p += 1;
-                self.pos = @intCast(p);
-                return token(.@"integer", pre, start, p);
-            },
-            71 => {
-                if (p < n) switch (src[p]) {
-                    '0'...'9' => { p += 1; continue :dfa 72; },
+                    '\n' => { p += 1; self.pos = @intCast(p); return token(.@"skip", pre, start, p); },
                     else => {},
                 };
                 break :dfa;
             },
             72 => {
-                while (p < n and src[p] -% '0' <= 9) p += 1;
-                self.pos = @intCast(p);
-                return token(.@"real", pre, start, p);
-            },
-            73 => {
-                while (p < n and src[p] -% '0' <= 7) p += 1;
-                self.pos = @intCast(p);
-                return token(.@"integer", pre, start, p);
-            },
-            74 => {
-                while (p < n and cls4[src[p]]) p += 1;
-                self.pos = @intCast(p);
-                return token(.@"integer", pre, start, p);
-            },
-            77 => {
                 if (p < n) switch (src[p]) {
-                    '0'...'9' => { p += 1; continue :dfa 78; },
+                    '+', '-' => { p += 1; continue :dfa 81; },
+                    '0'...'9' => { p += 1; continue :dfa 82; },
                     else => {},
                 };
                 break :dfa;
             },
-            78 => {
+            73 => {
+                if (p < n) switch (src[p]) {
+                    '0'...'9' => { p += 1; continue :dfa 83; },
+                    else => {},
+                };
+                break :dfa;
+            },
+            74 => {
                 while (p < n and src[p] -% '0' <= 9) p += 1;
+                if (p < n and cls9[src[p]]) {
+                    p += 1;
+                    continue :dfa 52;
+                }
+                if (p < n) switch (src[p]) {
+                    '_' => { p += 1; continue :dfa 84; },
+                    else => {},
+                };
                 self.pos = @intCast(p);
                 return token(.@"real", pre, start, p);
+            },
+            75 => {
+                while (p < n and src[p] -% '0' <= 1) p += 1;
+                if (p < n and cls10[src[p]]) {
+                    p += 1;
+                    continue :dfa 52;
+                }
+                if (p < n) switch (src[p]) {
+                    '_' => { p += 1; continue :dfa 54; },
+                    else => {},
+                };
+                self.pos = @intCast(p);
+                return token(.@"integer", pre, start, p);
+            },
+            76 => {
+                while (p < n and src[p] -% '0' <= 7) p += 1;
+                if (p < n and cls11[src[p]]) {
+                    p += 1;
+                    continue :dfa 52;
+                }
+                if (p < n) switch (src[p]) {
+                    '_' => { p += 1; continue :dfa 55; },
+                    else => {},
+                };
+                self.pos = @intCast(p);
+                return token(.@"integer", pre, start, p);
+            },
+            77 => {
+                while (p < n and cls12[src[p]]) p += 1;
+                if (p < n and cls13[src[p]]) {
+                    p += 1;
+                    continue :dfa 52;
+                }
+                if (p < n) switch (src[p]) {
+                    '_' => { p += 1; continue :dfa 56; },
+                    else => {},
+                };
+                self.pos = @intCast(p);
+                return token(.@"integer", pre, start, p);
+            },
+            81 => {
+                if (p < n) switch (src[p]) {
+                    '0'...'9' => { p += 1; continue :dfa 82; },
+                    else => {},
+                };
+                break :dfa;
+            },
+            82 => {
+                while (p < n and src[p] -% '0' <= 9) p += 1;
+                acc = 10;
+                accEnd = p;
+                if (p < n) switch (src[p]) {
+                    '_' => { p += 1; continue :dfa 81; },
+                    else => {},
+                };
+                self.pos = @intCast(p);
+                return token(.@"real", pre, start, p);
+            },
+            83 => {
+                while (p < n and src[p] -% '0' <= 9) p += 1;
+                acc = 11;
+                accEnd = p;
+                if (p < n) switch (src[p]) {
+                    '_' => { p += 1; continue :dfa 73; },
+                    else => {},
+                };
+                self.pos = @intCast(p);
+                return token(.@"real", pre, start, p);
+            },
+            84 => {
+                if (p < n and cls0[src[p]]) {
+                    p += 1;
+                    continue :dfa 52;
+                }
+                if (p < n) switch (src[p]) {
+                    '0'...'9' => { p += 1; continue :dfa 74; },
+                    else => {},
+                };
+                self.pos = @intCast(p);
+                return token(.@"err", pre, start, p);
             },
             else => unreachable,
         }
         switch (acc) {
-            61 => {
+            62 => {
                 p = accEnd;
                 self.pos = @intCast(p);
                 return token(.@"err", pre, start, p);
@@ -664,6 +863,16 @@ pub const BaseLexer = struct {
                 return token(.@"string_sq", pre, start, p);
             },
             10 => {
+                p = accEnd;
+                self.pos = @intCast(p);
+                return token(.@"real", pre, start, p);
+            },
+            13 => {
+                p = accEnd;
+                self.pos = @intCast(p);
+                return token(.@"err", pre, start, p);
+            },
+            11 => {
                 p = accEnd;
                 self.pos = @intCast(p);
                 return token(.@"real", pre, start, p);

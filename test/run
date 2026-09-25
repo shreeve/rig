@@ -47,7 +47,7 @@ TIMEOUT=${RIG_TEST_TIMEOUT:-120}
 # Expected stdout: the `# expect:` block, one `# line` per output line.
 expected_stdout() {
     awk '
-        inblock && /^#/ { sub(/^# ?/, ""); print; next }
+        inblock && /^#/ { sub(/^# ?/, ""); sub(/\r$/, ""); print; next }
         inblock { exit }
         /^# expect:[[:space:]]*$/ { inblock = 1 }
     ' "$1"
@@ -119,13 +119,17 @@ check_reject() {
     if [[ $rc -gt 128 ]] || grep -qE "$PANIC_RE" <<<"$out"; then REASON="compiler crashed"; return 1; fi
     if [[ $rc -eq 0 ]]; then REASON="accepted (expected rejection)"; return 1; fi
     # Match `# error:` text against the diagnostic lines' messages only:
-    # not the file paths, and not the source excerpts under them.
-    local want msgs
-    msgs=$(grep -E "$POS_RE" <<<"$out" | sed -E 's/^[^ ]*\.rig:[0-9]+:[0-9]+: //')
+    # not the file paths, and not the source excerpts under them. Each
+    # line of `msgs` is `L:C: message`; `# error: L:C: text` pins the
+    # position too.
+    local want msgs pin
+    msgs=$(grep -E "$POS_RE" <<<"$out" | sed -E 's/^[^ ]*\.rig:([0-9]+:[0-9]+): (error|  note): /\1: /')
     while IFS= read -r want; do
         [[ -z "$want" ]] && continue
-        if ! grep -qF -- "$want" <<<"$msgs"; then
-            REASON="diagnostic lacks \"$want\"; got: $(head -1 <<<"$out")"
+        pin=""
+        if [[ $want =~ ^([0-9]+:[0-9]+):\ (.*)$ ]]; then pin=${BASH_REMATCH[1]} want=${BASH_REMATCH[2]}; fi
+        if ! grep -F -- "$want" <<<"$msgs" | grep -qE "^${pin:-[0-9]+:[0-9]+}: "; then
+            REASON="no diagnostic${pin:+ at $pin} contains \"$want\"; got: $(head -1 <<<"$out")"
             return 1
         fi
     done < <(directive error "$entry")

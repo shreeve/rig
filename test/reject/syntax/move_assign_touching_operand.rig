@@ -1,0 +1,9 @@
+# `a <-b` could be a move assignment or `a < -b`; it is rejected.
+
+sub main()
+  a = 1
+  b = 2
+  a <-b
+  print(a)
+
+# error: 6:5: `<-` touches the operand after it: write `a <- b` to move-assign, or `a < -b` to compare

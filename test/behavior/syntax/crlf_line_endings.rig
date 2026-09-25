@@ -1,0 +1,9 @@
+# Lines may end with CRLF, and `\` continues a line before one.
+
+sub main()
+  x = 1 + \
+    2
+  print(x)
+
+# expect:
+# 3

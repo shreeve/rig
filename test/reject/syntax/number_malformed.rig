@@ -1,0 +1,8 @@
+# Anything else that starts with a digit is one malformed number, not a
+# number followed by a name.
+
+sub main()
+  x = 2
+  print(12abc + x)
+
+# error: 6:9: malformed number; `_` may separate digits, and a space or an operator ends a number
