@@ -37,7 +37,7 @@ hello, rig
 16. [Raw code and FFI](#16-raw-code-and-ffi)
 17. [Compile-time parameters](#17-compile-time-parameters)
 18. [Printing](#18-printing)
-19. [Reserved and rejected forms](#19-reserved-and-rejected-forms)
+19. [Reserved and unsupported forms](#19-reserved-and-unsupported-forms)
 
 ---
 
@@ -46,26 +46,31 @@ hello, rig
 A Rig program is a file of declarations: functions (`fun`, `sub`),
 types (`struct`, `enum`, `error`, `type`), constants (`name =! value`),
 imports (`use`), `extern` declarations, and `test` blocks. Statements
-live inside functions. `rig run` needs a `sub main()`.
-
-```bash
-bin/rig check hello.rig              # check only
-bin/rig run hello.rig                # check, build in Debug mode, run
-bin/rig run --release hello.rig      # the same, optimized (ReleaseSafe)
-bin/rig build hello.rig              # a native executable (--release too)
-bin/rig test hello.rig               # run the file's `test` blocks
-bin/rig emit hello.rig               # print the emitted Zig
-```
+live inside functions. The file's name ends in `.rig`, and a program
+that runs declares its entry point as `sub main()`, with no parameters.
+`rig check` checks a program, `rig run` checks, builds, and runs it,
+and `rig --help` lists the other commands (see also the
+[README](README.md#build-and-run)).
 
 `rig run` builds in Debug mode with a leak-checking allocator: a program
 that leaks memory reports it and exits with an error. `--release` builds
 with Zig's ReleaseSafe, and `--release=fast` with ReleaseFast. Integer
-overflow, out-of-bounds indexing, and a numeric conversion whose value
-does not fit panic in Debug and ReleaseSafe builds.
+overflow, out-of-bounds indexing and slicing, and a numeric conversion
+whose value does not fit panic in Debug and ReleaseSafe builds.
+ReleaseFast is the one mode outside that guarantee: it drops the
+overflow and conversion checks, so there an overflow or an out-of-range
+conversion is undefined behavior. Indexing and slicing stay checked in
+every mode.
 
 ---
 
 ## 2. Lexical structure
+
+### Source text
+
+A source file is UTF-8 text. Lines end in `\n` or `\r\n`; a carriage
+return without a line feed is an error. A byte order mark at the start
+of the file is skipped.
 
 ### Comments
 
@@ -171,8 +176,7 @@ single: "no escapes\n" double: 'x'	y
 ### The spacing rule
 
 Several characters are both operators and prefixes: `<` `+` `-` `*` `?`
-`!` `~` `@`. One rule decides which, and it also governs `(`, `[`,
-and `.`:
+`!` `~`. One rule decides which, and it also governs `(`, `[`, and `.`:
 
 > A character that touches its operand and not the value before it is
 > a prefix. Otherwise it is an infix operator, or it continues the value
@@ -188,6 +192,11 @@ and `.`:
 | `f (x)`, `f [1, 2]`, `f .red` | paren-free call with the argument `(x)`, `[1, 2]`, `.red` |
 | `f()!`, `x?` | propagate a failure ([§14](#14-errors)) or `none` ([§13](#13-optionals)) |
 | `-x` alone on a line | drops `x` ([§8](#drop)), except where the line's value is used |
+
+Two values may not touch with no operator between them: `t.5` and
+`print"hi"` are rejected, since neither is a call. Nor may `=!` and
+`<-` touch the operand after them (`x =!y`, `a <-b`), which could as
+well be `x = !y` and `a < -b`.
 
 The rule is uniform, so it has one sharp edge worth knowing: `a -1`
 calls `a` with `-1`.
@@ -298,9 +307,9 @@ loop over it yields its bytes as `U8`. Strings compare with `==` and
 
 `[N]T` is a fixed-size array. An array literal `[a, b, c]` takes its
 element type from its elements (or from an annotation), `xs.len` is its
-length, and `xs[i]` reads or writes an element; an index outside
-`0 ..< len` panics. Arrays hold plain data only; a collection of
-resources is a `Vec`.
+length, and `xs[i]` reads or writes an element; an index outside the
+half-open range `0..xs.len` panics. Arrays hold plain data only; a
+collection of resources is a `Vec`.
 
 ```rig
 sub main()
@@ -734,9 +743,10 @@ sub main()
 
 ### Tests
 
-`test "name"` declares a block that is checked like a function body
-that may fail: `f()!` in a test fails the test with that error.
-`rig test file.rig` runs every test block of the file: it prints
+`test "name"` (or `test 'name'`) declares a block that is checked like
+a function body that may fail: `f()!` in a test fails the test with
+that error. `rig test file.rig` runs every test block of the file and
+of the modules it imports: it prints
 `ok    test "name"` for each one that finishes, or
 `FAIL  test "name": ...` with the reason, and then `N passed, M failed`.
 `rig run` ignores test blocks.
@@ -1150,7 +1160,9 @@ after
 ### Labels, break, and continue
 
 A loop may be labeled `:name`; `break :name` and `continue :name` then
-refer to it from an inner loop.
+refer to it from an inner loop. A `match` or `raw` statement may be
+labeled too, and `break :name` leaves it. A label may repeat an
+enclosing one's name; the innermost is meant.
 
 ```rig
 sub main()
@@ -1786,6 +1798,11 @@ ada
 end
 released ada
 ```
+
+Releasing a long chain of handles, such as the head of a 200,000-node
+list, does not exhaust the stack: past 256 nested releases, a release
+is queued, and the queue runs, in the order the nested releases would
+have, once the releases in progress finish.
 
 Handles are owning values: a bare copy (`b = a`, `f(a)`) is rejected;
 write `<a` or `+a`. Sharing a value that is already a shared handle
@@ -2482,12 +2499,15 @@ type mismatch: expected `Int`, got `ParseError`
 
 ## 15. Modules
 
-`use name` imports `name.rig` from the importing file's directory. The
-module's `pub` declarations are then reached as `name.decl`, and its
-types are named `name.Type` in annotations. A type's members are named
-through the module too: `name.Type.function(...)` calls an associated
-function, and `name.Enum.variant` names a variant. Imports are checked
-in dependency order, each module once; a cycle is an error.
+`use name` imports `name.rig` from the directory of the program's root
+file, whichever module says it, so a name denotes one file. The file's
+name must be exactly `name.rig`, case included, and names starting with
+`__rig` are reserved for the compiler. The module's `pub` declarations
+are then reached as `name.decl`, and its types are named `name.Type` in
+annotations. A type's members are named through the module too:
+`name.Type.function(...)` calls an associated function, and
+`name.Enum.variant` names a variant. Imports are checked in dependency
+order, each module once; a cycle is an error.
 
 ```rig file=geo.rig
 pub struct Point
@@ -2534,8 +2554,9 @@ module may appear in its public surface, including in the fields of the
 private types that surface reaches. Every check (types, arity, keyword
 arguments, borrow modes, fallibility, ownership) applies across modules
 exactly as within one, and a type is identified by the module that
-declares it: `a.Point` and `b.Point` are different types. `use std` is
-reserved.
+declares it: `a.Point` and `b.Point` are different types. A module
+whose import has errors is not checked; the import's errors are
+reported.
 
 ---
 
@@ -2597,7 +2618,8 @@ call to extern function `abs` requires `raw` block
 
 A parameter marked `pre` is known at compile time; it lowers to a Zig
 `comptime` parameter. The argument must be a literal, an enum value, a
-`pre` parameter, or a `=!` binding of one.
+`pre` parameter, or a `=!` binding of one. A function with a `pre` parameter can
+only be called, not used as a value.
 
 ```rig
 enum Mode
@@ -2642,6 +2664,9 @@ a value.
 | owned closure | `<closure>` |
 | function | `<fun>` |
 
+A value nested more than 64 levels deep prints its deeper parts as
+`...`.
+
 ```rig
 struct User
   name: String
@@ -2659,30 +2684,33 @@ User(name: "ada", age: 36) none ["a", "b"] 2.5
 
 ---
 
-## 19. Reserved and rejected forms
+## 19. Reserved and unsupported forms
 
-These are rejected with a diagnostic that says why. The first group do
-not parse; their words and sigils stay reserved for possible future
-forms:
+These forms are rejected, with a diagnostic that says what to write
+instead; each is proven by a test in `test/reject/`. The first group do
+not parse, and their words and sigils stay reserved:
 
-| Form | Status |
+| Form | Diagnostic |
 |---|---|
-| `&&`, `\|\|` | not Rig operators; use `and`, `or` |
-| `@x` (pin) | reserved: no pinning semantics yet |
-| `for *x in v` | reserved: by-reference loop binding |
-| `pre expr`, `pre` blocks | reserved; only `pre` parameters exist |
-| `try` blocks | reserved; use `f()!` or `f() catch x` |
-| `zig "..."` | reserved: no inline Zig; use `raw` and `extern` |
-| string and float match patterns | not patterns; match works on enums, integers, and `Bool` |
+| `&&`, `\|\|`, `**` | `` `&&` is not a Rig operator; use `and` `` |
+| `@x` (pin) | `` the pin sigil `@x` is reserved `` |
+| `for *x in v` | `` `for *x in` is reserved `` |
+| `pre expr`, `pre` blocks | `` `pre` marks compile-time parameters only `` |
+| `try` blocks | `` `try` blocks are reserved `` |
+| `zig "..."` | `` inline Zig is reserved `` |
+| string and float match patterns | `` a pattern is a name, an integer, `true`, `false`, or an enum variant `` |
 
-The rest parse and are rejected in sema:
+The rest parse, and the checker rejects them as not supported yet
+([roadmap](docs/ROADMAP.md)):
 
-| Form | Status |
+| Form | Diagnostic |
 |---|---|
-| `use std` | reserved |
-| generic functions (`pre T: type`) | not supported yet |
-| `drop` on enums and generic types | not supported; they get structural glue |
-| a stack `Signal(T)` | rejected; use `*Signal(T)` |
+| generic functions (`pre T: type`) | `` generic functions are not supported yet `` |
+| `drop` on an enum or a generic type | `` `drop` declarations on enums are deferred `` |
+| a stack closure passed, stored, or returned | `` closures cannot escape their defining scope `` |
+| a generic instance in a module's public surface | `` generic types cannot cross module boundaries yet `` |
+| an array of owning values | `` arrays cannot hold values that own resources ``; use a `Vec` |
+| an owned closure taking or returning an owning value | `` an owned closure takes plain Copy values `` |
 
 ```rig reject
 sub main()
