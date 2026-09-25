@@ -6,8 +6,9 @@
 //!   zig build run -- ...   — run bin/rig with args
 //!   zig build test         — run the Zig unit tests (./test/run runs these too)
 //!
-//! `zig build parser` runs Nexus: `-Dnexus=PATH`, else nexus/bin/nexus in the
-//! nearest parent directory (build it with `zig build -Doptimize=ReleaseSafe`).
+//! `zig build parser` runs Nexus: `-Dnexus=PATH` (relative to where `zig build`
+//! runs), else nexus/bin/nexus in the nearest parent directory (build it with
+//! `zig build -Doptimize=ReleaseSafe`).
 
 const std = @import("std");
 
@@ -22,7 +23,11 @@ pub fn build(b: *std.Build) void {
     // -----------------------------------------------------------------
 
     const parser_step = b.step("parser", "Regenerate src/parser.zig from rig.grammar");
-    const nexus = b.option([]const u8, "nexus", "Path to the Nexus binary") orelse findNexus(b);
+    // A relative `-Dnexus` names a path from where `zig build` was run.
+    const nexus = if (b.option([]const u8, "nexus", "Path to the Nexus binary")) |p|
+        b.pathResolve(&.{ std.process.currentPathAlloc(b.graph.io, b.allocator) catch @panic("cannot read the working directory"), p })
+    else
+        findNexus(b);
     const gen_cmd = b.addSystemCommand(&.{ nexus, "rig.grammar", "src/parser.zig" });
     gen_cmd.setCwd(b.path("."));
     parser_step.dependOn(&gen_cmd.step);
