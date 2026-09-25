@@ -815,26 +815,10 @@ pub const Checker = struct {
         if (!a.reachable) return b;
         if (!b.reachable) return a;
         var out: std.ArrayListUnmanaged(Entry) = .empty;
-        var i: usize = 0;
-        var j: usize = 0;
-        while (i < a.changes.len or j < b.changes.len) {
-            const id: VarId = if (j >= b.changes.len or (i < a.changes.len and a.changes[i].id < b.changes[j].id))
-                a.changes[i].id
-            else
-                b.changes[j].id;
-            const base = self.flows.items[id];
-            var fa = base;
-            var fb = base;
-            if (i < a.changes.len and a.changes[i].id == id) {
-                fa = a.changes[i].flow;
-                i += 1;
-            }
-            if (j < b.changes.len and b.changes[j].id == id) {
-                fb = b.changes[j].flow;
-                j += 1;
-            }
-            const joined = try self.joinFlow(fa, fb);
-            if (!flowEql(joined, base)) try out.append(self.arena(), .{ .id = id, .flow = joined });
+        var pairs: Pairs = .{ .a = a.changes, .b = b.changes };
+        while (pairs.next(self)) |p| {
+            const joined = try self.joinFlow(p.fa, p.fb);
+            if (!flowEql(joined, self.flows.items[p.id])) try out.append(self.arena(), .{ .id = p.id, .flow = joined });
         }
         return .{ .changes = out.items, .temps = try self.unionLoans(a.temps, b.temps), .reachable = true };
     }
@@ -852,27 +836,38 @@ pub const Checker = struct {
     fn statesEql(self: *const Checker, a: State, b: State) bool {
         if (a.reachable != b.reachable) return false;
         if (!loanSetEql(a.temps, b.temps)) return false;
-        var i: usize = 0;
-        var j: usize = 0;
-        while (i < a.changes.len or j < b.changes.len) {
-            const id: VarId = if (j >= b.changes.len or (i < a.changes.len and a.changes[i].id < b.changes[j].id))
-                a.changes[i].id
-            else
-                b.changes[j].id;
-            var fa = self.flows.items[id];
-            var fb = fa;
-            if (i < a.changes.len and a.changes[i].id == id) {
-                fa = a.changes[i].flow;
-                i += 1;
-            }
-            if (j < b.changes.len and b.changes[j].id == id) {
-                fb = b.changes[j].flow;
-                j += 1;
-            }
-            if (!flowEql(fa, fb)) return false;
-        }
+        var pairs: Pairs = .{ .a = a.changes, .b = b.changes };
+        while (pairs.next(self)) |p| if (!flowEql(p.fa, p.fb)) return false;
         return true;
     }
+
+    /// Walks the vars two states relative to the current point change,
+    /// in order, with each var's flow in both (its current flow in a
+    /// state that does not change it).
+    const Pairs = struct {
+        a: []const Entry,
+        b: []const Entry,
+        i: usize = 0,
+        j: usize = 0,
+
+        fn next(p: *Pairs, c: *const Checker) ?struct { id: VarId, fa: Flow, fb: Flow } {
+            const in_a = p.i < p.a.len;
+            const in_b = p.j < p.b.len;
+            if (!in_a and !in_b) return null;
+            const id = if (!in_b or (in_a and p.a[p.i].id < p.b[p.j].id)) p.a[p.i].id else p.b[p.j].id;
+            var fa = c.flows.items[id];
+            var fb = fa;
+            if (p.i < p.a.len and p.a[p.i].id == id) {
+                fa = p.a[p.i].flow;
+                p.i += 1;
+            }
+            if (p.j < p.b.len and p.b[p.j].id == id) {
+                fb = p.b[p.j].flow;
+                p.j += 1;
+            }
+            return .{ .id = id, .fa = fa, .fb = fb };
+        }
+    };
 
     fn unionLoans(self: *Checker, a: []const Loan, b: []const Loan) Error![]const Loan {
         if (b.len == 0) return a;
@@ -2376,10 +2371,9 @@ pub const Checker = struct {
         for (v.loans, 0..) |l, i| {
             if (!self.isLocalLoan(l)) continue;
             const r = self.vars.items[l.root];
-            var seen = false;
-            for (v.loans[0..i]) |p| if (p.root == l.root and !p.ext) {
-                seen = true;
-            };
+            const seen = for (v.loans[0..i]) |p| {
+                if (p.root == l.root and !p.ext) break true;
+            } else false;
             if (seen) continue;
             if (r.kind == .param) {
                 try self.err(l.pos, "cannot return a slice of `{s}`: a read-borrowed parameter of plain data is this function's own copy of the caller's value; take a `[]T` parameter to return part of an array", .{r.name});
@@ -2544,13 +2538,14 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     const LoopSpec = struct {
+        /// The `while` or `for` node.
+        node: Sexp,
         cond: ?Sexp = null,
         cond_always_true: bool = false,
         /// `while expr as name`: the binding the condition's value moves into.
         cond_binding: Sexp = .nil,
         cont: ?Sexp = null,
         body: Sexp,
-        else_body: ?Sexp = null,
         /// `for` loops: element bindings and the source loan.
         elem1: Sexp = .nil,
         elem2: Sexp = .nil,
@@ -2561,10 +2556,6 @@ pub const Checker = struct {
         source_loan: LoanKind = .read,
         source_pos: u32 = 0,
         resource_vec: bool = false,
-        /// Where the loop starts in the source.
-        start: u32 = 0,
-        /// The loop is used as a value.
-        valued: bool = false,
     };
 
     /// An expression that yields a value, including a loop used as one.
@@ -2576,30 +2567,24 @@ pub const Checker = struct {
         const as_cond = ir.While.cond(node).isKind(.as);
         const cond = if (as_cond) ir.As.value(ir.While.cond(node)) else ir.While.cond(node);
         const step = ir.While.step(node);
-        const else_ = ir.While.@"else"(node);
         return self.walkLoop(.{
+            .node = node,
             .cond = cond,
             .cond_binding = if (as_cond) ir.As.name(ir.While.cond(node)) else .nil,
             .cond_always_true = cond == .src and std.mem.eql(u8, self.text(cond), "true"),
             .cont = if (step == .nil) null else step,
             .body = ir.While.body(node),
-            .else_body = if (else_ != .nil) else_ else null,
-            .start = extent(node).lo,
-            .valued = sema.hasValueBreaks(self.source, node),
         });
     }
 
     fn walkFor(self: *Checker, node: Sexp) Error!Value {
         const mode = ir.For.mode(node).tag;
         const source = ir.For.source(node);
-        const else_ = ir.For.@"else"(node);
         var spec: LoopSpec = .{
+            .node = node,
             .body = ir.For.body(node),
-            .else_body = if (else_ != .nil) else_ else null,
             .elem1 = ir.For.@"var"(node),
             .elem2 = ir.For.index(node),
-            .start = extent(node).lo,
-            .valued = sema.hasValueBreaks(self.source, node),
         };
         if (mode == .move) {
             spec.moved = (try self.walkMove(source)).loans;
@@ -2640,7 +2625,7 @@ pub const Checker = struct {
     }
 
     fn walkLoop(self: *Checker, spec: LoopSpec) Error!Value {
-        var ctx: LoopCtx = .{ .label = self.pending_label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .start = spec.start };
+        var ctx: LoopCtx = .{ .label = self.pending_label, .point = try self.here(), .scope_depth = self.scopes.items.len, .parent = self.loop, .start = extent(spec.node).lo };
         self.pending_label = "";
         self.loop = &ctx;
         defer self.loop = ctx.parent;
@@ -2674,8 +2659,9 @@ pub const Checker = struct {
         // or a `break` value.
         self.loop = ctx.parent;
         var value = ctx.value;
-        if (spec.else_body) |e| {
-            if (spec.valued) {
+        const e = ir.get(spec.node, .@"else");
+        if (e != .nil) {
+            if (sema.hasValueBreaks(self.source, spec.node)) {
                 value = try self.valueUnion(value, try self.walkStmtValue(e, .brk));
             } else try self.walkStmt(e);
         }
@@ -3083,10 +3069,7 @@ pub const Checker = struct {
             // instantiation with one is rejected (`checkInstantiations`).
             .type_var => false,
             .imported_nominal => q == .any,
-            .optional => |i| self.typeCarries(i, q, depth + 1),
-            .fallible => |i| self.typeCarries(i, q, depth + 1),
-            .shared => |i| self.typeCarries(i, q, depth + 1),
-            .weak => |i| self.typeCarries(i, q, depth + 1),
+            .optional, .fallible, .shared, .weak => |i| self.typeCarries(i, q, depth + 1),
             .array => |a| self.typeCarries(a.elem, q, depth + 1),
             .nominal => |s| self.fieldsCarry(s, q, depth),
             .parameterized_nominal => |pn| blk: {
