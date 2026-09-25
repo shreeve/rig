@@ -38,7 +38,7 @@
 tokens
     # Literals
     ident           # identifier
-    integer         # 0, 42, 0xff, 0b1010, 0o17
+    integer         # 0, 42, 1_000, 0xff, 0b1010, 0o17
     real            # 3.14, .5, 1.0e10, 2e-3
     string_sq       # 'single'
     string_dq       # "double"
@@ -166,19 +166,25 @@ tokens
 '#' [^\n]*                                  → comment
 
 "\\\n"                                      → skip         # line continuation
+"\\\r\n"                                    → skip
 "\r\n"                                      → newline
 '\n'                                        → newline
-'\r'                                        → newline
 
-'"' ([^"\\\n] | '\\' .)* '"'               → string_dq
-"'" ([^'\n] | "''")* "'"                    → string_sq
+# Strings hold no control characters: a tab or newline is written as an
+# escape (`\t`, `\n`), which only double-quoted strings take.
+'"' ([^"\\\x00-\x1f\x7f] | '\\' [^\x00-\x1f\x7f])* '"'  → string_dq
+"'" ([^'\x00-\x1f\x7f] | "''")* "'"             → string_sq
 
-'0' [xX] [0-9a-fA-F]+                       → integer
-'0' [bB] [01]+                              → integer
-'0' [oO] [0-7]+                             → integer
-[0-9]* '.' [0-9]+ ([Ee] [+-]? [0-9]+)?      → real
-[0-9]+ [Ee] [+-]? [0-9]+                    → real
-[0-9]+                                      → integer
+# Numbers: `_` may separate digits; radix prefixes are lowercase, and a
+# decimal number has no leading zero. Anything else that starts with a
+# digit is one malformed-number error.
+"0x" [0-9a-fA-F] ('_'? [0-9a-fA-F])*        → integer
+"0b" [01] ('_'? [01])*                      → integer
+"0o" [0-7] ('_'? [0-7])*                    → integer
+('0' | [1-9] ('_'? [0-9])*)? '.' [0-9] ('_'? [0-9])* ([eE] [+-]? [0-9] ('_'? [0-9])*)? → real
+('0' | [1-9] ('_'? [0-9])*) [eE] [+-]? [0-9] ('_'? [0-9])* → real
+'0' | [1-9] ('_'? [0-9])*                   → integer
+[0-9] [0-9a-zA-Z_]*                         → err
 
 "<<="                                       → lshift_assign
 ">>="                                       → rshift_assign
@@ -365,7 +371,7 @@ tokens
     expr: "an expression", tail: "an expression", value: "a value"
     field: "a parameter", member: "a member"
     pattern: "a pattern", arm: "a match arm", params: "a parameter list"
-    unary: "an operand"
+    unary: "an operand", step: "an assignment or a call"
 
 # ==============================================================================
 # PROGRAM STRUCTURE
@@ -394,10 +400,7 @@ stmt     = use
 # flow statement. Only these take a postfix guard (`return x if done`).
 # A compound assignment's `op` is the tag its operator names (`+=`).
 simple   = tail
-         | target:postfix "="   value:tail          → (set)
-         | target:postfix
-           op:("+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=")
-           value:tail                               → (set)
+         | assign
          | target:postfix "=!"  value:tail          → (set op:fixed)
          | target:postfix "<-"  value:tail          → (set op:move)
          | target:name ":" type:type "="  value:tail → (set)
@@ -410,6 +413,11 @@ simple   = tail
          | DEFER body:(block | simple)              → (defer)
          | ERRDEFER body:(block | simple)           → (errdefer)
          | RAW body:block                           → (raw_block)
+
+assign   = target:postfix "="   value:tail          → (set)
+         | target:postfix
+           op:("+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=")
+           value:tail                               → (set)
 
 # ==============================================================================
 # DECLARATIONS
@@ -427,10 +435,15 @@ sub      = SUB name:name [params:params] body:block → (sub)
 
 returns  = "->" type                                → 2
 
-params   = !lparen L(field) ")"                     → (...2)
+params   = !lparen fields [","] ")"                 → (...2)
          | !lparen          ")"                     → ()
 
 lparen   = LPAREN_CALL | "("
+
+# Written out rather than `L(field)`, which conflicts with a trailing
+# comma.
+fields   = field                                    → (1)
+         | fields "," field                         → (...1 3)
 
 # Parameters, struct fields, and enum variants share one shape.
 field    = fname
@@ -467,7 +480,7 @@ member   = field
 # Sema requires exactly one: `self: !Self`.
 dparams  = L(field)                                 → (...1)
 
-test     = TEST name:STRING_DQ body:block           → (test)
+test     = TEST name:(STRING_DQ | STRING_SQ) body:block → (test)
 
 extvar   = EXTERN name:name ":" type:type           → (extern)
 
@@ -568,7 +581,11 @@ ifcond   = cond
 if       = IF cond:ifcond then:block [ELSE else:block] → (if)
          | IF cond:ifcond then:block ELSE else:if   → (if)
 
-while    = WHILE cond:ifcond [":" step:simple] body:block [ELSE else:block] → (while)
+while    = WHILE cond:ifcond [":" step:step] body:block [ELSE else:block] → (while)
+
+# A `while` step runs after each iteration: an assignment or a call.
+step     = assign
+         | callee:postfix LPAREN_CALL args:args ")" → (call)
 
 # The Parser wrapper moves a `?xs` / `!xs` / `<xs` source sigil into the
 # mode slot.
@@ -648,6 +665,7 @@ postfix  = object:postfix "." name:name             → (member)
          | atom
 
 args     = callargs                                 → 1
+         | callargs ","                             → 1
          | callargs "," cmdtail                     → (...1 3)
          | cmdtail                                  → (1)
          |                                          → ()
@@ -667,7 +685,8 @@ atom     = name
          | FALSE
          | DOT_LIT name:name                        → (enum_lit)
          | "@" name:name LPAREN_CALL args:args ")"  → (builtin)
-         | "[" [elems:L(expr)] "]"                  → (array)
+         | "[" [elems:exprs] "]"                    → (array)
+         | "[" elems:exprs "," "]"                  → (array)
          | "(" tail ")"                             → 2
 
 # ==============================================================================

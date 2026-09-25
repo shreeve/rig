@@ -1,0 +1,7 @@
+# `_` may separate digits in any number; radix prefixes are lowercase.
+
+sub main()
+  print(1_000_000, 0xff_ff, 0b1010_1010, 0o7_7, 1_000.5)
+
+# expect:
+# 1000000 65535 170 63 1000.5

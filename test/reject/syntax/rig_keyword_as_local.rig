@@ -4,4 +4,4 @@ sub main()
   else = 3
   print(else)
 
-# error: else
+# error: 4:3: unexpected keyword `else`; expected a statement or the end of the block

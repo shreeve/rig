@@ -1,0 +1,7 @@
+# A decimal number has no leading zero (Zig would read `0777` as an
+# error, and C as octal): write `777`, or `0o777` for octal.
+
+sub main()
+  print(0777)
+
+# error: 5:9: a decimal number has no leading zero

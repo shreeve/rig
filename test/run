@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Rig test suite. See test/README.md for the test file formats.
 #
 # Usage:
@@ -13,8 +13,14 @@
 #   -j N        parallel jobs (default: CPU count)
 #   --update    rewrite test/ir snapshots from the current compiler
 #
-# Exit status is non-zero if any test fails or a known-failing test
-# starts passing (move it out of test/known/ when that happens).
+# Environment: ZIG (the Zig executable), NEXUS (the Nexus executable),
+# RIG_TEST_TIMEOUT (seconds per test, default 120), RIG_TEST_OUT (where
+# emitted packages go, default .zig-cache/rig-test; one run at a time
+# uses a directory).
+#
+# Exit status is 1 if any test fails or a known-failing test starts
+# passing (move it out of test/known/ when that happens), 2 on a usage
+# error or when the filters select nothing.
 
 set -uo pipefail
 
@@ -36,18 +42,23 @@ PANIC_RE='Segmentation fault|panic:|panic at|reached unreachable|index out of bo
 POS_RE='\.rig:[0-9]+:[0-9]+'
 LEAK_RE='rig: memory leak detected'
 TIMEOUT=${RIG_TEST_TIMEOUT:-120}
+ZIG=${ZIG:-zig}
+TIMEOUT_CMD=$(command -v timeout || command -v gtimeout) || {
+    echo "test/run needs GNU timeout (on macOS: brew install coreutils)" >&2
+    exit 2
+}
 
 # -----------------------------------------------------------------------------
 # Worker: run one test, write a result file. Invoked through xargs.
 #   result line: <status>\t<id>\t<one-line reason>
 #   status: pass | fail | known | fixed
-# Details (captured output) go to <result>.log.
+# Results go to $RESULTS/st/, details (captured output) to $RESULTS/log/.
 # -----------------------------------------------------------------------------
 
 # Expected stdout: the `# expect:` block, one `# line` per output line.
 expected_stdout() {
     awk '
-        inblock && /^#/ { sub(/^# ?/, ""); print; next }
+        inblock && /^#/ { sub(/^# ?/, ""); sub(/\r$/, ""); print; next }
         inblock { exit }
         /^# expect:[[:space:]]*$/ { inblock = 1 }
     ' "$1"
@@ -65,7 +76,7 @@ check_behavior() {
     local out="$outdir.stdout" err="$outdir.stderr"
     mkdir -p "$outdir"
     # The braces keep bash's own "Abort trap" job notice out of the output.
-    { RIG_OUT_DIR="$outdir" timeout "$TIMEOUT" "$RIG" run "$entry" >"$out" 2>"$err" </dev/null; } 2>/dev/null
+    { RIG_OUT_DIR="$outdir" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$entry" >"$out" 2>"$err" </dev/null; } 2>/dev/null
     local rc=$?
     local panic_want
     panic_want=$(directive expect-panic "$entry" | head -1)
@@ -112,20 +123,24 @@ classify_failure() { # <stderr file> <rc>
 check_reject() {
     local entry=$1 log=$2
     local out
-    out=$(timeout "$TIMEOUT" "$RIG" check "$entry" 2>&1 </dev/null)
+    out=$("$TIMEOUT_CMD" "$TIMEOUT" "$RIG" check "$entry" 2>&1 </dev/null)
     local rc=$?
     echo "$out" >"$log"
     if [[ $rc -eq 124 ]]; then REASON="timed out"; return 1; fi
     if [[ $rc -gt 128 ]] || grep -qE "$PANIC_RE" <<<"$out"; then REASON="compiler crashed"; return 1; fi
     if [[ $rc -eq 0 ]]; then REASON="accepted (expected rejection)"; return 1; fi
     # Match `# error:` text against the diagnostic lines' messages only:
-    # not the file paths, and not the source excerpts under them.
-    local want msgs
-    msgs=$(grep -E "$POS_RE" <<<"$out" | sed -E 's/^[^ ]*\.rig:[0-9]+:[0-9]+: //')
+    # not the file paths, and not the source excerpts under them. Each
+    # line of `msgs` is `L:C: message`; `# error: L:C: text` pins the
+    # position too.
+    local want msgs pin
+    msgs=$(grep -E "$POS_RE" <<<"$out" | sed -E 's/^[^ ]*\.rig:([0-9]+:[0-9]+): (error|  note): /\1: /')
     while IFS= read -r want; do
         [[ -z "$want" ]] && continue
-        if ! grep -qF -- "$want" <<<"$msgs"; then
-            REASON="diagnostic lacks \"$want\"; got: $(head -1 <<<"$out")"
+        pin=""
+        if [[ $want =~ ^([0-9]+:[0-9]+):\ (.*)$ ]]; then pin=${BASH_REMATCH[1]} want=${BASH_REMATCH[2]}; fi
+        if ! grep -F -- "$want" <<<"$msgs" | grep -qE "^${pin:-[0-9]+:[0-9]+}: "; then
+            REASON="no diagnostic${pin:+ at $pin} contains \"$want\"; got: $(head -1 <<<"$out")"
             return 1
         fi
     done < <(directive error "$entry")
@@ -140,20 +155,20 @@ check_torture() {
     local entry=$1 outdir=$2 log=$3
     mkdir -p "$outdir"
     local out
-    out=$(RIG_OUT_DIR="$outdir" timeout 20 "$RIG" run "$entry" 2>&1 </dev/null)
+    out=$(RIG_OUT_DIR="$outdir" "$TIMEOUT_CMD" "$TIMEOUT" "$RIG" run "$entry" 2>&1 </dev/null)
     local rc=$?
     echo "$out" >"$log"
-    if [[ $rc -gt 128 ]] || grep -qE "$PANIC_RE" <<<"$out"; then REASON="compiler panic on bad input"; return 1; fi
     if [[ $rc -eq 124 ]]; then REASON="timed out"; return 1; fi
+    if [[ $rc -gt 128 ]] || grep -qE "$PANIC_RE" <<<"$out"; then REASON="compiler panic on bad input"; return 1; fi
     if [[ $rc -eq 0 ]]; then REASON="bad input was accepted and ran"; return 1; fi
-    if [[ -z "$out" ]]; then REASON="rejected without a diagnostic"; return 1; fi
+    if ! grep -qE "$POS_RE" <<<"$out"; then REASON="rejected without a file:line:col diagnostic: $(head -1 <<<"$out")"; return 1; fi
     return 0
 }
 
 # check_accept <entry> <logfile>: `rig check` accepts the program.
 check_accept() {
     local out
-    out=$(timeout "$TIMEOUT" "$RIG" check "$1" 2>&1 </dev/null)
+    out=$("$TIMEOUT_CMD" "$TIMEOUT" "$RIG" check "$1" 2>&1 </dev/null)
     local rc=$?
     echo "$out" >"$2"
     if [[ $rc -eq 0 ]]; then return 0; fi
@@ -166,7 +181,7 @@ check_accept() {
 # check_parse <entry> <logfile>: the file parses.
 check_parse() {
     local out
-    out=$(timeout "$TIMEOUT" "$RIG" parse "$1" 2>&1 >/dev/null </dev/null)
+    out=$("$TIMEOUT_CMD" "$TIMEOUT" "$RIG" parse "$1" 2>&1 >/dev/null </dev/null)
     local rc=$?
     echo "$out" >"$2"
     if [[ $rc -eq 0 ]]; then return 0; fi
@@ -178,7 +193,7 @@ check_parse() {
 # exactly the expected facts.
 check_facts() {
     local out
-    out=$(timeout "$TIMEOUT" "$RIG" check --facts "$1" 2>&1 </dev/null)
+    out=$("$TIMEOUT_CMD" "$TIMEOUT" "$RIG" check --facts "$1" 2>&1 </dev/null)
     local rc=$?
     echo "$out" >"$3"
     if [[ $rc -ne 0 ]]; then REASON="rejected: $(head -1 <<<"$out")"; return 1; fi
@@ -201,8 +216,12 @@ check_doc() {
     esac
     ok=$?
     # Report positions relative to the example, not the scratch directory.
-    REASON=${REASON//$dir\//}
-    [[ -f "$log" ]] && sed "s|$dir/||g" "$log" >"$log.tmp" && mv "$log.tmp" "$log"
+    REASON=${REASON//"$dir/"/}
+    if [[ -f "$log" ]]; then
+        local text
+        text=$(<"$log")
+        printf '%s\n' "${text//"$dir/"/}" >"$log"
+    fi
     return $ok
 }
 
@@ -211,7 +230,7 @@ check_doc() {
 check_cli() {
     local script=$1 outdir=$2 log=$3
     mkdir -p "$outdir/work"
-    (cd "$outdir/work" && RIG_OUT_DIR="$outdir/pkg" timeout "$TIMEOUT" bash "$ROOT/$script") >"$log" 2>&1 </dev/null
+    (cd "$outdir/work" && RIG_OUT_DIR="$outdir/pkg" "$TIMEOUT_CMD" "$TIMEOUT" bash "$ROOT/$script") >"$log" 2>&1 </dev/null
     local rc=$?
     if [[ $rc -eq 124 ]]; then REASON="timed out"; return 1; fi
     if [[ $rc -ne 0 ]]; then REASON=$(grep -m1 '^FAIL' "$log" || echo "exit $rc: $(tail -1 "$log")"); return 1; fi
@@ -223,9 +242,12 @@ check_ir() {
     local base=${entry%.rig} ok=0 kind cmd
     for kind in raw sem; do
         [[ $kind == raw ]] && cmd=parse || cmd=normalize
-        local snap="$base.$kind.sexp" got
-        got=$("$RIG" $cmd "$entry" 2>&1)
-        if [[ -n "$UPDATE" ]]; then
+        local snap="$base.$kind.sexp" got rc
+        got=$("$TIMEOUT_CMD" "$TIMEOUT" "$RIG" $cmd "$entry" 2>&1 </dev/null)
+        rc=$?
+        if [[ $rc -ne 0 ]]; then
+            REASON="rig $cmd failed (exit $rc): $(head -1 <<<"$got")"; ok=1
+        elif [[ -n "$UPDATE" ]]; then
             printf '%s\n' "$got" >"$snap"
         elif [[ ! -f "$snap" ]]; then
             REASON="missing snapshot $(basename "$snap") (run with --update)"; ok=1
@@ -238,8 +260,8 @@ check_ir() {
 
 worker() {
     local id=$1 path=$2
-    local res="$RESULTS/${id//\//__}"
-    local log="$res.log" outdir="$OUTROOT/$id"
+    local res="$RESULTS/st/${id//\//__}"
+    local log="$RESULTS/log/${id//\//__}" outdir="$OUTROOT/$id"
     local entry=$path
     [[ -d "$path" ]] && entry="$path/main.rig"
     REASON=""
@@ -285,7 +307,8 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --update) UPDATE=1 ;;
         -v) VERBOSE=1 ;;
-        -j) JOBS=$2; shift ;;
+        -j) [[ $# -ge 2 && $2 =~ ^[1-9][0-9]*$ ]] || { echo "-j needs a number of jobs" >&2; exit 2; }
+            JOBS=$2; shift ;;
         -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*) echo "unknown option $1" >&2; exit 2 ;;
         *) FILTERS+=("$1") ;;
@@ -300,18 +323,34 @@ else
 fi
 
 START=$SECONDS
+
+# One run at a time per output directory: every test empties its own
+# directory there, so concurrent runs would delete each other's builds.
+# A lock whose owner has died is taken over.
+OUTROOT=${RIG_TEST_OUT:-$ROOT/.zig-cache/rig-test}
+LOCK="$OUTROOT.lock" WORK=""
+mkdir -p "$(dirname "$OUTROOT")"
+until mkdir "$LOCK" 2>/dev/null; do
+    holder=$(cat "$LOCK/pid" 2>/dev/null)
+    if [[ -n "$holder" ]] && ! kill -0 "$holder" 2>/dev/null; then rm -rf "$LOCK"; continue; fi
+    [[ -n "${WAITED:-}" ]] || printf 'waiting for the test run in %s (pid %s); set RIG_TEST_OUT to run beside it\n' "$OUTROOT" "${holder:-?}" >&2
+    WAITED=1
+    sleep 1
+done
+echo $$ >"$LOCK/pid"
+trap 'rm -rf "$LOCK" ${WORK:+"$WORK"}' EXIT
+trap 'exit 130' INT TERM
+
 printf '%sbuilding rig%s\n' "$D" "$X"
-if ! zig build 2>&1; then
+if ! "$ZIG" build 2>&1; then
     printf '%sbuild failed%s\n' "$R" "$X"
     exit 1
 fi
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/rig-test.XXXXXX")
 RESULTS="$WORK/results"
-OUTROOT="$ROOT/.zig-cache/rig-test"
-mkdir -p "$RESULTS" "$OUTROOT"
-trap 'rm -rf "$WORK"' EXIT
-export ROOT RIG RESULTS OUTROOT UPDATE TIMEOUT PANIC_RE POS_RE LEAK_RE
+mkdir -p "$RESULTS/st" "$RESULTS/log" "$OUTROOT"
+export ROOT RIG ZIG RESULTS OUTROOT UPDATE TIMEOUT TIMEOUT_CMD PANIC_RE POS_RE LEAK_RE
 
 selected() {
     [[ ${#FILTERS[@]} -eq 0 ]] && return 0
@@ -432,16 +471,16 @@ done
 # Whole-program checks run alongside the per-file tests.
 UNIT_LOG="$WORK/unit.log" UNIT_PID=""
 if selected unit; then
-    zig build test >"$UNIT_LOG" 2>&1 &
+    "$ZIG" build test >"$UNIT_LOG" 2>&1 &
     UNIT_PID=$!
 fi
 if selected parser; then
     if [[ -x "$NEXUS" ]]; then
         if "$NEXUS" rig.grammar "$WORK/parser.zig" >"$WORK/parser.log" 2>&1 &&
             cmp -s "$WORK/parser.zig" src/parser.zig; then
-            printf 'pass\tparser\t\n' >"$RESULTS/parser"
+            printf 'pass\tparser\t\n' >"$RESULTS/st/parser"
         else
-            printf 'fail\tparser\tsrc/parser.zig is stale or hand-edited; run zig build parser\n' >"$RESULTS/parser"
+            printf 'fail\tparser\tsrc/parser.zig is stale or hand-edited; run zig build parser\n' >"$RESULTS/st/parser"
         fi
     else
         printf '%snote: %s not built; skipping parser freshness check%s\n' "$Y" "$NEXUS" "$X"
@@ -449,12 +488,26 @@ if selected parser; then
 fi
 
 TOTAL=$(wc -l <"$LIST" | tr -d ' ')
+if [[ $TOTAL -eq 0 && -z "$UNIT_PID" ]] && ! selected parser; then
+    echo "no test matches ${FILTERS[*]}" >&2
+    exit 2
+fi
+DUPLICATES=$(cut -f1 "$LIST" | sort | uniq -d)
+if [[ -n "$DUPLICATES" ]]; then
+    printf 'two tests have the id %s (a name.rig beside a name/ directory?)\n' $DUPLICATES >&2
+    exit 1
+fi
 printf '%srunning %s tests (-j %s)%s\n' "$D" "$TOTAL" "$JOBS" "$X"
-tr '\t' '\n' <"$LIST" | xargs -n 2 -P "$JOBS" "$0" --worker
+while IFS=$'\t' read -r id path; do printf '%s\0%s\0' "$id" "$path"; done <"$LIST" |
+    xargs -0 -n 2 -P "$JOBS" "$0" --worker
+# A worker that died left no result.
+while IFS=$'\t' read -r id path; do
+    [[ -f "$RESULTS/st/${id//\//__}" ]] || printf 'fail\t%s\tno result: the test runner died\n' "$id" >"$RESULTS/st/${id//\//__}"
+done <"$LIST"
 
 if [[ -n "$UNIT_PID" ]]; then
-    if wait "$UNIT_PID"; then printf 'pass\tunit\t\n' >"$RESULTS/unit"
-    else printf 'fail\tunit\tzig build test failed\n' >"$RESULTS/unit"; cp "$UNIT_LOG" "$RESULTS/unit.log"; fi
+    if wait "$UNIT_PID"; then printf 'pass\tunit\t\n' >"$RESULTS/st/unit"
+    else printf 'fail\tunit\tzig build test failed\n' >"$RESULTS/st/unit"; cp "$UNIT_LOG" "$RESULTS/log/unit"; fi
 fi
 
 # -----------------------------------------------------------------------------
@@ -462,10 +515,10 @@ fi
 # -----------------------------------------------------------------------------
 
 ALL="$WORK/all"
-cat "$RESULTS"/* 2>/dev/null | grep -E '^(pass|fail|known|fixed)'$'\t' | sort -t$'\t' -k2 >"$ALL"
+cat "$RESULTS"/st/* 2>/dev/null | sort -t$'\t' -k2 >"$ALL"
 
 show_log() {
-    local log="$RESULTS/${1//\//__}.log"
+    local log="$RESULTS/log/${1//\//__}"
     [[ -s "$log" ]] && head -40 "$log" | sed 's/^/        /'
 }
 

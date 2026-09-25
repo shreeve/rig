@@ -1,0 +1,17 @@
+# In a closure body laid out inside a call's parentheses, `name: Type`
+# starts a typed binding, not a keyword argument; keyword arguments of
+# calls inside the body still work.
+
+fun g(a: Int, b: Int) -> Int
+  a * 10 + b
+
+sub run(f: *sub())
+  f()
+
+sub main()
+  run(*||
+    x: Int = 1
+    print(x, g(a: 1, b: 2)))
+
+# expect:
+# 1 12

@@ -1,0 +1,34 @@
+# `=> -name` in a match used as a statement drops `name` in that arm; in
+# a match whose value is used, it is negation.
+
+struct N
+  id: Int
+
+  drop self: !N
+    print("drop", self.id)
+
+sub run(k: Int)
+  a = N(id: k)
+  match k
+    1 => print("one")
+    else => -a
+  print("end", k)
+
+fun pick(k: Int) -> Int
+  a = 5
+  return match k
+    1 => 1
+    else => -a
+
+sub main()
+  run(1)
+  run(2)
+  print(pick(2))
+
+# expect:
+# one
+# end 1
+# drop 1
+# drop 2
+# end 2
+# -5

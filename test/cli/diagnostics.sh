@@ -37,3 +37,16 @@ EOF
 expect_eq "$(cat out.txt)" "parse.rig:2:12: error: unexpected \`)\`; expected an operand
   x = (1 + )
            ^" "parse error at its token"
+
+# At most 100 errors print; the rest are counted.
+{ echo "sub main()"; for ((i = 0; i < 150; i++)); do echo "  print(missing$i)"; done; } >many.rig
+"$RIG" check many.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a program with many errors"
+expect_eq "$(grep -c ': error: ' out.txt)" "100" "errors printed"
+expect_eq "$(tail -1 out.txt)" "50 more errors not shown" "errors counted"
+
+# A column counts characters, not bytes.
+printf 'sub main()\n  print("\xc3\xa9\xc3\xa9", missing)\n' >utf8.rig
+"$RIG" check utf8.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a program with UTF-8"
+expect_eq "$(cat out.txt)" "utf8.rig:2:15: error: use of unbound name \`missing\`
+  print(\"éé\", missing)
+              ^~~~~~~" "UTF-8 column and caret"

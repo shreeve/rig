@@ -7,4 +7,4 @@ sub main()
   x = N(5)
   print(x)
 
-# error: `N`
+# error: 7:7: `N` is a type alias for `Int` and cannot be called as a constructor; construct the aliased type directly

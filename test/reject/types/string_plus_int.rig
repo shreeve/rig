@@ -5,4 +5,4 @@ sub main()
   t = s + 1
   print(t)
 
-# error: `String`
+# error: 5:7: operator `+` requires numeric operands; got `String`

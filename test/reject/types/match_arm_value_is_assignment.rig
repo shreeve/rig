@@ -1,0 +1,17 @@
+# A match whose value is used needs a value from every arm; an arm that
+# ends in an assignment has none.
+
+enum Op
+  a
+  b
+
+fun broken(op: Op) -> Int
+  match op
+    .a
+      x = 5
+    .b => 7
+
+sub main()
+  print(broken(.a))
+
+# error: 11:7: type mismatch: expected `Int`, got `Void`

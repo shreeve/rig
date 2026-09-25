@@ -13,4 +13,4 @@ sub main()
   if c == s
     print("same")
 
-# error: `Shape`
+# error: 13:6: cannot compare `Color` with `Shape`

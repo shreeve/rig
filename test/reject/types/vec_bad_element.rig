@@ -11,5 +11,5 @@ sub main()
   w: Vec(Vec(Int)) = Vec()
 
 # error: requires `T` to be a Copy type (Int, Bool, Float, String), a shared handle
-# error: got `View`
-# error: got `Vec(Int)`
+# error: 7:16: `Vec(T)` requires `T` to be a Copy type (Int, Bool, Float, String), a shared handle (`*T`), or a weak handle (`~T`); got `View`
+# error: 11:6: `Vec(T)` requires `T` to be a Copy type (Int, Bool, Float, String), a shared handle (`*T`), or a weak handle (`~T`); got `Vec(Int)`

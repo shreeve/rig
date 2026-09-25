@@ -244,8 +244,12 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //     `a.b`           member          `.red`, `f .red`  enum literal
 //     `x!`, `T?`      suffix          `!x`, `?x`   write / read borrow
 //
-//   `-x` at the start of a statement that is nothing but `-name` is a
-//   drop; otherwise `-x` is negation.
+//   `-x` at the start of a statement (or a match arm) that is nothing
+//   but `-name` is a drop; otherwise `-x` is negation.
+//
+//   Two operands never touch (`t.5`, `print"hi"`), and neither does a
+//   `=!` or `<-` and the operand after it (`x =!y`): the spacing would
+//   not say what was meant, so these are errors.
 //
 // `if`
 //   After `return`/`break`/`continue` or a value, `if` is a postfix guard
@@ -267,14 +271,15 @@ pub const Lexer = struct {
     pending_newline: bool = false,
     pending_pos: u32 = 0,
 
-    // Open ( and [; newlines inside them are whitespace.
-    brackets: [max_nesting]u8 = undefined,
+    // Positions of the open ( and [; newlines inside them are whitespace.
+    brackets: [max_nesting]u32 = undefined,
     nesting: u32 = 0,
 
     /// Category of the last token returned.
     last_cat: TokenCat = .eof,
-    /// End of the last real (non-layout) token: where an unexpected end
-    /// of block or file is reported.
+    /// Start and end of the last real (non-layout) token; an unexpected
+    /// end of block or file is reported at its end.
+    prev_pos: u32 = 0,
     prev_end: u32 = 0,
     /// A newline or `\` continuation was skipped since the last token.
     joined: bool = false,
@@ -311,21 +316,41 @@ pub const Lexer = struct {
         first_line_indented,
         indent_too_deep,
         nesting_too_deep,
+        islands_too_deep,
         and_operator,
         or_operator,
         power_operator,
         pin_sigil,
+        control_in_string,
+        lone_cr,
+        leading_zero,
+        radix_case,
+        bad_number,
+        too_long,
+        ambiguous_fixed,
+        ambiguous_move,
+        missing_space,
 
         pub fn message(e: LexError) []const u8 {
             return switch (e) {
                 .none => "invalid token",
                 .bad_char => "invalid character",
                 .unterminated_string => "unterminated string",
+                .control_in_string => "control character in a string; write it as an escape (`\\t`, `\\n`) in a double-quoted string",
+                .lone_cr => "carriage return without a line feed; end lines with `\\n` or `\\r\\n`",
+                .leading_zero => "a decimal number has no leading zero",
+                .radix_case => "radix prefixes are lowercase: `0x`, `0b`, `0o`",
+                .bad_number => "malformed number; `_` may separate digits, and a space or an operator ends a number",
+                .too_long => "token is longer than 65535 bytes",
+                .ambiguous_fixed => "`=!` touches the operand after it: write `x =! y` for a fixed binding, or `x = !y` for a write borrow",
+                .ambiguous_move => "`<-` touches the operand after it: write `a <- b` to move-assign, or `a < -b` to compare",
+                .missing_space => "missing space or operator",
                 .tab_indent => "tab in indentation; indent with spaces",
                 .bad_dedent => "indentation does not match any enclosing block",
                 .first_line_indented => "unexpected indentation",
                 .indent_too_deep => "indentation is nested too deeply",
                 .nesting_too_deep => "brackets are nested too deeply",
+                .islands_too_deep => "closures laid out inside brackets are nested too deeply",
                 .and_operator => "`&&` is not a Rig operator; use `and`",
                 .or_operator => "`||` is not a Rig operator; use `or`",
                 .power_operator => "`**` is not a Rig operator",
@@ -335,7 +360,9 @@ pub const Lexer = struct {
     };
 
     pub fn init(source: []const u8) Lexer {
-        return .{ .base = BaseLexer.init(source) };
+        var lexer: Lexer = .{ .base = BaseLexer.init(source) };
+        if (std.mem.startsWith(u8, source, "\xEF\xBB\xBF")) lexer.base.pos = 3; // a UTF-8 byte order mark
+        return lexer;
     }
 
     pub fn text(self: *const Lexer, tok: Token) []const u8 {
@@ -345,14 +372,15 @@ pub const Lexer = struct {
     pub fn next(self: *Lexer) Token {
         const tok = self.produce();
         self.last_cat = tok.cat;
-        if (tok.len > 0) { // a real token, not layout
+        if (tok.len > 0 and tok.cat != .err) { // a real token, not layout
             self.joined = false;
+            self.prev_pos = tok.pos;
             self.prev_end = tok.pos + tok.len;
         }
         if (self.closed_bars) {
             self.closed_bars = false;
             if (self.nesting > 0 and !self.inIsland() and self.lineEndsAfter()) {
-                if (self.island_count == max_islands) return self.fail(.nesting_too_deep, tok.pos);
+                if (self.island_count == max_islands) return self.fail(.islands_too_deep, tok.pos);
                 self.islands[self.island_count] = .{
                     .nesting = self.nesting,
                     .depth = self.depth,
@@ -424,6 +452,8 @@ pub const Lexer = struct {
             const tok = self.base.matchRules();
             switch (tok.cat) {
                 .comment => continue,
+                // A comment longer than a token can hold.
+                .err => if (tok.len == std.math.maxInt(u16) and self.base.source[tok.pos] == '#') continue,
                 .skip => { // `\` line continuation
                     self.joined = true;
                     continue;
@@ -439,9 +469,7 @@ pub const Lexer = struct {
                 .eof => return self.endOfInput(tok),
                 else => {},
             }
-            if (self.last_cat == .eof and self.columnOf(tok.pos) > 0) {
-                return self.fail(.first_line_indented, tok.pos);
-            }
+            if (self.last_cat == .eof and tok.pre > 0) return self.firstLineIndented(tok);
             return self.classify(tok);
         }
     }
@@ -455,10 +483,13 @@ pub const Lexer = struct {
         return .{ .cat = .err, .pre = 0, .pos = pos, .len = 0 };
     }
 
-    fn columnOf(self: *const Lexer, pos: u32) u32 {
-        var i = pos;
-        while (i > 0 and self.base.source[i - 1] != '\n') i -= 1;
-        return pos - i;
+    /// The first token of the file is indented: with a tab, or spaces.
+    fn firstLineIndented(self: *Lexer, tok: Token) Token {
+        const src = self.base.source;
+        var start = tok.pos;
+        while (start > 0 and (src[start - 1] == ' ' or src[start - 1] == '\t')) start -= 1;
+        if (std.mem.indexOfScalar(u8, src[start..tok.pos], '\t')) |tab| return self.fail(.tab_indent, start + @as(u32, @intCast(tab)));
+        return self.fail(.first_line_indented, tok.pos);
     }
 
     // -------------------------------------------------------------------------
@@ -481,8 +512,12 @@ pub const Lexer = struct {
                 return self.endOfInput(synthetic(.eof, @intCast(src.len)));
             }
             switch (src[p]) {
-                '\n', '\r' => {
+                '\n' => {
                     line = p + 1;
+                    continue;
+                },
+                '\r' => if (p + 1 < src.len and src[p + 1] == '\n') {
+                    line = p + 2;
                     continue;
                 },
                 '#' => {
@@ -567,13 +602,22 @@ pub const Lexer = struct {
         if ((tok.cat == .rparen or tok.cat == .rbracket) and self.inIsland()) {
             if (self.closeIsland(tok.pos, tok)) |outdent| return outdent;
         }
+        // Two operands with nothing between them (`t.5`, `print"hi"`); a
+        // type may touch the `]` of its array or slice prefix (`[2]Int`).
+        if (isValue(self.last_cat) and self.last_cat != .rbracket and !self.spacedBefore(tok)) switch (tok.cat) {
+            .ident, .integer, .real, .string_sq, .string_dq => {
+                self.err = .missing_space;
+                return .{ .cat = .err, .pre = 0, .pos = tok.pos, .len = tok.len };
+            },
+            else => {},
+        };
         var out = tok;
         out.cat = switch (tok.cat) {
             .ident => self.classifyWord(tok),
             .dot => if (self.isEnumLiteralDot(tok)) .dot_lit else .dot,
             .lparen, .lbracket => blk: {
                 if (self.nesting == max_nesting) return self.fail(.nesting_too_deep, tok.pos);
-                self.brackets[self.nesting] = self.base.source[tok.pos];
+                self.brackets[self.nesting] = tok.pos;
                 self.nesting += 1;
                 if (!self.touchesValue(tok)) break :blk tok.cat;
                 break :blk if (tok.cat == .lparen) .lparen_call else .lbracket_index;
@@ -597,7 +641,10 @@ pub const Lexer = struct {
                 break :blk .bar_empty;
             } else return self.fail(.or_operator, tok.pos),
             .power => return self.fail(.power_operator, tok.pos),
-            .err => return self.fail(self.lexErrorAt(tok), tok.pos),
+            // `x =!y`: a fixed binding of `y`, or a write borrow?
+            .fixed_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_fixed, tok.pos) else tok.cat,
+            .move_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_move, tok.pos) else tok.cat,
+            .err => return self.lexError(tok),
             else => tok.cat,
         };
         switch (out.cat) {
@@ -627,12 +674,14 @@ pub const Lexer = struct {
 
     /// `-` is infix when spaced after or attached to a value (`a - b`,
     /// `a-b`); otherwise a prefix: a drop when `-name` is a whole
-    /// statement, negation otherwise.
+    /// statement (a line, a `defer`, or a match arm), negation otherwise.
     fn classifyMinus(self: *const Lexer, tok: Token) TokenCat {
         if (!self.isPrefix(tok)) return .minus;
-        if ((self.atStatementStart() or self.last_cat == .@"defer" or self.last_cat == .@"errdefer") and
-            self.isWholeDropStatement())
-        {
+        const starts = switch (self.last_cat) {
+            .@"defer", .@"errdefer", .fat_arrow => true,
+            else => self.atStatementStart(),
+        };
+        if (starts and self.isWholeDropStatement()) {
             return .drop_stmt;
         }
         return .minus_prefix;
@@ -784,8 +833,9 @@ pub const Lexer = struct {
         };
     }
 
+    /// Directly inside ( ), not in a closure body laid out there.
     fn inParens(self: *const Lexer) bool {
-        return self.nesting > 0 and self.brackets[self.nesting - 1] == '(';
+        return self.nesting > 0 and !self.inIsland() and self.base.source[self.brackets[self.nesting - 1]] == '(';
     }
 
     fn nextCat(self: *const Lexer) TokenCat {
@@ -799,9 +849,41 @@ pub const Lexer = struct {
         return t.cat == .ident and keyword(self.base.text(t)) == null;
     }
 
-    fn lexErrorAt(self: *const Lexer, tok: Token) LexError {
-        const c = self.base.source[tok.pos];
-        return if (c == '"' or c == '\'') .unterminated_string else .bad_char;
+    /// Why the grammar produced an `err` token.
+    fn lexError(self: *Lexer, tok: Token) Token {
+        if (tok.len == std.math.maxInt(u16)) return self.fail(.too_long, tok.pos);
+        const t = self.base.text(tok);
+        return switch (t[0]) {
+            '"', '\'' => self.stringError(tok.pos),
+            '0'...'9' => self.fail(if (t.len > 1 and t[0] == '0' and std.mem.indexOfScalar(u8, "XBO", t[1]) != null)
+                .radix_case
+            else if (t.len > 1 and t[0] == '0' and (std.ascii.isDigit(t[1]) or t[1] == '_'))
+                .leading_zero
+            else
+                .bad_number, tok.pos),
+            '\r' => self.fail(.lone_cr, tok.pos),
+            else => self.fail(.bad_char, tok.pos),
+        };
+    }
+
+    /// A string starting at `open` that does not lex: a control character
+    /// inside it, or no closing quote on its line.
+    fn stringError(self: *Lexer, open: u32) Token {
+        const src = self.base.source;
+        const quote = src[open];
+        var p = open + 1;
+        while (p < src.len and src[p] != '\n') : (p += 1) {
+            if (quote == '"' and src[p] == '\\' and p + 1 < src.len and src[p + 1] != '\n') {
+                p += 1; // the escaped character
+            } else if (src[p] == quote) {
+                if (quote == '"' or p + 1 == src.len or src[p + 1] != quote) break;
+                p += 1; // `''` in a single-quoted string
+                continue;
+            }
+            const at_line_end = src[p] == '\r' and p + 1 < src.len and src[p + 1] == '\n';
+            if ((src[p] < 0x20 or src[p] == 0x7f) and !at_line_end) return self.fail(.control_in_string, p);
+        }
+        return self.fail(.unterminated_string, open);
     }
 };
 
@@ -902,10 +984,14 @@ pub const Parser = struct {
         const src = self.base.source;
         var pos = tok.pos;
         var end = tok.pos + tok.len;
+        const lexer = &self.base.lexer;
         const message: []const u8 = switch (tok.cat) {
-            .err => return .{ .severity = .@"error", .pos = pos, .end = end, .message = self.base.lexer.err.message() },
+            .err => return .{ .severity = .@"error", .pos = pos, .end = end, .message = if (lexer.err == .missing_space)
+                self.format("missing space or operator between `{s}` and `{s}`", .{ src[lexer.prev_pos..lexer.prev_end], src[pos..end] })
+            else
+                lexer.err.message() },
             .eof, .outdent => blk: {
-                pos = self.base.lexer.prev_end;
+                pos = lexer.prev_end;
                 end = pos;
                 break :blk if (tok.cat == .eof) "unexpected end of file" else "unexpected end of block";
             },
@@ -922,6 +1008,18 @@ pub const Parser = struct {
         const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
         const full = if (reservedHint(src, tok, expected orelse "")) |hint| self.format("{s}; {s}", .{ with_expected, hint }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
+    }
+
+    /// A note for a parse error inside a bracket opened on an earlier
+    /// line, which may be the one left unclosed.
+    pub fn unclosedBracket(self: *Parser) ?diag.Diagnostic {
+        if (self.failure != null) return null;
+        const lexer = &self.base.lexer;
+        if (lexer.nesting == 0) return null;
+        const open = lexer.brackets[lexer.nesting - 1];
+        const src = self.base.source;
+        if (std.mem.indexOfScalar(u8, src[open..self.base.current.pos], '\n') == null) return null;
+        return .{ .severity = .note, .pos = open, .end = open + 1, .message = self.format("the `{c}` opened here is not closed", .{src[open]}) };
     }
 
     /// Why an unexpected token is not Rig: it starts a reserved form.
@@ -1001,8 +1099,9 @@ pub const Parser = struct {
     //   * `for` source sigils move into the mode slot:
     //       (for iter x _ (read xs) body _)  →  (for read x _ xs body _)
     //   * a `-name` statement whose value is used is negation, not a drop:
-    //     the last statement of a `fun` body, or of a branch or arm whose
-    //     value is used, becomes (neg name).
+    //     the last statement of a `fun` body, or of a branch, arm, or
+    //     `catch` handler whose value is used, becomes (neg name). (A
+    //     closure has no declared result, so its body is not rewritten.)
     //
     // Every rewritten node keeps its node id, and so its span; the new
     // `captures` node gets its own (`newNode`).
@@ -1023,8 +1122,9 @@ pub const Parser = struct {
             .@"for" => normFor(walked),
             // The body's value is returned.
             .fun => if (ir.Fun.returns(out) != .nil) valueTail(ir.Fun.body(out)),
-            // The expression's value is bound.
+            // The expression's value is bound or returned.
             .set => valueTail(ir.Set.value(out)),
+            .@"return" => valueTail(ir.Return.value(out)),
             else => {},
         }
         return out;
@@ -1074,6 +1174,7 @@ pub const Parser = struct {
                 valueTail(ir.If.@"else"(sexp));
             },
             .match => for (ir.Match.arms(sexp)) |arm| valueTail(ir.Arm.body(arm)),
+            .@"catch" => valueTail(ir.Catch.handler(sexp)),
             else => {},
         }
     }
@@ -1164,6 +1265,15 @@ test "closure bar lists: typed parameters, empty bars, owned star" {
     try expectCats("x = a | b", &.{ .ident, .assign, .ident, .bar, .ident });
     try expectCats("x = a * b", &.{ .ident, .assign, .ident, .star, .ident });
     try expectCats("x = a || b", &.{ .ident, .assign, .ident, .err });
+}
+
+test "tokens longer than 65535 bytes: a comment is skipped, anything else is an error" {
+    try expectCats("#" ++ "c" ** 70000 ++ "\nx", &.{ .ident, .eof });
+    var lx = Lexer.init("x = " ++ "y" ** 70000);
+    _ = lx.next();
+    _ = lx.next();
+    try testing.expectEqual(TokenCat.err, lx.next().cat);
+    try testing.expectEqual(Lexer.LexError.too_long, lx.err);
 }
 
 test "layout: a closure body inside brackets is laid out in blocks" {

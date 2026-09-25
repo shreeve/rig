@@ -1,0 +1,9 @@
+# `x =!y` could be a fixed binding of `y` or a write borrow `x = !y`;
+# the spacing does not say which, so it is rejected.
+
+sub main()
+  y = 1
+  x =!y
+  print(x)
+
+# error: 6:5: `=!` touches the operand after it: write `x =! y` for a fixed binding, or `x = !y` for a write borrow

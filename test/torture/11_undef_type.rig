@@ -1,5 +1,0 @@
-fun take(x: NopeType) -> Int
-  1
-
-sub main()
-  print(take(0))

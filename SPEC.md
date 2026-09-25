@@ -91,7 +91,8 @@ tab in indentation; indent with spaces
 ### Line joining
 
 Inside `( )` and `[ ]` a newline is plain whitespace, so arguments,
-expressions, and method chains can span lines at any indentation. A
+expressions, and method chains can span lines at any indentation. An
+array, a call's arguments, and a parameter list may end with a comma. A
 backslash at the end of a line joins the next line anywhere.
 
 ```rig
@@ -147,9 +148,9 @@ unexpected keyword `in`
 
 | Literal | Examples | Notes |
 |---|---|---|
-| Integer | `42`, `0xff`, `0b1010`, `0o17` | no digit separators or suffixes |
+| Integer | `42`, `1_000`, `0xff`, `0b1010`, `0o17` | `_` may separate digits; radix prefixes are lowercase; no leading zeros or suffixes |
 | Float | `3.14`, `1.0e10`, `2e-3`, `1.5E+2` | a digit sequence with a `.` or an exponent |
-| String | `"tab\tnewline\n"`, `'it''s'` | double quotes take Zig escapes (`\n`, `\t`, `\\`, `\"`, `\x41`, `\u{e9}`); single quotes take none, and `''` is one `'` |
+| String | `"tab\tnewline\n"`, `'it''s'` | double quotes take Zig escapes (`\n`, `\t`, `\\`, `\"`, `\x41`, `\u{e9}`); single quotes take none, and `''` is one `'`; neither holds a control character (a raw tab or newline) |
 | Bool | `true`, `false` | |
 | Absent optional | `none` | see [§13](#13-optionals) |
 | Array | `[1, 2, 3]` | see [§3](#arrays) |
@@ -886,8 +887,8 @@ A guard ends a statement; inside an expression, write the ternary
 
 ### while
 
-`while cond` repeats its block. `while cond : step` runs `step` after
-each iteration (including after `continue`). `while e as x` repeats
+`while cond` repeats its block. `while cond : step` runs `step`, an
+assignment or a call, after each iteration (including after `continue`). `while e as x` repeats
 while the optional `e` has a value. An `else` block runs when the loop
 ends without `break`.
 

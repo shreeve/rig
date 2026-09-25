@@ -1,0 +1,5 @@
+# Lines end with LF or CRLF; a carriage return alone is an error.
+
+sub main()  print(1)
+
+# error: 3:11: carriage return without a line feed
