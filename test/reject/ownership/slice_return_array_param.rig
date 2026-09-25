@@ -5,18 +5,25 @@
 struct View
   xs: []Int
 
+struct S
+  arr: [3]Int
+
 fun f(a: ?[3]Int) -> []Int
   ?a[0..2]
 
 sub keep(v: !View, a: ?[3]Int)
   v.xs = ?a[0..2]
 
+fun field(p: ?S) -> []Int
+  ?p.arr[0..2]
+
 sub main()
   a = [1, 2, 3]
   print(f(?a))
   view = View(xs: ?a[0..1])
   keep(!view, ?a)
-  print(view.xs)
+  print(view.xs, field(?S(arr: a)))
 
-# error: 9:4: cannot return a slice of `a`
-# error: 12:3: cannot store a borrow of `a` in `v.xs`
+# error: 12:4: cannot return a slice of `a`
+# error: 15:3: cannot store a borrow of `a` in `v.xs`
+# error: 18:4: cannot return a slice of `p`

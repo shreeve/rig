@@ -197,6 +197,9 @@ pub const Emitter = struct {
     /// last: each loop's Rig label (or none), the Zig block its `break`
     /// values leave, and its type.
     value_loops: std.ArrayListUnmanaged(ValueLoop) = .empty,
+    /// The place being emitted is only read: a Vec element on its path
+    /// is reached through `constSlot`.
+    read_place: bool = false,
     /// The `else` of the loop used as a value being emitted, which is
     /// written after the loop as the block's value.
     value_else: Sexp = .nil,
@@ -2261,7 +2264,7 @@ pub const Emitter = struct {
         if (index.isKind(.@"..")) return self.emitSlice(base, base_ty, index);
         if (base_ty != null and self.isVecTy(base_ty.?)) {
             try self.emitExpr(base);
-            try self.w.writeAll(if (as_place) ".slot(" else ".at(");
+            try self.w.writeAll(if (!as_place) ".at(" else if (self.read_place) ".constSlot(" else ".slot(");
             // The index itself is a value, even inside an assignment target.
             self.place_chain = false;
             try self.emitBare(index);
@@ -2314,7 +2317,12 @@ pub const Emitter = struct {
             try self.emitExpr(base);
             try self.w.writeAll(".items()");
         } else if (self.sema.types.get(ty) == .array) {
+            // Only read through: a Vec element on the way is reached
+            // through a read-only slot.
+            const saved_read = self.read_place;
+            self.read_place = true;
             try self.emitAddressOf(base);
+            self.read_place = saved_read;
         } else try self.emitBare(base);
         self.rt_names = saved_rt;
         try self.w.writeAll(", ");

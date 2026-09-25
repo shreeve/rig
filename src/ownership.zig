@@ -1481,10 +1481,10 @@ pub const Checker = struct {
 
     /// `?xs[a..b]`. A slice of a String or a `[]T` views what that value
     /// views. A slice of a Vec borrows the Vec, whose buffer it points
-    /// into. A slice of an array points into the storage of the var the
-    /// array is reached from, which may be a copy (a borrowed parameter,
-    /// a read borrow of plain data, a loop or pattern binding): it also
-    /// holds a frame loan on that var, so it cannot outlive it.
+    /// into. A slice of an array held in the storage of the var it is
+    /// reached from, which may be a copy (a borrowed parameter, a read
+    /// borrow of plain data, a loop or pattern binding), also holds a
+    /// frame loan on that var, so it cannot outlive it.
     fn walkSlice(self: *Checker, slice: Sexp) Error!Value {
         const object = ir.Index.object(slice);
         const ty = self.exprType(object) orelse return self.walk(slice);
@@ -1499,10 +1499,26 @@ pub const Checker = struct {
         const loan: Loan = .{ .root = id, .kind = .read, .pos = pos };
         try self.addTemp(loan);
         const v = try self.reborrow(id, loan);
-        if (self.typeData(peeled) != .array) return v;
+        if (self.typeData(peeled) != .array or !self.inVarStorage(object)) return v;
         const frame = try self.arena().alloc(Loan, 1);
         frame[0] = .{ .root = id, .kind = .read, .pos = pos, .frame = true };
         return .{ .loans = try self.unionLoans(v.loans, frame) };
+    }
+
+    /// Whether the value of place `e` is stored in the var the place
+    /// starts from, rather than behind a pointer, a handle, or a Vec's
+    /// buffer, whose own loans cover it. A read borrow of plain data is a
+    /// copy; one of a value that owns resources or holds a Cell is a
+    /// pointer.
+    fn inVarStorage(self: *const Checker, e: Sexp) bool {
+        const ctx = self.sema orelse return true;
+        if (self.exprType(e)) |ty| switch (self.typeData(ty)) {
+            .borrow_write, .shared, .slice => return false,
+            .borrow_read => |inner| if (sema.typeHasDropGlue(ctx, inner) or sema.holdsCellByValue(ctx, inner)) return false,
+            else => if (self.isVec(ty)) return false,
+        };
+        if (e.isKind(.member) or e.isKind(.index)) return self.inVarStorage(ir.get(e, .object));
+        return true;
     }
 
     /// The loans of a borrow of (a path inside) var `id`. Borrowing
@@ -2370,7 +2386,7 @@ pub const Checker = struct {
             };
             if (seen) continue;
             if (r.kind == .param) {
-                try self.err(l.pos, "cannot return a slice of `{s}`: a borrowed array parameter is this function's copy of the caller's array; take `{s}: []T` to return part of it", .{ r.name, r.name });
+                try self.err(l.pos, "cannot return a slice of `{s}`: a read-borrowed parameter of plain data is this function's own copy of the caller's value; take a `[]T` parameter to return part of an array", .{r.name});
                 continue;
             }
             try self.err(l.pos, "returned borrow of `{s}` does not originate from a borrowed parameter", .{r.name});
