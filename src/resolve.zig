@@ -868,10 +868,7 @@ pub const TypeResolver = struct {
                                     .generic_type, .generic_enum => "generic types",
                                     else => "enums",
                                 };
-                                try self.ctx.errAt(m, "`drop` declarations on {s} are deferred (only plain structs can declare `drop`); {s}", .{
-                                    where,
-                                    if (generic) "generic Drop requires bounds / monomorphized resource analysis" else "enum Drop requires per-variant payload drop",
-                                });
+                                try self.ctx.errAt(m, "`drop` bodies are only for structs, not {s}", .{where});
                             }
                         },
                         else => {},

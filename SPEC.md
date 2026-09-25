@@ -2706,7 +2706,7 @@ The rest parse, and the checker rejects them as not supported yet
 | Form | Diagnostic |
 |---|---|
 | generic functions (`pre T: type`) | `` generic functions are not supported yet `` |
-| `drop` on an enum or a generic type | `` `drop` declarations on enums are deferred `` |
+| `drop` on an enum or a generic type | `` `drop` bodies are only for structs `` |
 | a stack closure passed, stored, or returned | `` closures cannot escape their defining scope `` |
 | a generic instance in a module's public surface | `` generic types cannot cross module boundaries yet `` |
 | an array of owning values | `` arrays cannot hold values that own resources ``; use a `Vec` |

@@ -1,4 +1,4 @@
-# `drop` declarations on enums are not supported.
+# A `drop` body is only for a struct, not an enum.
 
 enum Color
   red
@@ -8,4 +8,4 @@ enum Color
   drop self: !Color
     print(1)
 
-# error: `drop` declarations on enums are deferred
+# error: `drop` bodies are only for structs, not enums
