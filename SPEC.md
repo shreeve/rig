@@ -614,6 +614,36 @@ sub main()
 6
 ```
 
+An alias of a struct or enum declared in the same module is that type
+in every role: it constructs values, calls associated functions, and
+names variants.
+
+```rig
+struct Point
+  x: Int
+  y: Int
+
+  fun origin() -> Point
+    Point(x: 0, y: 0)
+
+enum Color
+  red
+  green
+
+type P = Point
+type C = Color
+
+sub main()
+  p = P(x: 3, y: 4)
+  o = P.origin()
+  c = C.green
+  print(p.x + o.x, c == .green)
+```
+
+```output
+3 true
+```
+
 ### Tests
 
 `test "name"` declares a block that is checked like a function body

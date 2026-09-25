@@ -1,0 +1,20 @@
+# An alias of a struct is the struct: it constructs values and reaches
+# the struct's associated functions.
+
+struct Point
+  x: Int
+  y: Int
+
+  fun origin() -> Point
+    Point(x: 0, y: 0)
+
+type P2 = Point
+
+sub main()
+  p = P2(x: 3, y: 4)
+  o = P2.origin()
+  q: Point = p
+  print(q.x, q.y, o.x)
+
+# expect:
+# 3 4 0

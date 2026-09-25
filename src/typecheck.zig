@@ -1988,7 +1988,8 @@ const Checker = struct {
 
     fn namedType(self: *Checker, obj: Sexp) Error!?NamedType {
         if (obj == .src) {
-            const id = self.lookupQuiet(obj) orelse return null;
+            var id = self.lookupQuiet(obj) orelse return null;
+            if (self.aliasedNominal(id)) |target| id = target;
             const sym = self.ctx.symbols.items[id];
             if (sym.kind != .nominal_type and sym.kind != .generic_type) return null;
             try self.ctx.recordName(obj, id);
@@ -2003,6 +2004,18 @@ const Checker = struct {
         const found = (try self.foreignSymbol(id, self.text(name), name.src.pos)) orelse return null;
         if (found.sym.kind != .nominal_type) return null;
         return .{ .id = found.id, .sym = found.sym, .foreign = .{ .ctx = found.ctx, .module_id = found.module_id } };
+    }
+
+    /// The type an alias of a local struct or enum names (`Point` for
+    /// `type P2 = Point`): the alias constructs its values and reaches its
+    /// members as the type itself does.
+    fn aliasedNominal(self: *Checker, id: SymbolId) ?SymbolId {
+        const sym = self.ctx.symbols.items[id];
+        if (sym.kind != .type_alias) return null;
+        return switch (self.ctx.types.get(sym.ty)) {
+            .nominal => |target| target,
+            else => null,
+        };
     }
 
     /// The type a (non-generic) named type denotes.
@@ -2211,13 +2224,18 @@ const Checker = struct {
                     return self.checkConversion(try r.resolveType(callee), name, args, callee.src.pos);
                 }
             }
-            const sym_id = (try self.useName(callee)) orelse return self.skipCall(args);
+            var sym_id = (try self.useName(callee)) orelse return self.skipCall(args);
+            if (self.aliasedNominal(sym_id)) |target| {
+                try self.ctx.recordName(callee, target);
+                sym_id = target;
+            }
             const sym = self.ctx.symbols.items[sym_id];
             if (sym.kind != .nominal_type and sym.kind != .generic_type and sym.kind != .type_alias and sym.kind != .module) {
                 try self.ctx.recordType(callee, sym.ty);
             }
             switch (sym.kind) {
                 .function, .@"extern" => {
+                    if (self.isPoison(sym.ty)) return self.skipCall(args);
                     const fty = self.ctx.types.get(sym.ty);
                     if (fty != .function) return self.badCall(args, callee, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(sym.ty) });
                     if (sym.kind == .@"extern" and self.raw_depth == 0) {

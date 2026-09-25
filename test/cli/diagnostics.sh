@@ -50,3 +50,9 @@ printf 'sub main()\n  print("\xc3\xa9\xc3\xa9", missing)\n' >utf8.rig
 expect_eq "$(cat out.txt)" "utf8.rig:2:15: error: use of unbound name \`missing\`
   print(\"éé\", missing)
               ^~~~~~~" "UTF-8 column and caret"
+
+# A name whose type did not resolve is reported once: calling it adds
+# nothing.
+printf 'extern f: Nope\n\nsub main()\n  raw\n    f(1)\n' >poison.rig
+"$RIG" check poison.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a call to a poisoned name"
+expect_eq "$(grep ': error: ' out.txt)" "poison.rig:1:11: error: use of unbound type \`Nope\`" "one error"
