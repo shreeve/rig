@@ -1262,7 +1262,13 @@ const Checker = struct {
         const sym = decl.symbol();
         if (sym.fields == null) return;
         try self.err(pos, "no variant `{s}` on enum `{s}`", .{ vname, try self.tyName(sema.unwrapBorrows(self.ctx, enum_ty)) });
-        if (decl.module_id == null and sym.decl_pos != sema.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
+        try self.noteDeclared(sym, decl.module_id == null);
+    }
+
+    /// Point at where type `sym` is declared, when that is in this
+    /// module's source (`local`).
+    fn noteDeclared(self: *Checker, sym: sema.Symbol, local: bool) Error!void {
+        if (local and sym.decl_pos != sema.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
     }
 
     // =========================================================================
@@ -2140,7 +2146,7 @@ const Checker = struct {
             try self.err(pos, "opaque type `{s}` has no accessible fields", .{owner.name});
         } else {
             try self.err(pos, "no field `{s}` on type `{s}`", .{ field, owner.name });
-            if (decl.module_id == null and owner.decl_pos != sema.builtin_decl_pos) try self.note(owner.decl_pos, "`{s}` declared here", .{owner.name});
+            try self.noteDeclared(owner, decl.module_id == null);
         }
         return self.t().invalid_id;
     }
@@ -2151,11 +2157,8 @@ const Checker = struct {
         if (try sema.lookupDataField(self.ctx, obj_ty, name)) |f| return f.ty;
         const decl = sema.nominalDecl(self.ctx, sema.unwrapReadAccess(self.ctx, obj_ty)) orelse return null;
         const module_id = decl.module_id orelse return null;
-        for (decl.symbol().fields orelse &.{}) |f| {
-            if (f.is_method or f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
-            return try sema.importType(self.ctx, self.ctx.foreign_semas.get(module_id).?, f.ty, module_id);
-        }
-        return null;
+        const f = findDataField(decl.symbol().fields orelse &.{}, name) orelse return null;
+        return try sema.importType(self.ctx, self.ctx.foreign_semas.get(module_id).?, f.ty, module_id);
     }
 
     /// A method of a receiver's nominal type, local or imported, with
@@ -2188,10 +2191,7 @@ const Checker = struct {
 
     /// `module.name` as a value. Null when `obj` does not name a module.
     fn moduleMember(self: *Checker, obj: Sexp, field: []const u8, pos: u32) Error!?TypeId {
-        if (obj != .src) return null;
-        const id = self.lookupQuiet(obj) orelse return null;
-        if (self.ctx.symbols.items[id].kind != .module) return null;
-        try self.ctx.recordName(obj, id);
+        const id = (try self.moduleNamed(obj)) orelse return null;
         const found = (try self.foreignSymbol(id, field, pos)) orelse return self.t().invalid_id;
         if (found.sym.kind == .nominal_type) {
             try self.err(pos, "`{s}.{s}` is a type, not a value", .{ self.text(obj), field });
@@ -2210,10 +2210,6 @@ const Checker = struct {
         sym: sema.Symbol,
         /// Where an imported type is declared.
         foreign: ?ForeignFields = null,
-
-        fn declaredHere(nt: NamedType) bool {
-            return nt.foreign == null and nt.sym.decl_pos != sema.builtin_decl_pos;
-        }
     };
 
     fn namedType(self: *Checker, obj: Sexp) Error!?NamedType {
@@ -2225,12 +2221,9 @@ const Checker = struct {
             try self.ctx.recordName(obj, id);
             return .{ .id = id, .sym = sym };
         }
-        if (!obj.isKind(.member) or ir.Member.object(obj) != .src) return null;
-        const module = ir.Member.object(obj);
+        if (!obj.isKind(.member)) return null;
+        const id = (try self.moduleNamed(ir.Member.object(obj))) orelse return null;
         const name = ir.Member.name(obj);
-        const id = self.lookupQuiet(module) orelse return null;
-        if (self.ctx.symbols.items[id].kind != .module) return null;
-        try self.ctx.recordName(module, id);
         const found = (try self.foreignSymbol(id, self.text(name), name.src.pos)) orelse return null;
         if (found.sym.kind != .nominal_type) return null;
         return .{ .id = found.id, .sym = found.sym, .foreign = .{ .ctx = found.ctx, .module_id = found.module_id } };
@@ -2270,8 +2263,7 @@ const Checker = struct {
                     return self.t().invalid_id;
                 }
                 const name = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ nt.sym.name, field });
-                const ty = if (nt.foreign) |fo| try sema.importType(self.ctx, fo.ctx, m.ty, fo.module_id) else m.ty;
-                return self.functionValue(ty, name, pos);
+                return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos);
             }
             if (!m.is_variant) break;
             if (nt.sym.kind == .generic_type) {
@@ -2285,8 +2277,18 @@ const Checker = struct {
             return self.namedTypeValue(nt);
         }
         try self.err(pos, "no member `{s}` on type `{s}`", .{ field, nt.sym.name });
-        if (nt.declaredHere()) try self.note(nt.sym.decl_pos, "`{s}` declared here", .{nt.sym.name});
+        try self.noteDeclared(nt.sym, nt.foreign == null);
         return self.t().invalid_id;
+    }
+
+    /// The module a name leaf denotes, recorded as its symbol; null when
+    /// it denotes no module.
+    fn moduleNamed(self: *Checker, leaf: Sexp) Error!?SymbolId {
+        if (leaf != .src) return null;
+        const id = self.lookupQuiet(leaf) orelse return null;
+        if (self.ctx.symbols.items[id].kind != .module) return null;
+        try self.ctx.recordName(leaf, id);
+        return id;
     }
 
     /// The symbol a name leaf denotes where it is written, without
@@ -2541,7 +2543,7 @@ const Checker = struct {
                     if (sym.kind == .@"extern" and self.raw_depth == 0) {
                         try self.errAt(callee, "call to extern function `{s}` requires `raw` block; extern functions are the FFI boundary and bypass Rig's ownership and effect checks", .{name});
                     }
-                    try self.checkArgs(args, fty.function, self.paramsOf(sym_id), name, callee.src.pos);
+                    try self.checkArgs(args, fty.function, paramsOf(sym, self.ctx.source), name, callee.src.pos);
                     return fty.function.returns;
                 },
                 .nominal_type => return self.construct(sym_id, args, callee.src.pos, TypeSubst.empty, null),
@@ -2676,17 +2678,19 @@ const Checker = struct {
         }
     };
 
-    fn paramsOf(self: *Checker, sym_id: SymbolId) ParamInfo {
-        const sym = self.ctx.symbols.items[sym_id];
-        return .{ .names = sym.param_names, .defaults = sym.param_defaults, .source = self.ctx.source };
+    /// The parameters of function `sym`, declared in `source`.
+    fn paramsOf(sym: sema.Symbol, source: []const u8) ParamInfo {
+        return .{ .names = sym.param_names, .defaults = sym.param_defaults, .source = source };
     }
 
-    fn methodParams(self: *Checker, f: Field, skip_self: bool) ParamInfo {
+    /// The parameters of method `f`, declared in `source`, after the
+    /// receiver when `skip_self`.
+    fn methodParams(f: Field, skip_self: bool, source: []const u8) ParamInfo {
         const skip: usize = @intFromBool(skip_self);
         return .{
             .names = if (f.param_names) |n| n[@min(skip, n.len)..] else null,
             .defaults = if (f.param_defaults) |d| d[@min(skip, d.len)..] else null,
-            .source = self.ctx.source,
+            .source = source,
         };
     }
 
@@ -2876,9 +2880,7 @@ const Checker = struct {
                 continue;
             }
             try seen.put(self.ctx.allocator, fname, fpos);
-            const f = for (fields) |f| {
-                if (!f.is_method and !f.is_variant and std.mem.eql(u8, f.name, fname)) break f;
-            } else {
+            const f = findDataField(fields, fname) orelse {
                 try self.err(fpos, "no field `{s}` on {s} `{s}`", .{ fname, if (info.kind == .constructor) "type" else "variant", info.owner });
                 if (info.foreign == null and info.decl_pos != sema.builtin_decl_pos and info.decl_pos != 0) try self.note(info.decl_pos, "`{s}` declared here", .{info.owner});
                 _ = try self.synthExpr(value);
@@ -2894,8 +2896,15 @@ const Checker = struct {
     }
 
     fn fieldType(self: *Checker, f: Field, info: FieldArgs) Error!TypeId {
-        if (info.foreign) |fo| return sema.importType(self.ctx, fo.ctx, f.ty, fo.module_id);
+        if (info.foreign != null) return self.memberType(info.foreign, f.ty);
         return sema.substituteType(self.ctx, f.ty, info.subst);
+    }
+
+    /// A member type as the declaration of a type spells it, in this
+    /// module's types: imported when the type is `foreign`.
+    fn memberType(self: *Checker, foreign: ?ForeignFields, ty: TypeId) Error!TypeId {
+        const fo = foreign orelse return ty;
+        return sema.importType(self.ctx, fo.ctx, ty, fo.module_id);
     }
 
     // ---- method calls -----------------------------------------------------------
@@ -2911,10 +2920,7 @@ const Checker = struct {
         const method = self.text(name_node);
         const pos = srcPos(name_node, self.startOf(obj));
 
-        if (obj == .src) if (self.lookupQuiet(obj)) |id| if (self.ctx.symbols.items[id].kind == .module) {
-            try self.ctx.recordName(obj, id);
-            return self.crossModuleCall(id, method, pos, args);
-        };
+        if (try self.moduleNamed(obj)) |id| return self.crossModuleCall(id, method, pos, args);
         if (try self.namedType(obj)) |nt| return self.associatedCall(obj, nt, method, pos, args);
 
         // A consuming (`self: Self`) method may take a temporary; any
@@ -2964,7 +2970,7 @@ const Checker = struct {
             if (sema.nominalDecl(self.ctx, peeled)) |decl| {
                 const sym = decl.symbol();
                 try self.err(pos, "no method `{s}` on type `{s}`", .{ method, sym.name });
-                if (decl.module_id == null and sym.decl_pos != sema.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
+                try self.noteDeclared(sym, decl.module_id == null);
             } else {
                 try self.err(pos, "type `{s}` has no method `{s}`", .{ try self.tyName(obj_ty), method });
             }
@@ -3017,9 +3023,7 @@ const Checker = struct {
             .is_sub = resolved.fn_ty.is_sub,
             .pre_mask = resolved.fn_ty.pre_mask >> 1,
         };
-        var params = self.methodParams(resolved.field, true);
-        params.source = resolved.source;
-        try self.checkArgs(args, rest, params, method, pos);
+        try self.checkArgs(args, rest, methodParams(resolved.field, true, resolved.source), method, pos);
         return resolved.fn_ty.returns;
     }
 
@@ -3039,8 +3043,7 @@ const Checker = struct {
         for (members) |m| {
             if (!std.mem.eql(u8, m.name, name)) continue;
             if (m.is_method and !m.is_drop_method) {
-                const ty = if (nt.foreign) |fo| try sema.importType(self.ctx, fo.ctx, m.ty, fo.module_id) else m.ty;
-                const fty = self.ctx.types.get(ty);
+                const fty = self.ctx.types.get(try self.memberType(nt.foreign, m.ty));
                 if (fty != .function) break;
                 var f = fty.function;
                 if (generic) {
@@ -3050,9 +3053,8 @@ const Checker = struct {
                     f = self.ctx.types.get(try sema.substituteType(self.ctx, m.ty, subst)).function;
                 }
                 try self.noteCallee(f);
-                var params = self.methodParams(m, false);
-                if (nt.foreign) |fo| params.source = fo.ctx.source;
-                try self.checkArgs(args, f, params, name, pos);
+                const source = if (nt.foreign) |fo| fo.ctx.source else self.ctx.source;
+                try self.checkArgs(args, f, methodParams(m, false, source), name, pos);
                 return f.returns;
             }
             if (!m.is_variant) break;
@@ -3068,7 +3070,7 @@ const Checker = struct {
             return ty;
         }
         try self.err(pos, "no method `{s}` on type `{s}`", .{ name, nt.sym.name });
-        if (nt.declaredHere()) try self.note(nt.sym.decl_pos, "`{s}` declared here", .{nt.sym.name});
+        try self.noteDeclared(nt.sym, nt.foreign == null);
         return self.skipCall(args);
     }
 
@@ -3098,9 +3100,7 @@ const Checker = struct {
                 value = ir.Kwarg.value(a);
                 const kname = self.text(ir.Kwarg.name(a));
                 pattern = switch (from) {
-                    .fields => |fs| for (fs) |f| {
-                        if (!f.is_method and !f.is_variant and std.mem.eql(u8, f.name, kname)) break f.ty;
-                    } else null,
+                    .fields => |fs| if (findDataField(fs, kname)) |f| f.ty else null,
                     .params => |p| blk: {
                         const names = p.names orelse break :blk null;
                         for (names, 0..) |n, j| {
@@ -3199,7 +3199,7 @@ const Checker = struct {
                 const fty = self.ctx.types.get(local);
                 if (fty != .function) return self.badCall(args, pos, "`{s}` cannot be called", .{qualified});
                 try self.noteCallee(fty.function);
-                try self.checkArgs(args, fty.function, .{ .names = found.sym.param_names, .defaults = found.sym.param_defaults, .source = found.ctx.source }, qualified, pos);
+                try self.checkArgs(args, fty.function, paramsOf(found.sym, found.ctx.source), qualified, pos);
                 return fty.function.returns;
             },
             .nominal_type => return self.construct(found.id, args, pos, TypeSubst.empty, .{ .ctx = found.ctx, .module_id = found.module_id }),
@@ -4005,6 +4005,14 @@ fn cellElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
     };
     if (pn.sym != ctx.cell_sym_id or pn.args.len != 1) return null;
     return pn.args[0];
+}
+
+/// The data field (not a method or variant) named `name`.
+fn findDataField(fields: []const Field, name: []const u8) ?Field {
+    for (fields) |f| {
+        if (!f.is_method and !f.is_variant and std.mem.eql(u8, f.name, name)) return f;
+    }
+    return null;
 }
 
 /// Storage that already has an owner: a name, a field or element of
