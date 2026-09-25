@@ -1,0 +1,22 @@
+# A generic function's body is checked for every instance its calls
+# make: `>` is defined for numbers, not for a String or a struct, and
+# the error names the call and, in a note, the body line that needs it.
+
+struct P
+  n: Int
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun bump[T](x: T) -> T
+  x + 1
+
+sub main()
+  print(max(3, 7))
+  print(max("a", "b"))
+  print(bump(P(n: 1)).n)
+  print(bump(true))
+
+# error: 16:9: `max[String]` cannot use `T = String`: the generic body applies `>` to `T`, which `String` does not support
+# error: 17:9: `bump[P]` cannot use `T = P`: the generic body applies `+` to `T`, which `P` does not support
+# error: 18:9: `bump[Bool]` cannot use `T = Bool`: the generic body applies `+` to `T`, which `Bool` does not support

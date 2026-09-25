@@ -46,6 +46,9 @@
 //!                                      rather than an index: the generic
 //!                                      type's instance, or a function's
 //!                                      compile-time arguments
+//!   ctx.genericCallOf(call) -> ?GenericCall  for a call of a generic
+//!                                      function: its type arguments,
+//!                                      inferred or given in brackets
 //!
 //! A call's callee gets a type too: a function name its signature, and a
 //! method callee `(member obj m)` the resolved method signature with the
@@ -113,9 +116,12 @@ pub const FunctionType = struct {
     params: []const TypeId,
     returns: TypeId,
     is_sub: bool,
-    /// The types of its compile-time value parameters, in order: `Mode`
-    /// for `fun check[mode: Mode](n: Int)`. A call fills them in
-    /// brackets (`check[.strict](5)`); `params` are the run-time ones.
+    /// Its compile-time parameters, in order: a value parameter's type
+    /// (`Mode` for `fun check[mode: Mode](n: Int)`), and a type
+    /// parameter itself (the `type_var` `T` for `fun max[T]`), which
+    /// makes the function generic. A call fills them in brackets
+    /// (`check[.strict](5)`, `max[Int](1, 2)`), or infers the types;
+    /// `params` are the run-time ones.
     ct_params: []const TypeId = &.{},
 };
 
@@ -325,7 +331,7 @@ pub const SymbolKind = enum {
     generic_type,
     /// `T` in `type Box[T]`, detached: not in any scope, reached through
     /// the owning type's `type_params`. Also `T` in `fun max[T]`, bound
-    /// in the function's scope; such a function is rejected as generic.
+    /// in the function's scope.
     generic_param,
     /// struct / enum / error set / opaque.
     nominal_type,
@@ -458,6 +464,9 @@ pub const Facts = struct {
     /// Bracket-list node (`index` / `inst`) -> what it instantiates,
     /// for one that gives compile-time arguments rather than an index.
     instances: std.AutoHashMapUnmanaged(NodeKey, Instance) = .empty,
+    /// Call of a generic function (or a statement `f[Int]` that is the
+    /// call) -> its type arguments.
+    generic_calls: std.AutoHashMapUnmanaged(NodeKey, GenericCall) = .empty,
     /// Positions of names assigned to (`x = e`, `x <- e`, `x += e` after
     /// `x` is declared): a use there writes the binding, not reads it.
     writes: std.AutoHashMapUnmanaged(u32, void) = .empty,
@@ -471,6 +480,7 @@ pub const Facts = struct {
         self.call_slots.deinit(allocator);
         self.exhaustive.deinit(allocator);
         self.instances.deinit(allocator);
+        self.generic_calls.deinit(allocator);
     }
 };
 
@@ -495,6 +505,53 @@ pub const FunctionInstance = struct {
     /// (`Point.scale[2](p)`); Zig takes the receiver first, then the
     /// compile-time arguments.
     receiver_arg: bool = false,
+};
+
+/// The compile-time arguments a call of a generic function passes, one
+/// per compile-time parameter in order: a type parameter's type,
+/// inferred or given, and `type_invalid` at a value parameter, whose
+/// value is in the call's bracket list.
+pub const GenericCall = struct {
+    type_args: []const TypeId,
+    /// As `FunctionInstance.receiver_arg`: the compile-time arguments
+    /// follow a receiver passed as the first argument.
+    receiver_arg: bool = false,
+};
+
+/// A generic function at particular type arguments: `params[i]` is
+/// `args[i]`. A method's instance starts with its type's parameters,
+/// bound to the receiver's type arguments; its own are the last `own`.
+pub const FnInstance = struct {
+    /// The function, for messages.
+    name: []const u8,
+    params: []const SymbolId,
+    args: []const TypeId,
+    own: u32,
+
+    /// Its own type parameters and their arguments.
+    pub fn ownParams(self: FnInstance) []const SymbolId {
+        return self.params[self.params.len - self.own ..];
+    }
+
+    pub fn ownArgs(self: FnInstance) []const TypeId {
+        return self.args[self.args.len - self.own ..];
+    }
+
+    pub fn subst(self: FnInstance) TypeSubst {
+        return .{ .params = self.params, .args = self.args };
+    }
+
+    const Context = struct {
+        pub fn hash(_: Context, k: FnInstance) u64 {
+            var h = std.hash.Wyhash.init(0);
+            h.update(std.mem.sliceAsBytes(k.params));
+            h.update(std.mem.sliceAsBytes(k.args));
+            return h.final();
+        }
+        pub fn eql(_: Context, a: FnInstance, b: FnInstance) bool {
+            return std.mem.eql(SymbolId, a.params, b.params) and std.mem.eql(TypeId, a.args, b.args);
+        }
+    };
 };
 
 /// The arguments of a bracket list: the index of `(index x i)`, or every
@@ -621,6 +678,14 @@ pub const SemContext = struct {
     /// generic declarations (`Opt[T]` in `Box[T]`'s methods). See
     /// `expandInstantiations`.
     generic_uses: std.ArrayListUnmanaged(TypeId) = .empty,
+    /// The instances of generic functions the module's calls make, each
+    /// with the position of its first call, in the order found.
+    fn_instances: std.ArrayListUnmanaged(struct { inst: FnInstance, site: u32 }) = .empty,
+    fn_instance_set: std.HashMapUnmanaged(FnInstance, void, FnInstance.Context, std.hash_map.default_max_load_percentage) = .empty,
+    /// Instances of generic functions called with type parameters, inside
+    /// generic bodies (`max[T]` in `fun top[T]`); expanded like
+    /// `generic_uses`.
+    generic_fn_uses: std.ArrayListUnmanaged(FnInstance) = .empty,
     /// Integer constants: bindings never reassigned or written whose
     /// value is a constant expression. The emitted Zig computes these at
     /// compile time, so sema checks their arithmetic.
@@ -664,6 +729,9 @@ pub const SemContext = struct {
         self.generic_requirements.deinit(self.allocator);
         self.instantiation_sites.deinit(self.allocator);
         self.generic_uses.deinit(self.allocator);
+        self.fn_instances.deinit(self.allocator);
+        self.fn_instance_set.deinit(self.allocator);
+        self.generic_fn_uses.deinit(self.allocator);
         self.const_ints.deinit(self.allocator);
         self.arena.deinit();
     }
@@ -847,6 +915,12 @@ pub const SemContext = struct {
         return ir.get(callee, .object);
     }
 
+    /// The type arguments of a call of a generic function (or of a
+    /// statement `f[Int]`, which is the call); null for any other.
+    pub fn genericCallOf(self: *const SemContext, node: Sexp) ?GenericCall {
+        return self.facts.generic_calls.get(nodeKey(node) orelse return null);
+    }
+
     /// The compile-time arguments a call passes in brackets: `.strict`
     /// in `check[.strict](5)`; empty for a call without.
     pub fn ctArgsOf(self: *const SemContext, call: Sexp) []const Sexp {
@@ -884,6 +958,40 @@ pub const SemContext = struct {
 
     pub fn recordInstance(self: *SemContext, node: Sexp, inst: Instance) !void {
         try self.facts.instances.put(self.allocator, recordKey(node), inst);
+    }
+
+    pub fn recordGenericCall(self: *SemContext, node: Sexp, call: GenericCall) !void {
+        try self.facts.generic_calls.put(self.allocator, recordKey(node), call);
+    }
+
+    /// Record an instance of a generic function a call makes at `site`:
+    /// a concrete one, checked against its body's requirements, or, from
+    /// a call inside a generic body, one over type parameters, which
+    /// each instance of that body makes concrete
+    /// (`expandInstantiations`).
+    pub fn recordFnInstance(self: *SemContext, inst: FnInstance, site: u32) !void {
+        const generic = for (inst.args) |a| {
+            if (self.typeInfo(a).has_type_var) break true;
+        } else false;
+        if (generic) {
+            for (self.generic_fn_uses.items) |u| if (FnInstance.Context.eql(.{}, u, inst)) return;
+            return self.generic_fn_uses.append(self.allocator, try self.ownFnInstance(inst));
+        }
+        _ = try self.addFnInstance(inst, site);
+    }
+
+    /// Add a concrete instance unless it is known; whether it was new.
+    fn addFnInstance(self: *SemContext, inst: FnInstance, site: u32) !bool {
+        if (self.fn_instance_set.contains(inst)) return false;
+        const owned = try self.ownFnInstance(inst);
+        try self.fn_instance_set.put(self.allocator, owned, {});
+        try self.fn_instances.append(self.allocator, .{ .inst = owned, .site = site });
+        return true;
+    }
+
+    fn ownFnInstance(self: *SemContext, inst: FnInstance) !FnInstance {
+        const a = self.arena.allocator();
+        return .{ .name = inst.name, .params = try a.dupe(SymbolId, inst.params), .args = try a.dupe(TypeId, inst.args), .own = inst.own };
     }
 
     pub fn intern(self: *SemContext, ty: Type) std.mem.Allocator.Error!TypeId {
@@ -1024,48 +1132,108 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
 
 /// Add the instances a program reaches through generic bodies: when
 /// `Box[*B]` is spelled and `Box[T]`'s methods use `Opt[T]`, `Opt[*B]` is
-/// instantiated too, at the same site. The requirement checks then see
-/// every instantiation, and a built-in generic reached this way (`Vec[T]`
-/// in `Stack[T]`) has its element rules checked for the argument.
+/// instantiated too, at the same site, and so is `max[*B]` when they
+/// call `max[T]`; each instance of a generic function does the same for
+/// its body. The requirement checks then see every instantiation, and a
+/// built-in generic reached this way (`Vec[T]` in `Stack[T]`) has its
+/// element rules checked for the argument.
 fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
-    if (ctx.generic_uses.items.len == 0) return;
-    const Item = struct { inst: TypeId, root: TypeId };
+    if (ctx.generic_uses.items.len == 0 and ctx.generic_fn_uses.items.len == 0) return;
+    const Item = struct { subst: TypeSubst, site: u32, root: InstanceRoot };
     var work: std.ArrayListUnmanaged(Item) = .empty;
     defer work.deinit(ctx.allocator);
-    var it = ctx.instantiation_sites.keyIterator();
-    while (it.next()) |k| try work.append(ctx.allocator, .{ .inst = k.*, .root = k.* });
+    var it = ctx.instantiation_sites.iterator();
+    while (it.next()) |e| {
+        const item = typeItem(ctx, e.key_ptr.*) orelse continue;
+        try work.append(ctx.allocator, .{ .subst = item, .site = e.value_ptr.*, .root = .{ .type = e.key_ptr.* } });
+    }
+    for (ctx.fn_instances.items, 0..) |f, i| try work.append(ctx.allocator, .{ .subst = f.inst.subst(), .site = f.site, .root = .{ .func = @intCast(i) } });
     while (work.pop()) |item| {
-        const pn = switch (ctx.types.get(item.inst)) {
-            .parameterized_nominal => |pn| pn,
-            else => continue,
-        };
-        const params = ctx.symbols.items[pn.sym].type_params orelse continue;
-        const site = ctx.instantiation_sites.get(item.inst) orelse continue;
-        const subst: TypeSubst = .{ .params = params, .args = pn.args };
+        for (ctx.generic_fn_uses.items) |use| {
+            if (!argsUseParams(ctx, use.args, item.subst.params)) continue;
+            const args = try ctx.arena.allocator().alloc(TypeId, use.args.len);
+            var deepest: u8 = 0;
+            for (use.args, args) |a, *out| {
+                out.* = try substituteType(ctx, a, item.subst);
+                deepest = @max(deepest, ctx.typeInfo(out.*).depth);
+            }
+            if (argsHaveTypeVar(ctx, args)) continue;
+            // A generic function that calls itself with its parameters
+            // nested deeper (`f[Box[T]]` in `f[T]`) would expand forever.
+            if (deepest > max_instance_depth) {
+                try ctx.err(item.site, "`{s}` leads to ever deeper instances of generic functions (through `{s}`); a generic function cannot call itself with its own type parameters nested deeper", .{ try rootName(ctx, item.root), try formatFnInstance(ctx, use) });
+                return;
+            }
+            const concrete: FnInstance = .{ .name = use.name, .params = use.params, .args = args, .own = use.own };
+            if (!try ctx.addFnInstance(concrete, item.site)) continue;
+            try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root });
+        }
         for (ctx.generic_uses.items) |use| {
-            if (!usesParams(ctx, use, params)) continue;
-            const concrete = try substituteType(ctx, use, subst);
+            if (!usesParams(ctx, use, item.subst.params)) continue;
+            const concrete = try substituteType(ctx, use, item.subst);
             const info = ctx.typeInfo(concrete);
             if (info.has_type_var) continue;
             // A generic whose body uses ever-deeper instances of itself
             // (`Box[T]` using `Box[Box[T]]`) would expand forever.
             if (info.depth > max_instance_depth) {
-                try ctx.err(site, "`{s}` leads to ever deeper instances of generic types (through `{s}`); a generic type's body cannot nest itself in its own type arguments", .{ try formatType(ctx, item.root), try formatType(ctx, use) });
+                try ctx.err(item.site, "`{s}` leads to ever deeper instances of generic types (through `{s}`); a generic type's body cannot nest itself in its own type arguments", .{ try rootName(ctx, item.root), try formatType(ctx, use) });
                 return;
             }
             const gop = try ctx.instantiation_sites.getOrPut(ctx.allocator, concrete);
             if (gop.found_existing) continue;
-            gop.value_ptr.* = site;
+            gop.value_ptr.* = item.site;
             const inst = ctx.types.get(concrete).parameterized_nominal;
             if (ctx.symbols.items[inst.sym].decl_pos == builtin_decl_pos) {
                 if (try resolve.builtinElementError(ctx, inst.sym, inst.args)) |msg| {
-                    try ctx.err(site, "`{s}` instantiates `{s}`: {s}", .{ try formatType(ctx, item.root), try formatType(ctx, concrete), msg });
+                    try ctx.err(item.site, "`{s}` instantiates `{s}`: {s}", .{ try rootName(ctx, item.root), try formatType(ctx, concrete), msg });
                 }
                 continue;
             }
-            try work.append(ctx.allocator, .{ .inst = concrete, .root = item.root });
+            try work.append(ctx.allocator, .{ .subst = typeItem(ctx, concrete).?, .site = item.site, .root = item.root });
         }
     }
+}
+
+/// The instance a program spells, from which `expandInstantiations`
+/// reached another: a generic type's, or a generic function's (an index
+/// into `fn_instances`).
+const InstanceRoot = union(enum) { type: TypeId, func: u32 };
+
+fn rootName(ctx: *SemContext, root: InstanceRoot) std.mem.Allocator.Error![]const u8 {
+    return switch (root) {
+        .type => |t| formatType(ctx, t),
+        .func => |i| formatFnInstance(ctx, ctx.fn_instances.items[i].inst),
+    };
+}
+
+/// A generic type's instance as a substitution of its parameters.
+fn typeItem(ctx: *const SemContext, ty: TypeId) ?TypeSubst {
+    const pn = switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| pn,
+        else => return null,
+    };
+    return .{ .params = ctx.symbols.items[pn.sym].type_params orelse return null, .args = pn.args };
+}
+
+fn argsUseParams(ctx: *const SemContext, args: []const TypeId, params: []const SymbolId) bool {
+    for (args) |a| if (usesParams(ctx, a, params)) return true;
+    return false;
+}
+
+fn argsHaveTypeVar(ctx: *const SemContext, args: []const TypeId) bool {
+    for (args) |a| if (ctx.typeInfo(a).has_type_var) return true;
+    return false;
+}
+
+/// A generic function's instance as a call spells it: `max[Int]`, with
+/// its own type arguments.
+pub fn formatFnInstance(ctx: *SemContext, inst: FnInstance) std.mem.Allocator.Error![]const u8 {
+    return formatFnInstanceIn(ctx, ctx.arena.allocator(), inst);
+}
+
+/// `formatFnInstance` with a caller-chosen allocator.
+pub fn formatFnInstanceIn(ctx: *const SemContext, a: std.mem.Allocator, inst: FnInstance) std.mem.Allocator.Error![]const u8 {
+    return std.fmt.allocPrint(a, "{s}[{s}]", .{ inst.name, try formatTypeList(ctx, a, inst.ownArgs()) });
 }
 
 const max_instance_depth = 24;
@@ -1775,6 +1943,21 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
         },
         else => return ty_id,
     }
+}
+
+/// The type parameter a compile-time parameter slot of a function
+/// (`FunctionType.ct_params`) declares; null for a value parameter.
+pub fn typeParamOf(ctx: *const SemContext, slot: TypeId) ?SymbolId {
+    return switch (ctx.types.get(slot)) {
+        .type_var => |sym| sym,
+        else => null,
+    };
+}
+
+/// Whether a function takes type parameters: a generic function.
+pub fn isGenericFn(ctx: *const SemContext, f: FunctionType) bool {
+    for (f.ct_params) |p| if (typeParamOf(ctx, p) != null) return true;
+    return false;
 }
 
 /// Does `ty_id` mention a generic parameter anywhere?

@@ -1,0 +1,13 @@
+# A generic function has an instance per call, so it can only be
+# called, never used as a value.
+
+fun same[T](x: T) -> T
+  x
+
+sub main()
+  f = same
+  g = same[Int]
+  print(f(1), g(2))
+
+# error: 8:7: `same` takes compile-time parameters, so it can only be called, not used as a value
+# error: 9:7: `same[Int]` is a function with compile-time arguments; call it with `same[Int](...)`

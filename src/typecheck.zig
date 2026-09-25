@@ -3005,9 +3005,12 @@ const Checker = struct {
         if (sym.kind == .@"extern" and self.raw_depth == 0) {
             try self.errAt(callee, "call to extern function `{s}` requires `raw` block; extern functions are the FFI boundary and bypass Rig's ownership and effect checks", .{name});
         }
-        try self.checkCtArgs(ct, fty.function, name, callee.src.pos, .{});
-        try self.checkArgs(args, fty.function, paramsOf(sym, self.ctx.source), name, callee.src.pos);
-        return fty.function.returns;
+        const info = paramsOf(sym, self.ctx.source);
+        const f = (try self.instantiateCall(fty.function, ct, args, info, 0, name, callee.src.pos, .{}, .{})) orelse return self.skipCall(args);
+        // A generic function's callee has the instance's signature.
+        if (sema.isGenericFn(self.ctx, fty.function)) try self.ctx.recordType(callee, try self.ctx.internCopy(.{ .function = f }));
+        try self.checkArgs(args, f, info, name, callee.src.pos);
+        return f.returns;
     }
 
     /// Call a value: a function-typed binding, a closure, or an owned
@@ -3246,9 +3249,6 @@ const Checker = struct {
     }
 
     fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize) Error!void {
-        // A poison parameter (of a rejected generic function) may be
-        // given a type; there is nothing more to report about it.
-        if (self.isPoison(f.params[i]) and self.namesType(arg)) return;
         try self.checkExpr(arg, f.params[i]);
     }
 
@@ -3258,8 +3258,7 @@ const Checker = struct {
     fn checkCtArgs(self: *Checker, ct: ?Sexp, f: FunctionType, callee: []const u8, pos: u32, inst: sema.FunctionInstance) Error!void {
         const args: []const Sexp = if (ct) |b| sema.bracketArgs(b) else &.{};
         if (ct) |b| try self.ctx.recordInstance(b, .{ .function = inst });
-        // A rejected generic function's compile-time parameters are
-        // poison; its calls have nothing more to report.
+        // A parameter whose type was rejected has nothing more to report.
         for (f.ct_params) |ty| if (self.isPoison(ty)) return;
         if (args.len != f.ct_params.len) {
             const n = f.ct_params.len;
@@ -3280,15 +3279,261 @@ const Checker = struct {
         }
     }
 
-    /// Whether `e` is a bare type name: `Int`, `String`, `Point`.
-    fn namesType(self: *Checker, e: Sexp) bool {
-        if (e != .src) return false;
-        if (resolve.isBuiltinTypeName(self.ctx, self.text(e))) return true;
-        const id = self.lookupQuiet(e) orelse return false;
-        return switch (self.ctx.symbols.items[id].kind) {
-            .nominal_type, .generic_type, .type_alias => true,
-            else => false,
+    /// A method's type parameters and the receiver's arguments for them:
+    /// the first part of an instance of a method with type parameters of
+    /// its own. Empty for a type that is not generic.
+    const ReceiverArgs = struct { params: []const SymbolId = &.{}, args: []const TypeId = &.{} };
+
+    fn receiverArgs(self: *Checker, recv_ty: TypeId) ReceiverArgs {
+        const pn = switch (self.ctx.types.get(sema.unwrapReadAccess(self.ctx, recv_ty))) {
+            .parameterized_nominal => |pn| pn,
+            else => return .{},
         };
+        return .{ .params = self.ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args };
+    }
+
+    /// The signature a call of `f` uses: `f` itself, or for a generic
+    /// function the instance its bracket list `ct` gives (every
+    /// compile-time argument, in order) or, without one, the instance its
+    /// arguments determine (`args`, filling `f.params[skip..]`). The call's
+    /// type arguments (`genericCallOf`) and the instance, whose body must
+    /// allow them, are recorded. Null after a diagnostic.
+    fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const Sexp, info: ParamInfo, skip: usize, callee: []const u8, pos: u32, inst: sema.FunctionInstance, recv: ReceiverArgs) Error!?FunctionType {
+        if (!sema.isGenericFn(self.ctx, f)) {
+            try self.checkCtArgs(ct, f, callee, pos, inst);
+            return f;
+        }
+        const a = self.ctx.arena.allocator();
+        const n = f.ct_params.len;
+        var own: std.ArrayListUnmanaged(SymbolId) = .empty;
+        for (f.ct_params) |slot| if (sema.typeParamOf(self.ctx, slot)) |tp| try own.append(a, tp);
+        const type_args = try a.alloc(TypeId, n);
+        @memset(type_args, sema.type_invalid);
+        if (ct) |b| {
+            try self.ctx.recordInstance(b, .{ .function = inst });
+            const given = sema.bracketArgs(b);
+            if (given.len != n) {
+                try self.errAt(b, "`{s}` expects {d} compile-time argument{s}, got {d}", .{ callee, n, plural(n), given.len });
+                return null;
+            }
+            var bad = false;
+            for (given, f.ct_params, 0..) |g, slot, i| {
+                if (sema.typeParamOf(self.ctx, slot) != null) {
+                    type_args[i] = try self.typeArg(g);
+                    if (self.isPoison(type_args[i])) bad = true;
+                    continue;
+                }
+                try self.checkExpr(g, slot);
+                if (!self.isComptimeKnown(g)) {
+                    try self.errAt(g, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a compile-time parameter, or a `=!` binding of one", .{ i + 1, callee });
+                }
+            }
+            if (bad) return null;
+        } else {
+            // A value is never inferred: a function that takes one is
+            // given every compile-time argument in brackets.
+            if (own.items.len != n) {
+                try self.err(pos, "`{s}` takes {d} compile-time argument{s} in brackets: `{s}[...](...)`", .{ callee, n, plural(n), callee });
+                return null;
+            }
+            const inferred = (try self.inferCallTypeArgs(f, own.items, args, info, skip, callee, pos)) orelse return null;
+            @memcpy(type_args, inferred);
+        }
+        const own_args = try a.alloc(TypeId, own.items.len);
+        var j: usize = 0;
+        for (f.ct_params, type_args) |slot, arg| if (sema.typeParamOf(self.ctx, slot) != null) {
+            own_args[j] = arg;
+            j += 1;
+        };
+        const generic = try self.ctx.internCopy(.{ .function = f });
+        const result = self.ctx.types.get(try sema.substituteType(self.ctx, generic, .{ .params = own.items, .args = own_args })).function;
+        try self.ctx.recordGenericCall(self.current_call orelse ct.?, .{ .type_args = type_args, .receiver_arg = inst.receiver_arg });
+        try self.ctx.recordFnInstance(.{
+            .name = callee,
+            .params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items }),
+            .args = try std.mem.concat(a, TypeId, &.{ recv.args, own_args }),
+            .own = @intCast(own.items.len),
+        }, pos);
+        return result;
+    }
+
+    /// What the arguments of a call say about one type parameter: the
+    /// type the first non-literal argument gives it, and the first
+    /// argument that gives it another.
+    const Bound = struct {
+        ty: TypeId = sema.type_invalid,
+        arg: u32 = 0,
+        conflict: TypeId = sema.type_invalid,
+        conflict_arg: u32 = 0,
+    };
+
+    /// A literal argument where a type parameter goes: it gives the
+    /// parameter its default type (`Int`, `Float`) only when no other
+    /// argument gives it a type.
+    const LiteralBound = struct { param: usize, ty: TypeId, arg: u32 };
+
+    const Inference = struct {
+        own: []const SymbolId,
+        bound: []Bound,
+        literals: std.ArrayListUnmanaged(LiteralBound) = .empty,
+    };
+
+    /// Match each argument's type against the field or parameter it
+    /// fills (by position, or by keyword), binding the type parameters in
+    /// `own` that appear there. A literal binds its default type (`Int`,
+    /// `Float`) only where no other argument binds the parameter, and the
+    /// first argument that disagrees with a binding is kept as a
+    /// conflict.
+    fn inferBindings(self: *Checker, own: []const SymbolId, args: []const Sexp, from: InferFrom) Error!Inference {
+        var inf: Inference = .{ .own = own, .bound = try self.ctx.arena.allocator().alloc(Bound, own.len) };
+        @memset(inf.bound, .{});
+        var positional: usize = 0;
+        for (args, 1..) |arg, number| {
+            var value = arg;
+            var pattern: ?TypeId = null;
+            if (arg.isKind(.kwarg)) {
+                value = ir.Kwarg.value(arg);
+                const kname = self.text(ir.Kwarg.name(arg));
+                pattern = switch (from) {
+                    .fields => |fs| if (findDataField(fs, kname)) |f| f.ty else null,
+                    .params => |p| blk: {
+                        const names = p.names orelse break :blk null;
+                        for (names, 0..) |name, i| {
+                            if (std.mem.eql(u8, name, kname) and i < p.params.len) break :blk p.params[i];
+                        }
+                        break :blk null;
+                    },
+                };
+            } else {
+                // Fields are set only by name.
+                defer positional += 1;
+                pattern = switch (from) {
+                    .fields => null,
+                    .params => |p| if (positional < p.params.len) p.params[positional] else null,
+                };
+            }
+            const pat = pattern orelse continue;
+            if (!sema.containsTypeVar(self.ctx, pat)) continue;
+            try self.bindArg(&inf, pat, try self.synthQuiet(value), @intCast(number), 0);
+        }
+        for (inf.bound, 0..) |*b, i| for (inf.literals.items) |lit| {
+            if (lit.param != i) continue;
+            if (b.ty == sema.type_invalid) {
+                b.ty = lit.ty;
+                b.arg = lit.arg;
+            } else if (b.conflict == sema.type_invalid and !self.literalFits(lit.ty, b.ty)) {
+                b.conflict = lit.ty;
+                b.conflict_arg = lit.arg;
+            }
+        };
+        return inf;
+    }
+
+    /// The two types of a conflict, in argument order.
+    fn conflictText(self: *Checker, b: Bound) Error!struct { first: []const u8, first_arg: u32, second: []const u8, second_arg: u32, later: TypeId } {
+        const b_first = b.arg < b.conflict_arg;
+        const later = if (b_first) b.conflict else b.ty;
+        return .{
+            .first = try self.tyName(if (b_first) b.ty else b.conflict),
+            .first_arg = @min(b.arg, b.conflict_arg),
+            .second = try self.tyName(later),
+            .second_arg = @max(b.arg, b.conflict_arg),
+            .later = later,
+        };
+    }
+
+    /// A generic function's type arguments, one per parameter in `own`,
+    /// from the arguments of a call, which fill `f.params[skip..]`
+    /// (`inferBindings`). Null after a diagnostic.
+    fn inferCallTypeArgs(self: *Checker, f: FunctionType, own: []const SymbolId, args: []const Sexp, info: ParamInfo, skip: usize, callee: []const u8, pos: u32) Error!?[]TypeId {
+        const inf = try self.inferBindings(own, args, .{ .params = .{ .params = f.params[@min(skip, f.params.len)..], .names = info.names } });
+        const result = try self.ctx.arena.allocator().alloc(TypeId, own.len);
+        for (inf.bound, result) |b, *r| r.* = b.ty;
+        var ok = true;
+        for (inf.bound, own, 0..) |b, param, i| {
+            const pname = self.ctx.symbols.items[param].name;
+            if (b.ty == sema.type_invalid) {
+                try self.err(pos, "cannot infer `{s}` for `{s}` from its arguments; give it in brackets: `{s}[{s}](...)`", .{ pname, callee, callee, try self.bracketHint(own, result, i, null) });
+                ok = false;
+            } else if (b.conflict != sema.type_invalid) {
+                // The later argument's type is suggested.
+                const c = try self.conflictText(b);
+                try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); give it in brackets: `{s}[{s}](...)`", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg, callee, try self.bracketHint(own, result, i, c.later) });
+                ok = false;
+            }
+        }
+        return if (ok) result else null;
+    }
+
+    /// Whether a literal of type `lit` (an integer or float literal's
+    /// default type) can be a value of `ty`. Next to a type parameter, a
+    /// literal is reported where the argument is checked.
+    fn literalFits(self: *Checker, lit: TypeId, ty: TypeId) bool {
+        if (self.ctx.types.get(ty) == .type_var) return true;
+        const literal = if (lit == self.t().float_id) self.t().float_literal_id else self.t().int_literal_id;
+        return compatible(self.ctx, literal, ty);
+    }
+
+    /// The bracket list a diagnostic suggests: each type parameter's
+    /// inferred type, or its name when unknown, with `at` for the one at
+    /// `index`.
+    fn bracketHint(self: *Checker, own: []const SymbolId, types: []const TypeId, index: usize, at: ?TypeId) Error![]const u8 {
+        var buf: std.ArrayListUnmanaged(u8) = .empty;
+        const a = self.ctx.arena.allocator();
+        for (own, types, 0..) |p, ty, i| {
+            if (i > 0) try buf.appendSlice(a, ", ");
+            const shown = if (i == index) at orelse sema.type_invalid else ty;
+            try buf.appendSlice(a, if (shown == sema.type_invalid) self.ctx.symbols.items[p].name else try self.tyName(shown));
+        }
+        return buf.items;
+    }
+
+    /// Bind the type parameters of `inf` in `pattern`, a parameter's type,
+    /// so that it matches `actual`, argument number `arg`'s type. Where the
+    /// shapes differ nothing is bound, and checking the argument reports
+    /// the mismatch.
+    fn bindArg(self: *Checker, inf: *Inference, pattern: TypeId, actual: TypeId, arg: u32, depth: u8) Error!void {
+        if (depth > 32 or self.isPoison(actual)) return;
+        const at = self.ctx.types.get(actual);
+        switch (self.ctx.types.get(pattern)) {
+            .type_var => |tv| {
+                const i = std.mem.indexOfScalar(SymbolId, inf.own, tv) orelse return;
+                const value = readValue(self.ctx, actual);
+                switch (self.ctx.types.get(value)) {
+                    .none_literal, .noreturn, .void, .invalid, .unknown => return,
+                    .int_literal, .float_literal => return inf.literals.append(self.ctx.arena.allocator(), .{ .param = i, .ty = self.canonical(value), .arg = arg }),
+                    else => {},
+                }
+                const b = &inf.bound[i];
+                if (b.ty == sema.type_invalid) {
+                    b.ty = value;
+                    b.arg = arg;
+                } else if (b.ty != value and b.conflict == sema.type_invalid) {
+                    b.conflict = value;
+                    b.conflict_arg = arg;
+                }
+            },
+            // A value where a `T?` goes is lifted; a value where a borrow
+            // goes is matched as its borrow would be.
+            .optional => |p| try self.bindArg(inf, p, if (at == .optional) at.optional else actual, arg, depth + 1),
+            .borrow_read, .borrow_write => |p| try self.bindArg(inf, p, switch (at) {
+                .borrow_read, .borrow_write => |inner| inner,
+                else => actual,
+            }, arg, depth + 1),
+            .fallible => |p| if (at == .fallible) try self.bindArg(inf, p, at.fallible, arg, depth + 1),
+            .shared => |p| if (at == .shared) try self.bindArg(inf, p, at.shared, arg, depth + 1),
+            .weak => |p| if (at == .weak) try self.bindArg(inf, p, at.weak, arg, depth + 1),
+            .slice => |p| if (at == .slice) try self.bindArg(inf, p.elem, at.slice.elem, arg, depth + 1),
+            .array => |p| if (at == .array) try self.bindArg(inf, p.elem, at.array.elem, arg, depth + 1),
+            .parameterized_nominal => |pn| if (at == .parameterized_nominal and at.parameterized_nominal.sym == pn.sym) {
+                for (pn.args, at.parameterized_nominal.args) |pa, aa| try self.bindArg(inf, pa, aa, arg, depth + 1);
+            },
+            .function => |pf| if (at == .function and at.function.params.len == pf.params.len) {
+                for (pf.params, at.function.params) |pp, ap| try self.bindArg(inf, pp, ap, arg, depth + 1);
+                try self.bindArg(inf, pf.returns, at.function.returns, arg, depth + 1);
+            },
+            else => {},
+        }
     }
 
     /// Values Zig can evaluate at compile time.
@@ -3553,14 +3798,16 @@ const Checker = struct {
             return resolved.fn_ty.returns;
         }
         if (!misplaced_sigil) try self.checkReceiverMode(obj, receiver, classifyReceiverType(self.ctx, obj_ty, resolved.nominal_sym), method, pos);
+        const info = methodParams(resolved.field, true, resolved.source);
+        const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, .{}, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
+        if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
         const rest: FunctionType = .{
-            .params = resolved.fn_ty.params[1..],
-            .returns = resolved.fn_ty.returns,
-            .is_sub = resolved.fn_ty.is_sub,
+            .params = f.params[1..],
+            .returns = f.returns,
+            .is_sub = f.is_sub,
         };
-        try self.checkCtArgs(ct, resolved.fn_ty, method, pos, .{});
-        try self.checkArgs(args, rest, methodParams(resolved.field, true, resolved.source), method, pos);
-        return resolved.fn_ty.returns;
+        try self.checkArgs(args, rest, info, method, pos);
+        return f.returns;
     }
 
     /// A `Cell[Vec[E]]` answers its Vec's `push`, `pop`, `clear`, and,
@@ -3619,17 +3866,20 @@ const Checker = struct {
                 const fty = self.ctx.types.get(try self.memberType(nt.foreign, m.ty));
                 if (fty != .function) break;
                 var f = fty.function;
+                var recv: ReceiverArgs = .{};
                 if (generic) {
                     // The type's arguments are given (`Pair[Int, String].make`)
                     // or come from the call's arguments.
                     const subst = if (nt.args) |given| TypeSubst{ .params = nt.sym.type_params orelse &.{}, .args = given } else (try self.inferTypeArgs(nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names } }, pos)) orelse return self.skipCall(args);
                     if (nt.args == null) try self.ctx.recordType(obj, try self.instantiate(nt.id, subst.args, pos));
                     f = self.ctx.types.get(try sema.substituteType(self.ctx, m.ty, subst)).function;
+                    recv = .{ .params = subst.params, .args = subst.args };
                 }
-                try self.noteCallee(f);
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.ctx.source;
-                try self.checkCtArgs(ct, f, name, pos, .{ .receiver_arg = m.receiver != .none });
-                try self.checkArgs(args, f, methodParams(m, false, source), name, pos);
+                const info = methodParams(m, false, source);
+                f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, .{ .receiver_arg = m.receiver != .none }, recv)) orelse return self.skipCall(args);
+                try self.noteCallee(f);
+                try self.checkArgs(args, f, info, name, pos);
                 return f.returns;
             }
             if (ct) |b| return self.badCall(args, b, "`{s}.{s}` is not a function; it takes no compile-time arguments", .{ nt.sym.name, name });
@@ -4949,10 +5199,10 @@ fn plural(n: usize) []const u8 {
 // Generic requirements
 // =============================================================================
 
-/// Every instantiation of a generic type must support the operations
-/// its bodies apply to the type parameters (`self.value + 1` requires a
-/// numeric `T`). Checked after all bodies, against every instantiation
-/// the module spells.
+/// Every instantiation of a generic type, and every instance of a
+/// generic function, must support the operations its bodies apply to
+/// the type parameters (`self.value + 1` requires a numeric `T`). Checked
+/// after all bodies, against every instance the module's code makes.
 pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
     if (ctx.generic_requirements.items.len == 0) return;
     var it = ctx.instantiation_sites.iterator();
@@ -4962,30 +5212,45 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
             else => continue,
         };
         const params = ctx.symbols.items[pn.sym].type_params orelse continue;
-        for (params, 0..) |param, i| {
-            if (i >= pn.args.len) break;
-            const arg = pn.args[i];
-            for (ctx.generic_requirements.items) |req| {
-                if (req.param != param or satisfies(ctx, arg, req.req)) continue;
-                const at = entry.value_ptr.*;
-                const inst = try sema.formatType(ctx, entry.key_ptr.*);
-                const pname = ctx.symbols.items[param].name;
-                const aname = try sema.formatType(ctx, arg);
-                const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";
-                switch (req.req) {
-                    .plain => try ctx.err(at, cannot ++ "{s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{ inst, pname, aname, req.op, pname, aname }),
-                    .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
-                    .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
-                    .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
-                    else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
-                }
-                switch (req.req) {
-                    .plain => try ctx.note(req.pos, "here", .{}),
-                    .fits, .float, .shift => try ctx.note(req.pos, "`{s}` used here", .{req.op}),
-                    else => try ctx.note(req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
-                }
-                break;
+        try checkRequirements(ctx, params, pn.args, entry.value_ptr.*, .{ .type = entry.key_ptr.* });
+    }
+    // A method's instance checks only its own parameters; its type's
+    // are checked with the receiver's instance.
+    var i: usize = 0;
+    while (i < ctx.fn_instances.items.len) : (i += 1) {
+        const f = ctx.fn_instances.items[i];
+        try checkRequirements(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, .{ .func = f.inst });
+    }
+}
+
+const Instantiated = union(enum) { type: TypeId, func: sema.FnInstance };
+
+fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: Instantiated) Error!void {
+    for (params, 0..) |param, i| {
+        if (i >= args.len) break;
+        const arg = args[i];
+        for (ctx.generic_requirements.items) |req| {
+            if (req.param != param or satisfies(ctx, arg, req.req)) continue;
+            const inst = switch (of) {
+                .type => |ty| try sema.formatType(ctx, ty),
+                .func => |f| try sema.formatFnInstance(ctx, f),
+            };
+            const pname = ctx.symbols.items[param].name;
+            const aname = try sema.formatType(ctx, arg);
+            const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";
+            switch (req.req) {
+                .plain => try ctx.err(at, cannot ++ "{s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{ inst, pname, aname, req.op, pname, aname }),
+                .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
+                .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
+                .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
+                else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
+            switch (req.req) {
+                .plain => try ctx.note(req.pos, "here", .{}),
+                .fits, .float, .shift => try ctx.note(req.pos, "`{s}` used here", .{req.op}),
+                else => try ctx.note(req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
+            }
+            break;
         }
     }
 }
@@ -5178,7 +5443,7 @@ test "check: `!` needs a fallible operand and a function that can fail" {
     try expectDiagnostic(&r.ctx, "a closure body cannot propagate");
 }
 
-test "check: a generic function is reported once, not at its calls" {
+test "check: each distinct instance of a generic function is recorded once" {
     var r = try checkSource(std.testing.allocator,
         \\struct P
         \\  a: Int
@@ -5195,7 +5460,7 @@ test "check: a generic function is reported once, not at its calls" {
     );
     defer r.p.deinit();
     defer r.ctx.deinit();
-    try expectDiagnostic(&r.ctx, "generic functions are not supported yet");
-    if (r.ctx.diagnostics.items.len != 1) for (r.ctx.diagnostics.items) |d| std.debug.print("  got: {s}\n", .{d.message});
-    try std.testing.expectEqual(1, r.ctx.diagnostics.items.len);
+    try expectClean(&r.ctx);
+    // `size[Int]`, spelled and inferred, and `size[P]`.
+    try std.testing.expectEqual(2, r.ctx.fn_instances.items.len);
 }

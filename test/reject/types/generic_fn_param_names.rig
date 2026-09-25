@@ -1,0 +1,40 @@
+# A function's type parameter needs a name of its own: not a built-in
+# type or `Self`, a module-level declaration, or a parameter, and no
+# local or parameter inside the function (or a generic type's method)
+# reuses it. A compile-time value parameter cannot have a type
+# parameter's type.
+
+struct P
+  n: Int
+
+fun a[Int](x: Int) -> Int
+  x
+
+fun b[P](x: P) -> Int
+  1
+
+fun c[T, T](x: T) -> Int
+  1
+
+fun d[T, n: T](x: T) -> Int
+  1
+
+fun f[T](x: T) -> T
+  T = 3
+  x
+
+type Box[T]
+  v: T
+
+  fun e[T](?self, x: T) -> Int
+    1
+
+sub main()
+  print(1)
+
+# error: 10:7: generic parameter `Int` has the name of a built-in type
+# error: 13:7: parameter `P` has the same name as the module-level declaration `P`
+# error: 16:10: duplicate parameter `T`
+# error: 19:13: compile-time parameter `n` cannot have the type `T`, a type parameter
+# error: 23:3: local `T` has the name of the generic parameter `T`
+# error: 29:9: parameter `T` has the name of the generic parameter `T`

@@ -894,8 +894,73 @@ generic type `Vec` expects 1 type argument, got 2
 ```
 
 A generic type takes type parameters only: a compile-time value
-parameter (`type Ring[n: Int]`) is rejected. There are no generic
-functions yet ([§19](#19-reserved-and-unsupported-forms)).
+parameter (`type Ring[n: Int]`) is rejected.
+
+### Generic functions
+
+A bare name among a function's compile-time parameters
+([§17](#17-compile-time-parameters)) is a type parameter, which makes
+the function generic: `fun max[T](a: T, b: T) -> T`. A `sub`, a method,
+and an associated function take them too, and a method's sit beside
+its type's. A call gives every compile-time argument in brackets
+(`max[Float](1, 2)`), or none, and then its type parameters are
+inferred by matching each parameter's type against its argument's
+(`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`, `[N]T`, `Box[T]`). Every
+argument must agree; a literal takes its default type only when no
+other argument gives the parameter one. A compile-time value is never
+inferred, so a function that takes one is always called with brackets.
+
+A generic function is checked as a generic type is: its body may only
+do with a `T` what every instance allows, it is ownership-checked
+once, for a `T` that may own a resource and holds no borrow, and each
+instance its calls make (directly or through other generic bodies) is
+checked against what the body does with `T`. A `T` that owns a
+resource moves where the body moves it, and a type argument cannot be
+a borrow or hold one: the parameter is written `?T` or `!T` instead. A
+generic function only calls; it is not a value, a closure is never
+generic, and a generic function cannot cross module boundaries yet.
+
+```rig
+struct Res
+  n: Int
+
+  drop self: !Res
+    print("drop", self.n)
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun pick[T](a: T, b: T, first: Bool) -> T
+  if first
+    return <a
+  <b
+
+sub main
+  print(max(3, 7), max(2.5, 1.0), max[Float](1, 2))
+  r = pick(Res(n: 1), Res(n: 2), true)
+  print("kept", r.n)
+```
+
+```output
+7 2.5 2.0
+drop 2
+kept 1
+drop 1
+```
+
+```rig reject
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+sub main
+  print(max(1, 2.5))
+  print(max("a", "b"))
+```
+
+```error
+conflicting types for `T` in the call to `max`: `Int` (argument 1) and `Float` (argument 2)
+`max[String]` cannot use `T = String`: the generic body applies `>` to `T`
+```
 
 ### Type aliases
 
@@ -3014,7 +3079,7 @@ compile-time argument 1 of `check` must be known at compile time
 ```
 
 A bare name in brackets is a type parameter (`fun max[T](a: T, b: T)`),
-which would make the function generic; that is not supported yet.
+which makes the function generic ([generic functions](#generic-functions)).
 
 ---
 
@@ -3093,7 +3158,7 @@ The rest parse, and the checker rejects them as not supported yet
 
 | Form | Diagnostic |
 |---|---|
-| generic functions (`fun max[T](a: T, b: T) -> T`) | `` generic functions are not supported yet `` |
+| a `pub` generic function, or a generic method of a `pub` type | `` generic functions cannot cross module boundaries yet `` |
 | `drop` on an enum or a generic type | `` `drop` bodies are only for structs `` |
 | a stack closure passed, stored, or returned | `` closures cannot escape their defining scope `` |
 | a generic instance in a module's public surface | `` generic types cannot cross module boundaries yet `` |

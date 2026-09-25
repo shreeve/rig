@@ -431,11 +431,24 @@ pub const Checker = struct {
     }
 
     /// Generic bodies are checked once, for a `T` that may own a resource
-    /// and holds no borrow. Each instantiation the module spells must fit
+    /// and holds no borrow. Each instantiation the module makes must fit
     /// that: an argument with drop glue only where the bodies never copy
-    /// a `T`, and no borrows in the arguments of a type with methods.
+    /// a `T`, and no borrows in the arguments of a type with methods or of
+    /// a generic function. A method's instance checks its own parameters;
+    /// its type's are checked with the receiver's instance.
     fn checkInstantiations(self: *Checker) Error!void {
         const ctx = self.sema orelse return;
+        for (ctx.fn_instances.items) |f| {
+            const shown = try sema.formatFnInstanceIn(ctx, self.arena(), f.inst);
+            for (f.inst.ownParams(), f.inst.ownArgs()) |param, arg| {
+                if (!self.mayCarryBorrow(arg)) {
+                    try self.checkCopies(f.site, shown, param, arg);
+                    continue;
+                }
+                const pname = ctx.symbols.items[param].name;
+                try self.err(f.site, "`{s}` cannot use `{s} = {s}`: a generic function is checked for a `{s}` that holds no borrow; take `?{s}` or `!{s}` in its signature instead", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, pname, pname });
+            }
+        }
         var it = ctx.instantiation_sites.iterator();
         while (it.next()) |entry| {
             const pn = switch (ctx.types.get(entry.key_ptr.*)) {
@@ -460,14 +473,22 @@ pub const Checker = struct {
                     try self.err(site, "`{s}` cannot use `{s} = {s}`: the methods of `{s}` are checked for a `{s}` that holds no borrow", .{ shown, pname, aname, base.name, pname });
                     continue;
                 }
-                if (!sema.typeHasDropGlue(ctx, arg)) continue;
-                for (self.plain_reqs.items) |r| {
-                    if (r.param != param) continue;
-                    try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, which would duplicate the resource `{s}` owns", .{ shown, pname, aname, pname, aname });
-                    try self.note(r.pos, "`{s}` copied here; move it with `<` instead", .{pname});
-                    break;
-                }
+                try self.checkCopies(site, shown, param, arg);
             }
+        }
+    }
+
+    /// An instance whose argument for `param` owns a resource, where a
+    /// generic body copies a `param`.
+    fn checkCopies(self: *Checker, site: u32, shown: []const u8, param: SymbolId, arg: TypeId) Error!void {
+        const ctx = self.sema orelse return;
+        if (!sema.typeHasDropGlue(ctx, arg)) return;
+        const pname = ctx.symbols.items[param].name;
+        for (self.plain_reqs.items) |r| {
+            if (r.param != param) continue;
+            try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, which would duplicate the resource `{s}` owns", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
+            try self.note(r.pos, "`{s}` copied here; move it with `<` instead", .{pname});
+            return;
         }
     }
 

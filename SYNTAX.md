@@ -255,6 +255,7 @@ would move, `~x` would hold a handle weakly.
 | destructor | `impl Drop` | `deinit` + `defer` | `drop self: !Self` |
 | cleanup | scope guard | `defer`, `errdefer` | `defer`, `errdefer` |
 | generic type | `struct Box<T>` | `fn Box(comptime T: type) type` | `type Box[T]` |
+| generic function | `fn max<T>(a: T, b: T) -> T` | `fn max(comptime T: type, a: T, b: T) T` | `fun max[T](a: T, b: T) -> T` |
 | type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `Vec[Int]()` |
 | compile-time param | const generics | `comptime n: i64` | `fun f[n: Int](x: Int)`, called `f[3](x)` |
 | unsafe | `unsafe { }` | (everything) | `raw` block |
@@ -1376,9 +1377,9 @@ generic enum; the brackets touch the name. Type arguments go in
 brackets too, in a type (`Box[Int]`) and in an expression
 (`Box[Int](value: 3)`, `Vec[Int]()`, `Option[Int].some(value: 7)`), or
 are inferred from the constructor's values or the type expected where
-the value goes. There are no generic functions yet, and no traits: a
-generic body may only do with `T` what every instantiation allows,
-which is checked per instance, like Zig's `comptime T: type`.
+the value goes. There are no traits: a generic body may only do with
+`T` what every instantiation allows, which is checked per instance,
+like Zig's `comptime T: type`.
 
 ```rig
 type Pair[T, U]
@@ -1413,6 +1414,42 @@ In an expression, `x[...]` is type arguments when `x` names a generic
 type, and an index otherwise. A type argument there is spelled as an
 expression: a name, `mod.Type`, `*T`, `~T`, `?T`, `!T`, `T?`, or an
 instance. For a slice, array, or function type, use a `type` alias.
+
+### Generic functions
+
+A function, `sub`, or method takes type parameters in the same
+brackets as its compile-time values, and lowers to a Zig function with
+a `comptime T: type` parameter. A call infers them from its arguments,
+a literal taking its default type, or gives every compile-time argument
+in brackets. The body is checked for each instance the calls make, and
+a `T` that owns a resource moves where the body moves it.
+
+```rig
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun pick[T](a: T, b: T, first: Bool) -> T
+  if first
+    return <a
+  <b
+
+sub main
+  v = Vec[Int]()
+  !v.push(1)
+  print(max(3, 7), max(2.5, 1.0), max[Float](1, 2))
+  w = pick(<v, Vec[Int](), true)
+  print(w.len)
+```
+
+```output
+7 2.5 2.0
+1
+```
+
+| Rust | Zig | Rig |
+|---|---|---|
+| `fn max<T: PartialOrd>(a: T, b: T) -> T` | `fn max(comptime T: type, a: T, b: T) T` | `fun max[T](a: T, b: T) -> T` |
+| `max::<f64>(1.0, 2.0)` | `max(f64, 1, 2)` | `max[Float](1, 2)` |
 
 ### Aliases
 
@@ -2292,7 +2329,8 @@ User(name: "bob", age: 1) ~(alive)
 
 Coming from Rust or Zig, you will reach for these and not find them:
 
-- **generic functions and traits**: generics are on types only;
+- **traits**: a generic body may only do with `T` what every
+  instance allows;
 - **heap strings and string building**: `String` is an immutable view;
 - **stack closures as arguments**: pass an owned closure (`*|...|`);
 - **concurrency and async**;
@@ -2369,6 +2407,7 @@ correspondences:
 | `struct`, plain `enum`, payload `enum` | `struct`, `enum`, `union(enum)` |
 | `error E` | an error set |
 | `type Box[T]` | `fn Box(comptime T: type) type` |
+| `fun max[T](a: T, b: T) -> T`, `max(3, 7)` | `fn max(comptime T: type, a: T, b: T) T`, `max(i64, 3, 7)` |
 | `T?`, `none`, `a ?? b` | `?T`, `null`, `a orelse b` |
 | `T!`, `f()!`, `catch` | `anyerror!T`, `try f()`, `catch` |
 | `?T` parameter | the value for plain data; `*const T` for owning types |
@@ -2497,7 +2536,8 @@ call onto the place, giving the tree of `(!v).push(x)`
   `sub greet`, but a call still does, `greet()`.
 - `comptime` parameters go in brackets before the run-time ones:
   `fn f(comptime n: i64, x: i64)` is `fun f[n: Int](x: Int)`, called
-  `f[3](x)`, and a generic type is `type Box[T]`.
+  `f[3](x)`; a generic type is `type Box[T]`, and a generic function
+  `fun max[T](a: T, b: T) -> T`.
 - A value nobody uses is an error, as in Zig; `_ = e` discards on
   purpose.
 - `switch` is `match`, and its `else =>` arm is `_ =>`.

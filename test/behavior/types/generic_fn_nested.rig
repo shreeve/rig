@@ -1,0 +1,51 @@
+# Generic functions call each other and themselves: a type parameter is
+# passed on, inferred from values of its type, and a generic function
+# can return an instance of a generic type built from its own
+# parameters.
+
+struct Res
+  n: Int
+
+  drop self: !Res
+    print("drop", self.n)
+
+type Pair[A, B]
+  first: A
+  second: B
+
+fun pair[T, U](a: T, b: U) -> Pair[T, U]
+  Pair(first: <a, second: <b)
+
+fun twice[T](x: T) -> Pair[T, T]
+  pair(x, x)
+
+fun sum_to[T](n: T) -> T
+  n if n <= 1 else n + sum_to(n - 1)
+
+fun count_down[T](n: Int, x: T) -> T
+  if n == 0
+    return <x
+  count_down(n - 1, <x)
+
+fun first[T, U](p: ?Pair[T, U]) -> T
+  p.first
+
+sub main()
+  p = pair(1, "one")
+  print(p.first, p.second, first(?p))
+  print(twice(2.5))
+  print(sum_to(4), sum_to(4.0))
+  r = count_down(3, Res(n: 9))
+  print("counted", r.n)
+  q = pair(Res(n: 1), Res(n: 2))
+  print(q.second.n)
+
+# expect:
+# 1 one 1
+# Pair(first: 2.5, second: 2.5)
+# 10 10.0
+# counted 9
+# 2
+# drop 2
+# drop 1
+# drop 9

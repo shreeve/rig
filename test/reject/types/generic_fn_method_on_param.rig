@@ -1,0 +1,22 @@
+# A generic function's body cannot call a method, or read a field, of a
+# value whose type is a type parameter: there are no traits to say what
+# every instance has.
+
+struct P
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+fun call_get[T](x: ?T) -> Int
+  x.get()
+
+fun read_n[T](x: ?T) -> Int
+  x.n
+
+sub main()
+  p = P(n: 1)
+  print(call_get(?p), read_n(?p))
+
+# error: 12:5: a generic parameter `T` has no methods
+# error: 15:5: a generic parameter `T` has no fields

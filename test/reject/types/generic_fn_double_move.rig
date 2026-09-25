@@ -1,0 +1,15 @@
+# A generic body is ownership-checked once, for a `T` that may own a
+# resource: a `T` argument moved twice is a use after move, whatever
+# the instance.
+
+type Pair[A, B]
+  first: A
+  second: B
+
+fun twice[T](x: T) -> Pair[T, T]
+  Pair(first: <x, second: <x)
+
+sub main()
+  print(twice(1))
+
+# error: 10:28: use of `x` after move

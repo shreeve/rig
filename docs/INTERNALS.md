@@ -446,7 +446,8 @@ later pass reads. It runs these steps in order:
 7. **generics** (`expandInstantiations`, then
    `typecheck.checkGenericInstantiations`): the instances reached
    through generic bodies are added, and every instance is checked
-   against the operations its bodies apply to the type parameters.
+   against the operations its bodies apply to the type parameters
+   ([Generics](#generics)).
 
 The expression walk also checks the two effects that are not about
 ownership:
@@ -488,6 +489,7 @@ instead of re-deriving it by name:
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
 | `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`Vec[Int]`), or a function's arguments, noting a statement `show[3]` that is itself the call and a receiver passed as an argument (`P.scale[2](p)`) |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Box` for `Box[Int](v: 3)`), and its compile-time arguments |
+| `genericCallOf(call)` | for a call of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (`type_invalid` at a value parameter, whose value is in the bracket list) |
 
 Leaves are keyed by source position and list nodes by their node id:
 the parser numbers every node it builds (`List.id`), and the Parser
@@ -498,6 +500,38 @@ a pattern, and for a capture the binding it captures.
 
 Sema's job includes everything emit cannot lower: a construct the
 backend cannot express yet is rejected with a diagnostic that says so.
+
+### Generics
+
+A generic type's or generic function's body is checked once, with its
+type parameters as `type_var` types. Operations that only some types
+support (`+`, `>`, `==`, a literal beside a `T`, copying a `T`) record
+a `Requirement` on the parameter (`generic_requirements`); nothing
+about a `T` is assumed that is not recorded. A function's type
+parameters are `generic_param` symbols in its scope, and its
+`FunctionType.ct_params` holds the `type_var` itself in a type
+parameter's slot (a compile-time value parameter's type may not
+mention one), so a signature says which of its compile-time
+parameters are types.
+
+Instances come from the program: `instantiation_sites` holds each
+generic type instance and where it is first spelled or inferred, and
+`fn_instances` each generic function instance (`FnInstance`: the
+parameters and their arguments; a method's start with its type's,
+bound to the receiver's) and the call that makes it. A call records its
+instance when it is checked: the bracket list gives every compile-time
+argument, or else `inferCallTypeArgs` matches each parameter's type
+against its argument's; a literal binds its default type only where
+nothing else binds the parameter, and disagreements are reported. An
+instance over type parameters (a generic body using `Opt[T]` or calling
+`max(x, y)` with `x: T`) goes in `generic_uses` or `generic_fn_uses`
+instead, and `expandInstantiations` makes it concrete for each
+instance of the body it is in, at that instance's site, until nothing
+new appears; an instance nesting deeper than 24 levels is reported as
+polymorphic recursion. `checkGenericInstantiations` then checks every
+instance against the requirements, reporting at the site with a note
+at the operation, and the ownership checker checks each against the
+body's ownership assumptions (below).
 
 ### Diagnostics
 
@@ -604,6 +638,15 @@ borrow, directly or through what it borrows, a value dropped before it
 Types come from the facts table; an unknown type is assumed to be able
 to hold a borrow, which keeps the checker sound after errors.
 
+**Generic bodies** are walked once, with each type parameter's values
+treated as owning (moved, dropped, never copied implicitly) and as
+holding no borrow. A body that copies a `T` records that (`plain_reqs`),
+and `checkInstantiations` rejects an instance whose argument there owns
+a resource, and a type argument that may hold a borrow, for a generic
+function and for a generic type with methods. A call site sees the
+instance's signature, so moves, borrows, and the loans a result
+carries are checked there with the real types.
+
 ## Emit
 
 `emit.zig` lowers each checked module to Zig 0.16 source. It only
@@ -659,6 +702,17 @@ lower is an internal error: sema must have rejected it.
   needs the receiver first): `fun times[n: Int](?self)` is
   `fn times(self: P, comptime n: i64) i64`. A call passes its bracket
   arguments in the same place, and a statement `show[3]` is `show(3)`.
+- **Generic functions** are Zig generic functions: a type parameter is
+  `comptime T: type`, and a call passes its type arguments, inferred
+  or given (`genericCallOf`): `max(3, 7)` is `max(i64, 3, 7)`. Zig
+  instantiates each once. This is how generic types are emitted too
+  (type functions), and it keeps one body in the output per Rig body;
+  monomorphizing in the emitter would duplicate what Zig already does.
+  It is sound because the body depends on `T` only through forms that
+  already work for every instance of a generic type: `rig.drop` and
+  `rig.dropElement` release a `T` only when the instance needs it (a
+  compile-time no-op for plain data), a `?T` is a `rig.ReadBorrow(T)`,
+  `/` on a `T` is `rig.div`, and the operators sema's requirements allow.
 - **Calls.** Arguments are evaluated in source order, into temporaries
   when needed: when binding keyword arguments reorders two with side
   effects, or when an argument may leave (`!`, a `catch` that returns)

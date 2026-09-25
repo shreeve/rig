@@ -1,0 +1,69 @@
+# Methods and associated functions take type parameters of their own,
+# on a plain type and on a generic one, where they sit beside the
+# type's parameters, whose rules they follow: `Box`'s `with` copies a
+# `T`, so a `Box` holds plain data. They are inferred or given in brackets, and a
+# method called through its type takes the receiver first.
+
+struct Res
+  n: Int
+
+  drop self: !Res
+    print("drop", self.n)
+
+type Pair[A, B]
+  first: A
+  second: B
+
+struct Tagger
+  label: String
+
+  sub show[T](?self, x: T)
+    print(self.label, x)
+
+  fun either[T](a: T, b: T, first: Bool) -> T
+    if first
+      return <a
+    <b
+
+type Box[T]
+  v: T
+
+  fun with[U](?self, u: U) -> Pair[T, U]
+    Pair(first: self.v, second: <u)
+
+type Cup[T]
+  v: T
+
+  fun into[U](self: Cup[T], u: U) -> Cup[U]
+    Cup(v: <u)
+
+sub main()
+  t = Tagger(label: "tag")
+  t.show(3)
+  t.show[String]("x")
+  Tagger.show(?t, 2.5)
+  print(Tagger.either(1, 2, false), Tagger.either[Float](1, 2, true))
+  r = Tagger.either(Res(n: 1), Res(n: 2), true)
+  print("kept", r.n)
+  b = Box(v: 7)
+  p = b.with("seven")
+  print(p.first, p.second)
+  q = <Cup(v: 7).into(Res(n: 3))
+  print(q.v.n)
+  c: Cup[*Res] = Cup(v: *Res(n: 4))
+  d = <c.into(true)
+  print(d.v)
+
+# expect:
+# tag 3
+# tag x
+# tag 2.5
+# 2 1.0
+# drop 2
+# kept 1
+# 7 seven
+# 3
+# drop 4
+# true
+# drop 3
+# drop 1

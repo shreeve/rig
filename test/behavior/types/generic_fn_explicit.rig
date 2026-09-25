@@ -1,0 +1,32 @@
+# Brackets give every compile-time argument of a generic function, types
+# and values alike, in order; a literal argument then takes the given
+# type. A generic function with no run-time parameters is called by a
+# statement `hello[Int]` as by `hello[Int]()`.
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+sub tag[T, n: Int](x: T)
+  print(n, x)
+
+sub hello[T]
+  print("hello")
+
+fun double[T](x: T) -> T
+  x + x
+
+sub main()
+  print(max[Float](1, 2), max[Int](3, 2), max[U8](7, 9))
+  tag[String, 3]("three")
+  tag[Float, 1](0.5)
+  hello[Int]
+  hello[Bool]()
+  print(double[F32](0.25))
+
+# expect:
+# 2.0 3 9
+# 3 three
+# 1 0.5
+# hello
+# hello
+# 0.5

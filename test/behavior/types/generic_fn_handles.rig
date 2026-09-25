@@ -1,0 +1,37 @@
+# A generic function over shared and weak handles: cloning a `*T`, taking
+# a `~T` from it, and upgrading a `~T` count references without knowing
+# `T`, and the value is dropped when its last strong handle is.
+
+struct Res
+  n: Int
+
+  drop self: !Res
+    print("drop", self.n)
+
+fun clone_of[T](h: ?*T) -> *T
+  +h
+
+fun weak_of[T](h: *T) -> ~T
+  ~h
+
+fun upgraded[T](w: ?~T) -> (*T)?
+  w.upgrade()
+
+sub main()
+  h = *Res(n: 1)
+  c = clone_of(?h)
+  w = weak_of(+c)
+  -h
+  print("one dropped")
+  if upgraded(?w) as s
+    print("alive", s.n)
+  -c
+  print("both dropped")
+  print(upgraded(?w) == none)
+
+# expect:
+# one dropped
+# alive 1
+# drop 1
+# both dropped
+# true

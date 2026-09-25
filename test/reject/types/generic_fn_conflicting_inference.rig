@@ -1,0 +1,17 @@
+# Every argument that determines a type parameter must agree on it. A
+# literal takes its default type only when no other argument gives the
+# parameter a type, and then the literals must agree too.
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+sub main()
+  x: I32 = 3
+  y: I64 = 4
+  print(max(1, 2.5))
+  print(max(x, y))
+  print(max(x, 2.5))
+
+# error: 11:9: conflicting types for `T` in the call to `max`: `Int` (argument 1) and `Float` (argument 2); give it in brackets: `max[Float](...)`
+# error: 12:9: conflicting types for `T` in the call to `max`: `I32` (argument 1) and `Int` (argument 2); give it in brackets: `max[Int](...)`
+# error: 13:9: conflicting types for `T` in the call to `max`: `I32` (argument 1) and `Float` (argument 2); give it in brackets: `max[Float](...)`

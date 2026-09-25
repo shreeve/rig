@@ -114,8 +114,8 @@ one small reactive type in the runtime
 
 Not yet. Traits bring a large design space (dispatch, coherence, trait
 objects), and any design has to keep ownership visible at call sites
-and in the IR. Until then, Rig has methods, generic types, enums, and
-`match`.
+and in the IR. Until then, Rig has methods, generic types and
+functions, enums, and `match`.
 
 ## Can I call C?
 

@@ -1,0 +1,20 @@
+# Brackets give every compile-time argument, or none: there is no
+# partial list. A function with a compile-time value parameter needs its
+# brackets, since a value is never inferred.
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+sub tag[T, n: Int](x: T)
+  print(n, x)
+
+sub main()
+  print(max[Int, Int](1, 2))
+  tag[Int](1)
+  tag(1)
+  print(max[3](1, 2))
+
+# error: 12:9: `max` expects 1 compile-time argument, got 2
+# error: 13:3: `tag` expects 2 compile-time arguments, got 1
+# error: 14:3: `tag` takes 2 compile-time arguments in brackets: `tag[...](...)`
+# error: 15:13: `3` is not a type

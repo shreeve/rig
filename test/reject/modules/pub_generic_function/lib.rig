@@ -1,0 +1,14 @@
+pub fun same[T](x: T) -> T
+  x
+
+pub struct Tagger
+  label: String
+
+  sub show[T](?self, x: T)
+    print(self.label, x)
+
+fun local[T](x: T) -> T
+  x
+
+pub fun uses_local(n: Int) -> Int
+  local(n)

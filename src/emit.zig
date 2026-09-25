@@ -116,6 +116,8 @@ const FunState = struct {
     /// Compile-time parameters, discarded at the top of the body when
     /// unused.
     tparams: Sexp = .nil,
+    /// The declared return type, `_` for none.
+    returns: Sexp = .nil,
     leak_check: bool = false,
     /// A closure's environment parameter, when no capture is used.
     unused_env: []const u8 = "",
@@ -572,7 +574,7 @@ pub const Emitter = struct {
         const is_main = self.sema.is_root and self.nominal == null and node.isKind(.sub) and std.mem.eql(u8, name, "main");
         const return_ty: ?TypeId = if (f.returns == self.sema.types.void_id) null else f.returns;
 
-        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = sema.tparamsOf(node), .leak_check = is_main };
+        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = sema.tparamsOf(node), .returns = rig.returnType(node), .leak_check = is_main };
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
@@ -613,8 +615,13 @@ pub const Emitter = struct {
         for (params.items()) |p| {
             const name_node = sema.paramNameNode(p) orelse continue;
             const sym = self.sema.symbolOf(name_node) orelse continue;
-            const ty = self.symType(sym) orelse return self.unsupported(p, "an untyped parameter");
             const rig_name = self.srcText(name_node);
+            // A type parameter, `comptime T: type`.
+            if (self.sema.symbols.items[sym].kind == .generic_param) {
+                _ = try self.declare(.{ .sym = sym }, rig_name);
+                continue;
+            }
+            const ty = self.symType(sym) orelse return self.unsupported(p, "an untyped parameter");
             const unused = std.mem.eql(u8, rig_name, "_");
             var local: Local = .{ .sym = sym, .ty = ty };
             if (!self.isPtrBorrowTy(ty)) {
@@ -632,11 +639,13 @@ pub const Emitter = struct {
         }
     }
 
-    /// `name: T` in a signature; `comptime` for a compile-time parameter.
+    /// `name: T` in a signature; `comptime` for a compile-time parameter,
+    /// and `comptime T: type` for a type parameter.
     fn emitParam(self: *Emitter, p: Sexp, ct: bool) Error!void {
         const local = self.localOf(sema.paramNameNode(p).?).?;
         const name = if (local.param_name.len > 0) local.param_name else local.zig_name;
         try self.w.print("{s}{s}: ", .{ if (ct) "comptime " else "", name });
+        if (self.sema.symbols.items[local.sym].kind == .generic_param) return self.w.writeAll("type");
         try self.emitTypeTy(local.ty.?);
     }
 
@@ -659,7 +668,9 @@ pub const Emitter = struct {
         }
         for (self.fun.tparams.items()) |p| {
             const local = self.localOf(sema.paramNameNode(p) orelse continue) orelse continue;
-            if (!self.usage.used.contains(local.sym)) try self.line("_ = {s};", .{local.zig_name});
+            // A type parameter is used by the signature, too.
+            if (self.usage.used.contains(local.sym) or self.mentions(self.fun.params orelse .nil, local.sym) or self.mentions(self.fun.returns, local.sym)) continue;
+            try self.line("_ = {s};", .{local.zig_name});
         }
         self.fun.tparams = .nil;
         const params = self.fun.params orelse return;
@@ -972,10 +983,7 @@ pub const Emitter = struct {
                 try self.emitExpr(ir.get(e, .object));
                 if (!f.call) return;
                 try self.w.writeAll("(");
-                for (sema.bracketArgs(e), 0..) |a, i| {
-                    if (i > 0) try self.w.writeAll(", ");
-                    try self.emitComptime(a);
-                }
+                _ = try self.emitCtArgs(self.sema.genericCallOf(e), sema.bracketArgs(e));
                 try self.w.writeAll(")");
             },
         }
@@ -2785,17 +2793,17 @@ pub const Emitter = struct {
     fn emitArgs(self: *Emitter, call: Sexp) Error!void {
         const args = ir.Call.args(call);
         const params = self.callParams(call);
-        const ct = self.sema.ctArgsOf(call);
-        const ct_at: usize = if (self.sema.instanceOf(ir.Call.callee(call))) |inst| (if (inst == .function and inst.function.receiver_arg) 1 else 0) else 0;
+        const generic = self.sema.genericCallOf(call);
+        const ct_at: usize = if (generic) |g| @intFromBool(g.receiver_arg) else if (self.sema.instanceOf(ir.Call.callee(call))) |inst| (if (inst == .function and inst.function.receiver_arg) 1 else 0) else 0;
         const slots = self.sema.callSlotsOf(call);
         const n = if (slots) |sl| sl.len else args.len;
         var written: usize = 0;
         for (0..n + 1) |i| {
-            if (i == @min(ct_at, n)) for (ct) |a| {
-                if (written > 0) try self.w.writeAll(", ");
-                written += 1;
-                try self.emitComptime(a);
-            };
+            if (i == @min(ct_at, n)) {
+                const ct = self.sema.ctArgsOf(call);
+                if (written > 0 and ctArgCount(generic, ct) > 0) try self.w.writeAll(", ");
+                written += try self.emitCtArgs(generic, ct);
+            }
             if (i == n) break;
             if (written > 0) try self.w.writeAll(", ");
             written += 1;
@@ -2812,6 +2820,26 @@ pub const Emitter = struct {
         const value = argValue(arg);
         if (i < params.len and self.isPtrBorrowTy(params[i])) return self.emitBorrowValue(value);
         try self.emitBare(value);
+    }
+
+    /// The number of compile-time arguments a call passes: those `given`
+    /// in its bracket list, or one per compile-time parameter of a
+    /// generic function, whose types may be inferred.
+    fn ctArgCount(generic: ?sema.GenericCall, given: []const Sexp) usize {
+        return if (generic) |g| g.type_args.len else given.len;
+    }
+
+    /// A call's compile-time arguments, `given` in its bracket list: for a
+    /// generic function, a type argument (inferred or given) where it
+    /// takes one. Returns how many were written.
+    fn emitCtArgs(self: *Emitter, generic: ?sema.GenericCall, given: []const Sexp) Error!usize {
+        const n = ctArgCount(generic, given);
+        for (0..n) |j| {
+            if (j > 0) try self.w.writeAll(", ");
+            const ty = if (generic) |g| g.type_args[j] else sema.type_invalid;
+            if (ty != sema.type_invalid) try self.emitTypeTy(ty) else try self.emitComptime(given[j]);
+        }
+        return n;
     }
 
     /// A compile-time argument: a value Zig knows at compile time.
@@ -3435,7 +3463,12 @@ pub const Emitter = struct {
                 try self.emitTypeList(pn.args);
                 try self.w.writeAll(")");
             },
-            .type_var => |sym_id| try self.w.print("{f}", .{ident(ctx.symbols.items[sym_id].name)}),
+            // A generic function's type parameter is its `comptime`
+            // parameter; a generic type's, its function's.
+            .type_var => |sym_id| if (self.localBySym(sym_id)) |local|
+                try self.w.writeAll(local.zig_name)
+            else
+                try self.w.print("{f}", .{ident(ctx.symbols.items[sym_id].name)}),
             .function => |f| {
                 try self.w.writeAll("*const fn (");
                 try self.emitTypeList(f.params);

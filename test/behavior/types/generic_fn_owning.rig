@@ -1,0 +1,70 @@
+# A type parameter bound to an owning type (a struct with a `drop` body,
+# a Vec, a shared handle) moves where the generic body moves it: the
+# argument the body returns is handed back to the caller, and one it
+# does not return is dropped when the call ends. A Copy type is copied.
+
+struct Res
+  n: Int
+
+  drop self: !Res
+    print("drop", self.n)
+
+type Box[T]
+  v: T
+
+fun pick[T](a: T, b: T, first: Bool) -> T
+  if first
+    return <a
+  <b
+
+fun keep[T](x: T) -> T
+  x
+
+sub consume[T](x: T)
+  print("consumed")
+
+fun wrap[T](x: T) -> Box[T]
+  Box(v: <x)
+
+fun swap_in[T](dst: !T, v: T) -> Int
+  dst = <v
+  1
+
+sub main()
+  r = pick(Res(n: 1), Res(n: 2), true)
+  print("picked", r.n)
+  v = Vec[Int]()
+  !v.push(1)
+  w = Vec[Int]()
+  !w.push(2)
+  !w.push(3)
+  k = pick(<v, <w, false)
+  print(k.len)
+  h = *Res(n: 3)
+  h2 = keep(+h)
+  print(h2.n)
+  consume(Res(n: 4))
+  b = wrap(Res(n: 5))
+  print(b.v.n)
+  s = pick("a", "b", false)
+  print(s, keep(s))
+  slot = Res(n: 6)
+  print(swap_in(!slot, Res(n: 7)))
+  print("slot", slot.n)
+
+# expect:
+# drop 2
+# picked 1
+# 2
+# 3
+# consumed
+# drop 4
+# 5
+# b b
+# drop 6
+# 1
+# slot 7
+# drop 7
+# drop 5
+# drop 3
+# drop 1

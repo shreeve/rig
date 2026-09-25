@@ -1,0 +1,25 @@
+# A type parameter no argument determines cannot be inferred: `none`
+# and `.variant` say nothing about it, and a parameter used only in the
+# return type has no argument at all.
+
+enum Color
+  red
+  blue
+
+fun make[T](n: Int) -> Int
+  n
+
+fun first[T](x: T?, y: T?) -> Int
+  1
+
+fun pick[T](x: T) -> Int
+  1
+
+sub main()
+  print(make(3))
+  print(first(none, none))
+  print(pick(.red))
+
+# error: 19:9: cannot infer `T` for `make` from its arguments; give it in brackets: `make[T](...)`
+# error: 20:9: cannot infer `T` for `first` from its arguments; give it in brackets: `first[T](...)`
+# error: 21:9: cannot infer `T` for `pick` from its arguments; give it in brackets: `pick[T](...)`

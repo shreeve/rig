@@ -211,8 +211,8 @@ and environment variable. The suite runs on Linux and macOS in
 **Works today**, with tests for each feature:
 
 - structs with field defaults, enums with payloads, error sets, generic
-  types, type aliases, module-level constants, methods with explicit
-  receivers, exhaustive `match`
+  types and functions, type aliases, module-level constants, methods
+  with explicit receivers, exhaustive `match`
 - `Int` and `Float` (64-bit), sized numbers, checked conversions
   (`I32(x)`, `Float(n)`), compile-time checked constant arithmetic,
   arrays, strings, slices (`s[a..b]`, `?xs[a..b]`)
@@ -232,7 +232,7 @@ and environment variable. The suite runs on Linux and macOS in
 **Not yet:** a standard library (there is a small runtime and `print`),
 concurrency, and async. [SPEC §19](SPEC.md#19-reserved-and-unsupported-forms)
 lists every form the compiler rejects as not supported yet, among them
-generic functions and passing a stack closure as an argument;
+passing a stack closure as an argument;
 [the roadmap](docs/ROADMAP.md) lists the plans.
 
 ## Learn more

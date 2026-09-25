@@ -161,6 +161,7 @@ const SymbolResolver = struct {
         const name = identAt(self.ctx.source, name_node) orelse return;
         const pos = srcPos(name_node, 0);
         if (self.visibleLocal(self.scope, name)) |prev| {
+            if (self.ctx.symbols.items[prev].kind == .generic_param) return self.checkShadowsDeclaration(name_node, what);
             try self.ctx.err(pos, "{s} `{s}` shadows the local `{s}`; use a different name", .{ what, name, name });
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
             return;
@@ -183,12 +184,16 @@ const SymbolResolver = struct {
     }
 
     /// A local or parameter may not reuse the name of a module-level
-    /// function, type, constant, extern, or module, or of a generic parameter of the
-    /// enclosing generic type: Zig rejects the shadowing.
+    /// function, type, constant, extern, or module, or of a generic
+    /// parameter of the enclosing generic type or function: Zig rejects
+    /// the shadowing, and a name means one thing in a body.
     fn checkShadowsDeclaration(self: *SymbolResolver, name_node: Sexp, what: []const u8) Error!void {
         const name = identAt(self.ctx.source, name_node) orelse return;
-        for (self.type_params) |tp| {
-            if (!std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) continue;
+        const fn_param = if (self.ctx.lookup(self.scope, name)) |id| self.ctx.symbols.items[id].kind == .generic_param else false;
+        const type_param = for (self.type_params) |tp| {
+            if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) break true;
+        } else false;
+        if (fn_param or type_param) {
             try self.ctx.errAt(name_node, "{s} `{s}` has the name of the generic parameter `{s}`; use a different name", .{ what, name, name });
             return;
         }
@@ -603,31 +608,27 @@ pub const TypeResolver = struct {
 
     /// Resolve a `fun` / `sub` (or method) signature, write parameter
     /// types into the parameter symbols, and return the function type.
-    /// Top-level functions also get the type on their symbol.
+    /// Top-level functions also get the type on their symbol. A type
+    /// parameter (`fun max[T]`) is bound in the function's scope, where
+    /// the signature is resolved.
     fn resolveFunction(self: *TypeResolver, node: Sexp, nominal_sym: SymbolId) Error!TypeId {
         const is_sub = node.isKind(.sub);
         const name = ir.get(node, .name);
         const params = ir.get(node, .params);
-        // Its parameter and return types are poison, so nothing else about
-        // it is reported.
-        const generic = try self.rejectGenericFunction(node);
+        const prev_scope = self.scope;
+        defer self.scope = prev_scope;
+        if (self.ctx.scopeOf(node)) |s| self.scope = s;
         const returns = rig.returnType(node);
-        const return_ty = if (generic)
-            self.ctx.types.invalid_id
-        else if (returns == .nil)
-            self.ctx.types.void_id
-        else
-            try self.resolveReturnType(returns);
+        const return_ty = if (returns == .nil) self.ctx.types.void_id else try self.resolveReturnType(returns);
 
         var param_types: std.ArrayListUnmanaged(TypeId) = .empty;
         defer param_types.deinit(self.ctx.allocator);
         var ct_types: std.ArrayListUnmanaged(TypeId) = .empty;
         defer ct_types.deinit(self.ctx.allocator);
         for ([_]Sexp{ sema.tparamsOf(node), params }, 0..) |group, g| for (group.items()) |p| {
-            // A type parameter makes the function generic, which
-            // `rejectGenericFunction` reported: every type is poison.
-            const pty = if (generic) self.ctx.types.invalid_id else try self.resolveParamType(p);
+            const pty = if (g == 0) try self.resolveCtParam(p) else try self.resolveParamType(p);
             try (if (g == 0) &ct_types else &param_types).append(self.ctx.allocator, pty);
+            if (p == .src and g == 0) continue;
             if (sema.paramNameNode(p)) |pn| {
                 if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
             }
@@ -649,14 +650,26 @@ pub const TypeResolver = struct {
         return fn_ty;
     }
 
-    /// A type parameter (`fun max[T](a: T, b: T) -> T`) would make a
-    /// function generic, which Rig does not support yet.
-    fn rejectGenericFunction(self: *TypeResolver, node: Sexp) Error!bool {
-        const at = for (sema.tparamsOf(node).items()) |p| {
-            if (p == .src) break p;
-        } else return false;
-        try self.ctx.errAt(at, "generic functions are not supported yet: the type parameter `{s}` would make `{s}` generic; use a generic type, or write the function for each type", .{ identAt(self.ctx.source, at) orelse "T", identAt(self.ctx.source, ir.get(node, .name)) orelse "it" });
-        return true;
+    /// A compile-time parameter's slot in `FunctionType.ct_params`: a
+    /// type parameter (a bare name, `T`) is itself, a `type_var`; a value
+    /// parameter (`n: Int`) is its type, which may not depend on a type
+    /// parameter.
+    fn resolveCtParam(self: *TypeResolver, p: Sexp) Error!TypeId {
+        if (p != .src) {
+            const ty = try self.resolveParamType(p);
+            if (!sema.containsTypeVar(self.ctx, ty)) return ty;
+            const type_node = ir.get(p, .type);
+            try self.ctx.errAt(type_node, "compile-time parameter `{s}` cannot have the type `{s}`, a type parameter; its type must be known where the function is declared", .{ sema.paramName(self.ctx.source, p) orelse "n", try sema.formatType(self.ctx, ty) });
+            return self.ctx.types.invalid_id;
+        }
+        const id = self.ctx.symbolOf(p) orelse return self.ctx.types.invalid_id;
+        const name = self.ctx.symbols.items[id].name;
+        if (self.ctx.symbols.items[id].kind != .generic_param) return self.ctx.types.invalid_id;
+        if (primitiveTypeId(self.ctx, name) != null or isNumericTypeName(name) or std.mem.eql(u8, name, "Self")) {
+            try self.ctx.errAt(p, "generic parameter `{s}` has the name of a built-in type; use a different name, such as `T`", .{name});
+            return self.ctx.types.invalid_id;
+        }
+        return self.ctx.intern(.{ .type_var = id });
     }
 
     /// The default value of each parameter, or null when none has one.
@@ -1198,9 +1211,13 @@ pub const TypeResolver = struct {
                             try self.ctx.err(s.pos, "generic type `{s}` requires type arguments; write `{s}[{s}]`", .{ name, name, if (arity > 1) "T, ..." else "T" });
                             return t.invalid_id;
                         },
+                        // A function's own type parameter (`T` in `fun max[T]`).
+                        .generic_param => {
+                            try self.ctx.recordName(sexp, id);
+                            return self.ctx.intern(.{ .type_var = id });
+                        },
                         else => {
-                            // A function's type parameter was reported with the function.
-                            if (sym.kind != .generic_param) try self.ctx.err(s.pos, "`{s}` is not a type", .{name});
+                            try self.ctx.err(s.pos, "`{s}` is not a type", .{name});
                             return t.invalid_id;
                         },
                     }
@@ -1420,18 +1437,22 @@ fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!voi
 /// and, through those, the members of the private types they hold. None
 /// may be an instance of a generic type declared here, which the
 /// importer could not name or resolve: generic types cannot cross module
-/// boundaries yet.
+/// boundaries yet. Nor can generic functions: a `pub` one, or a generic
+/// method of a `pub` type, is rejected.
 fn checkPublicSurface(ctx: *SemContext) Error!void {
     var exposed: std.AutoHashMapUnmanaged(SymbolId, ?TypeId) = .empty;
     defer exposed.deinit(ctx.allocator);
     for (ctx.symbols.items) |sym| {
         if (!sym.flags.is_public) continue;
         switch (sym.kind) {
-            .function, .type_alias => if (try exposedInstance(ctx, sym.ty, &exposed)) |inst| {
+            .function, .type_alias => {
+                if (sym.kind == .function and try reportGenericFn(ctx, sym.decl_pos, "function", sym.name, sym.ty)) continue;
+                const inst = try exposedInstance(ctx, sym.ty, &exposed) orelse continue;
                 const what = if (sym.kind == .type_alias) "type" else if (ctx.types.get(sym.ty) == .function and ctx.types.get(sym.ty).function.is_sub) "sub" else "function";
                 try reportExposed(ctx, sym.decl_pos, what, sym.name, inst);
             },
             .nominal_type => for (sym.fields orelse &.{}) |*f| {
+                if (f.is_method and try reportGenericFn(ctx, f.decl_pos, "method", f.name, f.ty)) continue;
                 const inst = try exposedInMember(ctx, f, &exposed) orelse continue;
                 try reportExposed(ctx, f.decl_pos, if (f.is_method) "method" else if (f.is_variant) "variant" else "field", f.name, inst);
             },
@@ -1448,6 +1469,17 @@ fn exposedInMember(ctx: *SemContext, f: *const Field, exposed: *std.AutoHashMapU
         if (try exposedInstance(ctx, d.ty, exposed)) |x| return x;
     }
     return null;
+}
+
+/// Report a public generic function or method; whether `ty` is one.
+fn reportGenericFn(ctx: *SemContext, pos: u32, what: []const u8, name: []const u8, ty: TypeId) Error!bool {
+    const f = switch (ctx.types.get(ty)) {
+        .function => |f| f,
+        else => return false,
+    };
+    if (!sema.isGenericFn(ctx, f)) return false;
+    try ctx.err(pos, "public {s} `{s}` is generic; generic functions cannot cross module boundaries yet", .{ what, name });
+    return true;
 }
 
 fn reportExposed(ctx: *SemContext, pos: u32, what: []const u8, name: []const u8, inst: TypeId) Error!void {

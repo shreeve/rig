@@ -1,0 +1,21 @@
+# A generic function's body is checked for a `T` that holds no borrow,
+# so a type argument cannot be a borrow, or hold one: take `?T` or `!T`
+# in the signature instead.
+
+struct P
+  n: Int
+
+fun same[T](x: T) -> T
+  x
+
+fun show[T](x: ?T) -> Int
+  1
+
+sub main()
+  p = P(n: 1)
+  q = same(?p)
+  r = same(!p)
+  print(show(?p))
+
+# error: 16:7: `same[?P]` cannot use `T = ?P`: a generic function is checked for a `T` that holds no borrow
+# error: 17:7: `same[!P]` cannot use `T = !P`: a generic function is checked for a `T` that holds no borrow

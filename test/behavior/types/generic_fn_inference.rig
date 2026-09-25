@@ -1,0 +1,78 @@
+# A generic function's type parameters are inferred by matching each
+# parameter's type against its argument's: `T`, `?T`, `!T`, `*T`, `~T`,
+# `T?`, `[]T`, `[N]T`, and generic instances (`Vec[T]`, `Cell[T]`, a
+# user `Box[T]`). A literal takes its default type.
+
+type Box[T]
+  v: T
+
+struct P
+  n: Int
+
+fun same[T](x: T) -> T
+  x
+
+fun seen[T](x: ?T) -> Int
+  1
+
+sub put[T](dst: !T, v: T)
+  dst = <v
+
+fun dup[T](h: ?*T) -> *T
+  +h
+
+fun alive[T](w: ?~T) -> Bool
+  s = w.upgrade()
+  s != none
+
+fun or_else[T](x: T?, d: T) -> T
+  x ?? d
+
+fun first_of[T](xs: []T) -> T
+  xs[0]
+
+fun head[T](xs: [3]T) -> T
+  xs[0]
+
+fun count[T](v: ?Vec[T]) -> Int
+  v.len
+
+fun read[T](c: ?Cell[T]) -> T
+  c.get()
+
+fun unbox[T](b: ?Box[T]) -> T
+  b.v
+
+sub main()
+  print(same(3), same(2.5), same("s"), same(true))
+  p = P(n: 1)
+  print(seen(?p), same(p).n)
+  n = 1
+  put(!n, 5)
+  print(n)
+  h = *P(n: 7)
+  h2 = dup(?h)
+  w = ~h
+  print(h2.n, alive(?w))
+  o: Int? = none
+  print(or_else(o, 4), or_else(6, 0))
+  xs = [1, 2, 3]
+  print(first_of(?xs[1..3]), head(xs))
+  v = Vec[Int]()
+  !v.push(4)
+  print(count(?v))
+  c = Cell(value: 9)
+  print(read(?c))
+  b = Box(v: 11)
+  print(unbox(?b))
+
+# expect:
+# 3 2.5 s true
+# 1 1
+# 5
+# 7 true
+# 4 6
+# 2 1
+# 1
+# 9
+# 11

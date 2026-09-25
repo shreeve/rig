@@ -1,0 +1,13 @@
+# A module's private generic functions serve its public ones; each
+# module checks the instances its own calls make.
+
+use lib
+
+fun max[T](a: T, b: T) -> T
+  a if a < b else b
+
+sub main()
+  print(lib.biggest(3, 9, 4), lib.widest(1.5, 0.5), max(3, 9))
+
+# expect:
+# 9 1.5 3

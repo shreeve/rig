@@ -1,0 +1,15 @@
+# Borrows in a generic function follow the ordinary rules: a borrow of
+# a `?T` parameter may be returned, but not a borrow of a local copy.
+
+fun keep[T](x: ?T) -> ?T
+  x
+
+fun local[T](x: T) -> ?T
+  y = <x
+  ?y
+
+sub main()
+  n = 1
+  print(keep(?n), local(2))
+
+# error: 9:4: returned borrow of `y` does not originate from a borrowed parameter

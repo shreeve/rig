@@ -1,0 +1,17 @@
+# One generic `max` serves every type its body's `>` is defined for: an
+# integer, a float, or a sized number. The type is inferred from the
+# arguments, a literal taking its default type, or from a typed value
+# beside a literal.
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+sub main()
+  small: I8 = -3
+  f: F32 = 1.5
+  print(max(3, 7), max(2.5, -1.0), max(small, -9), max(2, f))
+  print(max(max(1, 5), 4))
+
+# expect:
+# 7 2.5 -3 2.0
+# 5

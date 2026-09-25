@@ -1,0 +1,21 @@
+# Where a generic body copies a `T`, every instance must be plain data:
+# a copy of an owning value would duplicate the resource it owns.
+
+struct Res
+  n: Int
+
+  drop self: !Res
+    print("drop", self.n)
+
+type Pair[A, B]
+  first: A
+  second: B
+
+fun twice[T](x: T) -> Pair[T, T]
+  Pair(first: x, second: x)
+
+sub main()
+  print(twice(1).first)
+  p = twice(Res(n: 1))
+
+# error: 19:7: `twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns
