@@ -1,0 +1,20 @@
+# A stack closure may return a captured read borrow or a moved-in Copy
+# value; the result borrows what the closure holds.
+
+struct Box
+  v: Vec(Int)
+
+sub main()
+  x = Box(v: Vec())
+  (!x.v).push(42)
+  r = ?x
+  s = |<r| r
+  out = s()
+  print(out.v[0])
+  n = 7
+  t = |<n| n
+  print(t() + t())
+
+# expect:
+# 42
+# 14

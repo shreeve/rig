@@ -494,7 +494,9 @@ while checking a module-level function is freed when it is done.
 
 **Loans travel with values.** `r = ?a` stores a read loan on `a` in
 `r`; `View(box: ?a)` carries it into the struct; a call whose result
-type can hold a borrow carries the loans of all its borrowed arguments;
+type can hold a borrow carries the loans of all its borrowed arguments,
+and of the stack closure it calls (whose value is checked like a
+returned one);
 a call may store its arguments' loans into its receiver and into what
 its `!` arguments and other write borrows lead to. Cells, Signals, and
 owned closures hold no borrows (storing one there is rejected): every

@@ -233,6 +233,10 @@ const FnCtx = struct {
     ret_may_borrow: bool = false,
     /// Checking a closure body.
     in_closure: bool = false,
+    /// In a closure body, the first var declared in it: a returned
+    /// borrow of an enclosing function's value is carried by the closure
+    /// into its call's result.
+    closure_base: VarId = 0,
 };
 
 /// A loop, or a labeled block, that `break` / `continue` can leave.
@@ -1774,8 +1778,10 @@ pub const Checker = struct {
                     try self.err(pos, "bare use of loop-borrow alias `{s}` in {s} would smuggle the borrowed handle past the loop; " ++ loop_borrow_rule, .{ name, sink.text() });
                     return;
                 }
-                // A captured borrow passed to a call is lent for the call.
-                if (v.capture_resource and !(sink == .argument and v.ref != .none)) {
+                // A captured read borrow or Copy value is copied out, and
+                // a captured borrow passed to a call is lent for the call.
+                const copied = v.ref == .read or self.isCopy(v.ty) or (sink == .argument and v.ref != .none);
+                if (v.capture_resource and !copied) {
                     try self.err(pos, "bare use of captured resource `{s}` in {s} would smuggle the handle out of the closure environment; use `+{s}` to clone a fresh handle, or `~{s}` for a weak reference", .{ name, sink.text(), name, name });
                     return;
                 }
@@ -2077,6 +2083,10 @@ pub const Checker = struct {
             }
         } else if (callee == .src) {
             _ = try self.walkName(callee, true);
+            // A stack closure's result may borrow what the closure holds.
+            if (self.find(self.text(callee))) |id| {
+                if (self.vars.items[id].closure) result = self.varValue(id);
+            }
         } else if (isLambda(callee)) {
             self.lambda_ok = true;
             _ = try self.walk(callee);
@@ -2269,7 +2279,17 @@ pub const Checker = struct {
         const snap = try self.here();
         const saved_func = self.func;
         const saved_loop = self.loop;
-        self.func = .{ .in_closure = true };
+        const fn_ty = self.exprType(node);
+        const ret_ty: ?TypeId = if (fn_ty) |t| switch (self.typeData(t)) {
+            .function => |f| f.returns,
+            else => null,
+        } else null;
+        const returns_value = ret_ty != null and !self.isVoid(ret_ty);
+        self.func = .{
+            .in_closure = true,
+            .ret_may_borrow = returns_value and self.mayCarryBorrow(ret_ty),
+            .closure_base = @intCast(self.vars.items.len),
+        };
         self.loop = null;
         self.reachable = true;
         try self.pushScopeFor(.closure, body);
@@ -2290,7 +2310,7 @@ pub const Checker = struct {
             }, .{ .loans = cv.loans });
         }
         for (params.items()) |p| try self.bindParam(p);
-        try self.walkBody(body, false);
+        try self.walkBody(body, returns_value);
         try self.popScope();
         self.func = saved_func;
         self.loop = saved_loop;
@@ -2372,6 +2392,7 @@ pub const Checker = struct {
     fn checkEscape(self: *Checker, v: Value) Error!void {
         for (v.loans, 0..) |l, i| {
             if (!self.isLocalLoan(l)) continue;
+            if (self.func.in_closure and l.root < self.func.closure_base) continue;
             const r = self.vars.items[l.root];
             const seen = for (v.loans[0..i]) |p| {
                 if (p.root == l.root and !p.ext) break true;
@@ -2382,7 +2403,7 @@ pub const Checker = struct {
                 continue;
             }
             try self.err(l.pos, "returned borrow of `{s}` does not originate from a borrowed parameter", .{r.name});
-            try self.note(r.decl, "`{s}` is local to this function", .{r.name});
+            try self.note(r.decl, "`{s}` is local to this {s}", .{ r.name, if (self.func.in_closure) "closure" else "function" });
         }
     }
 

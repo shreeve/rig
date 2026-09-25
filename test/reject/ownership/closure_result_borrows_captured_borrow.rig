@@ -1,0 +1,19 @@
+# Calling a closure yields a value that may borrow what the closure
+# captured, so it cannot outlive the borrowed value.
+
+struct Box
+  v: Vec(Int)
+
+sub main()
+  y = Box(v: Vec())
+  (!y.v).push(1)
+  out = ?y
+  if true
+    x = Box(v: Vec())
+    (!x.v).push(42)
+    r = ?x
+    s = |<r| r
+    out = s()
+  print(out.v[0])
+
+# error: 14:10: `x` does not live long enough
