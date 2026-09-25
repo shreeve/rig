@@ -542,13 +542,9 @@ const Checker = struct {
         switch (self.ctx.types.get(ty)) {
             .int_literal => {
                 try self.checkLiteralFits(rhs, self.t().int_id);
-                try self.ctx.recordType(rhs, self.t().int_id);
                 return self.t().int_id;
             },
-            .float_literal => {
-                try self.ctx.recordType(rhs, self.t().float_id);
-                return self.t().float_id;
-            },
+            .float_literal => return self.t().float_id,
             .void => {
                 try self.err(pos, "`{s}` would be bound to a value of type `Void`; this expression produces no value", .{name});
                 return self.t().invalid_id;
@@ -630,7 +626,7 @@ const Checker = struct {
         if (tv) |param| {
             // A generic `T` target takes another `T` or a literal it holds.
             const ty = readValue(self.ctx, try self.synthExpr(rhs));
-            if (ty == target_ty or ty == self.t().int_literal_id or (req != .integer and ty == self.t().float_literal_id)) {
+            if (self.meetsTypeVar(target_ty, ty, req)) {
                 try self.requireHoldsLiteral(param, ty, rhs, pos, spelled);
             } else if (!self.isPoison(ty)) try self.mismatch(rhs, target_ty, ty);
         } else try self.checkExpr(rhs, target_ty);
@@ -955,18 +951,8 @@ const Checker = struct {
 
     /// `a..b` as a loop source: both bounds integers of one type.
     fn checkRange(self: *Checker, range: Sexp) Error!TypeId {
-        const ty = try self.checkNumericOperands(range, "..", .integer);
-        const elem = if (ty == self.t().int_literal_id) self.t().int_id else ty;
-        if (ty == self.t().int_literal_id) {
-            const lo = ir.@"..".left(range);
-            const hi = ir.@"..".right(range);
-            try self.checkLiteralFits(lo, elem);
-            try self.checkLiteralFits(hi, elem);
-            try self.ctx.recordType(lo, elem);
-            try self.ctx.recordType(hi, elem);
-        }
-        const r = try self.ctx.intern(.{ .range = elem });
-        try self.ctx.recordType(range, r);
+        const elem = try self.checkIntDefaultOperands(range, "..", .integer);
+        try self.ctx.recordType(range, try self.ctx.intern(.{ .range = elem }));
         return elem;
     }
 
@@ -984,8 +970,7 @@ const Checker = struct {
         if (self.isPoison(source_ty)) return self.t().invalid_id;
         const peeled = sema.unwrapBorrows(self.ctx, source_ty);
         switch (self.ctx.types.get(peeled)) {
-            .parameterized_nominal => |pn| if (pn.sym == self.ctx.vec_sym_id and pn.args.len == 1) {
-                const elem = pn.args[0];
+            .parameterized_nominal => if (vecElementType(self.ctx, peeled)) |elem| {
                 const is_resource = switch (self.ctx.types.get(elem)) {
                     .shared, .weak => true,
                     else => false,
@@ -1189,8 +1174,9 @@ const Checker = struct {
         const st = self.ctx.types.get(sema.unwrapBorrows(self.ctx, scrutinee));
         if (hi_literal and (st == .int or st == .int_literal)) {
             // Record the bound's type without the fit check a value gets.
-            try self.ctx.recordType(hi_node, if (st == .int) sema.unwrapBorrows(self.ctx, scrutinee) else self.t().int_id);
-            if (hi_node.isKind(.neg)) try self.ctx.recordType(ir.Neg.operand(hi_node), if (st == .int) sema.unwrapBorrows(self.ctx, scrutinee) else self.t().int_id);
+            const bound_ty = if (st == .int) sema.unwrapBorrows(self.ctx, scrutinee) else self.t().int_id;
+            try self.ctx.recordType(hi_node, bound_ty);
+            if (hi_node.isKind(.neg)) try self.ctx.recordType(ir.Neg.operand(hi_node), bound_ty);
         } else try self.checkExpr(hi_node, scrutinee);
         if (self.isPoison(scrutinee)) return;
         const lo = self.constInt(lo_node);
@@ -1454,12 +1440,7 @@ const Checker = struct {
             .@"&", .@"|", .@"^" => self.checkNumericOperands(e, @tagName(head), .integer),
             .@"<<", .@">>" => self.synthShift(e, @tagName(head)),
             .@"<", .@">", .@"<=", .@">=" => blk: {
-                const ty = try self.checkNumericOperands(e, @tagName(head), .ordered);
-                // Two literal operands are compared as `Int`s.
-                if (ty == self.t().int_literal_id) {
-                    try self.checkLiteralFits(ir.get(e, .left), self.t().int_id);
-                    try self.checkLiteralFits(ir.get(e, .right), self.t().int_id);
-                }
+                _ = try self.checkIntDefaultOperands(e, @tagName(head), .ordered);
                 break :blk self.t().bool_id;
             },
             .@"==", .@"!=" => self.synthEquality(e),
@@ -1525,6 +1506,16 @@ const Checker = struct {
         return ty;
     }
 
+    /// `checkNumericOperands` where two literal operands, which take no
+    /// type from each other, are `Int`s.
+    fn checkIntDefaultOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement) Error!TypeId {
+        const ty = try self.checkNumericOperands(e, op, req);
+        if (ty != self.t().int_literal_id) return ty;
+        try self.checkLiteralFits(ir.get(e, .left), self.t().int_id);
+        try self.checkLiteralFits(ir.get(e, .right), self.t().int_id);
+        return self.t().int_id;
+    }
+
     /// Integer division by a constant zero is rejected; float division
     /// gives an infinity or NaN.
     fn checkDivisor(self: *Checker, op: Tag, ty: TypeId, divisor: Sexp) Error!bool {
@@ -1572,7 +1563,6 @@ const Checker = struct {
                 return false;
             },
         }
-        if (ty == self.t().int_literal_id) try self.ctx.recordType(amount, self.t().int_id);
         const v = self.constInt(amount) orelse return true;
         const width: ?i128 = switch (self.ctx.types.get(shifted)) {
             .int => |info| intBounds(info).bits,
@@ -1605,8 +1595,7 @@ const Checker = struct {
         if (ta == .type_var or tb == .type_var) {
             const tv = if (ta == .type_var) a else b;
             const other = if (ta == .type_var) b else a;
-            const other_ok = other == tv or other == self.t().int_literal_id or (req != .integer and other == self.t().float_literal_id);
-            if (!other_ok) {
+            if (!self.meetsTypeVar(tv, other, req)) {
                 try self.err(pos, "operator `{s}` operands have different types `{s}` and `{s}`", .{ op, try self.tyName(a), try self.tyName(b) });
                 return self.t().invalid_id;
             }
@@ -1642,6 +1631,13 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         return a;
+    }
+
+    /// Whether `other` meets generic `tv` in an operator: as another `tv`,
+    /// or as a literal, which becomes a `tv` (a float literal only where
+    /// `req` allows a float).
+    fn meetsTypeVar(self: *Checker, tv: TypeId, other: TypeId, req: Requirement) bool {
+        return other == tv or other == self.t().int_literal_id or (req != .integer and other == self.t().float_literal_id);
     }
 
     fn require(self: *Checker, param: SymbolId, req: Requirement, pos: u32, op: []const u8) Error!void {
@@ -1703,12 +1699,12 @@ const Checker = struct {
         const tb = self.ctx.types.get(b);
         if (ta == .type_var or tb == .type_var) {
             // A `T` compares with a `T`, or with a literal every `T` holds.
-            const other = if (ta == .type_var) b else a;
-            if (a != b and other != self.t().int_literal_id and other != self.t().float_literal_id) {
+            const tv_ty = if (ta == .type_var) a else b;
+            if (!self.meetsTypeVar(tv_ty, if (ta == .type_var) b else a, .equatable)) {
                 try self.errAt(l, "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
                 return self.t().bool_id;
             }
-            const tv = if (ta == .type_var) ta.type_var else tb.type_var;
+            const tv = self.ctx.types.get(tv_ty).type_var;
             try self.require(tv, .equatable, self.startOf(l), op);
             if (ta == .type_var) try self.requireHoldsLiteral(tv, b, r, self.startOf(l), op) else try self.requireHoldsLiteral(tv, a, l, self.startOf(l), op);
             return self.t().bool_id;
@@ -1920,10 +1916,7 @@ const Checker = struct {
                 return self.t().invalid_id;
             },
         };
-        const borrowed = switch (self.ctx.types.get(ty)) {
-            .borrow_read, .borrow_write => true,
-            else => false,
-        };
+        const borrowed = sema.unwrapBorrows(self.ctx, ty) != ty;
         if (borrowed and (try self.ownsResource(inner, self.startOf(operand), "moves out of a borrow a value"))) {
             try self.errAt(operand, "a borrow cannot give up the resource inside it; take a new handle with `+x` instead", .{});
             return self.t().invalid_id;
@@ -2343,10 +2336,7 @@ const Checker = struct {
         const idx_ty = readValue(self.ctx, try self.synthExpr(index));
         if (!self.isPoison(idx_ty) and !sema.isInteger(self.ctx, idx_ty)) {
             try self.errAt(index, "an index must be an integer; got `{s}`", .{try self.tyName(idx_ty)});
-        } else if (idx_ty == self.t().int_literal_id) {
-            try self.ctx.recordType(index, self.t().int_id);
-            try self.checkLiteralFits(index, self.t().int_id);
-        }
+        } else if (idx_ty == self.t().int_literal_id) try self.checkLiteralFits(index, self.t().int_id);
         if (self.isPoison(obj_ty)) return obj_ty;
         const peeled = sema.unwrapReadAccess(self.ctx, obj_ty);
         switch (self.ctx.types.get(peeled)) {
@@ -2360,12 +2350,12 @@ const Checker = struct {
             },
             .slice => |s| return s.elem,
             .string => return self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } }),
-            .parameterized_nominal => |pn| if (pn.sym == self.ctx.vec_sym_id and pn.args.len == 1) {
-                if ((try self.ownsResource(pn.args[0], self.startOf(object), "copies an element out of a Vec"))) {
+            .parameterized_nominal => if (vecElementType(self.ctx, peeled)) |elem| {
+                if ((try self.ownsResource(elem, self.startOf(object), "copies an element out of a Vec"))) {
                     try self.errAt(object, "indexing a `{s}` would copy an owning handle out of the Vec; iterate with `for x in ?v` instead", .{try self.tyName(peeled)});
                     return self.t().invalid_id;
                 }
-                return pn.args[0];
+                return elem;
             },
             else => {},
         }
@@ -2382,13 +2372,7 @@ const Checker = struct {
         const object = ir.Index.object(e);
         const range = ir.Index.index(e);
         const obj_ty = try self.synthOperand(object);
-        const bound_ty = try self.checkNumericOperands(range, "..", .integer);
-        if (bound_ty == self.t().int_literal_id) {
-            for ([2]Sexp{ ir.@"..".left(range), ir.@"..".right(range) }) |b| {
-                try self.checkLiteralFits(b, self.t().int_id);
-                try self.ctx.recordType(b, self.t().int_id);
-            }
-        }
+        _ = try self.checkIntDefaultOperands(range, "..", .integer);
         if (self.isPoison(obj_ty)) return obj_ty;
         const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
@@ -2397,14 +2381,17 @@ const Checker = struct {
                 return peeled;
             },
             .array => |a| a.elem,
-            .parameterized_nominal => |pn| if (pn.sym == self.ctx.vec_sym_id and pn.args.len == 1) blk: {
-                if ((try self.ownsResource(pn.args[0], self.startOf(object), "slices a Vec"))) {
+            else => blk: {
+                const elem = vecElementType(self.ctx, peeled) orelse {
+                    try self.errAt(object, "cannot slice a value of type `{s}`; slice a String, an array, a Vec, or a `[]T`", .{try self.tyName(obj_ty)});
+                    return self.t().invalid_id;
+                };
+                if ((try self.ownsResource(elem, self.startOf(object), "slices a Vec"))) {
                     try self.errAt(object, "cannot slice a `{s}`: a slice would copy owning handles out of the Vec; iterate with `for x in ?v` instead", .{try self.tyName(peeled)});
                     return self.t().invalid_id;
                 }
-                break :blk pn.args[0];
-            } else return self.cannotSlice(object, obj_ty),
-            else => return self.cannotSlice(object, obj_ty),
+                break :blk elem;
+            },
         };
         const len: ?u64 = if (self.ctx.types.get(peeled) == .array) self.ctx.types.get(peeled).array.len else null;
         try self.checkSliceBounds(range, len);
@@ -2418,11 +2405,6 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         return self.ctx.intern(.{ .slice = .{ .elem = elem } });
-    }
-
-    fn cannotSlice(self: *Checker, object: Sexp, ty: TypeId) Error!TypeId {
-        try self.errAt(object, "cannot slice a value of type `{s}`; slice a String, an array, a Vec, or a `[]T`", .{try self.tyName(ty)});
-        return self.t().invalid_id;
     }
 
     /// Constant bounds are checked now: `0 <= a <= b`, and `b <= len` for
@@ -2650,11 +2632,8 @@ const Checker = struct {
                 continue;
             }
             const ty = try self.synthOperand(a);
-            // Literal values print as `Int` / `Float`.
-            if (ty == self.t().int_literal_id) {
-                try self.ctx.recordType(a, self.t().int_id);
-                try self.checkLiteralFits(a, self.t().int_id);
-            } else if (ty == self.t().float_literal_id) try self.ctx.recordType(a, self.t().float_id);
+            // An integer literal prints as an `Int`, which must hold it.
+            if (ty == self.t().int_literal_id) try self.checkLiteralFits(a, self.t().int_id);
             switch (self.ctx.types.get(ty)) {
                 .void => try self.errAt(a, "`print` needs a value; this expression produces no value (`Void`)", .{}),
                 .none_literal => try self.errAt(a, "cannot print a bare `none`", .{}),
@@ -3380,15 +3359,14 @@ const Checker = struct {
             },
             .lambda => {
                 if (self.ctx.types.get(target) == .function) return try self.checkLambda(e, target, false);
-                if (sema.ownedClosureFn(self.ctx, target) == null) return null;
+                const fn_ty = self.ownedClosureType(target) orelse return null;
                 try self.errAt(e, "`{s}` is an owned closure; write `*|...| body` to make one", .{try self.tyName(target)});
-                return try self.checkLambda(e, self.ctx.types.get(sema.unwrapBorrows(self.ctx, target)).shared, false);
+                return try self.checkLambda(e, fn_ty, false);
             },
             .share => {
                 const operand = ir.Share.operand(e);
                 if (operand.isKind(.lambda)) {
-                    const fn_ty: ?TypeId = if (sema.ownedClosureFn(self.ctx, target) != null) self.ctx.types.get(sema.unwrapBorrows(self.ctx, target)).shared else null;
-                    const ty = try self.ownedClosure(operand, fn_ty);
+                    const ty = try self.ownedClosure(operand, self.ownedClosureType(target));
                     if (!compatible(self.ctx, ty, expected)) try self.mismatch(e, expected, ty);
                     return ty;
                 }
@@ -3739,6 +3717,13 @@ const Checker = struct {
         return self.ctx.intern(.{ .shared = lty });
     }
 
+    /// The function type of owned closure type `ty` (`fun(Int) Int` for
+    /// `*fun(Int) Int`, possibly borrowed).
+    fn ownedClosureType(self: *Checker, ty: TypeId) ?TypeId {
+        if (sema.ownedClosureFn(self.ctx, ty) == null) return null;
+        return self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty)).shared;
+    }
+
     /// A closure literal. Its type is a function type over its
     /// parameters. With an `expected` function type from context, bare
     /// parameters take its parameter types and the body is checked
@@ -4013,6 +3998,16 @@ fn findDataField(fields: []const Field, name: []const u8) ?Field {
         if (!f.is_method and !f.is_variant and std.mem.eql(u8, f.name, name)) return f;
     }
     return null;
+}
+
+/// The element type of a `Vec(T)`.
+fn vecElementType(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    const pn = switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| pn,
+        else => return null,
+    };
+    if (pn.sym != ctx.vec_sym_id or pn.args.len != 1) return null;
+    return pn.args[0];
 }
 
 /// Storage that already has an owner: a name, a field or element of
