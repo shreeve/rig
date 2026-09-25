@@ -66,7 +66,6 @@ pub fn build(b: *std.Build) void {
         "src/rig.zig",
         "src/modules.zig",
         "src/sema.zig",
-        "src/effects.zig",
         "src/ownership.zig",
         "src/emit.zig",
         "src/runtime.zig",

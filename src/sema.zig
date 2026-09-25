@@ -1,8 +1,7 @@
 //! Semantic analysis: names, types, and expression checking.
 //!
 //! `check` runs four passes over the normalized IR and returns a
-//! `SemContext`, which every later pass (effects, ownership, emit)
-//! reads:
+//! `SemContext`, which every later pass (ownership, emit) reads:
 //!
 //!   1. builtins     `resolve.zig`    Cell, Vec, Signal
 //!   2. symbols      `resolve.zig`    every declaration gets a Symbol in a
@@ -11,7 +10,8 @@
 //!   3. declarations `resolve.zig`    type expressions become TypeIds;
 //!                                    signatures, fields, variants, aliases
 //!   4. expressions  `typecheck.zig`  bodies are type-checked; every
-//!                                    expression's type is recorded
+//!                                    expression's type is recorded;
+//!                                    fallibility and `raw` are checked
 //!
 //! ## The facts table
 //!
