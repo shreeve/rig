@@ -88,6 +88,9 @@ const Local = struct {
     /// A by-value parameter copied into a `var` at the top of the body,
     /// because it holds a Cell that a borrow of it may change.
     mutable_copy: bool = false,
+    /// A parameter copied into `zig_name` at the top of the body: the
+    /// name the signature gives it.
+    param_name: []const u8 = "",
 };
 
 const LocalRef = struct { scope: u32, index: u32 };
@@ -108,6 +111,7 @@ const FunState = struct {
 const Nominal = struct {
     /// How `Self` is spelled: the type name, or `Self` inside a generic.
     name: []const u8,
+    sym: SymbolId,
     members: []const Sexp,
 };
 
@@ -230,8 +234,8 @@ pub const Emitter = struct {
             // Every declaration is emitted `pub`, so `pub` adds nothing.
             .@"pub" => try self.emitDecl(ir.Pub.decl(sexp)),
             .fun, .sub => try self.emitFun(sexp),
-            .extern_fun, .extern_sub => try self.emitExternFun(sexp),
-            .@"extern" => try self.emitExternVar(sexp),
+            .extern_fun, .extern_sub => try self.emitExtern(ir.get(sexp, .name)),
+            .@"extern" => try self.emitExtern(ir.Extern.name(sexp)),
             .use => try self.emitUse(sexp),
             .@"struct" => try self.emitStruct(sexp),
             .@"enum" => try self.emitEnum(sexp),
@@ -249,45 +253,36 @@ pub const Emitter = struct {
         try self.w.print("const {f} = @import(\"{s}.zig\");\n", .{ self.ident(name), name });
     }
 
-    /// `(extern_fun name params returns)` / `(extern_sub name params)`.
-    fn emitExternFun(self: *Emitter, node: Sexp) Error!void {
-        try self.w.print("extern fn {f}(", .{self.ident(self.srcText(ir.get(node, .name)))});
-        for (ir.get(node, .params).items(), 0..) |p, i| {
+    /// `extern_fun` / `extern_sub`, and `(extern _ name type)`: a C
+    /// function or variable.
+    fn emitExtern(self: *Emitter, name_node: Sexp) Error!void {
+        const ty = try self.declType(name_node);
+        const f = self.fnType(ty) orelse {
+            try self.w.print("extern \"c\" var {f}: ", .{self.ident(self.srcText(name_node))});
+            try self.emitTypeTy(ty);
+            return self.w.writeAll(";\n");
+        };
+        try self.w.print("extern \"c\" fn {f}(", .{self.ident(self.srcText(name_node))});
+        for (f.params, 0..) |p, i| {
             if (i > 0) try self.w.writeAll(", ");
-            try self.w.print("{f}: ", .{self.ident(self.srcText(paramNameNode(p).?))});
-            try self.emitType(ir.get(p, .type));
+            try self.emitTypeTy(p);
         }
         try self.w.writeAll(") ");
-        const returns: Sexp = if (node.isKind(.extern_fun)) ir.ExternFun.returns(node) else .nil;
-        if (returns != .nil) try self.emitType(returns) else try self.w.writeAll("void");
-        try self.w.writeAll(";\n");
-    }
-
-    /// `(extern _ name type)`: an extern variable, or an extern function
-    /// given by a function type.
-    fn emitExternVar(self: *Emitter, node: Sexp) Error!void {
-        const name = self.srcText(ir.Extern.name(node));
-        const ty = ir.Extern.type(node);
-        if (ty.isKind(.fun_type)) {
-            try self.w.print("extern fn {f}(", .{self.ident(name)});
-            for (ir.FunType.params(ty).items(), 0..) |p, i| {
-                if (i > 0) try self.w.writeAll(", ");
-                try self.emitType(p);
-            }
-            try self.w.writeAll(") ");
-            const returns = ir.FunType.returns(ty);
-            if (returns != .nil) try self.emitType(returns) else try self.w.writeAll("void");
-            return self.w.writeAll(";\n");
-        }
-        try self.w.print("extern var {f}: ", .{self.ident(name)});
-        try self.emitType(ty);
+        try self.emitTypeTy(f.returns);
         try self.w.writeAll(";\n");
     }
 
     fn emitTypeAlias(self: *Emitter, node: Sexp) Error!void {
-        try self.w.print("pub const {f} = ", .{self.ident(self.srcText(ir.Type.name(node)))});
-        try self.emitType(ir.Type.type(node));
+        const name = ir.Type.name(node);
+        try self.w.print("pub const {f} = ", .{self.ident(self.srcText(name))});
+        try self.emitTypeTy(try self.declType(name));
         try self.w.writeAll(";\n");
+    }
+
+    /// The type sema gave the declaration named by `name_node`.
+    fn declType(self: *Emitter, name_node: Sexp) Error!TypeId {
+        const sym = self.sema.symbolOf(name_node) orelse return self.unsupported(name_node, "an unresolved declaration");
+        return self.symType(sym) orelse self.unsupported(name_node, "an untyped declaration");
     }
 
     /// `(test "name" body)` → a function listed in the module's
@@ -317,9 +312,9 @@ pub const Emitter = struct {
         const name = self.srcText(ir.Struct.name(node));
         const members = ir.Struct.members(node);
         try self.w.print("pub const {f} = struct {{\n", .{self.ident(name)});
-        const prev = self.enterNominal(try self.fmt("{f}", .{self.ident(name)}), members);
+        const prev = try self.enterNominal(ir.Struct.name(node), false, members);
         defer self.nominal = prev;
-        try self.emitFields(members, 1);
+        try self.emitFields(1);
         try self.emitMethods(members, 1);
         try self.w.writeAll("};\n");
     }
@@ -327,12 +322,10 @@ pub const Emitter = struct {
     /// `(generic_type Name (T...) members...)` → a type-returning function.
     fn emitGenericType(self: *Emitter, node: Sexp) Error!void {
         const members = ir.GenericType.members(node);
-        try self.w.print("pub fn {f}(", .{self.ident(self.srcText(ir.GenericType.name(node)))});
-        try self.emitTypeParams(ir.GenericType.params(node));
-        try self.w.writeAll(") type {\n    return struct {\n        const Self = @This();\n\n");
-        const prev = self.enterNominal("Self", members);
+        const prev = try self.enterNominal(ir.GenericType.name(node), true, members);
         defer self.nominal = prev;
-        try self.emitFields(members, 2);
+        try self.emitGenericHead(ir.GenericType.params(node), members, "struct");
+        try self.emitFields(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
     }
@@ -342,7 +335,7 @@ pub const Emitter = struct {
     fn emitEnum(self: *Emitter, node: Sexp) Error!void {
         const name = self.srcText(ir.Enum.name(node));
         const members = ir.Enum.members(node);
-        const prev = self.enterNominal(try self.fmt("{f}", .{self.ident(name)}), members);
+        const prev = try self.enterNominal(ir.Enum.name(node), false, members);
         defer self.nominal = prev;
 
         var has_values = false;
@@ -353,7 +346,7 @@ pub const Emitter = struct {
         }
         if (has_payloads) {
             try self.w.print("pub const {f} = union(enum) {{\n", .{self.ident(name)});
-            try self.emitUnionVariants(members, 1);
+            try self.emitUnionVariants(1);
         } else {
             try self.w.print("pub const {f} = enum{s} {{\n", .{ self.ident(name), if (has_values) "(u32)" else "" });
             for (members) |m| switch (m) {
@@ -373,12 +366,10 @@ pub const Emitter = struct {
     /// `(generic_enum Name (T...) variants... methods...)`.
     fn emitGenericEnum(self: *Emitter, node: Sexp) Error!void {
         const members = ir.GenericEnum.members(node);
-        try self.w.print("pub fn {f}(", .{self.ident(self.srcText(ir.GenericEnum.name(node)))});
-        try self.emitTypeParams(ir.GenericEnum.params(node));
-        try self.w.writeAll(") type {\n    return union(enum) {\n        const Self = @This();\n\n");
-        const prev = self.enterNominal("Self", members);
+        const prev = try self.enterNominal(ir.GenericEnum.name(node), true, members);
         defer self.nominal = prev;
-        try self.emitUnionVariants(members, 2);
+        try self.emitGenericHead(ir.GenericEnum.params(node), members, "union(enum)");
+        try self.emitUnionVariants(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");
     }
@@ -390,53 +381,79 @@ pub const Emitter = struct {
         try self.w.writeAll("};\n");
     }
 
-    fn enterNominal(self: *Emitter, name: []const u8, members: []const Sexp) ?Nominal {
+    fn enterNominal(self: *Emitter, name_node: Sexp, generic: bool, members: []const Sexp) Error!?Nominal {
         const prev = self.nominal;
-        self.nominal = .{ .name = name, .members = members };
+        const sym = self.sema.symbolOf(name_node) orelse return self.unsupported(name_node, "an unresolved type");
+        const name = if (generic) "Self" else try self.fmt("{f}", .{self.ident(self.srcText(name_node))});
+        self.nominal = .{ .name = name, .sym = sym, .members = members };
         return prev;
     }
 
-    fn emitTypeParams(self: *Emitter, params: Sexp) Error!void {
+    /// `pub fn Name(comptime T: type, ...) type { return <container> {`,
+    /// with a discard for each type parameter nothing in the body names.
+    fn emitGenericHead(self: *Emitter, params: Sexp, members: []const Sexp, container: []const u8) Error!void {
+        try self.w.print("pub fn {s}(", .{try self.fmt("{f}", .{self.ident(self.sema.symbols.items[self.nominal.?.sym].name)})});
         for (params.items(), 0..) |p, i| {
             if (i > 0) try self.w.writeAll(", ");
             try self.w.print("comptime {f}: type", .{self.ident(self.srcText(p))});
         }
+        try self.w.writeAll(") type {\n");
+        for (self.sema.symbols.items[self.nominal.?.sym].type_params orelse &.{}) |tp| {
+            const used = for (members) |m| {
+                if (self.mentions(m, tp)) break true;
+            } else false;
+            if (!used) try self.w.print("    _ = {f};\n", .{self.ident(self.sema.symbols.items[tp].name)});
+        }
+        try self.w.print("    return {s} {{\n        const Self = @This();\n\n", .{container});
     }
 
-    fn emitFields(self: *Emitter, members: []const Sexp, depth: u32) Error!void {
-        for (members) |m| {
-            if (!m.isKind(.@":")) continue;
+    /// Whether a leaf under `node` names `sym`.
+    fn mentions(self: *Emitter, node: Sexp, sym: SymbolId) bool {
+        return switch (node) {
+            .src => self.sema.symbolOf(node) == sym,
+            .list => for (node.items()) |c| {
+                if (self.mentions(c, sym)) break true;
+            } else false,
+            else => false,
+        };
+    }
+
+    /// The fields and variants of the nominal type being emitted, in
+    /// declaration order.
+    fn nominalFields(self: *Emitter) []const sema.Field {
+        return self.sema.symbols.items[self.nominal.?.sym].fields orelse &.{};
+    }
+
+    fn emitFields(self: *Emitter, depth: u32) Error!void {
+        for (self.nominalFields()) |f| {
+            if (f.is_method or f.is_variant) continue;
             try self.writeIndent(depth);
-            try self.w.print("{f}: ", .{self.ident(self.srcText(ir.@":".name(m)))});
-            try self.emitType(ir.@":".type(m));
+            try self.w.print("{f}: ", .{self.ident(f.name)});
+            try self.emitTypeTy(f.ty);
             try self.w.writeAll(",\n");
         }
     }
 
     /// Variants of a tagged union: bare → `void`, one payload field →
-    /// its type, several → an anonymous struct.
-    fn emitUnionVariants(self: *Emitter, members: []const Sexp, depth: u32) Error!void {
-        for (members) |m| {
-            const vname: []const u8 = switch (m) {
-                .src => self.srcText(m),
-                .list => if (m.isKind(.variant) or m.isKind(.valued)) self.srcText(ir.get(m, .name)) else continue,
-                else => continue,
-            };
+    /// its type, several → a struct that `print` knows as a payload.
+    fn emitUnionVariants(self: *Emitter, depth: u32) Error!void {
+        for (self.nominalFields()) |v| {
+            if (!v.is_variant) continue;
             try self.writeIndent(depth);
-            try self.w.print("{f}: ", .{self.ident(vname)});
-            const fields: []const Sexp = if (m.isKind(.variant)) ir.Variant.params(m).items() else &.{};
+            try self.w.print("{f}: ", .{self.ident(v.name)});
+            const fields = v.payload orelse &.{};
             if (fields.len == 0) {
                 try self.w.writeAll("void");
             } else if (fields.len == 1) {
-                try self.emitType(ir.@":".type(fields[0]));
+                try self.emitTypeTy(fields[0].ty);
             } else {
                 try self.w.writeAll("struct { ");
-                for (fields, 0..) |f, i| {
-                    if (i > 0) try self.w.writeAll(", ");
-                    try self.w.print("{f}: ", .{self.ident(self.srcText(ir.@":".name(f)))});
-                    try self.emitType(ir.@":".type(f));
+                for (fields) |f| {
+                    try self.w.print("{f}: ", .{self.ident(f.name)});
+                    try self.emitTypeTy(f.ty);
+                    try self.w.writeAll(", ");
                 }
-                try self.w.writeAll(" }");
+                try self.w.writeAll("pub const __rig_payload = {}; }");
             }
             try self.w.writeAll(",\n");
         }
@@ -488,15 +505,14 @@ pub const Emitter = struct {
 
     /// `(fun name params returns body)` / `(sub name params _ body)`.
     fn emitFun(self: *Emitter, node: Sexp) Error!void {
-        const is_sub = node.isKind(.sub);
         const name_node = ir.get(node, .name);
         const name = self.srcText(name_node);
         const params = ir.get(node, .params);
-        const returns = rig.returnType(node);
         const body = ir.get(node, .body);
-        const is_main = self.nominal == null and is_sub and std.mem.eql(u8, name, "main");
-        const fn_ty = self.fnType(self.sema.typeOf(name_node));
-        const return_ty: ?TypeId = if (fn_ty) |f| (if (f.returns == self.sema.types.void_id) null else f.returns) else null;
+        const f = self.fnType(self.sema.typeOf(name_node)) orelse return self.unsupported(name_node, "an untyped function");
+        // Only the root module's `main` is the program's entry point.
+        const is_main = self.isRootModule() and self.nominal == null and node.isKind(.sub) and std.mem.eql(u8, name, "main");
+        const return_ty: ?TypeId = if (f.returns == self.sema.types.void_id) null else f.returns;
 
         self.fun = .{ .return_ty = return_ty, .params = params, .leak_check = is_main };
 
@@ -506,79 +522,60 @@ pub const Emitter = struct {
         try self.pushScope();
         defer self.popScope() catch {};
         try self.bindParams(params);
-        try self.emitParamList(params);
+        for (params.items(), 0..) |p, i| {
+            if (i > 0) try self.w.writeAll(", ");
+            try self.emitParam(p);
+        }
         try self.w.writeAll(") ");
-        if (returns != .nil) {
-            try self.emitParamType(returns);
-        } else if (is_main and containsPropagate(body)) {
-            try self.w.writeAll("!void");
+        if (return_ty) |r| {
+            try self.emitTypeTy(r);
         } else {
-            try self.w.writeAll("void");
+            try self.w.writeAll(if (is_main and containsPropagate(body)) "anyerror!void" else "void");
         }
         try self.w.writeAll(" ");
         if (return_ty != null) try self.emitValueBody(body) else try self.emitBlock(body);
         try self.w.writeAll("\n");
     }
 
-    /// Bind each parameter in the current scope. Owned resource values
-    /// are copied into a `var` at the top of the body so they can be
-    /// dropped; the Zig parameter gets a `__rig_` name.
+    /// The module graph numbers the root module 1; a lone file is 0.
+    fn isRootModule(self: *Emitter) bool {
+        return self.sema.module_id <= 1;
+    }
+
+    /// Bind each parameter in the current scope. An owned value (or one
+    /// holding a Cell) is copied into a `var` at the top of the body, so
+    /// it can be dropped or changed; the Zig parameter then gets a
+    /// generated name. An owning `_` is dropped under a hidden name.
     fn bindParams(self: *Emitter, params: Sexp) Error!void {
         if (params != .list) return;
         for (params.items()) |p| {
-            const name_node = paramNameNode(p) orelse continue;
+            const name_node = sema.paramNameNode(p) orelse continue;
             const sym = self.sema.symbolOf(name_node) orelse continue;
-            const ty = self.symType(sym);
+            const ty = self.symType(sym) orelse return self.unsupported(p, "an untyped parameter");
+            const rig_name = self.srcText(name_node);
+            const unused = std.mem.eql(u8, rig_name, "_");
             var local: Local = .{ .sym = sym, .zig_name = "", .ty = ty };
-            if (paramIsWriteBorrow(p) or (ty != null and self.isPtrBorrowTy(ty.?))) {
-                local.is_ptr = true;
-            } else if (ty) |t| {
-                local.kind = self.kindOf(t);
-                local.mutable_copy = local.kind == null and sema.holdsCellByValue(self.sema, t);
+            if (!self.isPtrBorrowTy(ty)) {
+                local.kind = self.kindOf(ty);
+                local.mutable_copy = local.kind == null and !unused and sema.holdsCellByValue(self.sema, ty);
             }
-            if (local.kind != null) local.guard = if (self.usage.consumed.contains(sym)) .flag else .scope;
-            _ = try self.declare(local, self.srcText(name_node));
+            if (local.kind != null) {
+                local.guard = if (self.usage.consumed.contains(sym)) .flag else .scope;
+                if (unused) local.zig_name = try self.fresh("__rig_unused");
+            }
+            if (local.kind == .value or local.kind == .optional or local.mutable_copy) {
+                local.param_name = try self.fmt("__rig_arg_{d}", .{self.nextId()});
+            }
+            _ = try self.declare(local, rig_name);
         }
     }
 
-    /// The Zig spelling of a parameter as the signature names it.
-    fn paramZigName(self: *Emitter, local: *const Local) Error![]const u8 {
-        if (local.kind == .value or local.kind == .optional or local.mutable_copy) return self.fmt("__rig_{s}", .{local.zig_name});
-        return local.zig_name;
-    }
-
-    fn emitParamList(self: *Emitter, params: Sexp) Error!void {
-        for (params.items(), 0..) |p, i| {
-            if (i > 0) try self.w.writeAll(", ");
-            try self.emitParam(p);
-        }
-    }
-
+    /// `name: T` in a signature; `comptime` for a `pre` parameter.
     fn emitParam(self: *Emitter, p: Sexp) Error!void {
-        const name_node = paramNameNode(p).?;
-        const local = self.localOf(name_node).?;
-        const zig_name = try self.paramZigName(local);
-        switch (p.kind() orelse return self.unsupported(p, "this parameter")) {
-            .@":", .default => {
-                try self.w.print("{s}: ", .{zig_name});
-                try self.emitParamType(ir.get(p, .type));
-            },
-            .pre_param => {
-                try self.w.print("comptime {s}: ", .{zig_name});
-                try self.emitType(ir.PreParam.type(p));
-            },
-            // `?self` / `!self` receivers.
-            .read, .write => {
-                const ptr: []const u8 = if (p.isKind(.write)) "*" else if (local.is_ptr) "*const " else "";
-                try self.w.print("{s}: {s}{s}", .{ zig_name, ptr, self.nominal.?.name });
-            },
-            else => return self.unsupported(p, "this parameter"),
-        }
-    }
-
-    /// A parameter type: `!T` is a pointer, everything else by value.
-    fn emitParamType(self: *Emitter, t: Sexp) Error!void {
-        try self.emitType(t);
+        const local = self.localOf(sema.paramNameNode(p).?).?;
+        const name = if (local.param_name.len > 0) local.param_name else local.zig_name;
+        try self.w.print("{s}{s}: ", .{ if (p.isKind(.pre_param)) "comptime " else "", name });
+        try self.emitTypeTy(local.ty.?);
     }
 
     /// Statements at the top of a function body: in `main`, the deferred
@@ -593,13 +590,13 @@ pub const Emitter = struct {
         self.fun.params = null;
         if (params != .list) return;
         for (params.items()) |p| {
-            const local = self.localOf(paramNameNode(p) orelse continue) orelse continue;
-            if (local.kind == .value or local.kind == .optional) {
-                try self.line("var {s} = {s};", .{ local.zig_name, try self.paramZigName(local) });
-            } else if (local.mutable_copy) {
-                try self.line("var {s} = {s};", .{ local.zig_name, try self.paramZigName(local) });
-                try self.line("_ = &{s};", .{local.zig_name});
-                continue;
+            const local = self.localOf(sema.paramNameNode(p) orelse continue) orelse continue;
+            if (local.param_name.len > 0) {
+                try self.line("var {s} = {s};", .{ local.zig_name, local.param_name });
+                if (local.mutable_copy) {
+                    try self.line("_ = &{s};", .{local.zig_name});
+                    continue;
+                }
             }
             if (local.guard != .none) {
                 try self.writeIndent(self.indent);
@@ -983,10 +980,7 @@ pub const Emitter = struct {
                 try self.emitPointerTy(ty.?);
             }
         } else {
-            if (type_node != .nil) {
-                try self.w.writeAll(": ");
-                try self.emitType(type_node);
-            } else if (ty != null and (self.isPlainTy(ty.?) or self.isEnumTy(ty.?))) {
+            if (ty != null and (type_node != .nil or self.isPlainTy(ty.?) or self.isEnumTy(ty.?))) {
                 // Literal and branch values need a runtime type, and so
                 // does a bare variant of an enum with payloads.
                 try self.w.writeAll(": ");
@@ -1821,14 +1815,21 @@ pub const Emitter = struct {
     }
 
     /// A borrow held as a pointer: a write borrow, and a read borrow of a
-    /// `Cell`, whose value can change while it is borrowed. Other read
-    /// borrows are held by value: nothing can change what they see.
+    /// value that owns resources or holds a `Cell` (see `readBorrowIsPtr`).
     fn isPtrBorrowTy(self: *Emitter, ty: TypeId) bool {
         return switch (self.sema.types.get(ty)) {
             .borrow_write => true,
-            .borrow_read => |inner| sema.holdsCellByValue(self.sema, inner),
+            .borrow_read => |inner| self.readBorrowIsPtr(inner),
             else => false,
         };
+    }
+
+    /// A read borrow of plain data is a copy: nothing can change what it
+    /// sees. A borrowed Cell can change while it is borrowed, and a copy
+    /// of a value that owns resources would be dropped with whatever
+    /// holds it, so those are held as `*const T`.
+    fn readBorrowIsPtr(self: *Emitter, inner: TypeId) bool {
+        return self.kindOf(inner) != null or sema.holdsCellByValue(self.sema, inner);
     }
 
     /// `holdsCellByValue` for a type expression.
@@ -2236,21 +2237,17 @@ pub const Emitter = struct {
         try self.w.print("@{s}(", .{self.srcText(ir.Builtin.name(sexp))});
         for (ir.Builtin.args(sexp), 0..) |a, i| {
             if (i > 0) try self.w.writeAll(", ");
-            if (self.isTypeArg(a)) try self.emitType(a) else try self.emitBare(a);
+            if (self.isTypeArg(sexp, a)) try self.emitTypeArg(a) else try self.emitBare(a);
         }
         try self.w.writeAll(")");
     }
 
-    fn isTypeArg(self: *Emitter, a: Sexp) bool {
-        if (a.isKind(.generic_inst) or a.isKind(.shared) or a.isKind(.optional)) return true;
-        if (a != .src) return false;
-        const name = self.srcText(a);
-        if (!std.mem.eql(u8, mapTypeName(name), name)) return true;
-        const id = self.sema.symbolOf(a) orelse return false;
-        return switch (self.sema.symbols.items[id].kind) {
-            .nominal_type, .type_alias, .generic_type => true,
-            else => false,
-        };
+    /// Every argument of `@sizeOf`, `@alignOf`, and `@typeName` is a
+    /// type, except `@TypeOf(x)`.
+    fn isTypeArg(self: *Emitter, builtin: Sexp, a: Sexp) bool {
+        if (a.isKind(.builtin)) return false;
+        const name = self.srcText(ir.Builtin.name(builtin));
+        return std.mem.eql(u8, name, "sizeOf") or std.mem.eql(u8, name, "alignOf") or std.mem.eql(u8, name, "typeName");
     }
 
     /// `*expr`: move `expr` into a new reference-counted box.
@@ -2770,9 +2767,8 @@ pub const Emitter = struct {
         {
             try self.bindParams(params);
             for (params.items()) |p| {
-                const local = self.localOf(paramNameNode(p).?).?;
-                try self.w.print(", {s}: ", .{try self.paramZigName(local)});
-                try self.emitParamTypeTy(local.ty orelse self.sema.types.invalid_id);
+                try self.w.writeAll(", ");
+                try self.emitParam(p);
             }
         }
         try self.w.writeAll(") ");
@@ -2784,12 +2780,6 @@ pub const Emitter = struct {
         self.indent -= 1;
         try self.writeIndent(self.indent);
         try self.w.writeAll("}");
-    }
-
-    /// A parameter of ctx type `ty`: `!T` is a pointer, everything else
-    /// by value.
-    fn emitParamTypeTy(self: *Emitter, ty: TypeId) Error!void {
-        try self.emitTypeTy(ty);
     }
 
     fn emitCaptureFields(self: *Emitter, caps: []const Capture) Error!void {
@@ -2934,46 +2924,53 @@ pub const Emitter = struct {
     /// What a `*T` / `~T` handle points at; for an owned closure
     /// (`*fun(A) R`) that is the type-erased closure.
     fn emitHandleTarget(self: *Emitter, t: Sexp) Error!void {
-        if (!t.isKind(.fun_type)) return self.emitType(t);
+        if (!t.isKind(.fun_type)) return self.emitTypeArg(t);
         const ft = t.items();
         try self.w.writeAll("rig.Closure(&.{");
         if (ft[1] == .list) for (ft[1].items(), 0..) |p, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
-            try self.emitType(p);
+            try self.emitTypeArg(p);
         };
         try self.w.writeAll(if (ft[1] == .list and ft[1].items().len > 0) " }, " else "}, ");
-        if (ft[2] != .nil) try self.emitType(ft[2]) else try self.w.writeAll("void");
+        if (ft[2] != .nil) try self.emitTypeArg(ft[2]) else try self.w.writeAll("void");
         try self.w.writeAll(")");
     }
 
-    /// A type expression from the IR.
-    fn emitType(self: *Emitter, t: Sexp) Error!void {
+    /// The type argument of `@sizeOf`, `@alignOf`, or `@typeName`,
+    /// written from its syntax: sema resolves it without recording a
+    /// type for the node.
+    fn emitTypeArg(self: *Emitter, t: Sexp) Error!void {
         switch (t) {
             .src => {
                 const name = self.srcText(t);
+                if (self.sema.symbolOf(t)) |sym| switch (self.sema.symbols.items[sym].kind) {
+                    .nominal_type => return self.writeNominalName(sym),
+                    .type_alias => return self.emitTypeTy(self.sema.symbols.items[sym].ty),
+                    else => {},
+                };
                 if (std.mem.eql(u8, name, "Self")) if (self.nominal) |n| return self.w.writeAll(n.name);
                 const mapped = mapTypeName(name);
                 if (mapped.ptr != name.ptr) return self.w.writeAll(mapped);
-                try self.writeNominalName(name);
+                try self.w.print("{f}", .{self.ident(name)});
             },
             .list => switch (t.kind().?) {
                 .optional => {
                     try self.w.writeAll("?");
-                    try self.emitType(ir.Optional.type(t));
+                    try self.emitTypeArg(ir.Optional.type(t));
                 },
                 .error_union => {
-                    try self.w.writeAll("!");
-                    try self.emitType(ir.ErrorUnion.type(t));
+                    try self.w.writeAll("anyerror!");
+                    try self.emitTypeArg(ir.ErrorUnion.type(t));
                 },
                 // A read borrow is held by value (a Cell's by pointer); a
                 // write borrow is a pointer.
                 .borrow_read => {
                     if (self.isPtrBorrowSexp(t)) try self.w.writeAll("*const ");
-                    try self.emitType(ir.BorrowRead.type(t));
+                    try self.emitTypeArg(ir.BorrowRead.type(t));
                 },
                 .borrow_write => {
                     try self.w.writeAll("*");
-                    try self.emitType(ir.BorrowWrite.type(t));
+                    try self.emitTypeArg(ir.BorrowWrite.type(t));
                 },
                 .shared => {
                     try self.w.writeAll("*rig.RcBox(");
@@ -2987,19 +2984,19 @@ pub const Emitter = struct {
                 },
                 .slice => {
                     try self.w.writeAll("[]const ");
-                    try self.emitType(ir.Slice.type(t));
+                    try self.emitTypeArg(ir.Slice.type(t));
                 },
                 .array_type => {
                     try self.w.print("[{s}]", .{self.srcText(ir.ArrayType.size(t))});
-                    try self.emitType(ir.ArrayType.type(t));
+                    try self.emitTypeArg(ir.ArrayType.type(t));
                 },
                 .generic_inst => {
-                    const name = self.srcText(ir.GenericInst.name(t));
-                    try self.writeNominalName(name);
+                    const sym = self.sema.symbolOf(ir.GenericInst.name(t)) orelse return self.unsupported(t, "this type");
+                    try self.writeNominalName(sym);
                     try self.w.writeAll("(");
                     for (ir.GenericInst.args(t), 0..) |arg, i| {
                         if (i > 0) try self.w.writeAll(", ");
-                        try self.emitType(arg);
+                        try self.emitTypeArg(arg);
                     }
                     try self.w.writeAll(")");
                 },
@@ -3008,11 +3005,11 @@ pub const Emitter = struct {
                     try self.w.writeAll("*const fn (");
                     for (ir.FunType.params(t).items(), 0..) |p, i| {
                         if (i > 0) try self.w.writeAll(", ");
-                        try self.emitType(p);
+                        try self.emitTypeArg(p);
                     }
                     try self.w.writeAll(") ");
                     const returns = ir.FunType.returns(t);
-                    if (returns != .nil) try self.emitType(returns) else try self.w.writeAll("void");
+                    if (returns != .nil) try self.emitTypeArg(returns) else try self.w.writeAll("void");
                 },
                 else => return self.unsupported(t, "this type"),
             },
@@ -3036,12 +3033,13 @@ pub const Emitter = struct {
                 try self.w.writeAll("?");
                 try self.emitTypeTy(inner);
             },
+            // Rig functions do not declare their errors.
             .fallible => |inner| {
-                try self.w.writeAll("!");
+                try self.w.writeAll("anyerror!");
                 try self.emitTypeTy(inner);
             },
             .borrow_read => |inner| {
-                if (sema.holdsCellByValue(ctx, inner)) try self.w.writeAll("*const ");
+                if (self.readBorrowIsPtr(inner)) try self.w.writeAll("*const ");
                 try self.emitTypeTy(inner);
             },
             .borrow_write => |inner| {
@@ -3072,7 +3070,7 @@ pub const Emitter = struct {
                 try self.w.print("[{d}]", .{a.len});
                 try self.emitTypeTy(a.elem);
             },
-            .nominal => |sym_id| try self.writeNominalName(ctx.symbols.items[sym_id].name),
+            .nominal => |sym_id| try self.writeNominalName(sym_id),
             .imported_nominal => |in| {
                 const foreign = ctx.foreign_semas.get(in.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
                 const type_name = foreign.symbols.items[in.sym_id].name;
@@ -3086,8 +3084,8 @@ pub const Emitter = struct {
                 return self.unsupported(.nil, "a type from an unimported module");
             },
             .parameterized_nominal => |pn| {
-                const name = ctx.symbols.items[pn.sym].name;
-                try self.writeNominalName(name);
+                if (self.isSelfInstance(pn)) return self.w.writeAll("Self");
+                try self.writeNominalName(pn.sym);
                 try self.w.writeAll("(");
                 for (pn.args, 0..) |arg, i| {
                     if (i > 0) try self.w.writeAll(", ");
@@ -3110,9 +3108,26 @@ pub const Emitter = struct {
     }
 
     /// A user nominal, or a runtime one (`Vec` → `rig.Vec`).
-    fn writeNominalName(self: *Emitter, name: []const u8) Error!void {
-        if (builtinZigName(name)) |z| return self.w.print("rig.{s}", .{z});
+    fn writeNominalName(self: *Emitter, sym: SymbolId) Error!void {
+        const name = self.sema.symbols.items[sym].name;
+        if (sym == self.sema.vec_sym_id or sym == self.sema.cell_sym_id or sym == self.sema.signal_sym_id) {
+            return self.w.print("rig.{s}", .{name});
+        }
         try self.w.print("{f}", .{self.ident(name)});
+    }
+
+    /// The generic type being emitted, applied to its own parameters:
+    /// `Self` inside its body.
+    fn isSelfInstance(self: *Emitter, pn: sema.ParamNominal) bool {
+        const n = self.nominal orelse return false;
+        if (pn.sym != n.sym) return false;
+        const params = self.sema.symbols.items[n.sym].type_params orelse return false;
+        if (params.len != pn.args.len) return false;
+        for (params, pn.args) |p, a| switch (self.sema.types.get(a)) {
+            .type_var => |v| if (v != p) return false,
+            else => return false,
+        };
+        return true;
     }
 
     // -------------------------------------------------------------------------
@@ -3572,24 +3587,6 @@ fn isPureArg(arg: Sexp) bool {
     };
 }
 
-fn paramNameNode(p: Sexp) ?Sexp {
-    return sema.paramNameNode(p);
-}
-
-fn paramIsWriteBorrow(p: Sexp) bool {
-    if (p.isKind(.write)) return true;
-    return (p.isKind(.@":") or p.isKind(.default)) and ir.get(p, .type).isKind(.borrow_write);
-}
-
-/// The runtime's name for a built-in generic type, or null.
-fn builtinZigName(name: []const u8) ?[]const u8 {
-    const names = [_][2][]const u8{
-        .{ "Cell", "Cell" }, .{ "Vec", "Vec" }, .{ "Signal", "Signal" },
-    };
-    for (names) |n| if (std.mem.eql(u8, name, n[0])) return n[1];
-    return null;
-}
-
 fn mapTypeName(rig_name: []const u8) []const u8 {
     const map = .{
         .{ "Int", int_zig }, .{ "Float", float_zig },     .{ "I8", "i8" },     .{ "I16", "i16" },
@@ -3706,8 +3703,8 @@ test "emit: propagate becomes try" {
     );
     defer std.testing.allocator.free(out);
     try std.testing.expect(std.mem.indexOf(u8, out, "try bar()") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out, "pub fn foo() !" ++ int_zig) != null);
-    try std.testing.expect(std.mem.indexOf(u8, out, "pub fn main() !void") != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "pub fn foo() anyerror!" ++ int_zig) != null);
+    try std.testing.expect(std.mem.indexOf(u8, out, "pub fn main() anyerror!void") != null);
 }
 
 test "emit: Zig keywords and emitter names are escaped" {
