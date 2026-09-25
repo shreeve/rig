@@ -1021,8 +1021,8 @@ pub const TypeInfo = packed struct(u16) {
     glue: bool = false,
     /// Holds a `Cell` inline (see `holdsCellByValue`).
     cell: bool = false,
-    /// Owns nothing and holds no borrow or generic parameter (unless it
-    /// also has glue, see `isPlainData`).
+    /// Holds no resource, borrow, or generic parameter. A struct with a
+    /// user `drop` can be plain and still have glue (see `isPlainData`).
     plain: bool = false,
     _: u3 = 0,
     /// How deeply wrappers and generic instances nest in it (saturating).
