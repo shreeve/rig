@@ -1,0 +1,25 @@
+# A method returning a read borrow of a handle it holds: the borrow is a
+# pointer to the handle, and a field is reached through it.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+type Box(T)
+  v: T
+
+  fun get(?self) -> ?T
+    ?self.v
+
+sub main()
+  b = Box(v: *B(n: 1))
+  print(b.get().n)
+  r = b.get()
+  print(r.n)
+
+# expect:
+# 1
+# 1
+# drop 1

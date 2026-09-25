@@ -2224,6 +2224,9 @@ pub const Emitter = struct {
         if (needs_parens) try self.w.writeAll("(");
         try self.emitExpr(o);
         if (needs_parens) try self.w.writeAll(")");
+        // A call yielding a borrow held by pointer: Zig reaches a field
+        // through a pointer to a struct, but not through one to a handle.
+        if (o.isKind(.call) and obj_ty != null and self.isPtrBorrowTy(obj_ty.?) and !self.isStructLike(obj_ty.?)) try self.w.writeAll(".*");
     }
 
     /// `@name(args)`. Arguments that name Rig types are spelled as Zig types.
