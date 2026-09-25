@@ -1,0 +1,33 @@
+# A loop over a Vec that its source expression creates drops the Vec
+# when the loop ends, however it ends.
+
+fun mk(n: Int) -> Vec(Int)
+  v: Vec(Int) = Vec()
+  for i in 0..n
+    (!v).push(i * 10)
+  v
+
+fun first_big(n: Int) -> Int
+  for x in mk(n)
+    return x if x > 10
+  -1
+
+sub main()
+  for x in mk(2)
+    print(x)
+  for x, i in mk(3)
+    print(i, x)
+  for x in mk(5)
+    break if x > 10
+    print("b", x)
+  print(first_big(4))
+
+# expect:
+# 0
+# 10
+# 0 0
+# 1 10
+# 2 20
+# b 0
+# b 10
+# 20

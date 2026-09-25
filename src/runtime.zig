@@ -191,17 +191,29 @@ pub fn RcBox(comptime T: type) type {
 // Releasing a box can release the boxes its value holds, recursively: a
 // 200k-node `*Node` list nests 200k drops. Past `max_drop_depth` nested
 // releases, a box whose last strong handle goes is queued instead, and the
-// outermost release drains the queue. Drops still happen in the same
-// order for a chain (each box's value before the next box's), and a
-// queued box already has `strong == 0`, so `upgrade` fails on it.
+// outermost release drains the queue. The queued boxes are released in
+// the order a recursive release would have reached them (depth first,
+// siblings in the order they were queued), only later: after the
+// releases already in progress finish. A queued box already has
+// `strong == 0`, so `upgrade` fails on it.
 
 const max_drop_depth = 256;
 var drop_depth: u32 = 0;
-var drop_queue: std.ArrayListUnmanaged(struct { box: *anyopaque, release: *const fn (*anyopaque) void }) = .empty;
+const PendingDrop = struct { box: *anyopaque, release: *const fn (*anyopaque) void };
+var drop_queue: std.ArrayListUnmanaged(PendingDrop) = .empty;
 
 fn drainDropQueue() void {
     drop_depth += 1;
-    while (drop_queue.pop()) |pending| pending.release(pending.box);
+    // The queue is a stack. The boxes a release queued go on top, reversed,
+    // so the first one queued is released next and before anything
+    // queued earlier.
+    var fresh: usize = 0;
+    while (true) {
+        std.mem.reverse(PendingDrop, drop_queue.items[fresh..]);
+        const pending = drop_queue.pop() orelse break;
+        fresh = drop_queue.items.len;
+        pending.release(pending.box);
+    }
     drop_depth -= 1;
     drop_queue.clearAndFree(std.heap.smp_allocator);
 }
@@ -504,12 +516,14 @@ pub fn Vec(comptime T: type) type {
             }
 
             /// Drop the elements not handed over (the loop left early),
-            /// then free the buffer.
+            /// last first as a Vec does, then free the buffer.
             pub fn deinit(it: *IntoIter) void {
-                while (it.next_index < it.vec.len) : (it.next_index += 1) {
-                    dropElement(T, &it.vec.buf[it.next_index]);
+                while (it.vec.len > it.next_index) {
+                    it.vec.len -= 1;
+                    dropElement(T, &it.vec.buf[it.vec.len]);
                 }
-                if (it.vec.buf.len > 0) it.vec.allocator.free(it.vec.buf);
+                it.vec.len = 0;
+                it.vec.__rig_drop();
             }
         };
 
@@ -1083,6 +1097,59 @@ test "dropping a long chain of boxes does not recurse per link" {
     drop(&head);
     try testing.expectEqual(100_000, drops);
     try testing.expectEqual(0, drop_depth);
+}
+
+/// Records the order values are dropped in.
+const Order = struct {
+    log: *[16]u8,
+    n: *usize,
+    id: u8,
+    pub fn __rig_drop(self: *Order) void {
+        self.log[self.n.*] = self.id;
+        self.n.* += 1;
+    }
+};
+
+test "queued drops keep the order of a recursive release" {
+    // A chain deep enough that the release of its last node is queued:
+    // that node's fields drop last first, then its child's, and the
+    // chain's own counter goes after them.
+    const Tree = struct {
+        next: ?*RcBox(@This()),
+        a: ?*RcBox(Order),
+        b: ?*RcBox(Order),
+    };
+    var log: [16]u8 = undefined;
+    var n: usize = 0;
+    for ([_]usize{ 10, max_drop_depth - 1, max_drop_depth, max_drop_depth + 5 }) |depth| {
+        n = 0;
+        const leaf_child = try RcBox(Tree).new(testing.allocator, .{
+            .next = null,
+            .a = try RcBox(Order).new(testing.allocator, .{ .log = &log, .n = &n, .id = 3 }),
+            .b = try RcBox(Order).new(testing.allocator, .{ .log = &log, .n = &n, .id = 4 }),
+        });
+        var head: ?*RcBox(Tree) = try RcBox(Tree).new(testing.allocator, .{
+            .next = leaf_child,
+            .a = try RcBox(Order).new(testing.allocator, .{ .log = &log, .n = &n, .id = 1 }),
+            .b = try RcBox(Order).new(testing.allocator, .{ .log = &log, .n = &n, .id = 2 }),
+        });
+        for (0..depth) |_| head = try RcBox(Tree).new(testing.allocator, .{ .next = head, .a = null, .b = null });
+        drop(&head);
+        try testing.expectEqualSlices(u8, &.{ 2, 1, 4, 3 }, log[0..n]);
+        try testing.expectEqual(0, drop_depth);
+    }
+}
+
+test "a consuming loop left early drops the rest last first" {
+    var log: [16]u8 = undefined;
+    var n: usize = 0;
+    var v: Vec(Order) = .init(testing.allocator);
+    for (1..5) |i| v.push(.{ .log = &log, .n = &n, .id = @intCast(i) });
+    var it = v.intoIter();
+    var first = it.next().?;
+    first.__rig_drop();
+    it.deinit();
+    try testing.expectEqualSlices(u8, &.{ 1, 4, 3, 2 }, log[0..n]);
 }
 
 test "take clears the alive flag" {

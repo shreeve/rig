@@ -1339,6 +1339,22 @@ pub const Emitter = struct {
         // A resource element is a borrowed view of its slot.
         const by_ptr = mode == .write or
             (elem_ty != null and self.sema.types.get(elem_ty.?) == .borrow_read);
+        // A Vec the source expression creates is dropped after the loop.
+        const temp = is_vec and !isPlace(source) and self.kindOf(src_ty.?) != null;
+        if (temp) {
+            try self.openBrace();
+            const name = try self.fmt("__rig_src_{d}", .{self.nextId()});
+            try self.writeIndent(self.indent);
+            try self.w.print("var {s} = ", .{name});
+            try self.emitBare(source);
+            try self.w.writeAll(";\n");
+            try self.line("defer rig.drop(&{s});", .{name});
+            try self.writeIndent(self.indent);
+            try self.hoisted.append(self.allocator, .{ .node = source, .name = name });
+        }
+        defer if (temp) {
+            _ = self.hoisted.pop();
+        };
 
         try self.pushScope();
         try self.writeLabel(label);
@@ -1375,6 +1391,10 @@ pub const Emitter = struct {
         if (ir.For.@"else"(sexp) != .nil) {
             try self.w.writeAll(" else ");
             try self.emitBranchStmt(ir.For.@"else"(sexp));
+        }
+        if (temp) {
+            try self.w.writeAll("\n");
+            try self.closeBrace();
         }
     }
 
@@ -2783,15 +2803,19 @@ pub const Emitter = struct {
     /// owns a resource, the closure is dropped at scope exit, which drops
     /// its fields.
     fn emitClosureBinding(self: *Emitter, name_node: Sexp, sym: SymbolId, lambda: Sexp) Error!void {
-        const local = try self.declare(.{ .sym = sym, .zig_name = "", .stack_closure = true }, self.srcText(name_node));
-        const zig_name = local.zig_name;
-        const owns = try self.emitStackClosure(zig_name, lambda);
-        if (owns) {
+        var local: Local = .{ .sym = sym, .zig_name = "", .stack_closure = true };
+        for (try self.captureInfo(ir.Lambda.captures(lambda))) |c| {
+            if (self.kindOf(c.ty) != null) local.kind = .value;
+        }
+        if (local.kind != null) local.guard = if (self.usage.consumed.contains(sym)) .flag else .scope;
+        const stored = try self.declare(local, self.srcText(name_node));
+        _ = try self.emitStackClosure(stored.zig_name, lambda);
+        if (stored.guard != .none) {
             try self.w.writeAll("\n");
             try self.writeIndent(self.indent);
-            try self.w.print("defer rig.dropFields(&{s});", .{zig_name});
+            try self.emitGuard(stored);
         } else {
-            try self.w.print(" _ = &{s};", .{zig_name});
+            try self.w.print(" _ = &{s};", .{stored.zig_name});
         }
     }
 
