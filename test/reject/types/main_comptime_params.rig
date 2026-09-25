@@ -1,0 +1,7 @@
+# The program's entry point takes no parameters, compile-time ones
+# included.
+
+sub main[n: Int]
+  print(n)
+
+# error: 4:5: `main` must be `sub main`: the program's entry point takes no parameters and returns no value

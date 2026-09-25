@@ -292,7 +292,7 @@ const Checker = struct {
         // The root module's `main` is the program's entry point; in any
         // other module `main` is an ordinary function.
         const is_main = self.ctx.is_root and self.nominal.isEmpty() and std.mem.eql(u8, self.text(name), "main");
-        if (is_main and (!is_sub or ir.get(node, .params).items().len > 0)) {
+        if (is_main and (!is_sub or ir.get(node, .params).items().len > 0 or sema.tparamsOf(node).items().len > 0)) {
             try self.errAt(name, "`main` must be `sub main`: the program's entry point takes no parameters and returns no value", .{});
         }
         for (ir.get(node, .params).items()) |p| if (p.isKind(.default)) {
