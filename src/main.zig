@@ -458,3 +458,14 @@ fn outputDir(allocator: std.mem.Allocator, env: Env, root: *const modules.Module
     const project = try std.fmt.allocPrint(allocator, "{s}-{x:0>16}", .{ root.name, std.hash.Wyhash.hash(0, root.path) });
     return std.fs.path.join(allocator, &.{ base, project });
 }
+
+// The unit tests of every compiler file, and of the runtime.
+test {
+    _ = rig;
+    _ = diag;
+    _ = modules;
+    _ = emit;
+    _ = @import("sema.zig");
+    _ = @import("ownership.zig");
+    _ = @import("runtime.zig");
+}
