@@ -495,8 +495,8 @@ pub const Emitter = struct {
         }
     }
 
-    /// Variants of a tagged union: bare → `void`, one payload field →
-    /// its type, several → a struct that `print` knows as a payload.
+    /// Variants of a tagged union: bare → `void`, a payload → a struct
+    /// of its fields.
     fn emitUnionVariants(self: *Emitter, depth: u32) Error!void {
         for (self.nominalFields()) |v| {
             if (!v.is_variant) continue;
@@ -505,16 +505,14 @@ pub const Emitter = struct {
             const fields = v.payload orelse &.{};
             if (fields.len == 0) {
                 try self.w.writeAll("void");
-            } else if (fields.len == 1) {
-                try self.emitTypeTy(fields[0].ty);
             } else {
                 try self.w.writeAll("struct { ");
-                for (fields) |f| {
+                for (fields, 0..) |f, i| {
+                    if (i > 0) try self.w.writeAll(", ");
                     try self.w.print("{f}: ", .{ident(f.name)});
                     try self.emitTypeTy(f.ty);
-                    try self.w.writeAll(", ");
                 }
-                try self.w.writeAll("pub const __rig_payload = {}; }");
+                try self.w.writeAll(" }");
             }
             try self.w.writeAll(",\n");
         }
@@ -1632,11 +1630,9 @@ pub const Emitter = struct {
                         const vname = self.srcText(ir.get(pattern, .name));
                         try self.w.print("{s}{f} => ", .{ if (error_set) "error." else ".", ident(vname) });
                         const captures: []const Sexp = if (pattern.isKind(.variant_pattern)) ir.VariantPattern.bindings(pattern) else &.{};
-                        if (captures.len == 1) {
-                            try self.emitCapture(captures[0]);
-                        } else if (captures.len > 1) {
+                        if (captures.len > 0) {
                             aliases = try self.payloadAliases(captures, scrut_ty.?, vname);
-                            if (aliases.len > 0) try self.w.writeAll("|__rig_payload| ");
+                            if (aliases.len > 0) try self.w.print("|{s}| ", .{aliases[0].payload});
                         }
                     },
                     .range_pattern => {
@@ -1665,9 +1661,9 @@ pub const Emitter = struct {
         try self.closeBrace();
     }
 
-    const Alias = struct { zig_name: []const u8, field: []const u8 };
+    const Alias = struct { zig_name: []const u8, payload: []const u8, field: []const u8 };
 
-    /// Bindings a branch body starts with: multi-field payload aliases,
+    /// Bindings a branch body starts with: payload field aliases,
     /// or the owning binding of `if expr as name`.
     const Prelude = struct {
         aliases: []const Alias = &.{},
@@ -1699,20 +1695,22 @@ pub const Emitter = struct {
         try self.w.print("|{s}| ", .{stored.zig_name});
     }
 
-    /// Bindings for a multi-field payload, declared in the arm's scope.
+    /// Bindings for a payload's fields, declared in the arm's scope.
     fn payloadAliases(self: *Emitter, captures: []const Sexp, scrut_ty: TypeId, variant: []const u8) Error![]const Alias {
         const fields = self.variantPayload(scrut_ty, variant) orelse return self.unsupported(captures[0], "this payload pattern");
         var out: std.ArrayListUnmanaged(Alias) = .empty;
+        var payload: ?[]const u8 = null;
         for (captures, fields) |c, f| {
             const local = self.payloadLocal(c) orelse continue;
             const stored = try self.declare(local, self.srcText(c));
-            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .field = f.name });
+            if (payload == null) payload = try self.fresh("payload");
+            try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .payload = payload.?, .field = f.name });
         }
         return out.items;
     }
 
     fn emitPrelude(self: *Emitter, prelude: Prelude) Error!void {
-        for (prelude.aliases) |a| try self.line("const {s} = __rig_payload.{f};", .{ a.zig_name, ident(a.field) });
+        for (prelude.aliases) |a| try self.line("const {s} = {s}.{f};", .{ a.zig_name, a.payload, ident(a.field) });
         if (prelude.optional) |o| try self.bindOptionalResource(o);
         if (prelude.err_capture) |c| try self.line("const {s}: anyerror = {s};", .{ c.zig_name, c.tmp });
     }
@@ -3022,8 +3020,7 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
-    /// `.variant(args)` → `.{ .variant = payload }`. A single-field
-    /// payload is the value itself; several fields form a struct.
+    /// `.variant(args)` → `.{ .variant = .{ .field = value, ... } }`.
     fn emitVariantLit(self: *Emitter, call: Sexp) Error!void {
         const vname = self.srcText(ir.EnumLit.name(ir.Call.callee(call)));
         if (ir.Call.args(call).len == 0) return self.w.print(".{f}", .{ident(vname)});
@@ -3033,14 +3030,9 @@ pub const Emitter = struct {
 
     fn emitVariantPayload(self: *Emitter, call: Sexp, enum_ty: TypeId, vname: []const u8) Error!void {
         const args = ir.Call.args(call);
-        const fields = self.variantPayload(enum_ty, vname) orelse return self.unsupported(call, "this variant");
-        try self.w.print(".{{ .{f} = ", .{ident(vname)});
-        if (fields.len == 1) {
-            try self.emitStored(ir.Kwarg.value(args[0]));
-        } else {
-            try self.w.writeAll(".");
-            try self.emitFieldInit(args);
-        }
+        _ = self.variantPayload(enum_ty, vname) orelse return self.unsupported(call, "this variant");
+        try self.w.print(".{{ .{f} = .", .{ident(vname)});
+        try self.emitFieldInit(args);
         try self.w.writeAll(" }");
     }
 

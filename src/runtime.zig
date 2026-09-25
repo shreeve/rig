@@ -911,7 +911,7 @@ var print_depth: u32 = 0;
 /// A value as Rig writes it: text as is at the top level and quoted
 /// inside other values, a float with a decimal point, `none` for an
 /// absent optional, `Name(field: v)` for a struct, `.variant` /
-/// `.variant(payload)` for an enum, and `[a, b]` for arrays and Vecs. A
+/// `.variant(field: v)` for an enum, and `[a, b]` for arrays and Vecs. A
 /// shared handle prints its value, a function `<fun>`.
 pub fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Error!void {
     const T = @TypeOf(value);
@@ -949,12 +949,7 @@ pub fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Er
                 const P = @TypeOf(payload);
                 if (P == void) return;
                 try w.writeAll("(");
-                // Several payload fields are written as keyword arguments.
-                if (@typeInfo(P) == .@"struct" and @hasDecl(P, "__rig_payload")) {
-                    try writeFields(w, payload);
-                } else {
-                    try writeValue(w, payload, false);
-                }
+                try writeFields(w, payload);
                 try w.writeAll(")");
             },
         },
@@ -1257,11 +1252,7 @@ test "values print the way Rig writes them" {
     var buf: [512]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
     const P = struct { name: []const u8, n: ?i64 };
-    const U = union(enum) { dot, circle: i64, at: P, rect: struct {
-        w: i64,
-        h: i64,
-        pub const __rig_payload = {};
-    } };
+    const U = union(enum) { dot, circle: struct { r: i64 }, at: struct { p: P }, rect: struct { w: i64, h: i64 } };
     const h = rcNew(P{ .name = "b", .n = 1 });
     const weak = h.weakRef();
     const Env = struct {
@@ -1273,7 +1264,7 @@ test "values print the way Rig writes them" {
     try w.writeAll(" ");
     try writeValue(&w, U{ .rect = .{ .w = 2, .h = 3 } }, true);
     try w.writeAll(" ");
-    try writeValue(&w, U{ .at = .{ .name = "c", .n = 2 } }, true);
+    try writeValue(&w, U{ .at = .{ .p = .{ .name = "c", .n = 2 } } }, true);
     try w.writeAll(" ");
     try writeValue(&w, [_][]const u8{ "x", "y" }, true);
     try w.writeAll(" ");
@@ -1283,7 +1274,7 @@ test "values print the way Rig writes them" {
         try writeValue(&w, v, true);
     }
     try testing.expectEqualStrings(
-        "P(name: \"a\", n: none) .rect(w: 2, h: 3) .at(P(name: \"c\", n: 2)) [\"x\", \"y\"] hi " ++
+        "P(name: \"a\", n: none) .rect(w: 2, h: 3) .at(p: P(name: \"c\", n: 2)) [\"x\", \"y\"] hi " ++
             "P(name: \"b\", n: 1) ~(alive) <closure> [72, 105, 33] 1.0 2.5 -0.0 10000000000.0",
         w.buffered(),
     );

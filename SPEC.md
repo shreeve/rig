@@ -694,7 +694,7 @@ sub main()
 
 ```output
 42 answer
-.some(2.5)
+.some(value: 2.5)
 ```
 
 There are no generic functions yet.
@@ -2693,7 +2693,7 @@ a value.
 | numbers, `Bool` | `42`, `-3`, `2.5`, `true`; a whole `Float` keeps its point: `1.0` |
 | `String` | its text; inside other values, quoted |
 | `none` | `none` |
-| enum | `.green`, `.rect(w: 2, h: 3)`; a one-field payload without its name: `.circle(2.5)` |
+| enum | `.green`, `.circle(r: 2.5)`, `.rect(w: 2, h: 3)`: payload fields by name, as constructed |
 | struct | `User(name: "ada", age: 36)` |
 | array, slice, `Vec` | `[1, 2]` |
 | shared handle | the value it holds |
@@ -2731,7 +2731,7 @@ sub main()
 ```
 
 ```output
-.dot .circle(2.5) .rect(w: 2, h: 3)
+.dot .circle(r: 2.5) .rect(w: 2, h: 3)
 ```
 
 ---

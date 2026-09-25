@@ -35,5 +35,5 @@ sub main()
 # 6
 # 4
 # Op(f: <fun>, n: 1)
-# .op(<fun>)
+# .op(f: <fun>)
 # [<fun>, <fun>]

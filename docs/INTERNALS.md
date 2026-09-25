@@ -601,8 +601,8 @@ lower is an internal error: sema must have rejected it.
   `?Self`), the borrow is a `rig.ReadBorrow(T)`, which applies the same
   rule to each instance.
 - **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`, `T?`
-  is `?T`, `T!` is `anyerror!T`, enums with payloads are tagged unions,
-  and generic types are Zig functions from types to types. A struct
+  is `?T`, `T!` is `anyerror!T`, enums with payloads are tagged unions
+  (each payload a struct of its fields), and generic types are Zig functions from types to types. A struct
   with drop glue gets a `__rig_drop` method: the user `drop` body, then
   the owning fields in reverse order.
 - **Values.** `if` and `match` in value position become labeled blocks
