@@ -928,7 +928,7 @@ pub const TypeResolver = struct {
         if (head == .@"enum" or head == .generic_enum) try self.checkEnumValues(members, generic);
         if (head == .@"struct") {
             for (members) |m| {
-                if (m.isKind(.drop_decl)) try self.enforceDropBody(ir.DropDecl.body(m));
+                if (m.isKind(.drop_decl)) try self.enforceDropBody(ir.DropDecl.body(m), owned);
             }
         }
     }
@@ -1157,26 +1157,54 @@ pub const TypeResolver = struct {
         });
     }
 
-    /// Inside `drop`, the body runs before the generated field drops, so
-    /// it must not consume or replace `self`.
-    fn enforceDropBody(self: *TypeResolver, body: Sexp) Error!void {
-        const head = body.kind() orelse return;
-        switch (head) {
-            .drop => if (self.isSelf(ir.Drop.name(body))) {
-                try self.ctx.errAt(ir.Drop.name(body), "cannot drop `self` inside its own drop body; the binding is being destroyed by the runtime", .{});
+    /// A drop body runs while its value is being destroyed, before the
+    /// generated field drops. It may use `self` through its fields, a read
+    /// borrow `?self`, and methods that take `?self`; it may not consume
+    /// `self`, replace it, or lend it on as `!self`, since replacing it
+    /// would drop the old value and run this body again.
+    fn enforceDropBody(self: *TypeResolver, node: Sexp, fields: []const Field) Error!void {
+        switch (node) {
+            .src => if (self.isSelf(node)) {
+                try self.ctx.errAt(node, "inside its own drop body, `self` can only be used through its fields, `?self`, or methods that take `?self`; passing it on could replace it, which would run this body again", .{});
             },
-            .move => if (self.isSelf(ir.Move.operand(body))) {
-                try self.ctx.errAt(ir.Move.operand(body), "cannot move `self` out of its own drop body; the binding is being destroyed by the runtime", .{});
+            .list => switch (node.kind() orelse return) {
+                .member => if (self.isSelf(ir.Member.object(node))) return,
+                .read => if (self.isSelf(ir.Read.operand(node))) return,
+                .write => if (self.isSelf(ir.Write.operand(node))) {
+                    try self.ctx.errAt(node, "cannot lend `!self` inside its own drop body: the borrower could replace `self`, which would run this body again", .{});
+                    return;
+                },
+                .call => {
+                    const callee = ir.Call.callee(node);
+                    if (callee.isKind(.member) and self.isSelf(ir.Member.object(callee))) {
+                        const name = identAt(self.ctx.source, ir.Member.name(callee)) orelse "";
+                        for (fields) |f| {
+                            if (!f.is_method or f.receiver != .write or !std.mem.eql(u8, f.name, name)) continue;
+                            try self.ctx.errAt(callee, "cannot call `{s}`, which takes `!self`, inside the drop body: it could replace `self`, which would run this body again", .{name});
+                        }
+                    }
+                },
+                .drop => if (self.isSelf(ir.Drop.name(node))) {
+                    try self.ctx.errAt(ir.Drop.name(node), "cannot drop `self` inside its own drop body; the binding is being destroyed by the runtime", .{});
+                    return;
+                },
+                .move => if (self.isSelf(ir.Move.operand(node))) {
+                    try self.ctx.errAt(ir.Move.operand(node), "cannot move `self` out of its own drop body; the binding is being destroyed by the runtime", .{});
+                    return;
+                },
+                .@"return" => if (self.isSelf(ir.Return.value(node))) {
+                    try self.ctx.errAt(ir.Return.value(node), "cannot return `self` from its own drop body", .{});
+                    return;
+                },
+                .set => if (self.isSelf(ir.Set.target(node))) {
+                    try self.ctx.errAt(ir.Set.target(node), "cannot reassign `self` inside its own drop body; dropping the old value would run this body again", .{});
+                    return self.enforceDropBody(ir.Set.value(node), fields);
+                },
+                else => {},
             },
-            .@"return" => if (self.isSelf(ir.Return.value(body))) {
-                try self.ctx.errAt(ir.Return.value(body), "cannot return `self` from its own drop body", .{});
-            },
-            .set => if (self.isSelf(ir.Set.target(body))) {
-                try self.ctx.errAt(ir.Set.target(body), "cannot reassign `self` inside its own drop body; dropping the old value would run this body again", .{});
-            },
-            else => {},
+            else => return,
         }
-        for (rig.children(body)) |c| try self.enforceDropBody(c);
+        for (rig.children(node)) |c| try self.enforceDropBody(c, fields);
     }
 
     fn isSelf(self: *TypeResolver, node: Sexp) bool {
