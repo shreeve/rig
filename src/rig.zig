@@ -467,8 +467,7 @@ pub const Lexer = struct {
                     continue;
                 },
                 .newline => {
-                    if (self.inIsland()) return self.lineBreak(tok);
-                    if (self.nesting > 0 or self.last_cat == .eof) {
+                    if (!self.inIsland() and (self.nesting > 0 or self.last_cat == .eof)) {
                         self.joined = true;
                         continue;
                     }
