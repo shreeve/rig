@@ -1,0 +1,23 @@
+# An error is identified by its name alone: `A.timeout` and `B.timeout`
+# are the same error.
+
+error A
+  timeout
+
+error B
+  timeout
+
+fun f(n: Int) -> Int!
+  return A.timeout if n < 0
+  n
+
+sub main()
+  x = f(-1) catch |err|
+    if err == B.timeout
+      print("B timeout")
+    0
+  print(x)
+
+# expect:
+# B timeout
+# 0
