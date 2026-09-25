@@ -297,6 +297,13 @@ pub fn eqlOptStr(a: ?[]const u8, b: ?[]const u8) bool {
     return std.mem.eql(u8, x, y);
 }
 
+/// `a == b` for optionals of a type Zig compares only unwrapped (an
+/// error set).
+pub fn eqlOpt(comptime T: type, a: ?T, b: ?T) bool {
+    if (a) |x| return if (b) |y| x == y else false;
+    return b == null;
+}
+
 /// `e == none` for a temporary optional that owns a resource: the
 /// temporary is dropped.
 pub fn isNone(value: anytype) bool {

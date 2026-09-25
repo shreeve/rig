@@ -2232,6 +2232,18 @@ pub const Emitter = struct {
             try self.w.writeAll(")");
             return;
         }
+        // Zig compares an optional with a value, but not an optional error.
+        if (is_eq) for (operands) |o| {
+            const inner = self.optionalErrorOf(o) orelse continue;
+            if (kind == .@"!=") try self.w.writeAll("!");
+            try self.w.writeAll("rig.eqlOpt(");
+            try self.emitTypeTy(inner);
+            try self.w.writeAll(", ");
+            try self.emitExpr(operands[0]);
+            try self.w.writeAll(", ");
+            try self.emitExpr(operands[1]);
+            return self.w.writeAll(")");
+        };
         if (!bare) try self.w.writeAll("(");
         try self.emitExpr(operands[0]);
         try self.w.print(" {s} ", .{op});
@@ -3346,6 +3358,15 @@ pub const Emitter = struct {
     fn isErrorSetTy(self: *Emitter, ty: TypeId) bool {
         const t = self.peelBorrows(ty);
         return self.sema.types.get(t) == .any_error or sema.isErrorSet(self.sema, t);
+    }
+
+    /// The error set of an operand of type `E?`.
+    fn optionalErrorOf(self: *Emitter, e: Sexp) ?TypeId {
+        const ty = self.typeOf(e) orelse return null;
+        return switch (self.sema.types.get(self.peelBorrows(ty))) {
+            .optional => |inner| if (self.isErrorSetTy(inner)) inner else null,
+            else => null,
+        };
     }
 
     /// A `String` or `String?` operand.
