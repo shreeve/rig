@@ -3080,10 +3080,7 @@ pub const Emitter = struct {
                     if (imp.module_id == in.module_id) return self.w.print("{f}.{f}", .{ ident(imp.local_name), ident(type_name) });
                 }
                 // A module reached only through an import.
-                for (ctx.transitive) |t| {
-                    if (t.module_id == in.module_id) return self.w.print("@import(\"{s}.zig\").{f}", .{ t.local_name, ident(type_name) });
-                }
-                return self.unsupported(.nil, "a type from an unimported module");
+                return self.w.print("@import(\"{s}.zig\").{f}", .{ foreign.name, ident(type_name) });
             },
             .parameterized_nominal => |pn| {
                 if (self.isSelfInstance(pn)) return self.w.writeAll("Self");

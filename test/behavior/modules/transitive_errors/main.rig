@@ -1,0 +1,19 @@
+# A module names the errors of a module it reaches only through an
+# import: `.empty` is a member of `parsing`'s error set, which `main`
+# does not import.
+
+use mid
+
+fun name(s: String) -> String
+  n = mid.twice(s) catch |err|
+    match err
+      .empty => return "empty"
+      .bad_digit => return "bad digit"
+      else => return "other"
+  "ok"
+
+sub main()
+  print(name(""), name("x"), name("abc"))
+
+# expect:
+# empty bad digit ok

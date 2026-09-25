@@ -70,6 +70,9 @@ pub const ModuleGraph = struct {
     modules: std.ArrayListUnmanaged(Module) = .empty,
     by_path: std.StringHashMapUnmanaged(ModuleId) = .empty,
     by_name: std.StringHashMapUnmanaged(ModuleId) = .empty,
+    /// Every module's context by id, which each context shares. Allocated
+    /// with the first module, so it stays put when the graph is moved.
+    semas: ?*sema.ModuleMap = null,
     /// Errors with no source position (the root file cannot be read).
     errors: std.ArrayListUnmanaged([]const u8) = .empty,
 
@@ -90,6 +93,7 @@ pub const ModuleGraph = struct {
         self.modules.deinit(self.allocator);
         self.by_path.deinit(self.allocator);
         self.by_name.deinit(self.allocator);
+        if (self.semas) |s| s.deinit(self.allocator);
         self.errors.deinit(self.allocator);
         self.arena.deinit();
     }
@@ -212,6 +216,13 @@ pub const ModuleGraph = struct {
         });
         try self.by_path.put(self.allocator, canonical, id);
         try self.by_name.put(self.allocator, name, id);
+        const semas = self.semas orelse blk: {
+            const map = try a.create(sema.ModuleMap);
+            map.* = .empty;
+            self.semas = map;
+            break :blk map;
+        };
+        try semas.put(self.allocator, id, ctx);
 
         self.get(id).ir = p.parseProgram() catch |err| switch (err) {
             error.ParseError => {
@@ -251,33 +262,12 @@ pub const ModuleGraph = struct {
             try entries.append(self.allocator, .{ .local_name = imp.local_name, .sema = self.get(imp.target).sema, .module_id = imp.target });
         }
 
-        // Modules the imports reach in turn.
-        var reached: std.ArrayListUnmanaged(sema.ImportEntry) = .empty;
-        defer reached.deinit(self.allocator);
-        var seen = try std.DynamicBitSetUnmanaged.initEmpty(self.allocator, self.modules.items.len + 1);
-        defer seen.deinit(self.allocator);
-        var work: std.ArrayListUnmanaged(ModuleId) = .empty;
-        defer work.deinit(self.allocator);
-        seen.set(id);
-        for (m.imports.items) |imp| {
-            seen.set(imp.target);
-            try work.append(self.allocator, imp.target);
-        }
-        while (work.pop()) |mid| {
-            for (self.get(mid).imports.items) |imp| {
-                if (seen.isSet(imp.target)) continue;
-                seen.set(imp.target);
-                const t = self.get(imp.target);
-                try reached.append(self.allocator, .{ .local_name = t.name, .sema = t.sema, .module_id = imp.target });
-                try work.append(self.allocator, imp.target);
-            }
-        }
-
         m.sema.deinit();
         m.sema.* = try sema.check(self.allocator, m.source, m.ir, .{
             .parser = m.parser,
             .imports = entries.items,
-            .transitive = reached.items,
+            .modules = self.semas.?,
+            .name = m.name,
             .module_id = id,
             .is_root = id == 1,
         });

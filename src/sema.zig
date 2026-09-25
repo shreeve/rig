@@ -178,6 +178,10 @@ pub const ImportedNominal = struct {
     sym_id: SymbolId,
 };
 
+/// Module id -> the module's context.
+pub const ModuleMap = std.AutoHashMapUnmanaged(u32, *SemContext);
+const no_modules: ModuleMap = .empty;
+
 /// One resolved `use NAME` of the module being checked. `sema` must
 /// outlive the importing SemContext.
 pub const ImportEntry = struct {
@@ -593,14 +597,16 @@ pub const SemContext = struct {
     module_id: u32 = 0,
     /// The program's root module, whose `main` is the entry point.
     is_root: bool = false,
+    /// The name other modules `use`, and of the module's emitted file.
+    name: []const u8 = "",
     imports: []const ImportEntry = &.{},
-    /// Modules reached only through imports; `local_name` is the module's
-    /// file name.
-    transitive: []const ImportEntry = &.{},
     /// `use NAME` symbol -> origin module id.
     module_refs: std.AutoHashMapUnmanaged(SymbolId, u32) = .empty,
-    /// Origin module id -> its SemContext.
-    foreign_semas: std.AutoHashMapUnmanaged(u32, *SemContext) = .empty,
+    /// Every module of the program by id, shared by their contexts: a
+    /// type from another module names its origin by id.
+    foreign_semas: *const ModuleMap = &no_modules,
+    /// The ids of the modules this one reaches through its imports.
+    reach: std.DynamicBitSetUnmanaged = .{},
 
     /// Type alias symbol -> its target type expression, resolved on
     /// first use (aliases may be used before they are declared).
@@ -652,7 +658,7 @@ pub const SemContext = struct {
         self.diagnostics.deinit(self.allocator);
         self.facts.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
-        self.foreign_semas.deinit(self.allocator);
+        self.reach.deinit(self.allocator);
         self.alias_targets.deinit(self.allocator);
         self.alias_in_progress.deinit(self.allocator);
         self.generic_requirements.deinit(self.allocator);
@@ -901,9 +907,10 @@ pub const CheckOptions = struct {
     parser: ?*const parser.Parser = null,
     /// What the module's `use` declarations resolve to.
     imports: []const ImportEntry = &.{},
-    /// Modules the imports reach in turn: their types can appear here
-    /// (`lib.make()` returning an `a.P`) without being named.
-    transitive: []const ImportEntry = &.{},
+    /// Every module loaded so far, by id; the imports and the modules
+    /// they reach in turn are among them.
+    modules: *const ModuleMap = &no_modules,
+    name: []const u8 = "",
     /// Assigned by the module graph.
     module_id: u32 = 0,
     /// The program's root module, whose `main` is the entry point.
@@ -918,11 +925,18 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     ctx.parser = opts.parser;
     ctx.module_id = opts.module_id;
     ctx.is_root = opts.is_root;
-    // The caller's slices are temporary; the emitter reads the imports later.
+    ctx.name = opts.name;
+    // The caller's slice is temporary; the emitter reads the imports later.
     ctx.imports = try ctx.arena.allocator().dupe(ImportEntry, opts.imports);
-    for (opts.imports) |imp| try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
-    ctx.transitive = try ctx.arena.allocator().dupe(ImportEntry, opts.transitive);
-    for (opts.transitive) |imp| try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
+    ctx.foreign_semas = opts.modules;
+    // Each import was checked first, so its reach is known and no longer
+    // than this one.
+    ctx.reach = try .initEmpty(allocator, opts.modules.count() + 1);
+    for (opts.imports) |imp| {
+        ctx.reach.set(imp.module_id);
+        const theirs = imp.sema.reach;
+        for (0..(theirs.bit_length + @bitSizeOf(usize) - 1) / @bitSizeOf(usize)) |i| ctx.reach.masks[i] |= theirs.masks[i];
+    }
 
     const scope = try ctx.pushScopeKind(scope_invalid, .module);
     std.debug.assert(scope == module_scope);
@@ -1440,8 +1454,8 @@ pub fn isErrorSet(ctx: *const SemContext, ty: TypeId) bool {
 /// in a module it imports) has a member named `name`.
 pub fn errorNameExists(ctx: *const SemContext, name: []const u8) bool {
     if (errorNameIn(ctx, name)) return true;
-    var it = ctx.foreign_semas.valueIterator();
-    while (it.next()) |f| if (errorNameIn(f.*, name)) return true;
+    var it = ctx.reach.iterator(.{});
+    while (it.next()) |id| if (errorNameIn(ctx.foreign_semas.get(@intCast(id)).?, name)) return true;
     return false;
 }
 
@@ -1898,10 +1912,8 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
             for (ctx.imports) |imp| {
                 if (imp.module_id == in.module_id) break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ imp.local_name, name });
             }
-            for (ctx.transitive) |imp| {
-                if (imp.module_id == in.module_id) break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ imp.local_name, name });
-            }
-            break :blk name;
+            // A module reached only through an import, by its file name.
+            break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, name });
         },
         .parameterized_nominal => |pn| blk: {
             var buf: std.ArrayListUnmanaged(u8) = .empty;
