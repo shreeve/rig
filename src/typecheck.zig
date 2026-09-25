@@ -652,9 +652,17 @@ const Checker = struct {
         }
         const root = path.root orelse return true;
         const id = self.ctx.symbolOf(root) orelse return true;
-        const sym = self.ctx.symbols.items[id];
-        const name = sym.name;
+        var sym = self.ctx.symbols.items[id];
+        var name = sym.name;
         const pos = root.src.pos;
+        // `module.name`: a binding of an imported module.
+        if (sym.kind == .module) {
+            const leaf = self.text(ir.Member.name(path.module_member orelse return true));
+            const origin = self.ctx.module_refs.get(id) orelse return true;
+            const foreign = self.ctx.foreign_semas.get(origin) orelse return true;
+            sym = foreign.symbols.items[foreign.lookupInScopeOnly(sema.module_scope, leaf) orelse return true];
+            name = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ self.text(root), leaf });
+        }
         switch (sym.kind) {
             .param => if (self.ctx.types.get(sym.ty) != .borrow_write) {
                 try self.err(pos, "cannot {s} parameter `{s}`; parameters are immutable (take `{s}: !T` to write through to the caller)", .{ verb, name, name });
@@ -701,6 +709,8 @@ const Checker = struct {
         shared: bool = false,
         /// Where the path goes through a `?T`.
         read_borrow: ?u32 = null,
+        /// `module.name` when the root is an imported module.
+        module_member: ?Sexp = null,
     };
 
     /// Whether a value is reached through a `?T` or `*T`: it is one, or
@@ -720,6 +730,7 @@ const Checker = struct {
         while (p.kind()) |h| {
             if (h != .member and h != .index) return path;
             const obj = ir.get(p, .object);
+            if (h == .member) path.module_member = p;
             if (self.ctx.typeOf(obj)) |ty| {
                 switch (self.ctx.types.get(ty)) {
                     .borrow_read => {
