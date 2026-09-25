@@ -230,7 +230,7 @@ check_doc() {
 check_cli() {
     local script=$1 outdir=$2 log=$3
     mkdir -p "$outdir/work"
-    (cd "$outdir/work" && RIG_OUT_DIR="$outdir/pkg" "$TIMEOUT_CMD" "$TIMEOUT" bash "$ROOT/$script") >"$log" 2>&1 </dev/null
+    (cd "$outdir/work" && RIG_OUT_DIR="$outdir" "$TIMEOUT_CMD" "$TIMEOUT" bash "$ROOT/$script") >"$log" 2>&1 </dev/null
     local rc=$?
     if [[ $rc -eq 124 ]]; then REASON="timed out"; return 1; fi
     if [[ $rc -ne 0 ]]; then REASON=$(grep -m1 '^FAIL' "$log" || echo "exit $rc: $(tail -1 "$log")"); return 1; fi
@@ -265,7 +265,9 @@ worker() {
     local entry=$path
     [[ -d "$path" ]] && entry="$path/main.rig"
     REASON=""
-    rm -rf "$outdir"
+    # Start from an empty output directory, except for the Zig build cache
+    # rig keeps there, so repeated runs stay fast.
+    [[ -d "$outdir" ]] && find "$outdir" -mindepth 1 -maxdepth 1 ! -name .zig-cache -exec rm -rf {} +
 
     local kind=${id%%/*} ok
     case $kind in

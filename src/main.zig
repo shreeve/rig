@@ -45,9 +45,9 @@ const usage =
     \\  normalize  Print the semantic IR
     \\
     \\Environment:
-    \\  RIG_OUT_DIR      Directory for the emitted package (default: a
-    \\                   per-project directory under $XDG_CACHE_HOME/rig,
-    \\                   or ~/.cache/rig)
+    \\  RIG_OUT_DIR      Directory for the emitted package and its Zig
+    \\                   build cache (default: a per-project directory
+    \\                   under $XDG_CACHE_HOME/rig, or ~/.cache/rig)
     \\  RIG_LEAK_TRACE   Set to 1 when building to report each leaked
     \\                   allocation with its stack trace (slower)
     \\  ZIG              The Zig 0.16 executable (default: zig on PATH)
@@ -310,7 +310,7 @@ fn runCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options)
     const pkg = try emitPackage(allocator, io, env, &graph);
     // Zig's own errors name the emitted files; any other failure is the
     // program's.
-    const code = try runZig(io, &.{ env.zig(), "run", opts.mode.zigFlag(), pkg.root_zig });
+    const code = try runZig(io, &.{ env.zig(), "run", opts.mode.zigFlag(), "--cache-dir", pkg.zig_cache, pkg.root_zig });
     if (code != 0) std.process.exit(code);
 }
 
@@ -321,7 +321,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     const pkg = try emitPackage(allocator, io, env, &graph);
     const out = opts.out_path orelse try std.fmt.allocPrint(allocator, "{s}", .{graph.root().name});
     const emit_bin = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{out});
-    const code = try runZig(io, &.{ env.zig(), "build-exe", opts.mode.zigFlag(), pkg.root_zig, emit_bin });
+    const code = try runZig(io, &.{ env.zig(), "build-exe", opts.mode.zigFlag(), "--cache-dir", pkg.zig_cache, pkg.root_zig, emit_bin });
     if (code != 0) {
         std.debug.print("note: emitted Zig is in {s}\n", .{pkg.dir});
         std.process.exit(code);
@@ -361,7 +361,7 @@ fn testCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options
     const driver_path = try std.fs.path.join(allocator, &.{ pkg.dir, test_driver });
     try writeFile(io, driver_path, driver.written());
 
-    const code = try runZig(io, &.{ env.zig(), "run", opts.mode.zigFlag(), driver_path });
+    const code = try runZig(io, &.{ env.zig(), "run", opts.mode.zigFlag(), "--cache-dir", pkg.zig_cache, driver_path });
     if (code != 0) std.process.exit(code);
 }
 
@@ -406,6 +406,13 @@ const Package = struct {
     /// The root module's `.zig` file, and its contents.
     root_zig: []const u8,
     root_source: []const u8,
+    /// Zig's cache for building the package, inside the output
+    /// directory. Zig keys a cached build by its root file's path
+    /// relative to the cwd, then checks the files that build read by
+    /// their absolute paths; in a cache shared with a package at the
+    /// same relative path elsewhere, an identical root file would get
+    /// that package's executable. A cache per package cannot collide.
+    zig_cache: []const u8,
 };
 
 /// Write the runtime and every module to the output directory. With
@@ -430,6 +437,7 @@ fn emitPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *modul
         .dir = dir,
         .root_zig = try std.fs.path.join(allocator, &.{ dir, graph.root().out_basename }),
         .root_source = root_source,
+        .zig_cache = try std.fs.path.join(allocator, &.{ dir, ".zig-cache" }),
     };
 }
 
