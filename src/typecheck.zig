@@ -1396,7 +1396,13 @@ const Checker = struct {
         }
         if (std.mem.eql(u8, s, "true") or std.mem.eql(u8, s, "false")) return self.t().bool_id;
         if (std.mem.eql(u8, s, "none")) return self.t().none_id;
-        if (sema.isFloatLiteralText(s)) return self.t().float_literal_id;
+        if (sema.isFloatLiteralText(s)) {
+            if (!std.math.isFinite(floatLiteralValue(s))) {
+                try self.errAt(leaf, "float literal `{s}` is too large", .{s});
+                return self.t().invalid_id;
+            }
+            return self.t().float_literal_id;
+        }
         if (sema.isIntLiteralText(s)) {
             if (std.fmt.parseInt(u64, s, 0)) |_| {} else |_| {
                 try self.errAt(leaf, "integer literal `{s}` is too large", .{s});
@@ -3576,10 +3582,44 @@ const Checker = struct {
         const target = self.liftTarget(expected);
         if (!sema.isNumeric(self.ctx, target)) return;
         try self.ctx.recordType(e, target);
-        if (actual == self.t().int_literal_id) try self.checkLiteralFits(e, target);
+        if (actual == self.t().int_literal_id) try self.checkLiteralFits(e, target) else try self.checkFloatLiteralsFit(e, target);
     }
 
-    /// A constant integer expression must fit the numeric type it gets:
+    /// The float literals of a constant expression given type `target`
+    /// must be in its range.
+    fn checkFloatLiteralsFit(self: *Checker, e: Sexp, target: TypeId) Error!void {
+        const bits = switch (self.ctx.types.get(target)) {
+            .float => |f| f.bits,
+            else => return,
+        };
+        if (bits != 32) return;
+        switch (e) {
+            .src => {
+                const s = self.text(e);
+                if (!sema.isFloatLiteralText(s)) return;
+                if (@abs(floatLiteralValue(s)) > std.math.floatMax(f32)) {
+                    try self.errAt(e, "float literal `{s}` does not fit in `{s}`", .{ s, try self.tyName(target) });
+                }
+            },
+            .list => for (e.items()) |c| {
+                if (c == .list or c == .src) try self.checkFloatLiteralsFit(c, target);
+            },
+            else => {},
+        }
+    }
+
+    /// The value of a float literal (`inf` when it is out of `F64`'s range).
+fn floatLiteralValue(lit: []const u8) f64 {
+    var buf: [128]u8 = undefined;
+    var n: usize = 0;
+    for (lit) |c| if (c != '_' and n < buf.len) {
+        buf[n] = c;
+        n += 1;
+    };
+    return std.fmt.parseFloat(f64, buf[0..n]) catch 0;
+}
+
+/// A constant integer expression must fit the numeric type it gets:
     /// in range for an integer type, exactly for a float type.
     fn checkLiteralFits(self: *Checker, e: Sexp, target: TypeId) Error!void {
         const tt = self.ctx.types.get(target);

@@ -232,7 +232,8 @@ sub main()
 
 `Int` is `I64` and `Float` is `F64`: one type under two names. Every
 other numeric type is distinct, and there are no implicit conversions.
-A literal takes the numeric type its context expects, and must fit it.
+A literal takes the numeric type its context expects, and must fit it
+(a float literal, its range).
 Constant arithmetic is checked at compile time.
 
 ```rig
