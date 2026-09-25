@@ -1,0 +1,28 @@
+# Arguments evaluated into temporaries before a later failing argument
+# keep their types: `Vec()`, `none`, and `.north` have none on their own.
+
+error E
+  bad
+
+enum Dir
+  north
+  south
+
+fun g(ok: Bool) -> Int!
+  return E.bad if not ok
+  7
+
+fun take(v: Vec(Int), o: Int?, d: Dir, n: Int) -> Int
+  k = 10 if d == .north else 20
+  v.length() + (o ?? 1) + n + k
+
+fun run(ok: Bool) -> Int!
+  take(Vec(), none, .north, g(ok)!)
+
+sub main()
+  print(run(true) catch 0)
+  print(run(false) catch 9)
+
+# expect:
+# 18
+# 9

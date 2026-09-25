@@ -2755,10 +2755,12 @@ pub const Emitter = struct {
     /// of the call's block unless the call takes it, clearing `h.flag`.
     fn hoist(self: *Emitter, h: Hoisted, params: CallParams, slot: usize, fields: bool) Error!void {
         const ty = self.typeOf(h.node);
-        const kind: ?ResourceKind = if (slot < params.tys.len and self.isPtrBorrowTy(params.tys[slot])) null else if (ty) |t| self.kindOf(t) else null;
+        const ptr = slot < params.tys.len and self.isPtrBorrowTy(params.tys[slot]);
+        const kind: ?ResourceKind = if (ptr) null else if (ty) |t| self.kindOf(t) else null;
         try self.writeIndent(self.indent);
         try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", h.name });
-        if (ty) |t| if (self.isPlainTy(t)) {
+        // The value alone may have no Zig type (`.empty`, `null`, a literal).
+        if (ty) |t| if (!ptr) {
             try self.w.writeAll(": ");
             try self.emitTypeTy(t);
         };
