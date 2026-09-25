@@ -1,0 +1,19 @@
+# Cloning through a borrow clones the value borrowed, so `+b` of a
+# `?Bag` is rejected like `+b` of a `Bag`: a struct that owns a Vec has
+# no clone.
+
+struct Bag
+  v: Vec(Int)
+
+  fun n(self: Self) -> Int
+    self.v.length()
+
+fun f(b: ?Bag) -> Int
+  (+b).n()
+
+sub main()
+  v: Vec(Int) = Vec()
+  b = Bag(v: <v)
+  print(f(?b))
+
+# error: 12:5: `+x` cannot clone a `Bag`

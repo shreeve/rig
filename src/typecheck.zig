@@ -1819,11 +1819,11 @@ const Checker = struct {
             },
             else => {},
         }
-        if ((try self.ownsResource(inner, self.startOf(operand), "clones a value"))) {
-            try self.errAt(operand, "`+x` cannot clone a `{s}`; only `*T` and `~T` handles (or optionals of them) and plain values can be cloned", .{try self.tyName(inner)});
+        if ((try self.ownsResource(value, self.startOf(operand), "clones a value"))) {
+            try self.errAt(operand, "`+x` cannot clone a `{s}`; only `*T` and `~T` handles (or optionals of them) and plain values can be cloned", .{try self.tyName(value)});
             return self.t().invalid_id;
         }
-        return sema.unwrapBorrows(self.ctx, inner);
+        return value;
     }
 
     /// Synthesize the operand of a borrow, clone, member access, index,
