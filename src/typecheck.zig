@@ -791,7 +791,7 @@ const Checker = struct {
         if ((try self.ownsResource(inner, self.startOf(expr), "moves out of a borrow a value")) and (expr.isKind(.read) or expr.isKind(.write))) {
             try self.errAt(expr, "a borrow cannot give up the resource inside it; bind a new handle with `+x` instead", .{});
         }
-        self.scope = self.ctx.scopeOf(node) orelse self.scope;
+        _ = self.enter(node);
         if (self.ctx.symbolOf(name)) |sym| {
             self.ctx.symbols.items[sym].ty = inner;
             try self.ctx.recordType(name, inner);
@@ -853,7 +853,9 @@ const Checker = struct {
 
         var elem_ty = self.t().invalid_id;
         if (source.isKind(.@"..")) {
-            elem_ty = try self.checkRange(source);
+            // Both bounds are integers of one type, the element's.
+            elem_ty = try self.checkIntDefaultOperands(source, "..", .integer);
+            try self.ctx.recordType(source, try self.ctx.intern(.{ .range = elem_ty }));
         } else {
             const peeled_source = if (source.isKind(.read)) ir.Read.operand(source) else source;
             // `for x in ?xs[a..b]` walks a slice of `xs`.
@@ -948,13 +950,6 @@ const Checker = struct {
                 try self.errAt(value, "`break` with a value needs a loop whose value is used (`x = for ...`)", .{});
             } else try self.errAt(value, "a labeled block has no value; `break :{s}` cannot carry one", .{f.label});
         }
-    }
-
-    /// `a..b` as a loop source: both bounds integers of one type.
-    fn checkRange(self: *Checker, range: Sexp) Error!TypeId {
-        const elem = try self.checkIntDefaultOperands(range, "..", .integer);
-        try self.ctx.recordType(range, try self.ctx.intern(.{ .range = elem }));
-        return elem;
     }
 
     /// The element of `for x in !xs`: a write borrow of each slot. The
