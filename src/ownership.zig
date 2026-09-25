@@ -520,6 +520,32 @@ pub const Checker = struct {
         }
     }
 
+    /// What is done to a var, for a borrow conflict.
+    const Access = union(enum) {
+        read,
+        write,
+        /// Moving it (the verb: "move", "move-capture").
+        consume: []const u8,
+    };
+
+    /// Report a live loan on var `id` that `access` at `pos` conflicts
+    /// with: a read borrow conflicts with a write loan, anything else
+    /// with every loan. Returns whether there was one.
+    fn conflicts(self: *Checker, id: VarId, access: Access, pos: u32) Error!bool {
+        const l = self.findLoan(id, if (access == .read) .write else .any, null) orelse return false;
+        const name = self.vars.items[id].name;
+        switch (access) {
+            .read => try self.err(pos, "cannot read-borrow `{s}` while a write borrow is live", .{name}),
+            .write => switch (l.kind) {
+                .read => try self.err(pos, "cannot write-borrow `{s}` while a read borrow is live", .{name}),
+                .write => try self.err(pos, "cannot take a second write borrow on `{s}`", .{name}),
+            },
+            .consume => |verb| try self.err(pos, "cannot {s} `{s}` while it is {s}-borrowed", .{ verb, name, @tagName(l.kind) }),
+        }
+        try self.noteLoan(l);
+        return true;
+    }
+
     // -------------------------------------------------------------------------
     // Vars and scopes
     // -------------------------------------------------------------------------
@@ -1448,21 +1474,7 @@ pub const Checker = struct {
             return .{};
         }
         if (!try self.checkLive(id, pos)) return .{};
-        switch (kind) {
-            .read => if (self.findLoan(id, .write, null)) |l| {
-                try self.err(pos, "cannot read-borrow `{s}` while a write borrow is live", .{v.name});
-                try self.noteLoan(l);
-                return .{};
-            },
-            .write => if (self.findLoan(id, .any, null)) |l| {
-                switch (l.kind) {
-                    .read => try self.err(pos, "cannot write-borrow `{s}` while a read borrow is live", .{v.name}),
-                    .write => try self.err(pos, "cannot take a second write borrow on `{s}`", .{v.name}),
-                }
-                try self.noteLoan(l);
-                return .{};
-            },
-        }
+        if (try self.conflicts(id, if (kind == .write) .write else .read, pos)) return .{};
         const loan: Loan = .{ .root = id, .kind = kind, .pos = pos };
         try self.addTemp(loan);
         return self.reborrow(id, loan);
@@ -1527,14 +1539,7 @@ pub const Checker = struct {
         // A Copy payload is copied out of its scrutinee, which stays whole.
         if (v.alias_of != null and !self.isCopy(v.ty)) return self.movePayload(id, pos, vt);
 
-        if (self.findLoan(id, .any, null)) |l| {
-            switch (l.kind) {
-                .read => try self.err(pos, "cannot {s} `{s}` while it is read-borrowed", .{ vt, v.name }),
-                .write => try self.err(pos, "cannot {s} `{s}` while it is write-borrowed", .{ vt, v.name }),
-            }
-            try self.noteLoan(l);
-            return .{};
-        }
+        if (try self.conflicts(id, .{ .consume = vt }, pos)) return .{};
         // `<x` ends `x`, whatever its type: a Copy value or a borrow is
         // copied out, and the name is done.
         try self.markInvalid(id, .moved, pos);
@@ -2080,24 +2085,10 @@ pub const Checker = struct {
         }
 
         if (recv_root) |id| if (recv_mode == .write) {
-            const name = self.vars.items[id].name;
-            const conflict: ?Loan = blk: {
-                for (self.temps.items, 0..) |l, i| {
-                    if (i != reservation and loanMatches(l, id, .any)) break :blk l;
-                }
-                if (self.isBorrowed(id)) for (self.flows.items, 0..) |f, holder| for (f.loans) |l| {
-                    if (loanMatches(l, id, .any) and self.holderLive(@intCast(holder), null)) break :blk l;
-                };
-                break :blk null;
-            };
-            if (conflict) |l| {
-                const pos = self.startOf(ir.Member.object(callee));
-                switch (l.kind) {
-                    .read => try self.err(pos, "cannot write-borrow `{s}` while a read borrow is live", .{name}),
-                    .write => try self.err(pos, "cannot take a second write borrow on `{s}`", .{name}),
-                }
-                try self.noteLoan(l);
-            }
+            // The reservation itself is no conflict.
+            const reserved = self.temps.orderedRemove(reservation);
+            _ = try self.conflicts(id, .write, self.startOf(ir.Member.object(callee)));
+            try self.temps.insert(self.gpa, reservation, reserved);
         };
 
         // The borrows passed to the call end when it returns, unless its
@@ -2593,19 +2584,9 @@ pub const Checker = struct {
                 spec.source_loan = kind;
                 spec.source_pos = self.startOf(source);
                 spec.resource_vec = mode == .read and self.isResourceVec(self.exprType(source));
-                if (self.flowLive(id)) {
-                    if (kind == .write) {
-                        if (self.findLoan(id, .any, null)) |l| {
-                            try self.err(spec.source_pos, "cannot write-borrow `{s}` while a read borrow is live", .{self.vars.items[id].name});
-                            try self.noteLoan(l);
-                            spec.source_root = null;
-                        }
-                    } else if (self.findLoan(id, .write, null)) |l| {
-                        try self.err(spec.source_pos, "cannot read-borrow `{s}` while a write borrow is live", .{self.vars.items[id].name});
-                        try self.noteLoan(l);
-                        spec.source_root = null;
-                    }
-                } else spec.source_root = null;
+                if (!self.flowLive(id) or try self.conflicts(id, if (kind == .write) .write else .read, spec.source_pos)) {
+                    spec.source_root = null;
+                }
             }
         }
         try self.walkLoop(spec);
