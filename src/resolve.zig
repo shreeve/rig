@@ -264,7 +264,8 @@ const SymbolResolver = struct {
             }
             const h = p.kind();
             const borrowed = h == .read or h == .write or
-                ((h == .@":" or h == .pre_param or h == .default) and sema.isBorrowedTypeNode(ir.get(p, .type)));
+                ((h == .@":" or h == .pre_param or h == .default) and
+                    (ir.get(p, .type).isKind(.borrow_read) or ir.get(p, .type).isKind(.borrow_write)));
             const is_pre = h == .pre_param;
             _ = try self.declare(name_node, .param, .{
                 .borrowed_param = borrowed,
@@ -1018,24 +1019,19 @@ pub const TypeResolver = struct {
         if (try self.checkDuplicateMember(fields.items, mname, mpos, owner)) return;
         const fn_ty = try self.resolveFunction(node, nominal_sym);
         const params = ir.get(node, .params);
-        var receiver: MethodReceiver = .none;
-        if (params.items().len > 0) {
-            for (params.items(), 0..) |p, i| {
-                if (i == 0) continue;
-                const is_self = std.mem.eql(u8, sema.paramName(self.ctx.source, p) orelse "", "self");
-                const h = p.kind();
-                if (is_self) {
-                    try self.ctx.err(sema.paramPos(p, mpos), "`self` must be the first parameter of a method", .{});
-                }
-                if (h == .read or h == .write) {
-                    try self.ctx.err(sema.paramPos(p, mpos), "sigil-prefixed parameter sugar (`?self` / `!self`) is only allowed at the first parameter position", .{});
-                }
+        for (params.items(), 0..) |p, i| {
+            if (i == 0) continue;
+            if (self.isSelfParam(p)) {
+                try self.ctx.err(sema.paramPos(p, mpos), "`self` must be the first parameter of a method", .{});
             }
-            const first = params.items()[0];
-            if (std.mem.eql(u8, sema.paramName(self.ctx.source, first) orelse "", "self")) {
-                receiver = try self.classifyReceiver(first, fn_ty, nominal_sym, mpos);
+            if (p.isKind(.read) or p.isKind(.write)) {
+                try self.ctx.err(sema.paramPos(p, mpos), "sigil-prefixed parameter sugar (`?self` / `!self`) is only allowed at the first parameter position", .{});
             }
         }
+        const receiver: MethodReceiver = if (params.items().len > 0 and self.isSelfParam(params.items()[0]))
+            try self.classifyReceiver(fn_ty, nominal_sym, mpos)
+        else
+            .none;
         try fields.append(self.ctx.allocator, .{
             .name = mname,
             .ty = fn_ty,
@@ -1047,7 +1043,7 @@ pub const TypeResolver = struct {
         });
     }
 
-    fn classifyReceiver(self: *TypeResolver, first: Sexp, fn_ty_id: TypeId, nominal_sym: SymbolId, mpos: u32) Error!MethodReceiver {
+    fn classifyReceiver(self: *TypeResolver, fn_ty_id: TypeId, nominal_sym: SymbolId, mpos: u32) Error!MethodReceiver {
         const fn_ty = self.ctx.types.get(fn_ty_id);
         if (fn_ty != .function or fn_ty.function.params.len == 0) return .none;
         const pty_id = fn_ty.function.params[0];
@@ -1066,7 +1062,7 @@ pub const TypeResolver = struct {
                 if (pty_id == self_ty) return .value;
                 try self.ctx.err(mpos, "`self` receiver type must be `Self` or `{s}`", .{nom});
             },
-            .unknown, .invalid => _ = first,
+            .unknown, .invalid => {},
             else => try self.ctx.err(mpos, "`self` receiver type must be `?Self`, `!Self`, `Self`, or an explicit `{s}` form", .{nom}),
         }
         return .none;
@@ -1095,7 +1091,7 @@ pub const TypeResolver = struct {
             return;
         }
         const first = params.items()[0];
-        if (!std.mem.eql(u8, sema.paramName(self.ctx.source, first) orelse "", "self")) {
+        if (!self.isSelfParam(first)) {
             try self.ctx.err(sema.paramPos(first, pos), "`drop` declaration's parameter must be named `self`", .{});
             return;
         }
@@ -1151,6 +1147,10 @@ pub const TypeResolver = struct {
         return std.mem.eql(u8, identAt(self.ctx.source, node) orelse "", "self");
     }
 
+    fn isSelfParam(self: *TypeResolver, param: Sexp) bool {
+        return std.mem.eql(u8, sema.paramName(self.ctx.source, param) orelse "", "self");
+    }
+
     // ---- type expressions ---------------------------------------------------
 
     pub fn resolveType(self: *TypeResolver, sexp: Sexp) Error!TypeId {
@@ -1203,30 +1203,22 @@ pub const TypeResolver = struct {
             .list => {
                 const head = sexp.kind() orelse return t.invalid_id;
                 switch (head) {
-                    .optional => {
-                        const inner = try self.resolveType(ir.Optional.type(sexp));
-                        if (inner == t.invalid_id) return t.invalid_id;
-                        return self.ctx.intern(.{ .optional = inner });
-                    },
                     .error_union => {
                         const inner = try self.resolveType(ir.ErrorUnion.type(sexp));
                         const ty = try self.ctx.intern(.{ .fallible = inner });
                         try self.ctx.errAt(sexp, "a fallible type `{s}` is only allowed as a function's return type (a fallible handle is `(*T)!`)", .{try sema.formatType(self.ctx, ty)});
                         return t.invalid_id;
                     },
-                    .borrow_read, .borrow_write, .slice => {
-                        const inner = try self.resolveType(ir.get(sexp, .type));
+                    .optional, .borrow_read, .borrow_write, .weak, .slice => {
+                        const inner = try self.resolveType(if (head == .weak) ir.Weak.operand(sexp) else ir.get(sexp, .type));
                         if (inner == t.invalid_id) return t.invalid_id;
-                        return switch (head) {
-                            .borrow_read => self.ctx.intern(.{ .borrow_read = inner }),
-                            .borrow_write => self.ctx.intern(.{ .borrow_write = inner }),
-                            else => self.ctx.intern(.{ .slice = .{ .elem = inner } }),
-                        };
-                    },
-                    .weak => {
-                        const inner = try self.resolveType(ir.Weak.operand(sexp));
-                        if (inner == t.invalid_id) return t.invalid_id;
-                        return self.ctx.intern(.{ .weak = inner });
+                        return self.ctx.intern(switch (head) {
+                            .optional => .{ .optional = inner },
+                            .borrow_read => .{ .borrow_read = inner },
+                            .borrow_write => .{ .borrow_write = inner },
+                            .weak => .{ .weak = inner },
+                            else => .{ .slice = .{ .elem = inner } },
+                        });
                     },
                     .shared => {
                         const inner_node = ir.Shared.type(sexp);
@@ -1241,7 +1233,7 @@ pub const TypeResolver = struct {
                     },
                     .array_type => {
                         const size = ir.ArrayType.size(sexp);
-                        const len = sema.parseIntegerLiteral(self.ctx.source, size) orelse {
+                        const len = std.fmt.parseInt(u64, identAt(self.ctx.source, size) orelse "", 0) catch {
                             try self.ctx.errAt(size, "array length must be an integer literal", .{});
                             return t.invalid_id;
                         };
@@ -1504,37 +1496,34 @@ fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
     return null;
 }
 
-/// `I8`..`I64`, `U8`..`U64`, `F32`, `F64`. `I64` is `Int` and `F64` is
-/// `Float`: the same types under their sized names.
-fn sizedTypeId(ctx: *SemContext, name: []const u8) ?Error!TypeId {
+/// The bit width a sized type name spells: `I8`..`I64`, `U8`..`U64`,
+/// `F32`, `F64`.
+fn sizedTypeBits(name: []const u8) ?u8 {
     if (name.len < 2 or name.len > 3) return null;
     const bits = std.fmt.parseInt(u8, name[1..], 10) catch return null;
-    switch (name[0]) {
-        'I', 'U' => {
-            if (bits != 8 and bits != 16 and bits != 32 and bits != 64) return null;
-            if (bits == 64 and name[0] == 'I') return ctx.types.int_id;
-            return ctx.intern(.{ .int = .{ .bits = bits, .signed = name[0] == 'I' } });
-        },
-        'F' => {
-            if (bits != 32 and bits != 64) return null;
-            if (bits == 64) return ctx.types.float_id;
-            return ctx.intern(.{ .float = .{ .bits = bits } });
-        },
-        else => return null,
-    }
+    const ok = switch (name[0]) {
+        'I', 'U' => bits == 8 or bits == 16 or bits == 32 or bits == 64,
+        'F' => bits == 32 or bits == 64,
+        else => false,
+    };
+    return if (ok) bits else null;
+}
+
+/// A sized type. `I64` is `Int` and `F64` is `Float`: the same types
+/// under their sized names.
+fn sizedTypeId(ctx: *SemContext, name: []const u8) ?Error!TypeId {
+    const bits = sizedTypeBits(name) orelse return null;
+    return switch (name[0]) {
+        'I' => if (bits == 64) ctx.types.int_id else ctx.intern(.{ .int = .{ .bits = bits } }),
+        'U' => ctx.intern(.{ .int = .{ .bits = bits, .signed = false } }),
+        else => if (bits == 64) ctx.types.float_id else ctx.intern(.{ .float = .{ .bits = bits } }),
+    };
 }
 
 /// Whether `name` spells a numeric type: `Int`, `Float`, or a sized one.
 /// Called like a function, such a name converts a number to that type.
 pub fn isNumericTypeName(name: []const u8) bool {
-    if (std.mem.eql(u8, name, "Int") or std.mem.eql(u8, name, "Float")) return true;
-    if (name.len < 2 or name.len > 3) return false;
-    const bits = std.fmt.parseInt(u8, name[1..], 10) catch return false;
-    return switch (name[0]) {
-        'I', 'U' => bits == 8 or bits == 16 or bits == 32 or bits == 64,
-        'F' => bits == 32 or bits == 64,
-        else => false,
-    };
+    return std.mem.eql(u8, name, "Int") or std.mem.eql(u8, name, "Float") or sizedTypeBits(name) != null;
 }
 
 // =============================================================================

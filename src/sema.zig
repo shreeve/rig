@@ -2134,10 +2134,6 @@ pub fn paramPos(param: Sexp, fallback: u32) u32 {
     return srcPos(n, fallback);
 }
 
-pub fn isBorrowedTypeNode(t: Sexp) bool {
-    return t.isKind(.borrow_read) or t.isKind(.borrow_write);
-}
-
 pub const CaptureMode = enum { cap_clone, cap_weak, cap_move };
 
 pub fn captureModeOf(cap: Sexp) ?CaptureMode {
@@ -2158,11 +2154,6 @@ pub fn captureNameNode(cap: Sexp) ?Sexp {
 pub fn captureList(captures: Sexp) []const Sexp {
     if (captures == .nil) return &.{};
     return ir.Captures.caps(captures);
-}
-
-pub fn parseIntegerLiteral(source: []const u8, sexp: Sexp) ?u64 {
-    const text = identAt(source, sexp) orelse return null;
-    return std.fmt.parseInt(u64, text, 0) catch null;
 }
 
 pub fn isIntLiteralText(text: []const u8) bool {
