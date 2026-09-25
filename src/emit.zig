@@ -2562,13 +2562,28 @@ pub const Emitter = struct {
             }
         }
         const callee = ir.Call.callee(call);
-        var owned = callee.isKind(.member) and ir.Member.object(callee).isKind(.move);
+        var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or self.consumedTemporary(call) != null;
         for (args) |a| {
             const v = argValue(a);
             if (owned and mayLeave(v)) return true;
             if (self.isOwnedValue(v)) owned = true;
         }
         return false;
+    }
+
+    /// The receiver of `value.method(...)` when it is an owned temporary
+    /// the method consumes (`mk().consume(...)`).
+    fn consumedTemporary(self: *Emitter, call: Sexp) ?Sexp {
+        const callee = ir.Call.callee(call);
+        if (!callee.isKind(.member)) return null;
+        const obj = ir.Member.object(callee);
+        if (isPlace(obj) or obj.isKind(.move) or self.isTypeCallee(obj) or !self.isOwnedValue(obj)) return null;
+        const f = self.fnType(self.typeOf(callee)) orelse return null;
+        if (f.params.len == 0) return null;
+        return switch (self.sema.types.get(f.params[0])) {
+            .borrow_read, .borrow_write => null,
+            else => obj,
+        };
     }
 
     /// A value whose evaluation has no side effect and reads nothing a
@@ -2602,9 +2617,10 @@ pub const Emitter = struct {
     }
 
     /// Every argument that is not pure goes into a temporary, in source
-    /// order, and the call itself runs last. An owned temporary is
-    /// dropped if a later argument leaves, and handed to the callee
-    /// (its flag cleared) only when the call runs:
+    /// order, after a temporary receiver the method consumes, and the call
+    /// itself runs last. An owned temporary is dropped if a later argument
+    /// leaves, and handed to the callee (its flag cleared) only when the
+    /// call runs:
     ///
     ///     __rig_call_N: {
     ///         var __rig_arg_N_0 = try mk(1);
@@ -2623,6 +2639,19 @@ pub const Emitter = struct {
         try self.w.print("__rig_call_{d}: {{\n", .{id});
         self.indent += 1;
         const first = self.hoisted.items.len;
+        if (self.consumedTemporary(call)) |recv| {
+            const h: Hoisted = .{ .node = recv, .name = try self.fmt("__rig_recv_{d}", .{id}), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) };
+            try self.writeIndent(self.indent);
+            try self.w.print("var {s} = ", .{h.name});
+            try self.emitBare(recv);
+            try self.w.writeAll(";\n");
+            try self.line("var {s} = true;", .{h.flag});
+            try self.writeIndent(self.indent);
+            try self.w.print("defer if ({s}) ", .{h.flag});
+            try self.writeDrop(h.name, self.kindOf(self.typeOf(recv).?).?);
+            try self.w.writeAll(";\n");
+            try self.hoisted.append(self.allocator, h);
+        }
         for (args, 0..) |a, ai| {
             const value = argValue(a);
             if (self.isPureArg(value)) continue;
