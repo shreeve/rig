@@ -961,6 +961,8 @@ pub fn writeValue(w: *std.Io.Writer, value: anytype, top: bool) std.Io.Writer.Er
         .int, .comptime_int => return w.print("{d}", .{value}),
         .float, .comptime_float => {
             const f: f64 = value;
+            // A NaN's sign bit differs by platform and means nothing.
+            if (std.math.isNan(f)) return w.writeAll("nan");
             try w.print("{d}", .{value});
             if (std.math.isFinite(f) and f == @trunc(f)) try w.writeAll(".0");
             return;
