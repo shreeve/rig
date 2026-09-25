@@ -1,0 +1,19 @@
+# Assigning a local is not reading it: a local that is only reassigned,
+# move-assigned, or updated in place is still never read.
+
+struct P
+  n: Int
+
+sub main()
+  x = 1
+  x = 2
+  count = 0
+  for i in 0..3
+    count += i
+  p = P(n: 1)
+  q = P(n: 2)
+  q <- p
+
+# error: 8:3: `x` is assigned but never read
+# error: 10:3: `count` is assigned but never read
+# error: 14:3: `q` is assigned but never read

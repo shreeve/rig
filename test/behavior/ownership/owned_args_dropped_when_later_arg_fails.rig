@@ -99,7 +99,7 @@ fun method() -> Int!
   0
 
 fun caught() -> Int
-  take(B(n: 11), fail(1) catch |e|
+  take(B(n: 11), fail(1) catch |_|
     return -5)
   0
 

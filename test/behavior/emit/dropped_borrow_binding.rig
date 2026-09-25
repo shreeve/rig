@@ -1,0 +1,16 @@
+# A borrow binding read only by its drop: dropping the read borrow `r`
+# ends it, so the write borrow `w` is allowed.
+
+struct User
+  name: String
+
+sub main()
+  user = User(name: "Steve")
+  r = ?user
+  -r
+  w = !user
+  w.name = "Ada"
+  print(user.name)
+
+# expect:
+# Ada

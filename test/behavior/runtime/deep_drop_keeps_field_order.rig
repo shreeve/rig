@@ -14,7 +14,7 @@ struct Node
 
 fun chain(depth: Int) -> *Node
   n = *Node(next: none, a: *N(id: 1), b: *N(id: 2))
-  for i in 0..depth
+  for _ in 0..depth
     n = *Node(next: <n, a: none, b: none)
   n
 

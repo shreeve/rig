@@ -15,6 +15,7 @@ sub main()
     break
   x = *(*(1))
   print(pick(1), x)
+  f()
 EOF
 "$RIG" check spans.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a rejected program"
 expect_eq "$(cat out.txt)" "spans.rig:3:5: error: \`return\` needs a value of type \`Int\`

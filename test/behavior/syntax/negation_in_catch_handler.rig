@@ -9,7 +9,7 @@ fun g() -> Int!
 
 sub main()
   y = 4
-  x = g() catch |e|
+  x = g() catch |_|
     -y
   print(x)
 

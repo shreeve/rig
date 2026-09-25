@@ -403,6 +403,9 @@ later pass reads. It runs these steps in order:
    `checkExpr(e, expected)` checks it against the type its context
    needs, which is how literals, `none`, `.variant`, generic
    constructors, closure parameters, and branches get their types.
+   Then `checkUnreadLocals` rejects a local no name fact reads: every
+   use of a symbol is in `facts.names`, and `facts.writes` holds the
+   positions that only assign it.
 7. **generics** (`expandInstantiations`, then
    `typecheck.checkGenericInstantiations`): the instances reached
    through generic bodies are added, and every instance is checked

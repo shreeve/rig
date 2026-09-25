@@ -490,6 +490,9 @@ const Checker = struct {
             try self.errAt(target, "cannot assign to captured `{s}`; captures are fixed when the closure is created", .{name});
         }
         const writes_through = sym.kind == .param or sym.flags.pattern_bound;
+        // Assigning a binding writes it without reading it; writing
+        // through a `!T` binding reaches the borrowed value.
+        if (!is_decl and self.ctx.types.get(sym.ty) != .borrow_write) try self.ctx.facts.writes.put(self.ctx.allocator, target.src.pos, {});
         if (!is_decl and sym.flags.pattern_bound and self.ctx.types.get(sym.ty) != .borrow_write) {
             try self.errAt(target, "cannot assign to `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ name, name, name });
         }
@@ -4566,6 +4569,7 @@ test "check: integer literal range" {
         \\  b: U8 = 256
         \\  c: I8 = -128
         \\  d: U8 = -1
+        \\  print(a, b, c, d)
         \\
     );
     defer r.p.deinit();

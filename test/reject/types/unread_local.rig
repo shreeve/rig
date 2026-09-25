@@ -1,0 +1,15 @@
+# A local that is never read is rejected, however it is bound: a typo
+# (`totl` for `total`), a typed or fixed binding, or a `new` binding.
+
+sub main()
+  total = 0
+  totl = 5
+  print(total)
+  n: Int = 1
+  k =! 2
+  new total = total + 1
+
+# error: 6:3: `totl` is assigned but never read
+# error: 8:3: `n` is assigned but never read
+# error: 9:3: `k` is assigned but never read
+# error: 10:7: `total` is assigned but never read

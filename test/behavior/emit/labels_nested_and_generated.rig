@@ -14,7 +14,7 @@ fun f(c: Bool) -> Int
 
 sub main()
   :l for i in 0..2
-    :l for j in 0..2
+    :l for _ in 0..2
       break :l
     print("outer", i)
   print(f(true))

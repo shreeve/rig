@@ -1,0 +1,11 @@
+# A borrow binding and a local of a closure body must be read too.
+
+sub main()
+  v: Vec(Int) = Vec()
+  r = ?v
+  f = ||
+    inner = 4
+  f()
+
+# error: 5:3: `r` is assigned but never read
+# error: 7:5: `inner` is assigned but never read

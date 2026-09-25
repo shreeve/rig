@@ -1058,8 +1058,6 @@ pub const Emitter = struct {
             // field, run-time arithmetic, a `*Self` method) needs the
             // discard.
             if (!s.flags.reassigned) try self.w.print(" _ = &{s};", .{stored.zig_name});
-        } else if (!self.usage.used.contains(sym)) {
-            try self.w.print(" _ = {s};", .{stored.zig_name});
         } else if (self.sema.const_ints.contains(sym)) {
             // A constant's uses may all be folded away.
             try self.w.print(" _ = &{s};", .{stored.zig_name});
@@ -1203,13 +1201,7 @@ pub const Emitter = struct {
 
     /// `-x`: drop now.
     fn emitDrop(self: *Emitter, sexp: Sexp) Error!void {
-        const local = self.localOf(ir.Drop.name(sexp)) orelse {
-            // An unused borrow or plain value: nothing to release.
-            const sym = self.sema.symbolOf(ir.Drop.name(sexp)) orelse return self.unsupported(sexp, "this drop");
-            const ty = self.symType(sym) orelse return self.unsupported(sexp, "this drop");
-            if (self.kindOf(ty) == null) return self.w.writeAll("{}");
-            return self.unsupported(sexp, "this drop");
-        };
+        const local = self.localOf(ir.Drop.name(sexp)) orelse return self.unsupported(sexp, "this drop");
         if (local.kind) |kind| {
             if (local.guard == .flag) {
                 try self.w.print("{s} = false; ", .{local.flag});
@@ -1224,8 +1216,9 @@ pub const Emitter = struct {
             try self.w.writeAll(";");
             return;
         }
-        // Ending a borrow or dropping plain data has no runtime effect.
-        try self.w.writeAll("{}");
+        // Ending a borrow or dropping plain data has no runtime effect;
+        // the discard is the binding's use in Zig.
+        try self.w.print("_ = &{s};", .{local.zig_name});
     }
 
     // -------------------------------------------------------------------------
@@ -3595,15 +3588,7 @@ const Scan = struct {
         switch (head) {
             .set => if (rig.bindingKindOf(ir.Set.op(sexp)) == .move) try s.consume(ir.Set.value(sexp)),
             .move => try s.consume(ir.Move.operand(sexp)),
-            .drop => {
-                // Dropping plain data or a borrow emits nothing: not a use.
-                const name = ir.Drop.name(sexp);
-                try s.consume(name);
-                const sym = s.e.sema.symbolOf(name) orelse return;
-                const ty = s.e.symType(sym) orelse return;
-                if (s.e.kindOf(ty) != null) try s.put(&s.e.usage.used, sym);
-                return;
-            },
+            .drop => try s.consume(ir.Drop.name(sexp)),
             .@"return" => try s.consumeTail(ir.Return.value(sexp)),
             .@"for" => if (ir.For.mode(sexp).tag == .move) try s.consume(ir.For.source(sexp)),
             // An `if` with `else`, a `match`, `??`, and `catch` may be

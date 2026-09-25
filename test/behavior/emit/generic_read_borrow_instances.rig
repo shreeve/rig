@@ -16,6 +16,7 @@ type Box(T)
     s = other.get()
     t = self.pass(s)
     u = self.pass(?other.v)
+    print(t, u)
     true
 
   fun show(?self)
@@ -71,6 +72,7 @@ sub main()
   print(e.get())
 
 # expect:
+# 1 1
 # true
 # 2
 # 1
@@ -78,6 +80,7 @@ sub main()
 # 6
 # 6
 # 6
+# [] []
 # true
 # 1
 # 1

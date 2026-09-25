@@ -875,11 +875,13 @@ always declares. To reuse a name on purpose, write `new`:
 sub main()
   x = 1
   new x = x + 10
+  print(x)
   new x = "now a string"
   print(x)
 ```
 
 ```output
+11
 now a string
 ```
 
@@ -897,6 +899,27 @@ local `total` has the same name as the module-level declaration `total`
 
 A binding cannot refer to itself in its own initializer. Parameters,
 loop bindings, and names bound by patterns and `as` are immutable.
+
+Every local must be read. Any use counts: an argument, an operand, a
+borrow `?x` or `!x`, a move `<x`, a clone, a field access, a closure
+capture, a drop `-x`. Assigning does not: a local that is only ever
+assigned, like a misspelled `totl = 5`, is rejected. A name bound by
+`for`, a match pattern, `as`, or `catch |e|` must be read too, or be
+`_`. Discard a value on purpose with `_ = e`. A value with drop glue
+([§9](#9-drop-and-drop-glue)) is read by its own release, so a local
+held only for its `drop` at the end of the scope is fine. Parameters
+are exempt.
+
+```rig reject
+sub main()
+  total = 0
+  totl = 5
+  print(total)
+```
+
+```error
+`totl` is assigned but never read
+```
 
 ---
 
@@ -1302,12 +1325,12 @@ sub main()
   print(size(5), size(42), size(200))
   match 7
     1 => print("one")
-    other => print("something else")
+    other => print("something else:", other)
 ```
 
 ```output
 small medium large
-something else
+something else: 7
 ```
 
 ### defer and errdefer

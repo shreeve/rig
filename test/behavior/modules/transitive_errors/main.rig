@@ -5,7 +5,7 @@
 use mid
 
 fun name(s: String) -> String
-  n = mid.twice(s) catch |err|
+  _ = mid.twice(s) catch |err|
     match err
       .empty => return "empty"
       .bad_digit => return "bad digit"

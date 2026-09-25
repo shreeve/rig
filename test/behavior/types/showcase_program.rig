@@ -60,7 +60,7 @@ sub main()
   u = loadUser(7)!
   p = loadProfile(u.id)!
   view = UserView(user: ?u, profile: ?p)
-  print u.id
+  print view.user.id
 
   bytes = Bytes(data: 0)
   ast = parse(.strict, ?bytes)

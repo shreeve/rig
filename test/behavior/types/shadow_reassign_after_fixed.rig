@@ -3,7 +3,7 @@
 
 sub main()
   x =! 1
-  new x = 2
+  new x = x + 1
   x = 3
   print(x)
 

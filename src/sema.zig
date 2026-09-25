@@ -16,7 +16,8 @@
 //!                                    and the public surface of the module
 //!   6. expressions  `typecheck.zig`  bodies are type-checked; every
 //!                                    expression's type is recorded;
-//!                                    fallibility and `raw` are checked
+//!                                    fallibility and `raw` are checked;
+//!                   `sema.zig`       then every local must be read
 //!   7. generics     `sema.zig`,      the instances generic bodies reach,
 //!                   `typecheck.zig`  and each instance's requirements
 //!
@@ -451,8 +452,12 @@ pub const Facts = struct {
     call_slots: std.AutoHashMapUnmanaged(NodeKey, []const ArgSlot) = .empty,
     /// Match nodes whose non-default arms cover every value.
     exhaustive: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Positions of names assigned to (`x = e`, `x <- e`, `x += e` after
+    /// `x` is declared): a use there writes the binding, not reads it.
+    writes: std.AutoHashMapUnmanaged(u32, void) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
+        self.writes.deinit(allocator);
         self.names.deinit(allocator);
         self.leaf_types.deinit(allocator);
         self.node_types.deinit(allocator);
@@ -908,9 +913,44 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try checkInfiniteTypes(&ctx);
     try resolve.checkDeclarations(&ctx);
     try typecheck.checkModule(&ctx, tree, module_scope);
+    try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);
     try typecheck.checkGenericInstantiations(&ctx);
     return ctx;
+}
+
+/// A local binding must be read: a name that is only ever assigned is
+/// most often a typo for another. Any use other than being assigned is a
+/// read, and so is a closure capturing it. A value with drop glue is
+/// read by its own release (a guard held to the end of its scope), and
+/// `_` names nothing. Parameters and module constants are exempt.
+fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
+    var read: std.DynamicBitSetUnmanaged = try .initEmpty(ctx.allocator, ctx.symbols.items.len);
+    defer read.deinit(ctx.allocator);
+    var names = ctx.facts.names.iterator();
+    while (names.next()) |e| {
+        const sym = ctx.symbols.items[e.value_ptr.*];
+        if (sym.decl_pos != e.key_ptr.* and !ctx.facts.writes.contains(e.key_ptr.*)) read.set(e.value_ptr.*);
+    }
+    for (ctx.symbols.items) |sym| {
+        var origin = sym.origin;
+        if (sym.kind != .capture) continue;
+        while (origin != symbol_invalid) : (origin = ctx.symbols.items[origin].origin) read.set(origin);
+    }
+    for (ctx.symbols.items, 0..) |sym, id| {
+        if (sym.kind != .local or sym.scope == module_scope or read.isSet(id)) continue;
+        if (std.mem.eql(u8, sym.name, "_") or sym.decl_pos == builtin_decl_pos) continue;
+        switch (ctx.types.get(sym.ty)) {
+            .invalid, .unknown => continue,
+            else => {},
+        }
+        if (typeHasDropGlue(ctx, sym.ty) or maybeDropGlue(ctx, sym.ty)) continue;
+        if (sym.flags.pattern_bound) {
+            try ctx.err(sym.decl_pos, "`{s}` is bound but never read; name it `_` to ignore the value", .{sym.name});
+        } else {
+            try ctx.err(sym.decl_pos, "`{s}` is assigned but never read; use it, or discard the value with `_ = ...`", .{sym.name});
+        }
+    }
 }
 
 /// Add the instances a program reaches through generic bodies: when
