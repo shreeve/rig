@@ -124,9 +124,10 @@ const Checker = struct {
         /// The type the values settle on, without `expected`.
         ty: ?TypeId = null,
         values: std.ArrayListUnmanaged(Typed) = .empty,
-
-        const Typed = struct { node: Sexp, ty: TypeId };
     };
+
+    /// A branch, arm, or `break` value and the type it synthesized.
+    const Typed = struct { node: Sexp, ty: TypeId };
 
     const ReturnSite = struct { node: Sexp, ty: ?TypeId };
 
@@ -290,18 +291,13 @@ const Checker = struct {
         if (is_main and self.ctx.is_root and (!is_sub or ir.get(node, .params).items().len > 0)) {
             try self.errAt(name, "`main` must be `sub main()`: the program's entry point takes no parameters and returns no value", .{});
         }
-        for (ir.get(node, .params).items()) |p| try self.checkDefault(p);
+        for (ir.get(node, .params).items()) |p| if (p.isKind(.default)) {
+            const ty = self.ctx.bindingTypeOf(ir.Default.name(p)) orelse self.t().unknown_id;
+            try self.checkDefaultValue(ir.Default.value(p), ty, "parameter");
+        };
         // `sub main` lowers to a fallible `main`.
         const fallible = (is_main and is_sub) or rig.returnType(node).isKind(.error_union);
         try self.checkBody(ir.get(node, .body), .{ .ret = ret, .is_sub = is_sub, .fail_to = if (fallible) .caller else .{ .infallible = name }, .name = name });
-    }
-
-    /// A parameter's default value is a literal of the parameter's type:
-    /// it is written at each call site that omits the argument.
-    fn checkDefault(self: *Checker, param: Sexp) Error!void {
-        if (!param.isKind(.default)) return;
-        const ty = self.ctx.bindingTypeOf(ir.Default.name(param)) orelse self.t().unknown_id;
-        try self.checkDefaultValue(ir.Default.value(param), ty, "parameter");
     }
 
     /// A parameter or field default: a literal of type `ty`, so it owns
@@ -390,12 +386,8 @@ const Checker = struct {
             .@"break" => try self.checkBreak(stmt),
             .@"continue" => {},
             .@"defer", .@"errdefer" => {
-                const prev = self.body.fail_to;
-                const prev_loops = self.body.loops;
-                defer {
-                    self.body.fail_to = prev;
-                    self.body.loops = prev_loops;
-                }
+                const saved = self.body;
+                defer self.body = saved;
                 self.body.fail_to = .deferred;
                 self.body.loops = null;
                 try self.checkStmt(ir.get(stmt, .body));
@@ -915,8 +907,7 @@ const Checker = struct {
         var lv: LoopValue = .{ .expected = expected };
         defer lv.values.deinit(self.ctx.allocator);
         const else_ = ir.get(loop, .@"else");
-        const forever = loop.isKind(.@"while") and std.mem.eql(u8, self.text(ir.While.cond(loop)), "true");
-        if (used and else_ == .nil and !forever) {
+        if (used and else_ == .nil and !isWhileTrue(self.ctx.source, loop)) {
             try self.errAt(loop, "a loop used as a value needs an `else` giving its value when no `break` does", .{});
         }
         if (node.isKind(.labeled)) self.loop_label = self.text(ir.Labeled.label(node));
@@ -1052,8 +1043,7 @@ const Checker = struct {
         }
 
         var cov: MatchCoverage = .{};
-        const ArmValue = struct { node: Sexp, ty: TypeId };
-        var arm_values: std.ArrayListUnmanaged(ArmValue) = .empty;
+        var arm_values: std.ArrayListUnmanaged(Typed) = .empty;
         defer arm_values.deinit(self.ctx.allocator);
         defer cov.deinit(self.ctx.allocator);
         var result: ?TypeId = expected;
@@ -1280,7 +1270,13 @@ const Checker = struct {
     // =========================================================================
 
     fn synthExpr(self: *Checker, e: Sexp) Error!TypeId {
-        const ty = try self.synthInner(e);
+        const ty = switch (e) {
+            .nil => self.t().void_id,
+            .src => try self.synthLeaf(e),
+            .str => self.t().string_id,
+            .tag => self.t().invalid_id,
+            .list => if (e.kind() == null) self.t().invalid_id else try self.synthList(e),
+        };
         try self.ctx.recordType(e, self.canonical(ty));
         return ty;
     }
@@ -1290,19 +1286,6 @@ const Checker = struct {
         if (ty == self.t().int_literal_id) return self.t().int_id;
         if (ty == self.t().float_literal_id) return self.t().float_id;
         return ty;
-    }
-
-    fn synthInner(self: *Checker, e: Sexp) Error!TypeId {
-        return switch (e) {
-            .nil => self.t().void_id,
-            .src => self.synthLeaf(e),
-            .str => self.t().string_id,
-            .tag => self.t().invalid_id,
-            .list => blk: {
-                if (e.kind() == null) break :blk self.t().invalid_id;
-                break :blk self.synthList(e);
-            },
-        };
     }
 
     /// A double-quoted string literal's escapes: `\n`, `\r`, `\t`, `\\`,
@@ -1499,11 +1482,7 @@ const Checker = struct {
                 try self.errAt(e, "a range `a..b` can only be used as a `for` loop source", .{});
                 break :blk self.t().invalid_id;
             },
-            .@"while", .@"for", .labeled => if (self.isValueLoop(e)) self.checkLoopValue(e, null, true) else blk: {
-                try self.checkStmt(e);
-                break :blk self.t().void_id;
-            },
-            .set, .drop, .@"defer", .@"errdefer" => blk: {
+            .@"while", .@"for", .labeled, .set, .drop, .@"defer", .@"errdefer" => if (self.isValueLoop(e)) self.checkLoopValue(e, null, true) else blk: {
                 try self.checkStmt(e);
                 break :blk self.t().void_id;
             },
@@ -1528,9 +1507,9 @@ const Checker = struct {
 
     // ---- operators ------------------------------------------------------------
 
-    /// Both operands numeric (or integer) and of one type. Literals adapt
-    /// to the other operand; generic parameters record a requirement.
-    /// A binary operator node: `(op left right)`.
+    /// The operands of binary operator `(op left right)`: both numeric
+    /// (or integer) and of one type. Literals adapt to the other operand;
+    /// generic parameters record a requirement.
     fn checkNumericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement) Error!TypeId {
         const ty = try self.numericOperands(e, op, req);
         if (self.isPoison(ty)) return ty;
@@ -2004,12 +1983,11 @@ const Checker = struct {
 
     /// `?xs[a..b]`: a slice, read-only. A slice cannot be written through.
     fn borrowSlice(self: *Checker, slice: Sexp, kind: BorrowKind) Error!TypeId {
+        const ty = try self.synthSlice(slice, true);
         if (kind == .write) {
-            _ = try self.synthSlice(slice, true);
             try self.errAt(slice, "a slice is read-only; write the elements through `!xs` or `xs[i] = value`", .{});
             return self.t().invalid_id;
         }
-        const ty = try self.synthSlice(slice, true);
         try self.ctx.recordType(slice, ty);
         return ty;
     }
@@ -2928,18 +2906,6 @@ const Checker = struct {
         const saved = self.callee_node;
         self.callee_node = callee;
         defer self.callee_node = saved;
-        return self.synthMemberCallInner(callee, args);
-    }
-
-    fn noteCallee(self: *Checker, f: FunctionType) Error!void {
-        try self.noteCalleeType(try self.ctx.intern(.{ .function = f }));
-    }
-
-    fn noteCalleeType(self: *Checker, ty: TypeId) Error!void {
-        if (self.callee_node) |n| try self.ctx.recordType(n, ty);
-    }
-
-    fn synthMemberCallInner(self: *Checker, callee: Sexp, args: []const Sexp) Error!TypeId {
         const obj = ir.Member.object(callee);
         const name_node = ir.Member.name(callee);
         const method = self.text(name_node);
@@ -3055,6 +3021,14 @@ const Checker = struct {
         params.source = resolved.source;
         try self.checkArgs(args, rest, params, method, pos);
         return resolved.fn_ty.returns;
+    }
+
+    fn noteCallee(self: *Checker, f: FunctionType) Error!void {
+        try self.noteCalleeType(try self.ctx.intern(.{ .function = f }));
+    }
+
+    fn noteCalleeType(self: *Checker, ty: TypeId) Error!void {
+        if (self.callee_node) |n| try self.ctx.recordType(n, ty);
     }
 
     /// `Type.function(args)` or `Type.variant(payload)`, for a type of
@@ -4084,10 +4058,11 @@ fn loopsForever(source: []const u8, s: Sexp) bool {
         label = identAt(source, ir.Labeled.label(s)) orelse "";
         loop = ir.Labeled.stmt(s);
     }
-    if (!loop.isKind(.@"while")) return false;
-    const cond = ir.While.cond(loop);
-    if (!std.mem.eql(u8, identAt(source, cond) orelse "", "true")) return false;
-    return !sema.breaksOut(source, ir.While.body(loop), label, false, false);
+    return isWhileTrue(source, loop) and !sema.breaksOut(source, ir.While.body(loop), label, false, false);
+}
+
+fn isWhileTrue(source: []const u8, loop: Sexp) bool {
+    return loop.isKind(.@"while") and std.mem.eql(u8, identAt(source, ir.While.cond(loop)) orelse "", "true");
 }
 
 /// The first name in `node` that denotes symbol `sym`.
@@ -4102,7 +4077,6 @@ fn sameNode(a: Sexp, b: Sexp) bool {
     return a == .list and b == .list and a.list.ptr == b.list.ptr;
 }
 
-/// A name or a chain of fields off one: `v`, `t.kids`, `a.b.c`.
 /// A name, or a field or element of one: storage with an owner.
 fn isStoragePath(e: Sexp) bool {
     if (e == .src) return true;
@@ -4111,6 +4085,7 @@ fn isStoragePath(e: Sexp) bool {
     return false;
 }
 
+/// A name or a chain of fields off one: `v`, `t.kids`, `a.b.c`.
 fn isFieldPath(e: Sexp) bool {
     if (e == .src) return true;
     if (!e.isKind(.member)) return false;
