@@ -4276,13 +4276,7 @@ fn floatLiteralValue(lit: []const u8) f64 {
 }
 
 fn floatLiteralAs(comptime F: type, lit: []const u8) F {
-    var buf: [128]u8 = undefined;
-    var n: usize = 0;
-    for (lit) |c| if (c != '_' and n < buf.len) {
-        buf[n] = c;
-        n += 1;
-    };
-    return std.fmt.parseFloat(F, buf[0..n]) catch 0;
+    return std.fmt.parseFloat(F, lit) catch 0;
 }
 
 /// The value of a constant expression of number literals computed in
