@@ -25,6 +25,6 @@ sub main()
 
 # error: cannot infer `T` for `Same` from the arguments
 # error: `Vec()` needs its element type: name it (`Vec[T]()`)
-# error: type mismatch: expected `Int`, got `String`
+# error: conflicting types for `T` in `Same`: `Int` (argument 1) and `String` (argument 2)
 # error: `Adder[String]` cannot use `T = String`
 # error: `Cell[T]` requires `T` to be a Copy primitive

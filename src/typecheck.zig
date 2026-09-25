@@ -3911,86 +3911,28 @@ const Checker = struct {
         params: struct { params: []const TypeId, names: ?[]const []const u8 },
     };
 
-    /// The type arguments of generic `sym_id` that make `args` fit: each
-    /// argument's type is matched against the field or parameter it
-    /// fills, binding the type parameters that appear there. A literal
-    /// binds its default type (`Int`, `Float`). Null, after a diagnostic,
-    /// when some parameter is left unbound.
+    /// The type arguments of generic type `sym_id` that make `args` fit:
+    /// each argument's type is matched against the field or parameter it
+    /// fills (`inferBindings`). Null, after a diagnostic, when some
+    /// parameter is left unbound or the arguments disagree on one.
     fn inferTypeArgs(self: *Checker, sym_id: SymbolId, args: []const Sexp, from: InferFrom, pos: u32) Error!?TypeSubst {
         const sym = self.ctx.symbols.items[sym_id];
         const params = sym.type_params orelse &.{};
-        const bound = try self.ctx.arena.allocator().alloc(TypeId, params.len);
-        @memset(bound, sema.type_invalid);
-        var positional: usize = 0;
-        for (args) |a| {
-            var value = a;
-            var pattern: ?TypeId = null;
-            if (a.isKind(.kwarg)) {
-                value = ir.Kwarg.value(a);
-                const kname = self.text(ir.Kwarg.name(a));
-                pattern = switch (from) {
-                    .fields => |fs| if (findDataField(fs, kname)) |f| f.ty else null,
-                    .params => |p| blk: {
-                        const names = p.names orelse break :blk null;
-                        for (names, 0..) |n, j| {
-                            if (std.mem.eql(u8, n, kname) and j < p.params.len) break :blk p.params[j];
-                        }
-                        break :blk null;
-                    },
-                };
-            } else {
-                // Fields are set only by name.
-                defer positional += 1;
-                pattern = switch (from) {
-                    .fields => null,
-                    .params => |p| if (positional < p.params.len) p.params[positional] else null,
-                };
+        const inf = try self.inferBindings(params, args, from);
+        for (params, inf.bound) |p, b| {
+            const pname = self.ctx.symbols.items[p].name;
+            if (b.ty == sema.type_invalid) {
+                try self.err(pos, "cannot infer `{s}` for `{s}` from the arguments; name it (`{s}[...]`), or give the type where the value goes (`x: {s}[...] = ...`)", .{ pname, sym.name, sym.name, sym.name });
+                return null;
             }
-            const pat = pattern orelse continue;
-            if (!sema.containsTypeVar(self.ctx, pat)) continue;
-            const actual = try self.synthQuiet(value);
-            self.bindTypeVars(pat, actual, params, bound, 0);
-        }
-        for (params, bound) |p, b| {
-            if (b != sema.type_invalid) continue;
-            try self.err(pos, "cannot infer `{s}` for `{s}` from the arguments; name it (`{s}[...]`), or give the type where the value goes (`x: {s}[...] = ...`)", .{ self.ctx.symbols.items[p].name, sym.name, sym.name, sym.name });
+            if (b.conflict == sema.type_invalid) continue;
+            const c = try self.conflictText(b);
+            try self.err(pos, "conflicting types for `{s}` in `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); name it (`{s}[...]`)", .{ pname, sym.name, c.first, c.first_arg, c.second, c.second_arg, sym.name });
             return null;
         }
+        const bound = try self.ctx.arena.allocator().alloc(TypeId, params.len);
+        for (inf.bound, bound) |b, *out| out.* = b.ty;
         return .{ .params = params, .args = bound };
-    }
-
-    /// Bind the type parameters in `pattern` so that it matches `actual`.
-    /// The first binding of a parameter wins; a later argument that does
-    /// not fit it is reported when the arguments are checked.
-    fn bindTypeVars(self: *Checker, pattern: TypeId, actual: TypeId, params: []const SymbolId, bound: []TypeId, depth: u8) void {
-        if (depth > 32 or self.isPoison(actual)) return;
-        const a = self.ctx.types.get(actual);
-        switch (self.ctx.types.get(pattern)) {
-            .type_var => |tv| {
-                const value = self.canonical(readValue(self.ctx, actual));
-                switch (self.ctx.types.get(value)) {
-                    .none_literal, .noreturn, .void => return,
-                    else => {},
-                }
-                for (params, 0..) |p, i| {
-                    if (p == tv and bound[i] == sema.type_invalid) bound[i] = value;
-                }
-            },
-            .optional => |pi| if (a == .optional) self.bindTypeVars(pi, a.optional, params, bound, depth + 1) else self.bindTypeVars(pi, actual, params, bound, depth + 1),
-            .borrow_read => |pi| if (a == .borrow_read) self.bindTypeVars(pi, a.borrow_read, params, bound, depth + 1) else if (a == .borrow_write) self.bindTypeVars(pi, a.borrow_write, params, bound, depth + 1),
-            .borrow_write => |pi| if (a == .borrow_write) self.bindTypeVars(pi, a.borrow_write, params, bound, depth + 1),
-            .shared => |pi| if (a == .shared) self.bindTypeVars(pi, a.shared, params, bound, depth + 1),
-            .weak => |pi| if (a == .weak) self.bindTypeVars(pi, a.weak, params, bound, depth + 1),
-            .array => |pa| if (a == .array) self.bindTypeVars(pa.elem, a.array.elem, params, bound, depth + 1),
-            .parameterized_nominal => |pn| if (a == .parameterized_nominal and a.parameterized_nominal.sym == pn.sym) {
-                for (pn.args, a.parameterized_nominal.args) |pa, aa| self.bindTypeVars(pa, aa, params, bound, depth + 1);
-            },
-            .function => |pf| if (a == .function and a.function.params.len == pf.params.len) {
-                for (pf.params, a.function.params) |pp, ap| self.bindTypeVars(pp, ap, params, bound, depth + 1);
-                self.bindTypeVars(pf.returns, a.function.returns, params, bound, depth + 1);
-            },
-            else => {},
-        }
     }
 
     /// The instance of generic `sym_id` at `args`, checked like a spelled

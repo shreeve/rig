@@ -813,8 +813,9 @@ one, and otherwise infers them from the values that fill it: a
 constructor's fields (`Pair(first: 1, second: "x")` is a
 `Pair[Int, String]`), a payload variant's fields
 (`Option.some(value: 7)`), or an associated function's arguments
-(`Pair.make(1, 2)`). A literal takes its default type. A parameter
-nothing fills, as in `Vec()`, needs its type named (`Vec[Int]()`) or
+(`Pair.make(1, 2)`). The values must agree on each parameter, and a
+literal takes its default type only where no other value gives the
+parameter one. A parameter nothing fills, as in `Vec()`, needs its type named (`Vec[Int]()`) or
 given where the value goes (`v: Vec[Int] = Vec()`). A
 generic body may only do with a `T` what every instantiation allows:
 operations on `T` are checked for each instantiation, inferred or
