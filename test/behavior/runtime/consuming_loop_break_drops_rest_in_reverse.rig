@@ -10,7 +10,7 @@ struct B
 sub main()
   v: Vec(*B) = Vec()
   for i in 1..5
-    (!v).push(*B(n: i))
+    !v.push(*B(n: i))
   for b in <v
     print("got", b.n)
     break if b.n == 2

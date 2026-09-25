@@ -5,8 +5,8 @@ sub main()
   c1: *Cell(Int) = *Cell(value: 7)
   c2: *Cell(Int) = *Cell(value: 13)
   v: Vec(*Cell(Int)) = Vec()
-  (!v).push(<c1)
-  (!v).push(<c2)
+  !v.push(<c1)
+  !v.push(<c2)
   print(v.len)                 # 2
 
 # expect:

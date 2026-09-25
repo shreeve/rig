@@ -13,7 +13,7 @@ sub reset(v: !Vec(Int))
 
 sub main()
   v: Vec(Int) = Vec()
-  (!v).push(1)
+  !v.push(1)
   v = Vec()
   print(v.len)
   h = H(v: Vec())

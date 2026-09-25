@@ -10,7 +10,7 @@ sub main()
   if true
     s: Slot = .full(f: *|| print("hi"))
     match s
-      .full(f) => (!outer).push(<f)
+      .full(f) => !outer.push(<f)
       .empty => print("e")
   for g in ?outer
     g()

@@ -2551,7 +2551,7 @@ test "facts: loop and pattern bindings" {
         \\
         \\sub main()
         \\  v: Vec(Int) = Vec()
-        \\  (!v).push(3)
+        \\  !v.push(3)
         \\  for x in v
         \\    print(x)
         \\  s: Shape = .circle(radius: 4)
@@ -2908,7 +2908,7 @@ test "facts: every name and expression in a program has a fact" {
         \\sub main()
         \\  acct = Account(owner: "ada", balance: 100)
         \\  print(balance_of(?acct))
-        \\  (!acct).deposit(5)
+        \\  !acct.deposit(5)
         \\  print(acct.doubled())
         \\  moved = <acct
         \\  shared = *Account(owner: "bob", balance: 7)
@@ -2917,7 +2917,7 @@ test "facts: every name and expression in a program has a fact" {
         \\  print(other.balance)
         \\  total = 0
         \\  v: Vec(Int) = Vec()
-        \\  (!v).push(3)
+        \\  !v.push(3)
         \\  for x in v
         \\    total += x
         \\  print(total + moved.balance)
@@ -2951,7 +2951,7 @@ test "facts: optional bindings, index bindings, defaults, and shadows have facts
         \\  for x, i in xs
         \\    print(x + i)
         \\  w: Vec(Int) = Vec()
-        \\  while (!w).pop() as y
+        \\  while !w.pop() as y
         \\    print(y)
         \\  k = 1
         \\  new k = k + 1

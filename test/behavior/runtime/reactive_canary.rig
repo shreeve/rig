@@ -34,9 +34,9 @@ sub main()
   # A Vec of closures, walked by borrowed slot.
   notes: *Cell(Int) = *Cell(value: 0)
   steps: Vec(*sub()) = Vec()
-  (!steps).push(*|+notes| notes.set(notes.get() + 1))
-  (!steps).push(*|+notes| notes.set(notes.get() + 10))
-  (!steps).push(*|+notes| notes.set(notes.get() + 100))
+  !steps.push(*|+notes| notes.set(notes.get() + 1))
+  !steps.push(*|+notes| notes.set(notes.get() + 10))
+  !steps.push(*|+notes| notes.set(notes.get() + 100))
   for step in ?steps
     step()
   print(notes.get())                # 111

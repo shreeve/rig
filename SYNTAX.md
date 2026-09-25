@@ -82,7 +82,10 @@ What Rig adds to that plain surface is a small set of one-character
 The same characters prefix types: `?T` and `!T` are borrowed types,
 `*T` a shared handle, `~T` a weak one. As suffixes, `T?` is an optional
 and `T!` a fallible `T`. Suffix `?` and `!` always mean absence and
-failure; prefix `?` and `!` always mean borrowing.
+failure; prefix `?` and `!` always mean borrowing, so `!` is never
+"not" (that is `not`). Before a method call, `!` and `<` mark the
+receiver: `!v.push(x)` write-borrows `v` for `push`
+([§12](#receiver-sigils-vpushx-and-pclose)).
 
 The compiler checks every sigil: no use after move, no double free, no
 dangling borrow, no leak (except a cycle of strong handles, as in Rust).
@@ -127,7 +130,7 @@ struct Account
 sub main
   a = Account(owner: "ada", balance: 100)
   if a.can_pay(30)
-    (!a).pay(30)
+    !a.pay(30)
   print(a.owner, a.balance)
 ```
 
@@ -137,7 +140,7 @@ ada 70
 
 `?self` reads the receiver and `!self` writes it. The call site says the
 same: reading is implicit (`a.can_pay(30)`), but writing is always
-spelled out, `(!a).pay(30)`. A reader sees every mutation.
+spelled out, `!a.pay(30)`. A reader sees every mutation.
 
 ### Moves, clones, and drops
 
@@ -233,6 +236,7 @@ would move, `~x` would hold a handle weakly.
 | no return value | `fn f() {}` | `fn f() void {}` | `sub f` |
 | struct literal | `P { x: 1 }` | `P{ .x = 1 }` | `P(x: 1)` |
 | method receiver | `&self`, `&mut self`, `self` | `self: P`, `self: *P` | `?self`, `!self`, `self: Self` |
+| mutating call | `v.push(x)` | `try v.append(gpa, x)` | `!v.push(x)` |
 | enum variant | `Shape::Circle { r: 2 }` | `.{ .circle = .{ .r = 2 } }` | `.circle(r: 2)` |
 | match | `match x { A => .., _ => .. }` | `switch (x) { .a => .., else => .. }` | `match x` / `.a => ..` / `_ => ..` |
 | optional | `Option<T>`, `None` | `?T`, `null` | `T?`, `none` |
@@ -649,20 +653,40 @@ sub main
 
 ### Parameters
 
-A parameter may have a literal default, and callers may pass arguments
-by keyword, in any order. Arguments are evaluated in the order written.
-A parameter the body ignores may be named `_`.
+A parameter may have a literal default. A call passes its arguments:
+
+- by position, in parameter order: `scaled(3, 2)`;
+- by keyword, in any order: `scaled(by: 4, n: 5)`;
+- mixed, positional arguments first and then keywords:
+  `scaled(3, by: 2)`;
+- leaving out parameters that have defaults: `scaled(3)`.
+
+Each parameter gets one argument, and every parameter without a default
+needs one. Arguments are evaluated in the order written. A parameter
+the body ignores may be named `_`.
 
 ```rig
 fun scaled(n: Int, by: Int = 10, _: Bool = false) -> Int
   n * by
 
 sub main
-  print(scaled(3), scaled(3, 2), scaled(by: 4, n: 5))
+  print(scaled(3, 2), scaled(by: 4, n: 5), scaled(3, by: 2), scaled(3))
 ```
 
 ```output
-30 6 20
+6 20 6 30
+```
+
+```rig reject
+fun scaled(n: Int, by: Int = 10) -> Int
+  n * by
+
+sub main
+  print(scaled(n: 3, 2))
+```
+
+```error
+positional arguments must come before keyword arguments
 ```
 
 A parameter's type says how it receives its argument, and the call site
@@ -773,9 +797,18 @@ From lowest to highest precedence:
 | `-x` and the sigils | prefix |
 | `f(x)` `a[i]` `a.b` `e!` `e?` | postfix |
 
-- `and`, `or`, `not` take `Bool`. `&&`, `||`, and `!` as logical not
-  are rejected with a hint. `not` binds looser than comparison, so
-  `not a == b` is `not (a == b)`.
+- `and`, `or`, `not` take `Bool`. `not` binds looser than comparison,
+  so `not a == b` is `not (a == b)`. `&&` and `||` are rejected with a
+  hint.
+- Prefix `!` is a write borrow, never "not". Wherever `!x` would be
+  read as a `Bool` (a condition, an operand, a binding, an argument),
+  it is rejected: ``!` is a write borrow; use `not` for negation``.
+  The only `!flag` is one passed where a `!Bool` is expected. A `!`
+  before a method call marks the receiver ([§12](#12-structs-and-methods)),
+  and is rejected too when the method only reads it (`!q.is_empty()`).
+- Postfixes bind tighter than prefixes: `-a.len` is `-(a.len)`. The
+  one exception is `!` or `<` before a method call, which applies to
+  the receiver: `!v.push(x)` is `(!v).push(x)`.
 - Arithmetic needs one numeric type on both sides. Integer `/`
   truncates toward zero and `%` takes the dividend's sign, like Zig's
   `@divTrunc` and `@rem`. Overflow panics in Debug and `--release`
@@ -799,6 +832,17 @@ sub main
 -3 -1 3 15 6 28 3
 true true true
 3.5 true 1
+```
+
+```rig reject
+sub main
+  done = false
+  while !done
+    done = true
+```
+
+```error
+`!` is a write borrow; use `not` for negation
 ```
 
 ## 11. Control flow
@@ -1073,7 +1117,7 @@ sub main
   p = Point.origin()
   q = Point(x: 3, y: 4)
   r = p.plus(?q)
-  (!r).shift(10)
+  !r.shift(10)
   print(r, q.length2())
 ```
 
@@ -1084,8 +1128,8 @@ Point(x: 13, y: 4) 25
 | Receiver | Rust | Meaning | Call |
 |---|---|---|---|
 | `?self` | `&self` | reads | `p.m()`: the read borrow is implicit |
-| `!self` | `&mut self` | writes | `(!p).m()` |
-| `self: Self` | `self` | consumes | `(<p).m()`, or on a temporary |
+| `!self` | `&mut self` | writes | `!p.m()` |
+| `self: Self` | `self` | consumes | `<p.m()`, or on a temporary |
 | (none) | associated fn | | `Point.origin()` |
 
 `Self` names the enclosing type. Inside a `!self` method, `self.f = v`
@@ -1093,6 +1137,150 @@ and `self = v` write the caller's value. A binding that already holds a
 write borrow (a `!T` parameter, or `self` in a `!self` method) calls
 writing methods directly, `self.bump()`, because the borrow it holds is
 what it lends.
+
+### Receiver sigils: `!v.push(x)` and `<p.close()`
+
+`!` or `<` directly before a place (a name, then any `.field` or
+`[index]` steps) that a method call follows applies to that place, the
+method's receiver; anything after the call applies to its result.
+
+| Long form | Short form | Meaning |
+|---|---|---|
+| `(!v).push(x)` | `!v.push(x)` | write-borrow `v`, then push |
+| `(!self.items).push(k)` | `!self.items.push(k)` | a field of `self` in a `!self` method |
+| `(!grid[r]).bump()` | `!grid[r].bump()` | an element, changed in place |
+| `while (!q).pop() as j` | `while !q.pop() as j` | the loop binds what `pop` returns |
+| `(<conn).close()` | `<conn.close()` | move `conn` into `close` |
+
+Only `!` and `<` reach the receiver, because they are exactly the
+receiver modes a method declares (`!self`, `self: Self`), and on a
+call's result they would mean nothing: a result is already a
+temporary the caller owns. The other sigils keep their meaning on the
+whole expression:
+
+- `*Point.origin()` shares the new `Point` in a handle.
+- `+n.first()` clones the handle `first` returns.
+- `-a.len` negates the length.
+- `!x.v` with no call after it borrows the field `x.v`, as for a
+  `v: !Vec(Int)` parameter.
+
+The long form stays valid everywhere, and parentheses around the call
+keep their meaning: `!(v.pop())` borrows the result (and is rejected,
+since a temporary cannot be write-borrowed).
+
+```rig
+struct Stack
+  items: Vec(Int)
+
+  sub push(!self, k: Int)
+    !self.items.push(k)
+
+  fun pop(!self) -> Int?
+    !self.items.pop()
+
+  fun total(self: Self) -> Int
+    sum = 0
+    for k in ?self.items
+      sum += k
+    sum
+
+sub main
+  s = Stack(items: Vec())
+  !s.push(1)
+  !s.push 2
+  !s.items.push(3)
+  print(!s.pop() ?? 0)
+  print(<s.total())
+```
+
+```output
+3
+3
+```
+
+Three mistakes this rules out, each a compile error. `!` on a `Bool`
+is never negation:
+
+```rig reject
+sub main
+  ready = true
+  if !ready
+    print("waiting")
+```
+
+```error
+`!` is a write borrow; use `not` for negation
+```
+
+`!` before a method that only reads its receiver (`?self`) is the
+same habit:
+
+```rig reject
+struct Queue
+  items: Vec(Int)
+
+  fun is_empty(?self) -> Bool
+    self.items.len == 0
+
+sub main
+  q = Queue(items: Vec())
+  if !q.is_empty()
+    print("items")
+```
+
+```error
+`is_empty` does not write its receiver; for negation use `not`
+```
+
+And a write-borrowing call whose value is a `Bool` takes the long form,
+so `!set.insert(k)` can never be read as "not inserted":
+
+```rig reject
+struct Set
+  items: Vec(Int)
+
+  fun insert(!self, k: Int) -> Bool
+    for x in ?self.items
+      return false if x == k
+    !self.items.push(k)
+    true
+
+sub main
+  set = Set(items: Vec())
+  if !set.insert(1)
+    print("new")
+```
+
+```error
+a write-borrowing call that returns `Bool` is written `(!set).insert(...)`, so it is never read as negation
+```
+
+```rig
+struct Set
+  items: Vec(Int)
+
+  fun insert(!self, k: Int) -> Bool
+    for x in ?self.items
+      return false if x == k
+    !self.items.push(k)
+    true
+
+sub main
+  set = Set(items: Vec())
+  if (!set).insert(1)
+    print("new")
+  if not (!set).insert(1)
+    print("seen")
+```
+
+```output
+new
+seen
+```
+
+For Zig, Rust, and C readers: in Rig, `!` never means "not"; `not`
+does, and every place where the habit would change a program's meaning
+is a compile error.
 
 **Fields read data; methods run code.** `x.name` without parentheses
 reads stored data and never runs code; `x.name()` is a call. Rig has no
@@ -1437,9 +1625,15 @@ The same sigils mean the same thing in every position:
 | expression | `?x` | `!x` | `<x` | `+x` | `~x` |
 | type | `?T` | `!T` | | | `~T` |
 | receiver | `?self` | `!self` | `self: Self` | | |
+| method call | `p.m()` | `!p.m()` | `<p.m()` | | |
 | `for` source | `for x in ?v` | `for x in !v` | `for x in <v` | | |
 | closure capture | | | `\|<x\|` | `\|+x\|` | `\|~x\|` |
 | assignment | | | `a <- b` | | |
+
+In a method call the sigil goes on the receiver, `!p.m()` for
+`(!p).m()` ([§12](#receiver-sigils-vpushx-and-pclose)); before any
+other expression, a sigil applies to all of it: `+n.first()` clones
+what `first` returns.
 
 ## 15. Drop
 
@@ -1546,9 +1740,9 @@ there is no run-time borrow flag, unlike Rust's `RefCell`.
 | Member | Meaning |
 |---|---|
 | `Vec()`, `Vec(capacity: n)` | an empty Vec, typed by context |
-| `(!v).push(x)` | append |
-| `(!v).pop()` | remove the last element, as `T?` |
-| `(!v).clear()` | drop every element |
+| `!v.push(x)` | append |
+| `!v.pop()` | remove the last element, as `T?` |
+| `!v.clear()` | drop every element |
 | `v.len` | the number of elements |
 | `v[i]`, `v[i] = x`, `v.get(i)` | element access (Copy elements) |
 
@@ -1561,16 +1755,16 @@ struct Task
 
 sub main
   nums: Vec(Int) = Vec()
-  (!nums).push(3)
-  (!nums).push(4)
+  !nums.push(3)
+  !nums.push(4)
   nums[0] = 30
   print(nums, nums.len)
   tasks: Vec(*Task) = Vec()
-  (!tasks).push(*Task(id: 1))
-  (!tasks).push(*Task(id: 2))
+  !tasks.push(*Task(id: 1))
+  !tasks.push(*Task(id: 2))
   for t in ?tasks
     print("task", t.id)
-  while (!tasks).pop() as t
+  while !tasks.pop() as t
     print("popped", t.id)
 ```
 
@@ -1585,8 +1779,8 @@ done 1
 ```
 
 **`Cell(Vec(T))`** is the shared, growable list. It answers the Vec's own
-members through any path to the cell, without `!`, like `set`:
-`c.push(x)`, `c.pop()`, `c.clear()`, `c.len`, and for Copy elements
+members through any path to the cell, without `!` (`!c.push(x)` is
+rejected), like `set`: `c.push(x)`, `c.pop()`, `c.clear()`, `c.len`, and for Copy elements
 `c[i]`, `c.get(i)`, and `c[i] = x`. Each is done at once inside the
 runtime, with no user code running while the list is in use (`clear`
 empties the cell before it drops the elements), so it is sound without
@@ -1610,7 +1804,7 @@ popped 2
 ```
 
 For anything else, take the value out with `replace`, change it, and
-put it back: `v = c.replace(Vec())`, `(!v).push(x)`, `c.set(<v)`.
+put it back: `v = c.replace(Vec())`, `!v.push(x)`, `c.set(<v)`.
 
 **`Signal(T)`** holds a Copy value and a list of subscribers (owned
 closures) that run on every `set`. It lives behind a shared handle,
@@ -1711,8 +1905,8 @@ sub main
   next = make_counter(100)
   print(next(1), next(10))
   handlers: Vec(*fun(Int) -> Int) = Vec()
-  (!handlers).push(<next)
-  (!handlers).push(*|x| x * 10)
+  !handlers.push(<next)
+  !handlers.push(*|x| x * 10)
   for h in ?handlers
     print(h(3))
 ```
@@ -2086,6 +2280,10 @@ are in the [roadmap](docs/ROADMAP.md).
 | `-x` | negate (in an expression) | `T` | arithmetic negation |
 | `*x` | share | `*T` | move into a counted box |
 | `~x` | weak | `~T` | non-owning handle |
+| `!p.m()` | write receiver | | `(!p).m()`: `p` lent to a `!self` method |
+| `<p.m()` | move receiver | | `(<p).m()`: `p` moved into a `self: Self` method |
+
+`!` is never "not": logical negation is `not x`.
 
 **Suffixes**
 
@@ -2204,6 +2402,11 @@ args      = (expr | name ":" expr), ...
 atom      = name | literal | "." name | "@" name "(" args ")" | "[" expr, ... "]" | "(" expr ")"
 ```
 
+The grammar reads `!v.push(x)` as `!` applied to `v.push(x)`, like any
+prefix; the compiler then moves a `!` or `<` before a place and a method
+call onto the place, giving the tree of `(!v).push(x)`
+([§12](#receiver-sigils-vpushx-and-pclose)).
+
 ## D. Habits to unlearn
 
 **From Rust**
@@ -2211,7 +2414,8 @@ atom      = name | literal | "." name | "@" name "(" args ")" | "[" expr, ... "]
 - A bare name never moves an owning value; write `<x`. Returning `x`
   as the last expression is the exception.
 - Mutation needs a visible write borrow even on a value you own:
-  `(!v).push(x)`, not `v.push(x)`.
+  `!v.push(x)`, not `v.push(x)`. The `!` marks the write on the
+  receiver; it does not negate the call.
 - There are no lifetimes to write, no `mut`, and no `let`.
 - `?` is spelled `!` for errors (`f()!`) and `?` only for optionals
   (`x?`); a prefix `?x` is a borrow.
@@ -2219,7 +2423,8 @@ atom      = name | literal | "." name | "@" name "(" args ")" | "[" expr, ... "]
   because a Cell's contents are only replaced, never borrowed.
 - Closures capture nothing implicitly: list every capture with its
   mode.
-- `&&`, `||`, and `!` are `and`, `or`, and `not`.
+- `&&`, `||`, and `!` are `and`, `or`, and `not`. A `!` that would
+  read as "not" (`if !done`, `!q.is_empty()`) is a compile error.
 - `v.len()` is `v.len`: a field, since reading it runs no code.
 - Every variable must be read; an unused one is an error, as in Zig.
 - A name alone never calls: `greet` is the function as a value, and
@@ -2229,6 +2434,9 @@ atom      = name | literal | "." name | "@" name "(" args ")" | "[" expr, ... "]
 
 - No braces, semicolons, or `const` / `var`: the compiler picks `const`
   or `var`.
+- `!` is not logical not: write `not ok`. Prefix `!` is a write borrow
+  (`&x` for a pointer you may write through), and `!v.push(x)` marks
+  that `push` writes `v`; `if !ok` is a compile error.
 - Allocation is never hidden and never needs an allocator argument:
   `*x`, `Vec`, and owned closures are the only things that allocate,
   and the compiler frees them.

@@ -10,7 +10,7 @@ sub read_only(xs: ?Vec(Int))
 
 sub main()
   v: Vec(Int) = Vec()
-  (!v).push(1)
+  !v.push(1)
   r = ?v
   for x in !v
     x = 2

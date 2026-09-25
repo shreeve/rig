@@ -4,13 +4,13 @@ struct Bag
   items: Vec(Int)
 
   sub add(!self, x: Int)
-    (!self.items).push(x)
+    !self.items.push(x)
 
 sub main()
   v: Vec(Int) = Vec()
   b = Bag(items: <v)
-  (!b).add(4)
-  (!b).add(5)
+  !b.add(4)
+  !b.add(5)
   print(b.items.len)
 
 # expect:

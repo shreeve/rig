@@ -16,9 +16,9 @@ sub main()
   h: Hold = .has(e: Ed(t: !x))
   match h
     .has(a)
-      (!a.t.v).push(1)
+      !a.t.v.push(1)
       match h
-        .has(b) => (!b.t.v).push(2)
+        .has(b) => !b.t.v.push(2)
         .none_ => print("none")
     .none_
       print("none")

@@ -4,7 +4,7 @@
 fun mk(n: Int) -> Vec(Int)
   v: Vec(Int) = Vec()
   for i in 0..n
-    (!v).push(i * 10)
+    !v.push(i * 10)
   v
 
 fun first_big(n: Int) -> Int

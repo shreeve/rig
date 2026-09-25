@@ -6,11 +6,11 @@ struct Box
 
 sub main()
   y = Box(v: Vec())
-  (!y.v).push(1)
+  !y.v.push(1)
   out = ?y
   if true
     x = Box(v: Vec())
-    (!x.v).push(42)
+    !x.v.push(42)
     r = ?x
     s = |<r| r
     out = s()

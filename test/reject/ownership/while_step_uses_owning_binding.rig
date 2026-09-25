@@ -6,9 +6,9 @@ struct B
 
 sub main()
   w: Vec(*B) = Vec()
-  (!w).push(*B(n: 1))
+  !w.push(*B(n: 1))
   t = 0
-  while (!w).pop() as b : t += b.n
+  while !w.pop() as b : t += b.n
     print(b.n)
   print(t)
 

@@ -20,7 +20,7 @@ struct Tracked
 
 sub main()
   x = Box(v: Vec())
-  (!x.v).push(41)
+  !x.v.push(41)
   s = *View(b: ?x)
   print(s.b.v[0])
   h = Holder(own: Vec(), b: ?x)

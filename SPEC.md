@@ -465,19 +465,38 @@ sign -1
 Parameters are immutable, except a write-borrowed `!T` parameter, which
 can be assigned ([§8](#write-borrows)). A parameter the body ignores
 may be named `_`, any number of times. A parameter may have a default
-value, which must be a literal; arguments can be passed by keyword, in
-any order, and are evaluated in the order written.
+value, which must be a literal. A call passes arguments by position, in
+parameter order (`scaled(3, 2)`); by keyword, in any order
+(`scaled(by: 4, n: 5)`); or both, positional arguments first
+(`scaled(3, by: 2)`). A parameter with a default may be left out
+(`scaled(3)`). Each parameter gets exactly one argument, and every
+parameter without a default needs one. Arguments are evaluated in the
+order written.
 
 ```rig
 fun scaled(n: Int, by: Int = 10, _: Bool = false) -> Int
   n * by
 
 sub main
-  print(scaled(3), scaled(3, 2), scaled(by: 4, n: 5))
+  print(scaled(3, 2), scaled(by: 4, n: 5), scaled(3, by: 2), scaled(3))
 ```
 
 ```output
-30 6 20
+6 20 6 30
+```
+
+```rig reject
+fun scaled(n: Int, by: Int = 10) -> Int
+  n * by
+
+sub main
+  print(scaled(n: 3, 2))
+  print(scaled(3, n: 4))
+```
+
+```error
+positional arguments must come before keyword arguments
+parameter `n` of `scaled` is given twice
 ```
 
 A function name is a value of its function type, so it can be passed
@@ -529,7 +548,7 @@ sub main
   p = Point.origin()
   q = Point(x: 1, y: 2)
   r = p.plus(?q)
-  (!r).shift(10)
+  !r.shift(10)
   print(r, r.x)
 ```
 
@@ -1357,7 +1376,7 @@ sub main
   print(xs)
   v: Vec(*B) = Vec()
   for i in 0..3
-    (!v).push(*B(n: i))
+    !v.push(*B(n: i))
   for b, i in <v
     if i == 1
       keep(<b)
@@ -1704,7 +1723,7 @@ sub main
   x = Box(n: 1)
   r = ?x
   print(r.n)
-  (!x).bump()
+  !x.bump()
   v = View(box: ?x)
   print(v.box.n)
   x = Box(n: 7)
@@ -1730,7 +1749,7 @@ sub main
   i = 0
   while i < 2 : i += 1
     print(r.n)
-    (!x).bump()
+    !x.bump()
 ```
 
 ```error
@@ -2055,7 +2074,7 @@ a handle automatically, including through fields and loop elements.
 Writing a field, calling a `!self` method, or consuming the value
 through a handle is rejected, because other handles share it; shared
 mutable state goes in a `Cell` ([§11](#cell)). The built-in `Vec` is no
-exception: `(!h).push(x)` through a `*Vec(T)` is rejected, and a shared
+exception: `!h.push(x)` through a `*Vec(T)` is rejected, and a shared
 Vec is a `*Cell(Vec(T))`.
 
 ```rig reject
@@ -2210,12 +2229,12 @@ shared handles (including owned closures), or weak handles.
 | Member | Meaning |
 |---|---|
 | `Vec()`, `Vec(capacity: n)` | an empty Vec (typed by context) |
-| `(!v).push(x)` | append; an owning `x` is moved or cloned in |
+| `!v.push(x)` | append; an owning `x` is moved or cloned in |
 | `v.len` | the number of elements |
 | `v[i]`, `v[i] = x` | read or write an element, or a field of one (Copy `T`; bounds-checked) |
 | `v.get(i)` | the element as `T?` (Copy `T`) |
-| `(!v).pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
-| `(!v).clear()` | drop every element |
+| `!v.pop()` | remove the last element, as `T?`; a handle is handed over to the caller |
+| `!v.clear()` | drop every element |
 
 A `for` loop borrows the Vec for the whole loop, so it cannot be
 modified inside it. A Vec of Copy values may be walked by value
@@ -2229,14 +2248,14 @@ consume the elements ([§7](#for)).
 sub main
   total: *Cell(Int) = *Cell(value: 0)
   steps: Vec(*sub()) = Vec()
-  (!steps).push(*|+total| total.set(total.get() + 1))
-  (!steps).push(*|+total| total.set(total.get() + 10))
+  !steps.push(*|+total| total.set(total.get() + 1))
+  !steps.push(*|+total| total.set(total.get() + 10))
   for step in ?steps
     step()
   nums: Vec(Int) = Vec()
-  (!nums).push(3)
-  (!nums).push(4)
-  while (!nums).pop() as n
+  !nums.push(3)
+  !nums.push(4)
+  while !nums.pop() as n
     total.set(total.get() + n * 100)
   print(total.get(), steps.len)
 ```
@@ -2258,13 +2277,13 @@ struct B
 
 sub main
   ps: Vec(P) = Vec()
-  (!ps).push(P(x: 1, y: 2))
+  !ps.push(P(x: 1, y: 2))
   ps[0].y = 5
   print(ps[0], ps.len)
   bs: Vec(*B) = Vec()
-  (!bs).push(*B(n: 1))
-  (!bs).push(*B(n: 2))
-  if (!bs).pop() as last
+  !bs.push(*B(n: 1))
+  !bs.push(*B(n: 2))
+  if !bs.pop() as last
     print("popped", last.n)
   print("left", bs.len)
 ```
@@ -2507,8 +2526,8 @@ sub main
   next = make_counter(100)
   print(next(1), next(10))
   handlers: Vec(*fun(Int) -> Int) = Vec()
-  (!handlers).push(<next)
-  (!handlers).push(*|x| x * 10)
+  !handlers.push(<next)
+  !handlers.push(*|x| x * 10)
   for h in ?handlers
     print(h(3))
 ```

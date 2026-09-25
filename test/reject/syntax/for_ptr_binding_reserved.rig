@@ -3,7 +3,7 @@
 
 sub main()
   v: Vec(Int) = Vec()
-  (!v).push(1)
+  !v.push(1)
   for *x in v
     print(x)
 

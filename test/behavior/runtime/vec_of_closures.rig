@@ -8,8 +8,8 @@ sub main()
   cb2: *sub() = *|+count| count.set(count.get() + 10)
 
   subs: Vec(*sub()) = Vec()
-  (!subs).push(+cb1)
-  (!subs).push(+cb2)
+  !subs.push(+cb1)
+  !subs.push(+cb2)
 
   cb1()
   cb2()

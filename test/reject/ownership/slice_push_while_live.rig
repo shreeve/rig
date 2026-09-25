@@ -6,11 +6,11 @@ sub eat(v: Vec(Int))
 
 sub main()
   v: Vec(Int) = Vec()
-  (!v).push(1)
+  !v.push(1)
   s = ?v[0..1]
-  (!v).push(2)
+  !v.push(2)
   eat(<v)
   print(s)
 
-# error: 11:4: cannot write-borrow `v` while a read borrow is live
+# error: 11:3: cannot write-borrow `v` while a read borrow is live
 # error: 12:8: cannot move `v` while it is read-borrowed

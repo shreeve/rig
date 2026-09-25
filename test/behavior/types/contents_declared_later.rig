@@ -20,7 +20,7 @@ enum Color
 sub main()
   f: *fun(Color) -> Int = *|c| 1 if c == .red else 2
   a = A(c: Cell(value: B(h: *5)), v: Vec(), f: <f)
-  (!a.v).push(P(n: 3))
+  !a.v.push(P(n: 3))
   print(a.v.len, a.f(.green))
 
 # expect:

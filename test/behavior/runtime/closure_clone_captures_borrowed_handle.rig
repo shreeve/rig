@@ -13,11 +13,11 @@ fun keep(b: ?*B) -> *fun() -> Int
 
 sub main()
   v: Vec(*B) = Vec()
-  (!v).push(*B(n: 1))
-  (!v).push(*B(n: 2))
+  !v.push(*B(n: 1))
+  !v.push(*B(n: 2))
   fs: Vec(*fun() -> Int) = Vec()
   for b in ?v
-    (!fs).push(*|+b| b.n * 10)
+    !fs.push(*|+b| b.n * 10)
   -v
   print("vec gone")
   for f in ?fs

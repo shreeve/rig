@@ -10,7 +10,7 @@ struct Ed
 
 sub main()
   b = Box(v: Vec())
-  (!b.v).push(1)
+  !b.v.push(1)
   s = *Ed(t: !b)
   h = +s
   k = |+s| print(s.t.v.len)

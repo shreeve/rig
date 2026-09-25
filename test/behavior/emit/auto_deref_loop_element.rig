@@ -7,7 +7,7 @@ struct Node
 sub main()
   xs: Vec(*Node) = Vec()
   a = *Node(v: 7)
-  (!xs).push(<a)
+  !xs.push(<a)
   for n in ?xs
     print(n.v)
 

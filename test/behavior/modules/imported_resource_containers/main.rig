@@ -9,7 +9,7 @@ sub main()
     .one(b) => print("one", b.n)
     .two(k) => print(k)
   v: Vec(*lib.B) = Vec()
-  (!v).push(*lib.B(n: 2))
+  !v.push(*lib.B(n: 2))
   c: Cell(*lib.B) = Cell(value: *lib.B(n: 3))
 
 # expect:

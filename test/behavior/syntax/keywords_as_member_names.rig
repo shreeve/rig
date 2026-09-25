@@ -32,7 +32,7 @@ enum Ev
 
 sub main()
   t = Token(type: 1, error: "bad", drop: true, in: 4)
-  (!t).use()
+  !t.use()
   print(t.type, t.error, t.drop, t.in, t.test(), t.match(n: 3))
   b = Box(type: 9)
   print(b.error(), b)

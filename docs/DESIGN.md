@@ -55,7 +55,7 @@ no unmarked unsafe code. What stays implicit is cheap and cannot
 surprise: copying plain data, reading through a shared handle, lending
 a receiver to a `?self` method, and moving a local out with `return x`,
 where its scope ends anyway. Writing through a receiver
-(`(!v).push(x)`) or consuming it (`(<u).close()`) is always spelled out;
+(`!v.push(x)`) or consuming it (`<u.close()`) is always spelled out;
 a binding that already holds a write borrow (`v: !Vec(Int)`) says so in
 its type, and lends it as it is (`v.push(x)`).
 
@@ -152,7 +152,24 @@ tighter than prefixes, in types and in expressions:
 | `*User?` | a shared handle to an optional `User` |
 | `(*User)?` | an optional shared handle (what `upgrade()` returns) |
 | `*Cell(Vec(*sub()))` | a shared cell holding a list of owned closures |
-| `(!v).push(x)` | write-borrow `v`, then call a writing method |
+| `+n.first()` | clone the handle `first` returns |
+| `!v.push(x)` | write-borrow `v`, then call a writing method |
+
+One exception is made, for method calls: `!` or `<` directly before a
+place followed by a method call applies to the place, so `!v.push(x)`
+is `(!v).push(x)` and `<conn.close()` is `(<conn).close()`. `!` and `<`
+are exactly the receiver modes a method declares (`!self`,
+`self: Self`), and on a call's result they would mean nothing: the
+result is a temporary the caller already owns, so writing through it
+would be lost and moving it is what happens anyway. `*`, `+`, `~`, `?`,
+and `-` do mean something on a result (share it, clone the handle it
+is, take a weak handle, borrow it, negate it), so they keep the rule:
+`*Point.origin()` shares the new point. The exception comes with checks
+that keep it honest: `!` before a method that only reads its receiver
+is rejected, since it would read as negation (which is `not`), `<`
+before one that does not consume it is rejected, and a `!` call whose
+value is a `Bool` keeps the parentheses, `(!set).insert(k)`, so no
+`!` in Rig ever reads as "not".
 
 **Absorption.** Operations that would add nothing are rejected rather
 than silently tolerated. Sharing a shared handle (`*x` when `x : *T`,
@@ -270,7 +287,11 @@ binding syntax.
 
 Words read better than `&&` and `||`, and they free `!` for its two
 jobs, borrowing and failure. `&&` and `||` are rejected with a pointer
-to the words.
+to the words, and so is every `!` a C, Rust, or Zig reader would take
+for "not": a `!x` read as a `Bool`, a `!` before a method that only
+reads its receiver (`!q.is_empty()`), and a `!` call that returns a
+`Bool` without its parentheses. A habit can make a program fail to
+compile, never change what it means.
 
 ### `raw` as a block
 

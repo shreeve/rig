@@ -20,8 +20,8 @@ sub main()
 
   total: *Cell(Int) = *Cell(value: 0)
   handlers: Vec(*sub(Int)) = Vec()
-  (!handlers).push(*|+total, n| total.set(total.get() + n))
-  (!handlers).push(*|+total, n| total.set(total.get() + n * 100))
+  !handlers.push(*|+total, n| total.set(total.get() + n))
+  !handlers.push(*|+total, n| total.set(total.get() + n * 100))
   for h in ?handlers
     h(2)
   print(total.get())

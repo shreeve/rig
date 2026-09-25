@@ -4,7 +4,7 @@
 sub main()
   n = 99
   v: Vec(Int) = Vec()
-  (!v).push(1)
+  !v.push(1)
   for n in v
     print(n)
   print(n)

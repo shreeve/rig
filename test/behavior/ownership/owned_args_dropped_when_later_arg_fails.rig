@@ -84,7 +84,7 @@ fun cloned() -> Int!
 
 fun buffer() -> Int!
   v: Vec(Int) = Vec()
-  (!v).push(1)
+  !v.push(1)
   vec(<v, fail(1)!)
   0
 
@@ -95,7 +95,7 @@ fun closure() -> Int!
 
 fun method() -> Int!
   s = S(b: B(n: 9))
-  (!s).put(B(n: 10), fail(1)!)
+  !s.put(B(n: 10), fail(1)!)
   0
 
 fun caught() -> Int

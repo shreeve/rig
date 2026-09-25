@@ -6,10 +6,10 @@ sub main()
   cb1: *sub() = *|+count| count.set(count.get() + 1)
 
   subs: Vec(*sub()) = Vec()
-  (!subs).push(+cb1)
+  !subs.push(+cb1)
 
   for cb in ?subs
     cb()
-    (!subs).push(+cb1)
+    !subs.push(+cb1)
 
 # error: cannot write-borrow `subs` while a read borrow is live

@@ -14,7 +14,7 @@ fun name() -> String
 
 sub main()
   ps: Vec(P) = Vec()
-  (!ps).push(P(a: [1, 2], q: Q(z: 0)))
+  !ps.push(P(a: [1, 2], q: Q(z: 0)))
   ps[0].a[1] = 30
   ps[0].q.z = 5
   ps[0].a[0] += 7

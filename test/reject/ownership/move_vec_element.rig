@@ -7,7 +7,7 @@ sub eat(c: *Cell(Int))
 sub main()
   c1: *Cell(Int) = *Cell(value: 7)
   v: Vec(*Cell(Int)) = Vec()
-  (!v).push(<c1)
+  !v.push(<c1)
   eat(<v[0])
 
 # error: cannot move out of

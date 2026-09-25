@@ -9,12 +9,12 @@ sub show(a: ?Box)
 
 sub main()
   x = Box(v: Vec())
-  (!x.v).push(1)
+  !x.v.push(1)
   r = ?x
   show(<r)
-  (!x.v).push(2)
+  !x.v.push(2)
   w = !x
-  (!w.v).push(3)
+  !w.v.push(3)
   show(?x)
 
 # expect:

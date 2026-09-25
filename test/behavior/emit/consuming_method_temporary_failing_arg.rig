@@ -12,7 +12,7 @@ struct Bag
 
 fun mk() -> Bag
   v: Vec(Int) = Vec()
-  (!v).push(1)
+  !v.push(1)
   Bag(v: <v)
 
 fun g(ok: Bool) -> Int!

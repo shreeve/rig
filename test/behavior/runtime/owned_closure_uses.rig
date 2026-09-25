@@ -16,8 +16,8 @@ sub main()
   print(total.get())
 
   fs: Vec(*fun(Int) -> Int) = Vec()
-  (!fs).push(*|x| x + 1)
-  (!fs).push(*|x| x * 10)
+  !fs.push(*|x| x + 1)
+  !fs.push(*|x| x * 10)
   for f in ?fs
     print(f(3))
 

@@ -7,14 +7,14 @@ struct Ed
 
 sub main()
   v: Vec(Int) = Vec()
-  (!v).push(1)
-  (!v).push(2)
-  (!v).push(3)
+  !v.push(1)
+  !v.push(2)
+  !v.push(3)
   if true
     e = Ed(t: !v)
     f = Ed(t: e.t)
     for x in ?f.t
-      (!e.t).push(x)
+      !e.t.push(x)
   print(v.len)
 
 # error: use of `e` while a write borrow is live

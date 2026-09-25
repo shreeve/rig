@@ -19,14 +19,14 @@ fun dup(e: Ed) -> Ed
 
 sub main()
   x = Box(v: Vec())
-  (!x.v).push(*Tok(n: 1))
+  !x.v.push(*Tok(n: 1))
   e = Ed(t: !x)
   r = dup(e)
   for tk in ?r.t.v
     e.t.v = Vec()
     print(tk.n)
   y = Box(v: Vec())
-  (!y.v).push(*Tok(n: 2))
+  !y.v.push(*Tok(n: 2))
   f = Ed(t: !y)
   o = Outer(e: f)
   for tk in ?o.e.t.v

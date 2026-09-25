@@ -30,10 +30,10 @@ sub main()
   print(mk("recv").add(b: say("b"), a: say("a")))
   ps = [K(n: 1), K(n: 2)]
   print(ps[say("i")].add(b: say("b"), a: say("a")))
-  print((!ps[say("i")]).bump(b: say("b"), a: say("a")))
+  print(!ps[say("i")].bump(b: say("b"), a: say("a")))
   print(ps[1].n)
   v: Vec(K) = Vec()
-  (!v).push(K(n: 4))
+  !v.push(K(n: 4))
   print(v[say("v") - 1].add(b: say("b"), a: say("a")))
   print(mk("tmp").bump(1, 2))
 

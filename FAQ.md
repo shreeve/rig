@@ -32,6 +32,16 @@ effects a reader should notice where they happen, each has one meaning,
 and most lines have none ([why](docs/DESIGN.md#sigils-rather-than-keywords),
 [the algebra](docs/DESIGN.md#the-sigil-algebra)).
 
+## Why is `!` not logical negation?
+
+Because prefix `!` is a write borrow, and a sigil has one meaning.
+Negation is the word `not`, as in Python. `!v.push(x)` marks that
+`push` writes `v`; it never negates anything. Every place where the C,
+Rust, or Zig habit would change a program's meaning is a compile error
+instead: `if !done`, `!q.is_empty()`, and a `!` call returning a `Bool`
+without parentheses ([receiver sigils](SYNTAX.md#receiver-sigils-vpushx-and-pclose),
+[operators](SYNTAX.md#10-operators)).
+
 ## Why indentation?
 
 It is the lightest syntax for nested blocks, and each block is one IR

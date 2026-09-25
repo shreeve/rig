@@ -7,7 +7,7 @@ pub struct H
   items: Vec(*B)
 
   sub add(!self, b: *B)
-    (!self.items).push(<b)
+    !self.items.push(<b)
 
   fun count(?self) -> Int
     self.items.len

@@ -7,8 +7,8 @@ sub main()
     total += x * i
   print(total)
   v: Vec(Int) = Vec()
-  (!v).push(7)
-  (!v).push(8)
+  !v.push(7)
+  !v.push(8)
   for n, k in v
     print(n + k)
 

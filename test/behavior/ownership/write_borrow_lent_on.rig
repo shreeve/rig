@@ -12,11 +12,11 @@ sub main()
   if true
     w = !v
     r = id(w)
-    (!r).push(4)
+    !r.push(4)
     e = Ed(t: <r)
-    (!e.t).push(5)
+    !e.t.push(5)
     f = Ed(t: e.t)
-    (!f.t).push(6)
+    !f.t.push(6)
   print(v.len, v[0], v[2])
 
 # expect:

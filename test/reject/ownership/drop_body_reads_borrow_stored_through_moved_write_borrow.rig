@@ -19,7 +19,7 @@ sub fill(o: !Outer, r: ?Res)
 sub main()
   o = Outer(inner: none)
   x = Res(v: Vec())
-  (!x.v).push(5)
+  !x.v.push(5)
   w = !o
   fill(<w, ?x)
 

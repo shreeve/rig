@@ -21,7 +21,7 @@ sub main
     print("new")
   fresh = !set.insert(2)
   print(fresh)
-  print((!set).insert(3))
+  print(!set.insert(3))
   print(fill(!set) catch 0)
 
 # error: 15:11: a write-borrowing call that returns `Bool` is written `(!s).checked(...)`, so it is never read as negation

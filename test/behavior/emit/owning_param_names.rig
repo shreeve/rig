@@ -30,15 +30,15 @@ struct S
 
 sub main()
   v: Vec(Int) = Vec()
-  (!v).push(1)
+  !v.push(1)
   kw(<v)
   w: Vec(Int) = Vec()
   ignore(<w, *B(n: 1))
   u: Vec(Int) = Vec()
-  (!u).push(2)
+  !u.push(2)
   flags(<u, *B(n: 2))
   s = S(v: Vec())
-  (<s).consume()
+  <s.consume()
 
 # expect:
 # 1

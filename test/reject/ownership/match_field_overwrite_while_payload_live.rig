@@ -20,7 +20,7 @@ sub clear(h: !Slot)
 
 sub main()
   t0 = Tok(v: Vec())
-  (!t0.v).push(1)
+  !t0.v.push(1)
   h = Holder(s: .full(*<t0))
   match h.s
     .full(t)

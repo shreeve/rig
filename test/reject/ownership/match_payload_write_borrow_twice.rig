@@ -14,7 +14,7 @@ enum Hold
 
 sub main()
   x = Box(v: Vec())
-  (!x.v).push(1)
+  !x.v.push(1)
   h: Hold = .has(Ed(t: !x))
   match h
     .has(a)

@@ -3,8 +3,8 @@
 
 fun mk() -> Vec(Int)
   v: Vec(Int) = Vec()
-  (!v).push(1)
-  defer (!v).push(2)
+  !v.push(1)
+  defer !v.push(2)
   v
 
 sub main()

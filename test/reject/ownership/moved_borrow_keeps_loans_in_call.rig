@@ -47,7 +47,7 @@ sub field_then_move()
 sub receiver_then_moved_arg()
   x = Box(v: Vec())
   r = ?x
-  (!x).eat(<r)
+  !x.eat(<r)
 
 sub variant_fields()
   x = Box(v: Vec())
@@ -60,5 +60,5 @@ sub main()
 # error: 34:13: cannot write-borrow `x` while a read borrow is live
 # error: 39:14: cannot take a second write borrow on `x`
 # error: 44:20: cannot move `x` while it is read-borrowed
-# error: 50:4: cannot write-borrow `x` while a read borrow is live
+# error: 50:3: cannot write-borrow `x` while a read borrow is live
 # error: 55:32: cannot take a second write borrow on `x`

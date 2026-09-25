@@ -3,11 +3,11 @@
 
 sub main()
   v: Vec(Int) = Vec()
-  (!v).push(1)
-  (!v).push(2)
-  (!v).push(3)
+  !v.push(1)
+  !v.push(2)
+  !v.push(3)
   total = 0
-  while (!v).pop() as x
+  while !v.pop() as x
     total += x
   print(total)
 

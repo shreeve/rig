@@ -6,7 +6,7 @@
 sub push_all(cell: ?*Cell(Vec(Int)), n: Int)
   v = cell.replace(Vec())
   for i in 0..n
-    (!v).push(i * 100)
+    !v.push(i * 100)
   cell.set(<v)
 
 sub push_one(cell: ?*Cell(Vec(Int)), n: Int)

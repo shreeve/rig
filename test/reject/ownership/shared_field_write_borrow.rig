@@ -17,8 +17,8 @@ sub inc(c: !Counter)
 
 sub main()
   h = *Holder(v: Vec(), c: Counter(n: 0))
-  (!h.v).push(1)
-  (!h.c).bump()
+  !h.v.push(1)
+  !h.c.bump()
   inc(!h.c)
   for x in !h.v
     x += 1

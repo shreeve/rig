@@ -23,10 +23,10 @@ struct Watcher
 
 sub main()
   y0 = Box(v: Vec())
-  (!y0.v).push(0)
+  !y0.v.push(0)
   h = Holder(b: ?y0)
   x = Box(v: Vec())
-  (!x.v).push(42)
+  !x.v.push(42)
   h.b = ?x
   v0 = View(b: ?y0)
   w = Watcher(w: ?v0)

@@ -4367,7 +4367,7 @@ fn classifyReceiverType(ctx: *const SemContext, ty_id: TypeId, nominal_sym: Symb
             };
         }
     }.f;
-    // A borrow of a shared handle (`(!h).m()` with `h: *T`) still reaches
+    // A borrow of a shared handle (`!h.m()` with `h: *T`) still reaches
     // the value through the handle.
     if (ctx.types.get(sema.unwrapBorrows(ctx, ty_id)) == .shared) return .shared;
     return switch (ctx.types.get(ty_id)) {

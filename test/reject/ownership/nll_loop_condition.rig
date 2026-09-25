@@ -14,6 +14,6 @@ sub main()
   v: Vec(Int) = Vec()
   r = ?v
   while r.len < 3
-    (!v).push(1)
+    !v.push(1)
 
 # error: cannot write-borrow `v` while a read borrow is live

@@ -5,17 +5,17 @@ type Stack(T)
   items: Vec(T)
 
   sub push(!self, x: T)
-    (!self.items).push(<x)
+    !self.items.push(<x)
 
   fun size(?self) -> Int
     self.items.len
 
 sub main()
   s: Stack(Int) = Stack(items: Vec())
-  (!s).push(3)
-  (!s).push(4)
+  !s.push(3)
+  !s.push(4)
   t: Stack(*Int) = Stack(items: Vec())
-  (!t).push(*9)
+  !t.push(*9)
   print(s.size(), t.size())
 
 # expect:

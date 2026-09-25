@@ -29,12 +29,12 @@ sub main()
   g = Grid(cells: [5, 6, 7, 8])
   print(total(?g.cells[1..4]))
   v: Vec(Int) = Vec()
-  (!v).push(10)
-  (!v).push(20)
-  (!v).push(30)
+  !v.push(10)
+  !v.push(20)
+  !v.push(30)
   w = ?v[1..v.len]
   print(w, total(w))
-  (!v).push(40)
+  !v.push(40)
   print(v.len)
 
 # expect:

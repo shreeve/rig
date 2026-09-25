@@ -14,7 +14,7 @@ sub stash(c: ?Cell(*View), vw: *View)
 
 sub park(h: *Cell(*View))
   x = Box(v: Vec())
-  (!x.v).push(42)
+  !x.v.push(42)
   _ = h.replace(*View(b: ?x))
 
 sub main()
@@ -22,7 +22,7 @@ sub main()
   a: *Cell(*View) = *Cell(value: *View(b: ?y0))
   if true
     x = Box(v: Vec())
-    (!x.v).push(41)
+    !x.v.push(41)
     b = +a
     b.set(*View(b: ?x))
   park(+a)

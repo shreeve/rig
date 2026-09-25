@@ -27,7 +27,7 @@ sub main()
   holder = H(cb: ~s)
   call(?holder.cb)
   v: Vec(~sub()) = Vec()
-  (!v).push(~s)
+  !v.push(~s)
   for x in ?v
     call(?x)
   -s

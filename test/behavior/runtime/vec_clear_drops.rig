@@ -1,4 +1,4 @@
-# `(!v).clear()` drops every element now, last first, leaving an empty
+# `!v.clear()` drops every element now, last first, leaving an empty
 # Vec that can be reused; elements pushed afterwards are dropped with the
 # Vec. A handle cloned into the Vec keeps its value alive past the clear.
 
@@ -11,18 +11,18 @@ struct B
 sub main()
   keep = *B(n: 1)
   v: Vec(*B) = Vec()
-  (!v).push(*B(n: 0))
-  (!v).push(+keep)
-  (!v).push(*B(n: 2))
-  (!v).clear()
+  !v.push(*B(n: 0))
+  !v.push(+keep)
+  !v.push(*B(n: 2))
+  !v.clear()
   print("len", v.len)
   print("kept", keep.n)
-  (!v).push(*B(n: 9))
+  !v.push(*B(n: 9))
   print("len", v.len)
 
   w: Vec(Int) = Vec()
-  (!w).push(4)
-  (!w).clear()
+  !w.push(4)
+  !w.clear()
   print("ints", w.len, w)
 
 # expect:

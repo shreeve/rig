@@ -13,7 +13,7 @@ struct View
 sub main()
   vs: Vec(*View) = Vec()
   a = Box(payload: 1)
-  (!vs).push(*View(b: ?a))
+  !vs.push(*View(b: ?a))
   -a
   for v in ?vs
     print(v.b.payload)

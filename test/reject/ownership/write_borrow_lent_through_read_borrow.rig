@@ -9,13 +9,13 @@ struct Holder
   v: Vec(*Node)
 
   sub reset(!self)
-    (!self.v).clear()
+    !self.v.clear()
 
 struct Ed
   t: !Holder
 
 sub reset(h: !Holder)
-  (!h.v).clear()
+  !h.v.clear()
 
 sub f(a: ?Ed, b: ?Ed)
   for x in ?a.t.v
@@ -26,7 +26,7 @@ sub f(a: ?Ed, b: ?Ed)
 
 sub main()
   h = Holder(v: Vec())
-  (!h.v).push(*Node(n: 1))
+  !h.v.push(*Node(n: 1))
   ed = Ed(t: !h)
   f(?ed, ?ed)
 

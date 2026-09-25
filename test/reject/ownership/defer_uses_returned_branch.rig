@@ -10,7 +10,7 @@ fun early(c: Bool) -> Vec(Int)
 fun pick(c: Bool) -> Vec(Int)
   a: Vec(Int) = Vec()
   b: Vec(Int) = Vec()
-  defer (!a).push(1)
+  defer !a.push(1)
   if c
     a
   else

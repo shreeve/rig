@@ -16,7 +16,7 @@ sub inc(c: !Counter)
   c.n += 1
 
 sub f(p: ?Holder)
-  (!p.c).bump()
+  !p.c.bump()
   inc(!p.c)
   for x in !p.xs
     x += 1

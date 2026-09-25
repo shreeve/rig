@@ -24,9 +24,9 @@ sub main()
   print(a[0], a[1], b, c)
 
   s = S(n: 5)
-  d = [!m, (!s).get(), 6]
+  d = [!m, !s.get(), 6]
   e = if d[2] > 3
-    (!s).get()
+    !s.get()
   else
     1
   f = match d[2]

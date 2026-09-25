@@ -17,11 +17,11 @@ type Box(T)
 sub main()
   b: Box(*B) = Box(v: *B(n: 1))
   o: (*B)? = *B(n: 2)
-  r = (<b).first(<o, *B(n: 3))
+  r = <b.first(<o, *B(n: 3))
   print(r.n)
 
   c: Box(Int) = Box(v: 0)
-  print((<c).first(none, 7))
+  print(<c.first(none, 7))
 
 # expect:
 # drop 3

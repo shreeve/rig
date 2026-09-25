@@ -28,7 +28,7 @@ sub main()
   x = Box(n: 1)
   r = ?x
   print("read", r.n)
-  (!x).bump()
+  !x.bump()
   w = !x
   w.bump()
   print("x", x.n)
@@ -47,7 +47,7 @@ sub main()
   while i < 3 : i += 1
     seen = ?nums
     print("len", seen.len)
-    (!nums).push(i)
+    !nums.push(i)
 
   s: Slot = .full(b: Box(n: 7))
   match s

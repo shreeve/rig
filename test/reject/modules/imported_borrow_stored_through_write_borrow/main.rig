@@ -6,11 +6,11 @@ use a
 
 sub main()
   y = a.Box(v: Vec())
-  (!y.v).push(1)
+  !y.v.push(1)
   holder = a.Holder(b: ?y)
   if true
     x = a.Box(v: Vec())
-    (!x.v).push(42)
+    !x.v.push(42)
     ed = a.Ed(t: !holder)
     a.put(ed, ?x)
   print(holder.b.v[0])

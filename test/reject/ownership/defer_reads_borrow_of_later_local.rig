@@ -9,11 +9,11 @@ error Bad
 
 fun work() -> Int!
   y = Res(v: Vec())
-  (!y.v).push(1)
+  !y.v.push(1)
   r = ?y
   errdefer print("errdefer reads", r.v[0])
   x = Res(v: Vec())
-  (!x.v).push(2)
+  !x.v.push(2)
   r = ?x
   return Bad.oops
 
@@ -22,7 +22,7 @@ sub main()
   r = ?y
   defer print("defer reads", r.v[0])
   x = Res(v: Vec())
-  (!x.v).push(12345)
+  !x.v.push(12345)
   r = ?x
   print(work() catch 0)
 

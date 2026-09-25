@@ -1,5 +1,5 @@
 # A consuming receiver (`self: User`) needs an explicit move at the call
-# site: `(<u).consume()`, not `u.consume()`.
+# site: `<u.consume()`, not `u.consume()`.
 
 struct User
   name: String

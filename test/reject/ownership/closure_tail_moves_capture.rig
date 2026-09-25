@@ -6,7 +6,7 @@ struct Box
 
 sub main()
   x = Box(v: Vec())
-  (!x.v).push(5)
+  !x.v.push(5)
   s = |<x| x
   a = s()
   b = s()

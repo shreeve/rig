@@ -26,7 +26,7 @@ sub main()
   c = Outer(inner: none)
   if true
     x = Res(v: Vec())
-    (!x.v).push(5)
+    !x.v.push(5)
     w = !a
     fill(<w, ?x)
     wb = WO(o: !b)

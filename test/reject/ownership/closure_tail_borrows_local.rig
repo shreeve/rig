@@ -6,7 +6,7 @@ struct Box
 sub main()
   s = ||
     y = Box(v: Vec())
-    (!y.v).push(1)
+    !y.v.push(1)
     ?y
   q = s()
   print(q.v[0])
