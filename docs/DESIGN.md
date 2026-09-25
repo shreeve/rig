@@ -61,8 +61,8 @@ its type, and lends it as it is (`v.push(x)`).
 
 **Effects survive into the IR.** Every sigil becomes a named node in
 the semantic IR (`(move x)`, `(read x)`, `(clone x)`, `(drop x)`,
-`(propagate e)`, `(raw_block ...)`), and the checkers and emitter
-consume those nodes by name. What the reader sees is exactly what the
+`(propagate e)`, `(propagate_none e)`, `(raw_block ...)`), and the
+checkers and emitter consume those nodes by name. What the reader sees is exactly what the
 compiler reasons about; nothing is recovered from comments,
 conventions, or heuristics.
 
@@ -108,6 +108,7 @@ For a value `x` of type `T`:
 | `*x` | `*T` | move into a new counted box | one allocation |
 | `~x` | `~U` when `T` is `*U` | a non-owning handle | a weak-count bump |
 | `e!` | `T` when `e : T!` | propagate failure | a branch |
+| `e?` | `T` when `e : T?` | return `none` from the function | a branch |
 
 Each operation has one meaning, becomes one IR node, and succeeds
 whenever it type-checks. That is the first law.
@@ -132,7 +133,7 @@ absence and suffix `!` to failure.
 T?   suffix, type         optional: T or none
 T!   suffix, type         fallible: T or an error
 e!   suffix, expression   propagate the failure of a T!
-e?   suffix, expression   reserved: propagate the absence of a T?
+e?   suffix, expression   propagate the absence of a T?
 ```
 
 The triangle came from a collision: an early design spelled fallible
@@ -343,7 +344,7 @@ goals, and says no where they don't.
 | **Python** | indentation, `and`/`or`/`not`, readable one-line calls, `print` with several values, bindings without declarations | dynamic typing, implicit shadowing |
 | **Ruby** | paren-free calls, short keywords, readability first | `valid?` names, implicit mutation |
 | **CoffeeScript, Rip** | the aesthetic; Rip (a CoffeeScript-style language by Rig's author) and Zag (its Zig-targeted sibling) supplied the indentation lexer and much of the surface | reactive operators in the core language |
-| **Swift** | second-class borrows; `x?` optional propagation (reserved) | |
+| **Swift** | second-class borrows; `x?` optional propagation | |
 | **Hylo, Mojo** | borrows as parameter conventions rather than types with lifetimes; values first | |
 | **Lisp** | S-expressions as the IR and a project contract | S-expression syntax; macros |
 
