@@ -4181,39 +4181,23 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
             const arg = pn.args[i];
             for (ctx.generic_requirements.items) |req| {
                 if (req.param != param or satisfies(ctx, arg, req.req)) continue;
+                const at = entry.value_ptr.*;
+                const inst = try sema.formatType(ctx, entry.key_ptr.*);
                 const pname = ctx.symbols.items[param].name;
-                if (req.req == .plain) {
-                    try ctx.err(entry.value_ptr.*, "`{s}` cannot use `{s} = {s}`: the generic body {s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{
-                        try sema.formatType(ctx, entry.key_ptr.*), pname, try sema.formatType(ctx, arg), req.op, pname, try sema.formatType(ctx, arg),
-                    });
-                    try ctx.note(req.pos, "here", .{});
-                    break;
+                const aname = try sema.formatType(ctx, arg);
+                const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";
+                switch (req.req) {
+                    .plain => try ctx.err(at, cannot ++ "{s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{ inst, pname, aname, req.op, pname, aname }),
+                    .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
+                    .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
+                    .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
+                    else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
                 }
-                if (req.req == .fits) {
-                    try ctx.err(entry.value_ptr.*, "`{s}` cannot use `{s} = {s}`: the generic body applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{
-                        try sema.formatType(ctx, entry.key_ptr.*), pname, try sema.formatType(ctx, arg), req.op, pname, req.req.fits, try sema.formatType(ctx, arg),
-                    });
-                    try ctx.note(req.pos, "`{s}` used here", .{req.op});
-                    break;
+                switch (req.req) {
+                    .plain => try ctx.note(req.pos, "here", .{}),
+                    .fits, .float, .shift => try ctx.note(req.pos, "`{s}` used here", .{req.op}),
+                    else => try ctx.note(req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
                 }
-                if (req.req == .float) {
-                    try ctx.err(entry.value_ptr.*, "`{s}` cannot use `{s} = {s}`: the generic body applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{
-                        try sema.formatType(ctx, entry.key_ptr.*), pname, try sema.formatType(ctx, arg), req.op, pname, try sema.formatType(ctx, arg),
-                    });
-                    try ctx.note(req.pos, "`{s}` used here", .{req.op});
-                    break;
-                }
-                if (req.req == .shift) {
-                    try ctx.err(entry.value_ptr.*, "`{s}` cannot use `{s} = {s}`: the generic body shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{
-                        try sema.formatType(ctx, entry.key_ptr.*), pname, try sema.formatType(ctx, arg), pname, req.req.shift, try sema.formatType(ctx, arg),
-                    });
-                    try ctx.note(req.pos, "`{s}` used here", .{req.op});
-                    break;
-                }
-                try ctx.err(entry.value_ptr.*, "`{s}` cannot use `{s} = {s}`: the generic body applies `{s}` to `{s}`, which `{s}` does not support", .{
-                    try sema.formatType(ctx, entry.key_ptr.*), pname, try sema.formatType(ctx, arg), req.op, pname, try sema.formatType(ctx, arg),
-                });
-                try ctx.note(req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() });
                 break;
             }
         }
