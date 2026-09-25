@@ -75,12 +75,8 @@ const SymbolResolver = struct {
             .use => try self.walkUse(sexp),
             .type => try self.walkTypeAlias(sexp),
             .generic_type, .generic_enum => try self.walkGenericType(sexp),
-            .@"struct", .@"enum" => try self.walkNominalType(sexp),
-            .errors => {
-                const before = self.ctx.symbols.items.len;
-                try self.walkNominalType(sexp);
-                if (self.ctx.symbols.items.len > before) self.ctx.symbols.items[before].flags.error_set = true;
-            },
+            .@"struct", .@"enum" => try self.walkNominalType(sexp, .{}),
+            .errors => try self.walkNominalType(sexp, .{ .error_set = true }),
             .@"extern" => _ = try self.declare(ir.Extern.name(sexp), .@"extern", .{}),
             .extern_fun, .extern_sub => _ = try self.declare(ir.get(sexp, .name), .@"extern", .{}),
             .@"test" => try self.walkTest(sexp),
@@ -344,8 +340,8 @@ const SymbolResolver = struct {
     }
 
     /// A `struct`, `enum`, or `errors`.
-    fn walkNominalType(self: *SymbolResolver, node: Sexp) Error!void {
-        _ = try self.declare(ir.get(node, .name), .nominal_type, .{});
+    fn walkNominalType(self: *SymbolResolver, node: Sexp, flags: sema.SymbolFlags) Error!void {
+        _ = try self.declare(ir.get(node, .name), .nominal_type, flags);
         try self.walkMembers(ir.rest(node, .members));
     }
 
@@ -809,11 +805,11 @@ pub const TypeResolver = struct {
         for (members) |m| {
             switch (m) {
                 .src => |s| {
+                    const vname = identAt(self.ctx.source, m).?;
                     if (!is_enum) {
-                        try self.ctx.err(s.pos, "field `{s}` needs a type (`{s}: T`)", .{ identAt(self.ctx.source, m).?, identAt(self.ctx.source, m).? });
+                        try self.ctx.err(s.pos, "field `{s}` needs a type (`{s}: T`)", .{ vname, vname });
                         continue;
                     }
-                    const vname = identAt(self.ctx.source, m).?;
                     if (try self.checkDuplicateMember(fields.items, vname, s.pos, sym_name)) continue;
                     try fields.append(self.ctx.allocator, .{ .name = vname, .ty = self.ctx.types.void_id, .decl_pos = s.pos, .is_variant = true });
                 },
