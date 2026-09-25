@@ -1419,9 +1419,22 @@ const Checker = struct {
                 try self.errAt(leaf, "an extern function can only be called, inside `raw`", .{});
                 return self.t().invalid_id;
             } else return sym.ty,
-            .function => return self.functionValue(sym.ty, s, leaf.src.pos),
+            .function => {
+                if (self.isEntryPoint(sym)) {
+                    try self.errAt(leaf, entry_point_use, .{});
+                    return self.t().invalid_id;
+                }
+                return self.functionValue(sym.ty, s, leaf.src.pos);
+            },
             else => return sym.ty,
         }
+    }
+
+    const entry_point_use = "`main` is the program's entry point; it cannot be called or used as a value";
+
+    /// The root module's `main`, which only the program calls.
+    fn isEntryPoint(self: *Checker, sym: sema.Symbol) bool {
+        return self.ctx.is_root and sym.kind == .function and sym.scope == sema.module_scope and std.mem.eql(u8, sym.name, "main");
     }
 
     /// A function named as a value. One with `pre` parameters has a
@@ -2593,6 +2606,7 @@ const Checker = struct {
             }
             switch (sym.kind) {
                 .function, .@"extern" => {
+                    if (self.isEntryPoint(sym)) return self.badCall(args, callee, entry_point_use, .{});
                     if (self.isPoison(sym.ty)) return self.skipCall(args);
                     const fty = self.ctx.types.get(sym.ty);
                     if (fty != .function) return self.badCall(args, callee, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(sym.ty) });

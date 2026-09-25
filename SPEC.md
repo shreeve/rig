@@ -48,6 +48,8 @@ types (`struct`, `enum`, `error`, `type`), constants (`name =! value`),
 imports (`use`), `extern` declarations, and `test` blocks. Statements
 live inside functions. The file's name ends in `.rig`, and a program
 that runs declares its entry point as `sub main()`, with no parameters.
+Only the program calls it: Rig code cannot call `main` or use it as a
+value.
 `rig check` checks a program, `rig run` checks, builds, and runs it,
 and `rig --help` lists the other commands (see also the
 [README](README.md#build-and-run)).
