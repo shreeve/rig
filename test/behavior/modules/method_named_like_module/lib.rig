@@ -1,0 +1,7 @@
+pub limit =! 7
+
+pub struct P
+  x: Int
+
+pub fun twice(n: Int) -> Int
+  n * 2

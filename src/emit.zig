@@ -2383,7 +2383,9 @@ pub const Emitter = struct {
         }
         // An imported constant is read at run time, like a local one.
         if (self.rt_names and !self.keep_comptime and self.isModuleValue(obj, sexp)) {
-            return self.w.print("rig.rt({s}.{f})", .{ self.srcText(obj), ident(field) });
+            try self.w.writeAll("rig.rt(");
+            try self.writeModuleName(self.srcText(obj));
+            return self.w.print(".{f})", .{ident(field)});
         }
         try self.emitMemberBase(obj, obj_ty);
         if (obj_ty) |t| if (self.sema.types.get(self.peelBorrows(t)) == .shared) try self.w.writeAll(".value");
@@ -3207,7 +3209,10 @@ pub const Emitter = struct {
                 const foreign = ctx.foreign_semas.get(in.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
                 const type_name = foreign.symbols.items[in.sym_id].name;
                 for (ctx.imports) |imp| {
-                    if (imp.module_id == in.module_id) return self.w.print("{f}.{f}", .{ ident(imp.local_name), ident(type_name) });
+                    if (imp.module_id == in.module_id) {
+                        try self.writeModuleName(imp.local_name);
+                        return self.w.print(".{f}", .{ident(type_name)});
+                    }
                 }
                 // A module reached only through an import.
                 return self.w.print("@import(\"{s}.zig\").{f}", .{ foreign.name, ident(type_name) });
