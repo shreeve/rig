@@ -10,4 +10,4 @@ sub safe_puts(s: String)
 sub main()
   safe_puts("hello")
 
-# error: `String`
+# error: 4:12: `extern` function `puts` cannot take `String`; only integers, floats, and Bool cross the C boundary

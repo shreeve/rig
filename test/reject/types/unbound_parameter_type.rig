@@ -1,0 +1,9 @@
+# An undeclared type in a parameter list is a Rig diagnostic.
+
+fun take(x: NopeType) -> Int
+  1
+
+sub main()
+  print(take(0))
+
+# error: 3:13: use of unbound type `NopeType`

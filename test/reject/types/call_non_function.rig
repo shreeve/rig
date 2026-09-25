@@ -5,4 +5,4 @@ sub main()
   y = x(1)
   print(y)
 
-# error: `Int`
+# error: 5:7: `x` has type `Int` and cannot be called

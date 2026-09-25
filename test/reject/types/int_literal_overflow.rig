@@ -4,4 +4,4 @@ sub main()
   a: U8 = 300
   print(a)
 
-# error: `U8`
+# error: 4:11: integer value `300` does not fit in `U8` (0..255)

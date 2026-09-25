@@ -9,4 +9,4 @@ sub main()
     print(n)
   print(n)
 
-# error: shadows
+# error: 8:7: `for` binding `n` shadows the local `n`; use a different name

@@ -5,4 +5,4 @@ sub main()
   for i in x
     print(i)
 
-# error: `Int`
+# error: 5:12: cannot iterate over `Int`; a `for` source must be a range `a..b`, an array, a String, or a `Vec`

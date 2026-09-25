@@ -4,4 +4,4 @@ use a
 sub main()
   print(a.fa())
 
-# error: cyclic import
+# error: 1:1: cyclic import: `a` is still being loaded when `b` imports it

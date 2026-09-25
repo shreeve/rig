@@ -4,4 +4,4 @@ sub main()
   x = )
   print(x)
 
-# error: unexpected
+# error: 4:7: unexpected `)`; expected an expression

@@ -5,4 +5,4 @@ sub main()
   if s == 1
     print("eq")
 
-# error: `String`
+# error: 5:6: cannot compare `String` with `Int`

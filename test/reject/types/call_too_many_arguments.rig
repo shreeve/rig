@@ -1,0 +1,9 @@
+# A call passes exactly as many arguments as the function takes.
+
+fun add(a: Int, b: Int) -> Int
+  a + b
+
+sub main()
+  print(add(1, 2, 3, 4))
+
+# error: 7:9: call to `add` expects 2 arguments, got 4

@@ -5,4 +5,4 @@ sub main()
   y = x[0]
   print(y)
 
-# error: `Int`
+# error: 5:7: cannot index a value of type `Int`

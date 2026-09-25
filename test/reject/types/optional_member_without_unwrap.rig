@@ -10,4 +10,4 @@ fun name_of(u: User?) -> String
 sub main()
   print("unused")
 
-# error: `User?`
+# error: 8:5: cannot access `name` on optional `User?`; take the value out first with `x ?? fallback`

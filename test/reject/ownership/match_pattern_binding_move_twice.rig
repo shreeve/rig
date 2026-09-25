@@ -21,4 +21,4 @@ sub main()
     .full(b) => eat(<b)
     .empty => print(0)
 
-# error: after move
+# error: 20:9: use of `s` after move
