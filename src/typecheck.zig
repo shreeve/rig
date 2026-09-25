@@ -461,13 +461,10 @@ const Checker = struct {
             _ = try self.synthExpr(rhs);
             return;
         }
-        const sym_id = self.ctx.symbolOf(target) orelse blk: {
-            // `<-` and compound assignment name an existing binding.
-            const id = (try self.useName(target)) orelse {
-                _ = try self.synthExpr(rhs);
-                return;
-            };
-            break :blk id;
+        // `<-` and compound assignment name an existing binding.
+        const sym_id = self.ctx.symbolOf(target) orelse (try self.useName(target)) orelse {
+            _ = try self.synthExpr(rhs);
+            return;
         };
         try self.ctx.recordName(target, sym_id);
         const sym = &self.ctx.symbols.items[sym_id];
@@ -891,7 +888,11 @@ const Checker = struct {
     /// A statement that yields no value: a binding, a jump, a loop other
     /// than a value loop.
     fn yieldsNoValue(self: *Checker, e: Sexp) bool {
-        return isStatementForm(e) and !self.isValueLoop(e);
+        const h = e.kind() orelse return false;
+        return switch (h) {
+            .set, .@"while", .@"for", .drop, .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .labeled => !self.isValueLoop(e),
+            else => false,
+        };
     }
 
     /// A loop used as a value: its `break` values and its `else` value
@@ -3608,13 +3609,9 @@ const Checker = struct {
                 try self.err(pos, "builtin `@{s}` is not in the safe whitelist; wrap it in a `raw` block. Safe builtins: `@sizeOf`, `@alignOf`, `@TypeOf`, `@typeName`", .{name});
             }
             switch (builtin) {
-                .sizeOf, .alignOf => {
-                    if (try self.builtinTypeArg(name, args, pos)) break :blk self.t().int_literal_id;
-                    break :blk self.t().invalid_id;
-                },
-                .typeName => {
-                    if (try self.builtinTypeArg(name, args, pos)) break :blk self.t().string_id;
-                    break :blk self.t().invalid_id;
+                .sizeOf, .alignOf, .typeName => {
+                    if (!(try self.builtinTypeArg(name, args, pos))) break :blk self.t().invalid_id;
+                    break :blk if (builtin == .typeName) self.t().string_id else self.t().int_literal_id;
                 },
                 .TypeOf => {
                     try self.err(pos, "`@TypeOf` is only allowed as the argument of `@sizeOf`, `@alignOf`, or `@typeName`", .{});
@@ -4124,14 +4121,6 @@ fn ifWithoutValue(e: Sexp) bool {
     if (!e.isKind(.@"if")) return false;
     const other = ir.If.@"else"(e);
     return other == .nil or ifWithoutValue(other);
-}
-
-fn isStatementForm(e: Sexp) bool {
-    const h = e.kind() orelse return false;
-    return switch (h) {
-        .set, .@"while", .@"for", .drop, .@"defer", .@"errdefer", .@"return", .@"break", .@"continue", .labeled => true,
-        else => false,
-    };
 }
 
 /// The value of a float literal, possibly negated: `2.5`, `-1e3`.
