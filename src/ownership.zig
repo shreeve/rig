@@ -491,7 +491,8 @@ pub const Checker = struct {
         const v = self.vars.items[id];
         const f = self.flows.items[id];
         const what = if (f.status == .dropped) "dropped" else "moved";
-        if (self.loop != null and f.at >= use_pos) {
+        // Deferred code runs after the code that follows it.
+        if (self.loop != null and f.at >= use_pos and !self.in_defer) {
             try self.note(f.at, "`{s}` was {s} here, in a previous iteration of the loop", .{ v.name, what });
         } else {
             try self.note(f.at, "`{s}` was {s} here", .{ v.name, what });
@@ -1235,19 +1236,25 @@ pub const Checker = struct {
         self.setTail(tail, ctx.sink);
         const v = try self.walk(body);
         self.tail = null;
-        if (tail == .src) try self.consumeTailName(tail);
+        if (tail == .src) try self.consumeTailName(tail, ctx.sink);
         return v;
     }
 
-    fn consumeTailName(self: *Checker, node: Sexp) Error!void {
+    fn consumeTailName(self: *Checker, node: Sexp, sink: Sink) Error!void {
         const ctx = self.sema orelse return;
         const sym = ctx.symbolOf(node) orelse return;
         const f = self.find(self.text(node)) orelse return;
         if (f.crossed) return;
         const v = self.vars.items[f.id];
         if (v.decl != ctx.symbols.items[sym].decl_pos) return;
-        const root = v.alias_of orelse return;
         if (!self.flowLive(f.id)) return;
+        const root = v.alias_of orelse {
+            // A bare owning name returned through a branch moves out.
+            if (sink == .ret and !v.closure and !v.loop_borrow and !v.capture_resource and self.returnMoves(v)) {
+                _ = try self.moveVar(f.id, node.src.pos, .move);
+            }
+            return;
+        };
         const k = self.owningKind(v.ty) orelse return;
         if (k == .generic and v.via != .owned) {
             // A copy for plain data; each instantiation is checked.
@@ -2173,11 +2180,10 @@ pub const Checker = struct {
                 if (v.closure) {
                     value = try self.walkName(expr, false);
                 } else if (!v.loop_borrow and !v.capture_resource) {
-                    if (try self.checkLive(id, expr.src.pos)) {
+                    if (self.returnMoves(v)) {
+                        value = try self.moveVar(id, expr.src.pos, .move);
+                    } else if (try self.checkLive(id, expr.src.pos)) {
                         value = self.varValue(id);
-                        if (v.alias_of) |root| {
-                            if (!self.isCopy(v.ty)) _ = try self.movePayload(id, root, expr.src.pos, value);
-                        }
                     }
                 }
             }
@@ -2190,6 +2196,14 @@ pub const Checker = struct {
             return;
         }
         if (self.func.ret_may_borrow and self.reachable) try self.checkEscape(value);
+    }
+
+    /// A bare name that leaves the function moves out: a match payload
+    /// out of its scrutinee, and an owning value out of its binding, so
+    /// deferred code at that exit sees it moved.
+    fn returnMoves(self: *const Checker, v: Var) bool {
+        if (v.alias_of != null) return !self.isCopy(v.ty);
+        return self.owningKind(v.ty) != null;
     }
 
     fn checkEscape(self: *Checker, v: Value) Error!void {

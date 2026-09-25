@@ -1,0 +1,25 @@
+# `return v` and a bare `v` in a returned branch move `v` out before the
+# defers of the function run.
+
+fun early(c: Bool) -> Vec(Int)
+  v: Vec(Int) = Vec()
+  defer print(v.length())
+  return v if c
+  Vec()
+
+fun pick(c: Bool) -> Vec(Int)
+  a: Vec(Int) = Vec()
+  b: Vec(Int) = Vec()
+  defer (!a).push(1)
+  if c
+    a
+  else
+    <b
+
+sub main()
+  x = early(true)
+  y = pick(true)
+  print(x.length(), y.length())
+
+# error: use of `v` after move
+# error: use of `a` after move
