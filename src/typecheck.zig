@@ -160,7 +160,7 @@ const Checker = struct {
     // =========================================================================
 
     fn checkDecl(self: *Checker, sexp: Sexp) Error!void {
-        switch (sexp.kind() orelse return) {
+        switch (sexp.kind() orelse return self.errAt(sexp, not_at_module_level, .{})) {
             .@"pub" => try self.checkDecl(ir.Pub.decl(sexp)),
             .fun, .sub => {
                 const fn_ty = if (self.ctx.symbolOf(ir.get(sexp, .name))) |id| self.ctx.symbols.items[id].ty else self.t().invalid_id;
@@ -168,6 +168,7 @@ const Checker = struct {
             },
             .@"struct", .@"enum", .errors, .generic_type, .generic_enum => try self.checkNominal(sexp),
             .@"test" => {
+                try self.checkEscapes(ir.Test.name(sexp));
                 const prev_scope = self.enter(sexp);
                 defer self.scope = prev_scope;
                 // A test fails by returning an error, which `rig test`
@@ -245,8 +246,13 @@ const Checker = struct {
         self.is_sub = is_sub;
         // `sub main` lowers to a fallible `main`.
         const name = ir.get(node, .name);
-        const is_main = is_sub and self.nominal.isEmpty() and std.mem.eql(u8, self.text(name), "main");
-        self.fail_to = if (is_main or rig.returnType(node).isKind(.error_union)) .caller else .{ .infallible = name };
+        const is_main = self.nominal.isEmpty() and std.mem.eql(u8, self.text(name), "main");
+        // The root module's `main` is the program's entry point. The
+        // module graph loads the root first, as module 1 (a lone file is 0).
+        if (is_main and self.ctx.module_id <= 1 and (!is_sub or ir.get(node, .params).items().len > 0)) {
+            try self.errAt(name, "`main` must be `sub main()`: the program's entry point takes no parameters and returns no value", .{});
+        }
+        self.fail_to = if ((is_main and is_sub) or rig.returnType(node).isKind(.error_union)) .caller else .{ .infallible = name };
         defer self.fail_to = .module;
         for (ir.get(node, .params).items()) |p| try self.checkDefault(p);
         try self.checkBody(ir.get(node, .body), ret, is_sub);
@@ -362,6 +368,7 @@ const Checker = struct {
     fn checkReturn(self: *Checker, node: Sexp) Error!void {
         const value = ir.Return.value(node);
         const ret = self.fn_return;
+        if (self.fail_to == .deferred) try self.errAt(node, "cannot `return` inside `defer`; the deferred code runs as the function exits", .{});
         if (self.lambda_returns) |sites| {
             const ty: ?TypeId = if (value == .nil) null else try self.synthExpr(value);
             try sites.append(self.ctx.allocator, .{ .node = node, .ty = ty });
@@ -393,6 +400,8 @@ const Checker = struct {
 
         const name = self.text(target);
         if (std.mem.eql(u8, name, "_")) {
+            // `x op= e` reads `x`.
+            if (kind.operator() != null) try self.errAt(target, discard_read, .{});
             _ = try self.synthExpr(rhs);
             return;
         }
@@ -734,9 +743,19 @@ const Checker = struct {
 
     fn checkWhile(self: *Checker, node: Sexp) Error!void {
         const prev = self.scope;
-        try self.checkCondition(ir.While.cond(node));
+        const cond = ir.While.cond(node);
+        try self.checkCondition(cond);
         const step = ir.While.step(node);
-        if (step != .nil) try self.checkStmt(step);
+        if (step != .nil) {
+            try self.checkStmt(step);
+            // The body drops an owning `as` binding before the step runs.
+            if (cond.isKind(.as)) if (self.ctx.symbolOf(ir.As.name(cond))) |b| {
+                const sym = self.ctx.symbols.items[b];
+                if (findUse(self.ctx, step, b)) |use| if (try self.ownsResource(sym.ty, self.startOf(use), "uses in a loop step a binding")) {
+                    try self.errAt(use, "the loop step cannot use `{s}`: it owns a `{s}`, which the body drops before the step runs", .{ sym.name, try self.tyName(sym.ty) });
+                };
+            };
+        }
         try self.checkStmt(ir.While.body(node));
         self.scope = prev;
         const else_ = ir.While.@"else"(node);
@@ -1142,9 +1161,13 @@ const Checker = struct {
         };
     }
 
-    /// A string's escapes: `\n`, `\r`, `\t`, `\\`, `\'`, `\"`, `\xNN`,
-    /// and `\u{N...}`.
-    fn checkEscapes(self: *Checker, s: []const u8, pos: u32) Error!void {
+    /// A double-quoted string literal's escapes: `\n`, `\r`, `\t`, `\\`,
+    /// `\'`, `\"`, `\xNN`, and `\u{N...}`. A single-quoted string takes
+    /// no escapes.
+    fn checkEscapes(self: *Checker, leaf: Sexp) Error!void {
+        const s = self.text(leaf);
+        if (s.len == 0 or s[0] != '"') return;
+        const pos = leaf.src.pos;
         var i: usize = 1;
         while (i + 1 < s.len) : (i += 1) {
             if (s[i] != '\\') continue;
@@ -1175,7 +1198,7 @@ const Checker = struct {
         const s = self.text(leaf);
         if (s.len == 0) return self.t().invalid_id;
         if (s[0] == '"' or s[0] == '\'') {
-            try self.checkEscapes(s, leaf.src.pos);
+            try self.checkEscapes(leaf);
             return self.t().string_id;
         }
         if (std.mem.eql(u8, s, "true") or std.mem.eql(u8, s, "false")) return self.t().bool_id;
@@ -1212,6 +1235,10 @@ const Checker = struct {
     fn useName(self: *Checker, leaf: Sexp) Error!?SymbolId {
         if (leaf != .src) return null;
         const name = self.text(leaf);
+        if (std.mem.eql(u8, name, "_")) {
+            try self.errAt(leaf, discard_read, .{});
+            return null;
+        }
         var sid: ?ScopeId = self.scope;
         var crossed_lambda = false;
         while (sid) |s| {
@@ -2211,18 +2238,17 @@ const Checker = struct {
 
         if (callee == .src) {
             const name = self.text(callee);
-            const id = self.lookupQuiet(callee) orelse {
+            if (self.lookupQuiet(callee) == null) {
                 if (std.mem.eql(u8, name, "print")) return self.checkPrint(args);
                 if (resolve.isNumericTypeName(name)) {
                     var r = self.resolver();
                     return self.checkConversion(try r.resolveType(callee), name, args, callee.src.pos);
                 }
-                try self.errAt(callee, "use of unbound name `{s}`", .{name});
+            }
+            const sym_id = (try self.useName(callee)) orelse {
                 try self.synthArgs(args);
                 return self.t().invalid_id;
             };
-            const sym_id = (try self.useName(callee)).?;
-            _ = id;
             const sym = self.ctx.symbols.items[sym_id];
             if (sym.kind != .nominal_type and sym.kind != .generic_type and sym.kind != .type_alias and sym.kind != .module) {
                 try self.ctx.recordType(callee, sym.ty);
@@ -3790,6 +3816,14 @@ const Checker = struct {
             self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
             return;
         };
+        switch (self.ctx.symbols.items[outer_id].kind) {
+            .local, .param, .capture => {},
+            else => {
+                try self.err(pos, "only a local can be captured; `{s}` is declared at module level, so use it in the closure directly", .{name});
+                self.ctx.symbols.items[cap_sym].ty = self.t().invalid_id;
+                return;
+            },
+        }
         const outer_ty = self.ctx.symbols.items[outer_id].ty;
         const oty = self.ctx.types.get(outer_ty);
         const bound: TypeId = switch (mode) {
@@ -3986,12 +4020,19 @@ fn breaksOut(e: Sexp) bool {
     return false;
 }
 
-/// A name or a chain of fields off one: `v`, `t.kids`, `a.b.c`.
+/// The first name in `node` that denotes symbol `sym`.
+fn findUse(ctx: *const SemContext, node: Sexp, sym: SymbolId) ?Sexp {
+    if (node == .src) return if (ctx.symbolOf(node) == sym) node else null;
+    for (rig.children(node)) |c| if (findUse(ctx, c, sym)) |use| return use;
+    return null;
+}
+
 /// `a` and `b` are the same parsed node.
 fn sameNode(a: Sexp, b: Sexp) bool {
     return a == .list and b == .list and a.list.ptr == b.list.ptr;
 }
 
+/// A name or a chain of fields off one: `v`, `t.kids`, `a.b.c`.
 fn isFieldPath(e: Sexp) bool {
     if (e == .src) return true;
     if (!e.isKind(.member)) return false;
