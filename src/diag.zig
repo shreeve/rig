@@ -87,6 +87,7 @@ pub fn writeExcerpt(source: []const u8, pos: u32, end: u32, w: anytype) !void {
     const at: usize = @min(pos, source.len);
     var start = at;
     while (start > 0 and source[start - 1] != '\n') start -= 1;
+    if (start == 0 and at >= bom.len and std.mem.startsWith(u8, source, bom)) start = bom.len;
     var stop = at;
     while (stop < source.len and source[stop] != '\n' and source[stop] != '\r') stop += 1;
     var cut_start = false;
@@ -115,6 +116,9 @@ pub fn writeExcerpt(source: []const u8, pos: u32, end: u32, w: anytype) !void {
     try w.writeByte('\n');
 }
 
+/// A UTF-8 byte order mark, which the lexer skips; it takes no column.
+const bom = "\xEF\xBB\xBF";
+
 fn isContinuation(c: u8) bool {
     return c & 0xC0 == 0x80;
 }
@@ -139,6 +143,7 @@ pub const Lines = struct {
     pub fn at(self: *Lines, pos: u32) LineCol {
         const end = @min(pos, self.source.len);
         if (end < self.pos) self.* = .{ .source = self.source };
+        if (self.pos == 0 and end >= bom.len and std.mem.startsWith(u8, self.source, bom)) self.pos = bom.len;
         for (self.source[self.pos..end]) |c| {
             if (c == '\n') {
                 self.lc.line += 1;
@@ -178,6 +183,9 @@ test "lineCol: counts lines and columns from 1" {
     try std.testing.expectEqual(LineCol{ .line = 3, .col = 1 }, lineCol(src, 999));
     // A UTF-8 character is one column.
     try std.testing.expectEqual(LineCol{ .line = 1, .col = 4 }, lineCol("\"é\"x", 4));
+    // A byte order mark is not.
+    try std.testing.expectEqual(LineCol{ .line = 1, .col = 1 }, lineCol("\xEF\xBB\xBFx", 3));
+    try std.testing.expectEqual(LineCol{ .line = 1, .col = 2 }, lineCol("\xEF\xBB\xBFxy", 4));
 }
 
 test "write: position, message, and the range underlined on its line" {
