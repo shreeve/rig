@@ -1208,8 +1208,20 @@ const Checker = struct {
                 try self.errAt(leaf, "an extern function can only be called, inside `raw`", .{});
                 return self.t().invalid_id;
             } else return sym.ty,
+            .function => return self.functionValue(sym.ty, s, leaf.src.pos),
             else => return sym.ty,
         }
+    }
+
+    /// A function named as a value. One with `pre` parameters has a
+    /// compile-time instance per call, and no single function value.
+    fn functionValue(self: *Checker, ty: TypeId, name: []const u8, pos: u32) Error!TypeId {
+        const f = self.ctx.types.get(ty);
+        if (f == .function and f.function.pre_mask != 0) {
+            try self.err(pos, "`{s}` takes a `pre` parameter, so it can only be called, not used as a value", .{name});
+            return self.t().invalid_id;
+        }
+        return ty;
     }
 
     /// Resolve an identifier use, record the fact, and diagnose unbound
@@ -1975,7 +1987,9 @@ const Checker = struct {
             try self.err(pos, "`{s}.{s}` is a type, not a value", .{ self.text(obj), field });
             return self.t().invalid_id;
         }
-        return try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
+        const ty = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
+        if (found.sym.kind == .function) return try self.functionValue(ty, field, pos);
+        return ty;
     }
 
     /// A nominal type named where a value could be (`Type`, or
@@ -2045,8 +2059,9 @@ const Checker = struct {
                     try self.err(pos, "method `{s}.{s}` of a generic type must be called; wrap it in a closure to pass it as a value", .{ nt.sym.name, field });
                     return self.t().invalid_id;
                 }
-                if (nt.foreign) |fo| return sema.importType(self.ctx, fo.ctx, m.ty, fo.module_id);
-                return m.ty;
+                const name = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ nt.sym.name, field });
+                const ty = if (nt.foreign) |fo| try sema.importType(self.ctx, fo.ctx, m.ty, fo.module_id) else m.ty;
+                return self.functionValue(ty, name, pos);
             }
             if (!m.is_variant) break;
             if (nt.sym.kind == .generic_type) {
