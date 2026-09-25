@@ -646,6 +646,14 @@ const Checker = struct {
             try self.errAt(at, "cannot {s} through {s}shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell(T)` for mutation through shared ownership.", .{ through, if (assign) "" else "a " });
             return false;
         }
+        if (path.read_only) |ro| {
+            switch (ro.what) {
+                .slice => try self.err(ro.pos, "cannot {s} through a slice; a `[]T` is read-only", .{through}),
+                .string => try self.err(ro.pos, "cannot {s} a byte of a String; a String is read-only", .{verb}),
+                .len => try self.err(ro.pos, "cannot {s} `.len`; a length is read-only", .{verb}),
+            }
+            return false;
+        }
         if (path.read_borrow) |pos| {
             try self.err(pos, "cannot {s} through a read borrow (`?T`); take a write borrow (`!T`) to mutate", .{through});
             return false;
@@ -690,7 +698,7 @@ const Checker = struct {
             try self.errAt(place, "cannot lend the write borrow held here through a shared handle (`*T`); other handles reach the same write borrow", .{});
             return false;
         }
-        if (path.read_borrow) |pos| {
+        if (path.read_borrow orelse if (path.read_only) |ro| ro.pos else null) |pos| {
             try self.err(pos, "cannot lend the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow", .{});
             return false;
         }
@@ -711,6 +719,9 @@ const Checker = struct {
         read_borrow: ?u32 = null,
         /// `module.name` when the root is an imported module.
         module_member: ?Sexp = null,
+        /// Where the path reaches read-only storage: an element of a
+        /// slice or String, or a `.len`.
+        read_only: ?struct { what: enum { slice, string, len }, pos: u32 } = null,
     };
 
     /// Whether a value is reached through a `?T` or `*T`: it is one, or
@@ -721,7 +732,7 @@ const Checker = struct {
             else => {},
         };
         const path = self.placePath(e);
-        return path.shared or path.read_borrow != null;
+        return path.shared or path.read_borrow != null or path.read_only != null;
     }
 
     fn placePath(self: *Checker, place: Sexp) PlacePath {
@@ -732,6 +743,15 @@ const Checker = struct {
             const obj = ir.get(p, .object);
             if (h == .member) path.module_member = p;
             if (self.ctx.typeOf(obj)) |ty| {
+                if (path.read_only == null) {
+                    const base = self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty));
+                    if (h == .index) {
+                        if (base == .slice) path.read_only = .{ .what = .slice, .pos = self.startOf(obj) };
+                        if (base == .string) path.read_only = .{ .what = .string, .pos = self.startOf(obj) };
+                    } else if ((base == .slice or base == .string or base == .array) and std.mem.eql(u8, self.text(ir.Member.name(p)), "len")) {
+                        path.read_only = .{ .what = .len, .pos = self.startOf(ir.Member.name(p)) };
+                    }
+                }
                 switch (self.ctx.types.get(ty)) {
                     .borrow_read => {
                         path.indirect = true;

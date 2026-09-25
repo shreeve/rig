@@ -1,0 +1,29 @@
+# A `[]T` is read-only: its elements cannot be assigned, write-borrowed,
+# or reached by a `!self` method.
+
+struct P
+  x: Int
+
+  fun bump(!self)
+    self.x += 1
+
+sub inc(n: !Int)
+  n += 1
+
+sub main()
+  a = [1, 2, 3]
+  s = ?a[0..3]
+  s[0] = 5
+  s[1] += 1
+  inc(!s[2])
+  ps = [P(x: 1), P(x: 2)]
+  t = ?ps[0..2]
+  t[0].x = 9
+  (!t[1]).bump()
+  print(a[0])
+
+# error: 16:3: cannot assign through a slice; a `[]T` is read-only
+# error: 17:3: cannot assign through a slice; a `[]T` is read-only
+# error: 18:8: cannot write-borrow through a slice; a `[]T` is read-only
+# error: 21:3: cannot assign through a slice; a `[]T` is read-only
+# error: 22:5: cannot write-borrow through a slice; a `[]T` is read-only
