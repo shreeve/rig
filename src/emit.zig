@@ -318,10 +318,7 @@ pub const Emitter = struct {
             return self.w.writeAll(";\n");
         };
         try self.w.print("extern \"c\" fn {f}(", .{ident(self.srcText(name_node))});
-        for (f.params, 0..) |p, i| {
-            if (i > 0) try self.w.writeAll(", ");
-            try self.emitTypeTy(p);
-        }
+        try self.emitTypeList(f.params);
         try self.w.writeAll(") ");
         try self.emitTypeTy(f.returns);
         try self.w.writeAll(";\n");
@@ -451,7 +448,7 @@ pub const Emitter = struct {
     /// `pub fn Name(comptime T: type, ...) type { return <container> {`,
     /// with a discard for each type parameter nothing in the body names.
     fn emitGenericHead(self: *Emitter, params: Sexp, members: []const Sexp, container: []const u8) Error!void {
-        try self.w.print("pub fn {s}(", .{try self.fmt("{f}", .{ident(self.sema.symbols.items[self.nominal.?.sym].name)})});
+        try self.w.print("pub fn {f}(", .{ident(self.sema.symbols.items[self.nominal.?.sym].name)});
         for (params.items(), 0..) |p, i| {
             if (i > 0) try self.w.writeAll(", ");
             try self.w.print("comptime {f}: type", .{ident(self.srcText(p))});
@@ -1975,12 +1972,8 @@ pub const Emitter = struct {
     /// `*T` / `*const T` for a borrow type.
     fn emitPointerTy(self: *Emitter, ty: TypeId) Error!void {
         switch (self.sema.types.get(ty)) {
-            .borrow_write => |inner| {
-                try self.w.writeAll("*");
-                try self.emitTypeTy(inner);
-            },
-            .borrow_read => |inner| {
-                try self.w.writeAll("*const ");
+            .borrow_read, .borrow_write => |inner| {
+                try self.w.writeAll(if (self.sema.types.get(ty) == .borrow_read) "*const " else "*");
                 try self.emitTypeTy(inner);
             },
             else => try self.emitTypeTy(ty),
@@ -2343,7 +2336,7 @@ pub const Emitter = struct {
             return self.w.print("rig.rt({s}.{f})", .{ self.srcText(obj), ident(field) });
         }
         try self.emitMemberBase(obj, obj_ty);
-        if (obj_ty) |t| if (self.isSharedTy(t)) try self.w.writeAll(".value");
+        if (obj_ty) |t| if (self.sema.types.get(self.peelBorrows(t)) == .shared) try self.w.writeAll(".value");
         try self.w.print(".{f}", .{ident(field)});
     }
 
@@ -2533,7 +2526,7 @@ pub const Emitter = struct {
         // receiver's address, which may be a `*const` read borrow, is
         // cast to a mutable pointer. Sema keeps every Cell in mutable
         // storage, so the cast is sound.
-        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isCellTy(t) and self.sema.types.get(self.peelBorrows(t)) != .shared) {
+        if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isBuiltinInstance(t, self.sema.cell_sym_id)) {
             const m = self.srcText(ir.Member.name(callee));
             if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "replace")) {
                 try self.w.writeAll("@constCast(");
@@ -3156,16 +3149,8 @@ pub const Emitter = struct {
                 try self.w.writeAll("*");
                 try self.emitTypeTy(inner);
             },
-            .shared => |inner| {
-                try self.w.writeAll("*rig.RcBox(");
-                switch (ctx.types.get(inner)) {
-                    .function => |f| try self.emitClosureTy(f),
-                    else => try self.emitTypeTy(inner),
-                }
-                try self.w.writeAll(")");
-            },
-            .weak => |inner| {
-                try self.w.writeAll("rig.WeakHandle(");
+            .shared, .weak => |inner| {
+                try self.w.writeAll(if (ctx.types.get(ty) == .shared) "*rig.RcBox(" else "rig.WeakHandle(");
                 switch (ctx.types.get(inner)) {
                     .function => |f| try self.emitClosureTy(f),
                     else => try self.emitTypeTy(inner),
@@ -3194,23 +3179,25 @@ pub const Emitter = struct {
                 if (self.isSelfInstance(pn)) return self.w.writeAll("Self");
                 try self.writeNominalName(pn.sym);
                 try self.w.writeAll("(");
-                for (pn.args, 0..) |arg, i| {
-                    if (i > 0) try self.w.writeAll(", ");
-                    try self.emitTypeTy(arg);
-                }
+                try self.emitTypeList(pn.args);
                 try self.w.writeAll(")");
             },
             .type_var => |sym_id| try self.w.print("{f}", .{ident(ctx.symbols.items[sym_id].name)}),
             .function => |f| {
                 try self.w.writeAll("*const fn (");
-                for (f.params, 0..) |p, i| {
-                    if (i > 0) try self.w.writeAll(", ");
-                    try self.emitTypeTy(p);
-                }
+                try self.emitTypeList(f.params);
                 try self.w.writeAll(") ");
                 try self.emitTypeTy(f.returns);
             },
             else => return self.unsupported(.nil, "a value of this type"),
+        }
+    }
+
+    /// `A, B, C`.
+    fn emitTypeList(self: *Emitter, tys: []const TypeId) Error!void {
+        for (tys, 0..) |t, i| {
+            if (i > 0) try self.w.writeAll(", ");
+            try self.emitTypeTy(t);
         }
     }
 
@@ -3292,10 +3279,6 @@ pub const Emitter = struct {
         };
     }
 
-    fn isSharedTy(self: *Emitter, ty: TypeId) bool {
-        return self.sema.types.get(self.peelBorrows(ty)) == .shared;
-    }
-
     fn isBuiltinInstance(self: *Emitter, ty: TypeId, sym_id: SymbolId) bool {
         return switch (self.sema.types.get(self.peelBorrows(ty))) {
             .parameterized_nominal => |pn| pn.sym == sym_id,
@@ -3305,10 +3288,6 @@ pub const Emitter = struct {
 
     fn isVecTy(self: *Emitter, ty: TypeId) bool {
         return self.isBuiltinInstance(ty, self.sema.vec_sym_id);
-    }
-
-    fn isCellTy(self: *Emitter, ty: TypeId) bool {
-        return self.isBuiltinInstance(ty, self.sema.cell_sym_id);
     }
 
     fn isStructLike(self: *Emitter, ty: TypeId) bool {
