@@ -416,8 +416,8 @@ pub const Field = struct {
     is_variant: bool = false,
     /// The struct's user `drop self: !Self` body. Not callable.
     is_drop_method: bool = false,
-    /// A data field declared with a default value (`name: T = expr`).
-    has_default: bool = false,
+    /// A data field's default value (`name: T = literal`).
+    default: ?Sexp = null,
     /// Parameter names of a method, for keyword arguments.
     param_names: ?[]const []const u8 = null,
     /// Default values of a method's parameters (null where none).

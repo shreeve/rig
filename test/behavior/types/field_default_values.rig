@@ -1,0 +1,41 @@
+# A field declared with a literal default may be omitted in a
+# constructor; passing it overrides the default.
+
+enum Mode
+  a
+  b
+
+struct Tok
+  n: Int
+
+  drop self: !Tok
+    print("drop tok", self.n)
+
+struct P
+  x: Int = 1
+  y: Int
+  name: String = "anon"
+  m: Mode = .b
+  f: Float = 2.5
+  neg: Int = -4
+  on: Bool = true
+  h: (*Tok)? = none
+  u: U8 = 7
+
+type Box(T)
+  v: T
+  n: Int = 5
+
+sub main()
+  p = P(y: 2)
+  print(p)
+  q = P(x: 10, y: 20, name: "q", m: .a, f: 0.5, neg: 1, on: false, h: *Tok(n: 9), u: 200)
+  print(q.x, q.y, q.name, q.m, q.f, q.neg, q.on, q.u)
+  b = Box(v: "s")
+  print(b.v, b.n)
+
+# expect:
+# P(x: 1, y: 2, name: "anon", m: .b, f: 2.5, neg: -4, on: true, h: none, u: 7)
+# 10 20 q .a 0.5 1 false 200
+# s 5
+# drop tok 9

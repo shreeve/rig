@@ -851,16 +851,13 @@ pub const TypeResolver = struct {
                             const name_node = ir.get(m, .name);
                             const fname = identAt(self.ctx.source, name_node) orelse continue;
                             const fpos = srcPos(name_node, 0);
-                            if (h == .default) {
-                                try self.ctx.err(fpos, "field default values are not supported yet; pass `{s}` in every constructor", .{fname});
-                            }
                             if (is_enum) {
                                 try self.ctx.err(fpos, "an enum declares variants, not typed fields; write `{s}` or `{s}(field: T)`", .{ fname, fname });
                                 continue;
                             }
                             if (try self.checkDuplicateMember(fields.items, fname, fpos, sym_name)) continue;
                             const fty = try self.resolveType(ir.get(m, .type));
-                            try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos });
+                            try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos, .default = if (h == .default) ir.Default.value(m) else null });
                         },
                         .valued => {
                             const name_node = ir.Valued.name(m);
@@ -1015,6 +1012,10 @@ pub const TypeResolver = struct {
         {
             for (ir.Variant.params(variant).items()) |p| {
                 if (!p.isKind(.@":")) {
+                    if (p.isKind(.default)) {
+                        try self.ctx.errAt(ir.Default.name(p), "variant payload fields cannot have defaults", .{});
+                        continue;
+                    }
                     try self.ctx.errAt(p, "variant payload fields need types (`name: T`)", .{});
                     continue;
                 }

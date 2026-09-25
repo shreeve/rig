@@ -212,6 +212,9 @@ const Checker = struct {
                     }
                     try self.checkFunction(m, fn_ty);
                 },
+                .default => for (fields) |f| {
+                    if (f.default != null and f.decl_pos == ir.Default.name(m).src.pos) try self.checkDefaultValue(f.default.?, f.ty, "field");
+                },
                 .drop_decl => {
                     const prev_scope = self.enter(m);
                     defer self.scope = prev_scope;
@@ -246,10 +249,15 @@ const Checker = struct {
     /// it is written at each call site that omits the argument.
     fn checkDefault(self: *Checker, param: Sexp) Error!void {
         if (!param.isKind(.default)) return;
-        const value = ir.Default.value(param);
         const ty = self.ctx.bindingTypeOf(ir.Default.name(param)) orelse self.t().unknown_id;
+        try self.checkDefaultValue(ir.Default.value(param), ty, "parameter");
+    }
+
+    /// A parameter or field default: a literal of type `ty`, so it owns
+    /// nothing and means the same value wherever it is filled in.
+    fn checkDefaultValue(self: *Checker, value: Sexp, ty: TypeId, what: []const u8) Error!void {
         if (!isDefaultLiteral(self.ctx.source, value)) {
-            try self.errAt(value, "a default parameter value must be a literal: a number, a string, `true` / `false`, `none`, or `.variant`", .{});
+            try self.errAt(value, "a default {s} value must be a literal: a number, a string, `true` / `false`, `none`, or `.variant`", .{what});
             return;
         }
         try self.checkExpr(value, ty);
@@ -2588,7 +2596,7 @@ const Checker = struct {
             try self.checkExpr(value, try self.fieldType(f, info));
         }
         for (fields) |f| {
-            if (f.is_method or f.is_variant or f.has_default or seen.contains(f.name)) continue;
+            if (f.is_method or f.is_variant or f.default != null or seen.contains(f.name)) continue;
             try self.err(info.pos, "{s} `{s}` is missing field `{s}`", .{ noun, info.owner, f.name });
             if (info.foreign == null and f.decl_pos != sema.builtin_decl_pos) try self.note(f.decl_pos, "field `{s}` declared here", .{f.name});
         }

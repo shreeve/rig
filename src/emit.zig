@@ -461,6 +461,10 @@ pub const Emitter = struct {
             try self.writeIndent(depth);
             try self.w.print("{f}: ", .{ident(f.name)});
             try self.emitTypeTy(f.ty);
+            if (f.default) |d| {
+                try self.w.writeAll(" = ");
+                try writeLiteral(self.w, self.source, d);
+            }
             try self.w.writeAll(",\n");
         }
     }

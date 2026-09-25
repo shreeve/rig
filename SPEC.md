@@ -406,8 +406,26 @@ name.
 ### Structs
 
 A `struct` lists its fields, then its methods. It is constructed by
-naming every field: `Point(x: 1, y: 2)`. Field default values are not
-supported yet.
+naming its fields: `Point(x: 1, y: 2)`. A field may have a default
+value, which, like a parameter default, must be a literal (a number, a
+string, `true` / `false`, `none`, or `.variant`); a constructor may omit
+that field.
+
+```rig
+struct Config
+  retries: Int = 3
+  name: String = "anon"
+  verbose: Bool
+
+sub main()
+  c = Config(verbose: true)
+  d = Config(retries: 5, verbose: false)
+  print(c.retries, c.name, d.retries)
+```
+
+```output
+3 anon 5
+```
 
 ```rig
 struct Point
@@ -2498,7 +2516,6 @@ The rest parse and are rejected in sema:
 |---|---|
 | `use std` | reserved |
 | module-level bindings | not supported yet |
-| field default values | not supported yet |
 | generic functions (`pre T: type`) | not supported yet |
 | `drop` on enums and generic types | not supported; they get structural glue |
 | a stack `Signal(T)` | rejected; use `*Signal(T)` |
