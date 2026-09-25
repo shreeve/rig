@@ -9,7 +9,8 @@
 
 The summary line reads `N passed, M failed, K known`. The suite is green
 when nothing fails and no known-failing test has started passing. A
-filter that selects nothing exits 2.
+filter that selects nothing, or only the `parser` check when Nexus is
+not built, exits 2. The runner works from any directory.
 
 The runner needs GNU `timeout` (on macOS, `gtimeout` from `brew install
 coreutils`). `ZIG` names the Zig executable, `RIG_TEST_TIMEOUT` the

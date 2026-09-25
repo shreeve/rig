@@ -20,11 +20,14 @@
 #
 # Exit status is 1 if any test fails or a known-failing test starts
 # passing (move it out of test/known/ when that happens), 2 on a usage
-# error or when the filters select nothing.
+# error or when the filters select nothing (or only a skipped check).
 
 set -uo pipefail
 
-cd "$(dirname "$0")/.."
+# This script, by absolute path: it runs itself for each test, from the
+# checkout root.
+SELF=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
+cd "$(dirname "$SELF")/.."
 ROOT=$(pwd)
 RIG="$ROOT/bin/rig"
 # Nexus: $NEXUS, else nexus/bin/nexus next to this checkout or any parent
@@ -311,7 +314,7 @@ while [[ $# -gt 0 ]]; do
         -v) VERBOSE=1 ;;
         -j) [[ $# -ge 2 && $2 =~ ^[1-9][0-9]*$ ]] || { echo "-j needs a number of jobs" >&2; exit 2; }
             JOBS=$2; shift ;;
-        -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,16p' "$SELF" | sed 's/^# \{0,1\}//'; exit 0 ;;
         -*) echo "unknown option $1" >&2; exit 2 ;;
         *) FILTERS+=("$1") ;;
     esac
@@ -501,7 +504,7 @@ if [[ -n "$DUPLICATES" ]]; then
 fi
 printf '%srunning %s tests (-j %s)%s\n' "$D" "$TOTAL" "$JOBS" "$X"
 while IFS=$'\t' read -r id path; do printf '%s\0%s\0' "$id" "$path"; done <"$LIST" |
-    xargs -0 -n 2 -P "$JOBS" "$0" --worker
+    xargs -0 -n 2 -P "$JOBS" "$SELF" --worker
 # A worker that died left no result.
 while IFS=$'\t' read -r id path; do
     [[ -f "$RESULTS/st/${id//\//__}" ]] || printf 'fail\t%s\tno result: the test runner died\n' "$id" >"$RESULTS/st/${id//\//__}"
@@ -518,6 +521,10 @@ fi
 
 ALL="$WORK/all"
 cat "$RESULTS"/st/* 2>/dev/null | sort -t$'\t' -k2 >"$ALL"
+if [[ ! -s "$ALL" ]]; then
+    echo "no test ran" >&2
+    exit 2
+fi
 
 show_log() {
     local log="$RESULTS/log/${1//\//__}"
