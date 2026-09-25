@@ -337,7 +337,7 @@ against the imported signature exactly as a local one.
 
 ## Sema
 
-`types.check` (via `checkWithImports`) runs four passes and returns a
+`sema.check` runs four passes and returns a
 `SemContext`, which every later pass reads:
 
 1. **builtins** (`resolve.zig`): `Cell(T)`, `Vec(T)`, and

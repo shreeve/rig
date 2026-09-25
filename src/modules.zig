@@ -274,7 +274,12 @@ pub const ModuleGraph = struct {
         }
 
         m.sema.deinit();
-        m.sema.* = try sema.checkWithImports(self.allocator, m.source, m.parser, m.ir, entries.items, reached.items, id);
+        m.sema.* = try sema.check(self.allocator, m.source, m.ir, .{
+            .parser = m.parser,
+            .imports = entries.items,
+            .transitive = reached.items,
+            .module_id = id,
+        });
 
         var own = try ownership.Checker.initWithSema(self.allocator, m.source, m.sema);
         defer own.deinit();

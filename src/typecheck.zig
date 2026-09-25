@@ -3936,7 +3936,7 @@ fn checkSource(allocator: std.mem.Allocator, source: []const u8) !struct { ctx: 
     var p = parser.Parser.init(allocator, source);
     errdefer p.deinit();
     const tree = try p.parseProgram();
-    const ctx = try sema.check(allocator, source, tree);
+    const ctx = try sema.check(allocator, source, tree, .{});
     return .{ .ctx = ctx, .p = p, .tree = tree };
 }
 

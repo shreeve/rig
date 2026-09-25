@@ -1,6 +1,6 @@
 //! Semantic analysis: names, types, and expression checking.
 //!
-//! `checkWithImports` runs these steps over the normalized IR and returns
+//! `check` runs these steps over the normalized IR and returns
 //! a `SemContext`, which every later pass (ownership, emit) reads:
 //!
 //!   1. builtins     `resolve.zig`    Cell, Vec, Signal
@@ -894,34 +894,30 @@ pub const SemContext = struct {
 // Entry points
 // =============================================================================
 
-/// Check a single module with no imports, without the parser's spans.
-pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp) !SemContext {
-    return checkWithImports(allocator, source, null, tree, &.{}, &.{}, 0);
-}
-
-/// Check a module whose `use` declarations resolve to `imports`.
-pub fn checkWithImports(
-    allocator: std.mem.Allocator,
-    source: []const u8,
-    /// The parser that built `tree`, for node spans in diagnostics.
-    p: ?*const parser.Parser,
-    tree: Sexp,
-    imports: []const ImportEntry,
+pub const CheckOptions = struct {
+    /// The parser that built the tree, for node spans in diagnostics.
+    parser: ?*const parser.Parser = null,
+    /// What the module's `use` declarations resolve to.
+    imports: []const ImportEntry = &.{},
     /// Modules the imports reach in turn: their types can appear here
     /// (`lib.make()` returning an `a.P`) without being named.
-    transitive: []const ImportEntry,
-    module_id: u32,
-) !SemContext {
+    transitive: []const ImportEntry = &.{},
+    /// Assigned by the module graph.
+    module_id: u32 = 0,
+};
+
+/// Check one module.
+pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts: CheckOptions) !SemContext {
     var ctx = try SemContext.init(allocator, source);
     errdefer ctx.deinit();
 
-    ctx.parser = p;
-    ctx.module_id = module_id;
-    // The caller's slice is temporary; the emitter reads the imports later.
-    ctx.imports = try ctx.arena.allocator().dupe(ImportEntry, imports);
-    for (imports) |imp| try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
-    ctx.transitive = try ctx.arena.allocator().dupe(ImportEntry, transitive);
-    for (transitive) |imp| try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
+    ctx.parser = opts.parser;
+    ctx.module_id = opts.module_id;
+    // The caller's slices are temporary; the emitter reads the imports later.
+    ctx.imports = try ctx.arena.allocator().dupe(ImportEntry, opts.imports);
+    for (opts.imports) |imp| try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
+    ctx.transitive = try ctx.arena.allocator().dupe(ImportEntry, opts.transitive);
+    for (opts.transitive) |imp| try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
 
     const scope = try ctx.pushScopeKind(scope_invalid, .module);
     std.debug.assert(scope == module_scope);
@@ -2206,7 +2202,7 @@ test "SemContext: init/deinit" {
 }
 
 test "check: tolerates an empty IR" {
-    var ctx = try check(std.testing.allocator, "", .{ .nil = {} });
+    var ctx = try check(std.testing.allocator, "", .{ .nil = {} }, .{});
     defer ctx.deinit();
     try std.testing.expect(!ctx.hasErrors());
 }
@@ -2256,7 +2252,7 @@ fn factsRun(source: []const u8) !FactsRun {
     var r: FactsRun = .{ .p = parser.Parser.init(std.testing.allocator, source), .tree = undefined, .ctx = undefined, .source = source };
     errdefer r.p.deinit();
     r.tree = try r.p.parseProgram();
-    r.ctx = try check(std.testing.allocator, source, r.tree);
+    r.ctx = try check(std.testing.allocator, source, r.tree, .{});
     for (r.ctx.diagnostics.items) |d| std.debug.print("unexpected diagnostic: {s}\n", .{d.message});
     try std.testing.expect(!r.ctx.hasErrors());
     return r;
