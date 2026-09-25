@@ -1,0 +1,149 @@
+# When an argument fails (`!`, or a `catch` that returns) after an earlier
+# argument produced an owned value, that value is released, and a moved
+# local stays with its owner: nothing leaks and every `drop` body runs.
+
+error E
+  bad
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+struct P
+  a: B
+  k: Int
+
+enum Slot
+  one(b: B)
+  two(b: B, k: Int)
+
+fun fail(k: Int) -> Int!
+  return E.bad if k > 0
+  k
+
+fun mk(k: Int) -> B!
+  return E.bad if k > 0
+  B(n: k)
+
+sub take(b: B, n: Int)
+  print("take", b.n, n)
+
+sub pair(a: B, b: B)
+  print("pair", a.n, b.n)
+
+sub share(a: *B, n: Int)
+  print("share", a.n, n)
+
+sub two(a: *B, b: *B)
+  print("two", a.n, b.n)
+
+sub vec(v: Vec(Int), n: Int)
+  print("vec", v.length(), n)
+
+sub call(f: *fun() Int, n: Int)
+  print("call", f(), n)
+
+struct S
+  b: B
+
+  sub put(!self, b: B, n: Int)
+    self.b = <b
+    print("put", n)
+
+fun temp() -> Int!
+  take(B(n: 1), fail(1)!)
+  0
+
+fun both() -> Int!
+  pair(mk(0)!, mk(1)!)
+  0
+
+fun field() -> Int!
+  p = P(a: B(n: 2), k: fail(1)!)
+  p.k
+
+fun variant() -> Int!
+  s: Slot = .two(b: B(n: 3), k: fail(1)!)
+  0
+
+fun boxed() -> Int!
+  share(*B(n: 4), fail(1)!)
+  0
+
+fun moved() -> Int!
+  a = *B(n: 5)
+  share(<a, fail(1)!)
+  0
+
+fun cloned() -> Int!
+  h = *B(n: 6)
+  two(+h, *B(n: 7) if fail(1)! > 0 else +h)
+  0
+
+fun buffer() -> Int!
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  vec(<v, fail(1)!)
+  0
+
+fun closure() -> Int!
+  b = *B(n: 8)
+  call(*|<b| b.n, fail(1)!)
+  0
+
+fun method() -> Int!
+  s = S(b: B(n: 9))
+  (!s).put(B(n: 10), fail(1)!)
+  0
+
+fun caught() -> Int
+  take(B(n: 11), fail(1) catch |e|
+    return -5)
+  0
+
+fun ok() -> Int!
+  take(B(n: 12), fail(0)!)
+  0
+
+sub main()
+  print(temp() catch -1)
+  print(both() catch -1)
+  print(field() catch -1)
+  print(variant() catch -1)
+  print(boxed() catch -1)
+  print(moved() catch -1)
+  print(cloned() catch -1)
+  print(buffer() catch -1)
+  print(closure() catch -1)
+  print(method() catch -1)
+  print(caught())
+  print(ok() catch -1)
+
+# expect:
+# drop 1
+# -1
+# drop 0
+# -1
+# drop 2
+# -1
+# drop 3
+# -1
+# drop 4
+# -1
+# drop 5
+# -1
+# drop 6
+# -1
+# -1
+# drop 8
+# -1
+# drop 10
+# drop 9
+# -1
+# drop 11
+# -5
+# take 12 0
+# drop 12
+# 0

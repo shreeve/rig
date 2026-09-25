@@ -95,6 +95,10 @@ const Local = struct {
 
 const LocalRef = struct { scope: u32, index: u32 };
 
+/// An argument evaluated into the temporary `name`. An owned one is
+/// dropped at scope exit while `flag` is set; the call clears it.
+const Hoisted = struct { node: Sexp, name: []const u8, flag: []const u8 = "" };
+
 const Scope = struct {
     locals: std.ArrayListUnmanaged(Local) = .empty,
 };
@@ -175,6 +179,9 @@ pub const Emitter = struct {
     /// Emitting the object chain of an assignment target: an indexed
     /// element in it is a slot, not a copy.
     place_chain: bool = false,
+    /// Arguments of the calls being emitted that were evaluated into
+    /// temporaries first (`emitHoistedCall`), innermost call last.
+    hoisted: std.ArrayListUnmanaged(Hoisted) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8, w: *Writer, ctx: *const sema.SemContext) Emitter {
         return .{
@@ -194,6 +201,7 @@ pub const Emitter = struct {
         self.module_names.deinit(self.allocator);
         self.usage.deinit(self.allocator);
         self.tests.deinit(self.allocator);
+        self.hoisted.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -530,6 +538,7 @@ pub const Emitter = struct {
         if (return_ty) |r| {
             try self.emitTypeTy(r);
         } else {
+            // `main` may propagate a failure out of the program.
             try self.w.writeAll(if (is_main and containsPropagate(body)) "anyerror!void" else "void");
         }
         try self.w.writeAll(" ");
@@ -855,7 +864,7 @@ pub const Emitter = struct {
         // A call lowered to a labeled block is an expression Zig will not
         // take as a statement.
         if (ir.Call.callee(e).isKind(.lambda)) return true;
-        if (self.sema.callSlotsOf(e)) |slots| if (reordersEffects(slots, ir.Call.args(e))) return true;
+        if (self.hoistsArgs(e)) return true;
         const ty = self.typeOf(e) orelse return true;
         return switch (self.sema.types.get(ty)) {
             .void, .noreturn => false,
@@ -1299,9 +1308,10 @@ pub const Emitter = struct {
         var prelude: Prelude = .{};
         if (cond.isKind(.as)) prelude = try self.emitOptionalHead(cond) else try self.emitCond(cond);
         if (step != .nil) {
-            try self.w.writeAll(": (");
-            try self.emitContinuation(step);
-            try self.w.writeAll(") ");
+            // A statement, so an assignment drops the value it replaces.
+            try self.w.writeAll(": ({ ");
+            try self.emitStmt(step);
+            try self.w.writeAll(" }) ");
         }
         try self.emitBodyWith(ir.While.body(sexp), prelude);
         try self.popScope();
@@ -1309,30 +1319,6 @@ pub const Emitter = struct {
             try self.w.writeAll(" else ");
             try self.emitBranchStmt(else_);
         }
-    }
-
-    /// The `: step` of a while, written as a Zig continue expression.
-    fn emitContinuation(self: *Emitter, step: Sexp) Error!void {
-        if (step.isKind(.set) and ir.Set.target(step) == .src) {
-            const op: ?[]const u8 = switch (rig.bindingKindOf(ir.Set.op(step))) {
-                .@"+=" => "+=",
-                .@"-=" => "-=",
-                .@"*=" => "*=",
-                .default => "=",
-                else => null,
-            };
-            if (op) |o| if (self.localOf(ir.Set.target(step))) |local| {
-                try self.writeLocalPlace(local);
-                try self.w.print(" {s} ", .{o});
-                try self.emitBare(ir.Set.value(step));
-                return;
-            };
-        }
-        if (step.isKind(.call)) return self.emitExpr(step);
-        // Anything else runs as a block.
-        try self.w.writeAll("{ ");
-        try self.emitStmt(step);
-        try self.w.writeAll(" }");
     }
 
     /// `(for mode binding index-binding source body else?)`.
@@ -1706,6 +1692,10 @@ pub const Emitter = struct {
     fn emitValue(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
         const bare = self.bare;
         self.bare = false;
+        if (self.hoistedOf(sexp)) |h| {
+            if (h.flag.len > 0) return self.w.print("rig.take(&{s}, {s})", .{ h.flag, h.name });
+            return self.w.writeAll(h.name);
+        }
         switch (sexp) {
             .src => try self.emitName(sexp, tail),
             .list => try self.emitList(sexp, tail, bare),
@@ -1920,8 +1910,9 @@ pub const Emitter = struct {
             .read => {
                 // `?x` of a value held by pointer (a Cell) is its address.
                 if (self.isWriteBorrowExpr(sexp)) return self.emitAddressOf(ir.Read.operand(sexp));
+                // A borrow never moves its operand, even in tail position.
                 self.bare = bare;
-                try self.emitValue(ir.Read.operand(sexp), tail);
+                try self.emitValue(ir.Read.operand(sexp), false);
             },
             // `!x` as a value (an argument, a receiver) is the place's address.
             .write => try self.emitAddressOf(ir.Write.operand(sexp)),
@@ -2334,6 +2325,11 @@ pub const Emitter = struct {
     }
 
     fn emitCall(self: *Emitter, sexp: Sexp) Error!void {
+        if (self.hoistsArgs(sexp)) return self.emitHoistedCall(sexp);
+        return self.emitCallDirect(sexp);
+    }
+
+    fn emitCallDirect(self: *Emitter, sexp: Sexp) Error!void {
         const callee = ir.Call.callee(sexp);
         const args = ir.Call.args(sexp);
 
@@ -2400,9 +2396,6 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             }
         };
-        if (self.sema.callSlotsOf(sexp)) |slots| {
-            if (reordersEffects(slots, args)) return self.emitCallInSourceOrder(sexp, slots);
-        }
         if (callee.isKind(.member)) try self.emitMember(callee) else try self.emitExpr(callee);
         try self.w.writeAll("(");
         try self.emitArgs(sexp);
@@ -2463,7 +2456,7 @@ pub const Emitter = struct {
         const args = ir.Call.args(call);
         const params = self.paramTypes(call);
         const pre = self.preMask(call);
-        if (self.sema.callSlotsOf(call)) |slots| return self.emitSlots(args, slots, null, params, pre);
+        if (self.sema.callSlotsOf(call)) |slots| return self.emitSlots(args, slots, params, pre);
         for (args, 0..) |a, i| {
             if (i > 0) try self.w.writeAll(", ");
             try self.emitArg(a, if (i < params.len) params[i] else null, isPreSlot(pre, i));
@@ -2517,81 +2510,153 @@ pub const Emitter = struct {
         return if (f.params.len > 0) f.params[1..] else f.params;
     }
 
-    fn emitSlots(self: *Emitter, args: []const Sexp, slots: []const sema.ArgSlot, temps: ?[]const ?[]const u8, params: []const TypeId, pre: u32) Error!void {
+    fn emitSlots(self: *Emitter, args: []const Sexp, slots: []const sema.ArgSlot, params: []const TypeId, pre: u32) Error!void {
         for (slots, 0..) |slot, i| {
             if (i > 0) try self.w.writeAll(", ");
             switch (slot) {
-                .arg => |ai| {
-                    if (temps) |t| if (t[ai]) |name| {
-                        try self.w.writeAll(name);
-                        continue;
-                    };
-                    try self.emitArg(args[ai], if (i < params.len) params[i] else null, isPreSlot(pre, i));
-                },
+                .arg => |ai| try self.emitArg(args[ai], if (i < params.len) params[i] else null, isPreSlot(pre, i)),
                 .default => |d| try writeLiteral(self.w, d.source, d.expr),
             }
         }
     }
 
-    /// Whether binding keyword arguments reorders two arguments that
-    /// have side effects, which must then run in source order.
-    fn reordersEffects(slots: []const sema.ArgSlot, args: []const Sexp) bool {
-        var last: ?usize = null;
-        for (slots) |slot| {
-            const ai = switch (slot) {
-                .arg => |a| a,
-                .default => continue,
-            };
-            if (isPureArg(args[ai])) continue;
-            if (last) |l| if (ai < l) return true;
-            last = ai;
+    /// Whether a call's arguments must be evaluated into temporaries
+    /// first: when binding keyword arguments reorders two that have side
+    /// effects, or when an argument may leave (`!`, a `catch` that
+    /// returns) after an owned value was produced, which would be lost.
+    fn hoistsArgs(self: *Emitter, call: Sexp) bool {
+        if (!call.isKind(.call) or self.isPrintCall(call)) return false;
+        const args = ir.Call.args(call);
+        if (self.sema.callSlotsOf(call)) |slots| {
+            var last: ?usize = null;
+            for (slots) |slot| {
+                const ai = switch (slot) {
+                    .arg => |a| a,
+                    .default => continue,
+                };
+                if (self.isPureArg(argValue(args[ai]))) continue;
+                if (last) |l| if (ai < l) return true;
+                last = ai;
+            }
+        }
+        const callee = ir.Call.callee(call);
+        var owned = callee.isKind(.member) and ir.Member.object(callee).isKind(.move);
+        for (args) |a| {
+            const v = argValue(a);
+            if (owned and mayLeave(v)) return true;
+            if (self.isOwnedValue(v)) owned = true;
         }
         return false;
     }
 
-    /// `f(b: g(), a: h())` evaluates `g()` before `h()`:
+    /// A value whose evaluation has no side effect and reads nothing a
+    /// later argument could change: a literal, a constant, a function,
+    /// or a borrow or move of a name.
+    fn isPureArg(self: *Emitter, e: Sexp) bool {
+        switch (e) {
+            .src => {
+                if (isLiteralText(self.srcText(e)) or self.isNoneLeaf(e)) return true;
+                const sym = self.sema.symbolOf(e) orelse return false;
+                const s = self.sema.symbols.items[sym];
+                return switch (s.kind) {
+                    .local, .param, .capture => s.flags.fixed or s.flags.comptime_known,
+                    else => true,
+                };
+            },
+            .list => return switch (e.kind().?) {
+                .enum_lit => true,
+                .read, .write, .move => ir.get(e, .operand) == .src,
+                .neg => ir.Neg.operand(e) == .src and isLiteralText(self.srcText(ir.Neg.operand(e))),
+                else => false,
+            },
+            else => return false,
+        }
+    }
+
+    /// An argument that hands the callee a value it must release.
+    fn isOwnedValue(self: *Emitter, e: Sexp) bool {
+        const t = self.typeOf(e) orelse return false;
+        return self.kindOf(t) != null;
+    }
+
+    /// Every argument that is not pure goes into a temporary, in source
+    /// order, and the call itself runs last. An owned temporary is
+    /// dropped if a later argument leaves, and handed to the callee
+    /// (its flag cleared) only when the call runs:
     ///
-    ///     rig_call_N: {
-    ///         const __rig_arg_N_0 = g();
-    ///         const __rig_arg_N_1 = h();
-    ///         break :rig_call_N f(__rig_arg_N_1, __rig_arg_N_0);
+    ///     __rig_call_N: {
+    ///         var __rig_arg_N_0 = try mk(1);
+    ///         var __rig_live_N_0 = true;
+    ///         defer if (__rig_live_N_0) rig.drop(&__rig_arg_N_0);
+    ///         const __rig_arg_N_1 = try mk(2);
+    ///         ...
+    ///         break :__rig_call_N pair(rig.take(&__rig_live_N_0, __rig_arg_N_0), ...);
     ///     }
-    fn emitCallInSourceOrder(self: *Emitter, call: Sexp, slots: []const sema.ArgSlot) Error!void {
-        const callee = ir.Call.callee(call);
+    fn emitHoistedCall(self: *Emitter, call: Sexp) Error!void {
         const args = ir.Call.args(call);
         const params = self.paramTypes(call);
+        const slots = self.sema.callSlotsOf(call);
+        const fields = self.buildsValue(call);
         const id = self.nextId();
-        const temps = try self.arena.allocator().alloc(?[]const u8, args.len);
-        @memset(temps, null);
-        try self.w.print("rig_call_{d}: {{\n", .{id});
+        try self.w.print("__rig_call_{d}: {{\n", .{id});
         self.indent += 1;
+        const first = self.hoisted.items.len;
         for (args, 0..) |a, ai| {
-            if (isPureArg(a)) continue;
             const value = argValue(a);
-            const name = try self.fmt("__rig_arg_{d}_{d}", .{ id, ai });
-            temps[ai] = name;
+            if (self.isPureArg(value)) continue;
+            const pi: usize = if (slots) |ss| for (ss, 0..) |slot, i| {
+                if (slot == .arg and slot.arg == ai) break i;
+            } else ai else ai;
+            const param: ?TypeId = if (pi < params.len) params[pi] else null;
+            var h: Hoisted = .{ .node = value, .name = try self.fmt("__rig_arg_{d}_{d}", .{ id, ai }) };
+            const kind: ?ResourceKind = if (param != null and self.isPtrBorrowTy(param.?)) null else if (self.typeOf(value)) |t| self.kindOf(t) else null;
             try self.writeIndent(self.indent);
-            try self.w.print("const {s}", .{name});
+            try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", h.name });
             if (self.typeOf(value)) |t| if (self.isPlainTy(t)) {
                 try self.w.writeAll(": ");
                 try self.emitTypeTy(t);
             };
             try self.w.writeAll(" = ");
-            const param: ?TypeId = for (slots, 0..) |slot, pi| {
-                if (slot == .arg and slot.arg == ai and pi < params.len) break params[pi];
-            } else null;
-            try self.emitArg(a, param, false);
+            if (fields) try self.emitStored(value) else try self.emitArg(value, param, isPreSlot(self.preMask(call), pi));
             try self.w.writeAll(";\n");
+            if (kind) |k| {
+                h.flag = try self.fmt("__rig_live_{d}_{d}", .{ id, ai });
+                try self.line("var {s} = true;", .{h.flag});
+                try self.writeIndent(self.indent);
+                try self.w.print("defer if ({s}) ", .{h.flag});
+                try self.writeDrop(h.name, k);
+                try self.w.writeAll(";\n");
+            }
+            try self.hoisted.append(self.allocator, h);
         }
         try self.writeIndent(self.indent);
-        try self.w.print("break :rig_call_{d} ", .{id});
-        if (callee.isKind(.member)) try self.emitMember(callee) else try self.emitExpr(callee);
-        try self.w.writeAll("(");
-        try self.emitSlots(args, slots, temps, params, self.preMask(call));
-        try self.w.writeAll(");\n");
+        try self.w.print("break :__rig_call_{d} ", .{id});
+        try self.emitCallDirect(call);
+        self.hoisted.shrinkRetainingCapacity(first);
+        try self.w.writeAll(";\n");
         self.indent -= 1;
         try self.writeIndent(self.indent);
         try self.w.writeAll("}");
+    }
+
+    /// The temporary an argument was evaluated into, if it was.
+    fn hoistedOf(self: *Emitter, e: Sexp) ?Hoisted {
+        var i = self.hoisted.items.len;
+        while (i > 0) {
+            i -= 1;
+            const h = self.hoisted.items[i];
+            if (sameNode(h.node, e)) return h;
+        }
+        return null;
+    }
+
+    /// A call whose arguments become the fields of the value it builds:
+    /// a constructor or a variant.
+    fn buildsValue(self: *Emitter, call: Sexp) bool {
+        const callee = ir.Call.callee(call);
+        if (callee.isKind(.enum_lit)) return true;
+        if (callee.isKind(.member)) return self.sema.typeOf(callee) == null;
+        return self.isConstructorCall(call);
     }
 
     /// A call `emitCall` lowers with `emitConstructor`, whose Zig spells
@@ -3554,35 +3619,36 @@ fn argValue(a: Sexp) Sexp {
     return if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
 }
 
-/// An argument whose evaluation has no side effects.
-fn isPureArg(arg: Sexp) bool {
-    return switch (arg) {
-        .src, .nil => true,
-        .list => switch (arg.kind().?) {
-            .kwarg => isPureArg(ir.Kwarg.value(arg)),
-            .read,
-            .write,
-            .move,
-            .member,
-            .neg,
-            .not,
-            .enum_lit,
-            .@"+",
-            .@"-",
-            .@"*",
-            .@"==",
-            .@"!=",
-            .@"<",
-            .@">",
-            .@"<=",
-            .@">=",
-            .@"and",
-            .@"or",
-            => for (rig.children(arg)) |c| {
-                if (!isPureArg(c)) break false;
-            } else true,
-            else => false,
-        },
+/// Whether evaluating `e` may leave the enclosing block: a `!`, or a
+/// `return`, `break`, or `continue` (in a `catch` handler or a branch).
+fn mayLeave(e: Sexp) bool {
+    if (e != .list) return false;
+    if (e.kind()) |h| switch (h) {
+        .propagate, .@"return", .@"break", .@"continue" => return true,
+        .lambda => return false,
+        else => {},
+    };
+    for (e.items()) |c| if (mayLeave(c)) return true;
+    return false;
+}
+
+/// Whether a body uses `!` outside the closures it contains.
+fn containsPropagate(e: Sexp) bool {
+    if (e != .list) return false;
+    if (e.kind()) |h| switch (h) {
+        .propagate => return true,
+        .lambda => return false,
+        else => {},
+    };
+    for (e.items()) |c| if (containsPropagate(c)) return true;
+    return false;
+}
+
+/// The same IR node: the same leaf, or the same list.
+fn sameNode(a: Sexp, b: Sexp) bool {
+    return switch (a) {
+        .src => |s| b == .src and b.src.pos == s.pos,
+        .list => b == .list and a.items().ptr == b.items().ptr,
         else => false,
     };
 }
@@ -3611,17 +3677,6 @@ fn isValueStmt(s: Sexp) bool {
 fn isTerminatingStmt(s: Sexp) bool {
     const h = s.kind() orelse return false;
     return h == .@"return" or h == .@"break" or h == .@"continue";
-}
-
-fn containsPropagate(sexp: Sexp) bool {
-    const h = sexp.kind() orelse return false;
-    switch (h) {
-        .propagate => return true,
-        .fun, .sub, .lambda => return false,
-        else => {},
-    }
-    for (sexp.items()) |c| if (containsPropagate(c)) return true;
-    return false;
 }
 
 // =============================================================================
