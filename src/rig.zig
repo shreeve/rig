@@ -693,10 +693,7 @@ pub const Lexer = struct {
             .@"defer", .@"errdefer", .fat_arrow => true,
             else => self.atStatementStart(),
         };
-        if (starts and self.isWholeDropStatement()) {
-            return .drop_stmt;
-        }
-        return .minus_prefix;
+        return if (starts and self.isWholeDropStatement()) .drop_stmt else .minus_prefix;
     }
 
     /// After `-` comes a name and then the end of the line, a comment, or
@@ -716,9 +713,7 @@ pub const Lexer = struct {
     /// The character touches its operand, and does not touch a preceding
     /// value (`<x`, `f <x`, but not `a<b` or `a < b`).
     fn isPrefix(self: *const Lexer, tok: Token) bool {
-        const end = tok.pos + tok.len;
-        if (end >= self.base.source.len or !isOperandStart(self.base.source[end])) return false;
-        return !isValue(self.last_cat) or self.spacedBefore(tok);
+        return isOperandStart(self.charAfter(tok)) and !self.touchesValue(tok);
     }
 
     /// The token touches the value before it (`f(`, `a[`, `T?`, `x!`).
@@ -734,8 +729,7 @@ pub const Lexer = struct {
     /// access). A `.` that begins a continuation line inside brackets is
     /// member access, so method chains can be split across lines.
     fn isEnumLiteralDot(self: *const Lexer, tok: Token) bool {
-        const end = tok.pos + tok.len;
-        if (end >= self.base.source.len or !isIdentStart(self.base.source[end])) return false;
+        if (!isIdentStart(self.charAfter(tok))) return false;
         if (!isValue(self.last_cat)) return true;
         return tok.pre > 0 and !self.joined;
     }
@@ -750,15 +744,18 @@ pub const Lexer = struct {
 
     /// `*` directly before a closure's bar list: `*|+v| ...`, `*|| ...`.
     fn isOwnedClosureStar(self: *const Lexer, tok: Token) bool {
-        const end = tok.pos + tok.len;
-        if (end >= self.base.source.len or self.base.source[end] != '|') return false;
-        return !isValue(self.last_cat) or self.spacedBefore(tok);
+        return self.charAfter(tok) == '|' and !self.touchesValue(tok);
     }
 
     /// The token touches the one after it.
     fn touchesNext(self: *const Lexer, tok: Token) bool {
+        return isOperandStart(self.charAfter(tok));
+    }
+
+    /// The character right after `tok`, or 0 at the end of the source.
+    fn charAfter(self: *const Lexer, tok: Token) u8 {
         const end = tok.pos + tok.len;
-        return end < self.base.source.len and isOperandStart(self.base.source[end]);
+        return if (end < self.base.source.len) self.base.source[end] else 0;
     }
 
     /// An opening bar touches its first entry and is followed by
@@ -958,7 +955,7 @@ pub const Parser = struct {
     /// Parse and rewrite into the semantic IR. On `error.ParseError`,
     /// `diagnostic()` describes the failure.
     pub fn parseProgram(self: *Parser) !Sexp {
-        const tree = try self.walk(try self.parseTree());
+        const tree = try self.rewrite(try self.parseTree());
         if (self.failure != null) return error.ParseError;
         return tree;
     }
@@ -967,11 +964,17 @@ pub const Parser = struct {
     pub fn parseTree(self: *Parser) !Sexp {
         const tree = try self.base.parseProgram();
         if (tooDeep(tree, 0)) |deep| {
-            const at = self.span(deep);
-            self.failure = .{ .severity = .@"error", .pos = at.start, .end = at.end, .message = "expression is nested too deeply" };
+            self.reject(deep, "expression is nested too deeply");
             return error.ParseError;
         }
         return tree;
+    }
+
+    /// Reject the tree at `node`, unless it is already rejected.
+    fn reject(self: *Parser, node: Sexp, message: []const u8) void {
+        if (self.failure != null) return;
+        const at = self.span(node);
+        self.failure = .{ .severity = .@"error", .pos = at.start, .end = at.end, .message = message };
     }
 
     /// The source span of a node (see `BaseParser.span`).
@@ -1010,11 +1013,11 @@ pub const Parser = struct {
             .newline => "unexpected end of line",
             .indent => "unexpected indentation",
             .post_if => "a postfix `if` guard must end a statement; write `a if c else b` for a value",
-            .ident => self.format("unexpected name `{s}`", .{src[tok.pos..][0..tok.len]}),
-            else => if (keyword(src[tok.pos..][0..tok.len]) != null)
-                self.format("unexpected keyword `{s}`", .{src[tok.pos..][0..tok.len]})
+            .ident => self.format("unexpected name `{s}`", .{src[pos..end]}),
+            else => if (keyword(src[pos..end]) != null)
+                self.format("unexpected keyword `{s}`", .{src[pos..end]})
             else
-                self.format("unexpected `{s}`", .{src[tok.pos..][0..tok.len]}),
+                self.format("unexpected `{s}`", .{src[pos..end]}),
         };
         const expected = self.expectedHint();
         const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
@@ -1120,14 +1123,10 @@ pub const Parser = struct {
     // -------------------------------------------------------------------------
 
     pub fn rewrite(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
-        return self.walk(sexp);
-    }
-
-    fn walk(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
         if (sexp != .list) return sexp;
         const items = sexp.items();
         const walked = try self.allocator().alloc(Sexp, items.len);
-        for (items, 0..) |child, i| walked[i] = try self.walk(child);
+        for (items, 0..) |child, i| walked[i] = try self.rewrite(child);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         switch (out.kind() orelse return out) {
             .lambda => try self.splitBars(out, walked),
@@ -1157,10 +1156,7 @@ pub const Parser = struct {
                 try params.append(self.allocator(), e);
                 continue;
             }
-            if (params.items.len > 0 and self.failure == null) {
-                const at = self.span(e);
-                self.failure = .{ .severity = .@"error", .pos = at.start, .end = at.end, .message = "captures come before parameters in a closure's bar list: `|+v, a| ...`" };
-            }
+            if (params.items.len > 0) self.reject(e, "captures come before parameters in a closure's bar list: `|+v, a| ...`");
             try caps.append(self.allocator(), e);
         }
         items[ir.slot(.lambda, .captures)] = if (caps.items.len > 0) try self.base.newNode(.captures, caps.items, .{
