@@ -1,0 +1,14 @@
+# An array cannot hold values that own resources, even when their type
+# is declared after the array is spelled.
+
+struct A
+  items: [2]B
+
+struct B
+  h: *Int
+
+sub main()
+  a = A(items: [B(h: *1), B(h: *2)])
+  print(a.items[0].h)
+
+# error: arrays cannot hold values that own resources (`B`)

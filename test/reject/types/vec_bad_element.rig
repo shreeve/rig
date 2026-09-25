@@ -10,6 +10,6 @@ sub takeVec(v: Vec(View))
 sub main()
   w: Vec(Vec(Int)) = Vec()
 
-# error: requires `T` to be a Copy type (Int, Bool, Float, String), a shared handle
+# error: requires `T` to be a Copy type (Int, Bool, Float, String), plain data
 # error: got `View`
 # error: got `Vec(Int)`

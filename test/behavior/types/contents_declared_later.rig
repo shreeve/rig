@@ -1,0 +1,27 @@
+# What a type holds does not depend on the order of declarations: a
+# Cell of an owning struct, a Vec of plain data, and an owned closure
+# over a plain enum, each spelled before the type it names is declared.
+
+struct A
+  c: Cell(B)
+  v: Vec(P)
+  f: *fun(Color) Int
+
+struct B
+  h: *Int
+
+struct P
+  n: Int
+
+enum Color
+  red
+  green
+
+sub main()
+  f: *fun(Color) Int = *|c| 1 if c == .red else 2
+  a = A(c: Cell(value: B(h: *5)), v: Vec(), f: <f)
+  (!a.v).push(P(n: 3))
+  print(a.v.length(), a.f(.green))
+
+# expect:
+# 1 2
