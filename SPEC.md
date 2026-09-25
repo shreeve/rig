@@ -1943,8 +1943,28 @@ reassign it: the closure may be called again. A captured borrow may be
 passed to a call, which borrows it for the call; through a captured
 write borrow the body can write fields and call `!self` methods, but
 not write-borrow it again with `!w`. A name may be captured
-once per list, and a closure nested in another cannot re-capture a name
-the outer one captured.
+once per list.
+
+A closure nested in another captures from the scope where it is
+created: the outer closure's captures, parameters, and locals. It may
+copy or clone an outer capture (`|+x|`) or hold it weakly (`|~x|`), but
+not move it (`|<x|`), since the outer closure may run again.
+
+```rig
+sub main()
+  total: *Cell(Int) = *Cell(value: 0)
+  add = |+total, k: Int|
+    step = |+total, +k| total.set(total.get() + k)
+    step()
+    step()
+  add(3)
+  add(4)
+  print(total.get())
+```
+
+```output
+14
+```
 
 ### Parameters and results
 

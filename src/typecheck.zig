@@ -3456,14 +3456,6 @@ const Checker = struct {
             self.body = saved;
         }
 
-        if (self.ctx.bodyRoot(outer)) |root| {
-            if (self.ctx.scopes.items[root].kind == .lambda) {
-                for (captures) |cap| {
-                    const n = sema.captureNameNode(cap) orelse continue;
-                    try self.errAt(n, "nested closure capture of `{s}` is not supported; lift the capture to the outer scope", .{self.text(n)});
-                }
-            }
-        }
         for (captures) |cap| try self.checkCapture(cap, outer);
 
         const want: ?FunctionType = if (expected) |e| self.ctx.types.get(e).function else null;
