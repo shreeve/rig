@@ -131,6 +131,7 @@ parser distinct tokens:
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
 | `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter |
 | keywords | one token each | every keyword is reserved; `new` only at statement start |
+| `t.type`, `(type: 1)`, a member `type: Int`, `fun type` in a member list | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`; sema rejects a keyword parameter |
 
 The grammar's own shape settles the rest:
 

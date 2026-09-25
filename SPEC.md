@@ -129,7 +129,7 @@ brackets: its body below is laid out in blocks as usual
 
 ### Keywords
 
-These words are reserved and cannot name anything:
+These words are reserved:
 
 ```text
 and  as  break  catch  continue  defer  drop  else  enum  errdefer
@@ -137,19 +137,45 @@ error  extern  false  for  fun  if  in  match  not  or  pre  pub  raw
 return  struct  sub  test  true  try  type  use  while  zig
 ```
 
-`new` is a keyword only at the start of a statement (`new x = ...`), so
-a method may be named `new`. `none` is a reserved name for the absent
-optional. Words that are keywords in Zig but not in Rig (`var`, `fn`,
-`const`) are ordinary names.
+A keyword may still name a member, where it cannot be mistaken for
+the keyword: a struct field, a method, or a payload field. It reads as
+a name right after `.` (`t.type`, `t.error()`), before `:` inside
+parentheses (a keyword argument or payload field: `Token(type: 1)`),
+and in a member list before `:` (a field) or after `fun` / `sub` (a
+method). `drop self: !Self` is still a drop body; `drop: Bool` is a
+field. Everywhere else a keyword cannot name anything: a local, a
+parameter, a top-level declaration, or an enum variant.
+
+```rig
+struct Token
+  type: Int
+  drop: Bool
+
+  fun error(?self) -> Bool
+    self.type < 0
+
+sub main()
+  t = Token(type: -1, drop: false)
+  print(t.type, t.drop, t.error())
+```
+
+```output
+-1 false true
+```
 
 ```rig reject
 fun f(in: Int) -> Int
-  in
+  1
 ```
 
 ```error
-unexpected keyword `in`
+`in` is a keyword and cannot name a parameter
 ```
+
+`new` is a keyword only at the start of a statement (`new x = ...`), so
+a method may be named `new`. `none` is a reserved
+name for the absent optional. Words that are keywords in Zig but not in
+Rig (`var`, `fn`, `const`) are ordinary names.
 
 ### Literals
 

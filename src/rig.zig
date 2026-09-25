@@ -278,6 +278,11 @@ pub const Lexer = struct {
     /// continue (it has a block `if`, `while`, or `for`). An `else` after
     /// any other block (a match arm) is a new line.
     takes_else: [max_indent_depth + 1]bool = @splat(false),
+    /// Per depth: the block is the member list of a struct, enum, error
+    /// set, or generic type, where a keyword may name a field or method.
+    in_members: [max_indent_depth + 1]bool = @splat(false),
+    /// The first token of the current line, after any `pub`.
+    line_head: TokenCat = .eof,
     column: u32 = 0,
     pending_outdents: u32 = 0,
     pending_newline: bool = false,
@@ -553,6 +558,10 @@ pub const Lexer = struct {
             self.depth += 1;
             self.column = width;
             self.takes_else[self.depth] = false;
+            self.in_members[self.depth] = switch (self.line_head) {
+                .@"struct", .@"enum", .@"error", .type => true,
+                else => false,
+            };
             return synthetic(.indent, pos);
         }
         if (width == self.column) {
@@ -658,6 +667,7 @@ pub const Lexer = struct {
             .@"if", .@"while", .@"for" => self.takes_else[self.depth] = true,
             else => {},
         }
+        if (self.atStatementStart() or self.last_cat == .@"pub") self.line_head = out.cat;
         return out;
     }
 
@@ -673,10 +683,25 @@ pub const Lexer = struct {
                 return if (self.elseFollows()) .ternary_if else .post_if;
             },
             .new => return if (self.atStatementStart() and self.nextIsName()) .new else .ident,
-            else => return kw,
+            else => return self.memberName() orelse kw,
         };
         if (self.inParens() and self.nextCat() == .colon) return .kwarg_name;
         return .ident;
+    }
+
+    /// A keyword names a member where nothing else can stand: after
+    /// `.`, before `:` inside ( ) (a keyword argument or payload field),
+    /// and in a member list before `:` (a field) or after `fun` / `sub`
+    /// (a method).
+    fn memberName(self: *const Lexer) ?TokenCat {
+        switch (self.last_cat) {
+            .dot, .dot_lit => return .ident,
+            .fun, .sub => return if (self.in_members[self.depth]) .ident else null,
+            else => {},
+        }
+        if (self.nextCat() != .colon) return null;
+        if (self.inParens()) return .kwarg_name;
+        return if (self.in_members[self.depth] and self.atStatementStart()) .ident else null;
     }
 
     /// `-` is infix when spaced after or attached to a value (`a - b`,

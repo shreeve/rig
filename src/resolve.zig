@@ -116,6 +116,12 @@ const SymbolResolver = struct {
             try self.ctx.err(pos, "`none` is the absent optional and cannot be used as a name", .{});
             return null;
         }
+        // The lexer lets a keyword through only where it may name a
+        // member, which includes a parameter list's `name:`.
+        if (rig.keyword(name)) |kw| if (kw != .new) {
+            try self.ctx.err(pos, "`{s}` is a keyword and cannot name a {s}", .{ name, if (kind == .param) "parameter" else "binding" });
+            return null;
+        };
         const sym: Symbol = .{
             .name = name,
             .kind = kind,

@@ -16,7 +16,6 @@ in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms).
 - **Struct equality**: `==` on structs.
 - **Writable and open slices**: `!xs[a..b]` write slices and `xs[a..]` / `xs[..b]` open ranges.
 - **Printing byte slices**: `print` of a `[]U8` (rejected today, since it lowers like a `String`).
-- **Keywords as member names**: fields and methods named `type`, `error`, `test`, `drop`, where the lexer can tell.
 - **Aliases of imported and generic types** used as constructors and namespaces.
 - **A labeled value loop on the right of a binding** (`x = :l for ...`), which needs a grammar change without conflicts.
 - **Traits or interfaces** whose dispatch and ownership stay visible in the IR.

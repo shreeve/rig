@@ -1,0 +1,16 @@
+# The name after `fun` may be a keyword only in a member list: a
+# top-level function cannot be named `type`.
+
+struct S
+  x: Int
+
+  fun test(?self) -> Int
+    self.x
+
+fun type(s: ?S) -> Int
+  s.test()
+
+sub main()
+  print(type(S(x: 1)))
+
+# error: 10:5: unexpected keyword `type`
