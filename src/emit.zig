@@ -182,6 +182,10 @@ pub const Emitter = struct {
     rt_names: bool = false,
     /// Emitting a `pre` argument, which must stay compile-time known.
     keep_comptime: bool = false,
+    /// Emitting an operand of float arithmetic whose operands are
+    /// literals: an integer literal is a value of this float type, so
+    /// `7 / 2` in a `Float` is `3.5`.
+    float_literals: ?TypeId = null,
     /// Emitting the object chain of an assignment target: an indexed
     /// element in it is a slot, not a copy.
     place_chain: bool = false,
@@ -1786,9 +1790,15 @@ pub const Emitter = struct {
             if (h.flag.len > 0) return self.w.print("rig.take(&{s}, {s})", .{ h.flag, h.name });
             return self.w.writeAll(h.name);
         }
+        const float_literals = self.float_literals;
+        self.float_literals = null;
+        defer self.float_literals = float_literals;
         switch (sexp) {
-            .src => try self.emitName(sexp, tail),
-            .list => try self.emitList(sexp, tail, bare),
+            .src => if (float_literals != null and sema.isIntLiteralText(self.srcText(sexp))) {
+                try self.writeAsOpen(float_literals.?);
+                try self.w.print("{s})", .{self.srcText(sexp)});
+            } else try self.emitName(sexp, tail),
+            .list => try self.emitList(sexp, tail, bare, float_literals),
             else => return self.unsupported(sexp, "this expression"),
         }
     }
@@ -2027,11 +2037,18 @@ pub const Emitter = struct {
         try self.emitBare(inner);
     }
 
-    fn emitList(self: *Emitter, sexp: Sexp, tail: bool, bare: bool) Error!void {
+    fn emitList(self: *Emitter, sexp: Sexp, tail: bool, bare: bool, float_literals: ?TypeId) Error!void {
         const head = sexp.kind().?;
         const saved_rt = self.rt_names;
         defer self.rt_names = saved_rt;
         switch (head) {
+            // Literal operands of float arithmetic are floats.
+            .@"+", .@"-", .@"*", .@"/", .@"%", .neg => if (float_literals orelse self.floatTypeOf(sexp)) |f| {
+                self.float_literals = f;
+            },
+            else => {},
+        }
+        if (self.float_literals == null) switch (head) {
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^", .neg, .@"if" => {
                 // Sema computed a constant integer expression (and checked
                 // that it fits); its value is written as a literal, so Zig
@@ -2039,7 +2056,7 @@ pub const Emitter = struct {
                 if (sema.constIntOf(self.sema, sexp)) |v| if (self.onlyConstantLeaves(sexp)) return self.emitIntConstant(sexp, v);
             },
             else => {},
-        }
+        };
         switch (head) {
             .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .neg, .index => self.rt_names = true,
             else => {},
@@ -3423,6 +3440,16 @@ pub const Emitter = struct {
         return self.sema.types.get(t) == .any_error or sema.isErrorSet(self.sema, t);
     }
 
+    /// The type of a float-typed expression (a `Float` literal is a `Float`).
+    fn floatTypeOf(self: *Emitter, e: Sexp) ?TypeId {
+        const ty = self.typeOf(e) orelse return null;
+        return switch (self.sema.types.get(ty)) {
+            .float => ty,
+            .float_literal => self.sema.types.float_id,
+            else => null,
+        };
+    }
+
     /// The error set of an operand of type `E?`.
     fn optionalErrorOf(self: *Emitter, e: Sexp) ?TypeId {
         const ty = self.typeOf(e) orelse return null;
@@ -3451,6 +3478,7 @@ pub const Emitter = struct {
     /// sign (`@rem`), for integers and floats alike.
     fn divBuiltin(self: *Emitter, op: Tag, left: Sexp, right: Sexp) ?[]const u8 {
         if (op == .@"%") return "@rem";
+        if (self.float_literals != null) return null;
         var builtin: []const u8 = "@divTrunc";
         for ([2]Sexp{ left, right }) |e| {
             const ty = self.typeOf(e) orelse continue;

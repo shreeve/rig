@@ -1,0 +1,20 @@
+# Integer literals in float arithmetic are floats: `/` of two of them
+# divides exactly, in the float type the context expects.
+
+sub main()
+  b: Float = 7 / 2
+  y: F32 = 1 / 3
+  c: F32 = -7 / 2
+  d: Float = 7 / 2 + 1
+  k: Float =! 7 / 2
+  print(b, y, c, d, k * 2)
+  print(7 / 2 * 2.0)
+  r: Float = 7 % 2
+  print(r)
+  print(7 / 2)
+
+# expect:
+# 3.5 0.33333334 -3.5 4.5 7.0
+# 7.0
+# 1.0
+# 3
