@@ -1,5 +1,5 @@
 //! Declarations: the built-in generic types, symbol resolution, and
-//! signature sema.
+//! declared types.
 //!
 //! `resolveSymbols` walks the whole IR once, creating a Symbol for every
 //! declaration and binding and a Scope for every node that opens one.
@@ -11,6 +11,11 @@
 //! variants, methods, `drop` bodies, externs, and type aliases.
 //! `TypeResolver.resolveType` is also used by the expression checker for
 //! annotations inside bodies.
+//!
+//! Some rules on declared types depend on what other types hold (an
+//! array cannot hold a resource), which is known only once every
+//! declaration is resolved (`sema.computeContents`). Types spelled in
+//! declarations queue those checks, and `checkDeclarations` runs them.
 
 const std = @import("std");
 const parser = @import("parser.zig");
@@ -47,28 +52,32 @@ const SymbolResolver = struct {
     ctx: *SemContext,
     scope: ScopeId,
     module_scope: ScopeId,
+    /// The generic parameters of the generic type whose members are
+    /// being walked.
+    type_params: []const SymbolId = &.{},
 
     fn walk(self: *SymbolResolver, sexp: Sexp) Error!void {
         switch (sexp.kind() orelse return) {
-            .module => for (ir.Module.decls(sexp)) |c| try self.walk(c),
+            .module => {
+                for (ir.Module.decls(sexp)) |c| if (rig.isModuleConst(c)) try self.walk(c);
+                for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try self.walk(c);
+            },
             .@"pub" => {
                 const before = self.ctx.symbols.items.len;
                 try self.walk(ir.Pub.decl(sexp));
                 if (self.ctx.symbols.items.len > before) self.ctx.symbols.items[before].flags.is_public = true;
             },
-            .fun, .sub => try self.walkFun(sexp, true),
+            .fun, .sub => {
+                _ = try self.declare(ir.get(sexp, .name), .function, .{});
+                try self.walkFun(sexp);
+            },
             .lambda => try self.walkLambda(sexp),
             .use => try self.walkUse(sexp),
             .type => try self.walkTypeAlias(sexp),
             .generic_type, .generic_enum => try self.walkGenericType(sexp),
-            .@"struct", .@"enum" => try self.walkNominalType(sexp),
-            .errors => {
-                const before = self.ctx.symbols.items.len;
-                try self.walkNominalType(sexp);
-                if (self.ctx.symbols.items.len > before) self.ctx.symbols.items[before].flags.error_set = true;
-            },
-            .@"extern" => _ = try self.declare(ir.Extern.name(sexp), .@"extern", .{}),
-            .extern_fun, .extern_sub => _ = try self.declare(ir.get(sexp, .name), .@"extern", .{}),
+            .@"struct", .@"enum" => try self.walkNominalType(sexp, .{}),
+            .errors => try self.walkNominalType(sexp, .{ .error_set = true }),
+            .@"extern", .extern_fun, .extern_sub => _ = try self.declare(ir.get(sexp, .name), .@"extern", .{}),
             .@"test" => try self.walkTest(sexp),
             .set => try self.walkSet(sexp),
             .block => {
@@ -84,7 +93,6 @@ const SymbolResolver = struct {
             },
             .@"while" => try self.walkConditional(ir.While.cond(sexp), &.{ ir.While.step(sexp), ir.While.body(sexp) }, ir.While.@"else"(sexp)),
             .arm => try self.walkArm(sexp),
-            .catch_block => try self.walkCatchBlock(sexp),
             .@"catch" => try self.walkCatch(sexp),
             else => for (rig.children(sexp)) |c| try self.walk(c),
         }
@@ -99,19 +107,6 @@ const SymbolResolver = struct {
         return prev;
     }
 
-    fn addSymbol(self: *SymbolResolver, sym: Symbol) Error!SymbolId {
-        const id: SymbolId = @intCast(self.ctx.symbols.items.len);
-        try self.ctx.symbols.append(self.ctx.allocator, sym);
-        try self.ctx.addToScope(sym.scope, id);
-        return id;
-    }
-
-    fn addDetached(self: *SymbolResolver, sym: Symbol) Error!SymbolId {
-        const id: SymbolId = @intCast(self.ctx.symbols.items.len);
-        try self.ctx.symbols.append(self.ctx.allocator, sym);
-        return id;
-    }
-
     /// Declare a named symbol in the current scope and record the name
     /// fact. Module-level declarations must have unique names.
     fn declare(self: *SymbolResolver, name_node: Sexp, kind: sema.SymbolKind, flags: sema.SymbolFlags) Error!?SymbolId {
@@ -121,26 +116,34 @@ const SymbolResolver = struct {
             try self.ctx.err(pos, "`none` is the absent optional and cannot be used as a name", .{});
             return null;
         }
-        if (self.scope == self.module_scope) {
-            if (self.ctx.lookupInScopeOnly(self.scope, name)) |prev| {
-                const p = self.ctx.symbols.items[prev];
-                if (p.decl_pos == sema.builtin_decl_pos) {
-                    try self.ctx.err(pos, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
-                } else {
-                    try self.ctx.err(pos, "duplicate declaration of `{s}`", .{name});
-                    try self.ctx.note(p.decl_pos, "`{s}` first declared here", .{name});
-                }
-                return null;
-            }
-        }
-        const id = try self.addSymbol(.{
+        // The lexer lets a keyword through only where it may name a
+        // member, which includes a parameter list's `name:`.
+        if (rig.keyword(name)) |kw| if (kw != .new) {
+            try self.ctx.err(pos, "`{s}` is a keyword and cannot name a {s}", .{ name, if (kind == .param) "parameter" else "binding" });
+            return null;
+        };
+        const sym: Symbol = .{
             .name = name,
             .kind = kind,
             .ty = self.ctx.types.unknown_id,
             .decl_pos = pos,
             .scope = self.scope,
             .flags = flags,
-        });
+        };
+        const dup = if (self.scope == self.module_scope) self.ctx.lookupInScopeOnly(self.scope, name) else null;
+        if (dup) |prev| {
+            const p = self.ctx.symbols.items[prev];
+            if (p.decl_pos == sema.builtin_decl_pos) {
+                try self.ctx.err(pos, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
+            } else {
+                try self.ctx.err(pos, "duplicate declaration of `{s}`", .{name});
+                try self.ctx.note(p.decl_pos, "`{s}` first declared here", .{name});
+            }
+        }
+        const id = try self.ctx.addSymbol(sym);
+        // A duplicate is still resolved and checked, under a symbol no
+        // name reaches, so errors inside it are reported too.
+        if (dup == null) try self.ctx.addToScope(self.scope, id);
         try self.ctx.recordName(name_node, id);
         return id;
     }
@@ -157,7 +160,7 @@ const SymbolResolver = struct {
     fn checkShadowing(self: *SymbolResolver, name_node: Sexp, what: []const u8) Error!void {
         const name = identAt(self.ctx.source, name_node) orelse return;
         const pos = srcPos(name_node, 0);
-        if (self.visibleLocal(name)) |prev| {
+        if (self.visibleLocal(self.scope, name)) |prev| {
             try self.ctx.err(pos, "{s} `{s}` shadows the local `{s}`; use a different name", .{ what, name, name });
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
             return;
@@ -165,10 +168,10 @@ const SymbolResolver = struct {
         if (self.scope != self.module_scope) try self.checkShadowsDeclaration(name_node, what);
     }
 
-    /// A local in the current function (through blocks and lambdas),
+    /// A local of the function `from` is in (through blocks and lambdas),
     /// excluding module-level names.
-    fn visibleLocal(self: *SymbolResolver, name: []const u8) ?SymbolId {
-        var sid: ?ScopeId = self.scope;
+    fn visibleLocal(self: *SymbolResolver, from: ScopeId, name: []const u8) ?SymbolId {
+        var sid: ?ScopeId = from;
         while (sid) |s| {
             if (s == self.module_scope or s == sema.scope_invalid) return null;
             if (self.ctx.lookupInScopeOnly(s, name)) |id| return id;
@@ -180,19 +183,24 @@ const SymbolResolver = struct {
     }
 
     /// A local or parameter may not reuse the name of a module-level
-    /// function, type, extern, or module: Zig rejects the shadowing.
+    /// function, type, constant, extern, or module, or of a generic parameter of the
+    /// enclosing generic type: Zig rejects the shadowing.
     fn checkShadowsDeclaration(self: *SymbolResolver, name_node: Sexp, what: []const u8) Error!void {
         const name = identAt(self.ctx.source, name_node) orelse return;
+        for (self.type_params) |tp| {
+            if (!std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) continue;
+            try self.ctx.errAt(name_node, "{s} `{s}` has the name of the generic parameter `{s}`; use a different name", .{ what, name, name });
+            return;
+        }
         const decl = self.ctx.lookupInScopeOnly(self.module_scope, name) orelse return;
         const sym = self.ctx.symbols.items[decl];
-        if (sym.kind == .local or sym.decl_pos == sema.builtin_decl_pos) return;
+        if (sym.decl_pos == sema.builtin_decl_pos) return;
         try self.ctx.errAt(name_node, "{s} `{s}` has the same name as the module-level declaration `{s}`; use a different name", .{ what, name, name });
         try self.ctx.note(sym.decl_pos, "`{s}` declared here", .{name});
     }
 
-    /// A `fun` or `sub`.
-    fn walkFun(self: *SymbolResolver, node: Sexp, add_symbol: bool) Error!void {
-        if (add_symbol) _ = try self.declare(ir.get(node, .name), .function, .{});
+    /// The parameters and body of a `fun`, `sub`, or `drop`.
+    fn walkFun(self: *SymbolResolver, node: Sexp) Error!void {
         const prev = try self.enter(node, .function);
         defer self.scope = prev;
         try self.bindParams(ir.get(node, .params), &.{});
@@ -257,7 +265,8 @@ const SymbolResolver = struct {
             }
             const h = p.kind();
             const borrowed = h == .read or h == .write or
-                ((h == .@":" or h == .pre_param or h == .default) and sema.isBorrowedTypeNode(ir.get(p, .type)));
+                ((h == .@":" or h == .pre_param or h == .default) and
+                    (ir.get(p, .type).isKind(.borrow_read) or ir.get(p, .type).isKind(.borrow_write)));
             const is_pre = h == .pre_param;
             _ = try self.declare(name_node, .param, .{
                 .borrowed_param = borrowed,
@@ -272,10 +281,7 @@ const SymbolResolver = struct {
     fn checkShadowingThroughLambda(self: *SymbolResolver, name_node: Sexp) Error!void {
         const name = identAt(self.ctx.source, name_node) orelse return;
         const parent = self.ctx.scopes.items[self.scope].parent orelse return;
-        const saved = self.scope;
-        self.scope = parent;
-        defer self.scope = saved;
-        if (self.visibleLocal(name)) |prev| {
+        if (self.visibleLocal(parent, name)) |prev| {
             try self.ctx.errAt(name_node, "closure parameter `{s}` has the name of the local `{s}`; to capture the local, give it a sigil (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|~{s}|` holds it weakly), or name the parameter differently", .{ name, name, name, name, name });
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
             return;
@@ -300,17 +306,9 @@ const SymbolResolver = struct {
         try self.ctx.alias_targets.put(self.ctx.allocator, id, ir.Type.type(node));
     }
 
-    fn checkReserved(self: *SymbolResolver, name_node: Sexp) Error!bool {
-        const name = identAt(self.ctx.source, name_node) orelse return true;
-        if (!isReservedName(name)) return false;
-        try self.ctx.errAt(name_node, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
-        return true;
-    }
-
     /// A `generic_type` or `generic_enum`.
     fn walkGenericType(self: *SymbolResolver, node: Sexp) Error!void {
         const name_node = ir.get(node, .name);
-        if (try self.checkReserved(name_node)) return;
         const id = (try self.declare(name_node, .generic_type, .{})) orelse return;
         const name = self.ctx.symbols.items[id].name;
         const params = ir.get(node, .params);
@@ -320,58 +318,46 @@ const SymbolResolver = struct {
         }
         var ids: std.ArrayListUnmanaged(SymbolId) = .empty;
         defer ids.deinit(self.ctx.allocator);
-        {
-            for (params.items(), 0..) |p, i| {
-                const pname = identAt(self.ctx.source, p) orelse continue;
-                var dup = false;
-                for (params.items()[0..i]) |e| {
-                    if (std.mem.eql(u8, identAt(self.ctx.source, e) orelse "", pname)) dup = true;
-                }
-                if (dup) {
-                    try self.ctx.errAt(p, "duplicate generic parameter `{s}` on `{s}`", .{ pname, name });
-                    continue;
-                }
-                const pid = try self.addDetached(.{
-                    .name = pname,
-                    .kind = .generic_param,
-                    .ty = self.ctx.types.unknown_id,
-                    .decl_pos = srcPos(p, 0),
-                    .scope = self.scope,
-                });
-                try self.ctx.recordName(p, pid);
-                try ids.append(self.ctx.allocator, pid);
+        for (params.items(), 0..) |p, i| {
+            const pname = identAt(self.ctx.source, p) orelse continue;
+            const dup = for (params.items()[0..i]) |e| {
+                if (std.mem.eql(u8, identAt(self.ctx.source, e) orelse "", pname)) break true;
+            } else false;
+            if (dup) {
+                try self.ctx.errAt(p, "duplicate generic parameter `{s}` on `{s}`", .{ pname, name });
+                continue;
             }
+            // Detached: reached through the type's `type_params`.
+            const pid = try self.ctx.addSymbol(.{
+                .name = pname,
+                .kind = .generic_param,
+                .ty = self.ctx.types.unknown_id,
+                .decl_pos = srcPos(p, 0),
+                .scope = self.scope,
+            });
+            try self.ctx.recordName(p, pid);
+            try ids.append(self.ctx.allocator, pid);
         }
         self.ctx.symbols.items[id].type_params = try self.ctx.arena.allocator().dupe(SymbolId, ids.items);
+        self.type_params = self.ctx.symbols.items[id].type_params.?;
+        defer self.type_params = &.{};
         try self.walkMembers(ir.rest(node, .members));
     }
 
     /// A `struct`, `enum`, or `errors`.
-    fn walkNominalType(self: *SymbolResolver, node: Sexp) Error!void {
-        const name_node = ir.get(node, .name);
-        if (try self.checkReserved(name_node)) return;
-        _ = try self.declare(name_node, .nominal_type, .{});
+    fn walkNominalType(self: *SymbolResolver, node: Sexp, flags: sema.SymbolFlags) Error!void {
+        _ = try self.declare(ir.get(node, .name), .nominal_type, flags);
         try self.walkMembers(ir.rest(node, .members));
     }
 
     fn walkMembers(self: *SymbolResolver, members: []const Sexp) Error!void {
         for (members) |m| {
-            const h = m.kind() orelse continue;
-            switch (h) {
-                .fun, .sub => try self.walkFun(m, false),
-                .drop_decl => {
-                    const prev = try self.enter(m, .function);
-                    defer self.scope = prev;
-                    try self.bindParams(ir.DropDecl.params(m), &.{});
-                    try self.walk(ir.DropDecl.body(m));
-                },
-                else => {},
-            }
+            if (m.isKind(.fun) or m.isKind(.sub) or m.isKind(.drop_decl)) try self.walkFun(m);
         }
     }
 
     fn walkSet(self: *SymbolResolver, node: Sexp) Error!void {
-        const kind = rig.bindingKindOf(ir.Set.op(node)) catch return;
+        const kind = rig.bindingKindOf(ir.Set.op(node));
         const target = ir.Set.target(node);
         try self.walk(ir.Set.value(node));
         if (target != .src) {
@@ -393,7 +379,7 @@ const SymbolResolver = struct {
             },
             .fixed => {
                 if (self.scope != self.module_scope) {
-                    if (self.visibleLocal(identAt(self.ctx.source, target).?)) |prev| {
+                    if (self.visibleLocal(self.scope, identAt(self.ctx.source, target).?)) |prev| {
                         const name = self.ctx.symbols.items[prev].name;
                         try self.ctx.errAt(target, "`{s}` is already bound; `=!` declares a new binding. Assign with `{s} = ...` or shadow with `new {s} = ...`", .{ name, name, name });
                         try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
@@ -427,7 +413,8 @@ const SymbolResolver = struct {
     }
 
     /// The existing binding `x = ...` assigns to: a local or parameter of
-    /// the current body, or a module-level variable.
+    /// the current body, or a module-level constant (which typecheck then
+    /// rejects as a reassignment).
     fn assignable(self: *SymbolResolver, name: []const u8) ?SymbolId {
         if (self.ctx.lookupLocal(self.scope, name)) |id| {
             const k = self.ctx.symbols.items[id].kind;
@@ -451,10 +438,7 @@ const SymbolResolver = struct {
         const root = self.ctx.bodyRoot(self.scope) orelse return;
         if (self.ctx.scopes.items[root].kind != .lambda) return;
         const parent = self.ctx.scopes.items[root].parent orelse return;
-        const saved = self.scope;
-        self.scope = parent;
-        defer self.scope = saved;
-        if (self.visibleLocal(name)) |prev| {
+        if (self.visibleLocal(parent, name)) |prev| {
             try self.ctx.errAt(name_node, "`{s}` inside the closure shadows the local `{s}` of the enclosing function; closures reach outer values only through captures", .{ name, name });
             try self.ctx.note(self.ctx.symbols.items[prev].decl_pos, "`{s}` declared here", .{name});
         }
@@ -489,13 +473,6 @@ const SymbolResolver = struct {
         try self.walk(else_);
     }
 
-    fn walkCatchBlock(self: *SymbolResolver, node: Sexp) Error!void {
-        const prev = try self.enter(node, .block);
-        defer self.scope = prev;
-        _ = try self.bindFresh(ir.CatchBlock.name(node), "`catch` binding");
-        try self.walk(ir.CatchBlock.body(node));
-    }
-
     /// `(catch value name-or-_ handler)`.
     fn walkCatch(self: *SymbolResolver, node: Sexp) Error!void {
         try self.walk(ir.Catch.value(node));
@@ -515,7 +492,7 @@ const SymbolResolver = struct {
         defer self.scope = prev;
         const pattern = ir.Arm.pattern(node);
         switch (pattern) {
-            .src => if (!isWildcardPattern(self.ctx.source, pattern)) {
+            .src => if (patternBinds(self.ctx.source, pattern)) {
                 _ = try self.bindFresh(pattern, "pattern binding");
             },
             .list => if (pattern.isKind(.variant_pattern)) {
@@ -535,15 +512,51 @@ pub fn resolveDeclarations(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) 
     if (!tree.isKind(.module)) return;
     var tr: TypeResolver = .{ .ctx = ctx, .scope = module_scope };
     for (ir.Module.decls(tree)) |decl| try tr.resolveDecl(decl);
-    try tr.checkPublicNominals();
+}
+
+/// The checks on declared types that need to know what every type holds
+/// (`sema.computeContents`), then the module's public surface.
+pub fn checkDeclarations(ctx: *SemContext) Error!void {
+    for (ctx.deferred_checks.items) |c| try runCheck(ctx, c);
+    ctx.deferred_checks.clearAndFree(ctx.allocator);
+    try checkPublicSurface(ctx);
+}
+
+/// A rule on a spelled type that depends on what other types hold.
+pub const DeferredCheck = union(enum) {
+    /// `[N]T`, with `T` spelled at `node`.
+    array: struct { node: Sexp, elem: TypeId },
+    /// `Vec(T)`, `Cell(T)`, or `Signal(T)` spelled at `pos`.
+    builtin: struct { pos: u32, sym: SymbolId, args: []const TypeId },
+    /// `*fun(...) -> R`, with the function type spelled at `node`.
+    owned_closure: struct { node: Sexp, ty: TypeId },
+};
+
+fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
+    switch (check) {
+        .array => |c| {
+            if (sema.typeHasDropGlue(ctx, c.elem)) {
+                try ctx.errAt(c.node, "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try sema.formatType(ctx, c.elem)});
+                return;
+            }
+            // `[N]T` in a generic type: every instance must supply plain
+            // data for the parameters the element holds.
+            var held: std.ArrayListUnmanaged(SymbolId) = .empty;
+            defer held.deinit(ctx.allocator);
+            try sema.heldTypeVars(ctx, c.elem, &held, ctx.allocator);
+            for (held.items) |param| {
+                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .plain, .pos = ctx.startOf(c.node), .op = "keeps in an array a value" });
+            }
+        },
+        .builtin => |c| if (try builtinElementError(ctx, c.sym, c.args)) |msg| try ctx.err(c.pos, "{s}", .{msg}),
+        .owned_closure => |c| try checkOwnedClosureType(ctx, c.node, c.ty),
+    }
 }
 
 pub const TypeResolver = struct {
     ctx: *SemContext,
     scope: ScopeId,
     nominal: NominalContext = NominalContext.none,
-    /// The first generic instance `collectLeaks` saw since the last report.
-    generic_leak: ?TypeId = null,
 
     fn resolveDecl(self: *TypeResolver, sexp: Sexp) Error!void {
         switch (sexp.kind() orelse return) {
@@ -557,8 +570,16 @@ pub const TypeResolver = struct {
                 const name = ir.Extern.name(sexp);
                 const ty = try self.resolveType(ir.Extern.type(sexp));
                 const id = self.ctx.symbolOf(name) orelse return;
+                const text = identAt(self.ctx.source, name) orelse "extern";
+                if (self.ctx.types.get(ty) == .function) {
+                    try self.ctx.errAt(name, "a C function is declared with `extern fun {s}(...)` or `extern sub {s}(...)`; `extern name: T` is for C data", .{ text, text });
+                    self.ctx.symbols.items[id].ty = self.ctx.types.invalid_id;
+                    return;
+                }
                 self.ctx.symbols.items[id].ty = ty;
-                if (self.ctx.types.get(ty) == .function) try self.checkExternSignature(name, ty);
+                if (!self.isCAbiType(ty)) {
+                    try self.ctx.errAt(name, "`extern` variable `{s}` cannot have type `{s}`; only integers, floats, and Bool cross the C boundary", .{ text, try sema.formatType(self.ctx, ty) });
+                }
             },
             .extern_fun, .extern_sub => try self.resolveExternFun(sexp),
             .@"struct", .@"enum", .errors, .generic_type, .generic_enum => try self.resolveNominal(sexp),
@@ -575,8 +596,13 @@ pub const TypeResolver = struct {
         const is_sub = node.isKind(.sub);
         const name = ir.get(node, .name);
         const params = ir.get(node, .params);
+        // Its parameter and return types are poison, so nothing else about
+        // it is reported.
+        const generic = try self.rejectGenericFunction(node);
         const returns = rig.returnType(node);
-        const return_ty = if (returns == .nil)
+        const return_ty = if (generic)
+            self.ctx.types.invalid_id
+        else if (returns == .nil)
             self.ctx.types.void_id
         else
             try self.resolveReturnType(returns);
@@ -585,9 +611,13 @@ pub const TypeResolver = struct {
         defer param_types.deinit(self.ctx.allocator);
         var pre_mask: u32 = 0;
         for (params.items(), 0..) |p, i| {
-            const pty = try self.resolveParamType(p);
+            const pty = if (generic) self.ctx.types.invalid_id else try self.resolveParamType(p);
             try param_types.append(self.ctx.allocator, pty);
-            if (p.isKind(.pre_param) and i < 32) pre_mask |= @as(u32, 1) << @intCast(i);
+            if (p.isKind(.pre_param) and !generic) {
+                if (i < 32) {
+                    pre_mask |= @as(u32, 1) << @intCast(i);
+                } else try self.ctx.err(sema.paramPos(p, self.ctx.startOf(p)), "a `pre` parameter must be one of the first 32 parameters", .{});
+            }
             if (sema.paramNameNode(p)) |pn| {
                 if (self.ctx.symbolOf(pn)) |pid| self.ctx.symbols.items[pid].ty = pty;
             }
@@ -604,12 +634,19 @@ pub const TypeResolver = struct {
                 self.ctx.symbols.items[fid].ty = fn_ty;
                 self.ctx.symbols.items[fid].param_names = try self.paramNames(params);
                 self.ctx.symbols.items[fid].param_defaults = try self.paramDefaults(params);
-                if (self.ctx.symbols.items[fid].flags.is_public) {
-                    try self.checkPublicSignature(fid, name.src.pos, return_ty, param_types.items);
-                }
             }
         }
         return fn_ty;
+    }
+
+    /// `pre T: type` would make a function generic, which Rig does not
+    /// support yet.
+    fn rejectGenericFunction(self: *TypeResolver, node: Sexp) Error!bool {
+        const at = for (ir.get(node, .params).items()) |p| {
+            if (p.isKind(.pre_param) and std.mem.eql(u8, identAt(self.ctx.source, ir.get(p, .type)) orelse "", "type")) break p;
+        } else return false;
+        try self.ctx.errAt(at, "generic functions are not supported yet: `pre {s}: type` would make `{s}` generic; use a generic type, or write the function for each type", .{ sema.paramName(self.ctx.source, at) orelse "T", identAt(self.ctx.source, ir.get(node, .name)) orelse "it" });
+        return true;
     }
 
     /// The default value of each parameter, or null when none has one.
@@ -636,6 +673,11 @@ pub const TypeResolver = struct {
     fn resolveReturnType(self: *TypeResolver, node: Sexp) Error!TypeId {
         if (node.isKind(.error_union)) {
             const inner = try self.resolveType(ir.ErrorUnion.type(node));
+            if (sema.isErrorSet(self.ctx, inner)) {
+                const e = try sema.formatType(self.ctx, inner);
+                try self.ctx.errAt(node, "`{s}!` would make a failure and a success both `{s}` values; return `{s}` or `{s}?`, or a struct that holds one", .{ e, e, e, e });
+                return self.ctx.types.invalid_id;
+            }
             return self.ctx.intern(.{ .fallible = inner });
         }
         return self.resolveType(node);
@@ -772,11 +814,11 @@ pub const TypeResolver = struct {
         for (members) |m| {
             switch (m) {
                 .src => |s| {
+                    const vname = identAt(self.ctx.source, m).?;
                     if (!is_enum) {
-                        try self.ctx.err(s.pos, "field `{s}` needs a type (`{s}: T`)", .{ identAt(self.ctx.source, m).?, identAt(self.ctx.source, m).? });
+                        try self.ctx.err(s.pos, "field `{s}` needs a type (`{s}: T`)", .{ vname, vname });
                         continue;
                     }
-                    const vname = identAt(self.ctx.source, m).?;
                     if (try self.checkDuplicateMember(fields.items, vname, s.pos, sym_name)) continue;
                     try fields.append(self.ctx.allocator, .{ .name = vname, .ty = self.ctx.types.void_id, .decl_pos = s.pos, .is_variant = true });
                 },
@@ -787,16 +829,13 @@ pub const TypeResolver = struct {
                             const name_node = ir.get(m, .name);
                             const fname = identAt(self.ctx.source, name_node) orelse continue;
                             const fpos = srcPos(name_node, 0);
-                            if (h == .default) {
-                                try self.ctx.err(fpos, "field default values are not supported yet; pass `{s}` in every constructor", .{fname});
-                            }
                             if (is_enum) {
                                 try self.ctx.err(fpos, "an enum declares variants, not typed fields; write `{s}` or `{s}(field: T)`", .{ fname, fname });
                                 continue;
                             }
                             if (try self.checkDuplicateMember(fields.items, fname, fpos, sym_name)) continue;
                             const fty = try self.resolveType(ir.get(m, .type));
-                            try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos });
+                            try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos, .default = if (h == .default) ir.Default.value(m) else null });
                         },
                         .valued => {
                             const name_node = ir.Valued.name(m);
@@ -839,10 +878,7 @@ pub const TypeResolver = struct {
                                     .generic_type, .generic_enum => "generic types",
                                     else => "enums",
                                 };
-                                try self.ctx.errAt(m, "`drop` declarations on {s} are deferred (only plain structs can declare `drop`); {s}", .{
-                                    where,
-                                    if (generic) "generic Drop requires bounds / monomorphized resource analysis" else "enum Drop requires per-variant payload drop",
-                                });
+                                try self.ctx.errAt(m, "`drop` bodies are only for structs, not {s}", .{where});
                             }
                         },
                         else => {},
@@ -855,14 +891,78 @@ pub const TypeResolver = struct {
         const owned = try self.ctx.arena.allocator().dupe(Field, fields.items);
         self.ctx.symbols.items[sym_id].fields = owned;
 
+        if (generic) try self.checkTypeParamNames(sym_id, members);
+        if (head == .@"enum" or head == .generic_enum) try self.checkEnumValues(members, generic);
         if (head == .@"struct") {
-            // `sema.propagateDropGlue` finishes this once every type is resolved.
-            self.ctx.symbols.items[sym_id].flags.has_drop_glue = sema.fieldsHaveDropGlue(self.ctx, owned);
             for (members) |m| {
-                if (m.isKind(.drop_decl)) {
-                    try self.enforceDropBody(ir.DropDecl.body(m), owned);
-                }
+                if (m.isKind(.drop_decl)) try self.enforceDropBody(ir.DropDecl.body(m));
             }
+        }
+    }
+
+    /// A generic parameter may not take a name that means something else
+    /// where it is used: a built-in or primitive type, `Self`, a
+    /// module-level declaration (the generic type itself included), or a
+    /// method of the type.
+    fn checkTypeParamNames(self: *TypeResolver, sym_id: SymbolId, members: []const Sexp) Error!void {
+        for (self.ctx.symbols.items[sym_id].type_params orelse &.{}) |tp| {
+            const p = self.ctx.symbols.items[tp];
+            if (primitiveTypeId(self.ctx, p.name) != null or isNumericTypeName(p.name) or std.mem.eql(u8, p.name, "Self")) {
+                try self.ctx.err(p.decl_pos, "generic parameter `{s}` has the name of a built-in type; use a different name, such as `T`", .{p.name});
+            } else if (self.ctx.lookupInScopeOnly(sema.module_scope, p.name)) |decl| {
+                try self.ctx.err(p.decl_pos, "generic parameter `{s}` has the same name as the module-level declaration `{s}`; use a different name", .{ p.name, p.name });
+                const d = self.ctx.symbols.items[decl];
+                if (d.decl_pos != sema.builtin_decl_pos) try self.ctx.note(d.decl_pos, "`{s}` declared here", .{p.name});
+            } else for (members) |m| {
+                if (!m.isKind(.fun) and !m.isKind(.sub)) continue;
+                if (!std.mem.eql(u8, identAt(self.ctx.source, ir.get(m, .name)) orelse "", p.name)) continue;
+                try self.ctx.err(p.decl_pos, "generic parameter `{s}` has the same name as a method of the type; use a different name", .{p.name});
+                break;
+            }
+        }
+    }
+
+    /// Explicit enum values are constant integers that fit the emitted
+    /// `enum(u32)` tag, and no two variants share a value (a variant
+    /// without one takes the value after the previous variant's). Only a
+    /// plain enum, without payloads or generic parameters, has values.
+    fn checkEnumValues(self: *TypeResolver, members: []const Sexp, generic: bool) Error!void {
+        var valued = false;
+        var payloads = false;
+        for (members) |m| {
+            if (m.isKind(.valued)) valued = true;
+            if (m.isKind(.variant)) payloads = true;
+        }
+        if (!valued) return;
+        if (generic or payloads) {
+            for (members) |m| {
+                if (!m.isKind(.valued)) continue;
+                try self.ctx.errAt(ir.Valued.value(m), "{s} cannot give its variants values; only a plain enum can", .{if (generic) "a generic enum" else "an enum with payload variants"});
+            }
+            return;
+        }
+        var seen: std.AutoHashMapUnmanaged(i128, Sexp) = .empty;
+        defer seen.deinit(self.ctx.allocator);
+        var next: i128 = 0;
+        for (members) |m| {
+            const explicit = m.isKind(.valued);
+            const name_node = if (explicit) ir.Valued.name(m) else if (m == .src) m else continue;
+            const name = identAt(self.ctx.source, name_node).?;
+            const value = if (explicit) sema.constIntOf(self.ctx, ir.Valued.value(m)) orelse {
+                try self.ctx.errAt(ir.Valued.value(m), "the value of `{s}` must be a constant integer", .{name});
+                return;
+            } else next;
+            if (value < 0 or value > std.math.maxInt(u32)) {
+                try self.ctx.errAt(if (explicit) ir.Valued.value(m) else name_node, "`{s}` has the value {d}, out of range: enum values run from 0 to {d}", .{ name, value, std.math.maxInt(u32) });
+                return;
+            }
+            const gop = try seen.getOrPut(self.ctx.allocator, value);
+            if (gop.found_existing) {
+                const prev = gop.value_ptr.*;
+                try self.ctx.errAt(name_node, "`{s}` has the value {d}, which `{s}` already has{s}", .{ name, value, identAt(self.ctx.source, prev).?, if (explicit) "" else " (a variant without `= value` takes the value after the previous variant's)" });
+                try self.ctx.noteAt(prev, "`{s}` declared here", .{identAt(self.ctx.source, prev).?});
+            } else gop.value_ptr.* = name_node;
+            next = value + 1;
         }
     }
 
@@ -887,11 +987,16 @@ pub const TypeResolver = struct {
         {
             for (ir.Variant.params(variant).items()) |p| {
                 if (!p.isKind(.@":")) {
+                    if (p.isKind(.default)) {
+                        try self.ctx.errAt(ir.Default.name(p), "variant payload fields cannot have defaults", .{});
+                        continue;
+                    }
                     try self.ctx.errAt(p, "variant payload fields need types (`name: T`)", .{});
                     continue;
                 }
                 const field_name = ir.get(p, .name);
                 const fname = identAt(self.ctx.source, field_name) orelse continue;
+                if (try self.checkDuplicateMember(payload.items, fname, srcPos(field_name, 0), vname)) continue;
                 try payload.append(self.ctx.allocator, .{
                     .name = fname,
                     .ty = try self.resolveType(ir.get(p, .type)),
@@ -916,24 +1021,19 @@ pub const TypeResolver = struct {
         if (try self.checkDuplicateMember(fields.items, mname, mpos, owner)) return;
         const fn_ty = try self.resolveFunction(node, nominal_sym);
         const params = ir.get(node, .params);
-        var receiver: MethodReceiver = .none;
-        if (params.items().len > 0) {
-            for (params.items(), 0..) |p, i| {
-                if (i == 0) continue;
-                const is_self = std.mem.eql(u8, sema.paramName(self.ctx.source, p) orelse "", "self");
-                const h = p.kind();
-                if (is_self) {
-                    try self.ctx.err(sema.paramPos(p, mpos), "`self` must be the first parameter of a method", .{});
-                }
-                if (h == .read or h == .write) {
-                    try self.ctx.err(sema.paramPos(p, mpos), "sigil-prefixed parameter sugar (`?self` / `!self`) is only allowed at the first parameter position", .{});
-                }
+        for (params.items(), 0..) |p, i| {
+            if (i == 0) continue;
+            if (self.isSelfParam(p)) {
+                try self.ctx.err(sema.paramPos(p, mpos), "`self` must be the first parameter of a method", .{});
             }
-            const first = params.items()[0];
-            if (std.mem.eql(u8, sema.paramName(self.ctx.source, first) orelse "", "self")) {
-                receiver = try self.classifyReceiver(first, fn_ty, nominal_sym, mpos);
+            if (p.isKind(.read) or p.isKind(.write)) {
+                try self.ctx.err(sema.paramPos(p, mpos), "sigil-prefixed parameter sugar (`?self` / `!self`) is only allowed at the first parameter position", .{});
             }
         }
+        const receiver: MethodReceiver = if (params.items().len > 0 and self.isSelfParam(params.items()[0]))
+            try self.classifyReceiver(fn_ty, nominal_sym, mpos)
+        else
+            .none;
         try fields.append(self.ctx.allocator, .{
             .name = mname,
             .ty = fn_ty,
@@ -945,7 +1045,7 @@ pub const TypeResolver = struct {
         });
     }
 
-    fn classifyReceiver(self: *TypeResolver, first: Sexp, fn_ty_id: TypeId, nominal_sym: SymbolId, mpos: u32) Error!MethodReceiver {
+    fn classifyReceiver(self: *TypeResolver, fn_ty_id: TypeId, nominal_sym: SymbolId, mpos: u32) Error!MethodReceiver {
         const fn_ty = self.ctx.types.get(fn_ty_id);
         if (fn_ty != .function or fn_ty.function.params.len == 0) return .none;
         const pty_id = fn_ty.function.params[0];
@@ -964,7 +1064,7 @@ pub const TypeResolver = struct {
                 if (pty_id == self_ty) return .value;
                 try self.ctx.err(mpos, "`self` receiver type must be `Self` or `{s}`", .{nom});
             },
-            .unknown, .invalid => _ = first,
+            .unknown, .invalid => {},
             else => try self.ctx.err(mpos, "`self` receiver type must be `?Self`, `!Self`, `Self`, or an explicit `{s}` form", .{nom}),
         }
         return .none;
@@ -993,7 +1093,7 @@ pub const TypeResolver = struct {
             return;
         }
         const first = params.items()[0];
-        if (!std.mem.eql(u8, sema.paramName(self.ctx.source, first) orelse "", "self")) {
+        if (!self.isSelfParam(first)) {
             try self.ctx.err(sema.paramPos(first, pos), "`drop` declaration's parameter must be named `self`", .{});
             return;
         }
@@ -1024,49 +1124,33 @@ pub const TypeResolver = struct {
     }
 
     /// Inside `drop`, the body runs before the generated field drops, so
-    /// it must not consume `self` or move/replace a field with drop glue.
-    fn enforceDropBody(self: *TypeResolver, body: Sexp, fields: []const Field) Error!void {
+    /// it must not consume or replace `self`.
+    fn enforceDropBody(self: *TypeResolver, body: Sexp) Error!void {
         const head = body.kind() orelse return;
         switch (head) {
             .drop => if (self.isSelf(ir.Drop.name(body))) {
                 try self.ctx.errAt(ir.Drop.name(body), "cannot drop `self` inside its own drop body; the binding is being destroyed by the runtime", .{});
             },
-            .move => {
-                const operand = ir.Move.operand(body);
-                if (self.isSelf(operand)) {
-                    try self.ctx.errAt(operand, "cannot move `self` out of its own drop body; the binding is being destroyed by the runtime", .{});
-                } else try self.checkDropBodyField(operand, fields, "move");
+            .move => if (self.isSelf(ir.Move.operand(body))) {
+                try self.ctx.errAt(ir.Move.operand(body), "cannot move `self` out of its own drop body; the binding is being destroyed by the runtime", .{});
             },
             .@"return" => if (self.isSelf(ir.Return.value(body))) {
                 try self.ctx.errAt(ir.Return.value(body), "cannot return `self` from its own drop body", .{});
             },
-            .set => {
-                const target = ir.Set.target(body);
-                if (self.isSelf(target)) {
-                    try self.ctx.errAt(target, "cannot reassign `self` inside its own drop body; dropping the old value would run this body again", .{});
-                } else try self.checkDropBodyField(target, fields, "reassign");
+            .set => if (self.isSelf(ir.Set.target(body))) {
+                try self.ctx.errAt(ir.Set.target(body), "cannot reassign `self` inside its own drop body; dropping the old value would run this body again", .{});
             },
             else => {},
         }
-        for (rig.children(body)) |c| try self.enforceDropBody(c, fields);
+        for (rig.children(body)) |c| try self.enforceDropBody(c);
     }
 
     fn isSelf(self: *TypeResolver, node: Sexp) bool {
         return std.mem.eql(u8, identAt(self.ctx.source, node) orelse "", "self");
     }
 
-    fn checkDropBodyField(self: *TypeResolver, member: Sexp, fields: []const Field, op: []const u8) Error!void {
-        if (!member.isKind(.member)) return;
-        if (!self.isSelf(ir.Member.object(member))) return;
-        const name = ir.Member.name(member);
-        const fname = identAt(self.ctx.source, name).?;
-        for (fields) |f| {
-            if (f.is_method or f.is_variant or !std.mem.eql(u8, f.name, fname)) continue;
-            if (sema.typeHasDropGlue(self.ctx, f.ty)) {
-                try self.ctx.errAt(name, "cannot {s} resource field `self.{s}` inside drop body; fields are dropped automatically after the user drop body returns, so a manual {s} would race the auto-generated drop and double-free", .{ op, fname, op });
-            }
-            return;
-        }
+    fn isSelfParam(self: *TypeResolver, param: Sexp) bool {
+        return std.mem.eql(u8, sema.paramName(self.ctx.source, param) orelse "", "self");
     }
 
     // ---- type expressions ---------------------------------------------------
@@ -1109,7 +1193,8 @@ pub const TypeResolver = struct {
                             return t.invalid_id;
                         },
                         else => {
-                            try self.ctx.err(s.pos, "`{s}` is not a type", .{name});
+                            // A `pre T: type` parameter was reported with its function.
+                            if (!(sym.flags.is_pre and sym.ty == t.invalid_id)) try self.ctx.err(s.pos, "`{s}` is not a type", .{name});
                             return t.invalid_id;
                         },
                     }
@@ -1120,30 +1205,22 @@ pub const TypeResolver = struct {
             .list => {
                 const head = sexp.kind() orelse return t.invalid_id;
                 switch (head) {
-                    .optional => {
-                        const inner = try self.resolveType(ir.Optional.type(sexp));
-                        if (inner == t.invalid_id) return t.invalid_id;
-                        return self.ctx.intern(.{ .optional = inner });
-                    },
                     .error_union => {
                         const inner = try self.resolveType(ir.ErrorUnion.type(sexp));
                         const ty = try self.ctx.intern(.{ .fallible = inner });
                         try self.ctx.errAt(sexp, "a fallible type `{s}` is only allowed as a function's return type (a fallible handle is `(*T)!`)", .{try sema.formatType(self.ctx, ty)});
                         return t.invalid_id;
                     },
-                    .borrow_read, .borrow_write, .slice => {
-                        const inner = try self.resolveType(ir.get(sexp, .type));
+                    .optional, .borrow_read, .borrow_write, .weak, .slice => {
+                        const inner = try self.resolveType(if (head == .weak) ir.Weak.operand(sexp) else ir.get(sexp, .type));
                         if (inner == t.invalid_id) return t.invalid_id;
-                        return switch (head) {
-                            .borrow_read => self.ctx.intern(.{ .borrow_read = inner }),
-                            .borrow_write => self.ctx.intern(.{ .borrow_write = inner }),
-                            else => self.ctx.intern(.{ .slice = .{ .elem = inner } }),
-                        };
-                    },
-                    .weak => {
-                        const inner = try self.resolveType(ir.Weak.operand(sexp));
-                        if (inner == t.invalid_id) return t.invalid_id;
-                        return self.ctx.intern(.{ .weak = inner });
+                        return self.ctx.intern(switch (head) {
+                            .optional => .{ .optional = inner },
+                            .borrow_read => .{ .borrow_read = inner },
+                            .borrow_write => .{ .borrow_write = inner },
+                            .weak => .{ .weak = inner },
+                            else => .{ .slice = .{ .elem = inner } },
+                        });
                     },
                     .shared => {
                         const inner_node = ir.Shared.type(sexp);
@@ -1153,21 +1230,18 @@ pub const TypeResolver = struct {
                             try self.ctx.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
                             return t.invalid_id;
                         }
-                        if (self.ctx.types.get(inner) == .function) try self.checkOwnedClosureType(inner_node, inner);
+                        if (self.ctx.types.get(inner) == .function) try self.checkWhenResolved(.{ .owned_closure = .{ .node = inner_node, .ty = inner } });
                         return self.ctx.intern(.{ .shared = inner });
                     },
                     .array_type => {
                         const size = ir.ArrayType.size(sexp);
-                        const len = sema.parseIntegerLiteral(self.ctx.source, size) orelse {
+                        const len = std.fmt.parseInt(u64, identAt(self.ctx.source, size) orelse "", 0) catch {
                             try self.ctx.errAt(size, "array length must be an integer literal", .{});
                             return t.invalid_id;
                         };
                         const elem_node = ir.ArrayType.type(sexp);
                         const elem = try self.resolveType(elem_node);
-                        if (sema.typeHasDropGlue(self.ctx, elem)) {
-                            try self.ctx.errAt(elem_node, "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try sema.formatType(self.ctx, elem)});
-                            return t.invalid_id;
-                        }
+                        try self.checkWhenResolved(.{ .array = .{ .node = elem_node, .elem = elem } });
                         return self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
                     },
                     .fun_type => {
@@ -1210,7 +1284,7 @@ pub const TypeResolver = struct {
         try self.ctx.recordName(module_node, mod_id);
         const origin = self.ctx.module_refs.get(mod_id) orelse return t.invalid_id;
         const foreign = self.ctx.foreign_semas.get(origin) orelse return t.invalid_id;
-        const fid = foreign.lookupInScopeOnly(1, name) orelse {
+        const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse {
             try self.ctx.err(pos, "no type `{s}` in module `{s}`", .{ name, module_name });
             return t.invalid_id;
         };
@@ -1234,21 +1308,11 @@ pub const TypeResolver = struct {
         return self.ctx.intern(.{ .imported_nominal = .{ .module_id = origin, .sym_id = fid } });
     }
 
-    /// `*fun(...) R` / `*sub(...)`: an owned closure passes plain Copy
-    /// values through its type-erased form.
-    fn checkOwnedClosureType(self: *TypeResolver, fun_type: Sexp, ty: TypeId) Error!void {
-        const f = self.ctx.types.get(ty).function;
-        const is_fun_type = fun_type.isKind(.fun_type);
-        const nodes: []const Sexp = if (is_fun_type) ir.FunType.params(fun_type).items() else &.{};
-        for (f.params, 0..) |p, i| {
-            if (sema.isClosureValue(self.ctx, p)) continue;
-            const pos = if (i < nodes.len) self.ctx.startOf(nodes[i]) else self.ctx.startOf(fun_type);
-            try self.ctx.err(pos, "an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try sema.formatType(self.ctx, p)});
-        }
-        if (!f.is_sub and !sema.isClosureValue(self.ctx, f.returns)) {
-            const pos = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) self.ctx.startOf(ir.FunType.returns(fun_type)) else self.ctx.startOf(fun_type);
-            try self.ctx.err(pos, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try sema.formatType(self.ctx, f.returns)});
-        }
+    /// Run `check` now if every declared type's contents are known,
+    /// otherwise once they are (`checkDeclarations`).
+    fn checkWhenResolved(self: *TypeResolver, check: DeferredCheck) Error!void {
+        if (self.ctx.contents_ready) return runCheck(self.ctx, check);
+        try self.ctx.deferred_checks.append(self.ctx.allocator, check);
     }
 
     fn resolveGenericInst(self: *TypeResolver, sexp: Sexp) Error!TypeId {
@@ -1272,23 +1336,23 @@ pub const TypeResolver = struct {
             try self.ctx.err(pos, "generic type `{s}` expects {d} type argument{s}, got {d}", .{ name, expected, if (expected == 1) @as([]const u8, "") else "s", supplied.len });
             return t.invalid_id;
         }
-        const args = try self.ctx.arena.allocator().alloc(TypeId, supplied.len);
+        var args: std.ArrayListUnmanaged(TypeId) = .empty;
+        defer args.deinit(self.ctx.allocator);
         var any_bad = false;
-        for (supplied, 0..) |a, i| {
-            args[i] = try self.resolveType(a);
-            if (args[i] == t.invalid_id or args[i] == t.unknown_id) any_bad = true;
+        for (supplied) |a| {
+            const arg = try self.resolveType(a);
+            if (arg == t.invalid_id or arg == t.unknown_id) any_bad = true;
+            try args.append(self.ctx.allocator, arg);
         }
-        if (!any_bad) {
-            if (try self.builtinArgError(sym_id, args)) |msg| {
-                try self.ctx.err(pos, "{s}", .{msg});
-                return t.invalid_id;
-            }
+        const ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args.items } });
+        const inst = self.ctx.types.get(ty).parameterized_nominal;
+        if (!any_bad and sym.decl_pos == sema.builtin_decl_pos) {
+            try self.checkWhenResolved(.{ .builtin = .{ .pos = pos, .sym = sym_id, .args = inst.args } });
         }
-        const ty = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args } });
         if (!sema.containsTypeVar(self.ctx, ty)) {
             const gop = try self.ctx.instantiation_sites.getOrPut(self.ctx.allocator, ty);
             if (!gop.found_existing) gop.value_ptr.* = pos;
-        } else if (sym.decl_pos != sema.builtin_decl_pos) {
+        } else {
             // Spelled inside a generic declaration: each instantiation of
             // that generic instantiates this too.
             for (self.ctx.generic_uses.items) |u| {
@@ -1297,121 +1361,129 @@ pub const TypeResolver = struct {
         }
         return ty;
     }
+};
 
-    /// Element-type rules of the built-in generics.
-    pub fn builtinArgError(self: *TypeResolver, sym_id: SymbolId, args: []const TypeId) Error!?[]const u8 {
-        const a = self.ctx.arena.allocator();
-        if (sym_id == self.ctx.cell_sym_id) {
-            if (sema.isCopyPrimitive(self.ctx, args[0]) or sema.typeHasDropGlue(self.ctx, args[0])) return null;
-            return try std.fmt.allocPrint(a, "`Cell(T)` requires `T` to be a Copy primitive (Int, Bool, Float, String) OR a type with drop glue (`*T`, `~T`, `Vec(T)`, `*sub()`, struct with resource fields or user `drop`); got `{s}`", .{try sema.formatType(self.ctx, args[0])});
-        }
-        if (sym_id == self.ctx.vec_sym_id) {
-            const ok = sema.isCopyPrimitive(self.ctx, args[0]) or switch (self.ctx.types.get(args[0])) {
-                .shared, .weak => true,
-                // Plain data: a struct, enum, or optional that owns nothing
-                // and holds no borrow is copied like a number.
-                .nominal, .imported_nominal, .parameterized_nominal, .optional => sema.isPlainData(self.ctx, args[0]),
-                else => false,
-            };
-            if (ok) return null;
-            return try std.fmt.allocPrint(a, "`Vec(T)` requires `T` to be a Copy type (Int, Bool, Float, String), a shared handle (`*T`), or a weak handle (`~T`); got `{s}`", .{try sema.formatType(self.ctx, args[0])});
-        }
-        if (sym_id == self.ctx.signal_sym_id) {
-            if (sema.isCopyPrimitive(self.ctx, args[0])) return null;
-            return try std.fmt.allocPrint(a, "`Signal(T)` requires `T` to be a Copy type (Int, Bool, Float, String); got `{s}`", .{try sema.formatType(self.ctx, args[0])});
-        }
-        return null;
+/// Element-type rules of the built-in generics. An instance over generic
+/// parameters (`Vec(T)` in `Stack(T)`) is checked for each instantiation
+/// instead (`sema.expandInstantiations`).
+pub fn builtinElementError(ctx: *SemContext, sym_id: SymbolId, args: []const TypeId) Error!?[]const u8 {
+    if (args.len != 1 or sema.containsTypeVar(ctx, args[0])) return null;
+    const a = ctx.arena.allocator();
+    const arg = try sema.formatType(ctx, args[0]);
+    if (sym_id == ctx.cell_sym_id) {
+        if (sema.isCopyPrimitive(ctx, args[0]) or sema.typeHasDropGlue(ctx, args[0])) return null;
+        return try std.fmt.allocPrint(a, "`Cell(T)` requires `T` to be a Copy primitive (Int, Bool, Float, String) or a type with drop glue (`*T`, `~T`, `Vec(T)`, `*sub()`, a struct with resource fields or a user `drop`); got `{s}`", .{arg});
     }
-
-    // ---- public API leaks ---------------------------------------------------
-
-    /// A `pub` function may not mention a private nominal of this module:
-    /// importers could hold such a value but never construct or inspect it.
-    fn checkPublicSignature(self: *TypeResolver, fn_id: SymbolId, pos: u32, ret: TypeId, params: []const TypeId) Error!void {
-        var leaks: std.ArrayListUnmanaged(SymbolId) = .empty;
-        defer leaks.deinit(self.ctx.allocator);
-        try self.collectLeaks(ret, &leaks);
-        for (params) |p| try self.collectLeaks(p, &leaks);
-        const f = self.ctx.symbols.items[fn_id];
-        const is_sub = self.ctx.types.get(f.ty) == .function and self.ctx.types.get(f.ty).function.is_sub;
-        try self.reportGenericLeak(pos, if (is_sub) "sub" else "function", f.name);
-        for (leaks.items) |leak| {
-            const ln = self.ctx.symbols.items[leak].name;
-            try self.ctx.err(pos, "public {s} `{s}` leaks private type `{s}`; either mark `{s}` `pub` so importers can construct/destructure it, or remove `{s}` from the public API", .{
-                if (is_sub) "sub" else "function", f.name, ln, ln, f.name,
-            });
-        }
+    if (sym_id == ctx.vec_sym_id) {
+        const ok = sema.isCopyPrimitive(ctx, args[0]) or switch (ctx.types.get(args[0])) {
+            .shared, .weak => true,
+            // Plain data: a struct, enum, or optional that owns nothing
+            // and holds no borrow is copied like a number.
+            .nominal, .imported_nominal, .parameterized_nominal, .optional => sema.isPlainData(ctx, args[0]),
+            else => false,
+        };
+        if (ok) return null;
+        return try std.fmt.allocPrint(a, "`Vec(T)` requires `T` to be a Copy type (Int, Bool, Float, String), plain data (a struct, enum, or optional that owns nothing), a shared handle (`*T`), or a weak handle (`~T`); got `{s}`", .{arg});
     }
+    if (sym_id == ctx.signal_sym_id) {
+        if (sema.isCopyPrimitive(ctx, args[0])) return null;
+        return try std.fmt.allocPrint(a, "`Signal(T)` requires `T` to be a Copy type (Int, Bool, Float, String); got `{s}`", .{arg});
+    }
+    return null;
+}
 
-    fn collectLeaks(self: *TypeResolver, ty: TypeId, leaks: *std.ArrayListUnmanaged(SymbolId)) Error!void {
-        if (self.ctx.types.get(ty) == .parameterized_nominal) {
-            const pn = self.ctx.types.get(ty).parameterized_nominal;
-            if (self.ctx.symbols.items[pn.sym].decl_pos != sema.builtin_decl_pos and self.generic_leak == null) self.generic_leak = ty;
-        }
-        switch (self.ctx.types.get(ty)) {
-            .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner| try self.collectLeaks(inner, leaks),
-            .slice => |s| try self.collectLeaks(s.elem, leaks),
-            .array => |a| try self.collectLeaks(a.elem, leaks),
-            .function => |f| {
-                for (f.params) |p| try self.collectLeaks(p, leaks);
-                try self.collectLeaks(f.returns, leaks);
+/// `*fun(...) -> R` / `*sub(...)`: an owned closure passes plain Copy
+/// values through its type-erased form.
+fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!void {
+    const f = ctx.types.get(ty).function;
+    const is_fun_type = fun_type.isKind(.fun_type);
+    const nodes: []const Sexp = if (is_fun_type) ir.FunType.params(fun_type).items() else &.{};
+    for (f.params, 0..) |p, i| {
+        if (sema.isClosureValue(ctx, p)) continue;
+        const pos = if (i < nodes.len) ctx.startOf(nodes[i]) else ctx.startOf(fun_type);
+        try ctx.err(pos, "an owned closure takes plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try sema.formatType(ctx, p)});
+    }
+    if (!f.is_sub and !sema.isClosureValue(ctx, f.returns)) {
+        const pos = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) ctx.startOf(ir.FunType.returns(fun_type)) else ctx.startOf(fun_type);
+        try ctx.err(pos, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
+    }
+}
+
+/// An importer reaches every type in the module's public surface: the
+/// signatures of `pub` functions and aliases, the members of `pub` types,
+/// and, through those, the members of the private types they hold. None
+/// may be an instance of a generic type declared here, which the
+/// importer could not name or resolve: generic types cannot cross module
+/// boundaries yet.
+fn checkPublicSurface(ctx: *SemContext) Error!void {
+    var exposed: std.AutoHashMapUnmanaged(SymbolId, ?TypeId) = .empty;
+    defer exposed.deinit(ctx.allocator);
+    for (ctx.symbols.items) |sym| {
+        if (!sym.flags.is_public) continue;
+        switch (sym.kind) {
+            .function, .type_alias => if (try exposedInstance(ctx, sym.ty, &exposed)) |inst| {
+                const what = if (sym.kind == .type_alias) "type" else if (ctx.types.get(sym.ty) == .function and ctx.types.get(sym.ty).function.is_sub) "sub" else "function";
+                try reportExposed(ctx, sym.decl_pos, what, sym.name, inst);
             },
-            .nominal => |s| try self.addLeak(s, leaks),
-            .parameterized_nominal => |pn| {
-                try self.addLeak(pn.sym, leaks);
-                for (pn.args) |a| try self.collectLeaks(a, leaks);
+            .nominal_type => for (sym.fields orelse &.{}) |*f| {
+                const inst = try exposedInMember(ctx, f, &exposed) orelse continue;
+                try reportExposed(ctx, f.decl_pos, if (f.is_method) "method" else if (f.is_variant) "variant" else "field", f.name, inst);
             },
             else => {},
         }
     }
-
-    /// An instance of a generic type declared here cannot be named by an
-    /// importer, so it may not appear in the public surface.
-    fn reportGenericLeak(self: *TypeResolver, pos: u32, what: []const u8, name: []const u8) Error!void {
-        const ty = self.generic_leak orelse return;
-        self.generic_leak = null;
-        try self.ctx.err(pos, "public {s} `{s}` exposes `{s}`, an instance of a generic type; generic types cannot cross module boundaries yet", .{ what, name, try sema.formatType(self.ctx, ty) });
-    }
-
-    /// The fields, methods, and variant payloads of a public struct or
-    /// enum are reachable from importers: none may name an instance of a
-    /// generic type declared here.
-    pub fn checkPublicNominals(self: *TypeResolver) Error!void {
-        var leaks: std.ArrayListUnmanaged(SymbolId) = .empty;
-        defer leaks.deinit(self.ctx.allocator);
-        for (self.ctx.symbols.items) |sym| {
-            if (!sym.flags.is_public) continue;
-            switch (sym.kind) {
-                .nominal_type => for (sym.fields orelse &.{}) |f| {
-                    if (f.is_variant) {
-                        for (f.payload orelse &.{}) |pf| try self.collectLeaks(pf.ty, &leaks);
-                    } else try self.collectLeaks(f.ty, &leaks);
-                    try self.reportGenericLeak(f.decl_pos, if (f.is_method) "method" else if (f.is_variant) "variant" else "field", f.name);
-                },
-                .type_alias, .@"extern" => {
-                    try self.collectLeaks(sym.ty, &leaks);
-                    try self.reportGenericLeak(sym.decl_pos, if (sym.kind == .type_alias) "type" else "extern", sym.name);
-                },
-                else => {},
-            }
-        }
-    }
-
-    fn addLeak(self: *TypeResolver, sym_id: SymbolId, leaks: *std.ArrayListUnmanaged(SymbolId)) Error!void {
-        const sym = self.ctx.symbols.items[sym_id];
-        if (sym.decl_pos == sema.builtin_decl_pos or sym.flags.is_public) return;
-        for (leaks.items) |l| if (l == sym_id) return;
-        try leaks.append(self.ctx.allocator, sym_id);
-    }
-};
-
-/// A match pattern that matches anything without binding: `else`, `_`.
-pub fn isWildcardPattern(source: []const u8, pattern: Sexp) bool {
-    const text = identAt(source, pattern) orelse return false;
-    return std.mem.eql(u8, text, "else") or std.mem.eql(u8, text, "_");
 }
 
-pub fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
+/// `exposedInstance` for a method's signature or the types a data field
+/// or variant holds.
+fn exposedInMember(ctx: *SemContext, f: *const Field, exposed: *std.AutoHashMapUnmanaged(SymbolId, ?TypeId)) Error!?TypeId {
+    if (f.is_method) return exposedInstance(ctx, f.ty, exposed);
+    for (sema.dataFields(f)) |d| {
+        if (try exposedInstance(ctx, d.ty, exposed)) |x| return x;
+    }
+    return null;
+}
+
+fn reportExposed(ctx: *SemContext, pos: u32, what: []const u8, name: []const u8, inst: TypeId) Error!void {
+    try ctx.err(pos, "public {s} `{s}` exposes `{s}`, an instance of a generic type; generic types cannot cross module boundaries yet", .{ what, name, try sema.formatType(ctx, inst) });
+}
+
+/// The first instance of a generic type declared here that `ty` exposes:
+/// in its structure, or in the members of a private type it names (each
+/// searched once; `exposed` holds the answers).
+fn exposedInstance(ctx: *SemContext, ty: TypeId, exposed: *std.AutoHashMapUnmanaged(SymbolId, ?TypeId)) Error!?TypeId {
+    switch (ctx.types.get(ty)) {
+        .parameterized_nominal => |pn| if (ctx.symbols.items[pn.sym].decl_pos != sema.builtin_decl_pos) return ty,
+        .type_var => return ty,
+        .nominal => |s| {
+            const sym = ctx.symbols.items[s];
+            // A public type's members are checked on their own.
+            if (sym.flags.is_public) return null;
+            const gop = try exposed.getOrPut(ctx.allocator, s);
+            if (gop.found_existing) return gop.value_ptr.*;
+            gop.value_ptr.* = null;
+            const found = fields: for (sym.fields orelse &.{}) |*f| {
+                if (try exposedInMember(ctx, f, exposed)) |x| break :fields x;
+            } else null;
+            try exposed.put(ctx.allocator, s, found);
+            return found;
+        },
+        else => {},
+    }
+    var it = sema.typeChildren(ctx, ty);
+    while (it.next()) |c| if (try exposedInstance(ctx, c, exposed)) |x| return x;
+    return null;
+}
+
+/// A leaf match pattern that binds its name: not the wildcard `_`, and
+/// not a literal (`1`, `true`).
+pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
+    const text = identAt(source, pattern) orelse return false;
+    for ([_][]const u8{ "_", "true", "false" }) |word| if (std.mem.eql(u8, text, word)) return false;
+    return !sema.isIntLiteralText(text) and !sema.isFloatLiteralText(text);
+}
+
+fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
     const t = &ctx.types;
     const table = [_]struct { []const u8, TypeId }{
         .{ "Int", t.int_id },
@@ -1426,37 +1498,40 @@ pub fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
     return null;
 }
 
-/// `I8`..`I64`, `U8`..`U64`, `F32`, `F64`. `I64` is `Int` and `F64` is
-/// `Float`: the same types under their sized names.
-pub fn sizedTypeId(ctx: *SemContext, name: []const u8) ?Error!TypeId {
-    if (name.len < 2 or name.len > 3) return null;
+/// The bit width a sized type name spells: `I8`..`I64`, `U8`..`U64`,
+/// `F32`, `F64`.
+fn sizedTypeBits(name: []const u8) ?u8 {
+    // No leading zero: `I08` is not `I8`.
+    if (name.len < 2 or name.len > 3 or name[1] == '0') return null;
     const bits = std.fmt.parseInt(u8, name[1..], 10) catch return null;
-    switch (name[0]) {
-        'I', 'U' => {
-            if (bits != 8 and bits != 16 and bits != 32 and bits != 64) return null;
-            if (bits == 64 and name[0] == 'I') return ctx.types.int_id;
-            return ctx.intern(.{ .int = .{ .bits = bits, .signed = name[0] == 'I' } });
-        },
-        'F' => {
-            if (bits != 32 and bits != 64) return null;
-            if (bits == 64) return ctx.types.float_id;
-            return ctx.intern(.{ .float = .{ .bits = bits } });
-        },
-        else => return null,
-    }
+    const ok = switch (name[0]) {
+        'I', 'U' => bits == 8 or bits == 16 or bits == 32 or bits == 64,
+        'F' => bits == 32 or bits == 64,
+        else => false,
+    };
+    return if (ok) bits else null;
+}
+
+/// A sized type. `I64` is `Int` and `F64` is `Float`: the same types
+/// under their sized names.
+fn sizedTypeId(ctx: *SemContext, name: []const u8) ?Error!TypeId {
+    const bits = sizedTypeBits(name) orelse return null;
+    return switch (name[0]) {
+        'I' => if (bits == 64) ctx.types.int_id else ctx.intern(.{ .int = .{ .bits = bits } }),
+        'U' => ctx.intern(.{ .int = .{ .bits = bits, .signed = false } }),
+        else => if (bits == 64) ctx.types.float_id else ctx.intern(.{ .float = .{ .bits = bits } }),
+    };
+}
+
+/// Whether `name` spells a built-in type: `Int`, `String`, `U8`, ...
+pub fn isBuiltinTypeName(ctx: *const SemContext, name: []const u8) bool {
+    return primitiveTypeId(ctx, name) != null or sizedTypeBits(name) != null;
 }
 
 /// Whether `name` spells a numeric type: `Int`, `Float`, or a sized one.
 /// Called like a function, such a name converts a number to that type.
 pub fn isNumericTypeName(name: []const u8) bool {
-    if (std.mem.eql(u8, name, "Int") or std.mem.eql(u8, name, "Float")) return true;
-    if (name.len < 2 or name.len > 3) return false;
-    const bits = std.fmt.parseInt(u8, name[1..], 10) catch return false;
-    return switch (name[0]) {
-        'I', 'U' => bits == 8 or bits == 16 or bits == 32 or bits == 64,
-        'F' => bits == 32 or bits == 64,
-        else => false,
-    };
+    return std.mem.eql(u8, name, "Int") or std.mem.eql(u8, name, "Float") or sizedTypeBits(name) != null;
 }
 
 // =============================================================================
@@ -1469,15 +1544,6 @@ pub fn isNumericTypeName(name: []const u8) bool {
 // =============================================================================
 
 const builtin_pos = sema.builtin_decl_pos;
-
-/// Names users cannot redeclare: emit recognizes these by name.
-pub fn isReservedName(name: []const u8) bool {
-    const reserved = [_][]const u8{ "Cell", "Vec", "Signal" };
-    for (reserved) |r| {
-        if (std.mem.eql(u8, name, r)) return true;
-    }
-    return false;
-}
 
 pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     // Cell(T): interior-mutable slot. Methods take `?self`; the runtime
@@ -1506,7 +1572,6 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
         const opt_t = try ctx.intern(.{ .optional = t });
         try setFields(ctx, g.sym, &.{
             try method(ctx, "push", .write, &.{ write_self, t }, ctx.types.void_id),
-            try method(ctx, "length", .read, &.{read_self}, ctx.types.int_id),
             try method(ctx, "clear", .write, &.{write_self}, ctx.types.void_id),
             try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t),
             try method(ctx, "pop", .write, &.{write_self}, opt_t),
@@ -1540,8 +1605,7 @@ const Generic = struct {
 };
 
 fn addGeneric(ctx: *SemContext, module_scope: ScopeId, name: []const u8, param_names: []const []const u8) Error!Generic {
-    const sym: SymbolId = @intCast(ctx.symbols.items.len);
-    try ctx.symbols.append(ctx.allocator, .{
+    const sym = try ctx.addSymbol(.{
         .name = name,
         .kind = .generic_type,
         .ty = ctx.types.unknown_id,
@@ -1555,8 +1619,7 @@ fn addGeneric(ctx: *SemContext, module_scope: ScopeId, name: []const u8, param_n
     const param_tys = try arena.alloc(TypeId, param_names.len);
     for (param_names, 0..) |pname, i| {
         // Generic parameters are detached: in the symbol table, not in a scope.
-        param_syms[i] = @intCast(ctx.symbols.items.len);
-        try ctx.symbols.append(ctx.allocator, .{
+        param_syms[i] = try ctx.addSymbol(.{
             .name = pname,
             .kind = .generic_param,
             .ty = ctx.types.unknown_id,
@@ -1590,6 +1653,6 @@ test "builtins: registered with methods" {
     try registerBuiltins(&ctx, scope);
     const vec = ctx.lookup(scope, "Vec").?;
     try std.testing.expectEqual(ctx.vec_sym_id, vec);
-    try std.testing.expectEqual(@as(usize, 5), ctx.symbols.items[vec].fields.?.len);
+    try std.testing.expectEqual(@as(usize, 4), ctx.symbols.items[vec].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
 }

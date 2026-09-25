@@ -11,9 +11,9 @@ struct Counter
 
 sub main()
   c = Counter(n: 5)
-  (!c).bump()
+  !c.bump()
   print(c.n)
-  (!c).reset()
+  !c.reset()
   print(c.n)
 
 # expect:

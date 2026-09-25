@@ -1,0 +1,57 @@
+# `!` is a write borrow, never negation: a write borrow of a `Bool`
+# read as a `Bool` is rejected wherever it appears, and so is `!` before
+# a method that only reads its receiver (`!c.ok()`).
+
+struct C
+  n: Int
+  fun ok(?self) -> Bool
+    self.n > 0
+
+sub bound(a: Bool)
+  b = !a
+  print(b)
+
+sub condition(a: Bool)
+  if !a
+    print("no")
+
+sub declared(a: Bool)
+  x: Bool = !a
+  print(x)
+
+sub operands(a: Int, b: Bool)
+  print(a == 1 and !b)
+
+sub negated(a: Bool)
+  print(not !a)
+
+sub guarded(ok: Bool)
+  print(1) if !ok
+
+sub looped(c: C)
+  while !c.ok()
+    break
+
+sub forwarded(f: !Bool)
+  if !f
+    print("no")
+
+sub main
+  bound(true)
+  condition(true)
+  declared(true)
+  operands(1, true)
+  negated(true)
+  guarded(true)
+  looped(C(n: 1))
+  flag = true
+  forwarded(!flag)
+
+# error: 11:7: `!` is a write borrow; use `not` for negation
+# error: 15:6: `!` is a write borrow; use `not` for negation
+# error: 19:13: `!` is a write borrow; use `not` for negation
+# error: 23:20: `!` is a write borrow; use `not` for negation
+# error: 26:13: `!` is a write borrow; use `not` for negation
+# error: 29:15: `!` is a write borrow; use `not` for negation
+# error: 32:9: `ok` does not write its receiver; for negation use `not`
+# error: 36:6: `!` is a write borrow; use `not` for negation

@@ -1,0 +1,29 @@
+# A match on a call returning a borrow held by pointer (a `?Shape` whose
+# payload is a handle, a `!Shape`) switches on the value it reaches.
+
+struct B
+  n: Int
+
+enum Shape
+  box(b: *B)
+  dot
+
+fun g(s: ?Shape) -> ?Shape
+  s
+
+fun h(s: !Shape) -> !Shape
+  s
+
+sub main()
+  s = Shape.box(b: *B(n: 3))
+  match g(?s)
+    .box(b) => print(b.n)
+    .dot => print(0)
+  n = match h(!s)
+    .box(b) => b.n + 1
+    .dot => 0
+  print(n)
+
+# expect:
+# 3
+# 4

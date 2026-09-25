@@ -1,0 +1,22 @@
+# Several write borrows passed to one call, none of which can hold a
+# borrow, leave their values usable after it.
+
+sub f(s: !String, a: ![3]Int, n: !Int, o: !Int?)
+  s = "changed"
+  a[0] = 42
+  n += 1
+  o = none
+  for x in !a
+    x += 1
+
+sub main()
+  s = "hi"
+  a = [1, 2, 3]
+  n = 5
+  o: Int? = 3
+  f(!s, !a, !n, !o)
+  f(!s, !a, !n, !o)
+  print(s, a, n, o)
+
+# expect:
+# changed [43, 4, 5] 7 none

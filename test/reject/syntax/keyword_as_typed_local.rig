@@ -1,0 +1,8 @@
+# A keyword before `:` names a field only in a member list; in a body it
+# stays reserved, so it cannot name a typed local.
+
+sub main()
+  in: Int = 1
+  print(in)
+
+# error: 5:3: unexpected keyword `in`

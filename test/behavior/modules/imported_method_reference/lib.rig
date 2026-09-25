@@ -1,0 +1,8 @@
+pub struct P
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+  sub bump(!self)
+    self.n += 1

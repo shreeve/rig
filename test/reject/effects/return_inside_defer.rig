@@ -1,0 +1,12 @@
+# A deferred block runs as the function exits; it cannot return.
+
+fun f(c: Bool) -> Int
+  defer
+    if c
+      return 3
+  1
+
+sub main()
+  print(f(true))
+
+# error: cannot `return` inside `defer`

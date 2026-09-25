@@ -1,0 +1,11 @@
+# An `extern` variable holds a C value: an integer, a float, or Bool.
+
+extern name: String
+extern items: Vec(Int)
+extern count: Int
+
+sub main()
+  print(1)
+
+# error: `extern` variable `name` cannot have type `String`
+# error: `extern` variable `items` cannot have type `Vec(Int)`

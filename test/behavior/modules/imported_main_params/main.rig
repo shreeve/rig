@@ -1,0 +1,10 @@
+# Only the root module's `main` is the entry point: another module may
+# declare a `main` that takes parameters and returns a value.
+
+use helper
+
+sub main()
+  print(helper.main(21))
+
+# expect:
+# 42

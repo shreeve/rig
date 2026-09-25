@@ -38,6 +38,18 @@ pub fn returnType(fun_or_sub: Sexp) Sexp {
     return if (fun_or_sub.isKind(.fun)) ir.Fun.returns(fun_or_sub) else .nil;
 }
 
+/// A module-level constant (`name =! value`, or `pub` one). Passes take
+/// them before the other declarations, so functions anywhere in the
+/// module see them.
+pub fn isModuleConst(decl: Sexp) bool {
+    return (if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl).isKind(.set);
+}
+
+/// A slice, `xs[a..b]`: an index node whose index is a range.
+pub fn isRangeIndex(e: Sexp) bool {
+    return e.isKind(.index) and ir.Index.index(e).isKind(.@"..");
+}
+
 /// Every child of a node, in slot order (absent optional slots are `_`),
 /// for passes that visit all of them; empty for a leaf. Passes that need
 /// a particular child read it by role (`parser.ir`).
@@ -53,7 +65,8 @@ pub fn children(node: Sexp) []const Sexp {
 /// Exhaustive view of the op slot, so dispatch sites must handle every
 /// kind: `_` → default, `fixed` (`=!`), `shadow` (`new x =`), `move`
 /// (`<-`), and the compound assignments (`x op= e`, one per binary
-/// arithmetic, bitwise, and shift operator).
+/// arithmetic, bitwise, and shift operator). Every kind but `default` is
+/// named after its tag in the schema's `op:tag(...)` for `set`.
 pub const BindingKind = enum {
     default,
     fixed,
@@ -70,47 +83,31 @@ pub const BindingKind = enum {
     @"<<=",
     @">>=",
 
-    /// The binary operator a compound assignment applies, or null for a
-    /// plain binding or assignment.
+    comptime {
+        for (@typeInfo(BindingKind).@"enum".fields[1..]) |f| {
+            if (!@hasField(Tag, f.name)) @compileError("BindingKind." ++ f.name ++ " is not a tag of the IR");
+        }
+    }
+
+    /// The binary operator a compound assignment applies (`+=` applies
+    /// `+`), or null for a plain binding or assignment.
     pub fn operator(k: BindingKind) ?Tag {
         return switch (k) {
             .default, .fixed, .shadow, .move => null,
-            .@"+=" => .@"+",
-            .@"-=" => .@"-",
-            .@"*=" => .@"*",
-            .@"/=" => .@"/",
-            .@"%=" => .@"%",
-            .@"&=" => .@"&",
-            .@"|=" => .@"|",
-            .@"^=" => .@"^",
-            .@"<<=" => .@"<<",
-            .@">>=" => .@">>",
+            inline else => |c| @field(Tag, @tagName(c)[0 .. @tagName(c).len - 1]),
         };
     }
 };
 
-pub const BindingKindError = error{InvalidBindingKind};
-
-/// Decode the op slot of `(set <op> ...)`. An unknown op means the
-/// IR is corrupt, so it is an error rather than a silent default.
-pub fn bindingKindOf(kind_slot: Sexp) BindingKindError!BindingKind {
-    if (kind_slot == .nil) return .default;
-    if (kind_slot != .tag) return error.InvalidBindingKind;
-    return switch (kind_slot.tag) {
-        .fixed => .fixed,
-        .shadow => .shadow,
-        .move => .move,
-        .@"+=" => .@"+=",
-        .@"-=" => .@"-=",
-        .@"*=" => .@"*=",
-        .@"/=" => .@"/=",
-        .@"%=" => .@"%=",
-        .@"&=" => .@"&=",
-        .@"|=" => .@"|=",
-        .@"^=" => .@"^=",
-        .@"<<=" => .@"<<=",
-        .@">>=" => .@">>=",
-        else => error.InvalidBindingKind,
+/// Decode the op slot of `(set <op> ...)`. Nexus builds it from the
+/// schema's `op:tag(...)`, so any other value is unreachable.
+pub fn bindingKindOf(op: Sexp) BindingKind {
+    return switch (op) {
+        .nil => .default,
+        .tag => |t| switch (t) {
+            inline else => |c| if (@hasField(BindingKind, @tagName(c))) @field(BindingKind, @tagName(c)) else unreachable,
+        },
+        else => unreachable,
     };
 }
 
@@ -259,8 +256,12 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //     `a.b`           member          `.red`, `f .red`  enum literal
 //     `x!`, `T?`      suffix          `!x`, `?x`   write / read borrow
 //
-//   `-x` at the start of a statement that is nothing but `-name` is a
-//   drop; otherwise `-x` is negation.
+//   `-x` at the start of a statement (or a match arm) that is nothing
+//   but `-name` is a drop; otherwise `-x` is negation.
+//
+//   Two operands never touch (`t.5`, `print"hi"`), and neither does a
+//   `=!` or `<-` and the operand after it (`x =!y`): the spacing would
+//   not say what was meant, so these are errors.
 //
 // `if`
 //   After `return`/`break`/`continue` or a value, `if` is a postfix guard
@@ -273,24 +274,29 @@ pub const Lexer = struct {
     // Indentation: `levels[0..depth]` are the enclosing block columns.
     levels: [max_indent_depth]u32 = undefined,
     depth: u32 = 0,
-    /// Per depth: the current line there opened a block that `else` or
-    /// `catch` may continue (it has a block `if`, `while`, `for`, or
-    /// `try`). An `else` after any other block (a match arm) is a new
-    /// line.
+    /// Per depth: the current line there opened a block that `else` may
+    /// continue (it has a block `if`, `while`, or `for`). An `else` after
+    /// any other block (a match arm) is a new line.
     takes_else: [max_indent_depth + 1]bool = @splat(false),
+    /// Per depth: the block is the member list of a struct, enum, error
+    /// set, or generic type, where a keyword may name a field or method.
+    in_members: [max_indent_depth + 1]bool = @splat(false),
+    /// The first token of the current line, after any `pub`.
+    line_head: TokenCat = .eof,
     column: u32 = 0,
     pending_outdents: u32 = 0,
     pending_newline: bool = false,
     pending_pos: u32 = 0,
 
-    // Open ( and [; newlines inside them are whitespace.
-    brackets: [max_nesting]u8 = undefined,
+    // Positions of the open ( and [; newlines inside them are whitespace.
+    brackets: [max_nesting]u32 = undefined,
     nesting: u32 = 0,
 
     /// Category of the last token returned.
     last_cat: TokenCat = .eof,
-    /// End of the last real (non-layout) token: where an unexpected end
-    /// of block or file is reported.
+    /// Start and end of the last real (non-layout) token; an unexpected
+    /// end of block or file is reported at its end.
+    prev_pos: u32 = 0,
     prev_end: u32 = 0,
     /// A newline or `\` continuation was skipped since the last token.
     joined: bool = false,
@@ -327,29 +333,53 @@ pub const Lexer = struct {
         first_line_indented,
         indent_too_deep,
         nesting_too_deep,
+        islands_too_deep,
         and_operator,
         or_operator,
         power_operator,
+        pin_sigil,
+        control_in_string,
+        lone_cr,
+        leading_zero,
+        radix_case,
+        bad_number,
+        too_long,
+        ambiguous_fixed,
+        ambiguous_move,
+        missing_space,
 
         pub fn message(e: LexError) []const u8 {
             return switch (e) {
                 .none => "invalid token",
                 .bad_char => "invalid character",
                 .unterminated_string => "unterminated string",
+                .control_in_string => "control character in a string; write it as an escape (`\\t`, `\\n`) in a double-quoted string",
+                .lone_cr => "carriage return without a line feed; end lines with `\\n` or `\\r\\n`",
+                .leading_zero => "a decimal number has no leading zero",
+                .radix_case => "radix prefixes are lowercase: `0x`, `0b`, `0o`",
+                .bad_number => "malformed number; `_` may separate digits, and a space or an operator ends a number",
+                .too_long => "token is longer than 65535 bytes",
+                .ambiguous_fixed => "`=!` touches the operand after it: write `x =! y` for a fixed binding, or `x = !y` for a write borrow",
+                .ambiguous_move => "`<-` touches the operand after it: write `a <- b` to move-assign, or `a < -b` to compare",
+                .missing_space => "missing space or operator",
                 .tab_indent => "tab in indentation; indent with spaces",
                 .bad_dedent => "indentation does not match any enclosing block",
                 .first_line_indented => "unexpected indentation",
                 .indent_too_deep => "indentation is nested too deeply",
                 .nesting_too_deep => "brackets are nested too deeply",
+                .islands_too_deep => "closures laid out inside brackets are nested too deeply",
                 .and_operator => "`&&` is not a Rig operator; use `and`",
                 .or_operator => "`||` is not a Rig operator; use `or`",
                 .power_operator => "`**` is not a Rig operator",
+                .pin_sigil => "the pin sigil `@x` is reserved; `@` only starts a builtin call, `@name(...)`",
             };
         }
     };
 
     pub fn init(source: []const u8) Lexer {
-        return .{ .base = BaseLexer.init(source) };
+        var lexer: Lexer = .{ .base = BaseLexer.init(source) };
+        if (std.mem.startsWith(u8, source, "\xEF\xBB\xBF")) lexer.base.pos = 3; // a UTF-8 byte order mark
+        return lexer;
     }
 
     pub fn text(self: *const Lexer, tok: Token) []const u8 {
@@ -359,22 +389,19 @@ pub const Lexer = struct {
     pub fn next(self: *Lexer) Token {
         const tok = self.produce();
         self.last_cat = tok.cat;
-        if (tok.len > 0) { // a real token, not layout
+        if (tok.len > 0 and tok.cat != .err) { // a real token, not layout
             self.joined = false;
+            self.prev_pos = tok.pos;
             self.prev_end = tok.pos + tok.len;
         }
         if (self.closed_bars) {
             self.closed_bars = false;
             if (self.nesting > 0 and !self.inIsland() and self.lineEndsAfter()) {
-                if (self.island_count == max_islands) return self.fail(.nesting_too_deep, tok.pos);
-                self.islands[self.island_count] = .{
-                    .nesting = self.nesting,
-                    .depth = self.depth,
-                    .column = self.lineIndent(tok.pos),
-                    .outer_column = self.column,
-                };
+                if (self.island_count == max_islands) return self.fail(.islands_too_deep, tok.pos);
+                const column = self.lineIndent(tok.pos);
+                self.islands[self.island_count] = .{ .nesting = self.nesting, .depth = self.depth, .column = column, .outer_column = self.column };
                 self.island_count += 1;
-                self.column = self.islands[self.island_count - 1].column;
+                self.column = column;
             }
         }
         return tok;
@@ -438,13 +465,14 @@ pub const Lexer = struct {
             const tok = self.base.matchRules();
             switch (tok.cat) {
                 .comment => continue,
+                // A comment longer than a token can hold.
+                .err => if (tok.len == std.math.maxInt(u16) and self.base.source[tok.pos] == '#') continue,
                 .skip => { // `\` line continuation
                     self.joined = true;
                     continue;
                 },
                 .newline => {
-                    if (self.inIsland()) return self.lineBreak(tok);
-                    if (self.nesting > 0 or self.last_cat == .eof) {
+                    if (!self.inIsland() and (self.nesting > 0 or self.last_cat == .eof)) {
                         self.joined = true;
                         continue;
                     }
@@ -453,9 +481,7 @@ pub const Lexer = struct {
                 .eof => return self.endOfInput(tok),
                 else => {},
             }
-            if (self.last_cat == .eof and self.columnOf(tok.pos) > 0) {
-                return self.fail(.first_line_indented, tok.pos);
-            }
+            if (self.last_cat == .eof and tok.pre > 0) return self.firstLineIndented(tok);
             return self.classify(tok);
         }
     }
@@ -469,10 +495,13 @@ pub const Lexer = struct {
         return .{ .cat = .err, .pre = 0, .pos = pos, .len = 0 };
     }
 
-    fn columnOf(self: *const Lexer, pos: u32) u32 {
-        var i = pos;
-        while (i > 0 and self.base.source[i - 1] != '\n') i -= 1;
-        return pos - i;
+    /// The first token of the file is indented: with a tab, or spaces.
+    fn firstLineIndented(self: *Lexer, tok: Token) Token {
+        const src = self.base.source;
+        var start = tok.pos;
+        while (start > 0 and (src[start - 1] == ' ' or src[start - 1] == '\t')) start -= 1;
+        if (std.mem.indexOfScalar(u8, src[start..tok.pos], '\t')) |tab| return self.fail(.tab_indent, start + @as(u32, @intCast(tab)));
+        return self.fail(.first_line_indented, tok.pos);
     }
 
     // -------------------------------------------------------------------------
@@ -495,8 +524,12 @@ pub const Lexer = struct {
                 return self.endOfInput(synthetic(.eof, @intCast(src.len)));
             }
             switch (src[p]) {
-                '\n', '\r' => {
+                '\n' => {
                     line = p + 1;
+                    continue;
+                },
+                '\r' => if (p + 1 < src.len and src[p + 1] == '\n') {
+                    line = p + 2;
                     continue;
                 },
                 '#' => {
@@ -525,6 +558,10 @@ pub const Lexer = struct {
             self.depth += 1;
             self.column = width;
             self.takes_else[self.depth] = false;
+            self.in_members[self.depth] = switch (self.line_head) {
+                .@"struct", .@"enum", .@"error", .type => true,
+                else => false,
+            };
             return synthetic(.indent, pos);
         }
         if (width == self.column) {
@@ -543,7 +580,7 @@ pub const Lexer = struct {
 
         self.pending_outdents = closed - 1;
         self.pending_pos = pos;
-        if (self.takes_else[self.depth] and self.startsWithContinuation(pos)) {
+        if (self.takes_else[self.depth] and self.startsWithElse(pos)) {
             self.pending_newline = false;
         } else {
             self.pending_newline = true;
@@ -552,15 +589,13 @@ pub const Lexer = struct {
         return synthetic(.outdent, pos);
     }
 
-    /// The line at `pos` starts with `else` or `catch`, which continue the
-    /// block that just closed, so no NEWLINE separates them.
-    fn startsWithContinuation(self: *const Lexer, pos: u32) bool {
+    /// The line at `pos` starts with `else`, which continues the block
+    /// that just closed, so no NEWLINE separates them.
+    fn startsWithElse(self: *const Lexer, pos: u32) bool {
         var probe = self.base;
         probe.pos = pos;
         const tok = probe.matchRules();
-        if (tok.cat != .ident) return false;
-        const word = self.base.text(tok);
-        return std.mem.eql(u8, word, "else") or std.mem.eql(u8, word, "catch");
+        return tok.cat == .ident and std.mem.eql(u8, self.base.text(tok), "else");
     }
 
     fn endOfInput(self: *Lexer, eof: Token) Token {
@@ -583,13 +618,22 @@ pub const Lexer = struct {
         if ((tok.cat == .rparen or tok.cat == .rbracket) and self.inIsland()) {
             if (self.closeIsland(tok.pos, tok)) |outdent| return outdent;
         }
+        // Two operands with nothing between them (`t.5`, `print"hi"`); a
+        // type may touch the `]` of its array or slice prefix (`[2]Int`).
+        if (isValue(self.last_cat) and self.last_cat != .rbracket and !self.spacedBefore(tok)) switch (tok.cat) {
+            .ident, .integer, .real, .string_sq, .string_dq => {
+                self.err = .missing_space;
+                return .{ .cat = .err, .pre = 0, .pos = tok.pos, .len = tok.len };
+            },
+            else => {},
+        };
         var out = tok;
         out.cat = switch (tok.cat) {
             .ident => self.classifyWord(tok),
             .dot => if (self.isEnumLiteralDot(tok)) .dot_lit else .dot,
             .lparen, .lbracket => blk: {
                 if (self.nesting == max_nesting) return self.fail(.nesting_too_deep, tok.pos);
-                self.brackets[self.nesting] = self.base.source[tok.pos];
+                self.brackets[self.nesting] = tok.pos;
                 self.nesting += 1;
                 if (!self.touchesValue(tok)) break :blk tok.cat;
                 break :blk if (tok.cat == .lparen) .lparen_call else .lbracket_index;
@@ -602,7 +646,7 @@ pub const Lexer = struct {
             .lt => if (self.isPrefix(tok)) .move_pfx else .lt,
             .plus => if (self.isPrefix(tok)) .clone_pfx else .plus,
             .star => if (self.isPrefix(tok) or self.isOwnedClosureStar(tok)) .share_pfx else .star,
-            .at => if (self.isPrefix(tok) and !self.isBuiltinCall(tok)) .pin_pfx else .at,
+            .at => if (self.isPrefix(tok) and !self.isBuiltinCall(tok)) return self.fail(.pin_sigil, tok.pos) else .at,
             .question => if (self.touchesValue(tok)) .suffix_q else if (self.isPrefix(tok)) .read_pfx else .question,
             .not_sym => if (self.touchesValue(tok)) .suffix_bang else if (self.isPrefix(tok)) .write_pfx else .not_sym,
             .bar => if (self.isCaptureBar(tok)) .bar_capture else .bar,
@@ -613,13 +657,17 @@ pub const Lexer = struct {
                 break :blk .bar_empty;
             } else return self.fail(.or_operator, tok.pos),
             .power => return self.fail(.power_operator, tok.pos),
-            .err => return self.fail(self.lexErrorAt(tok), tok.pos),
+            // `x =!y`: a fixed binding of `y`, or a write borrow?
+            .fixed_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_fixed, tok.pos) else tok.cat,
+            .move_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_move, tok.pos) else tok.cat,
+            .err => return self.lexError(tok),
             else => tok.cat,
         };
         switch (out.cat) {
-            .@"if", .@"while", .@"for", .@"try" => self.takes_else[self.depth] = true,
+            .@"if", .@"while", .@"for" => self.takes_else[self.depth] = true,
             else => {},
         }
+        if (self.atStatementStart() or self.last_cat == .@"pub") self.line_head = out.cat;
         return out;
     }
 
@@ -635,23 +683,37 @@ pub const Lexer = struct {
                 return if (self.elseFollows()) .ternary_if else .post_if;
             },
             .new => return if (self.atStatementStart() and self.nextIsName()) .new else .ident,
-            else => return kw,
+            else => return self.memberName() orelse kw,
         };
         if (self.inParens() and self.nextCat() == .colon) return .kwarg_name;
         return .ident;
     }
 
+    /// A keyword names a member where nothing else can stand: after
+    /// `.`, before `:` inside ( ) (a keyword argument or payload field),
+    /// and in a member list before `:` (a field) or after `fun` / `sub`
+    /// (a method).
+    fn memberName(self: *const Lexer) ?TokenCat {
+        switch (self.last_cat) {
+            .dot, .dot_lit => return .ident,
+            .fun, .sub => return if (self.in_members[self.depth]) .ident else null,
+            else => {},
+        }
+        if (self.nextCat() != .colon) return null;
+        if (self.inParens()) return .kwarg_name;
+        return if (self.in_members[self.depth] and self.atStatementStart()) .ident else null;
+    }
+
     /// `-` is infix when spaced after or attached to a value (`a - b`,
     /// `a-b`); otherwise a prefix: a drop when `-name` is a whole
-    /// statement, negation otherwise.
+    /// statement (a line, a `defer`, or a match arm), negation otherwise.
     fn classifyMinus(self: *const Lexer, tok: Token) TokenCat {
         if (!self.isPrefix(tok)) return .minus;
-        if ((self.atStatementStart() or self.last_cat == .@"defer" or self.last_cat == .@"errdefer") and
-            self.isWholeDropStatement())
-        {
-            return .drop_stmt;
-        }
-        return .minus_prefix;
+        const starts = switch (self.last_cat) {
+            .@"defer", .@"errdefer", .fat_arrow => true,
+            else => self.atStatementStart(),
+        };
+        return if (starts and self.isWholeDropStatement()) .drop_stmt else .minus_prefix;
     }
 
     /// After `-` comes a name and then the end of the line, a comment, or
@@ -671,9 +733,7 @@ pub const Lexer = struct {
     /// The character touches its operand, and does not touch a preceding
     /// value (`<x`, `f <x`, but not `a<b` or `a < b`).
     fn isPrefix(self: *const Lexer, tok: Token) bool {
-        const end = tok.pos + tok.len;
-        if (end >= self.base.source.len or !isOperandStart(self.base.source[end])) return false;
-        return !isValue(self.last_cat) or self.spacedBefore(tok);
+        return isOperandStart(self.charAfter(tok)) and !self.touchesValue(tok);
     }
 
     /// The token touches the value before it (`f(`, `a[`, `T?`, `x!`).
@@ -689,13 +749,12 @@ pub const Lexer = struct {
     /// access). A `.` that begins a continuation line inside brackets is
     /// member access, so method chains can be split across lines.
     fn isEnumLiteralDot(self: *const Lexer, tok: Token) bool {
-        const end = tok.pos + tok.len;
-        if (end >= self.base.source.len or !isIdentStart(self.base.source[end])) return false;
+        if (!isIdentStart(self.charAfter(tok))) return false;
         if (!isValue(self.last_cat)) return true;
         return tok.pre > 0 and !self.joined;
     }
 
-    /// `@name(` is a builtin call; `@name` alone is the (reserved) pin.
+    /// `@name(` is a builtin call; `@name` alone is the reserved pin sigil.
     fn isBuiltinCall(self: *const Lexer, tok: Token) bool {
         var p = tok.pos + tok.len;
         const src = self.base.source;
@@ -705,21 +764,25 @@ pub const Lexer = struct {
 
     /// `*` directly before a closure's bar list: `*|+v| ...`, `*|| ...`.
     fn isOwnedClosureStar(self: *const Lexer, tok: Token) bool {
-        const end = tok.pos + tok.len;
-        if (end >= self.base.source.len or self.base.source[end] != '|') return false;
-        return !isValue(self.last_cat) or self.spacedBefore(tok);
+        return self.charAfter(tok) == '|' and !self.touchesValue(tok);
     }
 
     /// The token touches the one after it.
     fn touchesNext(self: *const Lexer, tok: Token) bool {
+        return isOperandStart(self.charAfter(tok));
+    }
+
+    /// The character right after `tok`, or 0 at the end of the source.
+    fn charAfter(self: *const Lexer, tok: Token) u8 {
         const end = tok.pos + tok.len;
-        return end < self.base.source.len and isOperandStart(self.base.source[end]);
+        return if (end < self.base.source.len) self.base.source[end] else 0;
     }
 
     /// An opening bar touches its first entry and is followed by
-    /// `entry (, entry)*` and a closing bar touching the last entry. An
+    /// `entry (, entry)* [,]` and a closing bar touching the last entry
+    /// or comma. An
     /// entry is a sigiled capture (`+x`, `<x`, `~x`) or a parameter name
-    /// with an optional type (`a`, `a: Int`, `f: *fun(Int) Int`). The
+    /// with an optional type (`a`, `a: Int`, `f: *fun(Int) -> Int`). The
     /// closing bar is recognized by position.
     fn isCaptureBar(self: *Lexer, tok: Token) bool {
         if (self.capture_close) |close| if (close == tok.pos) {
@@ -745,7 +808,14 @@ pub const Lexer = struct {
                     self.capture_close = sep.pos;
                     return true;
                 },
-                .comma => {},
+                .comma => {
+                    var after = probe;
+                    const close = after.matchRules();
+                    if (close.cat == .bar and close.pre == 0) {
+                        self.capture_close = close.pos;
+                        return true;
+                    }
+                },
                 else => return false,
             }
         }
@@ -765,7 +835,7 @@ pub const Lexer = struct {
                     depth -= 1;
                 },
                 .comma, .bar => if (depth == 0) return t,
-                .ident, .integer, .dot, .question, .not_sym, .star, .tilde => {},
+                .ident, .integer, .dot, .question, .not_sym, .star, .tilde, .arrow => {},
                 else => return null,
             }
         }
@@ -781,8 +851,8 @@ pub const Lexer = struct {
             switch (t.cat) {
                 .eof => return false,
                 .newline => if (depth == 0 and (self.nesting == 0 or self.inIsland())) return false,
-                .lparen, .lbracket, .lbrace => depth += 1,
-                .rparen, .rbracket, .rbrace => {
+                .lparen, .lbracket => depth += 1,
+                .rparen, .rbracket => {
                     if (depth == 0) return false;
                     depth -= 1;
                 },
@@ -800,8 +870,9 @@ pub const Lexer = struct {
         };
     }
 
+    /// Directly inside ( ), not in a closure body laid out there.
     fn inParens(self: *const Lexer) bool {
-        return self.nesting > 0 and self.brackets[self.nesting - 1] == '(';
+        return self.nesting > 0 and !self.inIsland() and self.base.source[self.brackets[self.nesting - 1]] == '(';
     }
 
     fn nextCat(self: *const Lexer) TokenCat {
@@ -815,9 +886,41 @@ pub const Lexer = struct {
         return t.cat == .ident and keyword(self.base.text(t)) == null;
     }
 
-    fn lexErrorAt(self: *const Lexer, tok: Token) LexError {
-        const c = self.base.source[tok.pos];
-        return if (c == '"' or c == '\'') .unterminated_string else .bad_char;
+    /// Why the grammar produced an `err` token.
+    fn lexError(self: *Lexer, tok: Token) Token {
+        if (tok.len == std.math.maxInt(u16)) return self.fail(.too_long, tok.pos);
+        const t = self.base.text(tok);
+        return switch (t[0]) {
+            '"', '\'' => self.stringError(tok.pos),
+            '0'...'9' => self.fail(if (t.len > 1 and t[0] == '0' and std.mem.indexOfScalar(u8, "XBO", t[1]) != null)
+                .radix_case
+            else if (t.len > 1 and t[0] == '0' and (std.ascii.isDigit(t[1]) or t[1] == '_'))
+                .leading_zero
+            else
+                .bad_number, tok.pos),
+            '\r' => self.fail(.lone_cr, tok.pos),
+            else => self.fail(.bad_char, tok.pos),
+        };
+    }
+
+    /// A string starting at `open` that does not lex: a control character
+    /// inside it, or no closing quote on its line.
+    fn stringError(self: *Lexer, open: u32) Token {
+        const src = self.base.source;
+        const quote = src[open];
+        var p = open + 1;
+        while (p < src.len and src[p] != '\n') : (p += 1) {
+            if (quote == '"' and src[p] == '\\' and p + 1 < src.len and src[p + 1] != '\n') {
+                p += 1; // the escaped character
+            } else if (src[p] == quote) {
+                if (quote == '"' or p + 1 == src.len or src[p + 1] != quote) break;
+                p += 1; // `''` in a single-quoted string
+                continue;
+            }
+            const at_line_end = src[p] == '\r' and p + 1 < src.len and src[p + 1] == '\n';
+            if ((src[p] < 0x20 or src[p] == 0x7f) and !at_line_end) return self.fail(.control_in_string, p);
+        }
+        return self.fail(.unterminated_string, open);
     }
 };
 
@@ -864,6 +967,9 @@ pub const Parser = struct {
     base: BaseParser,
     /// Set when parsing succeeded but the tree was rejected.
     failure: ?diag.Diagnostic = null,
+    /// The node ids of the `(write place)` and `(move place)` receivers
+    /// written in front of the call (`!v.push(x)`), not in parentheses.
+    receiver_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
 
     /// Every pass walks the tree recursively; deeper trees are rejected
     /// here instead of exhausting the stack later.
@@ -880,7 +986,7 @@ pub const Parser = struct {
     /// Parse and rewrite into the semantic IR. On `error.ParseError`,
     /// `diagnostic()` describes the failure.
     pub fn parseProgram(self: *Parser) !Sexp {
-        const tree = try self.walk(try self.parseTree());
+        const tree = try self.rewrite(try self.parseTree());
         if (self.failure != null) return error.ParseError;
         return tree;
     }
@@ -889,11 +995,17 @@ pub const Parser = struct {
     pub fn parseTree(self: *Parser) !Sexp {
         const tree = try self.base.parseProgram();
         if (tooDeep(tree, 0)) |deep| {
-            const at = self.span(deep);
-            self.failure = .{ .severity = .@"error", .pos = at.start, .end = at.end, .message = "expression is nested too deeply" };
+            self.reject(deep, "expression is nested too deeply");
             return error.ParseError;
         }
         return tree;
+    }
+
+    /// Reject the tree at `node`, unless it is already rejected.
+    fn reject(self: *Parser, node: Sexp, message: []const u8) void {
+        if (self.failure != null) return;
+        const at = self.span(node);
+        self.failure = .{ .severity = .@"error", .pos = at.start, .end = at.end, .message = message };
     }
 
     /// The source span of a node (see `BaseParser.span`).
@@ -918,24 +1030,88 @@ pub const Parser = struct {
         const src = self.base.source;
         var pos = tok.pos;
         var end = tok.pos + tok.len;
+        const lexer = &self.base.lexer;
         const message: []const u8 = switch (tok.cat) {
-            .err => return .{ .severity = .@"error", .pos = pos, .end = end, .message = self.base.lexer.err.message() },
+            .err => return .{ .severity = .@"error", .pos = pos, .end = end, .message = if (lexer.err == .missing_space)
+                self.format("missing space or operator between `{s}` and `{s}`", .{ src[lexer.prev_pos..lexer.prev_end], src[pos..end] })
+            else
+                lexer.err.message() },
             .eof, .outdent => blk: {
-                pos = self.base.lexer.prev_end;
+                pos = lexer.prev_end;
                 end = pos;
                 break :blk if (tok.cat == .eof) "unexpected end of file" else "unexpected end of block";
             },
             .newline => "unexpected end of line",
             .indent => "unexpected indentation",
             .post_if => "a postfix `if` guard must end a statement; write `a if c else b` for a value",
-            .ident => self.format("unexpected name `{s}`", .{src[tok.pos..][0..tok.len]}),
-            else => if (keyword(src[tok.pos..][0..tok.len]) != null)
-                self.format("unexpected keyword `{s}`", .{src[tok.pos..][0..tok.len]})
+            .ident => self.format("unexpected name `{s}`", .{src[pos..end]}),
+            else => if (keyword(src[pos..end]) != null)
+                self.format("unexpected keyword `{s}`", .{src[pos..end]})
             else
-                self.format("unexpected `{s}`", .{src[tok.pos..][0..tok.len]}),
+                self.format("unexpected `{s}`", .{src[pos..end]}),
         };
-        const full = if (self.expectedHint()) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
+        const expected = self.expectedHint();
+        const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
+        const hint = self.parenFreeCallHint(tok) orelse reservedHint(src, tok, expected orelse "");
+        const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
+    }
+
+    /// A note for a parse error inside a bracket opened on an earlier
+    /// line, which may be the one left unclosed.
+    pub fn unclosedBracket(self: *Parser) ?diag.Diagnostic {
+        if (self.failure != null) return null;
+        const lexer = &self.base.lexer;
+        if (lexer.nesting == 0) return null;
+        const open = lexer.brackets[lexer.nesting - 1];
+        const src = self.base.source;
+        if (std.mem.indexOfScalar(u8, src[open..self.base.current.pos], '\n') == null) return null;
+        return .{ .severity = .note, .pos = open, .end = open + 1, .message = self.format("the `{c}` opened here is not closed", .{src[open]}) };
+    }
+
+    /// Why an unexpected token is not Rig: it starts a reserved form, or
+    /// Rig spells what it starts differently.
+    fn reservedHint(src: []const u8, tok: Token, expected: []const u8) ?[]const u8 {
+        const in_pattern = std.mem.indexOf(u8, expected, "a match arm") != null or std.mem.indexOf(u8, expected, "a pattern") != null;
+        // Only a function type's result must follow here.
+        if (std.mem.eql(u8, expected, "`->`")) return "a function type writes its result after `->`: `fun(Int) -> Int`";
+        return switch (tok.cat) {
+            .real, .string_sq, .string_dq => if (in_pattern) "a pattern is a name, an integer, `true`, `false`, or an enum variant" else null,
+            .@"else" => if (in_pattern) "the catch-all arm is `_`, or a name that binds the value" else null,
+            .@"try" => "`try` blocks are reserved: propagate with `e!` or handle with `e catch ...`",
+            .zig => "inline Zig is reserved: use `raw` blocks and `extern` declarations",
+            .pre => "`pre` marks compile-time parameters only (`pre n: Int`)",
+            .share_pfx => if (precededByFor(src, tok.pos)) "`for *x in` is reserved: iterate with `for x in xs`, `?xs`, or `!xs`" else null,
+            else => null,
+        };
+    }
+
+    /// Inside ( ), a name followed by an operand: a paren-free call,
+    /// which only a statement or a closure body takes.
+    fn parenFreeCallHint(self: *Parser, tok: Token) ?[]const u8 {
+        if (!self.base.lexer.inParens()) return null;
+        const src = self.base.source;
+        var end = tok.pos;
+        while (end > 0 and src[end - 1] == ' ') end -= 1;
+        if (end == tok.pos) return null;
+        var start = end;
+        while (start > 0 and isIdentCont(src[start - 1])) start -= 1;
+        const name = src[start..end];
+        if (name.len == 0 or !isIdentStart(name[0]) or keyword(name) != null) return null;
+        const operand = switch (tok.cat) {
+            .ident, .integer, .real, .string_sq, .string_dq, .true, .false, .dot_lit, .lparen, .lbracket => true,
+            .minus_prefix, .move_pfx, .clone_pfx, .read_pfx, .write_pfx, .share_pfx, .tilde, .not => true,
+            else => false,
+        };
+        if (!operand) return null;
+        return self.format("a call inside parentheses needs its own parentheses: `{s}(...)`", .{name});
+    }
+
+    /// The word before `pos` is `for`.
+    fn precededByFor(src: []const u8, pos: u32) bool {
+        const before = std.mem.trimEnd(u8, src[0..pos], " ");
+        return std.mem.endsWith(u8, before, "for") and
+            (before.len == 3 or !isIdentCont(before[before.len - 4]));
     }
 
     /// The generated parser's expected set where it stopped (its
@@ -993,31 +1169,107 @@ pub const Parser = struct {
     //   * `for` source sigils move into the mode slot:
     //       (for iter x _ (read xs) body _)  →  (for read x _ xs body _)
     //   * a `-name` statement whose value is used is negation, not a drop:
-    //     the last statement of a `fun` body, or of a branch or arm whose
-    //     value is used, becomes (neg name).
+    //     the last statement of a `fun` body, or of a branch, arm, or
+    //     `catch` handler whose value is used, becomes (neg name). (A
+    //     closure has no declared result, so its body is not rewritten.)
+    //   * `!` or `<` before a place followed by a method call is the
+    //     receiver's mode:
+    //       (write (call (member (member x v) push) 1))  →  (call (member (write (member x v)) push) 1)
     //
     // Every rewritten node keeps its node id, and so its span; the new
-    // `captures` node gets its own (`newNode`).
+    // `captures` node and receiver sigil get their own (`newNode`).
     // -------------------------------------------------------------------------
 
     pub fn rewrite(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
-        return self.walk(sexp);
-    }
-
-    fn walk(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
         if (sexp != .list) return sexp;
-        const items = sexp.items();
+        var items = sexp.items();
+        // A `for` source sigil is the loop's mode, taken before the
+        // receiver rewrite can see it.
+        if (sexp.kind() == .@"for") {
+            const copy = try self.allocator().dupe(Sexp, items);
+            normFor(copy);
+            items = copy;
+        }
         const walked = try self.allocator().alloc(Sexp, items.len);
-        for (items, 0..) |child, i| walked[i] = try self.walk(child);
+        for (items, 0..) |child, i| walked[i] = try self.rewrite(child);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         switch (out.kind() orelse return out) {
             .lambda => try self.splitBars(out, walked),
-            .@"for" => normFor(walked),
+            .write, .move => return self.receiverSigil(out),
             // The body's value is returned.
             .fun => if (ir.Fun.returns(out) != .nil) valueTail(ir.Fun.body(out)),
-            // The expression's value is bound.
+            // The expression's value is bound or returned.
             .set => valueTail(ir.Set.value(out)),
+            .@"return" => valueTail(ir.Return.value(out)),
             else => {},
+        }
+        return out;
+    }
+
+    /// Whether `node` is a receiver sigil the wrapper moved onto the
+    /// receiver: `!v` in `!v.push(x)`, not in `(!v).push(x)`.
+    pub fn isReceiverSigil(self: *const Parser, node: Sexp) bool {
+        return node == .list and self.receiver_sigils.contains(node.list.id);
+    }
+
+    /// The longest postfix chain `receiverSigil` looks through.
+    const max_spine = 256;
+
+    /// `!` and `<` before a place (a name and the fields and elements
+    /// after it) followed by a method call apply to the place; the call
+    /// and every postfix after it apply to the borrowed or moved place:
+    ///   (write (propagate_none (call (member v pop))))
+    ///   → (propagate_none (call (member (write v) pop)))
+    /// Anything else keeps its sigil outside: a chain that is all place
+    /// (`!x.v`), one whose head is called (`<f(x).g()`), and one whose
+    /// spine is parenthesized (`!(v.pop())`), which starts after the
+    /// sigil's own position + 1.
+    fn receiverSigil(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
+        const tag: parser.Tag = node.kind().?;
+        const at = self.span(node).start + 1;
+        // The chain from the operand down to its head, outermost first.
+        var spine: [max_spine]Sexp = undefined;
+        var n: usize = 0;
+        var e = ir.get(node, .operand);
+        while (true) {
+            if (n == spine.len or self.span(e).start != at) return node;
+            spine[n] = e;
+            n += 1;
+            e = switch (e.kind() orelse break) {
+                .propagate, .propagate_none => ir.get(e, .value),
+                .member, .index => ir.get(e, .object),
+                .call => ir.Call.callee(e),
+                else => return node,
+            };
+        }
+        // Grow the place up from the head through fields and elements,
+        // stopping at the member a call follows: the method.
+        var top = n - 1;
+        while (top > 0) {
+            const up = spine[top - 1];
+            if (up.isKind(.member) and top >= 2 and spine[top - 2].isKind(.call)) break;
+            if (!up.isKind(.member) and !up.isKind(.index)) return node;
+            top -= 1;
+        }
+        if (top == 0) return node;
+        const place = spine[top];
+        var out = try self.base.newNode(tag, &.{place}, .{ .start = at - 1, .end = self.span(place).end });
+        try self.receiver_sigils.put(self.allocator(), out.list.id, {});
+        var i = top;
+        while (i > 0) {
+            i -= 1;
+            const link = spine[i];
+            const slot = switch (link.kind().?) {
+                .propagate => ir.slot(.propagate, .value),
+                .propagate_none => ir.slot(.propagate_none, .value),
+                .member => ir.slot(.member, .object),
+                .index => ir.slot(.index, .object),
+                .call => ir.slot(.call, .callee),
+                else => unreachable,
+            };
+            const copy = try self.allocator().dupe(Sexp, link.items());
+            copy[slot] = out;
+            out = .{ .list = parser.List.withId(copy, link.list.id) };
         }
         return out;
     }
@@ -1037,10 +1289,7 @@ pub const Parser = struct {
                 try params.append(self.allocator(), e);
                 continue;
             }
-            if (params.items.len > 0 and self.failure == null) {
-                const at = self.span(e);
-                self.failure = .{ .severity = .@"error", .pos = at.start, .end = at.end, .message = "captures come before parameters in a closure's bar list: `|+v, a| ...`" };
-            }
+            if (params.items.len > 0) self.reject(e, "captures come before parameters in a closure's bar list: `|+v, a| ...`");
             try caps.append(self.allocator(), e);
         }
         items[ir.slot(.lambda, .captures)] = if (caps.items.len > 0) try self.base.newNode(.captures, caps.items, .{
@@ -1066,6 +1315,7 @@ pub const Parser = struct {
                 valueTail(ir.If.@"else"(sexp));
             },
             .match => for (ir.Match.arms(sexp)) |arm| valueTail(ir.Arm.body(arm)),
+            .@"catch" => valueTail(ir.Catch.handler(sexp)),
             else => {},
         }
     }
@@ -1158,6 +1408,15 @@ test "closure bar lists: typed parameters, empty bars, owned star" {
     try expectCats("x = a || b", &.{ .ident, .assign, .ident, .err });
 }
 
+test "tokens longer than 65535 bytes: a comment is skipped, anything else is an error" {
+    try expectCats("#" ++ "c" ** 70000 ++ "\nx", &.{ .ident, .eof });
+    var lx = Lexer.init("x = " ++ "y" ** 70000);
+    _ = lx.next();
+    _ = lx.next();
+    try testing.expectEqual(TokenCat.err, lx.next().cat);
+    try testing.expectEqual(Lexer.LexError.too_long, lx.err);
+}
+
 test "layout: a closure body inside brackets is laid out in blocks" {
     try expectCats("f(*|x|\n  g(x)\n  h)\ny", &.{
         .ident,  .lparen_call, .share_pfx,   .bar_capture, .ident,  .bar_capture,
@@ -1188,6 +1447,26 @@ test "parser: for-source sigil moves into the mode slot" {
     const loop = ir.Module.decls(tree)[0];
     try testing.expectEqual(Tag.read, ir.For.mode(loop).tag);
     try testing.expectEqualStrings("xs", ir.For.source(loop).getText(p.base.source));
+}
+
+test "parser: a receiver sigil moves onto the place before the method" {
+    const source = "!x.v[0].push(1)\n(!v).push(2)\n!(v.pop())\n!f(x).g()\n";
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    const tree = try p.parseProgram();
+    const stmts = ir.Module.decls(tree);
+    // (call (member (write (index (member x v) 0)) push) 1)
+    const recv = ir.Member.object(ir.Call.callee(stmts[0]));
+    try testing.expect(recv.isKind(.write) and p.isReceiverSigil(recv));
+    const s = p.span(recv);
+    try testing.expectEqualStrings("!x.v[0]", source[s.start..s.end]);
+    try testing.expect(ir.Write.operand(recv).isKind(.index));
+    // Parentheses keep their meaning, and are not a receiver sigil.
+    const long = ir.Member.object(ir.Call.callee(stmts[1]));
+    try testing.expect(long.isKind(.write) and !p.isReceiverSigil(long));
+    try testing.expect(stmts[2].isKind(.write));
+    // A called head is not a place.
+    try testing.expect(stmts[3].isKind(.write));
 }
 
 test "parser: bar lists split into captures and parameters, all with node ids" {
@@ -1248,7 +1527,7 @@ test "parser: every form parses" {
         \\extern fun abs(n: Int) -> Int
         \\extern fun tick(n: Int)
         \\extern sub halt
-        \\extern ptr: fun(Int) Int
+        \\extern count: Int
         \\
         \\pub fun f(a: Int, b: Int = 2, pre c: Int) -> Int!
         \\  a
@@ -1280,12 +1559,10 @@ test "parser: every form parses" {
         \\    print(a[i])
         \\  else
         \\    print(0)
-        \\  for *p in xs
-        \\    print(p)
         \\  match s
         \\    .circle(r) => print(r)
         \\    1..3 => print(-1)
-        \\    else
+        \\    _
         \\      print(2)
         \\  g = |+c, <d, ~e, k: Int, j| c + k
         \\  h = *|+c| c.set(@sizeOf(Int))
@@ -1299,7 +1576,7 @@ test "parser: every form parses" {
         \\  raw
         \\    print(@intCast(x))
         \\  print(+a, <b, ?c, !d, *e, ~f, v.w[0])
-        \\  n: fun() Int = f
+        \\  n: fun() -> Int = f
         \\  n2: *sub(Int, ?Box(Int)) = h
         \\  n3: sub() = i
         \\  o2: (*Box(Int))? = none

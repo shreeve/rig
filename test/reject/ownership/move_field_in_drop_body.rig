@@ -7,4 +7,4 @@ struct Owner
   drop self: !Owner
     stash = <self.cell
 
-# error: cannot move resource field `self.cell` inside drop body
+# error: cannot move out of `self.cell`: `self` is borrowed

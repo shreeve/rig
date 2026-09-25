@@ -1,0 +1,20 @@
+# A variant pattern's bindings and a closure's bar list may end with a
+# comma, like other comma lists.
+
+enum Shape
+  rect(w: Int, h: Int)
+  dot
+
+sub main()
+  s = Shape.rect(w: 2, h: 3)
+  match s
+    .rect(w, h,) => print(w * h)
+    .dot() => print(0)
+  k = 10
+  f = |+k, a: Int,| a + k
+  g: fun(Int, Int) -> Int = |a, b,| a * b
+  print(f(1), g(2, 3))
+
+# expect:
+# 6
+# 11 6

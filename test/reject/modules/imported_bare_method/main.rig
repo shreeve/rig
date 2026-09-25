@@ -1,0 +1,22 @@
+# A method named through a value (`p.get`) must be called, whether its
+# type is local or imported; `Type.get` is the function value.
+
+use lib
+
+struct Q
+  n: Int
+
+  fun get(?self) -> Int
+    self.n
+
+sub main()
+  p = lib.P(n: 1)
+  q = Q(n: 2)
+  a = p.get
+  c = q.get
+  print(p.nope, q.nope)
+
+# error: method `get` must be called; to pass it as a function that takes the receiver first, name it through its type: `P.get`
+# error: 16:9: method `get` must be called; to pass it as a function that takes the receiver first, name it through its type: `Q.get`
+# error: no field `nope` on type `P`
+# error: no field `nope` on type `Q`

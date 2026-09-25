@@ -1,0 +1,44 @@
+# A callee may store a borrow wherever a write borrow passed to it
+# leads, however the write borrow gets there: moved in from a local,
+# held by a struct moved in, or held by a constructed argument.
+
+struct Res
+  v: Vec(Int)
+
+struct View
+  r: ?Res
+
+struct Outer
+  inner: View?
+
+struct WO
+  o: !Outer
+
+sub fill(o: !Outer, r: ?Res)
+  o.inner = View(r: r)
+
+sub fill2(w: WO, r: ?Res)
+  w.o.inner = View(r: r)
+
+sub main()
+  a = Outer(inner: none)
+  b = Outer(inner: none)
+  c = Outer(inner: none)
+  if true
+    x = Res(v: Vec())
+    !x.v.push(5)
+    w = !a
+    fill(<w, ?x)
+    wb = WO(o: !b)
+    fill2(<wb, ?x)
+    fill2(WO(o: !c), ?x)
+  if a.inner as v
+    print(v.r.v[0])
+  if b.inner as v
+    print(v.r.v[0])
+  if c.inner as v
+    print(v.r.v[0])
+
+# error: 31:15: `x` does not live long enough
+# error: 33:17: `x` does not live long enough
+# error: 34:23: `x` does not live long enough

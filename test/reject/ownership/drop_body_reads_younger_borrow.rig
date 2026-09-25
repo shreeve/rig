@@ -1,0 +1,47 @@
+# Values are dropped youngest first at the end of their block. A value
+# whose `drop` body runs must not borrow a younger value, directly or
+# through a view: the younger one is dropped first, and the body would
+# read it after.
+
+struct Box
+  v: Vec(Int)
+
+struct View
+  b: ?Box
+
+struct Holder
+  b: ?Box
+
+  drop self: !Holder
+    print("holder drop reads", self.b.v[0])
+
+struct Watcher
+  w: ?View
+
+  drop self: !Watcher
+    print("watcher drop reads", self.w.b.v[0])
+
+sub main()
+  y0 = Box(v: Vec())
+  !y0.v.push(0)
+  h = Holder(b: ?y0)
+  x = Box(v: Vec())
+  !x.v.push(42)
+  h.b = ?x
+  v0 = View(b: ?y0)
+  w = Watcher(w: ?v0)
+  z = Box(v: Vec())
+  vw = View(b: ?z)
+  w.w = ?vw
+
+sub early(c: Bool)
+  y0 = Box(v: Vec())
+  h = Holder(b: ?y0)
+  if c
+    x = Box(v: Vec())
+    h.b = ?x
+    return
+
+# error: `x` is dropped before `h`
+# error: `z` is dropped before `w`
+# error: `x` is dropped before `h`

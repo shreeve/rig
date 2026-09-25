@@ -1,0 +1,31 @@
+# A match payload that holds a write borrow write-borrows its scrutinee
+# while it is live, so a nested match on the same value cannot bind a
+# second view of that borrow.
+
+struct Box
+  v: Vec(Int)
+
+struct Ed
+  t: !Box
+
+enum Hold
+  none_
+  has(e: Ed)
+
+sub main()
+  x = Box(v: Vec())
+  !x.v.push(1)
+  h: Hold = .has(Ed(t: !x))
+  match h
+    .has(a)
+      for n in ?a.t.v
+        match h
+          .has(b)
+            b.t.v = Vec()
+          .none_
+            print("n")
+        print(n)
+    .none_
+      print("none")
+
+# error: 22:15: use of `h` while a write borrow is live

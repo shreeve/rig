@@ -1,0 +1,75 @@
+# Every local is read, in any way: an argument, a borrow, a move, a
+# clone, a field write, a closure capture, or a drop. `_` binds nothing,
+# `_ = e` discards a value, and a value with drop glue is read by its
+# own release, so a guard held to the end of its scope needs no other
+# use. Parameters need not be read.
+
+struct Lock
+  id: Int
+
+  drop self: !Self
+    print("unlock", self.id)
+
+struct P
+  n: Int
+
+enum Shape
+  circle(r: Int)
+  dot
+
+error E
+  bad
+
+fun maybe(n: Int) -> Int?
+  n if n > 0 else none
+
+fun fails() -> Int!
+  return E.bad
+
+fun ignore(n: Int) -> Int
+  0
+
+sub take(v: Vec(Int))
+  print("took", v.len)
+
+sub main()
+  lock = Lock(id: 1)
+  v: Vec(Int) = Vec()
+  r = ?v
+  print(r.len)
+  w: Vec(Int) = Vec()
+  take(<w)
+  p = P(n: 1)
+  q = +p
+  print(q.n)
+  s = P(n: 2)
+  s.n = 3
+  c = 4
+  f = |+c| c + 1
+  print(f())
+  d = 5
+  -d
+  for _ in 0..2
+    print("tick")
+  sh: Shape = .circle(r: 1)
+  match sh
+    .circle(_) => print("circle")
+    _ => print("other")
+  if maybe(1) as _
+    print("some")
+  _ = fails() catch |_|
+    0
+  _ = maybe(2)
+  print(ignore(7))
+
+# expect:
+# 0
+# took 0
+# 1
+# 5
+# tick
+# tick
+# circle
+# some
+# 0
+# unlock 1

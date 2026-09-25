@@ -6,4 +6,4 @@ sub main()
   raw
     r = %x
 
-# error: unexpected `%`
+# error: 7:9: unexpected `%`; expected an expression

@@ -15,13 +15,11 @@ struct IntSource
   fun get(self: ?IntSource) -> Int
     self.value.get()
 
-  # A Cell gives no borrowed access to the Vec inside it, so the list is
-  # swapped out, changed, and swapped back.
   sub subscribe(self: ?IntSource, cb: *sub())
-    subs = self.subs.replace(Vec())
-    (!subs).push(<cb)
-    _ = self.subs.replace(<subs)
+    self.subs.push(<cb)
 
+  # A Cell lends no borrow of the Vec inside it, so the list is swapped
+  # out to be walked, and swapped back.
   sub set(self: ?IntSource, v: Int)
     self.value.set(v)
     subs = self.subs.replace(Vec())

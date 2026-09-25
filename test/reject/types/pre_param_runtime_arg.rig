@@ -9,4 +9,4 @@ sub main()
   k += 3
   show(k)
 
-# error: `pre`
+# error: 10:8: argument 1 of `show` is a `pre` parameter and must be known at compile time; pass a literal, an enum value, a `pre` parameter, or a `=!` binding of one

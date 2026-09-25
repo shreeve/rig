@@ -8,7 +8,7 @@ enum Color
 sub show(c: Color)
   match c
     .red => print "red"
-    other => print "not red"
+    other => print "not red:", other
 
 sub main()
   show(.red)
@@ -16,4 +16,4 @@ sub main()
 
 # expect:
 # red
-# not red
+# not red: .blue

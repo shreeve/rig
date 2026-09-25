@@ -1,0 +1,20 @@
+# A method may share its name with a module-level function; inside the
+# type, the bare name still means the module-level function.
+
+fun helper() -> Int
+  40
+
+struct S
+  n: Int
+
+  fun helper(?self) -> Int
+    self.n + helper()
+
+sub main()
+  s = S(n: 2)
+  print(s.helper())
+  print(helper())
+
+# expect:
+# 42
+# 40

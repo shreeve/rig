@@ -1,0 +1,10 @@
+# A slice of a Vec of owning handles would copy the handles out.
+
+struct B
+  n: Int
+
+sub main()
+  v: Vec(*B) = Vec()
+  print(?v[0..1])
+
+# error: 8:10: cannot slice a `Vec(*B)`

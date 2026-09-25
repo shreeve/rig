@@ -1,0 +1,19 @@
+# `m?` hands over the handle inside `m`: an owning binding is moved,
+# `(<m)?`, and a borrow cannot give up what it holds.
+
+struct Box
+  n: Int
+
+fun f(m: (*Box)?) -> Int?
+  b = m?
+  b.n
+
+fun g(m: ?((*Box)?)) -> Int?
+  b = m?
+  b.n
+
+sub main()
+  print(f(none))
+
+# error: 8:7: bare use of shared (`*T`) handle `m` in binding would alias the handle; use `<m` to move or `+m` to clone
+# error: 12:7: a borrow cannot give up the resource inside it

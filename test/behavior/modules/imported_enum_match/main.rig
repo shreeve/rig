@@ -23,7 +23,7 @@ sub main()
   if c == .blue
     print("is blue")
   sq: colors.Shape = .rect(w: 2, h: 5)
-  ci: colors.Shape = .circle(2)
+  ci: colors.Shape = .circle(r: 2)
   print(area(?sq), area(?ci))
 
 # expect:

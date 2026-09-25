@@ -1,0 +1,21 @@
+# An imported constant is known at compile time: it can build a
+# module-level constant and fill a `pre` parameter. So are shifts and
+# bitwise operators over constants.
+
+use lib
+
+fun size(pre n: Int) -> Int
+  n * 2
+
+y =! lib.x + 1
+mask =! 1 << 4 | 3
+flip =! (5 & 3) ^ 1
+quarter =! 256 >> 2
+
+sub main()
+  print(size(lib.x), y)
+  print(mask, flip, quarter)
+
+# expect:
+# 8 5
+# 19 0 64

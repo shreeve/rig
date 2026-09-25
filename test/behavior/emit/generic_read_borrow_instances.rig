@@ -1,0 +1,87 @@
+# A read borrow whose type holds a generic type's parameter (`?T`,
+# `?Self`) takes the form each instance needs: a copy of plain data, a
+# pointer to a value that owns resources or holds a Cell. Both sides of a
+# method call, a field, and a payload agree.
+
+type Box(T)
+  v: T
+
+  fun get(?self) -> ?T
+    ?self.v
+
+  fun pass(?self, x: ?T) -> ?T
+    x
+
+  fun same(?self, other: ?Self) -> Bool
+    s = other.get()
+    t = self.pass(s)
+    u = self.pass(?other.v)
+    print(t, u)
+    true
+
+  fun show(?self)
+    r = self.get()
+    print(r)
+
+type Num(T)
+  v: T
+
+  fun copy(?self) -> T
+    r = ?self.v
+    +r
+
+type Ref(T)
+  r: ?T
+
+  fun val(?self) -> ?T
+    self.r
+
+enum Opt(T)
+  some(v: ?T)
+  nothing
+
+sub main()
+  a = Box(v: 1)
+  b = Box(v: 1)
+  print(a.same(?b))
+  r = a.get()
+  print(r + 1)
+  print(Num(v: 1).copy())
+  a.show()
+  x = 5
+  c = Ref(r: ?x)
+  print(c.r + 1)
+  print(c.val() + 1)
+  o = Opt.some(v: ?x)
+  match o
+    .some(v) => print(v + 1)
+    .nothing => print(0)
+  v: Vec(Int) = Vec()
+  !v.push(4)
+  va = Box(v: <v)
+  w: Vec(Int) = Vec()
+  vb = Box(v: <w)
+  print(va.same(?vb))
+  print(va.get().len)
+  vr = Ref(r: ?va)
+  print(vr.val().get().len)
+  n = Cell(value: 3)
+  d = Box(v: <n)
+  e = d.get()
+  (?d.v).set(9)
+  print(e.get())
+
+# expect:
+# 1 1
+# true
+# 2
+# 1
+# 1
+# 6
+# 6
+# 6
+# [] []
+# true
+# 1
+# 1
+# 9

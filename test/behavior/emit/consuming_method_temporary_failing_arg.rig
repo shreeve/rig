@@ -1,0 +1,31 @@
+# A consuming method called on a temporary whose later argument fails:
+# the temporary is evaluated first, and dropped when the argument fails.
+
+error E
+  bad
+
+struct Bag
+  v: Vec(Int)
+
+  fun consume(self: Self, n: Int) -> Int
+    self.v.len + n
+
+fun mk() -> Bag
+  v: Vec(Int) = Vec()
+  !v.push(1)
+  Bag(v: <v)
+
+fun g(ok: Bool) -> Int!
+  return E.bad if not ok
+  2
+
+fun run(ok: Bool) -> Int!
+  mk().consume(g(ok)!)
+
+sub main()
+  print(run(true) catch 0)
+  print(run(false) catch 9)
+
+# expect:
+# 3
+# 9

@@ -1,0 +1,9 @@
+# A Vec's length is `v.len`, as for arrays, slices, and strings; there
+# is no `length()` method.
+
+sub main()
+  v: Vec(Int) = Vec()
+  !v.push(1)
+  print(v.length())
+
+# error: 7:11: a Vec has no `length()`; its length is `.len`, as for an array: `v.len`

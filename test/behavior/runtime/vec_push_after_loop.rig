@@ -7,11 +7,11 @@ sub main()
   cb2: *sub() = *|+count| count.set(count.get() + 10)
 
   subs: Vec(*sub()) = Vec()
-  (!subs).push(+cb1)
+  !subs.push(+cb1)
 
   for cb in ?subs
     cb()
-  (!subs).push(+cb2)
+  !subs.push(+cb2)
   for cb in ?subs
     cb()
 

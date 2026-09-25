@@ -12,7 +12,7 @@ sub main()
   p = Point.new(3)
   print p.x
   x = 1
-  new x = 20
+  new x = x * 20
   print x
 
 # expect:

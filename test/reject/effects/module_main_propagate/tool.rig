@@ -1,0 +1,11 @@
+error E
+  oops
+
+fun f() -> Int!
+  return E.oops
+
+# Only the root module's `main` is the entry point; here `main` is an
+# ordinary `sub`, which cannot propagate.
+pub sub main()
+  x = f()!
+  print(x)

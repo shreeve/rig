@@ -1,0 +1,19 @@
+# A `pub` function may mention a private type, but not an instance of a
+# generic type declared here, even over a private type.
+
+struct Secret
+  value: Int
+
+pub type Box(T)
+  inner: T
+
+pub fun make_secret() -> Secret
+  Secret(value: 42)
+
+pub sub take_secret(s: Secret)
+  print(s.value)
+
+pub fun wrap_secret(x: Int) -> Box(Secret)
+  Box(inner: Secret(value: x))
+
+# error: public function `wrap_secret` exposes `Box(Secret)`, an instance of a generic type

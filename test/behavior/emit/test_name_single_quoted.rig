@@ -1,0 +1,10 @@
+# A test name may be single-quoted, like any string.
+
+test 'it''s ok'
+  print(2)
+
+sub main()
+  print(1)
+
+# expect:
+# 1

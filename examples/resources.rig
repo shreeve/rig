@@ -8,7 +8,7 @@ struct Owner
   drop self: !Owner
     print(self.cell.get())
 
-sub main()
+sub main
   c: *Cell(Int) = *Cell(value: 42)
   o: Owner = Owner(cell: <c)
   print(0)

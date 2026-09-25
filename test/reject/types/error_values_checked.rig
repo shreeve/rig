@@ -27,7 +27,7 @@ sub main()
   d = parse("") catch |err|
     match err
       .empty(n) => 1
-      else => 2
+      _ => 2
   print(plain(1), kind("x"), a, b, c, d)
 
 # error: type mismatch: expected `Int`, got `ParseError`

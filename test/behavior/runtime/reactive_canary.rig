@@ -19,7 +19,7 @@ sub main()
   # argument, and the next returns a value.
   add: *sub(Int) = *|+count, n| count.set(count.get() + n)
   add(10)
-  scaled: *fun(Int) Int = *|+count, n| count.get() * n
+  scaled: *fun(Int) -> Int = *|+count, n| count.get() * n
   print(count.get(), scaled(2))     # 13 26
 
   # A Signal calls every subscriber on `set`. This subscriber reads the
@@ -34,9 +34,9 @@ sub main()
   # A Vec of closures, walked by borrowed slot.
   notes: *Cell(Int) = *Cell(value: 0)
   steps: Vec(*sub()) = Vec()
-  (!steps).push(*|+notes| notes.set(notes.get() + 1))
-  (!steps).push(*|+notes| notes.set(notes.get() + 10))
-  (!steps).push(*|+notes| notes.set(notes.get() + 100))
+  !steps.push(*|+notes| notes.set(notes.get() + 1))
+  !steps.push(*|+notes| notes.set(notes.get() + 10))
+  !steps.push(*|+notes| notes.set(notes.get() + 100))
   for step in ?steps
     step()
   print(notes.get())                # 111

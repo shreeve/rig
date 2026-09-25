@@ -15,7 +15,7 @@ struct Slot
 
 sub main()
   s = Slot(held: *Noisy(id: 1))
-  (!s).put(*Noisy(id: 2))
+  !s.put(*Noisy(id: 2))
   print(s.held.id)
   print("end")
 

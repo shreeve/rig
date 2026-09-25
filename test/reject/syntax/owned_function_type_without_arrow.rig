@@ -1,0 +1,7 @@
+# An owned closure's type writes its result after `->` too.
+
+sub main()
+  g: *fun(Int) Int = *|a| a
+  print(g(1))
+
+# error: 4:16: a function type writes its result after `->`: `fun(Int) -> Int`

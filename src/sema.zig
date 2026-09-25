@@ -1,8 +1,7 @@
 //! Semantic analysis: names, types, and expression checking.
 //!
-//! `check` runs four passes over the normalized IR and returns a
-//! `SemContext`, which every later pass (effects, ownership, emit)
-//! reads:
+//! `check` runs these steps over the normalized IR and returns
+//! a `SemContext`, which every later pass (ownership, emit) reads:
 //!
 //!   1. builtins     `resolve.zig`    Cell, Vec, Signal
 //!   2. symbols      `resolve.zig`    every declaration gets a Symbol in a
@@ -10,8 +9,17 @@
 //!                                    that opens them
 //!   3. declarations `resolve.zig`    type expressions become TypeIds;
 //!                                    signatures, fields, variants, aliases
-//!   4. expressions  `typecheck.zig`  bodies are type-checked; every
-//!                                    expression's type is recorded
+//!   4. contents     `sema.zig`       what each declared type's values hold
+//!                                    (drop glue, a Cell, plain data), and
+//!                                    types that contain themselves
+//!   5. validation   `resolve.zig`    the declaration checks that need 4,
+//!                                    and the public surface of the module
+//!   6. expressions  `typecheck.zig`  bodies are type-checked; every
+//!                                    expression's type is recorded;
+//!                                    fallibility and `raw` are checked;
+//!                   `sema.zig`       then every local must be read
+//!   7. generics     `sema.zig`,      the instances generic bodies reach,
+//!                   `typecheck.zig`  and each instance's requirements
 //!
 //! ## The facts table
 //!
@@ -45,7 +53,7 @@
 //!
 //! Leaves are keyed by source position (`src.pos`); list nodes by the
 //! node id the parser gave them (`List.id`), which the Parser wrapper's
-//! rewrites preserve. A node that ctx never reached (dead code after an
+//! rewrites preserve. A node that sema never reached (dead code after an
 //! error, type positions) has no entry; callers treat `null` as "no
 //! information".
 //!
@@ -77,6 +85,9 @@ pub const TypeId = u32;
 pub const symbol_invalid: SymbolId = 0;
 pub const scope_invalid: ScopeId = 0;
 pub const type_invalid: TypeId = 0;
+
+/// The first scope a module's check opens.
+pub const module_scope: ScopeId = 1;
 
 // =============================================================================
 // Types
@@ -168,7 +179,11 @@ pub const ImportedNominal = struct {
     sym_id: SymbolId,
 };
 
-/// One resolved `use NAME` of the module being checked. `ctx` must
+/// Module id -> the module's context.
+pub const ModuleMap = std.AutoHashMapUnmanaged(u32, *SemContext);
+const no_modules: ModuleMap = .empty;
+
+/// One resolved `use NAME` of the module being checked. `sema` must
 /// outlive the importing SemContext.
 pub const ImportEntry = struct {
     local_name: []const u8,
@@ -243,6 +258,11 @@ pub const TypeStore = struct {
         return self.items.items[id];
     }
 
+    /// The id of `ty` if it is interned.
+    pub fn find(self: *const TypeStore, ty: Type) ?TypeId {
+        return self.map.getKeyAdapted(ty, TypeContext{ .items = self.items.items });
+    }
+
     /// Return the id of `ty`, adding it if new. Slices inside `ty`
     /// (function params, generic args) must outlive the store.
     pub fn intern(self: *TypeStore, allocator: std.mem.Allocator, ty: Type) !TypeId {
@@ -262,67 +282,25 @@ pub const TypeStore = struct {
         return id;
     }
 
+    /// By structure: the contents of the slices inside, not their addresses.
     fn hashType(t: Type) u64 {
         var h = std.hash.Wyhash.init(0);
-        const tag: u8 = @intFromEnum(std.meta.activeTag(t));
-        h.update(&.{tag});
-        switch (t) {
-            .invalid, .unknown, .void, .bool, .string, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => {},
-            .int => |i| h.update(&.{ i.bits, @intFromBool(i.signed) }),
-            .float => |f| h.update(&.{f.bits}),
-            .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner| hashId(&h, inner),
-            .slice => |s| hashId(&h, s.elem),
-            .array => |a| {
-                hashId(&h, a.elem);
-                h.update(std.mem.asBytes(&a.len));
-            },
-            .function => |f| {
-                for (f.params) |p| hashId(&h, p);
-                hashId(&h, f.returns);
-                h.update(&.{@intFromBool(f.is_sub)});
-                h.update(std.mem.asBytes(&f.pre_mask));
-            },
-            .nominal, .type_var => |s| hashId(&h, s),
-            .imported_nominal => |n| {
-                hashId(&h, n.module_id);
-                hashId(&h, n.sym_id);
-            },
-            .parameterized_nominal => |pn| {
-                hashId(&h, pn.sym);
-                for (pn.args) |a| hashId(&h, a);
-            },
-        }
+        std.hash.autoHashStrat(&h, t, .Deep);
         return h.final();
-    }
-
-    fn hashId(h: *std.hash.Wyhash, id: u32) void {
-        h.update(std.mem.asBytes(&id));
     }
 
     fn typeEqual(a: Type, b: Type) bool {
         if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
         return switch (a) {
             .invalid, .unknown, .void, .bool, .string, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => true,
-            .int => |ai| ai.bits == b.int.bits and ai.signed == b.int.signed,
-            .float => |af| af.bits == b.float.bits,
-            .optional => |x| x == b.optional,
-            .fallible => |x| x == b.fallible,
-            .borrow_read => |x| x == b.borrow_read,
-            .borrow_write => |x| x == b.borrow_write,
-            .shared => |x| x == b.shared,
-            .weak => |x| x == b.weak,
-            .range => |x| x == b.range,
-            .slice => |s| s.elem == b.slice.elem,
-            .array => |x| x.elem == b.array.elem and x.len == b.array.len,
             .function => |af| af.is_sub == b.function.is_sub and
                 af.returns == b.function.returns and
                 af.pre_mask == b.function.pre_mask and
                 std.mem.eql(TypeId, af.params, b.function.params),
-            .nominal => |x| x == b.nominal,
-            .type_var => |x| x == b.type_var,
-            .imported_nominal => |x| x.module_id == b.imported_nominal.module_id and x.sym_id == b.imported_nominal.sym_id,
             .parameterized_nominal => |x| x.sym == b.parameterized_nominal.sym and
                 std.mem.eql(TypeId, x.args, b.parameterized_nominal.args),
+            // The rest hold ids and numbers only.
+            inline else => |x, tag| std.meta.eql(x, @field(b, @tagName(tag))),
         };
     }
 };
@@ -362,9 +340,6 @@ pub const SymbolFlags = packed struct(u16) {
     is_public: bool = false,
     /// Parameter declared with a borrowed type (`?T` / `!T`).
     borrowed_param: bool = false,
-    /// Struct with a user `drop` or a field whose type has drop glue.
-    /// Such values are non-Copy and get a generated `__rig_drop`.
-    has_drop_glue: bool = false,
     /// `pre` parameter.
     is_pre: bool = false,
     /// Value known at compile time: a `pre` parameter, or a `=!` binding
@@ -380,7 +355,7 @@ pub const SymbolFlags = packed struct(u16) {
     written: bool = false,
     /// An `error` declaration: its variants are error values.
     error_set: bool = false,
-    _: u6 = 0,
+    _: u7 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -400,8 +375,8 @@ pub const Field = struct {
     is_variant: bool = false,
     /// The struct's user `drop self: !Self` body. Not callable.
     is_drop_method: bool = false,
-    /// A data field declared with a default value (`name: T = expr`).
-    has_default: bool = false,
+    /// A data field's default value (`name: T = literal`).
+    default: ?Sexp = null,
     /// Parameter names of a method, for keyword arguments.
     param_names: ?[]const []const u8 = null,
     /// Default values of a method's parameters (null where none).
@@ -415,9 +390,10 @@ pub const Symbol = struct {
     decl_pos: u32,
     scope: ScopeId,
     flags: SymbolFlags = .{},
-    /// Members of a nominal or generic type; null for other kinds and
-    /// for opaque sema.
+    /// Members of a nominal or generic type; null for other kinds.
     fields: ?[]const Field = null,
+    /// A nominal or generic type: what its values hold.
+    contents: Contents = .{},
     /// Generic parameters of a generic type, in declaration order.
     type_params: ?[]const SymbolId = null,
     /// Parameter names of a function, for keyword arguments.
@@ -444,12 +420,6 @@ pub const Scope = struct {
 
 pub const Diagnostic = diag.Diagnostic;
 
-/// How a receiver expression is written, and what kind of value it is,
-/// for the method receiver-mode rules.
-pub const ReceiverShape = typecheck.ReceiverShape;
-pub const ReceiverTypeKind = typecheck.ReceiverTypeKind;
-pub const compatible = typecheck.compatible;
-
 // =============================================================================
 // Facts
 // =============================================================================
@@ -457,10 +427,8 @@ pub const compatible = typecheck.compatible;
 /// Identity of an IR list node: its node id.
 pub const NodeKey = parser.NodeId;
 
-/// The key of a list node the parser built; null for anything else (a
-/// leaf, `_`, or the Parser wrapper's `(captures ...)`, which has no
-/// node id and no facts).
-pub fn nodeKey(node: Sexp) ?NodeKey {
+/// The key of a list node the parser built; null for a leaf or `_`.
+fn nodeKey(node: Sexp) ?NodeKey {
     if (node != .list or node.list.id == 0) return null;
     return node.list.id;
 }
@@ -484,8 +452,12 @@ pub const Facts = struct {
     call_slots: std.AutoHashMapUnmanaged(NodeKey, []const ArgSlot) = .empty,
     /// Match nodes whose non-default arms cover every value.
     exhaustive: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Positions of names assigned to (`x = e`, `x <- e`, `x += e` after
+    /// `x` is declared): a use there writes the binding, not reads it.
+    writes: std.AutoHashMapUnmanaged(u32, void) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
+        self.writes.deinit(allocator);
         self.names.deinit(allocator);
         self.leaf_types.deinit(allocator);
         self.node_types.deinit(allocator);
@@ -511,11 +483,21 @@ pub const DefaultValue = struct {
 
 /// An operation a generic body applies to a type parameter. Checked
 /// against every instantiation of the generic type.
-pub const Requirement = enum {
+pub const Requirement = union(enum) {
     numeric,
     ordered,
     equatable,
     integer,
+    /// A signed integer or a float: the body negates the value.
+    signed,
+    /// A float: the body combines the value with a float literal.
+    float,
+    /// A type that holds this integer exactly: the body combines the
+    /// value with an integer literal.
+    fits: i128,
+    /// An integer wider than this many bits: the body shifts the value
+    /// by a constant amount.
+    shift: i128,
     /// Owns no resource: the body copies, discards, or leaves a
     /// temporary of the parameter's value.
     plain,
@@ -526,6 +508,10 @@ pub const Requirement = enum {
             .ordered => "ordering comparison",
             .equatable => "`==` / `!=`",
             .integer => "integer operators",
+            .signed => "negation",
+            .float => "a float literal",
+            .fits => "an integer literal",
+            .shift => "a constant shift",
             .plain => "a value that owns no resource",
         };
     }
@@ -555,6 +541,14 @@ pub const SemContext = struct {
     /// Scope 1 is the module scope.
     scopes: std.ArrayListUnmanaged(Scope) = .empty,
     types: TypeStore,
+    /// Facts of each interned type, by TypeId.
+    type_info: std.ArrayListUnmanaged(TypeInfo) = .empty,
+    /// Every declared type's `contents` is known, and so are the
+    /// ownership facts in `type_info`.
+    contents_ready: bool = false,
+    /// Checks on types spelled in declarations that wait for
+    /// `contents_ready`.
+    deferred_checks: std.ArrayListUnmanaged(resolve.DeferredCheck) = .empty,
     diagnostics: std.ArrayListUnmanaged(Diagnostic) = .empty,
     facts: Facts = .{},
 
@@ -562,16 +556,20 @@ pub const SemContext = struct {
     vec_sym_id: SymbolId = symbol_invalid,
     signal_sym_id: SymbolId = symbol_invalid,
 
-    /// Assigned by the module graph; 0 for a lone file.
+    /// Assigned by the module graph.
     module_id: u32 = 0,
+    /// The program's root module, whose `main` is the entry point.
+    is_root: bool = false,
+    /// The name other modules `use`, and of the module's emitted file.
+    name: []const u8 = "",
     imports: []const ImportEntry = &.{},
-    /// Modules reached only through imports; `local_name` is the module's
-    /// file name.
-    transitive: []const ImportEntry = &.{},
     /// `use NAME` symbol -> origin module id.
     module_refs: std.AutoHashMapUnmanaged(SymbolId, u32) = .empty,
-    /// Origin module id -> its SemContext.
-    foreign_semas: std.AutoHashMapUnmanaged(u32, *SemContext) = .empty,
+    /// Every module of the program by id, shared by their contexts: a
+    /// type from another module names its origin by id.
+    foreign_semas: *const ModuleMap = &no_modules,
+    /// The ids of the modules this one reaches through its imports.
+    reach: std.DynamicBitSetUnmanaged = .{},
 
     /// Type alias symbol -> its target type expression, resolved on
     /// first use (aliases may be used before they are declared).
@@ -588,7 +586,7 @@ pub const SemContext = struct {
     generic_uses: std.ArrayListUnmanaged(TypeId) = .empty,
     /// Integer constants: bindings never reassigned or written whose
     /// value is a constant expression. The emitted Zig computes these at
-    /// compile time, so ctx checks their arithmetic.
+    /// compile time, so sema checks their arithmetic.
     const_ints: std.AutoHashMapUnmanaged(SymbolId, i128) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
@@ -606,6 +604,7 @@ pub const SemContext = struct {
             .scope = scope_invalid,
         });
         try ctx.scopes.append(allocator, .{ .parent = null });
+        try ctx.syncTypeInfo();
         return ctx;
     }
 
@@ -617,10 +616,12 @@ pub const SemContext = struct {
         self.scopes.deinit(self.allocator);
         self.symbols.deinit(self.allocator);
         self.types.deinit(self.allocator);
+        self.type_info.deinit(self.allocator);
+        self.deferred_checks.deinit(self.allocator);
         self.diagnostics.deinit(self.allocator);
         self.facts.deinit(self.allocator);
         self.module_refs.deinit(self.allocator);
-        self.foreign_semas.deinit(self.allocator);
+        self.reach.deinit(self.allocator);
         self.alias_targets.deinit(self.allocator);
         self.alias_in_progress.deinit(self.allocator);
         self.generic_requirements.deinit(self.allocator);
@@ -632,10 +633,6 @@ pub const SemContext = struct {
 
     pub fn hasErrors(self: *const SemContext) bool {
         return diag.hasErrorsIn(self.diagnostics.items);
-    }
-
-    pub fn writeDiagnostics(self: *const SemContext, file_path: []const u8, w: anytype) !void {
-        try diag.write(self.diagnostics.items, self.source, file_path, w);
     }
 
     /// The source range of an IR node: its span from the parser, which
@@ -676,16 +673,19 @@ pub const SemContext = struct {
         try self.diagnostics.append(self.allocator, .{ .severity = severity, .pos = at.start, .end = at.end, .message = msg });
     }
 
-    pub fn pushScope(self: *SemContext, parent: ScopeId) !ScopeId {
-        return self.pushScopeKind(parent, .block);
-    }
-
     pub fn pushScopeKind(self: *SemContext, parent: ScopeId, kind: ScopeKind) !ScopeId {
         const id: ScopeId = @intCast(self.scopes.items.len);
         try self.scopes.append(self.allocator, .{
             .parent = if (parent == scope_invalid) null else parent,
             .kind = kind,
         });
+        return id;
+    }
+
+    /// Add a symbol to the table, in no scope (see `addToScope`).
+    pub fn addSymbol(self: *SemContext, sym: Symbol) std.mem.Allocator.Error!SymbolId {
+        const id: SymbolId = @intCast(self.symbols.items.len);
+        try self.symbols.append(self.allocator, sym);
         return id;
     }
 
@@ -793,7 +793,7 @@ pub const SemContext = struct {
         return self.facts.call_slots.get(key);
     }
 
-    // ---- facts: recording (ctx passes only) -----------------------------
+    // ---- facts: recording (sema passes only) ----------------------------
 
     pub fn recordName(self: *SemContext, node: Sexp, sym: SymbolId) !void {
         if (node != .src or sym == symbol_invalid) return;
@@ -821,7 +821,42 @@ pub const SemContext = struct {
     }
 
     pub fn intern(self: *SemContext, ty: Type) std.mem.Allocator.Error!TypeId {
-        return self.types.intern(self.allocator, ty);
+        const id = try self.types.intern(self.allocator, ty);
+        try self.syncTypeInfo();
+        return id;
+    }
+
+    /// Record the facts of every type interned since the last call.
+    fn syncTypeInfo(self: *SemContext) std.mem.Allocator.Error!void {
+        while (self.type_info.items.len < self.types.items.items.len) {
+            const info = try computeTypeInfo(self, @intCast(self.type_info.items.len));
+            try self.type_info.append(self.allocator, info);
+        }
+    }
+
+    pub fn typeInfo(self: *const SemContext, ty: TypeId) TypeInfo {
+        return if (ty < self.type_info.items.len) self.type_info.items[ty] else .{};
+    }
+
+    /// `typeInfo` for the ownership facts, known once declarations are
+    /// resolved.
+    fn holds(self: *const SemContext, ty: TypeId) TypeInfo {
+        std.debug.assert(self.contents_ready);
+        return self.typeInfo(ty);
+    }
+
+    /// `intern` for a type whose slices (function parameters, generic
+    /// arguments) may be temporary: they are copied into the arena only
+    /// when the type is new.
+    pub fn internCopy(self: *SemContext, ty: Type) std.mem.Allocator.Error!TypeId {
+        if (self.types.find(ty)) |id| return id;
+        var owned = ty;
+        switch (owned) {
+            .function => |*f| f.params = try self.dupeIds(f.params),
+            .parameterized_nominal => |*pn| pn.args = try self.dupeIds(pn.args),
+            else => {},
+        }
+        return self.intern(owned);
     }
 
     pub fn dupeIds(self: *SemContext, ids: []const TypeId) std.mem.Allocator.Error![]const TypeId {
@@ -833,51 +868,96 @@ pub const SemContext = struct {
 // Entry points
 // =============================================================================
 
-/// Check a single module with no imports, without the parser's spans.
-pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp) !SemContext {
-    return checkWithImports(allocator, source, null, tree, &.{}, &.{}, 0);
-}
+pub const CheckOptions = struct {
+    /// The parser that built the tree, for node spans in diagnostics.
+    parser: ?*const parser.Parser = null,
+    /// What the module's `use` declarations resolve to.
+    imports: []const ImportEntry = &.{},
+    /// Every module loaded so far, by id; the imports and the modules
+    /// they reach in turn are among them.
+    modules: *const ModuleMap = &no_modules,
+    name: []const u8 = "",
+    /// Assigned by the module graph.
+    module_id: u32 = 0,
+    /// The program's root module, whose `main` is the entry point.
+    is_root: bool = false,
+};
 
-/// Check a module whose `use` declarations resolve to `imports`.
-pub fn checkWithImports(
-    allocator: std.mem.Allocator,
-    source: []const u8,
-    /// The parser that built `tree`, for node spans in diagnostics.
-    p: ?*const parser.Parser,
-    tree: Sexp,
-    imports: []const ImportEntry,
-    /// Modules the imports reach in turn: their types can appear here
-    /// (`lib.make()` returning an `a.P`) without being named.
-    transitive: []const ImportEntry,
-    module_id: u32,
-) !SemContext {
+/// Check one module.
+pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts: CheckOptions) !SemContext {
     var ctx = try SemContext.init(allocator, source);
     errdefer ctx.deinit();
 
-    ctx.parser = p;
-    ctx.module_id = module_id;
+    ctx.parser = opts.parser;
+    ctx.module_id = opts.module_id;
+    ctx.is_root = opts.is_root;
+    ctx.name = opts.name;
     // The caller's slice is temporary; the emitter reads the imports later.
-    ctx.imports = try ctx.arena.allocator().dupe(ImportEntry, imports);
-    for (imports) |imp| try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
-    ctx.transitive = try ctx.arena.allocator().dupe(ImportEntry, transitive);
-    for (transitive) |imp| try ctx.foreign_semas.put(allocator, imp.module_id, imp.sema);
+    ctx.imports = try ctx.arena.allocator().dupe(ImportEntry, opts.imports);
+    ctx.foreign_semas = opts.modules;
+    // Each import was checked first, so its reach is known and no longer
+    // than this one.
+    ctx.reach = try .initEmpty(allocator, opts.modules.count() + 1);
+    for (opts.imports) |imp| {
+        ctx.reach.set(imp.module_id);
+        const theirs = imp.sema.reach;
+        for (0..(theirs.bit_length + @bitSizeOf(usize) - 1) / @bitSizeOf(usize)) |i| ctx.reach.masks[i] |= theirs.masks[i];
+    }
 
-    const module_scope = try ctx.pushScopeKind(scope_invalid, .module);
+    const scope = try ctx.pushScopeKind(scope_invalid, .module);
+    std.debug.assert(scope == module_scope);
     try resolve.registerBuiltins(&ctx, module_scope);
     try resolve.resolveSymbols(&ctx, tree, module_scope);
     try resolve.resolveDeclarations(&ctx, tree, module_scope);
-    propagateDropGlue(&ctx);
+    try computeContents(&ctx);
     try checkInfiniteTypes(&ctx);
+    try resolve.checkDeclarations(&ctx);
     try typecheck.checkModule(&ctx, tree, module_scope);
+    try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);
     try typecheck.checkGenericInstantiations(&ctx);
     return ctx;
 }
 
+/// A local binding must be read: a name that is only ever assigned is
+/// most often a typo for another. Any use other than being assigned is a
+/// read, and so is a closure capturing it. A value with drop glue is
+/// read by its own release (a guard held to the end of its scope), and
+/// `_` names nothing. Parameters and module constants are exempt.
+fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
+    var read: std.DynamicBitSetUnmanaged = try .initEmpty(ctx.allocator, ctx.symbols.items.len);
+    defer read.deinit(ctx.allocator);
+    var names = ctx.facts.names.iterator();
+    while (names.next()) |e| {
+        const sym = ctx.symbols.items[e.value_ptr.*];
+        if (sym.decl_pos != e.key_ptr.* and !ctx.facts.writes.contains(e.key_ptr.*)) read.set(e.value_ptr.*);
+    }
+    for (ctx.symbols.items) |sym| {
+        var origin = sym.origin;
+        if (sym.kind != .capture) continue;
+        while (origin != symbol_invalid) : (origin = ctx.symbols.items[origin].origin) read.set(origin);
+    }
+    for (ctx.symbols.items, 0..) |sym, id| {
+        if (sym.kind != .local or sym.scope == module_scope or read.isSet(id)) continue;
+        if (std.mem.eql(u8, sym.name, "_") or sym.decl_pos == builtin_decl_pos) continue;
+        switch (ctx.types.get(sym.ty)) {
+            .invalid, .unknown => continue,
+            else => {},
+        }
+        if (typeHasDropGlue(ctx, sym.ty) or maybeDropGlue(ctx, sym.ty)) continue;
+        if (sym.flags.pattern_bound) {
+            try ctx.err(sym.decl_pos, "`{s}` is bound but never read; name it `_` to ignore the value", .{sym.name});
+        } else {
+            try ctx.err(sym.decl_pos, "`{s}` is assigned but never read; use it, or discard the value with `_ = ...`", .{sym.name});
+        }
+    }
+}
+
 /// Add the instances a program reaches through generic bodies: when
 /// `Box(*B)` is spelled and `Box(T)`'s methods use `Opt(T)`, `Opt(*B)` is
 /// instantiated too, at the same site. The requirement checks then see
-/// every instantiation.
+/// every instantiation, and a built-in generic reached this way (`Vec(T)`
+/// in `Stack(T)`) has its element rules checked for the argument.
 fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
     if (ctx.generic_uses.items.len == 0) return;
     const Item = struct { inst: TypeId, root: TypeId };
@@ -896,16 +976,24 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
         for (ctx.generic_uses.items) |use| {
             if (!usesParams(ctx, use, params)) continue;
             const concrete = try substituteType(ctx, use, subst);
-            if (containsTypeVar(ctx, concrete)) continue;
+            const info = ctx.typeInfo(concrete);
+            if (info.has_type_var) continue;
             // A generic whose body uses ever-deeper instances of itself
             // (`Box(T)` using `Box(Box(T))`) would expand forever.
-            if (typeDepth(ctx, concrete, 0) > max_instance_depth) {
+            if (info.depth > max_instance_depth) {
                 try ctx.err(site, "`{s}` leads to ever deeper instances of generic types (through `{s}`); a generic type's body cannot nest itself in its own type arguments", .{ try formatType(ctx, item.root), try formatType(ctx, use) });
                 return;
             }
             const gop = try ctx.instantiation_sites.getOrPut(ctx.allocator, concrete);
             if (gop.found_existing) continue;
             gop.value_ptr.* = site;
+            const inst = ctx.types.get(concrete).parameterized_nominal;
+            if (ctx.symbols.items[inst.sym].decl_pos == builtin_decl_pos) {
+                if (try resolve.builtinElementError(ctx, inst.sym, inst.args)) |msg| {
+                    try ctx.err(site, "`{s}` instantiates `{s}`: {s}", .{ try formatType(ctx, item.root), try formatType(ctx, concrete), msg });
+                }
+                continue;
+            }
             try work.append(ctx.allocator, .{ .inst = concrete, .root = item.root });
         }
     }
@@ -913,128 +1001,464 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
 
 const max_instance_depth = 24;
 
-/// How deeply generic instances nest in `ty` (capped).
-fn typeDepth(ctx: *const SemContext, ty: TypeId, depth: u8) u8 {
-    if (depth > max_instance_depth) return depth;
-    return switch (ctx.types.get(ty)) {
-        .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range => |i| typeDepth(ctx, i, depth + 1),
-        .array => |a| typeDepth(ctx, a.elem, depth + 1),
-        .slice => |sl| typeDepth(ctx, sl.elem, depth + 1),
-        .parameterized_nominal => |pn| blk: {
-            var most = depth + 1;
-            for (pn.args) |a| most = @max(most, typeDepth(ctx, a, depth + 1));
-            break :blk most;
-        },
-        else => depth,
-    };
-}
-
 /// Whether `ty` mentions any of `params`.
 fn usesParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) bool {
-    return switch (ctx.types.get(ty)) {
-        .type_var => |sym| for (params) |p| {
-            if (p == sym) break true;
-        } else false,
-        .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range => |i| usesParams(ctx, i, params),
-        .array => |a| usesParams(ctx, a.elem, params),
-        .slice => |sl| usesParams(ctx, sl.elem, params),
-        .parameterized_nominal => |pn| for (pn.args) |a| {
-            if (usesParams(ctx, a, params)) break true;
-        } else false,
-        else => false,
-    };
-}
-
-/// `has_drop_glue` depends on field types, which may name structs
-/// declared later; iterate until no flag changes.
-fn propagateDropGlue(ctx: *SemContext) void {
-    var changed = true;
-    while (changed) {
-        changed = false;
-        for (ctx.symbols.items) |*sym| {
-            if (sym.kind != .nominal_type or sym.flags.has_drop_glue) continue;
-            if (fieldsHaveDropGlue(ctx, sym.fields orelse continue)) {
-                sym.flags.has_drop_glue = true;
-                changed = true;
-            }
-        }
-    }
-}
-
-/// Whether a nominal type with these members has drop glue, given the
-/// `has_drop_glue` flags known so far: it declares `drop`, or a field or
-/// variant payload has drop glue.
-pub fn fieldsHaveDropGlue(ctx: *const SemContext, fields: []const Field) bool {
-    for (fields) |f| {
-        if (f.is_drop_method) return true;
-        if (f.is_method) continue;
-        if (if (f.is_variant) payloadHasDropGlue(ctx, f) else typeHasDropGlue(ctx, f.ty)) return true;
-    }
+    if (!ctx.typeInfo(ty).has_type_var) return false;
+    if (ctx.types.get(ty) == .type_var) return std.mem.indexOfScalar(SymbolId, params, ctx.types.get(ty).type_var) != null;
+    var it = typeChildren(ctx, ty);
+    while (it.next()) |c| if (usesParams(ctx, c, params)) return true;
     return false;
 }
 
-/// A struct or enum may not contain itself by value (directly or through
-/// other types held by value): it would have no finite size.
-fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
+// =============================================================================
+// What values hold
+//
+// The ownership rules ask of a type whether its values own a resource
+// (drop glue), hold a `Cell` inline, or are plain data. The answers come
+// from the declared types' fields, so they are computed once every
+// declaration is resolved: first for each nominal and generic type
+// (`Symbol.contents`), then for each interned type (`TypeInfo`), from
+// the answers for the types it is built from.
+// =============================================================================
+
+/// What the values of a nominal or generic type hold, from its data
+/// fields and variant payloads (`computeContents`).
+pub const Contents = struct {
+    state: enum { todo, busy, done } = .todo,
+    /// Needs its destructor run whatever its type arguments: a user
+    /// `drop`, or a field that owns a resource.
+    glue: bool = false,
+    /// Holds a `Cell` inline, directly or through any argument of a
+    /// generic instance it holds.
+    cell: bool = false,
+    /// Owns nothing and holds no borrow. A type parameter held by value
+    /// counts as plain here; each instance checks its arguments.
+    plain: bool = false,
+    /// A generic type: which of its parameters it holds by value.
+    held: []const bool = &.{},
+    /// Holds a borrow, or a write borrow (see `Borrows`).
+    borrows: Borrows = .{},
+};
+
+/// Whether values hold a borrow (`?T`, `!T`, a slice) and whether they
+/// hold a write borrow (`!T`), directly or through an optional, array,
+/// field, variant payload, shared or weak handle, or any argument of a
+/// generic instance. What a Cell or Signal holds holds no borrow.
+pub const Borrows = packed struct(u2) {
+    any: bool = false,
+    write: bool = false,
+
+    fn with(a: Borrows, b: Borrows) Borrows {
+        return .{ .any = a.any or b.any, .write = a.write or b.write };
+    }
+};
+
+/// Facts about an interned type, recorded when it is interned
+/// (`SemContext.intern`). The structural facts are always known; the
+/// rest once declarations are resolved (`SemContext.contents_ready`).
+pub const TypeInfo = packed struct(u16) {
+    /// Mentions a generic parameter anywhere.
+    has_type_var: bool = false,
+    /// Holds a generic parameter by value, so whether it owns a resource
+    /// depends on the instantiation.
+    holds_type_var: bool = false,
+    /// Needs its destructor run (see `typeHasDropGlue`).
+    glue: bool = false,
+    /// Holds a `Cell` inline (see `holdsCellByValue`).
+    cell: bool = false,
+    /// Holds no resource, borrow, or generic parameter. A struct with a
+    /// user `drop` can be plain and still have glue (see `isPlainData`).
+    plain: bool = false,
+    /// Holds a borrow, or a write borrow (see `Borrows`).
+    borrows: Borrows = .{},
+    _: u1 = 0,
+    /// How deeply wrappers and generic instances nest in it (saturating).
+    depth: u8 = 0,
+};
+
+/// The fields a member holds by value: a data field itself, or a
+/// variant's payload fields. Methods hold nothing.
+pub fn dataFields(f: *const Field) []const Field {
+    if (f.is_method) return &.{};
+    if (f.is_variant) return f.payload orelse &.{};
+    return f[0..1];
+}
+
+fn isTypeDecl(sym: Symbol) bool {
+    return sym.kind == .nominal_type or sym.kind == .generic_type;
+}
+
+/// Compute what the values of every declared type hold, then the facts
+/// of every type interned so far. Types interned later get theirs as
+/// they are interned.
+fn computeContents(ctx: *SemContext) std.mem.Allocator.Error!void {
     for (ctx.symbols.items, 0..) |sym, i| {
-        if (sym.kind != .nominal_type and sym.kind != .generic_type) continue;
-        if (sym.decl_pos == builtin_decl_pos) continue;
-        const root: SymbolId = @intCast(i);
-        for (sym.fields orelse &.{}) |f| {
-            if (f.is_method) continue;
-            const hit = if (f.is_variant) blk: {
-                for (f.payload orelse &.{}) |pf| if (containsByValue(ctx, pf.ty, root, null, 0)) break :blk true;
-                break :blk false;
-            } else containsByValue(ctx, f.ty, root, null, 0);
-            if (hit) {
-                const shown = if (sym.kind == .generic_type) try std.fmt.allocPrint(ctx.arena.allocator(), "{s}(...)", .{sym.name}) else sym.name;
-                try ctx.err(f.decl_pos, "`{s}` contains itself by value through `{s}`, so it would have no finite size; hold it through a shared handle (`*{s}`)", .{ shown, f.name, shown });
-                break;
+        if (isTypeDecl(sym)) _ = try symbolContents(ctx, @intCast(i));
+    }
+    try computeCells(ctx);
+    try computeBorrows(ctx);
+    ctx.contents_ready = true;
+    ctx.type_info.clearRetainingCapacity();
+    try ctx.syncTypeInfo();
+}
+
+fn symbolContents(ctx: *SemContext, id: SymbolId) std.mem.Allocator.Error!Contents {
+    const current = ctx.symbols.items[id].contents;
+    switch (current.state) {
+        .done => return current,
+        // Reached again while computing its own contents: the type holds
+        // itself by value, which `checkInfiniteTypes` reports.
+        .busy => return .{},
+        .todo => {},
+    }
+    ctx.symbols.items[id].contents.state = .busy;
+    const params = ctx.symbols.items[id].type_params orelse &.{};
+    const held = try ctx.arena.allocator().alloc(bool, params.len);
+    @memset(held, false);
+    var c: Contents = .{ .state = .done, .plain = true, .held = held };
+    for (ctx.symbols.items[id].fields orelse &.{}) |*f| {
+        if (f.is_drop_method) c.glue = true;
+        for (dataFields(f)) |d| {
+            const h = try holdsIn(ctx, d.ty, params, held);
+            c.glue = c.glue or h.glue;
+            c.plain = c.plain and h.plain;
+        }
+    }
+    // The built-in generics are runtime types: a Vec owns its buffer, and
+    // none of them is copied like plain data.
+    if (id == ctx.vec_sym_id) c.glue = true;
+    if (id == ctx.vec_sym_id or id == ctx.cell_sym_id or id == ctx.signal_sym_id) c.plain = false;
+    ctx.symbols.items[id].contents = c;
+    return c;
+}
+
+const Holds = struct { glue: bool = false, plain: bool = false, type_var: bool = false };
+
+/// What a value of `ty` holds. `ty` is a field type of a generic type
+/// whose parameters are `params` (empty elsewhere): each parameter it
+/// holds by value is marked in `held` and counts as plain.
+fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool) std.mem.Allocator.Error!Holds {
+    if (params.len == 0 and ctx.contents_ready and ty < ctx.type_info.items.len) {
+        const info = ctx.type_info.items[ty];
+        return .{ .glue = info.glue, .plain = info.plain, .type_var = info.holds_type_var };
+    }
+    return switch (ctx.types.get(ty)) {
+        .bool, .int, .float, .string, .any_error => .{ .plain = true },
+        .optional => |inner| holdsIn(ctx, inner, params, held),
+        .array => |a| holdsIn(ctx, a.elem, params, held),
+        .fallible => |inner| .{ .type_var = (try holdsIn(ctx, inner, params, held)).type_var },
+        .shared, .weak => .{ .glue = true },
+        .nominal, .imported_nominal => blk: {
+            const decl = nominalDecl(ctx, ty) orelse break :blk .{};
+            const c = if (decl.module_id == null) try symbolContents(ctx, decl.sym) else decl.symbol().contents;
+            break :blk .{ .glue = c.glue, .plain = c.plain };
+        },
+        .type_var => |sym| blk: {
+            const i = std.mem.indexOfScalar(SymbolId, params, sym) orelse break :blk .{ .type_var = true };
+            held[i] = true;
+            break :blk .{ .plain = true, .type_var = true };
+        },
+        .parameterized_nominal => |pn| blk: {
+            const c = try symbolContents(ctx, pn.sym);
+            var h: Holds = .{ .glue = c.glue, .plain = c.plain };
+            for (pn.args, 0..) |a, i| {
+                if (i >= c.held.len or !c.held[i]) continue;
+                const arg = try holdsIn(ctx, a, params, held);
+                h.glue = h.glue or arg.glue;
+                h.plain = h.plain and arg.plain;
+                h.type_var = h.type_var or arg.type_var;
             }
+            break :blk h;
+        },
+        else => .{},
+    };
+}
+
+/// A declared type holds a `Cell` inline when a field does: itself, or
+/// through a type it holds, or any argument of a generic instance it
+/// holds (as the emitter reads type expressions). Found by propagating
+/// backwards from the types that hold one directly, so each field type
+/// is walked once.
+fn computeCells(ctx: *SemContext) std.mem.Allocator.Error!void {
+    var edges: std.ArrayListUnmanaged(CellEdge) = .empty;
+    defer edges.deinit(ctx.allocator);
+    var work: std.ArrayListUnmanaged(SymbolId) = .empty;
+    defer work.deinit(ctx.allocator);
+    for (ctx.symbols.items, 0..) |sym, i| {
+        if (!isTypeDecl(sym)) continue;
+        const id: SymbolId = @intCast(i);
+        for (sym.fields orelse &.{}) |*f| {
+            for (dataFields(f)) |d| {
+                if (!try cellEdges(ctx, d.ty, id, &edges) or ctx.symbols.items[id].contents.cell) continue;
+                ctx.symbols.items[id].contents.cell = true;
+                try work.append(ctx.allocator, id);
+            }
+        }
+    }
+    std.mem.sort(CellEdge, edges.items, {}, CellEdge.lessThan);
+    while (work.pop()) |from| {
+        var i = std.sort.partitionPoint(CellEdge, edges.items, from, CellEdge.before);
+        while (i < edges.items.len and edges.items[i].from == from) : (i += 1) {
+            const to = edges.items[i].to;
+            if (ctx.symbols.items[to].contents.cell) continue;
+            ctx.symbols.items[to].contents.cell = true;
+            try work.append(ctx.allocator, to);
         }
     }
 }
 
-/// Whether a value of type `ty` holds a `root` inline (not behind a
-/// handle, a borrow, or a Vec's heap buffer).
-fn containsByValue(ctx: *const SemContext, ty: TypeId, root: SymbolId, subst: ?*const GlueSubst, depth: u8) bool {
-    if (depth > 64) return false;
+/// `to` holds a `Cell` inline if `from` does.
+const CellEdge = struct {
+    from: SymbolId,
+    to: SymbolId,
+
+    fn lessThan(_: void, a: CellEdge, b: CellEdge) bool {
+        return a.from < b.from;
+    }
+
+    fn before(from: SymbolId, e: CellEdge) bool {
+        return e.from < from;
+    }
+};
+
+/// Whether a field of type `ty` of `owner` holds a `Cell` inline
+/// whatever the declared types it names hold; adds an edge from each of
+/// those to `owner`.
+fn cellEdges(ctx: *SemContext, ty: TypeId, owner: SymbolId, edges: *std.ArrayListUnmanaged(CellEdge)) std.mem.Allocator.Error!bool {
     return switch (ctx.types.get(ty)) {
-        .optional, .fallible => |inner| containsByValue(ctx, inner, root, subst, depth + 1),
-        .array => |a| containsByValue(ctx, a.elem, root, subst, depth + 1),
-        .type_var => |sym| blk: {
-            const sb = subst orelse break :blk false;
-            for (sb.params, 0..) |p, i| {
-                if (p == sym and i < sb.args.len) break :blk containsByValue(ctx, sb.args[i], root, sb.outer, depth + 1);
-            }
+        .optional, .fallible => |inner| cellEdges(ctx, inner, owner, edges),
+        .array => |a| cellEdges(ctx, a.elem, owner, edges),
+        .nominal => |s| blk: {
+            try edges.append(ctx.allocator, .{ .from = s, .to = owner });
             break :blk false;
         },
-        .nominal => |sym| sym == root or nominalContains(ctx, sym, root, null, depth),
+        .imported_nominal => (nominalDecl(ctx, ty) orelse return false).symbol().contents.cell,
         .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.cell_sym_id) break :blk true;
             if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
-            if (pn.sym == root) break :blk true;
-            const base = ctx.symbols.items[pn.sym];
-            const inner: GlueSubst = .{ .params = base.type_params orelse &.{}, .args = pn.args, .outer = subst };
-            if (pn.sym == ctx.cell_sym_id) break :blk pn.args.len == 1 and containsByValue(ctx, pn.args[0], root, subst, depth + 1);
-            break :blk nominalContains(ctx, pn.sym, root, &inner, depth);
+            try edges.append(ctx.allocator, .{ .from = pn.sym, .to = owner });
+            for (pn.args) |a| if (try cellEdges(ctx, a, owner, edges)) break :blk true;
+            break :blk false;
         },
         else => false,
     };
 }
 
-fn nominalContains(ctx: *const SemContext, sym_id: SymbolId, root: SymbolId, subst: ?*const GlueSubst, depth: u8) bool {
-    for (ctx.symbols.items[sym_id].fields orelse &.{}) |f| {
-        if (f.is_method) continue;
-        if (f.is_variant) {
-            for (f.payload orelse &.{}) |pf| if (containsByValue(ctx, pf.ty, root, subst, depth + 1)) return true;
-        } else if (containsByValue(ctx, f.ty, root, subst, depth + 1)) return true;
+/// What each declared type's values borrow. A type borrows what the
+/// declared types it holds borrow, even through a handle, so the answers
+/// are propagated backwards from the types that hold a borrow directly,
+/// like `computeCells`.
+fn computeBorrows(ctx: *SemContext) std.mem.Allocator.Error!void {
+    var edges: std.ArrayListUnmanaged(CellEdge) = .empty;
+    defer edges.deinit(ctx.allocator);
+    var work: std.ArrayListUnmanaged(SymbolId) = .empty;
+    defer work.deinit(ctx.allocator);
+    for (ctx.symbols.items, 0..) |sym, i| {
+        if (!isTypeDecl(sym)) continue;
+        const id: SymbolId = @intCast(i);
+        var b: Borrows = .{};
+        for (sym.fields orelse &.{}) |*f| {
+            for (dataFields(f)) |d| b = b.with(try borrowEdges(ctx, d.ty, id, &edges));
+        }
+        ctx.symbols.items[id].contents.borrows = b;
+        if (b.any) try work.append(ctx.allocator, id);
     }
-    return false;
+    std.mem.sort(CellEdge, edges.items, {}, CellEdge.lessThan);
+    while (work.pop()) |from| {
+        const b = ctx.symbols.items[from].contents.borrows;
+        var i = std.sort.partitionPoint(CellEdge, edges.items, from, CellEdge.before);
+        while (i < edges.items.len and edges.items[i].from == from) : (i += 1) {
+            const to = &ctx.symbols.items[edges.items[i].to].contents.borrows;
+            if (to.with(b) == to.*) continue;
+            to.* = to.with(b);
+            try work.append(ctx.allocator, edges.items[i].to);
+        }
+    }
 }
 
-fn payloadHasDropGlue(ctx: *const SemContext, f: Field) bool {
-    for (f.payload orelse &.{}) |pf| if (typeHasDropGlue(ctx, pf.ty)) return true;
-    return false;
+/// What a field of type `ty` of `owner` borrows whatever the declared
+/// types it names borrow; adds an edge from each of those to `owner`.
+fn borrowEdges(ctx: *SemContext, ty: TypeId, owner: SymbolId, edges: *std.ArrayListUnmanaged(CellEdge)) std.mem.Allocator.Error!Borrows {
+    return switch (ctx.types.get(ty)) {
+        .borrow_read, .slice => .{ .any = true },
+        .borrow_write => .{ .any = true, .write = true },
+        .optional, .fallible, .shared, .weak => |inner| borrowEdges(ctx, inner, owner, edges),
+        .array => |a| borrowEdges(ctx, a.elem, owner, edges),
+        .nominal => |s| blk: {
+            try edges.append(ctx.allocator, .{ .from = s, .to = owner });
+            break :blk .{};
+        },
+        .imported_nominal => (nominalDecl(ctx, ty) orelse return .{}).symbol().contents.borrows,
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk .{};
+            try edges.append(ctx.allocator, .{ .from = pn.sym, .to = owner });
+            var b: Borrows = .{};
+            for (pn.args) |a| b = b.with(try borrowEdges(ctx, a, owner, edges));
+            break :blk b;
+        },
+        else => .{},
+    };
+}
+
+/// The facts of a type, from those of the types it is built from, which
+/// were interned before it.
+fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInfo {
+    const ty = ctx.types.get(id);
+    var info: TypeInfo = .{ .has_type_var = ty == .type_var };
+    var deepest: ?u8 = null;
+    var it: TypeChildren = .{ .ty = ty };
+    while (it.next()) |c| {
+        const ci = ctx.type_info.items[c];
+        info.has_type_var = info.has_type_var or ci.has_type_var;
+        deepest = @max(deepest orelse 0, ci.depth);
+    }
+    info.depth = switch (ty) {
+        .function => 0,
+        .parameterized_nominal => (deepest orelse 0) +| 1,
+        else => if (deepest) |d| d +| 1 else 0,
+    };
+    if (!ctx.contents_ready) return info;
+    var no_params: [0]bool = .{};
+    const h = try holdsIn(ctx, id, &.{}, &no_params);
+    info.glue = h.glue;
+    info.plain = h.plain;
+    info.holds_type_var = h.type_var;
+    info.cell = switch (ty) {
+        .optional, .fallible => |inner| ctx.type_info.items[inner].cell,
+        .array => |a| ctx.type_info.items[a.elem].cell,
+        .nominal, .imported_nominal => if (nominalDecl(ctx, id)) |decl| decl.symbol().contents.cell else false,
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.cell_sym_id) break :blk true;
+            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
+            if (ctx.symbols.items[pn.sym].contents.cell) break :blk true;
+            for (pn.args) |a| if (ctx.type_info.items[a].cell) break :blk true;
+            break :blk false;
+        },
+        else => false,
+    };
+    info.borrows = switch (ty) {
+        .borrow_read, .slice => .{ .any = true },
+        .borrow_write => .{ .any = true, .write = true },
+        .optional, .fallible, .shared, .weak => |inner| ctx.type_info.items[inner].borrows,
+        .array => |a| ctx.type_info.items[a.elem].borrows,
+        .nominal, .imported_nominal => if (nominalDecl(ctx, id)) |decl| decl.symbol().contents.borrows else .{},
+        .parameterized_nominal => |pn| blk: {
+            if (pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk .{};
+            var b = ctx.symbols.items[pn.sym].contents.borrows;
+            for (pn.args) |a| b = b.with(ctx.type_info.items[a].borrows);
+            break :blk b;
+        },
+        else => .{},
+    };
+    return info;
+}
+
+/// A struct or enum may not hold itself by value, directly or through
+/// the types it holds by value: it would have no finite size. One search
+/// of the by-value graph over the declared types finds every cycle
+/// (Tarjan's strongly connected components).
+fn checkInfiniteTypes(ctx: *SemContext) std.mem.Allocator.Error!void {
+    const n = ctx.symbols.items.len;
+    const a = ctx.allocator;
+    var s: Components = .{
+        .ctx = ctx,
+        .index = try a.alloc(u32, n),
+        .low = try a.alloc(u32, n),
+        .on_stack = try a.alloc(bool, n),
+        .cyclic = try a.alloc(bool, n),
+    };
+    defer s.deinit();
+    @memset(s.index, 0);
+    @memset(s.on_stack, false);
+    @memset(s.cyclic, false);
+    for (ctx.symbols.items, 0..) |sym, i| {
+        if (isTypeDecl(sym) and s.index[i] == 0) try s.visit(@intCast(i));
+    }
+    var targets: std.ArrayListUnmanaged(SymbolId) = .empty;
+    defer targets.deinit(a);
+    for (ctx.symbols.items, 0..) |sym, i| {
+        if (!s.cyclic[i] or sym.decl_pos == builtin_decl_pos) continue;
+        const f = fields: for (sym.fields orelse &.{}) |*f| {
+            targets.clearRetainingCapacity();
+            for (dataFields(f)) |d| try byValueTargets(ctx, d.ty, &targets);
+            // `low` names the component after the search.
+            for (targets.items) |t| if (s.low[t] == s.low[i]) break :fields f;
+        } else continue;
+        const shown = if (sym.kind == .generic_type) try std.fmt.allocPrint(ctx.arena.allocator(), "{s}(...)", .{sym.name}) else sym.name;
+        try ctx.err(f.decl_pos, "`{s}` contains itself by value through `{s}`, so it would have no finite size; hold it through a shared handle (`*{s}`)", .{ shown, f.name, shown });
+    }
+}
+
+const Components = struct {
+    ctx: *SemContext,
+    next: u32 = 1,
+    /// Visit order (0: not visited yet).
+    index: []u32,
+    /// The lowest index reachable; once a component is complete, the
+    /// index of its root, shared by all its members.
+    low: []u32,
+    on_stack: []bool,
+    /// In a component with a cycle.
+    cyclic: []bool,
+    stack: std.ArrayListUnmanaged(SymbolId) = .empty,
+
+    fn deinit(self: *Components) void {
+        const a = self.ctx.allocator;
+        a.free(self.index);
+        a.free(self.low);
+        a.free(self.on_stack);
+        a.free(self.cyclic);
+        self.stack.deinit(a);
+    }
+
+    fn visit(self: *Components, v: SymbolId) std.mem.Allocator.Error!void {
+        const a = self.ctx.allocator;
+        self.index[v] = self.next;
+        self.low[v] = self.next;
+        self.next += 1;
+        try self.stack.append(a, v);
+        self.on_stack[v] = true;
+        var targets: std.ArrayListUnmanaged(SymbolId) = .empty;
+        defer targets.deinit(a);
+        for (self.ctx.symbols.items[v].fields orelse &.{}) |*f| {
+            for (dataFields(f)) |d| try byValueTargets(self.ctx, d.ty, &targets);
+        }
+        for (targets.items) |w| {
+            if (w == v) self.cyclic[v] = true;
+            if (self.index[w] == 0) {
+                try self.visit(w);
+                self.low[v] = @min(self.low[v], self.low[w]);
+            } else if (self.on_stack[w]) self.low[v] = @min(self.low[v], self.index[w]);
+        }
+        if (self.low[v] != self.index[v]) return;
+        const start = std.mem.lastIndexOfScalar(SymbolId, self.stack.items, v).?;
+        const members = self.stack.items[start..];
+        for (members) |m| {
+            self.on_stack[m] = false;
+            self.low[m] = self.index[v];
+            if (members.len > 1) self.cyclic[m] = true;
+        }
+        self.stack.shrinkRetainingCapacity(start);
+    }
+};
+
+/// The declared types a value of `ty` holds inline (not behind a handle,
+/// a borrow, or a Vec's heap buffer), appended to `out`.
+fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnmanaged(SymbolId)) std.mem.Allocator.Error!void {
+    switch (ctx.types.get(ty)) {
+        .optional, .fallible => |inner| try byValueTargets(ctx, inner, out),
+        .array => |a| try byValueTargets(ctx, a.elem, out),
+        .nominal => |s| try out.append(ctx.allocator, s),
+        .parameterized_nominal => |pn| {
+            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.signal_sym_id) return;
+            try out.append(ctx.allocator, pn.sym);
+            const held = ctx.symbols.items[pn.sym].contents.held;
+            for (pn.args, 0..) |arg, i| {
+                if (i < held.len and held[i]) try byValueTargets(ctx, arg, out);
+            }
+        },
+        else => {},
+    }
 }
 
 // =============================================================================
@@ -1043,66 +1467,40 @@ fn payloadHasDropGlue(ctx: *const SemContext, f: Field) bool {
 
 pub const builtin_decl_pos: u32 = std.math.maxInt(u32);
 
-/// Does a value of this type need its destructor run: a `*T` / `~T`
-/// handle, a Vec, an owned closure, a Cell holding such a value, or a
-/// struct flagged `has_drop_glue`. Types with drop glue are non-Copy.
-pub fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
-    return hasDropGlueUnder(ctx, ty_id, null, 0);
-}
+/// The types a type is built from, in order: a wrapper's inner type, an
+/// array or slice's element, a function's parameters then its return
+/// type, a generic instance's arguments.
+pub const TypeChildren = struct {
+    ty: Type,
+    i: usize = 0,
 
-/// Type arguments in effect while looking inside a generic instance.
-const GlueSubst = struct {
-    params: []const SymbolId,
-    args: []const TypeId,
-    outer: ?*const GlueSubst,
+    pub fn next(self: *TypeChildren) ?TypeId {
+        const i = self.i;
+        self.i += 1;
+        return switch (self.ty) {
+            .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner| if (i == 0) inner else null,
+            .slice => |s| if (i == 0) s.elem else null,
+            .array => |a| if (i == 0) a.elem else null,
+            .function => |f| if (i < f.params.len) f.params[i] else if (i == f.params.len) f.returns else null,
+            .parameterized_nominal => |pn| if (i < pn.args.len) pn.args[i] else null,
+            else => null,
+        };
+    }
 };
 
-/// `typeHasDropGlue` inside generic instances: a type parameter has glue
-/// when its argument does, and an instance of a user generic has glue
-/// when any field or variant payload does under its arguments.
-fn hasDropGlueUnder(ctx: *const SemContext, ty_id: TypeId, subst: ?*const GlueSubst, depth: u8) bool {
-    if (ty_id == ctx.types.invalid_id or ty_id == ctx.types.unknown_id) return false;
-    // Past any real nesting depth, assume glue: treating a Copy type as
-    // owning only costs a rejected copy, the reverse would leak.
-    if (depth > 64) return true;
-    return switch (ctx.types.get(ty_id)) {
-        .shared, .weak => true,
-        .optional => |inner| hasDropGlueUnder(ctx, inner, subst, depth + 1),
-        .type_var => |sym| blk: {
-            const sb = subst orelse break :blk false;
-            for (sb.params, 0..) |p, i| {
-                if (p == sym and i < sb.args.len) break :blk hasDropGlueUnder(ctx, sb.args[i], sb.outer, depth + 1);
-            }
-            break :blk false;
-        },
-        .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.vec_sym_id) break :blk true;
-            if (pn.sym == ctx.cell_sym_id) break :blk pn.args.len == 1 and hasDropGlueUnder(ctx, pn.args[0], subst, depth + 1);
-            const base = ctx.symbols.items[pn.sym];
-            if (base.flags.has_drop_glue) break :blk true;
-            const inner: GlueSubst = .{ .params = base.type_params orelse &.{}, .args = pn.args, .outer = subst };
-            const fields = base.fields orelse break :blk false;
-            for (fields) |f| {
-                if (f.is_method) continue;
-                if (f.is_variant) {
-                    for (f.payload orelse &.{}) |pf| if (hasDropGlueUnder(ctx, pf.ty, &inner, depth + 1)) break :blk true;
-                    continue;
-                }
-                if (hasDropGlueUnder(ctx, f.ty, &inner, depth + 1)) break :blk true;
-            }
-            break :blk false;
-        },
-        .nominal => |sym| ctx.symbols.items[sym].flags.has_drop_glue,
-        .imported_nominal => |in| blk: {
-            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk false;
-            if (in.sym_id >= foreign.symbols.items.len) break :blk false;
-            break :blk foreign.symbols.items[in.sym_id].flags.has_drop_glue;
-        },
-        else => false,
-    };
+pub fn typeChildren(ctx: *const SemContext, ty: TypeId) TypeChildren {
+    return .{ .ty = ctx.types.get(ty) };
 }
 
-/// The signature of an owned closure handle `*fun(...) R` / `*sub(...)`
+/// Does a value of this type need its destructor run: a `*T` / `~T`
+/// handle, a Vec, an owned closure, or a nominal or generic instance
+/// that declares `drop` or holds such a value. Types with drop glue are
+/// non-Copy.
+pub fn typeHasDropGlue(ctx: *const SemContext, ty_id: TypeId) bool {
+    return ctx.holds(ty_id).glue;
+}
+
+/// The signature of an owned closure handle `*fun(...) -> R` / `*sub(...)`
 /// (possibly borrowed), or null.
 pub fn ownedClosureFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
     return switch (ctx.types.get(unwrapBorrows(ctx, ty))) {
@@ -1129,8 +1527,7 @@ pub fn isClosureValue(ctx: *const SemContext, ty: TypeId) bool {
 /// A value of an error set, or any error: what a fallible function
 /// fails with.
 pub fn isErrorValue(ctx: *const SemContext, ty: TypeId) bool {
-    if (ctx.types.get(ty) == .any_error) return true;
-    return isErrorSet(ctx, ty);
+    return ctx.types.get(ty) == .any_error or isErrorSet(ctx, ty);
 }
 
 /// A type declared with `error`.
@@ -1145,8 +1542,8 @@ pub fn isErrorSet(ctx: *const SemContext, ty: TypeId) bool {
 /// in a module it imports) has a member named `name`.
 pub fn errorNameExists(ctx: *const SemContext, name: []const u8) bool {
     if (errorNameIn(ctx, name)) return true;
-    var it = ctx.foreign_semas.valueIterator();
-    while (it.next()) |f| if (errorNameIn(f.*, name)) return true;
+    var it = ctx.reach.iterator(.{});
+    while (it.next()) |id| if (errorNameIn(ctx.foreign_semas.get(@intCast(id)).?, name)) return true;
     return false;
 }
 
@@ -1220,15 +1617,6 @@ pub fn unwrapReadAccess(ctx: *const SemContext, ty_id: TypeId) TypeId {
     }
 }
 
-/// The nominal symbol behind a receiver type, after peeling borrows.
-pub fn nominalSymOfReceiver(ctx: *const SemContext, ty_id: TypeId) ?SymbolId {
-    return switch (ctx.types.get(unwrapBorrows(ctx, ty_id))) {
-        .nominal => |s| s,
-        .parameterized_nominal => |pn| pn.sym,
-        else => null,
-    };
-}
-
 /// Where a nominal type is declared: the module's context and the
 /// symbol there. A type imported from another module resolves to that
 /// module's declaration.
@@ -1277,49 +1665,6 @@ pub const TypeSubst = struct {
     }
 };
 
-/// Would `substituteType(ty_id, subst)` equal `target`? Does not
-/// intern, so it works on a const context.
-pub fn typeEqualsAfterSubst(ctx: *const SemContext, ty_id: TypeId, subst: TypeSubst, target: TypeId) bool {
-    if (subst.isEmpty() and ty_id == target) return true;
-    const ty = ctx.types.get(ty_id);
-    if (ty == .type_var) {
-        const resolved = subst.lookup(ty.type_var) orelse return ty_id == target;
-        return typeEqualsAfterSubst(ctx, resolved, TypeSubst.empty, target);
-    }
-    const tgt = ctx.types.get(target);
-    return switch (ty) {
-        .borrow_read => |i| tgt == .borrow_read and typeEqualsAfterSubst(ctx, i, subst, tgt.borrow_read),
-        .borrow_write => |i| tgt == .borrow_write and typeEqualsAfterSubst(ctx, i, subst, tgt.borrow_write),
-        .shared => |i| tgt == .shared and typeEqualsAfterSubst(ctx, i, subst, tgt.shared),
-        .weak => |i| tgt == .weak and typeEqualsAfterSubst(ctx, i, subst, tgt.weak),
-        .optional => |i| tgt == .optional and typeEqualsAfterSubst(ctx, i, subst, tgt.optional),
-        .fallible => |i| tgt == .fallible and typeEqualsAfterSubst(ctx, i, subst, tgt.fallible),
-        .range => |i| tgt == .range and typeEqualsAfterSubst(ctx, i, subst, tgt.range),
-        .slice => |s| tgt == .slice and typeEqualsAfterSubst(ctx, s.elem, subst, tgt.slice.elem),
-        .array => |a| tgt == .array and a.len == tgt.array.len and typeEqualsAfterSubst(ctx, a.elem, subst, tgt.array.elem),
-        .function => |f| blk: {
-            if (tgt != .function) break :blk false;
-            const tf = tgt.function;
-            if (f.is_sub != tf.is_sub or f.pre_mask != tf.pre_mask or f.params.len != tf.params.len) break :blk false;
-            if (!typeEqualsAfterSubst(ctx, f.returns, subst, tf.returns)) break :blk false;
-            for (f.params, tf.params) |p, tp| {
-                if (!typeEqualsAfterSubst(ctx, p, subst, tp)) break :blk false;
-            }
-            break :blk true;
-        },
-        .parameterized_nominal => |pn| blk: {
-            if (tgt != .parameterized_nominal) break :blk false;
-            const tpn = tgt.parameterized_nominal;
-            if (pn.sym != tpn.sym or pn.args.len != tpn.args.len) break :blk false;
-            for (pn.args, tpn.args) |a, ta| {
-                if (!typeEqualsAfterSubst(ctx, a, subst, ta)) break :blk false;
-            }
-            break :blk true;
-        },
-        else => ty_id == target,
-    };
-}
-
 /// Replace every `type_var` in `ty_id` that `subst` maps.
 pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem.Allocator.Error!TypeId {
     if (subst.isEmpty()) return ty_id;
@@ -1342,25 +1687,19 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
             return ctx.intern(.{ .array = .{ .elem = e, .len = a.len } });
         },
         .function => |f| {
+            var params: std.ArrayListUnmanaged(TypeId) = .empty;
+            defer params.deinit(ctx.allocator);
+            for (f.params) |p| try params.append(ctx.allocator, try substituteType(ctx, p, subst));
             const ret = try substituteType(ctx, f.returns, subst);
-            var changed = ret != f.returns;
-            const params = try ctx.arena.allocator().alloc(TypeId, f.params.len);
-            for (f.params, 0..) |p, i| {
-                params[i] = try substituteType(ctx, p, subst);
-                if (params[i] != p) changed = true;
-            }
-            if (!changed) return ty_id;
-            return ctx.intern(.{ .function = .{ .params = params, .returns = ret, .is_sub = f.is_sub, .pre_mask = f.pre_mask } });
+            if (ret == f.returns and std.mem.eql(TypeId, params.items, f.params)) return ty_id;
+            return ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .pre_mask = f.pre_mask } });
         },
         .parameterized_nominal => |pn| {
-            var changed = false;
-            const args = try ctx.arena.allocator().alloc(TypeId, pn.args.len);
-            for (pn.args, 0..) |a, i| {
-                args[i] = try substituteType(ctx, a, subst);
-                if (args[i] != a) changed = true;
-            }
-            if (!changed) return ty_id;
-            return ctx.intern(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args } });
+            var args: std.ArrayListUnmanaged(TypeId) = .empty;
+            defer args.deinit(ctx.allocator);
+            for (pn.args) |a| try args.append(ctx.allocator, try substituteType(ctx, a, subst));
+            if (std.mem.eql(TypeId, args.items, pn.args)) return ty_id;
+            return ctx.internCopy(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args.items } });
         },
         else => return ty_id,
     }
@@ -1368,98 +1707,32 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
 
 /// Does `ty_id` mention a generic parameter anywhere?
 pub fn containsTypeVar(ctx: *const SemContext, ty_id: TypeId) bool {
-    return switch (ctx.types.get(ty_id)) {
-        .type_var => true,
-        .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range => |i| containsTypeVar(ctx, i),
-        .slice => |s| containsTypeVar(ctx, s.elem),
-        .array => |a| containsTypeVar(ctx, a.elem),
-        .function => |f| blk: {
-            for (f.params) |p| if (containsTypeVar(ctx, p)) break :blk true;
-            break :blk containsTypeVar(ctx, f.returns);
-        },
-        .parameterized_nominal => |pn| blk: {
-            for (pn.args) |a| if (containsTypeVar(ctx, a)) break :blk true;
-            break :blk false;
-        },
-        else => false,
-    };
+    return ctx.typeInfo(ty_id).has_type_var;
 }
 
 /// Whether a value of `ty` holds a `Cell` inline (not behind a handle,
 /// a borrow, or a Vec's buffer). A read borrow of such a value is held as
 /// a pointer, since the cell can change while it is borrowed.
 pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
-    return cellUnder(ctx, ty, 0);
+    return ctx.holds(ty).cell;
 }
 
-fn cellUnder(ctx: *const SemContext, ty: TypeId, depth: u8) bool {
-    if (depth > 32) return false;
-    return switch (ctx.types.get(ty)) {
-        .optional, .fallible => |i| cellUnder(ctx, i, depth + 1),
-        .array => |a| cellUnder(ctx, a.elem, depth + 1),
-        .nominal => |sym| symHoldsCell(ctx, sym, depth),
-        .imported_nominal => |in| blk: {
-            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk false;
-            break :blk symHoldsCell(foreign, in.sym_id, depth);
-        },
-        .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.cell_sym_id) break :blk true;
-            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
-            for (pn.args) |a| if (cellUnder(ctx, a, depth + 1)) break :blk true;
-            break :blk symHoldsCell(ctx, pn.sym, depth);
-        },
-        else => false,
-    };
+/// Whether a value of `ty` can hold a borrow (see `Borrows`). A generic
+/// parameter holds none: an instantiation with a borrow is checked apart.
+pub fn holdsBorrow(ctx: *const SemContext, ty: TypeId) bool {
+    return ctx.holds(ty).borrows.any;
 }
 
-pub fn symHoldsCell(ctx: *const SemContext, sym: SymbolId, depth: u8) bool {
-    for (ctx.symbols.items[sym].fields orelse &.{}) |f| {
-        if (f.is_method) continue;
-        if (f.is_variant) {
-            for (f.payload orelse &.{}) |pf| if (cellUnder(ctx, pf.ty, depth + 1)) return true;
-        } else if (cellUnder(ctx, f.ty, depth + 1)) return true;
-    }
-    return false;
+/// Whether a value of `ty` holds a write borrow, which is unique.
+pub fn holdsWriteBorrow(ctx: *const SemContext, ty: TypeId) bool {
+    return ctx.holds(ty).borrows.write;
 }
 
 /// A value that owns nothing and holds no borrow or type parameter: it
 /// can be copied freely, like a number.
 pub fn isPlainData(ctx: *const SemContext, ty: TypeId) bool {
-    return plainUnder(ctx, ty, false, 0) and !typeHasDropGlue(ctx, ty);
-}
-
-/// A type parameter is plain only inside the fields of an instance whose
-/// arguments were checked (`Box(Int)`, `in_fields`); on its own it may be
-/// anything.
-fn plainUnder(ctx: *const SemContext, ty: TypeId, in_fields: bool, depth: u8) bool {
-    if (depth > 32) return false;
-    return switch (ctx.types.get(ty)) {
-        .bool, .int, .float, .string, .any_error => true,
-        .optional => |i| plainUnder(ctx, i, in_fields, depth + 1),
-        .array => |a| plainUnder(ctx, a.elem, in_fields, depth + 1),
-        .nominal => |sym| fieldsPlain(ctx, ctx.symbols.items[sym].fields orelse return false, depth),
-        .imported_nominal => |in| blk: {
-            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk false;
-            break :blk fieldsPlain(foreign, foreign.symbols.items[in.sym_id].fields orelse break :blk false, depth);
-        },
-        .parameterized_nominal => |pn| blk: {
-            if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.cell_sym_id or pn.sym == ctx.signal_sym_id) break :blk false;
-            for (pn.args) |a| if (!plainUnder(ctx, a, in_fields, depth + 1)) break :blk false;
-            break :blk fieldsPlain(ctx, ctx.symbols.items[pn.sym].fields orelse break :blk false, depth);
-        },
-        .type_var => in_fields,
-        else => false,
-    };
-}
-
-fn fieldsPlain(ctx: *const SemContext, fields: []const Field, depth: u8) bool {
-    for (fields) |f| {
-        if (f.is_method) continue;
-        if (f.is_variant) {
-            for (f.payload orelse &.{}) |pf| if (!plainUnder(ctx, pf.ty, true, depth + 1)) return false;
-        } else if (!plainUnder(ctx, f.ty, true, depth + 1)) return false;
-    }
-    return true;
+    const info = ctx.holds(ty);
+    return info.plain and !info.glue;
 }
 
 /// Whether a value of `ty` owns a resource depends on type parameters
@@ -1467,36 +1740,25 @@ fn fieldsPlain(ctx: *const SemContext, fields: []const Field, depth: u8) bool {
 /// body): it has no drop glue of its own, but an instantiation may. Such
 /// values are moved and dropped like resources.
 pub fn maybeDropGlue(ctx: *const SemContext, ty: TypeId) bool {
-    if (typeHasDropGlue(ctx, ty)) return false;
-    return holdsTypeVar(ctx, ty, 0);
+    const info = ctx.holds(ty);
+    return !info.glue and info.holds_type_var;
 }
 
 /// The type parameters `ty` holds by value, appended to `out`.
 pub fn heldTypeVars(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnmanaged(SymbolId), a: std.mem.Allocator) std.mem.Allocator.Error!void {
+    if (!ctx.holds(ty).holds_type_var) return;
     switch (ctx.types.get(ty)) {
-        .type_var => |sym| {
-            for (out.items) |x| if (x == sym) return;
-            try out.append(a, sym);
-        },
-        .optional, .fallible => |i| try heldTypeVars(ctx, i, out, a),
+        .type_var => |sym| if (std.mem.indexOfScalar(SymbolId, out.items, sym) == null) try out.append(a, sym),
+        .optional, .fallible => |inner| try heldTypeVars(ctx, inner, out, a),
         .array => |arr| try heldTypeVars(ctx, arr.elem, out, a),
-        .parameterized_nominal => |pn| for (pn.args) |arg| try heldTypeVars(ctx, arg, out, a),
+        .parameterized_nominal => |pn| {
+            const held = ctx.symbols.items[pn.sym].contents.held;
+            for (pn.args, 0..) |arg, i| {
+                if (i < held.len and held[i]) try heldTypeVars(ctx, arg, out, a);
+            }
+        },
         else => {},
     }
-}
-
-fn holdsTypeVar(ctx: *const SemContext, ty: TypeId, depth: u8) bool {
-    if (depth > 64) return true;
-    return switch (ctx.types.get(ty)) {
-        .type_var => true,
-        .optional, .fallible => |i| holdsTypeVar(ctx, i, depth + 1),
-        .array => |a| holdsTypeVar(ctx, a.elem, depth + 1),
-        .parameterized_nominal => |pn| blk: {
-            for (pn.args) |arg| if (holdsTypeVar(ctx, arg, depth + 1)) break :blk true;
-            break :blk false;
-        },
-        else => false,
-    };
 }
 
 /// Copy a type from another module's store into `local_ctx`. Nominals
@@ -1517,21 +1779,26 @@ pub fn importType(
         .slice => |s| return local_ctx.intern(.{ .slice = .{ .elem = try importType(local_ctx, foreign_ctx, s.elem, origin_module_id) } }),
         .array => |a| return local_ctx.intern(.{ .array = .{ .elem = try importType(local_ctx, foreign_ctx, a.elem, origin_module_id), .len = a.len } }),
         .function => |f| {
-            const params = try local_ctx.arena.allocator().alloc(TypeId, f.params.len);
-            for (f.params, 0..) |p, i| params[i] = try importType(local_ctx, foreign_ctx, p, origin_module_id);
+            var params: std.ArrayListUnmanaged(TypeId) = .empty;
+            defer params.deinit(local_ctx.allocator);
+            for (f.params) |p| try params.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, p, origin_module_id));
             const ret = try importType(local_ctx, foreign_ctx, f.returns, origin_module_id);
-            return local_ctx.intern(.{ .function = .{ .params = params, .returns = ret, .is_sub = f.is_sub, .pre_mask = f.pre_mask } });
+            return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .pre_mask = f.pre_mask } });
         },
         .nominal => |sym_id| return local_ctx.intern(.{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
         .imported_nominal => |n| return local_ctx.intern(.{ .imported_nominal = n }),
-        // Built-in generics (Vec, Cell, ...) have the same symbol ids in
-        // every module, so their ids carry over unchanged.
+        // Only the built-in generics (Vec, Cell, ...) cross module
+        // boundaries (`resolve.checkPublicSurface`); they have the same
+        // symbol ids in every module, so their ids carry over unchanged.
         .parameterized_nominal => |pn| {
-            const args = try local_ctx.arena.allocator().alloc(TypeId, pn.args.len);
-            for (pn.args, 0..) |a, i| args[i] = try importType(local_ctx, foreign_ctx, a, origin_module_id);
-            return local_ctx.intern(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args } });
+            if (foreign_ctx.symbols.items[pn.sym].decl_pos != builtin_decl_pos) return local_ctx.types.invalid_id;
+            var args: std.ArrayListUnmanaged(TypeId) = .empty;
+            defer args.deinit(local_ctx.allocator);
+            for (pn.args) |a| try args.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, a, origin_module_id));
+            return local_ctx.internCopy(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args.items } });
         },
-        .type_var => |sym| return local_ctx.intern(.{ .type_var = sym }),
+        // A generic parameter never leaves its generic type's module.
+        .type_var => return local_ctx.types.invalid_id,
     }
 }
 
@@ -1639,35 +1906,22 @@ pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std
     return null;
 }
 
-/// An enum variant of the receiver's nominal.
+/// An enum variant of the receiver's nominal, local or imported.
 pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedVariant {
-    if (ctx.types.get(unwrapBorrows(ctx, receiver_ty)) == .imported_nominal) {
-        const decl = nominalDecl(ctx, receiver_ty) orelse return null;
-        const foreign: *SemContext = @constCast(decl.ctx);
-        for (decl.symbol().fields orelse return null) |f| {
-            if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
-            const orig = f.payload orelse &.{};
-            const payload = try ctx.arena.allocator().alloc(Field, orig.len);
-            for (orig, 0..) |pf, i| {
-                payload[i] = pf;
-                payload[i].ty = try importType(ctx, foreign, pf.ty, decl.module_id.?);
-            }
-            return .{ .field = f, .payload = payload, .nominal_sym = symbol_invalid, .owner_name = decl.symbol().name };
-        }
-        return null;
-    }
-    const m = membersOf(ctx, unwrapBorrows(ctx, receiver_ty)) orelse return null;
-    for (m.fields) |f| {
+    const decl = nominalDecl(ctx, receiver_ty) orelse return null;
+    const subst = if (membersOf(ctx, unwrapBorrows(ctx, receiver_ty))) |m| m.subst else TypeSubst.empty;
+    for (decl.symbol().fields orelse return null) |f| {
         if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
-        const orig = f.payload orelse &.{};
-        const owner = ctx.symbols.items[m.sym].name;
-        if (orig.len == 0 or m.subst.isEmpty()) return .{ .field = f, .payload = orig, .nominal_sym = m.sym, .owner_name = owner };
-        const payload = try ctx.arena.allocator().alloc(Field, orig.len);
-        for (orig, 0..) |pf, i| {
-            payload[i] = pf;
-            payload[i].ty = try substituteType(ctx, pf.ty, m.subst);
+        var payload = f.payload orelse &.{};
+        if (payload.len > 0 and (decl.module_id != null or !subst.isEmpty())) {
+            const typed = try ctx.arena.allocator().dupe(Field, payload);
+            for (typed) |*pf| pf.ty = if (decl.module_id) |origin|
+                try importType(ctx, @constCast(decl.ctx), pf.ty, origin)
+            else
+                try substituteType(ctx, pf.ty, subst);
+            payload = typed;
         }
-        return .{ .field = f, .payload = payload, .nominal_sym = m.sym, .owner_name = owner };
+        return .{ .field = f, .payload = payload, .nominal_sym = if (decl.module_id == null) decl.sym else symbol_invalid, .owner_name = decl.symbol().name };
     }
     return null;
 }
@@ -1721,20 +1975,10 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
         .slice => |s| try std.fmt.allocPrint(a, "[]{s}", .{try formatTypeIn(ctx, a, s.elem)}),
         .array => |arr| try std.fmt.allocPrint(a, "[{d}]{s}", .{ arr.len, try formatTypeIn(ctx, a, arr.elem) }),
         .range => |e| try std.fmt.allocPrint(a, "range of {s}", .{try formatTypeIn(ctx, a, e)}),
-        .function => |f| blk: {
-            var buf: std.ArrayListUnmanaged(u8) = .empty;
-            try buf.appendSlice(a, if (f.is_sub) "sub(" else "fun(");
-            for (f.params, 0..) |p, i| {
-                if (i > 0) try buf.appendSlice(a, ", ");
-                try buf.appendSlice(a, try formatTypeIn(ctx, a, p));
-            }
-            try buf.append(a, ')');
-            if (!f.is_sub) {
-                try buf.appendSlice(a, " ");
-                try buf.appendSlice(a, try formatTypeIn(ctx, a, f.returns));
-            }
-            break :blk buf.items;
-        },
+        .function => |f| if (f.is_sub)
+            try std.fmt.allocPrint(a, "sub({s})", .{try formatTypeList(ctx, a, f.params)})
+        else
+            try std.fmt.allocPrint(a, "fun({s}) -> {s}", .{ try formatTypeList(ctx, a, f.params), try formatTypeIn(ctx, a, f.returns) }),
         .nominal => |sym| ctx.symbols.items[sym].name,
         .imported_nominal => |in| blk: {
             const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk "<imported>";
@@ -1744,24 +1988,22 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
             for (ctx.imports) |imp| {
                 if (imp.module_id == in.module_id) break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ imp.local_name, name });
             }
-            for (ctx.transitive) |imp| {
-                if (imp.module_id == in.module_id) break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ imp.local_name, name });
-            }
-            break :blk name;
+            // A module reached only through an import, by its file name.
+            break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, name });
         },
-        .parameterized_nominal => |pn| blk: {
-            var buf: std.ArrayListUnmanaged(u8) = .empty;
-            try buf.appendSlice(a, ctx.symbols.items[pn.sym].name);
-            try buf.append(a, '(');
-            for (pn.args, 0..) |arg, i| {
-                if (i > 0) try buf.appendSlice(a, ", ");
-                try buf.appendSlice(a, try formatTypeIn(ctx, a, arg));
-            }
-            try buf.append(a, ')');
-            break :blk buf.items;
-        },
+        .parameterized_nominal => |pn| try std.fmt.allocPrint(a, "{s}({s})", .{ ctx.symbols.items[pn.sym].name, try formatTypeList(ctx, a, pn.args) }),
         .type_var => |sym| ctx.symbols.items[sym].name,
     };
+}
+
+/// Types separated by `, `.
+fn formatTypeList(ctx: *const SemContext, a: std.mem.Allocator, ids: []const TypeId) std.mem.Allocator.Error![]const u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    for (ids, 0..) |id, i| {
+        if (i > 0) try buf.appendSlice(a, ", ");
+        try buf.appendSlice(a, try formatTypeIn(ctx, a, id));
+    }
+    return buf.items;
 }
 
 /// `T?` / `T!`, parenthesizing prefix forms: `(*T)?` is an optional
@@ -1770,6 +2012,8 @@ fn formatSuffixed(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, s
     const s = try formatTypeIn(ctx, a, inner);
     const parens = switch (ctx.types.get(inner)) {
         .shared, .weak, .borrow_read, .borrow_write => true,
+        // `fun(Int) -> Int?` returns an optional.
+        .function => |f| !f.is_sub,
         else => false,
     };
     return if (parens)
@@ -1779,7 +2023,7 @@ fn formatSuffixed(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, s
 }
 
 // =============================================================================
-// IR helpers shared by the ctx passes
+// IR helpers shared by the sema passes
 // =============================================================================
 
 pub fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
@@ -1789,60 +2033,126 @@ pub fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
     };
 }
 
+/// Whether `e` holds a `break` (with a value, when `valued`) that leaves
+/// the loop whose body it is: an unlabeled one outside nested loops, or
+/// one naming the loop's `label`, outside closures. A nested loop's
+/// `else` runs after that loop, so its jumps are the outer loop's.
+pub fn breaksOut(source: []const u8, e: Sexp, label: []const u8, nested: bool, valued: bool) bool {
+    const h = e.kind() orelse return false;
+    switch (h) {
+        .@"break" => {
+            if (valued and ir.Break.value(e) == .nil) return false;
+            const l = ir.Break.label(e);
+            if (l == .nil) return !nested;
+            return label.len > 0 and std.mem.eql(u8, identAt(source, l) orelse "", label);
+        },
+        .lambda => return false,
+        .@"while", .@"for" => {
+            if (breaksOut(source, ir.get(e, .@"else"), label, nested, valued)) return true;
+            return label.len > 0 and breaksOut(source, ir.get(e, .body), label, true, valued);
+        },
+        else => {},
+    }
+    for (rig.children(e)) |c| if (breaksOut(source, c, label, nested, valued)) return true;
+    return false;
+}
+
+/// A loop used as a value: a `while` or `for`, labeled or not, that a
+/// `break` with a value leaves.
+pub fn hasValueBreaks(source: []const u8, e: Sexp) bool {
+    var label: []const u8 = "";
+    var loop = e;
+    if (e.isKind(.labeled)) {
+        label = identAt(source, ir.Labeled.label(e)) orelse "";
+        loop = ir.Labeled.stmt(e);
+    }
+    if (!loop.isKind(.@"while") and !loop.isKind(.@"for")) return false;
+    return breaksOut(source, ir.get(loop, .body), label, false, true);
+}
+
 pub fn srcPos(sexp: Sexp, fallback: u32) u32 {
     return if (sexp == .src) sexp.src.pos else fallback;
 }
 
+/// A constant integer expression's value, or why it has none.
+pub const ConstInt = union(enum) {
+    value: i128,
+    not_constant,
+    /// Constant, but too large to compute.
+    overflow,
+};
+
 /// The value of a constant integer expression: literals, constant
-/// bindings, and arithmetic on them. Null when not constant (or too
-/// large to compute).
-pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?i128 {
+/// bindings, and arithmetic on them.
+pub fn constInt(ctx: *const SemContext, e: Sexp) ConstInt {
     switch (e) {
         .src => {
             const text_ = identAt(ctx.source, e) orelse "";
-            if (isIntLiteralText(text_)) return std.fmt.parseInt(i128, text_, 0) catch null;
-            const id = ctx.symbolOf(e) orelse return null;
-            return ctx.const_ints.get(id);
+            if (isIntLiteralText(text_)) return .{ .value = std.fmt.parseInt(i128, text_, 0) catch return .overflow };
+            const id = ctx.symbolOf(e) orelse return .not_constant;
+            return if (ctx.const_ints.get(id)) |v| .{ .value = v } else .not_constant;
         },
         .list => {
-            const h = e.kind() orelse return null;
-            if (h == .neg) return std.math.negate(constIntOf(ctx, ir.Neg.operand(e)) orelse return null) catch null;
+            const h = e.kind() orelse return .not_constant;
+            if (h == .neg) {
+                const v = switch (constInt(ctx, ir.Neg.operand(e))) {
+                    .value => |v| v,
+                    else => |r| return r,
+                };
+                return .{ .value = std.math.negate(v) catch return .overflow };
+            }
             // `a if c else b` with a constant condition: Zig picks the
             // branch at compile time, so its value is constant.
             if (h == .@"if" and ir.If.@"else"(e) != .nil) {
-                const c = constBoolOf(ctx, ir.If.cond(e)) orelse return null;
-                return constIntOf(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e));
+                const c = constBoolOf(ctx, ir.If.cond(e)) orelse return .not_constant;
+                return constInt(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e));
             }
             switch (h) {
                 .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {},
-                else => return null,
+                else => return .not_constant,
             }
-            const a = constIntOf(ctx, ir.get(e, .left)) orelse return null;
-            const b = constIntOf(ctx, ir.get(e, .right)) orelse return null;
-            return switch (h) {
+            const a = switch (constInt(ctx, ir.get(e, .left))) {
+                .value => |v| v,
+                else => |r| return r,
+            };
+            const b = switch (constInt(ctx, ir.get(e, .right))) {
+                .value => |v| v,
+                else => |r| return r,
+            };
+            const v: ?i128 = switch (h) {
                 .@"+" => std.math.add(i128, a, b) catch null,
                 .@"-" => std.math.sub(i128, a, b) catch null,
                 .@"*" => std.math.mul(i128, a, b) catch null,
-                .@"/" => if (b == 0) null else @divTrunc(a, b),
-                .@"%" => if (b == 0) null else @rem(a, b),
-                .@"<<" => if (b < 0 or b > 126) null else blk: {
+                // Division by zero and negative shift amounts are
+                // reported where the operator is checked.
+                .@"/" => if (b == 0) return .not_constant else std.math.divTrunc(i128, a, b) catch null,
+                .@"%" => if (b == 0) return .not_constant else if (b == -1) 0 else @rem(a, b),
+                .@"<<" => if (b < 0) return .not_constant else if (b > 126) null else blk: {
                     const r = a << @intCast(b);
                     break :blk if (r >> @intCast(b) == a) r else null;
                 },
-                .@">>" => if (b < 0 or b > 127) null else a >> @intCast(b),
+                .@">>" => if (b < 0) return .not_constant else a >> @intCast(@min(b, 127)),
                 .@"&" => a & b,
                 .@"|" => a | b,
-                .@"^" => a ^ b,
-                else => null,
+                else => a ^ b,
             };
+            return if (v) |x| .{ .value = x } else .overflow;
         },
-        else => return null,
+        else => return .not_constant,
     }
+}
+
+/// `constInt` as an optional: null when not constant or too large.
+pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?i128 {
+    return switch (constInt(ctx, e)) {
+        .value => |v| v,
+        else => null,
+    };
 }
 
 /// The value of a constant Bool expression: literals, `not`, `and`,
 /// `or`, and comparisons of constant integers.
-pub fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
+fn constBoolOf(ctx: *const SemContext, e: Sexp) ?bool {
     switch (e) {
         .src => {
             const word = identAt(ctx.source, e) orelse "";
@@ -1895,10 +2205,6 @@ pub fn paramPos(param: Sexp, fallback: u32) u32 {
     return srcPos(n, fallback);
 }
 
-pub fn isBorrowedTypeNode(t: Sexp) bool {
-    return t.isKind(.borrow_read) or t.isKind(.borrow_write);
-}
-
 pub const CaptureMode = enum { cap_clone, cap_weak, cap_move };
 
 pub fn captureModeOf(cap: Sexp) ?CaptureMode {
@@ -1919,11 +2225,6 @@ pub fn captureNameNode(cap: Sexp) ?Sexp {
 pub fn captureList(captures: Sexp) []const Sexp {
     if (captures == .nil) return &.{};
     return ir.Captures.caps(captures);
-}
-
-pub fn parseIntegerLiteral(source: []const u8, sexp: Sexp) ?u64 {
-    const text = identAt(source, sexp) orelse return null;
-    return std.fmt.parseInt(u64, text, 0) catch null;
 }
 
 pub fn isIntLiteralText(text: []const u8) bool {
@@ -2008,7 +2309,7 @@ test "SemContext: init/deinit" {
 }
 
 test "check: tolerates an empty IR" {
-    var ctx = try check(std.testing.allocator, "", .{ .nil = {} });
+    var ctx = try check(std.testing.allocator, "", .{ .nil = {} }, .{});
     defer ctx.deinit();
     try std.testing.expect(!ctx.hasErrors());
 }
@@ -2058,7 +2359,7 @@ fn factsRun(source: []const u8) !FactsRun {
     var r: FactsRun = .{ .p = parser.Parser.init(std.testing.allocator, source), .tree = undefined, .ctx = undefined, .source = source };
     errdefer r.p.deinit();
     r.tree = try r.p.parseProgram();
-    r.ctx = try check(std.testing.allocator, source, r.tree);
+    r.ctx = try check(std.testing.allocator, source, r.tree, .{});
     for (r.ctx.diagnostics.items) |d| std.debug.print("unexpected diagnostic: {s}\n", .{d.message});
     try std.testing.expect(!r.ctx.hasErrors());
     return r;
@@ -2250,7 +2551,7 @@ test "facts: loop and pattern bindings" {
         \\
         \\sub main()
         \\  v: Vec(Int) = Vec()
-        \\  (!v).push(3)
+        \\  !v.push(3)
         \\  for x in v
         \\    print(x)
         \\  s: Shape = .circle(radius: 4)
@@ -2462,7 +2763,7 @@ test "declarations: struct fields, methods, and enum variants" {
     try std.testing.expectEqualStrings("timeout", net[0].name);
 }
 
-/// Walk every expression position of a body and report nodes ctx left
+/// Walk every expression position of a body and report nodes sema left
 /// without a fact. Used to keep the facts table complete.
 const Coverage = struct {
     r: *const FactsRun,
@@ -2607,7 +2908,7 @@ test "facts: every name and expression in a program has a fact" {
         \\sub main()
         \\  acct = Account(owner: "ada", balance: 100)
         \\  print(balance_of(?acct))
-        \\  (!acct).deposit(5)
+        \\  !acct.deposit(5)
         \\  print(acct.doubled())
         \\  moved = <acct
         \\  shared = *Account(owner: "bob", balance: 7)
@@ -2616,7 +2917,7 @@ test "facts: every name and expression in a program has a fact" {
         \\  print(other.balance)
         \\  total = 0
         \\  v: Vec(Int) = Vec()
-        \\  (!v).push(3)
+        \\  !v.push(3)
         \\  for x in v
         \\    total += x
         \\  print(total + moved.balance)
@@ -2650,7 +2951,7 @@ test "facts: optional bindings, index bindings, defaults, and shadows have facts
         \\  for x, i in xs
         \\    print(x + i)
         \\  w: Vec(Int) = Vec()
-        \\  while (!w).pop() as y
+        \\  while !w.pop() as y
         \\    print(y)
         \\  k = 1
         \\  new k = k + 1

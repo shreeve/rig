@@ -12,4 +12,4 @@ sub main()
   b: Box(String) = Box(value: "a")
   print(b.bump())
 
-# error: `String`
+# error: 12:6: `Box(String)` cannot use `T = String`: the generic body applies `+` to `T`, which `String` does not support

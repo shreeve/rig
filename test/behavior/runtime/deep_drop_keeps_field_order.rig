@@ -1,0 +1,41 @@
+# Fields are dropped last first at any depth, including past the depth
+# where the runtime queues releases instead of recursing.
+
+struct N
+  id: Int
+
+  drop self: !N
+    print("drop", self.id)
+
+struct Node
+  next: (*Node)?
+  a: (*N)?
+  b: (*N)?
+
+fun chain(depth: Int) -> *Node
+  n = *Node(next: none, a: *N(id: 1), b: *N(id: 2))
+  for _ in 0..depth
+    n = *Node(next: <n, a: none, b: none)
+  n
+
+sub main()
+  for d in 253..258
+    print("depth", d)
+    h = chain(d)
+
+# expect:
+# depth 253
+# drop 2
+# drop 1
+# depth 254
+# drop 2
+# drop 1
+# depth 255
+# drop 2
+# drop 1
+# depth 256
+# drop 2
+# drop 1
+# depth 257
+# drop 2
+# drop 1

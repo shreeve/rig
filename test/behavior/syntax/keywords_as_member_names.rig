@@ -1,0 +1,50 @@
+# A keyword may name a field, a method, or a payload field: after `.`,
+# before `:` inside ( ), and in a member list before `:` or after `fun`
+# / `sub`. `drop self` is still the drop body; `drop:` is a field.
+
+struct Token
+  type: Int
+  error: String
+  drop: Bool
+  in: Int
+
+  fun test(?self) -> Int
+    self.type + self.in
+
+  fun match(?self, n: Int) -> Int
+    self.type * n
+
+  sub use(!self)
+    self.in += 1
+
+  drop self: !Self
+    print("dropping", self.type)
+
+type Box(T)
+  type: T
+
+  fun error(?self) -> T
+    self.type
+
+enum Ev
+  key(type: Int, match: Bool)
+  quit
+
+sub main()
+  t = Token(type: 1, error: "bad", drop: true, in: 4)
+  !t.use()
+  print(t.type, t.error, t.drop, t.in, t.test(), t.match(n: 3))
+  b = Box(type: 9)
+  print(b.error(), b)
+  e = Ev.key(type: 7, match: false)
+  match e
+    .key(k, m) => print(k, m)
+    .quit => print("quit")
+  print(e)
+
+# expect:
+# 1 bad true 5 6 3
+# 9 Box(type: 9)
+# 7 false
+# .key(type: 7, match: false)
+# dropping 1

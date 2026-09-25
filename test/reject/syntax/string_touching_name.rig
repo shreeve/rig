@@ -1,0 +1,6 @@
+# A paren-free call needs a space before its argument.
+
+sub main()
+  print"hi"
+
+# error: 4:8: missing space or operator between `print` and `"hi"`

@@ -1,0 +1,11 @@
+# `else` does not start a block arm either; the catch-all is `_`.
+
+sub main()
+  x = 3
+  match x
+    1
+      print("one")
+    else
+      print("other")
+
+# error: 8:5: the catch-all arm is `_`, or a name that binds the value

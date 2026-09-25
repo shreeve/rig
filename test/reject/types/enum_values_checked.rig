@@ -1,0 +1,39 @@
+# Explicit enum values are constant integers from 0 to 2^32 - 1, and no
+# two variants share one; only a plain, non-generic enum has them.
+
+enum Twice
+  ok = 200
+  also = 200
+
+enum Implicit
+  a = 1
+  b
+  c = 2
+
+enum Negative
+  low = -1
+
+enum Huge
+  big = 5000000000
+
+enum Text
+  yes = "yes"
+
+enum Mixed
+  plain = 2
+  code(n: Int)
+
+enum Opt(T)
+  none = 0
+  some(value: T)
+
+sub main()
+  print(1)
+
+# error: `also` has the value 200, which `ok` already has
+# error: `c` has the value 2, which `b` already has
+# error: `low` has the value -1, out of range: enum values run from 0 to 4294967295
+# error: `big` has the value 5000000000, out of range
+# error: the value of `yes` must be a constant integer
+# error: an enum with payload variants cannot give its variants values
+# error: a generic enum cannot give its variants values

@@ -1,8 +1,9 @@
-# A `pre <expr>` expression modifier is reserved; only `pre` function
-# parameters are supported compile-time forms.
+# A `pre <expr>` expression is reserved and does not parse; only `pre`
+# function parameters are compile-time forms.
 
 sub main()
   x = pre 42
   print(x)
 
-# error: `pre` expression / block is reserved
+# error: unexpected keyword `pre`
+# error: `pre` marks compile-time parameters only

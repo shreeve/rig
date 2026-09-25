@@ -1,0 +1,73 @@
+# A Cell holding a Vec answers the Vec's members through any path to the
+# cell, without `!`, like `set`: a `?Cell(Vec(T))` parameter, a Cell
+# field reached from a `?self` method, and a shared handle. `push` moves
+# or clones an owning element in, `pop` hands one out, `clear` drops
+# them all; a plain-data element is read and written by index or `get`.
+
+struct P
+  x: Int
+  y: Int
+
+struct N
+  id: Int
+
+  drop self: !Self
+    print("drop", self.id)
+
+struct Holder
+  items: Cell(Vec(Int))
+
+  sub add(?self, n: Int)
+    self.items.push(n)
+
+  fun total(?self) -> Int
+    t = 0
+    i = 0
+    while i < self.items.len
+      t += self.items[i]
+      i += 1
+    t
+
+sub fill(c: ?Cell(Vec(Int)))
+  c.push(10)
+  c.push(20)
+  c[0] = c[0] + 1
+
+sub main()
+  c: Cell(Vec(Int)) = Cell(value: Vec())
+  fill(?c)
+  print(c.len, c[0], c[1], c.get(1), c.get(5))
+  print(c.pop(), c.len)
+  c.clear()
+  print(c.len)
+  h = Holder(items: Cell(value: Vec()))
+  h.add(3)
+  h.add(4)
+  print(h.total())
+  s: *Cell(Vec(P)) = *Cell(value: Vec())
+  t = +s
+  t.push(P(x: 1, y: 2))
+  s[0] = P(x: 5, y: 6)
+  print(s[0].y, t.len)
+  ns: *Cell(Vec(*N)) = *Cell(value: Vec())
+  a = *N(id: 1)
+  ns.push(+a)
+  ns.push(*N(id: 2))
+  ns.push(<a)
+  print(ns.len)
+  if ns.pop() as last
+    print("popped", last.id)
+  ns.clear()
+  print("cleared", ns.len)
+
+# expect:
+# 2 11 20 20 none
+# 20 1
+# 0
+# 7
+# 6 1
+# 3
+# popped 1
+# drop 2
+# drop 1
+# cleared 0

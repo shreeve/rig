@@ -7,4 +7,4 @@ sub main()
   defer print(g()!)
   print(1)
 
-# error: `defer`
+# error: 7:15: cannot use `!` inside `defer`; a deferred expression cannot propagate failure, so handle it with `catch`

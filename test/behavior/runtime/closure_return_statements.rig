@@ -11,12 +11,12 @@ sub main()
   triple = |x: Int|
     return x * 3
   outer = |x: Int|
-    inner: *fun(Int) Int = *|y|
+    inner: *fun(Int) -> Int = *|y|
       if y > 100
         return 0
       y + 1
     return inner(x) * 2
-  label: *fun(Int) String = *|n|
+  label: *fun(Int) -> String = *|n|
     if n == 0
       return "zero"
     "other"

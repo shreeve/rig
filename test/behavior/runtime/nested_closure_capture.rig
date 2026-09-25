@@ -1,0 +1,64 @@
+# A closure nested in another captures from the scope where it is created:
+# the outer closure's captures, parameters, and locals.
+
+struct B
+  n: Int
+  drop self: !B
+    print("drop", self.n)
+
+sub main()
+  rc: *Cell(Int) = *Cell(value: 0)
+  outer = |+rc|
+    inner = |+rc|
+      rc.set(rc.get() + 2)
+      rc.get()
+    print(inner())
+    inner()
+  print(outer())
+  n = 3
+  f = |+n, k: Int|
+    m = k * 10
+    g = |+n, +m, +k| n + m + k
+    g()
+  print(f(2))
+  b = *B(n: 7)
+  h: *fun() -> Int = *|+b|
+    q = *|+b| b.n * 2
+    q()
+  print(h())
+  x = Box(v: 1)
+  r = ?x
+  rd = |a: ?Box|
+    k = a.v
+    rd2 = |+k| k + 1
+    rd2()
+  print(rd(<r))
+  wr = |+n|
+    y = Box(v: n)
+    lw = !y
+    wr2 = |<lw|
+      lw.v += 5
+      print(lw.v)
+    wr2()
+    wr2()
+  wr()
+  w = |+b|
+    ww = |~b|
+      if b.upgrade() as s
+        print("up", s.n)
+    ww()
+  w()
+
+struct Box
+  v: Int
+
+# expect:
+# 2
+# 4
+# 25
+# 14
+# 2
+# 8
+# 13
+# up 7
+# drop 7

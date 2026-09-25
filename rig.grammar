@@ -14,18 +14,20 @@
 #     inside ( ) and [ ] (a newline there is plain whitespace), except in
 #     a closure body that starts below its bar list, which is laid out in
 #     blocks as anywhere else;
-#   * classifies keywords (every keyword is reserved);
+#   * classifies keywords (every keyword is reserved, but reads as a name
+#     where it names a member: after `.`, before `:` inside ( ), and in a
+#     member list before `:` or after `fun` / `sub`);
 #   * classifies the characters whose meaning depends on spacing. The rule
 #     is the same for all of them: a character that touches its operand and
 #     not the preceding value is a prefix; otherwise it is an infix
 #     operator or a suffix.
 #
-#       <x +x ?x !x *x ~x @x -x      ownership sigils / negation
+#       <x +x ?x !x *x ~x -x         ownership sigils / negation
 #       |+a, b|  ||  *|a|            closure bar list (vs bitwise `|`)
 #       f(x) a[i]                    call / index (vs `f (x)`, `f [1, 2]`,
 #                                    which pass a new operand to `f`)
 #       .red                         enum literal (vs member access a.b)
-#       T? T! x!                     type / propagation suffixes
+#       T? T! x! x?                  type / propagation suffixes
 #       a if c else b                ternary vs postfix guard `stmt if c`
 #
 # The grammar has no LALR conflicts; see docs/INTERNALS.md (Conflicts policy).
@@ -38,7 +40,7 @@
 tokens
     # Literals
     ident           # identifier
-    integer         # 0, 42, 0xff, 0b1010, 0o17
+    integer         # 0, 42, 1_000, 0xff, 0b1010, 0o17
     real            # 3.14, .5, 1.0e10, 2e-3
     string_sq       # 'single'
     string_dq       # "double"
@@ -73,11 +75,11 @@ tokens
     struct
     sub
     test
-    try
+    try             # reserved; no form uses it
     type
     use
     while
-    zig
+    zig             # reserved; no form uses it
 
     # Operators
     plus            # +
@@ -122,8 +124,6 @@ tokens
     # Punctuation
     lparen          # (  grouping, parameter list, or a new operand
     rparen          # )
-    lbrace          # {  (not used by Rig)
-    rbrace          # }  (not used by Rig)
     lbracket        # [  array literal or slice/array type
     rbracket        # ]
     comma           # ,
@@ -149,7 +149,6 @@ tokens
     kwarg_name      # name directly followed by `:` inside ( )
     move_pfx        # <x  move
     clone_pfx       # +x  clone
-    pin_pfx         # @x  pin (reserved)
     read_pfx        # ?x  read borrow, ?T read-borrowed type
     write_pfx       # !x  write borrow, !T write-borrowed type
     share_pfx       # *x  share, *T shared type
@@ -169,19 +168,25 @@ tokens
 '#' [^\n]*                                  → comment
 
 "\\\n"                                      → skip         # line continuation
+"\\\r\n"                                    → skip
 "\r\n"                                      → newline
 '\n'                                        → newline
-'\r'                                        → newline
 
-'"' ([^"\\$\n] | '\\' . | '$')* '"'         → string_dq
-"'" ([^'\n] | "''")* "'"                    → string_sq
+# Strings hold no control characters: a tab or newline is written as an
+# escape (`\t`, `\n`), which only double-quoted strings take.
+'"' ([^"\\\x00-\x1f\x7f] | '\\' [^\x00-\x1f\x7f])* '"'  → string_dq
+"'" ([^'\x00-\x1f\x7f] | "''")* "'"             → string_sq
 
-'0' [xX] [0-9a-fA-F]+                       → integer
-'0' [bB] [01]+                              → integer
-'0' [oO] [0-7]+                             → integer
-[0-9]* '.' [0-9]+ ([Ee] [+-]? [0-9]+)?      → real
-[0-9]+ [Ee] [+-]? [0-9]+                    → real
-[0-9]+                                      → integer
+# Numbers: `_` may separate digits; radix prefixes are lowercase, and a
+# decimal number has no leading zero. Anything else that starts with a
+# digit is one malformed-number error.
+"0x" [0-9a-fA-F] ('_'? [0-9a-fA-F])*        → integer
+"0b" [01] ('_'? [01])*                      → integer
+"0o" [0-7] ('_'? [0-7])*                    → integer
+('0' | [1-9] ('_'? [0-9])*)? '.' [0-9] ('_'? [0-9])* ([eE] [+-]? [0-9] ('_'? [0-9])*)? → real
+('0' | [1-9] ('_'? [0-9])*) [eE] [+-]? [0-9] ('_'? [0-9])* → real
+'0' | [1-9] ('_'? [0-9])*                   → integer
+[0-9] [0-9a-zA-Z_]*                         → err
 
 "<<="                                       → lshift_assign
 ">>="                                       → rshift_assign
@@ -226,8 +231,6 @@ tokens
 '='                                         → assign
 '('                                         → lparen
 ')'                                         → rparen
-'{'                                         → lbrace
-'}'                                         → rbrace
 '['                                         → lbracket
 ']'                                         → rbracket
 ','                                         → comma
@@ -264,7 +267,6 @@ tokens
     # Declarations
     module                      ...decls
     use                         name:leaf
-    zig                         code:leaf
     fun                         name:leaf params:group? returns? body:block
     sub                         name:leaf params:group? body:block
     lambda                      captures:captures? params:group? body:block
@@ -272,7 +274,7 @@ tokens
     generic_type, generic_enum  name:leaf params:group? ...members
     type                        name:leaf type
     test                        name:leaf body:block
-    pub                         decl:fun|sub|struct|enum|errors|type|generic_type|generic_enum|test
+    pub                         decl:fun|sub|struct|enum|errors|type|generic_type|generic_enum|test|set
     extern                      name:leaf type
     extern_fun                  name:leaf params:group? returns?
     extern_sub                  name:leaf params:group?
@@ -293,7 +295,7 @@ tokens
     if                          cond then else?
     as                          value name:leaf
     while                       cond step? body:block else:block?
-    for                         mode:tag(iter|ptr|read|write|move) var:leaf index:leaf? source body:block else:block?
+    for                         mode:tag(iter|read|write|move) var:leaf index:leaf? source body:block else:block?
     match                       subject ...arms:arm
     arm                         pattern body
     range_pattern               lo hi
@@ -303,10 +305,8 @@ tokens
     break                       value? label:leaf?
     continue                    label:leaf?
     defer, errdefer             body
-    raw_block, pre_block        body:block
-    pre, propagate              value
-    try_block                   body:block catch:catch_block?
-    catch_block                 name:leaf body:block
+    raw_block                   body:block
+    propagate, propagate_none   value
     catch                       value name:leaf? handler
     block                       ...stmts
 
@@ -332,7 +332,7 @@ tokens
 
     # Ownership sigils (`~T`, `?T`, `!T`, `*T` in type position are the
     # type kinds below, except `weak`, which is both)
-    move, read, write, clone, share, weak, pin  operand
+    move, read, write, clone, share, weak  operand
 
     # Types
     optional, error_union, borrow_read, borrow_write, shared, slice  type
@@ -351,7 +351,7 @@ tokens
     POST_IF: "`if`", TERNARY_IF: "`if`"
     BAR_CAPTURE: "`|`", BAR_EMPTY: "`||`", DOT_LIT: "`.`"
     KWARG_NAME: "a keyword argument"
-    MOVE_PFX: "`<`", CLONE_PFX: "`+`", PIN_PFX: "`@`", READ_PFX: "`?`"
+    MOVE_PFX: "`<`", CLONE_PFX: "`+`", READ_PFX: "`?`"
     WRITE_PFX: "`!`", SHARE_PFX: "`*`", DROP_STMT: "`-`", MINUS_PREFIX: "`-`"
     SUFFIX_Q: "`?`", SUFFIX_BANG: "`!`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
@@ -373,7 +373,7 @@ tokens
     expr: "an expression", tail: "an expression", value: "a value"
     field: "a parameter", member: "a member"
     pattern: "a pattern", arm: "a match arm", params: "a parameter list"
-    unary: "an operand"
+    unary: "an operand", step: "an assignment or a call"
 
 # ==============================================================================
 # PROGRAM STRUCTURE
@@ -394,7 +394,6 @@ stmt     = use
          | extvar
          | ext_fun
          | ext_sub
-         | zig
          | ":" label:name stmt:stmt                 → (labeled)
          | simple
          | simple POST_IF cond:value                → (if then:(block 1))
@@ -403,10 +402,7 @@ stmt     = use
 # flow statement. Only these take a postfix guard (`return x if done`).
 # A compound assignment's `op` is the tag its operator names (`+=`).
 simple   = tail
-         | target:postfix "="   value:tail          → (set)
-         | target:postfix
-           op:("+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=")
-           value:tail                               → (set)
+         | assign
          | target:postfix "=!"  value:tail          → (set op:fixed)
          | target:postfix "<-"  value:tail          → (set op:move)
          | target:name ":" type:type "="  value:tail → (set)
@@ -418,8 +414,12 @@ simple   = tail
          | CONTINUE [":" label:name]                → (continue)
          | DEFER body:(block | simple)              → (defer)
          | ERRDEFER body:(block | simple)           → (errdefer)
-         | PRE body:block                           → (pre_block)
          | RAW body:block                           → (raw_block)
+
+assign   = target:postfix "="   value:tail          → (set)
+         | target:postfix
+           op:("+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=")
+           value:tail                               → (set)
 
 # ==============================================================================
 # DECLARATIONS
@@ -427,6 +427,11 @@ simple   = tail
 
 decl     = defn
          | PUB decl:defn                            → (pub)
+         | PUB decl:const                           → (pub)
+
+# A public module-level constant.
+const    = target:name "=!" value:tail              → (set op:fixed)
+         | target:name ":" type:type "=!" value:tail → (set op:fixed)
 
 defn     = fun | sub | enum | struct | errors | typedef | test
 
@@ -437,10 +442,15 @@ sub      = SUB name:name [params:params] body:block → (sub)
 
 returns  = "->" type                                → 2
 
-params   = !lparen L(field) ")"                     → (...2)
+params   = !lparen fields [","] ")"                 → (...2)
          | !lparen          ")"                     → ()
 
 lparen   = LPAREN_CALL | "("
+
+# Written out rather than `L(field)`, which conflicts with a trailing
+# comma.
+fields   = field                                    → (1)
+         | fields "," field                         → (...1 3)
 
 # Parameters, struct fields, and enum variants share one shape.
 field    = fname
@@ -477,14 +487,12 @@ member   = field
 # Sema requires exactly one: `self: !Self`.
 dparams  = L(field)                                 → (...1)
 
-test     = TEST name:STRING_DQ body:block           → (test)
+test     = TEST name:(STRING_DQ | STRING_SQ) body:block → (test)
 
 extvar   = EXTERN name:name ":" type:type           → (extern)
 
 ext_fun  = EXTERN FUN name:name [params:params] [returns:returns] → (extern_fun)
 ext_sub  = EXTERN SUB name:name [params:params]     → (extern_sub)
-
-zig      = ZIG code:(STRING_DQ | STRING_SQ)         → (zig)
 
 # ==============================================================================
 # TYPES
@@ -499,7 +507,7 @@ type     = READ_PFX  type:type                      → (borrow_read)
          | "~"       operand:type                   → (weak)
          | "[" "]" type:type                        → (slice)
          | "[" size:INTEGER "]" type:type           → (array_type)
-         | FUN "(" [params:L(type)] ")" returns:type → (fun_type)   # `fun(Int) Int`
+         | FUN "(" [params:L(type)] ")" "->" returns:type → (fun_type)  # `fun(Int) -> Int`
          | SUB "(" [params:L(type)] ")"             → (fun_type)   # `sub(Int)`
          | tsuffix
 
@@ -520,7 +528,8 @@ tatom    = name
 #   tail    an expression, a paren-free call, or a closure whose body is one.
 #           Allowed where nothing can follow on the line: a statement, the
 #           right side of a binding, `return`, a match arm, the last
-#           argument of a call.
+#           argument of a paren-free call. Inside ( ) only the closure
+#           may appear (`cclosure`): a call there takes parentheses.
 #   expr    anything that yields a value, including block forms.
 #   value   an expression without a block or closure: conditions, operands,
 #           ternary branches.
@@ -534,10 +543,8 @@ expr     = value
          | while
          | for
          | match
-         | try_block
          | value:logic CATCH BAR_CAPTURE name:name BAR_CAPTURE handler:block → (catch)
          | closure
-         | PRE value:value                          → (pre)
 
 value    = then:logic TERNARY_IF cond:logic ELSE else:value → (if)
          | value:logic CATCH [BAR_CAPTURE name:name BAR_CAPTURE] handler:value → (catch)
@@ -556,9 +563,13 @@ cond     = value
 # --- Paren-free calls ---------------------------------------------------------
 #
 # `print p.x` is print(p.x); `send encode <packet` is send(encode(<packet)).
-# A nested paren-free call can only be the last argument.
+# A nested paren-free call can only be the last argument, and never
+# appears inside ( ). A leading `!` or `<` is the receiver's mode, which
+# the Parser wrapper moves onto the receiver: `!v.push 3`.
 
 cmd      = callee:postfix args:cmdargs              → (call)
+         | WRITE_PFX operand:cmd                    → (write)
+         | MOVE_PFX  operand:cmd                    → (move)
 
 # These argument lists are written out rather than `L(expr)`:
 # `L(expr) "," cmdtail` conflicts on the comma.
@@ -582,13 +593,19 @@ ifcond   = cond
 if       = IF cond:ifcond then:block [ELSE else:block] → (if)
          | IF cond:ifcond then:block ELSE else:if   → (if)
 
-while    = WHILE cond:ifcond [":" step:simple] body:block [ELSE else:block] → (while)
+while    = WHILE cond:ifcond [":" step:step] body:block [ELSE else:block] → (while)
+
+# A `while` step runs after each iteration: an assignment, or a call,
+# which may propagate its failure (the checker rejects other forms). A
+# call's receiver may take `!` or `<` (see the Parser wrapper).
+step     = assign
+         | postfix
+         | WRITE_PFX operand:postfix                → (write)
+         | MOVE_PFX  operand:postfix                → (move)
 
 # The Parser wrapper moves a `?xs` / `!xs` / `<xs` source sigil into the
 # mode slot.
-for      = FOR SHARE_PFX var:name ["," index:name] IN source:cond body:block [ELSE else:block]
-                                                    → (for mode:ptr)
-         | FOR var:name ["," index:name] IN source:cond body:block [ELSE else:block]
+for      = FOR var:name ["," index:name] IN source:cond body:block [ELSE else:block]
                                                     → (for mode:iter)
 
 match    = MATCH subject:cond INDENT arms:arms OUTDENT → (match)
@@ -604,21 +621,18 @@ pattern  = patatom
          | lo:patatom ".." hi:patatom               → (range_pattern)
 
 patatom  = name
-         | ELSE                                     # default arm
          | INTEGER
          | MINUS_PREFIX operand:INTEGER             → (neg)
-         | REAL
-         | STRING_SQ
-         | STRING_DQ
          | TRUE
          | FALSE
          | DOT_LIT name:name                        → (enum_lit)
-         | DOT_LIT name:name LPAREN_CALL [bindings:L(name)] ")" → (variant_pattern)
+         | DOT_LIT name:name LPAREN_CALL ")"        → (variant_pattern)
+         | DOT_LIT name:name LPAREN_CALL bindings:names [","] ")" → (variant_pattern)
 
-# The value-yielding try block is reserved; sema rejects it.
-try_block  = TRY body:block [catch:catch_part]      → (try_block)
-
-catch_part = CATCH BAR_CAPTURE name:name BAR_CAPTURE body:block → (catch_block)
+# Written out rather than `L(name)`, which conflicts with a trailing
+# comma.
+names    = name                                     → (1)
+         | names "," name                           → (...1 3)
 
 # --- Closures -----------------------------------------------------------------
 #
@@ -642,8 +656,11 @@ cclosure = clambda
 
 clambda  = params:bars cmd                          → (lambda body:(block 2))
 
-bars     = BAR_CAPTURE L(barent) BAR_CAPTURE        → (...2)
+bars     = BAR_CAPTURE barents [","] BAR_CAPTURE    → (...2)
          | BAR_EMPTY                                → ()
+
+barents  = barent                                   → (1)
+         | barents "," barent                       → (...1 3)
 
 barent   = fname
          | name:fname ":" type:type                 → (:)
@@ -663,18 +680,19 @@ unary    = MINUS_PREFIX operand:unary               → (neg)
          | WRITE_PFX operand:unary                  → (write)
          | SHARE_PFX operand:unary                  → (share)
          | "~"       operand:unary                  → (weak)
-         | PIN_PFX   operand:unary                  → (pin)
          | postfix
 
 postfix  = object:postfix "." name:name             → (member)
          | object:postfix LBRACKET_INDEX index:expr "]" → (index)
          | callee:postfix LPAREN_CALL args:args ")" → (call)
          | value:postfix SUFFIX_BANG                → (propagate)
+         | value:postfix SUFFIX_Q                   → (propagate_none)
          | atom
 
 args     = callargs                                 → 1
-         | callargs "," cmdtail                     → (...1 3)
-         | cmdtail                                  → (1)
+         | callargs ","                             → 1
+         | callargs "," cclosure                    → (...1 3)
+         | cclosure                                 → (1)
          |                                          → ()
 
 callargs = callarg                                  → (1)
@@ -692,8 +710,10 @@ atom     = name
          | FALSE
          | DOT_LIT name:name                        → (enum_lit)
          | "@" name:name LPAREN_CALL args:args ")"  → (builtin)
-         | "[" [elems:L(expr)] "]"                  → (array)
-         | "(" tail ")"                             → 2
+         | "[" [elems:exprs] "]"                    → (array)
+         | "[" elems:exprs "," "]"                  → (array)
+         | "(" expr ")"                             → 2
+         | "(" cclosure ")"                         → 2
 
 # ==============================================================================
 # INFIX OPERATORS (lowest precedence first; operands are `unary`)

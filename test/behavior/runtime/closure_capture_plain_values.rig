@@ -13,7 +13,7 @@ sub main()
   c: Color = .green
   arr = [1, 2]
   f = |+b, +c, +arr| b.n + arr[1] + (1 if c == .green else 0)
-  g: *fun() Int = *|+b| b.n * 10
+  g: *fun() -> Int = *|+b| b.n * 10
   b.n = 5
   print(f(), g(), b.n)
 

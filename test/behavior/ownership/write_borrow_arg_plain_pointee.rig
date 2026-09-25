@@ -1,0 +1,38 @@
+# A write borrow of a value that cannot hold a borrow keeps no loan of
+# the call's other arguments.
+
+sub f(a: !Int, b: !Int)
+  a += 1
+  b += 10
+
+sub g(acc: !Int, y: ?Int)
+  acc += y
+
+sub h(out: !Vec(Int), k: ?Int)
+  out.push(k)
+
+sub fill(out: !Vec(Int))
+  t = 5
+  h(!out, ?t)
+  t += 1
+  h(!out, ?t)
+
+sub main()
+  x = 1
+  y = 2
+  f(!x, !y)
+  f(!x, !y)
+  print(x, y)
+  acc = 0
+  g(!acc, ?y)
+  y += 1
+  g(!acc, ?y)
+  print(acc, y)
+  v: Vec(Int) = Vec()
+  fill(!v)
+  print(v.len, v[0], v[1])
+
+# expect:
+# 3 22
+# 45 23
+# 2 5 6

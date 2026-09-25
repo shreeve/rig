@@ -1,0 +1,16 @@
+# A function value prints as `<fun>`, whether a function name or a
+# `fun(...)` parameter (SPEC §18).
+
+fun twice(n: Int) -> Int
+  n * 2
+
+sub show(f: fun(Int) -> Int)
+  print("param", f, f(3))
+
+sub main()
+  print(twice)
+  show(twice)
+
+# expect:
+# <fun>
+# param <fun> 6

@@ -1,0 +1,26 @@
+# A field default is a literal of the field's type, like a parameter
+# default; a variant payload field has no default.
+
+struct B
+  n: Int
+
+fun three() -> Int
+  3
+
+struct P
+  b: *B = *B(n: 1)
+  k: Int = three()
+  s: Int = "s"
+  u: U8 = 300
+
+enum Shape
+  circle(r: Int = 1)
+
+sub main()
+  p = P()
+
+# error: 11:11: a default field value must be a literal
+# error: 12:12: a default field value must be a literal
+# error: 13:12: expected `Int`
+# error: 14:11: 300
+# error: 17:10: variant payload fields cannot have defaults

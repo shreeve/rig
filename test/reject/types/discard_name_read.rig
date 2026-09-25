@@ -1,0 +1,12 @@
+# `_` discards a value: a parameter named `_` cannot be read, and
+# neither can `_` in a compound assignment.
+
+fun f(_: Int) -> Int
+  _
+
+sub main()
+  _ += 1
+  print(f(1))
+
+# error: `_` discards a value; it cannot be read
+# error: `_` discards a value; it cannot be read

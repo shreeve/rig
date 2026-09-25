@@ -1,0 +1,9 @@
+# A module-level constant is not captured; a closure reads it directly.
+
+k =! 5
+
+sub main()
+  c = |+k| k + 1
+  print(c())
+
+# error: 6:9: only a local can be captured; `k` is declared at module level, so use it in the closure directly

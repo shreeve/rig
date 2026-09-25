@@ -1,13 +1,14 @@
 //! Rig Build Configuration
 //!
 //! Steps:
-//!   zig build              — build bin/rig
+//!   zig build              — build bin/rig (with `-p PREFIX`: PREFIX/bin/rig)
 //!   zig build parser       — regenerate src/parser.zig from rig.grammar via Nexus
 //!   zig build run -- ...   — run bin/rig with args
 //!   zig build test         — run the Zig unit tests (./test/run runs these too)
 //!
-//! `zig build parser` runs Nexus: `-Dnexus=PATH`, else nexus/bin/nexus in the
-//! nearest parent directory (build it with `zig build -Doptimize=ReleaseSafe`).
+//! `zig build parser` runs Nexus: `-Dnexus=PATH` (relative to where `zig build`
+//! runs), else nexus/bin/nexus in the nearest parent directory (build it with
+//! `zig build -Doptimize=ReleaseSafe`).
 
 const std = @import("std");
 
@@ -22,8 +23,13 @@ pub fn build(b: *std.Build) void {
     // -----------------------------------------------------------------
 
     const parser_step = b.step("parser", "Regenerate src/parser.zig from rig.grammar");
-    const nexus = b.option([]const u8, "nexus", "Path to the Nexus binary") orelse findNexus(b);
+    // A relative `-Dnexus` names a path from where `zig build` was run.
+    const nexus = if (b.option([]const u8, "nexus", "Path to the Nexus binary")) |p|
+        b.pathResolve(&.{ std.process.currentPathAlloc(b.graph.io, b.allocator) catch @panic("cannot read the working directory"), p })
+    else
+        findNexus(b);
     const gen_cmd = b.addSystemCommand(&.{ nexus, "rig.grammar", "src/parser.zig" });
+    gen_cmd.setCwd(b.path("."));
     parser_step.dependOn(&gen_cmd.step);
 
     // -----------------------------------------------------------------
@@ -44,9 +50,11 @@ pub fn build(b: *std.Build) void {
         .root_module = main_mod,
     });
 
+    // Without `--prefix`, bin/rig in the checkout, where ./test/run and
+    // the docs expect it.
+    const default_prefix = b.build_root.join(b.allocator, &.{"zig-out"}) catch @panic("OOM");
     const install_exe = b.addInstallArtifact(exe, .{
-        .dest_dir = .{ .override = .{ .custom = ".." } },
-        .dest_sub_path = "bin/rig",
+        .dest_dir = if (std.mem.eql(u8, b.install_prefix, default_prefix)) .{ .override = .{ .custom = "../bin" } } else .default,
     });
     b.getInstallStep().dependOn(&install_exe.step);
 
@@ -61,25 +69,8 @@ pub fn build(b: *std.Build) void {
     // tests
     // -----------------------------------------------------------------
 
-    const test_step = b.step("test", "Run the Zig unit tests in every compiler module");
-    const test_roots = [_][]const u8{
-        "src/rig.zig",
-        "src/modules.zig",
-        "src/sema.zig",
-        "src/effects.zig",
-        "src/ownership.zig",
-        "src/emit.zig",
-        "src/runtime.zig",
-    };
-    for (test_roots) |root| {
-        const mod = b.createModule(.{
-            .root_source_file = b.path(root),
-            .target = target,
-            .optimize = optimize,
-        });
-        const tests = b.addTest(.{ .root_module = mod });
-        test_step.dependOn(&b.addRunArtifact(tests).step);
-    }
+    const test_step = b.step("test", "Run the Zig unit tests of the compiler and the runtime");
+    test_step.dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = main_mod })).step);
 }
 
 /// `nexus/bin/nexus` in the nearest parent directory of the build root

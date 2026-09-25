@@ -1,0 +1,15 @@
+# A closure may run again, so its value cannot move out a captured
+# owning value, even as the last expression of its body.
+
+struct Box
+  v: Vec(Int)
+
+sub main()
+  x = Box(v: Vec())
+  !x.v.push(5)
+  s = |<x| x
+  a = s()
+  b = s()
+  print(a.v[0], b.v[0])
+
+# error: 10:12: bare use of captured resource `x` in return value

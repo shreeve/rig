@@ -8,11 +8,11 @@ fun checked(s: String) -> Int!
   parsing.parse(s)!
 
 fun name(s: String) -> String
-  n = checked(s) catch |err|
+  _ = checked(s) catch |err|
     match err
       .empty => return "empty"
       .bad_digit => return "bad digit"
-      else => return "other"
+      _ => return "other"
   "ok"
 
 sub main()

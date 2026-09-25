@@ -1,0 +1,13 @@
+# Pushing to a Cell's Vec takes an owning element as Vec push does: moved
+# (`<a`) or cloned (`+a`).
+
+struct N
+  id: Int
+
+sub main()
+  hs: *Cell(Vec(*N)) = *Cell(value: Vec())
+  a = *N(id: 1)
+  hs.push(a)
+  print(hs.len, a.id)
+
+# error: 10:11: bare use of shared (`*T`) handle `a` in call argument

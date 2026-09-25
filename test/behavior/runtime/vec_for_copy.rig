@@ -3,9 +3,9 @@
 
 sub main()
   nums: Vec(Int) = Vec()
-  (!nums).push(10)
-  (!nums).push(20)
-  (!nums).push(30)
+  !nums.push(10)
+  !nums.push(20)
+  !nums.push(30)
   for n in nums
     print(n)
 

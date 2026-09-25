@@ -1,0 +1,20 @@
+# An imported module's bindings are constants, as in their own module:
+# they cannot be assigned, write-borrowed, or written through a loop.
+
+use lib
+
+sub bump(a: ![3]Int)
+  a[0] = 9
+
+sub main()
+  lib.xs[0] = 9
+  bump(!lib.xs)
+  lib.xs = [4, 5, 6]
+  for x in !lib.xs
+    x = 0
+  print(lib.xs)
+
+# error: 10:3: cannot assign to fixed binding `lib.xs`
+# error: 11:9: cannot write-borrow fixed binding `lib.xs`
+# error: 12:3: cannot assign to fixed binding `lib.xs`
+# error: 13:13: cannot write-iterate fixed binding `lib.xs`

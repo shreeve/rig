@@ -1,0 +1,10 @@
+# Deferred code runs as the function exits and cannot return.
+
+fun f(m: Int?) -> Int?
+  defer print(m?)
+  m
+
+sub main()
+  print(f(1))
+
+# error: 4:15: cannot use `?` inside `defer`

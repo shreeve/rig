@@ -8,9 +8,9 @@ sub main()
   cb3: *sub() = *|+count| count.set(count.get() + 100)
 
   subs: Vec(*sub()) = Vec()
-  (!subs).push(+cb1)
-  (!subs).push(+cb2)
-  (!subs).push(+cb3)
+  !subs.push(+cb1)
+  !subs.push(+cb2)
+  !subs.push(+cb3)
 
   for cb in ?subs
     cb()

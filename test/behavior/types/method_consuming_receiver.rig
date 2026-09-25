@@ -1,5 +1,5 @@
 # A by-value receiver (`self: User`) consumes the value; the call site
-# must spell the move as `(<u).consume()`.
+# must spell the move as `<u.consume()`.
 
 struct User
   name: String
@@ -9,7 +9,7 @@ struct User
 
 sub main()
   u = User(name: "Steve")
-  (<u).consume()
+  <u.consume()
 
 # expect:
 # Steve

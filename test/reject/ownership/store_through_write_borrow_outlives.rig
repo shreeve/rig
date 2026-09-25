@@ -1,0 +1,38 @@
+# A borrow a call stores through a write borrow lands in the value the
+# write borrow leads to, so it may not outlive that value.
+
+struct In
+  v: Vec(Int)
+
+struct Box
+  r: ?In
+
+struct Ed
+  t: !Box
+
+struct View
+  b: ?In
+
+sub fill(w: !View, b: ?In)
+  w.b = b
+
+sub fill_ed(e: Ed, b: ?In)
+  e.t.r = b
+
+sub main()
+  a = In(v: Vec())
+  v = View(b: ?a)
+  if true
+    y = In(v: Vec())
+    w = !v
+    fill(w, ?y)
+  print(v.b.v.len)
+  x = Box(r: ?a)
+  e = Ed(t: !x)
+  if true
+    z = In(v: Vec())
+    fill_ed(e, ?z)
+  print(x.r.v.len)
+
+# error: `y` does not live long enough
+# error: `z` does not live long enough

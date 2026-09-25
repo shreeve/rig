@@ -1,0 +1,10 @@
+# A match's catch-all arm is `_` (or a name, which binds the value);
+# `else` is not a pattern.
+
+sub main()
+  x = 3
+  match x
+    1 => print("one")
+    else => print("other")
+
+# error: 8:5: unexpected keyword `else`; expected a match arm, the end of the line or the end of the block; the catch-all arm is `_`, or a name that binds the value

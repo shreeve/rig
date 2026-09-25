@@ -1,0 +1,23 @@
+# A String's bytes and every `.len` are read-only.
+
+sub inc(n: !Int)
+  n += 1
+
+sub bump(b: !U8)
+  b += 1
+
+sub main()
+  s = "abc"
+  a = [1, 2, 3]
+  s[0] = 65
+  bump(!s[1])
+  a.len = 5
+  inc(!a.len)
+  s.len += 1
+  print(s)
+
+# error: 12:3: cannot assign to a byte of a String; a String is read-only
+# error: 13:9: cannot write-borrow a byte of a String; a String is read-only
+# error: 14:5: cannot assign to `.len`; a length is read-only
+# error: 15:10: cannot write-borrow `.len`; a length is read-only
+# error: 16:5: cannot assign to `.len`; a length is read-only

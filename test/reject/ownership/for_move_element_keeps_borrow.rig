@@ -1,0 +1,22 @@
+# The elements of `for x in <v` carry the borrows the Vec held, so an
+# element moved elsewhere cannot outlive what it borrows.
+
+struct Box
+  v: Vec(Int)
+
+struct View
+  b: ?Box
+
+sub main()
+  outer: Vec(*View) = Vec()
+  if true
+    y = Box(v: Vec())
+    !y.v.push(42)
+    v: Vec(*View) = Vec()
+    !v.push(*View(b: ?y))
+    for f in <v
+      !outer.push(<f)
+  for g in ?outer
+    print(g.b.v[0])
+
+# error: `y` does not live long enough

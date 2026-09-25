@@ -1,0 +1,11 @@
+# A parenthesized expression holds an ordinary expression, not a
+# paren-free call.
+
+fun twice(n: Int) -> Int
+  n * 2
+
+sub main()
+  x = (twice 3) + 1
+  print(x)
+
+# error: 8:14: a call inside parentheses needs its own parentheses: `twice(...)`

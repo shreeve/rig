@@ -1,0 +1,13 @@
+# Members of an imported type work as they do for a local one: a method
+# called through its type with an explicit receiver, and a field of
+# function type called directly.
+
+use lib
+
+sub main()
+  p = lib.P(n: 1, f: lib.inc)
+  lib.P.bump(!p)
+  print(lib.P.get(?p), p.get(), p.f(10))
+
+# expect:
+# 2 2 11

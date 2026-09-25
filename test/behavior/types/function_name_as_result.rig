@@ -1,0 +1,31 @@
+# A function name whose value is used, such as a fun's last line or a
+# branch value, is the function itself; only a discarded one is an error.
+
+sub greet
+  print("hi")
+
+sub wave
+  print("wave")
+
+fun pick(polite: Bool) -> sub()
+  if polite
+    greet
+  else
+    wave
+
+fun twice(n: Int) -> Int
+  n * 2
+
+fun doubler -> fun(Int) -> Int
+  twice
+
+sub main
+  f = pick(true)
+  f()
+  pick(false)()
+  print(doubler()(21))
+
+# expect:
+# hi
+# wave
+# 42

@@ -1,0 +1,26 @@
+# A consuming loop that leaves early drops the elements it did not reach
+# last first, as dropping the Vec would.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+sub main()
+  v: Vec(*B) = Vec()
+  for i in 1..5
+    !v.push(*B(n: i))
+  for b in <v
+    print("got", b.n)
+    break if b.n == 2
+  print("end")
+
+# expect:
+# got 1
+# drop 1
+# got 2
+# drop 2
+# drop 4
+# drop 3
+# end

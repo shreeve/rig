@@ -1,0 +1,9 @@
+# A `while` step is an assignment or a call, run after each iteration;
+# any other statement there is an error.
+
+sub main()
+  x = 0
+  while x < 3 : break
+    x += 1
+
+# error: 6:17: unexpected keyword `break`; expected an assignment or a call

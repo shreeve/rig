@@ -1,0 +1,19 @@
+# A method named like an imported module still reaches the module's
+# constants, types, and functions.
+
+use lib
+
+struct S
+  n: Int
+
+  fun lib(?self) -> Int
+    p: lib.P = lib.P(x: 2)
+    q = lib.P(x: 3)
+    self.n + lib.limit + lib.twice(1) + p.x + q.x
+
+sub main()
+  s = S(n: 1)
+  print(s.lib())
+
+# expect:
+# 15

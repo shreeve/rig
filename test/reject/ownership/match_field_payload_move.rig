@@ -1,0 +1,32 @@
+# A payload of a matched field views the field: moving or dropping it
+# out would leave the parent owning it too.
+
+struct Tok
+  n: Int
+
+enum Slot
+  empty
+  full(t: *Tok)
+
+struct Holder
+  s: Slot
+
+struct Outer
+  h: Holder
+
+sub eat(t: *Tok)
+  print(t.n)
+
+sub main()
+  h = Holder(s: .full(*Tok(n: 1)))
+  match h.s
+    .full(t) => eat(<t)
+    .empty => print("empty")
+  o = Outer(h: Holder(s: .full(*Tok(n: 2))))
+  match o.h.s
+    .full(t)
+      -t
+    .empty => print("empty")
+
+# error: cannot move `t` out of `h.s`
+# error: cannot drop `t` out of `o.h.s`

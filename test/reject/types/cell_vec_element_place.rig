@@ -1,0 +1,21 @@
+# An element of a Cell's Vec is a copy: it cannot be borrowed, and it is
+# written whole with `c[i] = e`, not through a field or `+=`.
+
+struct P
+  x: Int
+
+sub main()
+  ps: Cell(Vec(P)) = Cell(value: Vec())
+  ps.push(P(x: 1))
+  r = ?ps[0]
+  ps[0].x = 2
+  ns: Cell(Vec(Int)) = Cell(value: Vec())
+  ns.push(1)
+  ns[0] += 1
+  ns.len = 3
+  print(r)
+
+# error: 10:8: cannot borrow an element of a Cell's Vec
+# error: 11:3: an element of a Cell's Vec is written whole
+# error: 14:3: an element of a Cell's Vec is written whole
+# error: 15:6: cannot assign to `.len`; a length is read-only

@@ -3,12 +3,19 @@
 ```bash
 ./test/run                 # everything (parallel)
 ./test/run ownership       # only tests whose id contains "ownership"
-./test/run -v known/emit   # list each result, including known failures
+./test/run -v known        # list each result of the known bugs
 ./test/run --update ir     # rewrite IR snapshots after an intended grammar change
 ```
 
 The summary line reads `N passed, M failed, K known`. The suite is green
-when nothing fails and no known-failing test has started passing.
+when nothing fails and no known-failing test has started passing. A
+filter that selects nothing, or only the `parser` check when Nexus is
+not built, exits 2. The runner works from any directory.
+
+The runner needs GNU `timeout` (on macOS, `gtimeout` from `brew install
+coreutils`). `ZIG` names the Zig executable, `RIG_TEST_TIMEOUT` the
+seconds each test may take (default 120), and `RIG_TEST_OUT` the
+directory for emitted packages (see [Output](#output)).
 
 ## Layout
 
@@ -19,7 +26,7 @@ when nothing fails and no known-failing test has started passing.
 | `test/known/<area>/<name>.rig` | a known bug, written as a behavior or reject test of the *correct* behavior |
 | `examples/<name>.rig` | curated showcase programs; same contract as `behavior/` |
 | `test/ir/<name>.rig` | raw and semantic IR snapshots (`<name>.raw.sexp`, `<name>.sem.sexp`) |
-| `test/torture/<name>.rig` | bad input: must be rejected with a diagnostic, never crash the compiler |
+| `test/torture/<name>.rig` | bad input: `rig run` must reject it with a `file:line:col` diagnostic, never crash |
 | `test/cli/<name>.sh` | a bash script exercising the `rig` commands; passes when it exits 0 (see below) |
 | `unit` | `zig build test` |
 | `parser` | `src/parser.zig` matches what Nexus generates from `rig.grammar` |
@@ -36,7 +43,7 @@ One file per test, discovered automatically; there is no list to edit.
 Directives are whole-line comments.
 
 ```rig
-sub main()
+sub main
   print 42
   print "done"
 
@@ -52,7 +59,8 @@ sub main()
 - `# expect-panic: <text>` — the program must exit non-zero with `<text>`
   on stderr. An `# expect:` block, if present, still checks stdout.
 - `# error: <text>` — makes the file a rejection test. Repeat the line to
-  require several diagnostics.
+  require several diagnostics. `# error: L:C: <text>` also requires the
+  diagnostic to be at line `L`, column `C`.
 
 ## Doc examples
 
@@ -106,6 +114,8 @@ outside `known/` describe current behavior only.
 ## Output
 
 `rig run` writes emitted Zig to `$RIG_OUT_DIR` when set. The suite uses
-`.zig-cache/rig-test/<id>/` (a CLI test's scratch directory is its
-`work/` subdirectory), so emitted code for a failing test can be
-inspected there, and repeated runs hit Zig's build cache.
+`.zig-cache/rig-test/<id>/`, or `$RIG_TEST_OUT/<id>/` (a CLI test's
+scratch directory is its `work/` subdirectory), so emitted code for a
+failing test can be inspected there, and repeated runs hit Zig's build
+cache. One run at a time uses an output directory; a second run waits
+for the first, unless `RIG_TEST_OUT` gives it a directory of its own.

@@ -3,10 +3,10 @@
 
 sub main()
   v: Vec(Int) = Vec(capacity: 32)
-  (!v).push(1)
-  (!v).push(2)
-  (!v).push(3)
-  print(v.length())                 # 3
+  !v.push(1)
+  !v.push(2)
+  !v.push(3)
+  print(v.len)                 # 3
 
 # expect:
 # 3

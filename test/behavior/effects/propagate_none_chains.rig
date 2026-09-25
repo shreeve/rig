@@ -1,0 +1,51 @@
+# `e?` chains through fields, works in a function returning `T?!`,
+# leaves a loop with the function, and reads through a borrowed optional.
+
+error Bad
+  odd
+
+struct Node
+  next: Int?
+  val: Int
+
+fun get(i: Int) -> Node?
+  return none if i < 0
+  Node(next: i - 1 if i > 0 else none, val: i * 10)
+
+fun second(i: Int) -> Int?
+  get(get(i)?.next?)?.val
+
+fun checked(i: Int) -> Int?!
+  return Bad.odd if i % 2 == 1
+  v = get(i)?
+  v.val
+
+fun first_even(xs: ?[3]Int) -> Int?
+  for x in xs
+    n = get(x)?
+    return n.val if n.val % 20 == 0
+  none
+
+fun bump(m: !(Int?)) -> Int?
+  v = m?
+  m <- v + 1
+  v
+
+fun peek(m: ?(Int?)) -> Int?
+  m? * 2
+
+sub main()
+  print(second(2), second(0), second(-1))
+  print(checked(2) catch 7, checked(1) catch 7, checked(-2) catch 7)
+  print(first_even(?[1, 2, 3]), first_even(?[1, -1, 2]))
+  x: Int? = 4
+  print(bump(!x), x, peek(?x))
+  y: Int? = none
+  print(bump(!y), y, peek(?y))
+
+# expect:
+# 10 none none
+# 20 7 none
+# 20 none
+# 4 5 10
+# none none none

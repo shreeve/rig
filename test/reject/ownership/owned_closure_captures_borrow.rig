@@ -1,0 +1,26 @@
+# An owned closure is a shared handle that can be stored anywhere,
+# including in a Cell or Signal that other handles reach, so it holds no
+# borrow: it cannot capture a borrow, a borrowed parameter, or a view.
+
+struct Box
+  n: Int
+
+struct View
+  b: ?Box
+
+fun keep(v: View) -> *sub()
+  *|<v| print(v.b.n)
+
+sub main()
+  b = Box(n: 1)
+  w = !b
+  g: *sub() = *|<w|
+    w.n += 1
+  g()
+  vw = View(b: ?b)
+  f = *|<vw| print(vw.b.n)
+  f()
+
+# error: an owned closure cannot capture `v`, which holds a borrow;
+# error: an owned closure cannot capture `w`, which holds a borrow of `b`
+# error: an owned closure cannot capture `vw`, which holds a borrow of `b`

@@ -25,7 +25,7 @@ fun size_of(p: ?Packet) -> Int
 sub send(p: Packet)
   print("sending", p.size)
 
-sub main()
+sub main
   p = Packet(size: 512)
   print(size_of(?p))      # lent for reading; `p` is still ours
   send(<p)                # handed over; `p` is gone from here on
@@ -55,14 +55,14 @@ no unmarked unsafe code. What stays implicit is cheap and cannot
 surprise: copying plain data, reading through a shared handle, lending
 a receiver to a `?self` method, and moving a local out with `return x`,
 where its scope ends anyway. Writing through a receiver
-(`(!v).push(x)`) or consuming it (`(<u).close()`) is always spelled out;
+(`!v.push(x)`) or consuming it (`<u.close()`) is always spelled out;
 a binding that already holds a write borrow (`v: !Vec(Int)`) says so in
 its type, and lends it as it is (`v.push(x)`).
 
 **Effects survive into the IR.** Every sigil becomes a named node in
 the semantic IR (`(move x)`, `(read x)`, `(clone x)`, `(drop x)`,
-`(propagate e)`, `(raw_block ...)`), and the checkers and emitter
-consume those nodes by name. What the reader sees is exactly what the
+`(propagate e)`, `(propagate_none e)`, `(raw_block ...)`), and the
+checkers and emitter consume those nodes by name. What the reader sees is exactly what the
 compiler reasons about; nothing is recovered from comments,
 conventions, or heuristics.
 
@@ -85,9 +85,9 @@ cleanly, the language gains a general feature, never a special case.
 
 **Unify effects rather than add features.** A feature earns its place
 by making an existing effect explicit or by replacing several ad hoc
-mechanisms with one. Closure literals lost their keyword because the
-bar list already marked them; closure types became `fun(...)` and
-`sub(...)` because function types already existed.
+mechanisms with one. Closure literals need no keyword because the bar
+list already marks them; closure types are `fun(...)` and `sub(...)`
+because function types already exist.
 
 ## The sigil algebra
 
@@ -108,6 +108,7 @@ For a value `x` of type `T`:
 | `*x` | `*T` | move into a new counted box | one allocation |
 | `~x` | `~U` when `T` is `*U` | a non-owning handle | a weak-count bump |
 | `e!` | `T` when `e : T!` | propagate failure | a branch |
+| `e?` | `T` when `e : T?` | return `none` from the function | a branch |
 
 Each operation has one meaning, becomes one IR node, and succeeds
 whenever it type-checks. That is the first law.
@@ -115,9 +116,9 @@ whenever it type-checks. That is the first law.
 **Totality.** A sigil never fails at run time; failure belongs to
 methods. This is why the way back from a weak handle is a method:
 `w.upgrade()` returns an optional `(*U)?`, because the value may be
-gone. A sigil like `^w` was considered and rejected: it would be the
-only partial sigil. The round trip is total going down (`~x`), fallible
-coming up (`upgrade()`).
+gone. A sigil for it (say `^w`) would be the only partial sigil. The
+round trip is total going down (`~x`), fallible coming up
+(`upgrade()`).
 
 **Position picks the category; the symbol picks the family.** A prefix
 `?` or `!` is always a borrow, in an expression and in a type alike:
@@ -132,14 +133,13 @@ absence and suffix `!` to failure.
 T?   suffix, type         optional: T or none
 T!   suffix, type         fallible: T or an error
 e!   suffix, expression   propagate the failure of a T!
-e?   suffix, expression   reserved: propagate the absence of a T?
+e?   suffix, expression   propagate the absence of a T?
 ```
 
-The triangle came from a collision: an early design spelled fallible
-returns `-> !User`, which clashed with the write borrow. Moving type
-modifiers to suffix position made both families unambiguous. One
-casualty is Ruby's `valid?` method names, which would collide with
-`Bool?`; Rig writes `is_valid`.
+Keeping absence and failure in suffix position is what lets `!` and
+`?` serve both families unambiguously: `-> !User` returns a write
+borrow, `-> User!` a fallible `User`. The price is Ruby's `valid?`
+method names, which would collide with `Bool?`; Rig writes `is_valid`.
 
 **Composition.** Prefixes compose right to left and suffixes bind
 tighter than prefixes, in types and in expressions:
@@ -152,7 +152,24 @@ tighter than prefixes, in types and in expressions:
 | `*User?` | a shared handle to an optional `User` |
 | `(*User)?` | an optional shared handle (what `upgrade()` returns) |
 | `*Cell(Vec(*sub()))` | a shared cell holding a list of owned closures |
-| `(!v).push(x)` | write-borrow `v`, then call a writing method |
+| `+n.first()` | clone the handle `first` returns |
+| `!v.push(x)` | write-borrow `v`, then call a writing method |
+
+One exception is made, for method calls: `!` or `<` directly before a
+place followed by a method call applies to the place, so `!v.push(x)`
+is `(!v).push(x)` and `<conn.close()` is `(<conn).close()`. `!` and `<`
+are exactly the receiver modes a method declares (`!self`,
+`self: Self`), and on a call's result they would mean nothing: the
+result is a temporary the caller already owns, so writing through it
+would be lost and moving it is what happens anyway. `*`, `+`, `~`, `?`,
+and `-` do mean something on a result (share it, clone the handle it
+is, take a weak handle, borrow it, negate it), so they keep the rule:
+`*Point.origin()` shares the new point. The exception comes with checks
+that keep it honest: `!` before a method that only reads its receiver
+is rejected, since it would read as negation (which is `not`), `<`
+before one that does not consume it is rejected, and a `!` call whose
+value is a `Bool` keeps the parentheses, `(!set).insert(k)`, so no
+`!` in Rig ever reads as "not".
 
 **Absorption.** Operations that would add nothing are rejected rather
 than silently tolerated. Sharing a shared handle (`*x` when `x : *T`,
@@ -184,7 +201,7 @@ struct Owner
 fun id_of(n: ?*Node) -> Int
   n.id
 
-sub main()
+sub main
   o = Owner(node: *Node(id: 1))
   shared = *<o                 # move `o`, then share it: *Owner
   first = +shared.node         # clone the handle in a field: *Node
@@ -269,8 +286,12 @@ binding syntax.
 ### `and`, `or`, `not`
 
 Words read better than `&&` and `||`, and they free `!` for its two
-jobs, borrowing and failure. The old spellings are rejected with a
-pointer to the new ones.
+jobs, borrowing and failure. `&&` and `||` are rejected with a pointer
+to the words, and so is every `!` a C, Rust, or Zig reader would take
+for "not": a `!x` read as a `Bool`, a `!` before a method that only
+reads its receiver (`!q.is_empty()`), and a `!` call that returns a
+`Bool` without its parentheses. A habit can make a program fail to
+compile, never change what it means.
 
 ### `raw` as a block
 
@@ -323,9 +344,9 @@ on Rig is this IR, not its syntax.
 
 Rust and Zig ship no reactivity in their standard libraries; Leptos and
 friends are libraries over `Rc<RefCell<T>>` and closures. Rig takes the
-same position, and used reactivity as a forcing function: a reactive
-program had to compose from general pieces, and wherever it could not,
-the language gained a general feature. The same pieces (a parent owning
+same position, and uses reactivity as a forcing function: a reactive
+program must compose from general pieces, and wherever it cannot, the
+language gains a general feature. The same pieces (a parent owning
 children that refer back weakly, retained callbacks, shared mutable
 cells, lists of handles) serve GUI trees, observers, caches, and graphs.
 `Signal` is the one reactive primitive in the runtime, and it is
@@ -343,7 +364,7 @@ goals, and says no where they don't.
 | **Python** | indentation, `and`/`or`/`not`, readable one-line calls, `print` with several values, bindings without declarations | dynamic typing, implicit shadowing |
 | **Ruby** | paren-free calls, short keywords, readability first | `valid?` names, implicit mutation |
 | **CoffeeScript, Rip** | the aesthetic; Rip (a CoffeeScript-style language by Rig's author) and Zag (its Zig-targeted sibling) supplied the indentation lexer and much of the surface | reactive operators in the core language |
-| **Swift** | second-class borrows; `x?` optional propagation (reserved) | |
+| **Swift** | second-class borrows; `x?` optional propagation | |
 | **Hylo, Mojo** | borrows as parameter conventions rather than types with lifetimes; values first | |
 | **Lisp** | S-expressions as the IR and a project contract | S-expression syntax; macros |
 
@@ -352,7 +373,7 @@ goals, and says no where they don't.
 - a garbage collector, ever
 - a custom or LLVM backend: Zig does code generation
 - a reactive framework in the language
-- macros, until compile-time evaluation proves it needs them
+- macros
 - traits and interfaces, until a design keeps dispatch and ownership
   visible
 - lifetime annotations, unless second-class borrows prove too weak

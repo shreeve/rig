@@ -1,0 +1,10 @@
+# A `pub fun` may return a private struct: the importer holds the value
+# and reads its fields, though it cannot name the type.
+use a
+
+sub main()
+  s = a.make_secret()
+  print(s.value)
+
+# expect:
+# 42

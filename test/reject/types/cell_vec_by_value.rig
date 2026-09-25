@@ -1,0 +1,13 @@
+# A Cell's Vec changes only through a Cell with a place: a by-value
+# parameter is a copy, and so is a loop binding.
+
+sub add(c: Cell(Vec(Int)))
+  c.push(1)
+  c[0] = 2
+
+sub main()
+  cs: Vec(Int) = Vec()
+  print(cs.len)
+
+# error: 5:5: `Cell.push` needs a Cell that has a place
+# error: 6:3: `c[i] = e` needs a Cell that has a place

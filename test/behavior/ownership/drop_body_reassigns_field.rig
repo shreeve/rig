@@ -1,0 +1,18 @@
+# A drop body may replace an owning field: the new value is released
+# with the other fields after the body returns.
+
+struct Owner
+  cell: *Cell(Int)
+
+  drop self: !Owner
+    fresh: *Cell(Int) = *Cell(value: 7)
+    self.cell = <fresh
+    print("replaced", self.cell.get())
+
+sub main()
+  o = Owner(cell: *Cell(value: 0))
+  print("made", o.cell.get())
+
+# expect:
+# made 0
+# replaced 7

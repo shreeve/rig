@@ -1,0 +1,26 @@
+# Integer literals in arithmetic over a type parameter take its type in
+# each instance: `1 / 2` is `0.5` where `T` is `Float` and `0` where it
+# is `Int`.
+
+type Box(T)
+  v: T
+
+  fun half(?self) -> T
+    self.v + 1 / 2
+
+  fun mix(?self) -> T
+    self.v + 7 % 4 * 3 / 2
+
+  fun more(?self) -> T
+    y = self.v - 7 / 2
+    y * (1 + 1) / 4 + -(3 / 2) % 2
+
+sub main()
+  print(Box(v: 3.0).half(), Box(v: 3).half())
+  print(Box(v: 3.0).mix(), Box(v: 3).mix())
+  print(Box(v: 3.0).more(), Box(v: 3).more())
+
+# expect:
+# 3.5 3
+# 7.5 7
+# -1.75 -1

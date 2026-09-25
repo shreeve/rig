@@ -1,0 +1,6 @@
+# A string holds no control characters: a tab is written `\t`.
+
+sub main()
+  print("a	b")
+
+# error: 4:11: control character in a string; write it as an escape (`\t`, `\n`) in a double-quoted string

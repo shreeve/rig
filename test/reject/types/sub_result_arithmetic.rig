@@ -8,4 +8,4 @@ sub main()
   y = x + 1
   print(y)
 
-# error: `Void`
+# error: 7:7: `x` would be bound to a value of type `Void`; this expression produces no value

@@ -1,0 +1,20 @@
+# The elements of a Cell's Vec of handles are not read or overwritten in
+# place: that would copy a handle out, or release one, while the cell
+# holds the Vec. `pop` them, or `replace` the Vec.
+
+struct N
+  id: Int
+
+sub main()
+  hs: Cell(Vec(*N)) = Cell(value: Vec())
+  hs.push(*N(id: 1))
+  a = hs[0]
+  b = hs.get(0)
+  hs[0] = *N(id: 2)
+  c = hs.get()
+  print(a, b, c)
+
+# error: 11:7: cannot read or overwrite an element of a `Cell(Vec(*N))` in place
+# error: 12:10: cannot read or overwrite an element of a `Cell(Vec(*N))` in place
+# error: 13:3: cannot read or overwrite an element of a `Cell(Vec(*N))` in place
+# error: 14:10: `Cell.get` returns `T` by value but `T = Vec(*N)` has drop glue

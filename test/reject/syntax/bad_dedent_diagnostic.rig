@@ -5,4 +5,4 @@ sub main()
     x = 1
   print(x)
 
-# error: indentation
+# error: 6:3: indentation does not match any enclosing block

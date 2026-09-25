@@ -1,0 +1,32 @@
+# A payload of a field reached through a borrow or a shared handle is
+# owned by someone else: it cannot be moved or dropped.
+
+struct Tok
+  n: Int
+
+enum Slot
+  empty
+  full(t: *Tok)
+
+struct Holder
+  s: Slot
+
+sub eat(t: *Tok)
+  print(t.n)
+
+sub peek(h: ?Holder)
+  match h.s
+    .full(t) => eat(<t)
+    .empty => print("empty")
+
+sub main()
+  h = Holder(s: .full(*Tok(n: 1)))
+  peek(?h)
+  sh = *Holder(s: .full(*Tok(n: 2)))
+  match sh.s
+    .full(t)
+      -t
+    .empty => print("empty")
+
+# error: cannot move out of `t`: it is borrowed from `h`
+# error: cannot move out of `t`: `sh` is a shared handle

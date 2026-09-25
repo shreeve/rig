@@ -1,0 +1,10 @@
+# Float division by a constant zero gives an infinity, as it does when
+# the divisor is computed.
+
+sub main()
+  a = 3.0
+  b = -1.5
+  print(a / 0, b / 0)
+
+# expect:
+# inf -inf

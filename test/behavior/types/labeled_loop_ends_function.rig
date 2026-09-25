@@ -1,0 +1,13 @@
+# A function may end with a labeled `while true` that no `break` leaves.
+
+fun f(n: Int) -> Int
+  :a while true
+    while true
+      break
+    return n
+
+sub main()
+  print(f(4))
+
+# expect:
+# 4

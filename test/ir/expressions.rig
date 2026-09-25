@@ -24,4 +24,4 @@ sub main()
   print(p.x)
   q = Point.new
   v: Vec(Int) = Vec(capacity: 4)
-  (!v).push(1)
+  !v.push(1)

@@ -1,4 +1,4 @@
-# `drop` declarations on generic types are not supported.
+# A `drop` body is only for a struct, not a generic type.
 
 type Box(T)
   value: T
@@ -6,4 +6,4 @@ type Box(T)
   drop self: !Self
     print(0)
 
-# error: `drop` declarations on generic types are deferred
+# error: `drop` bodies are only for structs, not generic types

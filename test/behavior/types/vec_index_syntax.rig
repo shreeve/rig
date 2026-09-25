@@ -2,8 +2,8 @@
 
 sub main()
   v: Vec(Int) = Vec()
-  (!v).push(4)
-  (!v).push(9)
+  !v.push(4)
+  !v.push(9)
   print(v[1])
 
 # expect:

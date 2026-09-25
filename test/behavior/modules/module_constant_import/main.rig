@@ -1,0 +1,10 @@
+# A `pub` constant is readable from an importing module.
+
+use lib
+
+sub main()
+  n = 2
+  print(lib.limit * n, lib.mode, lib.names[1], lib.get())
+
+# expect:
+# 20 .fast b 13

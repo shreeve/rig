@@ -1,9 +1,10 @@
-# Every keyword is reserved: `in` cannot name a parameter.
+# Keywords are reserved outside member names: `in:` inside ( ) reads as
+# a name, but `in` cannot name a parameter.
 
 sub show(in: Int)
-  print(in)
+  print(1)
 
 sub main()
   show(1)
 
-# error: unexpected keyword `in`
+# error: 4:10: `in` is a keyword and cannot name a parameter

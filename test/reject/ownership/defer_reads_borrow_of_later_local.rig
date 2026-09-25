@@ -1,0 +1,30 @@
+# Deferred code runs after the locals declared after the `defer` are
+# dropped, so it cannot read one through a borrow taken later.
+
+struct Res
+  v: Vec(Int)
+
+error Bad
+  oops
+
+fun work() -> Int!
+  y = Res(v: Vec())
+  !y.v.push(1)
+  r = ?y
+  errdefer print("errdefer reads", r.v[0])
+  x = Res(v: Vec())
+  !x.v.push(2)
+  r = ?x
+  return Bad.oops
+
+sub main()
+  y = Res(v: Vec())
+  r = ?y
+  defer print("defer reads", r.v[0])
+  x = Res(v: Vec())
+  !x.v.push(12345)
+  r = ?x
+  print(work() catch 0)
+
+# error: 14:36: deferred code reads `x` through `r`
+# error: 23:30: deferred code reads `x` through `r`

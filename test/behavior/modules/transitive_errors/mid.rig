@@ -1,0 +1,4 @@
+use parsing
+
+pub fun twice(s: String) -> Int!
+  parsing.parse(s)! * 2

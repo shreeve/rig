@@ -1,0 +1,8 @@
+# A slice of an array borrows it, and borrows are spelled: `?xs[a..b]`.
+
+sub main()
+  a = [1, 2, 3]
+  s = a[0..2]
+  print(s)
+
+# error: 5:7: a slice of an array or Vec borrows it; write `?a[0..2]`

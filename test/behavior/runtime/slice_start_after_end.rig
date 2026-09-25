@@ -1,0 +1,13 @@
+# Slice bounds are checked when the slice is taken: `a <= b <= len`.
+
+sub main()
+  xs = [1, 2, 3]
+  lo = xs[1]
+  print(xs.len)
+  s = ?xs[lo..1]
+  print(s)
+
+# expect-panic: slice bounds out of range
+
+# expect:
+# 3

@@ -1,0 +1,33 @@
+# A Cell is reached through every clone of its handle and every borrow
+# of it, so a value put in it (`Cell(value: v)`, `set`, `replace`) may
+# not hold a borrow: another path to the cell could read it after the
+# borrowed value is gone.
+
+struct Box
+  v: Vec(Int)
+
+struct View
+  b: ?Box
+
+sub stash(c: ?Cell(*View), vw: *View)
+  c.set(<vw)
+
+sub park(h: *Cell(*View))
+  x = Box(v: Vec())
+  !x.v.push(42)
+  _ = h.replace(*View(b: ?x))
+
+sub main()
+  y0 = Box(v: Vec())
+  a: *Cell(*View) = *Cell(value: *View(b: ?y0))
+  if true
+    x = Box(v: Vec())
+    !x.v.push(41)
+    b = +a
+    b.set(*View(b: ?x))
+  park(+a)
+  print("done")
+
+# error: cannot store a borrow of `vw` in a `Cell`
+# error: cannot store a borrow of `x` in a `Cell`
+# error: cannot store a borrow of `y0` in a `Cell`

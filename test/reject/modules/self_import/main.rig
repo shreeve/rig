@@ -4,4 +4,4 @@ use main
 sub main()
   print(0)
 
-# error: cyclic import
+# error: 2:1: cyclic import: `main` is still being loaded when `main` imports it

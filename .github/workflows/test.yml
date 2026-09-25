@@ -1,0 +1,52 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: rig
+    steps:
+      # Rig and Nexus side by side: the build and test/run look for
+      # nexus/bin/nexus in a parent directory of the checkout.
+      - uses: actions/checkout@v4
+        with:
+          path: rig
+
+      - uses: actions/checkout@v4
+        with:
+          repository: shreeve/nexus
+          ref: v1.0.0
+          path: nexus
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Install GNU timeout
+        if: runner.os == 'macOS'
+        run: brew install coreutils
+
+      - name: Build Nexus
+        working-directory: nexus
+        run: zig build -Doptimize=ReleaseSafe
+
+      - name: Build Rig
+        run: zig build
+
+      - name: Test
+        # Release builds on a cold cache can take minutes on a CI runner.
+        env:
+          RIG_TEST_TIMEOUT: 300
+        run: ./test/run -j 4

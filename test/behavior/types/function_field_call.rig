@@ -1,0 +1,26 @@
+# A field of function type is called like a method: `s.f(1)`.
+
+fun g(n: Int) -> Int
+  n + 1
+
+struct S
+  f: fun(Int) -> Int
+
+struct O
+  k: *fun(Int) -> Int
+
+fun via(s: ?S) -> Int
+  s.f(10)
+
+sub main()
+  s = S(f: g)
+  print(s.f(1), via(?s))
+  t = *S(f: g)
+  print(t.f(2))
+  o = O(k: *|n| n * 3)
+  print(o.k(4))
+
+# expect:
+# 2 11
+# 3
+# 12

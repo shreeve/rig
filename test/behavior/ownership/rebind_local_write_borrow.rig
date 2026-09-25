@@ -1,0 +1,17 @@
+# A local write borrow can be rebound to borrow another value; the first
+# is free again once nothing borrows it.
+
+struct Box
+  n: Int
+
+sub main()
+  x = Box(n: 1)
+  y = Box(n: 2)
+  w = !x
+  w.n = 10
+  w = !y
+  w.n = 20
+  print(x.n, y.n)
+
+# expect:
+# 10 20

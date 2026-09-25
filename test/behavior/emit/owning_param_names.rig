@@ -1,0 +1,49 @@
+# Owning by-value parameters are copied into locals under generated names,
+# whatever they are called: Zig keywords, `_`, and names that look like the
+# emitter's own.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+sub kw(var: Vec(Int))
+  print(var.len)
+
+sub ignore(_: Vec(Int), _: *B)
+  print("ignored")
+
+sub flags(alive_b: Vec(Int), b: *B)
+  if alive_b.len > 0
+    keep(<b)
+
+sub keep(b: *B)
+  print("keep", b.n)
+
+struct S
+  v: Vec(Int)
+
+  sub consume(self: Self)
+    f = || print("consume")
+    f()
+
+sub main()
+  v: Vec(Int) = Vec()
+  !v.push(1)
+  kw(<v)
+  w: Vec(Int) = Vec()
+  ignore(<w, *B(n: 1))
+  u: Vec(Int) = Vec()
+  !u.push(2)
+  flags(<u, *B(n: 2))
+  s = S(v: Vec())
+  <s.consume()
+
+# expect:
+# 1
+# ignored
+# drop 1
+# keep 2
+# drop 2
+# consume

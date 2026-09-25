@@ -9,7 +9,7 @@ struct User
 sub main()
   u = User(age: 1)
   r = ?u
-  (!u).bump(1)
+  !u.bump(1)
   print(r.age)
 
 # error: cannot write-borrow `u` while a read borrow is live

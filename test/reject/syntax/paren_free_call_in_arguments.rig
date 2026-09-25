@@ -1,0 +1,10 @@
+# Inside a call's parentheses every argument is an ordinary expression;
+# `twice -3, 5` there would swallow the arguments after it.
+
+fun twice(n: Int) -> Int
+  n * 2
+
+sub main()
+  print(1, twice -3, 5)
+
+# error: 8:18: unexpected `-`; a call inside parentheses needs its own parentheses: `twice(...)`

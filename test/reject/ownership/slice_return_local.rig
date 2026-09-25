@@ -1,0 +1,10 @@
+# A slice of a local array cannot leave the function.
+
+fun f() -> []Int
+  a = [1, 2, 3]
+  ?a[0..2]
+
+sub main()
+  print(f())
+
+# error: 5:4: returned borrow of `a` does not originate from a borrowed parameter

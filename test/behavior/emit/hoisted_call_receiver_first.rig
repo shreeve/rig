@@ -1,0 +1,60 @@
+# A method call runs its receiver before its arguments, as written, also
+# when keyword arguments are evaluated into temporaries first. A `!self`
+# method called on a temporary changes the temporary.
+
+struct K
+  n: Int
+
+  fun add(?self, a: Int, b: Int) -> Int
+    self.n * 100 + a * 10 + b
+
+  fun bump(!self, a: Int, b: Int) -> Int
+    self.n += 1
+    self.n * 100 + a * 10 + b
+
+fun take(k: !K) -> K
+  k.n = k.n + 1
+  K(n: k.n)
+
+fun say(s: String) -> Int
+  print(s)
+  1
+
+fun mk(s: String) -> K
+  print(s)
+  K(n: 1)
+
+sub main()
+  k = K(n: 0)
+  print(take(!k).add(b: k.n, a: k.n + 1))
+  print(mk("recv").add(b: say("b"), a: say("a")))
+  ps = [K(n: 1), K(n: 2)]
+  print(ps[say("i")].add(b: say("b"), a: say("a")))
+  print(!ps[say("i")].bump(b: say("b"), a: say("a")))
+  print(ps[1].n)
+  v: Vec(K) = Vec()
+  !v.push(K(n: 4))
+  print(v[say("v") - 1].add(b: say("b"), a: say("a")))
+  print(mk("tmp").bump(1, 2))
+
+# expect:
+# 121
+# recv
+# b
+# a
+# 111
+# i
+# b
+# a
+# 211
+# i
+# b
+# a
+# 311
+# 3
+# v
+# b
+# a
+# 411
+# tmp
+# 212

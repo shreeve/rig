@@ -1,5 +1,5 @@
 # A write receiver (`!self`) needs an explicit write borrow at the call
-# site: `(!u).rename(...)`.
+# site: `!u.rename(...)`.
 
 struct User
   name: String

@@ -22,7 +22,7 @@ prints exactly the output shown under it.
 ### Hello
 
 ```rig
-sub main()
+sub main
   print "hello, rig"
 ```
 
@@ -50,7 +50,7 @@ fun greeting(u: ?User) -> String
 sub visit(u: !User)
   u.visits += 1
 
-sub main()
+sub main
   ada = User(name: "Ada", visits: 1)
   visit(!ada)
   print(greeting(?ada), ada.name)
@@ -78,7 +78,7 @@ struct File
 sub archive(f: File)
   print("archiving", f.name)
 
-sub main()
+sub main
   log = File(name: "log.txt")
   data = File(name: "data.csv")
   archive(<log)
@@ -107,7 +107,7 @@ struct Config
   drop self: !Config
     print("config released")
 
-sub main()
+sub main
   a = *Config(level: 3)
   b = +a
   -a
@@ -126,7 +126,7 @@ value goes when its last owner does.
 ### Closures and a little reactivity
 
 ```rig
-sub main()
+sub main
   clicks: *Signal(Int) = *Signal(value: 0)
   total: *Cell(Int) = *Cell(value: 0)
   clicks.subscribe(*|~clicks, +total|
@@ -155,7 +155,7 @@ libraries are written in Rig itself (see
 | Sigil | In an expression | In a type |
 |---|---|---|
 | `<` | `<x` move `x` | |
-| `?` | `?x` read borrow | `?T` read-borrowed; `T?` optional |
+| `?` | `?x` read borrow; `x?` propagate `none` | `?T` read-borrowed; `T?` optional |
 | `!` | `!x` write borrow; `f()!` propagate failure | `!T` write-borrowed; `T!` fallible |
 | `+` | `+x` clone (a new owner) | |
 | `-` | `-x` drop now (as a statement) | |
@@ -167,19 +167,32 @@ comparison and `a * b` a product. The [language reference](SPEC.md)
 covers every rule; [docs/DESIGN.md](docs/DESIGN.md) explains how the
 sigils form a small algebra.
 
-## Build and run
+## Install
 
-You need Zig 0.16.
+Rig needs [Zig](https://ziglang.org/download/) 0.16 on `PATH`; `rig`
+itself runs `$ZIG` instead when it is set.
 
 ```bash
-zig build                              # builds bin/rig
+zig build                  # builds bin/rig in the checkout
+zig build -p ~/.local      # or installs ~/.local/bin/rig
+```
+
+The test runner also needs GNU `timeout` (on macOS, `gtimeout` from
+`brew install coreutils`). [Nexus](https://github.com/shreeve/nexus)
+1.0, the parser generator, is needed only to change the grammar: clone
+it beside this checkout and build it there (`zig build
+-Doptimize=ReleaseSafe`), and `zig build parser` and the suite find it
+([AGENTS.md](AGENTS.md#workflow) has the details).
+
+## Build and run
+
+```bash
 bin/rig run examples/hello.rig         # check, build, and run (Debug)
 bin/rig run --release file.rig         # the same, optimized (ReleaseSafe)
 bin/rig build -o hello file.rig        # a native executable
-bin/rig build --release=fast file.rig  # ReleaseFast: no runtime safety checks
+bin/rig build --release=fast file.rig  # ReleaseFast: no overflow checks
 bin/rig test file.rig                  # run the program's `test` blocks
 bin/rig check file.rig                 # check only
-bin/rig check --facts file.rig         # check, then print the IR as facts
 bin/rig emit file.rig                  # print the emitted Zig
 ./test/run                             # the whole test suite
 ```
@@ -187,46 +200,45 @@ bin/rig emit file.rig                  # print the emitted Zig
 Debug builds (the default) check for memory leaks: a program that
 leaks reports how many allocations it lost and exits 1; set
 `RIG_LEAK_TRACE=1` when building to see where each was allocated.
-`--release` builds keep Zig's safety checks (integer overflow, bounds);
-`--release=fast` drops them. `rig --help` lists every option. Changing
-the grammar needs [Nexus](https://github.com/shreeve/nexus) 1.0, the
-parser generator: `zig build parser -Dnexus=path/to/nexus` (or build
-Nexus next to this checkout, `cd ../nexus && zig build
--Doptimize=ReleaseSafe`, and run `zig build parser`).
+`--release` keeps the overflow, conversion, and bounds checks;
+`--release=fast` drops the overflow and conversion checks, which makes
+overflow undefined behavior. `rig --help` lists every command, option,
+and environment variable. The suite runs on Linux and macOS in
+[CI](.github/workflows/test.yml).
 
 ## Status
 
 **Works today**, with tests for each feature:
 
-- structs, enums with payloads, error sets, generic types, type
-  aliases, methods with explicit receivers, exhaustive `match`
-- `Int` and `Float` (64-bit), sized numbers, compile-time checked
-  constant arithmetic, arrays, strings
+- structs with field defaults, enums with payloads, error sets, generic
+  types, type aliases, module-level constants, methods with explicit
+  receivers, exhaustive `match`
+- `Int` and `Float` (64-bit), sized numbers, checked conversions
+  (`I32(x)`, `Float(n)`), compile-time checked constant arithmetic,
+  arrays, strings, slices (`s[a..b]`, `?xs[a..b]`)
+- loops as values (`x = for ... break v ... else w`), labeled loops
 - moves, read and write borrows (including borrows returned from
-  functions and held in structs), clones, drops, automatic drop on every
-  path, drop glue, user `drop` bodies
+  functions and held in structs) that end at their last use, clones,
+  drops, automatic drop on every path, drop glue, user `drop` bodies
 - shared `*T` and weak `~T` handles, `Cell`, `Vec`, and `Signal`
 - stack and owned closures with explicit captures, any arity, inferred
   parameter types, and return values
-- optionals with `none`, `??`, and `if x as v`; fallible functions that
-  fail with error values, handled with `f()!`, `catch`, and `catch |err|`
-- checked numeric conversions (`I32(x)`, `Float(n)`), and borrows that
-  end at their last use
-- modules with `pub`, `raw` blocks, and C functions through `extern`
-- a test suite where every program runs leak-checked, and every
-  example in these docs is checked
+- optionals with `none`, `??`, `if x as v`, and `x?`; fallible functions
+  that fail with error values, handled with `f()!`, `catch`, and
+  `catch |err|`
+- modules with `pub`, `raw` blocks, C functions through `extern`, and
+  `test` blocks run by `rig test`
 
-**Not yet:**
-
-- a standard library (there is a small runtime and `print`)
-- concurrency and async
-- passing a stack closure as an argument (owned closures work)
-- generic functions, traits or interfaces
-- string building, slices
-- module-level bindings, field defaults, a `rig test` runner
+**Not yet:** a standard library (there is a small runtime and `print`),
+concurrency, and async. [SPEC §19](SPEC.md#19-reserved-and-unsupported-forms)
+lists every form the compiler rejects as not supported yet, among them
+generic functions and passing a stack closure as an argument;
+[the roadmap](docs/ROADMAP.md) lists the plans.
 
 ## Learn more
 
+- [SYNTAX.md](SYNTAX.md): the syntax, taught to Zig and Rust
+  programmers, from a tour to a full reference
 - [SPEC.md](SPEC.md): the language reference
 - [docs/DESIGN.md](docs/DESIGN.md): principles, the sigil algebra, and
   influences

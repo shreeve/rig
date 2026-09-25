@@ -1,0 +1,10 @@
+# Only storage with an owner can be sliced: the slice of a temporary
+# array would point at nothing once the statement ends.
+
+fun make() -> [3]Int
+  [1, 2, 3]
+
+sub main()
+  print(?make()[0..2])
+
+# error: 8:10: only a named array or Vec, or a field or element of one, can be sliced

@@ -6,4 +6,4 @@ sub main()
     y = @ptrCast(x)
     print(y)
 
-# error: @ptrCast
+# error: 6:10: builtin `@ptrCast` is not supported

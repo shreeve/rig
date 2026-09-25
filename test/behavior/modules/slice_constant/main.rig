@@ -1,0 +1,19 @@
+# A slice of a module-level constant points at the constant itself,
+# which outlives every function, so it can be returned.
+
+use lim
+
+LOCAL =! [7, 8, 9]
+
+fun top() -> []Int
+  ?lim.LIMITS[1..3]
+
+fun local_top() -> []Int
+  ?LOCAL[0..2]
+
+sub main()
+  s = ?lim.LIMITS[0..2]
+  print(s, top(), local_top(), lim.NAME[0..5])
+
+# expect:
+# [1, 2] [2, 3] [7, 8] limit

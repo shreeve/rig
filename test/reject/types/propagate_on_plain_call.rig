@@ -8,4 +8,4 @@ sub main()
   n = one()!
   print(n)
 
-# error: fallible
+# error: 8:7: `!` needs a fallible operand; this expression has type `Int` and cannot fail

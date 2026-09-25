@@ -1,0 +1,8 @@
+# A sized type's width has no leading zero: `I08` is not `I8`.
+sub main()
+  x: I08 = 5
+  y = U08(7)
+  print(x, y)
+
+# error: 3:6: use of unbound type `I08`
+# error: 4:7: use of unbound name `U08`

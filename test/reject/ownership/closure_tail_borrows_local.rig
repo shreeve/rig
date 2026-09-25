@@ -1,0 +1,14 @@
+# A closure's value cannot borrow the closure's own locals.
+
+struct Box
+  v: Vec(Int)
+
+sub main()
+  s = ||
+    y = Box(v: Vec())
+    !y.v.push(1)
+    ?y
+  q = s()
+  print(q.v[0])
+
+# error: 10:6: returned borrow of `y` does not originate from a borrowed parameter

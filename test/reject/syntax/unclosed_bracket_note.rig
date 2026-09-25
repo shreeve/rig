@@ -1,0 +1,9 @@
+# A parse error inside a bracket opened on an earlier line points back
+# at the bracket, which may be the one left open.
+
+sub main()
+  x = [1, 2
+  print(x)
+
+# error: 6:3: unexpected name `print`
+# error: 5:7: the `[` opened here is not closed

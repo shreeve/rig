@@ -1,0 +1,19 @@
+# A drop body can call a `!self` method on the value being destroyed.
+
+struct N
+  id: Int
+
+  sub bump(!self)
+    self.id += 1
+
+  drop self: !N
+    self.bump()
+    print("drop", self.id)
+
+sub main()
+  x = N(id: 1)
+  print("made", x.id)
+
+# expect:
+# made 1
+# drop 2

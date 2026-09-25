@@ -1,0 +1,32 @@
+# The `: step` of a `while` is a statement: assigning a resource there
+# drops the value it replaces.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+sub main()
+  i = 0
+  b = *B(n: 0)
+  while i < 3 : b = *B(n: i + 10)
+    print("iter", b.n)
+    i += 1
+  j = 0
+  while j < 3 : j += 1
+    print("j", j)
+  print("end")
+
+# expect:
+# iter 0
+# drop 0
+# iter 11
+# drop 11
+# iter 12
+# drop 12
+# j 0
+# j 1
+# j 2
+# end
+# drop 13

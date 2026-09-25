@@ -1,0 +1,27 @@
+# A shared handle whose value holds a write borrow cannot lend it, and
+# cannot be cloned even through a read borrow of its holder: two handles
+# would write through one borrow.
+
+struct Box
+  v: Vec(Int)
+
+struct WV
+  b: !Box
+
+struct Hold
+  h: *WV
+
+  fun dup(?self) -> *WV
+    +self.h
+
+sub reset(b: !Box)
+  b.v = Vec()
+
+sub main()
+  x = Box(v: Vec())
+  !x.v.push(1)
+  k = Hold(h: *WV(b: !x))
+  reset(k.h.b)
+
+# error: 15:6: cannot clone `self.h`: it holds a write borrow
+# error: 24:9: cannot lend the write borrow held here through a shared handle

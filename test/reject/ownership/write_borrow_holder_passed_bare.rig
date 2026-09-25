@@ -1,0 +1,37 @@
+# A value holding a write borrow, passed bare to a call or placed bare in
+# a constructor, lends that borrow: the holder cannot be used while the
+# result is live (here it would free the Vec the result iterates).
+
+struct Tok
+  n: Int
+
+struct Box
+  v: Vec(*Tok)
+
+struct Ed
+  t: !Box
+
+struct Outer
+  e: Ed
+
+fun dup(e: Ed) -> Ed
+  <e
+
+sub main()
+  x = Box(v: Vec())
+  !x.v.push(*Tok(n: 1))
+  e = Ed(t: !x)
+  r = dup(e)
+  for tk in ?r.t.v
+    e.t.v = Vec()
+    print(tk.n)
+  y = Box(v: Vec())
+  !y.v.push(*Tok(n: 2))
+  f = Ed(t: !y)
+  o = Outer(e: f)
+  for tk in ?o.e.t.v
+    f.t.v = Vec()
+    print(tk.n)
+
+# error: cannot assign to `e.t.v` while `e` is borrowed
+# error: cannot assign to `f.t.v` while `f` is borrowed

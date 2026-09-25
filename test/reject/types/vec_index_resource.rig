@@ -6,7 +6,7 @@ struct N
 sub main()
   xs: Vec(*N) = Vec()
   a = *N(v: 1)
-  (!xs).push(<a)
+  !xs.push(<a)
   b = xs[0]
   print(b.v)
 

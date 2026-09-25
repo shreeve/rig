@@ -1,0 +1,34 @@
+# A temporary receiver holding a type parameter, evaluated before the
+# arguments, is dropped like a resource in the generic body.
+
+fun side(k: Int) -> Int
+  print("side", k)
+  k
+
+type Box(T)
+  v: T
+
+  fun bump(!self, k: Int) -> Int
+    k + 1
+
+  fun get(?self, a: Int, b: Int) -> Int
+    a * 10 + b
+
+  fun twice(?self) -> Box(T)
+    Box(v: self.v)
+
+  fun again(?self) -> Int
+    self.twice().bump(side(2))
+
+  fun order(?self) -> Int
+    self.twice().get(b: side(3), a: side(4))
+
+sub main()
+  b = Box(v: 1)
+  print(b.again(), b.order())
+
+# expect:
+# side 2
+# side 3
+# side 4
+# 3 43

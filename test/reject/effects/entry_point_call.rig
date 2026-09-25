@@ -1,0 +1,21 @@
+# The root module's `main` is the program's entry point: it may
+# propagate a failure out of the program, so no Rig code calls it or
+# holds it as a value.
+
+error E
+  bad
+
+fun g() -> Int!
+  3
+
+sub again(n: Int)
+  if n > 0
+    main()
+
+sub main()
+  x = g()!
+  f = main
+  again(x)
+
+# error: 13:5: `main` is the program's entry point; it cannot be called or used as a value
+# error: 17:7: `main` is the program's entry point; it cannot be called or used as a value

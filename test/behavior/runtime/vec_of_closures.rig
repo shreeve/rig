@@ -8,13 +8,13 @@ sub main()
   cb2: *sub() = *|+count| count.set(count.get() + 10)
 
   subs: Vec(*sub()) = Vec()
-  (!subs).push(+cb1)
-  (!subs).push(+cb2)
+  !subs.push(+cb1)
+  !subs.push(+cb2)
 
   cb1()
   cb2()
   print(count.get())                # 11
-  print(subs.length())              # 2
+  print(subs.len)              # 2
 
 # expect:
 # 11

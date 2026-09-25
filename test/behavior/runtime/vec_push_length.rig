@@ -3,10 +3,10 @@
 
 sub main()
   v: Vec(Int) = Vec()
-  (!v).push(10)
-  (!v).push(20)
-  (!v).push(30)
-  print(v.length())                 # 3
+  !v.push(10)
+  !v.push(20)
+  !v.push(30)
+  print(v.len)                 # 3
 
 # expect:
 # 3

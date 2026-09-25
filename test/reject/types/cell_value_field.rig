@@ -1,0 +1,10 @@
+# A Cell is read with `get()` and written with `set(v)` or
+# `replace(v)`; `value` names only its constructor argument.
+
+sub main()
+  c: Cell(Int) = Cell(value: 7)
+  print(c.value)
+  c.value = 8
+
+# error: 6:11: a Cell is read with `c.get()` and written with `c.set(v)`, not through `.value`
+# error: 7:5: a Cell is read with `c.get()` and written with `c.set(v)`, not through `.value`

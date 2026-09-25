@@ -1,0 +1,14 @@
+# Returning a bare local moves it out; a `defer` that runs at that exit
+# sees it moved.
+
+fun mk() -> Vec(Int)
+  v: Vec(Int) = Vec()
+  !v.push(1)
+  defer !v.push(2)
+  v
+
+sub main()
+  w = mk()
+  print(w.len)
+
+# error: use of `v` after move

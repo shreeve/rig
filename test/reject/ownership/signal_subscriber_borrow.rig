@@ -1,5 +1,5 @@
-# A Signal keeps its subscribers, so subscribing a closure that captured
-# a borrow keeps the borrowed value borrowed while the Signal is live.
+# A Signal keeps its subscribers, owned closures that any handle to the
+# Signal can run, so a subscriber cannot capture a borrow.
 
 struct Box
   payload: Int
@@ -17,4 +17,4 @@ sub main()
   -a
   sig.set(1)
 
-# error: cannot drop `a` while borrows are live
+# error: an owned closure cannot capture `r`, which holds a borrow of `a`

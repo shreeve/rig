@@ -1,0 +1,21 @@
+# A method of a generic type cannot be named as a value, and a method
+# value has the method's full signature, receiver first.
+
+type Box(T)
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+struct P
+  x: Int
+
+  fun get(?self) -> Int
+    self.x
+
+sub main()
+  g = Box.get
+  f: fun(Int) -> Int = P.get
+
+# error: 17:11: method `Box.get` of a generic type must be called
+# error: 18:24: type mismatch: expected `fun(Int) -> Int`, got `fun(?P) -> Int`

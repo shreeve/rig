@@ -1,0 +1,19 @@
+# A shift amount may be any integer type; the result has the type of the
+# shifted value.
+
+fun sh(a: U8, n: Int) -> U8
+  a << n
+
+fun back(a: Int, n: U8) -> Int
+  a >> n
+
+sub main()
+  n: U8 = 2
+  x: I32 = 5
+  print(sh(3, 2), back(64, n), x << n, 1 << n)
+  x <<= n
+  print(x)
+
+# expect:
+# 12 16 20 4
+# 20

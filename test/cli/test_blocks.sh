@@ -23,7 +23,7 @@ test "area"
 test "shared handles are released"
   v: Vec(*Cell(Int)) = Vec()
   (!v).push(*Cell(value: 1))
-  print(v.length())
+  print(v.len)
 EOF
 
 out=$("$RIG" test main.rig 2>&1); expect_rc $? 0 "passing tests"
@@ -40,12 +40,23 @@ struct Node
 fun pick(xs: [3]Int, i: Int) -> Int
   xs[i]
 
+error Bad
+  oops
+
+fun risky(n: Int) -> Int!
+  return Bad.oops if n > 0
+  n
+
 test "passes"
   print("fine")
 
 test "leaks a cycle"
   a = *Node(next: *Cell(value: none))
   a.next.set(+a)
+
+test "fails with an error"
+  print(risky(0)!)
+  print(risky(1)!)
 
 test "panics"
   print(pick([1, 2, 3], 9))
@@ -55,7 +66,7 @@ test "never runs"
 EOF
 "$RIG" test failing.rig >out.txt 2>err.txt; rc=$?
 [[ $rc -ne 0 ]] || fail "failing tests exited 0"
-expect_eq "$(cat out.txt)" $'fine\nok    test "passes"\nFAIL  test "leaks a cycle": memory leak\nFAIL  test "panics": panicked' "failing report"
+expect_eq "$(cat out.txt)" $'fine\nok    test "passes"\nFAIL  test "leaks a cycle": memory leak\n0\nFAIL  test "fails with an error": error.oops\nFAIL  test "panics": panicked' "failing report"
 expect_has "$(cat err.txt)" "memory leak detected: 2 allocations" "leak detail"
 expect_has "$(cat err.txt)" "index out of bounds" "panic detail"
 

@@ -28,7 +28,7 @@ sub main()
   x = Box(n: 1)
   r = ?x
   print("read", r.n)
-  (!x).bump()
+  !x.bump()
   w = !x
   w.bump()
   print("x", x.n)
@@ -46,10 +46,10 @@ sub main()
   i = 0
   while i < 3 : i += 1
     seen = ?nums
-    print("len", seen.length())
-    (!nums).push(i)
+    print("len", seen.len)
+    !nums.push(i)
 
-  s: Slot = .full(Box(n: 7))
+  s: Slot = .full(b: Box(n: 7))
   match s
     .full(p)
       print("payload", p.n)

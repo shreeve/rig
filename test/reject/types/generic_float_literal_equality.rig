@@ -1,0 +1,13 @@
+# Comparing a generic `T` with a float literal needs a float `T`; the
+# diagnostic names the literal, not `==`.
+
+type Acc(T)
+  t: T
+  fun is(?self) -> Bool
+    self.t == 1.5
+
+sub main()
+  a = Acc(t: 1)
+  print(a.is())
+
+# error: `Acc(Int)` cannot use `T = Int`: the generic body applies `==` to a `T` and a float literal, which `Int` cannot hold

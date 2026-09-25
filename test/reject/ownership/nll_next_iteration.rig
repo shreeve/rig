@@ -16,6 +16,6 @@ sub main()
   i = 0
   while i < 2 : i += 1
     print(r.n)
-    (!x).bump()
+    !x.bump()
 
 # error: cannot write-borrow `x` while a read borrow is live

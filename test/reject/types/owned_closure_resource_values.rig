@@ -8,7 +8,7 @@ sub take(cb: *sub(Vec(Int)))
 sub main()
   v: *Cell(Int) = *Cell(value: 0)
   bad: *sub(*Cell(Int)) = *|+v, cell| v.set(0)
-  worse: *fun() *Cell(Int) = *|+v| +v
+  worse: *fun() -> *Cell(Int) = *|+v| +v
   inferred = *|+v, cell: *Cell(Int)| v.set(0)
   returns = *|+v| +v
 

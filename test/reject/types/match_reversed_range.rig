@@ -4,6 +4,6 @@ sub main()
   n = 2
   match n
     5..1 => print("in")
-    else => print("out")
+    _ => print("out")
 
-# error: empty range
+# error: 6:5: empty range `5..1`: a range pattern matches from its start up to, not including, its end

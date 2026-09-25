@@ -1,0 +1,15 @@
+# The body drops an owning `as` binding before the loop step runs, so
+# the step cannot use it.
+
+struct B
+  n: Int
+
+sub main()
+  w: Vec(*B) = Vec()
+  !w.push(*B(n: 1))
+  t = 0
+  while !w.pop() as b : t += b.n
+    print(b.n)
+  print(t)
+
+# error: the loop step cannot use `b`: it owns a `*B`

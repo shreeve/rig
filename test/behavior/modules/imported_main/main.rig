@@ -1,0 +1,14 @@
+# Only the root module's `main` is the program: calling another module's
+# `main` does not check the caller's live allocations for leaks.
+
+use helper
+
+sub main()
+  v: Vec(Int) = Vec()
+  !v.push(1)
+  helper.main()
+  print("after", v.len)
+
+# expect:
+# helper main
+# after 1

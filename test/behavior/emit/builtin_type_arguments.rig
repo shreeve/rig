@@ -1,0 +1,16 @@
+# `@sizeOf` takes a type name or a weak handle type.
+
+struct B
+  n: Int
+
+type Pair = B
+
+sub main()
+  print(@sizeOf(~B) == @sizeOf(Int))
+  print(@sizeOf(Pair) == @sizeOf(B))
+  print(@alignOf(B))
+
+# expect:
+# true
+# true
+# 8

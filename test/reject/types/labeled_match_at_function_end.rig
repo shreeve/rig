@@ -1,0 +1,17 @@
+# A labeled `match` or `raw` block is a statement, so it cannot be the
+# value a function ends with.
+
+fun f(n: Int) -> Int
+  :done match n
+    0 => 1
+    _ => 2
+
+fun g(n: Int) -> Int
+  :blk raw
+    n + 1
+
+sub main()
+  print(f(0), g(1))
+
+# error: 5:3: this labeled `match` (a label makes it a statement) produces none
+# error: 10:3: this labeled `raw` block (a label makes it a statement) produces none

@@ -1,0 +1,42 @@
+# Closures laid out inside brackets nest at most 32 deep.
+
+sub run(f: *sub())
+  f()
+
+sub main()
+  run(*||
+    run(*||
+      run(*||
+        run(*||
+          run(*||
+            run(*||
+              run(*||
+                run(*||
+                  run(*||
+                    run(*||
+                      run(*||
+                        run(*||
+                          run(*||
+                            run(*||
+                              run(*||
+                                run(*||
+                                  run(*||
+                                    run(*||
+                                      run(*||
+                                        run(*||
+                                          run(*||
+                                            run(*||
+                                              run(*||
+                                                run(*||
+                                                  run(*||
+                                                    run(*||
+                                                      run(*||
+                                                        run(*||
+                                                          run(*||
+                                                            run(*||
+                                                              run(*||
+                                                                run(*||
+                                                                  run(*||
+                                                                    print(1))))))))))))))))))))))))))))))))))
+
+# error: 39:72: closures laid out inside brackets are nested too deeply

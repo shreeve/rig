@@ -1,0 +1,30 @@
+# A function type writes its result after `->`. A suffix belongs to the
+# result (`fun(Int) -> Int!` is fallible), an optional function type is
+# parenthesized, and a result may itself be a function type.
+
+error Bad
+  negative
+
+fun check(n: Int) -> Int!
+  return Bad.negative if n < 0
+  n
+
+fun double(n: Int) -> Int
+  n * 2
+
+fun twice(f: fun(Int) -> Int) -> *fun(Int) -> Int
+  *|<f, x| f(f(x))
+
+sub main()
+  f: fun(Int) -> Int! = check
+  print(f(3) catch -1, f(-3) catch -1)
+  g: (fun(Int) -> Int)? = double
+  if g as h
+    print(h(4))
+  t = twice(double)
+  print(t(5))
+
+# expect:
+# 3 -1
+# 8
+# 20

@@ -1,0 +1,10 @@
+# A default declared in another module fills an omitted field.
+
+use lib
+
+sub main()
+  c = lib.Config(verbose: true)
+  print(c.retries, c.verbose)
+
+# expect:
+# 3 true

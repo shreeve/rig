@@ -1,0 +1,29 @@
+# A write-borrowing call whose value is a `Bool` is written with the
+# borrow in parentheses, so `!set.insert(k)` never reads as negation.
+
+struct Set
+  items: Vec(Int)
+  fun insert(!self, k: Int) -> Bool
+    for x in ?self.items
+      return false if x == k
+    !self.items.push(k)
+    true
+  fun checked(!self, k: Int) -> Bool!
+    self.insert(k)
+
+fun fill(s: !Set) -> Int!
+  added = !s.checked(3)!
+  1 if added else 0
+
+sub main
+  set = Set(items: Vec())
+  if !set.insert(1)
+    print("new")
+  fresh = !set.insert(2)
+  print(fresh)
+  print(!set.insert(3))
+  print(fill(!set) catch 0)
+
+# error: 15:11: a write-borrowing call that returns `Bool` is written `(!s).checked(...)`, so it is never read as negation
+# error: 20:6: a write-borrowing call that returns `Bool` is written `(!set).insert(...)`, so it is never read as negation
+# error: 22:11: a write-borrowing call that returns `Bool` is written `(!set).insert(...)`

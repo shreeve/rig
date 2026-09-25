@@ -1,0 +1,7 @@
+# A single-quoted string takes no escapes, and no control characters
+# either: a tab needs a double-quoted string.
+
+sub main()
+  print('a	b')
+
+# error: 5:11: control character in a string

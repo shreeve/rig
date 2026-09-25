@@ -1,0 +1,35 @@
+# Fallible functions may call each other, and a function type may be
+# fallible: every fallible type is emitted with the error set `anyerror`.
+
+error Bad
+  negative
+
+fun even(n: Int) -> Bool!
+  return Bad.negative if n < 0
+  return true if n == 0
+  odd(n - 1)!
+
+fun odd(n: Int) -> Bool!
+  return false if n == 0
+  even(n - 1)!
+
+fun half(n: Int) -> Int!
+  return Bad.negative if n < 0
+  n / 2
+
+fun apply(f: fun(Int) -> Int!, x: Int) -> Int!
+  f(x)!
+
+sub main()
+  print(even(10)!)
+  print(odd(7)!)
+  print(even(-1) catch false)
+  print(apply(half, 10)!)
+  print(apply(half, -2) catch -1)
+
+# expect:
+# true
+# true
+# false
+# 5
+# -1

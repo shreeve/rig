@@ -1,4 +1,5 @@
 # Every ownership sigil in expression position, plus the binding forms.
+# A `!` or `<` before a method call moves onto its receiver.
 
 struct Node
   value: Int
@@ -12,6 +13,15 @@ sub inspect(n: ?Node)
 sub touch(n: !Node)
   print(n.value)
 
+struct Log
+  lines: Vec(Int)
+
+  sub add(!self, n: Int)
+    !self.lines.push(n)
+
+  fun close(self: Self) -> Int
+    self.lines.len
+
 sub main()
   a = Node(value: 1)
   inspect ?a
@@ -23,6 +33,12 @@ sub main()
   t = +s
   w = ~t
   -s
+
+  log = Log(lines: Vec())
+  !log.add(1)
+  !log.add 2
+  (!log).add(3)
+  print(<log.close())
 
   fixed =! 10
   x = 1

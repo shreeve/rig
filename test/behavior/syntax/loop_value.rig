@@ -1,0 +1,76 @@
+# A loop whose `break` carries a value is an expression: its value is
+# the value of the `break` that leaves it, or its `else` value when
+# none does. `while true` needs no `else`.
+
+struct Grid
+  rows: [3]Int
+  cols: [3]Int
+
+fun find(xs: ?[4]Int, t: Int) -> Int
+  for x, i in xs
+    break i if x == t
+  else
+    -1
+
+fun first_over(limit: Int) -> Int
+  for i in 0..10
+    break i if i * i > limit
+  else
+    -1
+
+fun pair(g: ?Grid, t: Int) -> Int
+  :outer for r in g.rows
+    for c in g.cols
+      break :outer r * 10 + c if r + c == t
+  else
+    -1
+
+fun collatz(start: Int) -> Int
+  n = start
+  steps = 0
+  while true
+    break steps if n == 1
+    n = n / 2 if n % 2 == 0 else 3 * n + 1
+    steps += 1
+
+sub main()
+  a = [5, 6, 7, 8]
+  print(find(?a, 7), find(?a, 9))
+  n = 0
+  y = while n < 10
+    n += 1
+    break n * 100 if n == 3
+  else
+    0
+  print(y)
+  print(first_over(10), first_over(1000))
+  g = Grid(rows: [1, 2, 3], cols: [4, 5, 6])
+  print(pair(?g, 8), pair(?g, 20))
+  print(collatz(6))
+  word = if first_over(3) > 1
+    for s in ["a", "bb", "ccc"]
+      break s if s.len == 2
+    else
+      "none"
+  else
+    "small"
+  print(word)
+  x = for i in 0..3
+    for j in 0..2
+      print(j)
+    else
+      break 7 + i
+  else
+    0
+  print(x)
+
+# expect:
+# 2 -1
+# 300
+# 4 -1
+# 26 -1
+# 8
+# bb
+# 0
+# 1
+# 7

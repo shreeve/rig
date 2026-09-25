@@ -19,7 +19,7 @@ fun first(v: Vec(*B)) -> Int
 sub main()
   v: Vec(*B) = Vec()
   for i in 0..4
-    (!v).push(*B(n: i))
+    !v.push(*B(n: i))
   for x, i in <v
     if i == 1
       eat(<x)
@@ -30,13 +30,13 @@ sub main()
   print("after")
 
   w: Vec(*B) = Vec()
-  (!w).push(*B(n: 7))
-  (!w).push(*B(n: 8))
+  !w.push(*B(n: 7))
+  !w.push(*B(n: 8))
   print(first(<w))
 
   nums: Vec(Int) = Vec()
-  (!nums).push(3)
-  (!nums).push(4)
+  !nums.push(3)
+  !nums.push(4)
   total = 0
   for x in <nums
     total += x
@@ -45,11 +45,11 @@ sub main()
   print(total)
 
   src: Vec(*B) = Vec()
-  (!src).push(*B(n: 9))
+  !src.push(*B(n: 9))
   keep: Vec(*B) = Vec()
   for x in <src
-    (!keep).push(<x)
-  print(keep.length())
+    !keep.push(<x)
+  print(keep.len)
 
 # expect:
 # see 0

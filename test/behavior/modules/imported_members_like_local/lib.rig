@@ -1,0 +1,12 @@
+pub fun inc(n: Int) -> Int
+  n + 1
+
+pub struct P
+  n: Int
+  f: fun(Int) -> Int
+
+  fun get(?self) -> Int
+    self.n
+
+  sub bump(!self)
+    self.n += 1

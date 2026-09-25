@@ -1,0 +1,19 @@
+# A float literal must fit the type it takes: `F32` reaches about 3.4e38,
+# `F64` about 1.8e308.
+
+k: F32 =! 1e40
+
+fun f(x: F32) -> F32
+  x
+
+sub main()
+  z: F32 = 1e40
+  w: F32 = -1e40
+  x: Float = 1e400
+  print(z, w, x, k, f(1e39))
+
+# error: 4:11: float literal `1e40` does not fit in `F32`
+# error: 10:12: float literal `1e40` does not fit in `F32`
+# error: 11:13: float literal `1e40` does not fit in `F32`
+# error: 12:14: float literal `1e400` is too large
+# error: 13:23: float literal `1e39` does not fit in `F32`

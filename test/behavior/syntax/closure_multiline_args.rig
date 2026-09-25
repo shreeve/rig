@@ -39,7 +39,7 @@ sub main()
     print("outer"))
 
   handlers: Vec(*sub()) = Vec()
-  (!handlers).push(*|+total|
+  !handlers.push(*|+total|
     n = total.get()
     print("handler", n))
   for h in ?handlers

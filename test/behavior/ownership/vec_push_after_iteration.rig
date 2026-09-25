@@ -3,14 +3,14 @@
 
 sub main()
   v: Vec(Int) = Vec()
-  (!v).push(1)
-  (!v).push(2)
+  !v.push(1)
+  !v.push(2)
   total = 0
   for x in ?v
     total += x
-  (!v).push(3)
+  !v.push(3)
   print(total)
-  print(v.length())
+  print(v.len)
 
 # expect:
 # 3

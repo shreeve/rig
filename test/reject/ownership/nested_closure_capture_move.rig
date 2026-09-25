@@ -1,0 +1,20 @@
+# A nested closure cannot move an outer closure's capture (the outer
+# closure may run again), and must capture what it uses.
+
+struct B
+  n: Int
+
+sub main()
+  b = *B(n: 1)
+  outer = |+b|
+    inner = |<b| b.n
+    inner()
+  outer()
+  f = ||
+    k = 2
+    g = || k + 1
+    g()
+  f()
+
+# error: 10:15: cannot move-capture captured resource `b`
+# error: 15:12: `k` is a local of the enclosing function; capture it

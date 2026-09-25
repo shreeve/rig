@@ -14,6 +14,6 @@ sub main()
   x = Box(n: 1)
   r = ?x
   defer print(r.n)
-  (!x).bump()
+  !x.bump()
 
 # error: cannot write-borrow `x` while a read borrow is live

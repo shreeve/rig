@@ -1,0 +1,21 @@
+# A loop's `else` runs after the loop, so a `break` there leaves the
+# loop around it: `b` is moved when the outer loop ends.
+
+struct B
+  n: Int
+
+sub eat(b: *B)
+  print(b.n)
+
+sub main()
+  b = *B(n: 1)
+  for i in 0..1
+    for j in 0..2
+      print(j)
+    else
+      eat(<b)
+      break
+    b = *B(n: 2)
+  print(b.n)
+
+# error: 19:9: use of `b` after move

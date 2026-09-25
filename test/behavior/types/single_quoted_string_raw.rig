@@ -1,0 +1,9 @@
+# A single-quoted string takes no escapes: a backslash is itself.
+
+sub main()
+  print('C:\qdir')
+  print('a\nb')
+
+# expect:
+# C:\qdir
+# a\nb

@@ -1,0 +1,35 @@
+# Literals combined with a generic `T` take the instance's type: the
+# instances here hold every literal the body uses.
+
+type Acc(T)
+  total: T
+
+  fun bumped(?self) -> T
+    self.total + 1
+
+  fun negated(?self) -> T
+    -self.total
+
+  sub add(!self, x: T)
+    self.total += x
+    self.total -= 1
+
+type Bits(T)
+  v: T
+
+  fun doubled(?self) -> T
+    self.v << 1
+
+sub main()
+  a: Acc(Int) = Acc(total: 5)
+  f: Acc(Float) = Acc(total: 2.5)
+  u: Bits(U8) = Bits(v: 7)
+  !a.add(3)
+  print(a.bumped(), a.negated(), a.total)
+  print(f.bumped(), f.negated())
+  print(u.doubled())
+
+# expect:
+# 8 -7 7
+# 3.5 -2.5
+# 14

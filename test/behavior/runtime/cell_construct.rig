@@ -1,9 +1,9 @@
 # A stack-local `Cell(Int)` is built with the `value:` kwarg and its
-# Copy payload is readable through the `value` field.
+# Copy payload is read with `get()`.
 
 sub main()
   c: Cell(Int) = Cell(value: 7)
-  print(c.value)
+  print(c.get())
 
 # expect:
 # 7

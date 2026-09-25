@@ -3,13 +3,13 @@
 # and returned. `|+count|` clones the counter's handle into the closure,
 # and dropping the closure's last handle releases it.
 
-fun make_counter(start: Int) -> *fun(Int) Int
+fun make_counter(start: Int) -> *fun(Int) -> Int
   count: *Cell(Int) = *Cell(value: start)
   *|+count, step|
     count.set(count.get() + step)
     count.get()
 
-sub main()
+sub main
   count: *Cell(Int) = *Cell(value: 0)
   bump = |+count| count.set(count.get() + 1)
   bump()

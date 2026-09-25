@@ -6,4 +6,4 @@ extern fun g() -> Int!
 sub main()
   print("unused")
 
-# error: `extern`
+# error: 4:12: an `extern` function cannot return a fallible type `Int!`; C functions report failure through their return value

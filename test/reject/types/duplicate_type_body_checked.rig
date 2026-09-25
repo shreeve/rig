@@ -1,0 +1,17 @@
+# A declaration that repeats a name is still checked, so the errors
+# inside it are reported too.
+
+struct S
+  x: Int
+
+struct S
+  y: Int
+
+  fun get(?self) -> Int
+    self.y + zzz
+
+sub main()
+  print(1)
+
+# error: duplicate declaration of `S`
+# error: use of unbound name `zzz`

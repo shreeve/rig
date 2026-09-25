@@ -1,0 +1,30 @@
+# An alias of an enum names its variants, with or without a payload.
+
+enum Color
+  red
+  green
+
+enum Shape
+  circle(r: Int)
+  dot
+
+type C = Color
+type S = Shape
+
+sub main()
+  c = C.green
+  s = S.circle(r: 2)
+  match c
+    .green
+      print("green")
+    .red
+      print("red")
+  match s
+    .circle(r)
+      print(r)
+    .dot
+      print("dot")
+
+# expect:
+# green
+# 2

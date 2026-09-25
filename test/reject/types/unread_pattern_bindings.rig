@@ -1,0 +1,34 @@
+# A name bound by `for`, a match pattern, `as`, or `catch |e|` must be
+# read, or be `_`.
+
+enum Shape
+  circle(r: Int)
+  dot
+
+error E
+  bad
+
+fun maybe(n: Int) -> Int?
+  n if n > 0 else none
+
+fun fails() -> Int!
+  return E.bad
+
+sub main()
+  for i in 0..2
+    print("tick")
+  s: Shape = .circle(r: 1)
+  match s
+    .circle(r) => print("circle")
+    other => print("other")
+  if maybe(1) as m
+    print("some")
+  n = fails() catch |e|
+    0
+  print(n)
+
+# error: 18:7: `i` is bound but never read
+# error: 22:13: `r` is bound but never read
+# error: 23:5: `other` is bound but never read
+# error: 24:18: `m` is bound but never read
+# error: 26:22: `e` is bound but never read

@@ -1,0 +1,12 @@
+# An extern function can only be called, inside `raw`: passing it as an
+# argument would let the callee call it without `raw`.
+
+extern fun abs(n: I32) -> I32
+
+fun apply(f: fun(I32) -> I32, n: I32) -> I32
+  f(n)
+
+sub main()
+  print(apply(abs, -1))
+
+# error: an extern function can only be called, inside `raw`

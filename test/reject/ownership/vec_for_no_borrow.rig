@@ -6,7 +6,7 @@ sub main()
   cb1: *sub() = *|+count| count.set(count.get() + 1)
 
   subs: Vec(*sub()) = Vec()
-  (!subs).push(+cb1)
+  !subs.push(+cb1)
 
   for cb in subs
     cb()
