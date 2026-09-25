@@ -6,6 +6,9 @@ fun g(n: Int) -> Int
 struct S
   f: fun(Int) Int
 
+struct O
+  k: *fun(Int) Int
+
 fun via(s: ?S) -> Int
   s.f(10)
 
@@ -14,7 +17,10 @@ sub main()
   print(s.f(1), via(?s))
   t = *S(f: g)
   print(t.f(2))
+  o = O(k: *|n| n * 3)
+  print(o.k(4))
 
 # expect:
 # 2 11
 # 3
+# 12

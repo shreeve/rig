@@ -1,0 +1,16 @@
+# Calling a function-typed field checks its arguments like any call.
+
+fun id(n: Int) -> Int
+  n
+
+struct S
+  f: fun(Int) Int
+  g: *fun(Int) Int
+
+sub main()
+  s = S(f: id, g: *|n| n)
+  print(s.f(1, 2))
+  print(s.g("x"))
+
+# error: 12:9: call to `f` expects 1 argument, got 2
+# error: 13:13: type mismatch: expected `Int`, got `String`
