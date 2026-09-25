@@ -20,7 +20,7 @@ expect_has "$(cat err.txt)" "RIG_LEAK_TRACE=1" "hint"
 
 RIG_LEAK_TRACE=1 "$RIG" run cycle.rig >out.txt 2>err.txt; expect_rc $? 1 "leaking program, traced"
 expect_has "$(cat err.txt)" "leaked:" "traced leak report"
-expect_has "$(cat err.txt)" "cycle.zig:" "trace into the program"
+expect_has "$(cat err.txt)" "__rig_main.zig:" "trace into the program"
 
 "$RIG" run --release cycle.rig >out.txt 2>err.txt; expect_rc $? 0 "release build does not leak-check"
 exit 0

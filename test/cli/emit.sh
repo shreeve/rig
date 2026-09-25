@@ -18,7 +18,7 @@ EOF
 expect_has "$(cat main.zig)" 'const shapes = @import("shapes.zig");' "emitted root module"
 expect_has "$(cat main.zig)" "pub fn main() void" "emitted root module"
 expect_has "$(cat err.txt)" "$RIG_OUT_DIR" "note naming the package directory"
-cmp -s main.zig "$RIG_OUT_DIR/main.zig" || fail "stdout differs from the written root module"
+cmp -s main.zig "$RIG_OUT_DIR/__rig_main.zig" || fail "stdout differs from the written root module"
 [[ -f "$RIG_OUT_DIR/shapes.zig" ]] || fail "imported module not written"
 [[ -f "$RIG_OUT_DIR/rig/runtime.zig" ]] || fail "runtime not written"
 
@@ -28,7 +28,7 @@ cmp -s main.zig "$RIG_OUT_DIR/main.zig" || fail "stdout differs from the written
 expect_eq "$(cat twice.zig)" "$(cat main.zig main.zig)" "emit >> file"
 
 here=$PWD
-(cd "$RIG_OUT_DIR" && ${ZIG:-zig} build-exe main.zig -femit-bin="$here/prog") || fail "the package does not build on its own"
+(cd "$RIG_OUT_DIR" && ${ZIG:-zig} build-exe __rig_main.zig -femit-bin="$here/prog") || fail "the package does not build on its own"
 expect_eq "$(./prog)" "6" "package built with zig build-exe"
 
 cat >bad.rig <<'EOF'

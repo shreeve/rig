@@ -1,0 +1,9 @@
+# A user module may be named `std`; it is imported like any other.
+
+use std
+
+sub main()
+  print(std.helper())
+
+# expect:
+# 7
