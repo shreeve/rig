@@ -1,0 +1,14 @@
+# Types named `std` or `rig` are renamed in the Zig, and print with
+# their Rig names.
+
+struct std
+  x: Int
+
+type rig(T)
+  y: T
+
+sub main()
+  print(std(x: 1), rig(y: 2))
+
+# expect:
+# std(x: 1) rig(y: 2)

@@ -902,7 +902,9 @@ fn rigTypeName(comptime T: type) []const u8 {
     const full = @typeName(T);
     const end = comptime std.mem.indexOfScalar(u8, full, '(') orelse full.len;
     const start = comptime if (std.mem.lastIndexOfScalar(u8, full[0..end], '.')) |d| d + 1 else 0;
-    return full[start..end];
+    // A Rig name the emitter reserves (`std`, `rig`) is spelled `@"std'"`.
+    const quoted = comptime end > start and full[end - 1] == '\'';
+    return full[start .. if (quoted) end - 1 else end];
 }
 
 /// Values nested deeper than this print as `...`: a structure that
