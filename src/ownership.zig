@@ -2501,9 +2501,11 @@ pub const Checker = struct {
                 v.alias_path = info.path;
                 v.via = info.via;
                 // The binding views the matched value: its root stays
-                // read-borrowed, and a borrowed root lends what it holds.
+                // borrowed (write-borrowed when the view holds a write
+                // borrow, which must not be reached twice), and a borrowed
+                // root lends what it holds.
                 const one = try self.arena().alloc(Loan, 1);
-                one[0] = .{ .root = r, .kind = .read, .pos = pos };
+                one[0] = .{ .root = r, .kind = if (self.carriesWriteBorrow(ty)) .write else .read, .pos = pos };
                 loans = one;
                 if (info.via == .borrowed) loans = try self.unionLoans(loans, self.flows.items[r].loans);
             } else {

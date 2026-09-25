@@ -1,0 +1,28 @@
+# A payload holding a write borrow can be written through, and the
+# scrutinee is usable again once the payload binding is done.
+
+struct Box
+  v: Vec(Int)
+
+struct Ed
+  t: !Box
+
+enum Hold
+  none_
+  has(e: Ed)
+
+sub main()
+  x = Box(v: Vec())
+  h: Hold = .has(Ed(t: !x))
+  match h
+    .has(a)
+      (!a.t.v).push(1)
+      match h
+        .has(b) => (!b.t.v).push(2)
+        .none_ => print("none")
+    .none_
+      print("none")
+  print(x.v.length())
+
+# expect:
+# 2
