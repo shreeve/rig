@@ -583,7 +583,7 @@ pub const Emitter = struct {
             try self.emitTypeTy(r);
         } else {
             // `main` may propagate a failure out of the program.
-            try self.w.writeAll(if (is_main and containsPropagate(body)) "anyerror!void" else "void");
+            try self.w.writeAll(if (is_main and contains(body, &.{.propagate})) "anyerror!void" else "void");
         }
         try self.w.writeAll(" ");
         if (return_ty != null) try self.emitValueBody(body) else try self.emitBlock(body);
@@ -2654,7 +2654,9 @@ pub const Emitter = struct {
         var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or self.consumedTemporary(call) != null;
         for (args) |a| {
             const v = argValue(a);
-            if (owned and mayLeave(v)) return true;
+            // A `!` or `?`, or a `return`, `break`, or `continue` in a
+            // `catch` handler or a branch, leaves the enclosing block.
+            if (owned and contains(v, &.{ .propagate, .propagate_none, .@"return", .@"break", .@"continue" })) return true;
             if (self.isOwnedValue(v)) owned = true;
         }
         return false;
@@ -3592,28 +3594,14 @@ fn argValue(a: Sexp) Sexp {
     return if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
 }
 
-/// Whether evaluating `e` may leave the enclosing block: a `!` or `?`, or a
-/// `return`, `break`, or `continue` (in a `catch` handler or a branch).
-fn mayLeave(e: Sexp) bool {
+/// Whether `e` holds a node of one of `kinds`, outside the closures in it.
+fn contains(e: Sexp, kinds: []const Tag) bool {
     if (e != .list) return false;
-    if (e.kind()) |h| switch (h) {
-        .propagate, .propagate_none, .@"return", .@"break", .@"continue" => return true,
-        .lambda => return false,
-        else => {},
-    };
-    for (e.items()) |c| if (mayLeave(c)) return true;
-    return false;
-}
-
-/// Whether a body uses `!` outside the closures it contains.
-fn containsPropagate(e: Sexp) bool {
-    if (e != .list) return false;
-    if (e.kind()) |h| switch (h) {
-        .propagate => return true,
-        .lambda => return false,
-        else => {},
-    };
-    for (e.items()) |c| if (containsPropagate(c)) return true;
+    if (e.kind()) |h| {
+        if (h == .lambda) return false;
+        if (std.mem.indexOfScalar(Tag, kinds, h) != null) return true;
+    }
+    for (e.items()) |c| if (contains(c, kinds)) return true;
     return false;
 }
 
