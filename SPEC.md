@@ -2675,7 +2675,7 @@ a value.
 | numbers, `Bool` | `42`, `-3`, `2.5`, `true`; a whole `Float` keeps its point: `1.0` |
 | `String` | its text; inside other values, quoted |
 | `none` | `none` |
-| enum | `.green`, `.rect(w: 2, h: 3)` |
+| enum | `.green`, `.rect(w: 2, h: 3)`; a one-field payload without its name: `.circle(2.5)` |
 | struct | `User(name: "ada", age: 36)` |
 | array, slice, `Vec` | `[1, 2]` |
 | shared handle | the value it holds |
@@ -2700,6 +2700,20 @@ sub main()
 
 ```output
 User(name: "ada", age: 36) none ["a", "b"] 2.5
+```
+
+```rig
+enum Shape
+  dot
+  circle(r: Float)
+  rect(w: Int, h: Int)
+
+sub main()
+  print(Shape.dot, Shape.circle(r: 2.5), Shape.rect(w: 2, h: 3))
+```
+
+```output
+.dot .circle(2.5) .rect(w: 2, h: 3)
 ```
 
 ---
