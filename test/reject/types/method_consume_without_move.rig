@@ -11,4 +11,4 @@ sub main()
   u = User(name: "Steve")
   u.consume()
 
-# error: method `consume` consumes the receiver; use `(<receiver).consume(...)`
+# error: method `consume` consumes the receiver; use `<receiver.consume(...)`

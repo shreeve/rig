@@ -1,0 +1,57 @@
+# Only `!` and `<` reach a method's receiver. The other prefix sigils,
+# and `!` / `<` before a place with no method call after it, apply to
+# the whole expression.
+
+struct Point
+  x: Int
+  fun origin -> Point
+    Point(x: 0)
+  fun shifted(?self, d: Int) -> Point
+    Point(x: self.x + d)
+
+struct Leaf
+  n: Int
+
+struct Tree
+  leaf: *Leaf
+  fun first(?self) -> ?*Leaf
+    ?self.leaf
+
+struct Pair
+  v: Vec(Int)
+  name: String
+
+sub fill(v: !Vec(Int))
+  !v.push(1)
+
+sub show(p: ?Point)
+  print(p.x)
+
+sub main
+  shared = *Point.origin()
+  print(shared.x)
+  tree = Tree(leaf: *Leaf(n: 3))
+  copy = +tree.first()
+  weak = ~copy
+  print(copy.n, weak.upgrade() != none)
+  p = Point(x: 4)
+  print(-p.x, -p.shifted(1).x)
+  show(?p.shifted(2))
+  pair = Pair(v: Vec(), name: "pair")
+  fill(!pair.v)
+  print(pair.v.len)
+  name = <pair.name
+  print(name)
+  xs = [1, 2, 3]
+  first = ?xs[0]
+  q = <p
+  print(first, q.x)
+
+# expect:
+# 0
+# 3 true
+# -4 -5
+# 6
+# 1
+# pair
+# 1 4

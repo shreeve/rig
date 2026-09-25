@@ -1,0 +1,107 @@
+# `!` or `<` before a place followed by a method call is the receiver's
+# mode: `!v.push(x)` is `(!v).push(x)`, `<c.close()` is `(<c).close()`.
+# Postfixes after the call apply to its result.
+
+error Empty
+  none_left
+
+struct Cell2
+  n: Int
+  sub bump(!self)
+    self.n += 1
+
+struct Bag
+  items: Vec(Int)
+  sub add(!self, k: Int)
+    !self.items.push(k)
+  fun take(!self) -> Int!
+    return Empty.none_left if self.items.len == 0
+    !self.items.pop() ?? 0
+  fun with(!self, k: Int) -> !Bag
+    !self.items.push(k)
+    self
+
+struct Conn
+  name: String
+  fun close(self: Self) -> Int
+    self.name.len
+
+struct Builder
+  parts: Vec(Int)
+  fun with(self: Self, k: Int) -> Builder
+    b = <self
+    !b.parts.push(k)
+    <b
+  fun finish(self: Self) -> Int
+    total = 0
+    for p in ?self.parts
+      total += p
+    total
+
+struct Holder
+  v: Vec(Int)
+
+struct Row
+  cell: Cell2
+
+fun drain(b: !Bag) -> Int!
+  !b.take()! + !b.take()!
+
+sub send(n: Int)
+  print("sent", n)
+
+sub main
+  v: Vec(Int) = Vec()
+  !v.push(1)
+  !v.push 2
+  (!v).push(3)
+  !v.push(4) if v.len == 3
+  !v.push(5) if false
+  print(v.len, v[3])
+
+  grid: Vec(Cell2) = Vec()
+  !grid.push(Cell2(n: 0))
+  !grid[0].bump()
+  (!grid[0]).bump()
+  print(grid[0].n)
+  rows: Vec(Row) = Vec()
+  !rows.push(Row(cell: Cell2(n: 5)))
+  !rows[0].cell.bump()
+  print(rows[0].cell.n)
+
+  x = Holder(v: Vec())
+  !x.v.push(7)
+  print(x.v.len)
+
+  bag = Bag(items: Vec())
+  !bag.add(10)
+  !bag.with(20).with(30)
+  print(drain(!bag) catch -1)
+  print(!bag.items.pop() ?? 0)
+  print(drain(!bag) catch -1)
+
+  q: Vec(Int) = Vec()
+  i = 0
+  while i < 3 : !q.push(i)
+    i += 1
+  while !q.pop() as j
+    print(j)
+
+  conn = Conn(name: "db")
+  print(<conn.close())
+  b = Builder(parts: Vec())
+  send(<b.with(1).with(2).finish())
+
+# expect:
+# 4 4
+# 2
+# 6
+# 1
+# 50
+# 10
+# -1
+# 3
+# 2
+# 1
+# 2
+# sent 3

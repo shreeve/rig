@@ -967,6 +967,9 @@ pub const Parser = struct {
     base: BaseParser,
     /// Set when parsing succeeded but the tree was rejected.
     failure: ?diag.Diagnostic = null,
+    /// The node ids of the `(write place)` and `(move place)` receivers
+    /// written in front of the call (`!v.push(x)`), not in parentheses.
+    receiver_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
 
     /// Every pass walks the tree recursively; deeper trees are rejected
     /// here instead of exhausting the stack later.
@@ -1169,26 +1172,104 @@ pub const Parser = struct {
     //     the last statement of a `fun` body, or of a branch, arm, or
     //     `catch` handler whose value is used, becomes (neg name). (A
     //     closure has no declared result, so its body is not rewritten.)
+    //   * `!` or `<` before a place followed by a method call is the
+    //     receiver's mode:
+    //       (write (call (member (member x v) push) 1))  →  (call (member (write (member x v)) push) 1)
     //
     // Every rewritten node keeps its node id, and so its span; the new
-    // `captures` node gets its own (`newNode`).
+    // `captures` node and receiver sigil get their own (`newNode`).
     // -------------------------------------------------------------------------
 
     pub fn rewrite(self: *Parser, sexp: Sexp) std.mem.Allocator.Error!Sexp {
         if (sexp != .list) return sexp;
-        const items = sexp.items();
+        var items = sexp.items();
+        // A `for` source sigil is the loop's mode, taken before the
+        // receiver rewrite can see it.
+        if (sexp.kind() == .@"for") {
+            const copy = try self.allocator().dupe(Sexp, items);
+            normFor(copy);
+            items = copy;
+        }
         const walked = try self.allocator().alloc(Sexp, items.len);
         for (items, 0..) |child, i| walked[i] = try self.rewrite(child);
         const out: Sexp = .{ .list = parser.List.withId(walked, sexp.list.id) };
         switch (out.kind() orelse return out) {
             .lambda => try self.splitBars(out, walked),
-            .@"for" => normFor(walked),
+            .write, .move => return self.receiverSigil(out),
             // The body's value is returned.
             .fun => if (ir.Fun.returns(out) != .nil) valueTail(ir.Fun.body(out)),
             // The expression's value is bound or returned.
             .set => valueTail(ir.Set.value(out)),
             .@"return" => valueTail(ir.Return.value(out)),
             else => {},
+        }
+        return out;
+    }
+
+    /// Whether `node` is a receiver sigil the wrapper moved onto the
+    /// receiver: `!v` in `!v.push(x)`, not in `(!v).push(x)`.
+    pub fn isReceiverSigil(self: *const Parser, node: Sexp) bool {
+        return node == .list and self.receiver_sigils.contains(node.list.id);
+    }
+
+    /// The longest postfix chain `receiverSigil` looks through.
+    const max_spine = 256;
+
+    /// `!` and `<` before a place (a name and the fields and elements
+    /// after it) followed by a method call apply to the place; the call
+    /// and every postfix after it apply to the borrowed or moved place:
+    ///   (write (propagate_none (call (member v pop))))
+    ///   → (propagate_none (call (member (write v) pop)))
+    /// Anything else keeps its sigil outside: a chain that is all place
+    /// (`!x.v`), one whose head is called (`<f(x).g()`), and one whose
+    /// spine is parenthesized (`!(v.pop())`), which starts after the
+    /// sigil's own position + 1.
+    fn receiverSigil(self: *Parser, node: Sexp) std.mem.Allocator.Error!Sexp {
+        const tag: parser.Tag = node.kind().?;
+        const at = self.span(node).start + 1;
+        // The chain from the operand down to its head, outermost first.
+        var spine: [max_spine]Sexp = undefined;
+        var n: usize = 0;
+        var e = ir.get(node, .operand);
+        while (true) {
+            if (n == spine.len or self.span(e).start != at) return node;
+            spine[n] = e;
+            n += 1;
+            e = switch (e.kind() orelse break) {
+                .propagate, .propagate_none => ir.get(e, .value),
+                .member, .index => ir.get(e, .object),
+                .call => ir.Call.callee(e),
+                else => return node,
+            };
+        }
+        // Grow the place up from the head through fields and elements,
+        // stopping at the member a call follows: the method.
+        var top = n - 1;
+        while (top > 0) {
+            const up = spine[top - 1];
+            if (up.isKind(.member) and top >= 2 and spine[top - 2].isKind(.call)) break;
+            if (!up.isKind(.member) and !up.isKind(.index)) return node;
+            top -= 1;
+        }
+        if (top == 0) return node;
+        const place = spine[top];
+        var out = try self.base.newNode(tag, &.{place}, .{ .start = at - 1, .end = self.span(place).end });
+        try self.receiver_sigils.put(self.allocator(), out.list.id, {});
+        var i = top;
+        while (i > 0) {
+            i -= 1;
+            const link = spine[i];
+            const slot = switch (link.kind().?) {
+                .propagate => ir.slot(.propagate, .value),
+                .propagate_none => ir.slot(.propagate_none, .value),
+                .member => ir.slot(.member, .object),
+                .index => ir.slot(.index, .object),
+                .call => ir.slot(.call, .callee),
+                else => unreachable,
+            };
+            const copy = try self.allocator().dupe(Sexp, link.items());
+            copy[slot] = out;
+            out = .{ .list = parser.List.withId(copy, link.list.id) };
         }
         return out;
     }
@@ -1366,6 +1447,26 @@ test "parser: for-source sigil moves into the mode slot" {
     const loop = ir.Module.decls(tree)[0];
     try testing.expectEqual(Tag.read, ir.For.mode(loop).tag);
     try testing.expectEqualStrings("xs", ir.For.source(loop).getText(p.base.source));
+}
+
+test "parser: a receiver sigil moves onto the place before the method" {
+    const source = "!x.v[0].push(1)\n(!v).push(2)\n!(v.pop())\n!f(x).g()\n";
+    var p = Parser.init(testing.allocator, source);
+    defer p.deinit();
+    const tree = try p.parseProgram();
+    const stmts = ir.Module.decls(tree);
+    // (call (member (write (index (member x v) 0)) push) 1)
+    const recv = ir.Member.object(ir.Call.callee(stmts[0]));
+    try testing.expect(recv.isKind(.write) and p.isReceiverSigil(recv));
+    const s = p.span(recv);
+    try testing.expectEqualStrings("!x.v[0]", source[s.start..s.end]);
+    try testing.expect(ir.Write.operand(recv).isKind(.index));
+    // Parentheses keep their meaning, and are not a receiver sigil.
+    const long = ir.Member.object(ir.Call.callee(stmts[1]));
+    try testing.expect(long.isKind(.write) and !p.isReceiverSigil(long));
+    try testing.expect(stmts[2].isKind(.write));
+    // A called head is not a place.
+    try testing.expect(stmts[3].isKind(.write));
 }
 
 test "parser: bar lists split into captures and parameters, all with node ids" {

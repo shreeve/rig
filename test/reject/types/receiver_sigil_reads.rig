@@ -1,0 +1,21 @@
+# `!` before a method call write-borrows the receiver, so a method that
+# only reads it is the habit of `!` as negation: use `not`.
+
+struct Queue
+  items: Vec(Int)
+  fun is_empty(?self) -> Bool
+    self.items.len == 0
+  fun peek(?self) -> Int?
+    self.items.get(0)
+
+sub main
+  q = Queue(items: Vec())
+  if !q.is_empty()
+    print("items")
+  while !q.is_empty()
+    break
+  print(!q.peek() ?? 0)
+
+# error: 13:6: `is_empty` does not write its receiver; for negation use `not`
+# error: 15:9: `is_empty` does not write its receiver; for negation use `not`
+# error: 17:9: `peek` does not write its receiver; for negation use `not`

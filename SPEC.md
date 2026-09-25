@@ -545,14 +545,114 @@ how the method uses the value, and the call site says the same thing:
 | Receiver | Meaning | Call |
 |---|---|---|
 | `?self` (= `self: ?Self`) | reads the value | `p.m()`: the read borrow is implicit |
-| `!self` (= `self: !Self`) | modifies the value | `(!p).m()` |
-| `self: Self` | consumes the value | `(<p).m()`, or on a temporary |
+| `!self` (= `self: !Self`) | modifies the value | `!p.m()` |
+| `self: Self` | consumes the value | `<p.m()`, or on a temporary |
 
 Write borrows and moves are never implicit, so calling a `!self` method
 as `p.m()` on an owned `p` is an error. A binding that already holds a
 write borrow (a `!T` parameter, `self` in a `!self` method, a local
 `w = !p`) calls it directly, `w.m()`: the borrow it holds is lent to the
 call.
+
+**Receiver sigils.** `!` or `<` directly before a *place* (a name
+followed by any `.field` or `[index]` steps) that is followed by a
+method call applies to that place: `!P.m(args)` is `(!P).m(args)` and
+`<P.m(args)` is `(<P).m(args)`, with or without parentheses around the
+arguments (`!v.push 3`). Postfixes after that call apply to its result:
+`!v.pop()?`, and `!a.b().c(x)` is `(!a).b().c(x)`. Every other prefix
+sigil (`?`, `+`, `-`, `*`, `~`), and `!` or `<` with no method call
+after the place, applies to the whole expression as before:
+`*Point.origin()` shares the result, `+n.first()` clones it, `-a.len`
+negates it, `!x.v` borrows the field, `<p.f` moves the field, and
+`?xs[0]` borrows the element. With parentheses, `!(v.pop())` borrows
+the call's result.
+
+The short form is checked against the method: `!` before a method that
+does not take `!self` is rejected (it reads as negation, which is
+`not`), and so is `<` before one that does not take `self: Self`, or
+either before a function with no receiver (`Point.origin()`). A
+write-borrowing call whose value is a `Bool` is written in the long
+form, `(!set).insert(k)`, so it is never read as negation.
+
+```rig
+struct Tally
+  seen: Vec(Int)
+
+  fun insert(!self, k: Int) -> Bool
+    for x in ?self.seen
+      return false if x == k
+    !self.seen.push(k)
+    true
+
+  fun total(self: Self) -> Int
+    sum = 0
+    for x in ?self.seen
+      sum += x
+    sum
+
+sub main
+  t = Tally(seen: Vec())
+  !t.seen.push(1)
+  added = (!t).insert(2)
+  print(added, (!t).insert(2))
+  print(<t.total())
+```
+
+```output
+true false
+3
+```
+
+```rig reject
+struct Queue
+  items: Vec(Int)
+
+  fun is_empty(?self) -> Bool
+    self.items.len == 0
+
+sub main
+  q = Queue(items: Vec())
+  if !q.is_empty()
+    print("items")
+```
+
+```error
+`is_empty` does not write its receiver; for negation use `not`
+```
+
+```rig reject
+struct Stack
+  items: Vec(Int)
+
+  fun top(?self) -> Int?
+    self.items.get(0)
+
+sub main
+  s = Stack(items: Vec())
+  print(<s.top() ?? 0)
+```
+
+```error
+`top` does not consume its receiver; drop the `<`
+```
+
+```rig reject
+struct Tally
+  seen: Vec(Int)
+
+  fun insert(!self, k: Int) -> Bool
+    !self.seen.push(k)
+    true
+
+sub main
+  t = Tally(seen: Vec())
+  if !t.insert(1)
+    print("added")
+```
+
+```error
+a write-borrowing call that returns `Bool` is written `(!t).insert(...)`, so it is never read as negation
+```
 
 ```rig
 struct Counter
@@ -572,7 +672,7 @@ sub add_three(c: !Counter)
 sub main
   c = Counter(n: 0)
   add_three(!c)
-  (!c).bump()
+  !c.bump()
   print(c.n)
 ```
 
@@ -950,6 +1050,11 @@ From lowest to highest precedence:
 | `*` `/` `%` | |
 | `-x` and the ownership sigils | prefix |
 | `f(x)` `a[i]` `a.b` `e!` | postfix: call, index, member, propagate |
+
+Postfixes bind tighter than prefixes, so `-a.len` is `-(a.len)` and
+`+n.first()` clones the result. The one exception is a receiver sigil:
+`!` or `<` before a place followed by a method call applies to the
+place, `!v.push(x)` is `(!v).push(x)` ([§4](#structs)).
 
 Arithmetic needs numeric operands of one type (a literal adapts to the
 other operand). Integer `/` truncates toward zero and `%` takes the sign

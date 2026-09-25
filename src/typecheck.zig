@@ -3130,11 +3130,20 @@ const Checker = struct {
         const saved = self.callee_node;
         self.callee_node = callee;
         defer self.callee_node = saved;
-        const obj = ir.Member.object(callee);
+        var obj = ir.Member.object(callee);
         const name_node = ir.Member.name(callee);
         const method = self.text(name_node);
         const pos = srcPos(name_node, self.startOf(obj));
 
+        // `<Point.origin()`: a function called through its type or module
+        // has no receiver for the sigil to apply to.
+        if (self.isReceiverSigil(obj)) {
+            const place = ir.get(obj, .operand);
+            if ((try self.moduleNamed(place)) != null or (try self.namedType(place)) != null) {
+                try self.misplacedSigil(obj, method, "is called through its type or module and has no receiver");
+                obj = place;
+            }
+        }
         if (try self.moduleNamed(obj)) |id| return self.crossModuleCall(id, method, pos, args);
         if (try self.namedType(obj)) |nt| return self.associatedCall(obj, nt, method, pos, args);
 
@@ -3149,6 +3158,7 @@ const Checker = struct {
         if (std.mem.eql(u8, method, "upgrade")) {
             switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, obj_ty))) {
                 .weak => |inner| {
+                    if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "only reads the weak handle");
                     try self.rejectResourceTemporary(obj, obj_ty);
                     if (args.len != 0) {
                         try self.err(pos, "weak `upgrade` takes no arguments; got {d}", .{args.len});
@@ -3172,14 +3182,19 @@ const Checker = struct {
             else => {},
         }
 
-        if (cellVecElement(self.ctx, obj_ty)) |elem| if (try self.cellVecCall(obj, obj_ty, elem, method, pos, args)) |ty| return ty;
+        if (cellVecElement(self.ctx, obj_ty)) |elem| if (try self.cellVecCall(obj, obj_ty, elem, method, pos, args)) |ty| {
+            if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "changes a Cell through any path to it");
+            return ty;
+        };
 
         const resolved = (try self.findMethod(obj_ty, method)) orelse {
             // A data field holding a function or a closure handle is
             // called like one.
             if (try self.dataField(obj_ty, method)) |ty| {
                 if (sema.ownedClosureFn(self.ctx, ty) != null or self.ctx.types.get(ty) == .function) {
-                    try self.rejectResourceTemporary(obj, obj_ty);
+                    if (self.isReceiverSigil(obj)) {
+                        try self.misplacedSigil(obj, method, "is a field holding a function, not a method with a receiver");
+                    } else try self.rejectResourceTemporary(obj, obj_ty);
                     try self.noteCalleeType(ty);
                     return self.callValue(callee, ty, args, method);
                 }
@@ -3197,7 +3212,8 @@ const Checker = struct {
         };
         const receiver = resolved.field.receiver;
         try self.noteCallee(resolved.fn_ty);
-        if (receiver != .value) try self.rejectResourceTemporary(obj, obj_ty);
+        const misplaced_sigil = receiver != .none and try self.checkReceiverSigil(obj, receiver, resolved.fn_ty.returns, method);
+        if (receiver != .value and !misplaced_sigil) try self.rejectResourceTemporary(obj, obj_ty);
 
         // A `?self` method may change a Cell the value holds; a loop or
         // match binding is only a copy of it.
@@ -3235,7 +3251,7 @@ const Checker = struct {
             try self.synthArgs(args);
             return resolved.fn_ty.returns;
         }
-        try self.checkReceiverMode(obj, receiver, classifyReceiverType(self.ctx, obj_ty, resolved.nominal_sym), method, pos);
+        if (!misplaced_sigil) try self.checkReceiverMode(obj, receiver, classifyReceiverType(self.ctx, obj_ty, resolved.nominal_sym), method, pos);
         const rest: FunctionType = .{
             .params = resolved.fn_ty.params[1..],
             .returns = resolved.fn_ty.returns,
@@ -3506,8 +3522,47 @@ const Checker = struct {
         };
     }
 
+    /// Whether `node` is the `!p` or `<p` of `!p.m(...)` or `<p.m(...)`,
+    /// written before the call rather than in parentheses.
+    fn isReceiverSigil(self: *Checker, node: Sexp) bool {
+        const p = self.ctx.parser orelse return false;
+        return p.isReceiverSigil(node);
+    }
+
+    /// `!p.m(...)` or `<p.m(...)` where `m` takes no receiver the sigil
+    /// could apply to.
+    fn misplacedSigil(self: *Checker, recv: Sexp, method: []const u8, why: []const u8) Error!void {
+        try self.errAt(recv, "`{s}` {s}; drop the `{s}`", .{ method, why, if (recv.isKind(.write)) "!" else "<" });
+    }
+
+    /// `!p.m(...)` and `<p.m(...)` (see `Parser.receiverSigil`): the sigil
+    /// is the receiver mode of `m`, so a `!` before a method that only
+    /// reads is the habit of `!` as negation, and a `!` call whose value
+    /// is a `Bool` is written `(!p).m(...)` so it never reads as one.
+    /// Returns whether it reported an error.
+    fn checkReceiverSigil(self: *Checker, recv: Sexp, mode: MethodReceiver, returns: TypeId, method: []const u8) Error!bool {
+        if (!self.isReceiverSigil(recv)) return false;
+        const place = ir.get(recv, .operand);
+        const at = self.ctx.span(place);
+        const name = self.ctx.source[at.start..at.end];
+        if (recv.isKind(.write)) switch (mode) {
+            .write => {
+                const result = self.ctx.types.get(returns);
+                const value = if (result == .fallible) result.fallible else returns;
+                if (value != self.t().bool_id) return false;
+                try self.errAt(recv, "a write-borrowing call that returns `Bool` is written `(!{s}).{s}(...)`, so it is never read as negation", .{ name, method });
+            },
+            else => try self.errAt(recv, "`{s}` does not write its receiver; for negation use `not`", .{method}),
+        } else switch (mode) {
+            .value => return false,
+            .write => try self.errAt(recv, "`{s}` does not consume its receiver; it writes it: `!{s}.{s}(...)`, and its result needs no `<`", .{ method, name, method }),
+            else => try self.errAt(recv, "`{s}` does not consume its receiver; drop the `<`: a call's result moves without it", .{method}),
+        }
+        return true;
+    }
+
     /// Receiver rules: `?self` auto-borrows; `!self` needs an explicit
-    /// `(!x)`; a consuming `self` needs an explicit `(<x)`. Write and
+    /// `!x.m()`; a consuming `self` needs an explicit `<x.m()`. Write and
     /// consuming receivers are refused through `?T` and `*T`.
     fn checkReceiverMode(self: *Checker, recv: Sexp, mode: MethodReceiver, kind: ReceiverTypeKind, method: []const u8, pos: u32) Error!void {
         const shape = classifyReceiverShape(recv);
@@ -3523,12 +3578,12 @@ const Checker = struct {
                     .rvalue => if (kind != .owned_nominal and kind != .write_borrow and kind != .other) {
                         try self.err(pos, "method `{s}` requires a write-borrowed receiver; this expression yields a borrowed value, not an owned one", .{method});
                     },
-                    .read_explicit => try self.err(pos, "method `{s}` requires a write-borrowed receiver; got `?...`; use `(!receiver).{s}(...)`", .{ method, method }),
-                    .move_explicit => try self.err(pos, "method `{s}` requires a write-borrowed receiver; cannot move; use `(!receiver).{s}(...)`", .{ method, method }),
+                    .read_explicit => try self.err(pos, "method `{s}` requires a write-borrowed receiver; got `?...`; use `!receiver.{s}(...)`", .{ method, method }),
+                    .move_explicit => try self.err(pos, "method `{s}` requires a write-borrowed receiver; cannot move; use `!receiver.{s}(...)`", .{ method, method }),
                     // A binding that already holds a write borrow (`x: !T`,
                     // `!self`) lends it to the call as it is.
                     .lvalue_bare => if (kind != .write_borrow) {
-                        try self.err(pos, "method `{s}` requires a write-borrowed receiver; use `(!receiver).{s}(...)`", .{ method, method });
+                        try self.err(pos, "method `{s}` requires a write-borrowed receiver; use `!receiver.{s}(...)`", .{ method, method });
                     } else {
                         _ = try self.checkLendsWriteBorrow(recv);
                     },
@@ -3542,8 +3597,8 @@ const Checker = struct {
                 }
                 switch (shape) {
                     .move_explicit, .rvalue => {},
-                    .read_explicit, .write_explicit => try self.err(pos, "method `{s}` consumes the receiver; borrow forms not allowed; use `(<receiver).{s}(...)`", .{ method, method }),
-                    .lvalue_bare => try self.err(pos, "method `{s}` consumes the receiver; use `(<receiver).{s}(...)`", .{ method, method }),
+                    .read_explicit, .write_explicit => try self.err(pos, "method `{s}` consumes the receiver; borrow forms not allowed; use `<receiver.{s}(...)`", .{ method, method }),
+                    .lvalue_bare => try self.err(pos, "method `{s}` consumes the receiver; use `<receiver.{s}(...)`", .{ method, method }),
                 }
             },
             .none => {},

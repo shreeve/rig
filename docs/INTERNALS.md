@@ -193,15 +193,35 @@ that need to inspect the tree:
   `(for iter x _ (read xs) body _)` becomes `(for read x _ xs body _)`;
 - a `-name` statement whose value is used (the last line of a `fun`, or
   of a branch or arm whose value is used) becomes `(neg name)` instead
-  of `(drop name)`.
+  of `(drop name)`;
+- a `!` or `<` before a place (a name and the fields and elements after
+  it) followed by a method call moves onto the place, the method's
+  receiver: `!x.v.push(1)` parses as
+  `(write (call (member (member x v) push) 1))` and becomes
+  `(call (member (write (member x v)) push) 1)`, the tree
+  `(!x.v).push(1)` gives. Postfixes after the call stay outside it
+  (`!v.pop()?`), and in a chain the place is its head
+  (`!a.b().c(x)` is `(!a).b().c(x)`). A chain that is all place
+  (`!x.v`), whose head is called (`!f(x).g()`), or that is
+  parenthesized (`!(v.pop())`) keeps the sigil outside. The grammar
+  drops parentheses, so the last is told by span: every node of the
+  chain must start just after the sigil. The wrapper records the new
+  node's id (`Parser.isReceiverSigil`), since the checker rejects some
+  calls in this short form that it accepts in parentheses: a `!` before
+  a method that does not take `!self` (the habit of `!` as negation),
+  a `<` before one that does not take `self: Self`, and a `!` call whose
+  value is a `Bool`, written `(!set).insert(k)`. A `for` source sigil
+  is the loop's mode, moved before this rewrite sees it.
 
 It also rejects a tree nested more than 1000 deep, since every later
 pass walks the tree recursively.
 
 A rewritten node keeps its node id, and so its span; the `captures`
-node is built with the generated parser's `newNode`, which gives it a
-fresh id spanning its entries. The wrapper places children by
-`ir.slot(.kind, .role)`, the compile-time slot of a role.
+node and a receiver sigil's `write` or `move` node are built with the
+generated parser's `newNode`, which gives each a fresh id spanning its
+entries (for a receiver sigil, the sigil and the place). The wrapper
+places children by `ir.slot(.kind, .role)`, the compile-time slot of a
+role.
 
 For everything else, `rig parse` and `rig normalize` print the same
 tree.

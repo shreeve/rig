@@ -564,9 +564,12 @@ cond     = value
 #
 # `print p.x` is print(p.x); `send encode <packet` is send(encode(<packet)).
 # A nested paren-free call can only be the last argument, and never
-# appears inside ( ).
+# appears inside ( ). A leading `!` or `<` is the receiver's mode, which
+# the Parser wrapper moves onto the receiver: `!v.push 3`.
 
 cmd      = callee:postfix args:cmdargs              → (call)
+         | WRITE_PFX operand:cmd                    → (write)
+         | MOVE_PFX  operand:cmd                    → (move)
 
 # These argument lists are written out rather than `L(expr)`:
 # `L(expr) "," cmdtail` conflicts on the comma.
@@ -593,9 +596,12 @@ if       = IF cond:ifcond then:block [ELSE else:block] → (if)
 while    = WHILE cond:ifcond [":" step:step] body:block [ELSE else:block] → (while)
 
 # A `while` step runs after each iteration: an assignment, or a call,
-# which may propagate its failure (the checker rejects other forms).
+# which may propagate its failure (the checker rejects other forms). A
+# call's receiver may take `!` or `<` (see the Parser wrapper).
 step     = assign
          | postfix
+         | WRITE_PFX operand:postfix                → (write)
+         | MOVE_PFX  operand:postfix                → (move)
 
 # The Parser wrapper moves a `?xs` / `!xs` / `<xs` source sigil into the
 # mode slot.

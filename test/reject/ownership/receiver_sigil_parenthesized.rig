@@ -1,0 +1,10 @@
+# Parentheses around the call make `!` apply to its value, a temporary,
+# not to the receiver.
+
+sub main
+  v: Vec(Int) = Vec()
+  !v.push(1)
+  n = !(v.pop())
+  print(n ?? 0)
+
+# error: 7:9: cannot write-borrow a temporary

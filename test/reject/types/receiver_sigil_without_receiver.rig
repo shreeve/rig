@@ -1,0 +1,33 @@
+# `!` and `<` before a call apply to the method's receiver, so a call
+# with none rejects them: an associated function called through its
+# type, a Cell's Vec members, a weak handle's `upgrade`, and a field
+# holding a function.
+
+struct Point
+  x: Int
+  fun origin -> Point
+    Point(x: 0)
+
+struct Node
+  n: Int
+
+struct Hooks
+  on: *fun(Int) -> Int
+
+sub main
+  a = !Point.origin()
+  b = <Point.origin()
+  log: Cell(Vec(Int)) = Cell(value: Vec())
+  !log.push(1)
+  h = *Node(n: 1)
+  w = ~h
+  if !w.upgrade() as k
+    print(k.n)
+  hooks = Hooks(on: *|n| n + 1)
+  print(!hooks.on(1), a.x, b.x)
+
+# error: 18:7: `origin` is called through its type or module and has no receiver; drop the `!`
+# error: 19:7: `origin` is called through its type or module and has no receiver; drop the `<`
+# error: 21:3: `push` changes a Cell through any path to it; drop the `!`
+# error: 24:6: `upgrade` only reads the weak handle; drop the `!`
+# error: 27:9: `on` is a field holding a function, not a method with a receiver; drop the `!`

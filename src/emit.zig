@@ -2458,6 +2458,10 @@ pub const Emitter = struct {
     fn emitMemberBase(self: *Emitter, obj: Sexp, obj_ty: ?TypeId) Error!void {
         const o = unborrowed(obj);
         if (self.place_chain and o.isKind(.index)) return self.emitIndex(o, true);
+        // A write-borrowed field or element (`!v[i].bump()`) is changed
+        // in place, reached through the element's slot, unless it was
+        // hoisted to run before the arguments.
+        if (obj.isKind(.write) and (o.isKind(.index) or o.isKind(.member)) and self.hoistedOf(o) == null) return self.emitPlace(o);
         // `Box.make(...)` of a generic type: the instance sema inferred.
         if (o == .src) if (self.sema.symbolOf(o)) |id| if (self.sema.symbols.items[id].kind == .generic_type) {
             if (obj_ty) |t| return self.emitTypeTy(t);
