@@ -1483,6 +1483,11 @@ fn reportGenericFn(ctx: *SemContext, pos: u32, what: []const u8, name: []const u
 }
 
 fn reportExposed(ctx: *SemContext, pos: u32, what: []const u8, name: []const u8, inst: TypeId) Error!void {
+    // A type parameter is reached only through a generic method of a
+    // private type.
+    if (ctx.types.get(inst) == .type_var) {
+        return ctx.err(pos, "public {s} `{s}` reaches a generic method (with the type parameter `{s}`) of a private type; generic functions cannot cross module boundaries yet", .{ what, name, try sema.formatType(ctx, inst) });
+    }
     try ctx.err(pos, "public {s} `{s}` exposes `{s}`, an instance of a generic type; generic types cannot cross module boundaries yet", .{ what, name, try sema.formatType(ctx, inst) });
 }
 

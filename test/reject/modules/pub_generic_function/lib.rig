@@ -10,5 +10,14 @@ pub struct Tagger
 fun local[T](x: T) -> T
   x
 
+struct Inner
+  n: Int
+
+  fun same[U](?self, x: U) -> U
+    x
+
+pub struct Outer
+  i: Inner
+
 pub fun uses_local(n: Int) -> Int
   local(n)
