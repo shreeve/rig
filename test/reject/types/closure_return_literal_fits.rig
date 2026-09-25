@@ -1,0 +1,11 @@
+# A literal `return` in a closure takes the closure's inferred return
+# type, and must fit it.
+
+sub main()
+  f = |x: U8|
+    if x > 5
+      return 300
+    x
+  print(f(3))
+
+# error: integer value `300` does not fit in `U8` (0..255)

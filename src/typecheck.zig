@@ -558,35 +558,33 @@ const Checker = struct {
             _ = try self.synthExpr(rhs);
             return;
         }
-        const integer_only = switch (op) {
-            .@"&", .@"|", .@"^", .@"<<", .@">>" => true,
-            else => false,
+        const req: Requirement = switch (op) {
+            .@"&", .@"|", .@"^", .@"<<", .@">>" => .integer,
+            else => .numeric,
         };
-        const ok = if (integer_only) sema.isInteger(self.ctx, target_ty) else sema.isNumeric(self.ctx, target_ty);
-        if (!ok) {
-            try self.err(pos, "`{s}` requires {s} target; {s} `{s}`", .{ spelled, if (integer_only) "an integer" else "a numeric", what, try self.tyName(target_ty) });
+        const tv: ?SymbolId = switch (self.ctx.types.get(target_ty)) {
+            .type_var => |tv| tv,
+            else => null,
+        };
+        if (tv) |param| {
+            try self.require(param, req, pos, spelled);
+        } else if (!(if (req == .integer) sema.isInteger(self.ctx, target_ty) else sema.isNumeric(self.ctx, target_ty))) {
+            try self.err(pos, "`{s}` requires {s} target; {s} `{s}`", .{ spelled, if (req == .integer) "an integer" else "a numeric", what, try self.tyName(target_ty) });
             _ = try self.synthExpr(rhs);
             return;
         }
         if (op == .@"<<" or op == .@">>") {
-            const amount = readValue(self.ctx, try self.synthExpr(rhs));
-            if (self.isPoison(amount)) return;
-            if (!sema.isInteger(self.ctx, amount)) {
-                try self.errAt(rhs, "a shift amount must be an integer; got `{s}`", .{try self.tyName(amount)});
-                return;
-            }
-            if (amount == self.t().int_literal_id) try self.ctx.recordType(rhs, self.t().int_id);
-            const info = self.ctx.types.get(target_ty).int;
-            const bits: i128 = if (info.bits == 0) 64 else info.bits;
-            if (self.constInt(rhs)) |v| if (v < 0 or v >= bits) {
-                try self.errAt(rhs, "shift amount `{d}` is out of range for `{s}` (0..{d})", .{ v, try self.tyName(target_ty), bits - 1 });
-            };
+            _ = try self.checkShiftAmount(rhs, target_ty, spelled);
             return;
         }
-        if (op == .@"/" or op == .@"%") if (self.constInt(rhs)) |v| if (v == 0) {
-            try self.errAt(rhs, "division by zero", .{});
-        };
-        try self.checkExpr(rhs, target_ty);
+        if (tv) |param| {
+            // A generic `T` target takes another `T` or a literal it holds.
+            const ty = readValue(self.ctx, try self.synthExpr(rhs));
+            if (ty == target_ty or ty == self.t().int_literal_id or (req != .integer and ty == self.t().float_literal_id)) {
+                try self.requireHoldsLiteral(param, ty, rhs, pos, spelled);
+            } else if (!self.isPoison(ty)) try self.errAt(rhs, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(target_ty), try self.tyName(ty) });
+        } else try self.checkExpr(rhs, target_ty);
+        _ = try self.checkDivisor(op, target_ty, rhs);
     }
 
     /// Writing to `place` (a name, or a field or element of one) writes
@@ -957,10 +955,9 @@ const Checker = struct {
         switch (self.ctx.types.get(ty)) {
             .bool => return cov.bools[0] and cov.bools[1],
             .int, .int_literal => {
-                const info: sema.IntInfo = if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{};
-                const bits: u8 = if (info.bits == 0) 64 else info.bits;
-                var next: i128 = if (info.signed) -(@as(i128, 1) << @intCast(bits - 1)) else 0;
-                const max: i128 = if (info.signed) (@as(i128, 1) << @intCast(bits - 1)) - 1 else (@as(i128, 1) << @intCast(bits)) - 1;
+                const bounds = intBounds(if (self.ctx.types.get(ty) == .int) self.ctx.types.get(ty).int else .{});
+                var next = bounds.min;
+                const max = bounds.max;
                 // Sweep the intervals in order of their low ends.
                 std.mem.sort([2]i128, cov.ints.items, {}, struct {
                     fn lt(_: void, a: [2]i128, b: [2]i128) bool {
@@ -1056,12 +1053,9 @@ const Checker = struct {
             return;
         }
         if (st == .int) {
-            const info = st.int;
-            const bits: u8 = if (info.bits == 0) 64 else info.bits;
-            const max: i128 = if (info.signed) (@as(i128, 1) << @intCast(bits - 1)) - 1 else (@as(i128, 1) << @intCast(bits)) - 1;
-            const min: i128 = if (info.signed) -(@as(i128, 1) << @intCast(bits - 1)) else 0;
-            if (hi.? > max + 1 or hi.? <= min) {
-                try self.errAt(hi_node, "the end of range `{d}..{d}` does not fit `{s}`; it may be at most {d}, one past the largest value", .{ lo.?, hi.?, try self.tyName(scrutinee), max + 1 });
+            const b = intBounds(st.int);
+            if (hi.? > b.max + 1 or hi.? <= b.min) {
+                try self.errAt(hi_node, "the end of range `{d}..{d}` does not fit `{s}`; it may be at most {d}, one past the largest value", .{ lo.?, hi.?, try self.tyName(scrutinee), b.max + 1 });
                 return;
             }
         }
@@ -1289,7 +1283,8 @@ const Checker = struct {
             .weak => self.synthWeak(e),
             .clone => self.synthClone(e),
             .@"+", .@"-", .@"*", .@"/", .@"%" => self.checkNumericOperands(e, @tagName(head), .numeric),
-            .@"&", .@"|", .@"^", .@"<<", .@">>" => self.checkNumericOperands(e, @tagName(head), .integer),
+            .@"&", .@"|", .@"^" => self.checkNumericOperands(e, @tagName(head), .integer),
+            .@"<<", .@">>" => self.synthShift(e, @tagName(head)),
             .@"<", .@">", .@"<=", .@">=" => blk: {
                 const ty = try self.checkNumericOperands(e, @tagName(head), .ordered);
                 // Two literal operands are compared as `Int`s.
@@ -1356,24 +1351,74 @@ const Checker = struct {
     fn checkNumericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement) Error!TypeId {
         const ty = try self.numericOperands(e, op, req);
         if (self.isPoison(ty)) return ty;
-        const tag = e.kind().?;
-        const right = ir.get(e, .right);
-        const rhs = self.constInt(right);
-        if ((tag == .@"/" or tag == .@"%") and rhs != null and rhs.? == 0) {
-            try self.errAt(right, "division by zero", .{});
-            return self.t().invalid_id;
-        }
-        const info = self.ctx.types.get(ty);
-        if ((tag == .@"<<" or tag == .@">>") and rhs != null and info == .int) {
-            const bits: i128 = if (info.int.bits == 0) 64 else info.int.bits;
-            if (rhs.? < 0 or rhs.? >= bits) {
-                try self.errAt(right, "shift amount `{d}` is out of range for `{s}` (0..{d})", .{ rhs.?, try self.tyName(ty), bits - 1 });
-                return self.t().invalid_id;
-            }
-        }
+        if (!(try self.checkDivisor(e.kind().?, ty, ir.get(e, .right)))) return self.t().invalid_id;
         // Constant operands are computed now, so the result must fit.
-        if (info == .int) try self.checkLiteralFits(e, ty);
+        if (self.ctx.types.get(ty) == .int) try self.checkLiteralFits(e, ty);
         return ty;
+    }
+
+    /// Integer division by a constant zero is rejected; float division
+    /// gives an infinity or NaN.
+    fn checkDivisor(self: *Checker, op: Tag, ty: TypeId, divisor: Sexp) Error!bool {
+        if (op != .@"/" and op != .@"%") return true;
+        switch (self.ctx.types.get(ty)) {
+            .float, .float_literal => return true,
+            else => {},
+        }
+        if ((self.constInt(divisor) orelse return true) != 0) return true;
+        try self.errAt(divisor, "division by zero", .{});
+        return false;
+    }
+
+    /// `a << n` / `a >> n`: the result has the type of the integer `a`.
+    fn synthShift(self: *Checker, e: Sexp, op: []const u8) Error!TypeId {
+        const left = ir.get(e, .left);
+        const ty = readValue(self.ctx, try self.synthExpr(left));
+        if (self.isPoison(ty)) {
+            _ = try self.synthExpr(ir.get(e, .right));
+            return ty;
+        }
+        switch (self.ctx.types.get(ty)) {
+            .type_var => |tv| try self.require(tv, .integer, self.startOf(left), op),
+            else => if (!sema.isInteger(self.ctx, ty)) {
+                try self.errAt(left, "operator `{s}` requires integer operands; got `{s}`", .{ op, try self.tyName(ty) });
+                _ = try self.synthExpr(ir.get(e, .right));
+                return self.t().invalid_id;
+            },
+        }
+        if (!(try self.checkShiftAmount(ir.get(e, .right), ty, op))) return self.t().invalid_id;
+        // Constant operands are computed now, so the result must fit.
+        if (self.ctx.types.get(ty) == .int) try self.checkLiteralFits(e, ty);
+        return ty;
+    }
+
+    /// A shift amount may be any integer; a constant one must be below
+    /// the width of the shifted type (`Int` for a literal).
+    fn checkShiftAmount(self: *Checker, amount: Sexp, shifted: TypeId, op: []const u8) Error!bool {
+        const ty = readValue(self.ctx, try self.synthExpr(amount));
+        if (self.isPoison(ty)) return false;
+        switch (self.ctx.types.get(ty)) {
+            .type_var => |tv| try self.require(tv, .integer, self.startOf(amount), op),
+            else => if (!sema.isInteger(self.ctx, ty)) {
+                try self.errAt(amount, "a shift amount must be an integer; got `{s}`", .{try self.tyName(ty)});
+                return false;
+            },
+        }
+        if (ty == self.t().int_literal_id) try self.ctx.recordType(amount, self.t().int_id);
+        const v = self.constInt(amount) orelse return true;
+        const width: ?i128 = switch (self.ctx.types.get(shifted)) {
+            .int => |info| intBounds(info).bits,
+            .type_var => |tv| blk: {
+                if (v >= 0) try self.require(tv, .{ .shift = v }, self.startOf(amount), op);
+                break :blk null;
+            },
+            else => 64,
+        };
+        if (v >= 0 and (width == null or v < width.?)) return true;
+        if (width) |w| {
+            try self.errAt(amount, "shift amount `{d}` is out of range for `{s}` (0..{d})", .{ v, try self.tyName(self.canonical(shifted)), w - 1 });
+        } else try self.errAt(amount, "shift amount `{d}` is negative", .{v});
+        return false;
     }
 
     fn constInt(self: *Checker, e: Sexp) ?i128 {
@@ -1401,7 +1446,9 @@ const Checker = struct {
                 try self.err(pos, "operator `{s}` operands have different types `{s}` and `{s}`", .{ op, try self.tyName(a), try self.tyName(b) });
                 return self.t().invalid_id;
             }
-            try self.require(self.ctx.types.get(tv).type_var, req, pos, op);
+            const param = self.ctx.types.get(tv).type_var;
+            try self.require(param, req, pos, op);
+            try self.requireHoldsLiteral(param, other, if (ta == .type_var) operands[1] else operands[0], pos, op);
             return tv;
         }
 
@@ -1437,6 +1484,14 @@ const Checker = struct {
         try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = param, .req = req, .pos = pos, .op = op });
     }
 
+    /// A literal operand next to a generic `T` becomes a `T`, so every
+    /// `T` must hold it: a float literal needs a float `T`, an integer
+    /// one a `T` that holds its value.
+    fn requireHoldsLiteral(self: *Checker, param: SymbolId, lit_ty: TypeId, lit: Sexp, pos: u32, op: []const u8) Error!void {
+        if (lit_ty == self.t().float_literal_id) try self.require(param, .float, pos, op);
+        if (lit_ty == self.t().int_literal_id) if (self.constInt(lit)) |v| try self.require(param, .{ .fits = v }, pos, op);
+    }
+
     fn synthNeg(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Neg.operand(e);
         const ty = readValue(self.ctx, try self.synthExpr(operand));
@@ -1451,7 +1506,7 @@ const Checker = struct {
                 try self.checkLiteralFits(e, ty);
             },
             .float, .int_literal, .float_literal => {},
-            .type_var => |tv| try self.require(tv, .numeric, self.startOf(operand), "-"),
+            .type_var => |tv| try self.require(tv, .signed, self.startOf(operand), "-"),
             else => {
                 try self.errAt(operand, "operator `-` requires a numeric operand; got `{s}`", .{try self.tyName(ty)});
                 return self.t().invalid_id;
@@ -1489,6 +1544,7 @@ const Checker = struct {
             }
             const tv = if (ta == .type_var) ta.type_var else tb.type_var;
             try self.require(tv, .equatable, self.startOf(l), op);
+            if (ta == .type_var) try self.requireHoldsLiteral(tv, b, r, self.startOf(l), op) else try self.requireHoldsLiteral(tv, a, l, self.startOf(l), op);
             return self.t().bool_id;
         }
         // Any error compares with a member of any error set.
@@ -2275,16 +2331,20 @@ const Checker = struct {
             return target;
         }
         // A constant float: its integer part must fit.
-        if (constFloatOf(self.ctx.source, arg)) |f| {
-            const bits: u8 = if (tt.int.bits == 0) 64 else tt.int.bits;
-            const min: f64 = if (tt.int.signed) -std.math.pow(f64, 2, @floatFromInt(bits - 1)) else 0;
-            const limit: f64 = std.math.pow(f64, 2, @floatFromInt(if (tt.int.signed) bits - 1 else bits));
-            const whole = @trunc(f);
-            if (!(whole >= min and whole < limit)) {
-                try self.errAt(arg, "`{d}` does not fit in `{s}`", .{ f, try self.tyName(target) });
-            }
-        }
+        try self.checkFloatFits(arg, target);
         return target;
+    }
+
+    /// A constant float converted to integer type `target`: its integer
+    /// part must fit.
+    fn checkFloatFits(self: *Checker, arg: Sexp, target: TypeId) Error!void {
+        const f = constFloatOf(self.ctx.source, arg) orelse return;
+        const b = intBounds(self.ctx.types.get(target).int);
+        const whole = @trunc(f);
+        if (whole >= @as(f64, @floatFromInt(b.min)) and whole < @as(f64, @floatFromInt(b.max)) + 1) return;
+        if (@abs(f) < 1e18) {
+            try self.errAt(arg, "`{d}` does not fit in `{s}`", .{ f, try self.tyName(target) });
+        } else try self.errAt(arg, "`{e}` does not fit in `{s}`", .{ f, try self.tyName(target) });
     }
 
     /// `print(a, b, ...)`: any number of values, printed on one line.
@@ -3269,35 +3329,34 @@ const Checker = struct {
         if (actual == self.t().int_literal_id) try self.checkLiteralFits(e, target);
     }
 
-    /// A constant integer expression must fit the integer type it gets.
+    /// A constant integer expression must fit the numeric type it gets:
+    /// in range for an integer type, exactly for a float type.
     fn checkLiteralFits(self: *Checker, e: Sexp, target: TypeId) Error!void {
         const tt = self.ctx.types.get(target);
-        if (tt != .int) return;
-        const v = self.constInt(e) orelse {
-            if (e == .src and sema.isIntLiteralText(self.text(e))) {
+        if (tt != .int and tt != .float) return;
+        switch (sema.constInt(self.ctx, e)) {
+            .value => |v| if (!holdsInt(self.ctx, target, v)) switch (tt) {
+                .int => |info| try self.errAt(e, "integer value `{d}` does not fit in `{s}` ({d}..{d})", .{ v, try self.tyName(target), intBounds(info).min, intBounds(info).max }),
+                else => try self.errAt(e, "integer value `{d}` does not fit exactly in `{s}`", .{ v, try self.tyName(target) }),
+            },
+            .overflow => if (e == .src) {
                 try self.errAt(e, "integer literal `{s}` is too large", .{self.text(e)});
-            }
+            } else try self.errAt(e, "this constant expression overflows; its value does not fit in `{s}`", .{try self.tyName(target)}),
             // Not constant as a whole (a branch is chosen when the program
             // runs): its constant parts are values of the type too.
-            if (e.kind()) |h| switch (h) {
-                .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {
+            .not_constant => if (e.kind()) |h| switch (h) {
+                .@"+", .@"-", .@"*", .@"/", .@"%", .@"&", .@"|", .@"^" => {
                     try self.checkLiteralFits(ir.get(e, .left), target);
                     try self.checkLiteralFits(ir.get(e, .right), target);
                 },
+                .@"<<", .@">>" => try self.checkLiteralFits(ir.get(e, .left), target),
                 .neg => try self.checkLiteralFits(ir.Neg.operand(e), target),
                 .@"if" => {
                     try self.checkLiteralFits(ir.If.then(e), target);
                     try self.checkLiteralFits(ir.If.@"else"(e), target);
                 },
                 else => {},
-            };
-            return;
-        };
-        const bits: u8 = if (tt.int.bits == 0) 64 else tt.int.bits;
-        const min: i128 = if (tt.int.signed) -(@as(i128, 1) << @intCast(bits - 1)) else 0;
-        const max: i128 = if (tt.int.signed) (@as(i128, 1) << @intCast(bits - 1)) - 1 else (@as(i128, 1) << @intCast(bits)) - 1;
-        if (v < min or v > max) {
-            try self.errAt(e, "integer value `{d}` does not fit in `{s}` ({d}..{d})", .{ v, try self.tyName(target), min, max });
+            },
         }
     }
 
@@ -3460,9 +3519,20 @@ const Checker = struct {
                 break :blk self.t().invalid_id;
             };
             if (!self.isPoison(operand) and !self.isPoison(target)) {
-                if (self.castProblem(builtin, operand, self.liftTarget(target))) |why| {
+                const to = self.liftTarget(target);
+                if (self.castProblem(builtin, operand, to)) |why| {
                     try self.err(pos, "`@{s}` cannot turn `{s}` into `{s}`: {s}", .{ name, try self.tyName(operand), try self.tyName(target), why });
                     break :blk self.t().invalid_id;
+                }
+                // Zig converts a constant operand when it compiles, so the
+                // value must convert.
+                switch (builtin) {
+                    .intCast, .floatFromInt => try self.checkLiteralFits(args[0], to),
+                    .intFromFloat => try self.checkFloatFits(args[0], to),
+                    .enumFromInt => if (self.constInt(args[0]) != null) {
+                        try self.errAt(args[0], "`@enumFromInt` of a constant: name the variant instead (`.name`)", .{});
+                    },
+                    else => {},
                 }
             }
             break :blk target;
@@ -3490,10 +3560,8 @@ const Checker = struct {
             .truncate => {
                 if (!f_int or t_ != .int) return "it converts one integer type to another";
                 if (f == .int) {
-                    const fb: u16 = if (f.int.bits == 0) 64 else f.int.bits;
-                    const tb: u16 = if (t_.int.bits == 0) 64 else t_.int.bits;
                     if (f.int.signed != t_.int.signed) return "both must be signed, or both unsigned";
-                    if (tb > fb) return "the result may not be wider";
+                    if (numericBits(t_).? > numericBits(f).?) return "the result may not be wider";
                 }
             },
             .floatCast => if (!f_float or t_ != .float) return "it converts one float type to another",
@@ -3674,7 +3742,7 @@ const Checker = struct {
             };
             if (!compatible(self.ctx, ty, ret)) {
                 try self.errAt(site.node, "this closure returns `{s}`, but this `return` gives `{s}`", .{ try self.tyName(ret), try self.tyName(ty) });
-            }
+            } else try self.recordAdapted(ir.Return.value(site.node), ty, ret);
         }
         return ret;
     }
@@ -3852,9 +3920,33 @@ fn isPlaceExpr(e: Sexp) bool {
 
 fn numericBits(t: sema.Type) ?u16 {
     return switch (t) {
-        .int => |i| if (i.bits == 0) 64 else i.bits,
+        .int => |i| intBounds(i).bits,
         .float => |f| if (f.bits == 0) 64 else f.bits,
         else => null,
+    };
+}
+
+const IntBounds = struct { min: i128, max: i128, bits: u8 };
+
+/// The width and value range of an integer type.
+fn intBounds(info: sema.IntInfo) IntBounds {
+    const bits: u8 = if (info.bits == 0) 64 else info.bits;
+    const half = @as(i128, 1) << @intCast(bits - 1);
+    return if (info.signed) .{ .min = -half, .max = half - 1, .bits = bits } else .{ .min = 0, .max = 2 * half - 1, .bits = bits };
+}
+
+/// Whether numeric type `ty` holds the integer `v`: in range for an
+/// integer type, exactly representable for a float type (Zig rejects a
+/// constant that would round).
+fn holdsInt(ctx: *const SemContext, ty: TypeId, v: i128) bool {
+    return switch (ctx.types.get(ty)) {
+        .int => |info| v >= intBounds(info).min and v <= intBounds(info).max,
+        .float => |f| blk: {
+            const mantissa: u8 = if (f.bits == 32) 24 else 53;
+            const a = @abs(v);
+            break :blk a == 0 or 128 - @clz(a) - @ctz(a) <= mantissa;
+        },
+        else => true,
     };
 }
 
@@ -3986,6 +4078,13 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
                     try ctx.note(req.pos, "here", .{});
                     break;
                 }
+                if (req.req == .fits) {
+                    try ctx.err(entry.value_ptr.*, "`{s}` cannot use `{s} = {s}`: the generic body applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{
+                        try sema.formatType(ctx, entry.key_ptr.*), pname, try sema.formatType(ctx, arg), req.op, pname, req.req.fits, try sema.formatType(ctx, arg),
+                    });
+                    try ctx.note(req.pos, "`{s}` used here", .{req.op});
+                    break;
+                }
                 try ctx.err(entry.value_ptr.*, "`{s}` cannot use `{s} = {s}`: the generic body applies `{s}` to `{s}`, which `{s}` does not support", .{
                     try sema.formatType(ctx, entry.key_ptr.*), pname, try sema.formatType(ctx, arg), req.op, pname, try sema.formatType(ctx, arg),
                 });
@@ -4000,6 +4099,17 @@ fn satisfies(ctx: *const SemContext, ty: TypeId, req: Requirement) bool {
     return switch (req) {
         .numeric, .ordered => sema.isNumeric(ctx, ty),
         .integer => sema.isInteger(ctx, ty),
+        .signed => switch (ctx.types.get(ty)) {
+            .int => |info| info.signed,
+            .float => true,
+            else => false,
+        },
+        .float => ctx.types.get(ty) == .float,
+        .fits => |v| sema.isNumeric(ctx, ty) and holdsInt(ctx, ty, v),
+        .shift => |v| switch (ctx.types.get(ty)) {
+            .int => |info| v < intBounds(info).bits,
+            else => false,
+        },
         .plain => !sema.typeHasDropGlue(ctx, ty),
         .equatable => switch (ctx.types.get(ty)) {
             .int, .float, .bool => true,

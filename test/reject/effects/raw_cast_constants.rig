@@ -1,0 +1,21 @@
+# A cast builtin converts a constant operand when Zig compiles it, so
+# the value must convert.
+
+enum C
+  a
+  b
+
+sub main()
+  raw
+    a: U8 = @intCast(300)
+    b: U8 = @intCast(-1)
+    c: C = @enumFromInt(1)
+    d: I8 = @intFromFloat(1e300)
+    e: F32 = @floatFromInt(16777217)
+    print(a, b, c, d, e)
+
+# error: integer value `300` does not fit in `U8` (0..255)
+# error: integer value `-1` does not fit in `U8` (0..255)
+# error: `@enumFromInt` of a constant: name the variant instead
+# error: `1e300` does not fit in `I8`
+# error: integer value `16777217` does not fit exactly in `F32`

@@ -511,11 +511,21 @@ pub const DefaultValue = struct {
 
 /// An operation a generic body applies to a type parameter. Checked
 /// against every instantiation of the generic type.
-pub const Requirement = enum {
+pub const Requirement = union(enum) {
     numeric,
     ordered,
     equatable,
     integer,
+    /// A signed integer or a float: the body negates the value.
+    signed,
+    /// A float: the body combines the value with a float literal.
+    float,
+    /// A type that holds this integer exactly: the body combines the
+    /// value with an integer literal.
+    fits: i128,
+    /// An integer wider than this many bits: the body shifts the value
+    /// by a constant amount.
+    shift: i128,
     /// Owns no resource: the body copies, discards, or leaves a
     /// temporary of the parameter's value.
     plain,
@@ -526,6 +536,10 @@ pub const Requirement = enum {
             .ordered => "ordering comparison",
             .equatable => "`==` / `!=`",
             .integer => "integer operators",
+            .signed => "negation",
+            .float => "arithmetic with a float literal",
+            .fits => "arithmetic with an integer literal",
+            .shift => "a constant shift",
             .plain => "a value that owns no resource",
         };
     }
@@ -1793,51 +1807,80 @@ pub fn srcPos(sexp: Sexp, fallback: u32) u32 {
     return if (sexp == .src) sexp.src.pos else fallback;
 }
 
+/// A constant integer expression's value, or why it has none.
+pub const ConstInt = union(enum) {
+    value: i128,
+    not_constant,
+    /// Constant, but too large to compute.
+    overflow,
+};
+
 /// The value of a constant integer expression: literals, constant
-/// bindings, and arithmetic on them. Null when not constant (or too
-/// large to compute).
-pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?i128 {
+/// bindings, and arithmetic on them.
+pub fn constInt(ctx: *const SemContext, e: Sexp) ConstInt {
     switch (e) {
         .src => {
             const text_ = identAt(ctx.source, e) orelse "";
-            if (isIntLiteralText(text_)) return std.fmt.parseInt(i128, text_, 0) catch null;
-            const id = ctx.symbolOf(e) orelse return null;
-            return ctx.const_ints.get(id);
+            if (isIntLiteralText(text_)) return .{ .value = std.fmt.parseInt(i128, text_, 0) catch return .overflow };
+            const id = ctx.symbolOf(e) orelse return .not_constant;
+            return if (ctx.const_ints.get(id)) |v| .{ .value = v } else .not_constant;
         },
         .list => {
-            const h = e.kind() orelse return null;
-            if (h == .neg) return std.math.negate(constIntOf(ctx, ir.Neg.operand(e)) orelse return null) catch null;
+            const h = e.kind() orelse return .not_constant;
+            if (h == .neg) {
+                const v = switch (constInt(ctx, ir.Neg.operand(e))) {
+                    .value => |v| v,
+                    else => |r| return r,
+                };
+                return .{ .value = std.math.negate(v) catch return .overflow };
+            }
             // `a if c else b` with a constant condition: Zig picks the
             // branch at compile time, so its value is constant.
             if (h == .@"if" and ir.If.@"else"(e) != .nil) {
-                const c = constBoolOf(ctx, ir.If.cond(e)) orelse return null;
-                return constIntOf(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e));
+                const c = constBoolOf(ctx, ir.If.cond(e)) orelse return .not_constant;
+                return constInt(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e));
             }
             switch (h) {
                 .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {},
-                else => return null,
+                else => return .not_constant,
             }
-            const a = constIntOf(ctx, ir.get(e, .left)) orelse return null;
-            const b = constIntOf(ctx, ir.get(e, .right)) orelse return null;
-            return switch (h) {
+            const a = switch (constInt(ctx, ir.get(e, .left))) {
+                .value => |v| v,
+                else => |r| return r,
+            };
+            const b = switch (constInt(ctx, ir.get(e, .right))) {
+                .value => |v| v,
+                else => |r| return r,
+            };
+            const v: ?i128 = switch (h) {
                 .@"+" => std.math.add(i128, a, b) catch null,
                 .@"-" => std.math.sub(i128, a, b) catch null,
                 .@"*" => std.math.mul(i128, a, b) catch null,
-                .@"/" => if (b == 0) null else @divTrunc(a, b),
-                .@"%" => if (b == 0) null else @rem(a, b),
-                .@"<<" => if (b < 0 or b > 126) null else blk: {
+                // Division by zero and negative shift amounts are
+                // reported where the operator is checked.
+                .@"/" => if (b == 0) return .not_constant else std.math.divTrunc(i128, a, b) catch null,
+                .@"%" => if (b == 0) return .not_constant else if (b == -1) 0 else @rem(a, b),
+                .@"<<" => if (b < 0) return .not_constant else if (b > 126) null else blk: {
                     const r = a << @intCast(b);
                     break :blk if (r >> @intCast(b) == a) r else null;
                 },
-                .@">>" => if (b < 0 or b > 127) null else a >> @intCast(b),
+                .@">>" => if (b < 0) return .not_constant else a >> @intCast(@min(b, 127)),
                 .@"&" => a & b,
                 .@"|" => a | b,
-                .@"^" => a ^ b,
-                else => null,
+                else => a ^ b,
             };
+            return if (v) |x| .{ .value = x } else .overflow;
         },
-        else => return null,
+        else => return .not_constant,
     }
+}
+
+/// `constInt` as an optional: null when not constant or too large.
+pub fn constIntOf(ctx: *const SemContext, e: Sexp) ?i128 {
+    return switch (constInt(ctx, e)) {
+        .value => |v| v,
+        else => null,
+    };
 }
 
 /// The value of a constant Bool expression: literals, `not`, `and`,

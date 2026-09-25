@@ -1,0 +1,14 @@
+# An integer literal where a float is expected must convert exactly.
+
+fun scale(g: F32) -> F32
+  g * 16777217
+
+sub main()
+  x: F32 = 16777217
+  y: Float = 18446744073709551615
+  z: F32 = 16777216
+  print(x, y, z, scale(1.0))
+
+# error: integer value `16777217` does not fit exactly in `F32`
+# error: integer value `18446744073709551615` does not fit exactly in `Float`
+# error: integer value `16777217` does not fit exactly in `F32`
