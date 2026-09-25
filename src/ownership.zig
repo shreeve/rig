@@ -2141,8 +2141,10 @@ pub const Checker = struct {
         for (args, arg_values) |a, *v| {
             v.* = try self.walkConsumed(a, .argument);
             if (cell != null and v.loans.len > 0) {
-                try self.errAt(a, "cannot store a borrow of `{s}` in a `{s}`: every handle to it could reach the borrow; a value stored in a Cell or Signal may not hold one", .{ self.vars.items[v.loans[0].root].name, cell.? });
+                const loans = v.loans;
                 v.* = .{};
+                if (self.readsPlainValue(a)) continue;
+                try self.errAt(a, "cannot store a borrow of `{s}` in a `{s}`: every handle to it could reach the borrow; a value stored in a Cell or Signal may not hold one", .{ self.vars.items[loans[0].root].name, cell.? });
                 continue;
             }
             stored = try self.valueUnion(stored, v.*);
@@ -2176,6 +2178,17 @@ pub const Checker = struct {
             return .{};
         }
         return result;
+    }
+
+    /// A borrow of plain data (`k` with `k: ?Int`) passed where a value
+    /// is expected is read by value: what it borrows is not stored.
+    fn readsPlainValue(self: *const Checker, e: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        const arg = if (e.isKind(.kwarg)) ir.Kwarg.value(e) else e;
+        return switch (self.typeData(self.exprType(arg) orelse return false)) {
+            .borrow_read, .borrow_write => |inner| sema.isPlainData(ctx, inner),
+            else => false,
+        };
     }
 
     fn isPrint(self: *Checker, callee: Sexp) bool {
