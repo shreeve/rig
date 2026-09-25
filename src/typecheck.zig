@@ -1537,7 +1537,9 @@ const Checker = struct {
         const ta = self.ctx.types.get(a);
         const tb = self.ctx.types.get(b);
         if (ta == .type_var or tb == .type_var) {
-            if (a != b and !(ta == .type_var and sema.isNumeric(self.ctx, b)) and !(tb == .type_var and sema.isNumeric(self.ctx, a))) {
+            // A `T` compares with a `T`, or with a literal every `T` holds.
+            const other = if (ta == .type_var) b else a;
+            if (a != b and other != self.t().int_literal_id and other != self.t().float_literal_id) {
                 try self.errAt(l, "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
                 return self.t().bool_id;
             }
@@ -2312,16 +2314,9 @@ const Checker = struct {
         if (self.isPoison(from)) return target;
         if (!sema.isNumeric(self.ctx, from)) {
             try self.errAt(arg, "`{s}(x)` converts a number; `x` has type `{s}`", .{ name, try self.tyName(from) });
-            return target;
+        } else if (self.ctx.types.get(target) == .int) {
+            if (sema.isInteger(self.ctx, from)) try self.checkLiteralFits(arg, target) else try self.checkFloatFits(arg, target);
         }
-        const tt = self.ctx.types.get(target);
-        if (tt != .int) return target;
-        if (sema.isInteger(self.ctx, from)) {
-            try self.checkLiteralFits(arg, target);
-            return target;
-        }
-        // A constant float: its integer part must fit.
-        try self.checkFloatFits(arg, target);
         return target;
     }
 
@@ -2380,17 +2375,12 @@ const Checker = struct {
     }
 
     fn methodParams(self: *Checker, f: Field, skip_self: bool) ParamInfo {
-        var names = f.param_names;
-        var defaults = f.param_defaults;
-        if (skip_self) {
-            if (names) |n| if (n.len > 0) {
-                names = n[1..];
-            };
-            if (defaults) |d| if (d.len > 0) {
-                defaults = d[1..];
-            };
-        }
-        return .{ .names = names, .defaults = defaults, .source = self.ctx.source };
+        const skip: usize = @intFromBool(skip_self);
+        return .{
+            .names = if (f.param_names) |n| n[@min(skip, n.len)..] else null,
+            .defaults = if (f.param_defaults) |d| d[@min(skip, d.len)..] else null,
+            .source = self.ctx.source,
+        };
     }
 
     /// Arguments against a signature: arity, types, keyword arguments
@@ -2504,9 +2494,8 @@ const Checker = struct {
         }
     }
 
-    /// Construct a struct (`User(name: ...)`) or, with `variant`, an enum
-    /// payload variant. Field types go through `subst` (generic
-    /// constructors) or are imported from `foreign`.
+    /// Construct a struct (`User(name: ...)`). Field types go through
+    /// `subst` (generic constructors) or are imported from `foreign`.
     fn construct(self: *Checker, sym_id: SymbolId, args: []const Sexp, pos: u32, subst: TypeSubst, foreign: ?ForeignFields) Error!TypeId {
         const sym = if (foreign) |fo| fo.ctx.symbols.items[sym_id] else self.ctx.symbols.items[sym_id];
         const result = if (foreign) |fo|
@@ -2516,10 +2505,9 @@ const Checker = struct {
         else
             try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = subst.args } });
         const fields = sym.fields orelse return self.badCall(args, pos, "opaque type `{s}` cannot be constructed", .{sym.name});
-        var is_enum = false;
-        for (fields) |f| {
-            if (f.is_variant) is_enum = true;
-        }
+        const is_enum = for (fields) |f| {
+            if (f.is_variant) break true;
+        } else false;
         if (is_enum) return self.badCall(args, pos, "`{s}` is an enum; construct a variant with `{s}.name` or `.name(...)`", .{ sym.name, sym.name });
         try self.checkFieldArgs(args, fields, .{ .owner = sym.name, .decl_pos = sym.decl_pos, .pos = pos, .subst = subst, .foreign = foreign, .kind = .constructor });
         return result;
@@ -2593,11 +2581,7 @@ const Checker = struct {
         }
         for (fields) |f| {
             if (f.is_method or f.is_variant or f.has_default or seen.contains(f.name)) continue;
-            if (info.kind == .constructor) {
-                try self.err(info.pos, "constructor of `{s}` is missing field `{s}`", .{ info.owner, f.name });
-            } else {
-                try self.err(info.pos, "variant `{s}` is missing field `{s}`", .{ info.owner, f.name });
-            }
+            try self.err(info.pos, "{s} `{s}` is missing field `{s}`", .{ noun, info.owner, f.name });
             if (info.foreign == null and f.decl_pos != sema.builtin_decl_pos) try self.note(f.decl_pos, "field `{s}` declared here", .{f.name});
         }
     }
@@ -3603,37 +3587,32 @@ const Checker = struct {
             },
         }
         const outer_ty = self.ctx.symbols.items[outer_id].ty;
-        const oty = self.ctx.types.get(outer_ty);
-        const bound: TypeId = switch (mode) {
-            .cap_clone => switch (oty) {
+        const bound: ?TypeId = switch (mode) {
+            .cap_move => outer_ty,
+            .cap_weak => switch (self.ctx.types.get(outer_ty)) {
+                .shared => |inner| try self.ctx.intern(.{ .weak = inner }),
+                else => null,
+            },
+            .cap_clone => switch (self.ctx.types.get(outer_ty)) {
                 .shared, .weak => outer_ty,
                 // Cloning through a borrow of a handle makes a new handle.
                 .borrow_read, .borrow_write => |inner| switch (self.ctx.types.get(inner)) {
                     .shared, .weak => inner,
-                    else => blk: {
-                        try self.err(pos, "`|+{s}|` copies a Copy value or clones a `*T` / `~T` handle, but `{s}` is `{s}`; move it in with `|<{s}|`, or clone a handle into a local first and capture that", .{ name, name, try self.tyName(outer_ty), name });
-                        break :blk self.t().invalid_id;
-                    },
+                    else => null,
                 },
                 // Inside a generic body, copying a `T` requires plain data.
                 else => if (sema.isPlainData(self.ctx, outer_ty) or self.isPoison(outer_ty) or
-                    (sema.maybeDropGlue(self.ctx, outer_ty) and !(try self.ownsResource(outer_ty, pos, "copies into a closure a value")))) outer_ty else blk: {
-                    try self.err(pos, "`|+{s}|` copies a Copy value or clones a `*T` / `~T` handle, but `{s}` is `{s}`; move it in with `|<{s}|`, or clone a handle into a local first and capture that", .{ name, name, try self.tyName(outer_ty), name });
-                    break :blk self.t().invalid_id;
-                },
+                    (sema.maybeDropGlue(self.ctx, outer_ty) and !(try self.ownsResource(outer_ty, pos, "copies into a closure a value")))) outer_ty else null,
             },
-            .cap_weak => switch (oty) {
-                .shared => |inner| try self.ctx.intern(.{ .weak = inner }),
-                else => blk: {
-                    try self.err(pos, "weak-capture `|~{s}|` requires a shared handle `*T`; got `{s}`", .{ name, try self.tyName(outer_ty) });
-                    break :blk self.t().invalid_id;
-                },
-            },
-            .cap_move => outer_ty,
         };
-        self.ctx.symbols.items[cap_sym].ty = bound;
+        if (bound == null) if (mode == .cap_weak) {
+            try self.err(pos, "weak-capture `|~{s}|` requires a shared handle `*T`; got `{s}`", .{ name, try self.tyName(outer_ty) });
+        } else {
+            try self.err(pos, "`|+{s}|` copies a Copy value or clones a `*T` / `~T` handle, but `{s}` is `{s}`; move it in with `|<{s}|`, or clone a handle into a local first and capture that", .{ name, name, try self.tyName(outer_ty), name });
+        };
+        self.ctx.symbols.items[cap_sym].ty = bound orelse self.t().invalid_id;
         self.ctx.symbols.items[cap_sym].origin = outer_id;
-        try self.ctx.recordType(name_node, bound);
+        try self.ctx.recordType(name_node, bound orelse self.t().invalid_id);
     }
 };
 

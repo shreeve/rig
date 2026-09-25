@@ -537,8 +537,8 @@ pub const Requirement = union(enum) {
             .equatable => "`==` / `!=`",
             .integer => "integer operators",
             .signed => "negation",
-            .float => "arithmetic with a float literal",
-            .fits => "arithmetic with an integer literal",
+            .float => "a float literal",
+            .fits => "an integer literal",
             .shift => "a constant shift",
             .plain => "a value that owns no resource",
         };
