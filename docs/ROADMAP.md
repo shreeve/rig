@@ -2,13 +2,18 @@
 
 Where Rig is going, one line each. Nothing here is scheduled; the order
 follows what real programs need, and each item lands only when it can
-be checked as thoroughly as what exists.
+be checked as thoroughly as what exists. The forms the compiler
+rejects today as not supported yet are listed, with their diagnostics,
+in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms).
 
 ## Language
 
 - **Stack closures as arguments**: pass a non-escaping closure to a call without allocating it.
 - **Generic functions**: type parameters on functions, not only on types.
-- **Strings**: building and formatting strings. A slice of a built (heap) string will be a borrow of it, as an array slice is today.
+- **Generic types across modules**: instances of a module's generic types in its public surface.
+- **Owning values in more places**: arrays of owning values, and owned closures that take or return them.
+- **Strings**: building and formatting strings, and matching on them. A slice of a built (heap) string will be a borrow of it, as an array slice is today.
+- **Struct equality**: `==` on structs.
 - **Traits or interfaces** whose dispatch and ownership stay visible in the IR.
 - **Compile-time evaluation**: `pre` expressions and blocks beyond `pre` parameters.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.

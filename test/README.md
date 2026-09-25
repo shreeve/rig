@@ -3,7 +3,7 @@
 ```bash
 ./test/run                 # everything (parallel)
 ./test/run ownership       # only tests whose id contains "ownership"
-./test/run -v known/emit   # list each result, including known failures
+./test/run -v known        # list each result of the known bugs
 ./test/run --update ir     # rewrite IR snapshots after an intended grammar change
 ```
 

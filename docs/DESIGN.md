@@ -85,9 +85,9 @@ cleanly, the language gains a general feature, never a special case.
 
 **Unify effects rather than add features.** A feature earns its place
 by making an existing effect explicit or by replacing several ad hoc
-mechanisms with one. Closure literals lost their keyword because the
-bar list already marked them; closure types became `fun(...)` and
-`sub(...)` because function types already existed.
+mechanisms with one. Closure literals need no keyword because the bar
+list already marks them; closure types are `fun(...)` and `sub(...)`
+because function types already exist.
 
 ## The sigil algebra
 
@@ -116,9 +116,9 @@ whenever it type-checks. That is the first law.
 **Totality.** A sigil never fails at run time; failure belongs to
 methods. This is why the way back from a weak handle is a method:
 `w.upgrade()` returns an optional `(*U)?`, because the value may be
-gone. A sigil like `^w` was considered and rejected: it would be the
-only partial sigil. The round trip is total going down (`~x`), fallible
-coming up (`upgrade()`).
+gone. A sigil for it (say `^w`) would be the only partial sigil. The
+round trip is total going down (`~x`), fallible coming up
+(`upgrade()`).
 
 **Position picks the category; the symbol picks the family.** A prefix
 `?` or `!` is always a borrow, in an expression and in a type alike:
@@ -136,11 +136,10 @@ e!   suffix, expression   propagate the failure of a T!
 e?   suffix, expression   propagate the absence of a T?
 ```
 
-The triangle came from a collision: an early design spelled fallible
-returns `-> !User`, which clashed with the write borrow. Moving type
-modifiers to suffix position made both families unambiguous. One
-casualty is Ruby's `valid?` method names, which would collide with
-`Bool?`; Rig writes `is_valid`.
+Keeping absence and failure in suffix position is what lets `!` and
+`?` serve both families unambiguously: `-> !User` returns a write
+borrow, `-> User!` a fallible `User`. The price is Ruby's `valid?`
+method names, which would collide with `Bool?`; Rig writes `is_valid`.
 
 **Composition.** Prefixes compose right to left and suffixes bind
 tighter than prefixes, in types and in expressions:
@@ -270,8 +269,8 @@ binding syntax.
 ### `and`, `or`, `not`
 
 Words read better than `&&` and `||`, and they free `!` for its two
-jobs, borrowing and failure. The old spellings are rejected with a
-pointer to the new ones.
+jobs, borrowing and failure. `&&` and `||` are rejected with a pointer
+to the words.
 
 ### `raw` as a block
 
@@ -324,9 +323,9 @@ on Rig is this IR, not its syntax.
 
 Rust and Zig ship no reactivity in their standard libraries; Leptos and
 friends are libraries over `Rc<RefCell<T>>` and closures. Rig takes the
-same position, and used reactivity as a forcing function: a reactive
-program had to compose from general pieces, and wherever it could not,
-the language gained a general feature. The same pieces (a parent owning
+same position, and uses reactivity as a forcing function: a reactive
+program must compose from general pieces, and wherever it cannot, the
+language gains a general feature. The same pieces (a parent owning
 children that refer back weakly, retained callbacks, shared mutable
 cells, lists of handles) serve GUI trees, observers, caches, and graphs.
 `Signal` is the one reactive primitive in the runtime, and it is
@@ -353,7 +352,7 @@ goals, and says no where they don't.
 - a garbage collector, ever
 - a custom or LLVM backend: Zig does code generation
 - a reactive framework in the language
-- macros, until compile-time evaluation proves it needs them
+- macros
 - traits and interfaces, until a design keeps dispatch and ownership
   visible
 - lifetime annotations, unless second-class borrows prove too weak

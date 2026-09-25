@@ -19,7 +19,7 @@ where it happens, so memory safety reads more cleanly than in Rust:
 | `*x` / `*T` | shared (refcounted) |
 | `~x` / `~T` | weak |
 | `expr!` / `T!` | propagate failure / fallible type |
-| `T?` | optional type |
+| `expr?` / `T?` | propagate `none` / optional type |
 
 Everything else aims for the readability of Python and Ruby, the
 cost model of Zig and C, and the safety of Rust: no GC, no hidden
@@ -30,9 +30,10 @@ allocation, no hidden refcount traffic, no silent control flow.
 1. **We test and verify everything we say.** A feature exists when a
    program using it runs and prints the right thing, with no leaks
    under the checking allocator. A rejection exists when a
-   `must-reject` test proves it. Docs make no claims the test suite
-   does not check, and every `rig` example in the docs is run by
-   `./test/run` (see `test/README.md`).
+   `test/reject` test or a ```` ```rig reject ```` doc example proves
+   it. Docs make no claims the test suite does not check, and every
+   `rig` example in the docs is run by `./test/run` (see
+   `test/README.md`).
 2. **Accept means correct.** If `rig check` accepts a program, the
    emitted Zig compiles, runs, and does what the source says. Anything
    the compiler cannot lower correctly is rejected in sema with a Rig
@@ -90,12 +91,12 @@ RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 |---|---|
 | `rig.grammar` | Nexus grammar: syntax, and the IR schema every node follows |
 | `src/rig.zig` | Lexer and parser wrappers (layout, spacing, IR rewrites) |
+| `src/diag.zig` | Diagnostics: spans, line and column, the printed format |
 | `src/parser.zig` | Generated — do not edit: lexer, parser, IR tags and accessors |
 | `src/modules.zig` | Module graph and `use` resolution |
-| `src/sema.zig` | Semantic analysis front door: types, symbols, the facts table |
-| `src/resolve.zig` | Declaration pass: names, type resolution, builtins, drop glue |
-| `src/typecheck.zig` | Expression pass: types every expression, records facts |
-| `src/effects.zig` | Fallibility and the `raw` boundary |
+| `src/sema.zig` | Semantic analysis front door: types, symbols, drop glue, the facts table |
+| `src/resolve.zig` | Declaration pass: builtins, names, type resolution |
+| `src/typecheck.zig` | Expression pass: types every expression, records facts, checks fallibility and the `raw` boundary |
 | `src/ownership.zig` | Move / borrow / drop checking |
 | `src/emit.zig` | Zig code generation |
 | `src/runtime.zig` | Runtime support shipped with every program (embedded by `src/emit.zig`) |
@@ -106,4 +107,4 @@ RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 | `docs/DESIGN.md` | Principles and rationale |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |
-| `docs/zig-0.16.md` | Zig 0.16 reference: the std, language, and build APIs Rig code uses |
+| `docs/zig-0.16.md` | Zig 0.16 for Rig contributors: the language, std, and build APIs Rig uses |
