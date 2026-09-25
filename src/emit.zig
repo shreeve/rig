@@ -2109,7 +2109,9 @@ pub const Emitter = struct {
                 // A generic `T` is cloned only where each instance is plain
                 // data, so it is copied.
                 if (kind == .value and !sema.maybeDropGlue(self.sema, self.peelBorrows(self.typeOf(operand).?))) return self.unsupported(sexp, "a clone of a value with drop glue");
-                try self.emitExpr(operand);
+                // A name or field holding the borrow reads through it; a
+                // call returning one yields the pointer.
+                if (!isPlace(operand) and self.isPtrBorrowExpr(operand)) try self.emitDeref(operand) else try self.emitExpr(operand);
                 if (kind == .shared) try self.w.writeAll(".cloneStrong()");
                 if (kind == .weak) try self.w.writeAll(".cloneWeak()");
             },

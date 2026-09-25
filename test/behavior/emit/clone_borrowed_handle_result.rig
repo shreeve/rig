@@ -1,0 +1,32 @@
+# `+` of a call that returns a borrow of a handle clones the handle it
+# borrows, as it does for a binding holding that borrow.
+
+struct Leaf
+  n: Int
+
+error Lookup
+  missing
+
+struct Root
+  leaf: *Leaf
+  fun first(?self) -> ?*Leaf
+    ?self.leaf
+  fun pick(?self, ok: Bool) -> (?*Leaf)!
+    return Lookup.missing if not ok
+    ?self.leaf
+
+fun count(root: ?Root) -> Int!
+  k = +root.pick(true)!
+  k.n
+
+sub main
+  root = Root(leaf: *Leaf(n: 4))
+  k = +root.first()
+  print(k.n)
+  r = root.first()
+  j = +r
+  print(j.n + (count(?root) catch 0))
+
+# expect:
+# 4
+# 8
