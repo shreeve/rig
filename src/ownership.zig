@@ -1733,18 +1733,12 @@ pub const Checker = struct {
             return;
         }
         if (try self.rejectGlobal(id, pos, "drop")) return;
-        switch (self.flows.items[id].status) {
-            .live => {},
-            .moved => {
+        if (!self.flowLive(id)) {
+            if (self.flows.items[id].status == .moved) {
                 try self.err(pos, "cannot drop `{s}` after it was moved", .{name});
-                try self.noteInvalidated(id, pos);
-                return;
-            },
-            .dropped => {
-                try self.err(pos, "cannot drop `{s}` twice", .{name});
-                try self.noteInvalidated(id, pos);
-                return;
-            },
+            } else try self.err(pos, "cannot drop `{s}` twice", .{name});
+            try self.noteInvalidated(id, pos);
+            return;
         }
         if (v.alias_of != null) {
             _ = try self.movePayload(id, pos, "drop");
