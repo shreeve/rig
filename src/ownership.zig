@@ -625,11 +625,10 @@ pub const Checker = struct {
         self.loan_counts.shrinkRetainingCapacity(start);
     }
 
-    const Found = struct { id: VarId, crossed: bool };
-
-    /// Find the innermost visible var named `name`. `crossed` is set when
-    /// it is a local of a function enclosing the current closure body.
-    fn find(self: *const Checker, name: []const u8) ?Found {
+    /// The innermost visible var named `name`. A local of a function
+    /// enclosing the current closure body is not visible: typecheck
+    /// reports its use.
+    fn find(self: *const Checker, name: []const u8) ?VarId {
         var id = self.names.get(name) orelse return null;
         while (self.isHiddenVar(id)) id = self.vars.items[id].shadows orelse return null;
         var crossed = false;
@@ -640,7 +639,7 @@ pub const Checker = struct {
             if (sc.start <= id) break;
             if (sc.kind == .closure and !self.isHiddenScope(si)) crossed = true;
         }
-        return .{ .id = id, .crossed = crossed and si > 0 };
+        return if (crossed and si > 0) null else id;
     }
 
     fn isHiddenScope(self: *const Checker, si: usize) bool {
@@ -659,17 +658,6 @@ pub const Checker = struct {
     /// A module-level binding seen from inside a function body.
     fn isGlobal(self: *const Checker, id: VarId) bool {
         return self.scopes.items.len > 1 and id < self.scopes.items[1].start;
-    }
-
-    /// Resolve a value-position name. A local of an enclosing function
-    /// seen from inside a closure body is an error: it must be captured.
-    fn lookup(self: *Checker, pos: u32, name: []const u8) Error!?VarId {
-        const f = self.find(name) orelse return null;
-        if (f.crossed) {
-            try self.err(pos, "closure body uses `{s}` without capturing it; add it to the bar list (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|~{s}|` holds it weakly)", .{ name, name, name, name });
-            return null;
-        }
-        return f.id;
     }
 
     // -------------------------------------------------------------------------
@@ -1313,15 +1301,14 @@ pub const Checker = struct {
     fn consumeTailName(self: *Checker, node: Sexp, sink: Sink) Error!void {
         const ctx = self.sema orelse return;
         const sym = ctx.symbolOf(node) orelse return;
-        const f = self.find(self.text(node)) orelse return;
-        if (f.crossed) return;
-        const v = self.vars.items[f.id];
+        const id = self.find(self.text(node)) orelse return;
+        const v = self.vars.items[id];
         if (v.decl != ctx.symbols.items[sym].decl_pos) return;
-        if (!self.flowLive(f.id)) return;
+        if (!self.flowLive(id)) return;
         if (v.alias_of == null) {
             // A bare owning name returned through a branch moves out.
             if (sink == .ret and !v.closure and !v.loop_borrow and !v.capture_resource and self.returnMoves(v)) {
-                _ = try self.moveVar(f.id, node.src.pos, .move);
+                _ = try self.moveVar(id, node.src.pos, .move);
             }
             return;
         }
@@ -1330,7 +1317,7 @@ pub const Checker = struct {
             // A copy for plain data; each instantiation is checked.
             return self.reportAlias(node.src.pos, v.name, true, k, .binding, v.ty);
         }
-        _ = try self.movePayload(f.id, node.src.pos, "move");
+        _ = try self.movePayload(id, node.src.pos, "move");
     }
 
     /// A place whose value holds a write borrow (`w`, `e.t`, a struct
@@ -1348,7 +1335,7 @@ pub const Checker = struct {
     fn walkName(self: *Checker, node: Sexp, as_callee: bool) Error!Value {
         const pos = node.src.pos;
         const name = self.text(node);
-        const id = (try self.lookup(pos, name)) orelse return .{};
+        const id = self.find(name) orelse return .{};
         const v = self.vars.items[id];
         if (v.closure and !as_callee) {
             try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased; call it as `{s}()`, or make the literal owned (`*|...| body`) to pass it around", .{ name, name });
@@ -1404,9 +1391,8 @@ pub const Checker = struct {
     fn resolvePlace(self: *const Checker, e: Sexp) ?Place {
         switch (e) {
             .src => {
-                const f = self.find(self.text(e)) orelse return null;
-                if (f.crossed) return null;
-                return .{ .root = f.id, .whole = true, .through_borrow = self.vars.items[f.id].ref != .none };
+                const id = self.find(self.text(e)) orelse return null;
+                return .{ .root = id, .whole = true, .through_borrow = self.vars.items[id].ref != .none };
             },
             .list => switch (e.kind() orelse return null) {
                 .member, .index => {
@@ -1699,7 +1685,7 @@ pub const Checker = struct {
         const target = ir.Drop.name(node);
         const pos = target.src.pos;
         const name = self.text(target);
-        const id = (try self.lookup(pos, name)) orelse return;
+        const id = self.find(name) orelse return;
         const v = self.vars.items[id];
         if (try self.rejectBorrowedView(id, pos, "drop")) return;
         if (v.kind == .param and v.ref != .none) {
@@ -1742,9 +1728,7 @@ pub const Checker = struct {
     fn checkNoImplicitCopy(self: *Checker, expr: Sexp, sink: Sink, top_return: bool) Error!void {
         switch (expr) {
             .src => {
-                const f = self.find(self.text(expr)) orelse return;
-                if (f.crossed) return;
-                const v = self.vars.items[f.id];
+                const v = self.vars.items[self.find(self.text(expr)) orelse return];
                 const pos = expr.src.pos;
                 const name = v.name;
                 if (v.closure) return; // reported by walkName
@@ -1893,17 +1877,14 @@ pub const Checker = struct {
             .shadow => try self.bindNew(name, pos, false, is_lambda, value),
             .fixed => try self.bindNew(name, pos, true, is_lambda, value),
             .default, .move => {
-                if (try self.lookup(pos, name)) |id| {
+                if (self.find(name)) |id| {
                     try self.reassign(id, pos, value);
-                } else if (self.find(name) == null) {
+                } else {
                     try self.bindNew(name, pos, false, is_lambda, value);
                 }
             },
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
-                const id = (try self.lookup(pos, name)) orelse {
-                    if (self.find(name) == null) try self.err(pos, "compound assignment on undefined `{s}`", .{name});
-                    return;
-                };
+                const id = self.find(name) orelse return;
                 try self.checkReadable(id, pos);
                 try self.checkAssignable(id, pos);
             },
@@ -2289,9 +2270,7 @@ pub const Checker = struct {
         const pos = node.src.pos;
         const name = self.text(node);
         // Unresolved or nested captures are diagnosed by ctx.
-        const f = self.find(name) orelse return .{};
-        if (f.crossed) return .{};
-        const id = f.id;
+        const id = self.find(name) orelse return .{};
         const v = self.vars.items[id];
         if (v.closure) {
             try self.err(pos, "cannot capture closure `{s}`; closures cannot be copied", .{name});
@@ -2329,7 +2308,7 @@ pub const Checker = struct {
         var value: Value = .{};
         if (expr == .src) {
             try self.checkNoImplicitCopy(expr, .ret, true);
-            if (try self.lookup(expr.src.pos, self.text(expr))) |id| {
+            if (self.find(self.text(expr))) |id| {
                 const v = self.vars.items[id];
                 if (v.closure) {
                     value = try self.walkName(expr, false);
@@ -3545,17 +3524,6 @@ test "moving out of a field is rejected" {
         \\  eat(<p.a)
         \\
     , "cannot move out of `p.a`");
-}
-
-test "closure body must capture outer locals" {
-    try expectError(
-        \\sub main()
-        \\  rc = make()
-        \\  f = |+n|
-        \\    eat(<rc)
-        \\  f()
-        \\
-    , "closure body uses `rc` without capturing it");
 }
 
 test "a match without a catch-all arm may run no arm" {
