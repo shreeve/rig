@@ -323,7 +323,11 @@ pub const Emitter = struct {
     fn emitTestTable(self: *Emitter) Error!void {
         if (self.tests.items.len == 0) return;
         try self.w.writeAll("\npub const __rig_tests = [_]rig.Test{\n");
-        for (self.tests.items) |t| try self.w.print("    .{{ .name = {s}, .func = {s} }},\n", .{ t.name, t.func });
+        for (self.tests.items) |t| {
+            try self.w.writeAll("    .{ .name = ");
+            if (t.name[0] == '\'') try writeSingleQuoted(self.w, t.name) else try self.w.writeAll(t.name);
+            try self.w.print(", .func = {s} }},\n", .{t.func});
+        }
         try self.w.writeAll("};\n");
     }
 
@@ -917,43 +921,35 @@ pub const Emitter = struct {
                 else => self.unsupported(sexp, "this binding target"),
             };
         }
-        switch (kind) {
-            .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => unreachable,
-            .default, .move, .fixed, .shadow => {
-                if (std.mem.eql(u8, self.srcText(target), "_")) {
-                    // A discarded resource is dropped at once.
-                    const owned: ?ResourceKind = if (self.typeOf(expr)) |t| self.kindOf(t) else null;
-                    if (owned != null) {
-                        const tmp = try self.fmt("__rig_discard_{d}", .{self.nextId()});
-                        try self.w.print("{{ var {s} = ", .{tmp});
-                        try self.emitValueOf(expr, is_move);
-                        try self.w.print("; rig.drop(&{s}); }}", .{tmp});
-                        return;
-                    }
-                    // A named place is discarded by address: it may be used
-                    // elsewhere, and Zig rejects discarding a used name.
-                    var place = expr;
-                    if (place.isKind(.read) or place.isKind(.write)) place = ir.get(place, .operand);
-                    if (!is_move and isPlace(place) and !place.isKind(.index)) {
-                        try self.w.writeAll("_ = &");
-                        try self.emitPlace(place);
-                        return self.w.writeAll(";");
-                    }
-                    try self.w.writeAll("_ = ");
-                    try self.emitValueOf(expr, is_move);
-                    try self.w.writeAll(";");
-                    return;
-                }
-                // Sema decides whether the name declares a binding or
-                // reassigns one.
-                const sym = self.sema.symbolOf(target) orelse return self.unsupported(target, "an unresolved binding");
-                if (self.sema.symbols.items[sym].decl_pos == target.src.pos) {
-                    try self.emitBind(target, sym, type_node, expr, is_move);
-                } else {
-                    const local = self.localBySym(sym) orelse return self.unsupported(target, "an assignment to this name");
-                    try self.emitRebind(local.*, expr, is_move);
-                }
-            },
+        if (std.mem.eql(u8, self.srcText(target), "_")) {
+            // A discarded resource is dropped at once.
+            if (self.typeOf(expr)) |t| if (self.kindOf(t) != null) {
+                try self.w.writeAll("rig.discard(");
+                try self.emitValueOf(expr, is_move);
+                return self.w.writeAll(");");
+            };
+            // A named place is discarded by address: it may be used
+            // elsewhere, and Zig rejects discarding a used name.
+            var place = expr;
+            if (place.isKind(.read) or place.isKind(.write)) place = ir.get(place, .operand);
+            if (!is_move and isPlace(place) and !place.isKind(.index)) {
+                try self.w.writeAll("_ = &");
+                try self.emitPlace(place);
+                return self.w.writeAll(";");
+            }
+            try self.w.writeAll("_ = ");
+            try self.emitValueOf(expr, is_move);
+            try self.w.writeAll(";");
+            return;
+        }
+        // Sema decides whether the name declares a binding or
+        // reassigns one.
+        const sym = self.sema.symbolOf(target) orelse return self.unsupported(target, "an unresolved binding");
+        if (self.sema.symbols.items[sym].decl_pos == target.src.pos) {
+            try self.emitBind(target, sym, type_node, expr, is_move);
+        } else {
+            const local = self.localBySym(sym) orelse return self.unsupported(target, "an assignment to this name");
+            try self.emitRebind(local.*, expr, is_move);
         }
     }
 
@@ -990,7 +986,7 @@ pub const Emitter = struct {
         // known, and Zig would then evaluate later arithmetic on it at
         // compile time; Rig treats it as a run-time value.
         const is_var = s.flags.reassigned or (!holds_ptr and (s.flags.written or needs_ptr_self or
-            (!s.flags.comptime_known and !is_move and (self.isZigComptime(expr) or self.sema.const_ints.contains(sym)))));
+            (!s.flags.comptime_known and !is_move and (isZigComptimeIn(self, expr, 0) or self.sema.const_ints.contains(sym)))));
 
         // Evaluate the value before the new name is visible, so a shadow
         // (`new x = x + 1`) reads the old binding.
@@ -1201,10 +1197,7 @@ pub const Emitter = struct {
                 // capture is a constant, so it is dropped from a copy.
                 const flag = self.consumeFlag(local) orelse return self.w.writeAll("{}");
                 try self.w.print("{s} = false; ", .{flag});
-                if (kind == .value or kind == .optional) {
-                    const id = self.nextId();
-                    return self.w.print("{{ var __rig_drop_{d} = {s}; rig.drop(&__rig_drop_{d}); }}", .{ id, local.zig_name, id });
-                }
+                if (kind == .value or kind == .optional) return self.w.print("rig.discard({s});", .{local.zig_name});
             }
             try self.writeDrop(local.zig_name, kind);
             try self.w.writeAll(";");
@@ -1695,10 +1688,7 @@ pub const Emitter = struct {
     /// The owning local of a resource bound by `as`, dropped at the end
     /// of the body unless it is moved out.
     fn bindOptionalResource(self: *Emitter, o: OptionalBinding) Error!void {
-        if (o.name == .nil) {
-            const id = self.nextId();
-            return self.line("var __rig_discard_{d} = {s}; rig.drop(&__rig_discard_{d});", .{ id, o.tmp, id });
-        }
+        if (o.name == .nil) return self.line("rig.discard({s});", .{o.tmp});
         const sym = self.sema.symbolOf(o.name).?;
         const ty = self.symType(sym).?;
         const kind = self.kindOf(ty).?;
@@ -1849,10 +1839,6 @@ pub const Emitter = struct {
         const decl = sema.nominalDecl(self.sema, ty) orelse return false;
         for (decl.symbol().fields orelse return false) |f| if (f.is_variant) return true;
         return false;
-    }
-
-    fn isZigComptime(self: *Emitter, e: Sexp) bool {
-        return isZigComptimeIn(self, e, 0);
     }
 
     /// An expression whose value is a pointer borrow (see `isPtrBorrowTy`).

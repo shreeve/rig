@@ -255,9 +255,15 @@ pub fn cloneOptional(value: anytype) @TypeOf(value) {
 /// `e == none` for a temporary optional that owns a resource: the
 /// temporary is dropped.
 pub fn isNone(value: anytype) bool {
+    defer discard(value);
+    return value == null;
+}
+
+/// Drop a value nothing keeps: `_ = e`, `as _`, a match payload dropped
+/// with `-x`.
+pub fn discard(value: anytype) void {
     var v = value;
-    defer drop(&v);
-    return v == null;
+    drop(&v);
 }
 
 /// Allocate a new `*T` holding `value`.
