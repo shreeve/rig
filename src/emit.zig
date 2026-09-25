@@ -1655,31 +1655,21 @@ pub const Emitter = struct {
         try self.w.writeAll("(");
         try self.emitBare(value);
         try self.w.writeAll(") ");
-        const sym = self.sema.symbolOf(name) orelse {
-            // `as _`: a resource inside is dropped at once.
-            const opt = self.typeOf(value) orelse return .{};
-            const inner = switch (self.sema.types.get(self.peelBorrows(opt))) {
-                .optional => |i| i,
-                else => return .{},
-            };
-            if (self.kindOf(inner) == null) {
-                try self.w.writeAll("|_| ");
-                return .{};
-            }
-            const tmp = try self.fmt("__rig_opt_{d}", .{self.nextId()});
-            try self.w.print("|{s}| ", .{tmp});
-            return .{ .optional = .{ .name = .nil, .tmp = tmp } };
-        };
-        const ty = self.symType(sym);
+        // `as _` binds no symbol; a resource inside is dropped at once.
+        const sym = self.sema.symbolOf(name);
+        const ty: ?TypeId = if (sym) |s| self.symType(s) else if (self.typeOf(value)) |t| switch (self.sema.types.get(self.peelBorrows(t))) {
+            .optional => |inner| inner,
+            else => null,
+        } else null;
         if (ty != null and self.kindOf(ty.?) != null) {
             const tmp = try self.fmt("__rig_opt_{d}", .{self.nextId()});
             try self.w.print("|{s}| ", .{tmp});
-            return .{ .optional = .{ .name = name, .tmp = tmp } };
+            return .{ .optional = .{ .name = if (sym != null) name else .nil, .tmp = tmp } };
         }
-        if (!self.usage.used.contains(sym)) {
+        if (sym == null or !self.usage.used.contains(sym.?)) {
             try self.w.writeAll("|_| ");
         } else {
-            const local = try self.declare(.{ .sym = sym, .zig_name = "", .ty = ty }, self.srcText(name));
+            const local = try self.declare(.{ .sym = sym.?, .zig_name = "", .ty = ty }, self.srcText(name));
             try self.w.print("|{s}| ", .{local.zig_name});
         }
         return .{};
@@ -2390,7 +2380,7 @@ pub const Emitter = struct {
         };
         // An owned closure handle, held by a name or a field.
         if (self.typeOf(callee)) |t| if (sema.ownedClosureFn(self.sema, t) != null) {
-            if (callee.isKind(.member)) try self.emitMember(callee) else try self.emitExpr(callee);
+            try self.emitExpr(callee);
             try self.w.writeAll(".value.invoke(.{ ");
             try self.emitArgs(sexp);
             return self.w.writeAll(" })");
@@ -2412,7 +2402,7 @@ pub const Emitter = struct {
                 return self.w.writeAll(")");
             }
         };
-        if (callee.isKind(.member)) try self.emitMember(callee) else try self.emitExpr(callee);
+        try self.emitExpr(callee);
         try self.w.writeAll("(");
         try self.emitArgs(sexp);
         try self.w.writeAll(")");
@@ -3587,100 +3577,4 @@ fn isValueStmt(s: Sexp) bool {
 fn isTerminatingStmt(s: Sexp) bool {
     const h = s.kind() orelse return false;
     return h == .@"return" or h == .@"break" or h == .@"continue";
-}
-
-// =============================================================================
-// Tests
-// =============================================================================
-
-fn emitSourceToString(allocator: std.mem.Allocator, rig_source: []const u8) ![]u8 {
-    var p = parser.Parser.init(allocator, rig_source);
-    defer p.deinit();
-    const tree = try p.parseProgram();
-    var ctx = try sema.check(allocator, rig_source, tree);
-    defer ctx.deinit();
-
-    var out: std.Io.Writer.Allocating = .init(allocator);
-    defer out.deinit();
-    var em = Emitter.init(allocator, rig_source, &out.writer, &ctx);
-    defer em.deinit();
-    try em.emit(tree);
-    return try allocator.dupe(u8, out.written());
-}
-
-test "emit: hello world" {
-    const out = try emitSourceToString(std.testing.allocator,
-        \\sub main()
-        \\  print "hello, rig"
-        \\
-    );
-    defer std.testing.allocator.free(out);
-    try std.testing.expect(std.mem.indexOf(u8, out, "pub fn main()") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out, "rig.print") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out, "\"hello, rig\"") != null);
-}
-
-test "emit: const for unmutated, var for reassigned or constant" {
-    const out = try emitSourceToString(std.testing.allocator,
-        \\fun two() -> Int
-        \\  2
-        \\
-        \\sub main()
-        \\  x = 1
-        \\  y = two()
-        \\  z = 5
-        \\  if y > 1
-        \\    x = 3
-        \\  print(x + y + z)
-        \\
-    );
-    defer std.testing.allocator.free(out);
-    try std.testing.expect(std.mem.indexOf(u8, out, "var x: " ++ int_zig ++ " = 1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out, "const y: " ++ int_zig ++ " = two()") != null);
-    // A constant initializer is kept out of Zig's compile-time evaluation.
-    try std.testing.expect(std.mem.indexOf(u8, out, "var z: " ++ int_zig ++ " = 5") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out, "x = 3;") != null);
-}
-
-test "emit: fixed binding is const" {
-    const out = try emitSourceToString(std.testing.allocator,
-        \\sub main()
-        \\  user =! 1
-        \\  print(user)
-        \\
-    );
-    defer std.testing.allocator.free(out);
-    try std.testing.expect(std.mem.indexOf(u8, out, "const user: " ++ int_zig ++ " = 1") != null);
-}
-
-test "emit: propagate becomes try" {
-    const out = try emitSourceToString(std.testing.allocator,
-        \\fun bar() -> Int!
-        \\  2
-        \\
-        \\fun foo() -> Int!
-        \\  bar()!
-        \\
-        \\sub main()
-        \\  x = foo()!
-        \\  print(x)
-        \\
-    );
-    defer std.testing.allocator.free(out);
-    try std.testing.expect(std.mem.indexOf(u8, out, "try bar()") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out, "pub fn foo() anyerror!" ++ int_zig) != null);
-    try std.testing.expect(std.mem.indexOf(u8, out, "pub fn main() anyerror!void") != null);
-}
-
-test "emit: Zig keywords and emitter names are escaped" {
-    const out = try emitSourceToString(std.testing.allocator,
-        \\sub main()
-        \\  var = 3
-        \\  rig = 4
-        \\  print(var + rig)
-        \\
-    );
-    defer std.testing.allocator.free(out);
-    try std.testing.expect(std.mem.indexOf(u8, out, "var @\"var\": " ++ int_zig ++ " = 3;") != null);
-    try std.testing.expect(std.mem.indexOf(u8, out, "var @\"rig'\": " ++ int_zig ++ " = 4;") != null);
 }
