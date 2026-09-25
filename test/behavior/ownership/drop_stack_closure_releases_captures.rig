@@ -1,0 +1,29 @@
+# `-f` on a closure that owns its captures releases them now; a closure
+# that is not dropped releases them at scope exit.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+sub main()
+  b = B(n: 1)
+  f = |<b| print("has", b.n)
+  f()
+  -f
+  print("after drop")
+  c = *B(n: 2)
+  g = |+c| print("clone", c.n)
+  g()
+  if c.n > 5
+    -g
+  print("end")
+
+# expect:
+# has 1
+# drop 1
+# after drop
+# clone 2
+# end
+# drop 2

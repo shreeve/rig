@@ -1,0 +1,25 @@
+# `match ?t` and `match !t` match the value borrowed.
+
+enum S
+  a(n: Int)
+  b
+
+sub show(s: !S)
+  match s
+    .a(n) => print("param a", n)
+    .b => print("param b")
+
+sub main()
+  t: S = .a(n: 1)
+  match !t
+    .a(n) => print("write a", n)
+    .b => print("write b")
+  match ?t
+    .a(n) => print("read a", n)
+    .b => print("read b")
+  show(!t)
+
+# expect:
+# write a 1
+# read a 1
+# param a 1

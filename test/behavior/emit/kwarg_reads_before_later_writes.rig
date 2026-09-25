@@ -1,0 +1,29 @@
+# A keyword argument that reads a name or a field is evaluated in source
+# order, before a later argument that changes it.
+
+fun bump(n: !Int) -> Int
+  n += 100
+  7
+
+fun poke(c: ?Cell(Int)) -> Int
+  c.set(c.get() + 100)
+  7
+
+fun f(x: Int, y: Int) -> Int
+  print("x", x, "y", y)
+  0
+
+sub main()
+  n = 1
+  _ = f(y: n, x: bump(!n))
+  m = 1
+  _ = f(y: m + 0, x: bump(!m))
+  c = Cell(value: 1)
+  _ = f(y: c.value, x: poke(?c))
+  print(n, m, c.get())
+
+# expect:
+# x 7 y 1
+# x 7 y 1
+# x 7 y 1
+# 101 101 101

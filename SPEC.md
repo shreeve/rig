@@ -165,7 +165,7 @@ sub main()
 ```
 
 ```output
-255 5 15 150 0.002
+255 5 15 150.0 0.002
 single: "no escapes\n" double: 'x'	y
 ```
 
@@ -2395,7 +2395,7 @@ a value.
 
 | Value | Printed as |
 |---|---|
-| numbers, `Bool` | `42`, `-3`, `2.5`, `true` |
+| numbers, `Bool` | `42`, `-3`, `2.5`, `true`; a whole `Float` keeps its point: `1.0` |
 | `String` | its text; inside other values, quoted |
 | `none` | `none` |
 | enum | `.green`, `.rect(w: 2, h: 3)` |
@@ -2404,6 +2404,7 @@ a value.
 | shared handle | the value it holds |
 | weak handle | `~(alive)` or `~(gone)` |
 | owned closure | `<closure>` |
+| function | `<fun>` |
 
 ```rig
 struct User

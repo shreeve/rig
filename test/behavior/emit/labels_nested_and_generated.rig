@@ -1,0 +1,44 @@
+# A label may repeat an enclosing label's name (the innermost one is
+# meant), may be spelled like the emitter's own labels, and may name a
+# `match` or `raw` statement, which `break` then leaves.
+
+fun f(c: Bool) -> Int
+  :rig_blk_1 while true
+    x = if c
+      y = 3
+      y + 1
+    else
+      5
+    break :rig_blk_1 if x > 0
+  7
+
+sub main()
+  :l for i in 0..2
+    :l for j in 0..2
+      break :l
+    print("outer", i)
+  print(f(true))
+  :rig_call_1 for i in 0..3
+    k = (|n: Int| n + 1)(i)
+    break :rig_call_1 if k > 1
+    print("k", k)
+  x = 3
+  :m match x
+    3
+      print("three")
+      break :m if x > 1
+      print("unreached")
+    else
+      print("other")
+  :r raw
+    break :r if x > 1
+    print("unreached")
+  print("end")
+
+# expect:
+# outer 0
+# outer 1
+# 7
+# k 1
+# three
+# end

@@ -1,0 +1,25 @@
+# `/` on a type parameter's values divides floats exactly and integers
+# truncating toward zero, whichever the instance holds.
+
+type Acc(T)
+  total: T
+
+  fun div(?self, x: T) -> T
+    self.total / x
+
+  fun half(?self) -> T
+    self.total / 2
+
+sub main()
+  f = Acc(total: 5.0)
+  print(f.div(2.0))
+  print(f.half())
+  i = Acc(total: -7)
+  print(i.div(2))
+  print(i.half())
+
+# expect:
+# 2.5
+# 2.5
+# -3
+# -3

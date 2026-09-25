@@ -1,0 +1,41 @@
+# A read borrow as the value of a branch does not move its owner, which
+# is still dropped at scope exit even though it may be moved elsewhere.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+sub eat(b: B)
+  print("eat", b.n)
+
+sub consume(v: Vec(Int))
+  print("consume", v.length())
+
+sub main()
+  a = B(n: 1)
+  b = B(n: 2)
+  c = true
+  r = if c
+    ?a
+  else
+    ?b
+  print(r.n)
+  if not c
+    eat(<a)
+  v: Vec(Int) = Vec()
+  (!v).push(1)
+  n = (?v).length() if true else 0
+  w = ?v if n > 0 else ?v
+  print(w.length())
+  if n > 5
+    consume(<v)
+  print("end")
+
+# expect:
+# 1
+# 1
+# end
+# drop 2
+# drop 1
