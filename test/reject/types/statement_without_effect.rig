@@ -1,0 +1,25 @@
+# An expression statement must do something: call, propagate, or catch.
+# One that only reads a value is a mistake, and a function name alone was
+# meant as a call.
+
+struct P
+  n: Int
+
+sub greet
+  print("hi")
+
+sub main
+  x = 1
+  x
+  (x)
+  p = P(n: 2)
+  p.n
+  ?p
+  greet
+  print(x, p.n)
+
+# error: 13:3: this expression does nothing as a statement
+# error: 14:4: this expression does nothing as a statement
+# error: 16:3: this expression does nothing as a statement
+# error: 17:3: this expression does nothing as a statement
+# error: 18:3: `greet` is a function; call it with `greet()`

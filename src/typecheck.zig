@@ -372,10 +372,7 @@ const Checker = struct {
     // =========================================================================
 
     fn checkStmt(self: *Checker, stmt: Sexp) Error!void {
-        const head = stmt.kind() orelse {
-            _ = try self.synthExpr(stmt);
-            return;
-        };
+        const head = stmt.kind() orelse return self.checkExprStmt(stmt);
         if (self.isValueLoop(stmt)) {
             try self.errAt(stmt, "the value of this loop is not used; bind it (`x = for ...`) or `break` without a value", .{});
             _ = try self.checkLoopValue(stmt, null, false);
@@ -425,13 +422,39 @@ const Checker = struct {
             .fun, .sub, .@"struct", .@"enum", .errors, .type, .generic_type, .generic_enum, .use, .@"extern", .extern_fun, .extern_sub, .@"test", .@"pub" => {
                 try self.errAt(stmt, "declarations are only allowed at module level", .{});
             },
-            else => {
-                const ty = try self.synthExpr(stmt);
-                if ((try self.ownsResource(ty, self.startOf(stmt), "discards a value"))) {
-                    try self.errAt(stmt, "expression result of type `{s}` carries drop glue and would leak as a discarded statement; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver", .{try self.tyName(ty)});
-                }
-            },
+            else => try self.checkExprStmt(stmt),
         }
+    }
+
+    /// An expression used as a statement must do something: call, fail
+    /// over (`!`, `?`), or handle a failure. One that only reads a value
+    /// and drops it is a mistake; a function name was meant as a call.
+    fn checkExprStmt(self: *Checker, stmt: Sexp) Error!void {
+        const ty = try self.synthExpr(stmt);
+        // A closure literal alone is reported by the ownership checker.
+        if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
+        if (!hasEffect(stmt)) {
+            if (stmt.kind() == null and self.ctx.types.get(ty) == .function)
+                return self.errAt(stmt, "`{s}` is a function; call it with `{s}()`", .{ self.text(stmt), self.text(stmt) });
+            return self.errAt(stmt, "this expression does nothing as a statement; use its value, or discard it with `_ = ...`", .{});
+        }
+        if ((try self.ownsResource(ty, self.startOf(stmt), "discards a value"))) {
+            try self.errAt(stmt, "expression result of type `{s}` carries drop glue and would leak as a discarded statement; bind it (`x = ...`), drop it now with `_ = ...`, or move it into a receiver", .{try self.tyName(ty)});
+        }
+    }
+
+    /// Whether evaluating `e` runs code or leaves: a call, a builtin, a
+    /// propagation, or a `catch`. A closure literal inside `e` runs
+    /// nothing until it is called.
+    fn hasEffect(e: Sexp) bool {
+        const kind = e.kind() orelse return false;
+        switch (kind) {
+            .call, .builtin, .propagate, .propagate_none, .@"catch" => return true,
+            .lambda => return false,
+            else => {},
+        }
+        for (rig.children(e)) |c| if (hasEffect(c)) return true;
+        return false;
     }
 
     fn checkReturn(self: *Checker, node: Sexp) Error!void {
