@@ -3913,6 +3913,20 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
                     try ctx.note(req.pos, "`{s}` used here", .{req.op});
                     break;
                 }
+                if (req.req == .float) {
+                    try ctx.err(entry.value_ptr.*, "`{s}` cannot use `{s} = {s}`: the generic body applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{
+                        try sema.formatType(ctx, entry.key_ptr.*), pname, try sema.formatType(ctx, arg), req.op, pname, try sema.formatType(ctx, arg),
+                    });
+                    try ctx.note(req.pos, "`{s}` used here", .{req.op});
+                    break;
+                }
+                if (req.req == .shift) {
+                    try ctx.err(entry.value_ptr.*, "`{s}` cannot use `{s} = {s}`: the generic body shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{
+                        try sema.formatType(ctx, entry.key_ptr.*), pname, try sema.formatType(ctx, arg), pname, req.req.shift, try sema.formatType(ctx, arg),
+                    });
+                    try ctx.note(req.pos, "`{s}` used here", .{req.op});
+                    break;
+                }
                 try ctx.err(entry.value_ptr.*, "`{s}` cannot use `{s} = {s}`: the generic body applies `{s}` to `{s}`, which `{s}` does not support", .{
                     try sema.formatType(ctx, entry.key_ptr.*), pname, try sema.formatType(ctx, arg), req.op, pname, try sema.formatType(ctx, arg),
                 });

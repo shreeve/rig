@@ -28,7 +28,7 @@ sub main()
   d: Wide(U8) = Wide(v: 1)
   print(a.get(), b.get(), c.get(), d.get())
 
-# error: `Half(Int)` cannot use `T = Int`: the generic body applies `*` to `T`, which `Int` does not support
+# error: `Half(Int)` cannot use `T = Int`: the generic body applies `*` to a `T` and a float literal, which `Int` cannot hold
 # error: the generic body applies `+` to a `T` and the literal `300`, which `U8` cannot hold
 # error: `Neg(U8)` cannot use `T = U8`: the generic body applies `-` to `T`
-# error: `Wide(U8)` cannot use `T = U8`: the generic body applies `<<` to `T`, which `U8` does not support
+# error: `Wide(U8)` cannot use `T = U8`: the generic body shifts a `T` by 9 bits, which `U8` is too narrow for
