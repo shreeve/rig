@@ -2088,7 +2088,8 @@ pub const Emitter = struct {
         };
         if (is_eq and (self.isStringExpr(operands[0]) or self.isStringExpr(operands[1]))) {
             if (kind == .@"!=") try self.w.writeAll("!");
-            try self.w.writeAll("std.mem.eql(u8, ");
+            const optional = self.isOptStringExpr(operands[0]) or self.isOptStringExpr(operands[1]);
+            try self.w.writeAll(if (optional) "rig.eqlOptStr(" else "std.mem.eql(u8, ");
             try self.emitExpr(operands[0]);
             try self.w.writeAll(", ");
             try self.emitExpr(operands[1]);
@@ -3209,9 +3210,16 @@ pub const Emitter = struct {
         return self.sema.types.get(t) == .any_error or sema.isErrorSet(self.sema, t);
     }
 
+    /// A `String` or `String?` operand.
     fn isStringExpr(self: *Emitter, expr: Sexp) bool {
         const ty = self.typeOf(expr) orelse return false;
-        return self.sema.types.get(self.peelBorrows(ty)) == .string;
+        return self.sema.types.get(self.peelBorrows(ty)) == .string or self.isOptStringExpr(expr);
+    }
+
+    fn isOptStringExpr(self: *Emitter, expr: Sexp) bool {
+        const ty = self.typeOf(expr) orelse return false;
+        const t = self.sema.types.get(self.peelBorrows(ty));
+        return t == .optional and self.sema.types.get(t.optional) == .string;
     }
 
     /// How `left / right` divides: floats exactly, integers truncating,

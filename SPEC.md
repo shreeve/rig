@@ -771,8 +771,9 @@ loses bits (or the sign) overflows: a constant one is rejected, and one
 computed when the program runs panics, like `+` and `*`.
 
 `==` and `!=` compare two values of the same type: numbers, `Bool`,
-`String` (by content), and enums (with each other or with a `.variant`).
-Structs have no `==`. Ordering comparisons need numbers.
+`String` (by content), and enums (with each other or with a `.variant`),
+and optionals of these, where `none` equals only `none`. Structs have
+no `==`. Ordering comparisons need numbers.
 
 `and`, `or`, and `not` take `Bool`s; `not` binds looser than comparisons,
 so `not a == b` is `not (a == b)`. The spellings `&&` and `||` are

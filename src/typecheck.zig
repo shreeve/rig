@@ -1590,7 +1590,7 @@ const Checker = struct {
         if (self.isPoison(ty)) return;
         const ok = switch (self.ctx.types.get(ty)) {
             .int, .float, .int_literal, .float_literal, .bool, .string, .any_error => true,
-            .optional => |inner| satisfies(self.ctx, inner, .equatable),
+            .optional => |inner| inner == self.t().string_id or satisfies(self.ctx, inner, .equatable),
             .nominal, .imported_nominal => sema.isPlainEnum(self.ctx, ty),
             .type_var => |tv| blk: {
                 try self.require(tv, .equatable, self.startOf(node), op);

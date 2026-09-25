@@ -252,6 +252,13 @@ pub fn cloneOptional(value: anytype) @TypeOf(value) {
     return if (comptime isStrongHandle(@TypeOf(h))) h.cloneStrong() else h.cloneWeak();
 }
 
+/// `a == b` for optional Strings: `none` equals only `none`.
+pub fn eqlOptStr(a: ?[]const u8, b: ?[]const u8) bool {
+    const x = a orelse return b == null;
+    const y = b orelse return false;
+    return std.mem.eql(u8, x, y);
+}
+
 /// `e == none` for a temporary optional that owns a resource: the
 /// temporary is dropped.
 pub fn isNone(value: anytype) bool {
