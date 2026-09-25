@@ -90,7 +90,7 @@ pub fn writeExcerpt(source: []const u8, pos: u32, end: u32, w: anytype) !void {
     var stop = at;
     while (stop < source.len and source[stop] != '\n' and source[stop] != '\r') stop += 1;
     var cut_start = false;
-    if (at - start > max_excerpt / 2) {
+    if (stop - start > max_excerpt and at - start > max_excerpt / 2) {
         start = at - max_excerpt / 2;
         while (start < at and isContinuation(source[start])) start += 1;
         cut_start = true;

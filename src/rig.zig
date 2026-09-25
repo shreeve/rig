@@ -1267,6 +1267,15 @@ test "closure bar lists: typed parameters, empty bars, owned star" {
     try expectCats("x = a || b", &.{ .ident, .assign, .ident, .err });
 }
 
+test "tokens longer than 65535 bytes: a comment is skipped, anything else is an error" {
+    try expectCats("#" ++ "c" ** 70000 ++ "\nx", &.{ .ident, .eof });
+    var lx = Lexer.init("x = " ++ "y" ** 70000);
+    _ = lx.next();
+    _ = lx.next();
+    try testing.expectEqual(TokenCat.err, lx.next().cat);
+    try testing.expectEqual(Lexer.LexError.too_long, lx.err);
+}
+
 test "layout: a closure body inside brackets is laid out in blocks" {
     try expectCats("f(*|x|\n  g(x)\n  h)\ny", &.{
         .ident,  .lparen_call, .share_pfx,   .bar_capture, .ident,  .bar_capture,
