@@ -789,7 +789,7 @@ const Checker = struct {
             .optional => |i| inner = i,
             else => try self.errAt(expr, "`as` binds the value inside an optional; this expression has type `{s}`", .{try self.tyName(ty)}),
         };
-        if ((try self.ownsResource(inner, self.startOf(expr), "moves out of a borrow a value")) and (expr.isKind(.read) or expr.isKind(.write))) {
+        if ((expr.isKind(.read) or expr.isKind(.write)) and try self.ownsResource(inner, self.startOf(expr), "moves out of a borrow a value")) {
             try self.errAt(expr, "a borrow cannot give up the resource inside it; bind a new handle with `+x` instead", .{});
         }
         _ = self.enter(node);

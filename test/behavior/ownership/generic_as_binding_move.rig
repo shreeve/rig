@@ -1,0 +1,31 @@
+# In a generic body, `if <o as x` moves the optional's value into `x`,
+# so the body works for any `T`, including a resource like `*B`.
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+type Box(T)
+  v: T
+
+  fun first(self: Box(T), o: T?, d: T) -> T
+    if <o as x
+      return <x
+    <d
+
+sub main()
+  b: Box(*B) = Box(v: *B(n: 1))
+  o: (*B)? = *B(n: 2)
+  r = (<b).first(<o, *B(n: 3))
+  print(r.n)
+
+  c: Box(Int) = Box(v: 0)
+  print((<c).first(none, 7))
+
+# expect:
+# drop 3
+# drop 1
+# 2
+# 7
+# drop 2
