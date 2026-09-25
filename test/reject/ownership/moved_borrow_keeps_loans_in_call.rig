@@ -1,0 +1,64 @@
+# Moving a borrow (or a value holding one) into an argument or a field
+# keeps its loans in force until the call or construction ends, so a
+# later argument cannot borrow or move the same root.
+
+struct Box
+  v: Vec(Int)
+
+  sub eat(!self, r: ?Box)
+    self.v = Vec()
+    print(r.v.length())
+
+struct Ed
+  t: !Box
+
+struct P
+  r: ?Box
+  b: Box
+
+enum H
+  none_
+  two(a: Ed, b: Ed)
+
+sub race(a: ?Box, b: !Box)
+  print(a.v.length())
+  b.v = Vec()
+
+sub race2(a: Ed, b: !Box)
+  print(a.t.v.length())
+  b.v = Vec()
+
+sub read_then_write()
+  x = Box(v: Vec())
+  r = ?x
+  race(<r, !x)
+
+sub write_then_write()
+  x = Box(v: Vec())
+  e = Ed(t: !x)
+  race2(<e, !x)
+
+sub field_then_move()
+  x = Box(v: Vec())
+  r = ?x
+  p = P(r: <r, b: <x)
+  print(p.r.v.length())
+
+sub receiver_then_moved_arg()
+  x = Box(v: Vec())
+  r = ?x
+  (!x).eat(<r)
+
+sub variant_fields()
+  x = Box(v: Vec())
+  e = Ed(t: !x)
+  h: H = .two(a: <e, b: Ed(t: !x))
+
+sub main()
+  read_then_write()
+
+# error: 34:13: cannot write-borrow `x` while a read borrow is live
+# error: 39:14: cannot take a second write borrow on `x`
+# error: 44:20: cannot move `x` while it is read-borrowed
+# error: 50:4: cannot write-borrow `x` while a read borrow is live
+# error: 55:32: cannot take a second write borrow on `x`

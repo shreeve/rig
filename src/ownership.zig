@@ -1531,7 +1531,15 @@ pub const Checker = struct {
         // `<x` ends `x`, whatever its type: a Copy value or a borrow is
         // copied out, and the name is done.
         try self.markInvalid(id, .moved, pos);
+        try self.holdMoved(value);
         return value;
+    }
+
+    /// The loans a moved value carries stay in force until the end of the
+    /// statement or call that consumes it, so a later argument of the
+    /// same call cannot borrow or move their roots.
+    fn holdMoved(self: *Checker, value: Value) Error!void {
+        for (value.loans) |l| if (!l.ext) try self.addTemp(l);
     }
 
     /// Move (or drop, `op`) a match payload binding out of its
@@ -1575,6 +1583,7 @@ pub const Checker = struct {
         const value = self.varValue(root);
         try self.markInvalid(root, .moved, pos);
         try self.markInvalid(id, .moved, pos);
+        try self.holdMoved(value);
         return value;
     }
 
