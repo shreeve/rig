@@ -106,4 +106,4 @@ RIG_LEAK_TRACE=1 bin/rig run file.rig      # leaks with allocation stack traces
 | `docs/DESIGN.md` | Principles and rationale |
 | `docs/INTERNALS.md` | Compiler architecture, the IR, the runtime |
 | `docs/ROADMAP.md` | Future directions |
-| `docs/zig-0.16.md` | Zig 0.16 API reference for contributors |
+| `docs/zig-0.16.md` | Zig 0.16 reference: the std, language, and build APIs Rig code uses |
