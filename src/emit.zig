@@ -1593,9 +1593,11 @@ pub const Emitter = struct {
         const scrut_ty = self.typeOf(scrutinee);
         const error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false;
 
-        // `match ?t` / `match !t` switch on the value borrowed.
+        // `match ?t` / `match !t` switch on the value borrowed, and so
+        // does a match on a call returning a borrow held by pointer.
+        const subject = unborrowed(scrutinee);
         try self.w.writeAll("switch (");
-        try self.emitBare(unborrowed(scrutinee));
+        if (!isPlace(subject) and subject != .src and self.isPtrBorrowExpr(subject)) try self.emitDeref(subject) else try self.emitBare(subject);
         try self.w.writeAll(") ");
         try self.openBrace();
 
