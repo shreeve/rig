@@ -52,7 +52,7 @@
 //!
 //! Leaves are keyed by source position (`src.pos`); list nodes by the
 //! node id the parser gave them (`List.id`), which the Parser wrapper's
-//! rewrites preserve. A node that ctx never reached (dead code after an
+//! rewrites preserve. A node that sema never reached (dead code after an
 //! error, type positions) has no entry; callers treat `null` as "no
 //! information".
 //!
@@ -178,7 +178,7 @@ pub const ImportedNominal = struct {
     sym_id: SymbolId,
 };
 
-/// One resolved `use NAME` of the module being checked. `ctx` must
+/// One resolved `use NAME` of the module being checked. `sema` must
 /// outlive the importing SemContext.
 pub const ImportEntry = struct {
     local_name: []const u8,
@@ -457,12 +457,6 @@ pub const Scope = struct {
 
 pub const Diagnostic = diag.Diagnostic;
 
-/// How a receiver expression is written, and what kind of value it is,
-/// for the method receiver-mode rules.
-pub const ReceiverShape = typecheck.ReceiverShape;
-pub const ReceiverTypeKind = typecheck.ReceiverTypeKind;
-pub const compatible = typecheck.compatible;
-
 // =============================================================================
 // Facts
 // =============================================================================
@@ -470,9 +464,7 @@ pub const compatible = typecheck.compatible;
 /// Identity of an IR list node: its node id.
 pub const NodeKey = parser.NodeId;
 
-/// The key of a list node the parser built; null for anything else (a
-/// leaf, `_`, or the Parser wrapper's `(captures ...)`, which has no
-/// node id and no facts).
+/// The key of a list node the parser built; null for a leaf or `_`.
 pub fn nodeKey(node: Sexp) ?NodeKey {
     if (node != .list or node.list.id == 0) return null;
     return node.list.id;
@@ -609,7 +601,7 @@ pub const SemContext = struct {
     generic_uses: std.ArrayListUnmanaged(TypeId) = .empty,
     /// Integer constants: bindings never reassigned or written whose
     /// value is a constant expression. The emitted Zig computes these at
-    /// compile time, so ctx checks their arithmetic.
+    /// compile time, so sema checks their arithmetic.
     const_ints: std.AutoHashMapUnmanaged(SymbolId, i128) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
@@ -698,10 +690,6 @@ pub const SemContext = struct {
             if (d.severity == .@"error" and d.pos == at.start and std.mem.eql(u8, d.message, msg)) return;
         };
         try self.diagnostics.append(self.allocator, .{ .severity = severity, .pos = at.start, .end = at.end, .message = msg });
-    }
-
-    pub fn pushScope(self: *SemContext, parent: ScopeId) !ScopeId {
-        return self.pushScopeKind(parent, .block);
     }
 
     pub fn pushScopeKind(self: *SemContext, parent: ScopeId, kind: ScopeKind) !ScopeId {
@@ -817,7 +805,7 @@ pub const SemContext = struct {
         return self.facts.call_slots.get(key);
     }
 
-    // ---- facts: recording (ctx passes only) -----------------------------
+    // ---- facts: recording (sema passes only) ----------------------------
 
     pub fn recordName(self: *SemContext, node: Sexp, sym: SymbolId) !void {
         if (node != .src or sym == symbol_invalid) return;
@@ -1946,7 +1934,7 @@ fn formatSuffixed(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, s
 }
 
 // =============================================================================
-// IR helpers shared by the ctx passes
+// IR helpers shared by the sema passes
 // =============================================================================
 
 pub fn identAt(source: []const u8, sexp: Sexp) ?[]const u8 {
@@ -2629,7 +2617,7 @@ test "declarations: struct fields, methods, and enum variants" {
     try std.testing.expectEqualStrings("timeout", net[0].name);
 }
 
-/// Walk every expression position of a body and report nodes ctx left
+/// Walk every expression position of a body and report nodes sema left
 /// without a fact. Used to keep the facts table complete.
 const Coverage = struct {
     r: *const FactsRun,

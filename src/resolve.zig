@@ -128,6 +128,14 @@ const SymbolResolver = struct {
             try self.ctx.err(pos, "`none` is the absent optional and cannot be used as a name", .{});
             return null;
         }
+        const sym: Symbol = .{
+            .name = name,
+            .kind = kind,
+            .ty = self.ctx.types.unknown_id,
+            .decl_pos = pos,
+            .scope = self.scope,
+            .flags = flags,
+        };
         if (self.scope == self.module_scope) {
             if (self.ctx.lookupInScopeOnly(self.scope, name)) |prev| {
                 const p = self.ctx.symbols.items[prev];
@@ -137,17 +145,14 @@ const SymbolResolver = struct {
                     try self.ctx.err(pos, "duplicate declaration of `{s}`", .{name});
                     try self.ctx.note(p.decl_pos, "`{s}` first declared here", .{name});
                 }
-                return null;
+                // Still resolved and checked, under a symbol no name
+                // reaches, so errors inside it are reported too.
+                const id = try self.addDetached(sym);
+                try self.ctx.recordName(name_node, id);
+                return id;
             }
         }
-        const id = try self.addSymbol(.{
-            .name = name,
-            .kind = kind,
-            .ty = self.ctx.types.unknown_id,
-            .decl_pos = pos,
-            .scope = self.scope,
-            .flags = flags,
-        });
+        const id = try self.addSymbol(sym);
         try self.ctx.recordName(name_node, id);
         return id;
     }
@@ -313,17 +318,9 @@ const SymbolResolver = struct {
         try self.ctx.alias_targets.put(self.ctx.allocator, id, ir.Type.type(node));
     }
 
-    fn checkReserved(self: *SymbolResolver, name_node: Sexp) Error!bool {
-        const name = identAt(self.ctx.source, name_node) orelse return true;
-        if (!isReservedName(name)) return false;
-        try self.ctx.errAt(name_node, "`{s}` is a reserved built-in nominal name and cannot be redefined", .{name});
-        return true;
-    }
-
     /// A `generic_type` or `generic_enum`.
     fn walkGenericType(self: *SymbolResolver, node: Sexp) Error!void {
         const name_node = ir.get(node, .name);
-        if (try self.checkReserved(name_node)) return;
         const id = (try self.declare(name_node, .generic_type, .{})) orelse return;
         const name = self.ctx.symbols.items[id].name;
         const params = ir.get(node, .params);
@@ -363,9 +360,7 @@ const SymbolResolver = struct {
 
     /// A `struct`, `enum`, or `errors`.
     fn walkNominalType(self: *SymbolResolver, node: Sexp) Error!void {
-        const name_node = ir.get(node, .name);
-        if (try self.checkReserved(name_node)) return;
-        _ = try self.declare(name_node, .nominal_type, .{});
+        _ = try self.declare(ir.get(node, .name), .nominal_type, .{});
         try self.walkMembers(ir.rest(node, .members));
     }
 
@@ -523,7 +518,7 @@ const SymbolResolver = struct {
         defer self.scope = prev;
         const pattern = ir.Arm.pattern(node);
         switch (pattern) {
-            .src => if (!isWildcardPattern(self.ctx.source, pattern)) {
+            .src => if (patternBinds(self.ctx.source, pattern)) {
                 _ = try self.bindFresh(pattern, "pattern binding");
             },
             .list => if (pattern.isKind(.variant_pattern)) {
@@ -1554,6 +1549,15 @@ pub fn isWildcardPattern(source: []const u8, pattern: Sexp) bool {
     return std.mem.eql(u8, text, "else") or std.mem.eql(u8, text, "_");
 }
 
+/// A leaf match pattern that binds its name: not a wildcard, and not a
+/// literal (`1`, `true`).
+pub fn patternBinds(source: []const u8, pattern: Sexp) bool {
+    const text = identAt(source, pattern) orelse return false;
+    if (isWildcardPattern(source, pattern)) return false;
+    if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return false;
+    return !sema.isIntLiteralText(text) and !sema.isFloatLiteralText(text);
+}
+
 pub fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
     const t = &ctx.types;
     const table = [_]struct { []const u8, TypeId }{
@@ -1612,15 +1616,6 @@ pub fn isNumericTypeName(name: []const u8) bool {
 // =============================================================================
 
 const builtin_pos = sema.builtin_decl_pos;
-
-/// Names users cannot redeclare: emit recognizes these by name.
-pub fn isReservedName(name: []const u8) bool {
-    const reserved = [_][]const u8{ "Cell", "Vec", "Signal" };
-    for (reserved) |r| {
-        if (std.mem.eql(u8, name, r)) return true;
-    }
-    return false;
-}
 
 pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
     // Cell(T): interior-mutable slot. Methods take `?self`; the runtime
