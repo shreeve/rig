@@ -2121,6 +2121,10 @@ const Checker = struct {
             try self.errAt(e, "`!` is a write borrow; use `not` for negation", .{});
             return self.t().invalid_id;
         }
+        if (kind == .write and !self.hasStorage(operand)) {
+            try self.errAt(operand, "cannot write-borrow a temporary: the change would be lost; bind it to a name first", .{});
+            return self.t().invalid_id;
+        }
         if (kind == .write and !(try self.checkWritable(operand, operand, "write-borrow"))) return self.t().invalid_id;
         // A borrow of a value holding a Cell can change the Cell, which a
         // loop or match binding only copies.
@@ -2146,6 +2150,24 @@ const Checker = struct {
             else => {},
         }
         return self.ctx.intern(if (kind == .read) Type{ .borrow_read = inner } else Type{ .borrow_write = inner });
+    }
+
+    /// A named binding, or a field or element of one or of what a write
+    /// borrow points to: storage a write borrow can change.
+    fn hasStorage(self: *Checker, place: Sexp) bool {
+        var p = place;
+        while (p.kind()) |k| switch (k) {
+            .member => p = ir.Member.object(p),
+            .index => {
+                if (rig.isRangeIndex(p)) return false;
+                p = ir.Index.object(p);
+            },
+            else => {
+                const ty = self.ctx.typeOf(p) orelse return true;
+                return self.ctx.types.get(ty) == .borrow_write;
+            },
+        };
+        return p == .src and self.ctx.symbolOf(p) != null;
     }
 
     /// `?xs[a..b]`: a slice, read-only. A slice cannot be written through.

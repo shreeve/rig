@@ -1667,7 +1667,23 @@ sub main
 
 A `!x` borrow needs a binding that may change: a parameter (other than
 `!T`), a fixed binding, a capture, or a loop binding cannot be
-write-borrowed.
+write-borrowed. Nor can a temporary, such as a call's result or a
+struct literal, since the change would be lost with it.
+
+```rig reject
+struct Box
+  n: Int
+
+sub grow(b: !Box)
+  b.n += 1
+
+sub main
+  grow(!Box(n: 1))
+```
+
+```error
+cannot write-borrow a temporary: the change would be lost; bind it to a name first
+```
 
 #### Second-class borrows
 

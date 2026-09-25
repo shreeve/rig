@@ -1,0 +1,29 @@
+# A write borrow needs storage to change: a call's result, a struct
+# literal, or a field of one would drop the change with the temporary.
+
+struct S
+  n: Int
+  fun twin(?self) -> S
+    S(n: self.n)
+
+fun make -> S
+  S(n: 1)
+
+sub grow(s: !S)
+  s.n += 1
+
+sub bump(n: !Int)
+  n += 1
+
+sub main
+  o = S(n: 1)
+  grow(!make())
+  grow(!(o.twin()))
+  grow(!S(n: 3))
+  bump(!make().n)
+  print(o.n)
+
+# error: 20:9: cannot write-borrow a temporary: the change would be lost; bind it to a name first
+# error: 21:10: cannot write-borrow a temporary
+# error: 22:9: cannot write-borrow a temporary
+# error: 23:9: cannot write-borrow a temporary
