@@ -1,0 +1,23 @@
+# A value whose `drop` body uses a borrow may hold one of an older
+# value: the younger value is dropped first, while what it borrows is
+# still alive.
+
+struct Box
+  n: Int
+
+struct Guard
+  b: ?Box
+
+  drop self: !Guard
+    print("guard sees", self.b.n)
+
+sub main()
+  x = Box(n: 1)
+  y = Box(n: 2)
+  g = Guard(b: ?x)
+  g.b = ?y
+  print("end")
+
+# expect:
+# end
+# guard sees 2

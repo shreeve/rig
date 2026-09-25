@@ -528,7 +528,10 @@ pub const Checker = struct {
     /// survives holds a loan on a var declared in it, then drop its vars.
     fn popScope(self: *Checker) Error!void {
         const idx = self.scopes.items.len - 1;
-        if (self.reachable) try self.runDefers(idx);
+        if (self.reachable) {
+            try self.runDefers(idx);
+            try self.checkDropOrder(self.scopes.items[idx].start);
+        }
         var scope = self.scopes.pop().?;
         defer scope.defers.deinit(self.gpa);
         const start = scope.start;
@@ -2791,8 +2794,9 @@ pub const Checker = struct {
         }
     }
 
-    /// Run the defers of the scopes an early exit leaves: every scope at
-    /// index `scope_depth` or above, up to the enclosing function.
+    /// Run the defers of the scopes an early exit leaves (every scope at
+    /// index `scope_depth` or above, up to the enclosing function), and
+    /// check the order their vars are dropped in.
     fn runDefersTo(self: *Checker, scope_depth: usize) Error!void {
         // An exit from inside a deferred body leaves only that body.
         if (self.in_defer) return;
@@ -2802,6 +2806,83 @@ pub const Checker = struct {
             if (self.scopes.items[si].defers.items.len > 0) try self.runDefers(si);
             if (self.scopes.items[si].kind != .block) break;
         }
+        if (si < self.scopes.items.len) try self.checkDropOrder(self.scopes.items[si].start);
+    }
+
+    /// Leaving scopes drops vars `>= start`, youngest first. A value whose
+    /// drop runs a user `drop` body must not borrow, directly or through
+    /// what it borrows, a younger value dropped (or out of scope) before
+    /// it: the body could read it after.
+    fn checkDropOrder(self: *Checker, start: u32) Error!void {
+        const ctx = self.sema orelse return;
+        const len: u32 = @intCast(self.vars.items.len);
+        var reach: std.ArrayListUnmanaged(VarId) = .empty;
+        for (start..len) |i| {
+            const h = self.vars.items[i];
+            if (!self.flowLive(@intCast(i)) or h.alias_of != null or h.loop_borrow or h.ref != .none) continue;
+            if (!self.runsDropBody(h.ty orelse continue, &.{})) continue;
+            reach.clearRetainingCapacity();
+            try reach.append(self.arena(), @intCast(i));
+            var k: usize = 0;
+            while (k < reach.items.len) : (k += 1) {
+                for (self.flows.items[reach.items[k]].loans) |l| {
+                    if (l.ext or l.root < start or std.mem.indexOfScalar(VarId, reach.items, l.root) != null) continue;
+                    try reach.append(self.arena(), l.root);
+                    const x = self.vars.items[l.root];
+                    if (l.root < i or !self.flowLive(l.root)) continue;
+                    const glue = if (x.ty) |t| sema.typeHasDropGlue(ctx, t) else true;
+                    if (!glue and self.scopeOf(l.root) == self.scopeOf(@intCast(i))) continue;
+                    try self.err(l.pos, "`{s}` is dropped before `{s}`, whose `drop` body could still read it through this borrow", .{ x.name, h.name });
+                    try self.note(x.decl, "`{s}` is declared after `{s}`, so it is dropped first; declare it before `{s}`", .{ x.name, h.name, h.name });
+                }
+            }
+        }
+    }
+
+    /// The index of the innermost scope var `id` is declared in.
+    fn scopeOf(self: *const Checker, id: VarId) usize {
+        var si = self.scopes.items.len;
+        while (si > 0) {
+            si -= 1;
+            if (self.scopes.items[si].start <= id) return si;
+        }
+        return 0;
+    }
+
+    /// Whether dropping a value of type `ty` may run a user `drop` body.
+    /// `path` holds the types being looked into: a cycle adds nothing.
+    fn runsDropBody(self: *const Checker, ty: TypeId, path: []const SymbolId) bool {
+        const ctx = self.sema orelse return false;
+        return switch (ctx.types.get(ty)) {
+            .shared, .optional, .fallible => |i| self.runsDropBody(i, path),
+            .array => |a| self.runsDropBody(a.elem, path),
+            .imported_nominal => sema.typeHasDropGlue(ctx, ty),
+            .nominal => |sid| self.fieldsRunDropBody(sid, path),
+            .parameterized_nominal => |pn| blk: {
+                for (pn.args) |a| if (self.runsDropBody(a, path)) break :blk true;
+                break :blk self.fieldsRunDropBody(pn.sym, path);
+            },
+            else => false,
+        };
+    }
+
+    fn fieldsRunDropBody(self: *const Checker, sid: SymbolId, path: []const SymbolId) bool {
+        if (std.mem.indexOfScalar(SymbolId, path, sid) != null) return false;
+        // Past any real nesting depth, assume the worst.
+        if (path.len >= 32) return true;
+        var buf: [32]SymbolId = undefined;
+        @memcpy(buf[0..path.len], path);
+        buf[path.len] = sid;
+        const inner = buf[0 .. path.len + 1];
+        const fields = self.sema.?.symbols.items[sid].fields orelse return false;
+        for (fields) |f| if (f.is_drop_method) return true;
+        for (fields) |f| {
+            if (f.is_method) continue;
+            if (f.is_variant) {
+                for (f.payload orelse &.{}) |pf| if (self.runsDropBody(pf.ty, inner)) return true;
+            } else if (self.runsDropBody(f.ty, inner)) return true;
+        }
+        return false;
     }
 
     // -------------------------------------------------------------------------
