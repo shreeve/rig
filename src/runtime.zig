@@ -285,7 +285,7 @@ pub fn rcNew(value: anytype) *RcBox(@TypeOf(value)) {
 // -----------------------------------------------------------------------------
 
 /// `Cell(T)`: interior mutability. `get` is only offered for plain-data
-/// `T` (ctx enforces this); resource payloads move in and out with
+/// `T` (sema enforces this); resource payloads move in and out with
 /// `set` and `replace`.
 pub fn Cell(comptime T: type) type {
     return struct {
@@ -449,7 +449,7 @@ pub fn Vec(comptime T: type) type {
 
         pub fn initCapacity(capacity: Int) Self {
             var v: Self = .empty;
-            v.reserve(toIndex(capacity));
+            v.reserve(std.math.cast(usize, capacity) orelse @panic("negative size"));
             return v;
         }
 
@@ -594,10 +594,6 @@ pub fn div(a: anytype, b: anytype) @TypeOf(a, b) {
 /// A length or count as a Rig `Int`.
 pub fn len(n: usize) Int {
     return @intCast(n);
-}
-
-fn toIndex(n: Int) usize {
-    return std.math.cast(usize, n) orelse @panic("negative size");
 }
 
 fn indexPanic() noreturn {
