@@ -2491,6 +2491,9 @@ pub const Checker = struct {
         elem1: Sexp = .nil,
         elem2: Sexp = .nil,
         source_root: ?VarId = null,
+        /// `for x in <v`: the loans the moved collection held, which its
+        /// elements carry.
+        moved: []const Loan = &.{},
         source_loan: LoanKind = .read,
         source_pos: u32 = 0,
         resource_vec: bool = false,
@@ -2526,7 +2529,7 @@ pub const Checker = struct {
             .start = extent(node).lo,
         };
         if (mode == .move) {
-            _ = try self.walkMove(source, .move);
+            spec.moved = (try self.walkMove(source, .move)).loans;
         } else {
             _ = try self.walk(source);
             if (self.resolvePlace(source)) |p| {
@@ -2658,7 +2661,7 @@ pub const Checker = struct {
                 .ref = self.refOfType(ty),
                 .loop_borrow = spec.resource_vec,
                 .elem_of = if (elem_loans.len > 0) spec.source_root else null,
-            }, .{ .loans = if (self.mayCarryBorrow(ty)) elem_loans else &.{} });
+            }, .{ .loans = if (self.mayCarryBorrow(ty)) try self.unionLoans(elem_loans, spec.moved) else &.{} });
         }
         if (spec.elem2 == .src) {
             const pos = spec.elem2.src.pos;
