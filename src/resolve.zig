@@ -1494,7 +1494,8 @@ fn primitiveTypeId(ctx: *const SemContext, name: []const u8) ?TypeId {
 /// The bit width a sized type name spells: `I8`..`I64`, `U8`..`U64`,
 /// `F32`, `F64`.
 fn sizedTypeBits(name: []const u8) ?u8 {
-    if (name.len < 2 or name.len > 3) return null;
+    // No leading zero: `I08` is not `I8`.
+    if (name.len < 2 or name.len > 3 or name[1] == '0') return null;
     const bits = std.fmt.parseInt(u8, name[1..], 10) catch return null;
     const ok = switch (name[0]) {
         'I', 'U' => bits == 8 or bits == 16 or bits == 32 or bits == 64,
