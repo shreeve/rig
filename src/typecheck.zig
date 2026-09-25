@@ -670,6 +670,25 @@ const Checker = struct {
         return true;
     }
 
+    /// A write borrow held in a field or element (`b.t` with `t: !T`) is
+    /// lent as it is when the place is used bare where a value holding a
+    /// write borrow is expected, or called with a `!self` method. Reached through a `?T` or `*T`, it is read-only
+    /// like the rest of what that path reaches: other borrows or handles
+    /// may reach the same write borrow. False after a diagnostic.
+    fn checkLendsWriteBorrow(self: *Checker, place: Sexp) Error!bool {
+        if (!place.isKind(.member) and !place.isKind(.index)) return true;
+        const path = self.placePath(place);
+        if (path.shared) {
+            try self.errAt(place, "cannot lend the write borrow held here through a shared handle (`*T`); other handles reach the same write borrow", .{});
+            return false;
+        }
+        if (path.read_borrow) |pos| {
+            try self.err(pos, "cannot lend the write borrow held here through a read borrow (`?T`); other borrows may reach the same write borrow", .{});
+            return false;
+        }
+        return true;
+    }
+
     /// How a place reaches its storage, read from the recorded types of
     /// the objects along its path (`a` and `a.b` in `a.b.c`).
     const PlacePath = struct {
@@ -683,6 +702,17 @@ const Checker = struct {
         /// Where the path goes through a `?T`.
         read_borrow: ?u32 = null,
     };
+
+    /// Whether a value is reached through a `?T` or `*T`: it is one, or
+    /// a place whose path goes through one.
+    fn readOnlyPlace(self: *Checker, e: Sexp) bool {
+        if (self.ctx.typeOf(e)) |ty| switch (self.ctx.types.get(ty)) {
+            .borrow_read, .shared => return true,
+            else => {},
+        };
+        const path = self.placePath(e);
+        return path.shared or path.read_borrow != null;
+    }
 
     fn placePath(self: *Checker, place: Sexp) PlacePath {
         var path: PlacePath = .{};
@@ -987,6 +1017,9 @@ const Checker = struct {
             },
             .array => |a| {
                 if (mode == .write) return self.writeElement(source, inner_source, a.elem);
+                if (mode != .move and sema.holdsWriteBorrow(self.ctx, a.elem)) {
+                    try self.err(pos, "each element holds a write borrow, which a loop binding would copy; write through them with `for x in !xs`", .{});
+                }
                 return a.elem;
             },
             .slice, .string => {
@@ -1024,6 +1057,9 @@ const Checker = struct {
             try self.err(scrut_pos, "cannot `match` on a value of type `{s}`; match works on enums, errors, integers, and Bool", .{try self.tyName(scrutinee)});
         }
 
+        // A binding copies what it binds, so one holding a write borrow
+        // would be a second writer when the matched value is only read.
+        const read_only = subject.isKind(.read) or self.readOnlyPlace(subject);
         var cov: MatchCoverage = .{};
         var arm_values: std.ArrayListUnmanaged(Typed) = .empty;
         defer arm_values.deinit(self.ctx.allocator);
@@ -1038,6 +1074,7 @@ const Checker = struct {
                 try self.errAt(pattern, "this arm never runs: the arms before it cover every value", .{});
             }
             try self.checkPattern(pattern, scrutinee, &cov);
+            if (read_only) try self.rejectWriteBorrowBindings(pattern);
             const body = ir.Arm.body(arm);
             switch (position) {
                 .statement => try self.checkStmt(body),
@@ -1203,6 +1240,15 @@ const Checker = struct {
             return;
         }
         try covered.put(self.ctx.allocator, name, pos);
+    }
+
+    fn rejectWriteBorrowBindings(self: *Checker, pattern: Sexp) Error!void {
+        const binds: []const Sexp = if (pattern.isKind(.variant_pattern)) ir.VariantPattern.bindings(pattern) else &.{pattern};
+        for (binds) |b| {
+            const sym = self.ctx.symbolOf(b) orelse continue;
+            if (!sema.holdsWriteBorrow(self.ctx, self.ctx.symbols.items[sym].ty)) continue;
+            try self.errAt(b, "cannot bind `{s}`: it holds a write borrow, and the matched value is reached through a read borrow or shared handle, which cannot write", .{self.text(b)});
+        }
     }
 
     fn checkVariantPattern(self: *Checker, pattern: Sexp, scrutinee: TypeId, covered: *std.StringHashMapUnmanaged(u32)) Error!void {
@@ -3257,6 +3303,8 @@ const Checker = struct {
                     // `!self`) lends it to the call as it is.
                     .lvalue_bare => if (kind != .write_borrow) {
                         try self.err(pos, "method `{s}` requires a write-borrowed receiver; use `(!receiver).{s}(...)`", .{ method, method });
+                    } else {
+                        _ = try self.checkLendsWriteBorrow(recv);
                     },
                 }
             },
@@ -3290,6 +3338,7 @@ const Checker = struct {
         const actual = try self.synthExpr(e);
         if (compatible(self.ctx, actual, expected)) {
             try self.recordAdapted(e, actual, expected);
+            if (sema.holdsWriteBorrow(self.ctx, expected)) _ = try self.checkLendsWriteBorrow(e);
             return;
         }
         // A fallible call where its value is expected: `synthCall`

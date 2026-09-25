@@ -1,0 +1,31 @@
+# A match or loop binding copies what it binds. A copy of a write borrow
+# is a second writer, so it is refused where the matched value is only
+# read, and a loop walks such elements with `for x in !xs`.
+
+struct Holder
+  v: Vec(Int)
+
+struct Ed
+  t: !Holder
+
+enum E
+  a(t: !Holder)
+  b
+
+sub reset(h: !Holder)
+  h.v = Vec()
+
+sub f(x: ?E)
+  match x
+    .a(t) => reset(t)
+    .b => print("b")
+
+sub main()
+  h = Holder(v: Vec())
+  k = Holder(v: Vec())
+  arr = [Ed(t: !h), Ed(t: !k)]
+  for e in arr
+    reset(e.t)
+
+# error: 20:8: cannot bind `t`: it holds a write borrow
+# error: 27:12: each element holds a write borrow, which a loop binding would copy

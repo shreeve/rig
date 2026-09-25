@@ -1,0 +1,35 @@
+# A write borrow held in a field is read-only through a `?T`: two read
+# borrows of one `Ed` reach the same `!Holder`, so neither may lend it
+# to a `!self` receiver, a `!T` parameter, or a new value holding it.
+
+struct Node
+  n: Int
+
+struct Holder
+  v: Vec(*Node)
+
+  sub reset(!self)
+    (!self.v).clear()
+
+struct Ed
+  t: !Holder
+
+sub reset(h: !Holder)
+  (!h.v).clear()
+
+sub f(a: ?Ed, b: ?Ed)
+  for x in ?a.t.v
+    b.t.reset()
+    reset(b.t)
+    e = Ed(t: b.t)
+    print("saw", x.n)
+
+sub main()
+  h = Holder(v: Vec())
+  (!h.v).push(*Node(n: 1))
+  ed = Ed(t: !h)
+  f(?ed, ?ed)
+
+# error: 22:5: cannot lend the write borrow held here through a read borrow
+# error: 23:11: cannot lend the write borrow held here through a read borrow
+# error: 24:15: cannot lend the write borrow held here through a read borrow

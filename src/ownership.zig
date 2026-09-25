@@ -1691,15 +1691,19 @@ pub const Checker = struct {
     /// `|+x|`, `|~x|`) makes from var `id` or another value carrying `v`.
     /// A new handle is independent of the borrow it was reached through
     /// (a loop element, a `?*T` parameter), but reaches whatever the
-    /// shared value holds; a write borrow held there cannot be duplicated.
+    /// shared value holds; a write borrow held there cannot be duplicated,
+    /// whoever lent it.
     fn newHandle(self: *Checker, pos: u32, what: []const u8, ty: ?TypeId, id: ?VarId, v: Value, weak: bool) Error!Value {
         if (!self.mayCarryBorrow(ty)) return .{};
         const out = self.heldThroughHandle(ty, id) orelse v;
-        for (out.loans) |l| if (l.kind == .write) {
+        if (self.carriesWriteBorrow(ty)) {
             try self.err(pos, "cannot {s} `{s}`: it holds a write borrow, which cannot be duplicated", .{ if (weak) "take a weak handle to" else "clone", what });
-            try self.noteLoan(l);
+            for (out.loans) |l| if (l.kind == .write) {
+                try self.noteLoan(l);
+                break;
+            };
             return .{};
-        };
+        }
         return out;
     }
 

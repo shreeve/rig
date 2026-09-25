@@ -1519,7 +1519,11 @@ cannot write-borrow `x` while a read borrow is live
 
 A `!T` parameter is assignable: `p.f = v` and `p = v` write through to
 the caller's value (the old value is dropped first). A write borrow can
-be passed on, or moved into a local with `<p`, but not copied.
+be passed on, or moved into a local with `<p`, but not copied. One held
+in a field is read-only through a `?T` or `*T`, like the rest of what
+that path reaches: it cannot be passed on from there, and a `match`
+through one cannot bind it. A loop walks elements holding write borrows
+with `for x in !xs`.
 
 ```rig
 struct Counter
