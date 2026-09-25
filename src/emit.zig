@@ -2723,6 +2723,8 @@ pub const Emitter = struct {
             }
         }
         const callee = ir.Call.callee(call);
+        // Zig passes a temporary receiver to a `!self` method as a constant.
+        if (self.receiverOf(call)) |recv| if (!isPlace(recv) and recv.kind() != .move and self.receiverWrites(call)) return true;
         var owned = (callee.isKind(.member) and ir.Member.object(callee).isKind(.move)) or self.consumedTemporary(call) != null;
         for (args) |a| {
             const v = argValue(a);
@@ -2779,17 +2781,73 @@ pub const Emitter = struct {
         return self.kindOf(t) != null;
     }
 
-    /// Every argument that is not pure goes into a temporary, in source
-    /// order, after a temporary receiver the method consumes, and the call
-    /// itself runs last. An owned temporary is dropped if a later argument
-    /// leaves, and handed to the callee (its flag cleared) only when the
-    /// call runs:
+    /// The receiver of `value.method(...)`.
+    fn receiverOf(self: *Emitter, call: Sexp) ?Sexp {
+        const callee = ir.Call.callee(call);
+        if (!callee.isKind(.member)) return null;
+        const obj = ir.Member.object(callee);
+        if (self.isTypeCallee(obj)) return null;
+        return obj;
+    }
+
+    /// Whether the method of `value.method(...)` takes `!self`.
+    fn receiverWrites(self: *Emitter, call: Sexp) bool {
+        const f = self.fnType(self.typeOf(ir.Call.callee(call))) orelse return false;
+        return f.params.len > 0 and self.sema.types.get(f.params[0]) == .borrow_write;
+    }
+
+    /// Evaluate the receiver of a method call whose arguments are hoisted
+    /// into `__rig_recv_N` first, so it runs before them, as written: the
+    /// address of a place, or a temporary value, dropped after the call.
+    fn hoistReceiver(self: *Emitter, call: Sexp, id: u32) Error!void {
+        // Borrow sigils on a receiver are implicit in Zig's method calls.
+        const recv = unborrowed(self.receiverOf(call) orelse return);
+        const writes = self.receiverWrites(call);
+        const temporary = !isPlace(recv) and !recv.isKind(.move);
+        if (!contains(recv, &.{.call}) and !(writes and temporary)) return;
+        const name = try self.fmt("__rig_recv_{d}", .{id});
+        try self.writeIndent(self.indent);
+        if (!temporary) {
+            const saved = self.read_place;
+            defer self.read_place = saved;
+            self.read_place = !writes;
+            try self.w.print("const {s} = ", .{name});
+            try self.emitAddressOf(recv);
+            try self.w.writeAll(";\n");
+            return self.hoisted.append(self.allocator, .{ .node = recv, .name = name });
+        }
+        const ty = self.typeOf(recv);
+        const ptr = if (ty) |t| self.isPtrBorrowTy(t) else false;
+        const kind: ?ResourceKind = if (ptr) null else if (ty) |t| self.kindOf(t) else null;
+        try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional or (writes and !ptr)) "var" else "const", name });
+        if (ty) |t| {
+            try self.w.writeAll(": ");
+            try self.emitTypeTy(t);
+        }
+        try self.w.writeAll(" = ");
+        try self.emitBare(recv);
+        try self.w.writeAll(";\n");
+        if (kind) |k| {
+            try self.writeIndent(self.indent);
+            try self.w.writeAll("defer ");
+            try self.writeDrop(name, k);
+            try self.w.writeAll(";\n");
+        }
+        try self.hoisted.append(self.allocator, .{ .node = recv, .name = name });
+    }
+
+    /// Every argument that is not pure goes into a typed temporary, in
+    /// source order, after the receiver (see `hoistReceiver`), and the
+    /// call itself runs last. An owned temporary, including a receiver
+    /// the method consumes, is dropped if a later argument leaves, and
+    /// handed to the callee (its flag cleared) only when the call runs.
+    /// `pair(mk(1)!, mk(2)!)`, with `mk` returning a `Vec(Int)`:
     ///
     ///     __rig_call_N: {
-    ///         var __rig_arg_N_0 = try mk(1);
+    ///         var __rig_arg_N_0: rig.Vec(i64) = try mk(1);
     ///         var __rig_live_N_0 = true;
     ///         defer if (__rig_live_N_0) rig.drop(&__rig_arg_N_0);
-    ///         const __rig_arg_N_1 = try mk(2);
+    ///         var __rig_arg_N_1: rig.Vec(i64) = try mk(2);
     ///         ...
     ///         break :__rig_call_N pair(rig.take(&__rig_live_N_0, __rig_arg_N_0), ...);
     ///     }
@@ -2804,7 +2862,7 @@ pub const Emitter = struct {
         const first = self.hoisted.items.len;
         if (self.consumedTemporary(call)) |recv| {
             try self.hoist(.{ .node = recv, .name = try self.fmt("__rig_recv_{d}", .{id}), .flag = try self.fmt("__rig_live_{d}_recv", .{id}) }, .{}, 0, false);
-        }
+        } else try self.hoistReceiver(call, id);
         for (args, 0..) |a, ai| {
             const value = argValue(a);
             if (self.isPureArg(value)) continue;
