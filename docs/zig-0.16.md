@@ -42,6 +42,7 @@ cover everything this document leaves out.
 13. [Tests](#13-tests)
 14. [The build system](#14-the-build-system)
 15. [Compile errors and their fixes](#15-compile-errors-and-their-fixes)
+16. [Known Zig 0.16 issues Rig works around](#16-known-zig-016-issues-rig-works-around)
 
 ---
 
@@ -1050,3 +1051,42 @@ pub fn build(b: *std.Build) void {
 | `error: FileNotFound` printed and exit 1 at run time | an error returned from `main` | handle it, or print a message and `std.process.exit` |
 | `error(DebugAllocator): memory address 0x... leaked` at exit | `init.gpa` or a `DebugAllocator` saw a leak | free it, or allocate from an arena |
 | `error.OutOfMemory` from `std.process.spawn` with plenty of memory | spawning through `global_single_threaded` (its allocator always fails) | pass a real `Io` (`init.io`) |
+
+## 16. Known Zig 0.16 issues Rig works around
+
+**`zig run` can run a stale executable built from another directory.**
+In whole cache mode, `Compilation.addModuleTableToCacheHash` adds the
+root source file through `Path.toCachePath`, which makes it
+cwd-relative, and the cwd prefix is not hashed. Two directories with a
+byte-identical root file that imports different files share one cache
+entry, and editing the imported file in the second directory is not
+noticed. Rig passes `--cache-dir <package>/.zig-cache` to every `zig`
+invocation so each emitted package has its own cache
+(`src/main.zig`; regression test `test/cli/zig_cache.sh`). This
+standalone script reproduces it, for an upstream report:
+
+```sh
+set -e
+# The real path: an absolute path spelled through a symlink (macOS /var ->
+# /private/var) does not start with the cwd, so it stays absolute and unique.
+T=$(cd "$(mktemp -d)" && pwd -P)
+nonce=$$-$(date +%s)
+for d in a b; do
+  mkdir "$T/$d"
+  printf 'const lib = @import("lib.zig");\npub fn main() void { lib.hello(); }\n' >"$T/$d/main.zig"
+  printf 'const std = @import("std");\npub fn hello() void { std.debug.print("%s %s\\n", .{}); }\n' "$d" "$nonce" >"$T/$d/lib.zig"
+done
+
+echo "expect 'a $nonce':"; (cd "$T/a" && zig run main.zig)
+echo "expect 'b $nonce':"; (cd "$T/b" && zig run main.zig)
+echo "expect 'b $nonce' (absolute path):"; (cd "$T/b" && zig run "$T/b/main.zig")
+printf 'const std = @import("std");\npub fn hello() void { std.debug.print("b edited %s\\n", .{}); }\n' "$nonce" >"$T/b/lib.zig"
+echo "expect 'b edited $nonce':"; (cd "$T/b" && zig run main.zig)
+echo "expect 'b edited $nonce' (run from the parent, so the relative path differs):"; (cd "$T" && zig run b/main.zig)
+rm -rf "$T"
+```
+
+**Deprecated builtins and std functions still in use.** The emitter
+writes `@intFromFloat`, and `src/` calls `std.mem.indexOf*`; both are
+deprecated in 0.16 but compile. Move to their replacements when Zig
+removes them.
