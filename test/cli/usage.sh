@@ -33,6 +33,10 @@ printf 'sub main()\n  print(1)\n' >prog
 out=$("$RIG" build prog 2>&1); expect_rc $? 2 "a root without .rig"
 expect_has "$out" "\`prog\` is not a .rig file" "a root without .rig"
 expect_has "$(head -1 prog)" "sub main()" "the source survives"
+cp prog q.rig
+out=$("$RIG" build -o q.rig q.rig 2>&1); expect_rc $? 2 "-o naming a .rig file"
+expect_has "$out" "would write the executable over a .rig file" "-o naming a .rig file"
+expect_has "$(head -1 q.rig)" "sub main()" "the source survives -o"
 out=$("$RIG" check help 2>&1); expect_rc $? 2 "a file named help"
 expect_has "$out" "\`help\` is not a .rig file" "a file named help"
 
