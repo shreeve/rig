@@ -1,0 +1,37 @@
+# A generic parameter needs a name of its own: not a built-in type, not
+# `Self`, not a module-level declaration or a method of the type. Inside
+# the type, locals and parameters cannot reuse it either.
+
+struct Item
+  n: Int
+
+type Shadow(Item)
+  v: Item
+
+type Prim(Int)
+  v: Int
+
+type Builtin(Vec)
+  v: Vec
+
+type Own(T)
+  v: T
+
+  fun T(?self) -> Int
+    1
+
+type Uses(U)
+  v: U
+
+  fun f(?self, U: Int) -> Int
+    U = 3
+    U
+
+sub main()
+  print(1)
+
+# error: generic parameter `Item` has the same name as the module-level declaration `Item`
+# error: generic parameter `Int` has the name of a built-in type
+# error: generic parameter `Vec` has the same name as the module-level declaration `Vec`
+# error: generic parameter `T` has the same name as a method of the type
+# error: parameter `U` has the name of the generic parameter `U`

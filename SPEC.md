@@ -520,7 +520,10 @@ true
 
 A payload variant is constructed with keyword fields
 (`.circle(radius: 2)`) or positionally, in field order (`.circle(2)`). Enums have no constructor call (`Shape(...)` is an
-error); plain enums compare with `==`.
+error); plain enums compare with `==`. A plain enum's variants may take
+explicit values (`ok = 200`): constant integers from 0 to 4294967295,
+no two the same, where a variant without one takes the value after the
+previous variant's. Payload and generic enums take no values.
 
 ### Error sets
 
@@ -555,7 +558,12 @@ function's arguments (`Pair.make(1, 2)`). A literal takes its default
 type. A parameter nothing fills, as in `Vec()`, needs the annotation. A
 generic body may only do with a `T` what every instantiation allows:
 operations on `T` are checked for each instantiation, inferred or
-spelled, and methods cannot be called on a type parameter.
+spelled, and methods cannot be called on a type parameter. A generic
+type may hold `Vec(T)`, `Cell(T)`, `Signal(T)`, or `[N]T`; their element
+rules apply to each instance. A generic parameter needs a name of its
+own: not a built-in type or `Self`, a module-level declaration, or a
+method of the type, and locals and parameters inside the type cannot
+reuse it.
 
 ```rig
 type Pair(T, U)
@@ -1549,10 +1557,13 @@ noisy 2
 noisy 1
 ```
 
-A drop body may read fields, change Copy fields, and use `raw`. It may
-not move, drop, or replace `self`, or move or reassign an owning field:
-the fields are released after the body returns. `drop` bodies are only
-for structs; enums and generic types get structural glue only.
+A drop body may read and assign fields and use `raw`. It reaches `self`
+only through its fields, `?self`, and methods that take `?self`: it may
+not move, drop, or replace `self`, or lend it as `!self`, since a
+replaced `self` would be dropped, running the body again. No field can
+be moved out, because the fields are released after the body returns.
+`drop` bodies are only for structs; enums and generic types get
+structural glue only.
 
 ---
 
@@ -2122,7 +2133,8 @@ what happens to the failure, visibly:
 A bare call to a fallible function is rejected, and so is `!` on a call
 that cannot fail. A closure body, a `drop` body, and a `defer` cannot
 propagate. A fallible type is only allowed as a function's return type,
-and a plain `T` is accepted where `T!` is expected.
+and a plain `T` is accepted where `T!` is expected. `E!` for an error
+set `E` is rejected: a failure and a success would both be `E` values.
 
 ```rig
 fun parse_len(s: String) -> Int!
@@ -2170,7 +2182,10 @@ is compared with error-set members (`err == E.name`, `err == .name`),
 matched by their names (`.name =>`, with a default arm where the match
 gives a value), printed, and returned from a fallible function. Every
 `.name` it is compared or matched with must be a member of some error
-set the module can see. The handler may be a block.
+set the module can see. The handler may be a block. An error is
+identified by its name alone: `A.timeout` and `B.timeout` of two error
+sets are the same error, so `err == B.timeout` holds for a failure with
+`A.timeout`.
 
 ```rig
 error ParseError
@@ -2265,10 +2280,13 @@ sub main()
 3 0 7 .east
 ```
 
-Only `pub` declarations are visible to importers. A `pub` function whose
-signature mentions a private type is rejected, because importers could
-hold such a value but never name it. A struct's fields and methods are
-visible wherever the struct is. Every check (types, arity, keyword
+Only `pub` declarations are visible to importers. A `pub` function may
+take or return a private type: importers can hold the value and use its
+fields and methods, though they cannot name the type. A struct's fields
+and methods are visible wherever the struct is. Generic types cannot
+cross module boundaries yet, so no instance of one declared in the
+module may appear in its public surface, including in the fields of the
+private types that surface reaches. Every check (types, arity, keyword
 arguments, borrow modes, fallibility, ownership) applies across modules
 exactly as within one, and a type is identified by the module that
 declares it: `a.Point` and `b.Point` are different types. `use std` is

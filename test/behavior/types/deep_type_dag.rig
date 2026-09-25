@@ -1,0 +1,112 @@
+# Declared types are searched once each, not once per path: twenty levels
+# of three fields each (3^20 paths) check at once.
+
+struct L0
+  f1: L1
+  f2: L1
+  f3: L1
+
+struct L1
+  f1: L2
+  f2: L2
+  f3: L2
+
+struct L2
+  f1: L3
+  f2: L3
+  f3: L3
+
+struct L3
+  f1: L4
+  f2: L4
+  f3: L4
+
+struct L4
+  f1: L5
+  f2: L5
+  f3: L5
+
+struct L5
+  f1: L6
+  f2: L6
+  f3: L6
+
+struct L6
+  f1: L7
+  f2: L7
+  f3: L7
+
+struct L7
+  f1: L8
+  f2: L8
+  f3: L8
+
+struct L8
+  f1: L9
+  f2: L9
+  f3: L9
+
+struct L9
+  f1: L10
+  f2: L10
+  f3: L10
+
+struct L10
+  f1: L11
+  f2: L11
+  f3: L11
+
+struct L11
+  f1: L12
+  f2: L12
+  f3: L12
+
+struct L12
+  f1: L13
+  f2: L13
+  f3: L13
+
+struct L13
+  f1: L14
+  f2: L14
+  f3: L14
+
+struct L14
+  f1: L15
+  f2: L15
+  f3: L15
+
+struct L15
+  f1: L16
+  f2: L16
+  f3: L16
+
+struct L16
+  f1: L17
+  f2: L17
+  f3: L17
+
+struct L17
+  f1: L18
+  f2: L18
+  f3: L18
+
+struct L18
+  f1: L19
+  f2: L19
+  f3: L19
+
+struct L19
+  f1: L20
+  f2: L20
+  f3: L20
+
+struct L20
+  n: Int
+
+sub main()
+  leaf = L20(n: 7)
+  print(leaf.n)
+
+# expect:
+# 7

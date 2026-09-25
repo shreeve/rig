@@ -1,0 +1,21 @@
+# Two types holding each other by value many times over are found in one
+# search, and each is reported; `A` holds them but not itself.
+
+struct A
+  b: B
+
+struct B
+  c1: C
+  c2: C
+  c3: C
+
+struct C
+  b1: B
+  b2: B
+  b3: B
+
+sub main()
+  print(1)
+
+# error: `B` contains itself by value through `c1`
+# error: `C` contains itself by value through `b1`

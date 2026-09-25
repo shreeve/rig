@@ -1,0 +1,13 @@
+# `E!` for an error set `E` could not tell a failure from a success.
+
+error E
+  bad
+  good
+
+fun f() -> E!
+  E.good
+
+sub main()
+  print(f()!)
+
+# error: `E!` would make a failure and a success both `E` values
