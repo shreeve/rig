@@ -1,0 +1,28 @@
+# Every form a type argument of `@sizeOf`, `@alignOf`, and `@typeName`
+# can take: `Self`, an alias, an imported type, a builtin, and a type
+# parameter.
+
+use lib
+
+struct P
+  x: I64
+  y: I64
+
+  fun size(?self) -> Int
+    @sizeOf(Self)
+
+type P2 = P
+
+type Box(T)
+  v: T
+
+  fun size(?self) -> Int
+    @sizeOf(T)
+
+sub main()
+  p = P(x: 1, y: 2)
+  b: Box(U16) = Box(v: 7)
+  print(@sizeOf(P2), p.size(), @sizeOf(lib.Q), @sizeOf(U8), b.size(), @typeName(Bool), @alignOf(U16))
+
+# expect:
+# 16 16 8 1 2 bool 2

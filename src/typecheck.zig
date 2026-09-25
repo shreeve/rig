@@ -3392,7 +3392,8 @@ const Checker = struct {
         return null;
     }
 
-    /// `@sizeOf(T)` / `@sizeOf(@TypeOf(x))`.
+    /// `@sizeOf(T)` / `@sizeOf(@TypeOf(x))`. A type argument is recorded
+    /// with the type it names.
     fn builtinTypeArg(self: *Checker, name: []const u8, args: []const Sexp, pos: u32) Error!bool {
         if (args.len != 1) {
             try self.err(pos, "`@{s}` takes one type argument", .{name});
@@ -3405,7 +3406,9 @@ const Checker = struct {
         }
         var r = self.resolver();
         const ty = try r.resolveType(a);
-        return !self.isPoison(ty);
+        if (self.isPoison(ty)) return false;
+        try self.ctx.recordType(a, ty);
+        return true;
     }
 
     // =========================================================================

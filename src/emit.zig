@@ -2232,7 +2232,7 @@ pub const Emitter = struct {
         try self.w.print("@{s}(", .{self.srcText(ir.Builtin.name(sexp))});
         for (ir.Builtin.args(sexp), 0..) |a, i| {
             if (i > 0) try self.w.writeAll(", ");
-            if (self.isTypeArg(sexp, a)) try self.emitTypeArg(a) else try self.emitBare(a);
+            if (self.isTypeArg(sexp, a)) try self.emitTypeTy(self.typeOf(a).?) else try self.emitBare(a);
         }
         try self.w.writeAll(")");
     }
@@ -2974,37 +2974,6 @@ pub const Emitter = struct {
     // =========================================================================
     // Types
     // =========================================================================
-
-    /// The type argument of `@sizeOf`, `@alignOf`, or `@typeName`, which
-    /// sema resolves without recording a type for: a type name, a weak
-    /// handle type `~T`, or `module.Type` (the only type forms an
-    /// argument can be written in).
-    fn emitTypeArg(self: *Emitter, t: Sexp) Error!void {
-        if (t.isKind(.weak)) {
-            try self.w.writeAll("rig.WeakHandle(");
-            try self.emitTypeArg(ir.Weak.operand(t));
-            return self.w.writeAll(")");
-        }
-        if (t.isKind(.member)) {
-            return self.w.print("{f}.{f}", .{ ident(self.srcText(ir.Member.object(t))), ident(self.srcText(ir.Member.name(t))) });
-        }
-        if (t != .src) return self.unsupported(t, "this type argument");
-        const name = self.srcText(t);
-        if (self.sema.symbolOf(t)) |sym| switch (self.sema.symbols.items[sym].kind) {
-            .nominal_type => return self.writeNominalName(sym),
-            .type_alias => return self.emitTypeTy(self.sema.symbols.items[sym].ty),
-            else => {},
-        };
-        if (std.mem.eql(u8, name, "Self")) if (self.nominal) |n| return self.w.writeAll(n.name);
-        const map = .{
-            .{ "Int", int_zig }, .{ "Float", float_zig },     .{ "I8", "i8" },     .{ "I16", "i16" },
-            .{ "I32", "i32" },   .{ "I64", "i64" },           .{ "U8", "u8" },     .{ "U16", "u16" },
-            .{ "U32", "u32" },   .{ "U64", "u64" },           .{ "F32", "f32" },   .{ "F64", "f64" },
-            .{ "Bool", "bool" }, .{ "String", "[]const u8" }, .{ "Void", "void" },
-        };
-        inline for (map) |m| if (std.mem.eql(u8, name, m[0])) return self.w.writeAll(m[1]);
-        try self.w.print("{f}", .{ident(name)});
-    }
 
     /// A type sema resolved.
     fn emitTypeTy(self: *Emitter, ty: TypeId) Error!void {
