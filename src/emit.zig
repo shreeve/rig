@@ -878,8 +878,7 @@ pub const Emitter = struct {
         self.stmt = sexp;
         // A local read for nothing is discarded by address: Zig rejects
         // discarding a name that is used elsewhere.
-        var e = sexp;
-        while (e.isKind(.read) or e.isKind(.write)) e = ir.get(e, .operand);
+        const e = unborrowed(sexp);
         if (e == .src) if (self.localOf(e)) |local| return self.w.print("_ = &{s};", .{local.zig_name});
         const head = sexp.kind() orelse {
             try self.w.writeAll("_ = ");
@@ -1307,11 +1306,10 @@ pub const Emitter = struct {
         try self.w.writeAll("if ");
         if (cond.isKind(.as)) {
             try self.pushScope();
-            const prelude = try self.emitOptionalHead(cond);
-            try self.emitBodyWith(ir.If.then(sexp), prelude);
+            try self.emitBodyWith(ir.If.then(sexp), try self.emitCond(cond));
             try self.popScope();
         } else {
-            try self.emitCond(cond);
+            _ = try self.emitCond(cond);
             try self.emitBranchStmt(ir.If.then(sexp));
         }
         if (else_ != .nil) {
@@ -1320,11 +1318,14 @@ pub const Emitter = struct {
         }
     }
 
-    /// `(cond) ` for `if`/`while`.
-    fn emitCond(self: *Emitter, cond: Sexp) Error!void {
+    /// `(cond) ` for `if`/`while`, or the head of `if expr as name`,
+    /// whose prelude binds the name (`emitOptionalHead`).
+    fn emitCond(self: *Emitter, cond: Sexp) Error!Prelude {
+        if (cond.isKind(.as)) return self.emitOptionalHead(cond);
         try self.w.writeAll("(");
         try self.emitBare(cond);
         try self.w.writeAll(") ");
+        return .{};
     }
 
     /// A statement-position body that starts with `prelude`.
@@ -1394,8 +1395,7 @@ pub const Emitter = struct {
         try self.writeLabel(label);
         try self.w.writeAll("while ");
         try self.pushScope();
-        var prelude: Prelude = .{};
-        if (cond.isKind(.as)) prelude = try self.emitOptionalHead(cond) else try self.emitCond(cond);
+        const prelude = try self.emitCond(cond);
         if (step != .nil) {
             // A statement, so an assignment drops the value it replaces.
             try self.w.writeAll(": ({ ");
@@ -1432,9 +1432,8 @@ pub const Emitter = struct {
         const loop = if (labeled) ir.Labeled.stmt(sexp) else sexp;
         const ty = self.typeOf(loop) orelse return self.unsupported(sexp, "an untyped loop value");
         const block = try self.fmt("__rig_loop_{d}", .{self.nextId()});
-        try self.w.writeAll("@as(");
-        try self.emitTypeTy(ty);
-        try self.w.print(", {s}: ", .{block});
+        try self.writeAsOpen(ty);
+        try self.w.print("{s}: ", .{block});
         try self.openBrace();
         try self.value_loops.append(self.allocator, .{ .rig = if (labeled) self.srcText(ir.Labeled.label(sexp)) else "", .block = block, .ty = ty });
         const else_ = ir.get(loop, .@"else");
@@ -1606,10 +1605,8 @@ pub const Emitter = struct {
         const error_set = if (scrut_ty) |t| self.isErrorSetTy(t) else false;
 
         // `match ?t` / `match !t` switch on the value borrowed.
-        var subject = scrutinee;
-        while (subject.isKind(.read) or subject.isKind(.write)) subject = ir.get(subject, .operand);
         try self.w.writeAll("switch (");
-        try self.emitBare(subject);
+        try self.emitBare(unborrowed(scrutinee));
         try self.w.writeAll(") {\n");
         self.indent += 1;
 
@@ -1660,14 +1657,8 @@ pub const Emitter = struct {
                 },
                 else => return self.unsupported(arm, "this pattern"),
             }
-            if (value_pos) {
-                try self.emitValueBlock(body, .{ .aliases = aliases }, self.typeOf(sexp));
-            } else {
-                try self.openBrace();
-                try self.emitPrelude(.{ .aliases = aliases });
-                try self.emitStmts(try self.stmtsOf(body));
-                try self.closeBrace();
-            }
+            const prelude: Prelude = .{ .aliases = aliases };
+            if (value_pos) try self.emitValueBlock(body, prelude, self.typeOf(sexp)) else try self.emitBodyWith(body, prelude);
             try self.w.writeAll(",\n");
         }
         // A statement match whose arms leave some values out runs no arm
@@ -1828,9 +1819,8 @@ pub const Emitter = struct {
         if (name[0] == '\'') return writeSingleQuoted(self.w, name);
         if (sema.isFloatLiteralText(name)) {
             // Typed, so arithmetic on literals rounds like run-time Float math.
-            try self.w.writeAll("@as(");
-            try self.emitTypeTy(self.typeOf(sexp) orelse self.sema.types.float_id);
-            return self.w.print(", {s}{s})", .{ if (name[0] == '.') "0" else "", name });
+            try self.writeAsOpen(self.typeOf(sexp) orelse self.sema.types.float_id);
+            return self.w.print("{s}{s})", .{ if (name[0] == '.') "0" else "", name });
         }
         if (isLiteralText(name)) return self.w.writeAll(name);
         if (self.rt_names and !self.keep_comptime and self.isModuleConst(sexp)) {
@@ -1895,9 +1885,8 @@ pub const Emitter = struct {
         const t = self.typeOf(sexp);
         const concrete = t != null and self.sema.types.get(t.?) == .int;
         if (concrete) {
-            try self.w.writeAll("@as(");
-            try self.emitTypeTy(t.?);
-            return self.w.print(", {d})", .{v});
+            try self.writeAsOpen(t.?);
+            return self.w.print("{d})", .{v});
         }
         if (v < 0) return self.w.print("({d})", .{v});
         try self.w.print("{d}", .{v});
@@ -1974,6 +1963,13 @@ pub const Emitter = struct {
         self.ptr_tail = true;
         self.bare = true;
         try self.emitValue(e, true);
+    }
+
+    /// `@as(T, `: the caller writes the value and the `)`.
+    fn writeAsOpen(self: *Emitter, ty: TypeId) Error!void {
+        try self.w.writeAll("@as(");
+        try self.emitTypeTy(ty);
+        try self.w.writeAll(", ");
     }
 
     /// `*T` / `*const T` for a borrow type.
@@ -2091,28 +2087,21 @@ pub const Emitter = struct {
                 try self.emitExpr(ir.get(sexp, .right));
                 if (!bare) try self.w.writeAll(")");
             },
-            .@"<<" => {
+            .@"<<", .@">>" => {
                 // Like `+`, a left shift that loses bits (or the sign)
-                // overflows. The shift amount is cast to the width Zig
-                // requires; the shifted value has the expression's type.
-                try self.w.writeAll("@shlExact(@as(");
-                try self.emitTypeTy(self.typeOf(sexp) orelse self.sema.types.int_id);
-                try self.w.writeAll(", ");
-                try self.emitBare(ir.@"<<".left(sexp));
-                try self.w.writeAll("), @intCast(");
-                try self.emitBare(ir.@"<<".right(sexp));
-                try self.w.writeAll("))");
-            },
-            .@">>" => {
-                if (!bare) try self.w.writeAll("(");
-                try self.w.writeAll("@as(");
-                try self.emitTypeTy(self.typeOf(sexp) orelse self.sema.types.int_id);
-                try self.w.writeAll(", ");
-                try self.emitBare(ir.@">>".left(sexp));
-                try self.w.writeAll(") >> @intCast(");
-                try self.emitBare(ir.@">>".right(sexp));
-                try self.w.writeAll(")");
-                if (!bare) try self.w.writeAll(")");
+                // overflows (`@shlExact`). The shift amount is cast to the
+                // width Zig requires; the shifted value has the
+                // expression's type.
+                const shl = head == .@"<<";
+                const parens = !shl and !bare;
+                if (parens) try self.w.writeAll("(");
+                if (shl) try self.w.writeAll("@shlExact(");
+                try self.writeAsOpen(self.typeOf(sexp) orelse self.sema.types.int_id);
+                try self.emitBare(ir.get(sexp, .left));
+                try self.w.writeAll(if (shl) "), @intCast(" else ") >> @intCast(");
+                try self.emitBare(ir.get(sexp, .right));
+                try self.w.writeAll(if (shl) "))" else ")");
+                if (parens) try self.w.writeAll(")");
             },
             .@"/" => try self.emitDivision(sexp, "@divTrunc"),
             .@"%" => try self.emitDivision(sexp, "@rem"),
@@ -2148,9 +2137,7 @@ pub const Emitter = struct {
                 // result's type spelled out.
                 const num = self.numericValueTy(sexp);
                 if (num) |t| {
-                    try self.w.writeAll("@as(");
-                    try self.emitTypeTy(t);
-                    try self.w.writeAll(", ");
+                    try self.writeAsOpen(t);
                 } else if (!bare and head == .@"if") try self.w.writeAll("(");
                 if (head == .@"if") try self.emitIfExpr(sexp) else try self.emitMatch(sexp, true);
                 if (num != null) try self.w.writeAll(")") else if (!bare and head == .@"if") try self.w.writeAll(")");
@@ -2341,9 +2328,7 @@ pub const Emitter = struct {
         // `Shape.dot` of an enum with payloads names the tag; the value
         // is the union holding it.
         if (obj_ty == null and self.isTypeCallee(obj)) if (self.typeOf(sexp)) |t| if (self.hasPayloadVariants(t)) {
-            try self.w.writeAll("@as(");
-            try self.emitTypeTy(t);
-            try self.w.writeAll(", ");
+            try self.writeAsOpen(t);
             try self.emitMemberBase(obj, obj_ty);
             return self.w.print(".{f})", .{ident(field)});
         };
@@ -2375,8 +2360,7 @@ pub const Emitter = struct {
     /// implicit in Zig's method call syntax; pointers to structs
     /// auto-dereference.
     fn emitMemberBase(self: *Emitter, obj: Sexp, obj_ty: ?TypeId) Error!void {
-        var o = obj;
-        while (o.isKind(.read) or o.isKind(.write)) o = ir.get(o, .operand);
+        const o = unborrowed(obj);
         if (self.place_chain and o.isKind(.index)) return self.emitIndex(o, true);
         // `Box.make(...)` of a generic type: the instance sema inferred.
         if (o == .src) if (self.sema.symbolOf(o)) |id| if (self.sema.symbols.items[id].kind == .generic_type) {
@@ -2429,9 +2413,7 @@ pub const Emitter = struct {
         const typed = payload_ty != null and self.isConstructorCall(inner) and
             if (self.typeOf(inner)) |inner_ty| inner_ty == payload_ty.? else false;
         if (payload_ty != null and !typed) {
-            try self.w.writeAll("@as(");
-            try self.emitTypeTy(payload_ty.?);
-            try self.w.writeAll(", ");
+            try self.writeAsOpen(payload_ty.?);
             try self.emitBare(inner);
             try self.w.writeAll(")");
         } else {
@@ -2451,8 +2433,7 @@ pub const Emitter = struct {
         if (else_ == .nil) return self.unsupported(sexp, "an `if` without `else` in value position");
         try self.w.writeAll("if ");
         try self.pushScope();
-        var prelude: Prelude = .{};
-        if (cond.isKind(.as)) prelude = try self.emitOptionalHead(cond) else try self.emitCond(cond);
+        const prelude = try self.emitCond(cond);
         try self.emitValueBlock(ir.If.then(sexp), prelude, self.typeOf(sexp));
         try self.popScope();
         try self.w.writeAll(" else ");
@@ -2528,9 +2509,7 @@ pub const Emitter = struct {
         if (callee.isKind(.member)) if (self.typeOf(sexp)) |t| {
             const vname = self.srcText(ir.Member.name(callee));
             if (self.sema.typeOf(callee) == null and self.variantPayload(t, vname) != null) {
-                try self.w.writeAll("@as(");
-                try self.emitTypeTy(t);
-                try self.w.writeAll(", ");
+                try self.writeAsOpen(t);
                 try self.emitVariantPayload(sexp, t, vname);
                 return self.w.writeAll(")");
             }
@@ -2557,10 +2536,8 @@ pub const Emitter = struct {
         if (callee.isKind(.member)) if (self.typeOf(ir.Member.object(callee))) |t| if (self.isCellTy(t) and self.sema.types.get(self.peelBorrows(t)) != .shared) {
             const m = self.srcText(ir.Member.name(callee));
             if (std.mem.eql(u8, m, "set") or std.mem.eql(u8, m, "replace")) {
-                var obj = ir.Member.object(callee);
-                while (obj.isKind(.read) or obj.isKind(.write)) obj = ir.get(obj, .operand);
                 try self.w.writeAll("@constCast(");
-                try self.emitAddressOf(obj);
+                try self.emitAddressOf(unborrowed(ir.Member.object(callee)));
                 try self.w.print(").{s}(", .{m});
                 try self.emitArgs(sexp);
                 return self.w.writeAll(")");
@@ -2588,11 +2565,9 @@ pub const Emitter = struct {
         const to_int = self.sema.types.get(target) == .int;
         const from_int = self.sema.types.get(from) == .int;
         const builtin = if (to_int) (if (from_int) "@intCast" else "@intFromFloat") else (if (from_int) "@floatFromInt" else "@floatCast");
-        try self.w.writeAll("@as(");
-        try self.emitTypeTy(target);
-        try self.w.print(", {s}(@as(", .{builtin});
-        try self.emitTypeTy(from);
-        try self.w.writeAll(", ");
+        try self.writeAsOpen(target);
+        try self.w.print("{s}(", .{builtin});
+        try self.writeAsOpen(from);
         // A constant is converted at run time, where Zig checks it as Rig
         // does, not at compile time.
         const saved_rt = self.rt_names;
@@ -3500,8 +3475,7 @@ const Scan = struct {
             .@"if" => if (ir.If.@"else"(sexp) != .nil) try s.consumeTail(sexp),
             .@"??", .@"catch" => try s.consumeTail(sexp),
             .match => {
-                var scrut = ir.Match.subject(sexp);
-                while (scrut.isKind(.read) or scrut.isKind(.write)) scrut = ir.get(scrut, .operand);
+                const scrut = unborrowed(ir.Match.subject(sexp));
                 const scrut_sym = if (scrut == .src) s.e.sema.symbolOf(scrut) else null;
                 for (ir.Match.arms(sexp)) |arm| {
                     const pattern = ir.Arm.pattern(arm);
@@ -3661,6 +3635,13 @@ fn isNonNegativeIntLiteral(source: []const u8, s: Sexp) bool {
 
 fn unwrapPub(s: Sexp) Sexp {
     return if (s.isKind(.@"pub")) ir.Pub.decl(s) else s;
+}
+
+/// `e` without the borrow sigils around it.
+fn unborrowed(e: Sexp) Sexp {
+    var x = e;
+    while (x.isKind(.read) or x.isKind(.write)) x = ir.get(x, .operand);
+    return x;
 }
 
 /// Storage with an owner: a name, a field or element, or a borrow of one.
