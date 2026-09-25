@@ -897,6 +897,7 @@ pub const TypeResolver = struct {
         self.ctx.symbols.items[sym_id].fields = owned;
 
         if (generic) try self.checkTypeParamNames(sym_id, members);
+        if (head == .@"enum" or head == .generic_enum) try self.checkEnumValues(members, generic);
         if (head == .@"struct") {
             for (members) |m| {
                 if (m.isKind(.drop_decl)) try self.enforceDropBody(ir.DropDecl.body(m));
@@ -923,6 +924,50 @@ pub const TypeResolver = struct {
                 try self.ctx.err(p.decl_pos, "generic parameter `{s}` has the same name as a method of the type; use a different name", .{p.name});
                 break;
             }
+        }
+    }
+
+    /// Explicit enum values are constant integers that fit the emitted
+    /// `enum(u32)` tag, and no two variants share a value (a variant
+    /// without one takes the value after the previous variant's). Only a
+    /// plain enum, without payloads or generic parameters, has values.
+    fn checkEnumValues(self: *TypeResolver, members: []const Sexp, generic: bool) Error!void {
+        var valued = false;
+        var payloads = false;
+        for (members) |m| {
+            if (m.isKind(.valued)) valued = true;
+            if (m.isKind(.variant)) payloads = true;
+        }
+        if (!valued) return;
+        if (generic or payloads) {
+            for (members) |m| {
+                if (!m.isKind(.valued)) continue;
+                try self.ctx.errAt(ir.Valued.value(m), "{s} cannot give its variants values; only a plain enum can", .{if (generic) "a generic enum" else "an enum with payload variants"});
+            }
+            return;
+        }
+        var seen: std.AutoHashMapUnmanaged(i128, Sexp) = .empty;
+        defer seen.deinit(self.ctx.allocator);
+        var next: i128 = 0;
+        for (members) |m| {
+            const explicit = m.isKind(.valued);
+            const name_node = if (explicit) ir.Valued.name(m) else if (m == .src) m else continue;
+            const name = identAt(self.ctx.source, name_node).?;
+            const value = if (explicit) sema.constIntOf(self.ctx, ir.Valued.value(m)) orelse {
+                try self.ctx.errAt(ir.Valued.value(m), "the value of `{s}` must be a constant integer", .{name});
+                return;
+            } else next;
+            if (value < 0 or value > std.math.maxInt(u32)) {
+                try self.ctx.errAt(if (explicit) ir.Valued.value(m) else name_node, "`{s}` has the value {d}, out of range: enum values run from 0 to {d}", .{ name, value, std.math.maxInt(u32) });
+                return;
+            }
+            const gop = try seen.getOrPut(self.ctx.allocator, value);
+            if (gop.found_existing) {
+                const prev = gop.value_ptr.*;
+                try self.ctx.errAt(name_node, "`{s}` has the value {d}, which `{s}` already has{s}", .{ name, value, identAt(self.ctx.source, prev).?, if (explicit) "" else " (a variant without `= value` takes the value after the previous variant's)" });
+                try self.ctx.noteAt(prev, "`{s}` declared here", .{identAt(self.ctx.source, prev).?});
+            } else gop.value_ptr.* = name_node;
+            next = value + 1;
         }
     }
 

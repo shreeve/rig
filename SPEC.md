@@ -519,7 +519,10 @@ true
 
 A payload variant is constructed with keyword fields
 (`.circle(radius: 2)`) or positionally, in field order (`.circle(2)`). Enums have no constructor call (`Shape(...)` is an
-error); plain enums compare with `==`.
+error); plain enums compare with `==`. A plain enum's variants may take
+explicit values (`ok = 200`): constant integers from 0 to 4294967295,
+no two the same, where a variant without one takes the value after the
+previous variant's. Payload and generic enums take no values.
 
 ### Error sets
 
