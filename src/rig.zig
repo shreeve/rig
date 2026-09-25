@@ -393,14 +393,10 @@ pub const Lexer = struct {
             self.closed_bars = false;
             if (self.nesting > 0 and !self.inIsland() and self.lineEndsAfter()) {
                 if (self.island_count == max_islands) return self.fail(.islands_too_deep, tok.pos);
-                self.islands[self.island_count] = .{
-                    .nesting = self.nesting,
-                    .depth = self.depth,
-                    .column = self.lineIndent(tok.pos),
-                    .outer_column = self.column,
-                };
+                const column = self.lineIndent(tok.pos);
+                self.islands[self.island_count] = .{ .nesting = self.nesting, .depth = self.depth, .column = column, .outer_column = self.column };
                 self.island_count += 1;
-                self.column = self.islands[self.island_count - 1].column;
+                self.column = column;
             }
         }
         return tok;
