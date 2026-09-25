@@ -563,7 +563,7 @@ const Checker = struct {
             const ty = readValue(self.ctx, try self.synthExpr(rhs));
             if (ty == target_ty or ty == self.t().int_literal_id or (req != .integer and ty == self.t().float_literal_id)) {
                 try self.requireHoldsLiteral(param, ty, rhs, pos, spelled);
-            } else if (!self.isPoison(ty)) try self.errAt(rhs, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(target_ty), try self.tyName(ty) });
+            } else if (!self.isPoison(ty)) try self.mismatch(rhs, target_ty, ty);
         } else try self.checkExpr(rhs, target_ty);
         _ = try self.checkDivisor(op, target_ty, rhs);
     }
@@ -2159,16 +2159,15 @@ const Checker = struct {
         return self.ctx.intern(.{ .array = .{ .elem = concrete, .len = elems.len } });
     }
 
-    fn checkArray(self: *Checker, node: Sexp, expected: TypeId) Error!bool {
+    fn checkArray(self: *Checker, node: Sexp, expected: TypeId) Error!?TypeId {
         const et = self.ctx.types.get(expected);
-        if (et != .array) return false;
+        if (et != .array) return null;
         const elems = ir.Array.elems(node);
         if (elems.len != et.array.len) {
             try self.errAt(node, "array literal has {d} element{s}; `{s}` needs {d}", .{ elems.len, plural(elems.len), try self.tyName(expected), et.array.len });
         }
         for (elems) |e| try self.checkExpr(e, et.array.elem);
-        try self.ctx.recordType(node, expected);
-        return true;
+        return expected;
     }
 
     // =========================================================================
@@ -2220,10 +2219,7 @@ const Checker = struct {
                     return self.checkConversion(try r.resolveType(callee), name, args, callee.src.pos);
                 }
             }
-            const sym_id = (try self.useName(callee)) orelse {
-                try self.synthArgs(args);
-                return self.t().invalid_id;
-            };
+            const sym_id = (try self.useName(callee)) orelse return self.skipCall(args);
             const sym = self.ctx.symbols.items[sym_id];
             if (sym.kind != .nominal_type and sym.kind != .generic_type and sym.kind != .type_alias and sym.kind != .module) {
                 try self.ctx.recordType(callee, sym.ty);
@@ -2233,8 +2229,7 @@ const Checker = struct {
                     const fty = self.ctx.types.get(sym.ty);
                     if (fty != .function) {
                         try self.errAt(callee, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(sym.ty) });
-                        try self.synthArgs(args);
-                        return self.t().invalid_id;
+                        return self.skipCall(args);
                     }
                     if (sym.kind == .@"extern" and self.raw_depth == 0) {
                         try self.errAt(callee, "call to extern function `{s}` requires `raw` block; extern functions are the FFI boundary and bypass Rig's ownership and effect checks", .{name});
@@ -2245,32 +2240,25 @@ const Checker = struct {
                 .nominal_type => return self.construct(sym_id, args, callee.src.pos, TypeSubst.empty, null),
                 .type_alias => {
                     try self.errAt(callee, "`{s}` is a type alias for `{s}` and cannot be called as a constructor; construct the aliased type directly", .{ name, try self.tyName(sym.ty) });
-                    try self.synthArgs(args);
-                    return self.t().invalid_id;
+                    return self.skipCall(args);
                 },
                 .generic_type => {
                     // The type arguments come from the fields' values.
                     if (sym_id == self.ctx.vec_sym_id) {
                         try self.errAt(callee, "`Vec()` needs its element type from where it goes; write `v: Vec(T) = Vec()`", .{});
-                        try self.synthArgs(args);
-                        return self.t().invalid_id;
+                        return self.skipCall(args);
                     }
                     if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) {
                         try self.errAt(callee, stack_signal, .{});
-                        try self.synthArgs(args);
-                        return self.t().invalid_id;
+                        return self.skipCall(args);
                     }
-                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = sym.fields orelse &.{} }, callee.src.pos)) orelse {
-                        try self.synthArgs(args);
-                        return self.t().invalid_id;
-                    };
+                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = sym.fields orelse &.{} }, callee.src.pos)) orelse return self.skipCall(args);
                     _ = try self.instantiate(sym_id, subst.args, callee.src.pos);
                     return self.construct(sym_id, args, callee.src.pos, subst, null);
                 },
                 .module => {
                     try self.errAt(callee, "module `{s}` cannot be called", .{name});
-                    try self.synthArgs(args);
-                    return self.t().invalid_id;
+                    return self.skipCall(args);
                 },
                 else => return self.callValue(callee, sym.ty, args, name),
             }
@@ -2280,8 +2268,7 @@ const Checker = struct {
 
         if (callee.isKind(.enum_lit)) {
             try self.errAt(callee, "variant `.{s}(...)` needs a known enum type; annotate the binding", .{self.text(ir.EnumLit.name(callee))});
-            try self.synthArgs(args);
-            return self.t().invalid_id;
+            return self.skipCall(args);
         }
 
         const callee_ty = try self.synthOperand(callee);
@@ -2292,10 +2279,7 @@ const Checker = struct {
     /// closure handle.
     fn callValue(self: *Checker, callee: Sexp, ty: TypeId, args: []const Sexp, name: []const u8) Error!TypeId {
         const pos = self.startOf(callee);
-        if (self.isPoison(ty)) {
-            try self.synthArgs(args);
-            return self.t().invalid_id;
-        }
+        if (self.isPoison(ty)) return self.skipCall(args);
         if (sema.ownedClosureFn(self.ctx, ty)) |f| {
             try self.checkArgs(args, f, .{}, name, pos);
             return f.returns;
@@ -2306,6 +2290,12 @@ const Checker = struct {
             return fty.function.returns;
         }
         try self.err(pos, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(ty) });
+        return self.skipCall(args);
+    }
+
+    /// A call that cannot be checked: its arguments are still checked on
+    /// their own, and it has no type.
+    fn skipCall(self: *Checker, args: []const Sexp) Error!TypeId {
         try self.synthArgs(args);
         return self.t().invalid_id;
     }
@@ -2539,8 +2529,7 @@ const Checker = struct {
             try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = subst.args } });
         const fields = sym.fields orelse {
             try self.err(pos, "opaque type `{s}` cannot be constructed", .{sym.name});
-            try self.synthArgs(args);
-            return self.t().invalid_id;
+            return self.skipCall(args);
         };
         var is_enum = false;
         for (fields) |f| {
@@ -2548,8 +2537,7 @@ const Checker = struct {
         }
         if (is_enum) {
             try self.err(pos, "`{s}` is an enum; construct a variant with `{s}.name` or `.name(...)`", .{ sym.name, sym.name });
-            try self.synthArgs(args);
-            return self.t().invalid_id;
+            return self.skipCall(args);
         }
         try self.checkFieldArgs(args, fields, .{ .owner = sym.name, .decl_pos = sym.decl_pos, .pos = pos, .subst = subst, .foreign = foreign, .kind = .constructor });
         return result;
@@ -2690,8 +2678,7 @@ const Checker = struct {
                 },
                 .shared => if (!sema.hasMethodNamed(self.ctx, obj_ty, method)) {
                     try self.err(pos, "`upgrade` is only available on weak handles (`~T`); receiver here is a shared handle (`*T`). Use `~rc` to obtain a weak reference, then `.upgrade()` on the weak.", .{});
-                    try self.synthArgs(args);
-                    return self.t().invalid_id;
+                    return self.skipCall(args);
                 },
                 else => {},
             }
@@ -2701,13 +2688,11 @@ const Checker = struct {
         switch (self.ctx.types.get(peeled)) {
             .optional => {
                 try self.err(pos, "cannot call `{s}` on optional `{s}`; take the value out first with `x ?? fallback`", .{ method, try self.tyName(peeled) });
-                try self.synthArgs(args);
-                return self.t().invalid_id;
+                return self.skipCall(args);
             },
             .type_var => {
                 try self.err(pos, "a generic parameter `{s}` has no methods; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) });
-                try self.synthArgs(args);
-                return self.t().invalid_id;
+                return self.skipCall(args);
             },
             else => {},
         }
@@ -2729,8 +2714,7 @@ const Checker = struct {
             } else {
                 try self.err(pos, "type `{s}` has no method `{s}`", .{ try self.tyName(obj_ty), method });
             }
-            try self.synthArgs(args);
-            return self.t().invalid_id;
+            return self.skipCall(args);
         };
         const receiver = resolved.field.receiver;
         try self.noteCallee(resolved.fn_ty);
@@ -2756,8 +2740,7 @@ const Checker = struct {
                 if (cellElementType(self.ctx, obj_ty)) |elem| {
                     if ((try self.ownsResource(elem, pos, "copies out with `Cell.get` a value"))) {
                         try self.err(pos, "`Cell.get` returns `T` by value but `T = {s}` has drop glue; a copy would alias the cell's owned value. Use `cell.replace(<new)` to swap-and-yield the old value.", .{try self.tyName(elem)});
-                        try self.synthArgs(args);
-                        return self.t().invalid_id;
+                        return self.skipCall(args);
                     }
                 }
             }
@@ -2769,8 +2752,7 @@ const Checker = struct {
                 const elem = self.ctx.types.get(resolved.fn_ty.returns).optional;
                 if ((try self.ownsResource(elem, pos, "copies an element out of a Vec"))) {
                     try self.err(pos, "`Vec.{s}` would copy an owning handle out of a `Vec` of `{s}`; iterate with `for x in ?v` instead", .{ method, try self.tyName(elem) });
-                    try self.synthArgs(args);
-                    return self.t().invalid_id;
+                    return self.skipCall(args);
                 }
             }
         }
@@ -2798,8 +2780,7 @@ const Checker = struct {
     fn associatedCall(self: *Checker, obj: Sexp, nt: NamedType, name: []const u8, pos: u32, args: []const Sexp) Error!TypeId {
         const members = nt.sym.fields orelse {
             try self.err(pos, "opaque type `{s}` has no members", .{nt.sym.name});
-            try self.synthArgs(args);
-            return self.t().invalid_id;
+            return self.skipCall(args);
         };
         const generic = nt.sym.kind == .generic_type;
         for (members) |m| {
@@ -2811,10 +2792,7 @@ const Checker = struct {
                 var f = fty.function;
                 if (generic) {
                     // The type's arguments come from the call's arguments.
-                    const subst = (try self.inferTypeArgs(nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names } }, pos)) orelse {
-                        try self.synthArgs(args);
-                        return self.t().invalid_id;
-                    };
+                    const subst = (try self.inferTypeArgs(nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names } }, pos)) orelse return self.skipCall(args);
                     try self.ctx.recordType(obj, try self.instantiate(nt.id, subst.args, pos));
                     f = self.ctx.types.get(try sema.substituteType(self.ctx, m.ty, subst)).function;
                 }
@@ -2828,16 +2806,12 @@ const Checker = struct {
             const payload = m.payload orelse &.{};
             if (payload.len == 0) {
                 try self.err(pos, "variant `{s}.{s}` takes no payload", .{ nt.sym.name, name });
-                try self.synthArgs(args);
-                return self.t().invalid_id;
+                return self.skipCall(args);
             }
             var subst = TypeSubst.empty;
             var ty = try self.namedTypeValue(nt);
             if (generic) {
-                subst = (try self.inferTypeArgs(nt.id, args, .{ .fields = payload }, pos)) orelse {
-                    try self.synthArgs(args);
-                    return self.t().invalid_id;
-                };
+                subst = (try self.inferTypeArgs(nt.id, args, .{ .fields = payload }, pos)) orelse return self.skipCall(args);
                 ty = try self.instantiate(nt.id, subst.args, pos);
             }
             try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant });
@@ -2845,8 +2819,7 @@ const Checker = struct {
         }
         try self.err(pos, "no method `{s}` on type `{s}`", .{ name, nt.sym.name });
         if (nt.declaredHere()) try self.note(nt.sym.decl_pos, "`{s}` declared here", .{nt.sym.name});
-        try self.synthArgs(args);
-        return self.t().invalid_id;
+        return self.skipCall(args);
     }
 
     /// Where an inferred generic's arguments are matched: the fields a
@@ -2969,10 +2942,7 @@ const Checker = struct {
     /// `module.function(args)` or `module.Type(fields)`.
     fn crossModuleCall(self: *Checker, module_sym: SymbolId, name: []const u8, pos: u32, args: []const Sexp) Error!TypeId {
         const module_name = self.ctx.symbols.items[module_sym].name;
-        const found = (try self.foreignSymbol(module_sym, name, pos)) orelse {
-            try self.synthArgs(args);
-            return self.t().invalid_id;
-        };
+        const found = (try self.foreignSymbol(module_sym, name, pos)) orelse return self.skipCall(args);
         const qualified = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ module_name, name });
         switch (found.sym.kind) {
             .function, .@"extern" => {
@@ -2980,8 +2950,7 @@ const Checker = struct {
                 const fty = self.ctx.types.get(local);
                 if (fty != .function) {
                     try self.err(pos, "`{s}` cannot be called", .{qualified});
-                    try self.synthArgs(args);
-                    return self.t().invalid_id;
+                    return self.skipCall(args);
                 }
                 try self.noteCallee(fty.function);
                 try self.checkArgs(args, fty.function, .{ .names = found.sym.param_names, .defaults = found.sym.param_defaults, .source = found.ctx.source }, qualified, pos);
@@ -2990,8 +2959,7 @@ const Checker = struct {
             .nominal_type => return self.construct(found.id, args, pos, TypeSubst.empty, .{ .ctx = found.ctx, .module_id = found.module_id }),
             else => {
                 try self.err(pos, "`{s}` cannot be called", .{qualified});
-                try self.synthArgs(args);
-                return self.t().invalid_id;
+                return self.skipCall(args);
             },
         }
     }
@@ -3084,7 +3052,7 @@ const Checker = struct {
             _ = try self.synthExpr(e);
             return;
         }
-        if (try self.checkContextual(e, expected)) return;
+        if (try self.checkContextual(e, expected)) |ty| return self.ctx.recordType(e, ty);
 
         const actual = try self.synthExpr(e);
         if (compatible(self.ctx, actual, expected)) {
@@ -3095,40 +3063,36 @@ const Checker = struct {
         // reported the missing `!` / `catch`.
         const at = self.ctx.types.get(actual);
         if (at == .fallible and compatible(self.ctx, at.fallible, expected)) return;
+        try self.mismatch(e, expected, actual);
+    }
+
+    fn mismatch(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) Error!void {
         try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(expected), try self.tyName(actual) });
     }
 
-    /// Forms whose type comes from context. Returns true if handled.
-    fn checkContextual(self: *Checker, e: Sexp, expected: TypeId) Error!bool {
+    /// A form whose type comes from context: its type, or null when `e`
+    /// is not one.
+    fn checkContextual(self: *Checker, e: Sexp, expected: TypeId) Error!?TypeId {
         const target = self.liftTarget(expected);
         switch (e) {
             .src => {
                 const s = self.text(e);
-                if (std.mem.eql(u8, s, "none")) {
-                    try self.checkNone(e, expected);
-                    return true;
-                }
-                if (sema.isIntLiteralText(s) and sema.isInteger(self.ctx, target)) {
-                    try self.checkLiteralFits(e, target);
-                    try self.ctx.recordType(e, target);
-                    return true;
-                }
-                return false;
+                if (std.mem.eql(u8, s, "none")) return try self.checkNone(e, expected);
+                if (!sema.isIntLiteralText(s) or !sema.isInteger(self.ctx, target)) return null;
+                try self.checkLiteralFits(e, target);
+                return target;
             },
             .list => {},
-            else => return false,
+            else => return null,
         }
-        const head = e.kind() orelse return false;
+        const head = e.kind() orelse return null;
         switch (head) {
             .neg => {
                 const operand = ir.Neg.operand(e);
-                if (operand == .src and sema.isIntLiteralText(self.text(operand)) and sema.isInteger(self.ctx, target)) {
-                    try self.checkLiteralFits(e, target);
-                    try self.ctx.recordType(operand, target);
-                    try self.ctx.recordType(e, target);
-                    return true;
-                }
-                return false;
+                if (operand != .src or !sema.isIntLiteralText(self.text(operand)) or !sema.isInteger(self.ctx, target)) return null;
+                try self.checkLiteralFits(e, target);
+                try self.ctx.recordType(operand, target);
+                return target;
             },
             .enum_lit => {
                 // Where a `T!` is expected, `.name` that is not a variant
@@ -3138,123 +3102,84 @@ const Checker = struct {
                     (try sema.lookupVariant(self.ctx, target, self.text(name))) == null and
                     sema.errorNameExists(self.ctx, self.text(name)))
                 {
-                    try self.ctx.recordType(e, self.t().any_error_id);
-                    return true;
+                    return self.t().any_error_id;
                 }
                 try self.checkEnumLit(name, target);
-                try self.ctx.recordType(e, target);
-                return true;
+                return target;
             },
             .call => {
                 const callee = ir.Call.callee(e);
                 if (callee.isKind(.enum_lit)) {
                     try self.checkPayloadVariant(e, target);
                     try self.ctx.recordType(callee, target);
-                    try self.ctx.recordType(e, target);
-                    return true;
+                    return target;
                 }
-                if (callee == .src) {
-                    const tt = self.ctx.types.get(target);
-                    if (tt == .parameterized_nominal) {
-                        if (self.lookupQuiet(callee)) |id| {
-                            if (id == tt.parameterized_nominal.sym) {
-                                _ = try self.useName(callee);
-                                if (id == self.ctx.signal_sym_id and !sameNode(e, self.shared_operand)) {
-                                    try self.errAt(callee, stack_signal, .{});
-                                    try self.synthArgs(ir.Call.args(e));
-                                } else if (id == self.ctx.vec_sym_id) {
-                                    try self.checkVecConstruction(e);
-                                } else {
-                                    const sym = self.ctx.symbols.items[id];
-                                    _ = try self.construct(id, ir.Call.args(e), callee.src.pos, .{ .params = sym.type_params orelse &.{}, .args = tt.parameterized_nominal.args }, null);
-                                }
-                                try self.ctx.recordType(e, target);
-                                return true;
-                            }
-                        }
-                    }
+                // `Box(...)` where a `Box(Int)` is expected.
+                const tt = self.ctx.types.get(target);
+                if (callee != .src or tt != .parameterized_nominal) return null;
+                const id = self.lookupQuiet(callee) orelse return null;
+                if (id != tt.parameterized_nominal.sym) return null;
+                _ = try self.useName(callee);
+                if (id == self.ctx.signal_sym_id and !sameNode(e, self.shared_operand)) {
+                    try self.errAt(callee, stack_signal, .{});
+                    try self.synthArgs(ir.Call.args(e));
+                } else if (id == self.ctx.vec_sym_id) {
+                    try self.checkVecConstruction(e);
+                } else {
+                    const sym = self.ctx.symbols.items[id];
+                    _ = try self.construct(id, ir.Call.args(e), callee.src.pos, .{ .params = sym.type_params orelse &.{}, .args = tt.parameterized_nominal.args }, null);
                 }
-                return false;
+                return target;
             },
             .builtin => {
-                _ = try self.synthBuiltin(e, target);
-                return true;
+                const ty = try self.synthBuiltin(e, target);
+                return if (ty == self.t().int_literal_id) target else ty;
             },
             .lambda => {
-                if (self.ctx.types.get(target) == .function) {
-                    try self.ctx.recordType(e, try self.checkLambda(e, target, false));
-                    return true;
-                }
-                if (sema.ownedClosureFn(self.ctx, target) != null) {
-                    try self.errAt(e, "`{s}` is an owned closure; write `*|...| body` to make one", .{try self.tyName(target)});
-                    try self.ctx.recordType(e, try self.checkLambda(e, self.ctx.types.get(sema.unwrapBorrows(self.ctx, target)).shared, false));
-                    return true;
-                }
-                return false;
+                if (self.ctx.types.get(target) == .function) return try self.checkLambda(e, target, false);
+                if (sema.ownedClosureFn(self.ctx, target) == null) return null;
+                try self.errAt(e, "`{s}` is an owned closure; write `*|...| body` to make one", .{try self.tyName(target)});
+                return try self.checkLambda(e, self.ctx.types.get(sema.unwrapBorrows(self.ctx, target)).shared, false);
             },
             .share => {
                 const operand = ir.Share.operand(e);
                 if (operand.isKind(.lambda)) {
                     const fn_ty: ?TypeId = if (sema.ownedClosureFn(self.ctx, target) != null) self.ctx.types.get(sema.unwrapBorrows(self.ctx, target)).shared else null;
                     const ty = try self.ownedClosure(operand, fn_ty);
-                    try self.ctx.recordType(e, ty);
-                    if (!compatible(self.ctx, ty, expected)) {
-                        try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(expected), try self.tyName(ty) });
-                    }
-                    return true;
+                    if (!compatible(self.ctx, ty, expected)) try self.mismatch(e, expected, ty);
+                    return ty;
                 }
                 const tt = self.ctx.types.get(target);
-                if (tt == .shared) {
-                    _ = try self.shareOperand(operand, tt.shared);
-                    try self.ctx.recordType(e, target);
-                    return true;
-                }
-                return false;
+                if (tt != .shared) return null;
+                _ = try self.shareOperand(operand, tt.shared);
+                return target;
             },
             .array => return self.checkArray(e, target),
-            .@"if" => {
-                _ = try self.checkIfValue(e, expected, .value);
-                try self.ctx.recordType(e, expected);
-                return true;
-            },
-            .match => {
-                _ = try self.checkMatch(e, .value, expected);
-                try self.ctx.recordType(e, expected);
-                return true;
-            },
-            .block => {
-                _ = try self.synthBlock(e, expected);
-                try self.ctx.recordType(e, expected);
-                return true;
-            },
+            .@"if" => _ = try self.checkIfValue(e, expected, .value),
+            .match => _ = try self.checkMatch(e, .value, expected),
+            .block => _ = try self.synthBlock(e, expected),
             .raw_block => {
                 self.raw_depth += 1;
                 defer self.raw_depth -= 1;
                 try self.checkExpr(ir.RawBlock.body(e), expected);
-                try self.ctx.recordType(e, expected);
-                return true;
             },
             .@"??", .@"catch" => {
                 const ty = if (head == .@"??") try self.synthCoalesce(e, expected) else try self.synthCatch(e, expected);
-                try self.ctx.recordType(e, ty);
-                if (!compatible(self.ctx, ty, expected)) {
-                    try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(expected), try self.tyName(ty) });
-                } else try self.recordAdapted(e, ty, expected);
-                return true;
+                if (!compatible(self.ctx, ty, expected)) try self.mismatch(e, expected, ty);
+                return ty;
             },
-            else => return false,
+            else => return null,
         }
+        return expected;
     }
 
-    /// `none` where `expected` is required: an optional (possibly fallible).
-    fn checkNone(self: *Checker, e: Sexp, expected: TypeId) Error!void {
+    /// `none` where `expected` is required: an optional (possibly
+    /// fallible). Returns the optional type.
+    fn checkNone(self: *Checker, e: Sexp, expected: TypeId) Error!TypeId {
         var ty = expected;
         while (true) {
             switch (self.ctx.types.get(ty)) {
-                .optional => {
-                    try self.ctx.recordType(e, ty);
-                    return;
-                },
+                .optional => return ty,
                 .fallible => |i| ty = i,
                 else => break,
             }
@@ -3263,6 +3188,7 @@ const Checker = struct {
         // A prefixed type takes parentheses before the `?`: `(*B)?`, `([2]Int)?`.
         const wrap = name.len > 0 and std.mem.indexOfScalar(u8, "*~?![", name[0]) != null;
         try self.errAt(e, "`none` needs an optional type; `{s}` is not optional (write `{s}{s}{s}?`)", .{ name, if (wrap) "(" else "", name, if (wrap) ")" else "" });
+        return self.t().invalid_id;
     }
 
     /// What a contextual form (literal, `.variant`, constructor) should
@@ -3501,14 +3427,7 @@ const Checker = struct {
             }
             break :blk target;
         };
-        if (expected) |e| {
-            if (!self.isPoison(ty) and !compatible(self.ctx, ty, e)) {
-                try self.errAt(node, "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(e), try self.tyName(ty) });
-            }
-            try self.ctx.recordType(node, if (ty == self.t().int_literal_id) self.liftTarget(e) else ty);
-        } else {
-            try self.ctx.recordType(node, self.canonical(ty));
-        }
+        if (expected) |e| if (!self.isPoison(ty) and !compatible(self.ctx, ty, e)) try self.mismatch(node, e, ty);
         return ty;
     }
 
