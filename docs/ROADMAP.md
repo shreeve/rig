@@ -10,7 +10,6 @@ be checked as thoroughly as what exists.
 - **Generic functions**: type parameters on functions, not only on types.
 - **Strings**: building and formatting strings, slices of strings and arrays.
 - **Optional propagation**: `e?` returns `none` from the enclosing function, mirroring `e!`.
-- **Module-level constants**.
 - **Traits or interfaces** whose dispatch and ownership stay visible in the IR.
 - **Compile-time evaluation**: `pre` expressions and blocks beyond `pre` parameters.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.

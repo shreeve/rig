@@ -1,0 +1,17 @@
+# Arithmetic on a module-level constant is checked when it runs, as
+# for any value.
+
+big =! 9223372036854775807
+
+fun one() -> Int
+  1
+
+sub main()
+  n = one()
+  print(big - n)
+  print(big + n)
+
+# expect-panic: integer overflow
+
+# expect:
+# 9223372036854775806

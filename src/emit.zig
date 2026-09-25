@@ -247,8 +247,7 @@ pub const Emitter = struct {
         for (decls) |d0| {
             const d = unwrapPub(d0);
             const kind = d.kind() orelse continue;
-            if (!ir.has(kind, .name)) continue;
-            const name = ir.get(d, .name);
+            const name = if (kind == .set) ir.Set.target(d) else if (ir.has(kind, .name)) ir.get(d, .name) else continue;
             if (name != .src) continue;
             try self.module_names.put(a, try self.fmt("{f}", .{ident(self.srcText(name))}), {});
         }
@@ -270,8 +269,22 @@ pub const Emitter = struct {
             .generic_enum => try self.emitGenericEnum(sexp),
             .type => try self.emitTypeAlias(sexp),
             .@"test" => try self.emitTest(sexp),
+            .set => try self.emitConst(sexp),
             else => return self.unsupported(sexp, "this top-level form"),
         }
+    }
+
+    /// A module-level constant, `name =! value`.
+    fn emitConst(self: *Emitter, node: Sexp) Error!void {
+        const target = ir.Set.target(node);
+        try self.w.print("pub const {f}: ", .{ident(self.srcText(target))});
+        try self.emitTypeTy(self.typeOf(target) orelse return self.unsupported(node, "an untyped constant"));
+        try self.w.writeAll(" = ");
+        const saved = self.keep_comptime;
+        defer self.keep_comptime = saved;
+        self.keep_comptime = true;
+        try self.emitBare(ir.Set.value(node));
+        try self.w.writeAll(";\n");
     }
 
     fn emitUse(self: *Emitter, node: Sexp) Error!void {
@@ -1747,7 +1760,18 @@ pub const Emitter = struct {
             return self.w.print(", {s}{s})", .{ if (name[0] == '.') "0" else "", name });
         }
         if (isLiteralText(name)) return self.w.writeAll(name);
+        if (self.rt_names and !self.keep_comptime and self.isModuleConst(sexp)) {
+            try self.w.writeAll("rig.rt(");
+            try self.writeModuleName(name);
+            return self.w.writeAll(")");
+        }
         try self.writeModuleName(name);
+    }
+
+    fn isModuleConst(self: *Emitter, sexp: Sexp) bool {
+        const id = self.sema.symbolOf(sexp) orelse return false;
+        const sym = self.sema.symbols.items[id];
+        return sym.kind == .local and sym.flags.comptime_known;
     }
 
     /// A module-level name. Inside a type with a method of the same name,
@@ -2214,9 +2238,22 @@ pub const Emitter = struct {
             try self.w.writeAll(".len)");
             return;
         }
+        // An imported constant is read at run time, like a local one.
+        if (self.rt_names and !self.keep_comptime and self.isModuleValue(obj, sexp)) {
+            return self.w.print("rig.rt({s}.{f})", .{ self.srcText(obj), ident(field) });
+        }
         try self.emitMemberBase(obj, obj_ty);
         if (obj_ty) |t| if (self.isSharedTy(t)) try self.w.writeAll(".value");
         try self.w.print(".{f}", .{ident(field)});
+    }
+
+    /// `module.name` naming a constant (not a function or a type).
+    fn isModuleValue(self: *Emitter, obj: Sexp, member: Sexp) bool {
+        if (obj != .src) return false;
+        const id = self.sema.symbolOf(obj) orelse return false;
+        if (self.sema.symbols.items[id].kind != .module) return false;
+        const ty = self.typeOf(member) orelse return false;
+        return self.fnType(ty) == null;
     }
 
     /// The object of a member access. Borrow sigils on a receiver are

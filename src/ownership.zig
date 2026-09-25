@@ -68,7 +68,7 @@
 //!   element (`<p.a`, `<v[0]`) is rejected: a borrowed or shared parent
 //!   still owns it, and an owned parent would drop it again.
 //! * Borrowed parameters cannot be dropped or move-captured. Functions may
-//!   read module-level bindings but not move, drop or replace owning ones.
+//!   read module-level constants but not move them.
 //! * A match payload binding views the scrutinee. Moving it out consumes
 //!   an owned local scrutinee and is rejected for a borrowed or shared one.
 //! * A closure literal may only be bound (`f = |...|`), called in place,
@@ -1008,7 +1008,10 @@ pub const Checker = struct {
 
     fn walkDecl(self: *Checker, sexp: Sexp) Error!void {
         switch (sexp.kind() orelse return) {
-            .module => for (ir.Module.decls(sexp)) |c| try self.walkDecl(c),
+            .module => {
+                for (ir.Module.decls(sexp)) |c| if (rig.isModuleConst(c)) try self.walkDecl(c);
+                for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try self.walkDecl(c);
+            },
             .fun, .sub => try self.walkFun(ir.get(sexp, .name), ir.get(sexp, .params), rig.returnType(sexp), ir.get(sexp, .body)),
             .drop_decl => try self.walkFun(.nil, ir.DropDecl.params(sexp), .nil, ir.DropDecl.body(sexp)),
             .@"struct", .@"enum", .errors, .generic_type => for (ir.rest(sexp, .members)) |c| try self.walkDecl(c),

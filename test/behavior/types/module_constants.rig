@@ -1,0 +1,39 @@
+# A module-level constant, `name =! value`, is known at compile time and
+# readable from every function, wherever it is declared.
+
+enum Mode
+  fast
+  slow
+
+fun early(k: Int) -> Int
+  k * limit
+
+limit =! 10
+half =! limit / 2
+name =! "rig"
+ratio =! 2.5
+on =! true
+mode: Mode =! .slow
+small: U8 =! 200
+xs =! [1, 2, 3]
+neg =! -limit
+
+fun rep(pre n: Int, x: Int) -> Int
+  x * n
+
+fun scale(k: Float) -> Float
+  ratio / k
+
+sub main()
+  print(limit, half, name, ratio, on, mode, small, xs, neg)
+  print(xs[1], rep(limit, 3), scale(2.0), early(2))
+  f = |a: Int| a + limit
+  print(f(1))
+  new limit = 3
+  print(limit)
+
+# expect:
+# 10 5 rig 2.5 true .slow 200 [1, 2, 3] -10
+# 2 30 1.25 20
+# 11
+# 3

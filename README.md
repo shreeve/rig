@@ -199,7 +199,8 @@ Nexus next to this checkout, `cd ../nexus && zig build
 **Works today**, with tests for each feature:
 
 - structs, enums with payloads, error sets, generic types, type
-  aliases, methods with explicit receivers, exhaustive `match`
+  aliases, methods with explicit receivers, field defaults, exhaustive
+  `match`
 - `Int` and `Float` (64-bit), sized numbers, compile-time checked
   constant arithmetic, arrays, strings
 - moves, read and write borrows (including borrows returned from
@@ -212,7 +213,8 @@ Nexus next to this checkout, `cd ../nexus && zig build
   fail with error values, handled with `f()!`, `catch`, and `catch |err|`
 - checked numeric conversions (`I32(x)`, `Float(n)`), and borrows that
   end at their last use
-- modules with `pub`, `raw` blocks, and C functions through `extern`
+- modules with `pub` and module-level constants, `raw` blocks, and C
+  functions through `extern`
 - a test suite where every program runs leak-checked, and every
   example in these docs is checked
 
@@ -223,7 +225,6 @@ Nexus next to this checkout, `cd ../nexus && zig build
 - passing a stack closure as an argument (owned closures work)
 - generic functions, traits or interfaces
 - string building, slices
-- module-level bindings
 
 ## Learn more
 

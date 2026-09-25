@@ -63,7 +63,8 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
         .module_scope = module_scope,
         .body = .{ .ret = ctx.types.void_id },
     };
-    for (ir.Module.decls(tree)) |decl| try c.checkDecl(decl);
+    for (ir.Module.decls(tree)) |decl| if (rig.isModuleConst(decl)) try c.checkDecl(decl);
+    for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl)) try c.checkDecl(decl);
 }
 
 const Checker = struct {
@@ -181,13 +182,35 @@ const Checker = struct {
                 // reports.
                 try self.checkBody(ir.Test.body(sexp), .{ .ret = self.t().void_id, .fail_to = .caller });
             },
-            .set => {
-                try self.errAt(sexp, "module-level bindings are not supported yet; bind values inside a function", .{});
-                try self.checkSet(sexp);
-            },
+            .set => try self.checkModuleConst(sexp),
             .use, .type, .@"extern", .extern_fun, .extern_sub => {},
             else => try self.errAt(sexp, not_at_module_level, .{}),
         }
+    }
+
+    /// A module-level binding is a constant, `name =! value`: its value
+    /// is known at compile time and owns nothing, so no function can
+    /// change it and nothing has to release it.
+    fn checkModuleConst(self: *Checker, node: Sexp) Error!void {
+        const target = ir.Set.target(node);
+        if (target != .src) return self.errAt(node, not_at_module_level, .{});
+        if (rig.bindingKindOf(ir.Set.op(node)) != .fixed) {
+            return self.errAt(node, "a module-level binding is a constant; write `{s} =! value`", .{self.text(target)});
+        }
+        try self.checkSet(node);
+        const value = ir.Set.value(node);
+        if (self.isPoison(self.ctx.typeOf(target) orelse self.t().invalid_id)) return;
+        if (!self.isConstExpr(value)) {
+            try self.errAt(value, "a module-level constant needs a value known at compile time: a literal, `.variant`, an earlier constant, or operators and arrays over them", .{});
+        }
+    }
+
+    fn isConstExpr(self: *Checker, e: Sexp) bool {
+        if (e.isKind(.array)) {
+            for (ir.Array.elems(e)) |x| if (!self.isConstExpr(x)) return false;
+            return true;
+        }
+        return self.isComptimeKnown(e);
     }
 
     const not_at_module_level = "only declarations and bindings are allowed at module level; move this statement into a function";
@@ -1265,7 +1288,10 @@ const Checker = struct {
         var id = self.ctx.lookupInScopeOnly(scope, name) orelse return null;
         while (id != sema.symbol_invalid) {
             const sym = self.ctx.symbols.items[id];
-            if (sym.kind == .local and (sym.decl_pos > pos or id == self.pending)) {
+            // A module-level constant is visible in every function body,
+            // and in later constants.
+            const later = sym.decl_pos > pos and (scope != self.module_scope or self.scope == self.module_scope);
+            if (sym.kind == .local and (later or id == self.pending)) {
                 id = sym.prev_in_scope;
                 continue;
             }

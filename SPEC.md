@@ -44,10 +44,9 @@ hello, rig
 ## 1. Programs
 
 A Rig program is a file of declarations: functions (`fun`, `sub`),
-types (`struct`, `enum`, `error`, `type`), imports (`use`), `extern`
-declarations, and `test` blocks. Statements live inside functions;
-module-level bindings are not supported yet. `rig run` needs a
-`sub main()`.
+types (`struct`, `enum`, `error`, `type`), constants (`name =! value`),
+imports (`use`), `extern` declarations, and `test` blocks. Statements
+live inside functions. `rig run` needs a `sub main()`.
 
 ```bash
 bin/rig check hello.rig              # check only
@@ -710,6 +709,35 @@ fun area(w: Int, h: Int) -> Int
 test "area"
   print(area(2, 3))
 ```
+
+### Constants
+
+A binding at module level is a constant, `name =! value` or
+`name: T =! value`, and `pub` exports it. Its value must be known at
+compile time: a literal, `.variant`, an earlier constant, or operators
+and array literals over them. Every function in the module reads it,
+wherever it is declared; nothing can reassign or move it, and a local
+or parameter may not reuse its name (`new` shadows it on purpose).
+Arithmetic on a constant is checked when it runs, like any other.
+
+```rig
+limit =! 10
+half =! limit / 2
+names =! ["low", "high"]
+
+fun over(n: Int) -> Bool
+  n > limit
+
+sub main()
+  print(limit, half, names[1], over(12))
+```
+
+```output
+10 5 high true
+```
+
+A plain `name = value` at module level is rejected: there are no
+mutable module-level variables.
 
 ### Other declarations
 
@@ -2547,7 +2575,6 @@ The rest parse and are rejected in sema:
 | Form | Status |
 |---|---|
 | `use std` | reserved |
-| module-level bindings | not supported yet |
 | generic functions (`pre T: type`) | not supported yet |
 | `drop` on enums and generic types | not supported; they get structural glue |
 | a stack `Signal(T)` | rejected; use `*Signal(T)` |

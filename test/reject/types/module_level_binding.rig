@@ -1,13 +1,38 @@
-# Module-level bindings are not supported yet: values are bound inside
-# functions.
+# A module-level binding is a constant whose value is known at compile
+# time; functions read it but cannot change or move it.
 
-k = if true
-  1
-else
-  2
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+fun f() -> Int
+  3
+
+k = 3
+h =! *B(n: 1)
+c =! f()
+d =! later
+later =! 1
+big =! 9223372036854775807
+over =! big + 1
+
+fun uses(big: Int) -> Int
+  big
 
 sub main()
-  n = 5
-  print(n)
+  later = 2
+  y = <big
+  print(y)
+  over =! 2
 
-# error: module-level bindings are not supported yet
+# error: 13:1: a module-level binding is a constant; write `k =! value`
+# error: 14:6: a module-level constant needs a value known at compile time
+# error: 15:6: a module-level constant needs a value known at compile time
+# error: 16:6: use of unbound name `later`
+# error: 19:9: does not fit in `Int`
+# error: 21:10: parameter `big` has the same name as the module-level declaration `big`
+# error: 25:3: cannot reassign fixed binding `later`
+# error: 26:8: cannot move module-level `big` inside a function
+# error: 28:3: local `over` has the same name as the module-level declaration `over`

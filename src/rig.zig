@@ -38,6 +38,13 @@ pub fn returnType(fun_or_sub: Sexp) Sexp {
     return if (fun_or_sub.isKind(.fun)) ir.Fun.returns(fun_or_sub) else .nil;
 }
 
+/// A module-level constant (`name =! value`, or `pub` one). Passes take
+/// them before the other declarations, so functions anywhere in the
+/// module see them.
+pub fn isModuleConst(decl: Sexp) bool {
+    return (if (decl.isKind(.@"pub")) ir.Pub.decl(decl) else decl).isKind(.set);
+}
+
 /// Every child of a node, in slot order (absent optional slots are `_`),
 /// for passes that visit all of them; empty for a leaf. Passes that need
 /// a particular child read it by role (`parser.ir`).

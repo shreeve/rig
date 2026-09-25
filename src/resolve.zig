@@ -58,7 +58,10 @@ const SymbolResolver = struct {
 
     fn walk(self: *SymbolResolver, sexp: Sexp) Error!void {
         switch (sexp.kind() orelse return) {
-            .module => for (ir.Module.decls(sexp)) |c| try self.walk(c),
+            .module => {
+                for (ir.Module.decls(sexp)) |c| if (rig.isModuleConst(c)) try self.walk(c);
+                for (ir.Module.decls(sexp)) |c| if (!rig.isModuleConst(c)) try self.walk(c);
+            },
             .@"pub" => {
                 const before = self.ctx.symbols.items.len;
                 try self.walk(ir.Pub.decl(sexp));
@@ -192,7 +195,7 @@ const SymbolResolver = struct {
     }
 
     /// A local or parameter may not reuse the name of a module-level
-    /// function, type, extern, or module, or of a generic parameter of the
+    /// function, type, constant, extern, or module, or of a generic parameter of the
     /// enclosing generic type: Zig rejects the shadowing.
     fn checkShadowsDeclaration(self: *SymbolResolver, name_node: Sexp, what: []const u8) Error!void {
         const name = identAt(self.ctx.source, name_node) orelse return;
@@ -203,7 +206,7 @@ const SymbolResolver = struct {
         }
         const decl = self.ctx.lookupInScopeOnly(self.module_scope, name) orelse return;
         const sym = self.ctx.symbols.items[decl];
-        if (sym.kind == .local or sym.decl_pos == sema.builtin_decl_pos) return;
+        if (sym.decl_pos == sema.builtin_decl_pos) return;
         try self.ctx.errAt(name_node, "{s} `{s}` has the same name as the module-level declaration `{s}`; use a different name", .{ what, name, name });
         try self.ctx.note(sym.decl_pos, "`{s}` declared here", .{name});
     }
@@ -437,7 +440,8 @@ const SymbolResolver = struct {
     }
 
     /// The existing binding `x = ...` assigns to: a local or parameter of
-    /// the current body, or a module-level variable.
+    /// the current body, or a module-level constant (which typecheck then
+    /// rejects as a reassignment).
     fn assignable(self: *SymbolResolver, name: []const u8) ?SymbolId {
         if (self.ctx.lookupLocal(self.scope, name)) |id| {
             const k = self.ctx.symbols.items[id].kind;

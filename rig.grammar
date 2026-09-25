@@ -272,7 +272,7 @@ tokens
     generic_type, generic_enum  name:leaf params:group? ...members
     type                        name:leaf type
     test                        name:leaf body:block
-    pub                         decl:fun|sub|struct|enum|errors|type|generic_type|generic_enum|test
+    pub                         decl:fun|sub|struct|enum|errors|type|generic_type|generic_enum|test|set
     extern                      name:leaf type
     extern_fun                  name:leaf params:group? returns?
     extern_sub                  name:leaf params:group?
@@ -425,6 +425,11 @@ assign   = target:postfix "="   value:tail          → (set)
 
 decl     = defn
          | PUB decl:defn                            → (pub)
+         | PUB decl:const                           → (pub)
+
+# A public module-level constant.
+const    = target:name "=!" value:tail              → (set op:fixed)
+         | target:name ":" type:type "=!" value:tail → (set op:fixed)
 
 defn     = fun | sub | enum | struct | errors | typedef | test
 
