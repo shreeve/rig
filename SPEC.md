@@ -969,7 +969,21 @@ no `==`. Ordering comparisons need numbers.
 
 `and`, `or`, and `not` take `Bool`s; `not` binds looser than comparisons,
 so `not a == b` is `not (a == b)`. The spellings `&&` and `||` are
-rejected with a hint.
+rejected with a hint. Prefix `!` is always a write borrow, never
+negation: a `!x` whose `Bool` value would be read (a condition, an
+operand, a binding, an argument) is rejected. It is valid only where a
+`!Bool` is expected, as for an argument to a `flag: !Bool` parameter.
+
+```rig reject
+sub main
+  done = false
+  if !done
+    print("working")
+```
+
+```error
+`!` is a write borrow; use `not` for negation
+```
 
 ```rig
 sub main

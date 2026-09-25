@@ -1,0 +1,30 @@
+# A write borrow of a `Bool` goes where a `!Bool` is expected: a
+# parameter, a field of a struct, a declared binding, forwarded on.
+
+sub flip(f: !Bool)
+  f = not f
+
+sub twice(f: !Bool)
+  flip(!f)
+  flip(!f)
+  print(f)
+
+struct Flags
+  ready: Bool
+
+sub main
+  a = true
+  flip(!a)
+  print(a)
+  twice(!a)
+  flags = Flags(ready: false)
+  flip(!flags.ready)
+  print(flags.ready)
+  view: !Bool = !a
+  print(view)
+
+# expect:
+# false
+# false
+# true
+# false

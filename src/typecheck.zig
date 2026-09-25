@@ -88,6 +88,9 @@ const Checker = struct {
     handled: Sexp = .nil,
     /// The operand of the `*x` being checked.
     shared_operand: Sexp = .nil,
+    /// The `!x` being checked where a write borrow is expected, the one
+    /// place a write borrow of a `Bool` is not read as its value.
+    lent_write: Sexp = .nil,
     /// The label, and the value when it is used as one, of the loop
     /// about to be checked.
     loop_label: []const u8 = "",
@@ -2112,6 +2115,12 @@ const Checker = struct {
             try self.errAt(operand, "cannot borrow an element of a Cell's Vec: the cell may change while the borrow lives; copy the element out with `c[i]`", .{});
             return self.t().invalid_id;
         }
+        // Anywhere but where a `!Bool` is expected, `!flag` is read as
+        // a `Bool`: the habit of `!` as negation.
+        if (kind == .write and readValue(self.ctx, inner) == self.t().bool_id and !sameNode(e, self.lent_write)) {
+            try self.errAt(e, "`!` is a write borrow; use `not` for negation", .{});
+            return self.t().invalid_id;
+        }
         if (kind == .write and !(try self.checkWritable(operand, operand, "write-borrow"))) return self.t().invalid_id;
         // A borrow of a value holding a Cell can change the Cell, which a
         // loop or match binding only copies.
@@ -3524,6 +3533,9 @@ const Checker = struct {
     // =========================================================================
 
     fn checkExpr(self: *Checker, e: Sexp, expected: TypeId) Error!void {
+        const prev_lent = self.lent_write;
+        defer self.lent_write = prev_lent;
+        if (e.isKind(.write) and self.ctx.types.get(expected) == .borrow_write) self.lent_write = e;
         if (self.isPoison(expected)) {
             _ = try self.synthExpr(e);
             return;
