@@ -61,7 +61,7 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
         .ctx = ctx,
         .scope = module_scope,
         .module_scope = module_scope,
-        .fn_return = ctx.types.void_id,
+        .body = .{ .ret = ctx.types.void_id },
     };
     for (ir.Module.decls(tree)) |decl| try c.checkDecl(decl);
 }
@@ -70,9 +70,8 @@ const Checker = struct {
     ctx: *SemContext,
     scope: ScopeId,
     module_scope: ScopeId,
-    /// Type `return` values must have; `unknown` inside lambdas.
-    fn_return: TypeId,
-    is_sub: bool = true,
+    /// The function, method, closure, test, or drop body being checked.
+    body: Body,
     nominal: NominalContext = NominalContext.none,
     /// Callee node of the method call being checked; its resolved
     /// signature is recorded as the node's type.
@@ -81,10 +80,6 @@ const Checker = struct {
     current_call: ?Sexp = null,
     /// The `new x` binding whose value is being checked: not visible yet.
     pending: SymbolId = sema.symbol_invalid,
-    /// The `return`s of the closure whose return type is being inferred.
-    lambda_returns: ?*std.ArrayListUnmanaged(ReturnSite) = null,
-    /// Where a `!` in the code being checked sends its failure.
-    fail_to: FailTarget = .module,
     /// Enclosing `raw` blocks.
     raw_depth: u32 = 0,
     /// The operand of the `!` or `catch` being checked: a fallible call
@@ -92,6 +87,17 @@ const Checker = struct {
     handled: Sexp = .nil,
     /// The operand of the `*x` being checked.
     shared_operand: Sexp = .nil,
+
+    const Body = struct {
+        /// Type `return` values must have; `unknown` while a closure's
+        /// return type is inferred.
+        ret: TypeId,
+        is_sub: bool = true,
+        /// Where a `!` in the code being checked sends its failure.
+        fail_to: FailTarget = .module,
+        /// The `return`s of the closure whose return type is inferred.
+        returns: ?*std.ArrayListUnmanaged(ReturnSite) = null,
+    };
 
     const ReturnSite = struct { node: Sexp, ty: ?TypeId };
 
@@ -173,9 +179,7 @@ const Checker = struct {
                 defer self.scope = prev_scope;
                 // A test fails by returning an error, which `rig test`
                 // reports.
-                self.fail_to = .caller;
-                defer self.fail_to = .module;
-                try self.checkBody(ir.Test.body(sexp), self.t().void_id, true);
+                try self.checkBody(ir.Test.body(sexp), .{ .ret = self.t().void_id, .fail_to = .caller });
             },
             .set => {
                 try self.errAt(sexp, "module-level bindings are not supported yet; bind values inside a function", .{});
@@ -211,17 +215,7 @@ const Checker = struct {
                 .drop_decl => {
                     const prev_scope = self.enter(m);
                     defer self.scope = prev_scope;
-                    const prev_ret = self.fn_return;
-                    const prev_sub = self.is_sub;
-                    defer {
-                        self.fn_return = prev_ret;
-                        self.is_sub = prev_sub;
-                    }
-                    self.fn_return = self.t().void_id;
-                    self.is_sub = true;
-                    self.fail_to = .drop;
-                    defer self.fail_to = .module;
-                    try self.checkBody(ir.DropDecl.body(m), self.t().void_id, true);
+                    try self.checkBody(ir.DropDecl.body(m), .{ .ret = self.t().void_id, .fail_to = .drop });
                 },
                 else => {},
             }
@@ -235,16 +229,7 @@ const Checker = struct {
         const ret = if (fn_ty == .function) fn_ty.function.returns else self.t().unknown_id;
 
         const prev_scope = self.enter(node);
-        const prev_ret = self.fn_return;
-        const prev_sub = self.is_sub;
-        defer {
-            self.scope = prev_scope;
-            self.fn_return = prev_ret;
-            self.is_sub = prev_sub;
-        }
-        self.fn_return = ret;
-        self.is_sub = is_sub;
-        // `sub main` lowers to a fallible `main`.
+        defer self.scope = prev_scope;
         const name = ir.get(node, .name);
         const is_main = self.nominal.isEmpty() and std.mem.eql(u8, self.text(name), "main");
         // The root module's `main` is the program's entry point. The
@@ -252,10 +237,10 @@ const Checker = struct {
         if (is_main and self.ctx.module_id <= 1 and (!is_sub or ir.get(node, .params).items().len > 0)) {
             try self.errAt(name, "`main` must be `sub main()`: the program's entry point takes no parameters and returns no value", .{});
         }
-        self.fail_to = if ((is_main and is_sub) or rig.returnType(node).isKind(.error_union)) .caller else .{ .infallible = name };
-        defer self.fail_to = .module;
         for (ir.get(node, .params).items()) |p| try self.checkDefault(p);
-        try self.checkBody(ir.get(node, .body), ret, is_sub);
+        // `sub main` lowers to a fallible `main`.
+        const fallible = (is_main and is_sub) or rig.returnType(node).isKind(.error_union);
+        try self.checkBody(ir.get(node, .body), .{ .ret = ret, .is_sub = is_sub, .fail_to = if (fallible) .caller else .{ .infallible = name } });
     }
 
     /// A parameter's default value is a literal of the parameter's type:
@@ -271,9 +256,14 @@ const Checker = struct {
         try self.checkExpr(value, ty);
     }
 
-    /// A body's statements; in a `fun`, the last one is its value.
-    fn checkBody(self: *Checker, body: Sexp, ret: TypeId, is_sub: bool) Error!void {
-        const wants_value = !is_sub and ret != self.t().void_id;
+    /// A body's statements, checked as `context`; in a `fun`, the last one
+    /// is its value.
+    fn checkBody(self: *Checker, body: Sexp, context: Body) Error!void {
+        const saved = self.body;
+        defer self.body = saved;
+        self.body = context;
+        const ret = context.ret;
+        const wants_value = !context.is_sub and ret != self.t().void_id;
         if (!body.isKind(.block)) {
             if (wants_value) try self.checkExpr(body, ret) else try self.checkStmt(body);
             return;
@@ -322,7 +312,7 @@ const Checker = struct {
         switch (head) {
             .set => try self.checkSet(stmt),
             .@"return" => try self.checkReturn(stmt),
-            .@"if" => try self.checkIf(stmt, null),
+            .@"if" => _ = try self.checkIfValue(stmt, null, .statement),
             .@"while" => try self.checkWhile(stmt),
             .@"for" => try self.checkFor(stmt),
             .match => _ = try self.checkMatch(stmt, .statement, null),
@@ -339,9 +329,9 @@ const Checker = struct {
             },
             .@"continue" => {},
             .@"defer", .@"errdefer" => {
-                const prev = self.fail_to;
-                defer self.fail_to = prev;
-                self.fail_to = .deferred;
+                const prev = self.body.fail_to;
+                defer self.body.fail_to = prev;
+                self.body.fail_to = .deferred;
                 try self.checkStmt(ir.get(stmt, .body));
             },
             .raw_block => {
@@ -364,20 +354,20 @@ const Checker = struct {
 
     fn checkReturn(self: *Checker, node: Sexp) Error!void {
         const value = ir.Return.value(node);
-        const ret = self.fn_return;
-        if (self.fail_to == .deferred) try self.errAt(node, "cannot `return` inside `defer`; the deferred code runs as the function exits", .{});
-        if (self.lambda_returns) |sites| {
+        const ret = self.body.ret;
+        if (self.body.fail_to == .deferred) try self.errAt(node, "cannot `return` inside `defer`; the deferred code runs as the function exits", .{});
+        if (self.body.returns) |sites| {
             const ty: ?TypeId = if (value == .nil) null else try self.synthExpr(value);
             try sites.append(self.ctx.allocator, .{ .node = node, .ty = ty });
             return;
         }
         if (value == .nil) {
-            if (!self.is_sub and ret != self.t().void_id and !self.isPoison(ret)) {
+            if (!self.body.is_sub and ret != self.t().void_id and !self.isPoison(ret)) {
                 try self.errAt(node, "`return` needs a value of type `{s}`", .{try self.tyName(ret)});
             }
             return;
         }
-        if (self.is_sub and ret == self.t().void_id) {
+        if (self.body.is_sub and ret == self.t().void_id) {
             try self.errAt(value, "a `sub` returns no value; remove the value or declare a `fun`", .{});
             _ = try self.synthExpr(value);
             return;
@@ -525,18 +515,11 @@ const Checker = struct {
             },
             else => {},
         }
-        if (try self.placeThroughShared(target)) {
-            try self.errAt(target, "cannot assign through shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell(T)` for mutation through shared ownership.", .{});
-            _ = try self.synthExpr(rhs);
-            return;
-        }
-        if (try self.placeThroughReadBorrow(target)) |pos| {
-            try self.err(pos, "cannot assign through a read borrow (`?T`); take a write borrow (`!T`) to mutate", .{});
-            _ = try self.synthExpr(rhs);
-            return;
-        }
         const place_ty = try self.synthExpr(target);
-        try self.checkWritable(target, "assign to");
+        if (!(try self.checkWritable(target, target, "assign to"))) {
+            _ = try self.synthExpr(rhs);
+            return;
+        }
         if (head == .index and (try self.ownsResource(place_ty, self.startOf(target), "overwrites an element"))) {
             try self.errAt(target, "cannot replace an element of type `{s}` by assignment; the old handle would leak", .{try self.tyName(place_ty)});
             return;
@@ -585,28 +568,30 @@ const Checker = struct {
         _ = try self.checkDivisor(op, target_ty, rhs);
     }
 
-    /// Writing to `place` (a name, or a field or element of one) writes
-    /// the binding it is rooted in, unless the path goes through a
-    /// pointer: that binding must be mutable. Fixed (`=!`), loop and
-    /// pattern bindings, captures, and parameters other than `!T` ones
-    /// are not.
-    fn checkWritable(self: *Checker, place: Sexp, verb: []const u8) Error!void {
-        var p = place;
-        while (p.kind()) |h| {
-            if (h != .member and h != .index) return;
-            const obj = ir.get(p, .object);
-            const obj_ty = self.ctx.typeOf(obj) orelse return;
-            switch (self.ctx.types.get(obj_ty)) {
-                .borrow_read, .borrow_write, .shared => return,
-                else => {},
-            }
-            p = obj;
+    /// Writing to `place` (a name, or a field or element of one, already
+    /// synthesized) must not go through a `*T`, which other handles may
+    /// share, or a `?T`. Without a borrow or handle on the path, it
+    /// writes the binding the path starts from, which must be mutable:
+    /// fixed (`=!`), loop and pattern bindings, captures, and parameters
+    /// other than `!T` ones are not. False after a diagnostic about the
+    /// path.
+    fn checkWritable(self: *Checker, place: Sexp, at: Sexp, verb: []const u8) Error!bool {
+        const path = self.placePath(place);
+        const assign = std.mem.eql(u8, verb, "assign to");
+        const through = if (assign) "assign" else verb;
+        if (path.shared) {
+            try self.errAt(at, "cannot {s} through {s}shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell(T)` for mutation through shared ownership.", .{ through, if (assign) "" else "a " });
+            return false;
         }
-        if (p != .src) return;
-        const id = self.ctx.symbolOf(p) orelse return;
+        if (path.read_borrow) |pos| {
+            try self.err(pos, "cannot {s} through a read borrow (`?T`); take a write borrow (`!T`) to mutate", .{through});
+            return false;
+        }
+        const root = path.root orelse return true;
+        const id = self.ctx.symbolOf(root) orelse return true;
         const sym = self.ctx.symbols.items[id];
         const name = sym.name;
-        const pos = p.src.pos;
+        const pos = root.src.pos;
         switch (sym.kind) {
             .param => if (self.ctx.types.get(sym.ty) != .borrow_write) {
                 try self.err(pos, "cannot {s} parameter `{s}`; parameters are immutable (take `{s}: !T` to write through to the caller)", .{ verb, name, name });
@@ -619,26 +604,44 @@ const Checker = struct {
             },
             else => {},
         }
+        return true;
     }
 
-    /// Does an assignment target reach its storage through a `*T`?
-    fn placeThroughShared(self: *Checker, place: Sexp) Error!bool {
-        const h = place.kind() orelse return false;
-        if (h != .member and h != .index) return false;
-        const obj = ir.get(place, .object);
-        const obj_ty = try self.synthQuiet(obj);
-        if (self.ctx.types.get(sema.unwrapBorrows(self.ctx, obj_ty)) == .shared) return true;
-        return self.placeThroughShared(obj);
-    }
+    /// How a place reaches its storage, read from the recorded types of
+    /// the objects along its path (`a` and `a.b` in `a.b.c`).
+    const PlacePath = struct {
+        /// The name the path starts from, when no borrow or handle is on
+        /// the way.
+        root: ?Sexp = null,
+        /// A borrow or handle is on the way.
+        indirect: bool = false,
+        /// A `*T` (or a borrow of one) is on the way.
+        shared: bool = false,
+        /// Where the path goes through a `?T`.
+        read_borrow: ?u32 = null,
+    };
 
-    /// Position of a `?T` the assignment target reaches through, if any.
-    fn placeThroughReadBorrow(self: *Checker, place: Sexp) Error!?u32 {
-        const h = place.kind() orelse return null;
-        if (h != .member and h != .index) return null;
-        const obj = ir.get(place, .object);
-        const obj_ty = try self.synthQuiet(obj);
-        if (self.ctx.types.get(obj_ty) == .borrow_read) return self.startOf(obj);
-        return self.placeThroughReadBorrow(obj);
+    fn placePath(self: *Checker, place: Sexp) PlacePath {
+        var path: PlacePath = .{};
+        var p = place;
+        while (p.kind()) |h| {
+            if (h != .member and h != .index) return path;
+            const obj = ir.get(p, .object);
+            if (self.ctx.typeOf(obj)) |ty| {
+                switch (self.ctx.types.get(ty)) {
+                    .borrow_read => {
+                        path.indirect = true;
+                        if (path.read_borrow == null) path.read_borrow = self.startOf(obj);
+                    },
+                    .borrow_write, .shared => path.indirect = true,
+                    else => {},
+                }
+                if (self.ctx.types.get(sema.unwrapBorrows(self.ctx, ty)) == .shared) path.shared = true;
+            }
+            p = obj;
+        }
+        if (p == .src and !path.indirect) path.root = p;
+        return path;
     }
 
     /// Synthesize without reporting diagnostics (the full check reports them).
@@ -650,11 +653,6 @@ const Checker = struct {
     }
 
     // ---- conditionals and loops ---------------------------------------------
-
-    /// `if` at statement position (`expected == null`) or as a value.
-    fn checkIf(self: *Checker, node: Sexp, expected: ?TypeId) Error!void {
-        _ = try self.checkIfValue(node, expected, .statement);
-    }
 
     const Position = enum { statement, value };
 
@@ -775,7 +773,6 @@ const Checker = struct {
         } else {
             const peeled_source = if (source.isKind(.read)) ir.Read.operand(source) else source;
             const source_ty = try self.synthExpr(source);
-            try self.recordType(source, source_ty);
             elem_ty = try self.elementTypeForLoop(source, peeled_source, source_ty, mode);
         }
 
@@ -794,10 +791,6 @@ const Checker = struct {
         }
         const else_ = ir.For.@"else"(node);
         if (else_ != .nil) try self.checkStmt(else_);
-    }
-
-    fn recordType(self: *Checker, node: Sexp, ty: TypeId) Error!void {
-        try self.ctx.recordType(node, ty);
     }
 
     /// `a..b` as a loop source: both bounds integers of one type.
@@ -822,11 +815,7 @@ const Checker = struct {
     fn writeElement(self: *Checker, source: Sexp, inner_source: Sexp, elem: TypeId) Error!TypeId {
         if (!isFieldPath(inner_source)) {
             try self.errAt(source, "`for x in !xs` writes each element in place; `xs` must be a binding or a field of one", .{});
-        } else if (try self.placeThroughShared(inner_source)) {
-            try self.errAt(source, "cannot write-iterate through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell(T)` for mutation through shared ownership.", .{});
-        } else if (try self.placeThroughReadBorrow(inner_source)) |p| {
-            try self.err(p, "cannot write-iterate through a read borrow (`?T`); take a write borrow (`!T`) to mutate", .{});
-        } else try self.checkWritable(inner_source, "write-iterate");
+        } else _ = try self.checkWritable(inner_source, source, "write-iterate");
         return self.ctx.intern(.{ .borrow_write = elem });
     }
 
@@ -1109,9 +1098,7 @@ const Checker = struct {
         }
         for (bindings, resolved.payload) |b, f| {
             try self.ctx.recordType(b, f.ty);
-            const sym = self.ctx.symbolOf(b) orelse continue;
-            self.ctx.symbols.items[sym].ty = f.ty;
-            try self.ctx.recordType(b, f.ty);
+            if (self.ctx.symbolOf(b)) |sym| self.ctx.symbols.items[sym].ty = f.ty;
         }
     }
 
@@ -1329,7 +1316,7 @@ const Checker = struct {
                 try self.errAt(e, "enum literal `.{s}` needs a known enum type; write `Type.{s}` or annotate the binding", .{ name, name });
                 break :blk self.t().invalid_id;
             },
-            .lambda => self.synthLambda(e),
+            .lambda => self.checkLambda(e, null, false),
             .builtin => self.synthBuiltin(e, null),
             .@"..",
             => blk: {
@@ -1439,10 +1426,6 @@ const Checker = struct {
 
     fn constInt(self: *Checker, e: Sexp) ?i128 {
         return sema.constIntOf(self.ctx, e);
-    }
-
-    fn constBool(self: *Checker, e: Sexp) ?bool {
-        return sema.constBoolOf(self.ctx, e);
     }
 
     fn numericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement) Error!TypeId {
@@ -1721,7 +1704,7 @@ const Checker = struct {
     /// `e!`: the value of fallible `e`; its failure goes to `fail_to`.
     fn synthPropagate(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Propagate.value(e);
-        switch (self.fail_to) {
+        switch (self.body.fail_to) {
             .caller, .module => {},
             .deferred => try self.errAt(operand, "cannot use `!` inside `defer`; a deferred expression cannot propagate failure, so handle it with `catch`", .{}),
             .closure => try self.errAt(operand, "use of `!` propagation requires a fallible enclosing function; a closure body cannot propagate failure, so handle it with `catch`", .{}),
@@ -1760,17 +1743,7 @@ const Checker = struct {
         const operand = ir.get(e, .operand);
         const inner = try self.synthOperand(operand);
         if (self.isPoison(inner)) return inner;
-        if (kind == .write) {
-            if (try self.placeThroughShared(operand)) {
-                try self.errAt(operand, "cannot write-borrow through a shared handle (`*T`); other handles may exist. Use an interior-mutable `Cell(T)` for mutation through shared ownership.", .{});
-                return self.t().invalid_id;
-            }
-            if (try self.placeThroughReadBorrow(operand)) |pos| {
-                try self.err(pos, "cannot write-borrow through a read borrow (`?T`); take a write borrow (`!T`) to mutate", .{});
-                return self.t().invalid_id;
-            }
-            try self.checkWritable(operand, "write-borrow");
-        }
+        if (kind == .write and !(try self.checkWritable(operand, operand, "write-borrow"))) return self.t().invalid_id;
         // A borrow of a value holding a Cell can change the Cell, which a
         // loop or match binding only copies.
         if (kind == .read and sema.holdsCellByValue(self.ctx, inner)) {
@@ -3094,22 +3067,13 @@ const Checker = struct {
     /// it stays inside that binding (a copy of the value it came from)
     /// rather than going through a borrow or handle.
     fn copiedBindingRoot(self: *Checker, place: Sexp) ?Sexp {
-        var p = place;
-        while (p.kind()) |h| {
-            if (h != .member and h != .index) return null;
-            const obj = ir.get(p, .object);
-            if (self.ctx.typeOf(obj)) |ty| switch (self.ctx.types.get(ty)) {
-                .borrow_read, .borrow_write, .shared => return null,
-                else => {},
-            };
-            p = obj;
-        }
-        if (p != .src) return null;
-        const id = self.ctx.symbolOf(p) orelse return null;
-        const sym = self.ctx.symbols.items[id];
+        const root = self.placePath(place).root orelse return null;
+        const sym = self.ctx.symbols.items[self.ctx.symbolOf(root) orelse return null];
         if (!sym.flags.pattern_bound) return null;
-        if (self.ctx.types.get(sym.ty) == .borrow_write or self.ctx.types.get(sym.ty) == .borrow_read) return null;
-        return p;
+        return switch (self.ctx.types.get(sym.ty)) {
+            .borrow_read, .borrow_write => null,
+            else => root,
+        };
     }
 
     /// A Cell is interior-mutable: `set` and `replace` change it through
@@ -3122,18 +3086,13 @@ const Checker = struct {
     fn cellSettable(self: *Checker, recv: Sexp) bool {
         var p = recv;
         while (p.isKind(.read) or p.isKind(.write)) p = ir.get(p, .operand);
-        while (true) {
-            if (self.ctx.typeOf(p)) |ty| switch (self.ctx.types.get(ty)) {
-                .borrow_read, .borrow_write, .shared => return true,
-                else => {},
-            };
-            const h = p.kind() orelse break;
-            if (h != .member and h != .index) return false;
-            p = ir.get(p, .object);
-        }
-        if (p != .src) return false;
-        const id = self.ctx.symbolOf(p) orelse return false;
-        const sym = self.ctx.symbols.items[id];
+        if (self.ctx.typeOf(p)) |ty| switch (self.ctx.types.get(ty)) {
+            .borrow_read, .borrow_write, .shared => return true,
+            else => {},
+        };
+        const path = self.placePath(p);
+        if (path.indirect) return true;
+        const sym = self.ctx.symbols.items[self.ctx.symbolOf(path.root orelse return false) orelse return false];
         return switch (sym.kind) {
             .local => !sym.flags.pattern_bound,
             .capture => true,
@@ -3670,10 +3629,6 @@ const Checker = struct {
     // Closures
     // =========================================================================
 
-    fn synthLambda(self: *Checker, node: Sexp) Error!TypeId {
-        return self.checkLambda(node, null, false);
-    }
-
     /// `*|...| body`: an owned closure; `expected` is the function type
     /// its context gives it (`*fun(Int) Int` gives `fun(Int) Int`).
     fn ownedClosure(self: *Checker, lambda: Sexp, expected: ?TypeId) Error!TypeId {
@@ -3692,19 +3647,11 @@ const Checker = struct {
         const captures = sema.captureList(ir.Lambda.captures(node));
         const outer = self.scope;
         const prev = self.enter(node);
-        const prev_ret = self.fn_return;
-        const prev_sub = self.is_sub;
-        const prev_sites = self.lambda_returns;
-        const prev_fail = self.fail_to;
+        const saved = self.body;
         defer {
             self.scope = prev;
-            self.fn_return = prev_ret;
-            self.is_sub = prev_sub;
-            self.lambda_returns = prev_sites;
-            self.fail_to = prev_fail;
+            self.body = saved;
         }
-        self.lambda_returns = null;
-        self.fail_to = .closure;
 
         if (self.ctx.bodyRoot(outer)) |root| {
             if (self.ctx.scopes.items[root].kind == .lambda) {
@@ -3750,17 +3697,13 @@ const Checker = struct {
 
         const body = ir.Lambda.body(node);
         if (want) |w| {
-            self.fn_return = w.returns;
-            self.is_sub = w.is_sub;
-            try self.checkBody(body, w.returns, w.is_sub);
+            try self.checkBody(body, .{ .ret = w.returns, .is_sub = w.is_sub, .fail_to = .closure });
             return expected.?;
         }
 
-        self.fn_return = self.t().unknown_id;
-        self.is_sub = false;
         var sites: std.ArrayListUnmanaged(ReturnSite) = .empty;
         defer sites.deinit(self.ctx.allocator);
-        self.lambda_returns = &sites;
+        self.body = .{ .ret = self.t().unknown_id, .is_sub = false, .fail_to = .closure, .returns = &sites };
         var ret = self.t().void_id;
         var ends_in_return = false;
         if (body.isKind(.block)) {
@@ -3780,7 +3723,6 @@ const Checker = struct {
                 } else try self.synthExpr(last);
             }
         } else ret = try self.synthExpr(body);
-        self.lambda_returns = null;
         ret = self.canonical(ret);
         if (ret == self.t().noreturn_id) ret = self.t().void_id;
         ret = try self.reconcileReturns(sites.items, ret, ends_in_return, body);
@@ -3829,11 +3771,6 @@ const Checker = struct {
         };
     }
 
-    /// A Copy primitive, or an optional of one.
-    fn isCopyValue(self: *Checker, ty: TypeId) bool {
-        return sema.isPlainData(self.ctx, ty);
-    }
-
     /// Validate one capture against the outer binding and give the
     /// capture symbol its type.
     fn checkCapture(self: *Checker, cap: Sexp, outer: ScopeId) Error!void {
@@ -3870,7 +3807,7 @@ const Checker = struct {
                     },
                 },
                 // Inside a generic body, copying a `T` requires plain data.
-                else => if (self.isCopyValue(outer_ty) or self.isPoison(outer_ty) or
+                else => if (sema.isPlainData(self.ctx, outer_ty) or self.isPoison(outer_ty) or
                     (sema.maybeDropGlue(self.ctx, outer_ty) and !(try self.ownsResource(outer_ty, pos, "copies into a closure a value")))) outer_ty else blk: {
                     try self.err(pos, "`|+{s}|` copies a Copy value or clones a `*T` / `~T` handle, but `{s}` is `{s}`; move it in with `|<{s}|`, or clone a handle into a local first and capture that", .{ name, name, try self.tyName(outer_ty), name });
                     break :blk self.t().invalid_id;
@@ -4092,7 +4029,7 @@ fn isContextual(source: []const u8, e: Sexp) bool {
 
 /// Literal forms allowed as default parameter values: the same text
 /// means the same value at every call site, in any module.
-pub fn isDefaultLiteral(source: []const u8, e: Sexp) bool {
+fn isDefaultLiteral(source: []const u8, e: Sexp) bool {
     return switch (e) {
         .src => isLiteralText(identAt(source, e).?) or std.mem.eql(u8, identAt(source, e).?, "none"),
         .list => e.isKind(.enum_lit) or
