@@ -58,8 +58,9 @@ its imports in load order. Each result is one line on stdout,
 `ok    test "name"` or `FAIL  test "name": <reason>`, where the reason
 is an error the test returned, a leak (Debug), or a panic, which ends
 the run. Imported modules' tests carry the module name:
-`ok    test "double" (util)`. The last line counts passes and failures,
-and the exit status is 1 if any test failed.
+`ok    test "double" (util)`. When every test finishes, the last line
+counts passes and failures, and the exit status is 1 if any test
+failed; after a panic it is non-zero, with no count.
 
 ## Source map
 

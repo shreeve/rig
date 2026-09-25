@@ -189,8 +189,9 @@ pub const Emitter = struct {
     /// Emitting the object chain of an assignment target: an indexed
     /// element in it is a slot, not a copy.
     place_chain: bool = false,
-    /// Arguments of the calls being emitted that were evaluated into
-    /// temporaries first (`emitHoistedCall`), innermost call last.
+    /// Arguments and receivers of the calls being emitted that were
+    /// evaluated into temporaries first (`emitHoistedCall`), innermost
+    /// call last.
     hoisted: std.ArrayListUnmanaged(Hoisted) = .empty,
     /// The labeled statements around the current point, innermost last:
     /// each Rig label and the Zig label it was given.
@@ -2685,15 +2686,16 @@ pub const Emitter = struct {
         try self.emitBare(value);
     }
 
-    /// The parameters a call's arguments fill, in slot order: all of them
-    /// for `f(...)`, `Type.method(...)`, and `module.f(...)`; all but the
-    /// receiver for `value.method(...)`.
+    /// The parameters a call's arguments fill, in slot order.
     const CallParams = struct {
         tys: []const TypeId = &.{},
         /// Which slots are `pre` parameters, one bit per slot.
         pre: u32 = 0,
     };
 
+    /// The parameters a call's arguments fill: all of them for `f(...)`,
+    /// `Type.method(...)`, and `module.f(...)`; all but the receiver for
+    /// `value.method(...)`.
     fn callParams(self: *Emitter, call: Sexp) CallParams {
         const callee = ir.Call.callee(call);
         const f = self.fnType(self.typeOf(callee)) orelse return .{};
@@ -2922,7 +2924,8 @@ pub const Emitter = struct {
         try self.w.writeAll(";\n");
         try self.hoisted.append(self.allocator, h);
     }
-    /// The temporary an argument was evaluated into, if it was.
+
+    /// The temporary an argument or receiver was evaluated into, if it was.
     fn hoistedOf(self: *Emitter, e: Sexp) ?Hoisted {
         var i = self.hoisted.items.len;
         while (i > 0) {

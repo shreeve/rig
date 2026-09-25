@@ -35,7 +35,7 @@ and most lines have none ([why](docs/DESIGN.md#sigils-rather-than-keywords),
 ## Why indentation?
 
 It is the lightest syntax for nested blocks, and each block is one IR
-node; tabs are rejected so a file has one reading
+node; tabs in indentation are rejected so a file has one reading
 ([more](docs/DESIGN.md#indentation)). If significant whitespace is a
 deal-breaker, Rig is not your language.
 

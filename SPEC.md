@@ -771,7 +771,8 @@ compile time: a literal, `.variant`, an earlier constant, or operators
 and array literals over them. Every function in the module reads it,
 wherever it is declared; nothing can reassign or move it, and a local
 or parameter may not reuse its name (`new` shadows it on purpose).
-Arithmetic on a constant is checked when it runs, like any other.
+Arithmetic on constants alone is checked at compile time; with a value
+known only when the program runs, it is checked then, like any other.
 
 ```rig
 limit =! 10
@@ -2314,7 +2315,7 @@ expected, and `none` needs a known optional type.
 |---|---|
 | `a ?? b` | the value inside `a`, or `b` when `a` is `none`; where a `T?` is expected, `b` may be a `T?` too (as may a `catch` handler) |
 | `a == none`, `a != none` | test for absence |
-| `a == v`, `a != v` | whether `a` holds the value `v` (a `T`, not a `String`) |
+| `a == v`, `a != v` | whether `a` holds the value `v`, a `T` |
 | `if a as x` | run the block with `x` bound to the value inside `a`; `else` runs when `a` is `none` |
 | `while a as x` | repeat while `a` produces a value |
 | `a?` | the value inside `a`; when `a` is `none`, the enclosing function returns `none` |
