@@ -1590,11 +1590,12 @@ noisy 2
 noisy 1
 ```
 
-A drop body may read and assign fields and use `raw`. It reaches `self`
-only through its fields, `?self`, and methods that take `?self`: it may
-not move, drop, or replace `self`, or lend it as `!self`, since a
-replaced `self` would be dropped, running the body again. No field can
-be moved out, because the fields are released after the body returns.
+A drop body may read and assign fields, call methods on `self`
+(including `!self` methods), and use `raw`. It may not move, drop, or
+reassign `self` directly, since a replaced `self` would be dropped,
+running the body again. A `!self` method that replaces its receiver
+recurses the same way, as it would in Rust. No field can be moved out,
+because the fields are released after the body returns.
 `drop` bodies are only for structs; enums and generic types get
 structural glue only.
 
