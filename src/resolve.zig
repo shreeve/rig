@@ -77,8 +77,7 @@ const SymbolResolver = struct {
             .generic_type, .generic_enum => try self.walkGenericType(sexp),
             .@"struct", .@"enum" => try self.walkNominalType(sexp, .{}),
             .errors => try self.walkNominalType(sexp, .{ .error_set = true }),
-            .@"extern" => _ = try self.declare(ir.Extern.name(sexp), .@"extern", .{}),
-            .extern_fun, .extern_sub => _ = try self.declare(ir.get(sexp, .name), .@"extern", .{}),
+            .@"extern", .extern_fun, .extern_sub => _ = try self.declare(ir.get(sexp, .name), .@"extern", .{}),
             .@"test" => try self.walkTest(sexp),
             .set => try self.walkSet(sexp),
             .block => {
