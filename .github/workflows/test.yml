@@ -46,4 +46,7 @@ jobs:
         run: zig build
 
       - name: Test
+        # Release builds on a cold cache can take minutes on a CI runner.
+        env:
+          RIG_TEST_TIMEOUT: 300
         run: ./test/run -j 4
