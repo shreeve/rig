@@ -102,6 +102,9 @@ pub const Error = std.mem.Allocator.Error;
 
 const VarId = u32;
 
+/// Which borrows a query looks for: any, or only write borrows.
+const BorrowQuery = enum { any, write };
+
 const LoanKind = enum(u1) { read, write };
 
 const Loan = struct {
@@ -522,10 +525,7 @@ pub const Checker = struct {
     }
 
     fn noteLoan(self: *Checker, loan: Loan) Error!void {
-        switch (loan.kind) {
-            .read => try self.note(loan.pos, "read borrow taken here", .{}),
-            .write => try self.note(loan.pos, "write borrow taken here", .{}),
-        }
+        try self.note(loan.pos, "{s} borrow taken here", .{@tagName(loan.kind)});
     }
 
     /// What is done to a var, for a borrow conflict.
@@ -902,6 +902,13 @@ pub const Checker = struct {
         return out.items;
     }
 
+    /// A loan set holding just `l`.
+    fn oneLoan(self: *Checker, l: Loan) Error![]const Loan {
+        const one = try self.arena().alloc(Loan, 1);
+        one[0] = l;
+        return one;
+    }
+
     fn valueUnion(self: *Checker, a: Value, b: Value) Error!Value {
         return .{ .loans = try self.unionLoans(a.loans, b.loans) };
     }
@@ -910,12 +917,10 @@ pub const Checker = struct {
     // Loan queries
     // -------------------------------------------------------------------------
 
-    const LoanQuery = enum { any, write };
-
     /// A live, non-external loan on `root` held by a var or a temporary.
     /// Vars that view `skip_alias_of` (payload bindings of that scrutinee)
     /// are ignored.
-    fn findLoan(self: *Checker, root: VarId, q: LoanQuery, skip_alias_of: ?VarId) ?Loan {
+    fn findLoan(self: *Checker, root: VarId, q: BorrowQuery, skip_alias_of: ?VarId) ?Loan {
         if (self.isBorrowed(root)) for (self.flows.items, self.vars.items, 0..) |f, v, holder| {
             if (skip_alias_of != null and v.alias_of == skip_alias_of) continue;
             for (f.loans) |l| if (loanMatches(l, root, q)) {
@@ -1145,9 +1150,7 @@ pub const Checker = struct {
         // Borrows handed in by the caller: an external loan on the param
         // itself marks them as returnable and conflict-free.
         if (ref != .none or (ty != null and self.mayCarryBorrow(ty))) {
-            const loans = try self.arena().alloc(Loan, 1);
-            loans[0] = .{ .root = id, .kind = if (ref == .write) .write else .read, .pos = pos, .ext = true };
-            self.replaceFlow(id, .{ .loans = loans });
+            self.replaceFlow(id, .{ .loans = try self.oneLoan(.{ .root = id, .kind = if (ref == .write) .write else .read, .pos = pos, .ext = true }) });
         }
     }
 
@@ -1202,8 +1205,12 @@ pub const Checker = struct {
     /// Report loans in `v` on vars of the innermost scope and drop them.
     fn checkValueEscapesScope(self: *Checker, v: Value) Error!Value {
         if (!self.reachable) return .{};
-        const start = self.scopes.items[self.scopes.items.len - 1].start;
-        if (!hasLoanFrom(v.loans, start)) return v;
+        return self.escapeVarsFrom(v, self.scopes.items[self.scopes.items.len - 1].start);
+    }
+
+    /// Value `v` leaving the scopes of the vars `>= start`: report its
+    /// loans on them and drop those.
+    fn escapeVarsFrom(self: *Checker, v: Value, start: u32) Error!Value {
         for (v.loans) |l| if (l.root >= start) try self.reportShortLived(l, null);
         return .{ .loans = try self.filterLoansBelow(v.loans, start) };
     }
@@ -1488,11 +1495,17 @@ pub const Checker = struct {
             try self.err(pos, "closure `{s}` cannot be borrowed; call it as `{s}()`", .{ v.name, v.name });
             return .{};
         }
-        if (!try self.checkLive(id, pos)) return .{};
-        if (try self.conflicts(id, if (kind == .write) .write else .read, pos)) return .{};
+        return (try self.borrowVar(id, kind, pos)) orelse .{};
+    }
+
+    /// Borrow a place in var `id` at `pos`: null when `id` is moved or
+    /// the borrow conflicts, both reported.
+    fn borrowVar(self: *Checker, id: VarId, kind: LoanKind, pos: u32) Error!?Value {
+        if (!try self.checkLive(id, pos)) return null;
+        if (try self.conflicts(id, if (kind == .write) .write else .read, pos)) return null;
         const loan: Loan = .{ .root = id, .kind = kind, .pos = pos };
         try self.addTemp(loan);
-        return self.reborrow(id, loan);
+        return try self.reborrow(id, loan);
     }
 
     /// `?xs[a..b]`. A slice of a String or a `[]T` views what that value
@@ -1510,15 +1523,9 @@ pub const Checker = struct {
         try self.walkPlaceIndices(slice);
         const id = place.root;
         const pos = self.startOf(slice);
-        if (!try self.checkLive(id, pos)) return .{};
-        if (try self.conflicts(id, .read, pos)) return .{};
-        const loan: Loan = .{ .root = id, .kind = .read, .pos = pos };
-        try self.addTemp(loan);
-        const v = try self.reborrow(id, loan);
+        const v = (try self.borrowVar(id, .read, pos)) orelse return .{};
         if (self.typeData(peeled) != .array or !self.inVarStorage(object)) return v;
-        const frame = try self.arena().alloc(Loan, 1);
-        frame[0] = .{ .root = id, .kind = .read, .pos = pos, .frame = true };
-        return .{ .loans = try self.unionLoans(v.loans, frame) };
+        return .{ .loans = try self.unionLoans(v.loans, try self.oneLoan(.{ .root = id, .kind = .read, .pos = pos, .frame = true })) };
     }
 
     /// Whether the value of place `e` is stored in the var the place
@@ -1544,8 +1551,7 @@ pub const Checker = struct {
         const v = self.vars.items[id];
         const held = self.flows.items[id].loans;
         if (v.ref == .read or v.alias_of != null) return .{ .loans = held };
-        const one = try self.arena().alloc(Loan, 1);
-        one[0] = loan;
+        const one = try self.oneLoan(loan);
         if (v.ref == .write) return .{ .loans = try self.unionLoans(one, held) };
         return .{ .loans = one };
     }
@@ -2548,9 +2554,7 @@ pub const Checker = struct {
                 // borrowed (write-borrowed when the view holds a write
                 // borrow, which must not be reached twice), and a borrowed
                 // root lends what it holds.
-                const one = try self.arena().alloc(Loan, 1);
-                one[0] = .{ .root = r, .kind = if (self.carriesWriteBorrow(ty)) .write else .read, .pos = pos };
-                loans = one;
+                loans = try self.oneLoan(.{ .root = r, .kind = if (self.carriesWriteBorrow(ty)) .write else .read, .pos = pos });
                 if (info.via == .borrowed) loans = try self.unionLoans(loans, self.flows.items[r].loans);
             } else {
                 loans = scrut_value.loans;
@@ -2725,9 +2729,7 @@ pub const Checker = struct {
         var elem_loans: []const Loan = &.{};
         if (spec.source_root) |root| if (self.flowLive(root)) {
             // The source stays borrowed for the whole loop.
-            const one = try self.arena().alloc(Loan, 1);
-            one[0] = .{ .root = root, .kind = spec.source_loan, .pos = spec.source_pos };
-            elem_loans = one;
+            elem_loans = try self.oneLoan(.{ .root = root, .kind = spec.source_loan, .pos = spec.source_pos });
             _ = try self.addVar(.{ .name = "", .decl = spec.source_pos, .kind = .hidden }, .{ .loans = elem_loans });
         };
         if (spec.elem1 == .src) {
@@ -2798,10 +2800,7 @@ pub const Checker = struct {
             try self.errSpan(at, "`continue :{s}` names a block, not a loop", .{label});
         }
         if (target) |t| {
-            if (value != .nil and hasLoanFrom(v.loans, t.point.vars)) {
-                for (v.loans) |l| if (l.root >= t.point.vars) try self.reportShortLived(l, null);
-            }
-            t.value = try self.valueUnion(t.value, .{ .loans = try self.filterLoansBelow(v.loans, t.point.vars) });
+            t.value = try self.valueUnion(t.value, try self.escapeVarsFrom(v, t.point.vars));
             const s = try self.exitState(t.point, t.scope_depth);
             switch (jump) {
                 .brk => try t.breaks.append(self.arena(), s),
@@ -3094,8 +3093,6 @@ pub const Checker = struct {
         return self.typeCarries(t, .write, 0);
     }
 
-    const BorrowQuery = enum { any, write };
-
     fn typeCarries(self: *const Checker, t: TypeId, q: BorrowQuery, depth: u8) bool {
         const ctx = self.sema orelse return q == .any;
         // Past any real nesting depth, assume the worst.
@@ -3185,7 +3182,7 @@ fn isIdentStart(c: u8) bool {
     return std.ascii.isAlphabetic(c) or c == '_';
 }
 
-fn loanMatches(l: Loan, root: VarId, q: Checker.LoanQuery) bool {
+fn loanMatches(l: Loan, root: VarId, q: BorrowQuery) bool {
     return l.root == root and !l.ext and (q == .any or l.kind == .write);
 }
 
