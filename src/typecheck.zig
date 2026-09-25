@@ -378,7 +378,7 @@ const Checker = struct {
     // ---- bindings and assignment --------------------------------------------
 
     fn checkSet(self: *Checker, node: Sexp) Error!void {
-        const kind = rig.bindingKindOf(ir.Set.op(node)) catch return;
+        const kind = rig.bindingKindOf(ir.Set.op(node));
         const target = ir.Set.target(node);
         const type_node = ir.Set.type(node);
         const rhs = ir.Set.value(node);

@@ -370,7 +370,7 @@ const SymbolResolver = struct {
     }
 
     fn walkSet(self: *SymbolResolver, node: Sexp) Error!void {
-        const kind = rig.bindingKindOf(ir.Set.op(node)) catch return;
+        const kind = rig.bindingKindOf(ir.Set.op(node));
         const target = ir.Set.target(node);
         try self.walk(ir.Set.value(node));
         if (target != .src) {

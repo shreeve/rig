@@ -91,7 +91,7 @@ const diag = @import("diag.zig");
 
 pub const Diagnostic = diag.Diagnostic;
 
-pub const Error = std.mem.Allocator.Error || rig.BindingKindError;
+pub const Error = std.mem.Allocator.Error;
 
 // =============================================================================
 // Abstract state
@@ -1756,7 +1756,7 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
 
     fn walkSet(self: *Checker, node: Sexp) Error!void {
-        const kind = try rig.bindingKindOf(ir.Set.op(node));
+        const kind = rig.bindingKindOf(ir.Set.op(node));
         const target = ir.Set.target(node);
         const expr = ir.Set.value(node);
         const compound = switch (kind) {

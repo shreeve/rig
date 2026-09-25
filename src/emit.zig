@@ -41,7 +41,7 @@ const Writer = std.Io.Writer;
 const TypeId = sema.TypeId;
 const SymbolId = sema.SymbolId;
 
-pub const Error = std.mem.Allocator.Error || Writer.Error || rig.BindingKindError || error{Unsupported};
+pub const Error = std.mem.Allocator.Error || Writer.Error || error{Unsupported};
 
 /// How a resource binding is released.
 const ResourceKind = enum {
@@ -872,7 +872,7 @@ pub const Emitter = struct {
 
     /// `(set kind target type expr)`.
     fn emitSet(self: *Emitter, sexp: Sexp) Error!void {
-        const kind = try rig.bindingKindOf(ir.Set.op(sexp));
+        const kind = rig.bindingKindOf(ir.Set.op(sexp));
         const target = ir.Set.target(sexp);
         const type_node = ir.Set.type(sexp);
         const expr = ir.Set.value(sexp);
@@ -1320,7 +1320,7 @@ pub const Emitter = struct {
     /// The `: step` of a while, written as a Zig continue expression.
     fn emitContinuation(self: *Emitter, step: Sexp) Error!void {
         if (step.isKind(.set) and ir.Set.target(step) == .src) {
-            const op: ?[]const u8 = switch (try rig.bindingKindOf(ir.Set.op(step))) {
+            const op: ?[]const u8 = switch (rig.bindingKindOf(ir.Set.op(step))) {
                 .@"+=" => "+=",
                 .@"-=" => "-=",
                 .@"*=" => "*=",
@@ -3337,7 +3337,7 @@ const Scan = struct {
         }
         const head = sexp.kind() orelse return;
         switch (head) {
-            .set => if (try rig.bindingKindOf(ir.Set.op(sexp)) == .move) try s.consume(ir.Set.value(sexp)),
+            .set => if (rig.bindingKindOf(ir.Set.op(sexp)) == .move) try s.consume(ir.Set.value(sexp)),
             .move => try s.consume(ir.Move.operand(sexp)),
             .drop => {
                 // Dropping plain data or a borrow emits nothing: not a use.

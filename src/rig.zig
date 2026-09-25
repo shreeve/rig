@@ -53,7 +53,8 @@ pub fn children(node: Sexp) []const Sexp {
 /// Exhaustive view of the op slot, so dispatch sites must handle every
 /// kind: `_` → default, `fixed` (`=!`), `shadow` (`new x =`), `move`
 /// (`<-`), and the compound assignments (`x op= e`, one per binary
-/// arithmetic, bitwise, and shift operator).
+/// arithmetic, bitwise, and shift operator). Every kind but `default` is
+/// named after its tag in the schema's `op:tag(...)` for `set`.
 pub const BindingKind = enum {
     default,
     fixed,
@@ -70,47 +71,31 @@ pub const BindingKind = enum {
     @"<<=",
     @">>=",
 
-    /// The binary operator a compound assignment applies, or null for a
-    /// plain binding or assignment.
+    comptime {
+        for (@typeInfo(BindingKind).@"enum".fields[1..]) |f| {
+            if (!@hasField(Tag, f.name)) @compileError("BindingKind." ++ f.name ++ " is not a tag of the IR");
+        }
+    }
+
+    /// The binary operator a compound assignment applies (`+=` applies
+    /// `+`), or null for a plain binding or assignment.
     pub fn operator(k: BindingKind) ?Tag {
         return switch (k) {
             .default, .fixed, .shadow, .move => null,
-            .@"+=" => .@"+",
-            .@"-=" => .@"-",
-            .@"*=" => .@"*",
-            .@"/=" => .@"/",
-            .@"%=" => .@"%",
-            .@"&=" => .@"&",
-            .@"|=" => .@"|",
-            .@"^=" => .@"^",
-            .@"<<=" => .@"<<",
-            .@">>=" => .@">>",
+            inline else => |c| @field(Tag, @tagName(c)[0 .. @tagName(c).len - 1]),
         };
     }
 };
 
-pub const BindingKindError = error{InvalidBindingKind};
-
-/// Decode the op slot of `(set <op> ...)`. An unknown op means the
-/// IR is corrupt, so it is an error rather than a silent default.
-pub fn bindingKindOf(kind_slot: Sexp) BindingKindError!BindingKind {
-    if (kind_slot == .nil) return .default;
-    if (kind_slot != .tag) return error.InvalidBindingKind;
-    return switch (kind_slot.tag) {
-        .fixed => .fixed,
-        .shadow => .shadow,
-        .move => .move,
-        .@"+=" => .@"+=",
-        .@"-=" => .@"-=",
-        .@"*=" => .@"*=",
-        .@"/=" => .@"/=",
-        .@"%=" => .@"%=",
-        .@"&=" => .@"&=",
-        .@"|=" => .@"|=",
-        .@"^=" => .@"^=",
-        .@"<<=" => .@"<<=",
-        .@">>=" => .@">>=",
-        else => error.InvalidBindingKind,
+/// Decode the op slot of `(set <op> ...)`. Nexus builds it from the
+/// schema's `op:tag(...)`, so any other value is unreachable.
+pub fn bindingKindOf(op: Sexp) BindingKind {
+    return switch (op) {
+        .nil => .default,
+        .tag => |t| switch (t) {
+            inline else => |c| if (@hasField(BindingKind, @tagName(c))) @field(BindingKind, @tagName(c)) else unreachable,
+        },
+        else => unreachable,
     };
 }
 

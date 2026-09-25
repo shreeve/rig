@@ -66,7 +66,7 @@ pub const ModuleGraph = struct {
     /// Errors with no source position (the root file cannot be read).
     errors: std.ArrayListUnmanaged([]const u8) = .empty,
 
-    pub const Error = std.mem.Allocator.Error || rig.BindingKindError || error{Overflow};
+    pub const Error = std.mem.Allocator.Error || error{Overflow};
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io) ModuleGraph {
         return .{ .allocator = allocator, .io = io, .arena = std.heap.ArenaAllocator.init(allocator) };
