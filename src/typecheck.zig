@@ -2395,7 +2395,8 @@ const Checker = struct {
 
     /// `xs[a..b]`: the elements from `a` up to, not including, `b`. A
     /// String gives a String, which borrows nothing: every String is a
-    /// static literal. A `[]T` gives a `[]T` viewing the same elements. An array or a `Vec` of plain data gives a `[]T` only as
+    /// static literal. A `[]T` gives a `[]T` viewing the same elements.
+    /// An array or a `Vec` of plain data gives a `[]T` only as
     /// `?xs[a..b]` (`borrowed`): the slice is a read borrow of `xs`.
     fn synthSlice(self: *Checker, e: Sexp, borrowed: bool) Error!TypeId {
         const object = ir.Index.object(e);
