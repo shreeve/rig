@@ -1,0 +1,64 @@
+# `Type.method` is a function value whose first parameter is the
+# receiver, however the method takes it.
+
+struct B
+  n: Int
+
+  drop self: !B
+    print("drop", self.n)
+
+struct P
+  x: Int
+
+  fun make(x: Int) -> P
+    P(x: x)
+
+  fun get(?self) -> Int
+    self.x
+
+  sub bump(!self)
+    self.x += 1
+
+  fun total(self: Self, k: Int) -> Int
+    self.x + k
+
+struct H
+  b: B
+
+  fun take(self: Self) -> Int
+    self.b.n
+
+fun apply(f: fun(Int) P, x: Int) -> P
+  f(x)
+
+fun read(f: fun(?P) Int, p: ?P) -> Int
+  f(p)
+
+sub write(f: sub(!P), p: !P)
+  f(p)
+
+sub main()
+  p = apply(P.make, 4)
+  print(p)
+  print(read(P.get, ?p))
+  write(P.bump, !p)
+  print(p.x)
+  g = P.get
+  print(g(?p))
+  t: fun(P, Int) Int = P.total
+  print(t(p, 10))
+  fs = [P.get, P.get]
+  print(fs[1](?p))
+  h = H(b: B(n: 7))
+  k = H.take
+  print(k(<h))
+
+# expect:
+# P(x: 4)
+# 4
+# 5
+# 5
+# 15
+# 5
+# drop 7
+# 7

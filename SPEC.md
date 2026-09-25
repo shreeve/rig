@@ -501,6 +501,38 @@ Inside a `!self` method, `self.field = v` and
 `?self` / `!self` is only for `self`; other parameters put the sigil on
 the type (`other: ?Point`).
 
+A method named through its type, `Type.method`, is a function value
+whose first parameter is the receiver, as the method declares it:
+`Counter.bump` has type `sub(!Counter)`. Named through a value, `c.bump`
+must be called, since a value would have to capture its receiver
+unseen; write a closure instead. Methods of generic types cannot be
+named as values.
+
+```rig
+struct Counter
+  n: Int
+
+  sub bump(!self)
+    self.n += 1
+
+  fun get(?self) -> Int
+    self.n
+
+sub twice(f: sub(!Counter), c: !Counter)
+  f(c)
+  f(c)
+
+sub main()
+  c = Counter(n: 0)
+  twice(Counter.bump, !c)
+  get = Counter.get
+  print(get(?c))
+```
+
+```output
+2
+```
+
 ### Enums
 
 An `enum` lists variants. A variant may carry an explicit integer value

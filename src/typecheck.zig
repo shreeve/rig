@@ -1913,7 +1913,7 @@ const Checker = struct {
         };
         const owner = decl.symbol();
         if ((try self.findMethod(obj_ty, field)) != null) {
-            try self.err(pos, "method `{s}.{s}` " ++ bare_method, .{ owner.name, field });
+            try self.err(pos, "method `{s}` must be called; to pass it as a function that takes the receiver first, name it through its type: `{s}.{s}`", .{ field, owner.name, field });
         } else if (owner.fields == null) {
             try self.err(pos, "opaque type `{s}` has no accessible fields", .{owner.name});
         } else {
@@ -1922,8 +1922,6 @@ const Checker = struct {
         }
         return self.t().invalid_id;
     }
-
-    const bare_method = "must be called; a bare method reference is not supported";
 
     /// The type of data field `name` of a receiver's nominal type, local
     /// or imported.
@@ -2040,9 +2038,15 @@ const Checker = struct {
         };
         for (members) |m| {
             if (!std.mem.eql(u8, m.name, field)) continue;
+            // `Type.method` is a plain function value whose first
+            // parameter is the receiver.
             if (m.is_method) {
-                try self.err(pos, "method `{s}.{s}` " ++ bare_method, .{ nt.sym.name, field });
-                return self.t().invalid_id;
+                if (nt.sym.kind == .generic_type) {
+                    try self.err(pos, "method `{s}.{s}` of a generic type must be called; wrap it in a closure to pass it as a value", .{ nt.sym.name, field });
+                    return self.t().invalid_id;
+                }
+                if (nt.foreign) |fo| return sema.importType(self.ctx, fo.ctx, m.ty, fo.module_id);
+                return m.ty;
             }
             if (!m.is_variant) break;
             if (nt.sym.kind == .generic_type) {
