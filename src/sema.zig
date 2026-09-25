@@ -1767,35 +1767,22 @@ pub fn lookupMethod(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std
     return null;
 }
 
-/// An enum variant of the receiver's nominal.
+/// An enum variant of the receiver's nominal, local or imported.
 pub fn lookupVariant(ctx: *SemContext, receiver_ty: TypeId, name: []const u8) std.mem.Allocator.Error!?ResolvedVariant {
-    if (ctx.types.get(unwrapBorrows(ctx, receiver_ty)) == .imported_nominal) {
-        const decl = nominalDecl(ctx, receiver_ty) orelse return null;
-        const foreign: *SemContext = @constCast(decl.ctx);
-        for (decl.symbol().fields orelse return null) |f| {
-            if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
-            const orig = f.payload orelse &.{};
-            const payload = try ctx.arena.allocator().alloc(Field, orig.len);
-            for (orig, 0..) |pf, i| {
-                payload[i] = pf;
-                payload[i].ty = try importType(ctx, foreign, pf.ty, decl.module_id.?);
-            }
-            return .{ .field = f, .payload = payload, .nominal_sym = symbol_invalid, .owner_name = decl.symbol().name };
-        }
-        return null;
-    }
-    const m = membersOf(ctx, unwrapBorrows(ctx, receiver_ty)) orelse return null;
-    for (m.fields) |f| {
+    const decl = nominalDecl(ctx, receiver_ty) orelse return null;
+    const subst = if (membersOf(ctx, unwrapBorrows(ctx, receiver_ty))) |m| m.subst else TypeSubst.empty;
+    for (decl.symbol().fields orelse return null) |f| {
         if (!f.is_variant or !std.mem.eql(u8, f.name, name)) continue;
-        const orig = f.payload orelse &.{};
-        const owner = ctx.symbols.items[m.sym].name;
-        if (orig.len == 0 or m.subst.isEmpty()) return .{ .field = f, .payload = orig, .nominal_sym = m.sym, .owner_name = owner };
-        const payload = try ctx.arena.allocator().alloc(Field, orig.len);
-        for (orig, 0..) |pf, i| {
-            payload[i] = pf;
-            payload[i].ty = try substituteType(ctx, pf.ty, m.subst);
+        var payload = f.payload orelse &.{};
+        if (payload.len > 0 and (decl.module_id != null or !subst.isEmpty())) {
+            const typed = try ctx.arena.allocator().dupe(Field, payload);
+            for (typed) |*pf| pf.ty = if (decl.module_id) |origin|
+                try importType(ctx, @constCast(decl.ctx), pf.ty, origin)
+            else
+                try substituteType(ctx, pf.ty, subst);
+            payload = typed;
         }
-        return .{ .field = f, .payload = payload, .nominal_sym = m.sym, .owner_name = owner };
+        return .{ .field = f, .payload = payload, .nominal_sym = if (decl.module_id == null) decl.sym else symbol_invalid, .owner_name = decl.symbol().name };
     }
     return null;
 }
