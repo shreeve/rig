@@ -2227,10 +2227,7 @@ const Checker = struct {
             switch (sym.kind) {
                 .function, .@"extern" => {
                     const fty = self.ctx.types.get(sym.ty);
-                    if (fty != .function) {
-                        try self.errAt(callee, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(sym.ty) });
-                        return self.skipCall(args);
-                    }
+                    if (fty != .function) return self.badCall(args, callee, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(sym.ty) });
                     if (sym.kind == .@"extern" and self.raw_depth == 0) {
                         try self.errAt(callee, "call to extern function `{s}` requires `raw` block; extern functions are the FFI boundary and bypass Rig's ownership and effect checks", .{name});
                     }
@@ -2238,38 +2235,23 @@ const Checker = struct {
                     return fty.function.returns;
                 },
                 .nominal_type => return self.construct(sym_id, args, callee.src.pos, TypeSubst.empty, null),
-                .type_alias => {
-                    try self.errAt(callee, "`{s}` is a type alias for `{s}` and cannot be called as a constructor; construct the aliased type directly", .{ name, try self.tyName(sym.ty) });
-                    return self.skipCall(args);
-                },
+                .type_alias => return self.badCall(args, callee, "`{s}` is a type alias for `{s}` and cannot be called as a constructor; construct the aliased type directly", .{ name, try self.tyName(sym.ty) }),
                 .generic_type => {
                     // The type arguments come from the fields' values.
-                    if (sym_id == self.ctx.vec_sym_id) {
-                        try self.errAt(callee, "`Vec()` needs its element type from where it goes; write `v: Vec(T) = Vec()`", .{});
-                        return self.skipCall(args);
-                    }
-                    if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) {
-                        try self.errAt(callee, stack_signal, .{});
-                        return self.skipCall(args);
-                    }
+                    if (sym_id == self.ctx.vec_sym_id) return self.badCall(args, callee, "`Vec()` needs its element type from where it goes; write `v: Vec(T) = Vec()`", .{});
+                    if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
                     const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = sym.fields orelse &.{} }, callee.src.pos)) orelse return self.skipCall(args);
                     _ = try self.instantiate(sym_id, subst.args, callee.src.pos);
                     return self.construct(sym_id, args, callee.src.pos, subst, null);
                 },
-                .module => {
-                    try self.errAt(callee, "module `{s}` cannot be called", .{name});
-                    return self.skipCall(args);
-                },
+                .module => return self.badCall(args, callee, "module `{s}` cannot be called", .{name}),
                 else => return self.callValue(callee, sym.ty, args, name),
             }
         }
 
         if (callee.isKind(.member)) return self.synthMemberCall(callee, args);
 
-        if (callee.isKind(.enum_lit)) {
-            try self.errAt(callee, "variant `.{s}(...)` needs a known enum type; annotate the binding", .{self.text(ir.EnumLit.name(callee))});
-            return self.skipCall(args);
-        }
+        if (callee.isKind(.enum_lit)) return self.badCall(args, callee, "variant `.{s}(...)` needs a known enum type; annotate the binding", .{self.text(ir.EnumLit.name(callee))});
 
         const callee_ty = try self.synthOperand(callee);
         return self.callValue(callee, callee_ty, args, "expression");
@@ -2289,8 +2271,7 @@ const Checker = struct {
             try self.checkArgs(args, fty.function, .{}, name, pos);
             return fty.function.returns;
         }
-        try self.err(pos, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(ty) });
-        return self.skipCall(args);
+        return self.badCall(args, pos, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(ty) });
     }
 
     /// A call that cannot be checked: its arguments are still checked on
@@ -2298,6 +2279,13 @@ const Checker = struct {
     fn skipCall(self: *Checker, args: []const Sexp) Error!TypeId {
         try self.synthArgs(args);
         return self.t().invalid_id;
+    }
+
+    /// Report why a call cannot be checked, at `at` (a node or a
+    /// position), then `skipCall`.
+    fn badCall(self: *Checker, args: []const Sexp, at: anytype, comptime fmt: []const u8, fmt_args: anytype) Error!TypeId {
+        if (@TypeOf(at) == Sexp) try self.errAt(at, fmt, fmt_args) else try self.err(at, fmt, fmt_args);
+        return self.skipCall(args);
     }
 
     fn synthArgs(self: *Checker, args: []const Sexp) Error!void {
@@ -2527,18 +2515,12 @@ const Checker = struct {
             try self.ctx.intern(.{ .nominal = sym_id })
         else
             try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = subst.args } });
-        const fields = sym.fields orelse {
-            try self.err(pos, "opaque type `{s}` cannot be constructed", .{sym.name});
-            return self.skipCall(args);
-        };
+        const fields = sym.fields orelse return self.badCall(args, pos, "opaque type `{s}` cannot be constructed", .{sym.name});
         var is_enum = false;
         for (fields) |f| {
             if (f.is_variant) is_enum = true;
         }
-        if (is_enum) {
-            try self.err(pos, "`{s}` is an enum; construct a variant with `{s}.name` or `.name(...)`", .{ sym.name, sym.name });
-            return self.skipCall(args);
-        }
+        if (is_enum) return self.badCall(args, pos, "`{s}` is an enum; construct a variant with `{s}.name` or `.name(...)`", .{ sym.name, sym.name });
         try self.checkFieldArgs(args, fields, .{ .owner = sym.name, .decl_pos = sym.decl_pos, .pos = pos, .subst = subst, .foreign = foreign, .kind = .constructor });
         return result;
     }
@@ -2677,8 +2659,7 @@ const Checker = struct {
                     return result;
                 },
                 .shared => if (!sema.hasMethodNamed(self.ctx, obj_ty, method)) {
-                    try self.err(pos, "`upgrade` is only available on weak handles (`~T`); receiver here is a shared handle (`*T`). Use `~rc` to obtain a weak reference, then `.upgrade()` on the weak.", .{});
-                    return self.skipCall(args);
+                    return self.badCall(args, pos, "`upgrade` is only available on weak handles (`~T`); receiver here is a shared handle (`*T`). Use `~rc` to obtain a weak reference, then `.upgrade()` on the weak.", .{});
                 },
                 else => {},
             }
@@ -2686,14 +2667,8 @@ const Checker = struct {
 
         const peeled = sema.unwrapReadAccess(self.ctx, obj_ty);
         switch (self.ctx.types.get(peeled)) {
-            .optional => {
-                try self.err(pos, "cannot call `{s}` on optional `{s}`; take the value out first with `x ?? fallback`", .{ method, try self.tyName(peeled) });
-                return self.skipCall(args);
-            },
-            .type_var => {
-                try self.err(pos, "a generic parameter `{s}` has no methods; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) });
-                return self.skipCall(args);
-            },
+            .optional => return self.badCall(args, pos, "cannot call `{s}` on optional `{s}`; take the value out first with `x ?? fallback`", .{ method, try self.tyName(peeled) }),
+            .type_var => return self.badCall(args, pos, "a generic parameter `{s}` has no methods; generic bodies can only move, copy, and compare `{s}` values", .{ try self.tyName(peeled), try self.tyName(peeled) }),
             else => {},
         }
 
@@ -2738,10 +2713,7 @@ const Checker = struct {
             }
             if (std.mem.eql(u8, method, "get")) {
                 if (cellElementType(self.ctx, obj_ty)) |elem| {
-                    if ((try self.ownsResource(elem, pos, "copies out with `Cell.get` a value"))) {
-                        try self.err(pos, "`Cell.get` returns `T` by value but `T = {s}` has drop glue; a copy would alias the cell's owned value. Use `cell.replace(<new)` to swap-and-yield the old value.", .{try self.tyName(elem)});
-                        return self.skipCall(args);
-                    }
+                    if ((try self.ownsResource(elem, pos, "copies out with `Cell.get` a value"))) return self.badCall(args, pos, "`Cell.get` returns `T` by value but `T = {s}` has drop glue; a copy would alias the cell's owned value. Use `cell.replace(<new)` to swap-and-yield the old value.", .{try self.tyName(elem)});
                 }
             }
         }
@@ -2750,10 +2722,7 @@ const Checker = struct {
         if (resolved.nominal_sym == self.ctx.vec_sym_id and std.mem.eql(u8, method, "get")) {
             if (resolved.fn_ty.returns != self.t().invalid_id) {
                 const elem = self.ctx.types.get(resolved.fn_ty.returns).optional;
-                if ((try self.ownsResource(elem, pos, "copies an element out of a Vec"))) {
-                    try self.err(pos, "`Vec.{s}` would copy an owning handle out of a `Vec` of `{s}`; iterate with `for x in ?v` instead", .{ method, try self.tyName(elem) });
-                    return self.skipCall(args);
-                }
+                if ((try self.ownsResource(elem, pos, "copies an element out of a Vec"))) return self.badCall(args, pos, "`Vec.{s}` would copy an owning handle out of a `Vec` of `{s}`; iterate with `for x in ?v` instead", .{ method, try self.tyName(elem) });
             }
         }
 
@@ -2778,10 +2747,7 @@ const Checker = struct {
     /// `Type.function(args)` or `Type.variant(payload)`, for a type of
     /// this module or an imported one.
     fn associatedCall(self: *Checker, obj: Sexp, nt: NamedType, name: []const u8, pos: u32, args: []const Sexp) Error!TypeId {
-        const members = nt.sym.fields orelse {
-            try self.err(pos, "opaque type `{s}` has no members", .{nt.sym.name});
-            return self.skipCall(args);
-        };
+        const members = nt.sym.fields orelse return self.badCall(args, pos, "opaque type `{s}` has no members", .{nt.sym.name});
         const generic = nt.sym.kind == .generic_type;
         for (members) |m| {
             if (!std.mem.eql(u8, m.name, name)) continue;
@@ -2804,10 +2770,7 @@ const Checker = struct {
             }
             if (!m.is_variant) break;
             const payload = m.payload orelse &.{};
-            if (payload.len == 0) {
-                try self.err(pos, "variant `{s}.{s}` takes no payload", .{ nt.sym.name, name });
-                return self.skipCall(args);
-            }
+            if (payload.len == 0) return self.badCall(args, pos, "variant `{s}.{s}` takes no payload", .{ nt.sym.name, name });
             var subst = TypeSubst.empty;
             var ty = try self.namedTypeValue(nt);
             if (generic) {
@@ -2948,19 +2911,13 @@ const Checker = struct {
             .function, .@"extern" => {
                 const local = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
                 const fty = self.ctx.types.get(local);
-                if (fty != .function) {
-                    try self.err(pos, "`{s}` cannot be called", .{qualified});
-                    return self.skipCall(args);
-                }
+                if (fty != .function) return self.badCall(args, pos, "`{s}` cannot be called", .{qualified});
                 try self.noteCallee(fty.function);
                 try self.checkArgs(args, fty.function, .{ .names = found.sym.param_names, .defaults = found.sym.param_defaults, .source = found.ctx.source }, qualified, pos);
                 return fty.function.returns;
             },
             .nominal_type => return self.construct(found.id, args, pos, TypeSubst.empty, .{ .ctx = found.ctx, .module_id = found.module_id }),
-            else => {
-                try self.err(pos, "`{s}` cannot be called", .{qualified});
-                return self.skipCall(args);
-            },
+            else => return self.badCall(args, pos, "`{s}` cannot be called", .{qualified}),
         }
     }
 
