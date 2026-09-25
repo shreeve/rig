@@ -191,6 +191,8 @@ pub const Emitter = struct {
     labels: std.ArrayListUnmanaged(struct { rig: []const u8, zig: []const u8 }) = .empty,
     /// A name was qualified as `__rig_module.name` (`writeModuleName`).
     uses_module: bool = false,
+    /// The module declares an `extern "c"`, so the program links libc.
+    links_libc: bool = false,
     /// The statement or declaration being emitted, where an internal
     /// error about a node without a position is reported.
     stmt: Sexp = .nil,
@@ -280,6 +282,7 @@ pub const Emitter = struct {
     /// `extern_fun` / `extern_sub`, and `(extern _ name type)`: a C
     /// function or variable.
     fn emitExtern(self: *Emitter, name_node: Sexp) Error!void {
+        self.links_libc = true;
         const ty = try self.declType(name_node);
         const f = self.fnType(ty) orelse {
             try self.w.print("extern \"c\" var {f}: ", .{ident(self.srcText(name_node))});

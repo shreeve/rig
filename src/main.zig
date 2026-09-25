@@ -310,7 +310,7 @@ fn runCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options)
     const pkg = try emitPackage(allocator, io, env, &graph);
     // Zig's own errors name the emitted files; any other failure is the
     // program's.
-    const code = try runZig(io, &.{ env.zig(), "run", opts.mode.zigFlag(), "--cache-dir", pkg.zig_cache, pkg.root_zig });
+    const code = try runZig(allocator, io, pkg, &.{ env.zig(), "run", opts.mode.zigFlag(), "--cache-dir", pkg.zig_cache, pkg.root_zig });
     if (code != 0) std.process.exit(code);
 }
 
@@ -321,7 +321,7 @@ fn buildCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Option
     const pkg = try emitPackage(allocator, io, env, &graph);
     const out = opts.out_path orelse try std.fmt.allocPrint(allocator, "{s}", .{graph.root().name});
     const emit_bin = try std.fmt.allocPrint(allocator, "-femit-bin={s}", .{out});
-    const code = try runZig(io, &.{ env.zig(), "build-exe", opts.mode.zigFlag(), "--cache-dir", pkg.zig_cache, pkg.root_zig, emit_bin });
+    const code = try runZig(allocator, io, pkg, &.{ env.zig(), "build-exe", opts.mode.zigFlag(), "--cache-dir", pkg.zig_cache, pkg.root_zig, emit_bin });
     if (code != 0) {
         std.debug.print("note: emitted Zig is in {s}\n", .{pkg.dir});
         std.process.exit(code);
@@ -361,7 +361,7 @@ fn testCommand(allocator: std.mem.Allocator, io: std.Io, env: Env, opts: Options
     const driver_path = try std.fs.path.join(allocator, &.{ pkg.dir, test_driver });
     try writeFile(io, driver_path, driver.written());
 
-    const code = try runZig(io, &.{ env.zig(), "run", opts.mode.zigFlag(), "--cache-dir", pkg.zig_cache, driver_path });
+    const code = try runZig(allocator, io, pkg, &.{ env.zig(), "run", opts.mode.zigFlag(), "--cache-dir", pkg.zig_cache, driver_path });
     if (code != 0) std.process.exit(code);
 }
 
@@ -371,11 +371,13 @@ fn requireMain(graph: *modules.ModuleGraph) void {
     if (!declaresMain(graph.root())) fatal("{s}:1:1: error: no `sub main()` to run", .{graph.root().display});
 }
 
-/// Run the Zig toolchain with inherited stdio; return its exit code
-/// (128 + the signal number if a signal ended it).
-fn runZig(io: std.Io, argv: []const []const u8) !u8 {
+/// Run the Zig toolchain on `pkg` with inherited stdio, linking libc
+/// when the package needs it; return its exit code (128 + the signal
+/// number if a signal ended it).
+fn runZig(allocator: std.mem.Allocator, io: std.Io, pkg: Package, argv: []const []const u8) !u8 {
+    const libc: []const []const u8 = if (pkg.links_libc) &.{"-lc"} else &.{};
     var child = std.process.spawn(io, .{
-        .argv = argv,
+        .argv = try std.mem.concat(allocator, []const u8, &.{ argv, libc }),
         .stdin = .inherit,
         .stdout = .inherit,
         .stderr = .inherit,
@@ -413,6 +415,8 @@ const Package = struct {
     /// same relative path elsewhere, an identical root file would get
     /// that package's executable. A cache per package cannot collide.
     zig_cache: []const u8,
+    /// A module declares an `extern "c"`, which Zig links only with `-lc`.
+    links_libc: bool,
 };
 
 /// Write the runtime and every module to the output directory. With
@@ -424,11 +428,13 @@ fn emitPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *modul
     try writeFile(io, try std.fs.path.join(allocator, &.{ dir, emit.runtime_filename }), emit.runtime_source);
 
     var root_source: []const u8 = "";
+    var links_libc = false;
     for (graph.modules.items, 0..) |*m, i| {
         var file_buffer: std.Io.Writer.Allocating = .init(allocator);
         var em = emit.Emitter.init(allocator, m.source, &file_buffer.writer, m.sema);
         defer em.deinit();
         try em.emit(m.ir);
+        links_libc = links_libc or em.links_libc;
         if (i == 0 and env.leakTrace()) try file_buffer.writer.writeAll("\npub const __rig_leak_trace = true;\n");
         try writeFile(io, try std.fs.path.join(allocator, &.{ dir, m.out_basename }), file_buffer.written());
         if (i == 0) root_source = file_buffer.written();
@@ -438,6 +444,7 @@ fn emitPackage(allocator: std.mem.Allocator, io: std.Io, env: Env, graph: *modul
         .root_zig = try std.fs.path.join(allocator, &.{ dir, graph.root().out_basename }),
         .root_source = root_source,
         .zig_cache = try std.fs.path.join(allocator, &.{ dir, ".zig-cache" }),
+        .links_libc = links_libc,
     };
 }
 
