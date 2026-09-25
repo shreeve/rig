@@ -230,7 +230,7 @@ would move, `~x` would hold a handle weakly.
 | typed binding | `let x: u8 = 1;` | `const x: u8 = 1;` | `x: U8 = 1` |
 | shadowing | `let x = x + 1;` | not allowed | `new x = x + 1` |
 | function | `fn f(a: i64) -> i64 { a }` | `fn f(a: i64) i64 { return a; }` | `fun f(a: Int) -> Int` / `  a` |
-| no return value | `fn f() {}` | `fn f() void {}` | `sub f()` |
+| no return value | `fn f() {}` | `fn f() void {}` | `sub f` |
 | struct literal | `P { x: 1 }` | `P{ .x = 1 }` | `P(x: 1)` |
 | method receiver | `&self`, `&mut self`, `self` | `self: P`, `self: *P` | `?self`, `!self`, `self: Self` |
 | enum variant | `Shape::Circle { r: 2 }` | `.{ .circle = .{ .r = 2 } }` | `.circle(r: 2)` |
@@ -2156,8 +2156,8 @@ program   = decl*
 decl      = ["pub"] (fun | sub | struct | enum | errors | typedef | const | test)
           | use | extern
 use       = "use" name
-fun       = "fun" name "(" params ")" ["->" type] block
-sub       = "sub" name "(" params ")" block
+fun       = "fun" name ["(" params ")"] ["->" type] block
+sub       = "sub" name ["(" params ")"] block
 param     = name ":" type ["=" literal] | "pre" name ":" type | "?self" | "!self"
 struct    = "struct" name INDENT (field | fun | sub | drop)* DEDENT
 field     = name ":" type ["=" literal]
@@ -2169,7 +2169,7 @@ typedef   = "type" name "=" type
 const     = name [":" type] "=!" expr
 drop      = "drop" "self" ":" "!Self" block
 test      = "test" string block
-extern    = "extern" ("fun" | "sub") name "(" params ")" ["->" type]
+extern    = "extern" ("fun" | "sub") name ["(" params ")"] ["->" type]
           | "extern" name ":" type
 
 type      = ("?" | "!" | "*" | "~" | "[" [integer] "]") type
@@ -2222,6 +2222,8 @@ atom      = name | literal | "." name | "@" name "(" args ")" | "[" expr, ... "]
 - `&&`, `||`, and `!` are `and`, `or`, and `not`.
 - `v.len()` is `v.len`: a field, since reading it runs no code.
 - Every variable must be read; an unused one is an error, as in Zig.
+- A name alone never calls: `greet` is the function as a value, and
+  `greet()` or `greet 1` calls it. A lone `greet` statement is an error.
 
 **From Zig**
 
@@ -2238,6 +2240,10 @@ atom      = name | literal | "." name | "@" name "(" args ")" | "[" expr, ... "]
   field.
 - Spacing is significant around sigils: `f -x` is a call and `a - x`
   a subtraction.
+- A function with no parameters needs no `()` in its declaration,
+  `sub greet`, but a call still does, `greet()`.
+- A value nobody uses is an error, as in Zig; `_ = e` discards on
+  purpose.
 - `switch` is `match`, and its `else =>` arm is `_ =>`.
 - A payload variant is built with named fields, `.circle(r: 2)`, not
   `.{ .circle = 2 }`.
