@@ -1570,7 +1570,14 @@ pub const Emitter = struct {
                 },
                 else => return self.unsupported(arm, "this pattern"),
             }
-            try self.emitArmBody(body, .{ .aliases = aliases }, value_pos);
+            if (value_pos) {
+                try self.emitValueBlock(body, .{ .aliases = aliases }, self.typeOf(sexp));
+            } else {
+                try self.openBrace();
+                try self.emitPrelude(.{ .aliases = aliases });
+                try self.emitStmts(try self.stmtsOf(body));
+                try self.closeBrace();
+            }
             try self.w.writeAll(",\n");
         }
         // A statement match whose arms leave some values out runs no arm
@@ -1627,14 +1634,6 @@ pub const Emitter = struct {
             try out.append(self.arena.allocator(), .{ .zig_name = stored.zig_name, .field = f.name });
         }
         return out.items;
-    }
-
-    fn emitArmBody(self: *Emitter, body: Sexp, prelude: Prelude, value_pos: bool) Error!void {
-        if (value_pos) return self.emitValueBlock(body, prelude);
-        try self.openBrace();
-        try self.emitPrelude(prelude);
-        try self.emitStmts(try self.stmtsOf(body));
-        try self.closeBrace();
     }
 
     fn emitPrelude(self: *Emitter, prelude: Prelude) Error!void {
@@ -1853,6 +1852,20 @@ pub const Emitter = struct {
         return self.kindOf(inner) != null or sema.holdsCellByValue(self.sema, inner);
     }
 
+    /// `e` yielded where a value of `ty` goes: a write borrow of a Copy
+    /// value (`!m`, or a call returning `!Int`) yields the value it reaches.
+    fn emitValueAs(self: *Emitter, e: Sexp, ty: ?TypeId) Error!void {
+        if (ty != null and !self.isPtrBorrowTy(ty.?) and self.isWriteBorrowExpr(e)) return self.emitDeref(e);
+        try self.emitValue(e, true);
+    }
+
+    /// `(e).*`: the value a write borrow reaches.
+    fn emitDeref(self: *Emitter, e: Sexp) Error!void {
+        try self.w.writeAll("(");
+        try self.emitBorrowValue(e);
+        try self.w.writeAll(").*");
+    }
+
     /// A write-borrow value: the pointer a `!T` expression denotes.
     fn emitBorrowValue(self: *Emitter, e: Sexp) Error!void {
         const saved = self.ptr_tail;
@@ -2018,7 +2031,7 @@ pub const Emitter = struct {
                     try self.w.print("|{s}| ", .{tmp});
                     try self.pushScope();
                     const local = try self.declare(.{ .sym = sym.?, .zig_name = "", .ty = self.symType(sym.?) }, self.srcText(name));
-                    try self.emitValueBlock(handler, .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp } });
+                    try self.emitValueBlock(handler, .{ .err_capture = .{ .zig_name = local.zig_name, .tmp = tmp } }, self.typeOf(sexp));
                     try self.popScope();
                 } else try self.emitValue(handler, true);
                 try self.w.writeAll(")");
@@ -2035,8 +2048,8 @@ pub const Emitter = struct {
                 if (head == .@"if") try self.emitIfExpr(sexp) else try self.emitMatch(sexp, true);
                 if (num != null) try self.w.writeAll(")") else if (!bare and head == .@"if") try self.w.writeAll(")");
             },
-            .block => try self.emitValueBlock(sexp, .{}),
-            .raw_block => try self.emitValueBlock(ir.RawBlock.body(sexp), .{}),
+            .block => try self.emitValueBlock(sexp, .{}, self.typeOf(sexp)),
+            .raw_block => try self.emitValueBlock(ir.RawBlock.body(sexp), .{}, self.typeOf(sexp)),
             .array => try self.emitArray(sexp),
             else => return self.unsupported(sexp, "this expression"),
         }
@@ -2115,9 +2128,10 @@ pub const Emitter = struct {
         try self.w.writeAll("[_]");
         try self.emitTypeTy(arr.array.elem);
         try self.w.writeAll("{");
+        const borrows = self.isPtrBorrowTy(arr.array.elem);
         for (elems, 0..) |e, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
-            try self.emitStored(e);
+            if (!borrows and self.isWriteBorrowExpr(e)) try self.emitDeref(e) else try self.emitStored(e);
         }
         try self.w.writeAll(if (elems.len > 0) " }" else "}");
     }
@@ -2282,22 +2296,22 @@ pub const Emitter = struct {
         try self.pushScope();
         var prelude: Prelude = .{};
         if (cond.isKind(.as)) prelude = try self.emitOptionalHead(cond) else try self.emitCond(cond);
-        try self.emitValueBlock(ir.If.then(sexp), prelude);
+        try self.emitValueBlock(ir.If.then(sexp), prelude, self.typeOf(sexp));
         try self.popScope();
         try self.w.writeAll(" else ");
-        try self.emitValueBlock(else_, .{});
+        try self.emitValueBlock(else_, .{}, self.typeOf(sexp));
     }
 
     /// A block that yields its last expression: inline when it is a
     /// single expression, otherwise a labeled block. The value leaves the
     /// block, so a resource binding in tail position is moved out. A block
     /// ending in `return`/`break`/`continue` yields nothing and needs no
-    /// label.
-    fn emitValueBlock(self: *Emitter, body: Sexp, prelude: Prelude) Error!void {
+    /// label. `result` is the type the block yields.
+    fn emitValueBlock(self: *Emitter, body: Sexp, prelude: Prelude, result: ?TypeId) Error!void {
         const stmts = try self.stmtsOf(body);
         if (stmts.len == 0) return self.unsupported(body, "an empty block in value position");
         const last = stmts[stmts.len - 1];
-        if (stmts.len == 1 and prelude.isEmpty() and isValueStmt(last)) return self.emitValue(last, true);
+        if (stmts.len == 1 and prelude.isEmpty() and isValueStmt(last)) return self.emitValueAs(last, result);
 
         const terminates = isTerminatingStmt(last);
         if (!terminates and !isValueStmt(last)) return self.unsupported(last, "a block without a value in value position");
@@ -2315,7 +2329,7 @@ pub const Emitter = struct {
         } else {
             try self.w.print("break :{s} ", .{label});
             self.bare = true;
-            try self.emitValue(last, true);
+            try self.emitValueAs(last, result);
             try self.w.writeAll(";");
         }
         try self.w.writeAll("\n");

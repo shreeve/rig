@@ -3281,9 +3281,9 @@ const Checker = struct {
         if ((a == self.t().int_literal_id and b == self.t().float_literal_id) or (b == self.t().int_literal_id and a == self.t().float_literal_id)) return self.t().float_literal_id;
         if (compatible(self.ctx, a, b)) return b;
         if (compatible(self.ctx, b, a)) return a;
-        // A read-borrowed Copy value meets a value as the value.
-        const va = if (self.ctx.types.get(a) == .borrow_read) readValue(self.ctx, a) else a;
-        const vb = if (self.ctx.types.get(b) == .borrow_read) readValue(self.ctx, b) else b;
+        // A borrowed Copy value meets a value as the value.
+        const va = readValue(self.ctx, a);
+        const vb = readValue(self.ctx, b);
         if (va != a or vb != b) return self.unify(va, vb, pos);
         try self.err(pos, "incompatible types `{s}` and `{s}`", .{ try self.tyName(a), try self.tyName(b) });
         return null;
