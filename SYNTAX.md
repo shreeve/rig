@@ -1558,6 +1558,25 @@ sub main
 1 0 200 none
 ```
 
+A literal argument takes the type the call is given, so the body's
+arithmetic runs in that type, as `h: Float = 7 / 2` is `3.5`:
+
+```rig
+fun half[T](x: T) -> T
+  x / 2
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+sub main
+  f: Float = half(7)
+  print(half(7), f, max(half(7), 2.5))
+```
+
+```output
+3 3.5 3.5
+```
+
 Brackets are required where nothing else says what to use:
 
 - a compile-time value, which is never inferred: `check[.strict](5)`;
