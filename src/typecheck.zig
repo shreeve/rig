@@ -3612,21 +3612,38 @@ const Checker = struct {
                     // Rig checks arithmetic only on constants: a compile-time
                     // parameter or a `=!` binding of one differs per call.
                     .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => self.constInt(e) != null or (self.isCtArithmetic(e) and !self.mentionsCtLocal(e)),
-                    .member => ir.Member.object(e) == .src and blk: {
-                        const id = self.lookupQuiet(ir.Member.object(e)) orelse break :blk false;
+                    .member => blk: {
+                        const obj = ir.Member.object(e);
+                        // `lib.Mode.a`: a variant of an imported type.
+                        if (obj.isKind(.member)) {
+                            const foreign = self.foreignMember(obj) orelse break :blk false;
+                            break :blk foreign.kind == .nominal_type;
+                        }
+                        if (obj != .src) break :blk false;
+                        const id = self.lookupQuiet(obj) orelse break :blk false;
                         const sym = self.ctx.symbols.items[id];
                         if (sym.kind != .module) break :blk sym.kind == .nominal_type;
                         // An imported module's constant.
-                        const origin = self.ctx.module_refs.get(id) orelse break :blk false;
-                        const foreign = self.ctx.foreign_semas.get(origin) orelse break :blk false;
-                        const member = foreign.lookupInScopeOnly(sema.module_scope, self.text(ir.Member.name(e))) orelse break :blk false;
-                        break :blk foreign.symbols.items[member].flags.comptime_known;
+                        const foreign = self.foreignMember(e) orelse break :blk false;
+                        break :blk foreign.flags.comptime_known;
                     },
                     else => false,
                 };
             },
             else => return false,
         }
+    }
+
+    /// The symbol `module.name` names in an imported module.
+    fn foreignMember(self: *Checker, e: Sexp) ?sema.Symbol {
+        const m = ir.Member.object(e);
+        if (m != .src) return null;
+        const id = self.lookupQuiet(m) orelse return null;
+        if (self.ctx.symbols.items[id].kind != .module) return null;
+        const origin = self.ctx.module_refs.get(id) orelse return null;
+        const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
+        const member = foreign.lookupInScopeOnly(sema.module_scope, self.text(ir.Member.name(e))) orelse return null;
+        return foreign.symbols.items[member];
     }
 
     /// Arithmetic whose operands are each known at compile time.

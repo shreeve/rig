@@ -1,0 +1,12 @@
+# A variant of an imported enum is a compile-time value.
+
+use lib
+
+sub main()
+  print(lib.check[lib.Mode.a](3), lib.check[lib.Mode.b](3), lib.check[.b](4))
+  m =! lib.Mode.b
+  print(lib.check[m](5))
+
+# expect:
+# 3 6 8
+# 10

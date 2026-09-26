@@ -1,0 +1,8 @@
+pub enum Mode
+  a
+  b
+
+pub fun check[m: Mode](n: Int) -> Int
+  if m == .a
+    return n
+  n * 2
