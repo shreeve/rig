@@ -1060,7 +1060,7 @@ pub const Parser = struct {
         };
         const expected = self.expectedHint();
         const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
-        const hint = self.parenFreeCallHint(tok) orelse self.bracketHint(tok) orelse reservedHint(src, tok, expected orelse "");
+        const hint = self.parenFreeCallHint(tok) orelse self.bracketHint(tok) orelse self.semicolonHint(tok) orelse self.spacingHint(tok) orelse reservedHint(src, tok, expected orelse "");
         const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
     }
@@ -1147,6 +1147,49 @@ pub const Parser = struct {
             return "a slice or array type has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead";
         }
         return null;
+    }
+
+    /// A `;` Rig does not take: Rust's array type `[T; n]`, or one ending
+    /// or separating statements.
+    fn semicolonHint(self: *Parser, tok: Token) ?[]const u8 {
+        if (tok.cat != .semicolon) return null;
+        const src = self.base.source;
+        const lex = &self.base.lexer;
+        if (lex.nesting == 0) return "Rig ends a statement at the end of its line; drop the `;`";
+        const open = lex.brackets[lex.nesting - 1];
+        if (src[open] != '[') return null;
+        // `[Int; 3]`: what precedes the `;` reads as a type.
+        const elem = std.mem.trim(u8, src[open + 1 .. tok.pos], " ");
+        if (elem.len == 0 or !(std.ascii.isUpper(elem[0]) or std.mem.indexOfScalar(u8, "?!*~[", elem[0]) != null)) return null;
+        if (std.mem.indexOfAny(u8, elem, ",;(") != null) return null;
+        const eol = std.mem.indexOfScalarPos(u8, src, tok.pos, '\n') orelse src.len;
+        if (std.mem.indexOfScalarPos(u8, src[0..eol], tok.pos, ']')) |close| {
+            const len = std.mem.trim(u8, src[tok.pos + 1 .. close], " ");
+            return self.format("an array type puts its length first: `[{s}]{s}`; `[x; n]` is a fill literal", .{ len, elem });
+        }
+        return "an array type puts its length first: `[3]Int`; `[x; n]` is a fill literal";
+    }
+
+    /// `[N -1]T`: an operator that touches what follows and not what
+    /// precedes is a prefix, which a size does not take.
+    fn spacingHint(self: *Parser, tok: Token) ?[]const u8 {
+        const op: u8 = switch (tok.cat) {
+            .minus_prefix => '-',
+            .share_pfx => '*',
+            .clone_pfx => '+',
+            else => return null,
+        };
+        const src = self.base.source;
+        const lex = &self.base.lexer;
+        if (lex.nesting == 0 or src[lex.brackets[lex.nesting - 1]] != '[') return null;
+        if (tok.pos == 0 or src[tok.pos - 1] != ' ') return null;
+        const before = std.mem.trimEnd(u8, src[0..tok.pos], " ");
+        var start = before.len;
+        while (start > 0 and isIdentCont(before[start - 1])) start -= 1;
+        var end = tok.pos + 1;
+        while (end < src.len and isIdentCont(src[end])) end += 1;
+        if (start == before.len or end == tok.pos + 1 or keyword(before[start..]) != null) return null;
+        return self.format("`{c}` touching `{s}` is a prefix (the spacing rule); for arithmetic, write `{s} {c} {s}`", .{ op, src[tok.pos + 1 .. end], before[start..], op, src[tok.pos + 1 .. end] });
     }
 
     fn endsWithWord(text: []const u8, word: []const u8) bool {

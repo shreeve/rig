@@ -1,0 +1,10 @@
+# In a size, as anywhere, an operator touching only what follows it is a
+# prefix: `[N -1]` is not `[N - 1]`.
+
+N =! 4
+
+sub main()
+  a: [N -1]Int = [0; 3]
+  print(a)
+
+# error: 7:9: unexpected `-`; `-` touching `1` is a prefix (the spacing rule); for arithmetic, write `N - 1`
