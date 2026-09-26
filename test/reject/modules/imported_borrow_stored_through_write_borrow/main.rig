@@ -5,11 +5,11 @@
 use a
 
 sub main()
-  y = a.Box(v: Vec())
+  y = a.Wrap(v: Vec())
   !y.v.push(1)
   holder = a.Holder(b: ?y)
   if true
-    x = a.Box(v: Vec())
+    x = a.Wrap(v: Vec())
     !x.v.push(42)
     ed = a.Ed(t: !holder)
     a.put(ed, ?x)

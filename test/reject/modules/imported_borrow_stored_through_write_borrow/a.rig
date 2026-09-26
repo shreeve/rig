@@ -1,11 +1,11 @@
-pub struct Box
+pub struct Wrap
   v: Vec[Int]
 
 pub struct Holder
-  b: ?Box
+  b: ?Wrap
 
 pub struct Ed
   t: !Holder
 
-pub sub put(e: Ed, x: ?Box)
+pub sub put(e: Ed, x: ?Wrap)
   e.t.b = x

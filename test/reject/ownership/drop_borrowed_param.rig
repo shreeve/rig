@@ -1,13 +1,13 @@
 # A borrowed parameter cannot be dropped; the caller owns it.
 
-struct Box
+struct Wrap
   payload: Int
 
-sub kill(rc: ?*Box)
+sub kill(rc: ?*Wrap)
   -rc
 
 sub main()
-  rc = *Box(payload: 5)
+  rc = *Wrap(payload: 5)
   kill(?rc)
   print(rc.payload)
 

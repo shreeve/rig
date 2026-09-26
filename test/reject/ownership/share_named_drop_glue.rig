@@ -1,14 +1,14 @@
 # `*o` moves `o` into a new shared box; with a bare name that would leave
 # `o` owning the same resources. Write `*<o`.
 
-struct Box
+struct Wrap
   payload: Int
 
 struct Owner
-  b: *Box
+  b: *Wrap
 
 sub main()
-  o = Owner(b: *Box(payload: 3))
+  o = Owner(b: *Wrap(payload: 3))
   s = *o
   print(1)
 

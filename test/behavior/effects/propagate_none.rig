@@ -6,7 +6,7 @@ struct User
   name: String
   age: Int
 
-struct Box
+struct Wrap
   n: Int
 
 fun find(id: Int) -> User?
@@ -20,11 +20,11 @@ fun both(a: Int, b: Int) -> Int?
   defer print("leaving both")
   find(a)?.age + find(b)?.age
 
-fun boxed(n: Int) -> (*Box)?
-  return *Box(n: n) if n > 0
+fun boxed(n: Int) -> (*Wrap)?
+  return *Wrap(n: n) if n > 0
   none
 
-fun pair(a: *Box, b: *Box) -> Int
+fun pair(a: *Wrap, b: *Wrap) -> Int
   a.n + b.n
 
 fun sum_boxes(x: Int, y: Int) -> Int?

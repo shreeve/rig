@@ -1,8 +1,8 @@
 # A built-in generic constructed in a generic body (`Cell(value: self.v)`
-# in `Box[T]`) is checked for each instance: `Cell[Pt]` holds plain data
+# in `Wrap[T]`) is checked for each instance: `Cell[Pt]` holds plain data
 # that is neither a Copy primitive nor has drop glue.
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun peek(?self) -> Int
@@ -13,7 +13,7 @@ struct Pt
   x: Int
 
 sub main()
-  b: Box[Pt] = Box(v: Pt(x: 1))
+  b: Wrap[Pt] = Wrap(v: Pt(x: 1))
   print(b.peek())
 
-# error: `Box[Pt]` instantiates `Cell[Pt]`: `Cell[T]` requires `T` to be a Copy primitive
+# error: `Wrap[Pt]` instantiates `Cell[Pt]`: `Cell[T]` requires `T` to be a Copy primitive

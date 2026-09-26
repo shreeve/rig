@@ -296,13 +296,13 @@ compile, never change what it means.
 ### Brackets for compile time
 
 Square brackets hold everything known at compile time, and parentheses
-what is known when the program runs: `struct Box[T]`, `Vec[Int]()`,
+what is known when the program runs: `struct Wrap[T]`, `Vec[Int]()`,
 `fun max[T](a: T, b: T)`, `fun check[mode: Mode](n: Int)`,
 `check[.strict](5)`. One spelling covers type arguments and
 compile-time values, as Zig's `comptime` does for both, so a call shows
 which of its arguments shape the code and which it computes with. It
-also keeps construction unambiguous: `Box(v: 3)` builds a value, so
-`Box(Int)` would read as a constructor call, while `Box[Int](v: 3)`
+also keeps construction unambiguous: `Wrap(v: 3)` builds a value, so
+`Wrap(Int)` would read as a constructor call, while `Wrap[Int](v: 3)`
 cannot. Go, Mojo, and Python's type hints write compile-time arguments
 the same way.
 

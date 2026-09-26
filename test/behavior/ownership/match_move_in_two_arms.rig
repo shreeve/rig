@@ -1,14 +1,14 @@
 # A resource may be moved in each of two match arms: the arms are
 # alternatives, and whichever runs consumes it.
 
-struct Box
+struct Wrap
   payload: Int
 
-sub eat(rc: *Box)
+sub eat(rc: *Wrap)
   print(rc.payload)
 
 sub go(n: Int)
-  rc = *Box(payload: n)
+  rc = *Wrap(payload: n)
   match n
     1 => eat(<rc)
     _ => eat(<rc)

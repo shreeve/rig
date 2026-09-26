@@ -7,7 +7,7 @@
 struct B
   n: Int
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun get(?self) -> T
@@ -47,16 +47,16 @@ struct Holder[T]
     1
 
 sub main()
-  a: Box[Int] = Box(v: 1)
+  a: Wrap[Int] = Wrap(v: 1)
   print(a.get())
-  b: Box[*B] = Box(v: *B(n: 1))
+  b: Wrap[*B] = Wrap(v: *B(n: 1))
   k: Keeper[*B] = Keeper(v: *B(n: 2))
   h: Holder[*B] = Holder(v: *B(n: 3))
   c: Counter[*B] = Counter(v: *B(n: 4))
   i: Counter[Int] = Counter(v: 4)
   print(i.count(5))
 
-# error: `Box[*B]` cannot use `T = *B`: the generic body copies a `T`
+# error: `Wrap[*B]` cannot use `T = *B`: the generic body copies a `T`
 # error: `Keeper[*B]` cannot use `T = *B`: the generic body discards a value that holds a `T`
 # error: `Opt[*B]` cannot use `T = *B`: the generic body copies a `T`
 # error: `Counter[*B]` cannot use `T = *B`: the generic body copies into a closure a value that holds a `T`

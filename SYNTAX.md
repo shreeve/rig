@@ -254,7 +254,7 @@ would move, `~x` would hold a handle weakly.
 | drop early | `drop(x)` | `x.deinit()` | `-x` |
 | destructor | `impl Drop` | `deinit` + `defer` | `drop(!self)` |
 | cleanup | scope guard | `defer`, `errdefer` | `defer`, `errdefer` |
-| generic type | `struct Box<T>` | `fn Box(comptime T: type) type` | `struct Box[T]` |
+| generic type | `struct Wrap<T>` | `fn Wrap(comptime T: type) type` | `struct Wrap[T]` |
 | generic function | `fn max<T>(a: T, b: T) -> T` | `fn max(comptime T: type, a: T, b: T) T` | `fun max[T](a: T, b: T) -> T` |
 | explicit type argument | `max::<f64>(1.0, 2.0)` | `max(f64, 1, 2)` | `max[Float](1, 2)` |
 | type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `Vec[Int]()` |
@@ -1404,9 +1404,9 @@ functions, and compile-time values, in declarations and in uses:
 
 | | Declared | Used |
 |---|---|---|
-| generic type | `struct Box[T]`, `enum Option[T]` | `Box[Int]`, `Box[Int](v: 3)`, `Option[Int].some(value: 7)` |
+| generic type | `struct Wrap[T]`, `enum Option[T]` | `Wrap[Int]`, `Wrap[Int](v: 3)`, `Option[Int].some(value: 7)` |
 | generic function | `fun max[T](a: T, b: T) -> T` | `max(3, 7)`, `max[Float](1, 2)` |
-| generic method | `fun map[U](?self, f: fun(T) -> U) -> Box[U]` | `b.map(label)` |
+| generic method | `fun map[U](?self, f: fun(T) -> U) -> Wrap[U]` | `b.map(label)` |
 | compile-time value | `fun check[mode: Mode](n: Int)` | `check[.strict](5)` |
 | both at once | `sub rep[T, n: Int](x: T)` | `rep[String, 3]("hi")` |
 | a length | `fun sum[n: Int](xs: [n]Int)` | `sum([1, 2, 3])`, `sum[3](xs)` |
@@ -1422,9 +1422,9 @@ Why brackets:
   a compile-time value the same way, as `comptime` parameters. Rig
   does too, and puts them all in brackets, so a call shows which of its
   arguments shape the code and which it computes with.
-- **No clash with construction.** `Box(v: 3)` builds a `Box`. If type
-  arguments went in parentheses too, `Box(Int)` would read as a call
-  of the constructor. `Box[Int](v: 3)` cannot be misread.
+- **No clash with construction.** `Wrap(v: 3)` builds a `Wrap`. If type
+  arguments went in parentheses too, `Wrap(Int)` would read as a call
+  of the constructor. `Wrap[Int](v: 3)` cannot be misread.
 - **Precedent.** Go writes `Max[T any]` and calls `Max[float64](1, 2)`,
   Mojo declares compile-time parameters as `fn repeat[count: Int]()`,
   and Python's type hints write `list[int]`.
@@ -1509,15 +1509,15 @@ an alias, never a struct.
 
 A function, `sub`, method, or associated function declares type
 parameters in brackets after its name, beside any compile-time values.
-A method's own sit beside its type's: inside `Box[T]`, `fun map[U]`
+A method's own sit beside its type's: inside `Wrap[T]`, `fun map[U]`
 has both `T` and `U`.
 
 ```rig
-struct Box[T]
+struct Wrap[T]
   v: T
 
-  fun map[U](?self, f: fun(T) -> U) -> Box[U]
-    Box(v: f(self.v))
+  fun map[U](?self, f: fun(T) -> U) -> Wrap[U]
+    Wrap(v: f(self.v))
 
 fun max[T](a: T, b: T) -> T
   a if a > b else b
@@ -1530,7 +1530,7 @@ fun label(n: Int) -> String
   "big" if n > 9 else "small"
 
 sub main
-  b = Box(v: 12)
+  b = Wrap(v: 12)
   print(b.map(label).v, max(3, 7), max(2.5, 1.0))
   rep[String, 2]("hi")
 ```
@@ -1549,7 +1549,7 @@ parameter, and each call passes its type: `max(3, 7)` becomes
 
 A call infers its type arguments by matching each parameter's type
 against its argument's: `T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`,
-`[N]T`, instances like `Vec[T]` or `Box[T]`, and function types like
+`[N]T`, instances like `Vec[T]` or `Wrap[T]`, and function types like
 `fun(T) -> U`. An integer compile-time value is inferred the same way,
 from an array length or a generic type's value argument in the
 signature: `sum([1, 2, 3])` of `fun sum[n: Int](xs: [n]Int)` is
@@ -1564,9 +1564,9 @@ function call among the arguments whose result is its type parameter
 (directly, or through `!` or `?`) passes the expected type on, so
 `max(max(1, 2), small)` with `small: U8` is `max[U8]` twice, and one
 that yields an optional only `none` typed binds like `none`:
-`z: Int? = id(nothing())` is `id[Int?]`. A nested `Box.make(1)` or
+`z: Int? = id(nothing())` is `id[Int?]`. A nested `Wrap.make(1)` or
 `Opt.some(value: 1)` keeps the type its own literal gives it, and the
-error says to name the outer type (`Box[Box[U8]].make(...)`). Brackets
+error says to name the outer type (`Wrap[Wrap[U8]].make(...)`). Brackets
 give every compile-time argument, or none: there is no partial list.
 
 ```rig
@@ -1679,14 +1679,14 @@ function type has no such spelling, so give it a `type` alias, or write
 the type where the value goes:
 
 ```rig
-struct Box[T]
+struct Wrap[T]
   v: T
 
 type Row = [3]Int
 
 sub main
-  a = Box[Row](v: [1, 2, 3])
-  b: Box[[3]Int] = Box(v: [4, 5, 6])
+  a = Wrap[Row](v: [1, 2, 3])
+  b: Wrap[[3]Int] = Wrap(v: [4, 5, 6])
   print(a.v, b.v)
 ```
 
@@ -1910,9 +1910,9 @@ compile-time argument 1 of `show` must be known at compile time
 | generic function | `fn max<T: PartialOrd>(a: T, b: T) -> T` | `fn max(comptime T: type, a: T, b: T) T` | `fun max[T](a: T, b: T) -> T` |
 | explicit type argument | `max::<f64>(1.0, 2.0)` | `max(f64, 1, 2)` | `max[Float](1, 2)` |
 | what `T` may do | what its bounds say | what each instance compiles | what each instance supports, checked per call |
-| generic type | `struct Box<T> { v: T }` | `fn Box(comptime T: type) type` | `struct Box[T]` |
+| generic type | `struct Wrap<T> { v: T }` | `fn Wrap(comptime T: type) type` | `struct Wrap[T]` |
 | type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `Vec[Int]()` |
-| generic method | `fn map<U>(&self, f: fn(T) -> U) -> Box<U>` | `fn map(self: Self, comptime U: type, f: *const fn (T) U) Box(U)` | `fun map[U](?self, f: fun(T) -> U) -> Box[U]` |
+| generic method | `fn map<U>(&self, f: fn(T) -> U) -> Wrap<U>` | `fn map(self: Self, comptime U: type, f: *const fn (T) U) Wrap(U)` | `fun map[U](?self, f: fun(T) -> U) -> Wrap[U]` |
 | compile-time value | `fn f<const N: usize>(x: i64)` | `fn f(comptime n: usize, x: i64)` | `fun f[n: Int](x: Int)` |
 | its call | `f::<3>(x)` | `f(3, x)` | `f[3](x)` |
 | an array of it | `fn sum<const N: usize>(xs: [i64; N])` | `fn sum(comptime n: usize, xs: [n]i64)` | `fun sum[n: Int](xs: [n]Int)` |
@@ -1990,11 +1990,11 @@ two owners would release it twice. The fix is always one sigil: `<x` to
 move, `+x` to clone a handle.
 
 ```rig reject
-struct Box
+struct Wrap
   n: Int
 
 sub main
-  a = *Box(n: 1)
+  a = *Wrap(n: 1)
   b = a
 ```
 
@@ -2068,18 +2068,18 @@ checker follows each borrow from where it was made:
 - A borrow may not outlive what it borrows.
 
 ```rig
-struct Box
+struct Wrap
   payload: Int
 
 struct View
-  box: ?Box
+  box: ?Wrap
 
-fun pick(a: ?Box, b: ?Box, first: Bool) -> ?Box
+fun pick(a: ?Wrap, b: ?Wrap, first: Bool) -> ?Wrap
   a if first else b
 
 sub main
-  x = Box(payload: 1)
-  y = Box(payload: 2)
+  x = Wrap(payload: 1)
+  y = Wrap(payload: 2)
   r = pick(?x, ?y, false)
   v = View(box: ?x)
   print(r.payload, v.box.payload)
@@ -2875,7 +2875,7 @@ correspondences:
 | `Int`, `U8`, `Float`, `String` | `i64`, `u8`, `f64`, `[]const u8` |
 | `struct`, plain `enum`, payload `enum` | `struct`, `enum`, `union(enum)` |
 | `error E` | an error set |
-| `struct Box[T]` | `fn Box(comptime T: type) type` |
+| `struct Wrap[T]` | `fn Wrap(comptime T: type) type` |
 | `fun max[T](a: T, b: T) -> T`, `max(3, 7)` | `fn max(comptime T: type, a: T, b: T) T`, `max(i64, 3, 7)` |
 | `T?`, `none`, `a ?? b` | `?T`, `null`, `a orelse b` |
 | `T!`, `f()!`, `catch` | `anyerror!T`, `try f()`, `catch` |
@@ -3023,7 +3023,7 @@ call onto the place, giving the tree of `(!v).push(x)`
   `show[3]()`.
 - `comptime` parameters go in brackets before the run-time ones:
   `fn f(comptime n: i64, x: i64)` is `fun f[n: Int](x: Int)`, called
-  `f[3](x)`; a generic type is `struct Box[T]`, and a generic function
+  `f[3](x)`; a generic type is `struct Wrap[T]`, and a generic function
   `fun max[T](a: T, b: T) -> T`. A `comptime n` that sizes an array is
   inferred from the argument: `fun sum[n: Int](xs: [n]Int)` is called
   `sum([1, 2, 3])`.

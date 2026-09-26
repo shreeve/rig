@@ -1,7 +1,7 @@
 # A method of a generic type cannot be named as a value, and a method
 # value has the method's full signature, receiver first.
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun get(?self) -> T
@@ -14,8 +14,8 @@ struct P
     self.x
 
 sub main()
-  g = Box.get
+  g = Wrap.get
   f: fun(Int) -> Int = P.get
 
-# error: 17:11: method `Box.get` of a generic type must be called
+# error: 17:12: method `Wrap.get` of a generic type must be called
 # error: 18:24: type mismatch: expected `fun(Int) -> Int`, got `fun(?P) -> Int`

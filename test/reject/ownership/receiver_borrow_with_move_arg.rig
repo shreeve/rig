@@ -4,16 +4,16 @@
 struct Inner
   x: Int
 
-struct Box
+struct Wrap
   inner: *Inner
 
-  sub show(?self, other: *Box)
+  sub show(?self, other: *Wrap)
     -other
     y = +self.inner
     print(y.x)
 
 sub main()
-  rc = *Box(inner: *Inner(x: 5))
+  rc = *Wrap(inner: *Inner(x: 5))
   rc.show(<rc)
 
 # error: cannot move `rc` while it is read-borrowed

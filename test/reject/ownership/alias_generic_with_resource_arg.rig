@@ -1,15 +1,15 @@
-# A generic struct instantiated with a resource (`Holder[*Box]`) owns it;
+# A generic struct instantiated with a resource (`Holder[*Wrap]`) owns it;
 # copying the struct would drop the handle twice.
 
 struct Holder[T]
   value: T
 
-struct Box
+struct Wrap
   n: Int
 
 sub main()
-  rc = *Box(n: 5)
-  h: Holder[*Box] = Holder(value: <rc)
+  rc = *Wrap(n: 5)
+  h: Holder[*Wrap] = Holder(value: <rc)
   g = h
   print(g.value.n)
 

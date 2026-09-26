@@ -1,7 +1,7 @@
 # A generic struct is declared with `struct`; `type` declares only an
 # alias.
 
-type Box[T]
+type Wrap[T]
   v: T
 
-# error: 4:9: a struct is declared with `struct`: `struct Box[T]`
+# error: 4:10: a struct is declared with `struct`: `struct Wrap[T]`

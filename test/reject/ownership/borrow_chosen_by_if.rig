@@ -1,14 +1,14 @@
 # A borrow chosen by an if-expression borrows from every candidate, so
 # `h` stays borrowed while `r` is live.
 
-struct Box
+struct Wrap
   payload: Int
 
 struct Holder
-  inner: *Box
+  inner: *Wrap
 
 sub main()
-  h = Holder(inner: *Box(payload: 5))
+  h = Holder(inner: *Wrap(payload: 5))
   r = if true
     ?h
   else

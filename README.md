@@ -239,7 +239,7 @@ and environment variable. The suite runs on Linux and macOS in
 - structs with field defaults, enums with payloads, error sets, type
   aliases, module-level constants, methods with explicit receivers,
   exhaustive `match`
-- generic types, functions, and methods (`struct Box[T]`,
+- generic types, functions, and methods (`struct Wrap[T]`,
   `fun max[T](a: T, b: T) -> T`), with inferred type arguments and
   per-instance checking, and compile-time value parameters
   (`fun check[mode: Mode](n: Int)`)

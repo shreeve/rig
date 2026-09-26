@@ -1,6 +1,6 @@
 # Capturing a borrow into a closure is a use of it.
 
-struct Box
+struct Wrap
   n: Int
 
   sub bump(!self)
@@ -10,7 +10,7 @@ struct Box
     print("drop", self.n)
 
 sub main()
-  x = Box(n: 1)
+  x = Wrap(n: 1)
   r = ?x
   w = !x
   f = |<r| print(r.n)

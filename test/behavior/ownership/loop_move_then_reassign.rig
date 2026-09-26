@@ -2,21 +2,21 @@
 # iteration is live again at the top of the loop; each value is dropped
 # once.
 
-struct Box
+struct Wrap
   payload: Int
 
   drop(!self)
     print(self.payload)
 
-sub eat(rc: *Box)
+sub eat(rc: *Wrap)
   print(rc.payload + 100)
 
 sub main()
-  rc = *Box(payload: 1)
+  rc = *Wrap(payload: 1)
   i = 0
   while i < 2
     eat(<rc)
-    rc = *Box(payload: i + 10)
+    rc = *Wrap(payload: i + 10)
     i += 1
   print("end")
 

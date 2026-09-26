@@ -1,9 +1,9 @@
 # A generic function's type parameters are inferred by matching each
 # parameter's type against its argument's: `T`, `?T`, `!T`, `*T`, `~T`,
 # `T?`, `[]T`, `[N]T`, and generic instances (`Vec[T]`, `Cell[T]`, a
-# user `Box[T]`). A literal takes its default type.
+# user `Wrap[T]`). A literal takes its default type.
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
 struct P
@@ -40,7 +40,7 @@ fun count[T](v: ?Vec[T]) -> Int
 fun read[T](c: ?Cell[T]) -> T
   c.get()
 
-fun unbox[T](b: ?Box[T]) -> T
+fun unbox[T](b: ?Wrap[T]) -> T
   b.v
 
 sub main()
@@ -63,7 +63,7 @@ sub main()
   print(count(?v))
   c = Cell(value: 9)
   print(read(?c))
-  b = Box(v: 11)
+  b = Wrap(v: 11)
   print(unbox(?b))
 
 # expect:

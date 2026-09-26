@@ -1,21 +1,21 @@
 # Moving a match payload binding out of an owned local scrutinee is
 # allowed; it consumes the scrutinee.
 
-struct Box
+struct Wrap
   payload: Int
 
   drop(!self)
     print("drop")
 
 enum Slot
-  full(b: *Box)
+  full(b: *Wrap)
   empty
 
-sub eat(rc: *Box)
+sub eat(rc: *Wrap)
   print(rc.payload)
 
 sub main()
-  rc = *Box(payload: 5)
+  rc = *Wrap(payload: 5)
   s: Slot = .full(b: <rc)
   match s
     .full(b) => eat(<b)

@@ -1,7 +1,7 @@
 # A borrow a function returns borrows every borrowed argument, until
 # its last use.
 
-struct Box
+struct Wrap
   n: Int
 
   sub bump(!self)
@@ -10,12 +10,12 @@ struct Box
   drop(!self)
     print("drop", self.n)
 
-fun first(a: ?Box, b: ?Box) -> ?Box
+fun first(a: ?Wrap, b: ?Wrap) -> ?Wrap
   a
 
 sub main()
-  x = Box(n: 1)
-  y = Box(n: 2)
+  x = Wrap(n: 1)
+  y = Wrap(n: 2)
   r = first(?x, ?y)
   -y
   print(r.n)

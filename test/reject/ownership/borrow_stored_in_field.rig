@@ -1,14 +1,14 @@
 # A borrow stored in a struct field keeps its owner borrowed while the
 # struct is live.
 
-struct Box
+struct Wrap
   payload: Int
 
 struct View
-  box: ?Box
+  box: ?Wrap
 
 sub main()
-  b = Box(payload: 5)
+  b = Wrap(payload: 5)
   v = View(box: ?b)
   -b
   print(v.box.payload)

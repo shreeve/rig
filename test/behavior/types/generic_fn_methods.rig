@@ -1,7 +1,7 @@
 # Methods and associated functions take type parameters of their own,
 # on a plain type and on a generic one, where they sit beside the
-# type's parameters, whose rules they follow: `Box`'s `with` copies a
-# `T`, so a `Box` holds plain data. They are inferred or given in brackets, and a
+# type's parameters, whose rules they follow: `Wrap`'s `with` copies a
+# `T`, so a `Wrap` holds plain data. They are inferred or given in brackets, and a
 # method called through its type takes the receiver first.
 
 struct Res
@@ -25,7 +25,7 @@ struct Tagger
       return <a
     <b
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun with[U](?self, u: U) -> Pair[T, U]
@@ -45,7 +45,7 @@ sub main()
   print(Tagger.either(1, 2, false), Tagger.either[Float](1, 2, true))
   r = Tagger.either(Res(n: 1), Res(n: 2), true)
   print("kept", r.n)
-  b = Box(v: 7)
+  b = Wrap(v: 7)
   p = b.with("seven")
   print(p.first, p.second)
   q = <Cup(v: 7).into(Res(n: 3))

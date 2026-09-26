@@ -4,7 +4,7 @@
 use wv
 
 sub main()
-  x: wv.Box = wv.Box(v: Vec())
+  x: wv.Wrap = wv.Wrap(v: Vec())
   !x.v.push(1)
   a = wv.WV(b: !x)
   b = a

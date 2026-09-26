@@ -1,13 +1,13 @@
 # Returning a shared-handle field would copy the handle without a
 # refcount bump; clone it with `+o.inner`.
 
-struct Box
+struct Wrap
   payload: Int
 
 struct Outer
-  inner: *Box
+  inner: *Wrap
 
-fun take(o: Outer) -> *Box
+fun take(o: Outer) -> *Wrap
   o.inner
 
 sub main()

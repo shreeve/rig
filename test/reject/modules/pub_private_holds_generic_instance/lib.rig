@@ -1,11 +1,11 @@
-struct Box[T]
+struct Wrap[T]
   v: T
 
 struct Q
-  b: Box[*Int]
+  b: Wrap[*Int]
 
 pub struct P
   q: Q
 
   fun make() -> P
-    P(q: Q(b: Box(v: *41)))
+    P(q: Q(b: Wrap(v: *41)))

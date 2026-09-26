@@ -5,7 +5,7 @@ fun side(k: Int) -> Int
   print("side", k)
   k
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun bump(!self, k: Int) -> Int
@@ -14,8 +14,8 @@ struct Box[T]
   fun get(?self, a: Int, b: Int) -> Int
     a * 10 + b
 
-  fun twice(?self) -> Box[T]
-    Box(v: self.v)
+  fun twice(?self) -> Wrap[T]
+    Wrap(v: self.v)
 
   fun again(?self) -> Int
     self.twice().bump(side(2))
@@ -24,7 +24,7 @@ struct Box[T]
     self.twice().get(b: side(3), a: side(4))
 
 sub main()
-  b = Box(v: 1)
+  b = Wrap(v: 1)
   print(b.again(), b.order())
 
 # expect:

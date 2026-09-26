@@ -1,14 +1,14 @@
 # The loans of a borrow moved into a call end when the call returns, so
 # the next statement can write the root again.
 
-struct Box
+struct Wrap
   v: Vec[Int]
 
-sub show(a: ?Box)
+sub show(a: ?Wrap)
   print(a.v.len)
 
 sub main()
-  x = Box(v: Vec())
+  x = Wrap(v: Vec())
   !x.v.push(1)
   r = ?x
   show(<r)

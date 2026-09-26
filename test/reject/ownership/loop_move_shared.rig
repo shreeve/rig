@@ -1,13 +1,13 @@
 # A move inside a `while` body is seen by the next iteration.
 
-struct Box
+struct Wrap
   payload: Int
 
-sub eat(rc: *Box)
+sub eat(rc: *Wrap)
   print(rc.payload)
 
 sub main()
-  rc = *Box(payload: 42)
+  rc = *Wrap(payload: 42)
   i = 0
   while i < 3
     eat(<rc)

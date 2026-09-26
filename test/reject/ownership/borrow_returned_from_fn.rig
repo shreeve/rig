@@ -1,17 +1,17 @@
 # A borrow returned from a function borrows from the borrowed argument,
 # so `h` cannot be dropped while `r` is live.
 
-struct Box
+struct Wrap
   payload: Int
 
 struct Holder
-  inner: *Box
+  inner: *Wrap
 
 fun view(h: ?Holder) -> ?Holder
   h
 
 sub main()
-  h = Holder(inner: *Box(payload: 5))
+  h = Holder(inner: *Wrap(payload: 5))
   r = view(?h)
   -h
   x = +r.inner

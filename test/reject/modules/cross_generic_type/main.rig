@@ -4,8 +4,8 @@ use lib
 
 sub main()
   lib.hello()
-  b = lib.Box[Int](v: 3)
-  print(b.v, Vec[lib.Box[Int]]().len)
+  b = lib.Wrap[Int](v: 3)
+  print(b.v, Vec[lib.Wrap[Int]]().len)
 
-# error: 7:7: `lib.Box` is a generic type of another module; generic types cannot cross module boundaries yet
-# error: 8:18: `lib.Box` is a generic type of another module
+# error: 7:7: `lib.Wrap` is a generic type of another module; generic types cannot cross module boundaries yet
+# error: 8:18: `lib.Wrap` is a generic type of another module

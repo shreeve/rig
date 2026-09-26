@@ -3,25 +3,25 @@
 # not hold a borrow: another path to the cell could read it after the
 # borrowed value is gone.
 
-struct Box
+struct Wrap
   v: Vec[Int]
 
 struct View
-  b: ?Box
+  b: ?Wrap
 
 sub stash(c: ?Cell[*View], vw: *View)
   c.set(<vw)
 
 sub park(h: *Cell[*View])
-  x = Box(v: Vec())
+  x = Wrap(v: Vec())
   !x.v.push(42)
   _ = h.replace(*View(b: ?x))
 
 sub main()
-  y0 = Box(v: Vec())
+  y0 = Wrap(v: Vec())
   a: *Cell[*View] = *Cell(value: *View(b: ?y0))
   if true
-    x = Box(v: Vec())
+    x = Wrap(v: Vec())
     !x.v.push(41)
     b = +a
     b.set(*View(b: ?x))

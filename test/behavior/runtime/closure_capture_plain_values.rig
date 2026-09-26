@@ -1,7 +1,7 @@
 # `|+x|` copies any plain value into a closure: a struct of numbers, an
 # enum, an array. Later changes to the original are not seen.
 
-struct Box
+struct Wrap
   n: Int
 
 enum Color
@@ -9,7 +9,7 @@ enum Color
   green
 
 sub main()
-  b = Box(n: 1)
+  b = Wrap(n: 1)
   c: Color = .green
   arr = [1, 2]
   f = |+b, +c, +arr| b.n + arr[1] + (1 if c == .green else 0)

@@ -2,17 +2,17 @@
 # field each own a count, and the value is dropped once, when the last
 # handle goes.
 
-struct Box
+struct Wrap
   payload: Int
 
   drop(!self)
     print("drop")
 
 struct Pair
-  a: *Box
+  a: *Wrap
 
 sub main()
-  p = Pair(a: *Box(payload: 1))
+  p = Pair(a: *Wrap(payload: 1))
   x = +p.a
   print(x.payload)
 

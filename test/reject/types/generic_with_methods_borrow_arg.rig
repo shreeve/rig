@@ -5,7 +5,7 @@
 struct P
   n: Int
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun get(?self) -> T
@@ -13,6 +13,6 @@ struct Box[T]
 
 sub main()
   p = P(n: 1)
-  b: Box[?P] = Box(v: ?p)
+  b: Wrap[?P] = Wrap(v: ?p)
 
-# error: `Box[?P]` cannot use `T = ?P`: the methods of `Box` are checked for a `T` that holds no borrow
+# error: `Wrap[?P]` cannot use `T = ?P`: the methods of `Wrap` are checked for a `T` that holds no borrow

@@ -1,11 +1,11 @@
-# A generic type in type position needs its type arguments: `Box`
-# alone is not a type, `Box[Int]` is.
+# A generic type in type position needs its type arguments: `Wrap`
+# alone is not a type, `Wrap[Int]` is.
 
-struct Box[T]
+struct Wrap[T]
   value: T
 
 sub main()
-  x: Box = Box(value: 5)
+  x: Wrap = Wrap(value: 5)
   print(x.value)
 
-# error: generic type `Box` requires type arguments
+# error: generic type `Wrap` requires type arguments

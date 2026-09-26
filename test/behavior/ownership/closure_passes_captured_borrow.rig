@@ -2,20 +2,20 @@
 # for the call, and call methods through a captured write borrow; the
 # closure keeps the borrow for its next call.
 
-struct Box
+struct Wrap
   n: Int
 
   sub bump(!self)
     self.n += 10
 
-sub poke(b: !Box)
+sub poke(b: !Wrap)
   b.n += 5
 
-fun peek(b: ?Box) -> Int
+fun peek(b: ?Wrap) -> Int
   b.n
 
 sub main()
-  x = Box(n: 1)
+  x = Wrap(n: 1)
   if true
     w = !x
     f = |<w|

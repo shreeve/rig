@@ -45,7 +45,7 @@ fun parse[mode: ParseMode](input: ?Bytes) -> Ast
   else
     parseLoose ?input
 
-struct Box[T]
+struct Wrap[T]
   value: T
 
 sub main()
@@ -66,7 +66,7 @@ sub main()
   ast = parse[.strict](?bytes)
   print ast.ok
 
-  b: Box[Int] = Box(value: 5)
+  b: Wrap[Int] = Wrap(value: 5)
   print b.value
 
   -other                       # drop now

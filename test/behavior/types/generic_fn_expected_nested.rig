@@ -12,11 +12,11 @@ error Bad
 fun id[T](a: T) -> T
   a
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
-  fun make(v: T) -> Box[T]
-    Box(v: v)
+  fun make(v: T) -> Wrap[T]
+    Wrap(v: v)
 
 fun max[T](a: T, b: T) -> T
   a if a > b else b
@@ -53,8 +53,8 @@ sub main
       return x
     return max(3, 250)
   print(g(7))
-  bx = Box[Box[U8]].make(Box.make(250))
-  od = id[Box[U8]](Box.make(7))
+  bx = Wrap[Wrap[U8]].make(Wrap.make(250))
+  od = id[Wrap[U8]](Wrap.make(7))
   print(bx.v.v, od.v, @sizeOf(@TypeOf(bx.v.v)), @sizeOf(@TypeOf(od.v)))
 
 # expect:

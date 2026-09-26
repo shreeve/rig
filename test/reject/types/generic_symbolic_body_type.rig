@@ -1,15 +1,15 @@
 # Inside a generic body, constructor fields are checked symbolically:
 # a String is not a `T`.
 
-struct Box[T]
+struct Wrap[T]
   value: T
 
   fun bad(?self) -> Self
-    b: Self = Box(value: "hello")
+    b: Self = Wrap(value: "hello")
     b
 
 sub main()
-  b: Box[Int] = Box(value: 5)
+  b: Wrap[Int] = Wrap(value: 5)
   print(b.value)
 
 # error: type mismatch: expected `T`, got `String`

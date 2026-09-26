@@ -1,8 +1,8 @@
-struct Box[T]
+struct Wrap[T]
   v: T
 
 pub struct Holder
-  b: Box[Int]
+  b: Wrap[Int]
 
 pub fun make() -> Holder
-  Holder(b: Box(v: 4))
+  Holder(b: Wrap(v: 4))

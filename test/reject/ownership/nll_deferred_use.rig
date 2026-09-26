@@ -1,7 +1,7 @@
 # Deferred code runs at scope exit: a borrow it uses is live until
 # then.
 
-struct Box
+struct Wrap
   n: Int
 
   sub bump(!self)
@@ -11,7 +11,7 @@ struct Box
     print("drop", self.n)
 
 sub main()
-  x = Box(n: 1)
+  x = Wrap(n: 1)
   r = ?x
   defer print(r.n)
   !x.bump()

@@ -501,7 +501,7 @@ instead of re-deriving it by name:
 | `isExhaustive(match)` | whether the arms cover every value without a default |
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
 | `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`Vec[Int]`), or a function's arguments |
-| `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Box` for `Box[Int](v: 3)`), and its compile-time arguments |
+| `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
 Leaves are keyed by source position and list nodes by their node id:
@@ -749,7 +749,7 @@ lower is an internal error: sema must have rejected it.
   defer is guarded by a flag, and the consuming site clears it:
 
   ```zig
-  const b = rig.rcNew(Box{ .n = 1 });
+  const b = rig.rcNew(Wrap{ .n = 1 });
   var __rig_alive_b = true;
   defer if (__rig_alive_b) { __rig_alive_b = false; b.dropStrong(); };
   if (c) {

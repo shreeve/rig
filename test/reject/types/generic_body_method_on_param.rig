@@ -1,6 +1,6 @@
 # A generic body cannot call methods on a type parameter.
 
-struct Box[T]
+struct Wrap[T]
   value: T
 
   fun show(?self) -> Int

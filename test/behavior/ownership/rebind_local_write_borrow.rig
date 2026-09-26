@@ -1,12 +1,12 @@
 # A local write borrow can be rebound to borrow another value; the first
 # is free again once nothing borrows it.
 
-struct Box
+struct Wrap
   n: Int
 
 sub main()
-  x = Box(n: 1)
-  y = Box(n: 2)
+  x = Wrap(n: 1)
+  y = Wrap(n: 2)
   w = !x
   w.n = 10
   w = !y

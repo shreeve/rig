@@ -2595,7 +2595,7 @@ const Checker = struct {
         value_member,
         /// A type that takes no type arguments; its name.
         not_generic: []const u8,
-        /// A generic type of another module (`lib.Box`), which cannot
+        /// A generic type of another module (`lib.Wrap`), which cannot
         /// be instantiated here.
         foreign_generic: []const u8,
     };
@@ -2763,7 +2763,7 @@ const Checker = struct {
         return self.t().invalid_id;
     }
 
-    /// `Box[Int](v: 3)`, `Vec[Int]()`: a generic type constructed at the
+    /// `Wrap[Int](v: 3)`, `Vec[Int]()`: a generic type constructed at the
     /// given arguments.
     fn constructInstance(self: *Checker, call: Sexp, e: Sexp, nt: NamedType, args: []const Sexp) Error!TypeId {
         const ty = try self.typeInstance(e, nt);
@@ -3094,7 +3094,7 @@ const Checker = struct {
         var callee = ir.Call.callee(node);
         const args = ir.Call.args(node);
 
-        // `f[...](args)`, `Box[Int](args)`: compile-time arguments.
+        // `f[...](args)`, `Wrap[Int](args)`: compile-time arguments.
         var ct: ?Sexp = null;
         if (rig.isBracketList(callee)) if (try self.instTarget(ir.get(callee, .object))) |target| switch (target) {
             .generic => |nt| return self.constructInstance(node, callee, nt, args),
@@ -4822,7 +4822,7 @@ const Checker = struct {
                     try self.ctx.recordType(callee, target);
                     return target;
                 }
-                // `Box(...)` where a `Box[Int]` is expected.
+                // `Wrap(...)` where a `Wrap[Int]` is expected.
                 const tt = self.ctx.types.get(target);
                 if (callee != .src or tt != .parameterized_nominal) return null;
                 const id = self.lookupQuiet(callee) orelse return null;
@@ -5489,7 +5489,7 @@ fn readValue(ctx: *const SemContext, ty: TypeId) TypeId {
 }
 
 /// Whether `ty` can be written in an expression's bracket list
-/// (`id[Box[Int]](...)`): array, slice, and function types cannot.
+/// (`id[Wrap[Int]](...)`): array, slice, and function types cannot.
 fn spelledInBrackets(ctx: *const SemContext, ty: TypeId) bool {
     return switch (ctx.types.get(ty)) {
         .slice, .array, .function => false,

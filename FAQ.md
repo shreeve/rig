@@ -123,7 +123,7 @@ is checked, with an error at the call and a note at the body line
 ## Why square brackets for generics?
 
 Square brackets hold everything known at compile time, and parentheses
-what is known when the program runs, so `Box[Int](v: 3)` names a type
+what is known when the program runs, so `Wrap[Int](v: 3)` names a type
 and then builds a value, and `check[.strict](5)` passes a compile-time
 value beside a run-time one. That is Zig's `comptime`, in the brackets
 Go uses for its generics ([more](docs/DESIGN.md#brackets-for-compile-time)).

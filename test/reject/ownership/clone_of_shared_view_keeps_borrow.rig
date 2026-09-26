@@ -1,17 +1,17 @@
 # A clone of a shared handle whose value holds a borrow reaches that
 # borrow too: the borrowed value stays borrowed while the clone lives.
 
-struct Box
+struct Wrap
   payload: Int
 
   drop(!self)
     print("drop")
 
 struct View
-  b: ?Box
+  b: ?Wrap
 
 sub main()
-  a = Box(payload: 1)
+  a = Wrap(payload: 1)
   v = *View(b: ?a)
   keep = +v
   -v
