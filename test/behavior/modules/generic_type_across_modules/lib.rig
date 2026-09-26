@@ -1,0 +1,25 @@
+pub struct Box[T]
+  v: T
+  count: Int = 1
+
+  fun make(v: T) -> Self
+    Box(v: v)
+
+  fun get(?self) -> T
+    self.v
+
+  fun with[U](?self, u: U) -> Pair[T, U]
+    Pair(first: self.v, second: u)
+
+pub struct Pair[A, B]
+  first: A
+  second: B
+
+pub enum Opt[T]
+  some(value: T)
+  none
+
+  fun or(?self, d: T) -> T
+    match self
+      .some(value) => value
+      .none => d

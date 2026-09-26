@@ -3198,34 +3198,41 @@ take or return a private type: importers can hold the value and use its
 fields and methods, though they cannot name the type. A struct's fields
 and methods are visible wherever the struct is.
 
-Another module's `pub` generic function, and a generic method of a type
-another module's public surface reaches, are called as local ones are.
-Each instance a call makes is checked where it is made, against what
-the declaring module's body does with its type parameters, and a
-diagnostic about it has a note at that body's line, in its file.
-Generic types cannot cross module boundaries yet. Another module's
-generic type cannot be instantiated, and no instance of a module's own
-generic type may appear in its public surface, including in the fields
-of the private types that surface reaches.
+Another module's `pub` generic types and functions are used as local
+ones are: `boxes.Box[Int]` names an instance in a type or an
+expression, its type arguments are given or inferred, and its methods
+and variants are reached through it. Each instance a module makes is
+checked where it is made, against what the declaring module's bodies do
+with its type parameters ([§4](#generic-bodies)), and a diagnostic
+about it has a note at that body's line, in its file. No instance of a
+module's own generic type may appear in its public surface yet,
+including in the fields of the private types that surface reaches.
 
 ```rig file=boxes.rig
 pub struct Box[T]
   v: T
 
-pub fun boxed(n: Int) -> Int
-  Box(v: n).v
+  fun get(?self) -> T
+    self.v
+
+pub fun larger[T](a: T, b: T) -> T
+  a if a > b else b
 ```
 
-```rig reject
+```rig
 use boxes
 
+fun unbox(b: ?boxes.Box[Int]) -> Int
+  b.get()
+
 sub main
-  print(boxes.boxed(3))
   b = boxes.Box[Int](v: 3)
+  s = boxes.Box(v: "s")
+  print(unbox(?b), s.get(), boxes.larger(2, 7), boxes.larger[Float](1, 2))
 ```
 
-```error
-`boxes.Box` is a generic type of another module; generic types cannot cross module boundaries yet
+```output
+3 s 7 2.0
 ```
 
 Every check (types, arity, keyword
@@ -3537,7 +3544,7 @@ The rest parse, and the checker rejects them as not supported yet
 
 | Form | Diagnostic |
 |---|---|
-| another module's generic type, or an instance of a module's generic type in its public surface | `` generic types cannot cross module boundaries yet `` |
+| an instance of a module's generic type in its public surface | `` generic types cannot cross module boundaries yet `` |
 | a `pub` function whose compile-time parameter sizes an array | `` such functions cannot cross module boundaries yet `` |
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
 | a stack closure passed, stored, or returned | `` closures cannot escape their defining scope `` |

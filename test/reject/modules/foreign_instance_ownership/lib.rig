@@ -5,3 +5,9 @@ pub fun twice[T](x: T) -> T
 
 pub fun same[T](x: T) -> T
   x
+
+pub struct Box[T]
+  v: T
+
+  fun get(?self) -> ?T
+    ?self.v

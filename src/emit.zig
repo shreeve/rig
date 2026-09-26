@@ -2553,6 +2553,8 @@ pub const Emitter = struct {
         if (o == .src) if (self.sema.symbolOf(o)) |id| if (self.sema.symbols.items[id].kind == .generic_type) {
             if (obj_ty) |t| return self.emitTypeTy(t);
         };
+        // `m.Box.make(...)` of another module's generic type.
+        if (o.isKind(.member) and self.isTypeCallee(o)) if (obj_ty) |t| if (self.sema.types.get(t) == .parameterized_nominal) return self.emitTypeTy(t);
         if (o == .src) if (self.localOf(o)) |local| {
             if (local.is_ptr and obj_ty != null and self.isStructLike(obj_ty.?)) return self.w.writeAll(local.zig_name);
             return self.writeLocalPlace(local);
@@ -2699,6 +2701,11 @@ pub const Emitter = struct {
             }
             if (self.sema.types.get(t) == .imported_nominal) {
                 try self.emitMember(callee);
+                return self.emitFieldInit(args);
+            }
+            // `m.Box[Int](v: 3)`, `m.Box(v: 3)`: the instance sema gave it.
+            if (self.sema.types.get(t) == .parameterized_nominal and self.isTypeCallee(callee)) {
+                try self.emitTypeTy(t);
                 return self.emitFieldInit(args);
             }
         };

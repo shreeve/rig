@@ -335,7 +335,9 @@ A few kinds serve more than one surface form:
   `shared`, `fun_type`, ...) appear only in type positions.
 - A bracket list touching a value is `(index object index)` with one
   argument and `(inst object args...)` with more; in a type,
-  `Vec[Int]` is `(generic_inst Vec Int)`. The parser cannot tell
+  `Vec[Int]` is `(generic_inst Vec Int)`, and another module's
+  `lib.Box[Int]` is `(generic_inst (member lib Box) Int)`: the grammar
+  names a type the same way with and without arguments (`tname`). The parser cannot tell
   `xs[0]` from `Vec[Int]` or `check[.strict]`, so sema decides by what
   the object names (`instTarget`): a generic type or a function (named
   directly, through its module, or through its type, or a method of

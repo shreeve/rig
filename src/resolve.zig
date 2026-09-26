@@ -1737,45 +1737,77 @@ pub const TypeResolver = struct {
         return self.ctx.source[sp.start..sp.end];
     }
 
-    /// `module.Name`: a public type of an imported module.
-    fn resolveQualified(self: *TypeResolver, module_node: Sexp, name_node: Sexp) Error!TypeId {
-        const t = &self.ctx.types;
-        const module_name = identAt(self.ctx.source, module_node) orelse return t.invalid_id;
-        const name = identAt(self.ctx.source, name_node) orelse return t.invalid_id;
+    /// A declaration `module.Name` names in an imported module, or null
+    /// after a diagnostic.
+    const ForeignDecl = struct { foreign: *SemContext, origin: u32, id: SymbolId, sym: Symbol, module_name: []const u8, name: []const u8, pos: u32 };
+
+    fn foreignDecl(self: *TypeResolver, module_node: Sexp, name_node: Sexp) Error!?ForeignDecl {
+        const module_name = identAt(self.ctx.source, module_node) orelse return null;
+        const name = identAt(self.ctx.source, name_node) orelse return null;
         const pos = srcPos(name_node, 0);
         const mod_id = self.ctx.lookup(self.scope, module_name) orelse {
             try self.ctx.errAt(module_node, "use of unbound module `{s}`; import it with `use {s}`", .{ module_name, module_name });
-            return t.invalid_id;
+            return null;
         };
         if (self.ctx.symbols.items[mod_id].kind != .module) {
             try self.ctx.errAt(module_node, "`{s}` is not a module; a qualified type is written `module.Type`", .{module_name});
-            return t.invalid_id;
+            return null;
         }
         try self.ctx.recordName(module_node, mod_id);
-        const origin = self.ctx.module_refs.get(mod_id) orelse return t.invalid_id;
-        const foreign = self.ctx.foreign_semas.get(origin) orelse return t.invalid_id;
+        const origin = self.ctx.module_refs.get(mod_id) orelse return null;
+        const foreign = self.ctx.foreign_semas.get(origin) orelse return null;
         const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse {
             try self.ctx.err(pos, "no type `{s}` in module `{s}`", .{ name, module_name });
-            return t.invalid_id;
+            return null;
         };
-        const fsym = foreign.symbols.items[fid];
-        switch (fsym.kind) {
+        return .{ .foreign = foreign, .origin = origin, .id = fid, .sym = foreign.symbols.items[fid], .module_name = module_name, .name = name, .pos = pos };
+    }
+
+    /// Whether the declaration `d` names is public; reports it if not.
+    fn checkPublic(self: *TypeResolver, d: ForeignDecl) Error!bool {
+        if (d.sym.flags.is_public) return true;
+        try self.ctx.err(d.pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ d.module_name, d.name, d.module_name });
+        return false;
+    }
+
+    /// `module.Name`: a public type of an imported module.
+    fn resolveQualified(self: *TypeResolver, module_node: Sexp, name_node: Sexp) Error!TypeId {
+        const t = &self.ctx.types;
+        const d = (try self.foreignDecl(module_node, name_node)) orelse return t.invalid_id;
+        switch (d.sym.kind) {
             .nominal_type, .type_alias => {},
             .generic_type => {
-                try self.ctx.err(pos, "generic type `{s}.{s}` needs type arguments, which qualified types do not take yet", .{ module_name, name });
+                const arity = if (d.sym.type_params) |tps| tps.len else 0;
+                try self.ctx.err(d.pos, "generic type `{s}.{s}` requires type arguments; write `{s}.{s}[{s}]`", .{ d.module_name, d.name, d.module_name, d.name, if (arity > 1) "T, ..." else "T" });
                 return t.invalid_id;
             },
             else => {
-                try self.ctx.err(pos, "`{s}.{s}` is not a type", .{ module_name, name });
+                try self.ctx.err(d.pos, "`{s}.{s}` is not a type", .{ d.module_name, d.name });
                 return t.invalid_id;
             },
         }
-        if (!fsym.flags.is_public) {
-            try self.ctx.err(pos, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module_name, name, module_name });
-            return t.invalid_id;
+        if (!try self.checkPublic(d)) return t.invalid_id;
+        if (d.sym.kind == .type_alias) return sema.importType(self.ctx, d.foreign, d.sym.ty, d.origin);
+        return self.ctx.intern(.{ .imported_nominal = .{ .module_id = d.origin, .sym_id = d.id } });
+    }
+
+    /// `module.Box` in `module.Box[Int]`: the proxy of a public generic
+    /// type of an imported module (`sema.proxyOf`).
+    fn qualifiedGeneric(self: *TypeResolver, member: Sexp) Error!?SymbolId {
+        const d = (try self.foreignDecl(ir.Member.object(member), ir.Member.name(member))) orelse return null;
+        switch (d.sym.kind) {
+            .generic_type => {},
+            .nominal_type, .type_alias => {
+                try self.ctx.err(d.pos, "`{s}.{s}` is not a generic type; it takes no type arguments", .{ d.module_name, d.name });
+                return null;
+            },
+            else => {
+                try self.ctx.err(d.pos, "`{s}.{s}` is not a type", .{ d.module_name, d.name });
+                return null;
+            },
         }
-        if (fsym.kind == .type_alias) return sema.importType(self.ctx, foreign, fsym.ty, origin);
-        return self.ctx.intern(.{ .imported_nominal = .{ .module_id = origin, .sym_id = fid } });
+        if (!try self.checkPublic(d)) return null;
+        return try sema.proxyOf(self.ctx, .{ .module_id = d.origin, .sym = d.id });
     }
 
     /// Run `check` now if every declared type's contents are known,
@@ -1788,18 +1820,27 @@ pub const TypeResolver = struct {
     fn resolveGenericInst(self: *TypeResolver, sexp: Sexp) Error!TypeId {
         const t = &self.ctx.types;
         const name_node = ir.GenericInst.name(sexp);
-        const name = identAt(self.ctx.source, name_node).?;
-        const pos = name_node.src.pos;
-        const sym_id = self.ctx.lookup(self.scope, name) orelse {
-            try self.ctx.err(pos, "use of unbound type `{s}`", .{name});
-            return t.invalid_id;
-        };
-        try self.ctx.recordName(name_node, sym_id);
-        const sym = self.ctx.symbols.items[sym_id];
-        if (sym.kind != .generic_type) {
-            try self.ctx.err(pos, "`{s}` is not a generic type", .{name});
-            return t.invalid_id;
+        var sym_id: SymbolId = undefined;
+        var pos: u32 = undefined;
+        if (name_node.isKind(.member)) {
+            // `lib.Box[Int]`: another module's generic type.
+            sym_id = (try self.qualifiedGeneric(name_node)) orelse return t.invalid_id;
+            pos = srcPos(ir.Member.name(name_node), 0);
+        } else {
+            const name = identAt(self.ctx.source, name_node).?;
+            pos = name_node.src.pos;
+            sym_id = self.ctx.lookup(self.scope, name) orelse {
+                try self.ctx.err(pos, "use of unbound type `{s}`", .{name});
+                return t.invalid_id;
+            };
+            try self.ctx.recordName(name_node, sym_id);
+            if (self.ctx.symbols.items[sym_id].kind != .generic_type) {
+                try self.ctx.err(pos, "`{s}` is not a generic type", .{name});
+                return t.invalid_id;
+            }
         }
+        const sym = self.ctx.symbols.items[sym_id];
+        const name = sym.name;
         const tparams = sym.type_params orelse &.{};
         const supplied = ir.GenericInst.args(sexp);
         if (supplied.len != tparams.len) {
@@ -1932,7 +1973,7 @@ fn reportExposed(ctx: *SemContext, pos: u32, what: []const u8, name: []const u8,
 /// searched once; `exposed` holds the answers).
 fn exposedInstance(ctx: *SemContext, ty: TypeId, exposed: *std.AutoHashMapUnmanaged(SymbolId, ?TypeId)) Error!?TypeId {
     switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (ctx.symbols.items[pn.sym].decl_pos != sema.builtin_decl_pos) return ty,
+        .parameterized_nominal => |pn| if (ctx.symbols.items[pn.sym].decl_pos < sema.imported_decl_pos) return ty,
         .nominal => |s| {
             const sym = ctx.symbols.items[s];
             // A public type's members are checked on their own.

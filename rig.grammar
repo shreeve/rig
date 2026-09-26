@@ -341,7 +341,7 @@ tokens
 
     # Types
     optional, error_union, borrow_read, borrow_write, shared, slice  type
-    generic_inst                name:leaf ...args
+    generic_inst                name ...args
     array_type                  size type
     fun_type                    params:group? returns?
 
@@ -532,10 +532,14 @@ tsuffix  = type:tsuffix SUFFIX_Q                    → (optional)
          | type:tsuffix SUFFIX_BANG                 → (error_union)
          | tatom
 
-tatom    = name
-         | object:name "." name:name                → (member)     # `geo.Point`
-         | name:name LBRACKET_INDEX args:types [","] "]" → (generic_inst)
+tatom    = tname
+         | name:tname LBRACKET_INDEX args:types [","] "]" → (generic_inst)
          | "(" type ")"                             → 2
+
+# A named type, of this module or another: `Point`, `geo.Point`. Its
+# instance names it the same way: `Box[Int]`, `lib.Box[Int]`.
+tname    = name
+         | object:name "." name:name                → (member)
 
 # Compile-time arguments; written out rather than `L(targ)`, which
 # conflicts with a trailing comma.

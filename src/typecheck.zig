@@ -2462,7 +2462,7 @@ const Checker = struct {
 
     fn findMethod(self: *Checker, obj_ty: TypeId, name: []const u8) Error!?Method {
         if (try sema.lookupMethod(self.ctx, obj_ty, name)) |m| {
-            return .{ .field = m.field, .fn_ty = m.fn_ty, .owner = self.ctx.symbols.items[m.nominal_sym].name, .nominal_sym = m.nominal_sym, .source = self.ctx.source };
+            return .{ .field = m.field, .fn_ty = m.fn_ty, .owner = self.ctx.symbols.items[m.nominal_sym].name, .nominal_sym = m.nominal_sym, .source = self.declSource(m.nominal_sym) };
         }
         const decl = sema.nominalDecl(self.ctx, sema.unwrapReadAccess(self.ctx, obj_ty)) orelse return null;
         const module_id = decl.module_id orelse return null;
@@ -2480,7 +2480,7 @@ const Checker = struct {
     fn moduleMember(self: *Checker, obj: Sexp, field: []const u8, pos: u32) Error!?TypeId {
         const id = (try self.moduleNamed(obj)) orelse return null;
         const found = (try self.foreignSymbol(id, field, pos)) orelse return self.t().invalid_id;
-        if (found.sym.kind == .nominal_type) {
+        if (found.sym.kind == .nominal_type or found.sym.kind == .generic_type) {
             try self.err(pos, "`{s}.{s}` is a type, not a value", .{ self.text(obj), field });
             return self.t().invalid_id;
         }
@@ -2523,8 +2523,24 @@ const Checker = struct {
         const id = (try self.moduleNamed(ir.Member.object(obj))) orelse return null;
         const name = ir.Member.name(obj);
         const found = (try self.foreignSymbol(id, self.text(name), name.src.pos)) orelse return null;
+        if (found.sym.kind == .generic_type) return try self.foreignGeneric(found);
         if (found.sym.kind != .nominal_type) return null;
         return .{ .id = found.id, .sym = found.sym, .foreign = .{ .ctx = found.ctx, .module_id = found.module_id } };
+    }
+
+    /// Another module's generic type, named here by its proxy
+    /// (`sema.proxyOf`), whose members are in this module's types.
+    fn foreignGeneric(self: *Checker, found: Foreign) Error!NamedType {
+        const id = try sema.proxyOf(self.ctx, .{ .module_id = found.module_id, .sym = found.id });
+        return .{ .id = id, .sym = self.ctx.symbols.items[id] };
+    }
+
+    /// The source of the module that declares symbol `id`'s members and
+    /// defaults: another module's, for a proxy.
+    fn declSource(self: *Checker, id: SymbolId) []const u8 {
+        const sym = self.ctx.symbols.items[id];
+        if (!sema.isProxy(sym)) return self.ctx.source;
+        return (self.ctx.foreign_semas.get(sym.from.module_id) orelse return self.ctx.source).source;
     }
 
     /// The type an alias of a local struct or enum names (`Point` for
@@ -2601,15 +2617,14 @@ const Checker = struct {
         value_member,
         /// A type that takes no type arguments; its name.
         not_generic: []const u8,
-        /// A generic type of another module (`lib.Box`), which cannot
-        /// be instantiated here.
-        foreign_generic: []const u8,
+        /// A generic type of another module that is not public, reported.
+        reported,
     };
 
     /// `X[...]` where `X` is a type that takes no type arguments here.
     fn notGeneric(self: *Checker, at: Sexp, target: InstTarget) Error!void {
         switch (target) {
-            .foreign_generic => |name| try self.errAt(at, "`{s}` is a generic type of another module; generic types cannot cross module boundaries yet", .{name}),
+            .reported => {},
             .not_generic => |name| try self.errAt(at, "`{s}` is not a generic type; it takes no type arguments", .{name}),
             else => unreachable,
         }
@@ -2643,7 +2658,11 @@ const Checker = struct {
             return switch (fsym.kind) {
                 .function, .@"extern" => .{ .function = fnTarget(foreign, fsym.ty) },
                 .nominal_type, .type_alias => .{ .not_generic = try self.sourceText(obj) },
-                .generic_type => .{ .foreign_generic = try self.sourceText(obj) },
+                .generic_type => blk: {
+                    try self.ctx.recordName(inner, id);
+                    const found = (try self.foreignSymbol(id, name, ir.Member.name(obj).src.pos)) orelse break :blk .reported;
+                    break :blk .{ .generic = try self.foreignGeneric(found) };
+                },
                 else => null,
             };
         };
@@ -2694,7 +2713,7 @@ const Checker = struct {
                     try self.errAt(e, "`{s}` takes no compile-time arguments; call it with `{s}(...)`", .{ name, name });
                 } else try self.errAt(e, "`{s}` is a function with compile-time arguments; call it with `{s}({s})`", .{ call, call, if (f.takes_args) "..." else "" });
             },
-            .not_generic, .foreign_generic => try self.notGeneric(e, target),
+            .not_generic, .reported => try self.notGeneric(e, target),
             .value_member => unreachable,
         }
         return self.t().invalid_id;
@@ -2755,7 +2774,7 @@ const Checker = struct {
                 },
                 .index, .inst => if (try self.instTarget(ir.get(e, .object))) |target| switch (target) {
                     .generic => |nt| return self.typeInstance(e, nt),
-                    .not_generic, .foreign_generic => {
+                    .not_generic, .reported => {
                         try self.notGeneric(e, target);
                         return self.t().invalid_id;
                     },
@@ -3109,7 +3128,7 @@ const Checker = struct {
                 callee = ir.get(callee, .object);
             },
             .value_member => return self.synthMemberCall(ir.get(callee, .object), args, callee),
-            .not_generic, .foreign_generic => {
+            .not_generic, .reported => {
                 try self.notGeneric(callee, target);
                 return self.skipCall(args);
             },
@@ -3138,16 +3157,9 @@ const Checker = struct {
                 .nominal_type => return self.construct(sym_id, args, callee.src.pos, TypeSubst.empty, null),
                 .type_alias => return self.badCall(args, callee, "`{s}` is a type alias for `{s}` and cannot be called as a constructor; construct the aliased type directly", .{ name, try self.tyName(sym.ty) }),
                 .generic_type => {
-                    // The type arguments come from the fields' values.
                     if (sym_id == self.ctx.vec_sym_id) return self.badCall(args, callee, "`Vec()` needs its element type: name it (`Vec[T]()`), or give it where the value goes (`v: Vec[T] = Vec()`)", .{});
                     if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
-                    if (args.len > 0 and self.isTypeName(args[0])) {
-                        try self.errAt(callee, "type arguments go in brackets: `{s}[{s}](...)`", .{ name, self.text(args[0]) });
-                        return self.t().invalid_id;
-                    }
-                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = sym.fields orelse &.{} }, callee.src.pos, self.expectedResult((try sema.makeNominalContext(self.ctx, sym_id)).self_type), null)) orelse return self.skipCall(args);
-                    _ = try self.instantiate(sym_id, subst.args, callee.src.pos);
-                    return self.construct(sym_id, args, callee.src.pos, subst, null);
+                    return self.constructGeneric(callee, sym_id, args, name, callee.src.pos);
                 },
                 .module => return self.badCall(args, callee, "module `{s}` cannot be called", .{name}),
                 .generic_param => return self.badCall(args, callee, "`{s}` is a type parameter; it cannot be called or constructed", .{name}),
@@ -3161,6 +3173,20 @@ const Checker = struct {
 
         const callee_ty = try self.synthOperand(callee);
         return self.callValue(callee, callee_ty, args, try self.sourceText(callee));
+    }
+
+    /// `Box(v: 3)`, `lib.Box(v: 3)`: generic type `sym_id`, named `name`
+    /// by `callee`, constructed at the type arguments its fields' values
+    /// and the type expected of it give.
+    fn constructGeneric(self: *Checker, callee: Sexp, sym_id: SymbolId, args: []const Sexp, name: []const u8, pos: u32) Error!TypeId {
+        if (args.len > 0 and self.isTypeName(args[0])) {
+            try self.errAt(callee, "type arguments go in brackets: `{s}[{s}](...)`", .{ name, self.text(args[0]) });
+            return self.t().invalid_id;
+        }
+        const fields = self.ctx.symbols.items[sym_id].fields orelse &.{};
+        const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = fields }, pos, self.expectedResult((try sema.makeNominalContext(self.ctx, sym_id)).self_type), null)) orelse return self.skipCall(args);
+        _ = try self.instantiate(sym_id, subst.args, pos);
+        return self.construct(sym_id, args, pos, subst, null);
     }
 
     /// Call function `sym`, named by `callee`, with the compile-time
@@ -4467,7 +4493,7 @@ const Checker = struct {
                     f = self.ctx.types.get(try sema.substituteType(self.ctx, m.ty, subst)).function;
                     recv = subst;
                 }
-                const source = if (nt.foreign) |fo| fo.ctx.source else self.ctx.source;
+                const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
                 const info = methodParams(m, false, source);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
                 try self.noteCallee(f);
@@ -4593,6 +4619,10 @@ const Checker = struct {
                 return f.returns;
             },
             .nominal_type => if (ct == null) return self.construct(found.id, args, pos, TypeSubst.empty, .{ .ctx = found.ctx, .module_id = found.module_id }) else return self.badCall(args, ct.?, "`{s}` is not a generic type; it takes no type arguments", .{qualified}),
+            .generic_type => {
+                const nt = try self.foreignGeneric(found);
+                return self.constructGeneric(self.callee_node orelse Sexp.nil, nt.id, args, qualified, pos);
+            },
             else => return self.badCall(args, pos, "`{s}` cannot be called", .{qualified}),
         }
     }

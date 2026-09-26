@@ -1,5 +1,0 @@
-pub struct Box[T]
-  v: T
-
-pub sub hello
-  print(Box(v: 1).v)
