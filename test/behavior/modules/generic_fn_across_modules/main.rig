@@ -1,0 +1,31 @@
+# Another module's generic function is called as a local one is: its
+# type arguments are inferred, from the arguments and from the type
+# expected of the result, or given in brackets, and each instance is
+# checked against what the module's bodies do with them.
+
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  print(lib.max(3, 7), lib.max[Float](1, 2))
+  z: U8 = lib.max(1, 2)
+  small: U8 = 5
+  print(z, lib.max(lib.max(1, 2), small))
+  print(lib.biggest(4, 9, 2), lib.biggest(1.5, 0.5, 1.0))
+  r = lib.keep(Res(n: 1))
+  kept = lib.first(Res(n: 2), Res(n: 3))
+  print(r.n, kept.n)
+
+# expect:
+# 7 2.0
+# 2 5
+# 9 1.5
+# drop 3
+# 1 2
+# drop 2
+# drop 1

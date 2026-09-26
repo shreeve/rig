@@ -335,7 +335,9 @@ A few kinds serve more than one surface form:
   `shared`, `fun_type`, ...) appear only in type positions.
 - A bracket list touching a value is `(index object index)` with one
   argument and `(inst object args...)` with more; in a type,
-  `Vec[Int]` is `(generic_inst Vec Int)`. The parser cannot tell
+  `Vec[Int]` is `(generic_inst Vec Int)`, and another module's
+  `lib.Wrap[Int]` is `(generic_inst (member lib Wrap) Int)`: the grammar
+  names a type the same way with and without arguments (`tname`). The parser cannot tell
   `xs[0]` from `Vec[Int]` or `check[.strict]`, so sema decides by what
   the object names (`instTarget`): a generic type or a function (named
   directly, through its module, or through its type, or a method of
@@ -419,7 +421,37 @@ Every module's `SemContext` is in one shared table, and cross-module
 references go through it: an imported nominal type is
 `imported_nominal{module_id, sym_id}`, so `a.Point` and `b.Point` are
 distinct, and a qualified call is checked against the imported
-signature exactly as a local one.
+signature exactly as a local one (`sema.importType` copies a type from
+the other module's store).
+
+A module's context is its export: it stays in the table, fully
+checked, ownership included, before any importer is checked. Another
+module's generic type, and each type or integer parameter of its
+generic types and functions, is a *proxy* in the importer
+(`sema.proxyOf`): a `Symbol` in no scope, with `decl_pos =
+imported_decl_pos` and `from` naming the declaration (a module id and
+its symbol there). A proxy always names the declaration itself, never
+another module's proxy of it, and `imported` keeps one proxy per
+declaration, so `lib.Wrap[Int]` is one `parameterized_nominal` over one
+proxy whether it is spelled here or reached through `a` or `b`, and the
+emitted Zig names it `lib.Wrap(i64)` (or `@import("lib.zig").Wrap(i64)`
+from a module that does not import `lib`), which Zig memoizes to one
+type. A generic type's proxy is named as this module spells it
+(`lib.Wrap`) and has the declaration's contents, its parameters'
+proxies, and its members with their types imported; `importType` maps
+a `type_var`, `ct_param`, and a generic instance's symbol to proxies,
+and a function type's `ct_syms` to the proxies of its type and integer
+parameters. Each parameter's proxy copies what the declaring module's
+bodies record about the parameter (`importParam`): its requirements and
+the copies the ownership checker found (`plain_reqs`), with their
+positions there and that module's id, and the uses, arrays, and frames
+that mention it, each list entry once (`imported_entries`). From there
+the per-instance machinery runs unchanged, on the importer's own
+tables: an instance made here, and every instance its bodies reach,
+even in a module this one does not import, is expanded, checked against
+the requirements, sized, and ownership-checked here, and a note about
+the body points into the declaring module's file. Import cycles are
+rejected, so a chain of proxies always ends.
 
 ## Sema
 
@@ -446,7 +478,7 @@ later pass reads. It runs these steps in order:
    value is rejected.
 5. **validation** (`resolve.checkDeclarations`): the rules on spelled
    types that depend on contents (array and built-in element types,
-   owned-closure signatures) and on the public surface.
+   owned-closure signatures).
 6. **expressions** (`typecheck.checkModule`): bodies are type-checked
    bidirectionally. `synthExpr(e)` infers a type from `e` alone;
    `checkExpr(e, expected)` checks it against the type its context
@@ -552,12 +584,12 @@ type's value parameters are detached `param` symbols among its
 `type_params`, and its methods read them by name (`useName`). A
 function's integer value parameters are part of its instances
 (`FnInstance`) like its type parameters, and a call infers the ones its
-signature holds. A public function, or a method of a public type,
-whose integer parameter sizes an array, directly or through the
-functions and types it passes it to, is rejected (`checkPublicArrayLengths`): other modules' instances are
-never checked here. A value takes at most `sema.max_value_bytes`
+signature holds. A value takes at most `sema.max_value_bytes`
 (8 MiB), from `sema.minBytes`: an array type is checked where it is
-spelled or made (`checkArrayBytes`), a struct or enum after contents
+spelled or made (`checkArrayBytes`), or, when a generic call infers it
+from an argument, at that argument (`checkArraysIn`); a synthesis whose
+diagnostics are dropped (`synthQuiet`, under `quiet`) leaves it to the
+check that keeps them. A struct or enum is checked after contents
 are known (`checkTypeSizes`), and an array that mentions a generic
 parameter is kept in `generic_arrays` and checked, with the instance
 itself, at each instance (`checkInstanceSizes`). A type reported too
@@ -607,7 +639,19 @@ it is in, at that instance's site, until nothing new appears; an
 instance nesting deeper than 24 levels is reported as ever deeper
 instances. Each work item keeps its `InstanceRoot`, the instance the
 program spelled, so a diagnostic names what the user wrote
-(`max[Point]`) even for an instance reached through other bodies.
+(`max[Point]`) even for an instance reached through other bodies. Then
+`checkSelfNesting` runs the same expansion (`expand`) from each `pub`
+generic function and type, and each generic method of a `pub` type,
+at its own parameters (`nest[T]`), following instances over type
+parameters too (kept apart in `Reached`, never recorded). As in the
+program's expansion, a use over parameters the instance does not bind
+is left to the instances that bind them: `List[X]` does not follow
+`List[Pair[T, U]]` in its method `zip[U]`, which `zip[T, U]` follows.
+An instance at distinct parameters (`f[A]` reached from `g[A]`) is kept
+as the generic at its own (`f[T]`), which expands to the same depths,
+so a chain of public generics is expanded once per link. One nesting
+ever deeper is reported where it is declared, since the instances that
+would show it are made in other modules.
 `checkGenericInstantiations` then checks every instance against the
 requirements (`checkRequirements`), reporting at the site with a note
 at the operation, and the ownership checker checks each against the
@@ -630,7 +674,11 @@ spans.rig:3:5: error: `return` needs a value of type `Int`
 
 A diagnostic about a position rather than a node (a name that was
 used, a loan taken) is underlined with a single `^`. Notes follow the
-error they explain. `test/cli/diagnostics.sh` checks the format.
+error they explain. A note about another module's code, such as the
+operation of a generic body an instance made here does not support,
+names that module (`Diagnostic.module`, `SemContext.noteIn`) and prints
+with its file's path and line. `test/cli/diagnostics.sh` checks the
+format.
 
 ## Ownership
 
@@ -723,6 +771,9 @@ treated as owning (moved, dropped, never copied implicitly) and as
 holding no borrow. A body that copies a `T`, or takes (moves, drops,
 reassigns) a loop element of generic type from a collection the loop
 does not consume, records that in `plain_reqs`, with its position.
+After the module is checked they are kept in its
+`SemContext.plain_reqs`, where importers read them for the proxies of
+its parameters, and an importer's checker adds those it imported.
 `checkInstantiations` then rejects an instance whose argument there
 owns a resource, with a note at the copy, and a type argument that may
 hold a borrow, for a generic function and for a generic type with

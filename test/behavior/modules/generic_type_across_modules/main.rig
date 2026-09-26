@@ -1,0 +1,41 @@
+# Another module's generic type is named, constructed, and used as a
+# local one is: `lib.Wrap[Int]` in a type or an expression, with its
+# type arguments given or inferred, and its methods and variants.
+
+use lib
+
+sub show(b: lib.Wrap[Int])
+  print(b.v, b.get(), b.count)
+
+sub main()
+  a = lib.Wrap[Int](v: 3)
+  s = lib.Wrap(v: "s")
+  b: lib.Wrap[Int] = lib.Wrap[Int].make(1)
+  c = lib.Wrap.make(2.5)
+  show(a)
+  show(b)
+  print(s.get(), c.get())
+  p = b.with[Bool](true)
+  q = s.with(7)
+  print(p.first, p.second, q.first, q.second)
+  o = lib.Opt[Int].some(value: 7)
+  n: lib.Opt[Int] = .none
+  match o
+    .some(value) => print("some", value)
+    .none => print("none")
+  print(o.or(0), n.or(9), lib.Opt[String].none.or("x"))
+  v = Vec[lib.Wrap[Int]]()
+  !v.push(a)
+  !v.push(lib.Wrap(v: 5, count: 2))
+  for x in v
+    print(x.v, x.count)
+
+# expect:
+# 3 3 1
+# 1 1 1
+# s 2.5
+# 1 true s 7
+# some 7
+# 7 9 x
+# 3 1
+# 5 2

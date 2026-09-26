@@ -1,0 +1,20 @@
+# Another module's public generics may use instances of their own types
+# at a method's own parameter (`List[Pair[T, U]]` in `zip[U]`, and a
+# private `Wrap[Pair[T, U]]` in `tag[U]`): these do not nest themselves.
+
+use lib
+
+sub main()
+  a: Vec[Int] = Vec()
+  !a.push(1)
+  b: Vec[String] = Vec()
+  !b.push("x")
+  l = lib.List(items: <a)
+  m = lib.List(items: <b)
+  z = l.zip(?m)
+  print(z.items[0].a, z.items[0].b)
+  print(lib.tagged(3))
+
+# expect:
+# 1 x
+# 1

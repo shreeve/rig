@@ -545,7 +545,8 @@ const Checker = struct {
             return;
         };
         try self.ctx.recordName(target, sym_id);
-        const sym = &self.ctx.symbols.items[sym_id];
+        // A copy: resolving the annotation may add symbols (`sema.proxyOf`).
+        const sym = self.ctx.symbols.items[sym_id];
         const is_decl = sym.decl_pos == target.src.pos;
 
         if (!is_decl and sym.kind == .param and self.ctx.types.get(sym.ty) != .borrow_write) {
@@ -878,6 +879,8 @@ const Checker = struct {
     /// Synthesize without reporting diagnostics (the full check reports them).
     fn synthQuiet(self: *Checker, e: Sexp) Error!TypeId {
         const mark = self.ctx.diagnostics.items.len;
+        self.ctx.quiet += 1;
+        defer self.ctx.quiet -= 1;
         const ty = try self.synthExpr(e);
         self.ctx.diagnostics.shrinkRetainingCapacity(mark);
         return ty;
@@ -1442,9 +1445,14 @@ const Checker = struct {
     }
 
     /// Point at where type `sym` is declared, when that is in this
-    /// module's source (`local`).
+    /// module's source (`local`), or where the generic type a proxy
+    /// stands for is.
     fn noteDeclared(self: *Checker, sym: sema.Symbol, local: bool) Error!void {
-        if (local and sym.decl_pos != sema.builtin_decl_pos) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
+        if (sema.isProxy(sym)) {
+            const origin = sema.proxyOrigin(self.ctx, sym) orelse return;
+            return self.ctx.noteIn(origin.module_id, origin.pos, "`{s}` declared here", .{sym.name});
+        }
+        if (local and sym.decl_pos < sema.imported_decl_pos) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
     }
 
     // =========================================================================
@@ -2422,7 +2430,12 @@ const Checker = struct {
         };
         const owner = decl.symbol();
         if ((try self.findMethod(obj_ty, field)) != null) {
-            try self.err(pos, "method `{s}` must be called; to pass it as a function that takes the receiver first, name it through its type: `{s}.{s}`", .{ field, owner.name, field });
+            if (owner.kind == .generic_type) {
+                try self.err(pos, "method `{s}` must be called; wrap it in a closure to pass it as a value", .{field});
+            } else {
+                const tname = if (decl.module_id != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ decl.ctx.name, owner.name }) else owner.name;
+                try self.err(pos, "method `{s}` must be called; to pass it as a function that takes the receiver first, name it through its type: `{s}.{s}`", .{ field, tname, field });
+            }
         } else if (owner.fields == null) {
             try self.err(pos, "opaque type `{s}` has no accessible fields", .{owner.name});
         } else {
@@ -2456,7 +2469,7 @@ const Checker = struct {
 
     fn findMethod(self: *Checker, obj_ty: TypeId, name: []const u8) Error!?Method {
         if (try sema.lookupMethod(self.ctx, obj_ty, name)) |m| {
-            return .{ .field = m.field, .fn_ty = m.fn_ty, .owner = self.ctx.symbols.items[m.nominal_sym].name, .nominal_sym = m.nominal_sym, .source = self.ctx.source };
+            return .{ .field = m.field, .fn_ty = m.fn_ty, .owner = self.ctx.symbols.items[m.nominal_sym].name, .nominal_sym = m.nominal_sym, .source = self.declSource(m.nominal_sym) };
         }
         const decl = sema.nominalDecl(self.ctx, sema.unwrapReadAccess(self.ctx, obj_ty)) orelse return null;
         const module_id = decl.module_id orelse return null;
@@ -2474,12 +2487,12 @@ const Checker = struct {
     fn moduleMember(self: *Checker, obj: Sexp, field: []const u8, pos: u32) Error!?TypeId {
         const id = (try self.moduleNamed(obj)) orelse return null;
         const found = (try self.foreignSymbol(id, field, pos)) orelse return self.t().invalid_id;
-        if (found.sym.kind == .nominal_type) {
+        if (found.sym.kind == .nominal_type or found.sym.kind == .generic_type) {
             try self.err(pos, "`{s}.{s}` is a type, not a value", .{ self.text(obj), field });
             return self.t().invalid_id;
         }
         const ty = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
-        if (found.sym.kind == .function) return try self.functionValue(ty, field, pos);
+        if (found.sym.kind == .function) return try self.functionValue(ty, try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ self.text(obj), field }), pos);
         return ty;
     }
 
@@ -2517,8 +2530,31 @@ const Checker = struct {
         const id = (try self.moduleNamed(ir.Member.object(obj))) orelse return null;
         const name = ir.Member.name(obj);
         const found = (try self.foreignSymbol(id, self.text(name), name.src.pos)) orelse return null;
+        if (found.sym.kind == .generic_type) return try self.foreignGeneric(found);
         if (found.sym.kind != .nominal_type) return null;
         return .{ .id = found.id, .sym = found.sym, .foreign = .{ .ctx = found.ctx, .module_id = found.module_id } };
+    }
+
+    /// A named type as this module spells it: `lib.Point` for another
+    /// module's (a generic one's proxy is named so already).
+    fn namedTypeName(self: *Checker, nt: NamedType) Error![]const u8 {
+        const fo = nt.foreign orelse return nt.sym.name;
+        return std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ fo.ctx.name, nt.sym.name });
+    }
+
+    /// Another module's generic type, named here by its proxy
+    /// (`sema.proxyOf`), whose members are in this module's types.
+    fn foreignGeneric(self: *Checker, found: Foreign) Error!NamedType {
+        const id = try sema.proxyOf(self.ctx, .{ .module_id = found.module_id, .sym = found.id });
+        return .{ .id = id, .sym = self.ctx.symbols.items[id] };
+    }
+
+    /// The source of the module that declares symbol `id`'s members and
+    /// defaults: another module's, for a proxy.
+    fn declSource(self: *Checker, id: SymbolId) []const u8 {
+        const sym = self.ctx.symbols.items[id];
+        if (!sema.isProxy(sym)) return self.ctx.source;
+        return (self.ctx.foreign_semas.get(sym.from.module_id) orelse return self.ctx.source).source;
     }
 
     /// The type an alias of a local struct or enum names (`Point` for
@@ -2541,8 +2577,9 @@ const Checker = struct {
 
     /// `Type.variant`: a variant without a payload.
     fn typeMember(self: *Checker, nt: NamedType, field: []const u8, pos: u32) Error!TypeId {
+        const tname = try self.namedTypeName(nt);
         const members = nt.sym.fields orelse {
-            try self.err(pos, "opaque type `{s}` has no members", .{nt.sym.name});
+            try self.err(pos, "opaque type `{s}` has no members", .{tname});
             return self.t().invalid_id;
         };
         for (members) |m| {
@@ -2551,25 +2588,25 @@ const Checker = struct {
             // parameter is the receiver.
             if (m.is_method) {
                 if (nt.sym.kind == .generic_type) {
-                    try self.err(pos, "method `{s}.{s}` of a generic type must be called; wrap it in a closure to pass it as a value", .{ nt.sym.name, field });
+                    try self.err(pos, "method `{s}.{s}` of a generic type must be called; wrap it in a closure to pass it as a value", .{ tname, field });
                     return self.t().invalid_id;
                 }
-                const name = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ nt.sym.name, field });
+                const name = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ tname, field });
                 return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos);
             }
             if (!m.is_variant) break;
             if (nt.sym.kind == .generic_type and nt.args == null) {
-                try self.err(pos, "variant of generic enum `{s}` needs its type; write `{s}[...].{s}`, or `.{s}` where a `{s}[...]` is expected", .{ nt.sym.name, nt.sym.name, field, field, nt.sym.name });
+                try self.err(pos, "variant of generic enum `{s}` needs its type; write `{s}[...].{s}`, or `.{s}` where a `{s}[...]` is expected", .{ tname, tname, field, field, tname });
                 return self.t().invalid_id;
             }
             if (m.payload != null and m.payload.?.len > 0) {
-                try self.err(pos, "variant `{s}.{s}` carries a payload; construct it with `{s}.{s}(...)`", .{ nt.sym.name, field, nt.sym.name, field });
+                try self.err(pos, "variant `{s}.{s}` carries a payload; construct it with `{s}.{s}(...)`", .{ tname, field, tname, field });
                 return self.t().invalid_id;
             }
             if (nt.args) |given| return self.instantiate(nt.id, given, pos);
             return self.namedTypeValue(nt);
         }
-        try self.err(pos, "no member `{s}` on type `{s}`", .{ field, nt.sym.name });
+        try self.err(pos, "no member `{s}` on type `{s}`", .{ field, tname });
         try self.noteDeclared(nt.sym, nt.foreign == null);
         return self.t().invalid_id;
     }
@@ -2595,15 +2632,14 @@ const Checker = struct {
         value_member,
         /// A type that takes no type arguments; its name.
         not_generic: []const u8,
-        /// A generic type of another module (`lib.Wrap`), which cannot
-        /// be instantiated here.
-        foreign_generic: []const u8,
+        /// A generic type of another module that is not public, reported.
+        reported,
     };
 
     /// `X[...]` where `X` is a type that takes no type arguments here.
     fn notGeneric(self: *Checker, at: Sexp, target: InstTarget) Error!void {
         switch (target) {
-            .foreign_generic => |name| try self.errAt(at, "`{s}` is a generic type of another module; generic types cannot cross module boundaries yet", .{name}),
+            .reported => {},
             .not_generic => |name| try self.errAt(at, "`{s}` is not a generic type; it takes no type arguments", .{name}),
             else => unreachable,
         }
@@ -2637,7 +2673,11 @@ const Checker = struct {
             return switch (fsym.kind) {
                 .function, .@"extern" => .{ .function = fnTarget(foreign, fsym.ty) },
                 .nominal_type, .type_alias => .{ .not_generic = try self.sourceText(obj) },
-                .generic_type => .{ .foreign_generic = try self.sourceText(obj) },
+                .generic_type => blk: {
+                    try self.ctx.recordName(inner, id);
+                    const found = (try self.foreignSymbol(id, name, ir.Member.name(obj).src.pos)) orelse break :blk .reported;
+                    break :blk .{ .generic = try self.foreignGeneric(found) };
+                },
                 else => null,
             };
         };
@@ -2688,7 +2728,7 @@ const Checker = struct {
                     try self.errAt(e, "`{s}` takes no compile-time arguments; call it with `{s}(...)`", .{ name, name });
                 } else try self.errAt(e, "`{s}` is a function with compile-time arguments; call it with `{s}({s})`", .{ call, call, if (f.takes_args) "..." else "" });
             },
-            .not_generic, .foreign_generic => try self.notGeneric(e, target),
+            .not_generic, .reported => try self.notGeneric(e, target),
             .value_member => unreachable,
         }
         return self.t().invalid_id;
@@ -2749,7 +2789,7 @@ const Checker = struct {
                 },
                 .index, .inst => if (try self.instTarget(ir.get(e, .object))) |target| switch (target) {
                     .generic => |nt| return self.typeInstance(e, nt),
-                    .not_generic, .foreign_generic => {
+                    .not_generic, .reported => {
                         try self.notGeneric(e, target);
                         return self.t().invalid_id;
                     },
@@ -3045,7 +3085,8 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         const ty = try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
-        // An expected array type was checked where it was spelled or made.
+        // An expected array type was checked where it was spelled or
+        // inferred.
         if (expected == null and !self.under_poison and !try sema.checkArrayBytes(self.ctx, self.startOf(node), ty)) return self.t().invalid_id;
         if (expected) |ex| if (ex != ty) {
             try self.errAt(node, "`{s}` has length `{s}`; `{s}` needs `{s}`", .{ try self.sourceText(node), try self.tyName(len), try self.tyName(ex), try self.tyName(self.ctx.types.get(ex).array.len) });
@@ -3103,7 +3144,7 @@ const Checker = struct {
                 callee = ir.get(callee, .object);
             },
             .value_member => return self.synthMemberCall(ir.get(callee, .object), args, callee),
-            .not_generic, .foreign_generic => {
+            .not_generic, .reported => {
                 try self.notGeneric(callee, target);
                 return self.skipCall(args);
             },
@@ -3132,16 +3173,9 @@ const Checker = struct {
                 .nominal_type => return self.construct(sym_id, args, callee.src.pos, TypeSubst.empty, null),
                 .type_alias => return self.badCall(args, callee, "`{s}` is a type alias for `{s}` and cannot be called as a constructor; construct the aliased type directly", .{ name, try self.tyName(sym.ty) }),
                 .generic_type => {
-                    // The type arguments come from the fields' values.
                     if (sym_id == self.ctx.vec_sym_id) return self.badCall(args, callee, "`Vec()` needs its element type: name it (`Vec[T]()`), or give it where the value goes (`v: Vec[T] = Vec()`)", .{});
                     if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
-                    if (args.len > 0 and self.isTypeName(args[0])) {
-                        try self.errAt(callee, "type arguments go in brackets: `{s}[{s}](...)`", .{ name, self.text(args[0]) });
-                        return self.t().invalid_id;
-                    }
-                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = sym.fields orelse &.{} }, callee.src.pos, self.expectedResult((try sema.makeNominalContext(self.ctx, sym_id)).self_type), null)) orelse return self.skipCall(args);
-                    _ = try self.instantiate(sym_id, subst.args, callee.src.pos);
-                    return self.construct(sym_id, args, callee.src.pos, subst, null);
+                    return self.constructGeneric(callee, sym_id, args, name, callee.src.pos);
                 },
                 .module => return self.badCall(args, callee, "module `{s}` cannot be called", .{name}),
                 .generic_param => return self.badCall(args, callee, "`{s}` is a type parameter; it cannot be called or constructed", .{name}),
@@ -3155,6 +3189,20 @@ const Checker = struct {
 
         const callee_ty = try self.synthOperand(callee);
         return self.callValue(callee, callee_ty, args, try self.sourceText(callee));
+    }
+
+    /// `Wrap(v: 3)`, `lib.Wrap(v: 3)`: generic type `sym_id`, named `name`
+    /// by `callee`, constructed at the type arguments its fields' values
+    /// and the type expected of it give.
+    fn constructGeneric(self: *Checker, callee: Sexp, sym_id: SymbolId, args: []const Sexp, name: []const u8, pos: u32) Error!TypeId {
+        if (args.len > 0 and self.isTypeName(args[0])) {
+            try self.errAt(callee, "type arguments go in brackets: `{s}[{s}](...)`", .{ name, self.text(args[0]) });
+            return self.t().invalid_id;
+        }
+        const fields = self.ctx.symbols.items[sym_id].fields orelse &.{};
+        const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = fields }, pos, self.expectedResult((try sema.makeNominalContext(self.ctx, sym_id)).self_type), null)) orelse return self.skipCall(args);
+        _ = try self.instantiate(sym_id, subst.args, pos);
+        return self.construct(sym_id, args, pos, subst, null);
     }
 
     /// Call function `sym`, named by `callee`, with the compile-time
@@ -3864,7 +3912,7 @@ const Checker = struct {
                     try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); they must have one type", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg });
                 }
                 ok = false;
-            } else if (!try self.valueBindingFits(param, b, callee, pos)) ok = false;
+            } else if (!try self.valueBindingFits(param, b, callee, pos) or !try self.inferredTypeFits(b, args)) ok = false;
         }
         return if (ok) result else null;
     }
@@ -3892,6 +3940,16 @@ const Checker = struct {
             else => {},
         }
         return true;
+    }
+
+    /// A type inference took from an argument must fit
+    /// `sema.max_value_bytes`, as a spelled one must where it is spelled:
+    /// an array too large is reported at the argument.
+    fn inferredTypeFits(self: *Checker, b: Bound, args: []const Sexp) Error!bool {
+        if (b.expected or b.arg == 0 or b.arg > args.len) return true;
+        const arg = args[b.arg - 1];
+        const value = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
+        return sema.checkArraysIn(self.ctx, self.startOf(value), b.ty);
     }
 
     /// What a generic call's result says to the calls around it: whether
@@ -4154,7 +4212,16 @@ const Checker = struct {
             if (f.is_variant) break true;
         } else false;
         if (is_enum) return self.badCall(args, pos, "`{s}` is an enum; construct a variant with `{s}.name` or `.name(...)`", .{ sym.name, sym.name });
-        try self.checkFieldArgs(args, fields, .{ .owner = sym.name, .decl_pos = sym.decl_pos, .pos = pos, .subst = subst, .foreign = foreign, .kind = .constructor });
+        const origin = if (sema.isProxy(sym)) sema.proxyOrigin(self.ctx, sym) else null;
+        try self.checkFieldArgs(args, fields, .{
+            .owner = sym.name,
+            .decl_pos = if (origin) |o| o.pos else sym.decl_pos,
+            .module_id = if (origin) |o| o.module_id else 0,
+            .pos = pos,
+            .subst = subst,
+            .foreign = foreign,
+            .kind = .constructor,
+        });
         return result;
     }
 
@@ -4163,6 +4230,9 @@ const Checker = struct {
     const FieldArgs = struct {
         owner: []const u8,
         decl_pos: u32,
+        /// The module whose source `decl_pos` and the fields' positions
+        /// are in, for a proxy's fields; 0 for this one.
+        module_id: u32 = 0,
         pos: u32,
         subst: TypeSubst = TypeSubst.empty,
         foreign: ?ForeignFields = null,
@@ -4201,7 +4271,7 @@ const Checker = struct {
             try seen.put(self.ctx.allocator, fname, fpos);
             const f = findDataField(fields, fname) orelse {
                 try self.err(fpos, "no field `{s}` on {s} `{s}`", .{ fname, if (info.kind == .constructor) "type" else "variant", info.owner });
-                if (info.foreign == null and info.decl_pos != sema.builtin_decl_pos and info.decl_pos != 0) try self.note(info.decl_pos, "`{s}` declared here", .{info.owner});
+                if (info.foreign == null and info.decl_pos < sema.imported_decl_pos and info.decl_pos != 0) try self.ctx.noteIn(info.module_id, info.decl_pos, "`{s}` declared here", .{info.owner});
                 _ = try self.synthExpr(value);
                 continue;
             };
@@ -4210,7 +4280,7 @@ const Checker = struct {
         for (fields) |f| {
             if (f.is_method or f.is_variant or f.default != null or seen.contains(f.name)) continue;
             try self.err(info.pos, "{s} `{s}` is missing field `{s}`", .{ noun, info.owner, f.name });
-            if (info.foreign == null and f.decl_pos != sema.builtin_decl_pos) try self.note(f.decl_pos, "field `{s}` declared here", .{f.name});
+            if (info.foreign == null and f.decl_pos < sema.imported_decl_pos) try self.ctx.noteIn(info.module_id, f.decl_pos, "field `{s}` declared here", .{f.name});
         }
     }
 
@@ -4432,7 +4502,8 @@ const Checker = struct {
     /// `Type.function(args)` or `Type.variant(payload)`, for a type of
     /// this module or an imported one.
     fn associatedCall(self: *Checker, obj: Sexp, nt: NamedType, name: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
-        const members = nt.sym.fields orelse return self.badCall(args, pos, "opaque type `{s}` has no members", .{nt.sym.name});
+        const tname = try self.namedTypeName(nt);
+        const members = nt.sym.fields orelse return self.badCall(args, pos, "opaque type `{s}` has no members", .{tname});
         const generic = nt.sym.kind == .generic_type;
         for (members) |m| {
             if (!std.mem.eql(u8, m.name, name)) continue;
@@ -4449,17 +4520,17 @@ const Checker = struct {
                     f = self.ctx.types.get(try sema.substituteType(self.ctx, m.ty, subst)).function;
                     recv = subst;
                 }
-                const source = if (nt.foreign) |fo| fo.ctx.source else self.ctx.source;
+                const source = if (nt.foreign) |fo| fo.ctx.source else self.declSource(nt.id);
                 const info = methodParams(m, false, source);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
                 try self.noteCallee(f);
                 try self.checkArgs(args, f, info, name, pos);
                 return f.returns;
             }
-            if (ct) |b| return self.badCall(args, b, "`{s}.{s}` is not a function; it takes no compile-time arguments", .{ nt.sym.name, name });
+            if (ct) |b| return self.badCall(args, b, "`{s}.{s}` is not a function; it takes no compile-time arguments", .{ tname, name });
             if (!m.is_variant) break;
             const payload = m.payload orelse &.{};
-            if (payload.len == 0) return self.badCall(args, pos, "variant `{s}.{s}` takes no payload", .{ nt.sym.name, name });
+            if (payload.len == 0) return self.badCall(args, pos, "variant `{s}.{s}` takes no payload", .{ tname, name });
             var subst = TypeSubst.empty;
             var ty = try self.namedTypeValue(nt);
             if (nt.args) |given| {
@@ -4470,10 +4541,10 @@ const Checker = struct {
                 subst = (try self.inferTypeArgs(nt.id, args, .{ .fields = payload }, pos, self.expectedResult(self_type), name)) orelse return self.skipCall(args);
                 ty = try self.instantiate(nt.id, subst.args, pos);
             }
-            try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant });
+            try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = nt.sym.from.module_id, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant });
             return ty;
         }
-        try self.err(pos, "no method `{s}` on type `{s}`", .{ name, nt.sym.name });
+        try self.err(pos, "no method `{s}` on type `{s}`", .{ name, tname });
         try self.noteDeclared(nt.sym, nt.foreign == null);
         return self.skipCall(args);
     }
@@ -4503,7 +4574,7 @@ const Checker = struct {
                 return null;
             }
             if (b.conflict == sema.type_invalid) {
-                if (!try self.valueBindingFits(p, b, sym.name, pos)) return null;
+                if (!try self.valueBindingFits(p, b, sym.name, pos) or !try self.inferredTypeFits(b, args)) return null;
                 continue;
             }
             const c = try self.conflictText(b);
@@ -4567,13 +4638,18 @@ const Checker = struct {
                 const local = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
                 const fty = self.ctx.types.get(local);
                 if (fty != .function) return self.badCall(args, pos, "`{s}` cannot be called", .{qualified});
-                try self.noteCallee(fty.function);
                 const info = paramsOf(found.sym, found.ctx.source);
                 const f = (try self.instantiateCall(fty.function, ct, args, info, 0, qualified, pos, false, .empty)) orelse return self.skipCall(args);
+                // A generic function's callee has the instance's signature.
+                try self.noteCallee(f);
                 try self.checkArgs(args, f, info, qualified, pos);
                 return f.returns;
             },
             .nominal_type => if (ct == null) return self.construct(found.id, args, pos, TypeSubst.empty, .{ .ctx = found.ctx, .module_id = found.module_id }) else return self.badCall(args, ct.?, "`{s}` is not a generic type; it takes no type arguments", .{qualified}),
+            .generic_type => {
+                const nt = try self.foreignGeneric(found);
+                return self.constructGeneric(self.callee_node orelse Sexp.nil, nt.id, args, qualified, pos);
+            },
             else => return self.badCall(args, pos, "`{s}` cannot be called", .{qualified}),
         }
     }
@@ -5057,7 +5133,8 @@ const Checker = struct {
             return;
         }
         const decl_pos = if (resolved.nominal_sym == sema.symbol_invalid) sema.builtin_decl_pos else resolved.field.decl_pos;
-        try self.checkFieldArgs(args, resolved.payload, .{ .owner = name, .decl_pos = decl_pos, .pos = pos, .kind = .variant });
+        const module_id = if (resolved.nominal_sym == sema.symbol_invalid) 0 else self.ctx.symbols.items[resolved.nominal_sym].from.module_id;
+        try self.checkFieldArgs(args, resolved.payload, .{ .owner = name, .decl_pos = decl_pos, .module_id = module_id, .pos = pos, .kind = .variant });
     }
 
     /// `Vec()` / `Vec(capacity: n)`.
@@ -5842,7 +5919,6 @@ fn plural(n: usize) []const u8 {
 /// the type parameters (`self.value + 1` requires a numeric `T`). Checked
 /// after all bodies, against every instance the module's code makes.
 pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
-    if (ctx.generic_requirements.items.len > 0) try checkPublicArrayLengths(ctx);
     var it = ctx.instantiation_sites.iterator();
     while (it.next()) |entry| {
         const pn = switch (ctx.types.get(entry.key_ptr.*)) {
@@ -5984,7 +6060,7 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
         try ctx.oversized.put(ctx.allocator, ty, {});
         if (of == .type) try ctx.oversized.put(ctx.allocator, of.type, {});
         try ctx.err(at, "`{s}` makes `{s}`, which takes {d} bytes; a value takes at most {d} (8 MiB), since it may live on the stack. Keep larger data in a `Vec`", .{ try sema.rootName(ctx, of), try sema.formatType(ctx, ty), bytes, sema.max_value_bytes });
-        try ctx.note(g.pos, "the array is made here", .{});
+        try ctx.noteIn(g.module_id, g.pos, "the array is made here", .{});
         return;
     }
     if (of == .type) {
@@ -6016,67 +6092,9 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
         const bytes = (try frameBytes(ctx, buf.items)) orelse continue;
         if (bytes <= sema.max_frame_bytes) continue;
         try reportFrame(ctx, at, fr.label, bytes, of);
-        try ctx.note(fr.pos, "{s} is declared here", .{fr.label});
+        try ctx.noteIn(fr.module_id, fr.pos, "{s} is declared here", .{fr.label});
         return;
     }
-}
-
-/// A public function takes its compile-time arguments from other
-/// modules, whose instances this module never sees. One whose integer
-/// parameter sizes an array (in its signature or body, or in a function
-/// or type it passes the parameter to) is rejected, as a generic
-/// function is.
-fn checkPublicArrayLengths(ctx: *SemContext) Error!void {
-    var sized: std.AutoHashMapUnmanaged(SymbolId, void) = .empty;
-    defer sized.deinit(ctx.allocator);
-    for (ctx.generic_requirements.items) |r| if (r.req == .array_len) try sized.put(ctx.allocator, r.param, {});
-    if (sized.count() == 0) return;
-    var grew = true;
-    while (grew) {
-        grew = false;
-        for (ctx.generic_fn_uses.items) |use| for (use.params, use.args) |p, arg| {
-            if (sized.contains(p)) if (ctParamSym(ctx, arg)) |from| if (!sized.contains(from)) {
-                try sized.put(ctx.allocator, from, {});
-                grew = true;
-            };
-        };
-        for (ctx.generic_uses.items) |use| {
-            const pn = ctx.types.get(use).parameterized_nominal;
-            for (ctx.symbols.items[pn.sym].type_params orelse &.{}, pn.args) |p, arg| {
-                if (sized.contains(p)) if (ctParamSym(ctx, arg)) |from| if (!sized.contains(from)) {
-                    try sized.put(ctx.allocator, from, {});
-                    grew = true;
-                };
-            }
-        }
-    }
-    for (ctx.symbols.items) |sym| {
-        if (!sym.flags.is_public) continue;
-        switch (sym.kind) {
-            .function => try reportSizedPublic(ctx, &sized, sym.ty, sym.decl_pos, "function", sym.name),
-            .nominal_type => for (sym.fields orelse &.{}) |f| {
-                if (f.is_method) try reportSizedPublic(ctx, &sized, f.ty, f.decl_pos, "method", f.name);
-            },
-            else => {},
-        }
-    }
-}
-
-fn ctParamSym(ctx: *const SemContext, ty: TypeId) ?SymbolId {
-    return switch (ctx.types.get(ty)) {
-        .ct_param => |sym| sym,
-        else => null,
-    };
-}
-
-fn reportSizedPublic(ctx: *SemContext, sized: *const std.AutoHashMapUnmanaged(SymbolId, void), ty: TypeId, pos: u32, what: []const u8, name: []const u8) Error!void {
-    const f = switch (ctx.types.get(ty)) {
-        .function => |f| f,
-        else => return,
-    };
-    for (f.ct_syms) |p| if (sized.contains(p)) {
-        return ctx.err(pos, "public {s} `{s}` sizes an array by its compile-time parameter `{s}`; such functions cannot cross module boundaries yet", .{ what, name, ctx.symbols.items[p].name });
-    };
 }
 
 /// False after a diagnostic.
@@ -6105,10 +6123,10 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {
-                .plain => try ctx.note(req.pos, "here", .{}),
-                .array_len => try ctx.note(req.pos, "`{s}` used as an array length here", .{pname}),
-                .fits, .float, .shift => try ctx.note(req.pos, "`{s}` used here", .{req.op}),
-                else => try ctx.note(req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
+                .plain => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
+                .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
+                .fits, .float, .shift => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
+                else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
             ok = false;
             break;

@@ -474,13 +474,35 @@ pub const Emitter = struct {
         try self.w.print("    return {s} {{\n        const Self = @This();\n\n", .{container});
     }
 
-    /// Whether a leaf under `node` names `sym`.
+    /// Whether a leaf under `node` names `sym`, outside the type being
+    /// emitted at its own parameters (`Tag[T]` in `Tag[T]`), which is
+    /// emitted as `Self`.
     fn mentions(self: *Emitter, node: Sexp, sym: SymbolId) bool {
         return switch (node) {
             .src => self.sema.symbolOf(node) == sym,
-            .list => for (node.items()) |c| {
+            .list => if (self.namesSelf(node)) false else for (node.items()) |c| {
                 if (self.mentions(c, sym)) break true;
             } else false,
+            else => false,
+        };
+    }
+
+    /// Whether `node` spells the type being emitted at its own
+    /// parameters, as a type or in an expression.
+    fn namesSelf(self: *Emitter, node: Sexp) bool {
+        if (node.isKind(.generic_inst)) {
+            const n = self.nominal orelse return false;
+            if (self.sema.symbolOf(ir.GenericInst.name(node)) != n.sym) return false;
+            const params = self.sema.symbols.items[n.sym].type_params orelse return false;
+            const args = ir.GenericInst.args(node);
+            if (args.len != params.len) return false;
+            for (params, args) |p, a| if (a != .src or self.sema.symbolOf(a) != p) return false;
+            return true;
+        }
+        const inst = self.sema.instanceOf(node) orelse return false;
+        if (inst != .type) return false;
+        return switch (self.sema.types.get(inst.type)) {
+            .parameterized_nominal => |pn| self.isSelfInstance(pn),
             else => false,
         };
     }
@@ -2553,6 +2575,8 @@ pub const Emitter = struct {
         if (o == .src) if (self.sema.symbolOf(o)) |id| if (self.sema.symbols.items[id].kind == .generic_type) {
             if (obj_ty) |t| return self.emitTypeTy(t);
         };
+        // `m.Wrap.make(...)` of another module's generic type.
+        if (o.isKind(.member) and self.isTypeCallee(o)) if (obj_ty) |t| if (self.sema.types.get(t) == .parameterized_nominal) return self.emitTypeTy(t);
         if (o == .src) if (self.localOf(o)) |local| {
             if (local.is_ptr and obj_ty != null and self.isStructLike(obj_ty.?)) return self.w.writeAll(local.zig_name);
             return self.writeLocalPlace(local);
@@ -2701,10 +2725,17 @@ pub const Emitter = struct {
                 try self.emitMember(callee);
                 return self.emitFieldInit(args);
             }
+            // `m.Wrap[Int](v: 3)`, `m.Wrap(v: 3)`: the instance sema gave it.
+            if (self.sema.types.get(t) == .parameterized_nominal and self.isTypeCallee(callee)) {
+                try self.emitTypeTy(t);
+                return self.emitFieldInit(args);
+            }
         };
-        // An owned closure handle, held by a name or a field.
+        // An owned closure handle, held by a name or a field, or a call
+        // yielding a borrow of one, held by pointer.
         if (self.typeOf(callee)) |t| if (sema.ownedClosureFn(self.sema, t) != null) {
             try self.emitExpr(callee);
+            if (callee.isKind(.call) and self.isPtrBorrowTy(t)) try self.w.writeAll(".*");
             try self.w.writeAll(".value.invoke(.{ ");
             try self.emitArgs(sexp);
             return self.w.writeAll(" })");
@@ -2888,12 +2919,24 @@ pub const Emitter = struct {
     fn isTypeCallee(self: *Emitter, obj: Sexp) bool {
         if (self.sema.instanceOf(obj)) |inst| return inst == .type;
         if (obj.isKind(.member)) {
-            const m = ir.Member.object(obj);
-            const id = self.sema.symbolOf(m) orelse return false;
-            return self.sema.symbols.items[id].kind == .module;
+            const sym = self.moduleMemberSym(obj) orelse return false;
+            return switch (sym.kind) {
+                .nominal_type, .generic_type, .type_alias => true,
+                else => false,
+            };
         }
         const id = self.sema.symbolOf(obj) orelse return false;
         return self.isTypeSym(id) or self.sema.symbols.items[id].kind == .module;
+    }
+
+    /// The symbol `module.name` names in that module; null when `obj` is
+    /// not a module's member.
+    fn moduleMemberSym(self: *Emitter, obj: Sexp) ?sema.Symbol {
+        const id = self.sema.symbolOf(ir.Member.object(obj)) orelse return null;
+        if (self.sema.symbols.items[id].kind != .module) return null;
+        const foreign = self.sema.foreign_semas.get(self.sema.module_refs.get(id) orelse return null) orelse return null;
+        const fid = foreign.lookupInScopeOnly(sema.module_scope, self.srcText(ir.Member.name(obj))) orelse return null;
+        return foreign.symbols.items[fid];
     }
 
     /// A struct, enum, or generic type: calling it constructs a value.
@@ -3479,15 +3522,8 @@ pub const Emitter = struct {
             .nominal => |sym_id| try self.writeNominalName(sym_id),
             .imported_nominal => |in| {
                 const foreign = ctx.foreign_semas.get(in.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
-                const type_name = foreign.symbols.items[in.sym_id].name;
-                for (ctx.imports) |imp| {
-                    if (imp.module_id == in.module_id) {
-                        try self.writeModuleName(imp.local_name);
-                        return self.w.print(".{f}", .{ident(type_name)});
-                    }
-                }
-                // A module reached only through an import.
-                return self.w.print("@import(\"{s}.zig\").{f}", .{ foreign.name, ident(type_name) });
+                try self.writeModuleRef(in.module_id);
+                try self.w.print(".{f}", .{ident(foreign.symbols.items[in.sym_id].name)});
             },
             .parameterized_nominal => |pn| {
                 if (self.isSelfInstance(pn)) return self.w.writeAll("Self");
@@ -3520,13 +3556,29 @@ pub const Emitter = struct {
         }
     }
 
-    /// A user nominal, or a runtime one (`Vec` → `rig.Vec`).
+    /// A user nominal, or a runtime one (`Vec` → `rig.Vec`), or another
+    /// module's generic type through its proxy (`lib.Wrap`).
     fn writeNominalName(self: *Emitter, sym: SymbolId) Error!void {
-        const name = self.sema.symbols.items[sym].name;
+        const s = self.sema.symbols.items[sym];
         if (sym == self.sema.vec_sym_id or sym == self.sema.cell_sym_id or sym == self.sema.signal_sym_id) {
-            return self.w.print("rig.{s}", .{name});
+            return self.w.print("rig.{s}", .{s.name});
         }
-        try self.writeModuleName(name);
+        if (sema.isProxy(s)) {
+            const foreign = self.sema.foreign_semas.get(s.from.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
+            try self.writeModuleRef(s.from.module_id);
+            return self.w.print(".{f}", .{ident(foreign.symbols.items[s.from.sym].name)});
+        }
+        try self.writeModuleName(s.name);
+    }
+
+    /// Another module, by the name this one imports it as, or, for a
+    /// module reached only through an import, by its file.
+    fn writeModuleRef(self: *Emitter, module_id: u32) Error!void {
+        for (self.sema.imports) |imp| {
+            if (imp.module_id == module_id) return self.writeModuleName(imp.local_name);
+        }
+        const foreign = self.sema.foreign_semas.get(module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
+        try self.w.print("@import(\"{s}.zig\")", .{foreign.name});
     }
 
     /// The generic type being emitted, applied to its own parameters:

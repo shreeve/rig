@@ -1,0 +1,2 @@
+pub fun max[T](a: T, b: T) -> T
+  a if a > b else b

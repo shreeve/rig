@@ -1,0 +1,20 @@
+# A public generic function that nests itself through a private generic
+# type's method (`f[T]` calls `Hidden[T].m`, which calls `f[Wrap[T]]`)
+# is reported where it is declared.
+
+struct Wrap[T]
+  v: T
+
+struct Hidden[T]
+  v: T
+
+  fun m(?self) -> Int
+    f(Wrap(v: self.v))
+
+pub fun f[T](x: T) -> Int
+  Hidden(v: x).m()
+
+sub main()
+  print(1)
+
+# error: 14:9: `f[T]` leads to ever deeper instances of generic types (through `Hidden[T]`)

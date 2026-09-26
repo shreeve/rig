@@ -1,5 +1,0 @@
-pub struct Wrap[T]
-  v: T
-
-pub sub hello
-  print(Wrap(v: 1).v)

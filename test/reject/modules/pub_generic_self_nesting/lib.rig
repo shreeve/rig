@@ -1,0 +1,5 @@
+struct Wrap[T]
+  v: T
+
+pub fun nest[T](x: T) -> Int
+  nest(Wrap(v: x))

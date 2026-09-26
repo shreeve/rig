@@ -1,0 +1,15 @@
+# The built-in generics' element rules apply to the instances another
+# module's generic body makes with this module's types.
+
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  print(lib.keep(1), lib.keep(Res(n: 1)))
+
+# error: `lib.keep[Res]` instantiates `Vec[Res]`: `Vec[T]` requires `T` to be a Copy type

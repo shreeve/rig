@@ -1,0 +1,10 @@
+# A public generic function that calls itself with its type parameter
+# nested ever deeper has no finite set of instances. Other modules would
+# make its instances, so it is reported where it is declared.
+
+use lib
+
+sub main()
+  print(lib.nest(1))
+
+# error: 4:9: `nest[T]` leads to ever deeper instances of generic functions (through `nest[Wrap[T]]`); a generic function cannot call itself with its own type parameters nested deeper

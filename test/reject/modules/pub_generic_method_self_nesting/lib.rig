@@ -1,0 +1,8 @@
+struct Wrap[T]
+  v: T
+
+pub struct Walker
+  n: Int
+
+  fun walk[U](?self, x: U) -> Int
+    self.walk(Wrap(v: x))

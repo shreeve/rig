@@ -1035,10 +1035,8 @@ the result where no type is expected, or given only `none` or a
 `.variant`).
 
 A generic function can only be called: it is not a value, and a closure
-is never generic. It cannot cross module boundaries yet
-([§15](#15-modules)), and neither can a public function, or a method
-of a public type, whose integer compile-time parameter sizes an array,
-in its signature, its body, or a function it passes the parameter to.
+is never generic. Another module's generic function is called as a
+local one is ([§15](#15-modules)).
 
 ```rig
 struct Res
@@ -1124,11 +1122,12 @@ traits or bounds. What the body does with a `T` that only some types
 support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
 `T`) is recorded, a borrowed operand (`?T`, `!T`) as the `T` it
 reaches, and every instance the program makes, spelled or
-inferred, directly or through other generic bodies, is checked against
-it. On a `T`, `==` compares numbers, `Bool`, and plain enums, not
-Strings. A failure is reported at the call or type that makes the instance,
-with a note at the body line that needs the operation. A body cannot
-call a method on a `T`, read a field of one, or call `T` itself.
+inferred, directly or through other generic bodies, in any module, is
+checked against it. On a `T`, `==` compares numbers, `Bool`, and plain
+enums, not Strings. A failure is reported at the call or type that
+makes the instance, with a note at the body line that needs the
+operation, in the module that declares the body. A body cannot call a
+method on a `T`, read a field of one, or call `T` itself.
 
 The body is ownership-checked once, for a `T` that may own a resource
 and holds no borrow. A `T` that owns a resource moves where the body
@@ -1144,7 +1143,9 @@ written `?T` or `!T` instead.
 A body that calls itself, or builds its own type, with its type
 parameters nested deeper each time (`nest[Wrap[T]]` inside `nest[T]`)
 would need ever deeper instances, and is rejected rather than expanded
-forever.
+forever: at an instance, or, for a `pub` generic and the generic
+methods of a `pub` type, whose instances other modules make, where it
+is declared.
 
 ```rig reject
 struct Res
@@ -3197,33 +3198,61 @@ take or return a private type: importers can hold the value and use its
 fields and methods, though they cannot name the type. A struct's fields
 and methods are visible wherever the struct is.
 
-Generics cannot cross module boundaries yet. Another module's generic
-type cannot be instantiated, and no instance of a module's own generic
-type may appear in its public surface, including in the fields of the
-private types that surface reaches. A `pub` generic function, a generic
-method of a `pub` type, and a generic method the public surface reaches
-through a private type are rejected where they are declared. A module's
-private generic functions serve its own code, public functions
-included.
+Another module's `pub` generic types and functions are used as local
+ones are: `boxes.Wrap[Int]` names an instance in a type or an
+expression, its type arguments are given or inferred, and its methods
+and variants are reached through it. Each instance a module makes is
+checked where it is made, against what the declaring module's bodies do
+with its type parameters ([§4](#generic-bodies)), and a diagnostic
+about it has a note at that body's line, in its file. An instance is
+one type wherever it is reached from: `boxes.Wrap[Int]` spelled here is
+the type another module's function returns as `boxes.Wrap[Int]`, even
+through a module that does not import `boxes`. A public signature may
+hold an instance of a private generic type, which importers hold and
+use as they do a private type.
 
 ```rig file=boxes.rig
 pub struct Wrap[T]
   v: T
 
-pub fun boxed(n: Int) -> Int
-  Wrap(v: n).v
+  fun get(?self) -> T
+    self.v
+
+pub fun larger[T](a: T, b: T) -> T
+  a if a > b else b
+```
+
+```rig
+use boxes
+
+fun unbox(b: ?boxes.Wrap[Int]) -> Int
+  b.get()
+
+sub main
+  b = boxes.Wrap[Int](v: 3)
+  s = boxes.Wrap(v: "s")
+  print(unbox(?b), s.get(), boxes.larger(2, 7), boxes.larger[Float](1, 2))
+```
+
+```output
+3 s 7 2.0
+```
+
+```rig file=stats.rig
+pub fun mean[T](a: T, b: T) -> T
+  (a + b) / 2
 ```
 
 ```rig reject
-use boxes
+use stats
 
 sub main
-  print(boxes.boxed(3))
-  b = boxes.Wrap[Int](v: 3)
+  print(stats.mean(4, 6), stats.mean("a", "b"))
 ```
 
 ```error
-`boxes.Wrap` is a generic type of another module; generic types cannot cross module boundaries yet
+`stats.mean[String]` cannot use `T = String`: the generic body applies `+` to `T`, which `String` does not support
+`+` used on `T` here (arithmetic)
 ```
 
 Every check (types, arity, keyword
@@ -3316,7 +3345,7 @@ is an integer. An integer compile-time value sizes arrays
 A call gives the compile-time arguments in brackets touching the
 callee, before its run-time arguments: `check[.strict](5)`,
 `rep[String, 3]("hi")`, `s.times[5]()`, `Scale.unit[6]()`,
-`lib.scaled[3](5)`. It gives all of them or none; a type argument, and
+`lib.scaled[3](5)`, `lib.zeros[3]()`. It gives all of them or none; a type argument, and
 an integer value that an array length or a generic type's argument in
 the signature holds, may be left to inference
 ([generic functions](#generic-functions)), any other value never. A
@@ -3535,9 +3564,6 @@ The rest parse, and the checker rejects them as not supported yet
 
 | Form | Diagnostic |
 |---|---|
-| a `pub` generic function, or a generic method the public surface reaches | `` generic functions cannot cross module boundaries yet `` |
-| another module's generic type, or an instance of a module's generic type in its public surface | `` generic types cannot cross module boundaries yet `` |
-| a `pub` function whose compile-time parameter sizes an array | `` such functions cannot cross module boundaries yet `` |
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
 | a stack closure passed, stored, or returned | `` closures cannot escape their defining scope `` |
 | an array of owning values | `` arrays cannot hold values that own resources ``; use a `Vec` |

@@ -333,12 +333,14 @@ What it costs: a signature does not say what `T` must support, and a
 mismatch is found where an instance is made, as with C++ templates and
 Zig. Rig reports it at the Rig call that makes the instance, naming it
 (`max[Point]`), with a note at the body line that needs the operation,
-never as an error in the emitted Zig. That is acceptable while generics
-stay inside one module, where the body and every instance are checked
-together and read together. Across modules the recorded requirements
-would become an unwritten contract, which is one reason generics do
-not cross modules yet, and traits remain on the roadmap for when a
-design keeps dispatch and ownership visible.
+never as an error in the emitted Zig. Across modules the requirements
+are read from the module that declares the body, which the compiler
+has checked in full before its importers: an instance made in another
+module is checked there, and its note points into the declaring
+module's file. The recorded requirements are an unwritten contract: a
+library that starts applying a new operation to `T` can break its
+importers, who see the note in the library. Traits remain on the
+roadmap for when a design keeps dispatch and ownership visible.
 
 ### Generic functions are called, not passed
 

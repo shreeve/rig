@@ -1,0 +1,26 @@
+# Methods called on another module's constants run on the constant, for
+# generic and plain enums, with positional and keyword arguments, and
+# through a constant declared in a third module.
+
+use lib
+use a
+
+fun f(s: String, n: Int) -> Int
+  print(s)
+  n
+
+sub main()
+  print(lib.NONE.is_none(), lib.NONE.or(5))
+  print(lib.NONE.pick(b: f("b", 2), a: f("a", 1)))
+  print(lib.GREEN.pick(b: f("b", 2), a: f("a", 1)))
+  print(a.D.or(3))
+
+# expect:
+# true 5
+# b
+# a
+# 1
+# b
+# a
+# 2
+# 3

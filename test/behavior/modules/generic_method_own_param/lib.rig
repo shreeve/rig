@@ -1,0 +1,25 @@
+pub struct Pair[A, B]
+  a: A
+  b: B
+
+pub struct List[T]
+  items: Vec[T]
+
+  fun zip[U](?self, other: ?List[U]) -> List[Pair[T, U]]
+    out: Vec[Pair[T, U]] = Vec()
+    i = 0
+    while i < self.items.len and i < other.items.len
+      !out.push(Pair(a: self.items[i], b: other.items[i]))
+      i += 1
+    List(items: <out)
+
+struct Wrap[T]
+  v: T
+
+  fun tag[U](?self, u: U) -> Wrap[Pair[T, U]]
+    Wrap(v: Pair(a: self.v, b: u))
+
+pub fun tagged[T](x: T) -> Int
+  w = Wrap(v: x)
+  t = w.tag(true)
+  1 if t.v.b else 0

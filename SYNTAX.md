@@ -1888,15 +1888,8 @@ compile-time argument 1 of `show` must be known at compile time
 - A generic function, or any function with compile-time parameters,
   can only be called. `f = max` and `g = max[Int]` are rejected, and a
   closure is never generic.
-- Generics do not cross modules yet: a `pub` generic function, a
-  generic method of a `pub` type, and an instance of another module's
-  generic type are rejected. A module's private generic functions
-  serve its public ones.
 - A generic type's value parameters are integers, and a type alias has
   no parameters.
-- A public function, or a method of a public type, whose integer
-  parameter sizes an array (in its signature, its body, or a function
-  it passes it to) does not cross modules yet.
 - An array length or a type's value argument may do arithmetic on
   constants (`[LIMIT * 2]T`), but not on a compile-time parameter
   (`[n + 1]T`), and not call a function (`[0; f()]`).
@@ -2687,6 +2680,41 @@ sub main
 Only `pub` declarations are visible outside a module. A struct's
 fields and methods are visible wherever the struct is.
 
+**Generics** cross modules: another module's generic type is named
+with its arguments (`bag.Bag[Int]`) or has them inferred, and its
+generic functions are called as local ones are. Each instance is
+checked against what the other module's body does with `T`, and a
+mistake is reported at the call with a note in that module's file.
+
+```rig file=bag.rig
+pub struct Bag[T]
+  items: Vec[T]
+
+  sub add(!self, x: T)
+    !self.items.push(<x)
+
+pub fun largest[T](b: ?Bag[T], start: T) -> T
+  t = start
+  for x in b.items
+    if x > t
+      t = x
+  t
+```
+
+```rig
+use bag
+
+sub main
+  b = bag.Bag[Int](items: Vec())
+  !b.add(3)
+  !b.add(4)
+  print(bag.largest(?b, 0), b.items.len)
+```
+
+```output
+4 2
+```
+
 **Constants.** A module-level binding is a constant, written with `=!`
 and known at compile time: literals, `.variant`, earlier constants, and
 operators and arrays over them. There are no mutable globals.
@@ -2794,8 +2822,6 @@ Coming from Rust or Zig, you will reach for these and not find them:
 
 - **traits and bounds**: a generic body may do with `T` only what each
   instance supports ([§14](#what-a-generic-body-may-do-with-t));
-- **generics across modules**: a generic type or function serves only
-  its own module;
 - **heap strings and string building**: `String` is an immutable view;
 - **stack closures as arguments**: pass an owned closure (`*|...|`);
 - **concurrency and async**;

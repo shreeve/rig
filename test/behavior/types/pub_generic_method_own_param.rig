@@ -1,0 +1,34 @@
+# A generic method of a public generic type may use an instance of its
+# own type at the method's own parameter (`List[Pair[T, U]]` in
+# `zip[U]`): each call makes one instance, which does not nest further.
+
+pub struct Pair[A, B]
+  a: A
+  b: B
+
+pub struct List[T]
+  items: Vec[T]
+
+  fun zip[U](?self, other: ?List[U]) -> List[Pair[T, U]]
+    out: Vec[Pair[T, U]] = Vec()
+    i = 0
+    while i < self.items.len and i < other.items.len
+      !out.push(Pair(a: self.items[i], b: other.items[i]))
+      i += 1
+    List(items: <out)
+
+sub main()
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  w: Vec[String] = Vec()
+  !w.push("a")
+  !w.push("b")
+  l = List(items: <v)
+  m = List(items: <w)
+  z = l.zip(?m)
+  zz = z.zip(?l)
+  print(zz.items[1].a.a, zz.items[1].a.b, zz.items[1].b)
+
+# expect:
+# 2 b 2

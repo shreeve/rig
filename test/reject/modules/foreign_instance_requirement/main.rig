@@ -1,0 +1,11 @@
+# An instance of another module's generic function is checked where it
+# is made, against what that module's body does with its type
+# parameters; the note points into the body.
+
+use lib
+
+sub main()
+  print(lib.max("a", "b"))
+
+# error: 8:13: `lib.max[String]` cannot use `T = String`: the generic body applies `>` to `T`, which `String` does not support
+# error: 2:8: `>` used on `T` here (ordering comparison)

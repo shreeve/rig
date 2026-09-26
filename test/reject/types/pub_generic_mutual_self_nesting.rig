@@ -1,0 +1,17 @@
+# A public generic function that nests itself through a private one
+# (`ping[T]` calls `pong[T]`, which calls `ping[Wrap[T]]`) is reported
+# where it is declared.
+
+struct Wrap[T]
+  v: T
+
+pub fun ping[T](x: T, n: Int) -> Int
+  0 if n == 0 else pong(x, n - 1)
+
+fun pong[T](x: T, n: Int) -> Int
+  ping(Wrap(v: x), n)
+
+sub main()
+  print(1)
+
+# error: 8:9: `ping[T]` leads to ever deeper instances of generic functions (through `ping[Wrap[T]]`)

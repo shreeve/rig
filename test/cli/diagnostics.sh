@@ -75,3 +75,39 @@ EOF2
 "$RIG" check poison.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a poisoned inference"
 expect_eq "$(grep 'error:' out.txt)" "poison.rig:8:10: error: use of unbound type \`Foo\`
 poison.rig:9:16: error: cannot infer \`T\` for \`empty\` from its arguments or the type expected of its result; give \`T\` in brackets: \`empty[...]()\`" "only the cause of a poisoned inference"
+
+# An instance of another module's generic is reported where it is made,
+# with a note at the operation in the other module's file.
+cat >lib.rig <<'EOF2'
+pub fun max[T](a: T, b: T) -> T
+  a if a > b else b
+EOF2
+cat >main.rig <<'EOF2'
+use lib
+
+sub main()
+  print(lib.max("a", "b"))
+EOF2
+"$RIG" check main.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a foreign instance that fails a requirement"
+expect_eq "$(cat out.txt)" "main.rig:4:13: error: \`lib.max[String]\` cannot use \`T = String\`: the generic body applies \`>\` to \`T\`, which \`String\` does not support
+  print(lib.max(\"a\", \"b\"))
+            ^
+lib.rig:2:8:   note: \`>\` used on \`T\` here (ordering comparison)
+  a if a > b else b
+       ^" "a note in another module's file"
+
+# Each note in another module's file names that file: a requirement
+# reached through a chain (in `util.rig`), a copy, an array length, an
+# array made, and a generic type's declaration.
+m="$ROOT/test/reject/modules"
+out=$("$RIG" check "$m/foreign_chain_requirement/main.rig" 2>&1)
+expect_has "$out" "$m/foreign_chain_requirement/util.rig:2:3:   note: \`+\` used on \`T\` here" "a note through a chain names its file"
+out=$("$RIG" check "$m/foreign_instance_ownership/main.rig" 2>&1)
+expect_has "$out" "$m/foreign_instance_ownership/lib.rig:2:7:   note: \`T\` copied here" "a copy note names its file"
+out=$("$RIG" check "$m/foreign_array_len/main.rig" 2>&1)
+expect_has "$out" "$m/foreign_array_len/lib.rig:12:11:   note: \`n\` used as an array length here" "an array length note names its file"
+expect_has "$out" "$m/foreign_array_len/lib.rig:1:26:   note: the array is made here" "an array note names its file"
+printf 'pub struct Wrap[T]\n  v: T\n' >lib.rig
+printf 'use lib\n\nsub main()\n  print(lib.Wrap[Int].nope())\n' >main.rig
+out=$("$RIG" check main.rig 2>&1); expect_rc $? 1 "rig check of a missing method of another module's generic"
+expect_has "$out" "lib.rig:1:12:   note: \`lib.Wrap\` declared here" "a declaration note names its file"

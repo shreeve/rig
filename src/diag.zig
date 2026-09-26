@@ -26,7 +26,14 @@ pub const Diagnostic = struct {
     /// End of the range (exclusive); at most `pos` for a single point.
     end: u32 = 0,
     message: []const u8,
+    /// The module whose source `pos` is in, when it is not the module
+    /// that reports the diagnostic: a note about another module's code
+    /// (a generic body's operation). 0 for the reporting module.
+    module: u32 = 0,
 };
+
+/// A source file diagnostics point into.
+pub const File = struct { source: []const u8, path: []const u8 };
 
 pub fn hasErrorsIn(items: []const Diagnostic) bool {
     for (items) |d| {
@@ -43,14 +50,17 @@ pub const max_errors = 100;
 /// end of the source all still print something readable.
 pub fn write(items: []const Diagnostic, source: []const u8, file_path: []const u8, w: anytype) !void {
     var budget: u32 = std.math.maxInt(u32);
-    _ = try writeSome(items, source, file_path, w, &budget);
+    _ = try writeSome(items, .{ .source = source, .path = file_path }, &.{}, w, &budget);
 }
 
 /// `write` while `budget` lasts: each error takes one from it, and its
-/// notes print with it. Returns how many errors were not printed.
-pub fn writeSome(items: []const Diagnostic, source: []const u8, file_path: []const u8, w: anytype, budget: *u32) !u32 {
-    const path = if (file_path.len == 0) "<unknown>" else file_path;
-    var lines: Lines = .{ .source = source };
+/// notes print with it. Returns how many errors were not printed. A
+/// diagnostic about another module's code (`Diagnostic.module`, 1-based)
+/// points into `modules[module - 1]`.
+pub fn writeSome(items: []const Diagnostic, home: File, modules: []const File, w: anytype, budget: *u32) !u32 {
+    var file = home;
+    var at_module: u32 = 0;
+    var lines: Lines = .{ .source = home.source };
     var hidden: u32 = 0;
     var showing = true;
     for (items) |d| {
@@ -64,6 +74,14 @@ pub fn writeSome(items: []const Diagnostic, source: []const u8, file_path: []con
             .note => "  note",
         };
         const msg = if (d.message.len == 0) "(no message)" else d.message;
+        const module = if (d.module <= modules.len) d.module else 0;
+        if (module != at_module) {
+            at_module = module;
+            file = if (module == 0) home else modules[module - 1];
+            lines = .{ .source = file.source };
+        }
+        const source = file.source;
+        const path = if (file.path.len == 0) "<unknown>" else file.path;
         if (source.len == 0) {
             try w.print("{s}: {s}: {s}\n", .{ path, tag, msg });
         } else {
@@ -217,7 +235,7 @@ test "writeSome: stops at the budget and counts the rest" {
         .{ .severity = .note, .pos = 0, .message = "its note" },
         .{ .severity = .@"error", .pos = 1, .message = "two" },
         .{ .severity = .note, .pos = 1, .message = "not shown" },
-    }, "ab", "m.rig", &w, &budget);
+    }, .{ .source = "ab", .path = "m.rig" }, &.{}, &w, &budget);
     try std.testing.expectEqual(@as(u32, 1), hidden);
     try std.testing.expectEqualStrings(
         \\m.rig:1:1: error: one
@@ -225,6 +243,30 @@ test "writeSome: stops at the budget and counts the rest" {
         \\^
         \\m.rig:1:1:   note: its note
         \\ab
+        \\^
+        \\
+    , w.buffered());
+}
+
+test "writeSome: a note in another module's file" {
+    var buf: [256]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    var budget: u32 = 10;
+    const lib: File = .{ .source = "x\ny + 1\n", .path = "lib.rig" };
+    _ = try writeSome(&.{
+        .{ .severity = .@"error", .pos = 4, .end = 7, .message = "bad instance" },
+        .{ .severity = .note, .pos = 4, .message = "used here", .module = 2 },
+        .{ .severity = .note, .pos = 0, .message = "back home" },
+    }, .{ .source = "sub main()\n  f(1)\n", .path = "main.rig" }, &.{ .{ .source = "", .path = "" }, lib }, &w, &budget);
+    try std.testing.expectEqualStrings(
+        \\main.rig:1:5: error: bad instance
+        \\sub main()
+        \\    ^~~
+        \\lib.rig:2:3:   note: used here
+        \\y + 1
+        \\  ^
+        \\main.rig:1:1:   note: back home
+        \\sub main()
         \\^
         \\
     , w.buffered());
