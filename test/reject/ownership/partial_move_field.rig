@@ -5,7 +5,7 @@
 struct Box
   payload: Int
 
-  drop self: !Box
+  drop(!self)
     print(self.payload + 100)
 
 struct Pair

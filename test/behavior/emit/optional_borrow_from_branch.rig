@@ -4,7 +4,7 @@
 struct D
   n: Int
 
-  drop self: !D
+  drop(!self)
     print("drop", self.n)
 
 fun pick(a: ?D, k: Int) -> (?D)?

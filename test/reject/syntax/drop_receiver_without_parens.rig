@@ -1,0 +1,9 @@
+# A `drop` body takes its receiver in parentheses, like a method.
+
+struct File
+  fd: Int
+
+  drop self: !Self
+    print(self.fd)
+
+# error: 6:8: a drop body takes its receiver in parentheses: `drop(!self)`

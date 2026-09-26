@@ -8,7 +8,7 @@ enum Mode
 struct Tok
   n: Int
 
-  drop self: !Tok
+  drop(!self)
     print("drop tok", self.n)
 
 struct P

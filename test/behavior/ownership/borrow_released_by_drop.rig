@@ -3,7 +3,7 @@
 struct Box
   payload: Int
 
-  drop self: !Box
+  drop(!self)
     print("drop")
 
 sub main()

@@ -143,7 +143,7 @@ the keyword: a struct field, a method, or a payload field. It reads as
 a name right after `.` (`t.type`, `t.error()`), before `:` inside
 parentheses (a keyword argument or payload field: `Token(type: 1)`),
 and in a member list before `:` (a field) or after `fun` / `sub` (a
-method). `drop self: !Self` is still a drop body; `drop: Bool` is a
+method). `drop(!self)` is still a drop body; `drop: Bool` is a
 field. Everywhere else a keyword cannot name anything: a local, a
 parameter, a top-level declaration, or an enum variant.
 
@@ -927,7 +927,7 @@ is never generic. It cannot cross module boundaries yet
 struct Res
   n: Int
 
-  drop self: !Res
+  drop(!self)
     print("drop", self.n)
 
 struct Box[T]
@@ -1016,7 +1016,7 @@ forever.
 struct Res
   n: Int
 
-  drop self: !Res
+  drop(!self)
     print("drop", self.n)
 
 struct Pair[A, B]
@@ -1565,7 +1565,7 @@ source sigils change that:
 struct B
   n: Int
 
-  drop self: !B
+  drop(!self)
     print("drop", self.n)
 
 sub keep(b: *B)
@@ -1765,7 +1765,7 @@ used until it is reassigned.
 struct Packet
   payload: Int
 
-  drop self: !Packet
+  drop(!self)
     print("released", self.payload)
 
 sub send(p: Packet)
@@ -1789,7 +1789,7 @@ released 7
 struct Packet
   payload: Int
 
-  drop self: !Packet
+  drop(!self)
     print("released")
 
 sub send(p: Packet)
@@ -2069,7 +2069,7 @@ returned borrow of `u` does not originate from a borrowed parameter
 struct Box
   payload: Int
 
-  drop self: !Box
+  drop(!self)
     print("drop")
 
 fun first(a: ?Box, b: ?Box) -> ?Box
@@ -2130,7 +2130,7 @@ be dropped: the caller owns it.
 struct Noisy
   id: Int
 
-  drop self: !Noisy
+  drop(!self)
     print("drop", self.id)
 
 sub run(early: Bool)
@@ -2186,13 +2186,14 @@ bind it to a name first
 ## 9. Drop and drop glue
 
 A struct may declare one `drop` body, which runs when a value of the
-type is released. It takes exactly `self: !Self`.
+type is released. It takes exactly one parameter, its write-borrowed
+receiver, spelled as a method's: `drop(!self)`, or `drop(self: !Self)`.
 
 ```rig
 struct File
   fd: Int
 
-  drop self: !File
+  drop(!self)
     print("closing", self.fd)
 
 sub main
@@ -2216,14 +2217,14 @@ order of declarations in the file.
 struct Noisy
   id: Int
 
-  drop self: !Noisy
+  drop(!self)
     print("noisy", self.id)
 
 struct Pair
   a: *Noisy
   b: *Noisy
 
-  drop self: !Pair
+  drop(!self)
     print("pair")
 
 sub main
@@ -2263,7 +2264,7 @@ strong handle goes.
 struct User
   name: String
 
-  drop self: !User
+  drop(!self)
     print("released", self.name)
 
 sub main
@@ -2320,7 +2321,7 @@ keep the value alive. `w.upgrade()` returns an optional strong handle
 struct Node
   id: Int
 
-  drop self: !Node
+  drop(!self)
     print("drop", self.id)
 
 sub show(w: ?~Node)
@@ -2492,7 +2493,7 @@ struct P
 struct B
   n: Int
 
-  drop self: !B
+  drop(!self)
     print("drop", self.n)
 
 sub main

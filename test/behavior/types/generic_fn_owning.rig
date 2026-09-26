@@ -6,7 +6,7 @@
 struct Res
   n: Int
 
-  drop self: !Res
+  drop(!self)
     print("drop", self.n)
 
 struct Box[T]

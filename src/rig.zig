@@ -1086,7 +1086,8 @@ pub const Parser = struct {
             .@"else" => if (in_pattern) "the catch-all arm is `_`, or a name that binds the value" else null,
             .@"try" => "`try` blocks are reserved: propagate with `e!` or handle with `e catch ...`",
             .zig => "inline Zig is reserved: use `raw` blocks and `extern` declarations",
-            .share_pfx => if (precededByFor(src, tok.pos)) "`for *x in` is reserved: iterate with `for x in xs`, `?xs`, or `!xs`" else null,
+            .share_pfx => if (precededBy(src, tok.pos, "for")) "`for *x in` is reserved: iterate with `for x in xs`, `?xs`, or `!xs`" else null,
+            .ident, .write_pfx, .read_pfx => if (precededBy(src, tok.pos, "drop")) "a drop body takes its receiver in parentheses: `drop(!self)`" else null,
             else => null,
         };
     }
@@ -1174,11 +1175,9 @@ pub const Parser = struct {
         return self.format("a call inside parentheses needs its own parentheses: `{s}(...)`", .{name});
     }
 
-    /// The word before `pos` is `for`.
-    fn precededByFor(src: []const u8, pos: u32) bool {
-        const before = std.mem.trimEnd(u8, src[0..pos], " ");
-        return std.mem.endsWith(u8, before, "for") and
-            (before.len == 3 or !isIdentCont(before[before.len - 4]));
+    /// The word before `pos` is `word`.
+    fn precededBy(src: []const u8, pos: u32, word: []const u8) bool {
+        return endsWithWord(std.mem.trimEnd(u8, src[0..pos], " "), word);
     }
 
     /// The generated parser's expected set where it stopped (its
@@ -1600,7 +1599,7 @@ test "parser: every form parses" {
         \\struct P
         \\  n: Int
         \\
-        \\  drop self: !P
+        \\  drop(!self)
         \\    print(self.n)
         \\
         \\extern fun abs(n: Int) -> Int

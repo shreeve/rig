@@ -4,7 +4,7 @@
 struct N
   id: Int
 
-  drop self: !N
+  drop(!self)
     print("drop", self.id)
 
 sub run(k: Int)

@@ -10,7 +10,7 @@ fun check(n: Int) -> Int!
 struct P
   n: Int
 
-  drop self: !P
+  drop(!self)
     print(check(self.n)!)
 
 sub main()

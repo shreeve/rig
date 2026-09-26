@@ -16,7 +16,7 @@ enough that writing it is no burden:
 struct Packet
   size: Int
 
-  drop self: !Packet
+  drop(!self)
     print("freed", self.size)
 
 fun size_of(p: ?Packet) -> Int
@@ -192,7 +192,7 @@ Here the algebra is at work in one small program:
 struct Node
   id: Int
 
-  drop self: !Node
+  drop(!self)
     print("drop", self.id)
 
 struct Owner

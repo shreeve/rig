@@ -3,10 +3,10 @@
 struct File
   fd: Int
 
-  drop self: !File
+  drop(!self)
     print(self.fd)
 
-  drop self: !File
+  drop(!self)
     print(self.fd + 1)
 
 # error: duplicate `drop` declaration on this struct

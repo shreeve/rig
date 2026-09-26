@@ -5,7 +5,7 @@
 struct Noisy
   id: Int
 
-  drop self: !Noisy
+  drop(!self)
     print(self.id)
 
 struct Inner

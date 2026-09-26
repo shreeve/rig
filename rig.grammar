@@ -493,10 +493,7 @@ member   = field
          | name:name params:params                  → (variant)    # `circle(r: Int)`
          | fun
          | sub
-         | DROP params:dparams body:block           → (drop_decl)  # `drop self: !Self`
-
-# Sema requires exactly one: `self: !Self`.
-dparams  = L(field)                                 → (...1)
+         | DROP params:params body:block            → (drop_decl)  # `drop(!self)`
 
 test     = TEST name:(STRING_DQ | STRING_SQ) body:block → (test)
 

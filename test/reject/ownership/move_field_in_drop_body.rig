@@ -4,7 +4,7 @@
 struct Owner
   cell: *Cell[Int]
 
-  drop self: !Owner
+  drop(!self)
     stash = <self.cell
 
 # error: cannot move out of `self.cell`: `self` is borrowed

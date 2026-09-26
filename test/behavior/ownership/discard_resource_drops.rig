@@ -3,7 +3,7 @@
 struct Box
   n: Int
 
-  drop self: !Box
+  drop(!self)
     print("drop", self.n)
 
 fun make(n: Int) -> *Box

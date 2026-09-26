@@ -4,7 +4,7 @@
 struct Owner
   cell: *Cell[Int]
 
-  drop self: !Owner
+  drop(!self)
     fresh: *Cell[Int] = *Cell(value: 7)
     self.cell = <fresh
     print("replaced", self.cell.get())

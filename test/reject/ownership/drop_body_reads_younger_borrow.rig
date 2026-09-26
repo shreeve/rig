@@ -12,13 +12,13 @@ struct View
 struct Holder
   b: ?Box
 
-  drop self: !Holder
+  drop(!self)
     print("holder drop reads", self.b.v[0])
 
 struct Watcher
   w: ?View
 
-  drop self: !Watcher
+  drop(!self)
     print("watcher drop reads", self.w.b.v[0])
 
 sub main()

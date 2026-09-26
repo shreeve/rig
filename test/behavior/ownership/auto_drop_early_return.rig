@@ -4,7 +4,7 @@
 struct C
   v: Int
 
-  drop self: !C
+  drop(!self)
     print(self.v)
 
 fun pick(cond: Bool) -> Int

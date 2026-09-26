@@ -386,7 +386,7 @@ pub const Field = struct {
     receiver: MethodReceiver = .none,
     /// An enum / error-set variant (not a data field).
     is_variant: bool = false,
-    /// The struct's user `drop self: !Self` body. Not callable.
+    /// The struct's user `drop(!self)` body. Not callable.
     is_drop_method: bool = false,
     /// A data field's default value (`name: T = literal`).
     default: ?Sexp = null,

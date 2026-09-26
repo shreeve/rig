@@ -5,7 +5,7 @@
 struct Res
   n: Int
 
-  drop self: !Res
+  drop(!self)
     print("drop", self.n)
 
 fun steal[T](v: ?Vec[T], d: T) -> T

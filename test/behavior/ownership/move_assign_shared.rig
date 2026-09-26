@@ -4,7 +4,7 @@
 struct U
   v: Int
 
-  drop self: !U
+  drop(!self)
     print(self.v + 100)
 
 sub main()

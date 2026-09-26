@@ -46,7 +46,7 @@ enum Maybe[T]
 struct Guard
   id: Int
 
-  drop self: !Guard
+  drop(!self)
     print(self.id)
 
 extern fun abs(x: Int) -> Int

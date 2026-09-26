@@ -3,7 +3,7 @@
 struct Box[T]
   value: T
 
-  drop self: !Self
+  drop(!self)
     print(0)
 
 # error: `drop` bodies are only for non-generic structs, not generic structs

@@ -7,7 +7,7 @@ struct Tape
   label: String
   minutes: Int
 
-  drop self: !Tape
+  drop(!self)
     print("eject", self.label)
 
 struct Stack[T]

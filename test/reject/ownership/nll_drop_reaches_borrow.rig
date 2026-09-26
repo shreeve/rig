@@ -7,13 +7,13 @@ struct Box
   sub bump(!self)
     self.n += 1
 
-  drop self: !Box
+  drop(!self)
     print("drop", self.n)
 
 struct Guard
   box: ?Box
 
-  drop self: !Guard
+  drop(!self)
     print("guard", self.box.n)
 
 sub main()

@@ -148,7 +148,7 @@ spelled out, `!a.pay(30)`. A reader sees every mutation.
 struct File
   name: String
 
-  drop self: !File
+  drop(!self)
     print("closing", self.name)
 
 sub archive(f: File)
@@ -252,7 +252,7 @@ would move, `~x` would hold a handle weakly.
 | growable array | `Vec<T>` | `std.ArrayList(T)` | `Vec[T]` |
 | closure | `move \|a\| a + n` | a struct with a method | `\|+n, a\| a + n` |
 | drop early | `drop(x)` | `x.deinit()` | `-x` |
-| destructor | `impl Drop` | `deinit` + `defer` | `drop self: !Self` |
+| destructor | `impl Drop` | `deinit` + `defer` | `drop(!self)` |
 | cleanup | scope guard | `defer`, `errdefer` | `defer`, `errdefer` |
 | generic type | `struct Box<T>` | `fn Box(comptime T: type) type` | `struct Box[T]` |
 | generic function | `fn max<T>(a: T, b: T) -> T` | `fn max(comptime T: type, a: T, b: T) T` | `fun max[T](a: T, b: T) -> T` |
@@ -1707,7 +1707,7 @@ wherever the body treats `T` as it would treat any owning value:
 struct Track
   title: String
 
-  drop self: !Track
+  drop(!self)
     print("free", self.title)
 
 struct Shelf[T]
@@ -1757,7 +1757,7 @@ copy:
 struct Track
   title: String
 
-  drop self: !Track
+  drop(!self)
     print("free", self.title)
 
 struct Pair[T]
@@ -1884,7 +1884,7 @@ moves without it.
 struct Packet
   id: Int
 
-  drop self: !Packet
+  drop(!self)
     print("released", self.id)
 
 sub send(p: Packet)
@@ -1913,7 +1913,7 @@ released 2
 struct Packet
   id: Int
 
-  drop self: !Packet
+  drop(!self)
     print("released")
 
 sub send(p: Packet)
@@ -2087,21 +2087,22 @@ what `first` returns.
 ## 16. Drop
 
 A struct may declare one `drop` body, Rust's `impl Drop`. It takes
-exactly `self: !Self` and runs when the value is released, before the
-value's owning fields are released in reverse order.
+exactly one parameter, the receiver written as a method's, `drop(!self)`,
+and runs when the value is released, before the value's owning fields
+are released in reverse order.
 
 ```rig
 struct Conn
   id: Int
 
-  drop self: !Conn
+  drop(!self)
     print("close", self.id)
 
 struct Pool
   a: *Conn
   b: *Conn
 
-  drop self: !Pool
+  drop(!self)
     print("pool")
 
 sub main
@@ -2131,7 +2132,7 @@ the value is released with the last strong handle.
 struct User
   name: String
 
-  drop self: !User
+  drop(!self)
     print("released", self.name)
 
 sub main
@@ -2200,7 +2201,7 @@ and optionals, or handles.
 struct Task
   id: Int
 
-  drop self: !Task
+  drop(!self)
     print("done", self.id)
 
 sub main
@@ -2805,7 +2806,7 @@ variant   = name | name "=" integer | name "(" field, ... ")"
 errors    = "error" name INDENT name* DEDENT
 typedef   = "type" name "=" type
 const     = name [":" type] "=!" expr
-drop      = "drop" "self" ":" "!Self" block
+drop      = "drop" "(" param ")" block      # the receiver: `!self`
 test      = "test" string block
 extern    = "extern" ("fun" | "sub") name ["(" params ")"] ["->" type]
           | "extern" name ":" type

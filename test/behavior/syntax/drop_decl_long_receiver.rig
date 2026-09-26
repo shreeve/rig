@@ -1,0 +1,24 @@
+# A `drop` receiver may be spelled as a method's is: `drop(!self)` or
+# `drop(self: !Self)`, which may name the struct.
+
+struct A
+  n: Int
+
+  drop(self: !Self)
+    print("a", self.n)
+
+struct B
+  n: Int
+
+  drop(self: !B)
+    print("b", self.n)
+
+sub main()
+  a = A(n: 1)
+  b = B(n: 2)
+  print(a.n + b.n)
+
+# expect:
+# 3
+# b 2
+# a 1

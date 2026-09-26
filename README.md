@@ -72,7 +72,7 @@ many readers or one writer at a time, never both.
 struct File
   name: String
 
-  drop self: !File
+  drop(!self)
     print("closing", self.name)
 
 sub archive(f: File)
@@ -104,7 +104,7 @@ happens at a point you can see.
 struct Config
   level: Int
 
-  drop self: !Config
+  drop(!self)
     print("config released")
 
 sub main

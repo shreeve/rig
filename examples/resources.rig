@@ -5,7 +5,7 @@
 struct Owner
   cell: *Cell[Int]
 
-  drop self: !Owner
+  drop(!self)
     print(self.cell.get())
 
 sub main

@@ -7,7 +7,7 @@
 struct Lock
   id: Int
 
-  drop self: !Self
+  drop(!self)
     print("unlock", self.id)
 
 struct P

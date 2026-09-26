@@ -1119,12 +1119,12 @@ pub const TypeResolver = struct {
             }
         }
         if (count != 1) {
-            try self.ctx.err(pos, "`drop` declaration must take exactly one parameter `self: !Self`; got {d} parameter(s)", .{count});
+            try self.ctx.err(pos, "`drop` takes exactly one parameter, its receiver: `drop(!self)`; got {d}", .{count});
             return;
         }
         const first = params.items()[0];
         if (!self.isSelfParam(first)) {
-            try self.ctx.err(sema.paramPos(first, pos), "`drop` declaration's parameter must be named `self`", .{});
+            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes its receiver, named `self`: `drop(!self)`", .{});
             return;
         }
         const pty = self.ctx.types.get(ptys[0]);
@@ -1135,7 +1135,7 @@ pub const TypeResolver = struct {
             };
         };
         if (!ok) {
-            try self.ctx.err(sema.paramPos(first, pos), "`drop` declaration must use `self: !Self` (write-borrow); other receiver shapes are rejected", .{});
+            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes its receiver write-borrowed: `drop(!self)`", .{});
             return;
         }
         const fn_ty = try self.ctx.intern(.{ .function = .{
