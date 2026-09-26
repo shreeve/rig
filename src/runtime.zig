@@ -227,10 +227,12 @@ pub fn isVariantDiscard(x: anytype, comptime tag: @EnumLiteral()) bool {
     return isVariant(x, tag);
 }
 
-/// Compared with `==` element by element, as `std.mem.eql` does.
+/// Compared by `std.mem.eql`. Floats are not: it finds two slices of
+/// the same elements equal without comparing them, and NaN equals
+/// nothing.
 fn isScalar(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .int, .float, .bool, .@"enum", .error_set => true,
+        .int, .bool, .@"enum", .error_set => true,
         else => false,
     };
 }
