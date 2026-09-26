@@ -31,18 +31,18 @@ links to it rather than repeating every rule.
 10. [Operators](#10-operators)
 11. [Control flow](#11-control-flow)
 12. [Structs and methods](#12-structs-and-methods)
-13. [Enums, error sets, generics, and aliases](#13-enums-error-sets-generics-and-aliases)
-14. [Ownership: the sigils](#14-ownership-the-sigils)
-15. [Drop](#15-drop)
-16. [Shared and weak handles](#16-shared-and-weak-handles)
-17. [Cell, Vec, and Signal](#17-cell-vec-and-signal)
-18. [Closures](#18-closures)
-19. [Optionals](#19-optionals)
-20. [Errors](#20-errors)
-21. [Arrays, strings, and slices](#21-arrays-strings-and-slices)
-22. [Modules and constants](#22-modules-and-constants)
-23. [raw, extern, and builtins](#23-raw-extern-and-builtins)
-24. [Compile-time parameters](#24-compile-time-parameters)
+13. [Enums, error sets, and aliases](#13-enums-error-sets-and-aliases)
+14. [Generics and compile-time parameters](#14-generics-and-compile-time-parameters)
+15. [Ownership: the sigils](#15-ownership-the-sigils)
+16. [Drop](#16-drop)
+17. [Shared and weak handles](#17-shared-and-weak-handles)
+18. [Cell, Vec, and Signal](#18-cell-vec-and-signal)
+19. [Closures](#19-closures)
+20. [Optionals](#20-optionals)
+21. [Errors](#21-errors)
+22. [Arrays, strings, and slices](#22-arrays-strings-and-slices)
+23. [Modules and constants](#23-modules-and-constants)
+24. [raw, extern, and builtins](#24-raw-extern-and-builtins)
 25. [Tests](#25-tests)
 26. [Printing](#26-printing)
 27. [What Rig does not have (yet)](#27-what-rig-does-not-have-yet)
@@ -256,6 +256,7 @@ would move, `~x` would hold a handle weakly.
 | cleanup | scope guard | `defer`, `errdefer` | `defer`, `errdefer` |
 | generic type | `struct Box<T>` | `fn Box(comptime T: type) type` | `type Box[T]` |
 | generic function | `fn max<T>(a: T, b: T) -> T` | `fn max(comptime T: type, a: T, b: T) T` | `fun max[T](a: T, b: T) -> T` |
+| explicit type argument | `max::<f64>(1.0, 2.0)` | `max(f64, 1, 2)` | `max[Float](1, 2)` |
 | type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `Vec[Int]()` |
 | compile-time param | const generics | `comptime n: i64` | `fun f[n: Int](x: Int)`, called `f[3](x)` |
 | unsafe | `unsafe { }` | (everything) | `raw` block |
@@ -282,7 +283,8 @@ function, a struct) takes the indented lines after it.
 **Line joining.** Inside `( )` and `[ ]`, a newline is plain whitespace,
 so a call or array can span lines at any indentation. A trailing `\`
 joins the next line anywhere. Lists may end with a comma: arrays, call
-arguments, parameter lists, closure bar lists, and pattern bindings.
+arguments, parameter lists, compile-time parameter lists, closure bar
+lists, and pattern bindings.
 
 ```rig
 fun volume(
@@ -331,7 +333,7 @@ one. One rule decides every case:
 | `f -x` | `f(-x)` |
 | `a * b` | multiplication |
 | `f *x` | `f(*x)`: call `f` with `x` shared |
-| `f(x)`, `a[i]`, `a.b` | call, index or compile-time arguments (`Vec[Int]`), member access |
+| `f(x)`, `a[i]`, `a.b` | call, index or compile-time arguments (`Vec[Int]`, [§14](#index-or-compile-time-arguments)), member access |
 | `f (x)`, `f [1, 2]`, `f .red` | a paren-free call whose argument is `(x)`, `[1, 2]`, `.red` |
 | `T?`, `T!`, `e!`, `e?` | suffixes: optional, fallible, propagate |
 | `-x` alone on a line | drop `x` (negation where the line's value is used) |
@@ -492,7 +494,7 @@ operands have different types `I32` and `Int`
 | `fun(A, B) -> R`, `sub(A)` | function or stack closure | `fn(A, B) -> R`, `impl Fn` | `*const fn (A, B) R` |
 | `*fun(A) -> R`, `*sub(A)` | owned closure | `Rc<dyn Fn(A) -> R>` | a boxed closure |
 | `Cell[T]`, `Vec[T]`, `Signal[T]` | built-in generics | `RefCell<T>`, `Vec<T>` | runtime types |
-| `Name[T]` | generic instance | `Name<T>` | `Name[T]` |
+| `Name[T]` | generic instance | `Name<T>` | `Name(T)` |
 | `mod.Name` | imported type | `mod::Name` | `mod.Name` |
 
 Suffixes bind tighter than prefixes: `*User?` is a shared handle to an
@@ -618,7 +620,7 @@ sign -1
   at least one argument.
 - Square brackets hold compile-time parameters and arguments, and
   parentheses run-time ones: `fun check[mode: Mode](n: Int)` is called
-  `check[.strict](5)` ([§24](#24-compile-time-parameters)).
+  `check[.strict](5)` ([§14](#14-generics-and-compile-time-parameters)).
 
 **Every statement must have some use.** A value that is returned,
 bound, or passed may be anything, but one that would be thrown away must
@@ -937,7 +939,7 @@ done
 - `else` runs when the loop ends without `break`, like Zig's
   `while ... else`.
 - `while e as x` loops while the optional `e` has a value
-  ([§19](#19-optionals)).
+  ([§20](#20-optionals)).
 
 ### for
 
@@ -1313,7 +1315,7 @@ sub main
 method `bump` requires a write-borrowed receiver
 ```
 
-## 13. Enums, error sets, generics, and aliases
+## 13. Enums, error sets, and aliases
 
 ### Enums
 
@@ -1354,7 +1356,7 @@ Zig's `union(enum)`.
 ### Error sets
 
 `error Name` declares a set of error values, used like the variants of
-a plain enum and returned from fallible functions ([§20](#20-errors)).
+a plain enum and returned from fallible functions ([§21](#21-errors)).
 
 ```rig
 error NetError
@@ -1370,16 +1372,69 @@ sub main
 .timeout true
 ```
 
+### Aliases
+
+`type Name = T` is a transparent second name for `T`. An alias of a
+local struct or enum constructs values and names variants.
+
+```rig
+type UserId = Int
+
+struct Point
+  x: Int
+
+type P = Point
+
+sub main
+  id: UserId = 5
+  p = P(x: id)
+  print(p.x + 1)
+```
+
+```output
+6
+```
+
+## 14. Generics and compile-time parameters
+
+Square brackets hold everything known at compile time, and parentheses
+what is known when the program runs. The one rule covers types,
+functions, and compile-time values, in declarations and in uses:
+
+| | Declared | Used |
+|---|---|---|
+| generic type | `type Box[T]`, `enum Option[T]` | `Box[Int]`, `Box[Int](v: 3)`, `Option[Int].some(value: 7)` |
+| generic function | `fun max[T](a: T, b: T) -> T` | `max(3, 7)`, `max[Float](1, 2)` |
+| generic method | `fun map[U](?self, f: fun(T) -> U) -> Box[U]` | `b.map(label)` |
+| compile-time value | `fun check[mode: Mode](n: Int)` | `check[.strict](5)` |
+| both at once | `sub rep[T, n: Int](x: T)` | `rep[String, 3]("hi")` |
+
+In a bracket list, a bare name is a type parameter and `name: Type` is
+a compile-time value. The brackets touch the name. There is no `<T>`
+and no `comptime` keyword.
+
+Why brackets:
+
+- **One spelling for everything compile-time.** Zig passes a type and
+  a compile-time value the same way, as `comptime` parameters. Rig
+  does too, and puts them all in brackets, so a call shows which of its
+  arguments shape the code and which it computes with.
+- **No clash with construction.** `Box(v: 3)` builds a `Box`. If type
+  arguments went in parentheses too, `Box(Int)` would read as a call
+  of the constructor. `Box[Int](v: 3)` cannot be misread.
+- **Precedent.** Go writes `Max[T any]` and calls `Max[float64](1, 2)`,
+  Mojo declares compile-time parameters as `fn repeat[count: Int]()`,
+  and Python's type hints write `list[int]`.
+
 ### Generic types
 
 `type Name[T, ...]` declares a generic struct and `enum Name[T, ...]` a
-generic enum; the brackets touch the name. Type arguments go in
-brackets too, in a type (`Box[Int]`) and in an expression
-(`Box[Int](value: 3)`, `Vec[Int]()`, `Option[Int].some(value: 7)`), or
-are inferred from the constructor's values or the type expected where
-the value goes. There are no traits: a generic body may only do with
-`T` what every instantiation allows, which is checked per instance,
-like Zig's `comptime T: type`.
+generic enum. An instance names its type arguments in brackets, in a
+type (`Pair[Int, String]`) and in an expression
+(`Pair[Int, Float](first: 1, second: 2.5)`, `Vec[Int]()`,
+`Option[Int].some(value: 7)`). A constructor may leave them out: they
+come from the type expected where the value goes, or from the values
+that fill it.
 
 ```rig
 type Pair[T, U]
@@ -1410,23 +1465,211 @@ sub main
 2.5 .some(value: 1)
 ```
 
-In an expression, `x[...]` is type arguments when `x` names a generic
-type, and an index otherwise. A type argument there is spelled as an
-expression: a name, `mod.Type`, `*T`, `~T`, `?T`, `!T`, `T?`, or an
-instance. For a slice, array, or function type, use a `type` alias.
+A generic struct is declared with `type`, never `struct`, and its
+parameters are types only: `type Ring[n: Int]` is rejected.
 
-### Generic functions
+### Generic functions and methods
 
-A function, `sub`, or method takes type parameters in the same
-brackets as its compile-time values, and lowers to a Zig function with
-a `comptime T: type` parameter. A call infers them from its arguments,
-a literal taking its default type, or gives every compile-time argument
-in brackets. The body is checked for each instance the calls make, and
-a `T` that owns a resource moves where the body moves it.
+A function, `sub`, method, or associated function declares type
+parameters in brackets after its name, beside any compile-time values.
+A method's own sit beside its type's: inside `Box[T]`, `fun map[U]`
+has both `T` and `U`.
+
+```rig
+type Box[T]
+  v: T
+
+  fun map[U](?self, f: fun(T) -> U) -> Box[U]
+    Box(v: f(self.v))
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+sub rep[T, n: Int](x: T)
+  for i in 0..n
+    print(i, x)
+
+fun label(n: Int) -> String
+  "big" if n > 9 else "small"
+
+sub main
+  b = Box(v: 12)
+  print(b.map(label).v, max(3, 7), max(2.5, 1.0))
+  rep[String, 2]("hi")
+```
+
+```output
+big 7 2.5
+0 hi
+1 hi
+```
+
+A generic function lowers to a Zig function with a `comptime T: type`
+parameter, and each call passes its type: `max(3, 7)` becomes
+`max(i64, 3, 7)`.
+
+### Inferred or given
+
+A call infers its type arguments by matching each parameter's type
+against its argument's: `T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`,
+`[N]T`, and instances like `Vec[T]` or `Box[T]`. Every argument must
+agree. A literal takes its default type (`Int`, `Float`) only where no
+other argument gives the parameter a type, so `max(small, 9)` with
+`small: U8` is `max[U8]`; among literals alone a float literal wins, so
+`max(1, 2.5)` is `max[Float]`. Brackets give every compile-time
+argument, or none: there is no partial list.
 
 ```rig
 fun max[T](a: T, b: T) -> T
   a if a > b else b
+
+sub main
+  small: U8 = 200
+  print(max(small, 9), max(1, 2.5), max[Float](1, 2))
+  v = Vec[Int]()
+  w: Vec[Int] = Vec()
+  !v.push(3)
+  print(v.len, w.len)
+```
+
+```output
+200 2.5 2.0
+1 0
+```
+
+Brackets are required where nothing else says what to use:
+
+- a compile-time value, which is never inferred: `check[.strict](5)`;
+- a type parameter no argument determines: one that appears only in
+  the result, or only in arguments that are `none` or `.variant`;
+- a generic type with nothing to fill its parameter and no expected
+  type: `Vec[Int]()`, or `v: Vec[Int] = Vec()`.
+
+A generic function takes its type arguments from its arguments only,
+never from the type its result is expected to have, so a result bound
+to a `U8` needs the brackets:
+
+```rig reject
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+sub main
+  z: U8 = max(1, 2)
+  print(z)
+```
+
+```error
+type mismatch: expected `U8`, got `Int`
+```
+
+`max[U8](1, 2)` is the fix.
+
+### Index or compile-time arguments
+
+`x[...]` touching `x` indexes, unless `x` names a generic type or a
+function: then the brackets are compile-time arguments. The name
+decides, directly, through a module (`lib.scaled[3]`), through a type
+(`Scale.unit[6]()`), or as a method (`s.times[5]()`). A bracket list of
+two or more is never an index.
+
+```rig
+fun double(n: Int) -> Int
+  n * 2
+
+sub show[n: Int]
+  print(n)
+
+sub main
+  xs = [10, 20, 30]
+  ops = [double, double]
+  v = Vec[Int]()
+  !v.push(xs[2])
+  show[2]
+  print(xs[1], ops[0](4), v[0])
+```
+
+```output
+2
+20 8 30
+```
+
+A type argument in an expression is written as an expression: a name,
+`mod.Type`, `*T`, `~T`, `T?`, or an instance. A slice, array, or
+function type has no such spelling, so give it a `type` alias, or write
+the type where the value goes:
+
+```rig
+type Box[T]
+  v: T
+
+type Row = [3]Int
+
+sub main
+  a = Box[Row](v: [1, 2, 3])
+  b: Box[[3]Int] = Box(v: [4, 5, 6])
+  print(a.v, b.v)
+```
+
+```output
+[1, 2, 3] [4, 5, 6]
+```
+
+By the spacing rule, `show [3]` is a paren-free call whose argument is
+the array `[3]`, and it is rejected with a hint to write `show[3]`.
+
+### What a generic body may do with `T`
+
+There are no traits or bounds. A generic body is checked once, with
+`T` unknown, and every operation it applies to a `T` (`>`, `+`, `==`, a
+literal beside a `T`, a copy of a `T`) is recorded. Each instance the
+program makes, inferred or given, is then checked against that record,
+like a C++ template or a Zig `comptime T: type` function. The error
+names the call, and a note points at the line of the body that needs
+the operation:
+
+```rig reject
+struct Point
+  x: Int
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+sub main
+  p = max(Point(x: 1), Point(x: 2))
+  print(p.x)
+```
+
+```error
+`max[Point]` cannot use `T = Point`: the generic body applies `>` to `T`, which `Point` does not support
+`>` used on `T` here (ordering comparison)
+```
+
+A body cannot call a method on a `T`, read its fields, or call `T`
+itself, since nothing says every `T` has them. It can pass a `T` on,
+store it, return it, and hand it to other generic functions.
+
+### Owning type arguments
+
+A generic body is ownership-checked as if `T` owns a resource: a `T`
+moves (`<x`) where the body moves it, and one the body does not give
+away is dropped when the call ends. So an owning type argument works
+wherever the body treats `T` as it would treat any owning value:
+
+```rig
+struct Track
+  title: String
+
+  drop self: !Track
+    print("free", self.title)
+
+type Shelf[T]
+  items: Vec[T]
+
+  sub add(!self, x: T)
+    !self.items.push(<x)
+
+  fun take(!self) -> T?
+    !self.items.pop()
 
 fun pick[T](a: T, b: T, first: Bool) -> T
   if first
@@ -1434,47 +1677,147 @@ fun pick[T](a: T, b: T, first: Bool) -> T
   <b
 
 sub main
-  v = Vec[Int]()
-  !v.push(1)
-  print(max(3, 7), max(2.5, 1.0), max[Float](1, 2))
-  w = pick(<v, Vec[Int](), true)
-  print(w.len)
+  t = pick(Track(title: "a"), Track(title: "b"), false)
+  print("picked", t.title)
+  s = Shelf[*Track](items: Vec())
+  !s.add(*Track(title: "intro"))
+  !s.add(*Track(title: "outro"))
+  if !s.take() as last
+    print("took", last.title)
+  print("left", s.items.len, pick(1, 2, true))
 ```
 
 ```output
-7 2.5 2.0
-1
+free a
+picked b
+took outro
+free outro
+left 1 1
+free intro
+free b
 ```
 
-| Rust | Zig | Rig |
-|---|---|---|
-| `fn max<T: PartialOrd>(a: T, b: T) -> T` | `fn max(comptime T: type, a: T, b: T) T` | `fun max[T](a: T, b: T) -> T` |
-| `max::<f64>(1.0, 2.0)` | `max(f64, 1, 2)` | `max[Float](1, 2)` |
+`pick` drops the `Track` it does not return, and hands the other back
+to `main`; `pick(1, 2, true)` copies its `Int`s as usual.
 
-### Aliases
+A body that copies a `T` works only for plain data, because a copy of
+an owning value would release its resource twice. The copy is an
+error at each call that makes an owning instance, with a note at the
+copy:
 
-`type Name = T` is a transparent second name for `T`. An alias of a
-local struct or enum constructs values and names variants.
+```rig reject
+struct Track
+  title: String
 
-```rig
-type UserId = Int
+  drop self: !Track
+    print("free", self.title)
 
-struct Point
-  x: Int
+type Pair[T]
+  a: T
+  b: T
 
-type P = Point
+fun twice[T](x: T) -> Pair[T]
+  Pair(a: x, b: x)
 
 sub main
-  id: UserId = 5
-  p = P(x: id)
-  print(p.x + 1)
+  print(twice(1).a)
+  p = twice(Track(title: "a"))
+```
+
+```error
+`twice[Track]` cannot use `T = Track`: the generic body copies a `T`, which would duplicate the resource `Track` owns
+`T` copied here; move it with `<` instead
+```
+
+The same holds where a body takes an element from a loop that does not
+consume its collection (`for x in v`, then `<x`), or unwraps a `T` out
+of a borrowed optional with `as`: the collection or the owner still
+holds the value.
+
+A type argument is never a borrow: a body that takes a borrow says so
+with `?T` or `!T` in its signature, and is called with `?x` or `!x`.
+
+### Compile-time values
+
+A compile-time value parameter is a number, `Bool`, `String`, an enum
+whose variants carry nothing, or an optional of one of these. Its
+argument must be known at compile time: a literal (`none` included), an
+enum value, a module constant, another compile-time parameter, a `=!`
+binding of one of those, or a comparison or `and`, `or`, `not` of them.
+Arithmetic there must fold to a constant, which Rig checks
+(`g[LIMIT * 2]`). Arithmetic on a compile-time parameter (`g[n + 1]`)
+is rejected, since each instance would compute it unchecked; inside a
+body, `n + 1` is ordinary run-time arithmetic, checked when it runs.
+
+A function with no run-time parameters may leave out its parentheses,
+in its declaration (`sub show[n: Int]`) and in a call that is a whole
+statement (`show[3]`).
+
+```rig
+enum Mode
+  strict
+  loose
+
+limit =! 10
+
+fun check[mode: Mode](n: Int) -> Bool
+  n > limit if mode == .strict else n > 0
+
+sub show[n: Int]
+  print(n)
+
+sub main
+  print(check[.strict](5), check[.loose](5))
+  show[3]
+  show[limit * 2]()
 ```
 
 ```output
-6
+false true
+3
+20
 ```
 
-## 14. Ownership: the sigils
+```rig reject
+sub show[n: Int]
+  print(n)
+
+sub main
+  k = 3
+  show[k]
+```
+
+```error
+compile-time argument 1 of `show` must be known at compile time
+```
+
+### Limits
+
+- A generic function, or any function with compile-time parameters,
+  can only be called. `f = max` and `g = max[Int]` are rejected, and a
+  closure is never generic.
+- Generics do not cross modules yet: a `pub` generic function, a
+  generic method of a `pub` type, and an instance of another module's
+  generic type are rejected. A module's private generic functions
+  serve its public ones.
+- A generic type has type parameters only, and a type alias has none.
+- In an expression, a type argument with no expression spelling
+  (`[]T`, `[N]T`, `fun(...)`) needs a `type` alias.
+
+### Rust, Zig, and Rig
+
+| | Rust | Zig | Rig |
+|---|---|---|---|
+| generic function | `fn max<T: PartialOrd>(a: T, b: T) -> T` | `fn max(comptime T: type, a: T, b: T) T` | `fun max[T](a: T, b: T) -> T` |
+| explicit type argument | `max::<f64>(1.0, 2.0)` | `max(f64, 1, 2)` | `max[Float](1, 2)` |
+| what `T` may do | what its bounds say | what each instance compiles | what each instance supports, checked per call |
+| generic type | `struct Box<T> { v: T }` | `fn Box(comptime T: type) type` | `type Box[T]` |
+| type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `Vec[Int]()` |
+| generic method | `fn map<U>(&self, f: fn(T) -> U) -> Box<U>` | `fn map(self: Self, comptime U: type, f: *const fn (T) U) Box(U)` | `fun map[U](?self, f: fun(T) -> U) -> Box[U]` |
+| compile-time value | `fn f<const N: usize>(x: i64)` | `fn f(comptime n: usize, x: i64)` | `fun f[n: Int](x: Int)` |
+| its call | `f::<3>(x)` | `f(3, x)` | `f[3](x)` |
+
+## 15. Ownership: the sigils
 
 Rig's ownership model is Rust's, with two differences a Rust programmer
 notices at once: **every transfer is written** (`<x` moves, a bare name
@@ -1672,7 +2015,7 @@ Rust's `drop(x)`.
 ### Share and weak: `*x` and `~x`
 
 `*x` moves a value into a new reference-counted box and `~h` makes a
-weak handle to one ([§16](#16-shared-and-weak-handles)).
+weak handle to one ([§17](#17-shared-and-weak-handles)).
 
 ### Where the sigils appear
 
@@ -1693,7 +2036,7 @@ In a method call the sigil goes on the receiver, `!p.m()` for
 other expression, a sigil applies to all of it: `+n.first()` clones
 what `first` returns.
 
-## 15. Drop
+## 16. Drop
 
 A struct may declare one `drop` body, Rust's `impl Drop`. It takes
 exactly `self: !Self` and runs when the value is released, before the
@@ -1730,7 +2073,7 @@ methods. It may not move, drop, or reassign `self` directly. Only
 structs have `drop` bodies; enums and generic types get the generated
 glue only.
 
-## 16. Shared and weak handles
+## 17. Shared and weak handles
 
 `*T` is a single-threaded reference-counted handle, like Rust's `Rc<T>`.
 `*expr` boxes a value (`*<x` for a named one), `+h` adds an owner, and
@@ -1780,7 +2123,7 @@ cannot assign through shared handle
 handle while the value lives and `none` after. A cycle of strong
 handles leaks, as in Rust; break it with a weak handle.
 
-## 17. Cell, Vec, and Signal
+## 18. Cell, Vec, and Signal
 
 These three built-in generic types are the substrate for mutable,
 growable, and reactive state.
@@ -1793,7 +2136,8 @@ out, only replaced, so any holder may change them. That is also why
 there is no run-time borrow flag, unlike Rust's `RefCell`.
 
 **`Vec[T]`** is a growable array that owns its elements, like Rust's
-`Vec<T>`. Elements are Copy values, plain data, or handles.
+`Vec<T>`. Elements are numbers, `Bool`, `String`, plain structs, enums,
+and optionals, or handles.
 
 | Member | Meaning |
 |---|---|
@@ -1883,7 +2227,7 @@ clicked 1
 clicked 2
 ```
 
-## 18. Closures
+## 19. Closures
 
 ### The bar list
 
@@ -2010,7 +2354,7 @@ trailing 0
 trailing 1
 ```
 
-## 19. Optionals
+## 20. Optionals
 
 `T?` holds a `T` or `none`. A `T` converts to `T?` where one is
 expected.
@@ -2054,7 +2398,7 @@ true nobody
 
 Note the direction: `?x` (prefix) borrows, `x?` (suffix) unwraps.
 
-## 20. Errors
+## 21. Errors
 
 A function returning `T!` may fail. It fails by producing an error
 value where a `T` is expected, usually `return E.name`. Every call to
@@ -2062,7 +2406,7 @@ it says what happens to the failure:
 
 - `f()!` propagates it (Zig's `try`, Rust's `?`). The operator is the
   suffix of the type it acts on: a `T!` propagates with `e!`, as a
-  `T?` does with `e?` ([§19](#19-optionals)), so a line shows which kind
+  `T?` does with `e?` ([§20](#20-optionals)), so a line shows which kind
   of early exit it can take;
 - `f() catch v` handles it with a fallback;
 - `f() catch |err| handler` names the error for the handler, which may
@@ -2115,7 +2459,7 @@ lowers to `anyerror!T`), so `err` may be any error; compare it with
 `err == E.name` or `match` it by name. `sub main` and `test` blocks may
 propagate. Closures, `defer`, and `drop` bodies may not.
 
-## 21. Arrays, strings, and slices
+## 22. Arrays, strings, and slices
 
 **Arrays** are fixed-size, `[N]T`, and hold plain data. `xs.len` is the
 length and `xs[i]` a bounds-checked element.
@@ -2151,7 +2495,7 @@ hello 12 104
 
 A slice is read-only: `mid[0] = 5` is rejected.
 
-## 22. Modules and constants
+## 23. Modules and constants
 
 `use name` imports `name.rig` from the root file's directory. The
 module's `pub` declarations are reached as `name.decl` and its types as
@@ -2203,7 +2547,7 @@ sub main
 10 5 high
 ```
 
-## 23. raw, extern, and builtins
+## 24. raw, extern, and builtins
 
 A `raw` block is Rig's `unsafe`: the one place a program may call Zig
 builtins outside the safe list and `extern` C functions. Everything else
@@ -2235,46 +2579,6 @@ sub main
   type. Only integers, floats, and `Bool` cross the boundary.
 - `@name(args)` calls a Zig builtin. `@sizeOf`, `@alignOf`, `@TypeOf`,
   and `@typeName` are safe anywhere; the rest need `raw`.
-
-## 24. Compile-time parameters
-
-Square brackets hold what is known at compile time, parentheses what
-is known when the program runs. Compile-time parameters go in brackets
-touching the function's name, before its run-time parameters, and
-lower to Zig `comptime` parameters; a call gives their arguments in
-brackets. Each argument must be a literal, an enum value, a constant,
-or another compile-time parameter; arithmetic there must fold to a
-constant, so `f[n + 1]` over a parameter `n` is rejected. With no
-run-time parameters, the
-parentheses are optional, and a whole-statement call `show[3]` runs
-`show` as `show[3]()` does.
-
-```rig
-enum Mode
-  strict
-  loose
-
-fun check[mode: Mode](n: Int) -> Bool
-  n > 10 if mode == .strict else n > 0
-
-sub show[n: Int]
-  print(n)
-
-sub main
-  print(check[.strict](5), check[.loose](5))
-  show[3]
-```
-
-```output
-false true
-3
-```
-
-| Rust | Zig | Rig |
-|---|---|---|
-| `fn f<const N: usize>(x: i64)` | `fn f(comptime n: usize, x: i64)` | `fun f[n: Int](x: Int)` |
-| `f::<3>(x)` | `f(3, x)` | `f[3](x)` |
-| `Vec::<i64>::new()` | `std.ArrayList(i64).empty` | `Vec[Int]()` |
 
 ## 25. Tests
 
@@ -2331,8 +2635,10 @@ User(name: "bob", age: 1) ~(alive)
 
 Coming from Rust or Zig, you will reach for these and not find them:
 
-- **traits**: a generic body may only do with `T` what every
-  instance allows;
+- **traits and bounds**: a generic body may do with `T` only what each
+  instance supports ([§14](#what-a-generic-body-may-do-with-t));
+- **generics across modules**: a generic type or function serves only
+  its own module;
 - **heap strings and string building**: `String` is an immutable view;
 - **stack closures as arguments**: pass an owned closure (`*|...|`);
 - **concurrency and async**;
@@ -2385,7 +2691,8 @@ move-assign, `new x =` shadow, compound `+=` `-=` `*=` `/=` `%=` `&=`
 
 **Other punctuation:** `->` return type, `=>` match arm, `..` range,
 `??` optional fallback, `:name` label, `|...|` closure bar list,
-`.name` enum variant, `@name(...)` builtin, `#` comment, `\` line join.
+`.name` enum variant, `name[...]` compile-time parameters or arguments
+(or an index), `@name(...)` builtin, `#` comment, `\` line join.
 
 **Keywords by role**
 
@@ -2420,7 +2727,8 @@ correspondences:
 | a stack closure | a local struct holding its captures, with an `invoke` method |
 | an owned closure | a counted, type-erased closure |
 | `defer`, `errdefer` | `defer`, `errdefer` |
-| `fun f[n: Int]` | `fn f(comptime n: i64)` |
+| `fun f[n: Int](x: Int)`, `f[3](x)` | `fn f(comptime n: i64, x: i64) i64`, `f(3, x)` |
+| a method's compile-time parameters | after the receiver: `fn times(self: P, comptime n: i64) i64` |
 | `sub main` | `pub fn main() void`, which checks for leaks on exit in Debug |
 
 The runtime (`src/runtime.zig`) is written next to every emitted
@@ -2504,7 +2812,11 @@ call onto the place, giving the tree of `(!v).push(x)`
 - `?` is spelled `!` for errors (`f()!`) and `?` only for optionals
   (`x?`); a prefix `?x` is a borrow.
 - Generics use brackets, not angle brackets, and need no turbofish:
-  `Vec[Int]()` is `Vec::<i64>::new()`.
+  `Vec[Int]()` is `Vec::<i64>::new()`, and `max[Float](1, 2)` is
+  `max::<f64>(1.0, 2.0)`.
+- There are no trait bounds: `fun max[T]` needs no `T: PartialOrd`.
+  Each instance a call makes is checked against what the body does
+  with `T`.
 - `Rc<RefCell<T>>` is `*Cell[T]`; there is no run-time borrow flag,
   because a Cell's contents are only replaced, never borrowed.
 - Closures capture nothing implicitly: list every capture with its
