@@ -25,4 +25,4 @@ sub main()
 # error: 10:9: compile-time argument 1 of `inner` does arithmetic on a compile-time parameter
 # error: 11:9: compile-time argument 1 of `inner` does arithmetic on a compile-time parameter
 # error: 18:5: compile-time argument 1 of `g` does arithmetic on a compile-time parameter
-# error: 18:15: compile-time argument 1 of `g` must be known at compile time
+# error: 18:15: compile-time argument 1 of `g` must be known at compile time; `k` is bound with `=!` to a value computed when the program runs

@@ -3332,8 +3332,11 @@ const Checker = struct {
         const mark = self.ctx.diagnostics.items.len;
         try self.checkExpr(a, ty);
         if (self.ctx.diagnostics.items.len != mark or self.isComptimeKnown(a)) return;
+        const fixed = a == .src and if (self.ctx.symbolOf(a)) |id| self.ctx.symbols.items[id].flags.fixed else false;
         if (self.isCtArithmetic(a)) {
             try self.errAt(a, "compile-time argument {d} of `{s}` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; pass a parameter or a constant", .{ i + 1, callee });
+        } else if (fixed) {
+            try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; `{s}` is bound with `=!` to a value computed when the program runs", .{ i + 1, callee, self.text(a) });
         } else try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a compile-time parameter, or a `=!` binding of one", .{ i + 1, callee });
     }
 
