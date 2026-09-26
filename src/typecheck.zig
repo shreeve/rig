@@ -560,10 +560,12 @@ const Checker = struct {
         if (!is_decl and sym.kind == .param and self.ctx.types.get(sym.ty) != .borrow_write) {
             try self.errAt(target, "cannot assign to parameter `{s}`; parameters are immutable (bind a copy with `new {s} = {s}`, or take `{s}: !T` to write through to the caller)", .{ name, name, name, name });
         }
-        if (!is_decl and sym.kind == .capture) {
+        // A captured write borrow writes through to what it borrows.
+        const captured_write = sym.kind == .capture and self.ctx.types.get(sym.ty) == .borrow_write;
+        if (!is_decl and sym.kind == .capture and !captured_write and !self.isPoison(sym.ty)) {
             try self.errAt(target, "cannot assign to captured `{s}`; captures are fixed when the closure is created", .{name});
         }
-        const writes_through = sym.kind == .param or sym.flags.pattern_bound;
+        const writes_through = sym.kind == .param or sym.flags.pattern_bound or captured_write;
         // A `![]T` parameter or pattern binding views the caller's
         // elements; there is no whole value to write through to.
         if (!is_decl and writes_through and sema.writeSliceElem(self.ctx, sym.ty) != null) {
@@ -793,17 +795,32 @@ const Checker = struct {
             sym = foreign.symbols.items[foreign.lookupInScopeOnly(sema.module_scope, leaf) orelse return true];
             name = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ self.text(root), leaf });
         }
+        _ = try self.checkBindingWritable(sym, name, pos, verb);
+        return true;
+    }
+
+    /// Whether binding `sym`, written `name` at `pos`, may be written:
+    /// a parameter only when it is a `!T`, never a capture, a fixed
+    /// binding, or a loop or pattern binding that copies. False after a
+    /// diagnostic.
+    fn checkBindingWritable(self: *Checker, sym: sema.Symbol, name: []const u8, pos: u32, verb: []const u8) Error!bool {
         switch (sym.kind) {
             .param => if (self.ctx.types.get(sym.ty) != .borrow_write) {
                 if (std.mem.eql(u8, name, "self")) {
                     try self.err(pos, "cannot {s} parameter `self`; parameters are immutable (take `!self` to write through to the caller)", .{verb});
                 } else try self.err(pos, "cannot {s} parameter `{s}`; parameters are immutable (take `{s}: !T` to write through to the caller)", .{ verb, name, name });
+                return false;
             },
-            .capture => try self.err(pos, "cannot {s} captured `{s}`; captures are fixed when the closure is created", .{ verb, name }),
+            .capture => {
+                try self.err(pos, "cannot {s} captured `{s}`; captures are fixed when the closure is created", .{ verb, name });
+                return false;
+            },
             .local => if (sym.flags.fixed) {
                 try self.err(pos, "cannot {s} fixed binding `{s}` (bound with `=!`)", .{ verb, name });
+                return false;
             } else if (sym.flags.pattern_bound and self.ctx.types.get(sym.ty) != .borrow_write) {
                 try self.err(pos, "cannot {s} `{s}`; loop and pattern bindings are immutable (bind a copy with `new {s} = {s}`)", .{ verb, name, name, name });
+                return false;
             },
             else => {},
         }
@@ -1620,7 +1637,7 @@ const Checker = struct {
                     try self.errAt(leaf, "`{s}` is used before it has a value", .{name});
                 }
                 if (crossed_lambda and s != self.module_scope and (kind == .local or kind == .param or kind == .capture)) {
-                    try self.errAt(leaf, "`{s}` is a local of the enclosing function; capture it to use it inside the closure (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|~{s}|` holds it weakly)", .{ name, name, name, name });
+                    try self.errAt(leaf, "`{s}` is a local of the enclosing function; capture it to use it inside the closure (`|+{s}|` copies or clones it, `|<{s}|` moves it, `|?{s}|` or `|!{s}|` borrows it, `|~{s}|` holds it weakly)", .{ name, name, name, name, name, name });
                 }
                 return id;
             }
@@ -6053,6 +6070,39 @@ const Checker = struct {
         return false;
     }
 
+    /// `|?x|` / `|!x|`: the type of the borrow of outer binding `id`
+    /// the closure holds, as `?x` / `!x` would have it. Poison after a
+    /// diagnostic.
+    fn captureBorrow(self: *Checker, id: SymbolId, name: []const u8, pos: u32, kind: BorrowKind) Error!TypeId {
+        const sym = self.ctx.symbols.items[id];
+        const ty = sym.ty;
+        if (self.isPoison(ty)) return ty;
+        const sigil: []const u8 = if (kind == .read) "?" else "!";
+        switch (self.ctx.types.get(ty)) {
+            .borrow_read => {
+                if (kind == .read) return ty;
+                try self.err(pos, "cannot write-borrow through a read borrow `{s}`; capture it with `|?{s}|`", .{ try self.tyName(ty), name });
+                return self.t().invalid_id;
+            },
+            .borrow_write => |base| return if (kind == .write) ty else self.ctx.intern(.{ .borrow_read = base }),
+            .slice => if (kind == .write) {
+                try self.err(pos, "cannot write-borrow a `{s}`: its elements are read-only; capture it with `|?{s}|`", .{ try self.tyName(ty), name });
+                return self.t().invalid_id;
+            },
+            .function => if (kind == .write) {
+                try self.err(pos, "a call never changes a closure's environment, so a closure is not write-borrowed; capture it with `|?{s}|`", .{name});
+                return self.t().invalid_id;
+            },
+            else => {},
+        }
+        if (kind == .write and !(try self.checkBindingWritable(sym, name, pos, "write-borrow"))) return self.t().invalid_id;
+        if (kind == .read and sym.flags.pattern_bound and sema.holdsCellByValue(self.ctx, ty)) {
+            try self.err(pos, "cannot capture `{s}{s}`: it holds a Cell, and `{s}` is a loop or match binding, a copy, so changes through the borrow would be lost", .{ sigil, name, name });
+            return self.t().invalid_id;
+        }
+        return self.ctx.intern(if (kind == .read) Type{ .borrow_read = ty } else Type{ .borrow_write = ty });
+    }
+
     /// Validate one capture against the outer binding and give the
     /// capture symbol its type.
     fn checkCapture(self: *Checker, cap: Sexp, outer: ScopeId) Error!void {
@@ -6085,7 +6135,15 @@ const Checker = struct {
             return;
         }
         const outer_ty = self.ctx.symbols.items[outer_id].ty;
+        if (mode == .cap_read or mode == .cap_write) {
+            const ty = try self.captureBorrow(outer_id, name, pos, if (mode == .cap_read) .read else .write);
+            self.ctx.symbols.items[cap_sym].ty = ty;
+            self.ctx.symbols.items[cap_sym].origin = outer_id;
+            try self.ctx.recordType(name_node, ty);
+            return;
+        }
         const bound: ?TypeId = switch (mode) {
+            .cap_read, .cap_write => unreachable,
             .cap_move => outer_ty,
             .cap_weak => switch (self.ctx.types.get(outer_ty)) {
                 .shared => |inner| try self.ctx.intern(.{ .weak = inner }),

@@ -153,6 +153,9 @@ const Var = struct {
     ref: Ref = .none,
     fixed: bool = false,
     closure: bool = false,
+    /// A closure whose environment has drop glue: dropping it at scope
+    /// exit uses what it captured.
+    env_drops: bool = false,
     /// Element of `for x in ?vec` over a resource Vec: a borrowed view of
     /// the slot.
     loop_borrow: bool = false,
@@ -1030,7 +1033,7 @@ pub const Checker = struct {
         if (!self.nll or depth > 16) return true;
         const ctx = self.sema orelse return true;
         const v = self.vars.items[id];
-        if (v.kind == .hidden or v.kind == .param or v.closure or self.isGlobal(id)) return true;
+        if (v.kind == .hidden or v.kind == .param or v.env_drops or self.isGlobal(id)) return true;
         const sym = v.sym orelse return true;
         if (self.defer_used.contains(sym)) return true;
         const ty = v.ty orelse return true;
@@ -1559,6 +1562,12 @@ pub const Checker = struct {
     fn readsAsView(self: *const Checker, e: Sexp) bool {
         const ctx = self.sema orelse return false;
         return ctx.readsAsView(e);
+    }
+
+    /// Whether `ty` is the type of something the type checker rejected.
+    fn isPoisonType(self: *const Checker, ty: ?TypeId) bool {
+        const ctx = self.sema orelse return false;
+        return ty == null or ty == ctx.types.invalid_id;
     }
 
     /// Whether the type checker rejected `e` (its type is invalid).
@@ -2090,6 +2099,7 @@ pub const Checker = struct {
             .default, .move => {
                 if (self.find(name)) |id| {
                     try self.reassign(id, pos, value);
+                    return;
                 } else {
                     try self.bindNew(target, false, is_lambda, value);
                 }
@@ -2099,8 +2109,20 @@ pub const Checker = struct {
                 const id = self.find(name) orelse return;
                 try self.checkReadable(id, pos);
                 try self.checkAssignable(id, pos);
+                return;
             },
         }
+        if (is_lambda) self.vars.items[self.vars.items.len - 1].env_drops = self.envDrops(expr);
+    }
+
+    /// Whether the environment of closure literal `lambda` has drop glue.
+    fn envDrops(self: *const Checker, lambda: Sexp) bool {
+        const ctx = self.sema orelse return true;
+        for (sema.captureList(ir.Lambda.captures(lambda))) |cap| {
+            const ty = self.symType(sema.captureNameNode(cap).?.src.pos) orelse return true;
+            if (sema.typeHasDropGlue(ctx, ty) or sema.maybeDropGlue(ctx, ty)) return true;
+        }
+        return false;
     }
 
     /// A new binding named by `node`, holding `value`.
@@ -2130,7 +2152,10 @@ pub const Checker = struct {
             try self.note(v.decl, "`{s}` was bound here with `=!`", .{v.name});
             return;
         }
-        if (try self.rejectBorrowedView(id, pos, "reassign")) return;
+        // Assigning a captured write borrow writes through it.
+        // (A capture the type checker rejected is reported there.)
+        const writes_capture = v.kind == .capture and (v.ref == .write or self.isPoisonType(v.ty));
+        if (!writes_capture and try self.rejectBorrowedView(id, pos, "reassign")) return;
         if (!self.isCopy(v.ty) and try self.rejectGlobal(id, pos, "reassign")) return;
         if (v.alias_of != null and !self.isCopy(v.ty)) {
             try self.err(pos, "cannot reassign match binding `{s}`; it views the matched value", .{v.name});
@@ -2147,6 +2172,15 @@ pub const Checker = struct {
         try self.checkAssignable(id, pos);
         if (self.diagnostics.items.len != before and self.quiet == 0) return;
         const v = self.vars.items[id];
+        if (v.kind == .capture and v.ref == .write) {
+            // Assigning a captured write borrow writes into the value it
+            // borrows, which outlives the closure's own values.
+            for (value.loans) |l| if (self.isLocalLoan(l)) {
+                try self.err(pos, "cannot store a borrow of `{s}` through captured `{s}`: the value it borrows outlives it", .{ self.vars.items[l.root].name, v.name });
+                return;
+            };
+            return;
+        }
         if (v.closure or v.fixed or v.loop_borrow or v.capture_resource) return;
         if (self.isGlobal(id) and !self.isCopy(v.ty)) return;
         if (self.findLoan(id, .any, null) != null) return;
@@ -2474,6 +2508,12 @@ pub const Checker = struct {
             if (owned and cv.loans.len > 0) {
                 const name = self.text(sema.captureNameNode(cap).?);
                 const l = cv.loans[0];
+                const mode = sema.captureModeOf(cap).?;
+                if (mode == .cap_read or mode == .cap_write) {
+                    try self.err(sema.captureNameNode(cap).?.src.pos, "an owned closure cannot borrow `{s}`: it can be stored anywhere, so it could outlive `{s}`; capture a copy (`|+{s}|`) or move it in (`|<{s}|`), or use a stack closure (`|...|`)", .{ name, name, name, name });
+                    value = try self.valueUnion(value, cv);
+                    continue;
+                }
                 try self.err(sema.captureNameNode(cap).?.src.pos, "an owned closure cannot capture `{s}`, which holds a borrow{s}{s}{s}; capture an owned value, or use a stack closure (`|...|`)", .{
                     name,
                     if (l.ext) "" else " of `",
@@ -2509,7 +2549,7 @@ pub const Checker = struct {
             const ty = self.symType(name.src.pos);
             const resource = switch (sema.captureModeOf(cap).?) {
                 .cap_clone => !self.isCopy(ty),
-                .cap_weak, .cap_move => true,
+                .cap_weak, .cap_move, .cap_read, .cap_write => true,
             };
             _ = try self.addVar(.{
                 .name = self.text(name),
@@ -2542,6 +2582,8 @@ pub const Checker = struct {
             return .{};
         }
         if (mode == .cap_move) return self.moveVar(id, pos, .capture);
+        // `|?x|` / `|!x|` borrow `x` for as long as the closure lives.
+        if (mode == .cap_read or mode == .cap_write) return (try self.borrowVar(id, if (mode == .cap_read) .read else .write, pos)) orelse .{};
         if (!try self.checkCapturable(id, pos)) return .{};
         if (self.findLoan(id, .write, null)) |l| {
             try self.err(pos, "cannot capture `{s}` while a write borrow is live", .{name});

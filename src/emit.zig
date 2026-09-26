@@ -1131,7 +1131,9 @@ pub const Emitter = struct {
     /// after the new one has been computed (so `a = +a` works), and the
     /// guard is re-armed.
     fn emitRebind(self: *Emitter, local: Local, value: Sexp, is_move: bool) Error!void {
-        const writes_through = self.sema.symbols.items[local.sym].kind == .param or self.sema.symbols.items[local.sym].flags.pattern_bound;
+        const s = self.sema.symbols.items[local.sym];
+        const captured_write = s.kind == .capture and self.sema.types.get(s.ty) == .borrow_write;
+        const writes_through = s.kind == .param or s.flags.pattern_bound or captured_write;
         if (local.is_ptr and !writes_through) {
             // A borrow local is rebound to borrow something else.
             try self.w.print("{s} = ", .{local.zig_name});
@@ -3509,10 +3511,36 @@ pub const Emitter = struct {
                     // A moved pointer borrow moves the pointer.
                     try self.w.writeAll(outer.zig_name);
                 } else try self.writeTake(&outer),
+                .cap_read, .cap_write => try self.writeCapturedBorrow(&outer, c.ty),
                 else => try self.writeLocalPlace(&outer),
             }
         }
         try self.w.writeAll(" }");
+    }
+
+    /// `|?x|` / `|!x|`: the borrow of local `outer` a closure holds, of
+    /// type `ty`, as `?x` / `!x` gives it: a pointer, or for a read
+    /// borrow of plain data, the value.
+    fn writeCapturedBorrow(self: *Emitter, outer: *const Local, ty: TypeId) Error!void {
+        const outer_borrows = if (outer.ty) |t| switch (self.sema.types.get(t)) {
+            .borrow_read, .borrow_write => true,
+            else => false,
+        } else false;
+        // A `![]T` is the slice itself; a borrow of a borrow passes it on.
+        if (sema.writeSliceElem(self.sema, ty) != null or (outer_borrows and (self.isPtrBorrowTy(ty) or !outer.is_ptr))) {
+            return self.w.writeAll(outer.zig_name);
+        }
+        if (self.genericReadBorrow(ty) != null) {
+            try self.w.writeAll("rig.lend(");
+            if (!outer.is_ptr) try self.w.writeAll("&");
+            try self.w.writeAll(outer.zig_name);
+            return self.w.writeAll(")");
+        }
+        if (self.isPtrBorrowTy(ty)) {
+            if (!outer.is_ptr) try self.w.writeAll("&");
+            return self.w.writeAll(outer.zig_name);
+        }
+        try self.writeLocalPlace(outer);
     }
 
     /// `*|captures, params| body` → a heap-allocated environment, erased
@@ -4052,7 +4080,7 @@ const Scan = struct {
                 }
                 try s.consumeTail(sexp);
             },
-            .cap_clone, .cap_weak, .cap_move => {
+            .cap_clone, .cap_weak, .cap_move, .cap_read, .cap_write => {
                 const cap = s.e.sema.symbolOf(ir.get(sexp, .name)) orelse return;
                 const origin = s.e.sema.symbols.items[cap].origin;
                 try s.put(&s.e.usage.used, origin);

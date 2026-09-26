@@ -761,8 +761,9 @@ uses. A var is live after the current statement when it is used at or
 after the statement's start, or anywhere in an enclosing loop it was
 declared outside of (the next iteration), or in deferred code, or when
 it owns a value with drop glue (dropped at scope exit), or when a live
-var or temporary holds a loan on it. A closure binding, a parameter, and
-the hidden var that keeps a `for` source borrowed are always live. The
+var or temporary holds a loan on it. A closure binding whose
+environment has drop glue, a parameter, and the hidden var that keeps a
+`for` source borrowed are always live. The
 conflict checks and the "does not live long enough" checks at scope ends
 and jumps skip loans whose holder is not live. This is textual, so it is
 the same on every path, and conservative where paths differ.

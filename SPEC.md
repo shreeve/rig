@@ -3104,8 +3104,8 @@ A closure starts with its bar list and has no keyword. The list holds
 the closure's **captures** and its **parameters**, captures first:
 
 - an entry with a sigil captures an outer local: `+x` copies a Copy
-  value or clones a handle, `<x` moves the binding in, `~x` holds a
-  shared handle weakly;
+  value or clones a handle, `<x` moves the binding in, `?x` and `!x`
+  borrow it, `~x` holds a shared handle weakly;
 - a bare name is a parameter, optionally annotated (`a`, `a: Int`);
 - `||` is an empty list.
 
@@ -3151,6 +3151,8 @@ closure parameter `n` has the name of the local `n`
 | `\|+x\|` | Copy value | a copy |
 | `\|+x\|` | `*T` or `~T` | a clone of the handle |
 | `\|<x\|` | any | the value, moved in; the outer `x` is gone |
+| `\|?x\|` | any | a read borrow `?T`, as `?x` gives it |
+| `\|!x\|` | any a write borrow may take | a write borrow `!T`, as `!x` gives it |
 | `\|~x\|` | `*T` | a weak handle `~T` |
 
 The closure's environment owns what it captured and releases it once,
@@ -3160,9 +3162,33 @@ reassign it: the closure may be called again, so it cannot be the
 closure's value either. A captured borrow may be passed to a call,
 which borrows it for the call. A captured read borrow may be the
 closure's value, and a call's result then borrows what the closure
-captured. Through a captured write borrow the body can write fields and
-call `!self` methods, but not write-borrow it again with `!w`. A name
-may be captured once per list.
+captured. Through a captured write borrow the body can write fields,
+call `!self` methods, and assign the whole value (`w = v`, `w += 1`),
+which writes through to what it borrows, but not write-borrow it again
+with `!w`. A name may be captured once per list.
+
+`|?x|` and `|!x|` borrow `x` for as long as the closure lives, which is
+until its last use: `|!x|` is `w = !x` followed by `|<w|`. While the
+closure lives, `x` follows the aliasing rule
+([§8](#borrows)); after its last call, `x` is free again.
+
+```rig
+sub main
+  total = 0
+  names = ["ada", "bob"]
+  add = |!total, ?names, k: Int|
+    total += k * names.len
+  add(1)
+  add(10)
+  print(total)
+  total = 0
+  print(total)
+```
+
+```output
+22
+0
+```
 
 A closure nested in another captures from the scope where it is
 created: the outer closure's captures, parameters, and locals. It may

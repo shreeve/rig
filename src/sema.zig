@@ -3445,13 +3445,15 @@ pub fn paramPos(param: Sexp, fallback: u32) u32 {
     return srcPos(n, fallback);
 }
 
-pub const CaptureMode = enum { cap_clone, cap_weak, cap_move };
+pub const CaptureMode = enum { cap_clone, cap_weak, cap_move, cap_read, cap_write };
 
 pub fn captureModeOf(cap: Sexp) ?CaptureMode {
     return switch (cap.kind() orelse return null) {
         .cap_clone => .cap_clone,
         .cap_weak => .cap_weak,
         .cap_move => .cap_move,
+        .cap_read => .cap_read,
+        .cap_write => .cap_write,
         else => null,
     };
 }

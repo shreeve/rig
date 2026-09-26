@@ -222,7 +222,7 @@ sub main
 
 A closure has no keyword: it starts with its bar list. Each captured
 name carries a sigil that says how it is held: `+step` copies, `<x`
-would move, `~x` would hold a handle weakly.
+would move, `?x` and `!x` would borrow, `~x` would hold a handle weakly.
 
 ## 3. Rust and Zig to Rig at a glance
 
@@ -2414,6 +2414,7 @@ optional types:
 |---|---|
 | `+x` | capture a copy of a Copy value, or a clone of a handle |
 | `<x` | move `x` in |
+| `?x`, `!x` | borrow `x` to read or write, while the closure lives |
 | `~x` | hold a shared handle weakly |
 | `a`, `a: Int` | a parameter |
 | `\|\|` | no captures, no parameters |

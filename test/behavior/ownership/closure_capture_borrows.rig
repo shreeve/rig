@@ -1,0 +1,65 @@
+# `|?x|` captures a read borrow and `|!x|` a write borrow, held while the
+# closure lives. Through a captured write borrow the body writes fields,
+# calls `!self` methods, and assigns the whole value, which writes
+# through; after the closure's last call, the value is free again.
+
+struct Wrap
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub grow(w: !Wrap, by: Int)
+  inc = |!w, +by|
+    w.n += by
+  inc()
+  inc()
+
+fun count_of[T](xs: ?Vec[T]) -> Int
+  count = 0
+  f = |!count, ?xs|
+    count += xs.len
+  f()
+  f()
+  count
+
+sub main
+  total = 0
+  add = |!total, k: Int|
+    total += k
+  add(3)
+  add(4)
+  print(total)
+  w = Wrap(n: 1)
+  peek = |?w| w.n + 1
+  print(peek(), peek())
+  grow(!w, 5)
+  print(w.n)
+  v: Vec[Int] = Vec()
+  push = |!v, x: Int|
+    v.push(x)
+  push(1)
+  push(2)
+  print(v.len, count_of(?v))
+  swap = |!w|
+    w = Wrap(n: 99)
+  swap()
+  print(w.n)
+  name = "rig"
+  greet = |?name, p: String| print(p, name)
+  greet("hi")
+  outer = |?w|
+    inner = |?w| w.n
+    inner() + 1
+  print(outer())
+
+# expect:
+# 7
+# 2 2
+# 11
+# 2 4
+# drop 11
+# 99
+# hi rig
+# 100
+# drop 99

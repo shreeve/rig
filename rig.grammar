@@ -319,8 +319,8 @@ tokens
 
     # Closures: the Parser wrapper splits a bar list into captures and
     # parameters
-    captures                    ...caps:cap_clone|cap_move|cap_weak @wrapper
-    cap_clone, cap_move, cap_weak  name:leaf
+    captures                    ...caps:cap_clone|cap_move|cap_weak|cap_read|cap_write @wrapper
+    cap_clone, cap_move, cap_weak, cap_read, cap_write  name:leaf
 
     # Calls and access
     call                        callee ...args
@@ -727,6 +727,7 @@ names    = name                                     → (1)
 # A closure starts with its bar list. An entry with a sigil is a capture;
 # a bare name is a parameter, optionally typed:
 #   |+x| clone (a copy, for a Copy value)   |<x| move   |~x| weak
+#   |?x| read borrow   |!x| write borrow
 #   |a, b| a + b      |+v, a: Int| v.set(a)      || print("tick")
 # `*` before the bars makes an owned closure: `*|+v, a| v.set(a)`. The
 # grammar puts every entry in `params`; the Parser wrapper moves the
@@ -755,6 +756,8 @@ barent   = fname
          | CLONE_PFX name:name                      → (cap_clone)
          | MOVE_PFX  name:name                      → (cap_move)
          | "~"       name:name                      → (cap_weak)
+         | READ_PFX  name:name                      → (cap_read)
+         | WRITE_PFX name:name                      → (cap_write)
 
 
 # ==============================================================================
