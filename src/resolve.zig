@@ -1272,7 +1272,7 @@ pub const TypeResolver = struct {
                         const elem_node = ir.ArrayType.type(sexp);
                         const elem = try self.resolveType(elem_node);
                         try self.checkWhenResolved(.{ .array = .{ .node = elem_node, .elem = elem } });
-                        return self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
+                        return self.ctx.intern(.{ .array = .{ .elem = elem, .len = try sema.ctInt(self.ctx, len) } });
                     },
                     .fun_type => {
                         var ps: std.ArrayListUnmanaged(TypeId) = .empty;

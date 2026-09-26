@@ -130,7 +130,16 @@ pub const FunctionType = struct {
 };
 
 pub const SliceType = struct { elem: TypeId };
-pub const ArrayType = struct { elem: TypeId, len: u64 };
+/// `[len]elem`: `len` is a `ct_value`, or a `ct_param` inside a generic
+/// declaration.
+pub const ArrayType = struct { elem: TypeId, len: TypeId };
+
+/// A value known at compile time, as a compile-time argument or an
+/// array length.
+pub const CtValue = union(enum) { int: i128 };
+
+/// The largest array length: lengths run from 0 to 2^32 - 1.
+pub const max_array_len: i128 = std.math.maxInt(u32);
 
 pub const Type = union(enum) {
     /// A type error was reported here.
@@ -180,6 +189,13 @@ pub const Type = union(enum) {
     parameterized_nominal: ParamNominal,
     /// A generic parameter (`T` inside `struct Box[T]`).
     type_var: SymbolId,
+    /// A compile-time integer where a type argument or an array length
+    /// goes: `4` in `Ring[Int, 4]` and `[4]Int`. Not a type of values.
+    ct_value: CtValue,
+    /// A compile-time value parameter used where a `ct_value` goes, the
+    /// way a `type_var` stands for a type: `n` in `[n]T` inside `fun
+    /// f[n: Int]` or `struct Ring[T, n: Int]`.
+    ct_param: SymbolId,
 };
 
 pub const ParamNominal = struct {
@@ -1261,7 +1277,10 @@ const max_instance_depth = 24;
 /// Whether `ty` mentions any of `params`.
 fn usesParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) bool {
     if (!ctx.typeInfo(ty).has_type_var) return false;
-    if (ctx.types.get(ty) == .type_var) return std.mem.indexOfScalar(SymbolId, params, ctx.types.get(ty).type_var) != null;
+    switch (ctx.types.get(ty)) {
+        .type_var, .ct_param => |sym| return std.mem.indexOfScalar(SymbolId, params, sym) != null,
+        else => {},
+    }
     var it = typeChildren(ctx, ty);
     while (it.next()) |c| if (usesParams(ctx, c, params)) return true;
     return false;
@@ -1401,7 +1420,7 @@ fn holdsIn(ctx: *SemContext, ty: TypeId, params: []const SymbolId, held: []bool)
         return .{ .glue = info.glue, .plain = info.plain, .type_var = info.holds_type_var };
     }
     return switch (ctx.types.get(ty)) {
-        .bool, .int, .float, .string, .any_error => .{ .plain = true },
+        .bool, .int, .float, .string, .any_error, .ct_value, .ct_param => .{ .plain = true },
         .optional => |inner| holdsIn(ctx, inner, params, held),
         .array => |a| holdsIn(ctx, a.elem, params, held),
         .fallible => |inner| .{ .type_var = (try holdsIn(ctx, inner, params, held)).type_var },
@@ -1562,7 +1581,7 @@ fn borrowEdges(ctx: *SemContext, ty: TypeId, owner: SymbolId, edges: *std.ArrayL
 /// were interned before it.
 fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInfo {
     const ty = ctx.types.get(id);
-    var info: TypeInfo = .{ .has_type_var = ty == .type_var, .poison = ty == .invalid or ty == .unknown };
+    var info: TypeInfo = .{ .has_type_var = ty == .type_var or ty == .ct_param, .poison = ty == .invalid or ty == .unknown };
     var deepest: ?u8 = null;
     var it: TypeChildren = .{ .ty = ty };
     while (it.next()) |c| {
@@ -1726,9 +1745,9 @@ fn byValueTargets(ctx: *const SemContext, ty: TypeId, out: *std.ArrayListUnmanag
 
 pub const builtin_decl_pos: u32 = std.math.maxInt(u32);
 
-/// The types a type is built from, in order: a wrapper's inner type, an
-/// array or slice's element, a function's parameters then its return
-/// type, a generic instance's arguments.
+/// The types a type is built from, in order: a wrapper's inner type, a
+/// slice's element, an array's element then its length, a function's
+/// parameters then its return type, a generic instance's arguments.
 pub const TypeChildren = struct {
     ty: Type,
     i: usize = 0,
@@ -1739,7 +1758,7 @@ pub const TypeChildren = struct {
         return switch (self.ty) {
             .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner| if (i == 0) inner else null,
             .slice => |s| if (i == 0) s.elem else null,
-            .array => |a| if (i == 0) a.elem else null,
+            .array => |a| if (i == 0) a.elem else if (i == 1) a.len else null,
             .function => |f| if (i < f.params.len) f.params[i] else if (i == f.params.len) f.returns else null,
             .parameterized_nominal => |pn| if (i < pn.args.len) pn.args[i] else null,
             else => null,
@@ -1749,6 +1768,21 @@ pub const TypeChildren = struct {
 
 pub fn typeChildren(ctx: *const SemContext, ty: TypeId) TypeChildren {
     return .{ .ty = ctx.types.get(ty) };
+}
+
+/// An array's length when it is a known number; null for a compile-time
+/// parameter, whose value each instance gives, and for a length out of
+/// range, which the instance that gives it is rejected for.
+pub fn arrayLen(ctx: *const SemContext, a: ArrayType) ?u64 {
+    return switch (ctx.types.get(a.len)) {
+        .ct_value => |v| if (v.int < 0 or v.int > max_array_len) null else @intCast(v.int),
+        else => null,
+    };
+}
+
+/// The `ct_value` of the integer `v`.
+pub fn ctInt(ctx: *SemContext, v: i128) std.mem.Allocator.Error!TypeId {
+    return ctx.intern(.{ .ct_value = .{ .int = v } });
 }
 
 /// Does a value of this type need its destructor run: a `*T` / `~T`
@@ -1924,12 +1958,12 @@ pub const TypeSubst = struct {
     }
 };
 
-/// Replace every `type_var` in `ty_id` that `subst` maps.
+/// Replace every `type_var` and `ct_param` in `ty_id` that `subst` maps.
 pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem.Allocator.Error!TypeId {
     if (subst.isEmpty()) return ty_id;
     const ty = ctx.types.get(ty_id);
     switch (ty) {
-        .type_var => |sym| return subst.lookup(sym) orelse ty_id,
+        .type_var, .ct_param => |sym| return subst.lookup(sym) orelse ty_id,
         inline .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range => |inner, tag| {
             const new_inner = try substituteType(ctx, inner, subst);
             if (new_inner == inner) return ty_id;
@@ -1942,8 +1976,9 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
         },
         .array => |a| {
             const e = try substituteType(ctx, a.elem, subst);
-            if (e == a.elem) return ty_id;
-            return ctx.intern(.{ .array = .{ .elem = e, .len = a.len } });
+            const n = try substituteType(ctx, a.len, subst);
+            if (e == a.elem and n == a.len) return ty_id;
+            return ctx.intern(.{ .array = .{ .elem = e, .len = n } });
         },
         .function => |f| {
             var params: std.ArrayListUnmanaged(TypeId) = .empty;
@@ -2054,13 +2089,16 @@ pub fn importType(
 ) std.mem.Allocator.Error!TypeId {
     const ty = foreign_ctx.types.get(foreign_ty_id);
     switch (ty) {
-        .invalid, .unknown, .void, .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error => return local_ctx.intern(ty),
+        .invalid, .unknown, .void, .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
         inline .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
             return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
         },
         .slice => |s| return local_ctx.intern(.{ .slice = .{ .elem = try importType(local_ctx, foreign_ctx, s.elem, origin_module_id) } }),
-        .array => |a| return local_ctx.intern(.{ .array = .{ .elem = try importType(local_ctx, foreign_ctx, a.elem, origin_module_id), .len = a.len } }),
+        .array => |a| return local_ctx.intern(.{ .array = .{
+            .elem = try importType(local_ctx, foreign_ctx, a.elem, origin_module_id),
+            .len = try importType(local_ctx, foreign_ctx, a.len, origin_module_id),
+        } }),
         .function => |f| {
             var params: std.ArrayListUnmanaged(TypeId) = .empty;
             defer params.deinit(local_ctx.allocator);
@@ -2084,7 +2122,7 @@ pub fn importType(
             return local_ctx.internCopy(.{ .parameterized_nominal = .{ .sym = pn.sym, .args = args.items } });
         },
         // A generic parameter never leaves its generic type's module.
-        .type_var => return local_ctx.types.invalid_id,
+        .type_var, .ct_param => return local_ctx.types.invalid_id,
     }
 }
 
@@ -2259,7 +2297,7 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
         .shared => |inner| try std.fmt.allocPrint(a, "*{s}", .{try formatTypeIn(ctx, a, inner)}),
         .weak => |inner| try std.fmt.allocPrint(a, "~{s}", .{try formatTypeIn(ctx, a, inner)}),
         .slice => |s| try std.fmt.allocPrint(a, "[]{s}", .{try formatTypeIn(ctx, a, s.elem)}),
-        .array => |arr| try std.fmt.allocPrint(a, "[{d}]{s}", .{ arr.len, try formatTypeIn(ctx, a, arr.elem) }),
+        .array => |arr| try std.fmt.allocPrint(a, "[{s}]{s}", .{ try formatTypeIn(ctx, a, arr.len), try formatTypeIn(ctx, a, arr.elem) }),
         .range => |e| try std.fmt.allocPrint(a, "range of {s}", .{try formatTypeIn(ctx, a, e)}),
         .function => |f| if (f.is_sub)
             try std.fmt.allocPrint(a, "sub({s})", .{try formatTypeList(ctx, a, f.params)})
@@ -2278,7 +2316,8 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
             break :blk try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, name });
         },
         .parameterized_nominal => |pn| try std.fmt.allocPrint(a, "{s}[{s}]", .{ ctx.symbols.items[pn.sym].name, try formatTypeList(ctx, a, pn.args) }),
-        .type_var => |sym| ctx.symbols.items[sym].name,
+        .type_var, .ct_param => |sym| ctx.symbols.items[sym].name,
+        .ct_value => |v| try std.fmt.allocPrint(a, "{d}", .{v.int}),
     };
 }
 

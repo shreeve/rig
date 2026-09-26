@@ -2847,10 +2847,10 @@ const Checker = struct {
         const peeled = sema.unwrapReadAccess(self.ctx, obj_ty);
         switch (self.ctx.types.get(peeled)) {
             .array => |a| {
-                // The length is part of the type, so a constant index is
-                // checked now.
-                if (self.constInt(index)) |i| if (i < 0 or i >= a.len) {
-                    try self.errAt(index, "index `{d}` is out of bounds for an array of length {d}", .{ i, a.len });
+                // A known length is part of the type, so a constant index
+                // is checked now.
+                if (sema.arrayLen(self.ctx, a)) |n| if (self.constInt(index)) |i| if (i < 0 or i >= n) {
+                    try self.errAt(index, "index `{d}` is out of bounds for an array of length {d}", .{ i, n });
                 };
                 return a.elem;
             },
@@ -2912,7 +2912,7 @@ const Checker = struct {
                 break :blk elem;
             },
         };
-        const len: ?u64 = if (self.ctx.types.get(peeled) == .array) self.ctx.types.get(peeled).array.len else null;
+        const len: ?u64 = if (self.ctx.types.get(peeled) == .array) sema.arrayLen(self.ctx, self.ctx.types.get(peeled).array) else null;
         try self.checkSliceBounds(range, len);
         if (!borrowed) {
             const sp = self.ctx.span(e);
@@ -2964,15 +2964,16 @@ const Checker = struct {
             try self.errAt(node, "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try self.tyName(concrete)});
             return self.t().invalid_id;
         }
-        return self.ctx.intern(.{ .array = .{ .elem = concrete, .len = elems.len } });
+        return self.ctx.intern(.{ .array = .{ .elem = concrete, .len = try sema.ctInt(self.ctx, elems.len) } });
     }
 
     fn checkArray(self: *Checker, node: Sexp, expected: TypeId) Error!?TypeId {
         const et = self.ctx.types.get(expected);
         if (et != .array) return null;
         const elems = ir.Array.elems(node);
-        if (elems.len != et.array.len) {
-            try self.errAt(node, "array literal has {d} element{s}; `{s}` needs {d}", .{ elems.len, plural(elems.len), try self.tyName(expected), et.array.len });
+        const n = sema.arrayLen(self.ctx, et.array);
+        if (n == null or elems.len != n.?) {
+            try self.errAt(node, "array literal has {d} element{s}; `{s}` needs {d}", .{ elems.len, plural(elems.len), try self.tyName(expected), n orelse 0 });
         }
         for (elems) |e| try self.checkExpr(e, et.array.elem);
         return expected;

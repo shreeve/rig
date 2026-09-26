@@ -2390,7 +2390,7 @@ pub const Emitter = struct {
             try self.w.writeAll(if (as_place) ").*" else ")");
             return;
         }
-        const array_len: ?usize = if (base_ty) |t| switch (self.sema.types.get(self.peelBorrows(t))) {
+        const array_len: ?TypeId = if (base_ty) |t| switch (self.sema.types.get(self.peelBorrows(t))) {
             .array => |a| a.len,
             else => null,
         } else null;
@@ -2417,7 +2417,9 @@ pub const Emitter = struct {
         } else {
             try self.w.writeAll("rig.index(");
             try self.emitBare(index);
-            try self.w.print(", {d})", .{n});
+            try self.w.writeAll(", ");
+            try self.emitTypeTy(n);
+            try self.w.writeAll(")");
         }
         try self.w.writeAll("]");
     }
@@ -3422,9 +3424,17 @@ pub const Emitter = struct {
                 try self.emitTypeTy(s.elem);
             },
             .array => |a| {
-                try self.w.print("[{d}]", .{a.len});
+                try self.w.writeAll("[");
+                try self.emitTypeTy(a.len);
+                try self.w.writeAll("]");
                 try self.emitTypeTy(a.elem);
             },
+            // An array length or a generic type's value argument.
+            .ct_value => |v| try self.w.print("{d}", .{v.int}),
+            .ct_param => |sym_id| if (self.localBySym(sym_id)) |local|
+                try self.w.writeAll(local.zig_name)
+            else
+                try self.w.print("{f}", .{ident(ctx.symbols.items[sym_id].name)}),
             .nominal => |sym_id| try self.writeNominalName(sym_id),
             .imported_nominal => |in| {
                 const foreign = ctx.foreign_semas.get(in.module_id) orelse return self.unsupported(.nil, "a type from an unloaded module");
