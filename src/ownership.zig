@@ -1903,9 +1903,11 @@ pub const Checker = struct {
         }
     }
 
-    /// Whether `e` names a type (`Shape`, `lib.Shape`) rather than a value.
+    /// Whether `e` names a type (`Shape`, `lib.Shape`, `Opt[Int]`) rather
+    /// than a value.
     fn namesType(self: *const Checker, e: Sexp) bool {
         const ctx = self.sema orelse return false;
+        if (ctx.instanceOf(e)) |inst| return inst == .type;
         const leaf = if (e.isKind(.member)) ir.Member.name(e) else e;
         if (leaf != .src) return false;
         if (e.isKind(.member)) {

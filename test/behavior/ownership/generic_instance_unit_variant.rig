@@ -1,0 +1,31 @@
+# A unit variant of an explicit instance (`Opt[Res].nothing`) is a fresh
+# value, as `Opt.nothing` is, also in a generic body.
+
+struct Res
+  n: Int
+
+  drop self: !Res
+    print("drop", self.n)
+
+enum Opt[T]
+  some(v: T)
+  nothing
+
+sub take(o: Opt[Res])
+  print("took")
+
+fun empty[T](x: T) -> Opt[T]
+  Opt[T].nothing
+
+sub main()
+  x = Opt[Res].nothing
+  take(<x)
+  take(Opt[Res].nothing)
+  e = empty(Res(n: 1))
+  print(e)
+
+# expect:
+# took
+# took
+# drop 1
+# .nothing
