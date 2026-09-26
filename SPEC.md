@@ -98,8 +98,11 @@ tab in indentation; indent with spaces
 
 Inside `( )` and `[ ]` a newline is plain whitespace, so arguments,
 expressions, and method chains can span lines at any indentation. An
-array, a call's arguments, a parameter list, a closure's bar list, and a
-variant pattern's bindings may end with a comma. A
+array, a call's arguments, a parameter list, a closure's bar list, a
+variant pattern's bindings, a list of compile-time parameters, and a
+list of compile-time arguments may end with a comma, except a single
+compile-time argument in an expression (`Vec[Int,]()`), which is written
+as an index is. A
 backslash at the end of a line joins the next line anywhere.
 
 ```rig
@@ -221,6 +224,10 @@ Several characters are both operators and prefixes: `<` `+` `-` `*` `?`
 | `f (x)`, `f [1, 2]`, `f .red` | paren-free call with the argument `(x)`, `[1, 2]`, `.red` |
 | `f()!`, `x?` | propagate a failure ([§14](#14-errors)) or `none` ([§13](#13-optionals)) |
 | `-x` alone on a line | drops `x` ([§8](#drop)), except where the line's value is used |
+
+The brackets of compile-time parameters and arguments touch the name
+before them (`type Box[T]`, `show[3]`); a declaration with a space
+there (`type Box [T]`) is rejected.
 
 Two values may not touch with no operator between them: `t.5` and
 `print"hi"` are rejected, since neither is a call. Nor may `=!` and
@@ -803,33 +810,31 @@ timed out
 ### Generic types
 
 `type Name[T, ...]` declares a generic struct and `enum Name[T, ...]` a
-generic enum. Square brackets hold compile-time parameters, as they do
-for functions ([§17](#17-compile-time-parameters)), and touch the name.
+generic enum; `struct Name[T]` and `error Name[T]` are rejected. Their
+parameters are type parameters only ([§17](#17-compile-time-parameters)).
 An instance names its type arguments in brackets, in a type
-(`Box[Int]`) or in an expression: `Box[Int](value: 3)`, `Vec[Int]()`,
-`Option[Int].some(value: 7)`, `Pair[Int, String].make(1, "x")`. Without
-them, a constructor takes them from the expected type when there is
-one, and otherwise infers them from the values that fill it: a
-constructor's fields (`Pair(first: 1, second: "x")` is a
-`Pair[Int, String]`), a payload variant's fields
-(`Option.some(value: 7)`), or an associated function's arguments
-(`Pair.make(1, 2)`). The values must agree on each parameter, and a
-literal takes its default type only where no other value gives the
-parameter one (among literals alone, a float literal gives `Float`). A parameter nothing fills, as in `Vec()`, needs its type named (`Vec[Int]()`) or
-given where the value goes (`v: Vec[Int] = Vec()`). A
-generic body may only do with a `T` what every instantiation allows:
-operations on `T` are checked for each instantiation, inferred or
-spelled, and methods cannot be called on a type parameter. A generic
-type may hold `Vec[T]`, `Cell[T]`, `Signal[T]`, or `[N]T`; their element
-rules apply to each instance. A generic parameter needs a name of its
-own: not a built-in type or `Self`, a module-level declaration, or a
-method of the type, and locals and parameters inside the type cannot
-reuse it.
+(`Pair[Int, String]`) or in an expression: `Box[Int](value: 3)`,
+`Vec[Int]()`, `Option[Int].some(value: 7)`,
+`Pair[Int, String].make(1, "x")`. Without them, a constructor takes them
+from the expected type when there is one, and otherwise infers them
+from the values that fill it: a constructor's fields
+(`Pair(first: 1, second: "x")` is a `Pair[Int, String]`), a payload
+variant's fields (`Option.some(value: 7)`), or an associated function's
+arguments (`Pair.make(1, 2)`), as a generic function's call infers its
+own ([generic functions](#generic-functions)). A parameter nothing
+fills, as in `Vec()`, needs its type named (`Vec[Int]()`) or given
+where the value goes (`v: Vec[Int] = Vec()`). A generic type may hold
+`Vec[T]`, `Cell[T]`, `Signal[T]`, or `[N]T`; their element rules apply
+to each instance. Its body follows the rules of
+[generic bodies](#generic-bodies).
 
 ```rig
 type Pair[T, U]
   first: T
   second: U
+
+  fun make(a: T, b: U) -> Pair[T, U]
+    Pair(first: a, second: b)
 
   fun left(?self) -> T
     self.first
@@ -845,85 +850,57 @@ sub main
     .some(v) => print(v, p.second)
     .nothing => print("none")
   q = Option.some(value: 2.5)
-  print(q)
+  v = Vec[Int]()
+  !v.push(3)
+  r = Pair[Int, String].make(1, "x")
+  n = Option[Int].nothing
+  log = Cell[Vec[*Pair[Int, String]]](value: Vec())
+  print(q, v[0], r.second, n, log.len)
 ```
 
 ```output
 42 answer
-.some(value: 2.5)
-```
-
-In an expression, `x[...]` gives type arguments when `x` names a
-generic type, and indexes otherwise. A type argument there is a type
-that is also an expression: a name, `module.Type`, `*T`, `~T`, `?T`,
-`!T`, `T?`, or an instance (`Cell[Vec[Int]]()`). A slice, array, or
-function type has no such spelling: name it with a type alias, or
-give the type where the value goes.
-
-```rig
-type Pair[T, U]
-  first: T
-  second: U
-
-  fun make(a: T, b: U) -> Pair[T, U]
-    Pair(first: a, second: b)
-
-enum Option[T]
-  some(value: T)
-  nothing
-
-sub main
-  v = Vec[Int]()
-  !v.push(3)
-  p = Pair[Int, String].make(1, "x")
-  o = Option[Int].nothing
-  log = Cell[Vec[*Pair[Int, String]]](value: Vec())
-  print(v[0], p.second, o, log.len)
-```
-
-```output
-3 x .nothing 0
+.some(value: 2.5) 3 x .nothing 0
 ```
 
 ```rig reject
+type Ring[n: Int]
+  first: Int
+
 sub main
   v = Vec[Int, Int]()
 ```
 
 ```error
+a generic type's parameters are types; a compile-time value parameter (`n: T`) is not supported on a type
 generic type `Vec` expects 1 type argument, got 2
 ```
 
-A generic type takes type parameters only: a compile-time value
-parameter (`type Ring[n: Int]`) is rejected.
-
 ### Generic functions
 
-A bare name among a function's compile-time parameters
-([§17](#17-compile-time-parameters)) is a type parameter, which makes
-the function generic: `fun max[T](a: T, b: T) -> T`. A `sub`, a method,
-and an associated function take them too, and a method's sit beside
-its type's. A call gives every compile-time argument in brackets
-(`max[Float](1, 2)`), or none, and then its type parameters are
-inferred by matching each parameter's type against its argument's
-(`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`, `[N]T`, `Box[T]`). Every
-argument must agree; a literal takes its default type only when no
-other argument gives the parameter one, and among literals alone a
-float literal gives `Float` (`max(3, 2.5)` is `max[Float]`). A compile-time value is never
-inferred, so a function that takes one is always called with brackets.
+A type parameter among a function's compile-time parameters
+([§17](#17-compile-time-parameters)) makes it generic:
+`fun max[T](a: T, b: T) -> T`. A `sub`, a method, and an associated
+function take them too, and a method's own sit after its type's: a
+method `fun map[U](?self, u: U)` of `Box[T]` has both.
 
-A generic function is checked as a generic type is: its body may only
-do with a `T` what every instance allows, it is ownership-checked
-once, for a `T` that may own a resource and holds no borrow, and each
-instance its calls make (directly or through other generic bodies) is
-checked against what the body does with `T`. A `T` that owns a
-resource moves where the body moves it. Copying a `T`, or taking one
-(`<x`, `-x`, `return x`) from a loop that walks a collection without
-consuming it (`for x in v`), needs every instance to be plain data,
-because the collection still owns the element. A type argument cannot be
-a borrow or hold one: the parameter is written `?T` or `!T` instead. A
-generic function only calls; it is not a value, a closure is never
-generic, and a generic function cannot cross module boundaries yet.
+A call gives every compile-time argument in brackets
+(`max[Float](1, 2)`), or none, and then its type arguments are
+inferred by matching each parameter's type against its argument's type
+(`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`, `[N]T`, `Box[T]`). A
+method's receiver gives its type's parameters. Every argument must
+agree, and an argument whose type does not have its parameter's shape
+is a type mismatch. A literal takes its default type only when no other
+argument gives the parameter one, and among literals alone a float
+literal gives `Float`: `max(3, 2.5)` is `max[Float]`. The type expected
+of the call's result is not used. A compile-time value is never
+inferred, so a function that takes one is always called with brackets,
+and so is one with a type parameter no argument determines (one only in
+the result, or given only `none` or a `.variant`).
+
+A generic function can only be called: it is not a value, and a closure
+is never generic. It cannot cross module boundaries yet
+([§15](#15-modules)).
 
 ```rig
 struct Res
@@ -931,6 +908,12 @@ struct Res
 
   drop self: !Res
     print("drop", self.n)
+
+type Box[T]
+  v: T
+
+  fun with[U](?self, u: U) -> U
+    u
 
 fun max[T](a: T, b: T) -> T
   a if a > b else b
@@ -941,13 +924,16 @@ fun pick[T](a: T, b: T, first: Bool) -> T
   <b
 
 sub main
-  print(max(3, 7), max(2.5, 1.0), max[Float](1, 2))
+  small: U8 = 200
+  print(max(3, 7), max(small, 9), max(3, 2.5), max[Float](1, 2))
+  print(Box(v: 1).with("s"), Box(v: 1).with[Bool](true))
   r = pick(Res(n: 1), Res(n: 2), true)
   print("kept", r.n)
 ```
 
 ```output
-7 2.5 2.0
+7 200 3.0 2.0
+s true
 drop 2
 kept 1
 drop 1
@@ -957,15 +943,84 @@ drop 1
 fun max[T](a: T, b: T) -> T
   a if a > b else b
 
+fun make[T](n: Int) -> Int
+  n
+
 sub main
   n: I32 = 1
-  print(max(n, 2.5))
-  print(max("a", "b"))
+  print(max(n, 2.5), make(3))
+  z: U8 = max(1, 2)
+  f = max
 ```
 
 ```error
 conflicting types for `T` in the call to `max`: `I32` (argument 1) and `Float` (argument 2)
-`max[String]` cannot use `T = String`: the generic body applies `>` to `T`
+cannot infer `T` for `make` from its arguments
+type mismatch: expected `U8`, got `Int`
+`max` takes compile-time parameters, so it can only be called, not used as a value
+```
+
+### Generic bodies
+
+A generic type's methods and a generic function's body are checked
+once, with each type parameter standing for any type. There are no
+traits or bounds. What the body does with a `T` that only some types
+support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
+`T`) is recorded, and every instance the program makes, spelled or
+inferred, directly or through other generic bodies, is checked against
+it. A failure is reported at the call or type that makes the instance,
+with a note at the body line that needs the operation. A body cannot
+call a method on a `T`, read a field of one, or call `T` itself.
+
+The body is ownership-checked once, for a `T` that may own a resource
+and holds no borrow. A `T` that owns a resource moves where the body
+moves it, and is dropped where the body lets it go. Where the body
+copies a `T`, every instance must be plain data; the same holds where it
+takes (moves, drops, or returns) an element of a loop that does not
+consume its collection (`for x in v`), or unwraps a `T` out of a
+borrowed optional with `as`, since the collection or the owner still
+holds the value. A type argument cannot be a borrow or hold one, for a
+generic function or a generic type with methods: the parameter is
+written `?T` or `!T` instead.
+
+Instances reached through generic bodies nest at most 24 levels deep: a
+body that calls itself, or builds its own type, with its type
+parameters nested deeper each time (`nest[Box[T]]` inside `nest[T]`) is
+rejected rather than expanded forever.
+
+```rig reject
+struct Res
+  n: Int
+
+  drop self: !Res
+    print("drop", self.n)
+
+type Pair[A, B]
+  first: A
+  second: B
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun twice[T](x: T) -> Pair[T, T]
+  Pair(first: x, second: x)
+
+fun same[T](x: T) -> T
+  x
+
+sub main
+  print(max("a", "b"))
+  p = twice(Res(n: 1))
+  r = Res(n: 2)
+  q = same(?r)
+```
+
+```error
+`max[String]` cannot use `T = String`: the generic body applies `>` to `T`, which `String` does not support
+`>` used on `T` here (ordering comparison)
+`twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns
+`T` copied here; move it with `<` instead
+`same[?Res]` cannot use `T = ?Res`: a generic function is checked for a `T` that holds no borrow
 ```
 
 ### Type aliases
@@ -2960,10 +3015,38 @@ sub main
 Only `pub` declarations are visible to importers. A `pub` function may
 take or return a private type: importers can hold the value and use its
 fields and methods, though they cannot name the type. A struct's fields
-and methods are visible wherever the struct is. Generic types cannot
-cross module boundaries yet, so no instance of one declared in the
-module may appear in its public surface, including in the fields of the
-private types that surface reaches. Every check (types, arity, keyword
+and methods are visible wherever the struct is.
+
+Generics cannot cross module boundaries yet. Another module's generic
+type cannot be instantiated, and no instance of a module's own generic
+type may appear in its public surface, including in the fields of the
+private types that surface reaches. A `pub` generic function, a generic
+method of a `pub` type, and a generic method the public surface reaches
+through a private type are rejected where they are declared. A module's
+private generic functions serve its own code, public functions
+included.
+
+```rig file=boxes.rig
+pub type Box[T]
+  v: T
+
+pub fun boxed(n: Int) -> Int
+  Box(v: n).v
+```
+
+```rig reject
+use boxes
+
+sub main
+  print(boxes.boxed(3))
+  b = boxes.Box[Int](v: 3)
+```
+
+```error
+`boxes.Box` is a generic type of another module; generic types cannot cross module boundaries yet
+```
+
+Every check (types, arity, keyword
 arguments, borrow modes, fallibility, ownership) applies across modules
 exactly as within one, and a type is identified by the module that
 declares it: `a.Point` and `b.Point` are different types. A module
@@ -3029,32 +3112,50 @@ call to extern function `abs` requires `raw` block
 ## 17. Compile-time parameters
 
 Square brackets hold everything known at compile time, and
-parentheses what is known when the program runs. A function declares
-its compile-time parameters in brackets touching its name, before its
-run-time parameters: `fun check[mode: Mode](n: Int) -> Bool`. Each
-lowers to a Zig `comptime` parameter. A call gives their arguments in
-brackets touching the function: `check[.strict](5)`. Each must be a
-literal (`none` included), an enum value, a module constant, a
-compile-time parameter, a `=!` binding of one, or a comparison or
-`and`, `or`, `not` of these. So a compile-time parameter's type is a
-number, `Bool`, `String`, an enum whose variants carry nothing, or an
-optional of one. Arithmetic in a compile-time argument must fold to a
-constant (`LIMIT * 2`), which Rig checks for overflow; arithmetic on a
-compile-time parameter (`n + 1`) is rejected, since each instance
-would compute it unchecked. A function with compile-time parameters
-can only be called, not used as a value.
+parentheses what is known when the program runs. A declaration lists
+its compile-time parameters in brackets touching its name, before any
+run-time parameters. In the list, a bare name is a **type parameter**
+and `name: Type` a **compile-time value**:
+`fun check[mode: Mode](n: Int) -> Bool`, `fun max[T](a: T, b: T) -> T`,
+`sub rep[T, n: Int](x: T)`. Functions, `sub`s, methods, and associated
+functions take both kinds; generic types take type parameters only
+([generic types](#generic-types)); `main` takes none. Each lowers to a
+Zig `comptime` parameter, a type parameter as `comptime T: type`.
+
+A type parameter needs a name of its own: not a built-in type (`Int`,
+`Vec`, `Self`, ...), a module-level declaration, another parameter, or,
+on a generic type, a method of the type; no local or parameter inside
+the declaration may reuse it. A compile-time value's type is a number,
+`Bool`, `String`, an enum whose variants carry nothing, or an optional
+of one of these, and it cannot mention a type parameter.
+
+A call gives the compile-time arguments in brackets touching the
+callee, before its run-time arguments: `check[.strict](5)`,
+`rep[String, 3]("hi")`, `s.times[5]()`, `Scale.unit[6]()`,
+`lib.scaled[3](5)`. It gives all of them or none; a type argument may
+be left to inference ([generic functions](#generic-functions)), a value
+never. A value argument must be known at compile time: a literal
+(`none` included), an enum value, a module constant, a compile-time
+parameter, a `=!` binding of one of these, or a comparison or `and`,
+`or`, `not` of them. Arithmetic in a compile-time argument must fold to
+a constant (`LIMIT * 2`), which is checked like constant arithmetic;
+arithmetic on a compile-time parameter (`n + 1`), directly or through a
+`=!` binding, is rejected, since each instance would compute it
+unchecked. Inside a body, a compile-time value is an ordinary value, and
+arithmetic on it is checked when it runs.
 
 A function with no run-time parameters may leave out its parentheses,
 in its declaration (`sub show[n: Int]`) and in a call that is a whole
-statement: `show[3]` calls `show`, as `show[3]()` does. The brackets
-mark it as a call; a bare `tick` is still only the function's name.
-In an expression, `f[...]` gives compile-time arguments when `f` names
-a function, and indexes otherwise.
+statement: `show[3]` calls `show`, as `show[3]()` does. Elsewhere the
+parentheses are needed (`x = size[4]()`). A function with compile-time
+parameters can only be called, never used as a value.
 
 ```rig
 enum Mode
   strict
   loose
+
+LIMIT =! 5
 
 fun check[mode: Mode](n: Int) -> Bool
   if mode == .strict
@@ -3068,34 +3169,107 @@ fun either[mode: Mode](a: Int, b: Int) -> Bool
 sub show[n: Int]
   print(n * 2)
 
+sub tag[T, loud: Bool](x: T)
+  print(x, loud)
+
 sub main
   print(check[.strict](5), check[.loose](5), either[.strict](3, 12))
   show[4]
-  limit =! 5
-  show[limit]()
+  show[LIMIT * 2]()
+  tag[String, LIMIT > 3]("x")
 ```
 
 ```output
 false true true
 8
-10
+20
+x true
 ```
 
 ```rig reject
-fun check[n: Int](x: Int) -> Bool
-  x > n
+sub show[n: Int]
+  print(n)
+
+sub outer[n: Int]
+  show[n + 1]
 
 sub main
   k = 3
-  print(check[k](5))
+  show[k]
+  outer[1]
 ```
 
 ```error
-compile-time argument 1 of `check` must be known at compile time
+compile-time argument 1 of `show` must be known at compile time
+compile-time argument 1 of `show` does arithmetic on a compile-time parameter
 ```
 
-A bare name in brackets is a type parameter (`fun max[T](a: T, b: T)`),
-which makes the function generic ([generic functions](#generic-functions)).
+### Reading `x[...]`
+
+The parser cannot tell `xs[0]` from `Vec[Int]` or `check[.strict]`, so
+the checker decides by what `x` names. When it names a generic type or
+a function, directly, through its module, through its type, or as a
+method of a value, the brackets are compile-time arguments; otherwise
+they index `x`. A bracket list of two or more is never an index, and
+empty brackets are rejected. Written with a space, `show [3]` is a
+paren-free call whose argument is the array `[3]`
+([§2](#the-spacing-rule)).
+
+In an expression, a type argument is written as a type that is also an
+expression: a name, `module.Type`, `*T`, `~T`, `?T`, `!T`, `T?`, or an
+instance (`Cell[Vec[Int]]()`). A slice, array, or function type has no
+such spelling: name it with a type alias, or give the type where the
+value goes (`b: Box[[3]Int] = Box(v: [4, 5, 6])`).
+
+```rig
+type Box[T]
+  v: T
+
+type Row = [3]Int
+
+fun double(n: Int) -> Int
+  n * 2
+
+sub main
+  xs = [10, 20, 30]
+  ops = [double, double]
+  a = Box[Row](v: [1, 2, 3])
+  print(xs[1], ops[0](4), a.v[2])
+```
+
+```output
+20 8 3
+```
+
+```rig reject
+type Pair[T, U]
+  a: T
+  b: U
+
+fun plain(n: Int) -> Int
+  n
+
+sub main
+  n = 5
+  print(n[Int, Int])
+  p = Pair[Int](a: 1, b: 2)
+  print(plain[3](4))
+```
+
+```error
+an index is one value; a bracket list of 2 gives compile-time arguments
+generic type `Pair` expects 2 type arguments, got 1
+`plain` takes no compile-time arguments
+```
+
+```rig reject
+sub main
+  v = Vec[[]Int]()
+```
+
+```error
+a slice or array type has no expression spelling
+```
 
 ---
 
@@ -3174,10 +3348,11 @@ The rest parse, and the checker rejects them as not supported yet
 
 | Form | Diagnostic |
 |---|---|
-| a `pub` generic function, or a generic method of a `pub` type | `` generic functions cannot cross module boundaries yet `` |
+| a `pub` generic function, or a generic method the public surface reaches | `` generic functions cannot cross module boundaries yet `` |
+| another module's generic type, or an instance of a module's generic type in its public surface | `` generic types cannot cross module boundaries yet `` |
+| a compile-time value parameter on a type (`type Ring[n: Int]`) | `` a compile-time value parameter (`n: T`) is not supported on a type `` |
 | `drop` on an enum or a generic type | `` `drop` bodies are only for structs `` |
 | a stack closure passed, stored, or returned | `` closures cannot escape their defining scope `` |
-| a generic instance in a module's public surface | `` generic types cannot cross module boundaries yet `` |
 | an array of owning values | `` arrays cannot hold values that own resources ``; use a `Vec` |
 | an owned closure taking or returning an owning value | `` an owned closure takes plain Copy values `` |
 
