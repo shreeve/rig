@@ -3143,11 +3143,12 @@ pub const Emitter = struct {
         try self.w.writeAll(if (args.len > 0) " }" else "}");
     }
 
-    /// `Vec()` / `Vec(capacity: n)`: a decl literal typed by its result
-    /// location, or by the type given (`Vec[Int]()`).
+    /// `Vec()` / `Vec(capacity: n)`: a decl literal of the type sema gave
+    /// it, which a `catch` or `??` handler cannot take from its result
+    /// location.
     fn emitVecConstruction(self: *Emitter, call: Sexp) Error!void {
         const args = ir.Call.args(call);
-        try self.emitGivenType(call);
+        try self.emitTypeTy(self.typeOf(call) orelse return self.unsupported(call, "an untyped Vec construction"));
         if (args.len == 1) {
             try self.w.writeAll(".initCapacity(");
             try self.emitBare(ir.Kwarg.value(args[0]));
