@@ -3173,9 +3173,6 @@ pub const Checker = struct {
         return sema.holdsWriteBorrow(ctx, ty orelse return false);
     }
 
-    /// How a method call takes its receiver, from the signature ctx
-    /// resolved for the callee: `!self` writes, a `Self` value is consumed,
-    /// anything else reads. A shared handle is only ever read through.
     /// A bracket list of compile-time arguments (`Vec[Int]`, `show[3]`),
     /// which names a type or a function and holds no value.
     fn isInstance(self: *const Checker, e: Sexp) bool {
@@ -3183,6 +3180,9 @@ pub const Checker = struct {
         return s.instanceOf(e) != null;
     }
 
+    /// How a method call takes its receiver, from the signature ctx
+    /// resolved for the callee: `!self` writes, a `Self` value is consumed,
+    /// anything else reads. A shared handle is only ever read through.
     fn receiverMode(self: *const Checker, obj: Sexp, callee: Sexp) sema.MethodReceiver {
         if (obj.isKind(.move)) return .value;
         if (self.exprType(obj)) |t| if (self.typeData(t) == .shared) return .read;

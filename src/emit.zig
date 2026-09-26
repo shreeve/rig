@@ -965,20 +965,16 @@ pub const Emitter = struct {
         return inst == .function and inst.function.call;
     }
 
-    /// A bracket list of compile-time arguments: the type it names
-    /// (`Pair(i64, []const u8)`), or the function it passes them to,
-    /// called when the list is the call (`show(3)`).
+    /// A bracket list of compile-time arguments as a value: the function
+    /// it passes them to, called when the list is the call (`show(3)`).
+    /// A type instance is never a value; sema rejects one.
     fn emitInstance(self: *Emitter, e: Sexp, inst: sema.Instance) Error!void {
-        switch (inst) {
-            .type => |ty| try self.emitTypeTy(ty),
-            .function => |f| {
-                try self.emitExpr(ir.get(e, .object));
-                if (!f.call) return;
-                try self.w.writeAll("(");
-                _ = try self.emitCtArgs(self.sema.genericCallOf(e), sema.bracketArgs(e));
-                try self.w.writeAll(")");
-            },
-        }
+        if (inst != .function) return self.unsupported(e, "a type instance as a value");
+        try self.emitExpr(ir.get(e, .object));
+        if (!inst.function.call) return;
+        try self.w.writeAll("(");
+        _ = try self.emitCtArgs(self.sema.genericCallOf(e), sema.bracketArgs(e));
+        try self.w.writeAll(")");
     }
 
     // -------------------------------------------------------------------------
