@@ -1,5 +1,5 @@
 # A nested call whose result is not its type parameter (`Wrap.make(1)`,
-# `Opt.some(value: 1)`) keeps the type its own arguments give it; the
+# `Opt.some(1)`) keeps the type its own arguments give it; the
 # mismatch that follows says how to pass the expected type on. A hint
 # never spells a type an expression cannot.
 
@@ -25,13 +25,15 @@ fun tag[T, U](a: T) -> Int
 sub main
   c: Wrap[Wrap[U8]] = Wrap.make(Wrap.make(1))
   a: Opt[Opt[U8]] = Opt.some(value: Opt.some(value: 1))
-  d: Opt[U8] = id(Opt.some(value: 1))
+  b: Opt[Opt[U8]] = Opt.some(Opt.some(1))
+  d: Opt[U8] = id(Opt.some(1))
   g: [2][2]Int = [[1, 2], [3, 4]]
   q = pair(g)
   print(tag(g))
 
 # error: 26:23: type mismatch: expected `Wrap[Wrap[U8]]`, got `Wrap[Wrap[Int]]`; `Wrap.make` takes `T = Wrap[Int]` from argument 1; to pass `Wrap[U8]` on to it, name the type: `Wrap[Wrap[U8]].make(...)`
 # error: 27:21: type mismatch: expected `Opt[Opt[U8]]`, got `Opt[Opt[Int]]`; `Opt.some` takes `T = Opt[Int]` from argument 1; to pass `Opt[U8]` on to it, name the type: `Opt[Opt[U8]].some(...)`
-# error: 28:16: type mismatch: expected `Opt[U8]`, got `Opt[Int]`; `id` takes `T = Opt[Int]` from argument 1; to pass `Opt[U8]` on to it, give it in brackets: `id[Opt[U8]](...)`
-# error: 30:7: cannot infer `U` for `pair` from its arguments or the type expected of its result; give the type where the value goes: `x: Vec[U] = pair(...)`, with a type in place of `U`
-# error: 31:9: cannot infer `U` for `tag` from its arguments or the type expected of its result; give `U` in brackets, naming each array, slice, or function type in them with a `type` alias
+# error: 28:21: type mismatch: expected `Opt[Opt[U8]]`, got `Opt[Opt[Int]]`; `Opt.some` takes `T = Opt[Int]` from argument 1; to pass `Opt[U8]` on to it, name the type: `Opt[Opt[U8]].some(...)`
+# error: 29:16: type mismatch: expected `Opt[U8]`, got `Opt[Int]`; `id` takes `T = Opt[Int]` from argument 1; to pass `Opt[U8]` on to it, give it in brackets: `id[Opt[U8]](...)`
+# error: 31:7: cannot infer `U` for `pair` from its arguments or the type expected of its result; give the type where the value goes: `x: Vec[U] = pair(...)`, with a type in place of `U`
+# error: 32:9: cannot infer `U` for `tag` from its arguments or the type expected of its result; give `U` in brackets, naming each array, slice, or function type in them with a `type` alias

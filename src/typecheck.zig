@@ -3739,7 +3739,7 @@ const Checker = struct {
                 value = ir.Kwarg.value(arg);
                 const kname = self.text(ir.Kwarg.name(arg));
                 pattern = switch (from) {
-                    .fields => |fs| if (findDataField(fs, kname)) |f| f.ty else null,
+                    .fields, .payload => |fs| if (findDataField(fs, kname)) |f| f.ty else null,
                     .params => |p| blk: {
                         const names = p.names orelse break :blk null;
                         for (names, 0..) |name, i| {
@@ -3749,10 +3749,12 @@ const Checker = struct {
                     },
                 };
             } else {
-                // Fields are set only by name.
+                // A struct's fields are set only by name; a variant's one
+                // field may be given positionally.
                 defer positional += 1;
                 pattern = switch (from) {
                     .fields => null,
+                    .payload => |fs| if (positional == 0 and args.len == 1) if (soleField(fs)) |f| f.ty else null else null,
                     .params => |p| if (positional < p.params.len) p.params[positional] else null,
                 };
             }
@@ -4279,16 +4281,24 @@ const Checker = struct {
     };
 
     /// Keyword arguments against named fields: each names a real field
-    /// once, and every field without a default is given.
+    /// once, and every field without a default is given. A variant with
+    /// one field also takes it positionally: `.some(7)`.
     fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field, info: FieldArgs) Error!void {
         const noun = if (info.kind == .constructor) "constructor of" else "variant";
+        if (info.kind == .variant and args.len == 1 and !args[0].isKind(.kwarg)) {
+            if (soleField(fields)) |f| return self.checkExpr(args[0], try self.fieldType(f, info));
+        }
         for (args) |a| {
             if (a.isKind(.kwarg)) continue;
             if (info.kind == .variant) {
                 const first = for (fields) |f| {
                     if (!f.is_method and !f.is_variant) break f.name;
                 } else "field";
-                try self.err(info.pos, "variant fields are set by name: `.{s}({s}: ...)`", .{ info.owner, first });
+                if (soleField(fields) != null) {
+                    try self.err(info.pos, "variant `{s}` has one field: write `.{s}(value)` or `.{s}({s}: value)`", .{ info.owner, info.owner, info.owner, first });
+                } else {
+                    try self.err(info.pos, "a variant with more than one field sets them by name: `.{s}({s}: ...)`", .{ info.owner, first });
+                }
             } else {
                 try self.err(info.pos, "fields of `{s}` are set by name: `{s}(field: value)`", .{ info.owner, info.owner });
             }
@@ -4321,6 +4331,17 @@ const Checker = struct {
             try self.err(info.pos, "{s} `{s}` is missing field `{s}`", .{ noun, info.owner, f.name });
             if (info.foreign == null and f.decl_pos < sema.imported_decl_pos) try self.ctx.noteIn(info.module_id, f.decl_pos, "field `{s}` declared here", .{f.name});
         }
+    }
+
+    /// A variant payload's one field, when it has exactly one.
+    fn soleField(fields: []const Field) ?Field {
+        var found: ?Field = null;
+        for (fields) |f| {
+            if (f.is_method or f.is_variant) continue;
+            if (found != null) return null;
+            found = f;
+        }
+        return found;
     }
 
     fn fieldType(self: *Checker, f: Field, info: FieldArgs) Error!TypeId {
@@ -4577,7 +4598,7 @@ const Checker = struct {
                 ty = try self.instantiate(nt.id, given, pos);
             } else if (generic) {
                 const self_type = (try sema.makeNominalContext(self.ctx, nt.id)).self_type;
-                subst = (try self.inferTypeArgs(nt.id, args, .{ .fields = payload }, pos, self.expectedResult(self_type), name)) orelse return self.skipCall(args);
+                subst = (try self.inferTypeArgs(nt.id, args, .{ .payload = payload }, pos, self.expectedResult(self_type), name)) orelse return self.skipCall(args);
                 ty = try self.instantiate(nt.id, subst.args, pos);
             }
             try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = nt.sym.from.module_id, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant });
@@ -4589,10 +4610,11 @@ const Checker = struct {
     }
 
     /// Where an inferred generic's arguments are matched: the fields a
-    /// constructor or variant fills, or an associated function's
-    /// parameters (with their names, for keyword arguments).
+    /// constructor or a variant's payload fills, or an associated
+    /// function's parameters (with their names, for keyword arguments).
     const InferFrom = union(enum) {
         fields: []const Field,
+        payload: []const Field,
         params: struct { params: []const TypeId, names: ?[]const []const u8 },
     };
 

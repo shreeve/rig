@@ -2723,12 +2723,12 @@ pub const Emitter = struct {
             }
             if (self.sema.types.get(t) == .imported_nominal) {
                 try self.emitMember(callee);
-                return self.emitFieldInit(args);
+                return self.emitFieldInit(args, &.{});
             }
             // `m.Wrap[Int](v: 3)`, `m.Wrap(v: 3)`: the instance sema gave it.
             if (self.sema.types.get(t) == .parameterized_nominal and self.isTypeCallee(callee)) {
                 try self.emitTypeTy(t);
-                return self.emitFieldInit(args);
+                return self.emitFieldInit(args, &.{});
             }
         };
         // An owned closure handle, held by a name or a field, or a call
@@ -3193,7 +3193,7 @@ pub const Emitter = struct {
         } else {
             try self.writeNominalName(sym_id);
         }
-        try self.emitFieldInit(ir.Call.args(call));
+        try self.emitFieldInit(ir.Call.args(call), &.{});
     }
 
     /// The type a constructor's bracket list gives (`Vec[Int]()`), before
@@ -3203,11 +3203,18 @@ pub const Emitter = struct {
         if (inst == .type) try self.emitTypeTy(inst.type);
     }
 
-    /// `{ .a = x, ... }` from keyword arguments.
-    fn emitFieldInit(self: *Emitter, args: []const Sexp) Error!void {
+    /// `{ .a = x, ... }` from keyword arguments, or from the one
+    /// positional argument of a variant whose payload is one field.
+    fn emitFieldInit(self: *Emitter, args: []const Sexp, payload: []const sema.Field) Error!void {
         try self.w.writeAll("{");
         for (args, 0..) |a, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
+            if (!a.isKind(.kwarg)) {
+                if (payload.len != 1) return self.unsupported(a, "a positional field");
+                try self.w.print(".{f} = ", .{ident(payload[0].name)});
+                try self.emitStored(a);
+                continue;
+            }
             try self.w.print(".{f} = ", .{ident(self.srcText(ir.Kwarg.name(a)))});
             try self.emitStored(ir.Kwarg.value(a));
         }
@@ -3248,9 +3255,9 @@ pub const Emitter = struct {
 
     fn emitVariantPayload(self: *Emitter, call: Sexp, enum_ty: TypeId, vname: []const u8) Error!void {
         const args = ir.Call.args(call);
-        _ = self.variantPayload(enum_ty, vname) orelse return self.unsupported(call, "this variant");
+        const payload = self.variantPayload(enum_ty, vname) orelse return self.unsupported(call, "this variant");
         try self.w.print(".{{ .{f} = .", .{ident(vname)});
-        try self.emitFieldInit(args);
+        try self.emitFieldInit(args, payload);
         try self.w.writeAll(" }");
     }
 

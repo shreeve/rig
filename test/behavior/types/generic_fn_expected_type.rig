@@ -111,7 +111,7 @@ sub main()
   t: U8 = parse(false, 5) catch 7
   print(r, t, twice() catch 0, @sizeOf(@TypeOf(r)))
   pr: Pair[U8, Float] = Pair.make(1, 2)
-  op: Opt[U8] = Opt.some(value: 1)
+  op: Opt[U8] = Opt.some(1)
   ws: Vec[U8] = wrap(max(1, 2))
   on: Int? = id(none)
   print(pr.first, pr.second, op, ws[0], on ?? 5, max(max(1, 2), 2.5))

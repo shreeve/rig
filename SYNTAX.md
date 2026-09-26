@@ -237,7 +237,7 @@ would move, `~x` would hold a handle weakly.
 | struct literal | `P { x: 1 }` | `P{ .x = 1 }` | `P(x: 1)` |
 | method receiver | `&self`, `&mut self`, `self` | `self: P`, `self: *P` | `?self`, `!self`, `<self` |
 | mutating call | `v.push(x)` | `try v.append(gpa, x)` | `!v.push(x)` |
-| enum variant | `Shape::Circle { r: 2 }` | `.{ .circle = .{ .r = 2 } }` | `.circle(r: 2)` |
+| enum variant | `Shape::Circle { r: 2 }` | `.{ .circle = .{ .r = 2 } }` | `.circle(2)`, `.circle(r: 2)` |
 | match | `match x { A => .., _ => .. }` | `switch (x) { .a => .., else => .. }` | `match x` / `.a => ..` / `_ => ..` |
 | optional | `Option<T>`, `None` | `?T`, `null` | `T?`, `none` |
 | unwrap or | `x.unwrap_or(0)` | `x orelse 0` | `x ?? 0` |
@@ -420,7 +420,7 @@ Zig's `var`, `fn`, and `const` are ordinary names in Rig.
 | bool | `true`, `false` |
 | absent | `none` |
 | array | `[1, 2, 3]` |
-| enum variant | `.red`, `.circle(r: 2)` |
+| enum variant | `.red`, `.circle(2)`, `.rect(w: 2, h: 3)` |
 
 Radix prefixes are lowercase, a decimal has no leading zero, and a
 literal has no type suffix: its type comes from context. A string holds
@@ -1344,7 +1344,7 @@ enum Shape
 
 sub main
   s: Shape = .rect(w: 2, h: 5)
-  c = Shape.circle(radius: 2)
+  c = Shape.circle(2)
   st: Status = .missing
   print(s.area(), c.area(), s, st == .missing)
 ```
@@ -1353,9 +1353,12 @@ sub main
 10 12 .rect(w: 2, h: 5) true
 ```
 
-A payload variant is built with its fields named, exactly like a struct:
-`.circle(radius: 2)`. A pattern binds the fields in order, under names
-of your choosing: `.circle(r) =>`. An enum with payloads is Rust's data-carrying enum and
+A payload variant is built with its fields named, like a struct:
+`.rect(w: 2, h: 5)`. A variant with exactly one field also takes it by
+position, as a pattern binds it: `.circle(2)` is `.circle(radius: 2)`,
+and `.some(7)` builds the `.some(v)` a match takes apart. A pattern
+binds the fields in order, under names of your choosing:
+`.circle(r) =>`. An enum with payloads is Rust's data-carrying enum and
 Zig's `union(enum)`.
 
 ### Error sets
@@ -1408,7 +1411,7 @@ functions, and compile-time values, in declarations and in uses:
 
 | | Declared | Used |
 |---|---|---|
-| generic type | `struct Wrap[T]`, `enum Option[T]` | `Wrap[Int]`, `Wrap[Int](v: 3)`, `Option[Int].some(value: 7)` |
+| generic type | `struct Wrap[T]`, `enum Option[T]` | `Wrap[Int]`, `Wrap[Int](v: 3)`, `Option[Int].some(7)` |
 | generic function | `fun max[T](a: T, b: T) -> T` | `max(3, 7)`, `max[Float](1, 2)` |
 | generic method | `fun map[U](?self, f: fun(T) -> U) -> Wrap[U]` | `b.map(label)` |
 | compile-time value | `fun check[mode: Mode](n: Int)` | `check[.strict](5)` |
@@ -1439,7 +1442,7 @@ Why brackets:
 a generic enum. An instance names its type arguments in brackets, in a
 type (`Pair[Int, String]`) and in an expression
 (`Pair[Int, Float](first: 1, second: 2.5)`, `Vec[Int]()`,
-`Option[Int].some(value: 7)`). A constructor may leave them out: they
+`Option[Int].some(7)`). A constructor may leave them out: they
 come from the type expected where the value goes, or from the values
 that fill it.
 
@@ -1466,13 +1469,13 @@ enum Option[T]
 
 sub main
   p = Pair(first: 42, second: "answer")
-  o: Option[Int] = .some(value: p.left())
+  o: Option[Int] = .some(p.left())
   match o
     .some(v) => print(v, p.second)
     .nothing => print("none")
   q = Pair[Int, Float](first: 1, second: 2.5)
   v = Vec[Option[Int]]()
-  !v.push(Option[Int].some(value: q.left()))
+  !v.push(Option[Int].some(q.left()))
   print(q.second, v[0])
 ```
 
@@ -1569,7 +1572,7 @@ function call among the arguments whose result is its type parameter
 `max(max(1, 2), small)` with `small: U8` is `max[U8]` twice, and one
 that yields an optional only `none` typed binds like `none`:
 `z: Int? = id(nothing())` is `id[Int?]`. A nested `Wrap.make(1)` or
-`Opt.some(value: 1)` keeps the type its own literal gives it, and the
+`Opt.some(1)` keeps the type its own literal gives it, and the
 error says to name the outer type (`Wrap[Wrap[U8]].make(...)`). Brackets
 give every compile-time argument, or none: there is no partial list.
 
@@ -2812,7 +2815,7 @@ sub main
   u = User(name: "ada", age: 36)
   n: Int? = none
   h = *User(name: "bob", age: 1)
-  print(u, n, ["a", "b"], 2.0, Shape.circle(r: 1.5), Shape.dot)
+  print(u, n, ["a", "b"], 2.0, Shape.circle(1.5), Shape.dot)
   w = ~h
   print(h, w)
 ```
@@ -3066,5 +3069,6 @@ call onto the place, giving the tree of `(!v).push(x)`
 - A value nobody uses is an error, as in Zig; `_ = e` discards on
   purpose.
 - `switch` is `match`, and its `else =>` arm is `_ =>`.
-- A payload variant is built with named fields, `.circle(r: 2)`, not
-  `.{ .circle = 2 }`.
+- A payload variant is built with named fields, `.rect(w: 2, h: 3)`, not
+  `.{ .rect = .{ .w = 2, .h = 3 } }`; one with a single field also takes
+  it by position, `.circle(2)`.

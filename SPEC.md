@@ -191,7 +191,7 @@ Rig (`var`, `fn`, `const`) are ordinary names.
 | Bool | `true`, `false` | |
 | Absent optional | `none` | see [§13](#13-optionals) |
 | Array | `[1, 2, 3]` | see [§3](#arrays) |
-| Enum variant | `.red`, `.circle(radius: 2)` | typed by context |
+| Enum variant | `.red`, `.circle(2)`, `.rect(w: 2, h: 3)` | typed by context |
 
 There is no string interpolation; `print` takes several values instead.
 
@@ -906,19 +906,23 @@ enum Status
 sub main
   s: Shape = .rect(w: 2, h: 5)
   c: Shape = Shape.point
-  print(s.area(), c.area(), s)
+  d = Shape.circle(1)
+  print(s.area(), c.area(), d.area(), s)
   st: Status = .missing
   print(st == .missing)
 ```
 
 ```output
-10 0 .rect(w: 2, h: 5)
+10 0 3 .rect(w: 2, h: 5)
 true
 ```
 
 A payload variant is constructed with keyword fields, like a struct:
-`.circle(radius: 2)`, `Shape.circle(radius: 2)`. A pattern binds the
-fields in order (`.circle(r) =>`). Enums have no constructor call
+`.rect(w: 2, h: 5)`, `Shape.rect(w: 2, h: 5)`. A variant with exactly
+one field also takes it by position, as a pattern binds it:
+`.circle(2)` is `.circle(radius: 2)`. A variant with more fields sets
+them by name, and a struct's constructor always does. A pattern binds
+the fields in order (`.circle(r) =>`). Enums have no constructor call
 (`Shape(...)` is an error); plain enums compare with `==`. A plain enum's variants may take
 explicit values (`ok = 200`): constant integers from 0 to 4294967295,
 no two the same, where a variant without one takes the value after the
@@ -956,7 +960,7 @@ parameter is named in the type's fields and methods, as an array length
 (`items: [n]T`) or as a value in a method's body.
 An instance names its compile-time arguments in brackets, in a type
 (`Pair[Int, String]`, `Ring[Int, LIMIT * 2]`) or in an expression:
-`Wrap[Int](value: 3)`, `Vec[Int]()`, `Option[Int].some(value: 7)`,
+`Wrap[Int](value: 3)`, `Vec[Int]()`, `Option[Int].some(7)`,
 `Pair[Int, String].make(1, "x")`, `Ring[Int, 4].new(0)`. A value
 argument is a compile-time integer, as an array length is, that the
 parameter's type holds; the same value names the same type, so
@@ -965,7 +969,7 @@ from the expected type when there is one, and otherwise infers them
 from the values that fill it: a constructor's fields
 (`Pair(first: 1, second: "x")` is a `Pair[Int, String]`, and
 `Ring(items: [1, 2, 3])` a `Ring[Int, 3]`), a payload
-variant's fields (`Option.some(value: 7)`), or an associated function's
+variant's fields (`Option.some(7)`), or an associated function's
 arguments (`Pair.make(1, 2)`), as a generic function's call infers its
 own ([generic functions](#generic-functions)). A parameter nothing
 fills, as in `Vec()`, needs its type named (`Vec[Int]()`) or given
@@ -992,11 +996,11 @@ enum Option[T]
 
 sub main
   p = Pair(first: 42, second: "answer")
-  o: Option[Int] = .some(value: p.left())
+  o: Option[Int] = .some(p.left())
   match o
     .some(v) => print(v, p.second)
     .nothing => print("none")
-  q = Option.some(value: 2.5)
+  q = Option.some(2.5)
   v = Vec[Int]()
   !v.push(3)
   r = Pair[Int, String].make(1, "x")
@@ -1052,7 +1056,7 @@ type parameter only literals gave a type (directly, or propagated with
 with `small: U8` is `max[U8]` twice. One whose result is an optional
 that nothing but `none` gave a type (`nothing()`, `id(none)`) binds
 like `none`, so `z: Int? = id(nothing())` is `id[Int?]`. A nested call
-with a result of another shape (`Wrap.make(1)`, `Opt.some(value: 1)`)
+with a result of another shape (`Wrap.make(1)`, `Opt.some(1)`)
 keeps the type its own arguments give it; naming the outer call's type
 arguments (`Wrap[Wrap[U8]].make(...)`, `id[Opt[U8]](...)`) passes the
 expected type on. Only then does a literal take its default type, and
@@ -3539,7 +3543,7 @@ a value.
 | numbers, `Bool` | `42`, `-3`, `2.5`, `true`; a whole `Float` keeps its point: `1.0` |
 | `String` | its text; inside other values, quoted |
 | `none` | `none` |
-| enum | `.green`, `.circle(r: 2.5)`, `.rect(w: 2, h: 3)`: payload fields by name, as constructed |
+| enum | `.green`, `.circle(r: 2.5)`, `.rect(w: 2, h: 3)`: payload fields by name, however it was built |
 | struct | `User(name: "ada", age: 36)` |
 | array, slice, `Vec` | `[1, 2]` |
 | shared handle | the value it holds |
@@ -3573,7 +3577,7 @@ enum Shape
   rect(w: Int, h: Int)
 
 sub main
-  print(Shape.dot, Shape.circle(r: 2.5), Shape.rect(w: 2, h: 3))
+  print(Shape.dot, Shape.circle(2.5), Shape.rect(w: 2, h: 3))
 ```
 
 ```output

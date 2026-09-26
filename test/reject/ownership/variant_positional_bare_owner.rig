@@ -1,0 +1,15 @@
+# A variant's one field given by position is moved in, as by name: an
+# owning value takes `<`.
+
+enum Option[T]
+  some(value: T)
+  nothing
+
+sub main()
+  v: Vec[Int] = Vec()
+  o: Option[Vec[Int]] = .some(v)
+  p = Option.some(v)
+  print(v.len)
+
+# error: 10:31: bare use of `Vec` value `v` in call argument
+# error: 11:19: bare use of `Vec` value `v` in call argument

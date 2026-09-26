@@ -1,0 +1,18 @@
+# A variant of another module's enum takes its one field by position too.
+
+use geo
+
+fun radius(s: geo.Shape) -> Int
+  match s
+    .circle(r) => r
+    .rect(w, h) => w + h
+
+sub main()
+  a: geo.Shape = .circle(4)
+  b = geo.Shape.circle(5)
+  m = geo.Maybe.some("x")
+  n: geo.Maybe[Int] = .some(6)
+  print(radius(a), radius(b), m, n)
+
+# expect:
+# 4 5 .some(value: "x") .some(value: 6)

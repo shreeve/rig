@@ -1,14 +1,20 @@
-# A payload variant's fields are set by name, like a struct's; only a
-# pattern binds them in order.
+# A variant with one field takes it by position or by name; a variant
+# with more than one field sets them by name, like a struct's.
 
 enum Shape
   circle(radius: Int)
   rect(w: Int, h: Int)
 
 sub main()
-  a: Shape = .circle(2)
-  b = Shape.rect(2, h: 3)
-  print(a, b)
+  a = Shape.rect(2, h: 3)
+  b: Shape = .rect(2, 3)
+  c: Shape = .circle(2, 3)
+  d: Shape = .circle(2, radius: 3)
+  e: Shape = .circle("two")
+  print(a, b, c, d, e)
 
-# error: 9:15: variant fields are set by name: `.circle(radius: ...)`
-# error: 10:13: variant fields are set by name: `.rect(w: ...)`
+# error: 9:13: a variant with more than one field sets them by name: `.rect(w: ...)`
+# error: 10:15: a variant with more than one field sets them by name: `.rect(w: ...)`
+# error: 11:15: variant `circle` has one field: write `.circle(value)` or `.circle(radius: value)`
+# error: 12:15: variant `circle` has one field: write `.circle(value)` or `.circle(radius: value)`
+# error: 13:22: type mismatch: expected `Int`, got `String`
