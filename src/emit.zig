@@ -2165,16 +2165,22 @@ pub const Emitter = struct {
             else => {},
         }
         switch (head) {
-            .read => {
+            // `?a` / `!a` of an array lent as a slice: the array's address,
+            // which Zig takes as a slice.
+            .read, .write => if (self.sema.arrayViewOf(sexp) == .borrowed) {
+                const saved_read = self.read_place;
+                defer self.read_place = saved_read;
+                self.read_place = head == .read;
+                try self.emitAddressOf(ir.get(sexp, .operand));
+            } else if (head == .read) {
                 // `?x` of a value held by pointer (a Cell) is its address.
                 if (self.isPtrBorrowExpr(sexp)) return self.emitBorrowOf(sexp);
                 // A borrow never moves its operand, even in tail position.
                 self.bare = bare;
                 try self.emitValue(ir.Read.operand(sexp), false);
-            },
-            // `!x` as a value (an argument, a receiver) is the place's
-            // address; a `![]T` is the slice.
-            .write => if (self.isWriteSliceExpr(sexp))
+            } else if (self.isWriteSliceExpr(sexp))
+                // `!x` as a value (an argument, a receiver) is the place's
+                // address; a `![]T` is the slice.
                 try self.emitExpr(ir.Write.operand(sexp))
             else
                 try self.emitAddressOf(ir.Write.operand(sexp)),
@@ -2757,6 +2763,7 @@ pub const Emitter = struct {
                 try self.emitElems(ir.Member.object(callee));
                 for (args) |a| {
                     try self.w.writeAll(", ");
+                    if (self.sema.arrayViewOf(a) == .temporary) try self.w.writeAll("&");
                     try self.emitBare(a);
                 }
             },
@@ -2967,6 +2974,12 @@ pub const Emitter = struct {
     /// a pointer.
     fn emitArg(self: *Emitter, arg: Sexp, params: []const TypeId, i: usize) Error!void {
         const value = argValue(arg);
+        // A temporary array lent as a slice: its address, which lives
+        // through the call.
+        if (self.sema.arrayViewOf(value) == .temporary) {
+            try self.w.writeAll("&");
+            return self.emitBare(value);
+        }
         if (i < params.len and self.isPtrBorrowTy(params[i])) return self.emitBorrowValue(value);
         try self.emitBare(value);
     }
@@ -3239,7 +3252,7 @@ pub const Emitter = struct {
             try self.emitTypeTy(if (self.readsThrough(h.node)) self.peelBorrows(t) else t);
         };
         try self.w.writeAll(" = ");
-        if (fields) try self.emitStored(h.node) else try self.emitArg(h.node, params, slot);
+        if (fields) try self.emitStored(h.node) else if (self.sema.arrayViewOf(h.node) == .temporary) try self.emitBare(h.node) else try self.emitArg(h.node, params, slot);
         try self.w.writeAll(";\n");
         const k = kind orelse return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
         try self.line("var {s} = true;", .{h.flag});

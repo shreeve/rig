@@ -534,6 +534,8 @@ pub const Facts = struct {
     node_reads: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Callee (`member`) node -> the built-in element method it calls.
     elem_calls: std.AutoHashMapUnmanaged(NodeKey, ElemCall) = .empty,
+    /// Array expressions lent as a slice (`ArrayView`).
+    array_views: std.AutoHashMapUnmanaged(NodeKey, ArrayView) = .empty,
     /// Expressions yielding a `![]T` where a `[]T` is expected, which
     /// lend it only to read: leaves by position, list nodes by id.
     leaf_views: std.AutoHashMapUnmanaged(u32, void) = .empty,
@@ -541,6 +543,7 @@ pub const Facts = struct {
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         self.elem_calls.deinit(allocator);
+        self.array_views.deinit(allocator);
         self.leaf_views.deinit(allocator);
         self.node_views.deinit(allocator);
         self.writes.deinit(allocator);
@@ -555,6 +558,16 @@ pub const Facts = struct {
         self.instances.deinit(allocator);
         self.generic_calls.deinit(allocator);
     }
+};
+
+/// An array lent where a slice is expected.
+pub const ArrayView = enum {
+    /// `?a` where a `[]T` is expected, `!a` where a `![]T` is: the
+    /// borrow is `?a[..]` / `!a[..]`.
+    borrowed,
+    /// A temporary array (a literal, a fill, a call's result) passed as
+    /// a `[]T` argument: lent for the call.
+    temporary,
 };
 
 /// A built-in method on the elements of a slice, an array, a Vec, or a
@@ -1139,6 +1152,15 @@ pub const SemContext = struct {
             .list => try self.facts.node_reads.put(self.allocator, recordKey(node), {}),
             else => {},
         }
+    }
+
+    pub fn recordArrayView(self: *SemContext, node: Sexp, view: ArrayView) !void {
+        try self.facts.array_views.put(self.allocator, recordKey(node), view);
+    }
+
+    /// How the array expression `node` is lent as a slice, if it is.
+    pub fn arrayViewOf(self: *const SemContext, node: Sexp) ?ArrayView {
+        return self.facts.array_views.get(nodeKey(node) orelse return null);
     }
 
     /// `node` yields a `![]T` where a `[]T` is expected: it is lent to
@@ -2683,6 +2705,12 @@ pub fn holdsCellByValue(ctx: *const SemContext, ty: TypeId) bool {
 /// parameter holds none: an instantiation with a borrow is checked apart.
 pub fn holdsBorrow(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).borrows.any;
+}
+
+/// Whether a value of `ty` holds, or in some instance may hold, a borrow.
+pub fn mayHoldBorrow(ctx: *const SemContext, ty: TypeId) bool {
+    const info = ctx.holds(ty);
+    return info.borrows.any or info.holds_type_var;
 }
 
 /// Whether a value of `ty` holds a write borrow, which is unique.

@@ -2702,7 +2702,12 @@ They compare by content with `==` and order by their bytes with `<`,
 `String` is a `String`; of an array or a `Vec` of plain data it is
 written `?xs[a..b]` and is a `[]T`, a read-only view that borrows `xs`
 like any `?` borrow. Bounds are checked. A side may be left open, as
-in Rust: `xs[a..]`, `xs[..b]`, `xs[..]`.
+in Rust: `xs[a..]`, `xs[..b]`, `xs[..]`. Where a `[]T` is expected,
+`?a` of an array means `?a[..]` (and `!a` means `!a[..]` where a `![]T`
+is), much as Rust's `&a` coerces to `&[T]`; a bare `a` is rejected,
+since the borrow would not show. A temporary array (`[4, 5]`,
+`[3 of 0]`, a call's result) may be passed as a `[]T` argument to a
+call that keeps no borrow of it: `total([4, 5])`.
 
 ```rig
 fun total(xs: []Int) -> Int
