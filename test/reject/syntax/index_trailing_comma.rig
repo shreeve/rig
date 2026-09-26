@@ -1,0 +1,8 @@
+# An index is one value: a trailing comma makes the brackets a list of
+# compile-time arguments, which an array does not take.
+
+sub main
+  xs = [1, 2]
+  print(xs[1,])
+
+# error: 6:9: an index is one value with no trailing comma

@@ -2815,7 +2815,7 @@ const Checker = struct {
         if (e.isKind(.inst)) {
             for (ir.Inst.args(e)) |a| _ = try self.synthQuiet(a);
             if (self.isPoison(obj_ty)) return obj_ty;
-            try self.errAt(e, "an index is one value; a bracket list of {d} gives compile-time arguments, which only a generic type or a function with compile-time parameters takes", .{ir.Inst.args(e).len});
+            try self.errAt(e, "an index is one value with no trailing comma; a list in brackets gives compile-time arguments, which only a generic type or a function with compile-time parameters takes", .{});
             return self.t().invalid_id;
         }
         const index = ir.Index.index(e);
@@ -3337,7 +3337,7 @@ const Checker = struct {
             try self.errAt(a, "compile-time argument {d} of `{s}` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; pass a parameter or a constant", .{ i + 1, callee });
         } else if (fixed) {
             try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; `{s}` is bound with `=!` to a value computed when the program runs", .{ i + 1, callee, self.text(a) });
-        } else try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a compile-time parameter, or a `=!` binding of one", .{ i + 1, callee });
+        } else try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, or a `=!` binding of one", .{ i + 1, callee });
     }
 
     /// A method's type parameters and the receiver's arguments for them:

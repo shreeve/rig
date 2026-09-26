@@ -9,4 +9,4 @@ sub main()
   k += 3
   show[k]()
 
-# error: 10:8: compile-time argument 1 of `show` must be known at compile time; pass a literal, an enum value, a compile-time parameter, or a `=!` binding of one
+# error: 10:8: compile-time argument 1 of `show` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, or a `=!` binding of one

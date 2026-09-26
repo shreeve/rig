@@ -100,9 +100,7 @@ Inside `( )` and `[ ]` a newline is plain whitespace, so arguments,
 expressions, and method chains can span lines at any indentation. An
 array, a call's arguments, a parameter list, a closure's bar list, a
 variant pattern's bindings, a list of compile-time parameters, and a
-list of compile-time arguments may end with a comma, except a single
-compile-time argument in an expression (`Vec[Int,]()`), which is written
-as an index is. A
+list of compile-time arguments may end with a comma. A
 backslash at the end of a line joins the next line anywhere.
 
 ```rig
@@ -3257,7 +3255,7 @@ sub main
 ```
 
 ```error
-an index is one value; a bracket list of 2 gives compile-time arguments
+an index is one value with no trailing comma; a list in brackets gives compile-time arguments
 generic type `Pair` expects 2 type arguments, got 1
 `plain` takes no compile-time arguments
 ```

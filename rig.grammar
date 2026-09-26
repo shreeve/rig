@@ -699,7 +699,7 @@ unary    = MINUS_PREFIX operand:unary               → (neg)
 
 postfix  = object:postfix "." name:name             → (member)
          | object:postfix LBRACKET_INDEX index:expr "]" → (index)
-         | object:postfix LBRACKET_INDEX args:targs [","] "]" → (inst)
+         | object:postfix LBRACKET_INDEX args:targs "]" → (inst)
          | callee:postfix LPAREN_CALL args:args ")" → (call)
          | value:postfix SUFFIX_BANG                → (propagate)
          | value:postfix SUFFIX_Q                   → (propagate_none)
@@ -714,8 +714,9 @@ args     = callargs                                 → 1
 # Two or more compile-time arguments (`Pair[Int, String]`); sema reads
 # one (`Vec[Int]`, an `index`) as compile-time arguments or an index by
 # what the object names.
-targs    = expr "," expr                            → (1 3)
-         | targs "," expr                           → (...1 3)
+targs    = expr ","                                 → (1)
+         | expr "," expr                            → (1 3)
+         | expr "," targs                           → (1 ...3)
 
 callargs = callarg                                  → (1)
          | callargs "," callarg                     → (...1 3)

@@ -29,7 +29,7 @@ sub main()
   scaled[2]
 
 # error: 20:9: cannot index a value of type `Int`
-# error: 21:9: an index is one value; a bracket list of 2 gives compile-time arguments
+# error: 21:9: an index is one value with no trailing comma; a list in brackets gives compile-time arguments
 # error: 22:7: generic type `Pair` expects 2 type arguments, got 1
 # error: 23:7: `Point` is not a generic type; it takes no type arguments
 # error: 24:9: `plain` takes no compile-time arguments; call it with `plain(...)`

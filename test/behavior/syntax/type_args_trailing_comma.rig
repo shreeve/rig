@@ -1,5 +1,5 @@
-# A bracket list of type arguments may end with a comma, in a type and
-# in an expression, as other lists may.
+# A bracket list of compile-time arguments may end with a comma, in a
+# type and in an expression, as other lists may; a single argument too.
 
 type Pair[T, U]
   a: T
@@ -8,7 +8,13 @@ type Pair[T, U]
 sub show(p: Pair[Int, String,])
   print(p.a, p.b)
 
+fun add[n: Int](x: Int) -> Int
+  n + x
+
 sub main()
+  v = Vec[Int,]()
+  !v.push(add[3,](1))
+  print(v.len, v[0])
   p = Pair[
     Int,
     String,
@@ -16,4 +22,5 @@ sub main()
   show(p)
 
 # expect:
+# 1 4
 # 1 x
