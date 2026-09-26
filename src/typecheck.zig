@@ -3280,6 +3280,9 @@ const Checker = struct {
             try self.errAt(callee, "type arguments go in brackets: `{s}[{s}](...)`", .{ name, self.text(args[0]) });
             return self.t().invalid_id;
         }
+        // Fields are set by name; a positional argument binds nothing to
+        // infer from.
+        for (args) |a| if (!a.isKind(.kwarg)) return self.badCall(args, pos, "fields of `{s}` are set by name: `{s}(field: value)`", .{ name, name });
         const fields = self.ctx.symbols.items[sym_id].fields orelse &.{};
         const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = fields }, pos, self.expectedResult((try sema.makeNominalContext(self.ctx, sym_id)).self_type), null)) orelse return self.skipCall(args);
         _ = try self.instantiate(sym_id, subst.args, pos);
