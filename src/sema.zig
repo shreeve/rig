@@ -153,6 +153,17 @@ pub const max_array_len: i128 = std.math.maxInt(u32);
 /// data belongs in a `Vec`.
 pub const max_value_bytes: u64 = 8 << 20;
 
+/// The most bytes of values one function keeps on its stack: 16 MiB, the
+/// size of the main thread's stack, so a function that keeps more could
+/// never run. Zig's own temporaries at most about double it, which keeps
+/// every frame well inside the 64 MiB below the stack that stops an
+/// overflow (`rig.guardStack`).
+pub const max_frame_bytes: u64 = 16 << 20;
+
+/// The values one function or closure keeps on its stack: `label` names
+/// it in messages, declared at `pos`.
+pub const Frame = struct { label: []const u8, pos: u32, tys: []const TypeId };
+
 pub const Type = union(enum) {
     /// A type error was reported here.
     invalid,
@@ -732,6 +743,10 @@ pub const SemContext = struct {
     /// The array types spelled or built in generic declarations, which
     /// each instance checks against `max_value_bytes`.
     generic_arrays: std.ArrayListUnmanaged(struct { ty: TypeId, pos: u32 }) = .empty,
+    /// The stack values of the generic functions and closures, and of the
+    /// generic types' methods, whose sizes depend on their parameters:
+    /// each instance checks them against `max_frame_bytes`.
+    generic_frames: std.ArrayListUnmanaged(Frame) = .empty,
     /// The types reported as too large, each once; a type holding one is
     /// not reported again.
     oversized: std.AutoHashMapUnmanaged(TypeId, void) = .empty,
@@ -786,6 +801,7 @@ pub const SemContext = struct {
         self.const_ints.deinit(self.allocator);
         self.ct_locals.deinit(self.allocator);
         self.generic_arrays.deinit(self.allocator);
+        self.generic_frames.deinit(self.allocator);
         self.oversized.deinit(self.allocator);
         self.byte_sizes.deinit(self.allocator);
         self.arena.deinit();
@@ -1176,6 +1192,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try resolve.checkDeclarations(&ctx);
     try checkTypeSizes(&ctx);
     try typecheck.checkModule(&ctx, tree, module_scope);
+    try typecheck.checkFrames(&ctx, tree);
     try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);
     try typecheck.checkGenericInstantiations(&ctx);

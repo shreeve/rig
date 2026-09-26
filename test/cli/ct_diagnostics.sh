@@ -111,3 +111,6 @@ sub main()
   print(r)
 EOF2
 expect_eq "$(errors_of ctor.rig)" "ctor.rig:8:17: error: compile-time argument 2 of \`Ring\` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, a \`=!\` binding of one, or arithmetic on them" "a rejected instance's arguments"
+
+# Each frame too large is reported once.
+expect_eq "$(errors_of "$ROOT/test/reject/types/frame_too_large.rig" | wc -l | tr -d ' ')" "7" "one diagnostic per frame too large"

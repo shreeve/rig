@@ -418,27 +418,45 @@ array length -1 is out of range
 
 A value takes at most 8 MiB (8388608 bytes, a `[1048576]Int`): an
 array, a struct or an enum, and each instance of a generic type or
-function, for the arrays it makes and, for a type, for itself. A
-value may live on the stack, which holds 16 MiB, so any one value fits
-there. A program that runs off the end of its stack stops before it
-writes beyond it, for any frame of up to 64 MiB (eight values at the
-limit). Larger data belongs in a `Vec`, which
-keeps its elements on the heap. A value too large is reported once,
-where it is spelled or made; a type that holds one is not reported
-again.
+function, for the arrays it makes and, for a type, for itself. The
+values a function keeps on its stack take at most 16 MiB together: the
+bindings it declares and its by-value parameters, each once, and every
+array literal, fill, and call whose value no binding takes directly.
+This holds for every function, method, closure (whose captures count
+where it is made), test, and `main`, and for each instance of a
+generic one. The stack holds 16 MiB, so a function that keeps more
+could never run. Larger data belongs in a `Vec`, which keeps its
+elements on the heap. A value or function too large is reported once;
+a type or function holding a value too large is not reported again.
+
+A program that runs off the end of its stack stops before it writes
+beyond it. On x86_64, Zig touches each page of a new frame in turn,
+so any frame stops at the guard page below the stack. On aarch64 it
+does not, and a frame steps as far below the stack as its size: at
+most 16 MiB of counted values, plus Zig's own temporaries. At least
+64 MiB below the stack stays unmapped, four times the counted limit,
+so every overflowing frame lands there: on macOS the program reserves
+it when it starts, and on Linux the kernel maps nothing that close.
 
 ```rig reject
 struct Grid
   cells: [1024][1024]Int
   more: [8]Int
 
+fun sums(k: Int) -> Int
+  a = [k; 800000]
+  b = [k; 800000]
+  c = [k; 800000]
+  a[0] + b[0] + c[0]
+
 sub main
   big = [0; 2000000]
-  print(big.len)
+  print(big.len, sums(1))
 ```
 
 ```error
 `Grid` takes 8388672 bytes; a value takes at most 8388608 (8 MiB)
+`sums` keeps 19200008 bytes of values on its stack; a function keeps at most 16777216 (16 MiB)
 `[2000000]Int` takes 16000000 bytes
 ```
 

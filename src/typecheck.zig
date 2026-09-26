@@ -5865,6 +5865,110 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
     }
 }
 
+// ---- stack frames -----------------------------------------------------------
+
+/// Every function, method, closure, test, and drop body keeps at most
+/// `sema.max_frame_bytes` of values on its stack: each binding it
+/// declares and each by-value parameter, once, and each array literal,
+/// fill, and call whose value no binding takes directly (a temporary). A
+/// closure's captures count in the frame that makes it. A frame whose
+/// size depends on generic parameters is checked at each instance
+/// (`checkInstanceSizes`).
+pub fn checkFrames(ctx: *SemContext, tree: Sexp) Error!void {
+    var w: FrameWalker = .{ .ctx = ctx };
+    try w.walk(tree, null, false);
+}
+
+const FrameWalker = struct {
+    ctx: *SemContext,
+
+    const Slots = std.ArrayListUnmanaged(TypeId);
+
+    fn walk(self: *FrameWalker, node: Sexp, frame: ?*Slots, bound: bool) Error!void {
+        const ctx = self.ctx;
+        if (node == .src) {
+            const f = frame orelse return;
+            const id = ctx.symbolOf(node) orelse return;
+            const sym = ctx.symbols.items[id];
+            switch (sym.kind) {
+                .local, .param, .capture => {},
+                else => return,
+            }
+            if (sym.decl_pos != node.src.pos or sym.flags.comptime_known or sym.scope == sema.module_scope) return;
+            try f.append(ctx.allocator, sym.ty);
+            return;
+        }
+        // A group (a parameter list) has no kind.
+        const kind = node.kind() orelse {
+            for (node.items()) |c| try self.walk(c, frame, false);
+            return;
+        };
+        switch (kind) {
+            .fun, .sub => {
+                const name = ir.get(node, .name);
+                const label = try std.fmt.allocPrint(ctx.arena.allocator(), "`{s}`", .{sema.identAt(ctx.source, name) orelse "?"});
+                try self.frameOf(label, ctx.startOf(name), &.{ ir.get(node, .params), ir.get(node, .body) });
+            },
+            .@"test" => {
+                const label = try std.fmt.allocPrint(ctx.arena.allocator(), "test {s}", .{sema.identAt(ctx.source, ir.get(node, .name)) orelse "?"});
+                try self.frameOf(label, ctx.startOf(node), &.{ir.get(node, .body)});
+            },
+            .drop_decl => try self.frameOf("`drop`", ctx.startOf(node), &.{ ir.get(node, .params), ir.get(node, .body) }),
+            .lambda => {
+                // The captures are stored where the closure is made.
+                try self.walk(ir.Lambda.captures(node), frame, false);
+                try self.frameOf("a closure", ctx.startOf(node), &.{ ir.Lambda.params(node), ir.Lambda.body(node) });
+            },
+            .set => {
+                try self.walk(ir.Set.target(node), frame, false);
+                try self.walk(ir.Set.value(node), frame, true);
+            },
+            else => {
+                if (frame) |f| switch (kind) {
+                    .array, .array_fill, .call => if (!bound) if (ctx.typeOf(node)) |ty| try f.append(ctx.allocator, ty),
+                    else => {},
+                };
+                for (rig.children(node)) |c| try self.walk(c, frame, false);
+            },
+        }
+    }
+
+    /// The frame of the body `parts` make up, checked now or, when its
+    /// size depends on generic parameters, at each instance.
+    fn frameOf(self: *FrameWalker, label: []const u8, pos: u32, parts: []const Sexp) Error!void {
+        const ctx = self.ctx;
+        var slots: Slots = .empty;
+        defer slots.deinit(ctx.allocator);
+        for (parts) |p| try self.walk(p, &slots, false);
+        const tys = slots.items;
+        if (tys.len == 0) return;
+        for (tys) |ty| if (sema.containsTypeVar(ctx, ty)) {
+            try ctx.generic_frames.append(ctx.allocator, .{ .label = label, .pos = pos, .tys = try ctx.arena.allocator().dupe(TypeId, tys) });
+            return;
+        };
+        const bytes = (try frameBytes(ctx, tys)) orelse return;
+        if (bytes > sema.max_frame_bytes) try reportFrame(ctx, pos, label, bytes, null);
+    }
+};
+
+/// The bytes the values `tys` take together; null when one follows an
+/// error or is too large by itself, which is reported on its own.
+fn frameBytes(ctx: *SemContext, tys: []const TypeId) Error!?u128 {
+    var total: u128 = 0;
+    for (tys) |ty| {
+        if (sema.containsPoison(ctx, ty)) return null;
+        const b = (try sema.minBytes(ctx, ty)) orelse return null;
+        if (b > sema.max_value_bytes) return null;
+        total += b;
+    }
+    return total;
+}
+
+fn reportFrame(ctx: *SemContext, pos: u32, label: []const u8, bytes: u128, of: ?sema.InstanceRoot) Error!void {
+    const in = if (of) |root| try std.fmt.allocPrint(ctx.arena.allocator(), " in `{s}`", .{try sema.rootName(ctx, root)}) else "";
+    try ctx.err(pos, "{s} keeps {d} bytes of values on its stack{s}; a function keeps at most {d} (16 MiB), the size of the stack. Keep large data in a `Vec`", .{ label, bytes, in, sema.max_frame_bytes });
+}
+
 /// The arrays a generic declaration makes, in one instance, and a generic
 /// type's instance itself, must fit `sema.max_value_bytes`.
 fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!void {
@@ -5885,7 +5989,35 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
     }
     if (of == .type) {
         const sym = ctx.types.get(of.type).parameterized_nominal.sym;
-        if (try sema.oversizedByItself(ctx, of.type, sym, subst)) |bytes| try sema.reportOversized(ctx, at, of.type, bytes);
+        if (try sema.oversizedByItself(ctx, of.type, sym, subst)) |bytes| {
+            try sema.reportOversized(ctx, at, of.type, bytes);
+            return;
+        }
+    }
+    // A function instance checks the frames that use its own parameters;
+    // those that use only its type's are checked with the type's instance.
+    const own = switch (of) {
+        .func => |f| f.ownParams(),
+        .type => params,
+    };
+    var buf: std.ArrayListUnmanaged(TypeId) = .empty;
+    defer buf.deinit(ctx.allocator);
+    frames: for (ctx.generic_frames.items) |fr| {
+        const uses = for (fr.tys) |ty| {
+            if (sema.usesParams(ctx, ty, own)) break true;
+        } else false;
+        if (!uses) continue;
+        buf.clearRetainingCapacity();
+        for (fr.tys) |ty| {
+            const t = try sema.substituteType(ctx, ty, subst);
+            if (sema.containsTypeVar(ctx, t)) continue :frames;
+            try buf.append(ctx.allocator, t);
+        }
+        const bytes = (try frameBytes(ctx, buf.items)) orelse continue;
+        if (bytes <= sema.max_frame_bytes) continue;
+        try reportFrame(ctx, at, fr.label, bytes, of);
+        try ctx.note(fr.pos, "{s} is declared here", .{fr.label});
+        return;
     }
 }
 

@@ -1,7 +1,9 @@
-# A value may take up to 8 MiB: an array local, a struct, and a module
-# constant at the limit all run.
+# A value may take up to 8 MiB, and a function may keep up to 16 MiB of
+# values on its stack: an array local, a struct, and a module constant
+# at the limit all run, and so does a function keeping 12 MiB.
 
 BIG =! [7; 1048576]
+HALF =! [1; 524288]
 
 struct Frame
   a: [524288]Int
@@ -13,14 +15,22 @@ sub array_local(i: Int)
   print(a[i], a.len)
 
 sub struct_local(i: Int)
-  f = Frame(a: [1; 524288], b: [2; 524288])
+  f = Frame(a: HALF, b: HALF)
   f.b[i] += f.a[i]
   print(f.b[i], f.a.len + f.b.len)
+
+sub two_locals(i: Int)
+  a = [1; 786432]
+  b = [2; 786432]
+  b[i] += a[i]
+  print(b[i], a.len + b.len)
 
 sub main()
   array_local(5)
   struct_local(1048575 - 524288)
+  two_locals(786431)
 
 # expect:
 # 10 1048576
-# 3 1048576
+# 2 1048576
+# 3 1572864

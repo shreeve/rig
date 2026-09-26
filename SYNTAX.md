@@ -2598,18 +2598,27 @@ sub main
 ```
 
 An array, like any value, takes at most 8 MiB (`[1048576]Int`),
-since it may live on the stack, which holds 16 MiB. Rust and Zig
-accept a larger local and crash when it runs out of stack; Rig rejects
-it where it is spelled. Large data belongs in a `Vec`.
+since it may live on the stack, which holds 16 MiB; and the values one
+function keeps on its stack (its bindings, by-value parameters, and
+unbound arrays and call results) take at most 16 MiB together. Rust
+and Zig accept a larger local and crash when it runs out of stack;
+Rig rejects it where it is spelled. Large data belongs in a `Vec`.
 
 ```rig reject
+fun sums(k: Int) -> Int
+  a = [k; 800000]
+  b = [k; 800000]
+  c = [k; 800000]
+  a[0] + b[0] + c[0]
+
 sub main
   big = [0; 2000000]
-  print(big.len)
+  print(big.len, sums(1))
 ```
 
 ```error
 `[2000000]Int` takes 16000000 bytes; a value takes at most 8388608 (8 MiB)
+`sums` keeps 19200008 bytes of values on its stack
 ```
 
 **Strings** are immutable UTF-8 bytes, a Copy value. `s.len` is the

@@ -562,7 +562,15 @@ are known (`checkTypeSizes`), and an array that mentions a generic
 parameter is kept in `generic_arrays` and checked, with the instance
 itself, at each instance (`checkInstanceSizes`). A type reported too
 large goes into `oversized`, and `minBytes` of anything holding it is
-null, so it is reported once.
+null, so it is reported once. After the bodies are checked,
+`typecheck.checkFrames` walks every function, method, closure, test,
+and drop body and sums its frame against `sema.max_frame_bytes`
+(16 MiB): each binding and by-value parameter at its declaration, and
+each array literal, fill, and call that is not a `set`'s value; a
+closure's captures count in the enclosing frame. A frame that mentions
+generic parameters is kept in `generic_frames` and summed at each
+instance: a function instance checks the frames that use its own
+parameters, a type instance its methods'.
 
 Instances come from the program: `instantiation_sites` holds each
 generic type instance and where it is first spelled or inferred, and
@@ -835,7 +843,7 @@ reviewed.
 | `Signal(T)` | a value and a `Vec` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
-| `guardStack` | makes a stack overflow stop the program. Zig probes the stack as a frame grows only on x86, so elsewhere a frame larger than the guard below the stack can step over it. Linux keeps the space below the stack unmapped; macOS guards it with one page and maps memory right below that once the address space fills, so there `guardStack` reserves 64 MiB (`stack_reserve`) below the guard, where an overflowing frame of up to that size lands. `test/cli/stack_guard.sh` checks it |
+| `guardStack` | makes a stack overflow stop the program. Zig probes the stack as a frame grows only on x86, so elsewhere a frame larger than the guard below the stack can step over it. Linux keeps the space below the stack unmapped; macOS guards it with one page and maps memory right below that once the address space fills, so there `guardStack` reserves 64 MiB (`stack_reserve`) below the guard. A frame holds at most 16 MiB of values (`checkFrames`), so with Zig's temporaries an overflowing one lands in the reserve. `test/cli/stack_guard.sh` checks it |
 | `index`, `at`, `slice`, `div` | bounds-checked indexing and slicing, which panic in every build mode; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `discard`, `isNone`, `eqlOptStr`, `eqlOpt`, `take` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; compare optional strings and optional errors; clear an alive flag as a value moves out |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |

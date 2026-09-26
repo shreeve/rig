@@ -1,0 +1,51 @@
+# The values a function keeps on its stack (its locals, its by-value
+# parameters, and the arrays and call results it does not bind) take at
+# most 16 MiB together, the size of the stack. Closures, `main`, and
+# each instance of a generic function or type are checked the same way.
+
+struct Ring[T, n: Int]
+  items: [n]T
+
+  fun spread(?self) -> Int
+    a = [0; n]
+    b = [1; n]
+    c = [2; n]
+    a[0] + b[0] + c[0]
+
+fun big(k: Int) -> Int
+  a0: [1000000]Int = [k; 1000000]
+  a1: [1000000]Int = [k; 1000000]
+  a2: [1000000]Int = [k; 1000000]
+  a0[k] + a1[k] + a2[k]
+
+fun params(a: [700000]Int, b: [700000]Int, c: [700000]Int) -> Int
+  a[0] + b[0] + c[0]
+
+fun temps(k: Int) -> Int
+  [k; 700000][0] + [k; 700000][1] + [k; 700000][2]
+
+fun triple[n: Int](k: Int) -> Int
+  a = [k; n]
+  b = [k; n]
+  c = [k; n]
+  a[0] + b[0] + c[0]
+
+sub main()
+  x: [700000]Int = [1; 700000]
+  y: [700000]Int = [2; 700000]
+  z: [700000]Int = [3; 700000]
+  f = |k: Int|
+    p: [700000]Int = [k; 700000]
+    q: [700000]Int = [k; 700000]
+    r: [700000]Int = [k; 700000]
+    p[0] + q[0] + r[0]
+  ring = *Ring[Int, 700000](items: [0; 700000])
+  print(big(1), params(x, y, z), temps(1), triple[700000](1), f(1), ring.spread())
+
+# error: 15:5: `big` keeps 24000008 bytes of values on its stack; a function keeps at most 16777216 (16 MiB)
+# error: 21:5: `params` keeps 16800000 bytes
+# error: 24:5: `temps` keeps 16800008 bytes
+# error: 33:5: `main` keeps
+# error: 37:7: a closure keeps 16800008 bytes
+# error: 43:44: `triple` keeps 16800008 bytes of values on its stack in `triple[700000]`
+# error: 42:11: `spread` keeps 16800008 bytes of values on its stack in `Ring[Int, 700000]`
