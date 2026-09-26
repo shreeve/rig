@@ -2858,28 +2858,44 @@ const Checker = struct {
         return self.t().invalid_id;
     }
 
-    /// `*T?` / `~T?` written as a type argument: an optional handle, since
-    /// a handle binds tighter than a suffix. An expression reads it as the
-    /// handle of `T?`, so the suffixes move outside the handle. A handle
-    /// to an optional, `*(T?)`, has no expression spelling. Null when `e`
-    /// has no suffix to move.
+    /// `*T?`, `~T?`, `*~T?` written as a type argument: an optional
+    /// handle, since a handle binds tighter than a suffix. An expression
+    /// reads it as the handles of `T?`, so the suffixes move outside the
+    /// whole chain of handles. A handle to an optional, `*(T?)`, has no
+    /// expression spelling, and a fallible one is only a return type.
+    /// Null when the chain has no suffix to move.
     fn optionalHandleArg(self: *Checker, e: Sexp) Error!?TypeId {
-        const op = ir.get(e, .operand);
-        if (!op.isKind(.propagate_none)) return null;
+        var handles: std.ArrayListUnmanaged(Sexp) = .empty;
+        var op = e;
+        while (op.isKind(.share) or op.isKind(.weak)) : (op = ir.get(op, .operand)) try handles.append(self.ctx.arena.allocator(), op);
+        if (!op.isKind(.propagate_none) and !op.isKind(.propagate)) return null;
         if (self.ctx.parser) |p| if (p.hasParenSuffix(e)) {
             try self.errAt(e, "a handle to an optional has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead", .{});
             return self.t().invalid_id;
         };
         var count: u32 = 0;
         var base = op;
-        while (base.isKind(.propagate_none)) : (count += 1) base = ir.PropagateNone.value(base);
-        const inner = try self.typeArg(base);
-        if (self.isPoison(inner)) return inner;
-        if (e.isKind(.share) and self.ctx.types.get(inner) == .shared) {
-            try self.errAt(base, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
-            return self.t().invalid_id;
+        while (base.isKind(.propagate_none) or base.isKind(.propagate)) : (count += 1) {
+            if (base.isKind(.propagate)) {
+                try self.errAt(e, "a fallible type `{s}` is only allowed as a function's return type", .{try self.sourceText(e)});
+                return self.t().invalid_id;
+            }
+            base = ir.PropagateNone.value(base);
         }
-        var ty = try self.ctx.intern(if (e.isKind(.share)) .{ .shared = inner } else .{ .weak = inner });
+        var ty = try self.typeArg(base);
+        var inner_node = base;
+        var i = handles.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (self.isPoison(ty)) return ty;
+            const h = handles.items[i];
+            if (h.isKind(.share) and self.ctx.types.get(ty) == .shared) {
+                try self.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
+                return self.t().invalid_id;
+            }
+            ty = try self.ctx.intern(if (h.isKind(.share)) .{ .shared = ty } else .{ .weak = ty });
+            inner_node = h;
+        }
         while (count > 0) : (count -= 1) ty = try self.ctx.intern(.{ .optional = ty });
         return ty;
     }

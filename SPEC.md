@@ -3628,7 +3628,8 @@ a slice or array type has no expression spelling
 ```
 
 In an expression, `*T?` as a type argument is an optional handle, as
-in a type (`Cell[*Node?](value: none)`). A handle to an optional,
+in a type (`Cell[*Node?](value: none)`), and so is a chain of handles
+such as `*~T?`. A handle to an optional,
 `*(T?)`, has no expression spelling; name it with a `type` alias:
 
 ```rig

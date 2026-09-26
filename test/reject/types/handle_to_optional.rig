@@ -12,8 +12,14 @@ sub main()
   d = Cell[*(Node?)](value: none)
   f = Cell[~(Node?)?](value: none)
   e: ?*Node? = 1
+  g = Cell[*(~Node?)](value: none)
+  h = Cell[*~(Node?)](value: none)
+  i = Cell[*Node!](value: none)
 
 # error: 11:17: `none` needs an optional type; `*(Node?)` is not optional (write `*(Node?)?`)
 # error: 12:12: a handle to an optional has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead
 # error: 13:12: a handle to an optional has no expression spelling
 # error: 14:16: expected `?*Node?`
+# error: 15:12: a handle to an optional has no expression spelling
+# error: 16:12: a handle to an optional has no expression spelling
+# error: 17:12: a fallible type `*Node!` is only allowed as a function's return type

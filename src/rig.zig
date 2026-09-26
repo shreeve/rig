@@ -1339,15 +1339,30 @@ pub const Parser = struct {
         return out;
     }
 
-    /// `*(T?)` and `~(T?)`: a `?` suffix of the operand sits inside
-    /// parentheses that open right after the sigil, so the suffix belongs
-    /// to what the handle holds. `*T?` and `*(T)?` have none: every
-    /// suffix layer starts right after the sigil.
+    /// `*(T?)`, `~(T?)`, `*(~T?)`: a `?` suffix sits inside parentheses
+    /// within a chain of handles, so it belongs to what a handle holds.
+    /// In `*T?`, `*~T?`, and `*(T)?` every suffix follows the whole chain:
+    /// each handle and each suffix layer starts right after the sigil
+    /// before it.
     fn noteParenSuffix(self: *Parser, node: Sexp) std.mem.Allocator.Error!void {
-        const at = self.span(node).start + 1;
-        var e = ir.get(node, .operand);
-        while (e.isKind(.propagate_none)) : (e = ir.PropagateNone.value(e)) {
-            if (self.span(e).start != at) return self.paren_suffixes.put(self.allocator(), node.list.id, {});
+        var e = node;
+        while (true) {
+            const at = self.span(e).start + 1;
+            var op = ir.get(e, .operand);
+            if (op.isKind(.share) or op.isKind(.weak)) {
+                if (self.span(op).start == at) {
+                    e = op;
+                    continue;
+                }
+                // `*(~T?)`: a parenthesized handle with a suffix of its own.
+                while (op.isKind(.share) or op.isKind(.weak)) op = ir.get(op, .operand);
+                if (op.isKind(.propagate_none)) try self.paren_suffixes.put(self.allocator(), node.list.id, {});
+                return;
+            }
+            while (op.isKind(.propagate_none)) : (op = ir.PropagateNone.value(op)) {
+                if (self.span(op).start != at) return self.paren_suffixes.put(self.allocator(), node.list.id, {});
+            }
+            return;
         }
     }
 

@@ -50,9 +50,15 @@ sub main()
   old = held.replace(*none)
   -old
   print(p.replace(none) == none, q.replace(none) == none)
+  nd = *Node(value: 3)
+  sw: Cell[*~Node?] = Cell[*~Node?](value: *~nd)
+  ws: Cell[~*Node?] = Cell[~*Node?](value: none)
+  sp: Cell[*(~Node)?] = Cell[*(~Node)?](value: none)
+  print(sw.replace(none) != none, ws.replace(none) == none, sp.replace(none) == none)
 
 # expect:
 # false true true
 # -1 1 1
 # 3 3 0 none
 # true true
+# true true true
