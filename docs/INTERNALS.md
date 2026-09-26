@@ -606,7 +606,13 @@ it is in, at that instance's site, until nothing new appears; an
 instance nesting deeper than 24 levels is reported as ever deeper
 instances. Each work item keeps its `InstanceRoot`, the instance the
 program spelled, so a diagnostic names what the user wrote
-(`max[Point]`) even for an instance reached through other bodies.
+(`max[Point]`) even for an instance reached through other bodies. Then
+`checkSelfNesting` runs the same expansion (`expand`) from each `pub`
+generic function and type, and each generic method of a `pub` type,
+at its own parameters (`nest[T]`), following instances over type
+parameters too (kept apart in `Reached`, never recorded): one nesting
+ever deeper is reported where it is declared, since the instances that
+would show it are made in other modules.
 `checkGenericInstantiations` then checks every instance against the
 requirements (`checkRequirements`), reporting at the site with a note
 at the operation, and the ownership checker checks each against the

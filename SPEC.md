@@ -1122,11 +1122,12 @@ traits or bounds. What the body does with a `T` that only some types
 support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
 `T`) is recorded, a borrowed operand (`?T`, `!T`) as the `T` it
 reaches, and every instance the program makes, spelled or
-inferred, directly or through other generic bodies, is checked against
-it. On a `T`, `==` compares numbers, `Bool`, and plain enums, not
-Strings. A failure is reported at the call or type that makes the instance,
-with a note at the body line that needs the operation. A body cannot
-call a method on a `T`, read a field of one, or call `T` itself.
+inferred, directly or through other generic bodies, in any module, is
+checked against it. On a `T`, `==` compares numbers, `Bool`, and plain
+enums, not Strings. A failure is reported at the call or type that
+makes the instance, with a note at the body line that needs the
+operation, in the module that declares the body. A body cannot call a
+method on a `T`, read a field of one, or call `T` itself.
 
 The body is ownership-checked once, for a `T` that may own a resource
 and holds no borrow. A `T` that owns a resource moves where the body
@@ -1142,7 +1143,9 @@ written `?T` or `!T` instead.
 A body that calls itself, or builds its own type, with its type
 parameters nested deeper each time (`nest[Box[T]]` inside `nest[T]`)
 would need ever deeper instances, and is rejected rather than expanded
-forever.
+forever: at an instance, or, for a `pub` generic and the generic
+methods of a `pub` type, whose instances other modules make, where it
+is declared.
 
 ```rig reject
 struct Res

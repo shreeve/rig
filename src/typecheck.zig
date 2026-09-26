@@ -545,7 +545,8 @@ const Checker = struct {
             return;
         };
         try self.ctx.recordName(target, sym_id);
-        const sym = &self.ctx.symbols.items[sym_id];
+        // A copy: resolving the annotation may add symbols (`sema.proxyOf`).
+        const sym = self.ctx.symbols.items[sym_id];
         const is_decl = sym.decl_pos == target.src.pos;
 
         if (!is_decl and sym.kind == .param and self.ctx.types.get(sym.ty) != .borrow_write) {

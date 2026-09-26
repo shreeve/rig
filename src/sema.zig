@@ -1298,11 +1298,11 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
 /// call `max[T]`; each instance of a generic function does the same for
 /// its body. The requirement checks then see every instantiation, and a
 /// built-in generic reached this way (`Vec[T]` in `Stack[T]`) has its
-/// element rules checked for the argument.
+/// element rules checked for the argument. Then the public generics are
+/// checked for nesting themselves (`checkSelfNesting`).
 fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
     if (ctx.generic_uses.items.len == 0 and ctx.generic_fn_uses.items.len == 0) return;
-    const Item = struct { subst: TypeSubst, site: u32, root: InstanceRoot };
-    var work: std.ArrayListUnmanaged(Item) = .empty;
+    var work: std.ArrayListUnmanaged(ExpandItem) = .empty;
     defer work.deinit(ctx.allocator);
     var it = ctx.instantiation_sites.iterator();
     while (it.next()) |e| {
@@ -1310,6 +1310,34 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
         try work.append(ctx.allocator, .{ .subst = item, .site = e.value_ptr.*, .root = .{ .type = e.key_ptr.* } });
     }
     for (ctx.fn_instances.items) |f| try work.append(ctx.allocator, .{ .subst = f.inst.subst(), .site = f.site, .root = .{ .func = f.inst } });
+    if (try expand(ctx, &work, null)) return;
+    try checkSelfNesting(ctx);
+}
+
+/// An instance to expand: its parameters' arguments, where the program
+/// makes it, and the instance written there that it is reached from.
+const ExpandItem = struct { subst: TypeSubst, site: u32, root: InstanceRoot };
+
+/// The instances an expansion over type parameters has reached
+/// (`checkSelfNesting`), which the program does not make.
+const Reached = struct {
+    fns: std.HashMapUnmanaged(FnInstance, void, FnInstance.Context, std.hash_map.default_max_load_percentage) = .empty,
+    types: std.AutoHashMapUnmanaged(TypeId, void) = .empty,
+
+    fn deinit(self: *Reached, a: std.mem.Allocator) void {
+        self.fns.deinit(a);
+        self.types.deinit(a);
+    }
+};
+
+/// Expand `work` until nothing new appears: each use a generic body
+/// makes of its parameters, made at the arguments of an instance of that
+/// body, is an instance too. The program's instances are recorded
+/// (`recordFnInstance`, `instantiation_sites`), and those still over
+/// type parameters skipped; with `reached`, those over type parameters
+/// are followed too and kept there. Whether an instance nesting ever
+/// deeper was reported.
+fn expand(ctx: *SemContext, work: *std.ArrayListUnmanaged(ExpandItem), reached: ?*Reached) std.mem.Allocator.Error!bool {
     while (work.pop()) |item| {
         for (ctx.generic_fn_uses.items) |use| {
             if (!argsUseParams(ctx, use.args, item.subst.params)) continue;
@@ -1319,7 +1347,7 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
                 out.* = try substituteType(ctx, a, item.subst);
                 deepest = @max(deepest, ctx.typeInfo(out.*).depth);
             }
-            if (argsHaveTypeVar(ctx, args)) continue;
+            if (reached == null and argsHaveTypeVar(ctx, args)) continue;
             // A generic function that calls itself with its parameters
             // nested deeper (`f[Box[T]]` in `f[T]`), or a generic type
             // whose methods do so with its own instances, would expand
@@ -1327,36 +1355,107 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
             if (deepest > max_instance_depth) {
                 const why = if (item.root == .func) "a generic function cannot call itself with its own type parameters nested deeper" else "a generic type's body cannot nest itself in its own type arguments";
                 try ctx.err(item.site, "`{s}` leads to ever deeper instances of generic functions (through `{s}`); {s}", .{ try rootName(ctx, item.root), try formatFnInstance(ctx, use), why });
-                return;
+                return true;
             }
             const concrete: FnInstance = .{ .name = use.name, .params = use.params, .args = args, .own = use.own };
-            if (!try ctx.recordFnInstance(concrete, item.site, item.root)) continue;
+            if (reached) |r| {
+                if ((try r.fns.getOrPut(ctx.allocator, concrete)).found_existing) continue;
+            } else if (!try ctx.recordFnInstance(concrete, item.site, item.root)) continue;
             try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root });
         }
         for (ctx.generic_uses.items) |use| {
             if (!usesParams(ctx, use, item.subst.params)) continue;
             const concrete = try substituteType(ctx, use, item.subst);
             const info = ctx.typeInfo(concrete);
-            if (info.has_type_var) continue;
+            if (reached == null and info.has_type_var) continue;
             // A generic whose body uses ever-deeper instances of itself
             // (`Box[T]` using `Box[Box[T]]`) would expand forever.
             if (info.depth > max_instance_depth) {
                 try ctx.err(item.site, "`{s}` leads to ever deeper instances of generic types (through `{s}`); a generic type's body cannot nest itself in its own type arguments", .{ try rootName(ctx, item.root), try formatType(ctx, use) });
-                return;
+                return true;
             }
-            const gop = try ctx.instantiation_sites.getOrPut(ctx.allocator, concrete);
-            if (gop.found_existing) continue;
-            gop.value_ptr.* = item.site;
-            const inst = ctx.types.get(concrete).parameterized_nominal;
-            if (ctx.symbols.items[inst.sym].decl_pos == builtin_decl_pos) {
-                if (try resolve.builtinElementError(ctx, inst.sym, inst.args)) |msg| {
-                    try ctx.err(item.site, "`{s}` instantiates `{s}`: {s}", .{ try rootName(ctx, item.root), try formatType(ctx, concrete), msg });
+            const inst = switch (ctx.types.get(concrete)) {
+                .parameterized_nominal => |pn| pn,
+                else => continue,
+            };
+            const builtin = ctx.symbols.items[inst.sym].decl_pos == builtin_decl_pos;
+            if (reached) |r| {
+                if (builtin or (try r.types.getOrPut(ctx.allocator, concrete)).found_existing) continue;
+            } else {
+                const gop = try ctx.instantiation_sites.getOrPut(ctx.allocator, concrete);
+                if (gop.found_existing) continue;
+                gop.value_ptr.* = item.site;
+                if (builtin) {
+                    if (try resolve.builtinElementError(ctx, inst.sym, inst.args)) |msg| {
+                        try ctx.err(item.site, "`{s}` instantiates `{s}`: {s}", .{ try rootName(ctx, item.root), try formatType(ctx, concrete), msg });
+                    }
+                    continue;
                 }
-                continue;
             }
             try work.append(ctx.allocator, .{ .subst = typeItem(ctx, concrete).?, .site = item.site, .root = item.root });
         }
     }
+    return false;
+}
+
+/// A public generic function or type, or a generic method of a public
+/// type, whose body nests itself ever deeper (`f[Box[T]]` in `f[T]`)
+/// fails in every instance, which other modules make: each is expanded
+/// over its own parameters, as an instance would be, and such a one is
+/// reported where it is declared.
+fn checkSelfNesting(ctx: *SemContext) std.mem.Allocator.Error!void {
+    var reached: Reached = .{};
+    defer reached.deinit(ctx.allocator);
+    var work: std.ArrayListUnmanaged(ExpandItem) = .empty;
+    defer work.deinit(ctx.allocator);
+    for (0..ctx.symbols.items.len) |i| {
+        const sym = ctx.symbols.items[i];
+        if (!sym.flags.is_public) continue;
+        const outer: []const SymbolId = switch (sym.kind) {
+            .function => {
+                if (try selfSeed(ctx, sym.name, &.{}, sym.ty, sym.decl_pos)) |item| try work.append(ctx.allocator, item);
+                continue;
+            },
+            .generic_type => sym.type_params orelse &.{},
+            .nominal_type => &.{},
+            else => continue,
+        };
+        if (sym.kind == .generic_type) {
+            const self_ty = (try makeNominalContext(ctx, @intCast(i))).self_type;
+            if (typeItem(ctx, self_ty)) |subst| try work.append(ctx.allocator, .{ .subst = subst, .site = sym.decl_pos, .root = .{ .type = self_ty } });
+        }
+        for (sym.fields orelse &.{}) |f| {
+            if (!f.is_method) continue;
+            if (try selfSeed(ctx, f.name, outer, f.ty, f.decl_pos)) |item| try work.append(ctx.allocator, item);
+        }
+    }
+    _ = try expand(ctx, &work, &reached);
+}
+
+/// The instance of generic function `name` (of type `ty`, a method of a
+/// generic type with parameters `outer`) at its own parameters, declared
+/// at `pos`; null for a function without type or integer parameters.
+fn selfSeed(ctx: *SemContext, name: []const u8, outer: []const SymbolId, ty: TypeId, pos: u32) std.mem.Allocator.Error!?ExpandItem {
+    const f = switch (ctx.types.get(ty)) {
+        .function => |f| f,
+        else => return null,
+    };
+    const a = ctx.arena.allocator();
+    var params: std.ArrayListUnmanaged(SymbolId) = .empty;
+    try params.appendSlice(a, outer);
+    for (f.ct_syms, 0..) |p, i| {
+        if (p == symbol_invalid or i >= f.ct_params.len) continue;
+        switch (ctx.types.get(f.ct_params[i])) {
+            .type_var, .int => try params.append(a, p),
+            else => {},
+        }
+    }
+    const own = params.items.len - outer.len;
+    if (own == 0) return null;
+    const args = try a.alloc(TypeId, params.items.len);
+    for (params.items, args) |p, *arg| arg.* = try ctx.intern(if (ctx.symbols.items[p].kind == .param) .{ .ct_param = p } else .{ .type_var = p });
+    const inst: FnInstance = .{ .name = name, .params = params.items, .args = args, .own = @intCast(own) };
+    return .{ .subst = inst.subst(), .site = pos, .root = .{ .func = inst } };
 }
 
 /// An instance of a generic type or function, as the diagnostics about
