@@ -297,13 +297,59 @@ compile, never change what it means.
 
 Square brackets hold everything known at compile time, and parentheses
 what is known when the program runs: `type Box[T]`, `Vec[Int]()`,
-`fun check[mode: Mode](n: Int)`, `check[.strict](5)`. One spelling
-covers type arguments and compile-time values, as Zig's `comptime`
-does for both, and a call shows which of its arguments shape the code
-and which it computes with. In an expression, `x[...]` indexes unless
-`x` names a generic type or a function, as in Go: the checker tells
-them apart by what the name denotes, so the grammar needs no second
-kind of bracket.
+`fun max[T](a: T, b: T)`, `fun check[mode: Mode](n: Int)`,
+`check[.strict](5)`. One spelling covers type arguments and
+compile-time values, as Zig's `comptime` does for both, so a call shows
+which of its arguments shape the code and which it computes with. It
+also keeps construction unambiguous: `Box(v: 3)` builds a value, so
+`Box(Int)` would read as a constructor call, while `Box[Int](v: 3)`
+cannot. Go, Mojo, and Python's type hints write compile-time arguments
+the same way.
+
+In an expression, `x[...]` indexes unless `x` names a generic type or a
+function, as in Go. The checker tells them apart by what the name
+denotes, so the grammar needs no second kind of bracket and no
+turbofish. The price is that a type argument in an expression must be
+spelled as an expression: `[]Int` and `fun(Int) -> Int` are not, and
+need a `type` alias there.
+
+### Per-instance checking instead of traits
+
+A generic body is checked once, with `T` unknown, and records what it
+does with a `T`: arithmetic, ordering, `==`, a literal beside a `T`, a
+copy. Each instance the program makes is then checked against that
+record. There are no traits or bounds for now.
+
+What this buys: generics without a trait system, whose design space
+(dispatch, coherence, trait objects) Rig has not settled; any type that
+supports what a body does works with it, with nothing to declare; and
+the model is Zig's, which Rig lowers to. Everything that does not depend
+on `T` is still checked once, in the body, and so is ownership: the body
+is checked as if `T` owns a resource, so moves, drops, and borrows are
+right for every instance, and a copy of a `T` simply limits the body to
+plain data.
+
+What it costs: a signature does not say what `T` must support, and a
+mismatch is found where an instance is made, as with C++ templates and
+Zig. Rig reports it at the Rig call that makes the instance, naming it
+(`max[Point]`), with a note at the body line that needs the operation,
+never as an error in the emitted Zig. That is acceptable while generics
+stay inside one module, where the body and every instance are checked
+together and read together. Across modules the recorded requirements
+would become an unwritten contract, which is one reason generics do
+not cross modules yet, and traits remain on the roadmap for when a
+design keeps dispatch and ownership visible.
+
+### Generic functions are called, not passed
+
+A generic function is a family of functions, one per instance, and an
+instance is made where a call is checked, from the arguments that
+determine it. A function value has one concrete signature; in Zig, too,
+a function with `comptime` parameters has no run-time address. Naming
+an instance as a value (`g = max[Int]`) would need a wrapper the
+compiler writes and the reader never sees. A plain function that calls
+the instance says the same thing in the open, so generic functions, and
+every function with compile-time parameters, can only be called.
 
 ### `raw` as a block
 
@@ -373,7 +419,8 @@ goals, and says no where they don't.
 | Source | Taken | Left behind |
 |---|---|---|
 | **Rust** | ownership, moves, the shared-or-exclusive borrow rule, `Rc`/`Weak` semantics, RAII drop in reverse field order, enums and `match`, errors as types, "a type with drop glue is not Copy" | lifetime syntax, traits (for now), heavy generic machinery, effects hidden in trait impls |
-| **Zig** | the backend itself; `comptime` as bracketed compile-time parameters; error unions; `defer`/`errdefer`; no GC; generic types as type functions | its async history as a cautionary tale; leaving aliasing and lifetimes to convention |
+| **Zig** | the backend itself; `comptime` as bracketed compile-time parameters; generics checked per instance; error unions; `defer`/`errdefer`; no GC; generic types as type functions | its async history as a cautionary tale; leaving aliasing and lifetimes to convention |
+| **Go** | square brackets for type parameters and arguments, told from an index by what the name denotes | interfaces as constraints on type parameters |
 | **Python** | indentation, `and`/`or`/`not`, readable one-line calls, `print` with several values, bindings without declarations | dynamic typing, implicit shadowing |
 | **Ruby** | paren-free calls, short keywords, readability first | `valid?` names, implicit mutation |
 | **CoffeeScript, Rip** | the aesthetic; Rip (a CoffeeScript-style language by Rig's author) and Zag (its Zig-targeted sibling) supplied the indentation lexer and much of the surface | reactive operators in the core language |
