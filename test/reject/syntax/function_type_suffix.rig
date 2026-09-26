@@ -1,0 +1,8 @@
+# A function type takes no suffix: an optional one, or an optional owned
+# closure, is written in parentheses.
+
+sub main()
+  s: *sub(Int)? = none
+  print(s == none)
+
+# error: 5:15: unexpected `?`; a function type takes no suffix; write `(*sub(Int))?`

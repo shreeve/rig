@@ -1080,7 +1080,7 @@ pub const Parser = struct {
         };
         const expected = self.expectedHint();
         const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
-        const hint = self.parenFreeCallHint(tok) orelse self.bracketHint(tok) orelse self.spacingHint(tok) orelse reservedHint(src, tok, expected orelse "");
+        const hint = self.parenFreeCallHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse fillHint(tok) orelse self.spacingHint(tok) orelse reservedHint(src, tok, expected orelse "");
         const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
     }
@@ -1200,6 +1200,39 @@ pub const Parser = struct {
                 std.mem.indexOfNone(u8, rest, "0123456789") == null));
         if (typelike) return self.format("unexpected `;`; an array type puts its length first: `[{s}]{s}`", .{ len, elem });
         return self.format("unexpected `;`; a fill literal puts its count first: `[{s} of {s}]`", .{ len, elem });
+    }
+
+    /// `sub()?`, `*fun(Int) -> Int` then `!`: a function type takes no
+    /// suffix, so an optional one is written in parentheses.
+    fn typeSuffixHint(self: *Parser, tok: Token) ?[]const u8 {
+        if (tok.cat != .suffix_q and tok.cat != .suffix_bang) return null;
+        const src = self.base.source;
+        if (tok.pos == 0 or src[tok.pos - 1] != ')') return null;
+        // The `(` that the `)` before the suffix closes.
+        var depth: u32 = 0;
+        var p = tok.pos;
+        const open = while (p > 0) {
+            p -= 1;
+            switch (src[p]) {
+                ')' => depth += 1,
+                '(' => {
+                    depth -= 1;
+                    if (depth == 0) break p;
+                },
+                '\n' => return null,
+                else => {},
+            }
+        } else return null;
+        if (!endsWithWord(src[0..open], "sub") and !endsWithWord(src[0..open], "fun")) return null;
+        var start = open - 3;
+        while (start > 0 and (src[start - 1] == '*' or src[start - 1] == '~')) start -= 1;
+        return self.format("a function type takes no suffix; write `({s}){c}`", .{ src[start..tok.pos], src[tok.pos] });
+    }
+
+    /// `[a, 2 of 3]`: a fill literal is the whole bracket.
+    fn fillHint(tok: Token) ?[]const u8 {
+        if (tok.cat != .of) return null;
+        return "a fill literal `[n of x]` holds one count and one element; it cannot share brackets with a list";
     }
 
     /// `[N -1]T`: an operator that touches what follows and not what

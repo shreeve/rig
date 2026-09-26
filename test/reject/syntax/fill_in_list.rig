@@ -1,0 +1,9 @@
+# A fill literal is the whole bracket: `[n of x]` cannot be one element
+# of a list.
+
+sub main()
+  a = 1
+  xs = [a, 2 of 3]
+  print(xs)
+
+# error: 6:14: unexpected `of`; a fill literal `[n of x]` holds one count and one element; it cannot share brackets with a list
