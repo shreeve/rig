@@ -101,8 +101,9 @@ const Checker = struct {
     /// The types inference found for arguments (`argType`).
     arg_types: std.AutoHashMapUnmanaged(parser.NodeId, TypeId) = .empty,
     /// The call whose value goes where a `ty` is expected (`checkExpr`),
-    /// directly or through `!`, `?`, or `catch`: inference binds the type
-    /// parameters its arguments leave open from `ty`.
+    /// directly or through `!`, `?`, `catch`, or `??` (`resultCall`):
+    /// inference binds the type parameters its arguments leave open from
+    /// `ty`.
     result_expected: struct { call: Sexp = .nil, ty: TypeId = sema.type_invalid } = .{},
     /// Inside `argType`, whose argument the call checks again with the
     /// type it is expected to have: the generic instances found there
@@ -5392,7 +5393,6 @@ fn findUse(ctx: *const SemContext, node: Sexp, sym: SymbolId) ?Sexp {
     return null;
 }
 
-/// `a` and `b` are the same parsed node.
 /// The call whose value `e` is: `e` itself, or the call under a `!`,
 /// `?`, `catch`, or on the left of `??`.
 fn resultCall(e: Sexp) ?Sexp {
@@ -5407,6 +5407,7 @@ fn resultCall(e: Sexp) ?Sexp {
     };
 }
 
+/// `a` and `b` are the same parsed node.
 fn sameNode(a: Sexp, b: Sexp) bool {
     return a == .list and b == .list and a.list.ptr == b.list.ptr;
 }

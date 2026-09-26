@@ -537,7 +537,7 @@ calls and generic constructors alike. A parameter no argument other
 than a literal binds is bound by matching the declared result against
 the type expected of the call (`bindExpected`): `checkExpr` names the
 call whose value goes where a type is expected (`result_expected`),
-through `!`, `?`, and `catch`, and a result lifted into an expected
+through `!`, `?`, `catch`, and the left of `??`, and a result lifted into an expected
 `T?` or `T!` is matched against the `T`. Only then does a literal bind
 its default type. An argument of another shape is reported as a type
 mismatch, and disagreements are reported with a suggested bracket list

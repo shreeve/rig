@@ -895,8 +895,9 @@ than a literal gives a type takes one from the type expected of the
 call's result, where there is one (a typed binding, parameter, field,
 assigned place, or `return`, and a function's last expression), by
 matching the declared result against it the same way; a result lifted
-into an expected `T?` or `T!` is matched against the `T`, and a
-propagated or caught `T!` against its value. So `z: U8 = max(1, 2)` is
+into an expected `T?` or `T!` is matched against the `T`, a
+propagated or caught `T!` against its value, and the left of `??`
+against an optional of the expected type. So `z: U8 = max(1, 2)` is
 `max[U8]`, and a generic call that is an argument of another takes the
 type that call gives it. Only then does a literal take its default
 type, and among literals alone a float literal gives `Float`:
