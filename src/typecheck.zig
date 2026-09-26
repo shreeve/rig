@@ -17,8 +17,9 @@
 //! `T` where `T?` or `T!` is expected (the value is lifted), and an
 //! error value where `T!` is expected (the function fails); `!T` where
 //! `?T` is expected; a borrow of a Copy value where the value is
-//! expected (`readValue`); and anything where poison (`unknown` /
-//! `invalid`) is involved, so one error does not cascade.
+//! expected (`readValue`), which reads through it (`recordRead`); and
+//! anything where poison (`unknown` / `invalid`) is involved, so one
+//! error does not cascade.
 //!
 //! Effects are checked in the same walk. Fallibility: a call of type
 //! `T!` must be the operand of `!` or `catch`, and `!` needs a fallible
@@ -589,7 +590,7 @@ const Checker = struct {
             rhs_ty = try self.synthExpr(rhs);
             // Binding a borrowed Copy value copies the value; an explicit
             // `?x` / `!x` binds the borrow.
-            if (!rhs.isKind(.read) and !rhs.isKind(.write)) rhs_ty = readValue(self.ctx, rhs_ty);
+            if (!rhs.isKind(.read) and !rhs.isKind(.write)) rhs_ty = try self.readThrough(rhs, rhs_ty, readValue(self.ctx, rhs_ty));
             rhs_ty = try self.defaultBindingType(rhs, rhs_ty, name);
         }
 
@@ -710,7 +711,7 @@ const Checker = struct {
         }
         if (tv) |param| {
             // A generic `T` target takes another `T` or a literal it holds.
-            const ty = operandValue(self.ctx, try self.synthExpr(rhs));
+            const ty = try self.synthOperandValue(rhs);
             if (self.meetsTypeVar(target_ty, ty, req)) {
                 try self.requireHoldsLiteral(param, ty, rhs, pos, spelled);
             } else if (!self.isPoison(ty)) try self.mismatch(rhs, target_ty, ty);
@@ -946,7 +947,7 @@ const Checker = struct {
             };
             const hint = if (handle) "bind a new handle with `+x` instead" else "unwrap the optional where it is owned (`if <m as x`)";
             try self.errAt(expr, "a borrow cannot give up the resource inside it; {s}", .{hint});
-        }
+        } else _ = try self.readThrough(expr, ty, sema.unwrapBorrows(self.ctx, ty));
         _ = self.enter(node);
         if (self.ctx.symbolOf(name)) |sym| {
             self.ctx.symbols.items[sym].ty = inner;
@@ -1732,7 +1733,7 @@ const Checker = struct {
     /// `a << n` / `a >> n`: the result has the type of the integer `a`.
     fn synthShift(self: *Checker, e: Sexp, op: []const u8) Error!TypeId {
         const left = ir.get(e, .left);
-        const ty = operandValue(self.ctx, try self.synthExpr(left));
+        const ty = try self.synthOperandValue(left);
         if (self.isPoison(ty)) {
             _ = try self.synthExpr(ir.get(e, .right));
             return ty;
@@ -1754,7 +1755,7 @@ const Checker = struct {
     /// A shift amount may be any integer; a constant one must be below
     /// the width of the shifted type (`Int` for a literal).
     fn checkShiftAmount(self: *Checker, amount: Sexp, shifted: TypeId, op: []const u8) Error!bool {
-        const ty = operandValue(self.ctx, try self.synthExpr(amount));
+        const ty = try self.synthOperandValue(amount);
         if (self.isPoison(ty)) return false;
         switch (self.ctx.types.get(ty)) {
             .type_var => |tv| try self.require(tv, .integer, self.startOf(amount), op),
@@ -1785,8 +1786,8 @@ const Checker = struct {
 
     fn numericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement) Error!TypeId {
         const operands = [2]Sexp{ ir.get(e, .left), ir.get(e, .right) };
-        const a = operandValue(self.ctx, try self.synthExpr(operands[0]));
-        const b = operandValue(self.ctx, try self.synthExpr(operands[1]));
+        const a = try self.synthOperandValue(operands[0]);
+        const b = try self.synthOperandValue(operands[1]);
         const pos = self.startOf(operands[0]);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().invalid_id;
 
@@ -1854,7 +1855,7 @@ const Checker = struct {
 
     fn synthNeg(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Neg.operand(e);
-        const ty = operandValue(self.ctx, try self.synthExpr(operand));
+        const ty = try self.synthOperandValue(operand);
         if (self.isPoison(ty)) return ty;
         switch (self.ctx.types.get(ty)) {
             .int => |info| {
@@ -1879,17 +1880,20 @@ const Checker = struct {
         const op = @tagName(e.kind().?);
         const l = ir.get(e, .left);
         const r = ir.get(e, .right);
-        // A contextual operand (`.red`, `none`) takes the other side's type.
+        // A contextual operand (`.red`, `none`) takes the type of the
+        // value the other side gives.
         if (isContextual(self.ctx.source, l) and !isContextual(self.ctx.source, r)) {
-            try self.checkExpr(l, sema.unwrapBorrows(self.ctx, try self.synthExpr(r)));
+            const ty = try self.synthExpr(r);
+            try self.checkExpr(l, try self.readThrough(r, ty, sema.unwrapBorrows(self.ctx, ty)));
             return self.t().bool_id;
         }
         if (isContextual(self.ctx.source, r)) {
-            try self.checkExpr(r, sema.unwrapBorrows(self.ctx, try self.synthExpr(l)));
+            const ty = try self.synthExpr(l);
+            try self.checkExpr(r, try self.readThrough(l, ty, sema.unwrapBorrows(self.ctx, ty)));
             return self.t().bool_id;
         }
-        const a = operandValue(self.ctx, try self.synthExpr(l));
-        const b = operandValue(self.ctx, try self.synthExpr(r));
+        const a = try self.synthOperandValue(l);
+        const b = try self.synthOperandValue(r);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
         if (sema.isNumeric(self.ctx, a) and sema.isNumeric(self.ctx, b)) {
             _ = try self.checkNumericComparison(l, r, a, b, op);
@@ -2014,6 +2018,7 @@ const Checker = struct {
             try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; take the handle out with `if x as h`", .{try self.tyName(opt)});
             return self.t().invalid_id;
         }
+        _ = try self.readThrough(left, opt, sema.unwrapBorrows(self.ctx, opt));
         const result = self.fallbackType(inner, expected);
         try self.checkExpr(right, result);
         return result;
@@ -2121,6 +2126,7 @@ const Checker = struct {
             try self.errAt(operand, "a borrow cannot give up the resource inside it; take a new handle with `+x` instead", .{});
             return self.t().invalid_id;
         }
+        _ = try self.readThrough(operand, ty, sema.unwrapBorrows(self.ctx, ty));
         return inner;
     }
 
@@ -2270,7 +2276,8 @@ const Checker = struct {
         const operand = ir.Clone.operand(e);
         const inner = try self.synthOperand(operand);
         if (self.isPoison(inner)) return inner;
-        const value = sema.unwrapBorrows(self.ctx, inner);
+        // A clone reads the value a borrow reaches.
+        const value = try self.readThrough(operand, inner, sema.unwrapBorrows(self.ctx, inner));
         switch (self.ctx.types.get(value)) {
             .shared, .weak => return value,
             // An optional handle clones to another optional handle.
@@ -2284,6 +2291,26 @@ const Checker = struct {
             try self.errAt(operand, "`+x` cannot clone a `{s}`; only `*T` and `~T` handles (or optionals of them) and plain values can be cloned", .{try self.tyName(value)});
             return self.t().invalid_id;
         }
+        return value;
+    }
+
+    /// The value an operator reads from `e` (`operandValue`).
+    fn synthOperandValue(self: *Checker, e: Sexp) Error!TypeId {
+        const ty = try self.synthExpr(e);
+        return self.readThrough(e, ty, operandValue(self.ctx, ty));
+    }
+
+    /// The value `e` gives where a value is read: a borrowed Copy value
+    /// reads as the value (`readValue`).
+    fn synthValue(self: *Checker, e: Sexp) Error!TypeId {
+        const ty = try self.synthExpr(e);
+        return self.readThrough(e, ty, readValue(self.ctx, ty));
+    }
+
+    /// `value`, the value `e` of type `ty` gives where it is read; when
+    /// that is what a borrow reaches, `e` reads through it (`recordRead`).
+    fn readThrough(self: *Checker, e: Sexp, ty: TypeId, value: TypeId) Error!TypeId {
+        if (value != ty) try self.ctx.recordRead(e);
         return value;
     }
 
@@ -2841,7 +2868,7 @@ const Checker = struct {
             _ = try self.synthQuiet(index);
             return obj_ty;
         }
-        const idx_ty = readValue(self.ctx, try self.synthExpr(index));
+        const idx_ty = try self.synthValue(index);
         if (self.isPoison(idx_ty)) return idx_ty;
         if (!sema.isInteger(self.ctx, idx_ty)) {
             try self.errAt(index, "an index must be an integer; got `{s}`", .{try self.tyName(idx_ty)});
@@ -2856,8 +2883,14 @@ const Checker = struct {
                 };
                 return a.elem;
             },
-            .slice => |s| return s.elem,
-            .string => return self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } }),
+            .slice => |s| {
+                _ = try self.readThrough(object, obj_ty, sema.unwrapBorrows(self.ctx, obj_ty));
+                return s.elem;
+            },
+            .string => {
+                _ = try self.readThrough(object, obj_ty, sema.unwrapBorrows(self.ctx, obj_ty));
+                return self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } });
+            },
             .parameterized_nominal => if (vecElementType(self.ctx, peeled)) |elem| {
                 if ((try self.ownsResource(elem, self.startOf(object), "copies an element out of a Vec"))) {
                     try self.errAt(object, "indexing a `{s}` would copy an owning handle out of the Vec; iterate with `for x in ?v` instead", .{try self.tyName(peeled)});
@@ -2891,6 +2924,7 @@ const Checker = struct {
         const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
             .string, .slice => {
+                _ = try self.readThrough(object, obj_ty, peeled);
                 try self.checkSliceBounds(range, null);
                 return peeled;
             },
@@ -3146,7 +3180,7 @@ const Checker = struct {
             return target;
         }
         const arg = args[0];
-        const from = readValue(self.ctx, try self.synthExpr(arg));
+        const from = try self.synthValue(arg);
         if (self.isPoison(from)) return target;
         if (!sema.isNumeric(self.ctx, from)) {
             try self.errAt(arg, "`{s}(x)` converts a number; `x` has type `{s}`", .{ name, try self.tyName(from) });
@@ -4455,6 +4489,15 @@ const Checker = struct {
         if (resultCall(e)) |call| if (call.list.id != 0) if (self.result_hints.get(call.list.id)) |hint| {
             return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; {s}", .{ try self.tyName(expected), try self.tyName(actual), hint });
         };
+        // Only a number, `Bool`, `String`, or plain enum reads as the
+        // value a borrow reaches (`readValue`).
+        switch (at) {
+            .borrow_read, .borrow_write => |inner| if (compatible(self.ctx, inner, expected)) {
+                const name = try self.tyName(inner);
+                return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; only a number, `Bool`, `String`, or plain enum is copied out of a borrow: take the borrow where it goes (`?{s}` or `!{s}`)", .{ try self.tyName(expected), try self.tyName(actual), name, name });
+            },
+            else => {},
+        }
         try self.mismatch(e, expected, actual);
     }
 
@@ -4599,8 +4642,11 @@ const Checker = struct {
         }
     }
 
-    /// Record the concrete type a literal took in context.
+    /// Record how `e`, of type `actual`, adapts to the `expected` its
+    /// context gives: a borrow of a Copy value is read through
+    /// (`recordRead`), and a literal takes a concrete type.
     fn recordAdapted(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
+        if (readValue(self.ctx, actual) != actual and !isBorrow(self.ctx, self.liftTarget(expected))) return self.ctx.recordRead(e);
         if (actual != self.t().int_literal_id and actual != self.t().float_literal_id) return;
         const target = self.liftTarget(expected);
         if (!sema.isNumeric(self.ctx, target)) return;
@@ -4842,7 +4888,7 @@ const Checker = struct {
                 try self.synthArgs(args);
                 break :blk self.t().invalid_id;
             }
-            const operand = readValue(self.ctx, try self.synthExpr(args[0]));
+            const operand = try self.synthValue(args[0]);
             const target = expected orelse {
                 try self.err(pos, "`@{s}` needs a known result type; bind it to an annotated name (`y: T = @{s}(x)`)", .{ name, name });
                 break :blk self.t().invalid_id;
@@ -5160,6 +5206,13 @@ fn readValue(ctx: *const SemContext, ty: TypeId) TypeId {
     return switch (ctx.types.get(ty)) {
         .borrow_read, .borrow_write => |inner| if (sema.isCopyPrimitive(ctx, inner) or sema.isPlainEnum(ctx, inner)) inner else ty,
         else => ty,
+    };
+}
+
+fn isBorrow(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .borrow_read, .borrow_write => true,
+        else => false,
     };
 }
 

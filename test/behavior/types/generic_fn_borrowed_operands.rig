@@ -1,6 +1,6 @@
 # A borrowed `T` operand (`?T` or `!T`) acts as a `T`: it records the
 # same requirement and gives the same result type, and the operator
-# reads through the borrow.
+# reads through the borrow, whether a name holds it or a call yields it.
 
 enum Color
   red
@@ -34,6 +34,23 @@ sub scale[T](a: !T, b: ?T)
   a *= b
   a += 1
 
+fun wr[T](a: !T) -> !T
+  a
+
+sub accum[T](a: !T, b: !T)
+  a += wr(!b)
+  a *= wr(!b)
+  a -= -wr(!b)
+
+sub shift[T](a: !T, b: !T)
+  a <<= wr(!b)
+  a >>= wr(!b)
+  a /= wr(!b)
+  a %= wr(!b) + wr(!b)
+
+fun order[T](a: !T, b: !T) -> Bool
+  wr(!a) < wr(!b) and wr(!a) != wr(!b)
+
 type Acc[T]
   total: T
 
@@ -45,6 +62,7 @@ sub main()
   y = 4
   f = 1.5
   g = 2.25
+  z = 2
   u: U8 = 200
   w: U8 = 50
   c = Color.red
@@ -61,6 +79,10 @@ sub main()
   print(x, g)
   a = Acc(total: 5)
   print(a.plus(?y))
+  accum(!x, !y)
+  accum(!g, !f)
+  shift(!y, !z)
+  print(x, g, y, order(!x, !y), order(!f, !g))
 
 # expect:
 # 7 3.75 250
@@ -73,3 +95,4 @@ sub main()
 # 3 237
 # 13 4.375
 # 9
+# 72 10.3125 2 false true

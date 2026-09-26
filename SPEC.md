@@ -2077,9 +2077,27 @@ cannot drop `y` while borrows are live
 ```
 
 A borrowed parameter can be forwarded (`g(?b)` with `b: ?B`), and a
-borrow of a Copy value reads as the value. The caller still owns a
+borrow of a number, `Bool`, `String`, or plain enum reads as the value
+wherever the value is expected, whether a name holds the borrow or an
+expression yields it (`f(!x) + 1`, `take(f(!x))`, `if flag(!b)`); the
+borrow taken to reach it ends there. Other values, which may own
+resources, are not copied out of a borrow. The caller still owns a
 borrowed value: a borrowed parameter cannot be dropped or move-captured,
 and a field cannot be moved out of it.
+
+```rig
+fun slot(a: !Int) -> !Int
+  a
+
+sub main
+  n = 4
+  m: Int = slot(!n)
+  print(slot(!n) + slot(!n), Float(slot(!n)), m)
+```
+
+```output
+8 4.0 4
+```
 
 ### Clone
 

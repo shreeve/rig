@@ -33,6 +33,10 @@
 //!                                      gave them, e.g. `U8` in `x: U8 = 5`)
 //!   ctx.bindingTypeOf(leaf) -> ?TypeId the declared/inferred type of the
 //!                                      symbol a leaf names
+//!   ctx.readsThrough(node) -> bool    the node yields a borrow (`!x`, a
+//!                                      call returning `!Int`, a `!Int`
+//!                                      name) where its context reads the
+//!                                      value it reaches
 //!   ctx.scopeOf(node)    -> ?ScopeId   the scope a fun/sub/method/lambda/
 //!                                      block/for/arm/catch node opens
 //!   ctx.isExhaustive(match) -> bool   the match's arms cover every value
@@ -470,9 +474,16 @@ pub const Facts = struct {
     /// Positions of names assigned to (`x = e`, `x <- e`, `x += e` after
     /// `x` is declared): a use there writes the binding, not reads it.
     writes: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    /// Expressions that yield a borrow where their context reads the
+    /// value it reaches (`SemContext.recordRead`): leaves by position,
+    /// list nodes by id.
+    leaf_reads: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    node_reads: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         self.writes.deinit(allocator);
+        self.leaf_reads.deinit(allocator);
+        self.node_reads.deinit(allocator);
         self.names.deinit(allocator);
         self.leaf_types.deinit(allocator);
         self.node_types.deinit(allocator);
@@ -875,6 +886,16 @@ pub const SemContext = struct {
         return self.symbols.items[id].ty;
     }
 
+    /// Whether `node` yields a borrow whose value its context reads
+    /// (`recordRead`).
+    pub fn readsThrough(self: *const SemContext, node: Sexp) bool {
+        return switch (node) {
+            .src => |s| self.facts.leaf_reads.contains(s.pos),
+            .list => self.facts.node_reads.contains(nodeKey(node) orelse return false),
+            else => false,
+        };
+    }
+
     /// The scope a scope-opening node opens.
     pub fn scopeOf(self: *const SemContext, node: Sexp) ?ScopeId {
         const key = nodeKey(node) orelse return null;
@@ -938,6 +959,18 @@ pub const SemContext = struct {
         switch (node) {
             .src => |s| try self.facts.leaf_types.put(self.allocator, s.pos, ty),
             .list => try self.facts.node_types.put(self.allocator, recordKey(node), ty),
+            else => {},
+        }
+    }
+
+    /// `node` yields a borrow where its context reads the value it
+    /// reaches: a Copy value where the value is expected, an operand, the
+    /// optional of `??`, `?`, or `as`, a String or slice indexed, or a
+    /// clone.
+    pub fn recordRead(self: *SemContext, node: Sexp) !void {
+        switch (node) {
+            .src => |s| try self.facts.leaf_reads.put(self.allocator, s.pos, {}),
+            .list => try self.facts.node_reads.put(self.allocator, recordKey(node), {}),
             else => {},
         }
     }

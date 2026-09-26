@@ -1,0 +1,25 @@
+# Only a number, `Bool`, `String`, or plain enum reads as the value a
+# borrow reaches. A borrow of an owning value, or of a `T` that may own
+# one, is not copied out where the value is expected.
+
+fun wv(a: !Vec[Int]) -> !Vec[Int]
+  a
+
+fun take(v: Vec[Int]) -> Int
+  v.len
+
+fun wr[T](a: !T) -> !T
+  a
+
+fun copy[T](a: !T) -> T
+  x: T = wr(!a)
+  x
+
+sub main()
+  v = Vec[Int]()
+  z: Vec[Int] = wv(!v)
+  print(take(wv(!v)), z.len)
+
+# error: 15:10: type mismatch: expected `T`, got `!T`; only a number, `Bool`, `String`, or plain enum is copied out of a borrow: take the borrow where it goes (`?T` or `!T`)
+# error: 20:17: type mismatch: expected `Vec[Int]`, got `!Vec[Int]`; only a number
+# error: 21:14: type mismatch: expected `Vec[Int]`, got `!Vec[Int]`
