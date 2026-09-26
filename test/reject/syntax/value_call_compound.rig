@@ -1,0 +1,11 @@
+# A compound assignment's right side is a value.
+
+fun f(n: Int) -> Int
+  n
+
+sub main()
+  x = 1
+  x += f 2
+  print(x)
+
+# error: 8:10: unexpected `2`; a call where a value is expected takes parentheses: `f(2)`

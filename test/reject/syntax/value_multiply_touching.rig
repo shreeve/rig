@@ -1,0 +1,9 @@
+# `a *b` in a value position: multiply, or call `a` with `b` shared.
+
+sub main()
+  a = 2
+  b = 3
+  c = a *b
+  print(c)
+
+# error: 6:9: unexpected `*`; a sigil touching its operand is a prefix: to multiply, write `a * b`; to call `a`, write `a(*b)`

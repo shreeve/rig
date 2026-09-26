@@ -308,6 +308,11 @@ pub const Lexer = struct {
     /// end of block or file is reported at its end.
     prev_pos: u32 = 0,
     prev_end: u32 = 0,
+    prev_cat: TokenCat = .eof,
+    /// The real token before that one, which a parse error's hint reads.
+    before_cat: TokenCat = .eof,
+    before_pos: u32 = 0,
+    before_end: u32 = 0,
     /// A newline or `\` continuation was skipped since the last token.
     joined: bool = false,
     /// Position of the `|` that closes the bar list being lexed.
@@ -403,6 +408,10 @@ pub const Lexer = struct {
         self.last_cat = tok.cat;
         if (tok.len > 0 and tok.cat != .err) { // a real token, not layout
             self.joined = false;
+            self.before_cat = self.prev_cat;
+            self.before_pos = self.prev_pos;
+            self.before_end = self.prev_end;
+            self.prev_cat = tok.cat;
             self.prev_pos = tok.pos;
             self.prev_end = tok.pos + tok.len;
         }
@@ -1080,7 +1089,7 @@ pub const Parser = struct {
         };
         const expected = self.expectedHint();
         const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
-        const hint = self.parenFreeCallHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse fillHint(tok) orelse self.spacingHint(tok) orelse reservedHint(src, tok, expected orelse "");
+        const hint = self.parenFreeCallHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse fillHint(tok) orelse self.spacingHint(tok) orelse self.valueCallHint(tok) orelse reservedHint(src, tok, expected orelse "");
         const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
     }
@@ -1255,6 +1264,53 @@ pub const Parser = struct {
         while (end < src.len and isIdentCont(src[end])) end += 1;
         if (start == before.len or end == tok.pos + 1 or keyword(before[start..]) != null) return null;
         return self.format("`{c}` touching `{s}` is a prefix (the spacing rule); for arithmetic, write `{s} {c} {s}`", .{ op, src[tok.pos + 1 .. end], before[start..], op, src[tok.pos + 1 .. end] });
+    }
+
+    /// A name, a space, then an operand, where a value is expected (the
+    /// right side of a binding, `return`, a condition): a paren-free
+    /// call, which only a command may be. A sigil touching the operand
+    /// is a prefix, not the infix operator it also spells.
+    fn valueCallHint(self: *Parser, tok: Token) ?[]const u8 {
+        const lex = &self.base.lexer;
+        if (lex.nesting > 0 and !lex.inIsland()) return null;
+        if (lex.before_cat != .ident or tok.pos <= lex.before_end) return null;
+        switch (lex.line_head) {
+            .@"struct", .@"enum", .@"error", .type, .fun, .sub, .use, .@"extern", .@"test", .drop => return null,
+            else => {},
+        }
+        const src = self.base.source;
+        if (std.mem.indexOfNone(u8, src[lex.before_end..tok.pos], " ") != null) return null;
+        const callee = nameChain(src, lex.before_pos, lex.before_end);
+        const infix: ?struct { op: u8, verb: []const u8 } = switch (tok.cat) {
+            .minus_prefix => .{ .op = '-', .verb = "subtract" },
+            .move_pfx => .{ .op = '<', .verb = "compare" },
+            .share_pfx => .{ .op = '*', .verb = "multiply" },
+            .clone_pfx => .{ .op = '+', .verb = "add" },
+            .ident, .integer, .real, .string_sq, .string_dq, .true, .false => null,
+            .dot_lit, .lparen, .lbracket, .read_pfx, .write_pfx, .tilde => return self.format("a call where a value is expected takes parentheses: `{s}(...)`", .{callee}),
+            else => return null,
+        };
+        if (infix) |in| {
+            var end = tok.pos + 1;
+            while (end < src.len and (isIdentCont(src[end]) or (src[end] == '.' and end + 1 < src.len and isIdentCont(src[end + 1])))) end += 1;
+            const operand = if (end == tok.pos + 1) "..." else src[tok.pos + 1 .. end];
+            return self.format("a sigil touching its operand is a prefix: to {s}, write `{s} {c} {s}`; to call `{s}`, write `{s}({c}{s})`", .{ in.verb, callee, in.op, operand, callee, callee, in.op, operand });
+        }
+        // The argument alone ends the line: show the whole call.
+        const eol = std.mem.indexOfScalarPos(u8, src, tok.pos, '\n') orelse src.len;
+        const rest = std.mem.trim(u8, src[tok.pos + tok.len .. eol], " \r");
+        const arg = if (rest.len == 0 or rest[0] == '#') src[tok.pos .. tok.pos + tok.len] else "...";
+        return self.format("a call where a value is expected takes parentheses: `{s}({s})`", .{ callee, arg });
+    }
+
+    /// The name at `start..end`, with the `a.b.` before it: `p.x`.
+    fn nameChain(src: []const u8, start: u32, end: u32) []const u8 {
+        var from = start;
+        while (from > 1 and src[from - 1] == '.' and isIdentCont(src[from - 2])) {
+            from -= 1;
+            while (from > 0 and isIdentCont(src[from - 1])) from -= 1;
+        }
+        return src[from..end];
     }
 
     fn endsWithWord(text: []const u8, word: []const u8) bool {

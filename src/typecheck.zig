@@ -3323,7 +3323,7 @@ const Checker = struct {
         if (self.isEntryPoint(sym)) return self.badCall(args, callee, entry_point_use, .{});
         if (self.isPoison(sym.ty)) return self.skipCall(args);
         const fty = self.ctx.types.get(sym.ty);
-        if (fty != .function) return self.badCall(args, callee, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(sym.ty) });
+        if (fty != .function) return self.badCall(args, callee, "`{s}` has type `{s}` and cannot be called{s}", .{ name, try self.tyName(sym.ty), try self.prefixHint(callee, name, args) });
         if (sym.kind == .@"extern" and self.raw_depth == 0) {
             try self.errAt(callee, "call to extern function `{s}` requires `raw` block; extern functions are the FFI boundary and bypass Rig's ownership and effect checks", .{name});
         }
@@ -3349,7 +3349,25 @@ const Checker = struct {
             try self.checkArgs(args, fty.function, .{}, name, pos);
             return fty.function.returns;
         }
-        return self.badCall(args, pos, "`{s}` has type `{s}` and cannot be called", .{ name, try self.tyName(ty) });
+        return self.badCall(args, pos, "`{s}` has type `{s}` and cannot be called{s}", .{ name, try self.tyName(ty), try self.prefixHint(callee, name, args) });
+    }
+
+    /// For a paren-free call `a -1` whose callee cannot be called: the
+    /// sigil touching the argument is a prefix, and the infix operator
+    /// it also spells takes a space on both sides.
+    fn prefixHint(self: *Checker, callee: Sexp, name: []const u8, args: []const Sexp) Error![]const u8 {
+        if (args.len == 0) return "";
+        const arg = args[0];
+        const op: []const u8, const verb: []const u8, const operand = switch (arg.kind() orelse return "") {
+            .neg => .{ "-", "subtract", ir.Neg.operand(arg) },
+            .move => .{ "<", "compare", ir.Move.operand(arg) },
+            .share => .{ "*", "multiply", ir.Share.operand(arg) },
+            .clone => .{ "+", "add", ir.Clone.operand(arg) },
+            else => return "",
+        };
+        const gap = self.ctx.source[self.ctx.span(callee).end..self.startOf(arg)];
+        if (gap.len == 0 or std.mem.indexOfNone(u8, gap, " ") != null) return "";
+        return std.fmt.allocPrint(self.ctx.arena.allocator(), "; a sigil touching its operand is a prefix: to {s}, write `{s} {s} {s}`", .{ verb, name, op, try self.sourceText(operand) });
     }
 
     /// A call that cannot be checked: its arguments are still checked on

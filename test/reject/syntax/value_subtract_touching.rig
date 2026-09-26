@@ -1,0 +1,9 @@
+# The right side of a binding is a value: `a -1` is neither a
+# subtraction nor a paren-free call.
+
+sub main()
+  a = 5
+  b = a -1
+  print(b)
+
+# error: 6:9: unexpected `-`; a sigil touching its operand is a prefix: to subtract, write `a - 1`; to call `a`, write `a(-1)`

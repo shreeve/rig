@@ -1,0 +1,8 @@
+# `print n <m` calls `n` with `m` moved.
+
+sub main()
+  n = 3
+  m = 4
+  print n <m
+
+# error: 6:9: `n` has type `Int` and cannot be called; a sigil touching its operand is a prefix: to compare, write `n < m`

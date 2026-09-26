@@ -246,7 +246,21 @@ sub main
 ```
 
 ```error
-unexpected `-`
+unexpected `-`; a sigil touching its operand is a prefix: to subtract, write `a - 1`; to call `a`, write `a(-1)`
+```
+
+As a command's argument, where a paren-free call is legal, `print a -1`
+is `print(a(-1))`. When `a` cannot be called, the checker says so and
+names the fix:
+
+```rig reject
+sub main
+  a = 5
+  print a -1
+```
+
+```error
+`a` has type `Int` and cannot be called; a sigil touching its operand is a prefix: to subtract, write `a - 1`
 ```
 
 ---
@@ -1661,7 +1675,7 @@ sub main
 ```
 
 ```error
-unexpected `5`
+unexpected `5`; a call where a value is expected takes parentheses: `twice(5)`
 ```
 
 ```rig reject

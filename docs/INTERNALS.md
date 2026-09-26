@@ -187,7 +187,9 @@ into a positioned diagnostic (``unexpected `)`; expected an operand``:
 what the parser expected there, in the grammar's `@display` names for
 tokens and `@errors` names for rules, when that is at most three
 things, and a hint when the token starts a reserved form such as a
-`try` block, `zig "..."`, or `for *x in`), and makes the only rewrites
+`try` block, `zig "..."`, or `for *x in`, or when a paren-free call
+stands where a value is expected: `x = twice 5`, or `b = a -1`, whose
+hint names both the operator and the call), and makes the only rewrites
 that need to inspect the tree:
 
 - a closure's bar-list entries are split into `(captures ...)` and a

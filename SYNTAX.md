@@ -368,7 +368,21 @@ sub main
 ```
 
 ```error
-unexpected `-`
+unexpected `-`; a sigil touching its operand is a prefix: to subtract, write `a - 1`; to call `a`, write `a(-1)`
+```
+
+As a command's argument, where a paren-free call is legal, `print a -1`
+is `print(a(-1))`. When `a` cannot be called, the checker says so and
+names the fix:
+
+```rig reject
+sub main
+  a = 5
+  print a -1
+```
+
+```error
+`a` has type `Int` and cannot be called; a sigil touching its operand is a prefix: to subtract, write `a - 1`
 ```
 
 Two values may not touch with nothing between them (`t.5`, `print"x"`),
@@ -749,6 +763,19 @@ sub main
 
 `print (1 + 2) * 3` is a paren-free call whose argument is
 `(1 + 2) * 3`, by the spacing rule: `(` does not touch `print`.
+
+```rig reject
+fun twice(n: Int) -> Int
+  n * 2
+
+sub main
+  x = twice 5
+  print(x)
+```
+
+```error
+unexpected `5`; a call where a value is expected takes parentheses: `twice(5)`
+```
 
 ```rig reject
 fun twice(n: Int) -> Int

@@ -1,0 +1,11 @@
+# A `match` subject is a value, so a call there takes parentheses.
+
+fun pick(n: Int) -> Int
+  n
+
+sub main()
+  match pick 2
+    2 => print("two")
+    _ => print("other")
+
+# error: 7:14: unexpected `2`; a call where a value is expected takes parentheses: `pick(2)`

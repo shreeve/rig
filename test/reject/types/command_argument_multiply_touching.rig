@@ -1,0 +1,7 @@
+# `print n *2` calls `n` with `*2`.
+
+sub main()
+  n = 3
+  print n *2
+
+# error: 5:9: `n` has type `Int` and cannot be called; a sigil touching its operand is a prefix: to multiply, write `n * 2`

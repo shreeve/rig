@@ -1,0 +1,10 @@
+# A `for` source is a value, so a call there takes parentheses.
+
+fun make(n: Int) -> [3]Int
+  [3 of n]
+
+sub main()
+  for x in make 3
+    print(x)
+
+# error: 7:17: unexpected `3`; a call where a value is expected takes parentheses: `make(3)`
