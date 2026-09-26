@@ -1,0 +1,36 @@
+# A payload variant literal compares its payload, so the enum must have
+# `==`: one holding a handle, a Vec, or a type with `drop` does not.
+
+struct N
+  n: Int
+
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum Slot
+  held(p: *N)
+  empty
+
+enum A
+  v(items: Vec[Int])
+  e
+
+enum D
+  r(res: R)
+  e
+
+sub main()
+  s: Slot = .empty
+  print(s == .held(p: *N(n: 1)))
+  a: A = .e
+  v = Vec[Int]()
+  print(.v(items: <v) == a)
+  d: D = .e
+  print(d != .r(res: R(n: 2)))
+
+# error: 27:9: `==` is not defined for `Slot`: field `held.p` is a handle `*N`
+# error: 30:9: `==` is not defined for `A`: field `v.items` is a `Vec[Int]`, which has no `==`
+# error: 32:9: `!=` is not defined for `D`: field `r.res` is a `R`: `R` declares `drop`

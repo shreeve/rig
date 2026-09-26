@@ -1,0 +1,44 @@
+# In a generic body `==` compares every equatable `T`: numbers, Strings,
+# structs, enums, optionals, and generic instances, each by content.
+
+struct Point
+  x: Int
+  y: Int
+
+struct Pair[A, B]
+  first: A
+  second: B
+
+fun index_of[T](xs: []T, want: ?T) -> Int
+  for x, i in xs
+    if x == want
+      return i
+  -1
+
+fun same[T](a: ?T, b: ?T) -> Bool
+  a == b and not (a != b)
+
+sub main()
+  pts = [Point(x: 1, y: 2), Point(x: 3, y: 4), Point(x: 5, y: 6)]
+  p = Point(x: 3, y: 4)
+  q = Point(x: 9, y: 9)
+  print(index_of(?pts[0..3], ?p), index_of(?pts[0..3], ?q))
+  words = ["ant", "bee", "cat"]
+  w = "cat"
+  print(index_of(?words[0..3], ?w), index_of(?words[0..2], ?w))
+  nums = [4, 5, 6]
+  n = 6
+  print(index_of(?nums[0..3], ?n))
+  a = Pair(first: 1, second: "one")
+  b = Pair(first: 1, second: "one")
+  c = Pair(first: 1, second: "uno")
+  print(a == b, a == c, same(?a, ?b), same(?a, ?c))
+  o: Point? = p
+  print(same(?o, ?o), same(?p, ?q))
+
+# expect:
+# 1 -1
+# 2 -1
+# 2
+# true false true false
+# true false

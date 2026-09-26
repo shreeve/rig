@@ -1,0 +1,13 @@
+# A view, a struct holding a borrow, has no `==`.
+
+struct Window
+  items: []Int
+  at: Int
+
+sub main()
+  xs = [1, 2, 3]
+  a = Window(items: ?xs[0..3], at: 0)
+  b = Window(items: ?xs[0..3], at: 0)
+  print(a == b)
+
+# error: 11:9: `==` is not defined for `Window`: field `items` holds a borrow

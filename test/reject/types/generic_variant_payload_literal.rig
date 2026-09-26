@@ -1,0 +1,19 @@
+# A payload variant literal in a generic body compares a `T`, so each
+# instance needs `==` on its `T`.
+
+enum Opt[T]
+  some(value: T)
+  nothing
+
+fun holds[T](o: ?Opt[T], x: T) -> Bool
+  o == .some(value: x)
+
+fun inc(x: Int) -> Int
+  x + 1
+
+sub main()
+  o: Opt[fun(Int) -> Int] = .nothing
+  print(holds(?o, inc))
+
+# error: 16:9: `holds[fun(Int) -> Int]` cannot use `T = fun(Int) -> Int`: the generic body applies `==` to `T`, which `fun(Int) -> Int` does not support: `fun(Int) -> Int` is a function value
+# error: 9:3: `==` used on `T` here

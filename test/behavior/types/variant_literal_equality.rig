@@ -1,0 +1,29 @@
+# A payload variant literal takes its enum type from the other side of
+# `==` or `!=`, on either side, as a bare `.variant` does: through a
+# borrow and beside an optional too.
+
+enum Shape
+  circle(r: Float)
+  square(side: Int)
+  empty
+
+fun is_unit(s: ?Shape) -> Bool
+  s == .circle(r: 1.0)
+
+sub main()
+  s: Shape = .circle(r: 1.0)
+  o: Shape? = .square(side: 2)
+  n: Shape? = none
+  print(s == .circle(r: 1.0), .circle(r: 2.0) == s, s != .square(side: 1))
+  print(is_unit(?s), o == .square(side: 2), .square(side: 3) == o, n == .empty)
+  match s
+    .circle(r) => print(r)
+    _ => print("other")
+  if o as sq
+    print(sq == .square(side: 2))
+
+# expect:
+# true false true
+# true true false false
+# 1.0
+# true

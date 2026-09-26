@@ -1,0 +1,26 @@
+# `==` never calls a method named `eq`: it compares fields. A write
+# borrowed operand compares as the value it reaches, like a read borrow.
+
+struct P
+  x: Int
+  y: Int
+
+  fun eq(?self, o: ?P) -> Bool
+    true
+
+fun same(a: !P, b: ?P) -> Bool
+  a == b
+
+fun differ(a: !P, b: P) -> Bool
+  b != a
+
+sub main()
+  a = P(x: 1, y: 2)
+  b = P(x: 3, y: 4)
+  print(a == b, a.eq(?b))
+  c = a
+  print(same(!c, ?a), same(!c, ?b), differ(!c, b))
+
+# expect:
+# false true
+# true false true

@@ -157,6 +157,95 @@ pub fn create(comptime T: type) *T {
 }
 
 // -----------------------------------------------------------------------------
+// Equality and ordering
+// -----------------------------------------------------------------------------
+
+/// `a == b` for any equatable value, decided at compile time: numbers,
+/// Bools, enum values, and errors by `==` (floats as IEEE numbers, so
+/// NaN equals nothing); Strings and slices by length and elements;
+/// arrays element by element; structs field by field; tagged unions by
+/// tag, then payload; optionals both null or both holding equal values.
+/// A value beside an optional compares as the optional's value; other
+/// operands take their peer type, so a string literal is a String.
+pub fn eql(a: anytype, b: anytype) bool {
+    const A = @TypeOf(a);
+    const B = @TypeOf(b);
+    // The peer type of an optional error and an error is an error union.
+    const T = if (@typeInfo(A) == .optional) A else if (@typeInfo(B) == .optional) B else @TypeOf(a, b);
+    return eqlAs(T, a, b);
+}
+
+fn eqlAs(comptime T: type, a: T, b: T) bool {
+    switch (@typeInfo(T)) {
+        .optional => |o| {
+            const x = a orelse return b == null;
+            const y = b orelse return false;
+            return eqlAs(o.child, x, y);
+        },
+        .pointer => |p| {
+            if (comptime isString(T)) return std.mem.eql(u8, a, b);
+            if (p.size != .slice) @compileError("rig.eql: no `==` on " ++ @typeName(T));
+            if (comptime isScalar(p.child)) return std.mem.eql(p.child, a, b);
+            if (a.len != b.len) return false;
+            for (a, b) |x, y| if (!eqlAs(p.child, x, y)) return false;
+            return true;
+        },
+        .array => |arr| {
+            for (a, b) |x, y| if (!eqlAs(arr.child, x, y)) return false;
+            return true;
+        },
+        .@"struct" => |s| {
+            inline for (s.fields) |f| if (!eqlAs(f.type, @field(a, f.name), @field(b, f.name))) return false;
+            return true;
+        },
+        .@"union" => |u| {
+            const Tag = u.tag_type orelse @compileError("rig.eql: no `==` on " ++ @typeName(T));
+            if (@as(Tag, a) != @as(Tag, b)) return false;
+            return switch (a) {
+                inline else => |x, tag| eqlAs(@TypeOf(x), x, @field(b, @tagName(tag))),
+            };
+        },
+        .void => return true,
+        else => return a == b,
+    }
+}
+
+/// `x == .tag` for a tagged union, or an optional of one: whether `x`
+/// holds that variant, whatever its payload.
+pub fn isVariant(x: anytype, comptime tag: @EnumLiteral()) bool {
+    if (@typeInfo(@TypeOf(x)) == .optional) {
+        const v = x orelse return false;
+        return isVariant(v, tag);
+    }
+    return std.meta.activeTag(x) == tag;
+}
+
+/// `isVariant` for a temporary that owns a resource: the temporary is
+/// dropped.
+pub fn isVariantDiscard(x: anytype, comptime tag: @EnumLiteral()) bool {
+    defer discard(x);
+    return isVariant(x, tag);
+}
+
+/// Compared by `std.mem.eql`. Floats are not: it finds two slices of
+/// the same elements equal without comparing them, and NaN equals
+/// nothing.
+fn isScalar(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .int, .bool, .@"enum", .error_set => true,
+        else => false,
+    };
+}
+
+/// `a op b` for an ordering operator in a generic body: numbers compare
+/// as numbers, and Strings by their bytes, where the first byte that
+/// differs decides and a prefix sorts first.
+pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bool {
+    if (comptime isString(@TypeOf(a, b))) return std.mem.order(u8, a, b).compare(op);
+    return std.math.compare(a, op, b);
+}
+
+// -----------------------------------------------------------------------------
 // Shared and weak handles
 // -----------------------------------------------------------------------------
 
@@ -288,20 +377,6 @@ pub fn WeakHandle(comptime T: type) type {
 pub fn cloneOptional(value: anytype) @TypeOf(value) {
     const h = value orelse return null;
     return if (comptime isStrongHandle(@TypeOf(h))) h.cloneStrong() else h.cloneWeak();
-}
-
-/// `a == b` for optional Strings: `none` equals only `none`.
-pub fn eqlOptStr(a: ?[]const u8, b: ?[]const u8) bool {
-    const x = a orelse return b == null;
-    const y = b orelse return false;
-    return std.mem.eql(u8, x, y);
-}
-
-/// `a == b` for optionals of a type Zig compares only unwrapped (an
-/// error set).
-pub fn eqlOpt(comptime T: type, a: ?T, b: ?T) bool {
-    if (a) |x| return if (b) |y| x == y else false;
-    return b == null;
 }
 
 /// `e == none` for a temporary optional that owns a resource: the

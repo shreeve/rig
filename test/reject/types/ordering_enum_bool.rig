@@ -1,0 +1,13 @@
+# Enums and Bools have no ordering.
+
+enum Color
+  red
+  green
+
+sub main()
+  c = Color.red
+  print(c < Color.green)
+  print(true >= false)
+
+# error: 9:9: operator `<` orders numbers, Strings, and `[]U8` slices; got `Color`
+# error: 10:9: operator `>=` orders numbers, Strings, and `[]U8` slices; got `Bool`

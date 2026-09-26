@@ -1,0 +1,33 @@
+# The diagnostic names the field path to what has no `==`, through
+# nested structs, arrays, optionals, and enum payloads; a Vec has none.
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct Inner
+  items: Vec[Int]
+
+struct Outer
+  tag: Int
+  inner: Inner
+
+enum Slot
+  empty
+  full(held: Res)
+
+struct Rack
+  slots: [2]Slot?
+
+sub main()
+  a = Outer(tag: 1, inner: Inner(items: Vec()))
+  b = Outer(tag: 1, inner: Inner(items: Vec()))
+  print(a == b)
+  r = Rack(slots: [none, none])
+  s = Rack(slots: [none, none])
+  print(r == s)
+
+# error: 27:9: `==` is not defined for `Outer`: field `inner.items` is a `Vec[Int]`, which has no `==`
+# error: 30:9: `==` is not defined for `Rack`: field `slots.full.held` is a `Res`: `Res` declares `drop`
