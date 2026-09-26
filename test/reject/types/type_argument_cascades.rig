@@ -1,0 +1,23 @@
+# A mistake with type arguments gets one diagnostic: the old parenthesized
+# form, brackets after an unresolved variant, a type used as an index,
+# and a call through an indexed value.
+
+type Box[T]
+  v: T
+
+enum Option[T]
+  some(value: T)
+  nothing
+
+sub main()
+  b = Box(Int)(v: 1)
+  c = Cell(Int)(value: 1)
+  a = Option.some[Int](value: 3)
+  xs = [1, 2]
+  print(xs[Int], xs[0](1), b, c, a)
+
+# error: 13:7: type arguments go in brackets: `Box[Int](...)`
+# error: 14:7: type arguments go in brackets: `Cell[Int](...)`
+# error: 15:14: variant of generic enum `Option` needs its type
+# error: 17:12: `Int` is a type, not a value
+# error: 17:18: `xs[0]` has type `Int` and cannot be called

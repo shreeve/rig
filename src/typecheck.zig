@@ -1563,10 +1563,13 @@ const Checker = struct {
             sid = scope.parent;
         }
         // The parameters of a generic type are in scope only as types.
-        for (self.nominal.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) {
+        const type_param = for (self.nominal.type_params) |tp| {
+            if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) break true;
+        } else false;
+        if (type_param or resolve.isBuiltinTypeName(self.ctx, name)) {
             try self.errAt(leaf, "`{s}` is a type, not a value", .{name});
             return null;
-        };
+        }
         try self.errAt(leaf, "use of unbound name `{s}`", .{name});
         return null;
     }
@@ -2816,11 +2819,15 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         const index = ir.Index.index(e);
+        if (self.isPoison(obj_ty)) {
+            _ = try self.synthQuiet(index);
+            return obj_ty;
+        }
         const idx_ty = readValue(self.ctx, try self.synthExpr(index));
-        if (!self.isPoison(idx_ty) and !sema.isInteger(self.ctx, idx_ty)) {
+        if (self.isPoison(idx_ty)) return idx_ty;
+        if (!sema.isInteger(self.ctx, idx_ty)) {
             try self.errAt(index, "an index must be an integer; got `{s}`", .{try self.tyName(idx_ty)});
         } else if (idx_ty == self.t().int_literal_id) try self.checkLiteralFits(index, self.t().int_id);
-        if (self.isPoison(obj_ty)) return obj_ty;
         const peeled = sema.unwrapReadAccess(self.ctx, obj_ty);
         switch (self.ctx.types.get(peeled)) {
             .array => |a| {
@@ -3029,6 +3036,10 @@ const Checker = struct {
                     // The type arguments come from the fields' values.
                     if (sym_id == self.ctx.vec_sym_id) return self.badCall(args, callee, "`Vec()` needs its element type: name it (`Vec[T]()`), or give it where the value goes (`v: Vec[T] = Vec()`)", .{});
                     if (sym_id == self.ctx.signal_sym_id and !sameNode(node, self.shared_operand)) return self.badCall(args, callee, stack_signal, .{});
+                    if (args.len > 0 and self.isTypeName(args[0])) {
+                        try self.errAt(callee, "type arguments go in brackets: `{s}[{s}](...)`", .{ name, self.text(args[0]) });
+                        return self.t().invalid_id;
+                    }
                     const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = sym.fields orelse &.{} }, callee.src.pos)) orelse return self.skipCall(args);
                     _ = try self.instantiate(sym_id, subst.args, callee.src.pos);
                     return self.construct(sym_id, args, callee.src.pos, subst, null);
@@ -3044,7 +3055,7 @@ const Checker = struct {
         if (callee.isKind(.enum_lit)) return self.badCall(args, callee, "variant `.{s}(...)` needs a known enum type; annotate the binding", .{self.text(ir.EnumLit.name(callee))});
 
         const callee_ty = try self.synthOperand(callee);
-        return self.callValue(callee, callee_ty, args, "expression");
+        return self.callValue(callee, callee_ty, args, try self.sourceText(callee));
     }
 
     /// Call function `sym`, named by `callee`, with the compile-time
@@ -3305,15 +3316,19 @@ const Checker = struct {
         try self.checkExpr(arg, f.params[i]);
     }
 
+    /// Whether `e` is a name that names a type.
+    fn isTypeName(self: *Checker, e: Sexp) bool {
+        if (e != .src) return false;
+        const id = self.lookupQuiet(e) orelse return resolve.isBuiltinTypeName(self.ctx, self.text(e));
+        return switch (self.ctx.symbols.items[id].kind) {
+            .nominal_type, .generic_type, .type_alias, .generic_param => true,
+            else => false,
+        };
+    }
+
     /// Compile-time argument `i` of `callee`, a value of type `ty`.
     fn checkCtValue(self: *Checker, a: Sexp, ty: TypeId, i: usize, callee: []const u8) Error!void {
-        if (a == .src) {
-            const is_type = if (self.lookupQuiet(a)) |id| switch (self.ctx.symbols.items[id].kind) {
-                .nominal_type, .generic_type, .type_alias, .generic_param => true,
-                else => false,
-            } else resolve.isBuiltinTypeName(self.ctx, self.text(a));
-            if (is_type) return self.errAt(a, "compile-time argument {d} of `{s}` is a value of type `{s}`, not a type", .{ i + 1, callee, try self.tyName(ty) });
-        }
+        if (self.isTypeName(a)) return self.errAt(a, "compile-time argument {d} of `{s}` is a value of type `{s}`, not a type", .{ i + 1, callee, try self.tyName(ty) });
         const mark = self.ctx.diagnostics.items.len;
         try self.checkExpr(a, ty);
         if (self.ctx.diagnostics.items.len != mark or self.isComptimeKnown(a)) return;
@@ -3844,7 +3859,7 @@ const Checker = struct {
             if (self.isReceiverSigil(obj)) {
                 try self.fieldCallSigil(obj, method, "a field holding functions", elem_ty);
             } else try self.rejectResourceTemporary(obj, obj_ty);
-            return self.callValue(ct.?, elem_ty, args, "expression");
+            return self.callValue(ct.?, elem_ty, args, try self.sourceText(ct.?));
         }
 
         if (std.mem.eql(u8, method, "upgrade")) {
