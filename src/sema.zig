@@ -2693,9 +2693,8 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         const args = try a.alloc(TypeId, use.args.len);
         for (use.args, args) |t, *out| out.* = try importType(ctx, foreign, t, m);
         // A module-level function is named as this module would call
-        // it: `lib.helper[T]`.
-        const top = foreign.lookupInScopeOnly(module_scope, use.name);
-        const name = if (top != null and foreign.symbols.items[top.?].kind == .function) try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, use.name }) else use.name;
+        // it: `lib.helper[T]`; a method keeps its bare name.
+        const name = if (isModuleFunction(foreign, use)) try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, use.name }) else use.name;
         _ = try ctx.recordFnInstance(.{ .name = name, .params = params, .args = args, .own = use.own }, 0, null);
     }
     for (foreign.generic_uses.items, 0..) |use, i| {
@@ -2703,6 +2702,19 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         const ty = try importType(ctx, foreign, use, m);
         if (std.mem.indexOfScalar(TypeId, ctx.generic_uses.items, ty) == null) try ctx.generic_uses.append(ctx.allocator, ty);
     }
+}
+
+/// Whether `use`, an instance over parameters in module `ctx`, is of a
+/// module-level function there rather than a method of the same name.
+fn isModuleFunction(ctx: *const SemContext, use: FnInstance) bool {
+    if (use.own == 0 or use.params.len != use.own) return false;
+    const top = ctx.lookupInScopeOnly(module_scope, use.name) orelse return false;
+    const sym = ctx.symbols.items[top];
+    if (sym.kind != .function) return false;
+    return switch (ctx.types.get(sym.ty)) {
+        .function => |f| std.mem.indexOfScalar(SymbolId, f.ct_syms, use.params[0]) != null,
+        else => false,
+    };
 }
 
 /// Whether entry `index` of module `module_id`'s `list` is copied here

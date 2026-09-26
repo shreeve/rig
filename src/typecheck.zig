@@ -2487,7 +2487,7 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         const ty = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
-        if (found.sym.kind == .function) return try self.functionValue(ty, field, pos);
+        if (found.sym.kind == .function) return try self.functionValue(ty, try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ self.text(obj), field }), pos);
         return ty;
     }
 
@@ -2530,6 +2530,13 @@ const Checker = struct {
         return .{ .id = found.id, .sym = found.sym, .foreign = .{ .ctx = found.ctx, .module_id = found.module_id } };
     }
 
+    /// A named type as this module spells it: `lib.Point` for another
+    /// module's (a generic one's proxy is named so already).
+    fn namedTypeName(self: *Checker, nt: NamedType) Error![]const u8 {
+        const fo = nt.foreign orelse return nt.sym.name;
+        return std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ fo.ctx.name, nt.sym.name });
+    }
+
     /// Another module's generic type, named here by its proxy
     /// (`sema.proxyOf`), whose members are in this module's types.
     fn foreignGeneric(self: *Checker, found: Foreign) Error!NamedType {
@@ -2565,8 +2572,9 @@ const Checker = struct {
 
     /// `Type.variant`: a variant without a payload.
     fn typeMember(self: *Checker, nt: NamedType, field: []const u8, pos: u32) Error!TypeId {
+        const tname = try self.namedTypeName(nt);
         const members = nt.sym.fields orelse {
-            try self.err(pos, "opaque type `{s}` has no members", .{nt.sym.name});
+            try self.err(pos, "opaque type `{s}` has no members", .{tname});
             return self.t().invalid_id;
         };
         for (members) |m| {
@@ -2575,25 +2583,25 @@ const Checker = struct {
             // parameter is the receiver.
             if (m.is_method) {
                 if (nt.sym.kind == .generic_type) {
-                    try self.err(pos, "method `{s}.{s}` of a generic type must be called; wrap it in a closure to pass it as a value", .{ nt.sym.name, field });
+                    try self.err(pos, "method `{s}.{s}` of a generic type must be called; wrap it in a closure to pass it as a value", .{ tname, field });
                     return self.t().invalid_id;
                 }
-                const name = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ nt.sym.name, field });
+                const name = try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ tname, field });
                 return self.functionValue(try self.memberType(nt.foreign, m.ty), name, pos);
             }
             if (!m.is_variant) break;
             if (nt.sym.kind == .generic_type and nt.args == null) {
-                try self.err(pos, "variant of generic enum `{s}` needs its type; write `{s}[...].{s}`, or `.{s}` where a `{s}[...]` is expected", .{ nt.sym.name, nt.sym.name, field, field, nt.sym.name });
+                try self.err(pos, "variant of generic enum `{s}` needs its type; write `{s}[...].{s}`, or `.{s}` where a `{s}[...]` is expected", .{ tname, tname, field, field, tname });
                 return self.t().invalid_id;
             }
             if (m.payload != null and m.payload.?.len > 0) {
-                try self.err(pos, "variant `{s}.{s}` carries a payload; construct it with `{s}.{s}(...)`", .{ nt.sym.name, field, nt.sym.name, field });
+                try self.err(pos, "variant `{s}.{s}` carries a payload; construct it with `{s}.{s}(...)`", .{ tname, field, tname, field });
                 return self.t().invalid_id;
             }
             if (nt.args) |given| return self.instantiate(nt.id, given, pos);
             return self.namedTypeValue(nt);
         }
-        try self.err(pos, "no member `{s}` on type `{s}`", .{ field, nt.sym.name });
+        try self.err(pos, "no member `{s}` on type `{s}`", .{ field, tname });
         try self.noteDeclared(nt.sym, nt.foreign == null);
         return self.t().invalid_id;
     }
@@ -4489,7 +4497,8 @@ const Checker = struct {
     /// `Type.function(args)` or `Type.variant(payload)`, for a type of
     /// this module or an imported one.
     fn associatedCall(self: *Checker, obj: Sexp, nt: NamedType, name: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
-        const members = nt.sym.fields orelse return self.badCall(args, pos, "opaque type `{s}` has no members", .{nt.sym.name});
+        const tname = try self.namedTypeName(nt);
+        const members = nt.sym.fields orelse return self.badCall(args, pos, "opaque type `{s}` has no members", .{tname});
         const generic = nt.sym.kind == .generic_type;
         for (members) |m| {
             if (!std.mem.eql(u8, m.name, name)) continue;
@@ -4513,10 +4522,10 @@ const Checker = struct {
                 try self.checkArgs(args, f, info, name, pos);
                 return f.returns;
             }
-            if (ct) |b| return self.badCall(args, b, "`{s}.{s}` is not a function; it takes no compile-time arguments", .{ nt.sym.name, name });
+            if (ct) |b| return self.badCall(args, b, "`{s}.{s}` is not a function; it takes no compile-time arguments", .{ tname, name });
             if (!m.is_variant) break;
             const payload = m.payload orelse &.{};
-            if (payload.len == 0) return self.badCall(args, pos, "variant `{s}.{s}` takes no payload", .{ nt.sym.name, name });
+            if (payload.len == 0) return self.badCall(args, pos, "variant `{s}.{s}` takes no payload", .{ tname, name });
             var subst = TypeSubst.empty;
             var ty = try self.namedTypeValue(nt);
             if (nt.args) |given| {
@@ -4530,7 +4539,7 @@ const Checker = struct {
             try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = nt.sym.from.module_id, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant });
             return ty;
         }
-        try self.err(pos, "no method `{s}` on type `{s}`", .{ name, nt.sym.name });
+        try self.err(pos, "no method `{s}` on type `{s}`", .{ name, tname });
         try self.noteDeclared(nt.sym, nt.foreign == null);
         return self.skipCall(args);
     }
