@@ -1410,7 +1410,8 @@ fn checkSelfNesting(ctx: *SemContext) std.mem.Allocator.Error!void {
     defer work.deinit(ctx.allocator);
     for (0..ctx.symbols.items.len) |i| {
         const sym = ctx.symbols.items[i];
-        if (!sym.flags.is_public) continue;
+        // A proxy's declaration was checked where it is declared.
+        if (!sym.flags.is_public or isProxy(sym)) continue;
         const outer: []const SymbolId = switch (sym.kind) {
             .function => {
                 if (try selfSeed(ctx, sym.name, &.{}, sym.ty, sym.decl_pos)) |item| try work.append(ctx.allocator, item);
@@ -2622,8 +2623,10 @@ fn importParam(ctx: *SemContext, proxy: SymbolId, origin: ForeignRef) std.mem.Al
         for (use.params, params) |p, *out| out.* = try proxyOf(ctx, .{ .module_id = m, .sym = p });
         const args = try a.alloc(TypeId, use.args.len);
         for (use.args, args) |t, *out| out.* = try importType(ctx, foreign, t, m);
-        // Named as this module would call it: `lib.helper[T]`.
-        const name = if (std.mem.indexOfScalar(u8, use.name, '.') != null) use.name else try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, use.name });
+        // A module-level function is named as this module would call
+        // it: `lib.helper[T]`.
+        const top = foreign.lookupInScopeOnly(module_scope, use.name);
+        const name = if (top != null and foreign.symbols.items[top.?].kind == .function) try std.fmt.allocPrint(a, "{s}.{s}", .{ foreign.name, use.name }) else use.name;
         _ = try ctx.recordFnInstance(.{ .name = name, .params = params, .args = args, .own = use.own }, 0, null);
     }
     for (foreign.generic_uses.items, 0..) |use, i| {

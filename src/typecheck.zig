@@ -1453,7 +1453,6 @@ const Checker = struct {
         if (local and sym.decl_pos < sema.imported_decl_pos) try self.note(sym.decl_pos, "`{s}` declared here", .{sym.name});
     }
 
-
     // =========================================================================
     // Expressions: synthesis
     // =========================================================================

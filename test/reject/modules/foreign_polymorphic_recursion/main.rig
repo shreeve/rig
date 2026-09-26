@@ -1,0 +1,11 @@
+# A generic method of another module's private type, reached through a
+# public one, that calls itself with its type parameter nested ever
+# deeper is reported where an instance of it is made.
+
+use lib
+
+sub main()
+  o = lib.make()
+  print(o.w.walk(1))
+
+# error: 9:13: `walk[Int]` leads to ever deeper instances of generic functions (through `walk[lib.Wrap[U]]`)
