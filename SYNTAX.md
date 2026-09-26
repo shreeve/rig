@@ -1513,56 +1513,64 @@ parameter, and each call passes its type: `max(3, 7)` becomes
 A call infers its type arguments by matching each parameter's type
 against its argument's: `T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`,
 `[N]T`, instances like `Vec[T]` or `Box[T]`, and function types like
-`fun(T) -> U`. Every argument must agree. A literal takes its default type (`Int`, `Float`) only where no
-other argument gives the parameter a type, so `max(small, 9)` with
-`small: U8` is `max[U8]`; among literals alone a float literal wins, so
-`max(1, 2.5)` is `max[Float]`. Brackets give every compile-time
-argument, or none: there is no partial list.
+`fun(T) -> U`. Every argument must agree. A parameter that only
+literals give a type takes it from where the result goes, as a
+constructor does: the declared result is matched the same way against
+the type of the binding, parameter, field, or `return` it fills, so
+`z: U8 = max(1, 2)` is `max[U8]`. Only where neither says anything does
+a literal take its default type (`Int`, `Float`), and among literals
+alone a float literal wins: `max(1, 2.5)` is `max[Float]`. A generic
+call among the arguments passes the expected type on, so
+`max(max(1, 2), small)` with `small: U8` is `max[U8]` twice. Brackets
+give every compile-time argument, or none: there is no partial list.
 
 ```rig
 fun max[T](a: T, b: T) -> T
   a if a > b else b
 
+fun empty[T] -> Vec[T]
+  Vec()
+
 sub main
   small: U8 = 200
-  print(max(small, 9), max(1, 2.5), max[Float](1, 2))
-  v = Vec[Int]()
+  z: U8 = max(1, 2)
+  print(max(small, 9), z, max(1, 2.5), max[Float](1, 2))
+  v: Vec[Int] = empty()
   w: Vec[Int] = Vec()
   !v.push(3)
-  print(v.len, w.len)
+  print(v.len, w.len, max(max(1, 2), small))
 ```
 
 ```output
-200 2.5 2.0
-1 0
+200 2 2.5 2.0
+1 0 200
 ```
 
 Brackets are required where nothing else says what to use:
 
 - a compile-time value, which is never inferred: `check[.strict](5)`;
-- a type parameter no argument determines: one that appears only in
-  the result, or only in arguments that are `none` or `.variant`;
+- a type parameter neither the arguments nor the expected type
+  determine: `v = empty()` needs `empty[Int]()`;
 - a generic type with nothing to fill its parameter and no expected
   type: `Vec[Int]()`, or `v: Vec[Int] = Vec()`.
 
-A generic function takes its type arguments from its arguments only,
-never from the type its result is expected to have, so a result bound
-to a `U8` needs the brackets:
+An argument that is not a literal keeps the type it gives, so a result
+that goes elsewhere is a mismatch, and the error suggests the
+conversion:
 
 ```rig reject
 fun max[T](a: T, b: T) -> T
   a if a > b else b
 
 sub main
-  z: U8 = max(1, 2)
+  n = 5
+  z: U8 = max(n, 2)
   print(z)
 ```
 
 ```error
-type mismatch: expected `U8`, got `Int`
+type mismatch: expected `U8`, got `Int`; `max` takes `T = Int` from argument 1; convert its result with `U8(...)`
 ```
-
-`max[U8](1, 2)` is the fix.
 
 ### Index or compile-time arguments
 

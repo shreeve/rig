@@ -1,0 +1,31 @@
+# The type expected of a generic call's result binds only the type
+# parameters its arguments leave open. An argument that fixes one keeps
+# it, and the mismatch that follows suggests converting the result; a
+# literal the expected type's binding cannot hold is reported as for
+# any binding; a parameter nothing determines names what to give.
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun empty[T] -> Vec[T]
+  Vec()
+
+fun pair[T, U](a: T) -> Vec[U]
+  Vec()
+
+sub main()
+  n: Int = 5
+  z: U8 = max(n, 2)
+  y: U8 = max(1, 300)
+  w: Int = max(1, 2.5)
+  v = empty()
+  e: Int = empty()
+  q = pair(1)
+  print(z, y, w, v.len, e, q.len)
+
+# error: 18:11: type mismatch: expected `U8`, got `Int`; `max` takes `T = Int` from argument 1; convert its result with `U8(...)`
+# error: 19:18: integer value `300` does not fit in `U8` (0..255)
+# error: 20:19: type mismatch: expected `Int`, got `Float`
+# error: 21:7: cannot infer `T` for `empty` from its arguments or the type expected of its result; give `T` in brackets: `empty[...]()`
+# error: 22:12: type mismatch: expected `Int`, but `empty` returns `Vec[T]`
+# error: 23:7: cannot infer `U` for `pair` from its arguments or the type expected of its result; give `U` in brackets: `pair[Int, ...](...)`

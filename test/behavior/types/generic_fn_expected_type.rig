@@ -1,0 +1,126 @@
+# A generic call takes the type parameters its arguments leave open
+# from the type its result is expected to have: an annotated binding, a
+# parameter, a `return`, a function's last expression, a field, an
+# assigned place, an `if` or `match` arm, or a closure's result, and
+# through `!`, `catch`, and the left of `??`. Literals take their
+# default type only where neither says anything, and the expected type
+# reaches generic calls nested in the arguments.
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun empty[T] -> Vec[T]
+  Vec()
+
+fun first[T](xs: ?Vec[T]) -> T?
+  if xs.len > 0
+    return xs[0]
+  none
+
+fun nothing[T] -> T?
+  none
+
+fun half[T](x: T) -> T
+  x / 2
+
+error Bad
+  bad
+
+fun parse[T](ok: Bool, x: T) -> T!
+  return Bad.bad if not ok
+  x
+
+fun twice -> U8!
+  a: U8 = parse(true, 20)!
+  b: U8 = parse(true, 1)!
+  a + b
+
+fun take(n: U8) -> U8
+  n
+
+fun small -> U8
+  return max(1, 2)
+
+fun last_small -> U8
+  max(3, 4)
+
+fun maybe -> U8?
+  max(5, 6)
+
+fun checked(ok: Bool) -> U8!
+  if not ok
+    return .bad
+  max(7, 8)
+
+type Box[T]
+  v: T
+
+  fun pick[U](?self, a: U, b: U) -> U
+    a if self.v > 0 else b
+
+fun wrap[T](x: T) -> Vec[T]
+  v: Vec[T] = empty()
+  !v.push(<x)
+  v
+
+fun id[T](x: T) -> T
+  x
+
+struct Holder
+  n: U8
+  f: F32
+
+sub main()
+  z: U8 = max(1, 2)
+  print(z, @sizeOf(@TypeOf(z)))
+  v: Vec[Int] = empty()
+  !v.push(3)
+  o: Int? = first(?v)
+  print(v.len, o ?? 0)
+  print(take(max(1, 2)), small(), last_small(), maybe() ?? 0, checked(true) catch 0)
+  n: U8 = max(max(1, 2), 3)
+  print(n, @sizeOf(@TypeOf(n)))
+  s: U8 = 200
+  m = max(max(1, 2), s)
+  print(m, @sizeOf(@TypeOf(m)))
+  b = Box(v: 1)
+  p: U8 = b.pick(1, 2)
+  print(p, @sizeOf(@TypeOf(p)))
+  h = Holder(n: max(4, 9), f: half(3.0))
+  print(h.n, h.f)
+  h.n = max(10, 11)
+  q: F32 = half(5)
+  print(h.n, q)
+  w: Vec[Float] = empty()
+  !w.push(max(1, 2.5))
+  print(w[0])
+  r: U8 = parse(true, 5) catch 0
+  t: U8 = parse(false, 5) catch 7
+  print(r, t, twice() catch 0, @sizeOf(@TypeOf(r)))
+  ws: Vec[U8] = wrap(max(1, 2))
+  on: Int? = id(none)
+  print(ws[0], on ?? 5, max(max(1, 2), 2.5))
+  print(@sizeOf(@TypeOf(ws[0])))
+  d: U8 = nothing() ?? 3
+  c = true
+  i: U8 = max(1, 2) if c else max(3, 4)
+  k: U8 = match c
+    true => max(5, 6)
+    false => 0
+  g: fun() -> U8 = || max(1, 3)
+  print(d, i, k, g(), @sizeOf(@TypeOf(i)))
+
+# expect:
+# 2 1
+# 1 3
+# 2 2 4 6 8
+# 3 1
+# 200 1
+# 1 1
+# 9 1.5
+# 11 2.5
+# 2.5
+# 5 7 21 1
+# 2 5 2.5
+# 1
+# 3 2 6 3 1

@@ -533,10 +533,20 @@ bound to the receiver's) and the call that makes it, kept unique by
 (`instantiateCall`): the bracket list gives every compile-time
 argument, or else `inferCallTypeArgs` matches each parameter's type
 against its argument's. `inferBindings` does the matching, for generic
-calls and generic constructors alike: a literal binds its default type
-only where nothing else binds the parameter, an argument of another
-shape is reported as a type mismatch, and disagreements are reported
-with a suggested bracket list or conversion. An instance over type
+calls and generic constructors alike. A parameter no argument other
+than a literal binds is bound by matching the declared result against
+the type expected of the call (`bindExpected`): `checkExpr` names the
+call whose value goes where a type is expected (`result_expected`),
+through `!`, `?`, and `catch`, and a result lifted into an expected
+`T?` or `T!` is matched against the `T`. Only then does a literal bind
+its default type. An argument of another shape is reported as a type
+mismatch, and disagreements are reported with a suggested bracket list
+or conversion. Argument types for inference are synthesized once
+(`argType`), without the expected type the call later checks them
+with, so the generic instances found there are not recorded
+(`tentative`), and a generic call whose result only literals typed
+(`literal_results`) binds like a literal: `max(max(1, 2), small)`
+checks the inner call again with the outer's `T`. An instance over type
 parameters (a generic body using `Opt[T]` or calling `max(x, y)` with
 `x: T`) goes in `generic_uses` or `generic_fn_uses` instead, and
 `expandInstantiations` makes it concrete for each instance of the body

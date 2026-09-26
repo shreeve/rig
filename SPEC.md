@@ -890,13 +890,23 @@ inferred by matching each parameter's type against its argument's type
 (`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`, `[N]T`, `Box[T]`,
 `fun(T) -> U`). A method's receiver gives its type's parameters. Every
 argument must agree, and an argument whose type does not have its
-parameter's shape is a type mismatch. A literal takes its default type only when no other
-argument gives the parameter one, and among literals alone a float
-literal gives `Float`: `max(3, 2.5)` is `max[Float]`. The type expected
-of the call's result is not used. A compile-time value is never
-inferred, so a function that takes one is always called with brackets,
-and so is one with a type parameter no argument determines (one only in
-the result, or given only `none` or a `.variant`).
+parameter's shape is a type mismatch. A parameter no argument other
+than a literal gives a type takes one from the type expected of the
+call's result, where there is one (a typed binding, parameter, field,
+assigned place, or `return`, and a function's last expression), by
+matching the declared result against it the same way; a result lifted
+into an expected `T?` or `T!` is matched against the `T`, and a
+propagated or caught `T!` against its value. So `z: U8 = max(1, 2)` is
+`max[U8]`, and a generic call that is an argument of another takes the
+type that call gives it. Only then does a literal take its default
+type, and among literals alone a float literal gives `Float`:
+`max(3, 2.5)` is `max[Float]`. An argument that is not a literal keeps
+the type it gives, even where the result is expected to have another.
+A compile-time value is never inferred, so a function that takes one is
+always called with brackets, and so is one with a type parameter
+neither its arguments nor the expected type determine (one used only in
+the result where no type is expected, or given only `none` or a
+`.variant`).
 
 A generic function can only be called: it is not a value, and a closure
 is never generic. It cannot cross module boundaries yet
@@ -925,14 +935,15 @@ fun pick[T](a: T, b: T, first: Bool) -> T
 
 sub main
   small: U8 = 200
-  print(max(3, 7), max(small, 9), max(3, 2.5), max[Float](1, 2))
+  z: U8 = max(1, 2)
+  print(max(3, 7), max(small, 9), max(3, 2.5), max[Float](1, 2), z)
   print(Box(v: 1).with("s"), Box(v: 1).with[Bool](true))
   r = pick(Res(n: 1), Res(n: 2), true)
   print("kept", r.n)
 ```
 
 ```output
-7 200 3.0 2.0
+7 200 3.0 2.0 2
 s true
 drop 2
 kept 1
@@ -949,14 +960,14 @@ fun make[T](n: Int) -> Int
 sub main
   n: I32 = 1
   print(max(n, 2.5), make(3))
-  z: U8 = max(1, 2)
+  z: U8 = max(n, 2)
   f = max
 ```
 
 ```error
 conflicting types for `T` in the call to `max`: `I32` (argument 1) and `Float` (argument 2)
-cannot infer `T` for `make` from its arguments
-type mismatch: expected `U8`, got `Int`
+cannot infer `T` for `make` from its arguments or the type expected of its result
+type mismatch: expected `U8`, got `I32`; `max` takes `T = I32` from argument 1
 `max` takes compile-time parameters, so it can only be called, not used as a value
 ```
 

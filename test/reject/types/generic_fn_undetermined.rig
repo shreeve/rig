@@ -1,6 +1,7 @@
-# A type parameter no argument determines cannot be inferred: `none`
-# and `.variant` say nothing about it, and a parameter used only in the
-# return type has no argument at all.
+# A type parameter neither the arguments nor the type expected of the
+# result determine cannot be inferred: `none` and `.variant` say nothing
+# about it, and a parameter used nowhere in the signature has nothing
+# at all. The hint marks the type to give with `...`.
 
 enum Color
   red
@@ -20,6 +21,6 @@ sub main()
   print(first(none, none))
   print(pick(.red))
 
-# error: 19:9: cannot infer `T` for `make` from its arguments; give it in brackets: `make[T](...)`
-# error: 20:9: cannot infer `T` for `first` from its arguments; give it in brackets: `first[T](...)`
-# error: 21:9: cannot infer `T` for `pick` from its arguments; give it in brackets: `pick[T](...)`
+# error: 20:9: cannot infer `T` for `make` from its arguments or the type expected of its result; give `T` in brackets: `make[...](...)`
+# error: 21:9: cannot infer `T` for `first` from its arguments or the type expected of its result; give `T` in brackets: `first[...](...)`
+# error: 22:9: cannot infer `T` for `pick` from its arguments or the type expected of its result; give `T` in brackets: `pick[...](...)`
