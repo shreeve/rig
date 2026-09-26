@@ -830,7 +830,7 @@ pub const Lexer = struct {
         var probe = self.base;
         while (true) {
             var t = probe.matchRules();
-            if (t.cat == .plus or t.cat == .lt or t.cat == .tilde) {
+            if (t.cat == .plus or t.cat == .lt or t.cat == .tilde or t.cat == .question or t.cat == .not_sym) {
                 const name = probe.matchRules();
                 if (name.pre != 0) return false;
                 t = name;
@@ -1593,7 +1593,7 @@ pub const Parser = struct {
         var params: std.ArrayListUnmanaged(Sexp) = .empty;
         for (bars.items()) |e| {
             const is_capture = if (e.kind()) |k| switch (k) {
-                .cap_clone, .cap_move, .cap_weak => true,
+                .cap_clone, .cap_move, .cap_weak, .cap_read, .cap_write => true,
                 else => false,
             } else false;
             if (!is_capture) {
@@ -1720,6 +1720,7 @@ test "layout: indentation, joined lines, tabs" {
 
 test "closure bar lists: typed parameters, empty bars, owned star" {
     try expectCats("f = |+v, a: Int| a", &.{ .ident, .assign, .bar_capture, .clone_pfx, .ident, .comma, .ident, .colon, .ident, .bar_capture, .ident });
+    try expectCats("f = |?v, !w, a| a", &.{ .ident, .assign, .bar_capture, .read_pfx, .ident, .comma, .write_pfx, .ident, .comma, .ident, .bar_capture, .ident });
     try expectCats("g = || 1", &.{ .ident, .assign, .bar_empty, .integer });
     try expectCats("h = *|a| a", &.{ .ident, .assign, .share_pfx, .bar_capture, .ident, .bar_capture, .ident });
     try expectCats("x = a | b", &.{ .ident, .assign, .ident, .bar, .ident });

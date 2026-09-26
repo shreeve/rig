@@ -1,0 +1,33 @@
+# A borrow a closure receives as a parameter lives only for that call,
+# as do the closure's own locals, while a captured write borrow reaches
+# a value that outlives every call. So neither may be stored through the
+# capture, by field or by whole assignment; a borrow the closure
+# captured may, and the captured value then borrows it.
+
+struct View
+  w: ?Vec[Int]
+
+sub run(f: ?sub(?Vec[Int]))
+  local: Vec[Int] = Vec()
+  f(?local)
+
+sub main
+  a: Vec[Int] = Vec()
+  v = View(w: ?a)
+  run(|!v, w|
+    v.w = w)
+  set = |!v, w: ?Vec[Int]|
+    v = View(w: w)
+  if true
+    local: Vec[Int] = Vec()
+    set(?local)
+  b: Vec[Int] = Vec()
+  keep = |!v, ?b|
+    v.w = b
+  keep()
+  !b.push(1)
+  print(v.w.len)
+
+# error: 18:5: cannot store a borrow of `w` through captured `v`
+# error: 20:5: cannot store a borrow of `w` through captured `v`
+# error: 28:3: cannot write-borrow `b` while a read borrow is live

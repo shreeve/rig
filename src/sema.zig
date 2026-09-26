@@ -204,6 +204,11 @@ pub const Type = union(enum) {
     range: TypeId,
 
     function: FunctionType,
+    /// What a borrowed callable `?fun(...) -> R` borrows, written as
+    /// such: a closure, a function, or an owned closure of function type
+    /// `callable`, called through a `rig.FnRef`. (A `?T` whose `T` is a
+    /// function type is a read borrow of a function value.)
+    callable: TypeId,
     /// A struct, enum, error set, or opaque declared in this module.
     nominal: SymbolId,
     /// A nominal declared in another module. Identity is the origin
@@ -409,7 +414,9 @@ pub const SymbolFlags = packed struct(u16) {
     written: bool = false,
     /// An `error` declaration: its variants are error values.
     error_set: bool = false,
-    _: u8 = 0,
+    /// A local bound to a closure literal: a stack closure.
+    closure: bool = false,
+    _: u7 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -505,6 +512,12 @@ fn recordKey(node: Sexp) NodeKey {
 }
 
 pub const Facts = struct {
+    /// Expressions lent where a borrowed callable `?fun(...)` is
+    /// expected that are not one yet (a closure literal, a function, an
+    /// owned closure): the callable's function type. Leaves by position,
+    /// list nodes by id.
+    leaf_callables: std.AutoHashMapUnmanaged(u32, TypeId) = .empty,
+    node_callables: std.AutoHashMapUnmanaged(NodeKey, TypeId) = .empty,
     /// Identifier leaf position -> the symbol it names.
     names: std.AutoHashMapUnmanaged(u32, SymbolId) = .empty,
     /// Leaf expression position -> type.
@@ -542,6 +555,8 @@ pub const Facts = struct {
     node_views: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
+        self.leaf_callables.deinit(allocator);
+        self.node_callables.deinit(allocator);
         self.elem_calls.deinit(allocator);
         self.array_views.deinit(allocator);
         self.leaf_views.deinit(allocator);
@@ -1165,6 +1180,24 @@ pub const SemContext = struct {
 
     /// `node` yields a `![]T` where a `[]T` is expected: it is lent to
     /// read only.
+    pub fn recordCallable(self: *SemContext, node: Sexp, fn_ty: TypeId) !void {
+        switch (node) {
+            .src => |s| try self.facts.leaf_callables.put(self.allocator, s.pos, fn_ty),
+            .list => try self.facts.node_callables.put(self.allocator, recordKey(node), fn_ty),
+            else => {},
+        }
+    }
+
+    /// The function type `node` is lent as, where a borrowed callable is
+    /// expected and `node` is not one yet (`recordCallable`).
+    pub fn callableOf(self: *const SemContext, node: Sexp) ?TypeId {
+        return switch (node) {
+            .src => |s| self.facts.leaf_callables.get(s.pos),
+            .list => self.facts.node_callables.get(nodeKey(node) orelse return null),
+            else => null,
+        };
+    }
+
     pub fn recordReadView(self: *SemContext, node: Sexp) !void {
         switch (node) {
             .src => |s| try self.facts.leaf_views.put(self.allocator, s.pos, {}),
@@ -2138,7 +2171,7 @@ pub const TypeChildren = struct {
         const i = self.i;
         self.i += 1;
         return switch (self.ty) {
-            .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner| if (i == 0) inner else null,
+            .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range, .callable => |inner| if (i == 0) inner else null,
             .slice => |s| if (i == 0) s.elem else null,
             .array => |a| if (i == 0) a.elem else if (i == 1) a.len else null,
             .function => |f| if (i < f.params.len) f.params[i] else if (i == f.params.len) f.returns else null,
@@ -2335,6 +2368,48 @@ pub fn ownedClosureFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
         else => null,
     };
 }
+
+/// The function type of a borrowed callable `?fun(...) -> R`: a
+/// closure, function, or owned closure lent to a call.
+pub fn callableFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
+    return ctx.types.get(callableFnTy(ctx, ty) orelse return null).function;
+}
+
+/// The function type of borrowed callable `ty`, or null.
+pub fn callableFnTy(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return switch (ctx.types.get(ty)) {
+        .borrow_read => |inner| switch (ctx.types.get(inner)) {
+            .callable => |f| f,
+            else => null,
+        },
+        else => null,
+    };
+}
+
+/// The borrowed callable of function type `fn_ty`: `?fun(...)`.
+pub fn callableOfFn(ctx: *SemContext, fn_ty: TypeId) !TypeId {
+    return ctx.intern(.{ .borrow_read = try ctx.intern(.{ .callable = fn_ty }) });
+}
+
+/// Whether a value of `ty` holds a borrowed callable inside it (in an
+/// optional, a handle, an array or slice, or a type argument). A
+/// borrowed callable is only ever a parameter, a local, or a result.
+pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
+    switch (ctx.types.get(ty)) {
+        .callable => return true,
+        .borrow_read, .borrow_write, .optional, .fallible, .shared, .weak => |inner| return holdsCallable(ctx, inner),
+        .slice => |sl| return holdsCallable(ctx, sl.elem),
+        .array => |a| return holdsCallable(ctx, a.elem),
+        .parameterized_nominal => |pn| for (pn.args) |a| {
+            if (holdsCallable(ctx, a)) return true;
+        },
+        else => {},
+    }
+    return false;
+}
+
+/// The diagnostic for a borrowed callable held inside another value.
+pub const held_callable = "a borrowed callable `{s}` is only a parameter's, a local's, or a result's type; no value can hold one";
 
 /// A value an owned closure can take or return: its runtime form is
 /// type-erased, so only plain Copy data crosses it (a Copy primitive, a
@@ -2627,7 +2702,7 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
     const ty = ctx.types.get(ty_id);
     switch (ty) {
         .type_var, .ct_param => |sym| return subst.lookup(sym) orelse ty_id,
-        inline .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range => |inner, tag| {
+        inline .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range, .callable => |inner, tag| {
             const new_inner = try substituteType(ctx, inner, subst);
             if (new_inner == inner) return ty_id;
             return ctx.intern(@unionInit(Type, @tagName(tag), new_inner));
@@ -2762,7 +2837,7 @@ pub fn importType(
     const ty = foreign_ctx.types.get(foreign_ty_id);
     switch (ty) {
         .invalid, .unknown, .void, .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
-        inline .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner, tag| {
+        inline .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range, .callable => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
             return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
         },
@@ -3109,6 +3184,7 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
         .optional => |inner| try formatSuffixed(ctx, a, inner, '?'),
         .fallible => |inner| try formatSuffixed(ctx, a, inner, '!'),
         .borrow_read => |inner| try std.fmt.allocPrint(a, "?{s}", .{try formatTypeIn(ctx, a, inner)}),
+        .callable => |f| try formatTypeIn(ctx, a, f),
         .borrow_write => |inner| try std.fmt.allocPrint(a, "!{s}", .{try formatTypeIn(ctx, a, inner)}),
         .shared => |inner| try formatHandle(ctx, a, inner, '*'),
         .weak => |inner| try formatHandle(ctx, a, inner, '~'),
@@ -3445,13 +3521,15 @@ pub fn paramPos(param: Sexp, fallback: u32) u32 {
     return srcPos(n, fallback);
 }
 
-pub const CaptureMode = enum { cap_clone, cap_weak, cap_move };
+pub const CaptureMode = enum { cap_clone, cap_weak, cap_move, cap_read, cap_write };
 
 pub fn captureModeOf(cap: Sexp) ?CaptureMode {
     return switch (cap.kind() orelse return null) {
         .cap_clone => .cap_clone,
         .cap_weak => .cap_weak,
         .cap_move => .cap_move,
+        .cap_read => .cap_read,
+        .cap_write => .cap_write,
         else => null,
     };
 }

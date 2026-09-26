@@ -1,0 +1,23 @@
+# A read-borrow local of plain data rebound to a function's `?T` result.
+#
+# Known bug: a local bound with `?a` is held as `*const T`, while a
+# function returning `?T` of plain data returns a copy, so the rebinding
+# emits Zig that does not compile. Both representations of a plain read
+# borrow must agree; a read borrow of large plain data should also be
+# held by pointer, not copied (`?[1000000]Int` is passed by value today).
+
+struct Wrap
+  n: Int
+
+fun get(w: ?Wrap) -> ?Wrap
+  w
+
+sub main
+  a = Wrap(n: 1)
+  b = Wrap(n: 2)
+  r = ?a
+  r = get(?b)
+  print(r.n)
+
+# expect:
+# 2

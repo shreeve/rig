@@ -195,6 +195,8 @@ pub const Emitter = struct {
     /// Emitting the object chain of an assignment target: an indexed
     /// element in it is a slot, not a copy.
     place_chain: bool = false,
+    /// The callable `emitLentCallable` is emitting the value of.
+    lent: Sexp = .nil,
     /// Arguments and receivers of the calls being emitted that were
     /// evaluated into temporaries first (`emitHoistedCall`), innermost
     /// call last.
@@ -1057,7 +1059,7 @@ pub const Emitter = struct {
             else => false,
         } else true;
         const is_borrow = !is_move and binds_borrow and (expr.isKind(.read) or expr.isKind(.write)) and
-            (ty == null or sema.writeSliceElem(self.sema, ty.?) == null);
+            (ty == null or (sema.writeSliceElem(self.sema, ty.?) == null and sema.callableFn(self.sema, ty.?) == null));
         // A write borrow is held as a pointer however it was obtained.
         const holds_ptr = is_borrow or (ty != null and self.isPtrBorrowTy(ty.?));
         var local: Local = .{ .sym = sym, .ty = ty, .is_ptr = holds_ptr };
@@ -1131,7 +1133,9 @@ pub const Emitter = struct {
     /// after the new one has been computed (so `a = +a` works), and the
     /// guard is re-armed.
     fn emitRebind(self: *Emitter, local: Local, value: Sexp, is_move: bool) Error!void {
-        const writes_through = self.sema.symbols.items[local.sym].kind == .param or self.sema.symbols.items[local.sym].flags.pattern_bound;
+        const s = self.sema.symbols.items[local.sym];
+        const captured_write = s.kind == .capture and self.sema.types.get(s.ty) == .borrow_write;
+        const writes_through = s.kind == .param or s.flags.pattern_bound or captured_write;
         if (local.is_ptr and !writes_through) {
             // A borrow local is rebound to borrow something else.
             try self.w.print("{s} = ", .{local.zig_name});
@@ -1856,6 +1860,7 @@ pub const Emitter = struct {
             if (h.flag.len > 0) return self.w.print("rig.take(&{s}, {s})", .{ h.flag, h.name });
             return self.w.writeAll(h.name);
         }
+        if (!sameNode(sexp, self.lent)) if (self.sema.callableOf(sexp)) |fn_ty| return self.emitLentCallable(sexp, fn_ty);
         if (!want_ptr and self.readsThrough(sexp)) return self.emitDeref(sexp);
         const literal_ty = self.literal_ty;
         self.literal_ty = null;
@@ -2173,6 +2178,8 @@ pub const Emitter = struct {
                 self.read_place = head == .read;
                 try self.emitAddressOf(ir.get(sexp, .operand));
             } else if (head == .read) {
+                // `?f` of a closure or function lends it.
+                if (self.typeOf(sexp)) |t| if (sema.callableFn(self.sema, t) != null) return self.emitLend(ir.Read.operand(sexp), sema.callableFnTy(self.sema, t).?);
                 // `?x` of a value held by pointer (a Cell) is its address.
                 if (self.isPtrBorrowExpr(sexp)) return self.emitBorrowOf(sexp);
                 // A borrow never moves its operand, even in tail position.
@@ -2833,6 +2840,13 @@ pub const Emitter = struct {
                 return self.emitFieldInit(args, &.{});
             }
         };
+        // A borrowed callable calls through its `rig.FnRef`.
+        if (self.typeOf(callee)) |t| if (sema.callableFn(self.sema, t) != null) {
+            try self.emitExpr(callee);
+            try self.w.writeAll(".call(.{ ");
+            try self.emitArgs(sexp);
+            return self.w.writeAll(" })");
+        };
         // An owned closure handle, held by a name or a field, or a call
         // yielding a borrow of one, held by pointer.
         if (self.typeOf(callee)) |t| if (sema.ownedClosureFn(self.sema, t) != null) {
@@ -3061,6 +3075,8 @@ pub const Emitter = struct {
     fn hoistsArgs(self: *Emitter, call: Sexp) bool {
         if (!call.isKind(.call) or self.isPrintCall(call)) return false;
         const args = ir.Call.args(call);
+        // A closure literal lent to the call gets an environment first.
+        for (args) |a| if (self.lentLiteral(argValue(a))) return true;
         if (self.sema.callSlotsOf(call)) |slots| {
             var last: ?usize = null;
             for (slots) |slot| {
@@ -3085,6 +3101,11 @@ pub const Emitter = struct {
             if (self.isOwnedValue(v)) owned = true;
         }
         return false;
+    }
+
+    /// A closure literal lent as a borrowed callable.
+    fn lentLiteral(self: *Emitter, e: Sexp) bool {
+        return e.isKind(.lambda) and self.sema.callableOf(e) != null;
     }
 
     /// The receiver of `value.method(...)` when it is an owned temporary
@@ -3240,6 +3261,15 @@ pub const Emitter = struct {
     /// temporary `h.name`. One that owns a resource is dropped at the end
     /// of the call's block unless the call takes it, clearing `h.flag`.
     fn hoist(self: *Emitter, h: Hoisted, params: []const TypeId, slot: usize, fields: bool) Error!void {
+        if (self.sema.callableOf(h.node)) |fn_ty| {
+            if (h.node.isKind(.lambda)) return self.hoistClosure(h, fn_ty);
+            // The `rig.FnRef` has the type Zig gives it.
+            try self.writeIndent(self.indent);
+            try self.w.print("const {s} = ", .{h.name});
+            try self.emitLentCallable(h.node, fn_ty);
+            try self.w.writeAll(";\n");
+            return self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
+        }
         const ty = self.typeOf(h.node);
         const ptr = slot < params.len and self.isPtrBorrowTy(params[slot]);
         const kind: ?ResourceKind = if (ptr) null else if (ty) |t| self.kindOf(t) else null;
@@ -3509,10 +3539,41 @@ pub const Emitter = struct {
                     // A moved pointer borrow moves the pointer.
                     try self.w.writeAll(outer.zig_name);
                 } else try self.writeTake(&outer),
+                .cap_read, .cap_write => try self.writeCapturedBorrow(&outer, c.ty),
                 else => try self.writeLocalPlace(&outer),
             }
         }
         try self.w.writeAll(" }");
+    }
+
+    /// `|?x|` / `|!x|`: the borrow of local `outer` a closure holds, of
+    /// type `ty`, as `?x` / `!x` gives it: a pointer, or for a read
+    /// borrow of plain data, the value.
+    fn writeCapturedBorrow(self: *Emitter, outer: *const Local, ty: TypeId) Error!void {
+        // `|?f|` of a stack closure lends its environment.
+        if (outer.stack_closure) if (sema.callableFn(self.sema, ty)) |f| {
+            try self.emitFnRefTy(f);
+            return self.w.print(".of(@TypeOf({s}), &{s})", .{ outer.zig_name, outer.zig_name });
+        };
+        const outer_borrows = if (outer.ty) |t| switch (self.sema.types.get(t)) {
+            .borrow_read, .borrow_write => true,
+            else => false,
+        } else false;
+        // A `![]T` is the slice itself; a borrow of a borrow passes it on.
+        if (sema.writeSliceElem(self.sema, ty) != null or (outer_borrows and (self.isPtrBorrowTy(ty) or !outer.is_ptr))) {
+            return self.w.writeAll(outer.zig_name);
+        }
+        if (self.genericReadBorrow(ty) != null) {
+            try self.w.writeAll("rig.lend(");
+            if (!outer.is_ptr) try self.w.writeAll("&");
+            try self.w.writeAll(outer.zig_name);
+            return self.w.writeAll(")");
+        }
+        if (self.isPtrBorrowTy(ty)) {
+            if (!outer.is_ptr) try self.w.writeAll("&");
+            return self.w.writeAll(outer.zig_name);
+        }
+        try self.writeLocalPlace(outer);
     }
 
     /// `*|captures, params| body` → a heap-allocated environment, erased
@@ -3563,6 +3624,68 @@ pub const Emitter = struct {
         try self.w.writeAll(")");
     }
 
+    /// The borrowed callable `?fun(A, B) -> R`: `rig.FnRef(&.{ A, B }, R)`.
+    fn emitFnRefTy(self: *Emitter, f: sema.FunctionType) Error!void {
+        try self.w.writeAll("rig.FnRef(&.{");
+        for (f.params, 0..) |p, i| {
+            try self.w.writeAll(if (i == 0) " " else ", ");
+            try self.emitTypeTy(p);
+        }
+        try self.w.writeAll(if (f.params.len > 0) " }, " else "}, ");
+        if (f.is_sub) try self.w.writeAll("void") else try self.emitTypeTy(f.returns);
+        try self.w.writeAll(")");
+    }
+
+    /// `e`, lent where a borrowed callable of function type `fn_ty` is
+    /// expected (`SemContext.callableOf`): a function, as
+    /// `rig.FnRef(...).ofFn(f)`, or a borrowed owned closure, as
+    /// `.ofClosure(handle)`. A closure literal was hoisted
+    /// (`hoistClosure`).
+    fn emitLentCallable(self: *Emitter, e: Sexp, fn_ty: TypeId) Error!void {
+        const f = self.sema.types.get(fn_ty).function;
+        try self.emitFnRefTy(f);
+        const ty = self.typeOf(e) orelse return self.unsupported(e, "an untyped callable");
+        try self.w.writeAll(if (sema.ownedClosureFn(self.sema, ty) != null) ".ofClosure(" else ".ofFn(");
+        const saved = self.lent;
+        defer self.lent = saved;
+        self.lent = e;
+        try self.emitExpr(e);
+        try self.w.writeAll(")");
+    }
+
+    /// `?f` where `f` is a stack closure, a function value, or already a
+    /// borrowed callable: the `rig.FnRef` of function type `fn_ty`.
+    fn emitLend(self: *Emitter, operand: Sexp, fn_ty: TypeId) Error!void {
+        const ty = self.typeOf(operand) orelse return self.unsupported(operand, "an untyped callable");
+        if (sema.callableFn(self.sema, ty) != null) return self.emitExpr(operand);
+        const f = self.sema.types.get(fn_ty).function;
+        if (operand == .src) if (self.localOf(operand)) |local| if (local.stack_closure) {
+            try self.emitFnRefTy(f);
+            return self.w.print(".of(@TypeOf({s}), &{s})", .{ local.zig_name, local.zig_name });
+        };
+        try self.emitFnRefTy(f);
+        try self.w.writeAll(".ofFn(");
+        try self.emitExpr(operand);
+        try self.w.writeAll(")");
+    }
+
+    /// A closure literal lent to the call being hoisted as a borrowed
+    /// callable: its environment `__rig_env_N`, dropped when the call's
+    /// block ends if it owns what it captured, and the `rig.FnRef`
+    /// lending it, the argument `h.name`.
+    fn hoistClosure(self: *Emitter, h: Hoisted, fn_ty: TypeId) Error!void {
+        const env = try self.fmt("__rig_env_{d}", .{self.nextId()});
+        try self.writeIndent(self.indent);
+        const owns = try self.emitStackClosure(env, h.node);
+        try self.w.writeAll("\n");
+        if (owns) try self.line("defer rig.dropFields(&{s});", .{env});
+        try self.writeIndent(self.indent);
+        try self.w.print("const {s} = ", .{h.name});
+        try self.emitFnRefTy(self.sema.types.get(fn_ty).function);
+        try self.w.print(".of(@TypeOf({s}), &{s});\n", .{ env, env });
+        try self.hoisted.append(self.allocator, .{ .node = h.node, .name = h.name });
+    }
+
     /// The value type a closure literal's body produces, or null.
     fn lambdaReturn(self: *Emitter, lambda: Sexp) ?TypeId {
         const f = self.fnType(self.typeOf(lambda)) orelse return null;
@@ -3598,6 +3721,7 @@ pub const Emitter = struct {
                 try self.emitTypeTy(inner);
             },
             .borrow_read => |inner| {
+                if (sema.callableFn(ctx, ty)) |f| return self.emitFnRefTy(f);
                 if (self.genericReadBorrow(ty) != null) {
                     try self.w.writeAll("rig.ReadBorrow(");
                     try self.emitTypeTy(inner);
@@ -3735,11 +3859,12 @@ pub const Emitter = struct {
         return ty;
     }
 
+    /// The function type of a function, closure, or borrowed callable.
     fn fnType(self: *Emitter, ty: ?TypeId) ?sema.FunctionType {
         const t = ty orelse return null;
         return switch (self.sema.types.get(t)) {
             .function => |f| f,
-            else => null,
+            else => sema.callableFn(self.sema, t),
         };
     }
 
@@ -4052,7 +4177,7 @@ const Scan = struct {
                 }
                 try s.consumeTail(sexp);
             },
-            .cap_clone, .cap_weak, .cap_move => {
+            .cap_clone, .cap_weak, .cap_move, .cap_read, .cap_write => {
                 const cap = s.e.sema.symbolOf(ir.get(sexp, .name)) orelse return;
                 const origin = s.e.sema.symbols.items[cap].origin;
                 try s.put(&s.e.usage.used, origin);

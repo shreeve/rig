@@ -1,0 +1,37 @@
+# What a borrowed callable returns may borrow what it captured: a call's
+# result, and what its write borrows lead to, carry those borrows, so
+# they cannot outlive the captured values; and a callable's result that
+# borrows the callee's own local cannot be returned.
+
+struct Wrap
+  n: Int
+
+struct View
+  w: ?Wrap
+
+sub fill(out: !View, f: ?fun() -> ?Wrap)
+  out.w = f()
+
+fun get(f: ?fun() -> ?Wrap) -> ?Wrap
+  f()
+
+fun bad(f: ?fun(?Wrap) -> ?Wrap) -> ?Wrap
+  w = Wrap(n: 1)
+  f(?w)
+
+sub main
+  a = Wrap(n: 1)
+  v = View(w: ?a)
+  if true
+    b = Wrap(n: 2)
+    fill(!v, |?b| b)
+  print(v.w.n)
+  r = ?a
+  if true
+    c = Wrap(n: 3)
+    r = get(|?c| c)
+  print(r.n)
+
+# error: 20:6: returned borrow of `w` does not originate from a borrowed parameter
+# error: 27:16: `b` does not live long enough
+# error: 32:15: `c` does not live long enough

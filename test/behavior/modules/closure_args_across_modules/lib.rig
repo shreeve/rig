@@ -1,0 +1,19 @@
+pub fun sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
+  i = 1
+  while i < xs.len : i += 1
+    j = i
+    while j > 0 and less(?xs[j], ?xs[j - 1]) : j -= 1
+      !xs.swap(j, j - 1)
+
+pub fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]
+  out: Vec[U] = Vec()
+  for x in xs
+    !out.push(f(?x))
+  out
+
+pub struct Bag
+  items: Vec[Int]
+
+  sub each(?self, f: ?sub(Int))
+    for x in ?self.items
+      f(x)

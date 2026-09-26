@@ -754,6 +754,7 @@ no variant `native` on enum `Endian`
 | `~T` | weak handle to a shared value | [§10](#10-shared-and-weak-handles) |
 | `fun(A, B) -> R`, `sub(A)` | function and closure types | [§12](#12-closures) |
 | `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§12](#12-closures) |
+| `?fun(A) -> R`, `?sub(A)` | borrowed callable: a closure, function, or owned closure lent to a call | [§12](#closure-parameters) |
 | `Cell[T]`, `Vec[T]`, `Signal[T]` | built-in generic types | [§11](#11-cell-vec-and-signal) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§3](#bytes) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§4](#4-declarations), [§15](#15-modules) |
@@ -1280,9 +1281,15 @@ A call gives every compile-time argument in brackets
 (`max[Float](1, 2)`), or none, and then its type arguments are
 inferred by matching each parameter's type against its argument's type
 (`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`, `[N]T`, `Wrap[T]`,
-`fun(T) -> U`). A method's receiver gives its type's parameters. Every
-argument must agree, and an argument whose type does not have its
-parameter's shape is a type mismatch. A parameter no argument other
+`fun(T) -> U`, `?fun(T) -> U`). A method's receiver gives its type's
+parameters. Every argument must agree, and an argument whose type does
+not have its parameter's shape is a type mismatch. A closure literal
+argument is matched last: its parameters take the types the other
+arguments give its parameter's function type, and the type its body
+returns binds what only the result mentions, so
+`map(?names[..], |s| s.len)` of
+`fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]` is
+`map[String, Int]`. A parameter no argument other
 than a literal gives a type takes one from the type expected of the
 call's result, where there is one (a typed binding, parameter, field,
 or assigned place, a `return` from a function or from a closure whose
@@ -3104,12 +3111,15 @@ A closure starts with its bar list and has no keyword. The list holds
 the closure's **captures** and its **parameters**, captures first:
 
 - an entry with a sigil captures an outer local: `+x` copies a Copy
-  value or clones a handle, `<x` moves the binding in, `~x` holds a
-  shared handle weakly;
+  value or clones a handle, `<x` moves the binding in, `?x` and `!x`
+  borrow it, `~x` holds a shared handle weakly;
 - a bare name is a parameter, optionally annotated (`a`, `a: Int`);
 - `||` is an empty list.
 
-The body is an expression on the same line or an indented block.
+The body is an expression, a paren-free call, or an assignment on the
+same line (`|!total, n| total += n`), or an indented block. A closure
+whose body is a paren-free call or an assignment ends a call's
+arguments: it is the last one.
 
 ```rig
 sub main
@@ -3151,6 +3161,8 @@ closure parameter `n` has the name of the local `n`
 | `\|+x\|` | Copy value | a copy |
 | `\|+x\|` | `*T` or `~T` | a clone of the handle |
 | `\|<x\|` | any | the value, moved in; the outer `x` is gone |
+| `\|?x\|` | any | a read borrow `?T`, as `?x` gives it |
+| `\|!x\|` | any a write borrow may take | a write borrow `!T`, as `!x` gives it |
 | `\|~x\|` | `*T` | a weak handle `~T` |
 
 The closure's environment owns what it captured and releases it once,
@@ -3160,9 +3172,35 @@ reassign it: the closure may be called again, so it cannot be the
 closure's value either. A captured borrow may be passed to a call,
 which borrows it for the call. A captured read borrow may be the
 closure's value, and a call's result then borrows what the closure
-captured. Through a captured write borrow the body can write fields and
-call `!self` methods, but not write-borrow it again with `!w`. A name
-may be captured once per list.
+captured. Through a captured write borrow the body can write fields,
+call `!self` methods (`!w.push(x)` or `w.push(x)`), lend it on for a
+call (`!w`), and assign the whole value (`w = v`, `w += 1`), which
+writes through to what it borrows. Nothing the closure owns or receives
+as a parameter may be stored through it: those last one call at most,
+and the captured value outlives them. A name may be captured once per
+list.
+
+`|?x|` and `|!x|` borrow `x` for as long as the closure lives, which is
+until its last use: `|!x|` is `w = !x` followed by `|<w|`. While the
+closure lives, `x` follows the aliasing rule
+([§8](#borrows)); after its last call, `x` is free again.
+
+```rig
+sub main
+  total = 0
+  names = ["ada", "bob"]
+  add = |!total, ?names, k: Int| total += k * names.len
+  add(1)
+  add(10)
+  print(total)
+  total = 0
+  print(total)
+```
+
+```output
+22
+0
+```
 
 A closure nested in another captures from the scope where it is
 created: the outer closure's captures, parameters, and locals. It may
@@ -3229,6 +3267,7 @@ sub main
 | `sub(String)` | takes a `String`, returns nothing |
 | `*fun(Int) -> Int`, `*sub()` | an owned closure of that shape |
 | `~fun(Int) -> Int`, `~sub()` | a weak handle to an owned closure |
+| `?fun(Int) -> Int`, `?sub()` | a borrowed callable ([below](#closure-parameters)) |
 
 Function types describe closures bound to locals and function names
 used as values. A function type writes its result after `->`, as a
@@ -3255,11 +3294,12 @@ true
 ### Stack closures
 
 A closure literal without `*` lives in the stack frame of the function
-that writes it, so it may not escape. It may only be bound to a local
-(`f = |...| body`, then called as `f(...)`) or called where it is
-written (`(|+n| print(n))()`). Anywhere else (an argument, a field, an
-array element, a return value) it is rejected; make it owned instead. A
-closure binding is fixed and cannot be copied, moved, or passed on.
+that writes it, so it may not escape. It may be bound to a local
+(`f = |...| body`, then called as `f(...)`), called where it is written
+(`(|+n| print(n))()`), or lent to a call ([below](#closure-parameters)).
+Anywhere else (a field, an array element, a return value) it is
+rejected; make it owned instead. A closure binding is fixed and cannot
+be copied or moved; `?f` lends it.
 
 ```rig reject
 fun make -> fun() -> Int
@@ -3269,6 +3309,97 @@ fun make -> fun() -> Int
 
 ```error
 closures cannot escape their defining scope
+```
+
+### Closure parameters
+
+A parameter of type `?fun(A) -> R` or `?sub(A)` takes a **borrowed
+callable**: a read borrow of something to call. It accepts
+
+- a closure literal written in the argument, without `*`;
+- a named stack closure lent as `?f`;
+- a function name or a `fun` value, as it is;
+- an owned closure lent as `?cb`.
+
+A borrowed callable is a borrow like any `?T` ([§8](#second-class-borrows)):
+the callee may call it and forward it, and the caller's values stay
+borrowed while it lives. A lent closure literal borrows what it
+captures for the call, so its captures conflict with the call's other
+borrows, and its environment lives until the call returns, dropping
+what it moved in. It costs one indirect call per invocation and
+allocates nothing.
+
+```rig
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub each(xs: ?Vec[Int], f: ?sub(Int))
+  for x in xs
+    f(x)
+
+fun double(n: Int) -> Int
+  n * 2
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  total = 0
+  each(?v, |!total, n| total += n)
+  k = 10
+  add_k = |+k, a: Int| a + k
+  cb: *fun(Int) -> Int = *|a| a - 1
+  print(total, apply(double, 4), apply(?add_k, 4), apply(?cb, 4))
+  r = Res(id: 7)
+  n = apply(|<r, a| a + r.id, 1)
+  print(n)
+```
+
+```output
+3 8 14 3
+drop 7
+8
+```
+
+No value holds a borrowed callable: it is only a parameter's, a local's,
+or a result's type, never a field's, an element's, a module-level
+binding's, or a type argument. A function may return one only where it
+returns a borrow its caller lent it, and a closure literal is not lent
+to a call whose result could hold it. A call never changes a closure's
+environment, so a closure is lent only to read: `!f` is rejected.
+
+Only `?fun(...)` and `?sub(...)` written as such are borrowed callables.
+A `?T` whose `T` is a function type, in a generic function, a field, or
+a payload, is a read borrow of a function value, and `!fun(...)` a
+write borrow of one, which can be reassigned through; a closure is not
+lent there (`?f` of a closure where a `?T` goes is rejected).
+`*|...|` makes an owned closure, which is not what a `?fun` parameter
+takes:
+
+```rig reject
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub each(xs: ?Vec[Int], f: ?sub(Int))
+  for x in xs
+    f(x)
+
+sub main
+  print(apply(*|a| a + 1, 2))
+  c: Vec[Int] = Vec()
+  each(?c, |!c, n|
+    c.push(n))
+```
+
+```error
+borrows a closure for the call; write the closure without `*` (drop the `*`)
+cannot write-borrow `c` while a read borrow is live
 ```
 
 ### Owned closures
@@ -4004,7 +4135,7 @@ The rest parse, and the checker rejects them as not supported yet
 | Form | Diagnostic |
 |---|---|
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
-| a stack closure passed, stored, or returned | `` closures cannot escape their defining scope `` |
+| a stack closure stored or returned | `` closures cannot escape their defining scope `` |
 | an array of owning values | `` arrays cannot hold values that own resources ``; use a `Vec` |
 | an owned closure taking or returning an owning value | `` an owned closure takes plain Copy values `` |
 

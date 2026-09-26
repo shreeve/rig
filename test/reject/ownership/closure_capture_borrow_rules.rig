@@ -1,0 +1,59 @@
+# `|?x|` and `|!x|` follow the rules of `?x` and `!x`: a write borrow
+# needs a binding that may change and excludes every other borrow while
+# the closure lives; an owned closure borrows nothing; and nothing
+# borrowed from the closure's own values is stored through a captured
+# write borrow.
+
+struct Wrap
+  n: Int
+
+struct View
+  w: ?Wrap
+
+sub go(n: Int)
+  total = 0
+  a = |!total|
+    total += 1
+  b = |!total|
+    total += 2
+  a()
+  b()
+  f = |!n|
+    n += 1
+  f()
+  k =! 3
+  g = |!k|
+    k += 1
+  g()
+
+sub main
+  x = 1
+  owned = *|?x| x + 1
+  owned2 = *|!x|
+    x += 1
+  c = Wrap(n: 0)
+  add = |!c|
+    c.n += 1
+  add()
+  print(c.n)
+  add()
+  outer = Wrap(n: 1)
+  v = View(w: ?outer)
+  keep = |!v|
+    inner = Wrap(n: 2)
+    v = View(w: ?inner)
+  keep()
+  r = ?c
+  late = |!c|
+    c.n = 5
+  late()
+  print(r.n)
+
+# error: 17:9: cannot take a second write borrow on `total`
+# error: 21:9: cannot write-borrow parameter `n`
+# error: 25:9: cannot write-borrow fixed binding `k`
+# error: 31:14: an owned closure cannot borrow `x`: it can be stored anywhere
+# error: 32:15: an owned closure cannot borrow `x`
+# error: 38:9: use of `c` while a write borrow is live
+# error: 44:5: cannot store a borrow of `inner` through captured `v`
+# error: 47:12: cannot write-borrow `c` while a read borrow is live

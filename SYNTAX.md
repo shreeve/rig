@@ -222,7 +222,7 @@ sub main
 
 A closure has no keyword: it starts with its bar list. Each captured
 name carries a sigil that says how it is held: `+step` copies, `<x`
-would move, `~x` would hold a handle weakly.
+would move, `?x` and `!x` would borrow, `~x` would hold a handle weakly.
 
 ## 3. Rust and Zig to Rig at a glance
 
@@ -253,6 +253,7 @@ would move, `~x` would hold a handle weakly.
 | interior mutability | `RefCell<T>` / `Cell<T>` | by hand | `Cell[T]` |
 | growable array | `Vec<T>` | `std.ArrayList(T)` | `Vec[T]` |
 | closure | `move \|a\| a + n` | a struct with a method | `\|+n, a\| a + n` |
+| closure argument | `f: &dyn Fn(i64) -> i64`, `v.sort_by(\|a, b\| a.cmp(b))` | a context pointer and a function | `f: ?fun(Int) -> Int`, `sort(!v[..], \|a, b\| a < b)` |
 | drop early | `drop(x)` | `x.deinit()` | `-x` |
 | destructor | `impl Drop` | `deinit` + `defer` | `drop(!self)` |
 | cleanup | scope guard | `defer`, `errdefer` | `defer`, `errdefer` |
@@ -514,6 +515,7 @@ operands have different types `I32` and `Int`
 | `![]T` | writable slice | `&mut [T]` | `[]T` |
 | `fun(A, B) -> R`, `sub(A)` | function or stack closure | `fn(A, B) -> R`, `impl Fn` | `*const fn (A, B) R` |
 | `*fun(A) -> R`, `*sub(A)` | owned closure | `Rc<dyn Fn(A) -> R>` | a boxed closure |
+| `?fun(A) -> R`, `?sub(A)` | borrowed callable (parameters) | `&dyn Fn(A) -> R` | `rig.FnRef`: context pointer and call function |
 | `Cell[T]`, `Vec[T]`, `Signal[T]` | built-in generics | `RefCell<T>`, `Vec<T>` | runtime types |
 | `Endian` | byte order: `.little`, `.big` | | `std.builtin.Endian` |
 | `Name[T]` | generic instance | `Name<T>` | `Name(T)` |
@@ -1626,7 +1628,11 @@ parameter, and each call passes its type: `max(3, 7)` becomes
 A call infers its type arguments by matching each parameter's type
 against its argument's: `T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`,
 `[N]T`, instances like `Vec[T]` or `Wrap[T]`, and function types like
-`fun(T) -> U`. An integer compile-time value is inferred the same way,
+`fun(T) -> U` and `?fun(T) -> U`. A closure literal is matched after the
+other arguments: its parameters take the types they give, and its body's
+result gives the rest, so `sort(!v[..], |a, b| a < b)` needs no
+annotation and `map(?xs[..], |x| x > 0)` returns a `Vec[Bool]`. An
+integer compile-time value is inferred the same way,
 from an array length or a generic type's value argument in the
 signature: `sum([1, 2, 3])` of `fun sum[n: Int](xs: [n]Int)` is
 `sum[3]`. Every argument must agree. A parameter that only
@@ -2202,7 +2208,7 @@ The same sigils mean the same thing in every position:
 | receiver | `?self` | `!self` | `<self` | | |
 | method call | `p.m()` | `!p.m()` | `<p.m()` | | |
 | `for` source | `for x in ?v` | `for x in !v` | `for x in <v` | | |
-| closure capture | | | `\|<x\|` | `\|+x\|` | `\|~x\|` |
+| closure capture | `\|?x\|` | `\|!x\|` | `\|<x\|` | `\|+x\|` | `\|~x\|` |
 | assignment | | | `a <- b` | | |
 
 In a method call the sigil goes on the receiver, `!p.m()` for
@@ -2414,12 +2420,15 @@ optional types:
 |---|---|
 | `+x` | capture a copy of a Copy value, or a clone of a handle |
 | `<x` | move `x` in |
+| `?x`, `!x` | borrow `x` to read or write, while the closure lives |
 | `~x` | hold a shared handle weakly |
 | `a`, `a: Int` | a parameter |
 | `\|\|` | no captures, no parameters |
 
 A closure reaches outer locals only through captures, unlike Rust's
-implicit capture: the capture mode is written, not inferred.
+implicit capture: the capture mode is written, not inferred. The body
+is an expression, a paren-free call, or an assignment on the same line
+(`|!total, n| total += n`), or an indented block.
 
 ```rig
 sub main
@@ -2462,8 +2471,8 @@ sub main
 
 A plain closure is a **stack closure**: its captures live in the
 function's frame, like a Zig struct with an `invoke` method, so it
-cannot escape. It may be bound to a local and called, or called where
-it is written.
+cannot escape. It may be bound to a local and called, called where it
+is written, or lent to a call ([below](#closures-as-arguments)).
 
 `*` before the bar list makes an **owned closure**: its environment is
 on the heap behind a shared handle of type `*fun(A) -> R` or `*sub(A)`,
@@ -2503,6 +2512,45 @@ fun make -> fun() -> Int
 ```error
 closures cannot escape their defining scope
 ```
+
+### Closures as arguments
+
+A parameter of type `?fun(A) -> R` or `?sub(A)` borrows something to
+call, like Rust's `&dyn Fn`: a closure literal written in the call, a
+named closure lent as `?f`, a function, or an owned closure lent as
+`?cb`. The literal needs no `*` and allocates nothing; its captures are
+borrowed for the call, so `|!total|` can add into a local while the
+callee runs:
+
+```rig
+sub each(xs: ?Vec[Int], f: ?sub(Int))
+  for x in xs
+    f(x)
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+fun double(n: Int) -> Int
+  n * 2
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  !v.push(4)
+  total = 0
+  each(?v, |!total, n| total += n)
+  k = 5
+  add_k = |+k, a: Int| a + k
+  print(total, apply(double, 1), apply(?add_k, 1))
+```
+
+```output
+7 2 6
+```
+
+A borrowed callable follows the borrow rules of any `?T`: the callee
+calls it and passes it on, but no field, Vec, or owned closure holds
+it.
 
 ### Multi-line bodies inside brackets
 
@@ -2982,7 +3030,6 @@ Coming from Rust or Zig, you will reach for these and not find them:
 - **traits and bounds**: a generic body may do with `T` only what each
   instance supports ([§14](#what-a-generic-body-may-do-with-t));
 - **heap strings and string building**: `String` is an immutable view;
-- **stack closures as arguments**: pass an owned closure (`*|...|`);
 - **concurrency and async**;
 - **a standard library** beyond `print`, `Cell`, `Vec`, `Signal`, and
   the slice methods (`copy`, `fill`, `swap`, `read`, `write`);
@@ -3027,7 +3074,8 @@ and `!=` is the not-equal operator.
 | `e!` | unwrap, or propagate the error |
 
 **Type prefixes:** `?T` read borrow, `!T` write borrow, `*T` shared,
-`~T` weak, `[N]T` array, `[]T` slice, `![]T` writable slice. `*` and
+`~T` weak, `[N]T` array, `[]T` slice, `![]T` writable slice,
+`?fun(A) -> R` borrowed callable, `*fun(A) -> R` owned closure. `*` and
 `~` bind tighter than a suffix (`*T?` is an optional handle, `*(T?)` a
 handle to an optional); a borrow covers the suffixes (`?T?` borrows an
 optional).
@@ -3046,7 +3094,8 @@ parentheses.
 
 **Other punctuation:** `->` return type, `=>` match arm, `..` range
 (a slice may leave a side open: `xs[a..]`, `xs[..b]`, `xs[..]`),
-`??` optional fallback, `:name` label, `|...|` closure bar list,
+`??` optional fallback, `:name` label, `|...|` closure bar list
+(captures `+x`, `<x`, `?x`, `!x`, `~x`, then parameters),
 `.name` enum variant, `name[...]` compile-time parameters or arguments
 (or an index), `@name(...)` builtin, `#` comment, `\` line join.
 
@@ -3083,6 +3132,7 @@ correspondences:
 | `Vec[T]`, `Cell[T]` | runtime generic types |
 | an owning local | a `defer` that releases it, guarded by a flag if it may move first |
 | a stack closure | a local struct holding its captures, with an `invoke` method |
+| `?fun(A) -> R`, `f(x)` | `rig.FnRef(&.{ A }, R)`, a context pointer and a call function; `f.call(.{ x })` |
 | an owned closure | a counted, type-erased closure |
 | `defer`, `errdefer` | `defer`, `errdefer` |
 | `fun f[n: Int](x: Int)`, `f[3](x)` | `fn f(comptime n: i64, x: i64) i64`, `f(3, x)` |

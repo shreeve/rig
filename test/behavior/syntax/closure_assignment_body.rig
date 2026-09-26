@@ -1,0 +1,34 @@
+# A closure's body on the same line may be an assignment, plain or
+# compound, to a captured write borrow or a field through one: as a
+# bound closure, and as a closure lent to a call in its last argument,
+# like a paren-free call.
+
+struct Wrap
+  n: Int
+
+sub each(xs: ?Vec[Int], f: ?sub(Int))
+  for x in xs
+    f(x)
+
+sub both(f: ?sub(Int), g: ?sub(Int))
+  f(1)
+  g(2)
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(2)
+  !v.push(3)
+  total = 0
+  each(?v, |!total, n| total += n)
+  last = 0
+  each(?v, |!last, n| last = n)
+  w = Wrap(n: 0)
+  set = |!w, k: Int| w.n = k * 10
+  set(4)
+  b = 0
+  both(|n| print(n), |!b, n| b -= n)
+  print(total, last, w.n, b)
+
+# expect:
+# 1
+# 5 3 40 -2

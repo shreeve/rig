@@ -1,0 +1,23 @@
+# A closure literal passed to a generic function takes its parameter
+# types from what the other arguments bind, so a type parameter nothing
+# else binds cannot be inferred from an unannotated parameter; and the
+# type of the literal's result must agree with the other arguments.
+
+fun g[T](f: ?fun(T) -> Int) -> Int
+  0
+
+fun h[T](x: T, f: ?fun(T) -> T) -> T
+  f(x)
+
+fun both[T](f: ?fun() -> T, k: ?fun() -> T) -> T
+  f()
+
+sub main
+  print(g(|x| 1))
+  print(h(1, |x| x > 0))
+  print(both(|| 1, || true))
+  print(g(|x: Int| 1))
+
+# error: 16:9: cannot infer `T` for `g` from its arguments or the type expected of its result
+# error: 17:9: conflicting types for `T` in the call to `h`: `Int` (argument 1) and `Bool` (argument 2)
+# error: 18:9: conflicting types for `T` in the call to `both`: `Int` (argument 1) and `Bool` (argument 2)

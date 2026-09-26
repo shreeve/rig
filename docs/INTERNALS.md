@@ -144,7 +144,7 @@ The grammar's own shape settles the rest:
 | `\|k\| (k)`: parameter list or parenthesized body | parameters live in the bar list; `name:` is a `KWARG_NAME` |
 | `return` / `break` / `continue` inside conditions | they are statements; a guard applies to a whole simple statement |
 | dangling `else` in guards and ternaries | conditions are block-free values; the ternary has its own token; `else` only follows a block |
-| paren-free calls inside argument lists and value positions | a paren-free call (`cmd`) is a command: a statement, a match arm, or the last argument of another `cmd`; elsewhere, including inside ( ), only as a closure body (`cclosure`) |
+| paren-free calls inside argument lists and value positions | a paren-free call (`cmd`) is a command: a statement, a match arm, or the last argument of another `cmd`; elsewhere, including inside ( ), only as a closure body (`cclosure`), which may also be an assignment (`\|!t, n\| t += n`) |
 | a name in an array size or a type's compile-time argument: a type or a value | a bare name, integer, or `module.NAME` is one rule (`dim`, `targ`); arithmetic there is `cexp`, which has at least one operator, so it never overlaps a type. The checker reads a bare name by the slot it fills |
 
 Grammar shapes worth knowing: `tail` is an expression, a paren-free
@@ -555,6 +555,7 @@ instead of re-deriving it by name:
 | `readsThrough(node)` | whether the node yields a borrow (`!x`, a call returning `!Int`, a `!Int` name) whose value its context reads: a number, `Bool`, `String`, or plain enum where one is expected, an operator's operand, the optional of `??`, `?`, or `as`, an indexed or sliced String or slice, or a clone. Typecheck records it wherever it admits the borrow as its value (`recordAdapted`, `readThrough`); emit dereferences such a node in one place (`emitValue`), and the ownership checker ends the loans taken to reach a value that holds no borrow |
 | `arrayViewOf(node)` | for an array lent as a slice: `borrowed` for `?a` where a `[]T` is expected or `!a` where a `![]T` is (the ownership checker walks it as `?a[..]`, emit writes the array's address), `temporary` for a temporary array passed as a `[]T` argument to a call that keeps no borrow of it (emit writes `&` before it, which Zig keeps alive through the call) |
 | `readsAsView(node)` | whether the node yields a `![]T` where a `[]T` is expected; the ownership checker lends such an argument to read, not to write |
+| `callableOf(node)` | for a closure literal, a function, or a borrowed owned closure lent where a borrowed callable `?fun(...)` is expected: the function type it is lent as. The ownership checker lets such a literal be an argument, and emit wraps the node in a `rig.FnRef` (hoisting a literal's environment before the call) |
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
 | `isExhaustive(match)` | whether the arms cover every value without a default |
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
@@ -730,8 +731,14 @@ while checking a module-level function is freed when it is done.
 **Loans travel with values.** `r = ?a` stores a read loan on `a` in
 `r`; `View(box: ?a)` carries it into the struct; a call whose result
 type can hold a borrow carries the loans of all its borrowed arguments,
-and of the stack closure it calls (whose value is checked like a
-returned one);
+and of the callee's value, whatever form the callee takes (a closure
+binding, a borrowed callable held by a local or parameter, `(?l)()`, a
+call that returns one). This is sound because a callable's result can
+reach only what its body can: its captures (whose loans the closure
+binding holds, and `?l` passes on with a loan on `l`) and its
+arguments; so a result carrying both never outlives anything it may
+point into. (A closure's body is checked like a function, whose returned
+value is checked the same way);
 a call may store its arguments' loans into its receiver and into what
 its `!` arguments and other write borrows lead to, except a built-in
 element method (`!dst.copy(src)`) whose elements hold no borrow, which
@@ -744,6 +751,16 @@ until the call or statement that consumes it ends, so a later argument
 of the same call cannot borrow or move their roots. A borrowed parameter holds an
 *external* loan on itself: a borrow from the caller, which may be
 returned or stored into other borrowed parameters and never conflicts.
+A closure's parameters are not: a borrow a closure receives lives only
+for that call, as do the closure's locals and its own environment's
+values, while a captured write borrow (`|!v|`, `|<w|`) reaches a value
+that outlives every call. So a store through a capture may carry no
+loan whose root is declared in the closure (`storeThroughCapture`),
+and creating a closure lets each value its write captures lead to hold
+the loans of all its captures, as a call's `!` arguments do with its
+arguments. This is sound because the only loans left to such a store
+are on values outside the closure that it captured, and the captured
+value's var now holds each of them for as long as it lives.
 A slice of an array (`?xs[a..b]`) points into the storage of the var
 the array is reached from, which may be a copy of the caller's (a
 borrowed parameter, a read borrow of plain data, a loop or pattern
@@ -761,8 +778,9 @@ uses. A var is live after the current statement when it is used at or
 after the statement's start, or anywhere in an enclosing loop it was
 declared outside of (the next iteration), or in deferred code, or when
 it owns a value with drop glue (dropped at scope exit), or when a live
-var or temporary holds a loan on it. A closure binding, a parameter, and
-the hidden var that keeps a `for` source borrowed are always live. The
+var or temporary holds a loan on it. A closure binding whose
+environment has drop glue, a parameter, and the hidden var that keeps a
+`for` source borrowed are always live. The
 conflict checks and the "does not live long enough" checks at scope ends
 and jumps skip loans whose holder is not live. This is textual, so it is
 the same on every path, and conservative where paths differ.
@@ -900,7 +918,18 @@ lower is an internal error: sema must have rejected it.
   with an `invoke` method. An owned closure allocates an environment
   struct per literal and erases it behind `rig.Closure(params, R)`, so
   every literal of one function type shares one runtime type; a call is
-  `cb.value.invoke(.{ args })`.
+  `cb.value.invoke(.{ args })`. A borrowed callable `?fun(...)`, the
+  type `borrow_read(callable(F))`, which only `?fun(...)` written as
+  such and `?f` of a closure produce (so a `?T` substituted with a
+  function type stays a read borrow of a function value), is a
+  `rig.FnRef(params, R)` passed by value, built by `.of(Env, &env)` for
+  a stack closure, `.ofFn(f)` for a function, and `.ofClosure(cb)` for
+  an owned closure; a call is `f.call(.{ args })`. A closure literal lent
+  to a call makes the call's arguments hoisted: in source order, its
+  environment `var __rig_env_N = struct {...}{...}` (dropped at the end
+  of the call's block when it owns captures) and then the `FnRef` over
+  it. Sema records which expressions are lent this way
+  (`SemContext.callableOf`).
 - **`main`** of the root module calls `rig.guardStack()`, then defers
   `rig.finish()`, so it runs after every other drop, and the root
   module declares `pub const panic = rig.panic`.
@@ -926,6 +955,7 @@ reviewed.
 | `ReadBorrow(T)`, `lend`, `borrowed` | a generic type's read borrow of `T`: a `*const T` when `T` owns resources or holds a `Cell`, a copy otherwise; `lend` borrows through a pointer, `borrowed` reads the value |
 | `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place |
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
+| `FnRef(params, R)` | a borrowed callable: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |
 | `Signal(T)` | a value and a `Vec` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |

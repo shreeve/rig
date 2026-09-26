@@ -1,0 +1,35 @@
+# Closure literals are inferred in any order: one whose parameters are
+# not known yet waits until another literal's result gives them. Through
+# a captured write borrow, `!c.inc()` and `!v.push(x)` lend it on, as on
+# a `!T` parameter.
+
+struct Counter
+  n: Int
+
+  sub inc(!self)
+    self.n += 1
+
+fun pipe[A, B, C](a: A, f: ?fun(A) -> B, g: ?fun(B) -> C) -> C
+  g(f(a))
+
+fun rpipe[A, B, C](a: A, g: ?fun(B) -> C, f: ?fun(A) -> B) -> C
+  g(f(a))
+
+sub main
+  print(pipe(3, |x| x > 2, |b| "yes" if b else "no"))
+  print(rpipe(1, |b| "yes" if b else "no", |x| x > 2))
+  c = Counter(n: 0)
+  g = |!c|
+    !c.inc()
+    c.inc()
+  g()
+  v: Vec[Int] = Vec()
+  h = |!v|
+    !v.push(1)
+  h()
+  print(c.n, v.len)
+
+# expect:
+# yes
+# no
+# 2 1

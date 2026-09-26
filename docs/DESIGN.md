@@ -184,7 +184,7 @@ can always be read: a `!T` is accepted where a `?T` is expected.
 
 **The same sigils, the same meanings, elsewhere.** A closure's bar list
 reuses the expression sigils for captures (`|+x|` clones, `|<x|` moves,
-`|~x|` holds weakly). A loop over owning elements borrows its source
+`|?x|` and `|!x|` borrow, `|~x|` holds weakly). A loop over owning elements borrows its source
 (`for x in ?v`). Receivers are `?self` and `!self`, the only place a
 sigil may prefix a parameter name. Move-assignment `a <- b` is `a = <b`.
 The fixed binding `x =! e` is the one place `!` appears in an operator
@@ -265,6 +265,19 @@ handle strongly and rebuild the very cycle a weak edge was meant to
 break. So a capture always carries a sigil, and a bare name in a bar
 list is always a parameter, never a capture: the spelling alone decides,
 so adding a local elsewhere can never change a closure's meaning.
+
+A closure passed to a call that only runs it (a comparator, a visitor)
+needs no heap and no count: it is a borrow. So a parameter that takes
+one is `?fun(A) -> R`, a read borrow of something to call, and it reuses
+the second-class borrow rules instead of adding closure lifetimes: the
+callee calls it and passes it on, and nothing stores it. The literal is
+written bare at the call, and its captures say what it borrows for the
+call: `sort(!v[..], |a, b| a < b)`, or `each(?v, |!total, n| total +=
+n)`, where the checker's ordinary same-call conflict check rejects
+`each(?total, |!total, n| ...)`. `fun(A) -> R` stays a plain function
+pointer, a Copy value that can be stored; `*fun` is the owned closure
+that can. A borrowed callable lowers to a context pointer and a call
+function: one indirect call per invocation, no allocation.
 
 ### Drop by guarded defers
 

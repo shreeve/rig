@@ -10,5 +10,5 @@ sub main()
   cb: *sub() = *|n| print(n)
   cb()
 
-# error: closure parameter `rc` has the name of the local `rc`; to capture the local, give it a sigil (`|+rc|` copies or clones it, `|<rc|` moves it, `|~rc|` holds it weakly)
+# error: closure parameter `rc` has the name of the local `rc`; to capture the local, give it a sigil (`|+rc|` copies or clones it, `|<rc|` moves it, `|?rc|` or `|!rc|` borrows it, `|~rc|` holds it weakly)
 # error: closure parameter `n` has the name of the local `n`

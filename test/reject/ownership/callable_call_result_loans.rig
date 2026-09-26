@@ -1,0 +1,37 @@
+# Calling a callable gives a result that borrows what the callable
+# holds, whatever form the callee takes: a closure binding, a borrowed
+# callable held by a local, a lent closure called in place, or one a
+# call returned. So `|?c| c` called through any of them cannot outlive
+# `c`, or be returned from the function that owns `c`.
+
+fun pass(f: ?fun() -> ?Vec[Int]) -> ?fun() -> ?Vec[Int]
+  f
+
+fun bad(a: ?Vec[Int]) -> ?Vec[Int]
+  c: Vec[Int] = Vec()
+  l = |?c| c
+  g = ?l
+  g()
+
+sub main
+  a: Vec[Int] = Vec()
+  r = ?a
+  if true
+    c: Vec[Int] = Vec()
+    l = |?c| c
+    g = ?l
+    r = g()
+  if true
+    d: Vec[Int] = Vec()
+    m = |?d| d
+    r = (?m)()
+  if true
+    e: Vec[Int] = Vec()
+    n = |?e| e
+    r = pass(?n)()
+  print(r.len)
+
+# error: 12:9: returned borrow of `c` does not originate from a borrowed parameter
+# error: 21:11: `c` does not live long enough
+# error: 26:11: `d` does not live long enough
+# error: 30:11: `e` does not live long enough

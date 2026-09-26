@@ -1,0 +1,65 @@
+# Each mistake in lending a closure gets one diagnostic whose hint
+# compiles: a closure or a borrow is captured with `|?f|`, an owned
+# closure is lent from its binding with `?cb`, a closure literal goes to
+# a parameter declared `?fun(...)`, and no type argument is a borrowed
+# callable.
+
+struct Res
+  id: Int
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+fun run(f: fun(Int) -> Int) -> Int
+  f(1)
+
+fun mk -> *fun(Int) -> Int
+  *|a: Int| a + 5
+
+fun keep[T](x: T) -> Vec[T]
+  v: Vec[T] = Vec()
+  !v.push(x)
+  v
+
+sub outer(f: ?fun(Int) -> Int)
+  h = |+f| f(1)
+  g = |<f| f(1)
+  print(h(), g())
+
+fun double(n: Int) -> Int
+  n * 2
+
+sub eat(r: Res)
+  print(r.id)
+
+sub main
+  k = 2
+  f = |+k, a: Int| a * k
+  h = |+f| f(1)
+  cb = *|a: Int| a + 1
+  print(h(), apply(cb, 1), apply(+cb, 1), apply(mk(), 1))
+  v = keep(?f)
+  c = Cell(value: ?f)
+  m = |?double| apply(double, 3)
+  print(run(|a| a + 1), run(?f), v.len, m())
+  s = *Signal(value: 0)
+  x = 1
+  s.subscribe(|?x| print(x))
+  r = Res(id: 1)
+  e = |!r|
+    eat(<r)
+  e()
+
+# error: 25:9: `|+f|` copies a Copy value or clones a `*T` / `~T` handle, but `f` is `?fun(Int) -> Int`; capture it with `|?f|`
+# error: 26:9: cannot move-capture borrowed parameter `f`; the caller still owns it. Capture the borrow with `|?f|`
+# error: 38:9: but `f` is a closure of type `fun(Int) -> Int`; capture it with `|?f|`
+# error: 40:20: an owned closure is lent to a `?fun(Int) -> Int` parameter: write `?cb`
+# error: 40:34: an owned closure is lent to a `?fun(Int) -> Int` parameter: write `?cb`
+# error: 40:49: bind it first (`cb = ...`), then lend it with `?cb`
+# error: 41:7: `keep` cannot take a borrowed callable for `T`
+# error: 42:7: `Cell` cannot take a borrowed callable for `T`
+# error: 43:9: only a local can be captured; `double` is declared at module level
+# error: 44:13: a closure literal is not a function value `fun(Int) -> Int`; declare the parameter `?fun(Int) -> Int`
+# error: 44:29: a lent closure goes to a parameter declared `?fun(Int) -> Int`
+# error: 47:15: `*sub()` is an owned closure; write `*|...| body` to make one
+# error: 50:10: cannot move captured borrow `r`; the closure holds it for every call
