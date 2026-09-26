@@ -1,0 +1,45 @@
+# A compile-time argument is a literal, an enum value, or `none`, so a
+# compile-time parameter's type is one such a value can have: a number,
+# `Bool`, `String`, an enum whose variants carry nothing, or an optional
+# of one.
+
+struct Res
+  n: Int
+
+  drop self: !Res
+    print("drop", self.n)
+
+struct P
+  x: Int
+
+enum Shape
+  circle(r: Int)
+  dot
+
+fun a[o: Res?] -> Int
+  1
+
+fun b[p: P] -> Int
+  1
+
+fun c[xs: [2]Int] -> Int
+  1
+
+fun d[v: Vec[Int]] -> Int
+  1
+
+fun e[f: fun(Int) -> Int] -> Int
+  1
+
+fun g[s: Shape] -> Int
+  1
+
+sub main()
+  print(2)
+
+# error: 19:10: compile-time parameter `o` cannot have the type `Res?`
+# error: 22:10: compile-time parameter `p` cannot have the type `P`
+# error: 25:11: compile-time parameter `xs` cannot have the type `[2]Int`
+# error: 28:10: compile-time parameter `v` cannot have the type `Vec[Int]`
+# error: 31:10: compile-time parameter `f` cannot have the type `fun(Int) -> Int`
+# error: 34:10: compile-time parameter `s` cannot have the type `Shape`

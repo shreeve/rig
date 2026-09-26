@@ -3566,7 +3566,7 @@ const Checker = struct {
         switch (e) {
             .src => {
                 const s = self.text(e);
-                if (isLiteralText(s)) return true;
+                if (isLiteralText(s) or std.mem.eql(u8, s, "none")) return true;
                 const id = self.ctx.symbolOf(e) orelse (self.lookupQuiet(e) orelse return false);
                 return self.ctx.symbols.items[id].flags.comptime_known;
             },

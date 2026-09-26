@@ -657,10 +657,17 @@ pub const TypeResolver = struct {
     fn resolveCtParam(self: *TypeResolver, p: Sexp) Error!TypeId {
         if (p != .src) {
             const ty = try self.resolveParamType(p);
-            if (!sema.containsTypeVar(self.ctx, ty)) return ty;
             const type_node = ir.get(p, .type);
-            try self.ctx.errAt(type_node, "compile-time parameter `{s}` cannot have the type `{s}`, a type parameter; its type must be known where the function is declared", .{ sema.paramName(self.ctx.source, p) orelse "n", try sema.formatType(self.ctx, ty) });
-            return self.ctx.types.invalid_id;
+            const name = sema.paramName(self.ctx.source, p) orelse "n";
+            if (sema.containsTypeVar(self.ctx, ty)) {
+                try self.ctx.errAt(type_node, "compile-time parameter `{s}` cannot have the type `{s}`, a type parameter; its type must be known where the function is declared", .{ name, try sema.formatType(self.ctx, ty) });
+                return self.ctx.types.invalid_id;
+            }
+            if (!isCtValueType(self.ctx, ty)) {
+                try self.ctx.errAt(type_node, "compile-time parameter `{s}` cannot have the type `{s}`; a compile-time value is a number, `Bool`, `String`, an enum whose variants carry nothing, or an optional of one", .{ name, try sema.formatType(self.ctx, ty) });
+                return self.ctx.types.invalid_id;
+            }
+            return ty;
         }
         const id = self.ctx.symbolOf(p) orelse return self.ctx.types.invalid_id;
         const name = self.ctx.symbols.items[id].name;
@@ -1698,4 +1705,14 @@ test "builtins: registered with methods" {
     try std.testing.expectEqual(ctx.vec_sym_id, vec);
     try std.testing.expectEqual(@as(usize, 4), ctx.symbols.items[vec].fields.?.len);
     try std.testing.expect(ctx.lookup(scope, "T") == null);
+}
+
+/// A type a compile-time argument can have: one written as a literal,
+/// an enum value, or `none`.
+fn isCtValueType(ctx: *const SemContext, ty: TypeId) bool {
+    if (ty == ctx.types.invalid_id or ty == ctx.types.unknown_id) return true;
+    return switch (ctx.types.get(ty)) {
+        .optional => |inner| isCtValueType(ctx, inner),
+        else => sema.isCopyPrimitive(ctx, ty) or sema.isPlainEnum(ctx, ty),
+    };
 }

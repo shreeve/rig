@@ -1,0 +1,24 @@
+# Compile-time parameters of every type a compile-time value can have,
+# with `none` for an optional one.
+
+enum Mode
+  fast
+  slow
+
+sub f[n: Int?]
+  print(n ?? 0)
+
+sub g[m: Mode?, s: String, b: Bool, x: Float, u: U8]
+  print(m == none, s, b, x, u)
+
+sub main()
+  f[none]
+  f[3]
+  g[none, "s", true, 1.5, 7]
+  g[.slow, "t", false, 2, 255]
+
+# expect:
+# 0
+# 3
+# true s true 1.5 7
+# false t false 2.0 255
