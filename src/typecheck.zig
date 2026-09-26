@@ -3425,10 +3425,10 @@ const Checker = struct {
         if (self.ctx.diagnostics.items.len != mark or self.isComptimeKnown(a)) return;
         const fixed = a == .src and if (self.ctx.symbolOf(a)) |id| self.ctx.symbols.items[id].flags.fixed else false;
         if (self.isCtArithmetic(a)) {
-            try self.errAt(a, "compile-time argument {d} of `{s}` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; pass a parameter or a constant", .{ i + 1, callee });
+            try self.errAt(a, "compile-time argument {d} of `{s}` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; use a parameter or a constant", .{ i + 1, callee });
         } else if (fixed) {
             try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; `{s}` is bound with `=!` to a value computed when the program runs", .{ i + 1, callee, self.text(a) });
-        } else try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, or a `=!` binding of one", .{ i + 1, callee });
+        } else try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, a `=!` binding of one, or arithmetic on them", .{ i + 1, callee });
     }
 
     /// The `ct_param` of the compile-time integer parameter (or `k =! n`
@@ -3455,7 +3455,8 @@ const Checker = struct {
         switch (sema.constIntBy(self.ctx, a, names)) {
             .value => |v| {
                 if (!sema.intFits(self.ctx, ty, v)) {
-                    try self.errAt(a, "compile-time argument {d} of `{s}` is `{d}`, which `{s}`, a `{s}`, cannot hold", .{ i + 1, callee, v, self.ctx.symbols.items[param].name, try self.tyName(ty) });
+                    const name = try self.tyName(ty);
+                    try self.errAt(a, "compile-time argument {d} of `{s}` is `{d}`, which `{s}`, {s} `{s}`, cannot hold", .{ i + 1, callee, v, self.ctx.symbols.items[param].name, resolve.an(name), name });
                     return null;
                 }
                 return try sema.ctInt(self.ctx, v);
@@ -3859,7 +3860,8 @@ const Checker = struct {
         const from = if (b.expected) "the type expected of the result" else try std.fmt.allocPrint(self.ctx.arena.allocator(), "argument {d}", .{b.arg});
         switch (self.ctx.types.get(b.ty)) {
             .ct_value => |v| if (!sema.intFits(self.ctx, p.ty, v.int)) {
-                try self.err(pos, "{s} gives `{s}` of `{s}` the value `{d}`, which a `{s}` cannot hold", .{ from, p.name, callee, v.int, try self.tyName(p.ty) });
+                const name = try self.tyName(p.ty);
+                try self.err(pos, "{s} gives `{s}` of `{s}` the value `{d}`, which {s} `{s}` cannot hold", .{ from, p.name, callee, v.int, resolve.an(name), name });
                 return false;
             },
             .ct_param => |sym| {

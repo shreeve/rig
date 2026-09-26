@@ -59,5 +59,15 @@ sub main()
   a: [nope]Int = zeros()
   print(f([1]), a)
 EOF2
-expect_eq "$(errors_of infer.rig)" "infer.rig:1:15: error: \`T\` is a type; an array length is an integer, a constant, or a compile-time parameter
+expect_eq "$(errors_of infer.rig)" "infer.rig:1:15: error: \`T\` is a type; an array length is an integer, a constant, a compile-time parameter, or arithmetic on them
 infer.rig:8:7: error: use of unbound name \`nope\`" "no inference cascade"
+
+# A fill count that is not an integer is named for what it is, once.
+cat >kinds.rig <<'EOF2'
+sub main()
+  a = [0; 2.5]
+  b = [0; none]
+  print(a, b)
+EOF2
+expect_eq "$(errors_of kinds.rig)" "kinds.rig:2:11: error: an array length is an integer; \`2.5\` is a \`Float\`
+kinds.rig:3:11: error: an array length is an integer; \`none\` is the absent optional" "a fill count's kind"

@@ -671,6 +671,20 @@ fn isValueSpelling(source: []const u8, node: Sexp) bool {
     };
 }
 
+/// The type of a literal other than an integer: `Float`, `Bool`, or
+/// `String`.
+fn literalTypeName(text: []const u8) ?[]const u8 {
+    if (sema.isFloatLiteralText(text)) return "Float";
+    if (std.mem.eql(u8, text, "true") or std.mem.eql(u8, text, "false")) return "Bool";
+    if (text.len > 0 and (text[0] == '"' or text[0] == '\'')) return "String";
+    return null;
+}
+
+/// The article for a type's name: "an `Int`", "a `Float`".
+pub fn an(name: []const u8) []const u8 {
+    return if (name.len > 0 and std.mem.indexOfScalar(u8, "AEIO", name[0]) != null) "an" else "a";
+}
+
 /// `Int` or a sized integer type's name.
 fn isIntTypeName(name: []const u8) bool {
     return std.mem.eql(u8, name, "Int") or (sizedTypeBits(name) != null and name[0] != 'F');
@@ -1471,7 +1485,8 @@ pub const TypeResolver = struct {
                     return t.invalid_id;
                 },
                 .arg => |a| if (!self.isPoison(param_ty) and !sema.intFits(self.ctx, param_ty, v.int)) {
-                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{d}`, which `{s}`, a `{s}`, cannot hold", .{ a.index + 1, a.owner, v.int, self.ctx.symbols.items[a.param].name, try sema.formatType(self.ctx, param_ty) });
+                    const ty = try sema.formatType(self.ctx, param_ty);
+                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{d}`, which `{s}`, {s} `{s}`, cannot hold", .{ a.index + 1, a.owner, v.int, self.ctx.symbols.items[a.param].name, an(ty), ty });
                     return t.invalid_id;
                 },
             },
@@ -1503,6 +1518,14 @@ pub const TypeResolver = struct {
         }
         const text = try self.sourceText(node);
         if (node == .src and !sema.isIntLiteralText(text)) {
+            if (literalTypeName(text)) |lit| {
+                try self.ctx.errAt(node, "{s} is an integer; `{s}` is {s} `{s}`", .{ what, text, an(lit), lit });
+                return null;
+            }
+            if (std.mem.eql(u8, text, "none")) {
+                try self.ctx.errAt(node, "{s} is an integer; `none` is the absent optional", .{what});
+                return null;
+            }
             const id = self.lookupCt(node) orelse {
                 if (isBuiltinTypeName(self.ctx, text)) return self.notAType(node, what);
                 try self.ctx.errAt(node, "use of unbound name `{s}`", .{text});
@@ -1517,6 +1540,19 @@ pub const TypeResolver = struct {
                 try self.ctx.errAt(node, "{s} is an integer; `{s}` is a compile-time `{s}`", .{ what, text, try sema.formatType(self.ctx, sym.ty) });
                 return null;
             }
+            if (sym.kind == .local and sym.flags.fixed) {
+                if (sym.ty == self.ctx.types.unknown_id and sym.scope == sema.module_scope) {
+                    // A module constant a signature names, checked later.
+                    try self.ctx.errAt(node, "{s} is an integer; `{s}` is not an integer constant", .{ what, text });
+                    return null;
+                } else if (!self.isPoison(sym.ty) and !sema.isInteger(self.ctx, sym.ty)) {
+                    const ty = try sema.formatType(self.ctx, sym.ty);
+                    try self.ctx.errAt(node, "{s} is an integer; `{s}` is {s} `{s}`", .{ what, text, an(ty), ty });
+                    return null;
+                }
+            }
+        } else if (node.isKind(.member)) {
+            if (try self.memberNotCtInt(node, what)) return null;
         } else if (try self.mentionsCtParam(node)) {
             try self.ctx.errAt(node, "{s} `{s}` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; use a parameter or a constant", .{ what, text });
             return null;
@@ -1540,8 +1576,44 @@ pub const TypeResolver = struct {
         };
     }
 
+    /// Report why `module.NAME` is not a compile-time integer, when that
+    /// is something other than its value; false when nothing was reported.
+    fn memberNotCtInt(self: *TypeResolver, node: Sexp, what: []const u8) Error!bool {
+        const obj = ir.Member.object(node);
+        const module_name = identAt(self.ctx.source, obj) orelse return false;
+        const mod_id = self.ctx.lookup(self.scope, module_name) orelse {
+            try self.ctx.errAt(obj, "use of unbound name `{s}`", .{module_name});
+            return true;
+        };
+        if (self.ctx.symbols.items[mod_id].kind != .module) return false;
+        const foreign = self.ctx.foreign_semas.get(self.ctx.module_refs.get(mod_id) orelse return false) orelse return false;
+        const name = identAt(self.ctx.source, ir.Member.name(node)) orelse return false;
+        const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse {
+            try self.ctx.errAt(node, "no member `{s}` in module `{s}`", .{ name, module_name });
+            return true;
+        };
+        const fsym = foreign.symbols.items[fid];
+        if (!fsym.flags.is_public) {
+            try self.ctx.errAt(node, "`{s}.{s}` is not public; mark it `pub` in module `{s}` to expose it across module boundaries", .{ module_name, name, module_name });
+            return true;
+        }
+        switch (fsym.kind) {
+            .nominal_type, .generic_type, .type_alias => {
+                _ = try self.notAType(node, what);
+                return true;
+            },
+            .local => if (!sema.isInteger(foreign, fsym.ty) and !sema.containsPoison(foreign, fsym.ty)) {
+                const ty = try sema.formatTypeIn(foreign, self.ctx.arena.allocator(), fsym.ty);
+                try self.ctx.errAt(node, "{s} is an integer; `{s}.{s}` is {s} `{s}`", .{ what, module_name, name, an(ty), ty });
+                return true;
+            },
+            else => {},
+        }
+        return false;
+    }
+
     fn notAType(self: *TypeResolver, node: Sexp, what: []const u8) Error!?TypeId {
-        try self.ctx.errAt(node, "`{s}` is a type; {s} is an integer, a constant, or a compile-time parameter", .{ try self.sourceText(node), what });
+        try self.ctx.errAt(node, "`{s}` is a type; {s} is an integer, a constant, a compile-time parameter, or arithmetic on them", .{ try self.sourceText(node), what });
         return null;
     }
 
