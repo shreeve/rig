@@ -1,0 +1,66 @@
+# A bare `.variant` compared with a payload enum tests the variant only,
+# whatever the payloads hold: handles, functions, or a generic `T` that
+# has no `==`. It compares no payload, so it needs none to be equatable.
+# A temporary that owns a resource is dropped once tested.
+
+struct N
+  n: Int
+
+enum Slot
+  held(p: *N)
+  empty
+
+enum Op
+  f(g: fun(Int) -> Int)
+  none_
+
+enum Opt[T]
+  some(value: T)
+  nothing
+
+struct R
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+enum D
+  r(res: R)
+  e
+
+fun make() -> Slot
+  .held(p: *N(n: 2))
+
+fun maybe() -> Slot?
+  .empty
+
+fun owned(n: Int) -> D
+  .r(res: R(n: n))
+
+fun is_nothing[T](o: ?Opt[T]) -> Bool
+  o == .nothing
+
+fun inc(x: Int) -> Int
+  x + 1
+
+sub main()
+  s: Slot = .held(p: *N(n: 1))
+  e: Slot = .empty
+  print(s == .empty, .empty == s, s != .empty, e == .empty)
+  o: Slot? = .empty
+  n: Slot? = none
+  print(o == .empty, n == .empty, n != .empty)
+  op: Op = .f(g: inc)
+  print(op == .none_, op != .none_)
+  a: Opt[fun(Int) -> Int] = .some(value: inc)
+  b: Opt[*N] = .nothing
+  print(is_nothing(?a), is_nothing(?b))
+  print(make() == .empty, maybe() == .empty, owned(3) == .e)
+
+# expect:
+# false false true true
+# true false true
+# false true
+# false true
+# drop 3
+# false true false

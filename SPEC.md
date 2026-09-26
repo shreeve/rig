@@ -1431,7 +1431,10 @@ equals only `none` and a value compares with an optional as its value;
 arrays and `[]T` slices, element by element; structs, field by field;
 and payload enums, by variant and then payload. A variant literal,
 `.red` or `.dot(at: p)`, takes its enum type from the other operand, on
-either side. Floats compare as IEEE numbers wherever they are, so a
+either side. A bare `.variant` tests only which variant a value holds,
+so it compares with any enum, or optional of one, whatever its payloads
+hold; a payload literal compares the payload too, so the enum must have
+`==`. Floats compare as IEEE numbers wherever they are, so a
 struct holding a NaN is not equal to itself. A borrowed operand (`?P`,
 `!P`) compares as the value it reaches. A method named `eq` is never
 called by `==`.
@@ -1486,6 +1489,40 @@ sub main
 ```error
 `==` is not defined for `Link`: field `to` is a handle `*Node`, which could compare by identity or by content
 operator `<` orders numbers, Strings, and `[]U8` slices; got `Link`
+```
+
+```rig
+struct Node
+  n: Int
+
+enum Slot
+  held(to: *Node)
+  empty
+
+sub main
+  s: Slot = .held(to: *Node(n: 1))
+  print(s == .empty, s != .empty)
+```
+
+```output
+false true
+```
+
+```rig reject
+struct Node
+  n: Int
+
+enum Slot
+  held(to: *Node)
+  empty
+
+sub main
+  s: Slot = .empty
+  print(s == .held(to: *Node(n: 1)))
+```
+
+```error
+`==` is not defined for `Slot`: field `held.to` is a handle `*Node`
 ```
 
 `and`, `or`, and `not` take `Bool`s; `not` binds looser than comparisons,

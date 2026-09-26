@@ -2315,6 +2315,19 @@ pub const Emitter = struct {
             try self.emitBare(operands[i]);
             return self.w.writeAll(")");
         };
+        // A bare `.variant` beside a payload enum tests the variant only.
+        if (is_eq) for ([2]usize{ 0, 1 }) |i| {
+            const value = operands[1 - i];
+            if (!operands[i].isKind(.enum_lit) or !self.isPayloadEnumOperand(value)) continue;
+            // A temporary that owns a resource is dropped once tested.
+            const temp = !isPlace(value) and self.kindOf(self.typeOf(value).?) != null;
+            if (kind == .@"!=") try self.w.writeAll("!");
+            try self.w.writeAll(if (temp) "rig.isVariantDiscard(" else "rig.isVariant(");
+            try self.emitExpr(value);
+            try self.w.writeAll(", ");
+            try self.emitExpr(operands[i]);
+            return self.w.writeAll(")");
+        };
         if (is_eq and self.comparesStructurally(operands)) {
             if (kind == .@"!=") try self.w.writeAll("!");
             return self.emitCall2("rig.eql(", operands, ")");
@@ -3691,6 +3704,17 @@ pub const Emitter = struct {
             if (!scalar) return true;
         }
         return false;
+    }
+
+    /// An operand whose value is an enum with payloads, or an optional
+    /// of one.
+    fn isPayloadEnumOperand(self: *Emitter, e: Sexp) bool {
+        const ty = self.typeOf(e) orelse return false;
+        const t = switch (self.sema.types.get(self.peelBorrows(ty))) {
+            .optional => |inner| inner,
+            else => self.peelBorrows(ty),
+        };
+        return self.hasPayloadVariants(t);
     }
 
     /// A number, Bool, plain enum, or error: Zig's `==` compares it.

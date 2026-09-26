@@ -210,6 +210,23 @@ fn eqlAs(comptime T: type, a: T, b: T) bool {
     }
 }
 
+/// `x == .tag` for a tagged union, or an optional of one: whether `x`
+/// holds that variant, whatever its payload.
+pub fn isVariant(x: anytype, comptime tag: @EnumLiteral()) bool {
+    if (@typeInfo(@TypeOf(x)) == .optional) {
+        const v = x orelse return false;
+        return isVariant(v, tag);
+    }
+    return std.meta.activeTag(x) == tag;
+}
+
+/// `isVariant` for a temporary that owns a resource: the temporary is
+/// dropped.
+pub fn isVariantDiscard(x: anytype, comptime tag: @EnumLiteral()) bool {
+    defer discard(x);
+    return isVariant(x, tag);
+}
+
 /// Compared with `==` element by element, as `std.mem.eql` does.
 fn isScalar(comptime T: type) bool {
     return switch (@typeInfo(T)) {

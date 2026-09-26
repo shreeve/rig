@@ -1933,16 +1933,16 @@ const Checker = struct {
         const op = @tagName(e.kind().?);
         const l = ir.get(e, .left);
         const r = ir.get(e, .right);
-        // A contextual operand (`.red`, `none`) takes the type of the
-        // value the other side gives.
-        if (isContextual(self.ctx.source, l) and !isContextual(self.ctx.source, r)) {
-            const ty = try self.synthExpr(r);
-            try self.checkExpr(l, try self.readThrough(r, ty, sema.unwrapBorrows(self.ctx, ty)));
-            return self.t().bool_id;
-        }
-        if (isContextual(self.ctx.source, r)) {
-            const ty = try self.synthExpr(l);
-            try self.checkExpr(r, try self.readThrough(l, ty, sema.unwrapBorrows(self.ctx, ty)));
+        // A contextual operand (`.red`, `.dot(at: p)`, `none`) takes the
+        // type of the value the other side gives. `none` and a bare
+        // `.variant` test which variant it holds, and compare no payload;
+        // a payload literal compares its payload, so it needs `==`.
+        if (isContextual(self.ctx.source, l) or isContextual(self.ctx.source, r)) {
+            const lit, const other = if (isContextual(self.ctx.source, r)) .{ r, l } else .{ l, r };
+            const ty = try self.synthExpr(other);
+            const reached = try self.readThrough(other, ty, sema.unwrapBorrows(self.ctx, ty));
+            try self.checkExpr(lit, reached);
+            if (lit.isKind(.call)) try self.checkEquatable(reached, l, op);
             return self.t().bool_id;
         }
         // A borrowed operand compares as the value it reaches.
