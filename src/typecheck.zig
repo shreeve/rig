@@ -3523,8 +3523,12 @@ const Checker = struct {
         if (ct == null) for (f.ct_params, 0..) |slot, i| {
             if (sema.typeParamOf(self.ctx, slot) != null) continue;
             if (self.intSlot(f, i)) |sym| if (self.signatureUses(f, sym)) continue;
+            // A rejected parameter type may be what would have held it.
+            for (f.params) |p| if (sema.containsPoison(self.ctx, p)) return null;
             const parens = if (f.params.len > skip) "(...)" else "()";
-            if (args.len == 1 and args[0].isKind(.array)) {
+            // `f [1, 2](...)` for `f[1, 2](...)`: the only argument is
+            // an array, where the function takes none.
+            if (f.params.len == skip and args.len == 1 and args[0].isKind(.array)) {
                 const arg = try self.sourceText(args[0]);
                 try self.err(pos, "compile-time arguments touch the name: `{s}{s}{s}`", .{ callee, arg, parens });
             } else {

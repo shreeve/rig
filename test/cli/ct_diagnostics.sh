@@ -76,3 +76,23 @@ kinds.rig:3:11: error: an array length is an integer; \`none\` is the absent opt
 # type holding one, and a fill where its annotation is rejected, are not
 # reported again.
 expect_eq "$(errors_of "$ROOT/test/reject/types/array_too_large.rig" | wc -l | tr -d ' ')" "12" "one diagnostic per value too large"
+
+# An array argument is not read as brackets written apart from the name
+# when the function takes run-time parameters, and a rejected parameter
+# type leaves nothing to say about the call.
+cat >touch.rig <<'EOF2'
+fun f[n: Bool](xs: [n]Int) -> Int
+  1
+
+fun g[n: Int](xs: [n + 1]Int) -> Int
+  1
+
+fun h[n: Int](xs: [3]Int) -> Int
+  n
+
+sub main()
+  print(f([1, 2, 3]), g([1, 2]), h([1, 2, 3]))
+EOF2
+expect_eq "$(errors_of touch.rig)" "touch.rig:1:21: error: an array length is an integer; \`n\` is a compile-time \`Bool\`
+touch.rig:4:20: error: an array length \`n + 1\` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; use a parameter or a constant
+touch.rig:11:34: error: \`h\` takes 1 compile-time argument in brackets: \`h[...](...)\`" "no bracket hint for an array argument"
