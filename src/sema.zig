@@ -1334,7 +1334,8 @@ pub const TypeInfo = packed struct(u16) {
     plain: bool = false,
     /// Holds a borrow, or a write borrow (see `Borrows`).
     borrows: Borrows = .{},
-    _: u1 = 0,
+    /// Is or mentions `invalid` or `unknown`: a diagnostic was reported.
+    poison: bool = false,
     /// How deeply wrappers and generic instances nest in it (saturating).
     depth: u8 = 0,
 };
@@ -1567,12 +1568,13 @@ fn borrowEdges(ctx: *SemContext, ty: TypeId, owner: SymbolId, edges: *std.ArrayL
 /// were interned before it.
 fn computeTypeInfo(ctx: *SemContext, id: TypeId) std.mem.Allocator.Error!TypeInfo {
     const ty = ctx.types.get(id);
-    var info: TypeInfo = .{ .has_type_var = ty == .type_var };
+    var info: TypeInfo = .{ .has_type_var = ty == .type_var, .poison = ty == .invalid or ty == .unknown };
     var deepest: ?u8 = null;
     var it: TypeChildren = .{ .ty = ty };
     while (it.next()) |c| {
         const ci = ctx.type_info.items[c];
         info.has_type_var = info.has_type_var or ci.has_type_var;
+        info.poison = info.poison or ci.poison;
         deepest = @max(deepest orelse 0, ci.depth);
     }
     info.depth = switch (ty) {
@@ -1989,6 +1991,12 @@ pub fn isGenericFn(ctx: *const SemContext, f: FunctionType) bool {
 /// Does `ty_id` mention a generic parameter anywhere?
 pub fn containsTypeVar(ctx: *const SemContext, ty_id: TypeId) bool {
     return ctx.typeInfo(ty_id).has_type_var;
+}
+
+/// Whether `ty_id` is or mentions a poison type (`invalid`, `unknown`),
+/// which only follows a diagnostic.
+pub fn containsPoison(ctx: *const SemContext, ty_id: TypeId) bool {
+    return ctx.typeInfo(ty_id).poison;
 }
 
 /// Whether a value of `ty` holds a `Cell` inline (not behind a handle,

@@ -1,7 +1,8 @@
 # A type parameter neither the arguments nor the type expected of the
-# result determine cannot be inferred: `none` and `.variant` say nothing
-# about it, and a parameter used nowhere in the signature has nothing
-# at all. The hint marks the type to give with `...`.
+# result determine cannot be inferred: `none` says nothing about it, and
+# a parameter used nowhere in the signature has nothing at all. The hint
+# marks the type to give with `...`. A `.variant` with no type to take
+# is reported itself, and the parameter it leaves unbound is not.
 
 enum Color
   red
@@ -21,6 +22,6 @@ sub main()
   print(first(none, none))
   print(pick(.red))
 
-# error: 20:9: cannot infer `T` for `make` from its arguments or the type expected of its result; give `T` in brackets: `make[...](...)`
-# error: 21:9: cannot infer `T` for `first` from its arguments or the type expected of its result; give `T` in brackets: `first[...](...)`
-# error: 22:9: cannot infer `T` for `pick` from its arguments or the type expected of its result; give `T` in brackets: `pick[...](...)`
+# error: 21:9: cannot infer `T` for `make` from its arguments or the type expected of its result; give `T` in brackets: `make[...](...)`
+# error: 22:9: cannot infer `T` for `first` from its arguments or the type expected of its result; give `T` in brackets: `first[...](...)`
+# error: 23:14: enum literal `.red` needs a known enum type; write `Type.red` or annotate the binding

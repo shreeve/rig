@@ -3516,6 +3516,9 @@ const Checker = struct {
         /// The type expected of the result does not have the declared
         /// result's shape.
         result_mismatch: bool = false,
+        /// An argument's type or the expected type holds poison: a
+        /// diagnostic about it explains a parameter left unbound.
+        poisoned: bool = false,
     };
 
     /// Match each argument's type against the field or parameter it
@@ -3555,9 +3558,14 @@ const Checker = struct {
             }
             const pat = pattern orelse continue;
             if (!sema.containsTypeVar(self.ctx, pat)) continue;
-            try self.bindArg(&inf, pat, try self.argType(value), @intCast(number), 0);
+            const actual = try self.argType(value);
+            if (sema.containsPoison(self.ctx, actual)) inf.poisoned = true;
+            try self.bindArg(&inf, pat, actual, @intCast(number), 0);
         }
-        if (result) |r| try self.bindExpected(&inf, r);
+        if (result) |r| {
+            if (sema.containsPoison(self.ctx, r.expected)) inf.poisoned = true;
+            try self.bindExpected(&inf, r);
+        }
         for (inf.bound, 0..) |*b, i| for (inf.literals.items) |lit| {
             if (lit.param != i) continue;
             // Checking the literal against the expected type's binding
@@ -3706,6 +3714,7 @@ const Checker = struct {
             const pname = self.ctx.symbols.items[param].name;
             if (b.ty == sema.type_invalid) {
                 ok = false;
+                if (inf.poisoned) continue;
                 // An argument of another shape says why, as for any call.
                 if (inf.mismatch) |m| if (m.arg <= args.len) {
                     try self.errAt(args[m.arg - 1], "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(m.pattern), try self.tyName(m.actual) });
@@ -4326,6 +4335,7 @@ const Checker = struct {
         for (params, inf.bound) |p, b| {
             const pname = self.ctx.symbols.items[p].name;
             if (b.ty == sema.type_invalid) {
+                if (inf.poisoned) return null;
                 try self.err(pos, "cannot infer `{s}` for `{s}` from the arguments; name it (`{s}[...]`), or give the type where the value goes (`x: {s}[...] = ...`)", .{ pname, sym.name, sym.name, sym.name });
                 return null;
             }
