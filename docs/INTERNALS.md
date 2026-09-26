@@ -92,7 +92,7 @@ node it produces, filling the kind's roles (declared in the grammar's
 pattern elements:
 
 ```text
-fun = FUN name:name [params:params] [returns:returns] body:block → (fun)
+fun = FUN name:name [tparams:tparams] [params:params] [returns:returns] body:block → (fun)
 ```
 
 `[...]` is optional (a role whose element is absent is `_`), and an
@@ -201,9 +201,10 @@ that need to inspect the tree:
   `(call (member (write (member x v)) push) 1)`, the tree
   `(!x.v).push(1)` gives. Postfixes after the call stay outside it
   (`!v.pop()?`), and in a chain the place is its head
-  (`!a.b().c(x)` is `(!a).b().c(x)`). A bracket list between the method
+  (`!a.b().c(x)` is `(!a).b().c(x)`). A bracket list between the member
   and its call (`!v.put[2](x)`) may be compile-time arguments, so the
-  member before it is taken as the method. A chain that is all place
+  member before it is taken as the method; when it is a field holding
+  functions instead (`!p.fs[0]()`), the checker rejects the sigil. A chain that is all place
   (`!x.v`), whose head is called (`!f(x).g()`), or that is
   parenthesized (`!(v.pop())`) keeps the sigil outside. The grammar
   drops parentheses, so the last is told by span: every node of the
@@ -332,15 +333,19 @@ A few kinds serve more than one surface form:
   qualified type `module.Type`; the other type kinds (`optional`,
   `shared`, `fun_type`, ...) appear only in type positions.
 - A bracket list touching a value is `(index object index)` with one
-  argument and `(inst object args...)` with more. The parser cannot
-  tell `xs[0]` from `Vec[Int]` or `check[.strict]`, so sema decides by
-  what the object names: a generic type or a function (named directly,
-  through its module, or through its type, or a method of the
-  receiver's type) makes it compile-time arguments, and anything else
-  an index. Sema records each bracket list it reads as compile-time
-  arguments (`instanceOf`, below); the IR node is unchanged, and every
-  pass asks before treating an `index` as an element. An `inst` that is
-  not compile-time arguments is rejected.
+  argument and `(inst object args...)` with more; in a type,
+  `Vec[Int]` is `(generic_inst Vec Int)`. The parser cannot tell
+  `xs[0]` from `Vec[Int]` or `check[.strict]`, so sema decides by what
+  the object names (`instTarget`): a generic type or a function (named
+  directly, through its module, or through its type, or a method of
+  the receiver's type) makes it compile-time arguments, and anything
+  else an index. Sema records each bracket list it reads as
+  compile-time arguments (`instanceOf`, below); the IR node is
+  unchanged, and every pass asks before treating an `index` as an
+  element. An `inst` that is not compile-time arguments is rejected. A
+  type argument in an expression is an expression read as a type
+  (`typeArg`); `[]T`, `[N]T`, and function types have no such
+  spelling, and the parser wrapper reports them with a hint.
 - A declaration's compile-time parameters are its `tparams` group (a
   `fun` or `sub`'s `[mode: Mode]`, a generic type's `[T, U]`): a bare
   name is a type parameter, `(: name T)` a compile-time value. The list
@@ -504,34 +509,45 @@ backend cannot express yet is rejected with a diagnostic that says so.
 ### Generics
 
 A generic type's or generic function's body is checked once, with its
-type parameters as `type_var` types. Operations that only some types
-support (`+`, `>`, `==`, a literal beside a `T`, copying a `T`) record
-a `Requirement` on the parameter (`generic_requirements`); nothing
-about a `T` is assumed that is not recorded. A function's type
-parameters are `generic_param` symbols in its scope, and its
-`FunctionType.ct_params` holds the `type_var` itself in a type
-parameter's slot (a compile-time value parameter's type may not
-mention one), so a signature says which of its compile-time
-parameters are types.
+type parameters as `type_var` types. What the body does with a `T` that
+only some types support records a `Requirement` on the parameter in
+`generic_requirements`, with the position of the operation: arithmetic,
+ordering, `==`, integer operators, negation, a float or integer literal
+beside a `T`, a constant shift, and `plain` where the body copies a
+value holding a `T` in a way the ownership checker does not see:
+discarding it, leaving it as a temporary, cloning it, reading it out of
+a `Vec` or `Cell`, putting it in an array, or moving it out of a
+borrow. Nothing about a `T` is assumed that is not recorded. A function's type parameters are `generic_param`
+symbols in its scope, and its `FunctionType.ct_params` holds the
+`type_var` itself in a type parameter's slot (a compile-time value
+parameter's type may not mention one), so a signature says which of its
+compile-time parameters are types.
 
 Instances come from the program: `instantiation_sites` holds each
 generic type instance and where it is first spelled or inferred, and
 `fn_instances` each generic function instance (`FnInstance`: the
 parameters and their arguments; a method's start with its type's,
-bound to the receiver's) and the call that makes it. A call records its
-instance when it is checked: the bracket list gives every compile-time
+bound to the receiver's) and the call that makes it, kept unique by
+`fn_instance_set`. A call records its instance when it is checked
+(`instantiateCall`): the bracket list gives every compile-time
 argument, or else `inferCallTypeArgs` matches each parameter's type
-against its argument's; a literal binds its default type only where
-nothing else binds the parameter, and disagreements are reported. An
-instance over type parameters (a generic body using `Opt[T]` or calling
-`max(x, y)` with `x: T`) goes in `generic_uses` or `generic_fn_uses`
-instead, and `expandInstantiations` makes it concrete for each
-instance of the body it is in, at that instance's site, until nothing
-new appears; an instance nesting deeper than 24 levels is reported as
-polymorphic recursion. `checkGenericInstantiations` then checks every
-instance against the requirements, reporting at the site with a note
+against its argument's. `inferBindings` does the matching, for generic
+calls and generic constructors alike: a literal binds its default type
+only where nothing else binds the parameter, an argument of another
+shape is reported as a type mismatch, and disagreements are reported
+with a suggested bracket list or conversion. An instance over type
+parameters (a generic body using `Opt[T]` or calling `max(x, y)` with
+`x: T`) goes in `generic_uses` or `generic_fn_uses` instead, and
+`expandInstantiations` makes it concrete for each instance of the body
+it is in, at that instance's site, until nothing new appears; an
+instance nesting deeper than 24 levels is reported as ever deeper
+instances. Each work item keeps its `InstanceRoot`, the instance the
+program spelled, so a diagnostic names what the user wrote
+(`max[Point]`) even for an instance reached through other bodies.
+`checkGenericInstantiations` then checks every instance against the
+requirements (`checkRequirements`), reporting at the site with a note
 at the operation, and the ownership checker checks each against the
-body's ownership assumptions (below).
+body's ownership assumptions ([Ownership](#ownership)).
 
 ### Diagnostics
 
@@ -640,12 +656,14 @@ to hold a borrow, which keeps the checker sound after errors.
 
 **Generic bodies** are walked once, with each type parameter's values
 treated as owning (moved, dropped, never copied implicitly) and as
-holding no borrow. A body that copies a `T` records that (`plain_reqs`),
-and `checkInstantiations` rejects an instance whose argument there owns
-a resource, and a type argument that may hold a borrow, for a generic
-function and for a generic type with methods. A call site sees the
-instance's signature, so moves, borrows, and the loans a result
-carries are checked there with the real types.
+holding no borrow. A body that copies a `T`, or takes (moves, drops,
+reassigns) a loop element of generic type from a collection the loop
+does not consume, records that in `plain_reqs`, with its position.
+`checkInstantiations` then rejects an instance whose argument there
+owns a resource, with a note at the copy, and a type argument that may
+hold a borrow, for a generic function and for a generic type with
+methods. A call site sees the instance's signature, so moves, borrows,
+and the loans a result carries are checked there with the real types.
 
 ## Emit
 
@@ -702,6 +720,9 @@ lower is an internal error: sema must have rejected it.
   needs the receiver first): `fun times[n: Int](?self)` is
   `fn times(self: P, comptime n: i64) i64`. A call passes its bracket
   arguments in the same place, and a statement `show[3]` is `show(3)`.
+  A compile-time value, or a `=!` constant, read in run-time arithmetic
+  goes through `rig.rt(n)`, so Zig computes it when the program runs,
+  with the overflow checks Rig specifies, rather than folding it.
 - **Generic functions** are Zig generic functions: a type parameter is
   `comptime T: type`, and a call passes its type arguments, inferred
   or given (`genericCallOf`): `max(3, 7)` is `max(i64, 3, 7)`. Zig
@@ -750,6 +771,7 @@ reviewed.
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `Signal(T)` | a value and a `Vec` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
+| `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
 | `index`, `at`, `slice`, `div` | bounds-checked indexing and slicing, which panic in every build mode; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `discard`, `isNone`, `eqlOptStr`, `eqlOpt`, `take` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; compare optional strings and optional errors; clear an alive flag as a value moves out |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
