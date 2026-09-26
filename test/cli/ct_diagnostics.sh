@@ -96,3 +96,18 @@ EOF2
 expect_eq "$(errors_of touch.rig)" "touch.rig:1:21: error: an array length is an integer; \`n\` is a compile-time \`Bool\`
 touch.rig:4:20: error: an array length \`n + 1\` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; use a parameter or a constant
 touch.rig:11:34: error: \`h\` takes 1 compile-time argument in brackets: \`h[...](...)\`" "no bracket hint for an array argument"
+
+# A constructor whose instance is rejected says nothing more about its
+# arguments' types.
+cat >ctor.rig <<'EOF2'
+struct Ring[T, n: Int]
+  items: [n]T
+
+fun f() -> Int
+  3
+
+sub main()
+  r = Ring[Int, f()](items: [])
+  print(r)
+EOF2
+expect_eq "$(errors_of ctor.rig)" "ctor.rig:8:17: error: compile-time argument 2 of \`Ring\` must be known at compile time; pass a literal, an enum value, a module constant, a compile-time parameter, a \`=!\` binding of one, or arithmetic on them" "a rejected instance's arguments"

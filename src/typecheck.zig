@@ -98,8 +98,9 @@ const Checker = struct {
     /// The `!x` being checked where a write borrow is expected, the one
     /// place a write borrow of a `Bool` is not read as its value.
     lent_write: Sexp = .nil,
-    /// Checking an expression where a rejected type is expected: a size
-    /// it would have is not reported.
+    /// Checking an expression where a rejected type is expected, or an
+    /// argument of a call that cannot be checked: a size it would have is
+    /// not reported.
     under_poison: bool = false,
     /// The label, and the value when it is used as one, of the loop
     /// about to be checked.
@@ -3206,11 +3207,17 @@ const Checker = struct {
         return self.skipCall(args);
     }
 
+    /// The arguments of a call that cannot be checked: each is checked
+    /// on its own, and nothing that needs a parameter's type (`[]` has
+    /// none) is reported.
     fn synthArgs(self: *Checker, args: []const Sexp) Error!void {
+        const saved = self.under_poison;
+        defer self.under_poison = saved;
+        self.under_poison = true;
         for (args) |a| {
-            if (a.isKind(.kwarg)) {
-                _ = try self.synthExpr(ir.Kwarg.value(a));
-            } else _ = try self.synthExpr(a);
+            const e = if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a;
+            if (e.isKind(.array) and ir.Array.elems(e).len == 0) continue;
+            _ = try self.synthExpr(e);
         }
     }
 
