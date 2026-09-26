@@ -1,0 +1,49 @@
+# Each mistake around write slices gets one diagnostic that names it,
+# and no hint that suggests code which fails too.
+
+struct S
+  arr: [2]Int
+
+struct R
+  s: []Int
+
+fun t() -> Bool
+  true
+
+fun by_value(a: [2]Int) -> ![]Int
+  !a[..]
+
+sub captured()
+  a = [1, 2]
+  w = !a[..]
+  f = |<w| w
+  print(f().len)
+
+sub shared()
+  h: *S = *S(arr: [1, 2])
+  h.arr.fill(4)
+
+sub looped()
+  grid = [[1, 2], [3, 4]]
+  w = !grid[0][..]
+  for row in grid
+    print(row)
+  w[0] = 5
+
+sub stored()
+  a = [1, 2]
+  rs = [R(s: ?a[..])]
+  if t()
+    loc = [7, 7]
+    w = !rs[..]
+    w[0] = R(s: ?loc[..])
+  print(rs[0].s)
+
+sub main()
+  captured()
+
+# error: 14:4: cannot write-borrow parameter `a`
+# error: 19:12: bare use of captured write borrow `w` in return value would hand the unique borrow out of the closure environment, again at each call; use it inside the closure instead
+# error: 24:3: cannot write-borrow through a shared handle
+# error: 29:14: use of `grid` while a write borrow is live
+# error: 39:5: cannot store a borrow of `loc` in `w[...]`: `w` borrows `rs`, which outlives it

@@ -586,6 +586,8 @@ pub const DeferredCheck = union(enum) {
     /// `[N]T` spelled at `at`, with `T` spelled at `node`; `ty` is the
     /// array type, when its size is still to be checked.
     array: struct { node: Sexp, elem: TypeId, at: Sexp, ty: ?TypeId },
+    /// `[]T`, with `T` spelled at `node`.
+    slice: struct { node: Sexp, elem: TypeId },
     /// `Vec[T]`, `Cell[T]`, or `Signal[T]` spelled at `pos`.
     builtin: struct { pos: u32, sym: SymbolId, args: []const TypeId },
     /// `*fun(...) -> R`, with the function type spelled at `node`.
@@ -607,6 +609,20 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
             try sema.heldTypeVars(ctx, c.elem, &held, ctx.allocator);
             for (held.items) |param| {
                 try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .plain, .pos = ctx.startOf(c.node), .op = "keeps in an array a value" });
+            }
+        },
+        // A slice views plain data only: arrays hold nothing else, and a
+        // Vec of resources cannot be sliced.
+        .slice => |c| {
+            if (sema.typeHasDropGlue(ctx, c.elem)) {
+                try ctx.errAt(c.node, "slices cannot view values that own resources (`{s}`); borrow the Vec instead", .{try sema.formatType(ctx, c.elem)});
+                return;
+            }
+            var held: std.ArrayListUnmanaged(SymbolId) = .empty;
+            defer held.deinit(ctx.allocator);
+            try sema.heldTypeVars(ctx, c.elem, &held, ctx.allocator);
+            for (held.items) |param| {
+                try ctx.generic_requirements.append(ctx.allocator, .{ .param = param, .req = .plain, .pos = ctx.startOf(c.node), .op = "views in a slice a value" });
             }
         },
         .builtin => |c| if (try builtinElementError(ctx, c.sym, c.args)) |msg| try ctx.err(c.pos, "{s}", .{msg}),
@@ -1420,8 +1436,10 @@ pub const TypeResolver = struct {
                         return t.invalid_id;
                     },
                     .optional, .borrow_read, .borrow_write, .weak, .slice => {
-                        const inner = try self.resolveType(if (head == .weak) ir.Weak.operand(sexp) else ir.get(sexp, .type));
+                        const inner_node = if (head == .weak) ir.Weak.operand(sexp) else ir.get(sexp, .type);
+                        const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
+                        if (head == .slice) try self.checkWhenResolved(.{ .slice = .{ .node = inner_node, .elem = inner } });
                         if (head == .weak and sema.isBorrowType(self.ctx, inner)) return self.handleOfBorrow(sexp, inner);
                         return self.ctx.intern(switch (head) {
                             .optional => .{ .optional = inner },
@@ -2005,10 +2023,11 @@ pub fn isNumericTypeName(name: []const u8) bool {
 // =============================================================================
 // Built-in generic types
 //
-// `Cell[T]`, `Vec[T]`, and `Signal[T]`, registered in every module scope
-// before user declarations. Their methods are ordinary method Fields on
-// generic symbols, so calls go through the same lookup and substitution as
-// user generics; the runtime (`runtime.zig`) implements them.
+// `Cell[T]`, `Vec[T]`, and `Signal[T]`, and the enum `Endian`, registered
+// in every module scope before user declarations. The generics' methods
+// are ordinary method Fields on generic symbols, so calls go through the
+// same lookup and substitution as user generics; the runtime
+// (`runtime.zig`) implements them.
 // =============================================================================
 
 const builtin_pos = sema.builtin_decl_pos;
@@ -2043,6 +2062,23 @@ pub fn registerBuiltins(ctx: *SemContext, module_scope: ScopeId) Error!void {
             try method(ctx, "clear", .write, &.{write_self}, ctx.types.void_id),
             try method(ctx, "get", .read, &.{ read_self, ctx.types.int_id }, opt_t),
             try method(ctx, "pop", .write, &.{write_self}, opt_t),
+        });
+    }
+
+    // Endian: the byte order `read` and `write` take, `.little` or `.big`.
+    {
+        const sym = try ctx.addSymbol(.{
+            .name = "Endian",
+            .kind = .nominal_type,
+            .ty = ctx.types.unknown_id,
+            .decl_pos = builtin_pos,
+            .scope = module_scope,
+        });
+        try ctx.addToScope(module_scope, sym);
+        ctx.endian_sym_id = sym;
+        try setFields(ctx, sym, &.{
+            .{ .name = "little", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
+            .{ .name = "big", .ty = ctx.types.void_id, .decl_pos = builtin_pos, .is_variant = true },
         });
     }
 

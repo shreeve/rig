@@ -1,0 +1,17 @@
+# `read` and `write` take a type parameter as their `T`: each instance
+# reads or writes its own number type.
+
+fun get[T](b: []U8) -> T
+  b.read[T, .big](0)
+
+sub put[T](b: ![]U8, v: T)
+  !b.write[T, .little](0, v)
+
+sub main()
+  buf: [8]U8 = [8 of 0]
+  put[U32](!buf[..], 0x01020304)
+  put(!buf[4..], I16(-2))
+  print(buf, get[U16](?buf[..]), get[F32](?buf[..]) > 0.0)
+
+# expect:
+# [4, 3, 2, 1, 254, 255, 0, 0] 1027 true

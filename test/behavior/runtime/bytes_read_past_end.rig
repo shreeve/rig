@@ -1,0 +1,14 @@
+# A `read` whose bytes run past the end panics, even by one byte.
+
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  b: [4]U8 = [1, 2, 3, 4]
+  print(b.read[U16, .big](rt(2)))
+  print(b.read[U16, .big](rt(3)))
+
+# expect-panic: byte read out of range
+
+# expect:
+# 772

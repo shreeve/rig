@@ -72,7 +72,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/diag.zig` | diagnostics: source ranges, line and column, the printed format |
 | `src/modules.zig` | the module graph: loads each `use`d file and checks modules in dependency order |
 | `src/sema.zig` | sema's front door: types, symbols, scopes, what types hold (drop glue), the facts table; the entry point `check` |
-| `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Signal` as built-in generics, symbol resolution, declaration types and their checks |
+| `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Signal` as built-in generics and `Endian` as a built-in enum, symbol resolution, declaration types and their checks |
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/ownership.zig` | the ownership checker |
 | `src/emit.zig` | Zig code generation |
@@ -132,6 +132,7 @@ parser distinct tokens:
 | `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
 | keywords | one token each | every keyword is reserved; `new` only at statement start |
 | `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
+| `xs[a..]`, `xs[..]` vs `xs[a..b]` | `DOTDOT_OPEN` vs `..` | a `..` whose next token is `]` (past a line break, which is whitespace inside brackets) ends an open range, so `xs[a == b..]` reduces `a == b` before it; a `..` that starts an operand (`xs[..b]`) needs no mark, since no expression starts with one |
 | `t.type`, `(type: 1)`, a member `type: Int`, `fun type` in a member list | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`; sema rejects a keyword parameter |
 
 The grammar's own shape settles the rest:
@@ -368,6 +369,10 @@ A few kinds serve more than one surface form:
   fills, a type or a compile-time integer.
 - `(array_fill size value)` is `[n of x]`; `(array elems...)` is a list
   of elements.
+- `..` is `left? right?`: a range with both ends, except as a slice's
+  index, where a side may be `_` (`xs[a..]`, `xs[..b]`, `xs[..]`). A
+  range with a side left out anywhere else is a parse error, which the
+  parser wrapper reports at the `..`.
 - A receiver in a parameter list, `?self`, `!self`, or `<self`, is
   `(read self)`, `(write self)`, or `(move self)`; sema reads it as
   `self: ?Self`, `self: !Self`, or `self: Self`.
@@ -479,7 +484,10 @@ later pass reads. It runs these steps in order:
 1. **builtins** (`resolve.registerBuiltins`): `Cell[T]`, `Vec[T]`, and
    `Signal[T]` are registered as generic types whose methods are
    ordinary method fields, so calls to them go through the same lookup
-   and substitution as user generics.
+   and substitution as user generics, and `Endian` as an enum. The
+   methods on elements (`copy`, `fill`, `swap`, `read`, `write`) of
+   slices, arrays, Vecs, and Strings, which have no symbol, are checked
+   by `elemsCall` and recorded as `elemCallOf` facts.
 2. **symbols** (`resolve.resolveSymbols`): one walk creates a `Symbol`
    for every declaration and binding, and a `Scope` for every node that
    opens one, recorded under that node.
@@ -545,11 +553,14 @@ instead of re-deriving it by name:
 | `typeOf(node)` | the type of an expression (literals get their contextual type) |
 | `bindingTypeOf(leaf)` | the declared or inferred type of the symbol a leaf names |
 | `readsThrough(node)` | whether the node yields a borrow (`!x`, a call returning `!Int`, a `!Int` name) whose value its context reads: a number, `Bool`, `String`, or plain enum where one is expected, an operator's operand, the optional of `??`, `?`, or `as`, an indexed or sliced String or slice, or a clone. Typecheck records it wherever it admits the borrow as its value (`recordAdapted`, `readThrough`); emit dereferences such a node in one place (`emitValue`), and the ownership checker ends the loans taken to reach a value that holds no borrow |
+| `arrayViewOf(node)` | for an array lent as a slice: `borrowed` for `?a` where a `[]T` is expected or `!a` where a `![]T` is (the ownership checker walks it as `?a[..]`, emit writes the array's address), `temporary` for a temporary array passed as a `[]T` argument to a call that keeps no borrow of it (emit writes `&` before it, which Zig keeps alive through the call) |
+| `readsAsView(node)` | whether the node yields a `![]T` where a `[]T` is expected; the ownership checker lends such an argument to read, not to write |
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
 | `isExhaustive(match)` | whether the arms cover every value without a default |
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
 | `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`Vec[Int]`), or a function's arguments |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
+| `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T`; the bracket list is recorded as compile-time arguments (`instanceOf`) |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
 Leaves are keyed by source position and list nodes by their node id:
@@ -722,7 +733,9 @@ type can hold a borrow carries the loans of all its borrowed arguments,
 and of the stack closure it calls (whose value is checked like a
 returned one);
 a call may store its arguments' loans into its receiver and into what
-its `!` arguments and other write borrows lead to. Cells, Signals, and
+its `!` arguments and other write borrows lead to, except a built-in
+element method (`!dst.copy(src)`) whose elements hold no borrow, which
+stores only plain elements. Cells, Signals, and
 owned closures hold no borrows (storing one there is rejected): every
 handle to one reaches what it holds, so loans kept per handle var would
 miss the other handles. A loan not stored anywhere is a temporary and
@@ -735,7 +748,10 @@ A slice of an array (`?xs[a..b]`) points into the storage of the var
 the array is reached from, which may be a copy of the caller's (a
 borrowed parameter, a read borrow of plain data, a loop or pattern
 binding), so it also holds a *frame* loan on that var: a local loan
-even when the var is a borrowed parameter.
+even when the var is a borrowed parameter. A write slice (`!xs[a..b]`)
+takes a write loan the same way; one of a `![]T` var reborrows it, as
+any borrow of a borrow does, while an array reached through an element
+of a read-only `[]T` is viewed as that `[]T` views it, with its loans.
 
 **Liveness.** A loan held by a var is in force only while the var is
 live: while it may still be used. Before checking a function, one walk
@@ -835,7 +851,9 @@ lower is an internal error: sema must have rejected it.
   it, and a borrowed `Cell` can change while it is borrowed. In a
   generic type, where that depends on the type arguments (`?T`,
   `?Self`), the borrow is a `rig.ReadBorrow(T)`, which applies the same
-  rule to each instance.
+  rule to each instance. A `[]T` is a `[]const T` and a `![]T` a Zig
+  `[]T`, not a pointer to one: the slice already points at its
+  elements, so it is passed and bound as it is.
 - **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`, `T?`
   is `?T`, `T!` is `anyerror!T`, enums with payloads are tagged unions
   (each payload a struct of its fields), and generic types are Zig functions from types to types. A struct
@@ -912,7 +930,9 @@ reviewed.
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
 | `guardStack` | makes a stack overflow stop the program. Zig probes the stack as a frame grows only on x86, so elsewhere a frame larger than the guard below the stack can step over it. Linux maps nothing within 128 MiB of the top of the stack (nor within the stack limit the program started with, plus 1 MiB), so `guardStack` holds the stack to 16 MiB (`stack_size`), leaving 112 MiB free below it; macOS guards the stack with one page and maps memory right below that once the address space fills, so there `guardStack` reserves 64 MiB (`stack_reserve`) below the guard. When it cannot (the space is taken, or the limit cannot be lowered), the program prints `rig: cannot reserve the stack guard below the main stack` and exits 1 before `main` runs. A frame holds at most 16 MiB of values (`checkFrames`), so with Zig's temporaries an overflowing one lands in the reserve. `test/cli/stack_guard.sh` checks it |
-| `index`, `at`, `slice`, `div` | bounds-checked indexing and slicing, which panic in every build mode; `div` divides a type parameter's values (exact for floats, truncating for integers) |
+| `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @sizeOf(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
+| `copy`, `fill`, `swap` | the element methods: `copy` panics in every build mode unless the lengths are equal, then is `@memcpy` (the checker keeps the two slices from overlapping); `fill` is `@memset`; `swap` checks both indexes |
+| `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `isVariant`, `isVariantDiscard` | `x == .variant` on an enum with payloads, or an optional of one: tests the tag only, so it compiles whatever the payloads hold; `isVariantDiscard` drops a temporary that owns a resource |
 | `discard`, `isNone`, `take` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out |
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, Strings by `std.mem.order`. Outside a generic body a String or `[]U8` ordering is `std.mem.order` itself |

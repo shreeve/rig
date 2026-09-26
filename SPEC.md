@@ -493,7 +493,9 @@ cannot outlive it. A `[]T` has `.len`, is indexed and iterated like an
 array, and is sliced again with `s[a..b]`, which views the same
 elements. The bounds must satisfy `0 <= a <= b <= len`; constant bounds
 are checked at compile time, others when the slice is taken, which
-panics when they do not.
+panics when they do not. A side may be left open: `xs[a..]` runs to the
+end, `xs[..b]` starts at 0, and `xs[..]` is the whole. Only a slice
+leaves a side open; a `for` range or a range pattern needs both ends.
 
 ```rig
 fun total(xs: []Int) -> Int
@@ -508,22 +510,242 @@ sub main
   a = [1, 2, 3, 4]
   mid = ?a[1..3]
   print(mid, mid.len, mid[0], total(mid), total(?a[0..4]))
+  print(s[7..], s[..5], ?a[2..], total(?a[..]))
 ```
 
 ```output
 hello world
 [2, 3] 2 2 5 10
+world hello [3, 4] 10
+```
+
+```rig reject
+sub main
+  for i in 0..
+    print(i)
+```
+
+```error
+a range needs an end; only a slice leaves a side open
 ```
 
 A borrowed array parameter (`xs: ?[N]T`) is the function's own copy of
 the caller's array, so a slice of it cannot be returned; a function
 that returns part of its argument takes `xs: []T`.
 
+An array goes where a slice is expected in three ways. Where a `[]T`
+is expected, `?a` of a named array (or a field or element of one)
+means `?a[..]`, and where a `![]T` is expected, `!a` means `!a[..]`:
+the sigil shows the borrow, which is the slice's. A bare named array
+there is rejected, since it would borrow the array unseen. A temporary
+array, a literal, a fill, or a call's result, is accepted as a `[]T`
+argument of a function or method call that keeps no borrow of its
+arguments (its result holds none, and it writes through no borrow into
+anything that could hold one): it borrows nothing named, and it lives
+until the call returns. Anywhere else, such as a struct field or a call
+that returns a slice, it is rejected; bind it to a name and pass `?a`.
+
+```rig
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+sub zero(s: ![]Int)
+  !s.fill(0)
+
+sub main
+  a = [1, 2, 3]
+  print(total(?a), total([4, 5]), total([3 of 2]))
+  !a[..2].copy([7, 8])
+  print(a)
+  zero(!a)
+  print(a)
+```
+
+```output
+6 9 6
+[7, 8, 3]
+[0, 0, 0]
+```
+
+```rig reject
+fun total(xs: []Int) -> Int
+  xs.len
+
+fun id(xs: []Int) -> []Int
+  xs
+
+sub main
+  a = [1, 2, 3]
+  print(total(a))
+  r = id([1, 2])
+  print(r)
+```
+
+```error
+type mismatch: expected `[]Int`, got `[3]Int`; write `?a` or `?a[..]`
+a temporary array is lent as a `[]Int` only to a call that keeps no borrow of it
+```
+
+`!xs[a..b]` is a **writable slice**, of type `![]T`: a write borrow of
+the elements, taken of an array or a `Vec` of plain data that could be
+write-borrowed (`!xs`), or of another `![]T`. A String and a `[]T` are
+read-only, and so is what a fixed binding, a loop or pattern binding,
+or a parameter other than a `!T` one holds. A `![]T` is a write borrow
+like any other ([§8](#write-borrows)): while it is live, what it
+borrows cannot otherwise be used, so two live write slices of one
+array, or a `push` to a Vec while a slice of it is live, are rejected;
+it cannot be copied or cloned (`<s` moves it), a call reborrows it, and
+it is returned only when it borrows from a `!` parameter. Its elements
+are assigned (`s[i] = v`, `s[i] += 1`), write-borrowed (`!s[i]`), and
+written in a loop (`for x in !s`); `!s[a..b]` reslices it, and
+`?s[a..b]` takes a read slice, which keeps `s` from being written while
+it lives (a bare `s[a..b]`, which would borrow `s` unseen, is
+rejected). A `![]T` is accepted wherever a `[]T` is expected; as an
+argument it is then lent to read, like `?s[..]`, so `sum2(w, w)` with
+two `[]T` parameters reads `w` twice, and `w` can be read, but not
+written, while a view returned from it lives. A `[]T` is never
+write-borrowed: `!t` of one is rejected. A slice's
+elements are plain data: `[]T` and `![]T` with a `T` that owns a
+resource are rejected.
+
+```rig
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+sub scale(s: ![]Int, k: Int)
+  for x in !s
+    x *= k
+
+fun rest(s: ![]Int) -> ![]Int
+  !s[1..]
+
+sub main
+  a = [1, 2, 3, 4]
+  scale(!a[2..], 10)
+  w = !a[..]
+  w[0] = 7
+  r = rest(!w[..])
+  r[0] += 1
+  print(total(w))
+  print(a)
+```
+
+```output
+80
+[7, 3, 30, 40]
+```
+
+Three methods write the elements of a `![]T`, an array, or a Vec,
+whose receiver is written `!xs` (or is a `![]T` binding):
+`!dst.copy(src)` copies a `[]T` of the same length into them, and
+panics in every build mode when the lengths differ; `!s.fill(v)` sets
+every element to `v`; `!s.swap(i, j)` exchanges two elements, with both
+indexes checked. `copy` and `fill` copy values in, so, as in
+`[n of x]`, the elements are plain data: they own no resource and hold
+no borrow, which a copy would duplicate. `swap` also moves the handles
+of a `Vec` of them. `copy`'s
+receiver and argument never overlap: the write borrow of the receiver
+excludes a read of the same value.
+
+```rig
+sub main
+  a = [1, 2, 3, 4, 5, 6]
+  b = [9, 8, 7]
+  !a[..3].copy(?b[..])
+  !a[3..].fill(0)
+  !a.swap(0, 5)
+  print(a)
+```
+
+```output
+[0, 8, 7, 0, 0, 9]
+```
+
+```rig reject
+sub main
+  a = [1, 2, 3, 4]
+  !a[..2].copy(?a[2..])
+```
+
+```error
+cannot write-borrow `a` while a read borrow is live
+```
+
+```rig reject
+sub main
+  s = "text"
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  w = !v[..]
+  !v.push(2)
+  w[0] = 5
+  t = !s[1..]
+```
+
+```error
+use of `v` while a write borrow is live
+cannot write-borrow a slice of a String; a String is read-only
+```
+
+### Bytes
+
+Bytes hold fixed-width numbers. `bytes.read[T, e](at)` is the integer
+or float `T` stored in the `@sizeOf(T)` bytes from offset `at`, in byte
+order `e`, and `!bytes.write[T, e](at, v)` stores `v` there. `T` is any
+integer or float type, or a type parameter every instance gives one;
+`e` is a compile-time value of the built-in enum
+`Endian`, `.little` or `.big` (a literal, `Endian.big`, a constant, or
+a compile-time parameter; there is no native order). `read` works on a
+`[]U8`, an `![]U8`, a `[N]U8`, a `Vec[U8]`, and a String; `write` on
+the writable ones, written `!bytes` (or an `![]U8` binding). Every byte
+must be in range, `0 <= at` and `at + @sizeOf(T) <= len`: a constant
+offset into an array is checked at compile time, and any other when the
+program runs, which panics in every build mode when it is not. A float
+is read and written by its bits, so a NaN's payload survives. `Endian`
+is a built-in name, like `Vec`, and is reserved.
+
+```rig
+sub main
+  page: [4096]U8 = [4096 of 0]
+  !page.write[U32, .little](0, 0x52494721)
+  !page.write[U16, .big](4, 4088)
+  print(page[0], page[1], page[4], page[5])
+  print(page.read[U32, .little](0), page.read[U16, .big](4), page.read[U16, .little](4))
+  body = !page[8..]
+  !body.write[F64, .big](0, 2.5)
+  print(page.read[F64, .big](8))
+```
+
+```output
+33 71 15 248
+1380534049 4088 63503
+2.5
+```
+
+```rig reject
+sub main
+  b: [8]U8 = [8 of 0]
+  print(b.read[U32, .little](6))
+  print(b.read[U16, .native](0))
+```
+
+```error
+`read` of a `U32` at `6` runs past the end of an array of length 8: it needs 4 bytes
+no variant `native` on enum `Endian`
+```
+
 ### Composite and handle types
 
 | Type | Meaning | Section |
 |---|---|---|
 | `[]T` | slice: a read-only view of elements | [§3](#slices) |
+| `![]T` | writable slice: a write borrow of elements | [§3](#slices) |
 | `T?` | optional: a `T` or `none` | [§13](#13-optionals) |
 | `T!` | fallible: a `T` or an error; only as a return type, including a function type's | [§14](#14-errors) |
 | `?T` | read borrow of a `T` (parameters, returns, locals, fields) | [§8](#8-ownership) |
@@ -533,6 +755,7 @@ that returns part of its argument takes `xs: []T`.
 | `fun(A, B) -> R`, `sub(A)` | function and closure types | [§12](#12-closures) |
 | `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§12](#12-closures) |
 | `Cell[T]`, `Vec[T]`, `Signal[T]` | built-in generic types | [§11](#11-cell-vec-and-signal) |
+| `Endian` | built-in enum: the byte order of `read` and `write` | [§3](#bytes) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§4](#4-declarations), [§15](#15-modules) |
 
 The handle sigils `*` and `~` bind to the type they touch, tighter than
@@ -1456,7 +1679,7 @@ From lowest to highest precedence:
 | `not` | Bool |
 | `==` `!=` `<` `>` `<=` `>=` | not chainable |
 | `??` | optional fallback; right-associative |
-| `..` | half-open range: a `for` source or a match pattern |
+| `..` | half-open range: a `for` source, a match pattern, or a slice's index, where a side may be open ([§3](#slices)) |
 | `\|` | bitwise or |
 | `^` | bitwise xor |
 | `&` | bitwise and |

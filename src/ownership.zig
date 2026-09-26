@@ -388,6 +388,9 @@ pub const Checker = struct {
     /// Whether the last error was recorded (notes attach only to a
     /// recorded error; duplicates from re-walked code are dropped).
     last_err_kept: bool = false,
+    /// Errors found so far, reported or not (quiet walks count too), so a
+    /// step can tell whether an earlier one already reported a mistake.
+    errors_found: u32 = 0,
     /// How many of `plain_reqs` this module's own bodies record.
     own_plain_reqs: usize = 0,
 
@@ -530,6 +533,7 @@ pub const Checker = struct {
 
     fn errSpan(self: *Checker, at: diag.Span, comptime fmt: []const u8, args: anytype) Error!void {
         self.last_err_kept = false;
+        self.errors_found += 1;
         if (self.quiet > 0) return;
         const msg = try std.fmt.allocPrint(self.gpa, fmt, args);
         for (self.diagnostics.items) |d| {
@@ -1294,8 +1298,14 @@ pub const Checker = struct {
             else => return switch (kind) {
                 .block => self.walkBlock(sexp),
                 .move => self.walkMove(ir.Move.operand(sexp)),
-                .read => self.walkBorrow(ir.Read.operand(sexp), .read),
-                .write => self.walkBorrow(ir.Write.operand(sexp), .write),
+                // A borrow the type checker rejected lends nothing.
+                .read, .write => if (self.rejected(sexp))
+                    self.walk(ir.get(sexp, .operand))
+                else if (self.isArrayView(sexp))
+                    // `?a` lent as `?a[..]`, `!a` as `!a[..]`.
+                    self.walkElems(sexp, ir.get(sexp, .operand), if (sexp.isKind(.read)) .read else .write)
+                else
+                    self.walkBorrow(ir.get(sexp, .operand), if (sexp.isKind(.read)) .read else .write),
                 .clone, .weak => self.walkCloneWeak(sexp),
                 .share => self.walkShare(sexp),
                 .lambda => self.walkLambda(sexp, false),
@@ -1339,7 +1349,8 @@ pub const Checker = struct {
         // Passing a held write borrow (`w`, `e.t`) lends it on: like `!w`,
         // its holder is write-borrowed for as long as the result may keep
         // the borrow.
-        if (sink == .argument and self.isWriteBorrowPlace(expr)) return self.walkBorrow(expr, .write);
+        // A `![]T` passed where a `[]T` is expected is lent to read.
+        if (sink == .argument and self.isWriteBorrowPlace(expr)) return self.walkBorrow(expr, if (self.readsAsView(expr)) .read else .write);
         self.setTail(expr, sink);
         return self.walk(expr);
     }
@@ -1544,8 +1555,20 @@ pub const Checker = struct {
     // Borrow, move, clone, drop
     // -------------------------------------------------------------------------
 
+    /// `e` yields a `![]T` where a `[]T` is expected.
+    fn readsAsView(self: *const Checker, e: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        return ctx.readsAsView(e);
+    }
+
+    /// Whether the type checker rejected `e` (its type is invalid).
+    fn rejected(self: *const Checker, e: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        return ctx.typeOf(e) == ctx.types.invalid_id;
+    }
+
     fn walkBorrow(self: *Checker, inner: Sexp, kind: LoanKind) Error!Value {
-        if (rig.isRangeIndex(inner)) return self.walkSlice(inner);
+        if (rig.isRangeIndex(inner)) return self.walkSlice(inner, kind);
         const place = self.resolvePlace(inner) orelse return self.walk(inner);
         try self.walkPlaceIndices(inner);
         const id = place.root;
@@ -1568,24 +1591,68 @@ pub const Checker = struct {
         return try self.reborrow(id, loan);
     }
 
-    /// `?xs[a..b]`. A slice of a String or a `[]T` views what that value
-    /// views. A slice of a Vec borrows the Vec, whose buffer it points
-    /// into. A slice of an array held in the storage of the var it is
-    /// reached from, which may be a copy (a borrowed parameter, a read
-    /// borrow of plain data, a loop or pattern binding), also holds a
-    /// frame loan on that var, so it cannot outlive it.
-    fn walkSlice(self: *Checker, slice: Sexp) Error!Value {
-        const object = ir.Index.object(slice);
-        const ty = self.exprType(object) orelse return self.walk(slice);
+    /// `?xs[a..b]` / `!xs[a..b]`. A slice of a String or a `[]T` views
+    /// what that value views. A slice of a Vec borrows the Vec, whose
+    /// buffer it points into, and one of a `![]T` borrows the `![]T`, as
+    /// a borrow of a borrow does. A slice of an array held in the storage
+    /// of the var it is reached from, which may be a copy (a borrowed
+    /// parameter, a read borrow of plain data, a loop or pattern
+    /// binding), also holds a frame loan on that var, so it cannot
+    /// outlive it.
+    fn walkSlice(self: *Checker, slice: Sexp, kind: LoanKind) Error!Value {
+        return self.walkElems(slice, ir.Index.object(slice), kind);
+    }
+
+    /// `?a` / `!a` of an array lent as a slice.
+    fn isArrayView(self: *const Checker, e: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        return ctx.arrayViewOf(e) == .borrowed;
+    }
+
+    /// A borrow of the elements of `object`: `slice` is a slice of it
+    /// (`?xs[a..b]`), or a borrow of the whole array lent as one (`?a`).
+    fn walkElems(self: *Checker, slice: Sexp, object: Sexp, kind: LoanKind) Error!Value {
+        // The place's own indexes, and a slice's bounds.
+        const indices = if (rig.isRangeIndex(slice)) slice else object;
+        // A slice the type checker rejected borrows nothing.
+        if (self.rejected(slice)) {
+            _ = try self.walk(object);
+            try self.walkPlaceIndices(indices);
+            return .{};
+        }
+        const ty = self.exprType(object) orelse return self.walkOperand(slice, object);
         const peeled = self.pointee(ty) orelse ty;
-        if (self.typeData(peeled) != .array and !self.isVec(peeled)) return self.walk(slice);
-        const place = self.resolvePlace(slice) orelse return self.walk(slice);
-        try self.walkPlaceIndices(slice);
+        const of_write_slice = if (self.sema) |ctx| sema.writeSliceElem(ctx, ty) != null else false;
+        if (self.typeData(peeled) != .array and !self.isVec(peeled) and !of_write_slice) return self.walkOperand(slice, object);
+        // An array inside an element of a `[]T` is viewed as the `[]T`
+        // views it.
+        if (self.throughReadSlice(object)) return self.walkOperand(slice, object);
+        const place = self.resolvePlace(object) orelse return self.walkOperand(slice, object);
+        try self.walkPlaceIndices(indices);
         const id = place.root;
         const pos = self.startOf(slice);
-        const v = (try self.borrowVar(id, .read, pos)) orelse return .{};
+        const v = (try self.borrowVar(id, kind, pos)) orelse return .{};
         if (self.typeData(peeled) != .array or !self.inVarStorage(object)) return v;
-        return .{ .loans = try self.unionLoans(v.loans, try self.oneLoan(.{ .root = id, .kind = .read, .pos = pos, .frame = true })) };
+        return .{ .loans = try self.unionLoans(v.loans, try self.oneLoan(.{ .root = id, .kind = kind, .pos = pos, .frame = true })) };
+    }
+
+    /// A slice walked as a plain value, or a whole-array view's operand.
+    fn walkOperand(self: *Checker, slice: Sexp, object: Sexp) Error!Value {
+        return self.walk(if (rig.isRangeIndex(slice)) slice else object);
+    }
+
+    /// Whether place `e` reaches its value through an element of a
+    /// read-only `[]T`, which views memory the var does not own.
+    fn throughReadSlice(self: *const Checker, e: Sexp) bool {
+        var p = e;
+        while (p.isKind(.member) or p.isKind(.index)) {
+            const obj = ir.get(p, .object);
+            if (p.isKind(.index)) if (self.exprType(obj)) |t| {
+                if (self.typeData(self.pointee(t) orelse t) == .slice and !(if (self.sema) |ctx| sema.writeSliceElem(ctx, t) != null else false)) return true;
+            };
+            p = obj;
+        }
+        return false;
     }
 
     /// Whether the value of place `e` is stored in the var the place
@@ -1871,6 +1938,10 @@ pub const Checker = struct {
                 // A captured read borrow or Copy value is copied out, and
                 // a captured borrow passed to a call is lent for the call.
                 const copied = v.ref == .read or self.isCopy(v.ty) or (sink == .argument and v.ref != .none);
+                if (v.capture_resource and !copied and v.ref == .write) {
+                    try self.err(pos, "bare use of captured write borrow `{s}` in {s} would hand the unique borrow out of the closure environment, again at each call; use it inside the closure instead", .{ name, sink.text() });
+                    return;
+                }
                 if (v.capture_resource and !copied) {
                     try self.err(pos, "bare use of captured resource `{s}` in {s} would smuggle the handle out of the closure environment; use `+{s}` to clone a fresh handle, or `~{s}` for a weak reference", .{ name, sink.text(), name, name });
                     return;
@@ -2095,6 +2166,14 @@ pub const Checker = struct {
         try self.setFlow(id, .{ .loans = if (self.mayCarryBorrow(v.ty)) value.loans else &.{} });
     }
 
+    /// The var a borrow held by var `id` borrows, when it holds one of
+    /// a var of this function.
+    fn borrowedRoot(self: *const Checker, id: VarId) ?VarId {
+        if (self.vars.items[id].ref == .none) return null;
+        for (self.flows.items[id].loans) |l| if (!l.ext and l.root != id) return l.root;
+        return null;
+    }
+
     /// Whether assigning var `v` writes through it (a parameter, or a
     /// loop or pattern binding) rather than rebinding it.
     fn writesThrough(self: *const Checker, v: Var) bool {
@@ -2125,7 +2204,14 @@ pub const Checker = struct {
             // Stored into something the caller owns: only borrows the
             // caller handed in may go there.
             for (value.loans) |l| if (self.isLocalLoan(l) or self.isGlobal(id)) {
-                try self.err(pos, "cannot store a borrow of `{s}` in `{s}`: `{s}` outlives it", .{ self.vars.items[l.root].name, try self.placeText(target), v.name });
+                const stored = self.vars.items[l.root].name;
+                const into = try self.placeText(target);
+                // A local borrow: what outlives it is what `v` borrows.
+                if (v.kind != .param) if (self.borrowedRoot(id)) |root| {
+                    try self.err(pos, "cannot store a borrow of `{s}` in `{s}`: `{s}` borrows `{s}`, which outlives it", .{ stored, into, v.name, self.vars.items[root].name });
+                    return;
+                };
+                try self.err(pos, "cannot store a borrow of `{s}` in `{s}`: `{s}` outlives it", .{ stored, into, v.name });
                 return;
             };
             return;
@@ -2162,9 +2248,12 @@ pub const Checker = struct {
             recv_mode = if (explicit_write) .write else self.receiverMode(obj, callee);
             const place = if (recv_mode == .value) null else self.resolvePlace(obj);
             if (place) |p| {
+                const found = self.errors_found;
                 const recv_val = try self.walk(obj);
                 const id = p.root;
-                if (self.flowLive(id) and !self.isCopy(self.vars.items[id].ty)) {
+                // A receiver already reported (used while write-borrowed)
+                // is not reported again as a conflicting write borrow.
+                if (self.flowLive(id) and !self.isCopy(self.vars.items[id].ty) and self.errors_found == found) {
                     const pos = self.startOf(obj);
                     reservation = self.temps.items.len;
                     try self.addTemp(.{ .root = id, .kind = .read, .pos = pos });
@@ -2222,8 +2311,9 @@ pub const Checker = struct {
         // The callee may store what its arguments borrow into anything it
         // can mutate: the receiver, and whatever the write borrows passed
         // to it lead to (`!x`, a write borrow passed on or moved in, a
-        // value holding one).
-        if (stored.loans.len > 0) {
+        // value holding one). A built-in element method (`!dst.copy(src)`)
+        // stores only elements, which may hold no borrow to store.
+        if (stored.loans.len > 0 and !self.storesNothing(callee)) {
             if (recv_root) |id| {
                 const obj = ir.Member.object(callee);
                 if (self.mayCarryBorrow(self.exprType(obj))) try self.absorbLoans(id, stored, self.startOf(obj), &.{});
@@ -2246,6 +2336,14 @@ pub const Checker = struct {
             return .{};
         }
         return result;
+    }
+
+    /// A call of a built-in element method whose elements hold no
+    /// borrow: it stores none of its arguments' borrows.
+    fn storesNothing(self: *const Checker, callee: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        const ec = ctx.elemCallOf(callee) orelse return false;
+        return !sema.holdsBorrow(ctx, ec.elem);
     }
 
     /// A borrow of plain data (`k` with `k: ?Int`) passed where a value
@@ -2728,8 +2826,11 @@ pub const Checker = struct {
             spec.moved = (try self.walkMove(source)).loans;
         } else {
             spec.elem_view = true;
+            const found = self.errors_found;
             _ = try self.walk(source);
-            if (self.resolvePlace(source)) |p| {
+            // A source already reported (used while write-borrowed) is
+            // not reported again as a conflicting borrow.
+            if (self.errors_found == found) if (self.resolvePlace(source)) |p| {
                 const id = p.root;
                 const kind: LoanKind = if (mode == .write) .write else .read;
                 spec.source_root = id;
@@ -2739,7 +2840,7 @@ pub const Checker = struct {
                 if (!self.flowLive(id) or try self.conflicts(id, if (kind == .write) .write else .read, spec.source_pos)) {
                     spec.source_root = null;
                 }
-            }
+            };
         }
         return self.walkLoop(spec);
     }

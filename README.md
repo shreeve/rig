@@ -245,7 +245,9 @@ and environment variable. The suite runs on Linux and macOS in
   (`fun check[mode: Mode](n: Int)`)
 - `Int` and `Float` (64-bit), sized numbers, checked conversions
   (`I32(x)`, `Float(n)`), compile-time checked constant arithmetic,
-  arrays, strings, slices (`s[a..b]`, `?xs[a..b]`)
+  arrays, strings, read and write slices (`s[a..]`, `?xs[a..b]`,
+  `!xs[..b]`) with `copy`, `fill`, and `swap`, and fixed-width numbers
+  in bytes (`buf.read[U16, .big](at)`)
 - loops as values (`x = for ... break v ... else w`), labeled loops
 - moves, read and write borrows (including borrows returned from
   functions and held in structs) that end at their last use, clones,

@@ -1,0 +1,23 @@
+# A `![]T` passed where a `[]T` is expected is lent to read: two reads
+# of it in one call are fine, and so is reading it while a view returned
+# from it lives.
+
+fun sum2(x: []Int, y: []Int) -> Int
+  x[0] + y[1]
+
+fun id(s: []Int) -> []Int
+  s
+
+sub main()
+  a = [1, 2, 3]
+  w = !a[..]
+  print(sum2(w, w))
+  r = id(w)
+  print(w[0], r)
+  w[0] = 5
+  print(a)
+
+# expect:
+# 3
+# 1 [1, 2, 3]
+# [5, 2, 3]

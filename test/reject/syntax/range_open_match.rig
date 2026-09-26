@@ -1,0 +1,10 @@
+# Only a slice leaves a side of its range open: a range pattern needs
+# both ends.
+
+sub main()
+  x = 3
+  match x
+    1.. => print("big")
+    _ => print("small")
+
+# error: 7:6: a range needs an end; only a slice leaves a side open

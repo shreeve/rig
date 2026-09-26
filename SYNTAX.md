@@ -247,6 +247,7 @@ would move, `~x` would hold a handle weakly.
 | propagate | `f()?` | `try f()` | `f()!` |
 | handle | `f().unwrap_or(0)` | `f() catch 0` | `f() catch 0` |
 | borrow | `&x`, `&mut x` | `&x` | `?x`, `!x` |
+| slice | `&v[a..b]`, `&mut v[a..]` | `v[a..b]`, `v[a..]` | `?v[a..b]`, `!v[a..]` |
 | reference count | `Rc::new(x)`, `Rc::clone(&r)` | by hand | `*x`, `+r` |
 | weak | `Rc::downgrade(&r)`, `w.upgrade()` | by hand | `~r`, `w.upgrade()` |
 | interior mutability | `RefCell<T>` / `Cell<T>` | by hand | `Cell[T]` |
@@ -510,9 +511,11 @@ operands have different types `I32` and `Int`
 | `~T` | weak handle | `Weak<T>` | a weak reference |
 | `[N]T` | fixed array; `N` known at compile time | `[T; N]` | `[N]T` |
 | `[]T` | read-only slice | `&[T]` | `[]const T` |
+| `![]T` | writable slice | `&mut [T]` | `[]T` |
 | `fun(A, B) -> R`, `sub(A)` | function or stack closure | `fn(A, B) -> R`, `impl Fn` | `*const fn (A, B) R` |
 | `*fun(A) -> R`, `*sub(A)` | owned closure | `Rc<dyn Fn(A) -> R>` | a boxed closure |
 | `Cell[T]`, `Vec[T]`, `Signal[T]` | built-in generics | `RefCell<T>`, `Vec<T>` | runtime types |
+| `Endian` | byte order: `.little`, `.big` | | `std.builtin.Endian` |
 | `Name[T]` | generic instance | `Name<T>` | `Name(T)` |
 | `mod.Name` | imported type | `mod::Name` | `mod.Name` |
 
@@ -838,7 +841,7 @@ From lowest to highest precedence:
 | `not` | |
 | `==` `!=` `<` `>` `<=` `>=` | not chainable |
 | `??` | optional fallback, right-associative |
-| `..` | half-open range, for `for` and patterns |
+| `..` | half-open range, for `for`, patterns, and slices (`xs[a..]`) |
 | `\|` | bitwise or |
 | `^` | bitwise xor |
 | `&` | bitwise and |
@@ -2698,7 +2701,13 @@ They compare by content with `==` and order by their bytes with `<`,
 **Slices** view part of an array, `Vec`, or string. `s[a..b]` of a
 `String` is a `String`; of an array or a `Vec` of plain data it is
 written `?xs[a..b]` and is a `[]T`, a read-only view that borrows `xs`
-like any `?` borrow. Bounds are checked.
+like any `?` borrow. Bounds are checked. A side may be left open, as
+in Rust: `xs[a..]`, `xs[..b]`, `xs[..]`. Where a `[]T` is expected,
+`?a` of an array means `?a[..]` (and `!a` means `!a[..]` where a `![]T`
+is), much as Rust's `&a` coerces to `&[T]`; a bare `a` is rejected,
+since the borrow would not show. A temporary array (`[4, 5]`,
+`[3 of 0]`, a call's result) may be passed as a `[]T` argument to a
+call that keeps no borrow of it: `total([4, 5])`.
 
 ```rig
 fun total(xs: []Int) -> Int
@@ -2713,14 +2722,87 @@ sub main
   a = [1, 2, 3, 4]
   mid = ?a[1..3]
   print(mid, mid.len, total(mid), total(?a[0..4]))
+  print(s[7..], total(?a[2..]), total(?a[..]))
 ```
 
 ```output
 hello 12 104
 [2, 3] 2 5 10
+world 7 10
 ```
 
-A slice is read-only: `mid[0] = 5` is rejected.
+A `[]T` is read-only: `mid[0] = 5` is rejected. A **writable slice**
+is a write borrow, `!xs[a..b]`, of type `![]T` (Rust's `&mut [T]`,
+Zig's `[]T`), taken of an array or a `Vec` of plain data that the code
+may write, or of another `![]T`. It follows the write-borrow rules: it
+is not copied, a call reborrows it, it is returned only from a `!`
+parameter, and while it is live nothing else uses what it borrows, so
+two write slices of one array, or a `push` to a Vec while a slice of
+it is live, are rejected. A `![]T` goes wherever a `[]T` does (as an
+argument it is then lent to read, as `&*s` would be in Rust), and its
+elements are assigned (`s[i] = v`) and written in a loop
+(`for x in !s`). `!dst.copy(src)` (lengths must match, as in Rust's
+`copy_from_slice`), `!s.fill(v)`, and `!s.swap(i, j)` write the
+elements of a `![]T`, an array, or a Vec.
+
+```rig
+sub quicksort(s: ![]Int)
+  if s.len < 2
+    return
+  last = s.len - 1
+  pivot = s[last]
+  i = 0
+  j = 0
+  while j < last : j += 1
+    if s[j] < pivot
+      !s.swap(i, j)
+      i += 1
+  !s.swap(i, last)
+  quicksort(!s[..i])
+  quicksort(!s[i + 1..])
+
+sub main
+  a = [5, 3, 9, 1, 7]
+  quicksort(!a[..])
+  print(a)
+```
+
+```output
+[1, 3, 5, 7, 9]
+```
+
+```rig reject
+sub main
+  a = [1, 2, 3, 4]
+  x = !a[..2]
+  y = !a[2..]
+  x[0] = y[0]
+```
+
+```error
+cannot take a second write borrow on `a`
+```
+
+**Bytes** hold fixed-width numbers: `buf.read[U16, .big](at)` reads a
+`U16` stored big-endian at byte `at`, and `!buf.write[U32, .little](at,
+v)` stores one, like Rust's `u16::from_be_bytes` and `to_le_bytes` or
+Zig's `std.mem.readInt` and `writeInt`. The type is any integer or
+float, and the byte order is a compile-time value of the built-in enum
+`Endian` (`.little` or `.big`). The bytes are a `[N]U8`, a `[]U8` or
+`![]U8`, a `Vec[U8]`, or (to read) a String, and every byte read or
+written must be in range, or the program panics, in every build mode.
+
+```rig
+sub main
+  page: [4096]U8 = [4096 of 0]
+  !page.write[U32, .little](0, 0xcafe)
+  hdr = ?page[..8]
+  print(page[0], page[1], hdr.read[U32, .little](0), hdr.read[U16, .big](0))
+```
+
+```output
+254 202 51966 65226
+```
 
 ## 23. Modules and constants
 
@@ -2902,7 +2984,8 @@ Coming from Rust or Zig, you will reach for these and not find them:
 - **heap strings and string building**: `String` is an immutable view;
 - **stack closures as arguments**: pass an owned closure (`*|...|`);
 - **concurrency and async**;
-- **a standard library** beyond `print`, `Cell`, `Vec`, and `Signal`;
+- **a standard library** beyond `print`, `Cell`, `Vec`, `Signal`, and
+  the slice methods (`copy`, `fill`, `swap`, `read`, `write`);
 - **raw pointers**;
 - **macros**, which Rig does not plan to have.
 
@@ -2944,9 +3027,10 @@ and `!=` is the not-equal operator.
 | `e!` | unwrap, or propagate the error |
 
 **Type prefixes:** `?T` read borrow, `!T` write borrow, `*T` shared,
-`~T` weak, `[N]T` array, `[]T` slice. `*` and `~` bind tighter than a
-suffix (`*T?` is an optional handle, `*(T?)` a handle to an optional);
-a borrow covers the suffixes (`?T?` borrows an optional).
+`~T` weak, `[N]T` array, `[]T` slice, `![]T` writable slice. `*` and
+`~` bind tighter than a suffix (`*T?` is an optional handle, `*(T?)` a
+handle to an optional); a borrow covers the suffixes (`?T?` borrows an
+optional).
 
 **Array literals:** `[a, b, c]` elements, `[n of x]` `n` copies of `x`
 (`of` is a keyword only there; elsewhere it is a name).
@@ -2960,7 +3044,8 @@ statement, a match arm or closure body, or the last argument of another
 paren-free call. Where a value is expected, a call keeps its
 parentheses.
 
-**Other punctuation:** `->` return type, `=>` match arm, `..` range,
+**Other punctuation:** `->` return type, `=>` match arm, `..` range
+(a slice may leave a side open: `xs[a..]`, `xs[..b]`, `xs[..]`),
 `??` optional fallback, `:name` label, `|...|` closure bar list,
 `.name` enum variant, `name[...]` compile-time parameters or arguments
 (or an index), `@name(...)` builtin, `#` comment, `\` line join.
@@ -2992,6 +3077,8 @@ correspondences:
 | `T!`, `f()!`, `catch` | `anyerror!T`, `try f()`, `catch` |
 | `?T` parameter | the value for plain data; `*const T` for owning types |
 | `!T` | `*T` |
+| `[]T`, `![]T` | `[]const T`, `[]T` |
+| `b.read[U16, .big](at)`, `!b.write[U32, .little](at, v)` | `rig.readInt(u16, b, at, .big)` over `std.mem.readInt`, `rig.writeInt` over `std.mem.writeInt` |
 | `*T`, `~T` | runtime `RcBox(T)` pointer, weak handle |
 | `Vec[T]`, `Cell[T]` | runtime generic types |
 | an owning local | a `defer` that releases it, guarded by a flag if it may move first |
@@ -3070,7 +3157,8 @@ value     = logic "if" logic "else" value | logic "catch" ["|" name "|"] value |
 logic     = logic "or" logic | logic "and" logic | "not" logic | infix
 infix     = unary (op unary)*          # precedence table in section 10
 unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~") unary | postfix
-postfix   = postfix ("." name | "[" expr, ... "]" | "(" args ")" | "!" | "?") | atom
+postfix   = postfix ("." name | "[" expr, ... "]" | "[" [expr] ".." [expr] "]"
+          | "(" args ")" | "!" | "?") | atom
 args      = (expr | name ":" expr), ...
 atom      = name | literal | "." name | "@" name "(" args ")" | "[" expr, ... "]"
           | "[" expr "of" expr "]" | "(" expr ")"

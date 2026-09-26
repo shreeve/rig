@@ -19,6 +19,8 @@
 #     member list before `:` or after `fun` / `sub`); `of` is a keyword
 #     only after a value directly inside [ ] (`[n of x]`), and a name
 #     everywhere else;
+#   * marks a `..` whose next token is `]` as DOTDOT_OPEN, the end of an
+#     open range (`xs[a..]`, `xs[..]`);
 #   * classifies the characters whose meaning depends on spacing. The rule
 #     is the same for all of them: a character that touches its operand and
 #     not the preceding value is a prefix; otherwise it is an infix
@@ -159,6 +161,7 @@ tokens
     suffix_q        # T?  optional type
     suffix_bang     # T!  fallible type, x! propagate failure
     of              # of  after a value inside [ ]: a fill literal `[n of x]`
+    dotdot_open     # ..  directly before `]`: an open range `xs[a..]`, `xs[..]`
 
     # Misc
     comment
@@ -333,7 +336,8 @@ tokens
     "+", "-", "*", "/", "%"     left right
     "==", "!=", "<", ">", "<=", ">="  left right
     "&", "|", "^", "<<", ">>"   left right
-    "??", "..", and, or         left right
+    "??", and, or               left right
+    ".."                        left? right?
     neg, not                    operand
 
     # Ownership sigils (`~T`, `?T`, `!T`, `*T` in type position are the
@@ -359,7 +363,7 @@ tokens
     KWARG_NAME: "a keyword argument"
     MOVE_PFX: "`<`", CLONE_PFX: "`+`", READ_PFX: "`?`"
     WRITE_PFX: "`!`", SHARE_PFX: "`*`", DROP_STMT: "`-`", MINUS_PREFIX: "`-`"
-    SUFFIX_Q: "`?`", SUFFIX_BANG: "`!`", OF: "`of`"
+    SUFFIX_Q: "`?`", SUFFIX_BANG: "`!`", OF: "`of`", DOTDOT_OPEN: "`..`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
@@ -768,11 +772,20 @@ unary    = MINUS_PREFIX operand:unary               → (neg)
 
 postfix  = object:postfix "." name:name             → (member)
          | object:postfix LBRACKET_INDEX index:expr "]" → (index)
+         | object:postfix LBRACKET_INDEX index:open "]" → (index)
          | object:postfix LBRACKET_INDEX args:targs "]" → (inst)
          | callee:postfix LPAREN_CALL args:args ")" → (call)
          | value:postfix SUFFIX_BANG                → (propagate)
          | value:postfix SUFFIX_Q                   → (propagate_none)
          | atom
+
+# A slice's open range: `xs[a..]`, `xs[..b]`, `xs[..]`. The rewriter
+# marks a `..` whose next token is `]` as DOTDOT_OPEN, so `xs[a == b..]`
+# ends the expression before it; a `..` that starts an operand needs no
+# mark, since no expression starts with one.
+open     = left:expr DOTDOT_OPEN                    → (..)
+         | ".." right:expr                          → (..)
+         | DOTDOT_OPEN                              → (..)
 
 args     = callargs                                 → 1
          | callargs ","                             → 1

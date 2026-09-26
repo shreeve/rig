@@ -1,0 +1,13 @@
+# A constant offset is checked against an array's length: the value's
+# bytes must all be in it.
+
+sub main()
+  b: [8]U8 = [8 of 0]
+  print(b.read[U32, .little](5))
+  print(b.read[U64, .big](0), b.read[U8, .big](7))
+  !b.write[U16, .big](7, 1)
+  print(b.read[U16, .big](-1))
+
+# error: 6:30: `read` of a `U32` at `5` runs past the end of an array of length 8: it needs 4 bytes
+# error: 8:23: `write` of a `U16` at `7` runs past the end of an array of length 8: it needs 2 bytes
+# error: 9:27: an offset cannot be negative; got `-1`

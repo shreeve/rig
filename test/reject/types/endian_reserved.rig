@@ -1,0 +1,11 @@
+# `Endian` is a built-in type: a module cannot declare its own.
+
+enum Endian
+  little
+  big
+  native
+
+sub main()
+  print(Endian.big)
+
+# error: 3:6: `Endian` is a reserved built-in nominal name and cannot be redefined

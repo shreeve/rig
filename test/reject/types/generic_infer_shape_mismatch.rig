@@ -13,8 +13,8 @@ struct N
 
 sub main()
   xs = [1, 2, 3]
-  print(first_of(?xs))
+  print(first_of(xs.len))
   print(keep(N(n: 1)))
 
-# error: 16:18: type mismatch: expected `[]T`, got `?[3]Int`
+# error: 16:18: type mismatch: expected `[]T`, got `Int`
 # error: 17:14: type mismatch: expected `*T`, got `N`

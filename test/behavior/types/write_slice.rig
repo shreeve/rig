@@ -1,0 +1,75 @@
+# `!xs[a..b]` is a `![]T`: a write borrow of the elements from `a` up to
+# `b`, of an array or a Vec of plain data. Its elements are assigned
+# with `s[i] = v`, written in a loop with `for x in !s`, and resliced
+# with `!s[a..b]`. It is accepted where a `[]T` is expected.
+
+struct Grid
+  cells: [4]Int
+
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+sub fill(s: ![]Int, v: Int)
+  for x in !s
+    x = v
+
+sub bump(s: ![]Int)
+  i = 0
+  while i < s.len : i += 1
+    s[i] += 10
+
+fun tail(s: ![]Int) -> ![]Int
+  !s[1..]
+
+sub clear(a: ![4]Int)
+  fill(!a[..], 0)
+
+sub main()
+  a = [1, 2, 3, 4]
+  fill(!a[0..2], 9)
+  print(a)
+  bump(!a[2..])
+  print(a)
+  w = !a[..]
+  w[0] = 7
+  w[1] *= 2
+  print(w, w.len, total(w), total(?w[1..3]))
+  t = tail(!a[..])
+  t[0] = 99
+  print(a)
+  clear(!a)
+  print(a)
+  g = Grid(cells: [1, 2, 3, 4])
+  bump(!g.cells[1..3])
+  print(g.cells)
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  !v.push(3)
+  for x in !v[1..]
+    x *= 5
+  s = !v[..]
+  bump(s)
+  bump(!s[2..])
+  print(total(s))
+  print(v)
+  z = !a[2..2]
+  print(z.len, total(z))
+  for x, i in !a[..]
+    x = i
+  print(a)
+
+# expect:
+# [9, 9, 3, 4]
+# [9, 9, 13, 14]
+# [7, 18, 13, 14] 4 52 31
+# [7, 99, 13, 14]
+# [0, 0, 0, 0]
+# [1, 12, 13, 4]
+# 66
+# [11, 20, 35]
+# 0 0
+# [0, 1, 2, 3]

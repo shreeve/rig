@@ -1,0 +1,16 @@
+# A slice views plain data only, as an array holds it.
+
+sub f(s: ![]Vec[Int])
+  print(s.len)
+
+struct Bag
+  items: Vec[Int]
+
+fun g(s: []Bag) -> Int
+  s.len
+
+sub main()
+  print(1)
+
+# error: 3:13: slices cannot view values that own resources (`Vec[Int]`)
+# error: 9:12: slices cannot view values that own resources (`Bag`)

@@ -1,0 +1,12 @@
+pub ORDER =! Endian.big
+
+pub fun order -> Endian
+  .little
+
+pub fun get[e: Endian](b: []U8) -> U16
+  b.read[U16, e](0)
+
+pub sub put(b: ![]U8, e: Endian, v: U16)
+  match e
+    .little => !b.write[U16, .little](0, v)
+    .big => !b.write[U16, .big](0, v)

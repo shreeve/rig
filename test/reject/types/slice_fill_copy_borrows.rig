@@ -1,0 +1,38 @@
+# `fill` and `copy` copy values into the elements, so, as in `[n of x]`,
+# the elements must be plain data: a copy of a value holding a borrow
+# would duplicate it (a write borrow would then have two holders).
+
+struct V
+  s: ![]Int
+
+struct R
+  s: []Int
+
+sub fill()
+  a = [1, 2]
+  b = [3, 4]
+  c = [5, 6]
+  vs = [V(s: !a[..]), V(s: !b[..])]
+  !vs.fill(V(s: !c[..]))
+  vs[0].s[0] = 9
+
+sub copy()
+  c = [5, 6]
+  d = [7, 8]
+  xs = [V(s: !c[..])]
+  ys = [V(s: !d[..])]
+  !ys.copy(?xs[..])
+  ys[0].s[0] = 1
+
+sub reads()
+  c = [5, 6]
+  rs = [R(s: ?c[..])]
+  !rs.fill(R(s: ?c[1..]))
+  print(rs[0].s)
+
+sub main()
+  fill()
+
+# error: 16:7: `fill` copies its value into every element; `V` holds a borrow, and the elements must be plain data
+# error: 24:7: `copy` copies its source into the elements; `V` holds a borrow, and the elements must be plain data
+# error: 30:7: `fill` copies its value into every element; `R` holds a borrow, and the elements must be plain data

@@ -1,5 +1,6 @@
-# Release builds keep indexing, slicing, and (with --release) conversion
-# checks: each program below panics instead of running on.
+# Release builds keep indexing, slicing, element-method, and (with
+# --release) conversion checks: each program below panics instead of
+# running on.
 source "$ROOT/test/cli/_lib.sh"
 mkdir bin
 
@@ -29,6 +30,60 @@ EOF
 out=$(bin/slice 2>&1); rc=$?
 expect_has "$out" "slice bounds out of range" "fast build slice check"
 [[ $rc -ne 0 ]] || fail "fast build: out-of-range slice exited 0"
+
+# So do the element methods' checks.
+cat >copy.rig <<'EOF'
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  a = [1, 2, 3]
+  b = [4, 5, 6]
+  !a.copy(?b[..rt(2)])
+EOF
+"$RIG" build --release=fast -o bin/copy copy.rig || fail "rig build --release=fast copy.rig"
+out=$(bin/copy 2>&1); rc=$?
+expect_has "$out" "copy between slices of different lengths" "fast build copy check"
+[[ $rc -ne 0 ]] || fail "fast build: copy of a different length exited 0"
+
+cat >swap.rig <<'EOF'
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  a = [1, 2, 3]
+  !a.swap(0, rt(3))
+EOF
+"$RIG" build --release=fast -o bin/swap swap.rig || fail "rig build --release=fast swap.rig"
+out=$(bin/swap 2>&1); rc=$?
+expect_has "$out" "index out of bounds" "fast build swap check"
+[[ $rc -ne 0 ]] || fail "fast build: out-of-range swap exited 0"
+
+cat >bytes.rig <<'EOF'
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  b: [4]U8 = [1, 2, 3, 4]
+  print(b.read[U32, .big](rt(1)))
+EOF
+"$RIG" build --release=fast -o bin/bytes bytes.rig || fail "rig build --release=fast bytes.rig"
+out=$(bin/bytes 2>&1); rc=$?
+expect_has "$out" "byte read out of range" "fast build read check"
+[[ $rc -ne 0 ]] || fail "fast build: read past the end exited 0"
+
+cat >store.rig <<'EOF'
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  b: [4]U8 = [1, 2, 3, 4]
+  !b.write[U16, .little](rt(3), 7)
+EOF
+"$RIG" build --release=fast -o bin/store store.rig || fail "rig build --release=fast store.rig"
+out=$(bin/store 2>&1); rc=$?
+expect_has "$out" "byte write out of range" "fast build write check"
+[[ $rc -ne 0 ]] || fail "fast build: write past the end exited 0"
 
 # --release keeps the conversion checks.
 cat >convert.rig <<'EOF'

@@ -1,0 +1,28 @@
+# A bare named array where a `[]T` is expected would borrow it unseen:
+# it is written `?a` (or `!a` for a `![]T`). A temporary array is lent
+# only to a call that keeps no borrow of it.
+
+fun total(xs: []Int) -> Int
+  xs.len
+
+fun id(xs: []Int) -> []Int
+  xs
+
+sub zero(s: ![]Int)
+  !s.fill(0)
+
+struct View
+  xs: []Int
+
+sub main()
+  a = [1, 2, 3]
+  print(total(a))
+  zero(a)
+  r = id([1, 2])
+  v = View(xs: [1, 2])
+  print(r, v.xs)
+
+# error: 19:15: type mismatch: expected `[]Int`, got `[3]Int`; write `?a` or `?a[..]`
+# error: 20:8: type mismatch: expected `![]Int`, got `[3]Int`; write `!a` or `!a[..]`
+# error: 21:10: a temporary array is lent as a `[]Int` only to a call that keeps no borrow of it; bind it to a name and pass `?name`
+# error: 22:16: a temporary array is lent as a `[]Int` only to a call that keeps no borrow of it; bind it to a name and pass `?name`

@@ -1,0 +1,51 @@
+# Where a `[]T` argument is expected, a temporary array (a literal, a
+# fill, or a call's result) is lent for the call, and `?a` of a named
+# array means `?a[..]`; where a `![]T` is expected, `!a` means `!a[..]`.
+
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+fun first[T](xs: []T) -> T
+  xs[0]
+
+sub zero(s: ![]Int)
+  !s.fill(0)
+
+fun three(k: Int) -> [3]Int
+  [k, k + 1, k + 2]
+
+struct View
+  xs: []Int
+
+fun head(a: ?[3]Int) -> Int
+  total(?a)
+
+sub main()
+  a = [1, 2, 3]
+  print(total([4, 5]), total([3 of 2]), total(three(10)), total(?a))
+  print(first(?a), first([7, 8]), head(?a))
+  b = [0, 0, 0]
+  !b[..2].copy([9, 8])
+  !b[2..].copy(?a[..1])
+  print(b)
+  zero(!b)
+  print(b)
+  bytes: [4]U8 = [0, 0, 0, 0]
+  !bytes[..2].copy([1, 2])
+  print(bytes)
+  v = View(xs: ?a)
+  print(v.xs)
+  s: []Int = ?a
+  print(s.len)
+
+# expect:
+# 9 6 33 6
+# 1 7 6
+# [9, 8, 1]
+# [0, 0, 0]
+# [1, 2, 0, 0]
+# [1, 2, 3]
+# 3

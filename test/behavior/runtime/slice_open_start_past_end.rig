@@ -1,0 +1,8 @@
+# An open slice's start past the length panics.
+
+sub main()
+  s = "abc"
+  n = 4
+  print(s[n..])
+
+# expect-panic: slice bounds out of range

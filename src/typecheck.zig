@@ -98,6 +98,14 @@ const Checker = struct {
     /// The `!x` being checked where a write borrow is expected, the one
     /// place a write borrow of a `Bool` is not read as its value.
     lent_write: Sexp = .nil,
+    /// The argument being checked, when the call keeps no borrow of its
+    /// arguments: a temporary array there may be lent as a `[]T`.
+    lent_temp: Sexp = .nil,
+    /// Set by a caller of `checkArgs` whose call may take a temporary
+    /// array as a `[]T` argument (a function or method, not a closure),
+    /// with a method's receiver parameter.
+    lend_call: bool = false,
+    lend_recv: ?TypeId = null,
     /// Checking an expression where a rejected type is expected, or an
     /// argument of a call that cannot be checked: a size it would have is
     /// not reported.
@@ -556,6 +564,13 @@ const Checker = struct {
             try self.errAt(target, "cannot assign to captured `{s}`; captures are fixed when the closure is created", .{name});
         }
         const writes_through = sym.kind == .param or sym.flags.pattern_bound;
+        // A `![]T` parameter or pattern binding views the caller's
+        // elements; there is no whole value to write through to.
+        if (!is_decl and writes_through and sema.writeSliceElem(self.ctx, sym.ty) != null) {
+            try self.errAt(target, "cannot assign to `{s}`, a `{s}` {s}; write its elements with `{s}[i] = v` or `!{s}.copy(src)`", .{ name, try self.tyName(sym.ty), if (sym.kind == .param) "parameter" else "binding", name, name });
+            _ = try self.synthExpr(rhs);
+            return;
+        }
         // Assigning a binding writes it without reading it; writing
         // through a `!T` binding reaches the borrowed value.
         if (!is_decl and self.ctx.types.get(sym.ty) != .borrow_write) try self.ctx.facts.writes.put(self.ctx.allocator, target.src.pos, {});
@@ -780,7 +795,9 @@ const Checker = struct {
         }
         switch (sym.kind) {
             .param => if (self.ctx.types.get(sym.ty) != .borrow_write) {
-                try self.err(pos, "cannot {s} parameter `{s}`; parameters are immutable (take `{s}: !T` to write through to the caller)", .{ verb, name, name });
+                if (std.mem.eql(u8, name, "self")) {
+                    try self.err(pos, "cannot {s} parameter `self`; parameters are immutable (take `!self` to write through to the caller)", .{verb});
+                } else try self.err(pos, "cannot {s} parameter `{s}`; parameters are immutable (take `{s}: !T` to write through to the caller)", .{ verb, name, name });
             },
             .capture => try self.err(pos, "cannot {s} captured `{s}`; captures are fixed when the closure is created", .{ verb, name }),
             .local => if (sym.flags.fixed) {
@@ -854,7 +871,7 @@ const Checker = struct {
                     const base_ty = sema.unwrapBorrows(self.ctx, ty);
                     const base = self.ctx.types.get(base_ty);
                     if (h == .index) {
-                        if (base == .slice) path.read_only = .{ .what = .slice, .pos = self.startOf(obj) };
+                        if (base == .slice and sema.writeSliceElem(self.ctx, ty) == null) path.read_only = .{ .what = .slice, .pos = self.startOf(obj) };
                         if (base == .string) path.read_only = .{ .what = .string, .pos = self.startOf(obj) };
                     } else if ((base == .slice or base == .string or base == .array or vecElementType(self.ctx, base_ty) != null or cellVecElement(self.ctx, base_ty) != null) and std.mem.eql(u8, self.text(ir.Member.name(p)), "len")) {
                         path.read_only = .{ .what = .len, .pos = self.startOf(ir.Member.name(p)) };
@@ -1174,6 +1191,10 @@ const Checker = struct {
             },
             .slice, .string => {
                 if (mode == .write) {
+                    if (sema.writeSliceElem(self.ctx, source_ty)) |elem| {
+                        if (!rig.isRangeIndex(inner_source)) _ = try self.checkWritable(inner_source, source, "write-iterate");
+                        return self.ctx.intern(.{ .borrow_write = elem });
+                    }
                     try self.err(pos, "cannot write-iterate a `{s}`; its elements are read-only", .{try self.tyName(source_ty)});
                     return self.t().invalid_id;
                 }
@@ -2250,6 +2271,11 @@ const Checker = struct {
             try self.errAt(e, "`!` is a write borrow; use `not` for negation", .{});
             return self.t().invalid_id;
         }
+        // `![]T` is a writable slice, which a read-only `[]T` cannot give.
+        if (kind == .write and self.ctx.types.get(inner) == .slice) {
+            try self.errAt(operand, "cannot write-borrow a `{s}`: its elements are read-only; take a writable slice of the array or Vec it views with `!xs[a..b]`", .{try self.tyName(inner)});
+            return self.t().invalid_id;
+        }
         if (kind == .write and !self.hasStorage(operand)) {
             try self.errAt(operand, "cannot write-borrow a temporary: the change would be lost; bind it to a name first", .{});
             return self.t().invalid_id;
@@ -2299,15 +2325,71 @@ const Checker = struct {
         return p == .src and self.ctx.symbolOf(p) != null;
     }
 
-    /// `?xs[a..b]`: a slice, read-only. A slice cannot be written through.
+    /// `?xs[a..b]`: a read-only slice `[]T`; `!xs[a..b]`: a writable one,
+    /// `![]T`.
     fn borrowSlice(self: *Checker, slice: Sexp, kind: BorrowKind) Error!TypeId {
-        const ty = try self.synthSlice(slice, true);
-        if (kind == .write) {
-            try self.errAt(slice, "a slice is read-only; write the elements through `!xs` or `xs[i] = value`", .{});
-            return self.t().invalid_id;
-        }
+        const ty = if (kind == .read) try self.synthSlice(slice, true) else try self.writeSlice(slice);
         try self.ctx.recordType(slice, ty);
         return ty;
+    }
+
+    /// `!xs[a..b]`: a write borrow of the elements from `a` up to `b`, of
+    /// an array or a Vec of plain data the code may write, or of a
+    /// `![]T`. A String and a `[]T` are read-only.
+    fn writeSlice(self: *Checker, slice: Sexp) Error!TypeId {
+        const object = ir.Index.object(slice);
+        const range = ir.Index.index(slice);
+        const obj_ty = try self.synthOperand(object);
+        try self.checkSliceRange(range);
+        if (self.isPoison(obj_ty)) return obj_ty;
+        const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
+        var len: ?u64 = null;
+        const elem: TypeId = switch (self.ctx.types.get(peeled)) {
+            .string => {
+                try self.errAt(object, "cannot write-borrow a slice of a String; a String is read-only", .{});
+                return self.t().invalid_id;
+            },
+            .slice => |s| blk: {
+                if (sema.writeSliceElem(self.ctx, obj_ty) == null) {
+                    try self.errAt(object, "cannot write-borrow a slice of a `{s}`; a `[]T` is read-only (a writable slice is a `![]T`)", .{try self.tyName(obj_ty)});
+                    return self.t().invalid_id;
+                }
+                break :blk s.elem;
+            },
+            .array => |a| blk: {
+                len = sema.arrayLen(self.ctx, a);
+                break :blk a.elem;
+            },
+            else => blk: {
+                const elem = vecElementType(self.ctx, peeled) orelse {
+                    try self.errAt(object, "cannot slice a value of type `{s}`; slice a String, an array, a Vec, or a `[]T`", .{try self.tyName(obj_ty)});
+                    return self.t().invalid_id;
+                };
+                if ((try self.ownsResource(elem, self.startOf(object), "slices a Vec"))) {
+                    try self.errAt(object, "cannot slice a `{s}`: a slice would copy owning handles out of the Vec; iterate with `for x in !v` instead", .{try self.tyName(peeled)});
+                    return self.t().invalid_id;
+                }
+                break :blk elem;
+            },
+        };
+        try self.checkSliceBounds(range, len);
+        // A `![]T` may be resliced wherever it comes from; an array or a
+        // Vec is sliced where it is stored.
+        if (sema.writeSliceElem(self.ctx, obj_ty) == null) {
+            if (!self.hasStorage(object)) {
+                try self.errAt(object, "cannot write-borrow a temporary: the change would be lost; bind it to a name first", .{});
+                return self.t().invalid_id;
+            }
+            if (!isStoragePath(object)) {
+                try self.errAt(object, "only a named array or Vec, or a field or element of one, can be sliced; bind this value to a name first", .{});
+                return self.t().invalid_id;
+            }
+        }
+        // The binding it reaches may be one no borrow can write (a
+        // parameter, a fixed or loop binding): reported, nothing lent.
+        const mark = self.ctx.diagnostics.items.len;
+        if (!(try self.checkWritable(slice, object, "write-borrow")) or self.ctx.diagnostics.items.len != mark) return self.t().invalid_id;
+        return self.ctx.intern(.{ .borrow_write = try self.ctx.intern(.{ .slice = .{ .elem = elem } }) });
     }
 
     fn synthShare(self: *Checker, e: Sexp) Error!TypeId {
@@ -2364,6 +2446,12 @@ const Checker = struct {
         const operand = ir.Clone.operand(e);
         const inner = try self.synthOperand(operand);
         if (self.isPoison(inner)) return inner;
+        // A `![]T` reaches elements it does not own; a copy of the view
+        // would be a second path to them.
+        if (sema.writeSliceElem(self.ctx, inner) != null) {
+            try self.errAt(operand, "`+x` cannot clone a `{s}`: it is a write borrow of elements it does not own; move it with `<x`, or take a read slice with `?x[..]`", .{try self.tyName(inner)});
+            return self.t().invalid_id;
+        }
         // A clone reads the value a borrow reaches.
         const value = try self.readThrough(operand, inner, sema.unwrapBorrows(self.ctx, inner));
         switch (self.ctx.types.get(value)) {
@@ -2486,6 +2574,22 @@ const Checker = struct {
 
         if (try self.dataField(obj_ty, field)) |ty| return ty;
         const decl = sema.nominalDecl(self.ctx, peeled) orelse {
+            // An element method named without its call.
+            const has_elems = switch (self.ctx.types.get(peeled)) {
+                .array, .slice, .string => true,
+                else => vecElementType(self.ctx, peeled) != null,
+            };
+            if (has_elems) if (std.meta.stringToEnum(sema.ElemOp, field)) |op| {
+                const shown = switch (op) {
+                    .copy => "!xs.copy(src)",
+                    .fill => "!xs.fill(v)",
+                    .swap => "!xs.swap(i, j)",
+                    .read => "xs.read[U32, .little](at)",
+                    .write => "!xs.write[U32, .little](at, v)",
+                };
+                try self.err(pos, "`{s}` is a method of `{s}`, only called: `{s}`", .{ field, try self.tyName(obj_ty), shown });
+                return self.t().invalid_id;
+            };
             try self.err(pos, "type `{s}` has no field `{s}`", .{ try self.tyName(obj_ty), field });
             return self.t().invalid_id;
         };
@@ -3066,13 +3170,20 @@ const Checker = struct {
         const object = ir.Index.object(e);
         const range = ir.Index.index(e);
         const obj_ty = try self.synthOperand(object);
-        _ = try self.checkIntDefaultOperands(range, "..", .integer, null);
+        try self.checkSliceRange(range);
         if (self.isPoison(obj_ty)) return obj_ty;
         const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
             .string, .slice => {
                 _ = try self.readThrough(object, obj_ty, peeled);
                 try self.checkSliceBounds(range, null);
+                // A `![]T` is borrowed like the array it views: a read
+                // slice of it keeps it from being written meanwhile.
+                if (!borrowed and sema.writeSliceElem(self.ctx, obj_ty) != null) {
+                    const sp = self.ctx.span(e);
+                    try self.errAt(e, "a slice of a `![]T` borrows it; write `?{s}` or `!{s}`", .{ self.ctx.source[sp.start..sp.end], self.ctx.source[sp.start..sp.end] });
+                    return self.t().invalid_id;
+                }
                 return peeled;
             },
             .array => |a| a.elem,
@@ -3102,17 +3213,40 @@ const Checker = struct {
         return self.ctx.intern(.{ .slice = .{ .elem = elem } });
     }
 
+    /// A slice's bounds are integers: of one type when both are given,
+    /// and `Int` when that is all a literal says. An open side
+    /// (`xs[a..]`, `xs[..b]`) is the start or the end.
+    fn checkSliceRange(self: *Checker, range: Sexp) Error!void {
+        const lo = ir.@"..".left(range);
+        const hi = ir.@"..".right(range);
+        if (lo != .nil and hi != .nil) {
+            _ = try self.checkIntDefaultOperands(range, "..", .integer, null);
+            return;
+        }
+        const bound = if (lo != .nil) lo else hi;
+        if (bound == .nil) return;
+        const ty = try self.synthOperandValue(bound);
+        if (self.isPoison(ty)) return;
+        if (!sema.isInteger(self.ctx, ty)) return self.errAt(bound, "a slice bound must be an integer; got `{s}`", .{try self.tyName(ty)});
+        if (ty == self.t().int_literal_id) try self.checkLiteralFits(bound, self.t().int_id);
+    }
+
     /// Constant bounds are checked now: `0 <= a <= b`, and `b <= len` for
     /// an array, whose length is part of its type. Others are checked
-    /// when the slice is taken.
+    /// when the slice is taken. An open end is the length.
     fn checkSliceBounds(self: *Checker, range: Sexp, len: ?u64) Error!void {
-        const lo = self.constInt(ir.@"..".left(range));
-        const hi = self.constInt(ir.@"..".right(range));
-        if (lo) |a| if (a < 0) return self.errAt(ir.@"..".left(range), "a slice bound cannot be negative; got `{d}`", .{a});
-        if (hi) |b| {
-            if (b < 0) return self.errAt(ir.@"..".right(range), "a slice bound cannot be negative; got `{d}`", .{b});
-            if (len) |n| if (b > n) return self.errAt(ir.@"..".right(range), "slice end `{d}` is past the end of an array of length {d}", .{ b, n });
-            if (lo) |a| if (a > b) return self.errAt(range, "slice `{d}..{d}` starts after it ends", .{ a, b });
+        const lo_node = ir.@"..".left(range);
+        const hi_node = ir.@"..".right(range);
+        const lo: ?i128 = if (lo_node == .nil) 0 else self.constInt(lo_node);
+        if (lo) |a| if (a < 0) return self.errAt(lo_node, "a slice bound cannot be negative; got `{d}`", .{a});
+        if (hi_node == .nil) {
+            if (lo) |a| if (len) |n| if (a > n) return self.errAt(lo_node, "slice start `{d}` is past the end of an array of length {d}", .{ a, n });
+            return;
+        }
+        if (self.constInt(hi_node)) |b| {
+            if (b < 0) return self.errAt(hi_node, "a slice bound cannot be negative; got `{d}`", .{b});
+            if (len) |n| if (b > n) return self.errAt(hi_node, "slice end `{d}` is past the end of an array of length {d}", .{ b, n });
+            if (lo_node != .nil) if (lo) |a| if (a > b) return self.errAt(range, "slice `{d}..{d}` starts after it ends", .{ a, b });
         }
     }
 
@@ -3331,6 +3465,7 @@ const Checker = struct {
         const f = (try self.instantiateCall(fty.function, ct, args, info, 0, name, callee.src.pos, false, .empty)) orelse return self.skipCall(args);
         // A generic function's callee has the instance's signature.
         if (fty.function.ct_params.len > 0) try self.ctx.recordType(callee, try self.ctx.internCopy(.{ .function = f }));
+        self.lend_call = true;
         try self.checkArgs(args, f, info, name, callee.src.pos);
         return f.returns;
     }
@@ -3522,6 +3657,9 @@ const Checker = struct {
     /// that uses keywords or defaults records its argument slots.
     fn checkArgs(self: *Checker, args: []const Sexp, f: FunctionType, info: ParamInfo, callee: []const u8, pos: u32) Error!void {
         const call = self.current_call;
+        const lends = self.lend_call and !self.callRetains(f, self.lend_recv);
+        self.lend_call = false;
+        self.lend_recv = null;
         var first_kw: ?usize = null;
         for (args, 0..) |a, i| {
             if (a.isKind(.kwarg)) {
@@ -3556,7 +3694,7 @@ const Checker = struct {
         @memset(slots, null);
         for (positional, 0..) |a, i| {
             slots[i] = .{ .arg = @intCast(i) };
-            try self.checkArg(a, f, i);
+            try self.checkArg(a, f, i, lends);
         }
         for (keyword, positional.len..) |kw, ai| {
             const kname_node = ir.Kwarg.name(kw);
@@ -3574,7 +3712,7 @@ const Checker = struct {
                 continue;
             }
             slots[idx] = .{ .arg = @intCast(ai) };
-            try self.checkArg(ir.Kwarg.value(kw), f, idx);
+            try self.checkArg(ir.Kwarg.value(kw), f, idx, lends);
         }
         var complete = true;
         for (slots, 0..) |*slot, i| {
@@ -3594,8 +3732,30 @@ const Checker = struct {
         try self.ctx.recordCallSlots(call_node, out);
     }
 
-    fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize) Error!void {
+    fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize, lends: bool) Error!void {
+        const saved = self.lent_temp;
+        defer self.lent_temp = saved;
+        self.lent_temp = if (lends) arg else .nil;
         try self.checkExpr(arg, f.params[i]);
+    }
+
+    /// Whether a call of `f` (with receiver parameter `recv`) may keep a
+    /// borrow of an argument past the call: in its result, or through a
+    /// write borrow into something that can hold one.
+    fn callRetains(self: *Checker, f: FunctionType, recv: ?TypeId) bool {
+        if (sema.mayHoldBorrow(self.ctx, f.returns)) return true;
+        for (f.params) |p| if (self.storesBorrow(p)) return true;
+        return if (recv) |r| self.storesBorrow(r) else false;
+    }
+
+    /// A write borrow into something that can hold a borrow.
+    fn storesBorrow(self: *Checker, param: TypeId) bool {
+        const inner = switch (self.ctx.types.get(param)) {
+            .borrow_write => |inner| inner,
+            else => return false,
+        };
+        const held = if (sema.writeSliceElem(self.ctx, param)) |elem| elem else inner;
+        return sema.mayHoldBorrow(self.ctx, held);
     }
 
     /// Whether `e` is a name that names a type.
@@ -4217,7 +4377,16 @@ const Checker = struct {
             .fallible => |p| if (at == .fallible) try self.bindArg(inf, p, at.fallible, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
             .shared => |p| if (at == .shared) try self.bindArg(inf, p, at.shared, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
             .weak => |p| if (at == .weak) try self.bindArg(inf, p, at.weak, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
-            .slice => |p| if (at == .slice) try self.bindArg(inf, p.elem, at.slice.elem, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
+            // A `![]T` goes where a `[]T` does.
+            .slice => |p| if (at == .slice)
+                try self.bindArg(inf, p.elem, at.slice.elem, arg, depth + 1)
+            else if (sema.writeSliceElem(self.ctx, actual)) |elem|
+                try self.bindArg(inf, p.elem, elem, arg, depth + 1)
+            else if (arrayElem(self.ctx, actual)) |elem|
+                // An array lent as a slice (`?a`, a temporary).
+                try self.bindArg(inf, p.elem, elem, arg, depth + 1)
+            else
+                self.noteMismatch(inf, pattern, actual, arg),
             .array => |p| if (at == .array) {
                 try self.bindArg(inf, p.elem, at.array.elem, arg, depth + 1);
                 try self.bindArg(inf, p.len, at.array.len, arg, depth + 1);
@@ -4482,6 +4651,7 @@ const Checker = struct {
             return obj_ty;
         }
 
+        if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return ty;
         const resolved_method = try self.findMethod(obj_ty, method);
         // `x.f[i](args)` where `f` is a field: its element is called.
         if (ct != null and resolved_method == null) {
@@ -4600,8 +4770,177 @@ const Checker = struct {
             .returns = f.returns,
             .is_sub = f.is_sub,
         };
+        self.lend_call = true;
+        self.lend_recv = f.params[0];
         try self.checkArgs(args, rest, info, method, pos);
         return f.returns;
+    }
+
+    /// `copy`, `fill`, and `swap`: built-in methods on the elements of a
+    /// slice, an array, or a Vec, which write them in place; and `read`
+    /// and `write` on bytes (`bytesCall`). Null when `method` is none of
+    /// them or the receiver has no elements.
+    fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
+        const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
+        const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
+        var len: ?u64 = null;
+        const elem: TypeId = switch (self.ctx.types.get(peeled)) {
+            .slice => |sl| sl.elem,
+            .array => |a| blk: {
+                len = sema.arrayLen(self.ctx, a);
+                break :blk a.elem;
+            },
+            .string => try self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } }),
+            else => vecElementType(self.ctx, peeled) orelse return null,
+        };
+        if (obj.isKind(.move) and self.isReceiverSigil(obj)) {
+            try self.misplacedSigil(obj, method, "does not consume its receiver");
+            return try self.skipCall(args);
+        }
+        if (op == .read or op == .write) return try self.bytesCall(callee, obj, obj_ty, elem, len, op, pos, args, ct);
+        if (ct) |b| return try self.badCall(args, b, "`{s}` takes no compile-time arguments", .{method});
+        if (!try self.writesElements(obj, obj_ty, peeled, method)) return try self.skipCall(args);
+        if (op != .swap and try self.ownsResource(elem, pos, "copies into the elements a value")) {
+            return try self.badCall(args, pos, "`{s}` copies values into the elements; a `{s}` owns a resource", .{ method, try self.tyName(elem) });
+        }
+        // As in `[n of x]`: a copy of a value holding a borrow would
+        // duplicate the borrow, and a write borrow has one holder.
+        if (op != .swap and sema.holdsBorrow(self.ctx, elem)) {
+            return try self.badCall(args, pos, "`{s}` copies {s}; `{s}` holds a borrow, and the elements must be plain data", .{ method, if (op == .fill) "its value into every element" else "its source into the elements", try self.tyName(elem) });
+        }
+        for (args) |a| if (a.isKind(.kwarg)) return try self.badCall(args, a, "`{s}` takes no keyword arguments", .{method});
+        const want: usize = if (op == .swap) 2 else 1;
+        if (args.len != want) return try self.badCall(args, pos, "`{s}` takes {s}; got {d} argument{s}", .{ method, switch (op) {
+            .copy => "one argument, the `[]T` to copy from",
+            .fill => "one argument, the value for every element",
+            .swap => "two arguments, the indexes of the elements to swap",
+            .read, .write => unreachable,
+        }, args.len, if (args.len == 1) "" else "s" });
+        const recv = try self.ctx.intern(.{ .borrow_write = peeled });
+        const params: []const TypeId = switch (op) {
+            .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
+            .fill => &.{ recv, elem },
+            .swap => &.{ recv, self.t().int_id, self.t().int_id },
+            .read, .write => unreachable,
+        };
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
+        try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem });
+        switch (op) {
+            // `copy` keeps nothing of its source: a temporary array may
+            // be lent as it.
+            .copy => {
+                const saved = self.lent_temp;
+                defer self.lent_temp = saved;
+                self.lent_temp = args[0];
+                try self.checkExpr(args[0], params[1]);
+            },
+            .fill => try self.checkExpr(args[0], params[1]),
+            .swap => for (args) |a| try self.checkIndexArg(a, len),
+            .read, .write => unreachable,
+        }
+        return self.t().void_id;
+    }
+
+    /// `bytes.read[T, e](at)` and `!bytes.write[T, e](at, v)`: the integer
+    /// or float `T` held in the `@sizeOf(T)` bytes from `at`, in byte
+    /// order `e`, a compile-time `Endian`. The bytes are a `[]U8`, an
+    /// `![]U8`, a `[N]U8`, a `Vec[U8]`, or (for `read`) a String; `at` is
+    /// checked now against an array's length when it is constant, and
+    /// when the program runs otherwise.
+    fn bytesCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, elem: TypeId, len: ?u64, op: sema.ElemOp, pos: u32, args: []const Sexp, ct: ?Sexp) Error!TypeId {
+        const method = @tagName(op);
+        const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
+        const byte = try self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } });
+        if (elem != byte) return self.badCall(args, obj, "`{s}` works on bytes: a `[]U8`, an `![]U8`, a `[N]U8`, a `Vec[U8]`, or a String; got `{s}`", .{ method, try self.tyName(obj_ty) });
+        if (op == .write) {
+            if (!try self.writesElements(obj, obj_ty, peeled, method)) return self.skipCall(args);
+        } else if (self.isReceiverSigil(obj)) try self.misplacedSigil(obj, method, "only reads its receiver");
+        const example = if (op == .read) "read[U32, .little](at)" else "write[U32, .little](at, value)";
+        const b = ct orelse return self.badCall(args, pos, "`{s}` takes the type and the byte order in brackets: `{s}`", .{ method, example });
+        try self.ctx.recordInstance(b, .function);
+        const given = sema.bracketArgs(b);
+        if (given.len != 2) return self.badCall(args, b, "`{s}` takes two compile-time arguments, the type and the byte order: `{s}`", .{ method, example });
+        const num = try self.typeArg(given[0]);
+        if (self.isPoison(num)) return self.skipCall(args);
+        switch (self.ctx.types.get(num)) {
+            .int, .float => {},
+            // A type parameter: each instance must be a number.
+            .type_var => |param| try self.require(param, .bytes, self.startOf(given[0]), method),
+            else => return self.badCall(args, given[0], "`{s}` {s} an integer or float type; got `{s}`", .{ method, if (op == .read) "reads" else "writes", try self.tyName(num) }),
+        }
+        const endian = try self.ctx.intern(.{ .nominal = self.ctx.endian_sym_id });
+        try self.checkCtValue(given[1], endian, 1, method);
+        for (args) |a| if (a.isKind(.kwarg)) return self.badCall(args, a, "`{s}` takes no keyword arguments", .{method});
+        const want: usize = if (op == .read) 1 else 2;
+        if (args.len != want) return self.badCall(args, pos, "`{s}` takes {s}; got {d} argument{s}", .{ method, if (op == .read) "one argument, the offset of the first byte" else "two arguments, the offset of the first byte and the value", args.len, if (args.len == 1) "" else "s" });
+        const recv = try self.ctx.intern(if (op == .read) Type{ .borrow_read = peeled } else Type{ .borrow_write = peeled });
+        const params: []const TypeId = if (op == .read) &.{ recv, self.t().int_id } else &.{ recv, self.t().int_id, num };
+        const returns = if (op == .read) num else self.t().void_id;
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = returns, .is_sub = op == .write });
+        try self.ctx.recordElemCall(callee, .{ .op = op, .elem = elem, .num = num });
+        try self.checkOffsetArg(args[0], num, len, method);
+        if (op == .write) try self.checkExpr(args[1], num);
+        return returns;
+    }
+
+    /// The offset of a `read` or `write` of a `num`: an integer, checked
+    /// now against a known length when it is constant.
+    fn checkOffsetArg(self: *Checker, a: Sexp, num: TypeId, len: ?u64, method: []const u8) Error!void {
+        const ty = try self.synthValue(a);
+        if (self.isPoison(ty)) return;
+        if (!sema.isInteger(self.ctx, ty)) return self.errAt(a, "an offset must be an integer; got `{s}`", .{try self.tyName(ty)});
+        if (ty == self.t().int_literal_id) try self.checkLiteralFits(a, self.t().int_id);
+        const at = self.constInt(a) orelse return;
+        const size: i128 = switch (self.ctx.types.get(num)) {
+            .int => |i| if (i.bits == 0) 8 else i.bits / 8,
+            .float => |f| if (f.bits == 0) 8 else f.bits / 8,
+            else => return,
+        };
+        if (at < 0) return self.errAt(a, "an offset cannot be negative; got `{d}`", .{at});
+        if (len) |n| if (at + size > n) {
+            try self.errAt(a, "`{s}` of a `{s}` at `{d}` runs past the end of an array of length {d}: it needs {d} bytes", .{ method, try self.tyName(num), at, n, size });
+        };
+    }
+
+    /// An index argument: an integer (`Int` when that is all a literal
+    /// says), checked now against a known length when it is constant.
+    fn checkIndexArg(self: *Checker, a: Sexp, len: ?u64) Error!void {
+        const ty = try self.synthValue(a);
+        if (self.isPoison(ty)) return;
+        if (!sema.isInteger(self.ctx, ty)) return self.errAt(a, "an index must be an integer; got `{s}`", .{try self.tyName(ty)});
+        if (ty == self.t().int_literal_id) try self.checkLiteralFits(a, self.t().int_id);
+        if (len) |n| if (self.constInt(a)) |i| if (i < 0 or i >= n) {
+            try self.errAt(a, "index `{d}` is out of bounds for an array of length {d}", .{ i, n });
+        };
+    }
+
+    /// The receiver of a method that writes the elements of `peeled` (a
+    /// slice, an array, or a Vec): a `![]T`, or a place written `!xs`.
+    /// False after a diagnostic.
+    fn writesElements(self: *Checker, obj: Sexp, obj_ty: TypeId, peeled: TypeId, method: []const u8) Error!bool {
+        switch (self.ctx.types.get(peeled)) {
+            .string => {
+                try self.errAt(obj, "cannot `{s}` a String; a String is read-only", .{method});
+                return false;
+            },
+            .slice => if (sema.writeSliceElem(self.ctx, obj_ty) == null) {
+                try self.errAt(obj, "cannot `{s}` a `{s}`; its elements are read-only (a writable slice is a `![]T`)", .{ method, try self.tyName(obj_ty) });
+                return false;
+            },
+            else => {},
+        }
+        // `!xs.fill(v)`: the write borrow took the checks.
+        if (obj.isKind(.write)) return true;
+        // A binding that holds a write borrow lends it as it is.
+        if (self.ctx.types.get(obj_ty) == .borrow_write and !obj.isKind(.read)) return self.checkLendsWriteBorrow(obj);
+        const place = if (obj.isKind(.read) or obj.isKind(.move)) ir.get(obj, .operand) else obj;
+        // A receiver `!` could not write (through a `*T` or `?T`, or of
+        // a parameter) is reported as such, not with a `!` to add.
+        const mark = self.ctx.diagnostics.items.len;
+        if (!try self.checkWritable(place, obj, "write-borrow") or self.ctx.diagnostics.items.len != mark) return false;
+        const sp = self.ctx.span(place);
+        try self.errAt(obj, "`{s}` writes the elements; write the receiver with `!`: `!{s}.{s}(...)`", .{ method, self.ctx.source[sp.start..sp.end], method });
+        return false;
     }
 
     /// A `Cell[Vec[E]]` answers its Vec's `push`, `pop`, `clear`, and,
@@ -4674,6 +5013,7 @@ const Checker = struct {
                 const info = methodParams(m, false, source);
                 f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
                 try self.noteCallee(f);
+                self.lend_call = true;
                 try self.checkArgs(args, f, info, name, pos);
                 return f.returns;
             }
@@ -4802,6 +5142,7 @@ const Checker = struct {
                 const f = (try self.instantiateCall(fty.function, ct, args, info, 0, qualified, pos, false, .empty)) orelse return self.skipCall(args);
                 // A generic function's callee has the instance's signature.
                 try self.noteCallee(f);
+                self.lend_call = true;
                 try self.checkArgs(args, f, info, qualified, pos);
                 return f.returns;
             },
@@ -4983,11 +5324,14 @@ const Checker = struct {
             _ = try self.synthExpr(e);
             return;
         }
+        if (try self.lentTempLiteral(e, expected)) return;
         if (try self.checkContextual(e, expected)) |ty| return self.ctx.recordType(e, ty);
 
         const actual = try self.synthExpr(e);
+        if (try self.arrayAsSlice(e, actual, expected)) return;
         if (compatible(self.ctx, actual, expected)) {
             try self.recordAdapted(e, actual, expected);
+            if (sema.writeSliceElem(self.ctx, actual) != null and self.ctx.types.get(expected) == .slice) try self.ctx.recordReadView(e);
             if (sema.holdsWriteBorrow(self.ctx, expected)) _ = try self.checkLendsWriteBorrow(e);
             return;
         }
@@ -5008,6 +5352,77 @@ const Checker = struct {
             else => {},
         }
         try self.mismatch(e, expected, actual);
+    }
+
+    /// An array literal or fill lent as a `[]T` argument: its elements
+    /// take the slice's element type. True when handled.
+    fn lentTempLiteral(self: *Checker, e: Sexp, expected: TypeId) Error!bool {
+        if (!e.isKind(.array) and !e.isKind(.array_fill)) return false;
+        if (!sameNode(e, self.lent_temp)) return false;
+        const elem = switch (self.ctx.types.get(expected)) {
+            .slice => |sl| sl.elem,
+            else => return false,
+        };
+        const synth = try self.synthQuiet(e);
+        const len = switch (self.ctx.types.get(synth)) {
+            .array => |a| a.len,
+            else => return false,
+        };
+        try self.checkExpr(e, try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } }));
+        try self.ctx.recordArrayView(e, .temporary);
+        return true;
+    }
+
+    /// An array where a slice is expected: `?a` as `?a[..]` where a `[]T`
+    /// is, `!a` as `!a[..]` where a `![]T` is, and a temporary array as
+    /// a `[]T` argument of a call that keeps no borrow of it. A bare
+    /// named array is rejected with the borrow to write. True when
+    /// handled.
+    fn arrayAsSlice(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
+        const want_write = sema.writeSliceElem(self.ctx, expected) != null;
+        const elem = sema.writeSliceElem(self.ctx, expected) orelse switch (self.ctx.types.get(expected)) {
+            .slice => |sl| sl.elem,
+            else => return false,
+        };
+        const arr_of = struct {
+            fn f(ctx: *const SemContext, ty: TypeId, want: TypeId) bool {
+                return switch (ctx.types.get(ty)) {
+                    .array => |a| a.elem == want,
+                    else => false,
+                };
+            }
+        }.f;
+        switch (self.ctx.types.get(actual)) {
+            .borrow_read => |inner| if (!want_write and e.isKind(.read) and isStoragePath(ir.Read.operand(e)) and arr_of(self.ctx, inner, elem)) {
+                try self.ctx.recordType(e, expected);
+                try self.ctx.recordArrayView(e, .borrowed);
+                return true;
+            },
+            .borrow_write => |inner| if (want_write and e.isKind(.write) and isStoragePath(ir.Write.operand(e)) and arr_of(self.ctx, inner, elem)) {
+                try self.ctx.recordType(e, expected);
+                try self.ctx.recordArrayView(e, .borrowed);
+                return true;
+            },
+            .array => |a| if (a.elem == elem) {
+                if (isPlaceExpr(e)) {
+                    const sp = self.ctx.span(e);
+                    const shown = self.ctx.source[sp.start..sp.end];
+                    const sigil: u8 = if (want_write) '!' else '?';
+                    try self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; write `{c}{s}` or `{c}{s}[..]`", .{ try self.tyName(expected), try self.tyName(actual), sigil, shown, sigil, shown });
+                    return true;
+                }
+                if (!want_write and sameNode(e, self.lent_temp)) {
+                    try self.ctx.recordArrayView(e, .temporary);
+                    return true;
+                }
+                if (!want_write) {
+                    try self.errAt(e, "a temporary array is lent as a `{s}` only to a call that keeps no borrow of it; bind it to a name and pass `?name`", .{try self.tyName(expected)});
+                    return true;
+                }
+            },
+            else => {},
+        }
+        return false;
     }
 
     fn mismatch(self: *Checker, e: Sexp, expected: TypeId, actual: TypeId) Error!void {
@@ -5760,6 +6175,11 @@ fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
         // A `T!` holds a `T`, or the error it failed with.
         .fallible => |inner| return compatible(ctx, actual, inner) or sema.isErrorValue(ctx, actual),
         .borrow_read => |inner| if (a == .borrow_write) return a.borrow_write == inner,
+        // A `![]T` (or a `?[]T`) reads as the `[]T` it borrows.
+        .slice => switch (a) {
+            .borrow_read, .borrow_write => |inner| if (inner == expected) return true,
+            else => {},
+        },
         else => {},
     }
     return switch (a) {
@@ -5989,6 +6409,14 @@ fn resultCall(e: Sexp) ?Sexp {
 }
 
 /// `a` and `b` are the same parsed node.
+/// The element type of an array, or of a borrow of one.
+fn arrayElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return switch (ctx.types.get(sema.unwrapBorrows(ctx, ty))) {
+        .array => |a| a.elem,
+        else => null,
+    };
+}
+
 fn sameNode(a: Sexp, b: Sexp) bool {
     return a == .list and b == .list and a.list.ptr == b.list.ptr;
 }
@@ -6275,6 +6703,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
             switch (req.req) {
                 .plain => try ctx.err(at, cannot ++ "{s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{ inst, pname, aname, req.op, pname, aname }),
                 .array_len => try ctx.err(at, cannot ++ "uses `{s}` as an array length, which runs from 0 to {d}", .{ inst, pname, aname, pname, sema.max_array_len }),
+                .bytes => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` in bytes, which takes an integer or float type", .{ inst, pname, aname, req.op, pname }),
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
@@ -6284,6 +6713,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
             switch (req.req) {
                 .plain => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
+                .bytes => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .fits, .float, .shift => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
@@ -6319,7 +6749,7 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
 
 fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
     return switch (req) {
-        .numeric => sema.isNumeric(ctx, ty),
+        .numeric, .bytes => sema.isNumeric(ctx, ty),
         .ordered => sema.isNumeric(ctx, ty) or ctx.types.get(ty) == .string,
         .integer => sema.isInteger(ctx, ty),
         .signed => switch (ctx.types.get(ty)) {

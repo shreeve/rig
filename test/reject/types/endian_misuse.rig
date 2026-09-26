@@ -1,0 +1,26 @@
+# `read` and `write` take the type, then a compile-time `Endian`, in
+# brackets: `.little` or `.big` (there is no `.native`).
+
+sub main()
+  b: [8]U8 = [8 of 0]
+  print(b.read[U16, .native](0))
+  print(b.read[U16, 1](0))
+  e: Endian = .big
+  print(b.read[U16, e](0))
+  print(b.read[.big, U16](0))
+  print(b.read[U16](0))
+  print(b.read(0))
+  print(b.read[Bool, .big](0))
+  !b.write[U16, .big](0, 70000)
+  x: Endian = .native
+  print(x)
+
+# error: 6:22: no variant `native` on enum `Endian`
+# error: 7:21: type mismatch: expected `Endian`, got `Int`
+# error: 9:21: compile-time argument 2 of `read` must be known at compile time
+# error: 10:16: `.big` is not a type
+# error: 11:9: `read` takes two compile-time arguments, the type and the byte order
+# error: 12:11: `read` takes the type and the byte order in brackets
+# error: 13:16: `read` reads an integer or float type; got `Bool`
+# error: 14:26: integer value `70000` does not fit in `U16`
+# error: 15:16: no variant `native` on enum `Endian`

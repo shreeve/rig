@@ -532,8 +532,20 @@ pub const Facts = struct {
     /// list nodes by id.
     leaf_reads: std.AutoHashMapUnmanaged(u32, void) = .empty,
     node_reads: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Callee (`member`) node -> the built-in element method it calls.
+    elem_calls: std.AutoHashMapUnmanaged(NodeKey, ElemCall) = .empty,
+    /// Array expressions lent as a slice (`ArrayView`).
+    array_views: std.AutoHashMapUnmanaged(NodeKey, ArrayView) = .empty,
+    /// Expressions yielding a `![]T` where a `[]T` is expected, which
+    /// lend it only to read: leaves by position, list nodes by id.
+    leaf_views: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    node_views: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
+        self.elem_calls.deinit(allocator);
+        self.array_views.deinit(allocator);
+        self.leaf_views.deinit(allocator);
+        self.node_views.deinit(allocator);
         self.writes.deinit(allocator);
         self.leaf_reads.deinit(allocator);
         self.node_reads.deinit(allocator);
@@ -547,6 +559,29 @@ pub const Facts = struct {
         self.generic_calls.deinit(allocator);
     }
 };
+
+/// An array lent where a slice is expected.
+pub const ArrayView = enum {
+    /// `?a` where a `[]T` is expected, `!a` where a `![]T` is: the
+    /// borrow is `?a[..]` / `!a[..]`.
+    borrowed,
+    /// A temporary array (a literal, a fill, a call's result) passed as
+    /// a `[]T` argument: lent for the call.
+    temporary,
+};
+
+/// A built-in method on the elements of a slice, an array, a Vec, or a
+/// String: `!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, and on
+/// bytes `buf.read[U16, .big](at)` and `!buf.write[U32, .little](at, v)`.
+pub const ElemCall = struct {
+    op: ElemOp,
+    /// The receiver's element type.
+    elem: TypeId,
+    /// `read` / `write`: the integer or float type of the value.
+    num: TypeId = type_invalid,
+};
+
+pub const ElemOp = enum { copy, fill, swap, read, write };
 
 /// What a bracket list `x[...]` that is not an index instantiates. The
 /// parser builds `(index x a)` for one argument and `(inst x a b ...)`
@@ -653,6 +688,9 @@ pub const Requirement = union(enum) {
     /// A compile-time integer from 0 to `max_array_len`: the body uses
     /// the value parameter as an array length.
     array_len,
+    /// An integer or float type: the body reads or writes one in bytes
+    /// (`b.read[T, .big](at)`).
+    bytes,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -666,6 +704,7 @@ pub const Requirement = union(enum) {
             .shift => "a constant shift",
             .plain => "a value that owns no resource",
             .array_len => "an array length",
+            .bytes => "an integer or float in bytes",
         };
     }
 };
@@ -732,6 +771,7 @@ pub const SemContext = struct {
     cell_sym_id: SymbolId = symbol_invalid,
     vec_sym_id: SymbolId = symbol_invalid,
     signal_sym_id: SymbolId = symbol_invalid,
+    endian_sym_id: SymbolId = symbol_invalid,
 
     /// Assigned by the module graph.
     module_id: u32 = 0,
@@ -1114,6 +1154,33 @@ pub const SemContext = struct {
         }
     }
 
+    pub fn recordArrayView(self: *SemContext, node: Sexp, view: ArrayView) !void {
+        try self.facts.array_views.put(self.allocator, recordKey(node), view);
+    }
+
+    /// How the array expression `node` is lent as a slice, if it is.
+    pub fn arrayViewOf(self: *const SemContext, node: Sexp) ?ArrayView {
+        return self.facts.array_views.get(nodeKey(node) orelse return null);
+    }
+
+    /// `node` yields a `![]T` where a `[]T` is expected: it is lent to
+    /// read only.
+    pub fn recordReadView(self: *SemContext, node: Sexp) !void {
+        switch (node) {
+            .src => |s| try self.facts.leaf_views.put(self.allocator, s.pos, {}),
+            .list => try self.facts.node_views.put(self.allocator, recordKey(node), {}),
+            else => {},
+        }
+    }
+
+    pub fn readsAsView(self: *const SemContext, node: Sexp) bool {
+        return switch (node) {
+            .src => |s| self.facts.leaf_views.contains(s.pos),
+            .list => self.facts.node_views.contains(nodeKey(node) orelse return false),
+            else => false,
+        };
+    }
+
     pub fn recordScope(self: *SemContext, node: Sexp, scope: ScopeId) !void {
         try self.facts.scopes.put(self.allocator, recordKey(node), scope);
     }
@@ -1124,6 +1191,15 @@ pub const SemContext = struct {
 
     pub fn recordCallSlots(self: *SemContext, call: Sexp, slots: []const ArgSlot) !void {
         try self.facts.call_slots.put(self.allocator, recordKey(call), slots);
+    }
+
+    pub fn recordElemCall(self: *SemContext, callee: Sexp, call: ElemCall) !void {
+        try self.facts.elem_calls.put(self.allocator, recordKey(callee), call);
+    }
+
+    /// The built-in element method a call's callee (`member`) names.
+    pub fn elemCallOf(self: *const SemContext, callee: Sexp) ?ElemCall {
+        return self.facts.elem_calls.get(nodeKey(callee) orelse return null);
     }
 
     pub fn recordInstance(self: *SemContext, node: Sexp, inst: Instance) !void {
@@ -2462,6 +2538,17 @@ pub fn isBorrowType(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
+/// The element type of a writable slice `![]T`; null for any other type.
+pub fn writeSliceElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return switch (ctx.types.get(ty)) {
+        .borrow_write => |inner| switch (ctx.types.get(inner)) {
+            .slice => |s| s.elem,
+            else => null,
+        },
+        else => null,
+    };
+}
+
 /// Peel `?T` / `!T`.
 pub fn unwrapBorrows(ctx: *const SemContext, ty_id: TypeId) TypeId {
     var id = ty_id;
@@ -2620,6 +2707,12 @@ pub fn holdsBorrow(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).borrows.any;
 }
 
+/// Whether a value of `ty` holds, or in some instance may hold, a borrow.
+pub fn mayHoldBorrow(ctx: *const SemContext, ty: TypeId) bool {
+    const info = ctx.holds(ty);
+    return info.borrows.any or info.holds_type_var;
+}
+
 /// Whether a value of `ty` holds a write borrow, which is unique.
 pub fn holdsWriteBorrow(ctx: *const SemContext, ty: TypeId) bool {
     return ctx.holds(ty).borrows.write;
@@ -2696,7 +2789,11 @@ pub fn importType(
             }
             return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = syms } });
         },
-        .nominal => |sym_id| return local_ctx.intern(.{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
+        // Every module has its own `Endian`, and they are one type.
+        .nominal => |sym_id| return if (sym_id == foreign_ctx.endian_sym_id)
+            local_ctx.intern(.{ .nominal = local_ctx.endian_sym_id })
+        else
+            local_ctx.intern(.{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
         .imported_nominal => |n| return local_ctx.intern(.{ .imported_nominal = n }),
         // A generic type of another module is its proxy's instance.
         .parameterized_nominal => |pn| {

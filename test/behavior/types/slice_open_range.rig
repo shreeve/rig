@@ -1,0 +1,32 @@
+# An open range leaves out a side of a slice: `xs[a..]` runs to the end,
+# `xs[..b]` starts at 0, and `xs[..]` is the whole. It slices a String,
+# an array, a Vec, and a `[]T`.
+
+fun rest(xs: []Int) -> []Int
+  xs[1..]
+
+sub main()
+  s = "hello, world"
+  print(s[7..], s[..5], s[..], s[s.len..].len)
+  a = [1, 2, 3, 4]
+  print(?a[1..], ?a[..2], ?a[..], ?a[4..])
+  v: Vec[Int] = Vec()
+  !v.push(10)
+  !v.push(20)
+  !v.push(30)
+  print(?v[1..], ?v[..1], ?v[..])
+  t = ?a[1..]
+  print(t[1..], t[..1], t[..], rest(t), rest(?v[..]))
+  k = 2
+  print(s[k + 1..], ?a[k..], s[..k * 2])
+  for x, i in ?a[2..]
+    print(i, x)
+
+# expect:
+# world hello hello, world 0
+# [2, 3, 4] [1, 2] [1, 2, 3, 4] []
+# [20, 30] [10] [10, 20, 30]
+# [3, 4] [2] [2, 3, 4] [3, 4] [20, 30]
+# lo, world [3, 4] hell
+# 0 3
+# 1 4
