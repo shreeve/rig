@@ -214,7 +214,7 @@ that need to inspect the tree:
   node's id (`Parser.isReceiverSigil`), since the checker rejects some
   calls in this short form that it accepts in parentheses: a `!` before
   a method that does not take `!self` (the habit of `!` as negation),
-  a `<` before one that does not take `self: Self`, and a `!` call whose
+  a `<` before one that does not take `<self`, and a `!` call whose
   value is a `Bool`, written `(!set).insert(k)`. A `for` source sigil
   is the loop's mode, moved before this rewrite sees it.
 
@@ -349,13 +349,19 @@ A few kinds serve more than one surface form:
   element. An `inst` that is not compile-time arguments is rejected. A
   type argument in an expression is an expression read as a type
   (`typeArg`); `[]T`, `[N]T`, and function types have no such
-  spelling, and the parser wrapper reports them with a hint.
+  spelling, and the parser wrapper reports them with a hint. There
+  `*T?` is `(share (propagate_none T))`, which `typeArg` reads as an
+  optional handle, as the type grammar does, unless parentheses after
+  the sigil enclose the suffix (`*(T?)`).
 - `array_type`'s `size`, and a `generic_inst`'s arguments, may be an
   integer, a name, a `member` (`lib.N`), a `neg` integer (arguments
   only), or `+ - * / %` over those; sema reads a name by the slot it
   fills, a type or a compile-time integer.
 - `(array_fill size value)` is `[n of x]`; `(array elems...)` is a list
   of elements.
+- A receiver in a parameter list, `?self`, `!self`, or `<self`, is
+  `(read self)`, `(write self)`, or `(move self)`; sema reads it as
+  `self: ?Self`, `self: !Self`, or `self: Self`.
 - A declaration's compile-time parameters are its `tparams` group (a
   `fun` or `sub`'s `[mode: Mode]`, a generic type's `[T, n: Int]`): a
   bare name is a type parameter, `(: name T)` a compile-time value. The list

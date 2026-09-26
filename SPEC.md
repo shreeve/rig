@@ -710,7 +710,7 @@ how the method uses the value, and the call site says the same thing:
 |---|---|---|
 | `?self` (= `self: ?Self`) | reads the value | `p.m()`: the read borrow is implicit |
 | `!self` (= `self: !Self`) | modifies the value | `!p.m()` |
-| `self: Self` | consumes the value | `<p.m()`, or on a temporary |
+| `<self` (= `self: Self`) | consumes the value | `<p.m()`, or on a temporary |
 
 Write borrows and moves are never implicit, so calling a `!self` method
 as `p.m()` on an owned `p` is an error. A binding that already holds a
@@ -733,7 +733,7 @@ the call's result.
 
 The short form is checked against the method: `!` before a method that
 does not take `!self` is rejected (it reads as negation, which is
-`not`), and so is `<` before one that does not take `self: Self`, or
+`not`), and so is `<` before one that does not take `<self`, or
 either before a function with no receiver (`Point.origin()`). A
 write-borrowing call whose value is a `Bool` is written in the long
 form, `(!set).insert(k)`, so it is never read as negation.
@@ -748,7 +748,7 @@ struct Tally
     !self.seen.push(k)
     true
 
-  fun total(self: Self) -> Int
+  fun total(<self) -> Int
     sum = 0
     for x in ?self.seen
       sum += x

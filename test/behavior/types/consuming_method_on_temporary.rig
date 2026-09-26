@@ -1,4 +1,4 @@
-# A method that consumes its receiver (`self: Self`) may take a
+# A method that consumes its receiver (`<self`) may take a
 # temporary: the method owns it and drops it.
 
 struct B

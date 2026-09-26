@@ -4363,7 +4363,7 @@ const Checker = struct {
         if (try self.moduleNamed(obj)) |id| return self.crossModuleCall(id, method, pos, args, ct);
         if (try self.namedType(obj)) |nt| return self.associatedCall(obj, nt, method, pos, args, ct);
 
-        // A consuming (`self: Self`) method may take a temporary; any
+        // A consuming (`<self`) method may take a temporary; any
         // other receiver must already have an owner.
         const obj_ty = try self.synthExpr(obj);
         if (self.isPoison(obj_ty)) {

@@ -3205,11 +3205,11 @@ pub fn tparamsOf(node: Sexp) Sexp {
 }
 
 /// Name leaf of a parameter: `(: name T)`, `(default name T value)`,
-/// `(read self)`, `(write self)`, or a bare name.
+/// `(read self)`, `(write self)`, `(move self)`, or a bare name.
 pub fn paramNameNode(param: Sexp) ?Sexp {
     return switch (param.kind() orelse return if (param == .src) param else null) {
         .@":", .default => ir.get(param, .name),
-        .read, .write => ir.get(param, .operand),
+        .read, .write, .move => ir.get(param, .operand),
         else => null,
     };
 }

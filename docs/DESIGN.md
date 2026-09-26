@@ -163,7 +163,7 @@ One exception is made, for method calls: `!` or `<` directly before a
 place followed by a method call applies to the place, so `!v.push(x)`
 is `(!v).push(x)` and `<conn.close()` is `(<conn).close()`. `!` and `<`
 are exactly the receiver modes a method declares (`!self`,
-`self: Self`), and on a call's result they would mean nothing: the
+`<self`), and on a call's result they would mean nothing: the
 result is a temporary the caller already owns, so writing through it
 would be lost and moving it is what happens anyway. `*`, `+`, `~`, `?`,
 and `-` do mean something on a result (share it, clone the handle it

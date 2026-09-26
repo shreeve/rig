@@ -235,7 +235,7 @@ would move, `~x` would hold a handle weakly.
 | function | `fn f(a: i64) -> i64 { a }` | `fn f(a: i64) i64 { return a; }` | `fun f(a: Int) -> Int` / `  a` |
 | no return value | `fn f() {}` | `fn f() void {}` | `sub f` |
 | struct literal | `P { x: 1 }` | `P{ .x = 1 }` | `P(x: 1)` |
-| method receiver | `&self`, `&mut self`, `self` | `self: P`, `self: *P` | `?self`, `!self`, `self: Self` |
+| method receiver | `&self`, `&mut self`, `self` | `self: P`, `self: *P` | `?self`, `!self`, `<self` |
 | mutating call | `v.push(x)` | `try v.append(gpa, x)` | `!v.push(x)` |
 | enum variant | `Shape::Circle { r: 2 }` | `.{ .circle = .{ .r = 2 } }` | `.circle(r: 2)` |
 | match | `match x { A => .., _ => .. }` | `switch (x) { .a => .., else => .. }` | `match x` / `.a => ..` / `_ => ..` |
@@ -1139,10 +1139,12 @@ Point(x: 13, y: 4) 25
 |---|---|---|---|
 | `?self` | `&self` | reads | `p.m()`: the read borrow is implicit |
 | `!self` | `&mut self` | writes | `!p.m()` |
-| `self: Self` | `self` | consumes | `<p.m()`, or on a temporary |
+| `<self` | `self` | consumes | `<p.m()`, or on a temporary |
 | (none) | associated fn | | `Point.origin()` |
 
-`Self` names the enclosing type. Inside a `!self` method, `self.f = v`
+The sigils are short forms: `?self` is `self: ?Self`, `!self` is
+`self: !Self`, and `<self` is `self: Self`; the long forms are valid
+too. `Self` names the enclosing type. Inside a `!self` method, `self.f = v`
 and `self = v` write the caller's value. A binding that already holds a
 write borrow (a `!T` parameter, or `self` in a `!self` method) calls
 writing methods directly, `self.bump()`, because the borrow it holds is
@@ -1163,7 +1165,7 @@ method's receiver; anything after the call applies to its result.
 | `(<conn).close()` | `<conn.close()` | move `conn` into `close` |
 
 Only `!` and `<` reach the receiver, because they are exactly the
-receiver modes a method declares (`!self`, `self: Self`), and on a
+receiver modes a method declares (`!self`, `<self`), and on a
 call's result they would mean nothing: a result is already a
 temporary the caller owns. The other sigils keep their meaning on the
 whole expression:
@@ -1188,7 +1190,7 @@ struct Stack
   fun pop(!self) -> Int?
     !self.items.pop()
 
-  fun total(self: Self) -> Int
+  fun total(<self) -> Int
     sum = 0
     for k in ?self.items
       sum += k
@@ -2124,7 +2126,7 @@ The same sigils mean the same thing in every position:
 |---|---|---|---|---|---|
 | expression | `?x` | `!x` | `<x` | `+x` | `~x` |
 | type | `?T` | `!T` | | | `~T` |
-| receiver | `?self` | `!self` | `self: Self` | | |
+| receiver | `?self` | `!self` | `<self` | | |
 | method call | `p.m()` | `!p.m()` | `<p.m()` | | |
 | `for` source | `for x in ?v` | `for x in !v` | `for x in <v` | | |
 | closure capture | | | `\|<x\|` | `\|+x\|` | `\|~x\|` |
@@ -2856,7 +2858,7 @@ are in the [roadmap](docs/ROADMAP.md).
 | `*x` | share | `*T` | move into a counted box |
 | `~x` | weak | `~T` | non-owning handle |
 | `!p.m()` | write receiver | | `(!p).m()`: `p` lent to a `!self` method |
-| `<p.m()` | move receiver | | `(<p).m()`: `p` moved into a `self: Self` method |
+| `<p.m()` | move receiver | | `(<p).m()`: `p` moved into a `<self` method |
 
 `!` is never "not": logical negation is `not x`.
 
@@ -2942,7 +2944,7 @@ use       = "use" name
 fun       = "fun" name ["[" tparam, ... "]"] ["(" params ")"] ["->" type] block
 sub       = "sub" name ["[" tparam, ... "]"] ["(" params ")"] block
 tparam    = name | name ":" type      # a type, or a compile-time value
-param     = name ":" type ["=" literal] | "?self" | "!self"
+param     = name ":" type ["=" literal] | "?self" | "!self" | "<self"
 struct    = "struct" name ["[" tparam, ... "]"] INDENT (field | fun | sub | drop)* DEDENT
 field     = name ":" type ["=" literal]
 enum      = "enum" name ["[" tparam, ... "]"] INDENT (variant | fun | sub)* DEDENT

@@ -474,6 +474,7 @@ field    = fname
          | name:fname ":" type:type "=" value:expr  → (default)
          | READ_PFX  operand:fname                  → (read)       # `?self`
          | WRITE_PFX operand:fname                  → (write)      # `!self`
+         | MOVE_PFX  operand:fname                  → (move)       # `<self`
 
 # Inside ( ) the rewriter turns a name followed by `:` into KWARG_NAME.
 fname    = name | KWARG_NAME

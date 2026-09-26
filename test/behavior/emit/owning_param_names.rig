@@ -24,7 +24,7 @@ sub keep(b: *B)
 struct S
   v: Vec[Int]
 
-  sub consume(self: Self)
+  sub consume(<self)
     f = || print("consume")
     f()
 

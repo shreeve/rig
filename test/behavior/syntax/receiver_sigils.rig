@@ -23,16 +23,17 @@ struct Bag
 
 struct Conn
   name: String
-  fun close(self: Self) -> Int
+  fun close(<self) -> Int
     self.name.len
 
 struct Builder
   parts: Vec[Int]
+  # `self: Self` is the long form of `<self`.
   fun with(self: Self, k: Int) -> Builder
     b = <self
     !b.parts.push(k)
     <b
-  fun finish(self: Self) -> Int
+  fun finish(<self) -> Int
     total = 0
     for p in ?self.parts
       total += p

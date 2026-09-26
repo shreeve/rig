@@ -1,5 +1,5 @@
 # `<` before a method call moves the receiver into it, so the method
-# must consume it (`self: Self`); a call's result moves without `<`.
+# must consume it (`<self`); a call's result moves without `<`.
 
 struct Stack
   items: Vec[Int]
