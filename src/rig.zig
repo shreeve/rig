@@ -1147,8 +1147,11 @@ pub const Parser = struct {
     /// Inside ( ), a name followed by an operand: a paren-free call,
     /// which only a statement or a closure body takes.
     fn parenFreeCallHint(self: *Parser, tok: Token) ?[]const u8 {
-        if (!self.base.lexer.inParens()) return null;
         const src = self.base.source;
+        // The bracket around the token, not one it opens.
+        const lex = &self.base.lexer;
+        const depth = lex.nesting - @intFromBool(tok.cat == .lparen or tok.cat == .lbracket);
+        if (depth == 0 or lex.inIsland() or src[lex.brackets[depth - 1]] != '(') return null;
         var end = tok.pos;
         while (end > 0 and src[end - 1] == ' ') end -= 1;
         if (end == tok.pos) return null;

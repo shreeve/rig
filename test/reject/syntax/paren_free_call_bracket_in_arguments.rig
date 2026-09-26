@@ -1,0 +1,10 @@
+# A spaced bracket list after a name inside parentheses starts a
+# paren-free call, which only a statement takes.
+
+fun id(x: Int) -> Int
+  x
+
+sub main()
+  print(id [1])
+
+# error: 8:12: a call inside parentheses needs its own parentheses: `id(...)`
