@@ -2522,7 +2522,19 @@ const Checker = struct {
         value_member,
         /// A type that takes no type arguments; its name.
         not_generic: []const u8,
+        /// A generic type of another module (`lib.Box`), which cannot
+        /// be instantiated here.
+        foreign_generic: []const u8,
     };
+
+    /// `X[...]` where `X` is a type that takes no type arguments here.
+    fn notGeneric(self: *Checker, at: Sexp, target: InstTarget) Error!void {
+        switch (target) {
+            .foreign_generic => |name| try self.errAt(at, "`{s}` is a generic type of another module; generic types cannot cross module boundaries yet", .{name}),
+            .not_generic => |name| try self.errAt(at, "`{s}` is not a generic type; it takes no type arguments", .{name}),
+            else => unreachable,
+        }
+    }
 
     fn instTarget(self: *Checker, obj: Sexp) Error!?InstTarget {
         if (obj == .src) {
@@ -2551,7 +2563,8 @@ const Checker = struct {
             const fsym = foreign.symbols.items[fid];
             return switch (fsym.kind) {
                 .function, .@"extern" => .{ .function = .{ .takes_args = takesArgs(foreign, fsym.ty) } },
-                .nominal_type, .type_alias, .generic_type => .{ .not_generic = try self.sourceText(obj) },
+                .nominal_type, .type_alias => .{ .not_generic = try self.sourceText(obj) },
+                .generic_type => .{ .foreign_generic = try self.sourceText(obj) },
                 else => null,
             };
         };
@@ -2595,7 +2608,7 @@ const Checker = struct {
                 const call = try self.sourceText(e);
                 try self.errAt(e, "`{s}` is a function with compile-time arguments; call it with `{s}(...)`", .{ call, call });
             },
-            .not_generic => |name| try self.errAt(e, "`{s}` is not a generic type; it takes no type arguments", .{name}),
+            .not_generic, .foreign_generic => try self.notGeneric(e, target),
             .value_member => unreachable,
         }
         return self.t().invalid_id;
@@ -2653,8 +2666,8 @@ const Checker = struct {
                 },
                 .index, .inst => if (try self.instTarget(ir.get(e, .object))) |target| switch (target) {
                     .generic => |nt| return self.typeInstance(e, nt),
-                    .not_generic => |name| {
-                        try self.errAt(e, "`{s}` is not a generic type; it takes no type arguments", .{name});
+                    .not_generic, .foreign_generic => {
+                        try self.notGeneric(e, target);
                         return self.t().invalid_id;
                     },
                     else => {},
@@ -2961,7 +2974,10 @@ const Checker = struct {
                 callee = ir.get(callee, .object);
             },
             .value_member => return self.synthMemberCall(ir.get(callee, .object), args, callee),
-            .not_generic => |name| return self.badCall(args, callee, "`{s}` is not a generic type; it takes no type arguments", .{name}),
+            .not_generic, .foreign_generic => {
+                try self.notGeneric(callee, target);
+                return self.skipCall(args);
+            },
         };
 
         if (callee == .src) {
