@@ -3717,6 +3717,9 @@ const Checker = struct {
             try self.ctx.recordType(callee, field_ty);
             const elem_ty = try self.indexInto(ct.?, field_ty);
             try self.ctx.recordType(ct.?, elem_ty);
+            if (self.isReceiverSigil(obj)) {
+                try self.fieldCallSigil(obj, method, "a field holding functions", elem_ty);
+            } else try self.rejectResourceTemporary(obj, obj_ty);
             return self.callValue(ct.?, elem_ty, args, "expression");
         }
 
@@ -3758,7 +3761,7 @@ const Checker = struct {
             if (try self.dataField(obj_ty, method)) |ty| {
                 if (sema.ownedClosureFn(self.ctx, ty) != null or self.ctx.types.get(ty) == .function) {
                     if (self.isReceiverSigil(obj)) {
-                        try self.misplacedSigil(obj, method, "is a field holding a function, not a method with a receiver");
+                        try self.fieldCallSigil(obj, method, "a field holding a function", ty);
                     } else try self.rejectResourceTemporary(obj, obj_ty);
                     try self.noteCalleeType(ty);
                     return self.callValue(callee, ty, args, method);
@@ -4052,6 +4055,20 @@ const Checker = struct {
     /// could apply to.
     fn misplacedSigil(self: *Checker, recv: Sexp, method: []const u8, why: []const u8) Error!void {
         try self.errAt(recv, "`{s}` {s}; drop the `{s}`", .{ method, why, if (recv.isKind(.write)) "!" else "<" });
+    }
+
+    /// `!p.f(...)` or `<p.f[i](...)`, where `f` is a field holding
+    /// functions: there is no receiver for the sigil. A `!` before a call
+    /// whose value is a `Bool` was meant as negation.
+    fn fieldCallSigil(self: *Checker, recv: Sexp, field: []const u8, what: []const u8, fn_ty: TypeId) Error!void {
+        const returns: ?TypeId = if (sema.ownedClosureFn(self.ctx, fn_ty)) |f| f.returns else switch (self.ctx.types.get(sema.unwrapBorrows(self.ctx, fn_ty))) {
+            .function => |f| f.returns,
+            else => null,
+        };
+        if (recv.isKind(.write) and returns == self.t().bool_id) {
+            return self.errAt(recv, "`{s}` is {s}, not a method with a receiver; for negation use `not`", .{ field, what });
+        }
+        try self.errAt(recv, "`{s}` is {s}, not a method with a receiver; drop the `{s}`", .{ field, what, if (recv.isKind(.write)) "!" else "<" });
     }
 
     /// `!p.m(...)` and `<p.m(...)` (see `Parser.receiverSigil`): the sigil

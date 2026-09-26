@@ -1191,7 +1191,9 @@ From lowest to highest precedence:
 Postfixes bind tighter than prefixes, so `-a.len` is `-(a.len)` and
 `+n.first()` clones the result. The one exception is a receiver sigil:
 `!` or `<` before a place followed by a method call applies to the
-place, `!v.push(x)` is `(!v).push(x)` ([§4](#structs)).
+place, `!v.push(x)` is `(!v).push(x)` and `!v.put[2](x)` is
+`(!v).put[2](x)` ([§4](#structs)). A call of a field holding functions
+(`!p.f()`, `!p.fs[0]()`) has no receiver, so a sigil there is rejected.
 
 Arithmetic needs numeric operands of one type (a literal adapts to the
 other operand). Integer `/` truncates toward zero and `%` takes the sign

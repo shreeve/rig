@@ -1,0 +1,28 @@
+# `x.f[i](args)` calls an element of a field `f` holding functions:
+# there is no receiver for `!` or `<` to apply to, and a temporary that
+# owns a resource cannot be the object, as for `x.f(args)`.
+
+fun one() -> Int
+  1
+
+fun yes() -> Bool
+  true
+
+struct P
+  v: Vec[Int]
+  handlers: [1]fun() -> Int
+  checks: [1]fun() -> Bool
+
+sub main
+  p = P(v: Vec(), handlers: [one], checks: [yes])
+  x = <p.handlers[0]()
+  if !p.checks[0]()
+    print("negated")
+  y = !p.handlers[0]()
+  z = P(v: Vec(), handlers: [one], checks: [yes]).handlers[0]()
+  print(x, y, z)
+
+# error: 18:7: `handlers` is a field holding functions, not a method with a receiver; drop the `<`
+# error: 19:6: `checks` is a field holding functions, not a method with a receiver; for negation use `not`
+# error: 21:7: `handlers` is a field holding functions
+# error: 22:7: this `P` is a temporary that owns a resource, and nothing would drop it
