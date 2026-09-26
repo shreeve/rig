@@ -4,7 +4,7 @@
 struct H
   b: []U8
 
-type Box[T]
+struct Box[T]
   v: T
 
 sub main()

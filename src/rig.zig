@@ -1092,39 +1092,45 @@ pub const Parser = struct {
     }
 
     /// Compile-time parameters and arguments written where Rig does not
-    /// take them: in parentheses (`type Box(T)`, `Vec(Int)` in a type,
-    /// `pre n: Int`), in brackets apart from the name (`type Box [T]`),
-    /// or as a type an expression cannot spell (`Vec[[]Int]()`).
+    /// take them: in parentheses (`struct Box(T)`, `Vec(Int)` in a type,
+    /// `pre n: Int`), in brackets apart from the name (`struct Box [T]`),
+    /// on a type alias, or as a type an expression cannot spell
+    /// (`Vec[[]Int]()`). Also a struct declared with `type`.
     fn bracketHint(self: *Parser, tok: Token) ?[]const u8 {
         const src = self.base.source;
-        const before = std.mem.trimEnd(u8, src[0..tok.pos], " ");
+        const before = std.mem.trimEnd(u8, src[0..tok.pos], if (tok.cat == .indent) " \r\n" else " ");
         var start = before.len;
         while (start > 0 and isIdentCont(before[start - 1])) start -= 1;
         const word = before[start..];
         const declared = std.mem.trimEnd(u8, before[0..start], " ");
-        const decl_kw: ?[]const u8 = for ([_][]const u8{ "type", "enum", "fun", "sub" }) |kw| {
+        // `type` declares only an alias: `type Name = T`.
+        if (word.len > 0 and endsWithWord(declared, "type")) switch (tok.cat) {
+            .indent => return self.format("a struct is declared with `struct`: `struct {s}`", .{word}),
+            .lbracket_index, .lbracket, .lparen_call, .lparen => {
+                const eol = std.mem.indexOfScalarPos(u8, src, tok.pos, '\n') orelse src.len;
+                if (std.mem.indexOfScalar(u8, src[tok.pos..eol], '=') != null) return "a type alias takes no type parameters; generic aliases are not supported";
+                return self.format("a struct is declared with `struct`: `struct {s}[T]`", .{word});
+            },
+            else => {},
+        };
+        const decl_kw: ?[]const u8 = for ([_][]const u8{ "struct", "enum", "fun", "sub" }) |kw| {
             if (endsWithWord(declared, kw)) break kw;
         } else null;
         switch (tok.cat) {
             .lparen_call => {
                 if (word.len == 0) return null;
-                if (decl_kw) |kw| if (kw[0] == 't' or kw[0] == 'e') return self.format("type parameters go in brackets touching the name: `{s} {s}[T]`", .{ kw, word });
+                if (decl_kw) |kw| if (kw[0] == 'e' or kw[1] == 't') return self.format("type parameters go in brackets touching the name: `{s} {s}[T]`", .{ kw, word });
                 if (std.ascii.isUpper(word[0])) return self.format("type arguments go in brackets: `{s}[...]`", .{word});
                 return null;
             },
             .lbracket => if (decl_kw) |kw| if (word.len > 0) {
                 return self.format("compile-time parameters go in brackets touching the name: `{s} {s}[...]`", .{ kw, word });
             },
-            .lbracket_index => if (word.len > 0) {
-                if (endsWithWord(declared, "struct")) return self.format("a generic struct is declared as a type: `type {s}[T]`", .{word});
-                if (endsWithWord(declared, "error")) return "an error set takes no type parameters";
+            .lbracket_index => if (word.len > 0 and endsWithWord(declared, "error")) {
+                return "an error set takes no type parameters";
             },
             .rbracket => if (before.len > 0 and before[before.len - 1] == '[') {
                 return "empty brackets: give the compile-time arguments, as in `Vec[Int]()`";
-            },
-            .assign => if (before.len > 0 and before[before.len - 1] == ']') {
-                const line = std.mem.trimStart(u8, before[if (std.mem.lastIndexOfScalar(u8, before, '\n')) |i| i + 1 else 0..], " ");
-                if (std.mem.startsWith(u8, line, "type ") or std.mem.startsWith(u8, line, "pub type ")) return "a type alias takes no type parameters; generic aliases are not supported";
             },
             .fun, .sub => if (self.base.lexer.nesting > 0 and src[self.base.lexer.brackets[self.base.lexer.nesting - 1]] == '[') {
                 return "a function type has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead";
@@ -1442,8 +1448,8 @@ test "spacing decides prefix vs infix" {
 }
 
 test "compile-time brackets touch the name; `name:` inside them is a name" {
-    try expectCats("type Box[T]", &.{ .type, .ident, .lbracket_index, .ident, .rbracket });
-    try expectCats("type Box [T]", &.{ .type, .ident, .lbracket, .ident, .rbracket });
+    try expectCats("struct Box[T]", &.{ .@"struct", .ident, .lbracket_index, .ident, .rbracket });
+    try expectCats("struct Box [T]", &.{ .@"struct", .ident, .lbracket, .ident, .rbracket });
     try expectCats("fun f[n: Int](x: Int)", &.{ .fun, .ident, .lbracket_index, .ident, .colon, .ident, .rbracket, .lparen_call, .kwarg_name, .colon, .ident, .rparen });
     try expectCats("Pair[Int, String].make(1)", &.{ .ident, .lbracket_index, .ident, .comma, .ident, .rbracket, .dot, .ident, .lparen_call, .integer, .rparen });
     try expectCats("pre = 1", &.{ .ident, .assign, .integer });
@@ -1574,7 +1580,7 @@ test "parser: every form parses" {
         \\
         \\type Id = U64
         \\
-        \\type Box[T]
+        \\struct Box[T]
         \\  value: T
         \\
         \\  fun get(?self) -> T

@@ -2,7 +2,7 @@
 # type argument in an expression; a `type` alias or an annotation can
 # name it.
 
-type Box[T]
+struct Box[T]
   v: T
 
 sub main()

@@ -254,7 +254,7 @@ would move, `~x` would hold a handle weakly.
 | drop early | `drop(x)` | `x.deinit()` | `-x` |
 | destructor | `impl Drop` | `deinit` + `defer` | `drop self: !Self` |
 | cleanup | scope guard | `defer`, `errdefer` | `defer`, `errdefer` |
-| generic type | `struct Box<T>` | `fn Box(comptime T: type) type` | `type Box[T]` |
+| generic type | `struct Box<T>` | `fn Box(comptime T: type) type` | `struct Box[T]` |
 | generic function | `fn max<T>(a: T, b: T) -> T` | `fn max(comptime T: type, a: T, b: T) T` | `fun max[T](a: T, b: T) -> T` |
 | explicit type argument | `max::<f64>(1.0, 2.0)` | `max(f64, 1, 2)` | `max[Float](1, 2)` |
 | type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `Vec[Int]()` |
@@ -1403,7 +1403,7 @@ functions, and compile-time values, in declarations and in uses:
 
 | | Declared | Used |
 |---|---|---|
-| generic type | `type Box[T]`, `enum Option[T]` | `Box[Int]`, `Box[Int](v: 3)`, `Option[Int].some(value: 7)` |
+| generic type | `struct Box[T]`, `enum Option[T]` | `Box[Int]`, `Box[Int](v: 3)`, `Option[Int].some(value: 7)` |
 | generic function | `fun max[T](a: T, b: T) -> T` | `max(3, 7)`, `max[Float](1, 2)` |
 | generic method | `fun map[U](?self, f: fun(T) -> U) -> Box[U]` | `b.map(label)` |
 | compile-time value | `fun check[mode: Mode](n: Int)` | `check[.strict](5)` |
@@ -1428,8 +1428,8 @@ Why brackets:
 
 ### Generic types
 
-`type Name[T, ...]` declares a generic struct and `enum Name[T, ...]` a
-generic enum. An instance names its type arguments in brackets, in a
+`struct Name[T, ...]` declares a generic struct and `enum Name[T, ...]`
+a generic enum. An instance names its type arguments in brackets, in a
 type (`Pair[Int, String]`) and in an expression
 (`Pair[Int, Float](first: 1, second: 2.5)`, `Vec[Int]()`,
 `Option[Int].some(value: 7)`). A constructor may leave them out: they
@@ -1437,7 +1437,7 @@ come from the type expected where the value goes, or from the values
 that fill it.
 
 ```rig
-type Pair[T, U]
+struct Pair[T, U]
   first: T
   second: U
 
@@ -1465,8 +1465,8 @@ sub main
 2.5 .some(value: 1)
 ```
 
-A generic struct is declared with `type`, never `struct`, and its
-parameters are types only: `type Ring[n: Int]` is rejected.
+A generic type's parameters are types only: `struct Ring[n: Int]` is
+rejected. `type` declares only an alias, never a struct.
 
 ### Generic functions and methods
 
@@ -1476,7 +1476,7 @@ A method's own sit beside its type's: inside `Box[T]`, `fun map[U]`
 has both `T` and `U`.
 
 ```rig
-type Box[T]
+struct Box[T]
   v: T
 
   fun map[U](?self, f: fun(T) -> U) -> Box[U]
@@ -1638,7 +1638,7 @@ function type has no such spelling, so give it a `type` alias, or write
 the type where the value goes:
 
 ```rig
-type Box[T]
+struct Box[T]
   v: T
 
 type Row = [3]Int
@@ -1710,7 +1710,7 @@ struct Track
   drop self: !Track
     print("free", self.title)
 
-type Shelf[T]
+struct Shelf[T]
   items: Vec[T]
 
   sub add(!self, x: T)
@@ -1760,7 +1760,7 @@ struct Track
   drop self: !Track
     print("free", self.title)
 
-type Pair[T]
+struct Pair[T]
   a: T
   b: T
 
@@ -1859,7 +1859,7 @@ compile-time argument 1 of `show` must be known at compile time
 | generic function | `fn max<T: PartialOrd>(a: T, b: T) -> T` | `fn max(comptime T: type, a: T, b: T) T` | `fun max[T](a: T, b: T) -> T` |
 | explicit type argument | `max::<f64>(1.0, 2.0)` | `max(f64, 1, 2)` | `max[Float](1, 2)` |
 | what `T` may do | what its bounds say | what each instance compiles | what each instance supports, checked per call |
-| generic type | `struct Box<T> { v: T }` | `fn Box(comptime T: type) type` | `type Box[T]` |
+| generic type | `struct Box<T> { v: T }` | `fn Box(comptime T: type) type` | `struct Box[T]` |
 | type arguments | `Vec::<i64>::new()` | `std.ArrayList(i64)` | `Vec[Int]()` |
 | generic method | `fn map<U>(&self, f: fn(T) -> U) -> Box<U>` | `fn map(self: Self, comptime U: type, f: *const fn (T) U) Box(U)` | `fun map[U](?self, f: fun(T) -> U) -> Box[U]` |
 | compile-time value | `fn f<const N: usize>(x: i64)` | `fn f(comptime n: usize, x: i64)` | `fun f[n: Int](x: Int)` |
@@ -2764,7 +2764,7 @@ correspondences:
 | `Int`, `U8`, `Float`, `String` | `i64`, `u8`, `f64`, `[]const u8` |
 | `struct`, plain `enum`, payload `enum` | `struct`, `enum`, `union(enum)` |
 | `error E` | an error set |
-| `type Box[T]` | `fn Box(comptime T: type) type` |
+| `struct Box[T]` | `fn Box(comptime T: type) type` |
 | `fun max[T](a: T, b: T) -> T`, `max(3, 7)` | `fn max(comptime T: type, a: T, b: T) T`, `max(i64, 3, 7)` |
 | `T?`, `none`, `a ?? b` | `?T`, `null`, `a orelse b` |
 | `T!`, `f()!`, `catch` | `anyerror!T`, `try f()`, `catch` |
@@ -2798,13 +2798,12 @@ fun       = "fun" name ["[" tparam, ... "]"] ["(" params ")"] ["->" type] block
 sub       = "sub" name ["[" tparam, ... "]"] ["(" params ")"] block
 tparam    = name | name ":" type      # a type, or a compile-time value
 param     = name ":" type ["=" literal] | "?self" | "!self"
-struct    = "struct" name INDENT (field | fun | sub | drop)* DEDENT
+struct    = "struct" name ["[" name, ... "]"] INDENT (field | fun | sub | drop)* DEDENT
 field     = name ":" type ["=" literal]
 enum      = "enum" name ["[" name, ... "]"] INDENT (variant | fun | sub)* DEDENT
 variant   = name | name "=" integer | name "(" field, ... ")"
 errors    = "error" name INDENT name* DEDENT
 typedef   = "type" name "=" type
-          | "type" name "[" name, ... "]" INDENT (field | fun | sub)* DEDENT
 const     = name [":" type] "=!" expr
 drop      = "drop" "self" ":" "!Self" block
 test      = "test" string block
@@ -2899,7 +2898,7 @@ call onto the place, giving the tree of `(!v).push(x)`
   `sub greet`, but a call still does, `greet()`.
 - `comptime` parameters go in brackets before the run-time ones:
   `fn f(comptime n: i64, x: i64)` is `fun f[n: Int](x: Int)`, called
-  `f[3](x)`; a generic type is `type Box[T]`, and a generic function
+  `f[3](x)`; a generic type is `struct Box[T]`, and a generic function
   `fun max[T](a: T, b: T) -> T`.
 - A value nobody uses is an error, as in Zig; `_ = e` discards on
   purpose.

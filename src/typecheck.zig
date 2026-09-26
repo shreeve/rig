@@ -234,7 +234,7 @@ const Checker = struct {
                 const fn_ty = if (self.ctx.symbolOf(ir.get(sexp, .name))) |id| self.ctx.symbols.items[id].ty else self.t().invalid_id;
                 try self.checkFunction(sexp, fn_ty);
             },
-            .@"struct", .@"enum", .errors, .generic_type, .generic_enum => try self.checkNominal(sexp),
+            .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => try self.checkNominal(sexp),
             .@"test" => {
                 try self.checkEscapes(ir.Test.name(sexp));
                 const prev_scope = self.enter(sexp);
@@ -278,7 +278,7 @@ const Checker = struct {
     const discard_read = "`_` discards a value; it cannot be read";
     const stack_signal = "stack-local `Signal[T]` is not supported: a Signal lives behind a shared handle; construct it with `*Signal(value: ...)`";
 
-    /// A `struct`, `enum`, `errors`, `generic_type`, or `generic_enum`.
+    /// A `struct`, `enum`, `errors`, `generic_struct`, or `generic_enum`.
     fn checkNominal(self: *Checker, node: Sexp) Error!void {
         const sym_id = self.ctx.symbolOf(ir.get(node, .name)) orelse return;
         const prev = self.nominal;
@@ -451,7 +451,7 @@ const Checker = struct {
                 defer self.body.loops = frame.parent;
                 try self.checkStmt(inner);
             },
-            .fun, .sub, .@"struct", .@"enum", .errors, .type, .generic_type, .generic_enum, .use, .@"extern", .extern_fun, .extern_sub, .@"test", .@"pub" => {
+            .fun, .sub, .@"struct", .@"enum", .errors, .type, .generic_struct, .generic_enum, .use, .@"extern", .extern_fun, .extern_sub, .@"test", .@"pub" => {
                 try self.errAt(stmt, "declarations are only allowed at module level", .{});
             },
             else => try self.checkExprStmt(stmt),

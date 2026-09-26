@@ -1,7 +1,7 @@
 # A generic struct instantiated with a handle (`Holder[*Noisy]`) drops the
 # handle it holds.
 
-type Holder[T]
+struct Holder[T]
   value: T
   id: Int
 

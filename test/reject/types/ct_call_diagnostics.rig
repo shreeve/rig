@@ -28,7 +28,7 @@ struct S
   fun gen[T](?self, x: T) -> T
     <x
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun m[T](?self, x: T) -> T

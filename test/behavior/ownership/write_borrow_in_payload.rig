@@ -8,7 +8,7 @@ enum Slot
   held(b: !Box)
   empty
 
-type W[T]
+struct W[T]
   v: T
 
 sub main()

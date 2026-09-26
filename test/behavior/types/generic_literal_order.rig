@@ -5,7 +5,7 @@
 fun max[T](a: T, b: T) -> T
   a if a > b else b
 
-type P[T]
+struct P[T]
   a: T
   b: T
 

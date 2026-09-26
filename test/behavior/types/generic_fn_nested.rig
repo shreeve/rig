@@ -9,7 +9,7 @@ struct Res
   drop self: !Res
     print("drop", self.n)
 
-type Pair[A, B]
+struct Pair[A, B]
   first: A
   second: B
 

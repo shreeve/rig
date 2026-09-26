@@ -4,7 +4,7 @@
 struct Secret
   value: Int
 
-pub type Box[T]
+pub struct Box[T]
   inner: T
 
 pub fun make_secret() -> Secret

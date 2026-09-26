@@ -1,7 +1,7 @@
 # `Vec[T]` in a generic type is checked for each instance: the element
 # rules reject a Vec of Vecs and a Vec of an owning struct.
 
-type Stack[T]
+struct Stack[T]
   items: Vec[T]
 
 struct Owner

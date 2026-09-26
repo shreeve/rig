@@ -3,7 +3,7 @@
 # pointer to a value that owns resources or holds a Cell. Both sides of a
 # method call, a field, and a payload agree.
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun get(?self) -> ?T
@@ -23,14 +23,14 @@ type Box[T]
     r = self.get()
     print(r)
 
-type Num[T]
+struct Num[T]
   v: T
 
   fun copy(?self) -> T
     r = ?self.v
     +r
 
-type Ref[T]
+struct Ref[T]
   r: ?T
 
   fun val(?self) -> ?T

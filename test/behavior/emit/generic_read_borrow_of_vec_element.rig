@@ -5,7 +5,7 @@ struct P
   x: Int
   y: Int
 
-type Bag[T]
+struct Bag[T]
   items: Vec[T]
 
   fun first(?self) -> ?T

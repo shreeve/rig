@@ -2,7 +2,7 @@
 # type or a function that declares them; anything else must be
 # indexable, and a type argument must be a type.
 
-type Pair[T, U]
+struct Pair[T, U]
   a: T
   b: U
 

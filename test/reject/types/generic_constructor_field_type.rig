@@ -1,7 +1,7 @@
 # A generic constructor's fields are checked against the substituted
 # type from the expected `Box[Int]`.
 
-type Box[T]
+struct Box[T]
   value: T
 
 sub main()

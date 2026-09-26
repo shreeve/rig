@@ -1,7 +1,7 @@
 # A generic struct instantiated with a resource (`Holder[*Box]`) owns it;
 # copying the struct would drop the handle twice.
 
-type Holder[T]
+struct Holder[T]
   value: T
 
 struct Box

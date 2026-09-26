@@ -1,4 +1,4 @@
-type Box[T]
+struct Box[T]
   v: T
 
 struct Q

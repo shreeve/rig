@@ -4,7 +4,7 @@
 struct P
   n: Int
 
-type Box[T]
+struct Box[T]
   value: T
 
 sub main()

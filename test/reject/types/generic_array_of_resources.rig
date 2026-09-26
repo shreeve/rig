@@ -1,7 +1,7 @@
 # `[N]T` in a generic type needs plain data for `T`: an instance whose
 # argument owns a resource is rejected.
 
-type Box[T]
+struct Box[T]
   xs: [2]T
 
 sub main()

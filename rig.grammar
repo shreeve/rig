@@ -272,10 +272,10 @@ tokens
     sub                         name:leaf tparams:group? params:group? body:block
     lambda                      captures:captures? params:group? body:block
     struct, enum, errors        name:leaf ...members
-    generic_type, generic_enum  name:leaf tparams:group? ...members
+    generic_struct, generic_enum name:leaf tparams:group ...members
     type                        name:leaf type
     test                        name:leaf body:block
-    pub                         decl:fun|sub|struct|enum|errors|type|generic_type|generic_enum|test|set
+    pub                         decl:fun|sub|struct|enum|errors|type|generic_struct|generic_enum|test|set
     extern                      name:leaf type
     extern_fun                  name:leaf params:group? returns?
     extern_sub                  name:leaf params:group?
@@ -479,10 +479,10 @@ enum     = ENUM name:name INDENT members:members OUTDENT     → (enum)
                                                     → (generic_enum)
 errors   = ERROR name:name INDENT members:members OUTDENT    → (errors)
 struct   = STRUCT name:name INDENT members:members OUTDENT   → (struct)
+         | STRUCT name:name tparams:tparams INDENT members:members OUTDENT
+                                                    → (generic_struct)
 
 typedef  = TYPE name:name "=" type:type             → (type)
-         | TYPE name:name [tparams:tparams] INDENT members:members OUTDENT
-                                                    → (generic_type)
 
 members  = member                                   → (1)
          | members NEWLINE member                   → (...1 3)

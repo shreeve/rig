@@ -287,7 +287,7 @@ pub const Emitter = struct {
             .@"struct" => try self.emitStruct(sexp),
             .@"enum" => try self.emitEnum(sexp),
             .errors => try self.emitErrorSet(sexp),
-            .generic_type => try self.emitGenericType(sexp),
+            .generic_struct => try self.emitGenericStruct(sexp),
             .generic_enum => try self.emitGenericEnum(sexp),
             .type => try self.emitTypeAlias(sexp),
             .@"test" => try self.emitTest(sexp),
@@ -382,12 +382,12 @@ pub const Emitter = struct {
         try self.w.writeAll("};\n");
     }
 
-    /// `(generic_type Name (T...) members...)` → a type-returning function.
-    fn emitGenericType(self: *Emitter, node: Sexp) Error!void {
-        const members = ir.GenericType.members(node);
-        const prev = try self.enterNominal(ir.GenericType.name(node), true, members);
+    /// `(generic_struct Name (T...) members...)` → a type-returning function.
+    fn emitGenericStruct(self: *Emitter, node: Sexp) Error!void {
+        const members = ir.GenericStruct.members(node);
+        const prev = try self.enterNominal(ir.GenericStruct.name(node), true, members);
         defer self.nominal = prev;
-        try self.emitGenericHead(ir.GenericType.tparams(node), members, "struct");
+        try self.emitGenericHead(ir.GenericStruct.tparams(node), members, "struct");
         try self.emitFields(2);
         try self.emitMethods(members, 2);
         try self.w.writeAll("    };\n}\n");

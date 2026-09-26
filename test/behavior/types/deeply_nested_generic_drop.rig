@@ -7,7 +7,7 @@ struct P
   drop self: !P
     print("drop", self.n)
 
-type Box[T]
+struct Box[T]
   value: T
 
 sub main()

@@ -1,6 +1,6 @@
 # `Cell` is a built-in nominal name and cannot be redefined.
 
-type Cell[T]
+struct Cell[T]
   value: T
 
 # error: `Cell` is a reserved built-in nominal name

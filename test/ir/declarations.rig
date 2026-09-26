@@ -33,13 +33,13 @@ error NetworkError
   timeout
   refused
 
-type Box[T]
+struct Box[T]
   value: T
 
   fun get(?self) -> T
     self.value
 
-type Maybe[T]
+enum Maybe[T]
   some(value: T)
   none
 

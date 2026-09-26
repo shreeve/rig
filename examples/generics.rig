@@ -10,7 +10,7 @@ struct Tape
   drop self: !Tape
     print("eject", self.label)
 
-type Stack[T]
+struct Stack[T]
   items: Vec[T]
 
   sub push(!self, x: T)

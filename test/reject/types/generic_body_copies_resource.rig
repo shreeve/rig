@@ -7,13 +7,13 @@
 struct B
   n: Int
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun get(?self) -> T
     self.v
 
-type Keeper[T]
+struct Keeper[T]
   v: T
 
   fun id(?self, x: T) -> T
@@ -31,14 +31,14 @@ enum Opt[T]
       .some(v) => v
       .nothing => <d
 
-type Counter[T]
+struct Counter[T]
   v: T
 
   fun count(?self, x: T) -> Int
     f = |+x| 1
     f()
 
-type Holder[T]
+struct Holder[T]
   v: T
 
   fun peek(?self, x: T, d: T) -> Int

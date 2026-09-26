@@ -10,7 +10,7 @@ struct Res
   drop self: !Res
     print("drop", self.n)
 
-type Pair[A, B]
+struct Pair[A, B]
   first: A
   second: B
 
@@ -25,13 +25,13 @@ struct Tagger
       return <a
     <b
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun with[U](?self, u: U) -> Pair[T, U]
     Pair(first: self.v, second: <u)
 
-type Cup[T]
+struct Cup[T]
   v: T
 
   fun into[U](self: Cup[T], u: U) -> Cup[U]

@@ -178,7 +178,7 @@ pub const Type = union(enum) {
     imported_nominal: ImportedNominal,
     /// A generic type applied to arguments: `Box[Int]`.
     parameterized_nominal: ParamNominal,
-    /// A generic parameter (`T` inside `type Box[T]`).
+    /// A generic parameter (`T` inside `struct Box[T]`).
     type_var: SymbolId,
 };
 
@@ -331,9 +331,9 @@ pub const SymbolKind = enum {
     local,
     /// `type UserId = Int`. Transparent: the alias's `ty` is its target.
     type_alias,
-    /// `type Box[T]` / `enum Option[T]` and the built-in generics.
+    /// `struct Box[T]` / `enum Option[T]` and the built-in generics.
     generic_type,
-    /// `T` in `type Box[T]`, detached: not in any scope, reached through
+    /// `T` in `struct Box[T]`, detached: not in any scope, reached through
     /// the owning type's `type_params`. Also `T` in `fun max[T]`, bound
     /// in the function's scope.
     generic_param,
@@ -3163,7 +3163,7 @@ const Coverage = struct {
                 for (ir.get(d, .params).items()) |p| self.expectName(paramNameNode(p).?);
                 self.expr(ir.get(d, .body));
             },
-            .@"struct", .@"enum", .generic_type => for (ir.rest(d, .members)) |m| self.decl(m),
+            .@"struct", .@"enum", .generic_struct => for (ir.rest(d, .members)) |m| self.decl(m),
             else => {},
         }
     }
@@ -3185,7 +3185,7 @@ test "facts: every name and expression in a program has a fact" {
         \\  circle(radius: Int)
         \\  dot
         \\
-        \\type Box[T]
+        \\struct Box[T]
         \\  value: T
         \\
         \\  fun get(?self) -> T

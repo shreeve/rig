@@ -5,7 +5,7 @@ fun side(k: Int) -> Int
   print("side", k)
   k
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun bump(!self, k: Int) -> Int

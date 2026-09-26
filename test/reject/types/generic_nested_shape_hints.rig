@@ -3,7 +3,7 @@
 # mismatch that follows says how to pass the expected type on. A hint
 # never spells a type an expression cannot.
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun make(v: T) -> Box[T]

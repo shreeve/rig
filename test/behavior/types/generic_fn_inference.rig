@@ -3,7 +3,7 @@
 # `T?`, `[]T`, `[N]T`, and generic instances (`Vec[T]`, `Cell[T]`, a
 # user `Box[T]`). A literal takes its default type.
 
-type Box[T]
+struct Box[T]
   v: T
 
 struct P

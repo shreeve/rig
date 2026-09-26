@@ -296,7 +296,7 @@ compile, never change what it means.
 ### Brackets for compile time
 
 Square brackets hold everything known at compile time, and parentheses
-what is known when the program runs: `type Box[T]`, `Vec[Int]()`,
+what is known when the program runs: `struct Box[T]`, `Vec[Int]()`,
 `fun max[T](a: T, b: T)`, `fun check[mode: Mode](n: Int)`,
 `check[.strict](5)`. One spelling covers type arguments and
 compile-time values, as Zig's `comptime` does for both, so a call shows

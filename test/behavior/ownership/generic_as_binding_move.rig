@@ -6,7 +6,7 @@ struct B
   drop self: !B
     print("drop", self.n)
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun first(self: Box[T], o: T?, d: T) -> T

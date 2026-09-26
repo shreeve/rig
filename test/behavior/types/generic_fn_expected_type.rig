@@ -54,13 +54,13 @@ fun checked(ok: Bool) -> U8!
     return .bad
   max(7, 8)
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun pick[U](?self, a: U, b: U) -> U
     a if self.v > 0 else b
 
-type Pair[T, U]
+struct Pair[T, U]
   first: T
   second: U
 

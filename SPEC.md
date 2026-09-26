@@ -224,8 +224,8 @@ Several characters are both operators and prefixes: `<` `+` `-` `*` `?`
 | `-x` alone on a line | drops `x` ([§8](#drop)), except where the line's value is used |
 
 The brackets of compile-time parameters and arguments touch the name
-before them (`type Box[T]`, `show[3]`); a declaration with a space
-there (`type Box [T]`) is rejected.
+before them (`struct Box[T]`, `show[3]`); a declaration with a space
+there (`struct Box [T]`) is rejected.
 
 Two values may not touch with no operator between them: `t.5` and
 `print"hi"` are rejected, since neither is a call. Nor may `=!` and
@@ -809,8 +809,9 @@ timed out
 
 ### Generic types
 
-`type Name[T, ...]` declares a generic struct and `enum Name[T, ...]` a
-generic enum; `struct Name[T]` and `error Name[T]` are rejected. Their
+`struct Name[T, ...]` declares a generic struct and `enum Name[T, ...]`
+a generic enum; `error Name[T]` is rejected, and so is a struct declared
+with `type`, which only names an [alias](#type-aliases). Their
 parameters are type parameters only ([§17](#17-compile-time-parameters)).
 An instance names its type arguments in brackets, in a type
 (`Pair[Int, String]`) or in an expression: `Box[Int](value: 3)`,
@@ -829,7 +830,7 @@ to each instance. Its body follows the rules of
 [generic bodies](#generic-bodies).
 
 ```rig
-type Pair[T, U]
+struct Pair[T, U]
   first: T
   second: U
 
@@ -864,7 +865,7 @@ sub main
 ```
 
 ```rig reject
-type Ring[n: Int]
+struct Ring[n: Int]
   first: Int
 
 sub main
@@ -929,7 +930,7 @@ struct Res
   drop self: !Res
     print("drop", self.n)
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun with[U](?self, u: U) -> U
@@ -1018,7 +1019,7 @@ struct Res
   drop self: !Res
     print("drop", self.n)
 
-type Pair[A, B]
+struct Pair[A, B]
   first: A
   second: B
 
@@ -2243,8 +2244,8 @@ reassign `self` directly, since a replaced `self` would be dropped,
 running the body again. A `!self` method that replaces its receiver
 recurses the same way, as it would in Rust. No field can be moved out,
 because the fields are released after the body returns.
-`drop` bodies are only for structs; enums and generic types get
-structural glue only.
+`drop` bodies are only for non-generic structs; enums and generic
+structs get structural glue only.
 
 ---
 
@@ -3070,7 +3071,7 @@ private generic functions serve its own code, public functions
 included.
 
 ```rig file=boxes.rig
-pub type Box[T]
+pub struct Box[T]
   v: T
 
 pub fun boxed(n: Int) -> Int
@@ -3265,7 +3266,7 @@ such spelling: name it with a type alias, or give the type where the
 value goes (`b: Box[[3]Int] = Box(v: [4, 5, 6])`).
 
 ```rig
-type Box[T]
+struct Box[T]
   v: T
 
 type Row = [3]Int
@@ -3285,7 +3286,7 @@ sub main
 ```
 
 ```rig reject
-type Pair[T, U]
+struct Pair[T, U]
   a: T
   b: U
 
@@ -3393,8 +3394,8 @@ The rest parse, and the checker rejects them as not supported yet
 |---|---|
 | a `pub` generic function, or a generic method the public surface reaches | `` generic functions cannot cross module boundaries yet `` |
 | another module's generic type, or an instance of a module's generic type in its public surface | `` generic types cannot cross module boundaries yet `` |
-| a compile-time value parameter on a type (`type Ring[n: Int]`) | `` a compile-time value parameter (`n: T`) is not supported on a type `` |
-| `drop` on an enum or a generic type | `` `drop` bodies are only for structs `` |
+| a compile-time value parameter on a type (`struct Ring[n: Int]`) | `` a compile-time value parameter (`n: T`) is not supported on a type `` |
+| `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
 | a stack closure passed, stored, or returned | `` closures cannot escape their defining scope `` |
 | an array of owning values | `` arrays cannot hold values that own resources ``; use a `Vec` |
 | an owned closure taking or returning an owning value | `` an owned closure takes plain Copy values `` |

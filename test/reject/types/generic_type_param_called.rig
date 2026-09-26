@@ -12,7 +12,7 @@ fun h[print](x: print) -> Int
   print(1)
   2
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun make(?self, x: Int) -> Int

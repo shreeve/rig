@@ -1,22 +1,22 @@
 # A literal in a generic body becomes a `T`, so every instance must hold
 # it; negation needs a signed `T`, and a constant shift a wide enough one.
 
-type Half[T]
+struct Half[T]
   v: T
   fun get(?self) -> T
     self.v * 1.5
 
-type Big[T]
+struct Big[T]
   v: T
   fun get(?self) -> T
     self.v + 300
 
-type Neg[T]
+struct Neg[T]
   v: T
   fun get(?self) -> T
     -self.v
 
-type Wide[T]
+struct Wide[T]
   v: T
   fun get(?self) -> T
     self.v << 9

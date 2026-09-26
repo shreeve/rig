@@ -1,7 +1,7 @@
 # Inside a generic body, constructor fields are checked symbolically:
 # a String is not a `T`.
 
-type Box[T]
+struct Box[T]
   value: T
 
   fun bad(?self) -> Self

@@ -45,7 +45,7 @@ fun parse[mode: ParseMode](input: ?Bytes) -> Ast
   else
     parseLoose ?input
 
-type Box[T]
+struct Box[T]
   value: T
 
 sub main()
