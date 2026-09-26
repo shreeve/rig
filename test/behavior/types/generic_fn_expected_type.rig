@@ -4,7 +4,9 @@
 # assigned place, an `if` or `match` arm, or a closure's result, and
 # through `!`, `catch`, and the left of `??`. Literals take their
 # default type only where neither says anything, and the expected type
-# reaches generic calls nested in the arguments.
+# reaches generic calls nested in the arguments. A generic type's
+# payload variants and associated functions take their type arguments
+# the same way.
 
 fun max[T](a: T, b: T) -> T
   a if a > b else b
@@ -58,6 +60,17 @@ type Box[T]
   fun pick[U](?self, a: U, b: U) -> U
     a if self.v > 0 else b
 
+type Pair[T, U]
+  first: T
+  second: U
+
+  fun make(a: T, b: U) -> Pair[T, U]
+    Pair(first: a, second: b)
+
+enum Opt[T]
+  some(value: T)
+  nothing
+
 fun wrap[T](x: T) -> Vec[T]
   v: Vec[T] = empty()
   !v.push(<x)
@@ -97,10 +110,12 @@ sub main()
   r: U8 = parse(true, 5) catch 0
   t: U8 = parse(false, 5) catch 7
   print(r, t, twice() catch 0, @sizeOf(@TypeOf(r)))
+  pr: Pair[U8, Float] = Pair.make(1, 2)
+  op: Opt[U8] = Opt.some(value: 1)
   ws: Vec[U8] = wrap(max(1, 2))
   on: Int? = id(none)
-  print(ws[0], on ?? 5, max(max(1, 2), 2.5))
-  print(@sizeOf(@TypeOf(ws[0])))
+  print(pr.first, pr.second, op, ws[0], on ?? 5, max(max(1, 2), 2.5))
+  print(@sizeOf(@TypeOf(pr.first)), @sizeOf(@TypeOf(ws[0])))
   d: U8 = nothing() ?? 3
   c = true
   i: U8 = max(1, 2) if c else max(3, 4)
@@ -121,6 +136,6 @@ sub main()
 # 11 2.5
 # 2.5
 # 5 7 21 1
-# 2 5 2.5
-# 1
+# 1 2.0 .some(value: 1) 2 5 2.5
+# 1 1
 # 3 2 6 3 1

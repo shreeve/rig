@@ -3057,7 +3057,7 @@ const Checker = struct {
                         try self.errAt(callee, "type arguments go in brackets: `{s}[{s}](...)`", .{ name, self.text(args[0]) });
                         return self.t().invalid_id;
                     }
-                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = sym.fields orelse &.{} }, callee.src.pos, null)) orelse return self.skipCall(args);
+                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = sym.fields orelse &.{} }, callee.src.pos, self.expectedResult((try sema.makeNominalContext(self.ctx, sym_id)).self_type))) orelse return self.skipCall(args);
                     _ = try self.instantiate(sym_id, subst.args, callee.src.pos);
                     return self.construct(sym_id, args, callee.src.pos, subst, null);
                 },
@@ -4173,7 +4173,7 @@ const Checker = struct {
                 if (generic) {
                     // The type's arguments are given (`Pair[Int, String].make`)
                     // or come from the call's arguments.
-                    const subst = if (nt.args) |given| TypeSubst{ .params = nt.sym.type_params orelse &.{}, .args = given } else (try self.inferTypeArgs(nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names } }, pos, null)) orelse return self.skipCall(args);
+                    const subst = if (nt.args) |given| TypeSubst{ .params = nt.sym.type_params orelse &.{}, .args = given } else (try self.inferTypeArgs(nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names } }, pos, self.expectedResult(f.returns))) orelse return self.skipCall(args);
                     if (nt.args == null) try self.ctx.recordType(obj, try self.instantiate(nt.id, subst.args, pos));
                     f = self.ctx.types.get(try sema.substituteType(self.ctx, m.ty, subst)).function;
                     recv = subst;
@@ -4195,7 +4195,8 @@ const Checker = struct {
                 subst = .{ .params = nt.sym.type_params orelse &.{}, .args = given };
                 ty = try self.instantiate(nt.id, given, pos);
             } else if (generic) {
-                subst = (try self.inferTypeArgs(nt.id, args, .{ .fields = payload }, pos, null)) orelse return self.skipCall(args);
+                const self_type = (try sema.makeNominalContext(self.ctx, nt.id)).self_type;
+                subst = (try self.inferTypeArgs(nt.id, args, .{ .fields = payload }, pos, self.expectedResult(self_type))) orelse return self.skipCall(args);
                 ty = try self.instantiate(nt.id, subst.args, pos);
             }
             try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant });
