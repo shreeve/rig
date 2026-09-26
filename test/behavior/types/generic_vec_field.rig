@@ -1,7 +1,7 @@
 # A generic type can hold a `Vec[T]`: the element rules are checked for
 # each instance, here `Int` and the shared handle `*Int`.
 
-type Stack[T]
+struct Stack[T]
   items: Vec[T]
 
   sub push(!self, x: T)

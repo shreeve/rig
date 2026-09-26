@@ -12,7 +12,7 @@ error Bad
 fun id[T](a: T) -> T
   a
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun make(v: T) -> Box[T]

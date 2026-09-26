@@ -1,7 +1,7 @@
 # A generic `T` compares with another `T` or a literal, not with a value
 # of a concrete type.
 
-type Acc[T]
+struct Acc[T]
   total: T
 
   fun is(?self, n: Int) -> Bool

@@ -13,7 +13,7 @@ struct P
 
 type P2 = P
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun size(?self) -> Int

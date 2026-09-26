@@ -143,7 +143,7 @@ the keyword: a struct field, a method, or a payload field. It reads as
 a name right after `.` (`t.type`, `t.error()`), before `:` inside
 parentheses (a keyword argument or payload field: `Token(type: 1)`),
 and in a member list before `:` (a field) or after `fun` / `sub` (a
-method). `drop self: !Self` is still a drop body; `drop: Bool` is a
+method). `drop(!self)` is still a drop body; `drop: Bool` is a
 field. Everywhere else a keyword cannot name anything: a local, a
 parameter, a top-level declaration, or an enum variant.
 
@@ -224,8 +224,8 @@ Several characters are both operators and prefixes: `<` `+` `-` `*` `?`
 | `-x` alone on a line | drops `x` ([§8](#drop)), except where the line's value is used |
 
 The brackets of compile-time parameters and arguments touch the name
-before them (`type Box[T]`, `show[3]`); a declaration with a space
-there (`type Box [T]`) is rejected.
+before them (`struct Box[T]`, `show[3]()`); a declaration with a space
+there (`struct Box [T]`) is rejected.
 
 Two values may not touch with no operator between them: `t.5` and
 `print"hi"` are rejected, since neither is a call. Nor may `=!` and
@@ -809,8 +809,9 @@ timed out
 
 ### Generic types
 
-`type Name[T, ...]` declares a generic struct and `enum Name[T, ...]` a
-generic enum; `struct Name[T]` and `error Name[T]` are rejected. Their
+`struct Name[T, ...]` declares a generic struct and `enum Name[T, ...]`
+a generic enum; `error Name[T]` is rejected, and so is a struct declared
+with `type`, which only names an [alias](#type-aliases). Their
 parameters are type parameters only ([§17](#17-compile-time-parameters)).
 An instance names its type arguments in brackets, in a type
 (`Pair[Int, String]`) or in an expression: `Box[Int](value: 3)`,
@@ -829,7 +830,7 @@ to each instance. Its body follows the rules of
 [generic bodies](#generic-bodies).
 
 ```rig
-type Pair[T, U]
+struct Pair[T, U]
   first: T
   second: U
 
@@ -864,7 +865,7 @@ sub main
 ```
 
 ```rig reject
-type Ring[n: Int]
+struct Ring[n: Int]
   first: Int
 
 sub main
@@ -926,10 +927,10 @@ is never generic. It cannot cross module boundaries yet
 struct Res
   n: Int
 
-  drop self: !Res
+  drop(!self)
     print("drop", self.n)
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun with[U](?self, u: U) -> U
@@ -1015,10 +1016,10 @@ forever.
 struct Res
   n: Int
 
-  drop self: !Res
+  drop(!self)
     print("drop", self.n)
 
-type Pair[A, B]
+struct Pair[A, B]
   first: A
   second: B
 
@@ -1564,7 +1565,7 @@ source sigils change that:
 struct B
   n: Int
 
-  drop self: !B
+  drop(!self)
     print("drop", self.n)
 
 sub keep(b: *B)
@@ -1764,7 +1765,7 @@ used until it is reassigned.
 struct Packet
   payload: Int
 
-  drop self: !Packet
+  drop(!self)
     print("released", self.payload)
 
 sub send(p: Packet)
@@ -1788,7 +1789,7 @@ released 7
 struct Packet
   payload: Int
 
-  drop self: !Packet
+  drop(!self)
     print("released")
 
 sub send(p: Packet)
@@ -2068,7 +2069,7 @@ returned borrow of `u` does not originate from a borrowed parameter
 struct Box
   payload: Int
 
-  drop self: !Box
+  drop(!self)
     print("drop")
 
 fun first(a: ?Box, b: ?Box) -> ?Box
@@ -2129,7 +2130,7 @@ be dropped: the caller owns it.
 struct Noisy
   id: Int
 
-  drop self: !Noisy
+  drop(!self)
     print("drop", self.id)
 
 sub run(early: Bool)
@@ -2185,13 +2186,14 @@ bind it to a name first
 ## 9. Drop and drop glue
 
 A struct may declare one `drop` body, which runs when a value of the
-type is released. It takes exactly `self: !Self`.
+type is released. It takes exactly one parameter, its write-borrowed
+receiver, spelled as a method's: `drop(!self)`, or `drop(self: !Self)`.
 
 ```rig
 struct File
   fd: Int
 
-  drop self: !File
+  drop(!self)
     print("closing", self.fd)
 
 sub main
@@ -2215,14 +2217,14 @@ order of declarations in the file.
 struct Noisy
   id: Int
 
-  drop self: !Noisy
+  drop(!self)
     print("noisy", self.id)
 
 struct Pair
   a: *Noisy
   b: *Noisy
 
-  drop self: !Pair
+  drop(!self)
     print("pair")
 
 sub main
@@ -2243,8 +2245,8 @@ reassign `self` directly, since a replaced `self` would be dropped,
 running the body again. A `!self` method that replaces its receiver
 recurses the same way, as it would in Rust. No field can be moved out,
 because the fields are released after the body returns.
-`drop` bodies are only for structs; enums and generic types get
-structural glue only.
+`drop` bodies are only for non-generic structs; enums and generic
+structs get structural glue only.
 
 ---
 
@@ -2262,7 +2264,7 @@ strong handle goes.
 struct User
   name: String
 
-  drop self: !User
+  drop(!self)
     print("released", self.name)
 
 sub main
@@ -2319,7 +2321,7 @@ keep the value alive. `w.upgrade()` returns an optional strong handle
 struct Node
   id: Int
 
-  drop self: !Node
+  drop(!self)
     print("drop", self.id)
 
 sub show(w: ?~Node)
@@ -2491,7 +2493,7 @@ struct P
 struct B
   n: Int
 
-  drop self: !B
+  drop(!self)
     print("drop", self.n)
 
 sub main
@@ -3070,7 +3072,7 @@ private generic functions serve its own code, public functions
 included.
 
 ```rig file=boxes.rig
-pub type Box[T]
+pub struct Box[T]
   v: T
 
 pub fun boxed(n: Int) -> Int
@@ -3187,11 +3189,12 @@ arithmetic on a compile-time parameter (`n + 1`), directly or through a
 unchecked. Inside a body, a compile-time value is an ordinary value, and
 arithmetic on it is checked when it runs.
 
-A function with no run-time parameters may leave out its parentheses,
-in its declaration (`sub show[n: Int]`) and in a call that is a whole
-statement: `show[3]` calls `show`, as `show[3]()` does. Elsewhere the
-parentheses are needed (`x = size[4]()`). A function with compile-time
-parameters can only be called, never used as a value.
+A function with no run-time parameters may leave out its parentheses in
+its declaration (`sub show[n: Int]`), but a call always has them: the
+brackets choose the instance and the parentheses call it,
+`show[3]()`. A statement `show[3]` is rejected, as a statement `greet`
+is. A function with compile-time parameters can only be called, never
+used as a value.
 
 ```rig
 enum Mode
@@ -3217,7 +3220,7 @@ sub tag[T, loud: Bool](x: T)
 
 sub main
   print(check[.strict](5), check[.loose](5), either[.strict](3, 12))
-  show[4]
+  show[4]()
   show[LIMIT * 2]()
   tag[String, LIMIT > 3]("x")
 ```
@@ -3234,12 +3237,12 @@ sub show[n: Int]
   print(n)
 
 sub outer[n: Int]
-  show[n + 1]
+  show[n + 1]()
 
 sub main
   k = 3
-  show[k]
-  outer[1]
+  show[k]()
+  outer[1]()
 ```
 
 ```error
@@ -3265,7 +3268,7 @@ such spelling: name it with a type alias, or give the type where the
 value goes (`b: Box[[3]Int] = Box(v: [4, 5, 6])`).
 
 ```rig
-type Box[T]
+struct Box[T]
   v: T
 
 type Row = [3]Int
@@ -3285,7 +3288,7 @@ sub main
 ```
 
 ```rig reject
-type Pair[T, U]
+struct Pair[T, U]
   a: T
   b: U
 
@@ -3393,8 +3396,8 @@ The rest parse, and the checker rejects them as not supported yet
 |---|---|
 | a `pub` generic function, or a generic method the public surface reaches | `` generic functions cannot cross module boundaries yet `` |
 | another module's generic type, or an instance of a module's generic type in its public surface | `` generic types cannot cross module boundaries yet `` |
-| a compile-time value parameter on a type (`type Ring[n: Int]`) | `` a compile-time value parameter (`n: T`) is not supported on a type `` |
-| `drop` on an enum or a generic type | `` `drop` bodies are only for structs `` |
+| a compile-time value parameter on a type (`struct Ring[n: Int]`) | `` a compile-time value parameter (`n: T`) is not supported on a type `` |
+| `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
 | a stack closure passed, stored, or returned | `` closures cannot escape their defining scope `` |
 | an array of owning values | `` arrays cannot hold values that own resources ``; use a `Vec` |
 | an owned closure taking or returning an owning value | `` an owned closure takes plain Copy values `` |

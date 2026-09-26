@@ -8,7 +8,7 @@ struct Box
 struct Guard
   b: ?Box
 
-  drop self: !Guard
+  drop(!self)
     print("guard sees", self.b.n)
 
 sub main()

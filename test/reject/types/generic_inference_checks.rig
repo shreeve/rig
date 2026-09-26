@@ -3,11 +3,11 @@
 # instance must meet the generic body's requirements and the built-in
 # generics' element rules.
 
-type Same[T]
+struct Same[T]
   a: T
   b: T
 
-type Adder[T]
+struct Adder[T]
   v: T
 
   fun next(?self) -> T

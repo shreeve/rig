@@ -1,7 +1,7 @@
 # A method call through a generic struct's shared-handle field
 # (`h.value.get()`) auto-dereferences the handle.
 
-type Holder[T]
+struct Holder[T]
   value: T
 
 sub main()

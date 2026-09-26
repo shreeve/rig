@@ -15,7 +15,7 @@ struct Holder
 struct Tracked
   n: Int
 
-  drop self: !Tracked
+  drop(!self)
     print("drop tracked", self.n)
 
 sub main()

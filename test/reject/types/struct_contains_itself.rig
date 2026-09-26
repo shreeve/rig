@@ -11,7 +11,7 @@ struct A
 struct B
   a: A?
 
-type List[T]
+struct List[T]
   head: T
   tail: List[T]?
 

@@ -1,14 +1,14 @@
 # A generic struct instantiated with a handle (`Holder[*Noisy]`) drops the
 # handle it holds.
 
-type Holder[T]
+struct Holder[T]
   value: T
   id: Int
 
 struct Noisy
   id: Int
 
-  drop self: !Noisy
+  drop(!self)
     print(self.id)
 
 sub main()

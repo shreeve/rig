@@ -23,7 +23,7 @@ fun f[T](x: T) -> T
   T = 3
   x
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun e[T](?self, x: T) -> Int

@@ -1,9 +1,9 @@
-# A `drop` declaration takes exactly one parameter, `self: !Self`.
+# A `drop` declaration takes exactly one parameter, its receiver.
 
 struct File
   fd: Int
 
-  drop self: !File, extra: Int
+  drop(!self, extra: Int)
     print(self.fd + extra)
 
-# error: `drop` declaration must take exactly one parameter
+# error: `drop` takes exactly one parameter, its receiver: `drop(!self)`; got 2

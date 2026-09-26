@@ -1,7 +1,7 @@
 # A bracket list of compile-time arguments may end with a comma, in a
 # type and in an expression, as other lists may; a single argument too.
 
-type Pair[T, U]
+struct Pair[T, U]
   a: T
   b: U
 

@@ -1077,7 +1077,7 @@ pub const Checker = struct {
             },
             .fun, .sub => try self.walkFun(ir.get(sexp, .name), sema.tparamsOf(sexp), ir.get(sexp, .params), rig.returnType(sexp), ir.get(sexp, .body)),
             .drop_decl => try self.walkFun(.nil, .nil, ir.DropDecl.params(sexp), .nil, ir.DropDecl.body(sexp)),
-            .@"struct", .@"enum", .errors, .generic_type => for (ir.rest(sexp, .members)) |c| try self.walkDecl(c),
+            .@"struct", .@"enum", .errors, .generic_struct => for (ir.rest(sexp, .members)) |c| try self.walkDecl(c),
             .@"pub" => try self.walkDecl(ir.Pub.decl(sexp)),
             .@"test" => try self.walkFun(.nil, .nil, .nil, .nil, ir.Test.body(sexp)),
             .use, .type, .@"extern", .extern_fun, .extern_sub, .variant, .@":" => {},
@@ -1302,7 +1302,7 @@ pub const Checker = struct {
                     break :blk v;
                 },
                 .raw_block => self.walk(ir.RawBlock.body(sexp)),
-                .enum_lit, .use, .type, .generic_type, .generic_inst => .{},
+                .enum_lit, .use, .type, .generic_struct, .generic_inst => .{},
                 // Operators on values produce fresh Copy results.
                 .@"+", .@"-", .@"*", .@"/", .@"%", .neg, .not, .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"or", .@"and", .@"&", .@"|", .@"^", .@"<<", .@">>", .@".." => blk: {
                     for (rig.children(sexp)) |c| _ = try self.walk(c);
@@ -3185,7 +3185,7 @@ pub const Checker = struct {
         return sema.holdsWriteBorrow(ctx, ty orelse return false);
     }
 
-    /// A bracket list of compile-time arguments (`Vec[Int]`, `show[3]`),
+    /// A bracket list of compile-time arguments (`Vec[Int]`, `max[Int]`),
     /// which names a type or a function and holds no value.
     fn isInstance(self: *const Checker, e: Sexp) bool {
         const s = self.sema orelse return false;

@@ -2,7 +2,7 @@
 # instantiation: `self.value + 1` needs a numeric `T`, so `Box[String]` is
 # rejected.
 
-type Box[T]
+struct Box[T]
   value: T
 
   fun bump(?self) -> T

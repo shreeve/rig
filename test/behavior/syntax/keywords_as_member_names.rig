@@ -1,6 +1,6 @@
 # A keyword may name a field, a method, or a payload field: after `.`,
 # before `:` inside ( ), and in a member list before `:` or after `fun`
-# / `sub`. `drop self` is still the drop body; `drop:` is a field.
+# / `sub`. `drop(!self)` is still the drop body; `drop:` is a field.
 
 struct Token
   type: Int
@@ -17,10 +17,10 @@ struct Token
   sub use(!self)
     self.in += 1
 
-  drop self: !Self
+  drop(!self)
     print("dropping", self.type)
 
-type Box[T]
+struct Box[T]
   type: T
 
   fun error(?self) -> T

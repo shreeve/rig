@@ -7,10 +7,10 @@ struct Tape
   label: String
   minutes: Int
 
-  drop self: !Tape
+  drop(!self)
     print("eject", self.label)
 
-type Stack[T]
+struct Stack[T]
   items: Vec[T]
 
   sub push(!self, x: T)

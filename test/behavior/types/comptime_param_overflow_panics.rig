@@ -5,7 +5,7 @@ sub show[n: U8]
   print(n + 250)
 
 sub main()
-  show[1]
+  show[1]()
   show[10]()
 
 # expect-panic: integer overflow

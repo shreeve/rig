@@ -1,7 +1,7 @@
 # A generic struct instantiated as `Box[Int]`; the constructor's field is
 # checked against the substituted type and `b.value` types as Int.
 
-type Box[T]
+struct Box[T]
   value: T
 
 sub main()

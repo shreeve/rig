@@ -37,7 +37,7 @@ struct Scale
 
 sub main()
   print(check[.strict](5), check[.lax](0), both[.strict](4, 9))
-  show[3]
+  show[3]()
   show[4]()
   report[.lax, 2]("lax 2")
   report[.strict, 2] "strict 2"
@@ -45,7 +45,7 @@ sub main()
   !s.bump[1]()
   print(s.times[5](), Scale.times[2](?s))
   limit =! 7
-  show[limit]
+  show[limit]()
 
 # expect:
 # true false true

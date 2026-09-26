@@ -3,7 +3,7 @@
 struct Owner
   cell: *Cell[Int]
 
-  drop self: !Owner
+  drop(!self)
     other = <self
 
 # error: cannot move `self` out of its own drop body

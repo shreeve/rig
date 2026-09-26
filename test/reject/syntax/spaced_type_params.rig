@@ -1,6 +1,6 @@
 # The `[` of a declaration's compile-time parameters touches its name.
 
-type Box [T]
+struct Box [T]
   v: T
 
-# error: 3:10: compile-time parameters go in brackets touching the name: `type Box[...]`
+# error: 3:12: compile-time parameters go in brackets touching the name: `struct Box[...]`

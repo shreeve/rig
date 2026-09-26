@@ -2,7 +2,7 @@
 # in `Box[T]`) is checked for each instance: `Cell[Pt]` holds plain data
 # that is neither a Copy primitive nor has drop glue.
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun peek(?self) -> Int

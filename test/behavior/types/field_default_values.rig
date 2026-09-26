@@ -8,7 +8,7 @@ enum Mode
 struct Tok
   n: Int
 
-  drop self: !Tok
+  drop(!self)
     print("drop tok", self.n)
 
 struct P
@@ -22,7 +22,7 @@ struct P
   h: (*Tok)? = none
   u: U8 = 7
 
-type Box[T]
+struct Box[T]
   v: T
   n: Int = 5
 

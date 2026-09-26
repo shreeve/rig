@@ -1,7 +1,7 @@
 pub struct Noisy
   n: Int
 
-  drop self: !Noisy
+  drop(!self)
     print("drop", self.n)
 
 pub struct Holder

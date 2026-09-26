@@ -19,7 +19,7 @@ sub main()
   print(max[Float](1, 2), max[Int](3, 2), max[U8](7, 9))
   tag[String, 3]("three")
   tag[Float, 1](0.5)
-  hello[Int]
+  hello[Int]()
   hello[Bool]()
   print(double[F32](0.25))
 

@@ -5,7 +5,7 @@ use lib
 
 sub main()
   print(lib.scaled[3](5))
-  lib.banner[40]
+  lib.banner[40]()
   lib.banner[8]()
 
 # expect:

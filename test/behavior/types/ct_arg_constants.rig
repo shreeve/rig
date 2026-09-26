@@ -15,17 +15,17 @@ sub fl[x: Float]
 
 sub f[n: Int]
   k =! n > 1
-  h[k]
-  h[n > 1 and not k]
-  g[LIM * 2]
-  fl[FL * 2.0]
+  h[k]()
+  h[n > 1 and not k]()
+  g[LIM * 2]()
+  fl[FL * 2.0]()
   a =! 7
   j =! a * 2
-  g[j]
-  g[a * 3 - LIM]
+  g[j]()
+  g[a * 3 - LIM]()
 
 sub main()
-  f[3]
+  f[3]()
 
 # expect:
 # true

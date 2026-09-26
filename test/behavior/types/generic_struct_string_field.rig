@@ -1,6 +1,6 @@
 # A `Box[String]` field types as String, so print formats it as text.
 
-type Box[T]
+struct Box[T]
   value: T
 
 sub main()

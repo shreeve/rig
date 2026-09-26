@@ -74,7 +74,7 @@ const SymbolResolver = struct {
             .lambda => try self.walkLambda(sexp),
             .use => try self.walkUse(sexp),
             .type => try self.walkTypeAlias(sexp),
-            .generic_type, .generic_enum => try self.walkGenericType(sexp),
+            .generic_struct, .generic_enum => try self.walkGenericType(sexp),
             .@"struct", .@"enum" => try self.walkNominalType(sexp, .{}),
             .errors => try self.walkNominalType(sexp, .{ .error_set = true }),
             .@"extern", .extern_fun, .extern_sub => _ = try self.declare(ir.get(sexp, .name), .@"extern", .{}),
@@ -320,15 +320,12 @@ const SymbolResolver = struct {
         try self.ctx.alias_targets.put(self.ctx.allocator, id, ir.Type.type(node));
     }
 
-    /// A `generic_type` or `generic_enum`.
+    /// A `generic_struct` or `generic_enum`.
     fn walkGenericType(self: *SymbolResolver, node: Sexp) Error!void {
         const name_node = ir.get(node, .name);
         const id = (try self.declare(name_node, .generic_type, .{})) orelse return;
         const name = self.ctx.symbols.items[id].name;
         const params = ir.get(node, .tparams);
-        if (params.items().len == 0) {
-            try self.ctx.errAt(name_node, "generic type `{s}` must declare at least one type parameter (`type {s}[T]`); a type without them is a `struct`", .{ name, name });
-        }
         var ids: std.ArrayListUnmanaged(SymbolId) = .empty;
         defer ids.deinit(self.ctx.allocator);
         for (params.items(), 0..) |p, i| {
@@ -599,7 +596,7 @@ pub const TypeResolver = struct {
                 }
             },
             .extern_fun, .extern_sub => try self.resolveExternFun(sexp),
-            .@"struct", .@"enum", .errors, .generic_type, .generic_enum => try self.resolveNominal(sexp),
+            .@"struct", .@"enum", .errors, .generic_struct, .generic_enum => try self.resolveNominal(sexp),
             else => {},
         }
     }
@@ -828,11 +825,11 @@ pub const TypeResolver = struct {
 
     // ---- nominal types ------------------------------------------------------
 
-    /// A `struct`, `enum`, `errors`, `generic_type`, or `generic_enum`.
+    /// A `struct`, `enum`, `errors`, `generic_struct`, or `generic_enum`.
     fn resolveNominal(self: *TypeResolver, node: Sexp) Error!void {
         const sym_id = self.ctx.symbolOf(ir.get(node, .name)) orelse return;
         const head = node.kind().?;
-        const generic = head == .generic_type or head == .generic_enum;
+        const generic = head == .generic_struct or head == .generic_enum;
         const is_enum = head == .@"enum" or head == .errors or head == .generic_enum;
         const members = ir.rest(node, .members);
 
@@ -908,10 +905,10 @@ pub const TypeResolver = struct {
                             } else {
                                 const where: []const u8 = switch (head) {
                                     .errors => "error sets",
-                                    .generic_type, .generic_enum => "generic types",
+                                    .generic_struct => "generic structs",
                                     else => "enums",
                                 };
-                                try self.ctx.errAt(m, "`drop` bodies are only for structs, not {s}", .{where});
+                                try self.ctx.errAt(m, "`drop` bodies are only for non-generic structs, not {s}", .{where});
                             }
                         },
                         else => {},
@@ -1122,12 +1119,12 @@ pub const TypeResolver = struct {
             }
         }
         if (count != 1) {
-            try self.ctx.err(pos, "`drop` declaration must take exactly one parameter `self: !Self`; got {d} parameter(s)", .{count});
+            try self.ctx.err(pos, "`drop` takes exactly one parameter, its receiver: `drop(!self)`; got {d}", .{count});
             return;
         }
         const first = params.items()[0];
         if (!self.isSelfParam(first)) {
-            try self.ctx.err(sema.paramPos(first, pos), "`drop` declaration's parameter must be named `self`", .{});
+            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes its receiver, named `self`: `drop(!self)`", .{});
             return;
         }
         const pty = self.ctx.types.get(ptys[0]);
@@ -1138,7 +1135,7 @@ pub const TypeResolver = struct {
             };
         };
         if (!ok) {
-            try self.ctx.err(sema.paramPos(first, pos), "`drop` declaration must use `self: !Self` (write-borrow); other receiver shapes are rejected", .{});
+            try self.ctx.err(sema.paramPos(first, pos), "`drop` takes its receiver write-borrowed: `drop(!self)`", .{});
             return;
         }
         const fn_ty = try self.ctx.intern(.{ .function = .{

@@ -5,7 +5,7 @@
 struct B
   n: Int
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun wrap(self: Box[T]) -> Box[Box[T]]

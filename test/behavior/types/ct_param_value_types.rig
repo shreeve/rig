@@ -12,10 +12,10 @@ sub g[m: Mode?, s: String, b: Bool, x: Float, u: U8]
   print(m == none, s, b, x, u)
 
 sub main()
-  f[none]
-  f[3]
-  g[none, "s", true, 1.5, 7]
-  g[.slow, "t", false, 2, 255]
+  f[none]()
+  f[3]()
+  g[none, "s", true, 1.5, 7]()
+  g[.slow, "t", false, 2, 255]()
 
 # expect:
 # 0

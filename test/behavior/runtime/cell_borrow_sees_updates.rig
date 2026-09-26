@@ -3,7 +3,7 @@
 # function, stored in a view, an optional, an array, a generic field, or
 # an enum payload, or taken from a field of a borrowed struct.
 
-type W[T]
+struct W[T]
   v: T
 
 enum E

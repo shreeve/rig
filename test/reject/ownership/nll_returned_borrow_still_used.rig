@@ -7,7 +7,7 @@ struct Box
   sub bump(!self)
     self.n += 1
 
-  drop self: !Box
+  drop(!self)
     print("drop", self.n)
 
 fun first(a: ?Box, b: ?Box) -> ?Box

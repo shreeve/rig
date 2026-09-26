@@ -4,10 +4,10 @@
 struct P
   n: Int
 
-  drop self: !P
+  drop(!self)
     print("drop", self.n)
 
-type Box[T]
+struct Box[T]
   value: T
 
 sub main()

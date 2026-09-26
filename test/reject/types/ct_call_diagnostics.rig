@@ -28,7 +28,7 @@ struct S
   fun gen[T](?self, x: T) -> T
     <x
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun m[T](?self, x: T) -> T
@@ -37,7 +37,7 @@ type Box[T]
 sub main()
   show(3)
   show [3]
-  show[Int]
+  show[Int]()
   print(scaled(3))
   plain[0]
   x = size[4]
@@ -49,8 +49,8 @@ sub main()
 # error: 16:7: generic parameter `Vec` has the name of a built-in type
 # error: 19:7: generic parameter `Self` has the name of a built-in type
 # error: 34:9: parameter `T` has the name of the generic parameter `T`
-# error: 38:3: `show` takes 1 compile-time argument in brackets: `show[...]`
-# error: 39:3: compile-time arguments touch the name: `show[3]`
+# error: 38:3: `show` takes 1 compile-time argument in brackets: `show[...]()`
+# error: 39:3: compile-time arguments touch the name: `show[3]()`
 # error: 40:8: compile-time argument 1 of `show` is a value of type `Int`, not a type
 # error: 41:9: `scaled` takes 1 compile-time argument in brackets: `scaled[...](...)`
 # error: 42:3: `plain` takes no compile-time arguments; call it with `plain(...)`

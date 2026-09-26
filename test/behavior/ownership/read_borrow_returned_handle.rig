@@ -4,10 +4,10 @@
 struct B
   n: Int
 
-  drop self: !B
+  drop(!self)
     print("drop", self.n)
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun get(?self) -> ?T

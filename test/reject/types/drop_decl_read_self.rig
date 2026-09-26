@@ -1,10 +1,10 @@
-# A `drop` declaration's receiver must be `self: !Self`; a read borrow
-# is rejected.
+# A `drop` declaration's receiver is write-borrowed, `drop(!self)`; a
+# read borrow is rejected.
 
 struct File
   fd: Int
 
-  drop self: ?File
+  drop(?self)
     print(self.fd)
 
-# error: `drop` declaration must use `self: !Self`
+# error: `drop` takes its receiver write-borrowed: `drop(!self)`

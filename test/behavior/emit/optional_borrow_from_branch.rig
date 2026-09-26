@@ -4,7 +4,7 @@
 struct D
   n: Int
 
-  drop self: !D
+  drop(!self)
     print("drop", self.n)
 
 fun pick(a: ?D, k: Int) -> (?D)?
@@ -30,7 +30,7 @@ fun slot(m: !Int, k: Int) -> (!Int)?
 fun cell(m: !Int) -> (!Int)?
   m
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun get(?self, k: Int) -> (?T)?

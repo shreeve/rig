@@ -4,7 +4,7 @@
 fun keep[T](x: T) -> T
   x
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun rewrap(self: Box[T]) -> Box[Box[T]]

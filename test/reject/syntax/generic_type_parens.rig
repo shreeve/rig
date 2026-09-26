@@ -1,7 +1,7 @@
-# Type parameters go in brackets touching the name; `type Box(T)` is not
-# Rig.
+# Type parameters go in brackets touching the name; `struct Box(T)` is
+# not Rig.
 
-type Box(T)
+struct Box(T)
   v: T
 
-# error: 4:9: type parameters go in brackets touching the name: `type Box[T]`
+# error: 4:11: type parameters go in brackets touching the name: `struct Box[T]`

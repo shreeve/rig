@@ -3,7 +3,7 @@
 # function's arguments. An annotation is still allowed, and a literal
 # takes its default type.
 
-type Pair[A, B]
+struct Pair[A, B]
   first: A
   second: B
 
@@ -22,14 +22,14 @@ enum Option[T]
       .some(v) => v
       .nothing => fallback
 
-type Holder[T]
+struct Holder[T]
   item: T
   count: Int
 
 struct Box
   n: Int
 
-  drop self: !Box
+  drop(!self)
     print("drop box", self.n)
 
 sub main()

@@ -5,7 +5,7 @@
 struct U
   v: Int
 
-  drop self: !U
+  drop(!self)
     print("drop")
 
 sub take_int(x: Int)

@@ -7,7 +7,7 @@ struct Res
 struct View
   r: ?Res
 
-  drop self: !View
+  drop(!self)
     print("view drop reads", self.r.v[0])
 
 struct Outer

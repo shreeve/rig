@@ -1,7 +1,7 @@
 # Calling a method that doesn't exist on a generic receiver names the
 # generic type.
 
-type Box[T]
+struct Box[T]
   value: T
 
 sub main()

@@ -72,7 +72,7 @@ many readers or one writer at a time, never both.
 struct File
   name: String
 
-  drop self: !File
+  drop(!self)
     print("closing", self.name)
 
 sub archive(f: File)
@@ -104,7 +104,7 @@ happens at a point you can see.
 struct Config
   level: Int
 
-  drop self: !Config
+  drop(!self)
     print("config released")
 
 sub main
@@ -126,7 +126,7 @@ value goes when its last owner does.
 ### Generics
 
 ```rig
-type Pair[T, U]
+struct Pair[T, U]
   first: T
   second: U
 
@@ -239,7 +239,7 @@ and environment variable. The suite runs on Linux and macOS in
 - structs with field defaults, enums with payloads, error sets, type
   aliases, module-level constants, methods with explicit receivers,
   exhaustive `match`
-- generic types, functions, and methods (`type Box[T]`,
+- generic types, functions, and methods (`struct Box[T]`,
   `fun max[T](a: T, b: T) -> T`), with inferred type arguments and
   per-instance checking, and compile-time value parameters
   (`fun check[mode: Mode](n: Int)`)

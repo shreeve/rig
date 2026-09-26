@@ -1,7 +1,7 @@
 # A method on a generic struct: `get` returns `T`, which is Int for a
 # `Box[Int]` receiver.
 
-type Box[T]
+struct Box[T]
   value: T
 
   fun get(?self) -> T

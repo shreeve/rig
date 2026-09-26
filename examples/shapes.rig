@@ -18,7 +18,7 @@ struct Canvas
   fun fits(?self, s: ?Shape) -> Bool
     area(s) <= self.width * self.height
 
-type Pair[T]
+struct Pair[T]
   left: T
   right: T
 

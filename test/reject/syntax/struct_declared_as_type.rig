@@ -1,0 +1,9 @@
+# A struct is declared with `struct`; `type` declares only an alias.
+
+type Foo
+  bar: Int
+
+sub main()
+  print("done")
+
+# error: 4:3: a struct is declared with `struct`: `struct Foo`

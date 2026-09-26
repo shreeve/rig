@@ -6,7 +6,7 @@ struct Item
   id: Int
   owner: ~Cell[Vec[*Item]]
 
-  drop self: !Self
+  drop(!self)
     if self.owner.upgrade() as cell
       print("drop", self.id, "sees", cell.len)
       cell.push(*Item(id: self.id * 10, owner: +self.owner)) if self.id < 10

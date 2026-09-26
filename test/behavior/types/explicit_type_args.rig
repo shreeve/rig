@@ -4,13 +4,13 @@
 # function (`Pair[Int, String].make(...)`). The arguments nest, and may
 # be any type an expression can spell.
 
-type Box[T]
+struct Box[T]
   v: T
 
   fun get(?self) -> T
     self.v
 
-type Pair[T, U]
+struct Pair[T, U]
   a: T
   b: U
 
@@ -27,7 +27,7 @@ enum Option[T]
 struct Node
   n: Int
 
-type Holder[T]
+struct Holder[T]
   h: T
 
 sub main()

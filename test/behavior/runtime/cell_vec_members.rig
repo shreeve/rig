@@ -11,7 +11,7 @@ struct P
 struct N
   id: Int
 
-  drop self: !Self
+  drop(!self)
     print("drop", self.id)
 
 struct Holder

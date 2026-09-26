@@ -178,7 +178,7 @@ pub const Type = union(enum) {
     imported_nominal: ImportedNominal,
     /// A generic type applied to arguments: `Box[Int]`.
     parameterized_nominal: ParamNominal,
-    /// A generic parameter (`T` inside `type Box[T]`).
+    /// A generic parameter (`T` inside `struct Box[T]`).
     type_var: SymbolId,
 };
 
@@ -331,9 +331,9 @@ pub const SymbolKind = enum {
     local,
     /// `type UserId = Int`. Transparent: the alias's `ty` is its target.
     type_alias,
-    /// `type Box[T]` / `enum Option[T]` and the built-in generics.
+    /// `struct Box[T]` / `enum Option[T]` and the built-in generics.
     generic_type,
-    /// `T` in `type Box[T]`, detached: not in any scope, reached through
+    /// `T` in `struct Box[T]`, detached: not in any scope, reached through
     /// the owning type's `type_params`. Also `T` in `fun max[T]`, bound
     /// in the function's scope.
     generic_param,
@@ -386,7 +386,7 @@ pub const Field = struct {
     receiver: MethodReceiver = .none,
     /// An enum / error-set variant (not a data field).
     is_variant: bool = false,
-    /// The struct's user `drop self: !Self` body. Not callable.
+    /// The struct's user `drop(!self)` body. Not callable.
     is_drop_method: bool = false,
     /// A data field's default value (`name: T = literal`).
     default: ?Sexp = null,
@@ -505,13 +505,7 @@ pub const Instance = union(enum) {
     type: TypeId,
     /// `check[.strict]`, `p.scale[2]`: a function's compile-time
     /// arguments.
-    function: FunctionInstance,
-};
-
-pub const FunctionInstance = struct {
-    /// The bracket list is itself the call: a statement `show[3]`, which
-    /// passes no run-time arguments.
-    call: bool = false,
+    function,
 };
 
 /// The compile-time arguments a call passes, one per compile-time
@@ -934,8 +928,8 @@ pub const SemContext = struct {
         return ir.get(callee, .object);
     }
 
-    /// The compile-time arguments of a call that has them (or of a
-    /// statement `f[Int]`, which is the call); null for any other.
+    /// The compile-time arguments of a call that has them; null for any
+    /// other.
     pub fn genericCallOf(self: *const SemContext, node: Sexp) ?GenericCall {
         return self.facts.generic_calls.get(nodeKey(node) orelse return null);
     }
@@ -3163,7 +3157,7 @@ const Coverage = struct {
                 for (ir.get(d, .params).items()) |p| self.expectName(paramNameNode(p).?);
                 self.expr(ir.get(d, .body));
             },
-            .@"struct", .@"enum", .generic_type => for (ir.rest(d, .members)) |m| self.decl(m),
+            .@"struct", .@"enum", .generic_struct => for (ir.rest(d, .members)) |m| self.decl(m),
             else => {},
         }
     }
@@ -3185,7 +3179,7 @@ test "facts: every name and expression in a program has a fact" {
         \\  circle(radius: Int)
         \\  dot
         \\
-        \\type Box[T]
+        \\struct Box[T]
         \\  value: T
         \\
         \\  fun get(?self) -> T

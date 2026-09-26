@@ -1,4 +1,4 @@
-type Box[T]
+struct Box[T]
   v: T
 
 pub fun make(n: Int) -> Box[Int]

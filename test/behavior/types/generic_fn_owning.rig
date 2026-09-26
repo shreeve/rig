@@ -6,10 +6,10 @@
 struct Res
   n: Int
 
-  drop self: !Res
+  drop(!self)
     print("drop", self.n)
 
-type Box[T]
+struct Box[T]
   v: T
 
 fun pick[T](a: T, b: T, first: Bool) -> T

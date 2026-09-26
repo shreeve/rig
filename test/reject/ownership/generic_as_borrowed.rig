@@ -5,7 +5,7 @@
 struct Res
   n: Int
 
-  drop self: !Res
+  drop(!self)
     print("drop", self.n)
 
 fun unwrap[T](o: ?T?, d: T) -> T

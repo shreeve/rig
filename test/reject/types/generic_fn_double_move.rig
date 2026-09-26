@@ -2,7 +2,7 @@
 # resource: a `T` argument moved twice is a use after move, whatever
 # the instance.
 
-type Pair[A, B]
+struct Pair[A, B]
   first: A
   second: B
 

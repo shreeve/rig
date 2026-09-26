@@ -1,6 +1,6 @@
 # A type parameter the body never uses is still a valid parameter.
 
-type Tag[T]
+struct Tag[T]
   n: Int
 
 enum Marker[T]
