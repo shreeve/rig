@@ -893,15 +893,24 @@ argument must agree, and an argument whose type does not have its
 parameter's shape is a type mismatch. A parameter no argument other
 than a literal gives a type takes one from the type expected of the
 call's result, where there is one (a typed binding, parameter, field,
-assigned place, or `return`, and a function's last expression), by
-matching the declared result against it the same way; a result lifted
-into an expected `T?` or `T!` is matched against the `T`, a
-propagated or caught `T!` against its value, and the left of `??`
-against an optional of the expected type. So `z: U8 = max(1, 2)` is
-`max[U8]`, and a generic call that is an argument of another takes the
-type that call gives it. Only then does a literal take its default
-type, and among literals alone a float literal gives `Float`:
-`max(3, 2.5)` is `max[Float]`. An argument that is not a literal keeps
+or assigned place, a `return` from a function or from a closure whose
+result type is given, and the last expression of either), by matching
+the declared result against it the same way; a result lifted into an
+expected `T?` or `T!` is matched against the `T`, a propagated or
+caught `T!` against its value, and the left of `??` against an optional
+of the expected type. So `z: U8 = max(1, 2)` is `max[U8]`. A generic
+function call that is an argument of another, and whose result is a
+type parameter only literals gave a type (directly, or propagated with
+`!` or `?`), takes the type that call gives it: `max(max(1, 2), small)`
+with `small: U8` is `max[U8]` twice. One whose result is an optional
+that nothing but `none` gave a type (`nothing()`, `id(none)`) binds
+like `none`, so `z: Int? = id(nothing())` is `id[Int?]`. A nested call
+with a result of another shape (`Box.make(1)`, `Opt.some(value: 1)`)
+keeps the type its own arguments give it; naming the outer call's type
+arguments (`Box[Box[U8]].make(...)`, `id[Opt[U8]](...)`) passes the
+expected type on. Only then does a literal take its default type, and
+among literals alone a float literal gives `Float`: `max(3, 2.5)` is
+`max[Float]`. An argument that is not a literal keeps
 the type it gives, even where the result is expected to have another.
 A compile-time value is never inferred, so a function that takes one is
 always called with brackets, and so is one with a type parameter

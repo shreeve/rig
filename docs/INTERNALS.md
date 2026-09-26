@@ -545,9 +545,14 @@ mismatch, and disagreements are reported with a suggested bracket list
 or conversion. Argument types for inference are synthesized once
 (`argType`), without the expected type the call later checks them
 with, so the generic instances found there are not recorded
-(`tentative`), and a generic call whose result only literals typed
-(`literal_results`) binds like a literal: `max(max(1, 2), small)`
-checks the inner call again with the outer's `T`. An instance over type
+(`tentative`), and a generic call whose result is a type parameter
+only literals typed, directly or through `!` or `?`, binds like a
+literal, and one whose result is an optional only `none` typed binds
+like `none` (`literal_results`): `max(max(1, 2), small)` checks the
+inner call again with the outer's `T`. A nested call whose result has
+another shape keeps the type its arguments give it; the mismatch that
+follows carries a hint (`result_hints`) naming the brackets or the type
+that pass the expected type on. An instance over type
 parameters (a generic body using `Opt[T]` or calling `max(x, y)` with
 `x: T`) goes in `generic_uses` or `generic_fn_uses` instead, and
 `expandInstantiations` makes it concrete for each instance of the body

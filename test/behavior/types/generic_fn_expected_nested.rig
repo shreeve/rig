@@ -1,0 +1,51 @@
+# A generic call that is an argument of another, and whose result only
+# literals gave a type, takes the type the outer call gives it: directly,
+# or propagated with `!` or `?`. One whose result is an optional nothing
+# gave a type (`nothing()`, `id(none)`), takes the optional itself. A
+# `return` in a closure whose result type is given takes that type.
+
+error Bad
+  bad
+
+fun id[T](a: T) -> T
+  a
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun parse[T](ok: Bool, x: T) -> T!
+  return Bad.bad if not ok
+  x
+
+fun opt[T](x: T) -> T?
+  x
+
+fun nothing[T] -> T?
+  none
+
+fun run -> U8!
+  z: U8 = max(parse(true, 1)!, 250)
+  z
+
+fun some -> U8?
+  z: U8 = max(opt(3)?, 200)
+  z
+
+sub main
+  a: U8 = run() catch 0
+  b: U8 = some() ?? 0
+  c: Int? = id(nothing())
+  d: Int? = id(id(none))
+  e: U8? = id(id(nothing()))
+  f: Float = max(id(1), 2.5)
+  print(a, b, c, d, e, f)
+  up = false
+  g: fun(U8) -> U8 = |+up, x|
+    if up
+      return x
+    return max(3, 250)
+  print(g(7))
+
+# expect:
+# 250 200 none none none 2.5
+# 250

@@ -110,13 +110,20 @@ const Checker = struct {
     /// type it is expected to have: the generic instances found there
     /// are not recorded.
     tentative: u32 = 0,
-    /// Generic calls whose result is a type parameter that only literal
-    /// arguments gave a type (`max(1, 2)`), with that literal type: as an
-    /// argument, such a call binds like a literal.
-    literal_results: std.AutoHashMapUnmanaged(parser.NodeId, TypeId) = .empty,
+    /// Generic calls whose result gives a type parameter that only
+    /// literal arguments gave a type (`max(1, 2)`, `parse(true, 1)!`), with
+    /// that literal type, or an optional nothing gave a type
+    /// (`nothing()`, `id(none)`), as `none`: as an argument, such a call
+    /// binds like the literal or `none` (`literalResult`).
+    literal_results: std.AutoHashMapUnmanaged(parser.NodeId, LiteralResult) = .empty,
     /// Generic calls whose arguments give a type parameter another type
     /// than the one the result is expected to have: what to write instead.
     result_hints: std.AutoHashMapUnmanaged(parser.NodeId, []const u8) = .empty,
+
+    /// How a call's value reaches the type parameter its result gives:
+    /// the result is `T`, a `T!` propagated with `!`, or a `T?` with `?`.
+    const ResultPath = enum { direct, propagate, propagate_none };
+    const LiteralResult = struct { ty: TypeId, path: ResultPath };
 
     const Body = struct {
         /// Type `return` values must have; `unknown` while a closure's
@@ -3092,7 +3099,7 @@ const Checker = struct {
                         try self.errAt(callee, "type arguments go in brackets: `{s}[{s}](...)`", .{ name, self.text(args[0]) });
                         return self.t().invalid_id;
                     }
-                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = sym.fields orelse &.{} }, callee.src.pos, self.expectedResult((try sema.makeNominalContext(self.ctx, sym_id)).self_type))) orelse return self.skipCall(args);
+                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = sym.fields orelse &.{} }, callee.src.pos, self.expectedResult((try sema.makeNominalContext(self.ctx, sym_id)).self_type), null)) orelse return self.skipCall(args);
                     _ = try self.instantiate(sym_id, subst.args, callee.src.pos);
                     return self.construct(sym_id, args, callee.src.pos, subst, null);
                 },
@@ -3648,9 +3655,24 @@ const Checker = struct {
         if (e != .list or e.list.id == 0) return self.synthQuiet(e);
         if (self.arg_types.get(e.list.id)) |ty| return ty;
         var ty = try self.synthQuiet(e);
-        if (self.literal_results.get(e.list.id)) |lit| ty = lit;
+        if (self.literalResult(e)) |lit| ty = lit;
         try self.arg_types.put(self.ctx.allocator, e.list.id, ty);
         return ty;
+    }
+
+    /// The literal or `none` a generic call binds like as an argument
+    /// (`literal_results`): the call itself, or one propagated with `!`
+    /// or `?`.
+    fn literalResult(self: *Checker, e: Sexp) ?TypeId {
+        const call, const path: ResultPath = switch (e.kind() orelse return null) {
+            .call => .{ e, .direct },
+            .propagate => .{ ir.Propagate.value(e), .propagate },
+            .propagate_none => .{ ir.PropagateNone.value(e), .propagate_none },
+            else => return null,
+        };
+        if (!call.isKind(.call) or call.list.id == 0) return null;
+        const r = self.literal_results.get(call.list.id) orelse return null;
+        return if (r.path == path) r.ty else null;
     }
 
     /// The two types of a conflict, in argument order.
@@ -3693,14 +3715,18 @@ const Checker = struct {
                     try self.err(pos, "type mismatch: expected `{s}`, but `{s}` returns `{s}`", .{ try self.tyName(self.result_expected.ty), callee, try self.tyName(f.returns) });
                     break;
                 }
-                try self.err(pos, "cannot infer `{s}` for `{s}` from its arguments or the type expected of its result; give `{s}` in brackets: `{s}[{s}]{s}`", .{ pname, callee, pname, callee, try self.bracketHint(result, i, null), parens });
+                try self.err(pos, "cannot infer `{s}` for `{s}` from its arguments or the type expected of its result; {s}", .{ pname, callee, try self.inferHint(f, own, result, i, callee, parens) });
             } else if (b.conflict != sema.type_invalid) {
                 // The later argument's type is suggested, when the earlier
                 // argument can have it; otherwise a conversion.
                 const c = try self.conflictText(b);
                 const literal = self.onlyLiterals(inf, i, c.first_arg);
                 if (if (literal) self.literalFits(c.first_ty, c.later) else compatible(self.ctx, c.first_ty, c.later)) {
-                    try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); give it in brackets: `{s}[{s}]{s}`", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg, callee, try self.bracketHint(result, i, c.later), parens });
+                    const fix = if (try self.bracketHint(result, i, c.later)) |brackets|
+                        try std.fmt.allocPrint(self.ctx.arena.allocator(), "give it in brackets: `{s}[{s}]{s}`", .{ callee, brackets, parens })
+                    else
+                        "give it in brackets, naming each array, slice, or function type in them with a `type` alias";
+                    try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); {s}", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg, fix });
                 } else if (sema.isNumeric(self.ctx, c.first_ty) and sema.isNumeric(self.ctx, c.later)) {
                     // Convert the argument that is not a literal.
                     const arg = if (literal) c.second_arg else c.first_arg;
@@ -3715,32 +3741,51 @@ const Checker = struct {
     }
 
     /// What a generic call's result says to the calls around it: whether
-    /// it is a type parameter that only literals gave a type
-    /// (`literal_results`), and, where an argument gives the parameter
-    /// another type than the expected one, the fix for the mismatch that
-    /// follows (`result_hints`): converting the result.
+    /// it gives a type parameter that only literals gave a type, or is an
+    /// optional nothing gave one (`literal_results`), and, where an
+    /// argument gives the parameter another type than the expected one,
+    /// the fix for the mismatch that follows (`result_hints`): converting
+    /// the result.
     fn noteResultBinding(self: *Checker, id: parser.NodeId, f: FunctionType, own: []const SymbolId, inf: Inference, callee: []const u8) Error!void {
         _ = self.literal_results.remove(id);
         _ = self.result_hints.remove(id);
-        const tv = switch (self.ctx.types.get(f.returns)) {
+        const path: ResultPath, const value = switch (self.ctx.types.get(f.returns)) {
+            .fallible => |inner| .{ .propagate, inner },
+            .optional => |inner| .{ .propagate_none, inner },
+            else => .{ .direct, f.returns },
+        };
+        const tv = switch (self.ctx.types.get(value)) {
             .type_var => |tv| tv,
-            .fallible => |inner| switch (self.ctx.types.get(inner)) {
-                .type_var => |tv| tv,
-                else => return,
-            },
             else => return,
         };
         const i = std.mem.indexOfScalar(SymbolId, own, tv) orelse return;
         const b = inf.bound[i];
-        if (b.ty == sema.type_invalid or b.conflict != sema.type_invalid) return;
-        if (self.ctx.types.get(f.returns) == .type_var and !b.expected and self.onlyLiterals(inf, i, b.arg)) {
+        if (b.ty == sema.type_invalid) {
+            // `id(none)` and `nothing()` give some optional.
+            if ((path == .direct and b.none) or path == .propagate_none) {
+                try self.literal_results.put(self.ctx.allocator, id, .{ .ty = self.t().none_id, .path = .direct });
+            }
+            return;
+        }
+        if (b.conflict != sema.type_invalid) return;
+        if (!b.expected and self.onlyLiterals(inf, i, b.arg)) {
             const lit = if (b.ty == self.t().float_id) self.t().float_literal_id else self.t().int_literal_id;
-            try self.literal_results.put(self.ctx.allocator, id, lit);
+            try self.literal_results.put(self.ctx.allocator, id, .{ .ty = lit, .path = path });
         }
-        if (b.wanted != sema.type_invalid and sema.isNumeric(self.ctx, b.ty) and sema.isNumeric(self.ctx, b.wanted)) {
-            const hint = try std.fmt.allocPrint(self.ctx.arena.allocator(), "`{s}` takes `{s} = {s}` from argument {d}; convert its result with `{s}(...)`", .{ callee, self.ctx.symbols.items[tv].name, try self.tyName(b.ty), b.arg, try self.tyName(b.wanted) });
-            try self.result_hints.put(self.ctx.allocator, id, hint);
+        if (path == .propagate_none) return;
+        if (b.wanted == sema.type_invalid) return;
+        const a = self.ctx.arena.allocator();
+        const took = try std.fmt.allocPrint(a, "`{s}` takes `{s} = {s}` from argument {d}", .{ callee, self.ctx.symbols.items[tv].name, try self.tyName(b.ty), b.arg });
+        if (sema.isNumeric(self.ctx, b.ty) and sema.isNumeric(self.ctx, b.wanted)) {
+            try self.result_hints.put(self.ctx.allocator, id, try std.fmt.allocPrint(a, "{s}; convert its result with `{s}(...)`", .{ took, try self.tyName(b.wanted) }));
+            return;
         }
+        // Brackets pass the type on to an argument that takes it from
+        // where it goes, such as a nested generic call.
+        const types = try a.alloc(TypeId, inf.bound.len);
+        for (inf.bound, types) |bound, *ty| ty.* = bound.ty;
+        const brackets = (try self.bracketHint(types, i, b.wanted)) orelse return self.result_hints.put(self.ctx.allocator, id, took);
+        try self.result_hints.put(self.ctx.allocator, id, try std.fmt.allocPrint(a, "{s}; to pass `{s}` on to it, give it in brackets: `{s}[{s}](...)`", .{ took, try self.tyName(b.wanted), callee, brackets }));
     }
 
     /// Whether a literal of type `lit` (an integer or float literal's
@@ -3754,16 +3799,35 @@ const Checker = struct {
 
     /// The bracket list a diagnostic suggests: each type parameter's
     /// inferred type, or `...` when unknown, with `at` for the one at
-    /// `index`.
-    fn bracketHint(self: *Checker, types: []const TypeId, index: usize, at: ?TypeId) Error![]const u8 {
+    /// `index`. Null when a type in it has no expression spelling
+    /// (`spelledInBrackets`).
+    fn bracketHint(self: *Checker, types: []const TypeId, index: usize, at: ?TypeId) Error!?[]const u8 {
         var buf: std.ArrayListUnmanaged(u8) = .empty;
         const a = self.ctx.arena.allocator();
         for (types, 0..) |ty, i| {
             if (i > 0) try buf.appendSlice(a, ", ");
             const shown = if (i == index) at orelse sema.type_invalid else ty;
+            if (shown != sema.type_invalid and !spelledInBrackets(self.ctx, shown)) return null;
             try buf.appendSlice(a, if (shown == sema.type_invalid) "..." else try self.tyName(shown));
         }
         return buf.items;
+    }
+
+    /// What to write for type parameter `index` of `callee`, which nothing
+    /// determines: the bracket list, or, where a type in it has no
+    /// expression spelling, the type where the value goes when the
+    /// result holds the parameter.
+    fn inferHint(self: *Checker, f: FunctionType, own: []const SymbolId, types: []const TypeId, index: usize, callee: []const u8, parens: []const u8) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        const pname = self.ctx.symbols.items[own[index]].name;
+        if (try self.bracketHint(types, index, null)) |brackets| return std.fmt.allocPrint(a, "give `{s}` in brackets: `{s}[{s}]{s}`", .{ pname, callee, brackets, parens });
+        // The result with each known type argument in place.
+        const args = try a.alloc(TypeId, own.len);
+        for (own, types, args) |p, ty, *arg| arg.* = if (ty == sema.type_invalid) try self.ctx.intern(.{ .type_var = p }) else ty;
+        const shown = try sema.substituteType(self.ctx, f.returns, .{ .params = own, .args = args });
+        const holds = (try sema.substituteType(self.ctx, f.returns, .{ .params = own[index .. index + 1], .args = &.{self.t().void_id} })) != f.returns;
+        if (holds) return std.fmt.allocPrint(a, "give the type where the value goes: `x: {s} = {s}{s}`, with a type in place of `{s}`", .{ try self.tyName(shown), callee, parens, pname });
+        return std.fmt.allocPrint(a, "give `{s}` in brackets, naming each array, slice, or function type in them with a `type` alias", .{pname});
     }
 
     /// Bind the type parameters of `inf` in `pattern`, a parameter's type,
@@ -4208,7 +4272,7 @@ const Checker = struct {
                 if (generic) {
                     // The type's arguments are given (`Pair[Int, String].make`)
                     // or come from the call's arguments.
-                    const subst = if (nt.args) |given| TypeSubst{ .params = nt.sym.type_params orelse &.{}, .args = given } else (try self.inferTypeArgs(nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names } }, pos, self.expectedResult(f.returns))) orelse return self.skipCall(args);
+                    const subst = if (nt.args) |given| TypeSubst{ .params = nt.sym.type_params orelse &.{}, .args = given } else (try self.inferTypeArgs(nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names } }, pos, self.expectedResult(f.returns), name)) orelse return self.skipCall(args);
                     if (nt.args == null) try self.ctx.recordType(obj, try self.instantiate(nt.id, subst.args, pos));
                     f = self.ctx.types.get(try sema.substituteType(self.ctx, m.ty, subst)).function;
                     recv = subst;
@@ -4231,7 +4295,7 @@ const Checker = struct {
                 ty = try self.instantiate(nt.id, given, pos);
             } else if (generic) {
                 const self_type = (try sema.makeNominalContext(self.ctx, nt.id)).self_type;
-                subst = (try self.inferTypeArgs(nt.id, args, .{ .fields = payload }, pos, self.expectedResult(self_type))) orelse return self.skipCall(args);
+                subst = (try self.inferTypeArgs(nt.id, args, .{ .fields = payload }, pos, self.expectedResult(self_type), name)) orelse return self.skipCall(args);
                 ty = try self.instantiate(nt.id, subst.args, pos);
             }
             try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant });
@@ -4254,10 +4318,11 @@ const Checker = struct {
     /// each argument's type is matched against the field or parameter it
     /// fills (`inferBindings`). Null, after a diagnostic, when some
     /// parameter is left unbound or the arguments disagree on one.
-    fn inferTypeArgs(self: *Checker, sym_id: SymbolId, args: []const Sexp, from: InferFrom, pos: u32, result: ?ResultType) Error!?TypeSubst {
+    fn inferTypeArgs(self: *Checker, sym_id: SymbolId, args: []const Sexp, from: InferFrom, pos: u32, result: ?ResultType, member: ?[]const u8) Error!?TypeSubst {
         const sym = self.ctx.symbols.items[sym_id];
         const params = sym.type_params orelse &.{};
         const inf = try self.inferBindings(params, args, from, result);
+        if (member) |name| try self.noteTypeArgsHint(sym_id, name, inf);
         for (params, inf.bound) |p, b| {
             const pname = self.ctx.symbols.items[p].name;
             if (b.ty == sema.type_invalid) {
@@ -4272,6 +4337,31 @@ const Checker = struct {
         const bound = try self.ctx.arena.allocator().alloc(TypeId, params.len);
         for (inf.bound, bound) |b, *out| out.* = b.ty;
         return .{ .params = params, .args = bound };
+    }
+
+    /// Where an argument of `Type.member(...)` gives a type parameter
+    /// another type than the one the expected type gives it, what to
+    /// write for the mismatch that follows (`result_hints`): the type
+    /// named, which passes the expected type on to the arguments.
+    fn noteTypeArgsHint(self: *Checker, sym_id: SymbolId, member: []const u8, inf: Inference) Error!void {
+        const call = self.current_call orelse return;
+        if (call.list.id == 0) return;
+        _ = self.result_hints.remove(call.list.id);
+        const a = self.ctx.arena.allocator();
+        const types = try a.alloc(TypeId, inf.bound.len);
+        var first: ?usize = null;
+        for (inf.bound, types, 0..) |b, *ty, i| {
+            ty.* = if (b.wanted != sema.type_invalid) b.wanted else b.ty;
+            if (b.wanted != sema.type_invalid and first == null) first = i;
+        }
+        const i = first orelse return;
+        for (types) |ty| if (ty == sema.type_invalid) return;
+        const sym = self.ctx.symbols.items[sym_id];
+        const b = inf.bound[i];
+        const took = try std.fmt.allocPrint(a, "`{s}.{s}` takes `{s} = {s}` from argument {d}", .{ sym.name, member, self.ctx.symbols.items[sym.type_params.?[i]].name, try self.tyName(b.ty), b.arg });
+        const named = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = try self.ctx.dupeIds(types) } });
+        const hint = if (spelledInBrackets(self.ctx, named)) try std.fmt.allocPrint(a, "{s}; to pass `{s}` on to it, name the type: `{s}.{s}(...)`", .{ took, try self.tyName(types[i]), try self.tyName(named), member }) else took;
+        try self.result_hints.put(self.ctx.allocator, call.list.id, hint);
     }
 
     /// The instance of generic `sym_id` at `args`, checked like a spelled
@@ -5206,6 +5296,19 @@ fn readValue(ctx: *const SemContext, ty: TypeId) TypeId {
     return switch (ctx.types.get(ty)) {
         .borrow_read, .borrow_write => |inner| if (sema.isCopyPrimitive(ctx, inner) or sema.isPlainEnum(ctx, inner)) inner else ty,
         else => ty,
+    };
+}
+
+/// Whether `ty` can be written in an expression's bracket list
+/// (`id[Box[Int]](...)`): array, slice, and function types cannot.
+fn spelledInBrackets(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .slice, .array, .function => false,
+        .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak => |inner| spelledInBrackets(ctx, inner),
+        .parameterized_nominal => |pn| for (pn.args) |arg| {
+            if (!spelledInBrackets(ctx, arg)) break false;
+        } else true,
+        else => true,
     };
 }
 

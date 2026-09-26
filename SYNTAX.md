@@ -1520,8 +1520,13 @@ the type of the binding, parameter, field, or `return` it fills, so
 `z: U8 = max(1, 2)` is `max[U8]`. Only where neither says anything does
 a literal take its default type (`Int`, `Float`), and among literals
 alone a float literal wins: `max(1, 2.5)` is `max[Float]`. A generic
-call among the arguments passes the expected type on, so
-`max(max(1, 2), small)` with `small: U8` is `max[U8]` twice. Brackets
+function call among the arguments whose result is its type parameter
+(directly, or through `!` or `?`) passes the expected type on, so
+`max(max(1, 2), small)` with `small: U8` is `max[U8]` twice, and one
+that yields an optional only `none` typed binds like `none`:
+`z: Int? = id(nothing())` is `id[Int?]`. A nested `Box.make(1)` or
+`Opt.some(value: 1)` keeps the type its own literal gives it, and the
+error says to name the outer type (`Box[Box[U8]].make(...)`). Brackets
 give every compile-time argument, or none: there is no partial list.
 
 ```rig
@@ -1531,6 +1536,12 @@ fun max[T](a: T, b: T) -> T
 fun empty[T] -> Vec[T]
   Vec()
 
+fun id[T](a: T) -> T
+  a
+
+fun nothing[T] -> T?
+  none
+
 sub main
   small: U8 = 200
   z: U8 = max(1, 2)
@@ -1538,12 +1549,13 @@ sub main
   v: Vec[Int] = empty()
   w: Vec[Int] = Vec()
   !v.push(3)
-  print(v.len, w.len, max(max(1, 2), small))
+  o: Int? = id(nothing())
+  print(v.len, w.len, max(max(1, 2), small), o)
 ```
 
 ```output
 200 2 2.5 2.0
-1 0 200
+1 0 200 none
 ```
 
 Brackets are required where nothing else says what to use:
