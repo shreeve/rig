@@ -72,7 +72,9 @@
 //! * A match payload binding views the scrutinee. Moving it out consumes
 //!   an owned local scrutinee and is rejected for a borrowed or shared one.
 //! * A closure literal may only be bound (`f = |...|`), called in place,
-//!   or made owned with `*|...|`; closure bindings cannot be copied. A
+//!   lent to a call as a borrowed callable (its value carries its
+//!   captures' loans), or made owned with `*|...|`; closure bindings
+//!   cannot be copied, and `?f` lends one. A
 //!   closure body may only use outer locals it captures. Resources
 //!   captured into a closure are owned by its environment: the body may
 //!   use and clone them but not move, drop or reassign them.
@@ -378,7 +380,7 @@ pub const Checker = struct {
     /// The label of the loop about to be walked (`:name while ...`).
     pending_label: []const u8 = "",
     /// Set immediately before walking a lambda literal that sits in an
-    /// allowed position (binding RHS, call callee, `*|...|`).
+    /// allowed position (binding RHS, call callee, lent argument, `*|...|`).
     lambda_ok: bool = false,
     /// Scopes `(lo, hi]` are invisible to name lookup (while re-checking
     /// a deferred body at a scope exit).
@@ -1303,7 +1305,7 @@ pub const Checker = struct {
                 .move => self.walkMove(ir.Move.operand(sexp)),
                 // A borrow the type checker rejected lends nothing.
                 .read, .write => if (self.rejected(sexp))
-                    self.walk(ir.get(sexp, .operand))
+                    self.walkRejectedBorrow(ir.get(sexp, .operand))
                 else if (self.isArrayView(sexp))
                     // `?a` lent as `?a[..]`, `!a` as `!a[..]`.
                     self.walkElems(sexp, ir.get(sexp, .operand), if (sexp.isKind(.read)) .read else .write)
@@ -1345,9 +1347,22 @@ pub const Checker = struct {
         return .{};
     }
 
+    /// The operand of a borrow the type checker rejected: a closure
+    /// binding there was reported with it.
+    fn walkRejectedBorrow(self: *Checker, operand: Sexp) Error!Value {
+        if (operand == .src) if (self.find(self.text(operand))) |id| if (self.vars.items[id].closure) return .{};
+        return self.walk(operand);
+    }
+
     /// Walk an expression in a position that takes ownership of its value.
     fn walkConsumed(self: *Checker, expr: Sexp, sink: Sink) Error!Value {
-        if (isLambda(expr)) return self.walk(expr); // reported by walkLambda
+        if (isLambda(expr)) {
+            // A closure literal lent to a call as a borrowed callable
+            // lives for the call; anywhere else it is reported by
+            // walkLambda.
+            if (sink == .argument and self.lentCallable(expr)) self.lambda_ok = true;
+            return self.walk(expr);
+        }
         try self.checkNoImplicitCopy(expr, sink, false);
         // Passing a held write borrow (`w`, `e.t`) lends it on: like `!w`,
         // its holder is write-borrowed for as long as the result may keep
@@ -1436,7 +1451,21 @@ pub const Checker = struct {
 
     /// A closure binding used as a value.
     fn errClosureValue(self: *Checker, pos: u32, name: []const u8) Error!void {
-        try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased; call it as `{s}()`, or make the literal owned (`*|...| body`) to pass it around", .{ name, name });
+        try self.err(pos, "closure `{s}` cannot be moved, returned, stored, or aliased; call it as `{s}()`, lend it to a call as `?{s}`, or make the literal owned (`*|...| body`) to pass it around", .{ name, name, name });
+    }
+
+    /// Whether `e` is lent where a borrowed callable is expected without
+    /// being one yet (`SemContext.callableOf`).
+    fn lentCallable(self: *const Checker, e: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        return ctx.callableOf(e) != null;
+    }
+
+    /// `?f` of closure binding `id`: a read loan on the closure, and the
+    /// loans its captures hold.
+    fn lendClosure(self: *Checker, id: VarId, pos: u32) Error!Value {
+        const v = (try self.borrowVar(id, .read, pos)) orelse return .{};
+        return .{ .loans = try self.unionLoans(v.loans, self.flows.items[id].loans) };
     }
 
     /// Reading `id`: it must be live and not write-borrowed.
@@ -1584,7 +1613,8 @@ pub const Checker = struct {
         const v = self.vars.items[id];
         const pos = self.startOf(inner);
         if (v.closure) {
-            try self.err(pos, "closure `{s}` cannot be borrowed; call it as `{s}()`", .{ v.name, v.name });
+            if (kind == .read and place.whole) return self.lendClosure(id, pos);
+            try self.err(pos, "closure `{s}` cannot be write-borrowed; lend it as `?{s}`", .{ v.name, v.name });
             return .{};
         }
         return (try self.borrowVar(id, kind, pos)) orelse .{};
@@ -2338,6 +2368,7 @@ pub const Checker = struct {
                 try self.errAt(a, "cannot store a borrow of `{s}` in a `{s}`: every handle to it could reach the borrow; a value stored in a Cell or Signal may not hold one", .{ self.vars.items[loans[0].root].name, cell.? });
                 continue;
             }
+            if (!self.keepsCallable(node, a)) continue;
             stored = try self.valueUnion(stored, v.*);
         }
         result = try self.valueUnion(result, stored);
@@ -2370,6 +2401,22 @@ pub const Checker = struct {
             return .{};
         }
         return result;
+    }
+
+    /// Whether call `call` may keep what argument `arg` borrows. No value
+    /// holds a borrowed callable, so a callable lent to a call is kept
+    /// only by a result that is one, or through what it returns when
+    /// that can hold a borrow.
+    fn keepsCallable(self: *const Checker, call: Sexp, arg: Sexp) bool {
+        const ctx = self.sema orelse return true;
+        const value = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
+        const fn_ty = ctx.callableOf(value) orelse blk: {
+            const ty = self.exprType(value) orelse return true;
+            if (sema.callableFn(ctx, ty) == null) return true;
+            break :blk ctx.types.get(ty).borrow_read;
+        };
+        if (sema.holdsCallable(ctx, self.exprType(call) orelse return true)) return true;
+        return self.mayCarryBorrow(ctx.types.get(fn_ty).function.returns);
     }
 
     /// A call of a built-in element method whose elements hold no
@@ -2510,7 +2557,7 @@ pub const Checker = struct {
                 const l = cv.loans[0];
                 const mode = sema.captureModeOf(cap).?;
                 if (mode == .cap_read or mode == .cap_write) {
-                    try self.err(sema.captureNameNode(cap).?.src.pos, "an owned closure cannot borrow `{s}`: it can be stored anywhere, so it could outlive `{s}`; capture a copy (`|+{s}|`) or move it in (`|<{s}|`), or use a stack closure (`|...|`)", .{ name, name, name, name });
+                    try self.err(sema.captureNameNode(cap).?.src.pos, "an owned closure cannot borrow `{s}`: it can be stored anywhere, so it could outlive `{s}`; capture an owned value, or use a stack closure (`|...|`)", .{ name, name });
                     value = try self.valueUnion(value, cv);
                     continue;
                 }
@@ -2578,7 +2625,8 @@ pub const Checker = struct {
         const id = self.find(name) orelse return .{};
         const v = self.vars.items[id];
         if (v.closure) {
-            try self.err(pos, "cannot capture closure `{s}`; closures cannot be copied", .{name});
+            if (mode == .cap_read) return self.lendClosure(id, pos);
+            try self.err(pos, "cannot capture closure `{s}`; closures cannot be copied. Borrow it with `|?{s}|`", .{ name, name });
             return .{};
         }
         if (mode == .cap_move) return self.moveVar(id, pos, .capture);

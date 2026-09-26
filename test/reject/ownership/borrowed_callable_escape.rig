@@ -1,0 +1,63 @@
+# A borrowed callable follows the second-class borrow rules. It may not
+# outlive the closure it lends or what that closure captured, be
+# captured by an owned closure, or be returned from a function that was
+# lent nothing; and a closure literal's captures borrow for the call, so
+# they conflict with the call's other borrows.
+
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun double(n: Int) -> Int
+  n * 2
+
+fun pick(a: ?fun(Int) -> Int, b: ?fun(Int) -> Int, first: Bool) -> ?fun(Int) -> Int
+  if first
+    a
+  else
+    b
+
+fun leak -> ?fun(Int) -> Int
+  k = 1
+  g = |+k, a: Int| a + k
+  ?g
+
+sub keep(f: ?fun(Int) -> Int)
+  cb = *|?f| f(1)
+  cb2 = *|<f| f(1)
+  print(cb(), cb2())
+
+sub each(xs: ?Vec[Int], f: ?sub(Int))
+  for x in xs
+    f(x)
+
+sub main
+  h: ?fun(Int) -> Int = double
+  if true
+    k = 1
+    l = |+k, a: Int| a + k
+    h = ?l
+  print(h(1))
+  r = Res(id: 1)
+  m = |<r, a: Int| a + r.id
+  p = pick(?m, double, true)
+  -m
+  print(p(2))
+  c: Vec[Int] = Vec()
+  each(?c, |!c, n|
+    c.push(n))
+  total = 0
+  both = |a: ?sub(Int), b: ?sub(Int)|
+    a(1)
+    b(2)
+  both(|!total, n| print(total + n), |!total, n| print(total - n))
+
+# error: 25:4: returned borrow of `g` does not originate from a borrowed parameter
+# error: 28:11: an owned closure cannot borrow `f`
+# error: 29:12: cannot move-capture borrowed parameter `f`
+# error: 41:10: `l` does not live long enough
+# error: 46:4: cannot drop `m` while borrows are live
+# error: 49:14: cannot write-borrow `c` while a read borrow is live
+# error: 55:40: cannot take a second write borrow on `total`

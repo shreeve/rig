@@ -754,6 +754,7 @@ no variant `native` on enum `Endian`
 | `~T` | weak handle to a shared value | [§10](#10-shared-and-weak-handles) |
 | `fun(A, B) -> R`, `sub(A)` | function and closure types | [§12](#12-closures) |
 | `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§12](#12-closures) |
+| `?fun(A) -> R`, `?sub(A)` | borrowed callable: a closure, function, or owned closure lent to a call | [§12](#closure-parameters) |
 | `Cell[T]`, `Vec[T]`, `Signal[T]` | built-in generic types | [§11](#11-cell-vec-and-signal) |
 | `Endian` | built-in enum: the byte order of `read` and `write` | [§3](#bytes) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§4](#4-declarations), [§15](#15-modules) |
@@ -3255,6 +3256,7 @@ sub main
 | `sub(String)` | takes a `String`, returns nothing |
 | `*fun(Int) -> Int`, `*sub()` | an owned closure of that shape |
 | `~fun(Int) -> Int`, `~sub()` | a weak handle to an owned closure |
+| `?fun(Int) -> Int`, `?sub()` | a borrowed callable ([below](#closure-parameters)) |
 
 Function types describe closures bound to locals and function names
 used as values. A function type writes its result after `->`, as a
@@ -3281,11 +3283,12 @@ true
 ### Stack closures
 
 A closure literal without `*` lives in the stack frame of the function
-that writes it, so it may not escape. It may only be bound to a local
-(`f = |...| body`, then called as `f(...)`) or called where it is
-written (`(|+n| print(n))()`). Anywhere else (an argument, a field, an
-array element, a return value) it is rejected; make it owned instead. A
-closure binding is fixed and cannot be copied, moved, or passed on.
+that writes it, so it may not escape. It may be bound to a local
+(`f = |...| body`, then called as `f(...)`), called where it is written
+(`(|+n| print(n))()`), or lent to a call ([below](#closure-parameters)).
+Anywhere else (a field, an array element, a return value) it is
+rejected; make it owned instead. A closure binding is fixed and cannot
+be copied or moved; `?f` lends it.
 
 ```rig reject
 fun make -> fun() -> Int
@@ -3295,6 +3298,91 @@ fun make -> fun() -> Int
 
 ```error
 closures cannot escape their defining scope
+```
+
+### Closure parameters
+
+A parameter of type `?fun(A) -> R` or `?sub(A)` takes a **borrowed
+callable**: a read borrow of something to call. It accepts
+
+- a closure literal written in the argument, without `*`;
+- a named stack closure lent as `?f`;
+- a function name or a `fun` value, as it is;
+- an owned closure lent as `?cb`.
+
+A borrowed callable is a borrow like any `?T` ([§8](#second-class-borrows)):
+the callee may call it and forward it, and the caller's values stay
+borrowed while it lives. A lent closure literal borrows what it
+captures for the call, so its captures conflict with the call's other
+borrows, and its environment lives until the call returns, dropping
+what it moved in. It costs one indirect call per invocation and
+allocates nothing.
+
+```rig
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub each(xs: ?Vec[Int], f: ?sub(Int))
+  for x in xs
+    f(x)
+
+fun double(n: Int) -> Int
+  n * 2
+
+sub main
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  total = 0
+  each(?v, |!total, n|
+    total += n)
+  k = 10
+  add_k = |+k, a: Int| a + k
+  cb: *fun(Int) -> Int = *|a| a - 1
+  print(total, apply(double, 4), apply(?add_k, 4), apply(?cb, 4))
+  r = Res(id: 7)
+  n = apply(|<r, a| a + r.id, 1)
+  print(n)
+```
+
+```output
+3 8 14 3
+drop 7
+8
+```
+
+No value holds a borrowed callable: it is only a parameter's, a local's,
+or a result's type, never a field's, an element's, a module-level
+binding's, or a type argument. A function may return one only where it
+returns a borrow its caller lent it, and a closure literal is not lent
+to a call whose result could hold it. A call never changes a closure's
+environment, so there is no `!fun`. `*|...|` makes an owned closure,
+which is not what a `?fun` parameter takes:
+
+```rig reject
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub each(xs: ?Vec[Int], f: ?sub(Int))
+  for x in xs
+    f(x)
+
+sub main
+  print(apply(*|a| a + 1, 2))
+  c: Vec[Int] = Vec()
+  each(?c, |!c, n|
+    c.push(n))
+```
+
+```error
+borrows a closure for the call; write the closure without `*` (drop the `*`)
+cannot write-borrow `c` while a read borrow is live
 ```
 
 ### Owned closures
@@ -4030,7 +4118,7 @@ The rest parse, and the checker rejects them as not supported yet
 | Form | Diagnostic |
 |---|---|
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
-| a stack closure passed, stored, or returned | `` closures cannot escape their defining scope `` |
+| a stack closure stored or returned | `` closures cannot escape their defining scope `` |
 | an array of owning values | `` arrays cannot hold values that own resources ``; use a `Vec` |
 | an owned closure taking or returning an owning value | `` an owned closure takes plain Copy values `` |
 

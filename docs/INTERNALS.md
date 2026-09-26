@@ -901,7 +901,15 @@ lower is an internal error: sema must have rejected it.
   with an `invoke` method. An owned closure allocates an environment
   struct per literal and erases it behind `rig.Closure(params, R)`, so
   every literal of one function type shares one runtime type; a call is
-  `cb.value.invoke(.{ args })`.
+  `cb.value.invoke(.{ args })`. A borrowed callable `?fun(...)` is a
+  `rig.FnRef(params, R)` passed by value, built by `.of(Env, &env)` for
+  a stack closure, `.ofFn(f)` for a function, and `.ofClosure(cb)` for
+  an owned closure; a call is `f.call(.{ args })`. A closure literal lent
+  to a call makes the call's arguments hoisted: in source order, its
+  environment `var __rig_env_N = struct {...}{...}` (dropped at the end
+  of the call's block when it owns captures) and then the `FnRef` over
+  it. Sema records which expressions are lent this way
+  (`SemContext.callableOf`).
 - **`main`** of the root module calls `rig.guardStack()`, then defers
   `rig.finish()`, so it runs after every other drop, and the root
   module declares `pub const panic = rig.panic`.
@@ -927,6 +935,7 @@ reviewed.
 | `ReadBorrow(T)`, `lend`, `borrowed` | a generic type's read borrow of `T`: a `*const T` when `T` owns resources or holds a `Cell`, a copy otherwise; `lend` borrows through a pointer, `borrowed` reads the value |
 | `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place |
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
+| `FnRef(params, R)` | a borrowed callable: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |
 | `Signal(T)` | a value and a `Vec` of `*sub()` subscribers; `set` delivers iteratively, queuing a reentrant `set` (latest value wins) |
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |

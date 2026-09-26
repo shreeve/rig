@@ -101,6 +101,11 @@ const Checker = struct {
     /// The argument being checked, when the call keeps no borrow of its
     /// arguments: a temporary array there may be lent as a `[]T`.
     lent_temp: Sexp = .nil,
+    /// The argument being checked, where a closure literal may be lent
+    /// as a borrowed callable, and the call when its result could hold
+    /// the literal instead.
+    lent_callable: Sexp = .nil,
+    callable_kept: Sexp = .nil,
     /// Set by a caller of `checkArgs` whose call may take a temporary
     /// array as a `[]T` argument (a function or method, not a closure),
     /// with a method's receiver parameter.
@@ -625,6 +630,10 @@ const Checker = struct {
         const s = &self.ctx.symbols.items[sym_id];
         // A rejected annotation leaves the binding without a type.
         if (s.ty == self.t().unknown_id) s.ty = if (type_node != .nil and self.isPoison(declared)) self.t().invalid_id else rhs_ty;
+        if (is_decl and s.scope == self.module_scope and sema.holdsCallable(self.ctx, s.ty)) {
+            try self.errAt(target, "a borrowed callable `{s}` lives only as long as what it borrows, so it cannot be a module-level binding", .{try self.tyName(s.ty)});
+            s.ty = self.t().invalid_id;
+        }
         if (kind == .fixed and self.isComptimeKnown(rhs)) s.flags.comptime_known = true;
         // `k =! n` stands for the compile-time parameter `n` where an
         // array length or a compile-time argument names it.
@@ -661,7 +670,13 @@ const Checker = struct {
                 try self.err(pos, "`{s}` would be bound to an expression that never produces a value", .{name});
                 return self.t().invalid_id;
             },
-            else => return ty,
+            else => {
+                if (sema.callableFn(self.ctx, ty) == null and sema.holdsCallable(self.ctx, ty)) {
+                    try self.err(pos, sema.held_callable, .{try self.tyName(ty)});
+                    return self.t().invalid_id;
+                }
+                return ty;
+            },
         }
     }
 
@@ -2282,6 +2297,10 @@ const Checker = struct {
             try self.errAt(operand, "cannot borrow an element of a Cell's Vec: the cell may change while the borrow lives; copy the element out with `c[i]`", .{});
             return self.t().invalid_id;
         }
+        if (kind == .write and self.ctx.types.get(inner) == .function) {
+            try self.errAt(e, "a call never changes a closure's environment, so a callable is only read-borrowed: write `?{s}`", .{try self.sourceText(operand)});
+            return self.t().invalid_id;
+        }
         // Anywhere but where a `!Bool` is expected, `!flag` is read as
         // a `Bool`: the habit of `!` as negation.
         if (kind == .write and readValue(self.ctx, inner) == self.t().bool_id and !sameNode(e, self.lent_write)) {
@@ -3751,8 +3770,19 @@ const Checker = struct {
 
     fn checkArg(self: *Checker, arg: Sexp, f: FunctionType, i: usize, lends: bool) Error!void {
         const saved = self.lent_temp;
-        defer self.lent_temp = saved;
+        const saved_callable = self.lent_callable;
+        const saved_kept = self.callable_kept;
+        defer {
+            self.lent_temp = saved;
+            self.lent_callable = saved_callable;
+            self.callable_kept = saved_kept;
+        }
         self.lent_temp = if (lends) arg else .nil;
+        // A closure literal lives for the call, so the call's result may
+        // not hold it.
+        const kept = sema.holdsCallable(self.ctx, f.returns);
+        self.lent_callable = if (kept) .nil else arg;
+        self.callable_kept = if (kept) arg else .nil;
         try self.checkExpr(arg, f.params[i]);
     }
 
@@ -5346,6 +5376,7 @@ const Checker = struct {
 
         const actual = try self.synthExpr(e);
         if (try self.arrayAsSlice(e, actual, expected)) return;
+        if (sema.callableFn(self.ctx, expected) != null and try self.lendCallable(e, actual, expected)) return;
         if (compatible(self.ctx, actual, expected)) {
             try self.recordAdapted(e, actual, expected);
             if (sema.writeSliceElem(self.ctx, actual) != null and self.ctx.types.get(expected) == .slice) try self.ctx.recordReadView(e);
@@ -5513,12 +5544,18 @@ const Checker = struct {
             },
             .lambda => {
                 if (self.ctx.types.get(target) == .function) return try self.checkLambda(e, target, false);
+                if (sema.callableFn(self.ctx, target) != null) return try self.lentLambda(e, target);
                 const fn_ty = self.ownedClosureType(target) orelse return null;
                 try self.errAt(e, "`{s}` is an owned closure; write `*|...| body` to make one", .{try self.tyName(target)});
                 return try self.checkLambda(e, fn_ty, false);
             },
             .share => {
                 const operand = ir.Share.operand(e);
+                if (operand.isKind(.lambda) and sema.callableFn(self.ctx, target) != null) {
+                    try self.errAt(e, "`{s}` borrows a closure for the call; write the closure without `*` (drop the `*`)", .{try self.tyName(target)});
+                    _ = try self.checkLambda(operand, self.ctx.types.get(target).borrow_read, false);
+                    return target;
+                }
                 if (operand.isKind(.lambda)) {
                     const ty = try self.ownedClosure(operand, self.ownedClosureType(target));
                     if (!compatible(self.ctx, ty, expected)) try self.mismatch(e, expected, ty);
@@ -5910,6 +5947,41 @@ const Checker = struct {
     // =========================================================================
     // Closures
     // =========================================================================
+
+    /// A closure literal lent where borrowed callable `target` (a
+    /// `?fun(...)`) is expected: only as a call's argument, and only to a
+    /// call whose result cannot hold it, since it lives for the call.
+    fn lentLambda(self: *Checker, e: Sexp, target: TypeId) Error!TypeId {
+        const fn_ty = self.ctx.types.get(target).borrow_read;
+        if (sameNode(e, self.callable_kept)) {
+            try self.errAt(e, "this call's result may hold the callable it is lent, and a closure literal lives only for the call; bind the closure (`f = |...| ...`) and lend it as `?f`", .{});
+        } else if (!sameNode(e, self.lent_callable)) {
+            try self.errAt(e, "a closure literal is lent as `{s}` only as a call's argument; bind the closure (`f = |...| ...`) and lend it as `?f`", .{try self.tyName(target)});
+        }
+        const ty = try self.checkLambda(e, fn_ty, false);
+        try self.ctx.recordCallable(e, fn_ty);
+        return ty;
+    }
+
+    /// `e`, of type `actual`, lent where borrowed callable `expected`
+    /// (a `?fun(...)`) is: a function, or a borrowed owned closure of
+    /// its function type. Returns whether `e` was handled.
+    fn lendCallable(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!bool {
+        const fn_ty = self.ctx.types.get(expected).borrow_read;
+        if (actual == fn_ty) {
+            try self.ctx.recordCallable(e, fn_ty);
+            return true;
+        }
+        const owned = sema.ownedClosureFn(self.ctx, actual) orelse return false;
+        if (self.ctx.types.get(sema.unwrapBorrows(self.ctx, actual)).shared != fn_ty) return false;
+        if (!isBorrow(self.ctx, actual)) {
+            _ = owned;
+            try self.errAt(e, "an owned closure is lent to a `{s}` parameter: write `?{s}`", .{ try self.tyName(expected), try self.sourceText(e) });
+            return true;
+        }
+        try self.ctx.recordCallable(e, fn_ty);
+        return true;
+    }
 
     /// `*|...| body`: an owned closure; `expected` is the function type
     /// its context gives it (`*fun(Int) -> Int` gives `fun(Int) -> Int`).

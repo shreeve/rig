@@ -1,0 +1,80 @@
+# A `?fun` / `?sub` parameter takes a borrowed callable: a closure
+# literal written in the call, a named stack closure lent as `?f`, a
+# function, or an owned closure lent as `?cb`. The callee calls it and
+# forwards it, here into a recursive helper. A literal's environment
+# lives for the call: one that moved a resource in drops it when the
+# call returns.
+
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+sub each(xs: ?Vec[Int], f: ?sub(Int))
+  for x in xs
+    f(x)
+
+sub countdown(n: Int, f: ?sub(Int))
+  if n > 0
+    f(n)
+    countdown(n - 1, f)
+
+sub twice_each(xs: ?Vec[Int], f: ?sub(Int))
+  g = f
+  each(xs, g)
+  each(xs, f)
+
+fun double(n: Int) -> Int
+  n * 2
+
+sub main
+  k = 3
+  print(apply(|a| a + 1, 4), apply(double, 4))
+  add_k = |+k, a: Int| a + k
+  print(apply(?add_k, 4))
+  inc: *fun(Int) -> Int = *|a| a + 100
+  print(apply(?inc, 4), inc(1))
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  !v.push(3)
+  total = 0
+  each(?v, |!total, n|
+    total += n)
+  print(total)
+  seen = 0
+  twice_each(?v, |!seen, n|
+    seen += 1)
+  print(seen)
+  countdown 3, |n|
+    print("tick", n)
+  r = Res(id: 7)
+  n = apply(|<r, a| a + r.id, 1)
+  print(n)
+  scale = 10
+  scaled = |?scale, a: Int| a * scale
+  print(apply(?scaled, 5))
+  owner = Res(id: 9)
+  show = |<owner, a: Int| a + owner.id
+  print(apply(?show, 1))
+  print("end")
+
+# expect:
+# 5 8
+# 7
+# 104 101
+# 6
+# 6
+# tick 3
+# tick 2
+# tick 1
+# drop 7
+# 8
+# 50
+# 10
+# end
+# drop 9

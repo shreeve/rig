@@ -505,6 +505,12 @@ fn recordKey(node: Sexp) NodeKey {
 }
 
 pub const Facts = struct {
+    /// Expressions lent where a borrowed callable `?fun(...)` is
+    /// expected that are not one yet (a closure literal, a function, an
+    /// owned closure): the callable's function type. Leaves by position,
+    /// list nodes by id.
+    leaf_callables: std.AutoHashMapUnmanaged(u32, TypeId) = .empty,
+    node_callables: std.AutoHashMapUnmanaged(NodeKey, TypeId) = .empty,
     /// Identifier leaf position -> the symbol it names.
     names: std.AutoHashMapUnmanaged(u32, SymbolId) = .empty,
     /// Leaf expression position -> type.
@@ -542,6 +548,8 @@ pub const Facts = struct {
     node_views: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
+        self.leaf_callables.deinit(allocator);
+        self.node_callables.deinit(allocator);
         self.elem_calls.deinit(allocator);
         self.array_views.deinit(allocator);
         self.leaf_views.deinit(allocator);
@@ -1165,6 +1173,24 @@ pub const SemContext = struct {
 
     /// `node` yields a `![]T` where a `[]T` is expected: it is lent to
     /// read only.
+    pub fn recordCallable(self: *SemContext, node: Sexp, fn_ty: TypeId) !void {
+        switch (node) {
+            .src => |s| try self.facts.leaf_callables.put(self.allocator, s.pos, fn_ty),
+            .list => try self.facts.node_callables.put(self.allocator, recordKey(node), fn_ty),
+            else => {},
+        }
+    }
+
+    /// The function type `node` is lent as, where a borrowed callable is
+    /// expected and `node` is not one yet (`recordCallable`).
+    pub fn callableOf(self: *const SemContext, node: Sexp) ?TypeId {
+        return switch (node) {
+            .src => |s| self.facts.leaf_callables.get(s.pos),
+            .list => self.facts.node_callables.get(nodeKey(node) orelse return null),
+            else => null,
+        };
+    }
+
     pub fn recordReadView(self: *SemContext, node: Sexp) !void {
         switch (node) {
             .src => |s| try self.facts.leaf_views.put(self.allocator, s.pos, {}),
@@ -2335,6 +2361,38 @@ pub fn ownedClosureFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
         else => null,
     };
 }
+
+/// The function type of a borrowed callable `?fun(...) -> R`: a
+/// closure, function, or owned closure lent to a call.
+pub fn callableFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
+    return switch (ctx.types.get(ty)) {
+        .borrow_read => |inner| switch (ctx.types.get(inner)) {
+            .function => |f| f,
+            else => null,
+        },
+        else => null,
+    };
+}
+
+/// Whether a value of `ty` holds a borrowed callable inside it (in an
+/// optional, a handle, an array or slice, or a type argument). A
+/// borrowed callable is only ever a parameter, a local, or a result.
+pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
+    switch (ctx.types.get(ty)) {
+        .borrow_read => |inner| return callableFn(ctx, ty) != null or holdsCallable(ctx, inner),
+        .borrow_write, .optional, .fallible, .shared, .weak => |inner| return holdsCallable(ctx, inner),
+        .slice => |sl| return holdsCallable(ctx, sl.elem),
+        .array => |a| return holdsCallable(ctx, a.elem),
+        .parameterized_nominal => |pn| for (pn.args) |a| {
+            if (holdsCallable(ctx, a)) return true;
+        },
+        else => {},
+    }
+    return false;
+}
+
+/// The diagnostic for a borrowed callable held inside another value.
+pub const held_callable = "a borrowed callable `{s}` is only a parameter's, a local's, or a result's type; no value can hold one";
 
 /// A value an owned closure can take or return: its runtime form is
 /// type-erased, so only plain Copy data crosses it (a Copy primitive, a

@@ -1,0 +1,54 @@
+# A borrowed callable `?fun(...)` is only a parameter's, a local's, or a
+# result's type: no field, Vec, array, optional, or type argument holds
+# one, and neither does a module-level binding. A call never changes a
+# closure's environment, so there is no `!fun`. A closure literal is
+# lent only as a call's argument, without `*`, and not to a call whose
+# result could hold it.
+
+struct Holder
+  f: ?fun(Int) -> Int
+
+struct Wrap[T]
+  v: T
+
+fun double(n: Int) -> Int
+  n * 2
+
+keep: ?fun(Int) -> Int =! double
+
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+fun pass(f: ?fun(Int) -> Int) -> ?fun(Int) -> Int
+  f
+
+sub store(f: ?fun(Int) -> Int)
+  v: Vec[?fun(Int) -> Int] = Vec[Int]()
+  arr = [f, f]
+  o: (?fun(Int) -> Int)? = f
+  w = Wrap(v: f)
+  print(arr.len, o == none, w.v(1), v.len)
+
+sub bad(f: !fun(Int) -> Int)
+  print(1)
+
+sub main
+  print(apply(*|a| a + 1, 2))
+  g: ?fun(Int) -> Int = |a| a
+  h = pass(|a| a + 1)
+  k = 1
+  l = |+k, a: Int| a + k
+  m = !l
+  print(g(1), h(1), m(1))
+
+# error: 9:6: a borrowed callable `?fun(Int) -> Int` is only a parameter's, a local's, or a result's type
+# error: 17:1: a borrowed callable `?fun(Int) -> Int` lives only as long as what it borrows, so it cannot be a module-level binding
+# error: 26:10: a borrowed callable `?fun(Int) -> Int` is only a parameter's
+# error: 27:9: a borrowed callable `[2]?fun(Int) -> Int` is only a parameter's
+# error: 28:7: a borrowed callable `?fun(Int) -> Int` is only a parameter's
+# error: 29:7: a borrowed callable `Wrap[?fun(Int) -> Int]` is only a parameter's
+# error: 32:12: a call never changes a closure's environment, so a callable is only read-borrowed: write `?fun(Int) -> Int`
+# error: 36:15: `?fun(Int) -> Int` borrows a closure for the call; write the closure without `*` (drop the `*`)
+# error: 37:25: a closure literal is lent as `?fun(Int) -> Int` only as a call's argument; bind the closure
+# error: 38:12: this call's result may hold the callable it is lent
+# error: 41:7: a call never changes a closure's environment, so a callable is only read-borrowed: write `?l`

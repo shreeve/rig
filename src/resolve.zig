@@ -1034,7 +1034,8 @@ pub const TypeResolver = struct {
                                 continue;
                             }
                             if (try self.checkDuplicateMember(fields.items, fname, fpos, sym_name)) continue;
-                            const fty = try self.resolveType(ir.get(m, .type));
+                            var fty = try self.resolveType(ir.get(m, .type));
+                            if (try self.fieldCallable(ir.get(m, .type), fty)) fty = self.ctx.types.invalid_id;
                             try fields.append(self.ctx.allocator, .{ .name = fname, .ty = fty, .decl_pos = fpos, .default = if (h == .default) ir.Default.value(m) else null });
                         },
                         .valued => {
@@ -1114,6 +1115,22 @@ pub const TypeResolver = struct {
             }
             self.ctx.symbols.items[id].ty = ty;
         }
+    }
+
+    /// Whether `ty`, written `node` inside another type, is or holds a
+    /// borrowed callable, which no value holds. Reported.
+    fn heldCallable(self: *TypeResolver, node: Sexp, ty: TypeId) Error!bool {
+        if (!sema.holdsCallable(self.ctx, ty)) return false;
+        try self.ctx.errAt(node, sema.held_callable, .{try sema.formatType(self.ctx, ty)});
+        return true;
+    }
+
+    /// A field's type `ty`, written `node`: a borrowed callable is not
+    /// one. Reported.
+    fn fieldCallable(self: *TypeResolver, node: Sexp, ty: TypeId) Error!bool {
+        if (sema.callableFn(self.ctx, ty) == null) return false;
+        try self.ctx.errAt(node, sema.held_callable, .{try sema.formatType(self.ctx, ty)});
+        return true;
     }
 
     fn isPoison(self: *const TypeResolver, ty: TypeId) bool {
@@ -1217,9 +1234,11 @@ pub const TypeResolver = struct {
                 const field_name = ir.get(p, .name);
                 const fname = identAt(self.ctx.source, field_name) orelse continue;
                 if (try self.checkDuplicateMember(payload.items, fname, srcPos(field_name, 0), vname)) continue;
+                var fty = try self.resolveType(ir.get(p, .type));
+                if (try self.fieldCallable(ir.get(p, .type), fty)) fty = self.ctx.types.invalid_id;
                 try payload.append(self.ctx.allocator, .{
                     .name = fname,
-                    .ty = try self.resolveType(ir.get(p, .type)),
+                    .ty = fty,
                     .decl_pos = srcPos(field_name, 0),
                 });
             }
@@ -1439,6 +1458,11 @@ pub const TypeResolver = struct {
                         const inner_node = if (head == .weak) ir.Weak.operand(sexp) else ir.get(sexp, .type);
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
+                        if (head == .borrow_write and self.ctx.types.get(inner) == .function) {
+                            try self.ctx.errAt(sexp, "a call never changes a closure's environment, so a callable is only read-borrowed: write `?{s}`", .{try self.sourceText(inner_node)});
+                            return t.invalid_id;
+                        }
+                        if (try self.heldCallable(inner_node, inner)) return t.invalid_id;
                         if (head == .slice) try self.checkWhenResolved(.{ .slice = .{ .node = inner_node, .elem = inner } });
                         if (head == .weak and sema.isBorrowType(self.ctx, inner)) return self.handleOfBorrow(sexp, inner);
                         return self.ctx.intern(switch (head) {
@@ -1453,6 +1477,7 @@ pub const TypeResolver = struct {
                         const inner_node = ir.Shared.type(sexp);
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
+                        if (try self.heldCallable(inner_node, inner)) return t.invalid_id;
                         if (self.ctx.types.get(inner) == .shared) {
                             try self.ctx.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
                             return t.invalid_id;
@@ -1465,7 +1490,7 @@ pub const TypeResolver = struct {
                         const len = try self.resolveCtInt(ir.ArrayType.size(sexp), .array_len);
                         const elem_node = ir.ArrayType.type(sexp);
                         const elem = try self.resolveType(elem_node);
-                        if (self.isPoison(len)) return t.invalid_id;
+                        if (self.isPoison(len) or try self.heldCallable(elem_node, elem)) return t.invalid_id;
                         const ty = try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
                         // Once every type's contents are known, a type too
                         // large is poison.
@@ -1890,7 +1915,7 @@ pub const TypeResolver = struct {
                 try self.ctx.errAt(a, "`{s}` is a value; `{s}` takes a type", .{ try self.sourceText(a), self.ctx.symbols.items[tp].name });
                 break :blk t.invalid_id;
             } else try self.resolveType(a);
-            if (sema.containsPoison(self.ctx, arg)) any_bad = true;
+            if (sema.containsPoison(self.ctx, arg) or try self.heldCallable(a, arg)) any_bad = true;
             try args.append(self.ctx.allocator, arg);
         }
         // An instance with a rejected argument is poison: what follows

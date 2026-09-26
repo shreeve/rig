@@ -532,6 +532,69 @@ pub fn Closure(comptime params: []const type, comptime R: type) type {
 /// `*sub()`: what a Signal notifies.
 pub const Callback = Closure(&.{}, void);
 
+// A borrowed callable `?fun(A, B) -> R` / `?sub(A)` is a
+// `FnRef(&.{ A, B }, R)`: a context pointer and a function that calls
+// through it, 16 bytes passed by value. It lends what the caller owns (a
+// stack closure's environment, a function, an owned closure) for as long
+// as the ownership checker lets the borrow live, and owns nothing.
+
+pub fn FnRef(comptime params: []const type, comptime R: type) type {
+    return struct {
+        ctx: *anyopaque,
+        call_fn: *const fn (*anyopaque, Args) R,
+
+        const Self = @This();
+        pub const Args = std.meta.Tuple(params);
+
+        /// Lend `env`, a stack closure's environment, whose `invoke`
+        /// takes the parameters.
+        pub fn of(comptime Env: type, env: *Env) Self {
+            const thunk = struct {
+                fn call(ctx: *anyopaque, args: Args) R {
+                    const e: *Env = @ptrCast(@alignCast(ctx));
+                    return @call(.auto, Env.invoke, .{e} ++ args);
+                }
+            };
+            return .{ .ctx = env, .call_fn = thunk.call };
+        }
+
+        /// Lend function `f`, a function or a pointer to one.
+        pub fn ofFn(f: anytype) Self {
+            if (@typeInfo(@TypeOf(f)) == .@"fn") return ofFn(&f);
+            const F = @TypeOf(f);
+            const thunk = struct {
+                fn call(ctx: *anyopaque, args: Args) R {
+                    const g: F = @ptrCast(@alignCast(ctx));
+                    return @call(.auto, g, args);
+                }
+            };
+            return .{ .ctx = @constCast(@ptrCast(f)), .call_fn = thunk.call };
+        }
+
+        /// Lend the owned closure `handle` points to (a
+        /// `*RcBox(Closure(params, R))`, or a pointer to one).
+        pub fn ofClosure(handle: anytype) Self {
+            const box = if (@typeInfo(@TypeOf(handle.*)) == .pointer) handle.* else handle;
+            const C = @TypeOf(box.value);
+            const thunk = struct {
+                fn call(ctx: *anyopaque, args: Args) R {
+                    const c: *C = @ptrCast(@alignCast(ctx));
+                    return c.invoke(args);
+                }
+            };
+            return .{ .ctx = &box.value, .call_fn = thunk.call };
+        }
+
+        pub fn call(self: Self, args: Args) R {
+            return self.call_fn(self.ctx, args);
+        }
+
+        pub fn __rig_print(_: Self, w: *std.Io.Writer) std.Io.Writer.Error!void {
+            try w.writeAll("<closure>");
+        }
+    };
+}
+
 // -----------------------------------------------------------------------------
 // Signal
 // -----------------------------------------------------------------------------
@@ -1457,6 +1520,33 @@ test "closures take any number of arguments and return values" {
     try testing.expectEqual(7, closure.invoke(.{ 2, 3, true }));
     try testing.expectEqual(1, closure.invoke(.{ 2, 3, false }));
     closure.__rig_drop();
+    try expectNoLeaks(before);
+}
+
+fn fnRefDouble(n: i64) i64 {
+    return n * 2;
+}
+
+test "a borrowed callable calls a stack closure, a function, or an owned closure" {
+    const before = usage();
+    const Ref = FnRef(&.{i64}, i64);
+    const Env = struct {
+        k: i64,
+        pub fn invoke(self: *@This(), a: i64) i64 {
+            return a + self.k;
+        }
+    };
+    var env: Env = .{ .k = 3 };
+    try testing.expectEqual(7, Ref.of(Env, &env).call(.{4}));
+    try testing.expectEqual(8, Ref.ofFn(fnRefDouble).call(.{4}));
+    const ptr: *const fn (i64) i64 = fnRefDouble;
+    try testing.expectEqual(10, Ref.ofFn(ptr).call(.{5}));
+    const heap = create(Env);
+    heap.* = .{ .k = 10 };
+    const handle = rcNew(Closure(&.{i64}, i64).init(Env, heap));
+    try testing.expectEqual(11, Ref.ofClosure(handle).call(.{1}));
+    try testing.expectEqual(12, Ref.ofClosure(&handle).call(.{2}));
+    handle.dropStrong();
     try expectNoLeaks(before);
 }
 
