@@ -2854,7 +2854,8 @@ are in the [roadmap](docs/ROADMAP.md).
 | `!p.m()` | write receiver | | `(!p).m()`: `p` lent to a `!self` method |
 | `<p.m()` | move receiver | | `(<p).m()`: `p` moved into a `self: Self` method |
 
-`!` is never "not": logical negation is `not x`.
+Prefix `!` is a write borrow, never "not": logical negation is `not x`,
+and `!=` is the not-equal operator.
 
 **Suffixes**
 
