@@ -2243,7 +2243,9 @@ is known when the program runs. Compile-time parameters go in brackets
 touching the function's name, before its run-time parameters, and
 lower to Zig `comptime` parameters; a call gives their arguments in
 brackets. Each argument must be a literal, an enum value, a constant,
-or another compile-time parameter. With no run-time parameters, the
+or another compile-time parameter; arithmetic there must fold to a
+constant, so `f[n + 1]` over a parameter `n` is rejected. With no
+run-time parameters, the
 parentheses are optional, and a whole-statement call `show[3]` runs
 `show` as `show[3]()` does.
 
