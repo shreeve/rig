@@ -2195,7 +2195,7 @@ pub const Emitter = struct {
                 // Zig rejects the literal `-0` as ambiguous; `0 - 0` is 0.
                 if (operand == .src and isIntZeroText(self.srcText(operand))) return self.w.writeAll("0");
                 try self.w.writeAll("-");
-                try self.emitExpr(operand);
+                try self.emitOperand(operand, false);
             },
             .not => {
                 try self.w.writeAll("!");
@@ -2223,9 +2223,9 @@ pub const Emitter = struct {
                 if (parens) try self.w.writeAll("(");
                 if (shl) try self.w.writeAll("@shlExact(");
                 try self.writeAsOpen(self.typeOf(sexp) orelse self.sema.types.int_id);
-                try self.emitBare(ir.get(sexp, .left));
+                try self.emitOperand(ir.get(sexp, .left), true);
                 try self.w.writeAll(if (shl) "), @intCast(" else ") >> @intCast(");
-                try self.emitBare(ir.get(sexp, .right));
+                try self.emitOperand(ir.get(sexp, .right), true);
                 try self.w.writeAll(if (shl) "))" else ")");
                 if (parens) try self.w.writeAll(")");
             },
@@ -2334,10 +2334,21 @@ pub const Emitter = struct {
             return self.w.writeAll(")");
         };
         if (!bare) try self.w.writeAll("(");
-        try self.emitExpr(operands[0]);
+        try self.emitOperand(operands[0], false);
         try self.w.print(" {s} ", .{op});
-        try self.emitExpr(operands[1]);
+        try self.emitOperand(operands[1], false);
         if (!bare) try self.w.writeAll(")");
+    }
+
+    /// An operand of an arithmetic, bitwise, or comparison operator, which
+    /// reads the value a borrow reaches. A name, field, or element holding
+    /// a borrow already reads through it; a borrow an expression yields
+    /// (`!x`, a call returning `!Int` or a generic `?T`) is read here.
+    fn emitOperand(self: *Emitter, e: Sexp, bare: bool) Error!void {
+        const place = e == .src or e.isKind(.member) or e.isKind(.index);
+        if (!place and self.isPtrBorrowExpr(e)) return self.emitDeref(e);
+        self.bare = bare;
+        try self.emitValue(e, false);
     }
 
     /// `a / b` and `a % b` (see `divBuiltin`).
@@ -2346,9 +2357,9 @@ pub const Emitter = struct {
         const right = ir.get(sexp, .right);
         const builtin = self.divBuiltin(sexp.kind().?, left, right) orelse return self.emitInfix(sexp, false);
         try self.w.print("{s}(", .{builtin});
-        try self.emitBare(left);
+        try self.emitOperand(left, true);
         try self.w.writeAll(", ");
-        try self.emitBare(right);
+        try self.emitOperand(right, true);
         try self.w.writeAll(")");
     }
 
