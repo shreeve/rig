@@ -156,6 +156,9 @@ const Var = struct {
     /// Element of `for x in ?vec` over a resource Vec: a borrowed view of
     /// the slot.
     loop_borrow: bool = false,
+    /// Element of a loop that does not consume its collection: a view of
+    /// a slot the collection still owns.
+    elem_view: bool = false,
     /// A loop element: the var holding the collection it walks, whose
     /// loans are the borrows its elements may hold.
     elem_of: ?VarId = null,
@@ -313,6 +316,9 @@ const Tail = struct {
 const PlainRequirement = struct {
     param: SymbolId,
     pos: u32,
+    /// The value is an element its collection still owns, taken out
+    /// (moved, dropped, reassigned) rather than copied.
+    element: bool = false,
 };
 
 // =============================================================================
@@ -487,7 +493,9 @@ pub const Checker = struct {
         for (self.plain_reqs.items) |r| {
             if (r.param != param) continue;
             try self.err(site, "`{s}` cannot use `{s} = {s}`: the generic body copies a `{s}`, which would duplicate the resource `{s}` owns", .{ shown, pname, try sema.formatTypeIn(ctx, self.arena(), arg), pname, try sema.formatTypeIn(ctx, self.arena(), arg) });
-            try self.note(r.pos, "`{s}` copied here; move it with `<` instead", .{pname});
+            if (r.element) {
+                try self.note(r.pos, "a `{s}` element is taken here while its collection still owns it; take the elements with `for x in <v`", .{pname});
+            } else try self.note(r.pos, "`{s}` copied here; move it with `<` instead", .{pname});
             return;
         }
     }
@@ -1713,6 +1721,11 @@ pub const Checker = struct {
     /// elsewhere: they cannot be consumed. Returns true if rejected.
     fn rejectBorrowedView(self: *Checker, id: VarId, pos: u32, op: []const u8) Error!bool {
         const v = self.vars.items[id];
+        // An element of generic type is taken as a copy: each instance
+        // must be plain data.
+        if (v.elem_view and v.ref == .none) if (self.owningKind(v.ty)) |k| if (k == .generic) {
+            try self.requirePlain(pos, v.ty.?, true);
+        };
         if (v.loop_borrow) {
             try self.err(pos, "cannot {s} loop-borrow alias `{s}`; " ++ loop_borrow_rule, .{ op, v.name });
             return true;
@@ -1909,21 +1922,24 @@ pub const Checker = struct {
         };
     }
 
+    /// Every type parameter `ty` holds must be plain data in each
+    /// instance, because the value is copied (or taken as an `element`).
+    fn requirePlain(self: *Checker, pos: u32, ty: TypeId, element: bool) Error!void {
+        const ctx = self.sema orelse return;
+        var held: std.ArrayListUnmanaged(SymbolId) = .empty;
+        try sema.heldTypeVars(ctx, ty, &held, self.arena());
+        for (held.items) |param| {
+            for (self.plain_reqs.items) |r| {
+                if (r.param == param and r.pos == pos) break;
+            } else try self.plain_reqs.append(self.gpa, .{ .param = param, .pos = pos, .element = element });
+        }
+    }
+
     fn reportAlias(self: *Checker, pos: u32, what: []const u8, is_name: bool, k: Owning, sink: Sink, ty: ?TypeId) Error!void {
         const where = sink.text();
         switch (k) {
-            .generic => {
-                // Fine for plain data: each instantiation is checked.
-                const ctx = self.sema orelse return;
-                const t = ty orelse return;
-                var held: std.ArrayListUnmanaged(SymbolId) = .empty;
-                try sema.heldTypeVars(ctx, t, &held, self.arena());
-                for (held.items) |param| {
-                    for (self.plain_reqs.items) |r| {
-                        if (r.param == param and r.pos == pos) break;
-                    } else try self.plain_reqs.append(self.gpa, .{ .param = param, .pos = pos });
-                }
-            },
+            // Fine for plain data: each instantiation is checked.
+            .generic => if (ty) |t| try self.requirePlain(pos, t, false),
             .shared, .weak => {
                 const kind = if (k == .shared) "shared (`*T`)" else "weak (`~T`)";
                 if (is_name) {
@@ -2648,6 +2664,8 @@ pub const Checker = struct {
         source_loan: LoanKind = .read,
         source_pos: u32 = 0,
         resource_vec: bool = false,
+        /// The loop walks a collection it does not consume.
+        elem_view: bool = false,
     };
 
     /// An expression that yields a value, including a loop used as one.
@@ -2681,6 +2699,7 @@ pub const Checker = struct {
         if (mode == .move) {
             spec.moved = (try self.walkMove(source)).loans;
         } else {
+            spec.elem_view = true;
             _ = try self.walk(source);
             if (self.resolvePlace(source)) |p| {
                 const id = p.root;
@@ -2796,6 +2815,7 @@ pub const Checker = struct {
                 .kind = .loop_elem,
                 .ref = self.refOfType(ty),
                 .loop_borrow = spec.resource_vec,
+                .elem_view = spec.elem_view,
                 .elem_of = if (elem_loans.len > 0) spec.source_root else null,
             }, .{ .loans = if (self.mayCarryBorrow(ty)) try self.unionLoans(elem_loans, spec.moved) else &.{} });
         }

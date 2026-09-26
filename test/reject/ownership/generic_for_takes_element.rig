@@ -1,0 +1,56 @@
+# A loop that does not consume its collection only views each element.
+# Where a generic body takes such an element (moves, drops, or returns
+# it), every instance must be plain data: the collection still owns it.
+
+struct Res
+  n: Int
+
+  drop self: !Res
+    print("drop", self.n)
+
+fun steal[T](v: ?Vec[T], d: T) -> T
+  r = <d
+  for x in v
+    r = <x
+  r
+
+fun copyall[T](v: ?Vec[T]) -> Vec[T]
+  out = Vec[T]()
+  for x in v
+    !out.push(<x)
+  out
+
+sub dropall[T](v: ?Vec[T])
+  for x in v
+    -x
+
+fun first[T](v: ?Vec[T], d: T) -> T
+  for x in v
+    return x
+  <d
+
+type Bag[T]
+  items: Vec[T]
+
+  fun steal(?self, d: T) -> T
+    r = <d
+    for x in ?self.items
+      r = <x
+    r
+
+sub main()
+  w = Vec[*Res]()
+  !w.push(*Res(n: 1))
+  a = steal(?w, *Res(n: 10))
+  c = copyall(?w)
+  dropall(?w)
+  f = first(?w, *Res(n: 10))
+  b: Bag[*Res] = Bag(items: Vec())
+
+# error: 44:7: `steal[*Res]` cannot use `T = *Res`
+# error: 45:7: `copyall[*Res]` cannot use `T = *Res`
+# error: 46:3: `dropall[*Res]` cannot use `T = *Res`
+# error: 47:7: `first[*Res]` cannot use `T = *Res`
+# error: 48:6: `Bag[*Res]` cannot use `T = *Res`
+# error: 14:10: a `T` element is taken here while its collection still owns it
+# error: 25:6: a `T` element is taken here while its collection still owns it

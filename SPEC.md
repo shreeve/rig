@@ -916,7 +916,10 @@ do with a `T` what every instance allows, it is ownership-checked
 once, for a `T` that may own a resource and holds no borrow, and each
 instance its calls make (directly or through other generic bodies) is
 checked against what the body does with `T`. A `T` that owns a
-resource moves where the body moves it, and a type argument cannot be
+resource moves where the body moves it. Copying a `T`, or taking one
+(`<x`, `-x`, `return x`) from a loop that walks a collection without
+consuming it (`for x in v`), needs every instance to be plain data,
+because the collection still owns the element. A type argument cannot be
 a borrow or hold one: the parameter is written `?T` or `!T` instead. A
 generic function only calls; it is not a value, a closure is never
 generic, and a generic function cannot cross module boundaries yet.
