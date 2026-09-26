@@ -5194,7 +5194,12 @@ const Checker = struct {
                 continue;
             };
             if (!compatible(self.ctx, ty, ret)) {
-                try self.errAt(site.node, "this closure returns `{s}`, but this `return` gives `{s}`", .{ try self.tyName(ret), try self.tyName(ty) });
+                // A generic call only literals typed would take the type.
+                const hint = if (self.literalResult(ir.Return.value(site.node)) != null and sema.isNumeric(self.ctx, ret))
+                    try std.fmt.allocPrint(self.ctx.arena.allocator(), "; give the closure its type where it goes (`f: fun(...) -> {s} = |...| ...`), and every `return` takes it", .{try self.tyName(ret)})
+                else
+                    "";
+                try self.errAt(site.node, "this closure returns `{s}`, but this `return` gives `{s}`{s}", .{ try self.tyName(ret), try self.tyName(ty), hint });
             } else try self.recordAdapted(ir.Return.value(site.node), ty, ret);
         }
         return ret;

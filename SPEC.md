@@ -2654,8 +2654,10 @@ parameters its type passes, and may ignore one by naming it `_`.
 
 With a type from context, the body is checked against its return type.
 Otherwise the closure returns the type of its last expression, or of
-its `return`s when it ends in one; a body ending in any other statement,
-or in an `if` without `else`, returns nothing. `return` inside a closure
+its `return`s when it ends in one, and these give each other no type: a
+`return max(3, 4)` beside a `return x` of a `U8` is still an `Int`. A
+body ending in any other statement, or in an `if` without `else`,
+returns nothing. `return` inside a closure
 leaves the closure.
 
 ```rig
