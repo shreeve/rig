@@ -1,0 +1,25 @@
+# Another module's generic functions and methods take borrowed callables
+# as local ones do: a closure literal written in the call, whose
+# parameter and result types are inferred there.
+
+use lib
+
+sub main
+  words = ["pear", "fig", "apple"]
+  calls = 0
+  lib.sort(!words[..], |!calls, a, b|
+    calls += 1
+    a < b)
+  lens = lib.map(?words[..], |w| w.len)
+  print(words, lens, calls > 0)
+  bag = lib.Bag(items: Vec())
+  !bag.items.push(2)
+  !bag.items.push(5)
+  total = 0
+  bag.each(|!total, n|
+    total += n)
+  print(total)
+
+# expect:
+# ["apple", "fig", "pear"] [5, 3, 4] true
+# 7

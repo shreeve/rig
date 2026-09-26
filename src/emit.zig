@@ -3854,11 +3854,12 @@ pub const Emitter = struct {
         return ty;
     }
 
+    /// The function type of a function, closure, or borrowed callable.
     fn fnType(self: *Emitter, ty: ?TypeId) ?sema.FunctionType {
         const t = ty orelse return null;
         return switch (self.sema.types.get(t)) {
             .function => |f| f,
-            else => null,
+            else => sema.callableFn(self.sema, t),
         };
     }
 

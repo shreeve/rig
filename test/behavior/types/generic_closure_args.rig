@@ -2,7 +2,15 @@
 # other arguments: they bind `T`, the literal's parameters take the
 # types that gives them, and a type parameter only the literal's result
 # mentions (`U` in `map`) takes the type of its body. The callable is
-# passed down a generic chain as it is.
+# passed down a generic chain as it is. Inside a generic body, a literal
+# may move in a `T`, dropped when the call returns, and a callable
+# taking a `?T` is passed one.
+
+struct Res
+  id: Int
+
+  drop(!self)
+    print("drop", self.id)
 
 fun sort[T](xs: ![]T, less: ?fun(?T, ?T) -> Bool)
   i = 1
@@ -27,6 +35,19 @@ fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]
 fun map_view[T, U](xs: ?[]T, f: ?fun(?T) -> U) -> Vec[U]
   map(xs, f)
 
+fun apply(f: ?fun(Int) -> Int, x: Int) -> Int
+  f(x)
+
+fun hold[T](x: T) -> Int
+  apply(|<x, a| a + 1, 1)
+
+fun peek[T](x: ?T, f: ?fun(?T) -> Int) -> Int
+  f(x)
+
+fun look[T](x: T) -> Int
+  n = peek(?x, |v| 7)
+  n
+
 sub main
   v: Vec[Int] = Vec()
   !v.push(3)
@@ -49,6 +70,8 @@ sub main
   s = ?v[..]
   halves = map_view(?s, |n| Float(n) / 2)
   print(halves)
+  print(hold(Res(id: 1)), hold(5))
+  print(look(Res(id: 2)))
 
 # expect:
 # [1, 2, 3]
@@ -57,3 +80,7 @@ sub main
 # [20, 30, 30]
 # [false, true, true]
 # [0.5, 1.0, 1.5]
+# drop 1
+# 2 2
+# drop 2
+# 7
