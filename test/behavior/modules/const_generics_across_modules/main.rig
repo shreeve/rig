@@ -1,0 +1,22 @@
+# Another module's compile-time integer parameters are given in brackets
+# or inferred, as a local function's are, and each value is checked
+# against what the module's bodies do with it, such as sizing an array.
+
+use lib
+
+sub main()
+  z = lib.zeros[3]()
+  a: [3]Int = lib.zeros()
+  print(z.len, a.len, lib.sum([1, 2, 3]), lib.plain[2]())
+  lib.show[5]()
+  m = lib.Maker.zeros[2]()
+  r = lib.Ring[Int, 4](items: [1, 2, 3, 4])
+  print(m.len, r.cap(), r.items[2])
+  b: lib.Ring[Float, 2] = lib.Ring(items: [0.5, 1.5])
+  print(b.cap(), b.items[1])
+
+# expect:
+# 3 3 6 2
+# 5
+# 2 4 3
+# 2 1.5

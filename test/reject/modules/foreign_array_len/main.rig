@@ -1,0 +1,22 @@
+# Each value another module's compile-time parameter takes here is
+# checked against what its bodies do with it: an array length runs from
+# 0 to 2^32 - 1, and a value takes at most 8 MiB.
+
+use lib
+
+sub main()
+  a = lib.zeros[-1]()
+  lib.show[5000000000]()
+  b = lib.zeros[2000000]()
+  r = lib.Ring[Int, -2](items: [])
+  print(a.len, b.len, r.items.len)
+
+# error: 8:11: `lib.zeros[-1]` cannot use `n = -1`: the generic body uses `n` as an array length, which runs from 0 to 4294967295
+# error: 1:27: `n` used as an array length here
+# error: 9:7: `lib.helper[5000000000]` cannot use `m = 5000000000`
+# error: 5:11: `m` used as an array length here
+# error: 9:7: `lib.helper[5000000000]` is made by `lib.show[5000000000]`
+# error: 10:11: `lib.zeros[2000000]` makes `[2000000]Int`, which takes 16000000 bytes
+# error: 1:26: the array is made here
+# error: 11:7: `lib.Ring[Int, -2]` cannot use `n = -2`
+# error: 12:11: `n` used as an array length here

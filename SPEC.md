@@ -1036,10 +1036,7 @@ the result where no type is expected, or given only `none` or a
 
 A generic function can only be called: it is not a value, and a closure
 is never generic. Another module's generic function is called as a
-local one is ([§15](#15-modules)). A public function, or a method of a
-public type, whose integer compile-time parameter sizes an array, in
-its signature, its body, or a function it passes the parameter to,
-cannot cross module boundaries yet.
+local one is ([§15](#15-modules)).
 
 ```rig
 struct Res
@@ -3325,7 +3322,7 @@ is an integer. An integer compile-time value sizes arrays
 A call gives the compile-time arguments in brackets touching the
 callee, before its run-time arguments: `check[.strict](5)`,
 `rep[String, 3]("hi")`, `s.times[5]()`, `Scale.unit[6]()`,
-`lib.scaled[3](5)`. It gives all of them or none; a type argument, and
+`lib.scaled[3](5)`, `lib.zeros[3]()`. It gives all of them or none; a type argument, and
 an integer value that an array length or a generic type's argument in
 the signature holds, may be left to inference
 ([generic functions](#generic-functions)), any other value never. A
@@ -3545,7 +3542,6 @@ The rest parse, and the checker rejects them as not supported yet
 | Form | Diagnostic |
 |---|---|
 | an instance of a module's generic type in its public surface | `` generic types cannot cross module boundaries yet `` |
-| a `pub` function whose compile-time parameter sizes an array | `` such functions cannot cross module boundaries yet `` |
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
 | a stack closure passed, stored, or returned | `` closures cannot escape their defining scope `` |
 | an array of owning values | `` arrays cannot hold values that own resources ``; use a `Vec` |

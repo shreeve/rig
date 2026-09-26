@@ -1893,9 +1893,6 @@ compile-time argument 1 of `show` must be known at compile time
   may not hold an instance of its own generic types yet.
 - A generic type's value parameters are integers, and a type alias has
   no parameters.
-- A public function, or a method of a public type, whose integer
-  parameter sizes an array (in its signature, its body, or a function
-  it passes it to) does not cross modules yet.
 - An array length or a type's value argument may do arithmetic on
   constants (`[LIMIT * 2]T`), but not on a compile-time parameter
   (`[n + 1]T`), and not call a function (`[0; f()]`).

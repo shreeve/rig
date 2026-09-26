@@ -9,7 +9,7 @@ in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms).
 ## Language
 
 - **Stack closures as arguments**: pass a non-escaping closure to a call without allocating it.
-- **Generics across modules**: instances of a module's generic types in its public surface, and its `pub` functions whose compile-time parameters size arrays.
+- **Generics across modules**: instances of a module's generic types in its public surface.
 - **More compile-time values on generic types**: `Bool` and enum value parameters (`struct Ring[T, n: Int]` takes integers only).
 - **Owning values in more places**: arrays of owning values, and owned closures that take or return them.
 - **Strings**: building and formatting strings, and matching on them. A slice of a built (heap) string will be a borrow of it, as an array slice is today.

@@ -5892,7 +5892,6 @@ fn plural(n: usize) []const u8 {
 /// the type parameters (`self.value + 1` requires a numeric `T`). Checked
 /// after all bodies, against every instance the module's code makes.
 pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
-    if (ctx.generic_requirements.items.len > 0) try checkPublicArrayLengths(ctx);
     var it = ctx.instantiation_sites.iterator();
     while (it.next()) |entry| {
         const pn = switch (ctx.types.get(entry.key_ptr.*)) {
@@ -6069,64 +6068,6 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
         try ctx.noteIn(fr.module_id, fr.pos, "{s} is declared here", .{fr.label});
         return;
     }
-}
-
-/// A public function takes its compile-time arguments from other
-/// modules, whose instances this module never sees. One whose integer
-/// parameter sizes an array (in its signature or body, or in a function
-/// or type it passes the parameter to) is rejected, as a generic
-/// function is.
-fn checkPublicArrayLengths(ctx: *SemContext) Error!void {
-    var sized: std.AutoHashMapUnmanaged(SymbolId, void) = .empty;
-    defer sized.deinit(ctx.allocator);
-    for (ctx.generic_requirements.items) |r| if (r.req == .array_len) try sized.put(ctx.allocator, r.param, {});
-    if (sized.count() == 0) return;
-    var grew = true;
-    while (grew) {
-        grew = false;
-        for (ctx.generic_fn_uses.items) |use| for (use.params, use.args) |p, arg| {
-            if (sized.contains(p)) if (ctParamSym(ctx, arg)) |from| if (!sized.contains(from)) {
-                try sized.put(ctx.allocator, from, {});
-                grew = true;
-            };
-        };
-        for (ctx.generic_uses.items) |use| {
-            const pn = ctx.types.get(use).parameterized_nominal;
-            for (ctx.symbols.items[pn.sym].type_params orelse &.{}, pn.args) |p, arg| {
-                if (sized.contains(p)) if (ctParamSym(ctx, arg)) |from| if (!sized.contains(from)) {
-                    try sized.put(ctx.allocator, from, {});
-                    grew = true;
-                };
-            }
-        }
-    }
-    for (ctx.symbols.items) |sym| {
-        if (!sym.flags.is_public) continue;
-        switch (sym.kind) {
-            .function => try reportSizedPublic(ctx, &sized, sym.ty, sym.decl_pos, "function", sym.name),
-            .nominal_type => for (sym.fields orelse &.{}) |f| {
-                if (f.is_method) try reportSizedPublic(ctx, &sized, f.ty, f.decl_pos, "method", f.name);
-            },
-            else => {},
-        }
-    }
-}
-
-fn ctParamSym(ctx: *const SemContext, ty: TypeId) ?SymbolId {
-    return switch (ctx.types.get(ty)) {
-        .ct_param => |sym| sym,
-        else => null,
-    };
-}
-
-fn reportSizedPublic(ctx: *SemContext, sized: *const std.AutoHashMapUnmanaged(SymbolId, void), ty: TypeId, pos: u32, what: []const u8, name: []const u8) Error!void {
-    const f = switch (ctx.types.get(ty)) {
-        .function => |f| f,
-        else => return,
-    };
-    for (f.ct_syms) |p| if (sized.contains(p)) {
-        return ctx.err(pos, "public {s} `{s}` sizes an array by its compile-time parameter `{s}`; such functions cannot cross module boundaries yet", .{ what, name, ctx.symbols.items[p].name });
-    };
 }
 
 /// False after a diagnostic.
