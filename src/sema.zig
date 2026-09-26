@@ -1341,6 +1341,10 @@ fn expand(ctx: *SemContext, work: *std.ArrayListUnmanaged(ExpandItem), reached: 
     while (work.pop()) |item| {
         for (ctx.generic_fn_uses.items) |use| {
             if (!argsUseParams(ctx, use.args, item.subst.params)) continue;
+            // A use over parameters this instance does not bind (a
+            // generic method's own `U`, reached from its type's instance)
+            // is made by the instances that bind them, as it is above.
+            if (reached != null and !argsUseOnlyParams(ctx, use.args, item.subst.params)) continue;
             const args = try ctx.arena.allocator().alloc(TypeId, use.args.len);
             var deepest: u8 = 0;
             for (use.args, args) |a, *out| {
@@ -1365,6 +1369,7 @@ fn expand(ctx: *SemContext, work: *std.ArrayListUnmanaged(ExpandItem), reached: 
         }
         for (ctx.generic_uses.items) |use| {
             if (!usesParams(ctx, use, item.subst.params)) continue;
+            if (reached != null and !usesOnlyParams(ctx, use, item.subst.params)) continue;
             const concrete = try substituteType(ctx, use, item.subst);
             const info = ctx.typeInfo(concrete);
             if (reached == null and info.has_type_var) continue;
@@ -1483,6 +1488,23 @@ fn typeItem(ctx: *const SemContext, ty: TypeId) ?TypeSubst {
 fn argsUseParams(ctx: *const SemContext, args: []const TypeId, params: []const SymbolId) bool {
     for (args) |a| if (usesParams(ctx, a, params)) return true;
     return false;
+}
+
+/// Whether every type or integer parameter `ty` mentions is one of `params`.
+fn usesOnlyParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) bool {
+    if (!ctx.typeInfo(ty).has_type_var) return true;
+    switch (ctx.types.get(ty)) {
+        .type_var, .ct_param => |sym| return std.mem.indexOfScalar(SymbolId, params, sym) != null,
+        else => {},
+    }
+    var it = typeChildren(ctx, ty);
+    while (it.next()) |c| if (!usesOnlyParams(ctx, c, params)) return false;
+    return true;
+}
+
+fn argsUseOnlyParams(ctx: *const SemContext, args: []const TypeId, params: []const SymbolId) bool {
+    for (args) |a| if (!usesOnlyParams(ctx, a, params)) return false;
+    return true;
 }
 
 fn argsHaveTypeVar(ctx: *const SemContext, args: []const TypeId) bool {

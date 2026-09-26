@@ -640,9 +640,12 @@ program spelled, so a diagnostic names what the user wrote
 `checkSelfNesting` runs the same expansion (`expand`) from each `pub`
 generic function and type, and each generic method of a `pub` type,
 at its own parameters (`nest[T]`), following instances over type
-parameters too (kept apart in `Reached`, never recorded): one nesting
-ever deeper is reported where it is declared, since the instances that
-would show it are made in other modules.
+parameters too (kept apart in `Reached`, never recorded). As in the
+program's expansion, a use over parameters the instance does not bind
+is left to the instances that bind them: `List[X]` does not follow
+`List[Pair[T, U]]` in its method `zip[U]`, which `zip[T, U]` follows.
+One nesting ever deeper is reported where it is declared, since the
+instances that would show it are made in other modules.
 `checkGenericInstantiations` then checks every instance against the
 requirements (`checkRequirements`), reporting at the site with a note
 at the operation, and the ownership checker checks each against the

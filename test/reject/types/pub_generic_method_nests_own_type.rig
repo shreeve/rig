@@ -1,0 +1,23 @@
+# A generic method of a public generic type that calls itself on an
+# instance of its type nested in its own and the method's parameters
+# (`List[Pair[T, U]]` from `List[T]`) nests ever deeper; it is reported
+# where it is declared.
+
+pub struct Pair[A, B]
+  a: A
+  b: B
+
+pub struct List[T]
+  items: Vec[T]
+
+  fun deep[U](?self, u: U) -> Int
+    out: Vec[Pair[T, U]] = Vec()
+    l = List(items: <out)
+    l.deep(u)
+
+sub main()
+  v: Vec[Int] = Vec()
+  l = List(items: <v)
+  print(l.items.len)
+
+# error: 13:7: `deep[U]` leads to ever deeper instances of generic types (through `Vec[Pair[T, U]]`)
