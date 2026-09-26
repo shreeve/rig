@@ -78,12 +78,22 @@ pub fn holdsCell(comptime T: type) bool {
     };
 }
 
-/// How a read borrow `?T` is held: a pointer when `T` owns resources or
-/// holds a `Cell`, a copy otherwise. The emitter decides this itself for
-/// a known `T`, and uses this in a generic type, where `T` depends on the
-/// type arguments.
+/// How a read borrow `?T` is held: a copy of a scalar or a view (a
+/// number, `Bool`, a plain enum, an error, a slice or `String`, a
+/// function, or an optional of one), a pointer to anything else. The
+/// emitter decides this itself for a known `T` (`readBorrowIsPtr`), by
+/// the same rule, and uses this in a generic type, where `T` depends on
+/// the type arguments.
 pub fn ReadBorrow(comptime T: type) type {
-    return if (needsDrop(T) or holdsCell(T)) *const T else T;
+    return if (needsDrop(T) or holdsCell(T) or !copiedBorrow(T)) *const T else T;
+}
+
+fn copiedBorrow(comptime T: type) bool {
+    return switch (@typeInfo(T)) {
+        .int, .float, .bool, .comptime_int, .comptime_float, .error_set, .@"enum", .@"fn", .pointer => true,
+        .optional => |o| copiedBorrow(o.child),
+        else => false,
+    };
 }
 
 /// A read borrow of what `ptr` points to.
