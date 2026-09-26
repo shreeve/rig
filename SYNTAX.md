@@ -2733,7 +2733,8 @@ may write, or of another `![]T`. It follows the write-borrow rules: it
 is not copied, a call reborrows it, it is returned only from a `!`
 parameter, and while it is live nothing else uses what it borrows, so
 two write slices of one array, or a `push` to a Vec while a slice of
-it is live, are rejected. A `![]T` goes wherever a `[]T` does, and its
+it is live, are rejected. A `![]T` goes wherever a `[]T` does (as an
+argument it is then lent to read, as `&*s` would be in Rust), and its
 elements are assigned (`s[i] = v`) and written in a loop
 (`for x in !s`). `!dst.copy(src)` (lengths must match, as in Rust's
 `copy_from_slice`), `!s.fill(v)`, and `!s.swap(i, j)` write the

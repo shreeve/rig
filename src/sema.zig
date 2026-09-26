@@ -534,9 +534,15 @@ pub const Facts = struct {
     node_reads: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
     /// Callee (`member`) node -> the built-in element method it calls.
     elem_calls: std.AutoHashMapUnmanaged(NodeKey, ElemCall) = .empty,
+    /// Expressions yielding a `![]T` where a `[]T` is expected, which
+    /// lend it only to read: leaves by position, list nodes by id.
+    leaf_views: std.AutoHashMapUnmanaged(u32, void) = .empty,
+    node_views: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
         self.elem_calls.deinit(allocator);
+        self.leaf_views.deinit(allocator);
+        self.node_views.deinit(allocator);
         self.writes.deinit(allocator);
         self.leaf_reads.deinit(allocator);
         self.node_reads.deinit(allocator);
@@ -1129,6 +1135,24 @@ pub const SemContext = struct {
             .list => try self.facts.node_reads.put(self.allocator, recordKey(node), {}),
             else => {},
         }
+    }
+
+    /// `node` yields a `![]T` where a `[]T` is expected: it is lent to
+    /// read only.
+    pub fn recordReadView(self: *SemContext, node: Sexp) !void {
+        switch (node) {
+            .src => |s| try self.facts.leaf_views.put(self.allocator, s.pos, {}),
+            .list => try self.facts.node_views.put(self.allocator, recordKey(node), {}),
+            else => {},
+        }
+    }
+
+    pub fn readsAsView(self: *const SemContext, node: Sexp) bool {
+        return switch (node) {
+            .src => |s| self.facts.leaf_views.contains(s.pos),
+            .list => self.facts.node_views.contains(nodeKey(node) orelse return false),
+            else => false,
+        };
     }
 
     pub fn recordScope(self: *SemContext, node: Sexp, scope: ScopeId) !void {

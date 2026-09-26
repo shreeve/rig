@@ -547,8 +547,11 @@ are assigned (`s[i] = v`, `s[i] += 1`), write-borrowed (`!s[i]`), and
 written in a loop (`for x in !s`); `!s[a..b]` reslices it, and
 `?s[a..b]` takes a read slice, which keeps `s` from being written while
 it lives (a bare `s[a..b]`, which would borrow `s` unseen, is
-rejected). A `![]T` is accepted wherever a `[]T` is expected, but a
-`[]T` is never write-borrowed: `!t` of one is rejected. A slice's
+rejected). A `![]T` is accepted wherever a `[]T` is expected; as an
+argument it is then lent to read, like `?s[..]`, so `sum2(w, w)` with
+two `[]T` parameters reads `w` twice, and `w` can be read, but not
+written, while a view returned from it lives. A `[]T` is never
+write-borrowed: `!t` of one is rejected. A slice's
 elements are plain data: `[]T` and `![]T` with a `T` that owns a
 resource are rejected.
 

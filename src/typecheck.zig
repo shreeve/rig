@@ -5269,6 +5269,7 @@ const Checker = struct {
         const actual = try self.synthExpr(e);
         if (compatible(self.ctx, actual, expected)) {
             try self.recordAdapted(e, actual, expected);
+            if (sema.writeSliceElem(self.ctx, actual) != null and self.ctx.types.get(expected) == .slice) try self.ctx.recordReadView(e);
             if (sema.holdsWriteBorrow(self.ctx, expected)) _ = try self.checkLendsWriteBorrow(e);
             return;
         }

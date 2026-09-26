@@ -1,0 +1,24 @@
+# A `![]T` lent to read cannot be written while the view lives, nor lent
+# to write in the same call.
+
+fun id(s: []Int) -> []Int
+  s
+
+sub two(x: ![]Int, y: []Int)
+  x[0] = y[1]
+
+sub view()
+  a = [1, 2, 3]
+  w = !a[..]
+  r = id(w)
+  w[0] = 5
+  print(r)
+
+sub main()
+  a = [1, 2]
+  w = !a[..]
+  two(w, w)
+  view()
+
+# error: 14:3: cannot assign to `w[...]` while `w` is borrowed
+# error: 20:10: cannot read-borrow `w` while a write borrow is live

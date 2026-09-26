@@ -1343,7 +1343,8 @@ pub const Checker = struct {
         // Passing a held write borrow (`w`, `e.t`) lends it on: like `!w`,
         // its holder is write-borrowed for as long as the result may keep
         // the borrow.
-        if (sink == .argument and self.isWriteBorrowPlace(expr)) return self.walkBorrow(expr, .write);
+        // A `![]T` passed where a `[]T` is expected is lent to read.
+        if (sink == .argument and self.isWriteBorrowPlace(expr)) return self.walkBorrow(expr, if (self.readsAsView(expr)) .read else .write);
         self.setTail(expr, sink);
         return self.walk(expr);
     }
@@ -1547,6 +1548,12 @@ pub const Checker = struct {
     // -------------------------------------------------------------------------
     // Borrow, move, clone, drop
     // -------------------------------------------------------------------------
+
+    /// `e` yields a `![]T` where a `[]T` is expected.
+    fn readsAsView(self: *const Checker, e: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        return ctx.readsAsView(e);
+    }
 
     /// Whether the type checker rejected `e` (its type is invalid).
     fn rejected(self: *const Checker, e: Sexp) bool {
