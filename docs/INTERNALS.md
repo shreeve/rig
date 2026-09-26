@@ -586,7 +586,10 @@ function's integer value parameters are part of its instances
 (`FnInstance`) like its type parameters, and a call infers the ones its
 signature holds. A value takes at most `sema.max_value_bytes`
 (8 MiB), from `sema.minBytes`: an array type is checked where it is
-spelled or made (`checkArrayBytes`), a struct or enum after contents
+spelled or made (`checkArrayBytes`), or, when a generic call infers it
+from an argument, at that argument (`checkArraysIn`); a synthesis whose
+diagnostics are dropped (`synthQuiet`, under `quiet`) leaves it to the
+check that keeps them. A struct or enum is checked after contents
 are known (`checkTypeSizes`), and an array that mentions a generic
 parameter is kept in `generic_arrays` and checked, with the instance
 itself, at each instance (`checkInstanceSizes`). A type reported too

@@ -788,6 +788,10 @@ pub const SemContext = struct {
     /// The types reported as too large, each once; a type holding one is
     /// not reported again.
     oversized: std.AutoHashMapUnmanaged(TypeId, void) = .empty,
+    /// Nonzero while an expression is checked with its diagnostics
+    /// dropped (`typecheck.synthQuiet`): an array too large is left to
+    /// the check that keeps them.
+    quiet: u32 = 0,
     /// `minBytes` of each type sized so far.
     byte_sizes: std.AutoHashMapUnmanaged(TypeId, ?u128) = .empty,
     /// A local `k =! n` binding of a compile-time integer parameter ->
@@ -2173,10 +2177,21 @@ pub fn checkArrayBytes(ctx: *SemContext, pos: u32, ty: TypeId) std.mem.Allocator
         try ctx.generic_arrays.append(ctx.allocator, .{ .ty = ty, .pos = pos });
         return true;
     }
+    if (ctx.quiet > 0) return true;
     if (ctx.oversized.contains(ty)) return false;
     const bytes = (try arrayOversized(ctx, ty)) orelse return true;
     try reportOversized(ctx, pos, ty, bytes);
     return false;
+}
+
+/// Each array in `ty`, a type inferred from a value made at `pos`, must
+/// fit `max_value_bytes`, innermost first. False after a diagnostic.
+pub fn checkArraysIn(ctx: *SemContext, pos: u32, ty: TypeId) std.mem.Allocator.Error!bool {
+    if (containsPoison(ctx, ty) or containsTypeVar(ctx, ty)) return true;
+    var it = typeChildren(ctx, ty);
+    while (it.next()) |c| if (!try checkArraysIn(ctx, pos, c)) return false;
+    if (ctx.types.get(ty) == .array) return checkArrayBytes(ctx, pos, ty);
+    return true;
 }
 
 /// The size of the array type `ty` when it is too large by itself: its

@@ -879,6 +879,8 @@ const Checker = struct {
     /// Synthesize without reporting diagnostics (the full check reports them).
     fn synthQuiet(self: *Checker, e: Sexp) Error!TypeId {
         const mark = self.ctx.diagnostics.items.len;
+        self.ctx.quiet += 1;
+        defer self.ctx.quiet -= 1;
         const ty = try self.synthExpr(e);
         self.ctx.diagnostics.shrinkRetainingCapacity(mark);
         return ty;
@@ -3070,7 +3072,8 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         const ty = try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
-        // An expected array type was checked where it was spelled or made.
+        // An expected array type was checked where it was spelled or
+        // inferred.
         if (expected == null and !self.under_poison and !try sema.checkArrayBytes(self.ctx, self.startOf(node), ty)) return self.t().invalid_id;
         if (expected) |ex| if (ex != ty) {
             try self.errAt(node, "`{s}` has length `{s}`; `{s}` needs `{s}`", .{ try self.sourceText(node), try self.tyName(len), try self.tyName(ex), try self.tyName(self.ctx.types.get(ex).array.len) });
@@ -3896,7 +3899,7 @@ const Checker = struct {
                     try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); they must have one type", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg });
                 }
                 ok = false;
-            } else if (!try self.valueBindingFits(param, b, callee, pos)) ok = false;
+            } else if (!try self.valueBindingFits(param, b, callee, pos) or !try self.inferredTypeFits(b, args)) ok = false;
         }
         return if (ok) result else null;
     }
@@ -3924,6 +3927,16 @@ const Checker = struct {
             else => {},
         }
         return true;
+    }
+
+    /// A type inference took from an argument must fit
+    /// `sema.max_value_bytes`, as a spelled one must where it is spelled:
+    /// an array too large is reported at the argument.
+    fn inferredTypeFits(self: *Checker, b: Bound, args: []const Sexp) Error!bool {
+        if (b.expected or b.arg == 0 or b.arg > args.len) return true;
+        const arg = args[b.arg - 1];
+        const value = if (arg.isKind(.kwarg)) ir.Kwarg.value(arg) else arg;
+        return sema.checkArraysIn(self.ctx, self.startOf(value), b.ty);
     }
 
     /// What a generic call's result says to the calls around it: whether
@@ -4547,7 +4560,7 @@ const Checker = struct {
                 return null;
             }
             if (b.conflict == sema.type_invalid) {
-                if (!try self.valueBindingFits(p, b, sym.name, pos)) return null;
+                if (!try self.valueBindingFits(p, b, sym.name, pos) or !try self.inferredTypeFits(b, args)) return null;
                 continue;
             }
             const c = try self.conflictText(b);

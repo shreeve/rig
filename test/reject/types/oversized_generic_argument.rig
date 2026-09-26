@@ -1,0 +1,24 @@
+# An array too large for a value is reported where it is passed to a
+# generic call that infers its type arguments from it: by position or
+# by keyword, and inside another array.
+
+struct Big
+  a: [530000]Int
+
+struct Wrap[T]
+  v: T
+
+fun first[T](x: T) -> Int
+  1
+
+sub main()
+  print(first([Big(a: [0; 530000]), Big(a: [0; 530000])]))
+  w = Wrap(v: [Big(a: [0; 530000]), Big(a: [0; 530000]), Big(a: [0; 530000])])
+  print(w.v[0].a[0])
+  print(first(x: [0; 2000004]))
+  print(first([[0; 2000005]]))
+
+# error: 15:15: `[2]Big` takes 8480000 bytes
+# error: 16:15: `[3]Big` takes 12720000 bytes
+# error: 18:18: `[2000004]Int` takes 16000032 bytes
+# error: 19:15: `[2000005]Int` takes 16000040 bytes
