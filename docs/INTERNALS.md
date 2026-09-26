@@ -763,7 +763,7 @@ are on values outside the closure that it captured, and the captured
 value's var now holds each of them for as long as it lives.
 A slice of an array (`?xs[a..b]`) points into the storage of the var
 the array is reached from, which may be a copy of the caller's (a
-borrowed parameter, a read borrow of plain data, a loop or pattern
+borrowed parameter, a copied read borrow of a scalar, a loop or pattern
 binding), so it also holds a *frame* loan on that var: a local loan
 even when the var is a borrowed parameter. A write slice (`!xs[a..b]`)
 takes a write loan the same way; one of a `![]T` var reborrows it, as
@@ -952,7 +952,7 @@ reviewed.
 | `WeakHandle(T)` | `~T`: `cloneWeak`, `dropWeak`, and `upgrade`, which returns a new strong handle or null once the value is gone |
 | `dropElement(T, *T)` | the one place that releases a value of any type: a handle drops a count, a type with `__rig_drop` runs it, structs, unions, arrays, and optionals drop their parts, and plain data is a compile-time no-op |
 | `Cell(T)` | `get`, `set` (stores the new value before dropping the old one, so a destructor that reaches back sees a live cell), `replace`; for a `Cell(Vec(E))`, `vecPush`, `vecPop`, `vecLen`, `vecAt`, `vecGet`, `vecSet`, and `vecClear` (empties the cell before dropping the elements) |
-| `ReadBorrow(T)`, `lend`, `borrowed` | a generic type's read borrow of `T`: a `*const T` when `T` owns resources or holds a `Cell`, a copy otherwise; `lend` borrows through a pointer, `borrowed` reads the value |
+| `ReadBorrow(T)`, `lend`, `borrowed` | a generic type's read borrow of `T`: a copy when `T` is a scalar or a view (a number, `Bool`, a plain enum, an error, a slice or `String`, a function, or an optional of one), a `*const T` otherwise, including when `T` owns resources or holds a `Cell`; the emitter's `readBorrowIsPtr` applies the same rule to a known `T`. `lend` borrows through a pointer, `borrowed` reads the value |
 | `Vec(T)` | a growable buffer that owns its elements and drops them in reverse order; `slot` and `constSlot` reach an element in place |
 | `Closure(params, R)` | a type-erased closure: context pointer, invoke and drop functions |
 | `FnRef(params, R)` | a borrowed callable: context pointer and call function, built from a stack closure's environment, a function, or an owned closure |

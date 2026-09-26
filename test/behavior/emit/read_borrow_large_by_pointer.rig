@@ -1,0 +1,26 @@
+# A read borrow of large plain data is passed by pointer, not copied:
+# each of these frames would otherwise hold a 3.2 MB copy, and fifty of
+# them overflow the stack. Small plain data is still passed as a copy.
+
+struct Pair
+  a: Int
+  b: Int
+
+fun deep(x: ?[400000]Int, n: Int) -> Int
+  return x[n] if n == 0
+  deep(x, n - 1) + 1
+
+fun sum(p: ?Pair) -> Int
+  p.a + p.b
+
+fun first(x: ?[400000]Int) -> ?[400000]Int
+  x
+
+sub main
+  big: [400000]Int = [400000 of 7]
+  r = ?big
+  r = first(?big)
+  print(deep(?big, 50), sum(?Pair(a: 1, b: 2)), r[399999], big.len)
+
+# expect:
+# 57 3 7 400000

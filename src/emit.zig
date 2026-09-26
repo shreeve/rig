@@ -2027,12 +2027,27 @@ pub const Emitter = struct {
         };
     }
 
-    /// A read borrow of plain data is a copy: nothing can change what it
-    /// sees. A borrowed Cell can change while it is borrowed, and a copy
-    /// of a value that owns resources would be dropped with whatever
-    /// holds it, so those are held as `*const T`.
+    /// A read borrow of a scalar or a view is a copy: nothing can change
+    /// what it sees, and copying it costs no more than a pointer. Anything
+    /// larger is lent by address, as is a value that owns resources (a
+    /// copy would be dropped with whatever holds it) or holds a Cell
+    /// (which can change while it is borrowed). `rig.ReadBorrow` applies
+    /// the same rule to Zig types, for a generic `?T`.
     fn readBorrowIsPtr(self: *Emitter, inner: TypeId) bool {
-        return self.kindOf(inner) != null or sema.holdsCellByValue(self.sema, inner);
+        return self.kindOf(inner) != null or sema.holdsCellByValue(self.sema, inner) or !self.copiedBorrow(inner);
+    }
+
+    /// A type a read borrow copies: a number, `Bool`, `String`, a slice, a
+    /// function or borrowed callable (a `rig.FnRef`), a plain enum, an
+    /// error, or an optional of one of those.
+    fn copiedBorrow(self: *Emitter, ty: TypeId) bool {
+        return switch (self.sema.types.get(ty)) {
+            .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .any_error, .slice, .function, .callable => true,
+            .borrow_write => sema.writeSliceElem(self.sema, ty) != null,
+            .optional => |inner| self.copiedBorrow(inner),
+            .nominal, .imported_nominal => sema.isPlainEnum(self.sema, ty) or sema.isErrorSet(self.sema, ty),
+            else => false,
+        };
     }
 
     /// The `T` of a read borrow `?T` whose form depends on a generic

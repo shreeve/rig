@@ -3124,7 +3124,7 @@ correspondences:
 | `fun max[T](a: T, b: T) -> T`, `max(3, 7)` | `fn max(comptime T: type, a: T, b: T) T`, `max(i64, 3, 7)` |
 | `T?`, `none`, `a ?? b` | `?T`, `null`, `a orelse b` |
 | `T!`, `f()!`, `catch` | `anyerror!T`, `try f()`, `catch` |
-| `?T` parameter | the value for plain data; `*const T` for owning types |
+| `?T` parameter | a copy of a scalar or view (a number, `Bool`, `String`, a slice, a plain enum); `*const T` for anything larger (a struct, an array) or anything that owns resources |
 | `!T` | `*T` |
 | `[]T`, `![]T` | `[]const T`, `[]T` |
 | `b.read[U16, .big](at)`, `!b.write[U32, .little](at, v)` | `rig.readInt(u16, b, at, .big)` over `std.mem.readInt`, `rig.writeInt` over `std.mem.writeInt` |
