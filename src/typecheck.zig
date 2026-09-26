@@ -1970,6 +1970,14 @@ const Checker = struct {
             _ = try self.checkNumericComparison(l, r, a, b, op);
             return self.t().bool_id;
         }
+        if (try self.comparesWithOptional(a, b, r, l, op)) {
+            try self.checkEquatable(a, l, op);
+            return self.t().bool_id;
+        }
+        if (try self.comparesWithOptional(b, a, l, l, op)) {
+            try self.checkEquatable(b, r, op);
+            return self.t().bool_id;
+        }
         const ta = self.ctx.types.get(a);
         const tb = self.ctx.types.get(b);
         if (ta == .type_var or tb == .type_var) {
@@ -1987,14 +1995,6 @@ const Checker = struct {
         // Any error compares with a member of any error set.
         const any_err = self.t().any_error_id;
         if ((a == any_err and sema.isErrorValue(self.ctx, b)) or (b == any_err and sema.isErrorValue(self.ctx, a))) return self.t().bool_id;
-        if (try self.comparesWithOptional(a, b, r)) {
-            try self.checkEquatable(a, l, op);
-            return self.t().bool_id;
-        }
-        if (try self.comparesWithOptional(b, a, l)) {
-            try self.checkEquatable(b, r, op);
-            return self.t().bool_id;
-        }
         if (a != b) {
             try self.errAt(l, "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
             return self.t().bool_id;
@@ -2004,14 +2004,20 @@ const Checker = struct {
     }
 
     /// Whether `opt` is a `T?` and `value` a `T` (or a literal that is
-    /// one): the two compare equal when the optional holds the value.
-    fn comparesWithOptional(self: *Checker, opt: TypeId, value: TypeId, value_node: Sexp) Error!bool {
+    /// one): the two compare equal when the optional holds the value. A
+    /// literal beside a generic `T?` must fit every `T` (`op` at `at`).
+    fn comparesWithOptional(self: *Checker, opt: TypeId, value: TypeId, value_node: Sexp, at: Sexp, op: []const u8) Error!bool {
         const inner = switch (self.ctx.types.get(opt)) {
             .optional => |i| i,
             else => return false,
         };
         const literal = value == self.t().int_literal_id or value == self.t().float_literal_id;
-        if (value != inner and !(literal and compatible(self.ctx, value, inner))) return false;
+        const param: ?SymbolId = switch (self.ctx.types.get(inner)) {
+            .type_var => |tv| tv,
+            else => null,
+        };
+        if (value != inner and !(literal and (param != null or compatible(self.ctx, value, inner)))) return false;
+        if (param) |tv| try self.requireHoldsLiteral(tv, value, value_node, self.startOf(at), op);
         try self.recordAdapted(value_node, value, inner);
         return true;
     }
