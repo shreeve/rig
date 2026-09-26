@@ -1,0 +1,9 @@
+# In a `while` condition, `x -1` is neither a subtraction nor a call.
+
+sub main()
+  x = 3
+  while x -1 > 0
+    x -= 1
+  print(x)
+
+# error: 5:11: unexpected `-`; a sigil touching its operand is a prefix: to subtract, write `x - 1`; to call `x`, write `x(-1)`

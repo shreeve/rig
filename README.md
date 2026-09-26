@@ -31,8 +31,8 @@ hello, rig
 ```
 
 `sub` declares a routine that returns nothing; `fun` declares one that
-returns a value. Calls can drop their parentheses when they end the
-line.
+returns a value. A line that does something may drop its call
+parentheses; anywhere a value is expected, a call takes them.
 
 ### Borrowing
 

@@ -1,6 +1,7 @@
-# A paren-free call is a statement, the value of a binding or `return`,
-# or the last argument of another paren-free call. Inside parentheses
-# it may only be a closure's body, which is a statement of its own.
+# A line that does something may drop its call parentheses; anywhere a
+# value is expected, a call takes parentheses. A paren-free call is a
+# statement, a match arm, a closure body, or the last argument of
+# another paren-free call.
 
 fun twice(n: Int) -> Int
   n * 2
@@ -13,22 +14,47 @@ sub each(n: Int, f: *sub(Int))
     f(i)
 
 fun quad(n: Int) -> Int
-  return twice twice n
+  return twice(twice(n))
 
 sub main()
+  # Commands: a statement, and the last argument of a command.
   print add 1, 2
   print (1 + 2) * 3
   print add(1, 2), add 3, 4
-  x = twice 5
+  print twice twice 1
+  # Values: bindings, `return`, conditions, sources, and subjects.
+  x = twice(5)
+  x += twice(1)
   print(1, twice(-3), 5, x, quad(2))
+  if twice(x) > 20
+    print "big"
+  n = 3
+  while n > 0: n -= 1
+    print n
+  for i in [twice(1), twice(2)]
+    print i
+  match twice(1)
+    2 => print "two"
+    _ => print "other"
+  # Closures: the body may be a command.
   each(2, *|i| print i * 10)
   (|+x| print x)()
+  print x - 1
 
 # expect:
 # 3
 # 9
 # 3 7
-# 1 -6 5 10 8
+# 4
+# 1 -6 5 12 8
+# big
+# 3
+# 2
+# 1
+# 2
+# 4
+# two
 # 0
 # 10
-# 10
+# 12
+# 11

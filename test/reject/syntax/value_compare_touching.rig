@@ -1,0 +1,10 @@
+# In a condition a call takes parentheses, so `a <b` is neither a
+# comparison nor a call of `a` with `b` moved.
+
+sub main()
+  a = 1
+  b = 2
+  if a <b
+    print("less")
+
+# error: 7:8: unexpected `<`; a sigil touching its operand is a prefix: to compare, write `a < b`; to call `a`, write `a(<b)`

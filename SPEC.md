@@ -218,9 +218,9 @@ Several characters are both operators and prefixes: `<` `+` `-` `*` `?`
 | Source | Reads as |
 |---|---|
 | `a < b`, `a<b` | comparison |
-| `f <x` | `f(<x)`: a paren-free call passing `x` moved |
+| `f <x` | `f(<x)`: a paren-free call passing `x` moved ([§6](#calls)) |
 | `a - b`, `a-b` | subtraction |
-| `f -x` | `f(-x)` |
+| `f -x` | `f(-x)`, as a paren-free call |
 | `f(x)`, `a[i]`, `a.b` | call, index or compile-time arguments ([§17](#17-compile-time-parameters)), member access |
 | `f (x)`, `f [1, 2]`, `f .red` | paren-free call with the argument `(x)`, `[1, 2]`, `.red` |
 | `f()!`, `x?` | propagate a failure ([§14](#14-errors)) or `none` ([§13](#13-optionals)) |
@@ -235,8 +235,9 @@ Two values may not touch with no operator between them: `t.5` and
 `<-` touch the operand after them (`x =!y`, `a <-b`), which could as
 well be `x = !y` and `a < -b`.
 
-The rule is uniform, so it has one sharp edge worth knowing: `a -1`
-calls `a` with `-1`.
+A paren-free call is a command, never a value ([§6](#calls)), so
+where a value is expected `a -1` is neither a call nor a subtraction,
+and it is rejected:
 
 ```rig reject
 sub main
@@ -245,7 +246,21 @@ sub main
 ```
 
 ```error
-`a` has type `Int` and cannot be called
+unexpected `-`; a sigil touching its operand is a prefix: to subtract, write `a - 1`; to call `a`, write `a(-1)`
+```
+
+As a command's argument, where a paren-free call is legal, `print a -1`
+is `print(a(-1))`. When `a` cannot be called, the checker says so and
+names the fix:
+
+```rig reject
+sub main
+  a = 5
+  print a -1
+```
+
+```error
+`a` has type `Int` and cannot be called; a sigil touching its operand is a prefix: to subtract, write `a - 1`
 ```
 
 ---
@@ -1614,29 +1629,53 @@ sub main
 
 ### Calls
 
-`f(a, b)` calls `f`. A **paren-free call** takes the rest of the line
-as its arguments, and a nested paren-free call can be its last
-argument: `print add 1, 2` is `print(add(1, 2))`. Paren-free calls read
-well for simple statements. Inside parentheses every argument is an
-ordinary expression, so a call there takes its own parentheses:
-`print(1, twice(-3), 5)`, not `print(1, twice -3, 5)`. Only a closure
-body, which is a statement of its own, may be a paren-free call there
-(`each(3, *|i| print i)`).
+`f(a, b)` calls `f`. A line that does something may drop its call
+parentheses; anywhere a value is expected, a call takes parentheses.
+A **paren-free call** is a command: it takes the rest of the line as
+its arguments, and it may stand as a statement, a match arm's body, a
+closure's body, or the last argument of another paren-free call:
+`print add 1, 2` is `print(add(1, 2))`.
+
+Everywhere else a call takes its parentheses: the right side of a
+binding or an assignment, `return` and `break` values, `if` and `while`
+conditions, `for` sources, `match` subjects, and every argument inside
+parentheses: `x = twice(5)`, `if ready(3)`, `print(1, twice(-3), 5)`.
+Only a closure body, which is a statement of its own, may be a
+paren-free call inside parentheses (`each(3, *|i| print i)`).
 
 ```rig
 fun add(a: Int, b: Int) -> Int
   a + b
 
+fun twice(n: Int) -> Int
+  n * 2
+
 sub main
   print add 1, 2
   print (1 + 2) * 3
   print add(1, 2), add 3, 4
+  x = twice(5)
+  if twice(x) > 10
+    print twice x
 ```
 
 ```output
 3
 9
 3 7
+20
+```
+
+```rig reject
+fun twice(n: Int) -> Int
+  n * 2
+
+sub main
+  x = twice 5
+```
+
+```error
+unexpected `5`; a call where a value is expected takes parentheses: `twice(5)`
 ```
 
 ```rig reject

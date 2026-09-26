@@ -234,6 +234,7 @@ would move, `~x` would hold a handle weakly.
 | shadowing | `let x = x + 1;` | not allowed | `new x = x + 1` |
 | function | `fn f(a: i64) -> i64 { a }` | `fn f(a: i64) i64 { return a; }` | `fun f(a: Int) -> Int` / `  a` |
 | no return value | `fn f() {}` | `fn f() void {}` | `sub f` |
+| call | `f(a)` | `f(a)` | `f(a)`; as a statement also `f a` |
 | struct literal | `P { x: 1 }` | `P{ .x = 1 }` | `P(x: 1)` |
 | method receiver | `&self`, `&mut self`, `self` | `self: P`, `self: *P` | `?self`, `!self`, `<self` |
 | mutating call | `v.push(x)` | `try v.append(gpa, x)` | `!v.push(x)` |
@@ -329,11 +330,11 @@ one. One rule decides every case:
 | Source | Means |
 |---|---|
 | `a < b`, `a<b` | comparison |
-| `f <x` | `f(<x)`: call `f` with `x` moved |
+| `f <x` | `f(<x)`: a command calling `f` with `x` moved |
 | `a - b`, `a-b` | subtraction |
-| `f -x` | `f(-x)` |
+| `f -x` | `f(-x)`, as a command |
 | `a * b` | multiplication |
-| `f *x` | `f(*x)`: call `f` with `x` shared |
+| `f *x` | `f(*x)`: a command calling `f` with `x` shared |
 | `f(x)`, `a[i]`, `a.b` | call, index or compile-time arguments (`Vec[Int]`, [§14](#index-or-compile-time-arguments)), member access |
 | `f (x)`, `f [1, 2]`, `f .red` | a paren-free call whose argument is `(x)`, `[1, 2]`, `.red` |
 | `T?`, `T!`, `e!`, `e?` | suffixes: optional, fallible, propagate |
@@ -346,16 +347,19 @@ fun twice(n: Int) -> Int
 sub main
   a = 5
   b = 3
-  c = twice -b
-  print(a - b, a-b, c, twice(a) - b)
+  print(a - b, a-b, twice(-b), twice(a) - b)
+  print twice -b
 ```
 
 ```output
 2 2 -6 7
+-6
 ```
 
-The rule is uniform, so it has one edge to know: `a -1` calls `a` with
-`-1`. Write `a - 1`.
+A call drops its parentheses only as a command, a line that does
+something ([§9](#calling-without-parentheses)). Where a value is
+expected, `a -1` is neither a call nor a subtraction, and it is
+rejected. Write `a - 1`, or `a(-1)` for the call.
 
 ```rig reject
 sub main
@@ -364,7 +368,21 @@ sub main
 ```
 
 ```error
-`a` has type `Int` and cannot be called
+unexpected `-`; a sigil touching its operand is a prefix: to subtract, write `a - 1`; to call `a`, write `a(-1)`
+```
+
+As a command's argument, where a paren-free call is legal, `print a -1`
+is `print(a(-1))`. When `a` cannot be called, the checker says so and
+names the fix:
+
+```rig reject
+sub main
+  a = 5
+  print a -1
+```
+
+```error
+`a` has type `Int` and cannot be called; a sigil touching its operand is a prefix: to subtract, write `a - 1`
 ```
 
 Two values may not touch with nothing between them (`t.5`, `print"x"`),
@@ -711,11 +729,17 @@ repeats it:
 
 ### Calling without parentheses
 
-A call may drop its parentheses when it ends a statement: a line, the
-value of a binding, or a `return`. A paren-free call takes the rest of
-the line as its arguments, and its last argument may itself be a
-paren-free call. Inside `( )`, every argument is an ordinary
-expression, so a call there keeps its parentheses.
+A line that does something may drop its call parentheses; anywhere a
+value is expected, a call takes parentheses. A paren-free call is a
+command: a statement, a match arm's body, a closure's body, or the last
+argument of another paren-free call. It takes the rest of the line as
+its arguments.
+
+The right side of `=` (and of `=!`, `<-`, `+=`, and the other binding
+forms), a `return` or `break` value, an `if` or `while` condition, a
+`for` source, a `match` subject, and every argument inside `( )` are
+values, so a call there keeps its parentheses. Ruby's `x = twice 5` is
+`x = twice(5)`.
 
 ```rig
 fun add(a: Int, b: Int) -> Int
@@ -725,16 +749,33 @@ sub main
   print add 1, 2
   print add(1, 2), add 3, 4
   print (1 + 2) * 3
+  total = add(1, 2)
+  if add(total, 1) > 3
+    print total
 ```
 
 ```output
 3
 3 7
 9
+3
 ```
 
 `print (1 + 2) * 3` is a paren-free call whose argument is
 `(1 + 2) * 3`, by the spacing rule: `(` does not touch `print`.
+
+```rig reject
+fun twice(n: Int) -> Int
+  n * 2
+
+sub main
+  x = twice 5
+  print(x)
+```
+
+```error
+unexpected `5`; a call where a value is expected takes parentheses: `twice(5)`
+```
 
 ```rig reject
 fun twice(n: Int) -> Int
@@ -2914,6 +2955,11 @@ a borrow covers the suffixes (`?T?` borrows an optional).
 move-assign, `new x =` shadow, compound `+=` `-=` `*=` `/=` `%=` `&=`
 `|=` `^=` `<<=` `>>=`.
 
+**Calls:** `f(a, b)` anywhere; `f a, b` only as a command: a
+statement, a match arm or closure body, or the last argument of another
+paren-free call. Where a value is expected, a call keeps its
+parentheses.
+
 **Other punctuation:** `->` return type, `=>` match arm, `..` range,
 `??` optional fallback, `:name` label, `|...|` closure bar list,
 `.name` enum variant, `name[...]` compile-time parameters or arguments
@@ -3000,24 +3046,26 @@ cexp      = cunit (("+" | "-" | "*" | "/" | "%") cunit)+  # at least one operato
           | "(" cexp ")"
 cunit     = integer | name | mod "." name | "(" cexp ")"
 
-stmt      = simple ["if" expr] | ":" label stmt
-simple    = expr | call-without-parens
+stmt      = simple ["if" value] | ":" label stmt
+simple    = expr | command
           | target ("=" | "=!" | "<-" | "+=" | ...) expr
           | name ":" type ("=" | "=!") expr | "new" name "=" expr
           | "-" name | "return" [expr] | "break" [":" label] [expr]
           | "continue" [":" label] | "defer" (simple | block)
           | "errdefer" (simple | block) | "raw" block
 block     = INDENT stmt* DEDENT
+command   = ["!" | "<"] postfix (expr | command), ...  # a paren-free call; only
+                                                      # its last argument is a command
 
 expr      = if | while | for | match | closure | value
 if        = "if" cond block ["else" (block | if)]
-cond      = expr | expr "as" name
+cond      = value | value "as" name
 while     = "while" cond [":" step] block ["else" block]
-for       = "for" name ["," name] "in" ["?" | "!" | "<"] expr block ["else" block]
-match     = "match" expr INDENT (pattern ("=>" simple | block))* DEDENT
+for       = "for" name ["," name] "in" ["?" | "!" | "<"] value block ["else" block]
+match     = "match" value INDENT (pattern ("=>" simple | block))* DEDENT
 pattern   = "." name ["(" name, ... ")"] | integer | "-" integer
           | "true" | "false" | integer ".." integer | "_" | name
-closure   = ["*"] "|" (("+" | "<" | "~") name | name [":" type]), ... "|" (expr | block)
+closure   = ["*"] "|" (("+" | "<" | "~") name | name [":" type]), ... "|" (expr | command | block)
 value     = logic "if" logic "else" value | logic "catch" ["|" name "|"] value | logic
 logic     = logic "or" logic | logic "and" logic | "not" logic | infix
 infix     = unary (op unary)*          # precedence table in section 10
@@ -3083,6 +3131,9 @@ call onto the place, giving the tree of `(!v).push(x)`
   field.
 - Spacing is significant around sigils: `f -x` is a call and `a - x`
   a subtraction.
+- A call drops its parentheses only as a command, a line that does
+  something (`print total`, `!v.push 3`). Where a value is expected, a
+  call keeps them: `x = twice(5)`, `return twice(n)`, `if ready(3)`.
 - A function with no parameters needs no `()` in its declaration,
   `sub greet`, but a call still does, `greet()`. So does a call with
   compile-time arguments only: `sub show[n: Int]` is called

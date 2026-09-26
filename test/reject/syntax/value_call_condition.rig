@@ -1,0 +1,10 @@
+# An `if` condition is a value, so a call there takes parentheses.
+
+fun ready(n: Int) -> Bool
+  n > 0
+
+sub main()
+  if ready 3
+    print("ready")
+
+# error: 7:12: unexpected `3`; a call where a value is expected takes parentheses: `ready(3)`

@@ -143,14 +143,15 @@ The grammar's own shape settles the rest:
 | `\|k\| (k)`: parameter list or parenthesized body | parameters live in the bar list; `name:` is a `KWARG_NAME` |
 | `return` / `break` / `continue` inside conditions | they are statements; a guard applies to a whole simple statement |
 | dangling `else` in guards and ternaries | conditions are block-free values; the ternary has its own token; `else` only follows a block |
-| paren-free calls inside argument lists | paren-free calls (`cmd`) appear only in tail positions outside ( ); inside, only as a closure body (`cclosure`) |
+| paren-free calls inside argument lists and value positions | a paren-free call (`cmd`) is a command: a statement, a match arm, or the last argument of another `cmd`; elsewhere, including inside ( ), only as a closure body (`cclosure`) |
 | a name in an array size or a type's compile-time argument: a type or a value | a bare name, integer, or `module.NAME` is one rule (`dim`, `targ`); arithmetic there is `cexp`, which has at least one operator, so it never overlaps a type. The checker reads a bare name by the slot it fills |
 
 Grammar shapes worth knowing: `tail` is an expression, a paren-free
-call, or a closure, allowed where nothing follows on the line outside
-( ); `expr`
-adds block forms; `value` is an expression without blocks or closures
-(conditions, operands, ternary branches).
+call, or a closure, and is what a statement or a match arm holds; `rhs`
+is an expression or a closure whose body is a paren-free call, and is
+the right side of a binding, `return`, and `break`; `expr` adds block
+forms to `value`, an expression without blocks or closures (conditions,
+`for` sources, `match` subjects, operands, ternary branches).
 
 ### The lexer rewriter
 
@@ -186,7 +187,9 @@ into a positioned diagnostic (``unexpected `)`; expected an operand``:
 what the parser expected there, in the grammar's `@display` names for
 tokens and `@errors` names for rules, when that is at most three
 things, and a hint when the token starts a reserved form such as a
-`try` block, `zig "..."`, or `for *x in`), and makes the only rewrites
+`try` block, `zig "..."`, or `for *x in`, or when a paren-free call
+stands where a value is expected: `x = twice 5`, or `b = a -1`, whose
+hint names both the operator and the call), and makes the only rewrites
 that need to inspect the tree:
 
 - a closure's bar-list entries are split into `(captures ...)` and a

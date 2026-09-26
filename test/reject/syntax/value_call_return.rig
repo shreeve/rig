@@ -1,0 +1,12 @@
+# A `return` value is a value, so a call there takes parentheses.
+
+fun twice(n: Int) -> Int
+  n * 2
+
+fun quad(n: Int) -> Int
+  return twice n
+
+sub main()
+  print(quad(1))
+
+# error: 7:16: unexpected name `n`; a call where a value is expected takes parentheses: `twice(n)`

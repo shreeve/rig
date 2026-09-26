@@ -1,0 +1,8 @@
+# A command's argument may be a paren-free call, so `print total -1`
+# calls `total` with `-1`; `total` is an `Int` and cannot be called.
+
+sub main()
+  total = 3
+  print total -1
+
+# error: 6:9: `total` has type `Int` and cannot be called; a sigil touching its operand is a prefix: to subtract, write `total - 1`
