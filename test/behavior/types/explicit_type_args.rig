@@ -1,10 +1,10 @@
 # A generic type's arguments may be named in an expression, in brackets:
-# a constructor (`Box[Int](v: 3)`, `Vec[Int]()`), a variant
+# a constructor (`Wrap[Int](v: 3)`, `Vec[Int]()`), a variant
 # (`Option[Int].some(...)`, `Option[Int].none`), and an associated
 # function (`Pair[Int, String].make(...)`). The arguments nest, and may
 # be any type an expression can spell.
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun get(?self) -> T
@@ -35,7 +35,7 @@ sub main()
   !v.push(3)
   !v.push(4)
   print(v.len, v[1])
-  b = Box[Int](v: 3)
+  b = Wrap[Int](v: 3)
   print(b.get())
   o = Option[Int].some(value: 7)
   e = Option[String].none
@@ -46,8 +46,8 @@ sub main()
   log = Cell[Vec[Int]](value: Vec())
   log.push(5)
   print(log.len, log[0])
-  boxes = Vec[Box[Int]]()
-  !boxes.push(Box(v: 8))
+  boxes = Vec[Wrap[Int]]()
+  !boxes.push(Wrap(v: 8))
   print(boxes.len, boxes[0].v)
   node = *Node(n: 9)
   held = Holder[~Node](h: ~node)

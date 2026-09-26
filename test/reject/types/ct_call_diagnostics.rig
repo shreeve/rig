@@ -28,7 +28,7 @@ struct S
   fun gen[T](?self, x: T) -> T
     <x
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun m[T](?self, x: T) -> T
@@ -44,7 +44,7 @@ sub main()
   s = S(k: 1)
   s.put[3]
   n = s.gen[Int]
-  print(plain[0], f(1), g(2), Box(v: 1).m("s"))
+  print(plain[0], f(1), g(2), Wrap(v: 1).m("s"))
 
 # error: 16:7: generic parameter `Vec` has the name of a built-in type
 # error: 19:7: generic parameter `Self` has the name of a built-in type

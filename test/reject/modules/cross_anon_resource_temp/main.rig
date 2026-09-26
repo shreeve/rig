@@ -1,4 +1,4 @@
-# Reading a field of an imported function's `*Box` result without
+# Reading a field of an imported function's `*Wrap` result without
 # binding it is rejected: nothing would drop the temporary handle.
 
 use a

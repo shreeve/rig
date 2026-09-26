@@ -1,14 +1,14 @@
 # A closure that captured a borrow keeps the owner borrowed while the
 # closure binding is live.
 
-struct Box
+struct Wrap
   payload: Int
 
   drop(!self)
     print("drop")
 
 sub main()
-  a = Box(payload: 1)
+  a = Wrap(payload: 1)
   r = ?a
   f = |<r|
     print(r.payload)

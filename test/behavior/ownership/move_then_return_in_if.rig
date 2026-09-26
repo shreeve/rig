@@ -1,17 +1,17 @@
 # A move in an `if` branch that ends in `return` does not affect the code
 # after the `if`.
 
-struct Box
+struct Wrap
   payload: Int
 
   drop(!self)
     print("drop")
 
-sub eat(rc: *Box)
+sub eat(rc: *Wrap)
   print(rc.payload)
 
 sub go(c: Bool)
-  rc = *Box(payload: 1)
+  rc = *Wrap(payload: 1)
   if c
     eat(<rc)
     return

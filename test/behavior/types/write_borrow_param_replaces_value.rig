@@ -1,17 +1,17 @@
 # Assigning a `!T` parameter replaces the caller's value; the old value is
 # dropped first.
 
-struct Box
+struct Wrap
   v: Int
 
   drop(!self)
     print(self.v)
 
-sub replace(b: !Box)
-  b = Box(v: 2)
+sub replace(b: !Wrap)
+  b = Wrap(v: 2)
 
 sub main()
-  x = Box(v: 1)
+  x = Wrap(v: 1)
   replace(!x)
   print(x.v * 10)
 

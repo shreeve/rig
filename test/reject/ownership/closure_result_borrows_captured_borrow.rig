@@ -1,15 +1,15 @@
 # Calling a closure yields a value that may borrow what the closure
 # captured, so it cannot outlive the borrowed value.
 
-struct Box
+struct Wrap
   v: Vec[Int]
 
 sub main()
-  y = Box(v: Vec())
+  y = Wrap(v: Vec())
   !y.v.push(1)
   out = ?y
   if true
-    x = Box(v: Vec())
+    x = Wrap(v: Vec())
     !x.v.push(42)
     r = ?x
     s = |<r| r

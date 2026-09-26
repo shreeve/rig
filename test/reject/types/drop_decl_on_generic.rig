@@ -1,6 +1,6 @@
 # A `drop` body is only for a non-generic struct.
 
-struct Box[T]
+struct Wrap[T]
   value: T
 
   drop(!self)

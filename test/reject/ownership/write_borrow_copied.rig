@@ -1,11 +1,11 @@
 # Copying a write borrow into a second binding would give two live
 # mutable paths to the same value; move it with `<w` instead.
 
-struct Box
+struct Wrap
   payload: Int
 
 sub main()
-  a = Box(payload: 1)
+  a = Wrap(payload: 1)
   w = !a
   w2 = w
   print(w2.payload)

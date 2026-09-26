@@ -1,9 +1,9 @@
-pub struct Box
+pub struct Wrap
   value: Int
 
-pub fun make_box(v: Int) -> Box
-  Box(value: v)
+pub fun make_box(v: Int) -> Wrap
+  Wrap(value: v)
 
 # Public fn requires a read borrow (`?b`) of its argument.
-pub sub log_box(b: ?Box)
+pub sub log_box(b: ?Wrap)
   print(b.value)

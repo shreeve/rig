@@ -537,7 +537,7 @@ tatom    = tname
          | "(" type ")"                             → 2
 
 # A named type, of this module or another: `Point`, `geo.Point`. Its
-# instance names it the same way: `Box[Int]`, `lib.Box[Int]`.
+# instance names it the same way: `Wrap[Int]`, `lib.Wrap[Int]`.
 tname    = name
          | object:name "." name:name                → (member)
 

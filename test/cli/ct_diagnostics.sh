@@ -11,24 +11,24 @@ cat >poison.rig <<'EOF2'
 struct Ring[T, n: Int]
   items: [n]T
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
 fun f(r: ?Ring[Int, nope]) -> Int
   1
 
-fun g(b: ?Box[Nope]) -> Int
+fun g(b: ?Wrap[Nope]) -> Int
   1
 
 sub main()
   r = Ring[Int, 2](items: [0; 2])
   s: Ring[Int, Int] = r
-  b = Box[Int](v: 1)
+  b = Wrap[Int](v: 1)
   a: [nope]Int = [0; 2]
   print(f(?r), g(?b), s.items, a)
 EOF2
 expect_eq "$(errors_of poison.rig)" "poison.rig:7:21: error: use of unbound name \`nope\`
-poison.rig:10:15: error: use of unbound type \`Nope\`
+poison.rig:10:16: error: use of unbound type \`Nope\`
 poison.rig:15:16: error: compile-time argument 2 of \`Ring\` is a value of type \`Int\`, not a type
 poison.rig:17:7: error: use of unbound name \`nope\`" "a poisoned instance"
 

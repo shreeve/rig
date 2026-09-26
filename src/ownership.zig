@@ -3604,7 +3604,7 @@ test "method receiver is borrowed for the whole call" {
 
 test "dropping a borrowed parameter is rejected" {
     try expectError(
-        \\sub kill(rc: ?Box)
+        \\sub kill(rc: ?Wrap)
         \\  -rc
         \\
     , "cannot drop borrowed parameter `rc`");
@@ -3612,7 +3612,7 @@ test "dropping a borrowed parameter is rejected" {
 
 test "move-capturing a borrowed parameter is rejected" {
     try expectError(
-        \\sub f(rc: ?Box)
+        \\sub f(rc: ?Wrap)
         \\  g = |<rc|
         \\    look(rc)
         \\  g()
@@ -3665,7 +3665,7 @@ test "a deferred body is checked against the state at scope exit" {
 
 test "a borrowed parameter may store borrows the caller passed in" {
     try expectClean(
-        \\sub put(v: !View, b: ?Box)
+        \\sub put(v: !View, b: ?Wrap)
         \\  v.box = b
         \\  fill(!v, b)
         \\

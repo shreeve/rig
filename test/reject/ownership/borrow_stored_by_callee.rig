@@ -1,18 +1,18 @@
 # A call may store the borrows it is given into its `!` arguments, so
 # after `put(!v, ?b)` the view keeps `b` borrowed.
 
-struct Box
+struct Wrap
   payload: Int
 
 struct View
-  box: ?Box
+  box: ?Wrap
 
-sub put(v: !View, b: ?Box)
+sub put(v: !View, b: ?Wrap)
   v.box = b
 
 sub main()
-  a = Box(payload: 1)
-  b = Box(payload: 2)
+  a = Wrap(payload: 1)
+  b = Wrap(payload: 2)
   v = View(box: ?a)
   put(!v, ?b)
   -b

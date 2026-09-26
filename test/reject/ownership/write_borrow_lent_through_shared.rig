@@ -2,11 +2,11 @@
 # cannot be cloned even through a read borrow of its holder: two handles
 # would write through one borrow.
 
-struct Box
+struct Wrap
   v: Vec[Int]
 
 struct WV
-  b: !Box
+  b: !Wrap
 
 struct Hold
   h: *WV
@@ -14,11 +14,11 @@ struct Hold
   fun dup(?self) -> *WV
     +self.h
 
-sub reset(b: !Box)
+sub reset(b: !Wrap)
   b.v = Vec()
 
 sub main()
-  x = Box(v: Vec())
+  x = Wrap(v: Vec())
   !x.v.push(1)
   k = Hold(h: *WV(b: !x))
   reset(k.h.b)

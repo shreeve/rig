@@ -2,18 +2,18 @@
 # while it is live, so a nested match on the same value cannot bind a
 # second view of that borrow.
 
-struct Box
+struct Wrap
   v: Vec[Int]
 
 struct Ed
-  t: !Box
+  t: !Wrap
 
 enum Hold
   none_
   has(e: Ed)
 
 sub main()
-  x = Box(v: Vec())
+  x = Wrap(v: Vec())
   !x.v.push(1)
   h: Hold = .has(Ed(t: !x))
   match h

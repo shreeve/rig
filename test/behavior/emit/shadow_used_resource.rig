@@ -1,13 +1,13 @@
 # `new rc = ...` shadows a resource binding that was already used; both
 # boxes stay valid until the scope ends, where each is dropped.
 
-struct Box
+struct Wrap
   payload: Int
 
 sub main()
-  rc = *Box(payload: 1)
+  rc = *Wrap(payload: 1)
   print(rc.payload)
-  new rc = *Box(payload: 2)
+  new rc = *Wrap(payload: 2)
   print(rc.payload)
 
 # expect:

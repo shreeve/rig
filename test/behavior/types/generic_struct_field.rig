@@ -1,11 +1,11 @@
-# A generic struct instantiated as `Box[Int]`; the constructor's field is
+# A generic struct instantiated as `Wrap[Int]`; the constructor's field is
 # checked against the substituted type and `b.value` types as Int.
 
-struct Box[T]
+struct Wrap[T]
   value: T
 
 sub main()
-  b: Box[Int] = Box(value: 5)
+  b: Wrap[Int] = Wrap(value: 5)
   print(b.value + 1)
 
 # expect:

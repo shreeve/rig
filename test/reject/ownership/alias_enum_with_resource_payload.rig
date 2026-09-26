@@ -1,15 +1,15 @@
 # An enum whose payload holds a shared handle owns it; copying the enum
 # would drop the handle twice.
 
-struct Box
+struct Wrap
   n: Int
 
 enum Slot
-  full(b: *Box)
+  full(b: *Wrap)
   empty
 
 sub main()
-  rc = *Box(n: 5)
+  rc = *Wrap(n: 5)
   s: Slot = .full(b: <rc)
   t = s
   match t

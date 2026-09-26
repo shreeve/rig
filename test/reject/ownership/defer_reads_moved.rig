@@ -1,13 +1,13 @@
 # A deferred body runs at scope exit, after the move that follows it.
 
-struct Box
+struct Wrap
   payload: Int
 
-sub eat(rc: *Box)
+sub eat(rc: *Wrap)
   print(rc.payload)
 
 sub main()
-  rc = *Box(payload: 1)
+  rc = *Wrap(payload: 1)
   defer print(rc.payload)
   eat(<rc)
 

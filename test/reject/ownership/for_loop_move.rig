@@ -1,13 +1,13 @@
 # A move inside a `for` body is seen by the next iteration.
 
-struct Box
+struct Wrap
   payload: Int
 
-sub eat(rc: *Box)
+sub eat(rc: *Wrap)
   print(rc.payload)
 
 sub main()
-  rc = *Box(payload: 1)
+  rc = *Wrap(payload: 1)
   for i in 0..3
     eat(<rc)
 

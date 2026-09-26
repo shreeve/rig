@@ -1,11 +1,11 @@
 # The `(*T)?` from `upgrade()` owns a strong handle; copying it would
 # drop the handle twice.
 
-struct Box
+struct Wrap
   n: Int
 
 sub main()
-  rc = *Box(n: 5)
+  rc = *Wrap(n: 5)
   w = ~rc
   m = w.upgrade()
   n = m

@@ -1,21 +1,21 @@
 # A payload field may be moved out of a matched value when the variant's
 # other fields are plain data; the matched value is consumed.
 
-struct Box
+struct Wrap
   payload: Int
 
   drop(!self)
     print("drop")
 
-sub eat(rc: *Box)
+sub eat(rc: *Wrap)
   print(rc.payload)
 
 enum Slot
-  tagged(box: *Box, tag: Int)
+  tagged(box: *Wrap, tag: Int)
   empty
 
 sub main()
-  rc = *Box(payload: 5)
+  rc = *Wrap(payload: 5)
   s: Slot = .tagged(box: <rc, tag: 9)
   match s
     .tagged(box, tag)

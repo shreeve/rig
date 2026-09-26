@@ -1,7 +1,7 @@
 # A guarded statement's operands are all used when it runs, though the
 # guard comes last in the source.
 
-struct Box
+struct Wrap
   n: Int
 
   sub bump(!self)
@@ -10,12 +10,12 @@ struct Box
   drop(!self)
     print("drop", self.n)
 
-sub pair(r: ?Box, w: !Box)
+sub pair(r: ?Wrap, w: !Wrap)
   print(r.n, w.n)
 
 sub main()
   flag = true
-  x = Box(n: 1)
+  x = Wrap(n: 1)
   r = ?x
   pair(r, !x) if flag
 

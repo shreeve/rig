@@ -3,7 +3,7 @@
 # pointer to a value that owns resources or holds a Cell. Both sides of a
 # method call, a field, and a payload agree.
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun get(?self) -> ?T
@@ -41,8 +41,8 @@ enum Opt[T]
   nothing
 
 sub main()
-  a = Box(v: 1)
-  b = Box(v: 1)
+  a = Wrap(v: 1)
+  b = Wrap(v: 1)
   print(a.same(?b))
   r = a.get()
   print(r + 1)
@@ -58,15 +58,15 @@ sub main()
     .nothing => print(0)
   v: Vec[Int] = Vec()
   !v.push(4)
-  va = Box(v: <v)
+  va = Wrap(v: <v)
   w: Vec[Int] = Vec()
-  vb = Box(v: <w)
+  vb = Wrap(v: <w)
   print(va.same(?vb))
   print(va.get().len)
   vr = Ref(r: ?va)
   print(vr.val().get().len)
   n = Cell(value: 3)
-  d = Box(v: <n)
+  d = Wrap(v: <n)
   e = d.get()
   (?d.v).set(9)
   print(e.get())

@@ -1,2 +1,2 @@
-pub struct Box
+pub struct Wrap
   value: Int

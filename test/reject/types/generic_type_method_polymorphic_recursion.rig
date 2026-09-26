@@ -4,14 +4,14 @@
 fun keep[T](x: T) -> T
   x
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
-  fun rewrap(self: Box[T]) -> Box[Box[T]]
-    keep(Box(v: <self))
+  fun rewrap(self: Wrap[T]) -> Wrap[Wrap[T]]
+    keep(Wrap(v: <self))
 
 sub main()
-  d = <Box(v: 1).rewrap()
+  d = <Wrap(v: 1).rewrap()
   print(d.v.v)
 
-# error: 14:8: `Box[Int]` leads to ever deeper instances of generic functions (through `keep[Box[Box[T]]]`); a generic type's body cannot nest itself in its own type arguments
+# error: 14:8: `Wrap[Int]` leads to ever deeper instances of generic functions (through `keep[Wrap[Wrap[T]]]`); a generic type's body cannot nest itself in its own type arguments

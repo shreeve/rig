@@ -1,14 +1,14 @@
 # Binding a shared-handle field (`x = p.a`) would copy the handle without
 # a refcount bump. Clone it (`+p.a`); fields cannot be moved out.
 
-struct Box
+struct Wrap
   payload: Int
 
 struct Pair
-  a: *Box
+  a: *Wrap
 
 sub main()
-  p = Pair(a: *Box(payload: 1))
+  p = Pair(a: *Wrap(payload: 1))
   x = p.a
   print(x.payload)
 

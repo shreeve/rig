@@ -6,21 +6,21 @@ struct B
   drop(!self)
     print("drop", self.n)
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
-  fun first(self: Box[T], o: T?, d: T) -> T
+  fun first(self: Wrap[T], o: T?, d: T) -> T
     if <o as x
       return <x
     <d
 
 sub main()
-  b: Box[*B] = Box(v: *B(n: 1))
+  b: Wrap[*B] = Wrap(v: *B(n: 1))
   o: (*B)? = *B(n: 2)
   r = <b.first(<o, *B(n: 3))
   print(r.n)
 
-  c: Box[Int] = Box(v: 0)
+  c: Wrap[Int] = Wrap(v: 0)
   print(<c.first(none, 7))
 
 # expect:

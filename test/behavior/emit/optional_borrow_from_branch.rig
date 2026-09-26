@@ -30,7 +30,7 @@ fun slot(m: !Int, k: Int) -> (!Int)?
 fun cell(m: !Int) -> (!Int)?
   m
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun get(?self, k: Int) -> (?T)?
@@ -56,7 +56,7 @@ sub main()
   if <w as r
     r += 100
   print x
-  b = Box(v: D(n: 8))
+  b = Wrap(v: D(n: 8))
   if b.get(0) as r
     print r.n
 

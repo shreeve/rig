@@ -12,7 +12,7 @@ fun h[print](x: print) -> Int
   print(1)
   2
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun make(?self, x: Int) -> Int
@@ -20,7 +20,7 @@ struct Box[T]
     2
 
 sub main
-  print(f(3), g[Int](1), h(3), Box(v: 1).make(3))
+  print(f(3), g[Int](1), h(3), Wrap(v: 1).make(3))
 
 # error: 5:3: `T` is a type parameter; it cannot be called or constructed
 # error: 8:7: `T` is a type parameter; it cannot be called or constructed

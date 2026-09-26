@@ -1,7 +1,7 @@
 # A view is live while a borrow of it is: its last use as a value does
 # not end the borrow it holds.
 
-struct Box
+struct Wrap
   n: Int
 
   sub bump(!self)
@@ -11,10 +11,10 @@ struct Box
     print("drop", self.n)
 
 struct View
-  box: ?Box
+  box: ?Wrap
 
 sub main()
-  x = Box(n: 1)
+  x = Wrap(n: 1)
   v = View(box: ?x)
   rv = ?v
   -x

@@ -4,11 +4,11 @@
 struct In
   n: Int
 
-struct Box
+struct Wrap
   r: ?In
 
 struct Ed
-  t: !Box
+  t: !Wrap
 
 struct View
   b: ?In
@@ -27,7 +27,7 @@ sub main()
     w = !v
     fill(w, ?y)
   print(v.b.n)
-  x = Box(r: ?a)
+  x = Wrap(r: ?a)
   e = Ed(t: !x)
   fill_ed(e, ?y)
   print(x.r.n)

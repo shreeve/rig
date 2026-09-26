@@ -2003,7 +2003,7 @@ pub const Emitter = struct {
     /// resources nor holds a Cell on its own. It is emitted as
     /// `rig.ReadBorrow(T)`, which applies `readBorrowIsPtr`'s rule to each
     /// instance, so an instance agrees with the code that uses it
-    /// (`?Box[Int]` is a copy). Code that depends on the form goes through
+    /// (`?Wrap[Int]` is a copy). Code that depends on the form goes through
     /// `rig.lend` and `rig.borrowed`; the rest treats it as a pointer, since
     /// Zig reaches fields and methods through either.
     fn genericReadBorrow(self: *Emitter, ty: TypeId) ?TypeId {
@@ -2549,7 +2549,7 @@ pub const Emitter = struct {
         if (obj.isKind(.write) and (o.isKind(.index) or o.isKind(.member)) and self.hoistedOf(o) == null) return self.emitPlace(o);
         // `Pair[Int, String].make(...)`: the instance named.
         if (self.sema.instanceOf(o)) |inst| if (inst == .type) return self.emitTypeTy(inst.type);
-        // `Box.make(...)` of a generic type: the instance sema inferred.
+        // `Wrap.make(...)` of a generic type: the instance sema inferred.
         if (o == .src) if (self.sema.symbolOf(o)) |id| if (self.sema.symbols.items[id].kind == .generic_type) {
             if (obj_ty) |t| return self.emitTypeTy(t);
         };
@@ -3037,7 +3037,7 @@ pub const Emitter = struct {
         // Sema rejects a borrowed temporary receiver that owns a resource
         // (a consumed one is hoisted by `consumedTemporary`), so only a
         // value holding a type parameter gets here (`self.twice()` of a
-        // `Box[T]`): plain data in every instance sema accepts, dropped
+        // `Wrap[T]`): plain data in every instance sema accepts, dropped
         // like a resource in the generic body.
         if (kind) |k| {
             try self.writeIndent(self.indent);

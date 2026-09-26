@@ -2,7 +2,7 @@
 # each instance: `1 / 2` is `0.5` where `T` is `Float` and `0` where it
 # is `Int`.
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun half(?self) -> T
@@ -16,9 +16,9 @@ struct Box[T]
     y * (1 + 1) / 4 + -(3 / 2) % 2
 
 sub main()
-  print(Box(v: 3.0).half(), Box(v: 3).half())
-  print(Box(v: 3.0).mix(), Box(v: 3).mix())
-  print(Box(v: 3.0).more(), Box(v: 3).more())
+  print(Wrap(v: 3.0).half(), Wrap(v: 3).half())
+  print(Wrap(v: 3.0).mix(), Wrap(v: 3).mix())
+  print(Wrap(v: 3.0).more(), Wrap(v: 3).more())
 
 # expect:
 # 3.5 3

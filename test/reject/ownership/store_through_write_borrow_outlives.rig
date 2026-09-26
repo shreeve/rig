@@ -4,11 +4,11 @@
 struct In
   v: Vec[Int]
 
-struct Box
+struct Wrap
   r: ?In
 
 struct Ed
-  t: !Box
+  t: !Wrap
 
 struct View
   b: ?In
@@ -27,7 +27,7 @@ sub main()
     w = !v
     fill(w, ?y)
   print(v.b.v.len)
-  x = Box(r: ?a)
+  x = Wrap(r: ?a)
   e = Ed(t: !x)
   if true
     z = In(v: Vec())

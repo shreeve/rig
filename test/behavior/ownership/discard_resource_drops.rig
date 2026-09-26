@@ -1,13 +1,13 @@
 # `_ = value` discards a value; a discarded resource is dropped at once.
 
-struct Box
+struct Wrap
   n: Int
 
   drop(!self)
     print("drop", self.n)
 
-fun make(n: Int) -> *Box
-  *Box(n: n)
+fun make(n: Int) -> *Wrap
+  *Wrap(n: n)
 
 sub main()
   _ = make(1)

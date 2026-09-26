@@ -1,11 +1,11 @@
 # A generic constructor's fields are checked against the substituted
-# type from the expected `Box[Int]`.
+# type from the expected `Wrap[Int]`.
 
-struct Box[T]
+struct Wrap[T]
   value: T
 
 sub main()
-  b: Box[Int] = Box(value: "hello")
+  b: Wrap[Int] = Wrap(value: "hello")
   print(b.value)
 
 # error: type mismatch: expected `Int`, got `String`

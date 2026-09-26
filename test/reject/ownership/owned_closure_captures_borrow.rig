@@ -2,17 +2,17 @@
 # including in a Cell or Signal that other handles reach, so it holds no
 # borrow: it cannot capture a borrow, a borrowed parameter, or a view.
 
-struct Box
+struct Wrap
   n: Int
 
 struct View
-  b: ?Box
+  b: ?Wrap
 
 fun keep(v: View) -> *sub()
   *|<v| print(v.b.n)
 
 sub main()
-  b = Box(n: 1)
+  b = Wrap(n: 1)
   w = !b
   g: *sub() = *|<w|
     w.n += 1

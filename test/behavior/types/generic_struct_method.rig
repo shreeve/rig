@@ -1,14 +1,14 @@
 # A method on a generic struct: `get` returns `T`, which is Int for a
-# `Box[Int]` receiver.
+# `Wrap[Int]` receiver.
 
-struct Box[T]
+struct Wrap[T]
   value: T
 
   fun get(?self) -> T
     self.value
 
 sub main()
-  b: Box[Int] = Box(value: 42)
+  b: Wrap[Int] = Wrap(value: 42)
   print(b.get())
 
 # expect:

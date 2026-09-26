@@ -1,17 +1,17 @@
 # Passing a shared-handle field as an owned argument would copy the
 # handle without a refcount bump.
 
-struct Box
+struct Wrap
   payload: Int
 
 struct Outer
-  inner: *Box
+  inner: *Wrap
 
-sub eat(rc: *Box)
+sub eat(rc: *Wrap)
   print(rc.payload)
 
 sub main()
-  b = *Box(payload: 7)
+  b = *Wrap(payload: 7)
   o = *Outer(inner: <b)
   eat(o.inner)
   eat(o.inner)

@@ -1,7 +1,7 @@
 # A Signal keeps its subscribers, owned closures that any handle to the
 # Signal can run, so a subscriber cannot capture a borrow.
 
-struct Box
+struct Wrap
   payload: Int
 
   drop(!self)
@@ -9,7 +9,7 @@ struct Box
 
 sub main()
   sig: *Signal[Int] = *Signal(value: 0)
-  a = Box(payload: 1)
+  a = Wrap(payload: 1)
   r = ?a
   cb: *sub() = *|<r| print(r.payload)
   sig.subscribe(+cb)

@@ -1,13 +1,13 @@
-# A nested call whose result is not its type parameter (`Box.make(1)`,
+# A nested call whose result is not its type parameter (`Wrap.make(1)`,
 # `Opt.some(value: 1)`) keeps the type its own arguments give it; the
 # mismatch that follows says how to pass the expected type on. A hint
 # never spells a type an expression cannot.
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
-  fun make(v: T) -> Box[T]
-    Box(v: v)
+  fun make(v: T) -> Wrap[T]
+    Wrap(v: v)
 
 enum Opt[T]
   some(value: T)
@@ -23,14 +23,14 @@ fun tag[T, U](a: T) -> Int
   1
 
 sub main
-  c: Box[Box[U8]] = Box.make(Box.make(1))
+  c: Wrap[Wrap[U8]] = Wrap.make(Wrap.make(1))
   a: Opt[Opt[U8]] = Opt.some(value: Opt.some(value: 1))
   d: Opt[U8] = id(Opt.some(value: 1))
   g: [2][2]Int = [[1, 2], [3, 4]]
   q = pair(g)
   print(tag(g))
 
-# error: 26:21: type mismatch: expected `Box[Box[U8]]`, got `Box[Box[Int]]`; `Box.make` takes `T = Box[Int]` from argument 1; to pass `Box[U8]` on to it, name the type: `Box[Box[U8]].make(...)`
+# error: 26:23: type mismatch: expected `Wrap[Wrap[U8]]`, got `Wrap[Wrap[Int]]`; `Wrap.make` takes `T = Wrap[Int]` from argument 1; to pass `Wrap[U8]` on to it, name the type: `Wrap[Wrap[U8]].make(...)`
 # error: 27:21: type mismatch: expected `Opt[Opt[U8]]`, got `Opt[Opt[Int]]`; `Opt.some` takes `T = Opt[Int]` from argument 1; to pass `Opt[U8]` on to it, name the type: `Opt[Opt[U8]].some(...)`
 # error: 28:16: type mismatch: expected `Opt[U8]`, got `Opt[Int]`; `id` takes `T = Opt[Int]` from argument 1; to pass `Opt[U8]` on to it, give it in brackets: `id[Opt[U8]](...)`
 # error: 30:7: cannot infer `U` for `pair` from its arguments or the type expected of its result; give the type where the value goes: `x: Vec[U] = pair(...)`, with a type in place of `U`

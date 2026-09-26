@@ -2,18 +2,18 @@
 # value: the younger value is dropped first, while what it borrows is
 # still alive.
 
-struct Box
+struct Wrap
   n: Int
 
 struct Guard
-  b: ?Box
+  b: ?Wrap
 
   drop(!self)
     print("guard sees", self.b.n)
 
 sub main()
-  x = Box(n: 1)
-  y = Box(n: 2)
+  x = Wrap(n: 1)
+  y = Wrap(n: 2)
   g = Guard(b: ?x)
   g.b = ?y
   print("end")

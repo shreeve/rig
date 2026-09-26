@@ -20,7 +20,7 @@ struct Token
   drop(!self)
     print("dropping", self.type)
 
-struct Box[T]
+struct Wrap[T]
   type: T
 
   fun error(?self) -> T
@@ -34,7 +34,7 @@ sub main()
   t = Token(type: 1, error: "bad", drop: true, in: 4)
   !t.use()
   print(t.type, t.error, t.drop, t.in, t.test(), t.match(n: 3))
-  b = Box(type: 9)
+  b = Wrap(type: 9)
   print(b.error(), b)
   e = Ev.key(type: 7, match: false)
   match e
@@ -44,7 +44,7 @@ sub main()
 
 # expect:
 # 1 bad true 5 6 3
-# 9 Box(type: 9)
+# 9 Wrap(type: 9)
 # 7 false
 # .key(type: 7, match: false)
 # dropping 1

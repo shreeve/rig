@@ -1,14 +1,14 @@
 # A struct holding a write borrow cannot be copied: the copy would be a
 # second live mutable path to the borrowed value. Move it with `<e`.
 
-struct Box
+struct Wrap
   payload: Int
 
 struct Editor
-  target: !Box
+  target: !Wrap
 
 sub main()
-  b = Box(payload: 1)
+  b = Wrap(payload: 1)
   e = Editor(target: !b)
   e2 = e
   print(e2.target.payload)

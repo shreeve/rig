@@ -1095,8 +1095,8 @@ pub const Parser = struct {
     }
 
     /// Compile-time parameters and arguments written where Rig does not
-    /// take them: in parentheses (`struct Box(T)`, `Vec(Int)` in a type,
-    /// `pre n: Int`), in brackets apart from the name (`struct Box [T]`),
+    /// take them: in parentheses (`struct Wrap(T)`, `Vec(Int)` in a type,
+    /// `pre n: Int`), in brackets apart from the name (`struct Wrap [T]`),
     /// on a type alias, or as a type an expression cannot spell
     /// (`Vec[[]Int]()`). Also a struct declared with `type`.
     fn bracketHint(self: *Parser, tok: Token) ?[]const u8 {
@@ -1492,8 +1492,8 @@ test "spacing decides prefix vs infix" {
 }
 
 test "compile-time brackets touch the name; `name:` inside them is a name" {
-    try expectCats("struct Box[T]", &.{ .@"struct", .ident, .lbracket_index, .ident, .rbracket });
-    try expectCats("struct Box [T]", &.{ .@"struct", .ident, .lbracket, .ident, .rbracket });
+    try expectCats("struct Wrap[T]", &.{ .@"struct", .ident, .lbracket_index, .ident, .rbracket });
+    try expectCats("struct Wrap [T]", &.{ .@"struct", .ident, .lbracket, .ident, .rbracket });
     try expectCats("fun f[n: Int](x: Int)", &.{ .fun, .ident, .lbracket_index, .ident, .colon, .ident, .rbracket, .lparen_call, .kwarg_name, .colon, .ident, .rparen });
     try expectCats("Pair[Int, String].make(1)", &.{ .ident, .lbracket_index, .ident, .comma, .ident, .rbracket, .dot, .ident, .lparen_call, .integer, .rparen });
     try expectCats("pre = 1", &.{ .ident, .assign, .integer });
@@ -1624,7 +1624,7 @@ test "parser: every form parses" {
         \\
         \\type Id = U64
         \\
-        \\struct Box[T]
+        \\struct Wrap[T]
         \\  value: T
         \\
         \\  fun get(?self) -> T
@@ -1700,9 +1700,9 @@ test "parser: every form parses" {
         \\    print(@intCast(x))
         \\  print(+a, <b, ?c, !d, *e, ~f, v.w[0])
         \\  n: fun() -> Int = f
-        \\  n2: *sub(Int, ?Box[Int]) = h
+        \\  n2: *sub(Int, ?Wrap[Int]) = h
         \\  n3: sub() = i
-        \\  o2: (*Box[Int])? = none
+        \\  o2: (*Wrap[Int])? = none
         \\  p2 = Pair[Int, String].make(f[3](1), v[0])
         \\  o3: []~Int = o
         \\  return x

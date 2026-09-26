@@ -209,9 +209,9 @@ pub const Type = union(enum) {
     /// A nominal declared in another module. Identity is the origin
     /// module plus the symbol there, never the shape.
     imported_nominal: ImportedNominal,
-    /// A generic type applied to arguments: `Box[Int]`.
+    /// A generic type applied to arguments: `Wrap[Int]`.
     parameterized_nominal: ParamNominal,
-    /// A generic parameter (`T` inside `struct Box[T]`).
+    /// A generic parameter (`T` inside `struct Wrap[T]`).
     type_var: SymbolId,
     /// A compile-time integer where a type argument or an array length
     /// goes: `4` in `Ring[Int, 4]` and `[4]Int`. Not a type of values.
@@ -372,9 +372,9 @@ pub const SymbolKind = enum {
     local,
     /// `type UserId = Int`. Transparent: the alias's `ty` is its target.
     type_alias,
-    /// `struct Box[T]` / `enum Option[T]` and the built-in generics.
+    /// `struct Wrap[T]` / `enum Option[T]` and the built-in generics.
     generic_type,
-    /// `T` in `struct Box[T]`, detached: not in any scope, reached through
+    /// `T` in `struct Wrap[T]`, detached: not in any scope, reached through
     /// the owning type's `type_params`. Also `T` in `fun max[T]`, bound
     /// in the function's scope.
     generic_param,
@@ -758,7 +758,7 @@ pub const SemContext = struct {
     /// Instantiated generic type -> position of its first spelling.
     instantiation_sites: std.AutoHashMapUnmanaged(TypeId, u32) = .empty,
     /// Instances of user generics spelled with type parameters, inside
-    /// generic declarations (`Opt[T]` in `Box[T]`'s methods). See
+    /// generic declarations (`Opt[T]` in `Wrap[T]`'s methods). See
     /// `expandInstantiations`.
     generic_uses: std.ArrayListUnmanaged(TypeId) = .empty,
     /// The instances of generic functions the module's calls make, each
@@ -1060,8 +1060,8 @@ pub const SemContext = struct {
     }
 
     /// A call's callee without its compile-time arguments: `f` for
-    /// `f[3](x)`, `p.scale` for `p.scale[2]()`, `Box` for
-    /// `Box[Int](v: 3)` (whose instance `instanceOf` the bracket list
+    /// `f[3](x)`, `p.scale` for `p.scale[2]()`, `Wrap` for
+    /// `Wrap[Int](v: 3)` (whose instance `instanceOf` the bracket list
     /// gives).
     pub fn calleeOf(self: *const SemContext, call: Sexp) Sexp {
         const callee = ir.Call.callee(call);
@@ -1293,7 +1293,7 @@ fn checkUnreadLocals(ctx: *SemContext) std.mem.Allocator.Error!void {
 }
 
 /// Add the instances a program reaches through generic bodies: when
-/// `Box[*B]` is spelled and `Box[T]`'s methods use `Opt[T]`, `Opt[*B]` is
+/// `Wrap[*B]` is spelled and `Wrap[T]`'s methods use `Opt[T]`, `Opt[*B]` is
 /// instantiated too, at the same site, and so is `max[*B]` when they
 /// call `max[T]`; each instance of a generic function does the same for
 /// its body. The requirement checks then see every instantiation, and a
@@ -1349,7 +1349,7 @@ fn expand(ctx: *SemContext, work: *std.ArrayListUnmanaged(ExpandItem), reached: 
             }
             if (reached == null and argsHaveTypeVar(ctx, args)) continue;
             // A generic function that calls itself with its parameters
-            // nested deeper (`f[Box[T]]` in `f[T]`), or a generic type
+            // nested deeper (`f[Wrap[T]]` in `f[T]`), or a generic type
             // whose methods do so with its own instances, would expand
             // forever.
             if (deepest > max_instance_depth) {
@@ -1369,7 +1369,7 @@ fn expand(ctx: *SemContext, work: *std.ArrayListUnmanaged(ExpandItem), reached: 
             const info = ctx.typeInfo(concrete);
             if (reached == null and info.has_type_var) continue;
             // A generic whose body uses ever-deeper instances of itself
-            // (`Box[T]` using `Box[Box[T]]`) would expand forever.
+            // (`Wrap[T]` using `Wrap[Wrap[T]]`) would expand forever.
             if (info.depth > max_instance_depth) {
                 try ctx.err(item.site, "`{s}` leads to ever deeper instances of generic types (through `{s}`); a generic type's body cannot nest itself in its own type arguments", .{ try rootName(ctx, item.root), try formatType(ctx, use) });
                 return true;
@@ -2443,7 +2443,7 @@ pub fn isPlainData(ctx: *const SemContext, ty: TypeId) bool {
 }
 
 /// Whether a value of `ty` owns a resource depends on type parameters
-/// that `ty` holds by value (a `T`, `T?`, `Box[T]` inside a generic
+/// that `ty` holds by value (a `T`, `T?`, `Wrap[T]` inside a generic
 /// body): it has no drop glue of its own, but an instantiation may. Such
 /// values are moved and dropped like resources.
 pub fn maybeDropGlue(ctx: *const SemContext, ty: TypeId) bool {
@@ -2657,7 +2657,7 @@ pub const NominalContext = struct {
     }
 };
 
-/// `Self` is `nominal(sym)` for plain types and `Box[T]` (applied to
+/// `Self` is `nominal(sym)` for plain types and `Wrap[T]` (applied to
 /// its own parameters) for generic ones.
 pub fn makeNominalContext(ctx: *SemContext, sym_id: SymbolId) std.mem.Allocator.Error!NominalContext {
     const sym = ctx.symbols.items[sym_id];
@@ -3808,7 +3808,7 @@ test "facts: every name and expression in a program has a fact" {
         \\  circle(radius: Int)
         \\  dot
         \\
-        \\struct Box[T]
+        \\struct Wrap[T]
         \\  value: T
         \\
         \\  fun get(?self) -> T
@@ -3844,7 +3844,7 @@ test "facts: every name and expression in a program has a fact" {
         \\  for x in v
         \\    total += x
         \\  print(total + moved.balance)
-        \\  b: Box[Int] = Box(value: 4)
+        \\  b: Wrap[Int] = Wrap(value: 4)
         \\  print(b.get())
         \\  print(area(.circle(radius: 2)))
         \\  print(maybe(-1) ?? 9)

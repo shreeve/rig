@@ -7,14 +7,14 @@ struct B
   drop(!self)
     print("drop", self.n)
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun get(?self) -> ?T
     ?self.v
 
 sub main()
-  b = Box(v: *B(n: 1))
+  b = Wrap(v: *B(n: 1))
   print(b.get().n)
   r = b.get()
   print(r.n)

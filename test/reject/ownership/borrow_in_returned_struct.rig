@@ -1,11 +1,11 @@
 # A call whose result can hold a borrow borrows from its borrowed
 # arguments: `v` keeps `h` borrowed.
 
-struct Box
+struct Wrap
   payload: Int
 
 struct Holder
-  inner: *Box
+  inner: *Wrap
 
 struct View
   h: ?Holder
@@ -14,7 +14,7 @@ fun mk(h: ?Holder) -> View
   View(h: h)
 
 sub main()
-  h = Holder(inner: *Box(payload: 5))
+  h = Holder(inner: *Wrap(payload: 5))
   v = mk(?h)
   -h
   x = +v.h.inner

@@ -1,13 +1,13 @@
 # A closure body can only use outer locals it captures.
 
-struct Box
+struct Wrap
   payload: Int
 
-sub eat(rc: *Box)
+sub eat(rc: *Wrap)
   print(rc.payload)
 
 sub main()
-  rc = *Box(payload: 1)
+  rc = *Wrap(payload: 1)
   n = 5
   f = |+n|
     eat(<rc)

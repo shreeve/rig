@@ -2,19 +2,19 @@
 # no other field of the variant may own a resource: it would never be
 # dropped.
 
-struct Box
+struct Wrap
   payload: Int
 
-sub eat(rc: *Box)
+sub eat(rc: *Wrap)
   print(rc.payload)
 
 enum Slot
-  pair(a: *Box, b: *Box)
+  pair(a: *Wrap, b: *Wrap)
   empty
 
 sub main()
-  x = *Box(payload: 1)
-  y = *Box(payload: 2)
+  x = *Wrap(payload: 1)
+  y = *Wrap(payload: 2)
   s: Slot = .pair(a: <x, b: <y)
   match s
     .pair(a, b) => eat(<a)

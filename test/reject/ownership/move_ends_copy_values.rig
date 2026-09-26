@@ -1,10 +1,10 @@
 # `<x` ends `x` whatever its type: a number, a Bool, a String, or a
 # borrow is done after it is moved, even though the value was copied.
 
-struct Box
+struct Wrap
   n: Int
 
-sub take(b: ?Box)
+sub take(b: ?Wrap)
   print(b.n)
 
 sub main()
@@ -18,7 +18,7 @@ sub main()
   s = "text"
   t <- s
   print(s)
-  box = Box(n: 2)
+  box = Wrap(n: 2)
   r = ?box
   take(<r)
   take(r)

@@ -22,7 +22,7 @@ struct P
   h: (*Tok)? = none
   u: U8 = 7
 
-struct Box[T]
+struct Wrap[T]
   v: T
   n: Int = 5
 
@@ -31,7 +31,7 @@ sub main()
   print(p)
   q = P(x: 10, y: 20, name: "q", m: .a, f: 0.5, neg: 1, on: false, h: *Tok(n: 9), u: 200)
   print(q.x, q.y, q.name, q.m, q.f, q.neg, q.on, q.u)
-  b = Box(v: "s")
+  b = Wrap(v: "s")
   print(b.v, b.n)
 
 # expect:
