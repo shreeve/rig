@@ -122,7 +122,7 @@ parser distinct tokens:
 
 | Source | Tokens | Rule |
 |---|---|---|
-| `f(x)`, `a[i]` vs `f (x)`, `f [1]` | `LPAREN_CALL`, `LBRACKET_INDEX` vs `(`, `[` | touching the preceding value continues it |
+| `f(x)`, `a[i]` vs `f (x)`, `f [1]` | `LPAREN_CALL`, `LBRACKET_INDEX` vs `(`, `[` | touching the preceding value continues it; in a type, an `LBRACKET_INDEX` after `[N]` or `[]` starts the element's own prefix (`[2][3]Int`) |
 | `a.b` vs `.red`, `f .red` | `.` vs `DOT_LIT` | `.name` touching a value is member access |
 | `a - b`, `a-b` vs `-x`, `f -x` | `MINUS` vs `MINUS_PREFIX` / `DROP_STMT` | a sigil touching its operand and not the value before it is a prefix; `-name` as a whole statement is a drop |
 | `<x +x *x ?x !x` | `MOVE_PFX` ... `WRITE_PFX` | the same rule |

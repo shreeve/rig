@@ -347,18 +347,20 @@ loop over it yields its bytes as `U8`. Strings compare with `==` and
 element type from its elements (or from an annotation), `xs.len` is its
 length, and `xs[i]` reads or writes an element; an index outside the
 half-open range `0..xs.len` panics. Arrays hold plain data only; a
-collection of resources is a `Vec`.
+collection of resources is a `Vec`. An array of arrays is `[2][3]T`:
+two rows of three.
 
 ```rig
 sub main
   xs = [10, 20, 30]
   xs[0] = 5
   ys: [2]U8 = [1, 2]
-  print(xs, xs.len, xs[2], ys)
+  grid: [2][3]Int = [[1, 2, 3], [4, 5, 6]]
+  print(xs, xs.len, xs[2], ys, grid[1][2])
 ```
 
 ```output
-[5, 20, 30] 3 30 [1, 2]
+[5, 20, 30] 3 30 [1, 2] 6
 ```
 
 ### Slices

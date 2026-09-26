@@ -2462,7 +2462,8 @@ propagate. Closures, `defer`, and `drop` bodies may not.
 ## 22. Arrays, strings, and slices
 
 **Arrays** are fixed-size, `[N]T`, and hold plain data. `xs.len` is the
-length and `xs[i]` a bounds-checked element.
+length and `xs[i]` a bounds-checked element. `[2][3]Int` is two arrays
+of three, read as `grid[1][2]`.
 
 **Strings** are immutable UTF-8 bytes, a Copy value. `s.len` is the
 byte length, `s[i]` a byte (`U8`), and `for b in s` walks the bytes.
