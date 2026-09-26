@@ -1,0 +1,11 @@
+# The element methods are only called; named without a call they are
+# not fields.
+
+sub main()
+  b: [2]U8 = [1, 2]
+  f = b.read[U16, .big]
+  g = b.fill
+  print(f, g)
+
+# error: 6:9: `read` is a method of `[2]U8`, only called: `xs.read[U32, .little](at)`
+# error: 7:9: `fill` is a method of `[2]U8`, only called: `!xs.fill(v)`

@@ -1,0 +1,12 @@
+# A `write` whose bytes run past the end panics, and so does a negative
+# offset.
+
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  b: [4]U8 = [0, 0, 0, 0]
+  w = !b[1..]
+  !w.write[U16, .little](rt(-1), 7)
+
+# expect-panic: byte write out of range

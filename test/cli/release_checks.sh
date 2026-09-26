@@ -59,6 +59,32 @@ out=$(bin/swap 2>&1); rc=$?
 expect_has "$out" "index out of bounds" "fast build swap check"
 [[ $rc -ne 0 ]] || fail "fast build: out-of-range swap exited 0"
 
+cat >bytes.rig <<'EOF'
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  b: [4]U8 = [1, 2, 3, 4]
+  print(b.read[U32, .big](rt(1)))
+EOF
+"$RIG" build --release=fast -o bin/bytes bytes.rig || fail "rig build --release=fast bytes.rig"
+out=$(bin/bytes 2>&1); rc=$?
+expect_has "$out" "byte read out of range" "fast build read check"
+[[ $rc -ne 0 ]] || fail "fast build: read past the end exited 0"
+
+cat >store.rig <<'EOF'
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  b: [4]U8 = [1, 2, 3, 4]
+  !b.write[U16, .little](rt(3), 7)
+EOF
+"$RIG" build --release=fast -o bin/store store.rig || fail "rig build --release=fast store.rig"
+out=$(bin/store 2>&1); rc=$?
+expect_has "$out" "byte write out of range" "fast build write check"
+[[ $rc -ne 0 ]] || fail "fast build: write past the end exited 0"
+
 # --release keeps the conversion checks.
 cat >convert.rig <<'EOF'
 fun rt(n: Int) -> Int

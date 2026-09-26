@@ -1,0 +1,67 @@
+# `bytes.read[T, e](at)` reads the integer or float `T` from the
+# `@sizeOf(T)` bytes at `at`, in byte order `e`, and
+# `!bytes.write[T, e](at, v)` stores one. Bytes are a `[N]U8`, a
+# `[]U8` or `![]U8`, a `Vec[U8]`, or (to read) a String.
+
+fun first(b: []U8, e: Int) -> U16
+  if e == 0
+    b.read[U16, .little](0)
+  else
+    b.read[U16, .big](0)
+
+fun get[e: Endian](b: []U8) -> U32
+  b.read[U32, e](0)
+
+ORDER =! Endian.big
+
+sub main()
+  b: [8]U8 = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0]
+  print(b.read[U16, .big](0), b.read[U16, .little](0))
+  print(b.read[U32, .big](0), b.read[U32, .little](0))
+  print(b.read[U64, .big](0), b.read[U64, .little](0))
+  print(b.read[I16, .big](6), b.read[I8, .little](7), b.read[U8, .big](7))
+  print(first(?b[..], 0), first(?b[2..], 1), get[.little](?b[4..]), get[ORDER](?b[..]))
+  w: [8]U8 = [8 of 0]
+  !w.write[U16, .big](0, 0xbeef)
+  !w.write[U16, .little](2, 0xbeef)
+  !w.write[I32, .little](4, -2)
+  print(w)
+  print(w.read[U16, .big](0), w.read[U16, .little](2), w.read[I32, .little](4), w.read[U32, .little](4))
+  !w.write[I64, .big](0, -9223372036854775807 - 1)
+  print(w, w.read[I64, .big](0))
+  !w.write[F64, .little](0, 1.0)
+  print(w, w.read[F64, .little](0))
+  !w.write[F32, .big](0, -0.5)
+  print(w.read[F32, .big](0), w[0], w[1], w[2], w[3])
+  nan: [8]U8 = [1, 0, 0, 0, 0, 0, 0xf0, 0x7f]
+  x = nan.read[F64, .little](0)
+  print(x != x)
+  !w.write[F64, .little](0, x)
+  print(w == nan)
+  s = "\x01\x02\x03\x04"
+  print(s.read[U32, .big](0), s[1..].read[U16, .little](1))
+  v: Vec[U8] = Vec()
+  for byte in b
+    !v.push(byte)
+  !v.write[U32, .big](4, 7)
+  print(v.read[U32, .big](4), v.read[U8, .big](7))
+  t = !w[6..]
+  !t.write[U16, .big](0, 0x0102)
+  print(w[6], w[7], w.read[U8, .big](7))
+
+# expect:
+# 4660 13330
+# 305419896 2018915346
+# 1311768467463790320 17356517385562371090
+# -8464 -16 240
+# 13330 22136 4041129114 305419896
+# [190, 239, 239, 190, 254, 255, 255, 255]
+# 48879 48879 -2 4294967294
+# [128, 0, 0, 0, 0, 0, 0, 0] -9223372036854775808
+# [0, 0, 0, 0, 0, 0, 240, 63] 1.0
+# -0.5 191 0 0 0
+# true
+# true
+# 16909060 1027
+# 7 7
+# 1 2 2

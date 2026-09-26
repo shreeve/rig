@@ -779,6 +779,43 @@ pub fn swap(items: anytype, i: anytype, j: anytype) void {
     std.mem.swap(std.meta.Elem(@TypeOf(items)), &items[a], &items[b]);
 }
 
+/// Rig's `Endian`: the byte order of `read` and `write`.
+pub const Endian = enum { little, big };
+
+/// `bytes.read[T, e](at)`: the integer or float `T` stored in the
+/// `@sizeOf(T)` bytes from `at`, in byte order `e`; panics unless they
+/// are all in range.
+pub fn readInt(comptime T: type, bytes: anytype, offset: anytype, comptime endian: Endian) T {
+    const n = @divExact(@bitSizeOf(T), 8);
+    const i = byteOffset(bytes.len, offset, n) orelse @panic("byte read out of range");
+    const Bits = std.meta.Int(.unsigned, @bitSizeOf(T));
+    return @bitCast(std.mem.readInt(Bits, bytes[i..][0..n], zigEndian(endian)));
+}
+
+/// `!bytes.write[T, e](at, value)`: store `value` in the `@sizeOf(T)`
+/// bytes from `at`, in byte order `e`; panics unless they are all in
+/// range.
+pub fn writeInt(comptime T: type, bytes: anytype, offset: anytype, value: T, comptime endian: Endian) void {
+    const n = @divExact(@bitSizeOf(T), 8);
+    const i = byteOffset(bytes.len, offset, n) orelse @panic("byte write out of range");
+    const Bits = std.meta.Int(.unsigned, @bitSizeOf(T));
+    std.mem.writeInt(Bits, bytes[i..][0..n], @bitCast(value), zigEndian(endian));
+}
+
+/// `offset` as a `usize` with `offset + n <= count`, or null.
+fn byteOffset(count: usize, offset: anytype, n: usize) ?usize {
+    const i = std.math.cast(usize, offset) orelse return null;
+    if (i > count or count - i < n) return null;
+    return i;
+}
+
+fn zigEndian(comptime e: Endian) std.builtin.Endian {
+    return switch (e) {
+        .little => .little,
+        .big => .big,
+    };
+}
+
 fn bounds(count: usize, lo: anytype, hi: anytype) [2]usize {
     const l = std.math.cast(usize, lo) orelse slicePanic();
     const h = if (@TypeOf(hi) == @TypeOf(null)) count else std.math.cast(usize, hi) orelse slicePanic();

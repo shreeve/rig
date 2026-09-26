@@ -72,7 +72,7 @@ failed; after a panic it is non-zero, with no count.
 | `src/diag.zig` | diagnostics: source ranges, line and column, the printed format |
 | `src/modules.zig` | the module graph: loads each `use`d file and checks modules in dependency order |
 | `src/sema.zig` | sema's front door: types, symbols, scopes, what types hold (drop glue), the facts table; the entry point `check` |
-| `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Signal` as built-in generics, symbol resolution, declaration types and their checks |
+| `src/resolve.zig` | the declaration pass: `Cell`, `Vec`, `Signal` as built-in generics and `Endian` as a built-in enum, symbol resolution, declaration types and their checks |
 | `src/typecheck.zig` | the expression pass: types every expression, records its facts, and checks fallibility and the raw boundary |
 | `src/ownership.zig` | the ownership checker |
 | `src/emit.zig` | Zig code generation |
@@ -484,7 +484,10 @@ later pass reads. It runs these steps in order:
 1. **builtins** (`resolve.registerBuiltins`): `Cell[T]`, `Vec[T]`, and
    `Signal[T]` are registered as generic types whose methods are
    ordinary method fields, so calls to them go through the same lookup
-   and substitution as user generics.
+   and substitution as user generics, and `Endian` as an enum. The
+   methods on elements (`copy`, `fill`, `swap`, `read`, `write`) of
+   slices, arrays, Vecs, and Strings, which have no symbol, are checked
+   by `elemsCall` and recorded as `elemCallOf` facts.
 2. **symbols** (`resolve.resolveSymbols`): one walk creates a `Symbol`
    for every declaration and binding, and a `Scope` for every node that
    opens one, recorded under that node.
@@ -555,7 +558,7 @@ instead of re-deriving it by name:
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
 | `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`Vec[Int]`), or a function's arguments |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Wrap` for `Wrap[Int](v: 3)`), and its compile-time arguments |
-| `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`): which one |
+| `elemCallOf(callee)` | for a call of a built-in element method (`!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, `b.read[T, e](at)`, `!b.write[T, e](at, v)`): which one, and for `read` and `write` the number type `T`; the bracket list is recorded as compile-time arguments (`instanceOf`) |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (an integer value parameter's `ct_value` or `ct_param`, and `type_invalid` at any other value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
 Leaves are keyed by source position and list nodes by their node id:
@@ -923,6 +926,7 @@ reviewed.
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
 | `guardStack` | makes a stack overflow stop the program. Zig probes the stack as a frame grows only on x86, so elsewhere a frame larger than the guard below the stack can step over it. Linux maps nothing within 128 MiB of the top of the stack (nor within the stack limit the program started with, plus 1 MiB), so `guardStack` holds the stack to 16 MiB (`stack_size`), leaving 112 MiB free below it; macOS guards the stack with one page and maps memory right below that once the address space fills, so there `guardStack` reserves 64 MiB (`stack_reserve`) below the guard. When it cannot (the space is taken, or the limit cannot be lowered), the program prints `rig: cannot reserve the stack guard below the main stack` and exits 1 before `main` runs. A frame holds at most 16 MiB of values (`checkFrames`), so with Zig's temporaries an overflowing one lands in the reserve. `test/cli/stack_guard.sh` checks it |
+| `Endian`, `readInt`, `writeInt` | `b.read[T, e](at)` and `!b.write[T, e](at, v)`: `std.mem.readInt` / `writeInt` on the unsigned integer of `T`'s width, with `@bitCast` for a signed or float `T`, after a check (in every build mode) that `at + @sizeOf(T) <= len`. `Endian` is Rig's built-in enum, which every module's `Endian` symbol names (`importType` maps one module's to another's) |
 | `copy`, `fill`, `swap` | the element methods: `copy` panics in every build mode unless the lengths are equal, then is `@memcpy` (the checker keeps the two slices from overlapping); `fill` is `@memset`; `swap` checks both indexes |
 | `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `isVariant`, `isVariantDiscard` | `x == .variant` on an enum with payloads, or an optional of one: tests the tag only, so it compiles whatever the payloads hold; `isVariantDiscard` drops a temporary that owns a resource |

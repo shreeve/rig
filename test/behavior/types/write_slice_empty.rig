@@ -1,0 +1,44 @@
+# Empty and nested write slices: at the end of an array, of an empty array
+# or Vec or String, reslices down to nothing, and a generic `![]T`.
+
+fun first[T](s: ![]T) -> T
+  t = s[0]
+  s[0] = s[s.len - 1]
+  s[s.len - 1] = t
+  t
+
+sub main()
+  a = [1, 2, 3]
+  z = !a[3..]
+  print(z.len, z)
+  !z.fill(9)
+  k = [7]
+  !z.copy(?k[1..])
+  e: [0]Int = []
+  !e.fill(1)
+  print(e)
+  v: Vec[Int] = Vec()
+  w = !v[..]
+  !w.fill(4)
+  print(w.len)
+  b: [0]U8 = []
+  eb = !b[..]
+  print(eb.len)
+  s = ""
+  print(s[..].len, s[0..].len)
+  print(first(!a[..]), a)
+  n = !a[1..]
+  m = !n[1..]
+  o = !m[..0]
+  print(o.len)
+  print(?a[..] == ?a[..])
+
+# expect:
+# 0 []
+# []
+# 0
+# 0
+# 0 0
+# 1 [3, 2, 1]
+# 0
+# true

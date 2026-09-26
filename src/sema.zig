@@ -552,12 +552,15 @@ pub const Facts = struct {
 };
 
 /// A built-in method on the elements of a slice, an array, a Vec, or a
-/// String: `!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`.
+/// String: `!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`, and on
+/// bytes `buf.read[U16, .big](at)` and `!buf.write[U32, .little](at, v)`.
 pub const ElemCall = struct {
     op: ElemOp,
+    /// `read` / `write`: the integer or float type of the value.
+    num: TypeId = type_invalid,
 };
 
-pub const ElemOp = enum { copy, fill, swap };
+pub const ElemOp = enum { copy, fill, swap, read, write };
 
 /// What a bracket list `x[...]` that is not an index instantiates. The
 /// parser builds `(index x a)` for one argument and `(inst x a b ...)`
@@ -743,6 +746,7 @@ pub const SemContext = struct {
     cell_sym_id: SymbolId = symbol_invalid,
     vec_sym_id: SymbolId = symbol_invalid,
     signal_sym_id: SymbolId = symbol_invalid,
+    endian_sym_id: SymbolId = symbol_invalid,
 
     /// Assigned by the module graph.
     module_id: u32 = 0,
@@ -2727,7 +2731,11 @@ pub fn importType(
             }
             return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = syms } });
         },
-        .nominal => |sym_id| return local_ctx.intern(.{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
+        // Every module has its own `Endian`, and they are one type.
+        .nominal => |sym_id| return if (sym_id == foreign_ctx.endian_sym_id)
+            local_ctx.intern(.{ .nominal = local_ctx.endian_sym_id })
+        else
+            local_ctx.intern(.{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
         .imported_nominal => |n| return local_ctx.intern(.{ .imported_nominal = n }),
         // A generic type of another module is its proxy's instance.
         .parameterized_nominal => |pn| {

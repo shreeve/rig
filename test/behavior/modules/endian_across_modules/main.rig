@@ -1,0 +1,20 @@
+# Every module's `Endian` is the one built-in type: values, constants,
+# and compile-time arguments of it pass between modules.
+
+use wire
+
+sub main()
+  b: [2]U8 = [1, 2]
+  e: Endian = wire.order()
+  print(e, e == Endian.little, wire.ORDER)
+  print(wire.get[.little](?b[..]), wire.get[wire.ORDER](?b[..]))
+  wire.put(!b[..], .big, 0x0304)
+  print(b)
+  wire.put(!b[..], e, 0x0304)
+  print(b)
+
+# expect:
+# .little true .big
+# 513 258
+# [3, 4]
+# [4, 3]

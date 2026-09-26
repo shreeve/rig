@@ -1,0 +1,38 @@
+# A page-style buffer: a header of little-endian fields written at the
+# start of a zeroed page, read back, and the last bytes of the page used
+# too.
+
+MAGIC: U32 =! 0x52494721
+
+struct Header
+  magic: U32
+  count: U16
+  free: U16
+
+sub put(page: ![4096]U8, h: Header)
+  !page.write[U32, .little](0, h.magic)
+  !page.write[U16, .little](4, h.count)
+  !page.write[U16, .little](6, h.free)
+
+fun get(page: ?[4096]U8) -> Header
+  Header(magic: page.read[U32, .little](0), count: page.read[U16, .little](4), free: page.read[U16, .little](6))
+
+sub main()
+  page: [4096]U8 = [4096 of 0]
+  put(!page, Header(magic: MAGIC, count: 3, free: 4088))
+  !page.write[U64, .big](4088, 0x0102030405060708)
+  h = get(?page)
+  print(h.magic == MAGIC, h.count, h.free)
+  print(page[0], page[1], page[2], page[3], page[4], page[6], page[7])
+  print(page.read[U64, .big](4088), page.read[U8, .little](4095))
+  body = ?page[8..4088]
+  total = 0
+  for byte in body
+    total += Int(byte)
+  print(body.len, total)
+
+# expect:
+# true 3 4088
+# 33 71 73 82 3 248 15
+# 72623859790382856 8
+# 4080 0

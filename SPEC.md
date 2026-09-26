@@ -632,6 +632,52 @@ use of `v` while a write borrow is live
 cannot write-borrow a slice of a String; a String is read-only
 ```
 
+### Bytes
+
+Bytes hold fixed-width numbers. `bytes.read[T, e](at)` is the integer
+or float `T` stored in the `@sizeOf(T)` bytes from offset `at`, in byte
+order `e`, and `!bytes.write[T, e](at, v)` stores `v` there. `T` is any
+integer or float type; `e` is a compile-time value of the built-in enum
+`Endian`, `.little` or `.big` (a literal, `Endian.big`, a constant, or
+a compile-time parameter; there is no native order). `read` works on a
+`[]U8`, an `![]U8`, a `[N]U8`, a `Vec[U8]`, and a String; `write` on
+the writable ones, written `!bytes` (or an `![]U8` binding). Every byte
+must be in range, `0 <= at` and `at + @sizeOf(T) <= len`: a constant
+offset into an array is checked at compile time, and any other when the
+program runs, which panics in every build mode when it is not. A float
+is read and written by its bits, so a NaN's payload survives. `Endian`
+is a built-in name, like `Vec`, and is reserved.
+
+```rig
+sub main
+  page: [4096]U8 = [4096 of 0]
+  !page.write[U32, .little](0, 0x52494721)
+  !page.write[U16, .big](4, 4088)
+  print(page[0], page[1], page[4], page[5])
+  print(page.read[U32, .little](0), page.read[U16, .big](4), page.read[U16, .little](4))
+  body = !page[8..]
+  !body.write[F64, .big](0, 2.5)
+  print(page.read[F64, .big](8))
+```
+
+```output
+33 71 15 248
+1380534049 4088 63503
+2.5
+```
+
+```rig reject
+sub main
+  b: [8]U8 = [8 of 0]
+  print(b.read[U32, .little](6))
+  print(b.read[U16, .native](0))
+```
+
+```error
+`read` of a `U32` at `6` runs past the end of an array of length 8: it needs 4 bytes
+no variant `native` on enum `Endian`
+```
+
 ### Composite and handle types
 
 | Type | Meaning | Section |
@@ -647,6 +693,7 @@ cannot write-borrow a slice of a String; a String is read-only
 | `fun(A, B) -> R`, `sub(A)` | function and closure types | [§12](#12-closures) |
 | `*fun(A) -> R`, `*sub(A)` | owned closure (a shared handle) | [§12](#12-closures) |
 | `Cell[T]`, `Vec[T]`, `Signal[T]` | built-in generic types | [§11](#11-cell-vec-and-signal) |
+| `Endian` | built-in enum: the byte order of `read` and `write` | [§3](#bytes) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§4](#4-declarations), [§15](#15-modules) |
 
 The handle sigils `*` and `~` bind to the type they touch, tighter than

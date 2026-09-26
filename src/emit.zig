@@ -1888,6 +1888,8 @@ pub const Emitter = struct {
             return self.w.print("{s}{s})", .{ if (name[0] == '.') "0" else "", name });
         }
         if (isLiteralText(name)) return self.w.writeAll(name);
+        // A built-in type named in an expression: `Endian.big`.
+        if (self.sema.symbolOf(sexp)) |id| if (id == self.sema.endian_sym_id) return self.writeNominalName(id);
         if (self.rt_names and !self.keep_comptime and self.isModuleConst(sexp)) {
             try self.w.writeAll("rig.rt(");
             try self.writeModuleName(name);
@@ -2729,15 +2731,35 @@ pub const Emitter = struct {
     }
 
     /// A built-in element method: `!dst.copy(src)` is `rig.copy(dst,
-    /// src)`, and `fill` and `swap` likewise, on the receiver's elements
-    /// (`emitElems`). Its arguments are plain data, so none is hoisted.
+    /// src)`, `fill` and `swap` likewise, and `read` and `write` are
+    /// `rig.readInt` and `rig.writeInt`, on the receiver's elements
+    /// (`emitElems`). The arguments are plain data, so none is hoisted.
     fn emitElemCall(self: *Emitter, call: Sexp, ec: sema.ElemCall) Error!void {
         const callee = self.sema.calleeOf(call);
-        try self.w.print("rig.{s}(", .{@tagName(ec.op)});
-        try self.emitElems(ir.Member.object(callee));
-        for (ir.Call.args(call)) |a| {
-            try self.w.writeAll(", ");
-            try self.emitBare(a);
+        const args = ir.Call.args(call);
+        switch (ec.op) {
+            // `rig.readInt(T, bytes, at, endian)`,
+            // `rig.writeInt(T, bytes, at, value, endian)`.
+            .read, .write => {
+                try self.w.writeAll(if (ec.op == .read) "rig.readInt(" else "rig.writeInt(");
+                try self.emitTypeTy(ec.num);
+                try self.w.writeAll(", ");
+                try self.emitElems(ir.Member.object(callee));
+                for (args) |a| {
+                    try self.w.writeAll(", ");
+                    try self.emitBare(a);
+                }
+                try self.w.writeAll(", ");
+                try self.emitBare(self.sema.ctArgsOf(call)[1]);
+            },
+            .copy, .fill, .swap => {
+                try self.w.print("rig.{s}(", .{@tagName(ec.op)});
+                try self.emitElems(ir.Member.object(callee));
+                for (args) |a| {
+                    try self.w.writeAll(", ");
+                    try self.emitBare(a);
+                }
+            },
         }
         try self.w.writeAll(")");
     }
@@ -3645,7 +3667,7 @@ pub const Emitter = struct {
     /// module's generic type through its proxy (`lib.Wrap`).
     fn writeNominalName(self: *Emitter, sym: SymbolId) Error!void {
         const s = self.sema.symbols.items[sym];
-        if (sym == self.sema.vec_sym_id or sym == self.sema.cell_sym_id or sym == self.sema.signal_sym_id) {
+        if (sym == self.sema.vec_sym_id or sym == self.sema.cell_sym_id or sym == self.sema.signal_sym_id or sym == self.sema.endian_sym_id) {
             return self.w.print("rig.{s}", .{s.name});
         }
         if (sema.isProxy(s)) {

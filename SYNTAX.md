@@ -515,6 +515,7 @@ operands have different types `I32` and `Int`
 | `fun(A, B) -> R`, `sub(A)` | function or stack closure | `fn(A, B) -> R`, `impl Fn` | `*const fn (A, B) R` |
 | `*fun(A) -> R`, `*sub(A)` | owned closure | `Rc<dyn Fn(A) -> R>` | a boxed closure |
 | `Cell[T]`, `Vec[T]`, `Signal[T]` | built-in generics | `RefCell<T>`, `Vec<T>` | runtime types |
+| `Endian` | byte order: `.little`, `.big` | | `std.builtin.Endian` |
 | `Name[T]` | generic instance | `Name<T>` | `Name(T)` |
 | `mod.Name` | imported type | `mod::Name` | `mod.Name` |
 
@@ -2776,6 +2777,27 @@ sub main
 cannot take a second write borrow on `a`
 ```
 
+**Bytes** hold fixed-width numbers: `buf.read[U16, .big](at)` reads a
+`U16` stored big-endian at byte `at`, and `!buf.write[U32, .little](at,
+v)` stores one, like Rust's `u16::from_be_bytes` and `to_le_bytes` or
+Zig's `std.mem.readInt` and `writeInt`. The type is any integer or
+float, and the byte order is a compile-time value of the built-in enum
+`Endian` (`.little` or `.big`). The bytes are a `[N]U8`, a `[]U8` or
+`![]U8`, a `Vec[U8]`, or (to read) a String, and every byte read or
+written must be in range, or the program panics, in every build mode.
+
+```rig
+sub main
+  page: [4096]U8 = [4096 of 0]
+  !page.write[U32, .little](0, 0xcafe)
+  hdr = ?page[..8]
+  print(page[0], page[1], hdr.read[U32, .little](0), hdr.read[U16, .big](0))
+```
+
+```output
+254 202 51966 65226
+```
+
 ## 23. Modules and constants
 
 `use name` imports `name.rig` from the root file's directory. The
@@ -2956,7 +2978,8 @@ Coming from Rust or Zig, you will reach for these and not find them:
 - **heap strings and string building**: `String` is an immutable view;
 - **stack closures as arguments**: pass an owned closure (`*|...|`);
 - **concurrency and async**;
-- **a standard library** beyond `print`, `Cell`, `Vec`, and `Signal`;
+- **a standard library** beyond `print`, `Cell`, `Vec`, `Signal`, and
+  the slice methods (`copy`, `fill`, `swap`, `read`, `write`);
 - **raw pointers**;
 - **macros**, which Rig does not plan to have.
 
@@ -3049,6 +3072,7 @@ correspondences:
 | `?T` parameter | the value for plain data; `*const T` for owning types |
 | `!T` | `*T` |
 | `[]T`, `![]T` | `[]const T`, `[]T` |
+| `b.read[U16, .big](at)`, `!b.write[U32, .little](at, v)` | `rig.readInt(u16, b, at, .big)` over `std.mem.readInt`, `rig.writeInt` over `std.mem.writeInt` |
 | `*T`, `~T` | runtime `RcBox(T)` pointer, weak handle |
 | `Vec[T]`, `Cell[T]` | runtime generic types |
 | an owning local | a `defer` that releases it, guarded by a flag if it may move first |
