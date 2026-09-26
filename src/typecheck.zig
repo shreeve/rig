@@ -3285,12 +3285,17 @@ const Checker = struct {
             }
             return;
         }
-        for (args, f.ct_params, 0..) |a, ty, i| {
-            try self.checkExpr(a, ty);
-            if (!self.isComptimeKnown(a)) {
-                try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a compile-time parameter, or a `=!` binding of one", .{ i + 1, callee });
-            }
-        }
+        for (args, f.ct_params, 0..) |a, ty, i| try self.checkCtValue(a, ty, i, callee);
+    }
+
+    /// Compile-time argument `i` of `callee`, a value of type `ty`.
+    fn checkCtValue(self: *Checker, a: Sexp, ty: TypeId, i: usize, callee: []const u8) Error!void {
+        const mark = self.ctx.diagnostics.items.len;
+        try self.checkExpr(a, ty);
+        if (self.ctx.diagnostics.items.len != mark or self.isComptimeKnown(a)) return;
+        if (self.isCtArithmetic(a)) {
+            try self.errAt(a, "compile-time argument {d} of `{s}` does arithmetic on a compile-time parameter, which Rig cannot check for overflow or division by zero; pass a parameter or a constant", .{ i + 1, callee });
+        } else try self.errAt(a, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a compile-time parameter, or a `=!` binding of one", .{ i + 1, callee });
     }
 
     /// A method's type parameters and the receiver's arguments for them:
@@ -3337,10 +3342,7 @@ const Checker = struct {
                     if (self.isPoison(type_args[i])) bad = true;
                     continue;
                 }
-                try self.checkExpr(g, slot);
-                if (!self.isComptimeKnown(g)) {
-                    try self.errAt(g, "compile-time argument {d} of `{s}` must be known at compile time; pass a literal, an enum value, a compile-time parameter, or a `=!` binding of one", .{ i + 1, callee });
-                }
+                try self.checkCtValue(g, slot, i, callee);
             }
             if (bad) return null;
         } else {
@@ -3574,8 +3576,11 @@ const Checker = struct {
                 const h = e.kind() orelse return false;
                 return switch (h) {
                     .enum_lit => true,
-                    .neg, .not => self.isComptimeKnown(ir.get(e, .operand)),
-                    .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^", .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => self.isComptimeKnown(ir.get(e, .left)) and self.isComptimeKnown(ir.get(e, .right)),
+                    .not => self.isComptimeKnown(ir.get(e, .operand)),
+                    .@"==", .@"!=", .@"<", .@">", .@"<=", .@">=", .@"and", .@"or" => self.isComptimeKnown(ir.get(e, .left)) and self.isComptimeKnown(ir.get(e, .right)),
+                    // Rig checks arithmetic only on constants: a compile-time
+                    // parameter or a `=!` binding of one differs per call.
+                    .neg, .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => self.constInt(e) != null or (self.isCtArithmetic(e) and !self.mentionsCtLocal(e)),
                     .member => ir.Member.object(e) == .src and blk: {
                         const id = self.lookupQuiet(ir.Member.object(e)) orelse break :blk false;
                         const sym = self.ctx.symbols.items[id];
@@ -3591,6 +3596,34 @@ const Checker = struct {
             },
             else => return false,
         }
+    }
+
+    /// Arithmetic whose operands are each known at compile time.
+    fn isCtArithmetic(self: *Checker, e: Sexp) bool {
+        const h = e.kind() orelse return false;
+        return switch (h) {
+            .neg => self.isComptimeKnown(ir.Neg.operand(e)) or self.isCtArithmetic(ir.Neg.operand(e)),
+            .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => for ([_]Sexp{ ir.get(e, .left), ir.get(e, .right) }) |o| {
+                if (!self.isComptimeKnown(o) and !self.isCtArithmetic(o)) break false;
+            } else true,
+            else => false,
+        };
+    }
+
+    /// Whether `e` names a compile-time parameter or a `=!` binding in a
+    /// function, whose value differs from call to call.
+    fn mentionsCtLocal(self: *Checker, e: Sexp) bool {
+        return switch (e) {
+            .src => {
+                const id = self.ctx.symbolOf(e) orelse return false;
+                const sym = self.ctx.symbols.items[id];
+                return sym.flags.comptime_known and sym.scope != self.module_scope;
+            },
+            .list => for (e.items()) |c| {
+                if (self.mentionsCtLocal(c)) break true;
+            } else false,
+            else => false,
+        };
     }
 
     /// Construct a struct (`User(name: ...)`). Field types go through

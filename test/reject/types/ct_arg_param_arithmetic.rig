@@ -1,0 +1,28 @@
+# Arithmetic in a compile-time argument is checked only when Rig folds
+# it to a constant. On a compile-time parameter it would be computed per
+# instance, unchecked, so it is rejected, as is a `=!` binding of it.
+
+sub inner[n: U8]
+  print(n)
+
+sub outer[n: U8]
+  inner[n + 1]
+  inner[10 / n]
+  inner[1 << n]
+
+fun g[n: Int] -> Int
+  n
+
+fun f[n: Int] -> Int
+  k =! n * 2
+  g[-n]() + g[k]()
+
+sub main()
+  outer[255]
+  print(f[3]())
+
+# error: 9:9: compile-time argument 1 of `inner` does arithmetic on a compile-time parameter
+# error: 10:9: compile-time argument 1 of `inner` does arithmetic on a compile-time parameter
+# error: 11:9: compile-time argument 1 of `inner` does arithmetic on a compile-time parameter
+# error: 18:5: compile-time argument 1 of `g` does arithmetic on a compile-time parameter
+# error: 18:15: compile-time argument 1 of `g` must be known at compile time

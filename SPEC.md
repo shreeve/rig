@@ -3032,11 +3032,15 @@ its compile-time parameters in brackets touching its name, before its
 run-time parameters: `fun check[mode: Mode](n: Int) -> Bool`. Each
 lowers to a Zig `comptime` parameter. A call gives their arguments in
 brackets touching the function: `check[.strict](5)`. Each must be a
-literal (`none` included), an enum value, a compile-time parameter, or
-a `=!` binding of one. So a compile-time parameter's type is a number,
-`Bool`, `String`, an enum whose variants carry nothing, or an optional
-of one. A function with compile-time parameters can only be called,
-not used as a value.
+literal (`none` included), an enum value, a module constant, a
+compile-time parameter, a `=!` binding of one, or a comparison or
+`and`, `or`, `not` of these. So a compile-time parameter's type is a
+number, `Bool`, `String`, an enum whose variants carry nothing, or an
+optional of one. Arithmetic in a compile-time argument must fold to a
+constant (`LIMIT * 2`), which Rig checks for overflow; arithmetic on a
+compile-time parameter (`n + 1`) is rejected, since each instance
+would compute it unchecked. A function with compile-time parameters
+can only be called, not used as a value.
 
 A function with no run-time parameters may leave out its parentheses,
 in its declaration (`sub show[n: Int]`) and in a call that is a whole

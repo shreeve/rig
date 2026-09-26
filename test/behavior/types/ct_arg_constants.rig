@@ -1,0 +1,36 @@
+# A compile-time argument may compute with constants, which Rig folds
+# and checks, and may compare or combine compile-time values.
+
+LIM =! 4
+FL =! 1.5
+
+sub g[n: Int]
+  print(n)
+
+sub h[b: Bool]
+  print(b)
+
+sub fl[x: Float]
+  print(x)
+
+sub f[n: Int]
+  k =! n > 1
+  h[k]
+  h[n > 1 and not k]
+  g[LIM * 2]
+  fl[FL * 2.0]
+  a =! 7
+  j =! a * 2
+  g[j]
+  g[a * 3 - LIM]
+
+sub main()
+  f[3]
+
+# expect:
+# true
+# false
+# 8
+# 3.0
+# 14
+# 17
