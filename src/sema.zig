@@ -2725,9 +2725,15 @@ fn typedResult(e: Sexp, v: i128, int: ?IntInfo) CtFold {
 
 /// Whether an integer type holds `v`.
 pub fn intInfoFits(info: IntInfo, v: i128) bool {
+    const r = intRange(info);
+    return v >= r.min and v <= r.max;
+}
+
+/// The least and greatest values of an integer type.
+pub fn intRange(info: IntInfo) struct { min: i128, max: i128 } {
     const bits: u8 = if (info.bits == 0) 64 else info.bits;
     const half = @as(i128, 1) << @intCast(bits - 1);
-    return if (info.signed) v >= -half and v < half else v >= 0 and v < 2 * half;
+    return if (info.signed) .{ .min = -half, .max = half - 1 } else .{ .min = 0, .max = 2 * half - 1 };
 }
 
 /// `constInt` as an optional: null when not constant or too large.

@@ -348,7 +348,9 @@ integer, a constant (`[LIMIT]T`, `[lib.N]T`), a compile-time integer
 parameter (`[n]T` in `fun zeros[n: Int] -> [n]Int`,
 [§17](#17-compile-time-parameters)), or arithmetic on integers and
 constants with `+`, `-`, `*`, `/`, `%`, and parentheses
-(`[LIMIT * 2 + 1]U8`). A length runs from 0 to 4294967295, and one
+(`[LIMIT * 2 + 1]U8`). The arithmetic is checked as constant
+arithmetic is, in its constants' type: with `W: U8 =! 200`, `[W * 2]T`
+overflows `U8`. A length runs from 0 to 4294967295, and one
 given by a compile-time parameter is checked at each instance.
 Arithmetic on a compile-time parameter (`[n + 1]T`) is rejected, as in
 a compile-time argument. The length is a value, however it is written:

@@ -1485,8 +1485,19 @@ pub const TypeResolver = struct {
             try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is a value of type `{s}`, not a type", .{ use.arg.index + 1, use.arg.owner, try sema.formatType(self.ctx, self.ctx.symbols.items[use.arg.param].ty) });
             return t.invalid_id;
         }
-        const ct = (try self.ctIntOf(node, what)) orelse return t.invalid_id;
+        const folded = (try self.ctIntOf(node, what)) orelse return t.invalid_id;
+        const ct = folded.ty;
         const param_ty = if (use == .arg) self.ctx.symbols.items[use.arg.param].ty else t.int_id;
+        // A value argument has its parameter's type, as in an expression.
+        if (use == .arg and folded.int != null and !self.isPoison(param_ty)) {
+            const ty = try self.ctx.intern(.{ .int = folded.int.? });
+            if (ty != param_ty) {
+                const got = try sema.formatType(self.ctx, ty);
+                const want = try sema.formatType(self.ctx, param_ty);
+                try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, {s} `{s}`; `{s}` takes {s} `{s}`", .{ use.arg.index + 1, use.arg.owner, try self.sourceText(node), an(got), got, self.ctx.symbols.items[use.arg.param].name, an(want), want });
+                return t.invalid_id;
+            }
+        }
         switch (self.ctx.types.get(ct)) {
             .ct_value => |v| switch (use) {
                 .array_len => if (v.int < 0 or v.int > sema.max_array_len) {
@@ -1502,7 +1513,9 @@ pub const TypeResolver = struct {
             .ct_param => |sym| {
                 const ty = self.ctx.symbols.items[sym].ty;
                 if (use == .arg and !self.isPoison(param_ty) and !self.isPoison(ty) and ty != param_ty) {
-                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, a `{s}`; `{s}` takes a `{s}`", .{ use.arg.index + 1, use.arg.owner, self.ctx.symbols.items[sym].name, try sema.formatType(self.ctx, ty), self.ctx.symbols.items[use.arg.param].name, try sema.formatType(self.ctx, param_ty) });
+                    const got = try sema.formatType(self.ctx, ty);
+                    const want = try sema.formatType(self.ctx, param_ty);
+                    try self.ctx.errAt(node, "compile-time argument {d} of `{s}` is `{s}`, {s} `{s}`; `{s}` takes {s} `{s}`", .{ use.arg.index + 1, use.arg.owner, self.ctx.symbols.items[sym].name, an(got), got, self.ctx.symbols.items[use.arg.param].name, an(want), want });
                     return t.invalid_id;
                 }
                 if (use == .array_len) try self.ctx.generic_requirements.append(self.ctx.allocator, .{ .param = sym, .req = .array_len, .pos = self.ctx.startOf(node), .op = "an array length" });
@@ -1512,15 +1525,35 @@ pub const TypeResolver = struct {
         return ct;
     }
 
-    /// The `ct_value` or `ct_param` a compile-time integer `node` names;
-    /// null after a diagnostic about it as `what`.
-    fn ctIntOf(self: *TypeResolver, node: Sexp, what: []const u8) Error!?TypeId {
-        if (node == .src) if (try self.ctParamNamed(node)) |ct| return ct;
+    /// A compile-time integer: its `ct_value` or `ct_param`, and for a
+    /// value folded from typed constants, their type.
+    const CtInt = struct { ty: TypeId, int: ?sema.IntInfo = null };
+
+    /// The compile-time integer `node` is; null after a diagnostic about
+    /// it as `what`.
+    fn ctIntOf(self: *TypeResolver, node: Sexp, what: []const u8) Error!?CtInt {
+        if (node == .src) if (try self.ctParamNamed(node)) |ct| return .{ .ty = ct };
         const names = self.constNames();
-        switch (sema.constIntBy(self.ctx, node, names)) {
-            .value => |v| return try sema.ctInt(self.ctx, v),
-            .overflow => {
-                try self.ctx.errAt(node, "{s} `{s}` is too large to compute", .{ what, try self.sourceText(node) });
+        switch (sema.ctFoldBy(self.ctx, node, names)) {
+            .value => |v| return .{ .ty = try sema.ctInt(self.ctx, v.v), .int = v.int },
+            .overflow => |o| {
+                const at = try self.sourceText(o.node);
+                if (o.int) |int| {
+                    const ty = try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = int }));
+                    const b = sema.intRange(int);
+                    if (std.meta.eql(self.ctx.span(o.node), self.ctx.span(node)))
+                        try self.ctx.errAt(node, "{s} `{s}` overflows `{s}` ({d}..{d})", .{ what, at, ty, b.min, b.max })
+                    else
+                        try self.ctx.errAt(o.node, "{s} `{s}` overflows `{s}` ({d}..{d}) in `{s}`", .{ what, try self.sourceText(node), ty, b.min, b.max, at });
+                } else try self.ctx.errAt(o.node, "{s} `{s}` is too large to compute", .{ what, try self.sourceText(node) });
+                return null;
+            },
+            .mismatch => |m| {
+                try self.ctx.errAt(m.node, "{s} `{s}` combines `{s}` and `{s}`; convert one to the other's type", .{
+                    what, try self.sourceText(m.node),
+                    try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = m.a })),
+                    try sema.formatType(self.ctx, try self.ctx.intern(.{ .int = m.b })),
+                });
                 return null;
             },
             .not_constant => {},
@@ -1621,7 +1654,7 @@ pub const TypeResolver = struct {
         return false;
     }
 
-    fn notAType(self: *TypeResolver, node: Sexp, what: []const u8) Error!?TypeId {
+    fn notAType(self: *TypeResolver, node: Sexp, what: []const u8) Error!?CtInt {
         try self.ctx.errAt(node, "`{s}` is a type; {s} is an integer, a constant, a compile-time parameter, or arithmetic on them", .{ try self.sourceText(node), what });
         return null;
     }

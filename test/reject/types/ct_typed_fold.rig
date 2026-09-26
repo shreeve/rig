@@ -1,0 +1,24 @@
+# A size is folded as constant arithmetic is checked: each operation in
+# its operands' type, whose range its value must fit, and a value
+# argument has its parameter's type.
+
+W: U8 =! 200
+N: I8 =! 4
+BIG =! 9223372036854775807
+
+struct Ring[T, n: Int]
+  items: [n]T
+
+sub main()
+  a: [W * 2]Int = []
+  b: [BIG * 4 - BIG * 4]Int = []
+  c: [W + N]Int = []
+  r: Ring[Int, N]? = none
+  s: Ring[Int, N + N]? = none
+  print(a, b, c, r == none, s == none)
+
+# error: 13:7: an array length `W * 2` overflows `U8` (0..255)
+# error: 14:7: an array length `BIG * 4 - BIG * 4` overflows `Int` (-9223372036854775808..9223372036854775807) in `BIG * 4`
+# error: 15:7: an array length `W + N` combines `U8` and `I8`
+# error: 16:16: compile-time argument 2 of `Ring` is `N`, an `I8`; `n` takes an `Int`
+# error: 17:16: compile-time argument 2 of `Ring` is `N + N`, an `I8`; `n` takes an `Int`
