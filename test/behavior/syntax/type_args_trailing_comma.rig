@@ -1,0 +1,19 @@
+# A bracket list of type arguments may end with a comma, in a type and
+# in an expression, as other lists may.
+
+type Pair[T, U]
+  a: T
+  b: U
+
+sub show(p: Pair[Int, String,])
+  print(p.a, p.b)
+
+sub main()
+  p = Pair[
+    Int,
+    String,
+  ](a: 1, b: "x")
+  show(p)
+
+# expect:
+# 1 x
