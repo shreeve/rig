@@ -840,11 +840,20 @@ pub const SemContext = struct {
         return self.report(.note, self.span(node), fmt, args);
     }
 
+    /// A note at `pos` in module `module`'s source (0, or this module's
+    /// id, for this module): where another module's generic body applies
+    /// an operation an instance made here does not support.
+    pub fn noteIn(self: *SemContext, module: u32, pos: u32, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
+        const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
+        const m = if (module == self.module_id) 0 else module;
+        try self.diagnostics.append(self.allocator, .{ .severity = .note, .pos = pos, .end = pos, .message = msg, .module = m });
+    }
+
     fn report(self: *SemContext, severity: diag.Severity, at: diag.Span, comptime fmt: []const u8, args: anytype) std.mem.Allocator.Error!void {
         const msg = try std.fmt.allocPrint(self.arena.allocator(), fmt, args);
         // The same finding reached twice is reported once.
         if (severity == .@"error") for (self.diagnostics.items) |d| {
-            if (d.severity == .@"error" and d.pos == at.start and std.mem.eql(u8, d.message, msg)) return;
+            if (d.severity == .@"error" and d.module == 0 and d.pos == at.start and std.mem.eql(u8, d.message, msg)) return;
         };
         try self.diagnostics.append(self.allocator, .{ .severity = severity, .pos = at.start, .end = at.end, .message = msg });
     }
