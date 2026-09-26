@@ -1914,6 +1914,10 @@ pub const Checker = struct {
                 // A captured read borrow or Copy value is copied out, and
                 // a captured borrow passed to a call is lent for the call.
                 const copied = v.ref == .read or self.isCopy(v.ty) or (sink == .argument and v.ref != .none);
+                if (v.capture_resource and !copied and v.ref == .write) {
+                    try self.err(pos, "bare use of captured write borrow `{s}` in {s} would hand the unique borrow out of the closure environment, again at each call; use it inside the closure instead", .{ name, sink.text() });
+                    return;
+                }
                 if (v.capture_resource and !copied) {
                     try self.err(pos, "bare use of captured resource `{s}` in {s} would smuggle the handle out of the closure environment; use `+{s}` to clone a fresh handle, or `~{s}` for a weak reference", .{ name, sink.text(), name, name });
                     return;
@@ -2138,6 +2142,14 @@ pub const Checker = struct {
         try self.setFlow(id, .{ .loans = if (self.mayCarryBorrow(v.ty)) value.loans else &.{} });
     }
 
+    /// The var a borrow held by var `id` borrows, when it holds one of
+    /// a var of this function.
+    fn borrowedRoot(self: *const Checker, id: VarId) ?VarId {
+        if (self.vars.items[id].ref == .none) return null;
+        for (self.flows.items[id].loans) |l| if (!l.ext and l.root != id) return l.root;
+        return null;
+    }
+
     /// Whether assigning var `v` writes through it (a parameter, or a
     /// loop or pattern binding) rather than rebinding it.
     fn writesThrough(self: *const Checker, v: Var) bool {
@@ -2168,7 +2180,14 @@ pub const Checker = struct {
             // Stored into something the caller owns: only borrows the
             // caller handed in may go there.
             for (value.loans) |l| if (self.isLocalLoan(l) or self.isGlobal(id)) {
-                try self.err(pos, "cannot store a borrow of `{s}` in `{s}`: `{s}` outlives it", .{ self.vars.items[l.root].name, try self.placeText(target), v.name });
+                const stored = self.vars.items[l.root].name;
+                const into = try self.placeText(target);
+                // A local borrow: what outlives it is what `v` borrows.
+                if (v.kind != .param) if (self.borrowedRoot(id)) |root| {
+                    try self.err(pos, "cannot store a borrow of `{s}` in `{s}`: `{s}` borrows `{s}`, which outlives it", .{ stored, into, v.name, self.vars.items[root].name });
+                    return;
+                };
+                try self.err(pos, "cannot store a borrow of `{s}` in `{s}`: `{s}` outlives it", .{ stored, into, v.name });
                 return;
             };
             return;
@@ -2783,8 +2802,11 @@ pub const Checker = struct {
             spec.moved = (try self.walkMove(source)).loans;
         } else {
             spec.elem_view = true;
+            const found = self.errors_found;
             _ = try self.walk(source);
-            if (self.resolvePlace(source)) |p| {
+            // A source already reported (used while write-borrowed) is
+            // not reported again as a conflicting borrow.
+            if (self.errors_found == found) if (self.resolvePlace(source)) |p| {
                 const id = p.root;
                 const kind: LoanKind = if (mode == .write) .write else .read;
                 spec.source_root = id;
@@ -2794,7 +2816,7 @@ pub const Checker = struct {
                 if (!self.flowLive(id) or try self.conflicts(id, if (kind == .write) .write else .read, spec.source_pos)) {
                     spec.source_root = null;
                 }
-            }
+            };
         }
         return self.walkLoop(spec);
     }

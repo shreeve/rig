@@ -787,7 +787,9 @@ const Checker = struct {
         }
         switch (sym.kind) {
             .param => if (self.ctx.types.get(sym.ty) != .borrow_write) {
-                try self.err(pos, "cannot {s} parameter `{s}`; parameters are immutable (take `{s}: !T` to write through to the caller)", .{ verb, name, name });
+                if (std.mem.eql(u8, name, "self")) {
+                    try self.err(pos, "cannot {s} parameter `self`; parameters are immutable (take `!self` to write through to the caller)", .{verb});
+                } else try self.err(pos, "cannot {s} parameter `{s}`; parameters are immutable (take `{s}: !T` to write through to the caller)", .{ verb, name, name });
             },
             .capture => try self.err(pos, "cannot {s} captured `{s}`; captures are fixed when the closure is created", .{ verb, name }),
             .local => if (sym.flags.fixed) {
@@ -2375,7 +2377,10 @@ const Checker = struct {
                 return self.t().invalid_id;
             }
         }
-        if (!(try self.checkWritable(slice, object, "write-borrow"))) return self.t().invalid_id;
+        // The binding it reaches may be one no borrow can write (a
+        // parameter, a fixed or loop binding): reported, nothing lent.
+        const mark = self.ctx.diagnostics.items.len;
+        if (!(try self.checkWritable(slice, object, "write-borrow")) or self.ctx.diagnostics.items.len != mark) return self.t().invalid_id;
         return self.ctx.intern(.{ .borrow_write = try self.ctx.intern(.{ .slice = .{ .elem = elem } }) });
     }
 
@@ -4881,7 +4886,12 @@ const Checker = struct {
         if (obj.isKind(.write)) return true;
         // A binding that holds a write borrow lends it as it is.
         if (self.ctx.types.get(obj_ty) == .borrow_write and !obj.isKind(.read)) return self.checkLendsWriteBorrow(obj);
-        const sp = self.ctx.span(if (obj.isKind(.read) or obj.isKind(.move)) ir.get(obj, .operand) else obj);
+        const place = if (obj.isKind(.read) or obj.isKind(.move)) ir.get(obj, .operand) else obj;
+        // A receiver `!` could not write (through a `*T` or `?T`, or of
+        // a parameter) is reported as such, not with a `!` to add.
+        const mark = self.ctx.diagnostics.items.len;
+        if (!try self.checkWritable(place, obj, "write-borrow") or self.ctx.diagnostics.items.len != mark) return false;
+        const sp = self.ctx.span(place);
         try self.errAt(obj, "`{s}` writes the elements; write the receiver with `!`: `!{s}.{s}(...)`", .{ method, self.ctx.source[sp.start..sp.end], method });
         return false;
     }
