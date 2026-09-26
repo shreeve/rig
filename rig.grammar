@@ -376,7 +376,8 @@ tokens
 
 @errors
     stmt: "a statement", block: "an indented block", type: "a type"
-    expr: "an expression", tail: "an expression", value: "a value"
+    expr: "an expression", tail: "an expression", rhs: "an expression"
+    value: "a value"
     field: "a parameter", member: "a member"
     pattern: "a pattern", arm: "a match arm", params: "a parameter list"
     unary: "an operand", step: "an assignment or a call"
@@ -409,23 +410,23 @@ stmt     = use
 # A compound assignment's `op` is the tag its operator names (`+=`).
 simple   = tail
          | assign
-         | target:postfix "=!"  value:tail          → (set op:fixed)
-         | target:postfix "<-"  value:tail          → (set op:move)
-         | target:name ":" type:type "="  value:tail → (set)
-         | target:name ":" type:type "=!" value:tail → (set op:fixed)
-         | NEW target:name "=" value:tail           → (set op:shadow)
+         | target:postfix "=!"  value:rhs           → (set op:fixed)
+         | target:postfix "<-"  value:rhs           → (set op:move)
+         | target:name ":" type:type "="  value:rhs  → (set)
+         | target:name ":" type:type "=!" value:rhs  → (set op:fixed)
+         | NEW target:name "=" value:rhs            → (set op:shadow)
          | DROP_STMT name:name                      → (drop)
-         | RETURN [value:tail]                      → (return)
-         | BREAK [":" label:name] [value:tail]      → (break)
+         | RETURN [value:rhs]                       → (return)
+         | BREAK [":" label:name] [value:rhs]       → (break)
          | CONTINUE [":" label:name]                → (continue)
          | DEFER body:(block | simple)              → (defer)
          | ERRDEFER body:(block | simple)           → (errdefer)
          | RAW body:block                           → (raw_block)
 
-assign   = target:postfix "="   value:tail          → (set)
+assign   = target:postfix "="   value:rhs           → (set)
          | target:postfix
            op:("+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=")
-           value:tail                               → (set)
+           value:rhs                                → (set)
 
 # ==============================================================================
 # DECLARATIONS
@@ -436,8 +437,8 @@ decl     = defn
          | PUB decl:const                           → (pub)
 
 # A public module-level constant.
-const    = target:name "=!" value:tail              → (set op:fixed)
-         | target:name ":" type:type "=!" value:tail → (set op:fixed)
+const    = target:name "=!" value:rhs               → (set op:fixed)
+         | target:name ":" type:type "=!" value:rhs  → (set op:fixed)
 
 defn     = fun | sub | enum | struct | errors | typedef | test
 
@@ -605,17 +606,21 @@ cunit    = INTEGER
 # EXPRESSIONS
 # ==============================================================================
 #
-#   tail    an expression, a paren-free call, or a closure whose body is one.
-#           Allowed where nothing can follow on the line: a statement, the
-#           right side of a binding, `return`, a match arm, the last
-#           argument of a paren-free call. Inside ( ) only the closure
-#           may appear (`cclosure`): a call there takes parentheses.
+#   tail    an expression, a paren-free call, or a closure whose body is one:
+#           a statement or a match arm. A paren-free call is a command,
+#           never a value.
+#   rhs     an expression, or a closure whose body is a paren-free call:
+#           the right side of a binding, `return` and `break`. Inside ( )
+#           only this closure may appear (`cclosure`).
 #   expr    anything that yields a value, including block forms.
-#   value   an expression without a block or closure: conditions, operands,
-#           ternary branches.
+#   value   an expression without a block or closure: conditions, sources,
+#           subjects, operands, ternary branches.
 
 tail     = expr
          | cmd
+         | cclosure
+
+rhs      = expr
          | cclosure
 
 expr     = value
@@ -637,15 +642,14 @@ conj     = left:conj AND right:neg                  → (and)
 neg      = NOT operand:neg                          → (not)
          | @infix
 
-cond     = value
-         | cmd
-
 # --- Paren-free calls ---------------------------------------------------------
 #
 # `print p.x` is print(p.x); `send encode <packet` is send(encode(<packet)).
-# A nested paren-free call can only be the last argument, and never
-# appears inside ( ). A leading `!` or `<` is the receiver's mode, which
-# the Parser wrapper moves onto the receiver: `!v.push 3`.
+# A paren-free call is a command: a statement, a match arm, a closure
+# body, or the last argument of another paren-free call. Anywhere a
+# value is expected, a call takes parentheses. A leading `!` or `<` is
+# the receiver's mode, which the Parser wrapper moves onto the receiver:
+# `!v.push 3`.
 
 cmd      = callee:postfix args:cmdargs              → (call)
          | WRITE_PFX operand:cmd                    → (write)
@@ -667,7 +671,7 @@ cmdtail  = cmd
 
 # `if e as name` / `while e as name`: `e` is an optional; the body runs
 # with `name` bound to the value inside it.
-ifcond   = cond
+ifcond   = value
          | value:value AS name:name                 → (as)
 
 if       = IF cond:ifcond then:block [ELSE else:block] → (if)
@@ -685,10 +689,10 @@ step     = assign
 
 # The Parser wrapper moves a `?xs` / `!xs` / `<xs` source sigil into the
 # mode slot.
-for      = FOR var:name ["," index:name] IN source:cond body:block [ELSE else:block]
+for      = FOR var:name ["," index:name] IN source:value body:block [ELSE else:block]
                                                     → (for mode:iter)
 
-match    = MATCH subject:cond INDENT arms:arms OUTDENT → (match)
+match    = MATCH subject:value INDENT arms:arms OUTDENT → (match)
 
 arms     = arm                                      → (1)
          | arms NEWLINE arm                         → (...1 3)

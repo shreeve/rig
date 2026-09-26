@@ -441,7 +441,7 @@ goals, and says no where they don't.
 | **Zig** | the backend itself; `comptime` as bracketed compile-time parameters; generics checked per instance; error unions; `defer`/`errdefer`; no GC; generic types as type functions | its async history as a cautionary tale; leaving aliasing and lifetimes to convention |
 | **Go** | square brackets for type parameters and arguments, told from an index by what the name denotes | interfaces as constraints on type parameters |
 | **Python** | indentation, `and`/`or`/`not`, readable one-line calls, `print` with several values, bindings without declarations | dynamic typing, implicit shadowing |
-| **Ruby** | paren-free calls, short keywords, readability first | `valid?` names, implicit mutation |
+| **Ruby** | paren-free calls as commands, short keywords, readability first | `valid?` names, implicit mutation, paren-free calls as values |
 | **CoffeeScript, Rip** | the aesthetic; Rip (a CoffeeScript-style language by Rig's author) and Zag (its Zig-targeted sibling) supplied the indentation lexer and much of the surface | reactive operators in the core language |
 | **Swift** | second-class borrows; `x?` optional propagation | |
 | **Hylo, Mojo** | borrows as parameter conventions rather than types with lifetimes; values first | |
