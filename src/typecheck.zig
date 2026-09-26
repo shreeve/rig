@@ -3465,7 +3465,9 @@ const Checker = struct {
         }
         for (inf.bound, 0..) |*b, i| for (inf.literals.items) |lit| {
             if (lit.param != i) continue;
-            if (b.ty == sema.type_invalid) {
+            // Among literals alone, a float one makes the type `Float`,
+            // whatever their order.
+            if (b.ty == sema.type_invalid or (b.ty == self.t().int_id and lit.ty == self.t().float_id and self.onlyLiterals(inf, i, b.arg))) {
                 b.ty = lit.ty;
                 b.arg = lit.arg;
             } else if (b.conflict == sema.type_invalid and !self.literalFits(lit.ty, b.ty)) {
@@ -3474,6 +3476,16 @@ const Checker = struct {
             }
         };
         return inf;
+    }
+
+    /// Whether the binding of parameter `i` by argument `arg` came from a
+    /// literal.
+    fn onlyLiterals(self: *Checker, inf: Inference, i: usize, arg: u32) bool {
+        _ = self;
+        for (inf.literals.items) |lit| {
+            if (lit.param == i and lit.arg == arg) return true;
+        }
+        return false;
     }
 
     /// An argument's type for inference, synthesized once: the call checks
@@ -3488,11 +3500,13 @@ const Checker = struct {
     }
 
     /// The two types of a conflict, in argument order.
-    fn conflictText(self: *Checker, b: Bound) Error!struct { first: []const u8, first_arg: u32, second: []const u8, second_arg: u32, later: TypeId } {
+    fn conflictText(self: *Checker, b: Bound) Error!struct { first: []const u8, first_ty: TypeId, first_arg: u32, second: []const u8, second_arg: u32, later: TypeId } {
         const b_first = b.arg < b.conflict_arg;
         const later = if (b_first) b.conflict else b.ty;
+        const first_ty = if (b_first) b.ty else b.conflict;
         return .{
-            .first = try self.tyName(if (b_first) b.ty else b.conflict),
+            .first = try self.tyName(first_ty),
+            .first_ty = first_ty,
             .first_arg = @min(b.arg, b.conflict_arg),
             .second = try self.tyName(later),
             .second_arg = @max(b.arg, b.conflict_arg),
@@ -3514,9 +3528,19 @@ const Checker = struct {
                 try self.err(pos, "cannot infer `{s}` for `{s}` from its arguments; give it in brackets: `{s}[{s}](...)`", .{ pname, callee, callee, try self.bracketHint(own, result, i, null) });
                 ok = false;
             } else if (b.conflict != sema.type_invalid) {
-                // The later argument's type is suggested.
+                // The later argument's type is suggested, when the earlier
+                // argument can have it; otherwise a conversion.
                 const c = try self.conflictText(b);
-                try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); give it in brackets: `{s}[{s}](...)`", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg, callee, try self.bracketHint(own, result, i, c.later) });
+                const literal = self.onlyLiterals(inf, i, c.first_arg);
+                if (if (literal) self.literalFits(c.first_ty, c.later) else compatible(self.ctx, c.first_ty, c.later)) {
+                    try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); give it in brackets: `{s}[{s}](...)`", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg, callee, try self.bracketHint(own, result, i, c.later) });
+                } else if (sema.isNumeric(self.ctx, c.first_ty) and sema.isNumeric(self.ctx, c.later)) {
+                    // Convert the argument that is not a literal.
+                    const arg = if (literal) c.second_arg else c.first_arg;
+                    try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); convert argument {d} with `{s}(...)`", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg, arg, if (literal) c.first else c.second });
+                } else {
+                    try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); they must have one type", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg });
+                }
                 ok = false;
             }
         }

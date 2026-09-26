@@ -815,7 +815,7 @@ constructor's fields (`Pair(first: 1, second: "x")` is a
 (`Option.some(value: 7)`), or an associated function's arguments
 (`Pair.make(1, 2)`). The values must agree on each parameter, and a
 literal takes its default type only where no other value gives the
-parameter one. A parameter nothing fills, as in `Vec()`, needs its type named (`Vec[Int]()`) or
+parameter one (among literals alone, a float literal gives `Float`). A parameter nothing fills, as in `Vec()`, needs its type named (`Vec[Int]()`) or
 given where the value goes (`v: Vec[Int] = Vec()`). A
 generic body may only do with a `T` what every instantiation allows:
 operations on `T` are checked for each instantiation, inferred or
@@ -908,7 +908,8 @@ its type's. A call gives every compile-time argument in brackets
 inferred by matching each parameter's type against its argument's
 (`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`, `[N]T`, `Box[T]`). Every
 argument must agree; a literal takes its default type only when no
-other argument gives the parameter one. A compile-time value is never
+other argument gives the parameter one, and among literals alone a
+float literal gives `Float` (`max(3, 2.5)` is `max[Float]`). A compile-time value is never
 inferred, so a function that takes one is always called with brackets.
 
 A generic function is checked as a generic type is: its body may only
@@ -957,12 +958,13 @@ fun max[T](a: T, b: T) -> T
   a if a > b else b
 
 sub main
-  print(max(1, 2.5))
+  n: I32 = 1
+  print(max(n, 2.5))
   print(max("a", "b"))
 ```
 
 ```error
-conflicting types for `T` in the call to `max`: `Int` (argument 1) and `Float` (argument 2)
+conflicting types for `T` in the call to `max`: `I32` (argument 1) and `Float` (argument 2)
 `max[String]` cannot use `T = String`: the generic body applies `>` to `T`
 ```
 
