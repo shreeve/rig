@@ -1623,7 +1623,7 @@ sub main
   ops = [double, double]
   v = Vec[Int]()
   !v.push(xs[2])
-  show[2]
+  show[2]()
   print(xs[1], ops[0](4), v[0])
 ```
 
@@ -1654,7 +1654,7 @@ sub main
 ```
 
 By the spacing rule, `show [3]` is a paren-free call whose argument is
-the array `[3]`, and it is rejected with a hint to write `show[3]`.
+the array `[3]`, and it is rejected with a hint to write `show[3]()`.
 
 ### What a generic body may do with `T`
 
@@ -1797,9 +1797,12 @@ Arithmetic there must fold to a constant, which Rig checks
 is rejected, since each instance would compute it unchecked; inside a
 body, `n + 1` is ordinary run-time arithmetic, checked when it runs.
 
-A function with no run-time parameters may leave out its parentheses,
-in its declaration (`sub show[n: Int]`) and in a call that is a whole
-statement (`show[3]`).
+A function with no run-time parameters may leave out its parentheses
+in its declaration (`sub show[n: Int]`), but a call still has them: the
+brackets choose the instance and the parentheses call it, `show[3]()`.
+A statement `show[3]` alone is rejected, as `greet` alone is. A call
+that passes arguments may still leave out its parentheses:
+`report[.lax] "done"`.
 
 ```rig
 enum Mode
@@ -1816,7 +1819,7 @@ sub show[n: Int]
 
 sub main
   print(check[.strict](5), check[.loose](5))
-  show[3]
+  show[3]()
   show[limit * 2]()
 ```
 
@@ -1832,7 +1835,7 @@ sub show[n: Int]
 
 sub main
   k = 3
-  show[k]
+  show[k]()
 ```
 
 ```error
@@ -2896,7 +2899,9 @@ call onto the place, giving the tree of `(!v).push(x)`
 - Spacing is significant around sigils: `f -x` is a call and `a - x`
   a subtraction.
 - A function with no parameters needs no `()` in its declaration,
-  `sub greet`, but a call still does, `greet()`.
+  `sub greet`, but a call still does, `greet()`. So does a call with
+  compile-time arguments only: `sub show[n: Int]` is called
+  `show[3]()`.
 - `comptime` parameters go in brackets before the run-time ones:
   `fn f(comptime n: i64, x: i64)` is `fun f[n: Int](x: Int)`, called
   `f[3](x)`; a generic type is `struct Box[T]`, and a generic function

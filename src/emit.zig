@@ -943,8 +943,7 @@ pub const Emitter = struct {
     fn discardsValue(self: *Emitter, expr: Sexp) bool {
         var e = expr;
         while (e.isKind(.propagate)) e = ir.Propagate.value(e);
-        if (!e.isKind(.call) and !self.isImplicitCall(e)) return true;
-        if (!e.isKind(.call)) return !self.yieldsNothing(e);
+        if (!e.isKind(.call)) return true;
         if (self.isPrintCall(e)) return false;
         // A call lowered to a labeled block is an expression Zig will not
         // take as a statement.
@@ -960,24 +959,6 @@ pub const Emitter = struct {
             .void, .noreturn => true,
             else => false,
         };
-    }
-
-    /// A statement `show[3]`: compile-time arguments that are the call.
-    fn isImplicitCall(self: *Emitter, e: Sexp) bool {
-        const inst = self.sema.instanceOf(e) orelse return false;
-        return inst == .function and inst.function.call;
-    }
-
-    /// A bracket list of compile-time arguments as a value: the function
-    /// it passes them to, called when the list is the call (`show(3)`).
-    /// A type instance is never a value; sema rejects one.
-    fn emitInstance(self: *Emitter, e: Sexp, inst: sema.Instance) Error!void {
-        if (inst != .function) return self.unsupported(e, "a type instance as a value");
-        try self.emitExpr(ir.get(e, .object));
-        if (!inst.function.call) return;
-        try self.w.writeAll("(");
-        _ = try self.emitCtArgs(self.sema.genericCallOf(e), sema.bracketArgs(e));
-        try self.w.writeAll(")");
     }
 
     // -------------------------------------------------------------------------
@@ -2178,9 +2159,11 @@ pub const Emitter = struct {
                 try self.w.writeAll(".weakRef()");
             },
             .call => if (self.hoistsArgs(sexp)) try self.emitHoistedCall(sexp) else try self.emitCallDirect(sexp),
-            .inst => try self.emitInstance(sexp, self.sema.instanceOf(sexp) orelse return self.unsupported(sexp, "an unresolved bracket list")),
+            // Compile-time arguments are emitted by the call or type that
+            // takes them; sema rejects a bracket list as a value.
+            .inst => return self.unsupported(sexp, "a bracket list of compile-time arguments as a value"),
             .member, .index => {
-                if (self.sema.instanceOf(sexp)) |inst| return self.emitInstance(sexp, inst);
+                if (self.sema.instanceOf(sexp) != null) return self.unsupported(sexp, "a bracket list of compile-time arguments as a value");
                 // A field or element holding a write borrow denotes the
                 // borrowed value, unless the pointer itself is wanted.
                 const deref = self.isPtrBorrowExpr(sexp) and !(tail and self.ptr_tail);

@@ -505,13 +505,7 @@ pub const Instance = union(enum) {
     type: TypeId,
     /// `check[.strict]`, `p.scale[2]`: a function's compile-time
     /// arguments.
-    function: FunctionInstance,
-};
-
-pub const FunctionInstance = struct {
-    /// The bracket list is itself the call: a statement `show[3]`, which
-    /// passes no run-time arguments.
-    call: bool = false,
+    function,
 };
 
 /// The compile-time arguments a call passes, one per compile-time
@@ -934,8 +928,8 @@ pub const SemContext = struct {
         return ir.get(callee, .object);
     }
 
-    /// The compile-time arguments of a call that has them (or of a
-    /// statement `f[Int]`, which is the call); null for any other.
+    /// The compile-time arguments of a call that has them; null for any
+    /// other.
     pub fn genericCallOf(self: *const SemContext, node: Sexp) ?GenericCall {
         return self.facts.generic_calls.get(nodeKey(node) orelse return null);
     }

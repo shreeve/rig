@@ -6,9 +6,9 @@ sub inner[n: U8]
   print(n)
 
 sub outer[n: U8]
-  inner[n + 1]
-  inner[10 / n]
-  inner[1 << n]
+  inner[n + 1]()
+  inner[10 / n]()
+  inner[1 << n]()
 
 fun g[n: Int] -> Int
   n
@@ -18,7 +18,7 @@ fun f[n: Int] -> Int
   g[-n]() + g[k]()
 
 sub main()
-  outer[255]
+  outer[255]()
   print(f[3]())
 
 # error: 9:9: compile-time argument 1 of `inner` does arithmetic on a compile-time parameter

@@ -37,4 +37,4 @@ sub main()
 # error: 26:9: `scaled` takes 1 compile-time argument in brackets: `scaled[...](...)`
 # error: 27:12: `3` is not a type
 # error: 28:7: `Pair[Int, String]` is a type, not a value
-# error: 29:3: `scaled[2]` takes run-time arguments; call it with `scaled[2](...)`
+# error: 29:3: `scaled[2]` is a function with compile-time arguments; call it with `scaled[2](...)`

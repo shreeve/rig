@@ -493,7 +493,7 @@ instead of re-deriving it by name:
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
 | `isExhaustive(match)` | whether the arms cover every value without a default |
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
-| `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`Vec[Int]`), or a function's arguments, noting a statement `show[3]` that is itself the call |
+| `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`Vec[Int]`), or a function's arguments |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Box` for `Box[Int](v: 3)`), and its compile-time arguments |
 | `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (`type_invalid` at a value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
@@ -736,7 +736,7 @@ lower is an internal error: sema must have rejected it.
   the signature, after a method's receiver (Zig's method call syntax
   needs the receiver first): `fun times[n: Int](?self)` is
   `fn times(self: P, comptime n: i64) i64`. A call passes its bracket
-  arguments in the same place, and a statement `show[3]` is `show(3)`.
+  arguments in the same place: `show[3]()` is `show(3)`.
   A compile-time value, or a `=!` constant, read in run-time arithmetic
   goes through `rig.rt(n)`, so Zig computes it when the program runs,
   with the overflow checks Rig specifies, rather than folding it.

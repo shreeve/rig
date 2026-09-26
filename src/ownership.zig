@@ -3185,7 +3185,7 @@ pub const Checker = struct {
         return sema.holdsWriteBorrow(ctx, ty orelse return false);
     }
 
-    /// A bracket list of compile-time arguments (`Vec[Int]`, `show[3]`),
+    /// A bracket list of compile-time arguments (`Vec[Int]`, `max[Int]`),
     /// which names a type or a function and holds no value.
     fn isInstance(self: *const Checker, e: Sexp) bool {
         const s = self.sema orelse return false;

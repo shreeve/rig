@@ -31,5 +31,5 @@ sub main()
   w = Vec[Int]()
   m = Pair[Int, String].make(1, "x")
   print(check[.strict](5), xs[0], grid[1][2])
-  show[3]
+  show[3]()
   check[.lax] 7

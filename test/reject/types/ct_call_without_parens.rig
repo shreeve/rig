@@ -1,0 +1,16 @@
+# Brackets choose a function's instance and parentheses call it: a
+# statement `show[3]` does not call `show`, as `greet` alone does not
+# call `greet`.
+
+sub show[n: Int]
+  print(n)
+
+sub greet
+  print("hi")
+
+sub main()
+  show[3]
+  greet
+
+# error: 12:3: `show[3]` is a function with compile-time arguments; call it with `show[3]()`
+# error: 13:3: `greet` is a function; call it with `greet()`

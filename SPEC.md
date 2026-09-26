@@ -224,7 +224,7 @@ Several characters are both operators and prefixes: `<` `+` `-` `*` `?`
 | `-x` alone on a line | drops `x` ([§8](#drop)), except where the line's value is used |
 
 The brackets of compile-time parameters and arguments touch the name
-before them (`struct Box[T]`, `show[3]`); a declaration with a space
+before them (`struct Box[T]`, `show[3]()`); a declaration with a space
 there (`struct Box [T]`) is rejected.
 
 Two values may not touch with no operator between them: `t.5` and
@@ -3189,11 +3189,12 @@ arithmetic on a compile-time parameter (`n + 1`), directly or through a
 unchecked. Inside a body, a compile-time value is an ordinary value, and
 arithmetic on it is checked when it runs.
 
-A function with no run-time parameters may leave out its parentheses,
-in its declaration (`sub show[n: Int]`) and in a call that is a whole
-statement: `show[3]` calls `show`, as `show[3]()` does. Elsewhere the
-parentheses are needed (`x = size[4]()`). A function with compile-time
-parameters can only be called, never used as a value.
+A function with no run-time parameters may leave out its parentheses in
+its declaration (`sub show[n: Int]`), but a call always has them: the
+brackets choose the instance and the parentheses call it,
+`show[3]()`. A statement `show[3]` is rejected, as a statement `greet`
+is. A function with compile-time parameters can only be called, never
+used as a value.
 
 ```rig
 enum Mode
@@ -3219,7 +3220,7 @@ sub tag[T, loud: Bool](x: T)
 
 sub main
   print(check[.strict](5), check[.loose](5), either[.strict](3, 12))
-  show[4]
+  show[4]()
   show[LIMIT * 2]()
   tag[String, LIMIT > 3]("x")
 ```
@@ -3236,12 +3237,12 @@ sub show[n: Int]
   print(n)
 
 sub outer[n: Int]
-  show[n + 1]
+  show[n + 1]()
 
 sub main
   k = 3
-  show[k]
-  outer[1]
+  show[k]()
+  outer[1]()
 ```
 
 ```error

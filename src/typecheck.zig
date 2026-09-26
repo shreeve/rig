@@ -462,17 +462,10 @@ const Checker = struct {
     /// over (`!`, `?`), or handle a failure. One that only reads a value
     /// and drops it is a mistake; a function name was meant as a call.
     fn checkExprStmt(self: *Checker, stmt: Sexp) Error!void {
-        // `show[3]`: a function with compile-time arguments, called.
-        const implicit = if (rig.isBracketList(stmt)) try self.implicitCall(stmt) else null;
-        const ty = implicit orelse try self.synthExpr(stmt);
+        const ty = try self.synthExpr(stmt);
         // A closure literal alone is reported by the ownership checker.
         if (self.isPoison(ty) or stmt.isKind(.lambda)) return;
-        if (implicit != null) {
-            if (self.ctx.types.get(ty) == .fallible) {
-                const call = try self.sourceText(stmt);
-                try self.errAt(stmt, "fallible call to `{s}` must be wrapped with `!` (propagate) or `catch` (handle); write `{s}()!`", .{ call, call });
-            }
-        } else if (!hasEffect(stmt)) {
+        if (!hasEffect(stmt)) {
             if (stmt.kind() == null and self.ctx.types.get(ty) == .function)
                 return self.errAt(stmt, "`{s}` is a function; call it with `{s}()`", .{ self.text(stmt), self.text(stmt) });
             return self.errAt(stmt, "this expression does nothing as a statement; use its value, or discard it with `_ = ...`", .{});
@@ -2756,35 +2749,6 @@ const Checker = struct {
         return self.construct(nt.id, args, self.startOf(e), subst, null);
     }
 
-    /// A statement `f[...]`: a function with compile-time arguments and no
-    /// run-time parameters, called. Null when `e` is not one.
-    fn implicitCall(self: *Checker, e: Sexp) Error!?TypeId {
-        const obj = ir.get(e, .object);
-        const target = (try self.instTarget(obj)) orelse return null;
-        if (target != .function) return null;
-        if (!target.function.ct_params) return try self.misusedInstance(e, target);
-        if (target.function.takes_args) {
-            const call = try self.sourceText(e);
-            try self.errAt(e, "`{s}` takes run-time arguments; call it with `{s}(...)`", .{ call, call });
-            return self.t().invalid_id;
-        }
-        const saved = self.current_call;
-        self.current_call = null;
-        defer self.current_call = saved;
-        const ty = if (obj == .src) blk: {
-            const sym = self.ctx.symbols.items[(try self.useName(obj)).?];
-            try self.ctx.recordType(obj, sym.ty);
-            break :blk try self.functionCall(obj, sym, e, &.{});
-        } else try self.synthMemberCall(obj, &.{}, e);
-        if (self.ctx.instanceOf(e)) |inst| if (inst == .function) {
-            var f = inst.function;
-            f.call = true;
-            try self.ctx.recordInstance(e, .{ .function = f });
-        };
-        try self.ctx.recordType(e, self.canonical(ty));
-        return ty;
-    }
-
     /// The module a name leaf denotes, recorded as its symbol; null when
     /// it denotes no module.
     fn moduleNamed(self: *Checker, leaf: Sexp) Error!?SymbolId {
@@ -3419,7 +3383,7 @@ const Checker = struct {
     /// allow them, are recorded. Null after a diagnostic that makes the
     /// arguments not worth checking.
     fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const Sexp, info: ParamInfo, skip: usize, callee: []const u8, pos: u32, receiver_arg: bool, recv: TypeSubst) Error!?FunctionType {
-        if (ct) |b| try self.ctx.recordInstance(b, .{ .function = .{} });
+        if (ct) |b| try self.ctx.recordInstance(b, .function);
         // A compile-time parameter was rejected: the declaration's
         // diagnostic says what is wrong with every call.
         for (f.ct_params) |ty| if (self.isPoison(ty)) return null;
@@ -3437,12 +3401,12 @@ const Checker = struct {
         // A value is never inferred: a function that takes one is given
         // every compile-time argument in brackets.
         if (ct == null and own.items.len != n) {
+            const parens = if (f.params.len > skip) "(...)" else "()";
             if (args.len == 1 and args[0].isKind(.array)) {
                 const arg = try self.sourceText(args[0]);
-                try self.err(pos, "compile-time arguments touch the name: `{s}{s}`", .{ callee, arg });
+                try self.err(pos, "compile-time arguments touch the name: `{s}{s}{s}`", .{ callee, arg, parens });
             } else {
-                const call = if (f.params.len > skip) "[...](...)" else "[...]";
-                try self.err(pos, "`{s}` takes {d} compile-time argument{s} in brackets: `{s}{s}`", .{ callee, n, plural(n), callee, call });
+                try self.err(pos, "`{s}` takes {d} compile-time argument{s} in brackets: `{s}[...]{s}`", .{ callee, n, plural(n), callee, parens });
             }
             return null;
         }
@@ -3457,8 +3421,7 @@ const Checker = struct {
         };
         if (bad) return null;
         if (own.items.len == 0) {
-            // A statement `f[...]` is keyed by its bracket list, the call.
-            if (ct) |b| try self.ctx.recordGenericCall(self.current_call orelse b, .{ .type_args = type_args, .receiver_arg = receiver_arg });
+            if (ct != null) try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
             return f;
         }
         if (ct == null) {
@@ -3473,7 +3436,7 @@ const Checker = struct {
         };
         const generic = try self.ctx.internCopy(.{ .function = f });
         const result = self.ctx.types.get(try sema.substituteType(self.ctx, generic, .{ .params = own.items, .args = own_args })).function;
-        try self.ctx.recordGenericCall(self.current_call orelse ct.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
+        try self.ctx.recordGenericCall(self.current_call.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
         if (self.tentative == 0) _ = try self.ctx.recordFnInstance(.{
             .name = callee,
             .params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items }),
