@@ -1,0 +1,29 @@
+# An array of length 0 can be sliced, looped over, and written through
+# a loop; an index into it, which can only be out of range, panics when
+# the program runs.
+
+Z =! 0
+
+fun zeros[n: Int] -> [n]Int
+  [0; n]
+
+fun at(xs: [0]Int, i: Int) -> Int
+  xs[i]
+
+sub main()
+  i = 0
+  for j in 0..1
+    i += j
+  a: [Z]Int = []
+  for x in !a
+    x += 1
+  for x in a
+    print(x)
+  b = zeros[0]()
+  print(a.len, b, ?a[i..i], ?b[0..i])
+  print(at(a, i))
+
+# expect-panic: index out of bounds
+
+# expect:
+# 0 [] [] []

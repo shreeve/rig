@@ -1,0 +1,12 @@
+# An index into a `[x; 0]` fill panics when the program runs.
+
+fun at(i: Int) -> Int
+  [7; 0][i]
+
+sub main()
+  i = 0
+  for j in 0..1
+    i += j
+  print(at(i))
+
+# expect-panic: index out of bounds

@@ -2423,9 +2423,13 @@ pub const Emitter = struct {
             try self.emitBare(index);
             return self.w.writeAll(")");
         };
-        if (self.sema.types.get(n) != .ct_value) {
-            // A length that is a compile-time parameter may be 0, and Zig
-            // rejects indexing an empty array: the element is reached
+        const may_be_empty = switch (self.sema.types.get(n)) {
+            .ct_value => |v| v.int == 0,
+            else => true,
+        };
+        if (may_be_empty) {
+            // Zig rejects indexing an empty array, and a length that is a
+            // compile-time parameter may be 0: the element is reached
             // through a slice of the array.
             try self.w.writeAll("rig.elems(");
             const saved_read = self.read_place;
@@ -2447,7 +2451,7 @@ pub const Emitter = struct {
         try self.w.writeAll("[");
         self.place_chain = false;
         // Sema checked a constant index against a known length.
-        if (isNonNegativeIntLiteral(self.source, index) and self.sema.types.get(n) == .ct_value) {
+        if (isNonNegativeIntLiteral(self.source, index)) {
             try self.emitExpr(index);
         } else {
             try self.w.writeAll("rig.index(");
