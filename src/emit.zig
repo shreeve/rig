@@ -1056,7 +1056,8 @@ pub const Emitter = struct {
             .borrow_read, .borrow_write => true,
             else => false,
         } else true;
-        const is_borrow = !is_move and binds_borrow and (expr.isKind(.read) or expr.isKind(.write));
+        const is_borrow = !is_move and binds_borrow and (expr.isKind(.read) or expr.isKind(.write)) and
+            (ty == null or sema.writeSliceElem(self.sema, ty.?) == null);
         // A write borrow is held as a pointer however it was obtained.
         const holds_ptr = is_borrow or (ty != null and self.isPtrBorrowTy(ty.?));
         var local: Local = .{ .sym = sym, .ty = ty, .is_ptr = holds_ptr };
@@ -1996,6 +1997,12 @@ pub const Emitter = struct {
         return self.sema.readsThrough(e) and self.isPtrBorrowExpr(e);
     }
 
+    /// An expression whose value is a writable slice `![]T`.
+    fn isWriteSliceExpr(self: *Emitter, e: Sexp) bool {
+        const t = self.typeOf(e) orelse return false;
+        return sema.writeSliceElem(self.sema, t) != null;
+    }
+
     /// An expression whose value is a pointer borrow (see `isPtrBorrowTy`).
     fn isPtrBorrowExpr(self: *Emitter, e: Sexp) bool {
         const t = self.typeOf(e) orelse return false;
@@ -2004,9 +2011,10 @@ pub const Emitter = struct {
 
     /// A borrow held as a pointer: a write borrow, and a read borrow of a
     /// value that owns resources or holds a `Cell` (see `readBorrowIsPtr`).
+    /// A `![]T` is a Zig slice, which points at its elements itself.
     fn isPtrBorrowTy(self: *Emitter, ty: TypeId) bool {
         return switch (self.sema.types.get(ty)) {
-            .borrow_write => true,
+            .borrow_write => sema.writeSliceElem(self.sema, ty) == null,
             .borrow_read => |inner| self.readBorrowIsPtr(inner),
             else => false,
         };
@@ -2162,8 +2170,12 @@ pub const Emitter = struct {
                 self.bare = bare;
                 try self.emitValue(ir.Read.operand(sexp), false);
             },
-            // `!x` as a value (an argument, a receiver) is the place's address.
-            .write => try self.emitAddressOf(ir.Write.operand(sexp)),
+            // `!x` as a value (an argument, a receiver) is the place's
+            // address; a `![]T` is the slice.
+            .write => if (self.isWriteSliceExpr(sexp))
+                try self.emitExpr(ir.Write.operand(sexp))
+            else
+                try self.emitAddressOf(ir.Write.operand(sexp)),
             .move => {
                 self.bare = bare;
                 const operand = ir.Move.operand(sexp);
@@ -2425,7 +2437,7 @@ pub const Emitter = struct {
         defer self.place_chain = saved_chain;
         self.place_chain = as_place;
 
-        if (index.isKind(.@"..")) return self.emitSlice(base, base_ty, index);
+        if (index.isKind(.@"..")) return self.emitSlice(sexp, base, base_ty, index);
         // An element of a Cell's Vec is a copy; `c[i] = x` is `emitPlaceAssign`'s.
         if (base_ty != null and self.isCellVecTy(base_ty.?)) {
             try self.emitCellPtr(base);
@@ -2448,8 +2460,17 @@ pub const Emitter = struct {
             else => null,
         } else null;
         const n = array_len orelse {
-            // A string or slice, which is never assigned to: its length is
-            // only known when it runs, and `rig.at` evaluates it once.
+            // A string or slice: its length is only known when it runs,
+            // and `rig.at` and `rig.elemPtr` evaluate it once. Only a `![]T`
+            // is assigned through.
+            if (as_place) {
+                try self.w.writeAll("rig.elemPtr(");
+                try self.emitBare(base);
+                try self.w.writeAll(", ");
+                self.place_chain = false;
+                try self.emitBare(index);
+                return self.w.writeAll(").*");
+            }
             try self.w.writeAll("rig.at(");
             try self.emitBare(base);
             try self.w.writeAll(", ");
@@ -2500,9 +2521,10 @@ pub const Emitter = struct {
     /// `xs[a..b]` → `rig.slice(items, a, b)`, which checks the bounds;
     /// `xs[a..]` → `rig.slice(items, a, null)`. An array is sliced in
     /// place, through its address; a Vec through its items.
-    fn emitSlice(self: *Emitter, base: Sexp, base_ty: ?TypeId, range: Sexp) Error!void {
+    fn emitSlice(self: *Emitter, slice: Sexp, base: Sexp, base_ty: ?TypeId, range: Sexp) Error!void {
         self.place_chain = false;
-        try self.w.writeAll("rig.slice(");
+        const writes = self.isWriteSliceExpr(slice);
+        try self.w.writeAll(if (writes) "rig.sliceMut(" else "rig.slice(");
         const ty = self.peelBorrows(base_ty orelse return self.unsupported(base, "a slice of an untyped value"));
         // A constant is sliced where it is stored, not through a copy.
         const saved_rt = self.rt_names;
@@ -2511,10 +2533,10 @@ pub const Emitter = struct {
             try self.emitExpr(base);
             try self.w.writeAll(".items()");
         } else if (self.sema.types.get(ty) == .array) {
-            // Only read through: a Vec element on the way is reached
-            // through a read-only slot.
+            // A read slice only reads through: a Vec element on the way
+            // is reached through a read-only slot.
             const saved_read = self.read_place;
-            self.read_place = true;
+            self.read_place = !writes;
             try self.emitAddressOf(base);
             self.read_place = saved_read;
         } else try self.emitBare(base);
@@ -3510,6 +3532,11 @@ pub const Emitter = struct {
                 try self.emitTypeTy(inner);
             },
             .borrow_write => |inner| {
+                // A `![]T` is the Zig slice itself, writable.
+                if (sema.writeSliceElem(ctx, ty)) |elem| {
+                    try self.w.writeAll("[]");
+                    return self.emitTypeTy(elem);
+                }
                 try self.w.writeAll("*");
                 try self.emitTypeTy(inner);
             },

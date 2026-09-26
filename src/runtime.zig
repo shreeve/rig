@@ -741,13 +741,30 @@ pub fn at(items: anytype, i: anytype) std.meta.Elem(@TypeOf(items)) {
     return items[index(i, items.len)];
 }
 
+/// `s[i] = x` through a `![]T`: the slot at `i`, with `s` evaluated
+/// once; panics when out of range. Read-only for a read-only slice.
+pub fn elemPtr(items: anytype, i: anytype) @TypeOf(&items[0]) {
+    return &items[index(i, items.len)];
+}
+
 /// `s[lo..hi]` of a string, slice, or array pointer: the elements from
 /// `lo` up to `hi` (`null`: the end); panics unless `0 <= lo <= hi <= len`.
 pub fn slice(items: anytype, lo: anytype, hi: anytype) []const std.meta.Elem(@TypeOf(items)) {
+    const b = bounds(items.len, lo, hi);
+    return items[b[0]..b[1]];
+}
+
+/// `!xs[lo..hi]`: `slice`, writable.
+pub fn sliceMut(items: anytype, lo: anytype, hi: anytype) []std.meta.Elem(@TypeOf(items)) {
+    const b = bounds(items.len, lo, hi);
+    return items[b[0]..b[1]];
+}
+
+fn bounds(count: usize, lo: anytype, hi: anytype) [2]usize {
     const l = std.math.cast(usize, lo) orelse slicePanic();
-    const h = if (@TypeOf(hi) == @TypeOf(null)) items.len else std.math.cast(usize, hi) orelse slicePanic();
-    if (l > h or h > items.len) slicePanic();
-    return items[l..h];
+    const h = if (@TypeOf(hi) == @TypeOf(null)) count else std.math.cast(usize, hi) orelse slicePanic();
+    if (l > h or h > count) slicePanic();
+    return .{ l, h };
 }
 
 fn slicePanic() noreturn {

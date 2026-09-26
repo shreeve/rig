@@ -1,0 +1,22 @@
+# A `[]T` is read-only, so a write borrow of one, which would be a
+# writable `![]T`, is rejected: of a local, a parameter, or a field.
+
+struct View
+  xs: []Int
+
+fun widen(t: []Int) -> ![]Int
+  !t
+
+sub main()
+  a = [1, 2, 3]
+  t = ?a[..]
+  w = !t
+  w[0] = 5
+  v = View(xs: ?a[..])
+  u = !v.xs
+  u[0] = 9
+  print(a)
+
+# error: 8:4: cannot write-borrow a `[]Int`: its elements are read-only
+# error: 13:8: cannot write-borrow a `[]Int`: its elements are read-only
+# error: 16:8: cannot write-borrow a `[]Int`: its elements are read-only

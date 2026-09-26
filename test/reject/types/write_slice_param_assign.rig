@@ -1,0 +1,13 @@
+# A `![]T` parameter views the caller's elements: it is written element
+# by element, never assigned whole.
+
+sub f(s: ![]Int, t: ![]Int)
+  s = <t
+  s[0] = 7
+
+sub main()
+  a = [1, 2]
+  b = [3, 4]
+  f(!a[..], !b[..])
+
+# error: 5:3: cannot assign to `s`, a `![]Int` parameter; write its elements with `s[i] = v`

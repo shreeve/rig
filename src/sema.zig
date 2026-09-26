@@ -2462,6 +2462,17 @@ pub fn isBorrowType(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
+/// The element type of a writable slice `![]T`; null for any other type.
+pub fn writeSliceElem(ctx: *const SemContext, ty: TypeId) ?TypeId {
+    return switch (ctx.types.get(ty)) {
+        .borrow_write => |inner| switch (ctx.types.get(inner)) {
+            .slice => |s| s.elem,
+            else => null,
+        },
+        else => null,
+    };
+}
+
 /// Peel `?T` / `!T`.
 pub fn unwrapBorrows(ctx: *const SemContext, ty_id: TypeId) TypeId {
     var id = ty_id;

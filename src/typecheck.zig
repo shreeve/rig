@@ -556,6 +556,13 @@ const Checker = struct {
             try self.errAt(target, "cannot assign to captured `{s}`; captures are fixed when the closure is created", .{name});
         }
         const writes_through = sym.kind == .param or sym.flags.pattern_bound;
+        // A `![]T` parameter or pattern binding views the caller's
+        // elements; there is no whole value to write through to.
+        if (!is_decl and writes_through and sema.writeSliceElem(self.ctx, sym.ty) != null) {
+            try self.errAt(target, "cannot assign to `{s}`, a `{s}` {s}; write its elements with `{s}[i] = v`", .{ name, try self.tyName(sym.ty), if (sym.kind == .param) "parameter" else "binding", name });
+            _ = try self.synthExpr(rhs);
+            return;
+        }
         // Assigning a binding writes it without reading it; writing
         // through a `!T` binding reaches the borrowed value.
         if (!is_decl and self.ctx.types.get(sym.ty) != .borrow_write) try self.ctx.facts.writes.put(self.ctx.allocator, target.src.pos, {});
@@ -854,7 +861,7 @@ const Checker = struct {
                     const base_ty = sema.unwrapBorrows(self.ctx, ty);
                     const base = self.ctx.types.get(base_ty);
                     if (h == .index) {
-                        if (base == .slice) path.read_only = .{ .what = .slice, .pos = self.startOf(obj) };
+                        if (base == .slice and sema.writeSliceElem(self.ctx, ty) == null) path.read_only = .{ .what = .slice, .pos = self.startOf(obj) };
                         if (base == .string) path.read_only = .{ .what = .string, .pos = self.startOf(obj) };
                     } else if ((base == .slice or base == .string or base == .array or vecElementType(self.ctx, base_ty) != null or cellVecElement(self.ctx, base_ty) != null) and std.mem.eql(u8, self.text(ir.Member.name(p)), "len")) {
                         path.read_only = .{ .what = .len, .pos = self.startOf(ir.Member.name(p)) };
@@ -1174,6 +1181,10 @@ const Checker = struct {
             },
             .slice, .string => {
                 if (mode == .write) {
+                    if (sema.writeSliceElem(self.ctx, source_ty)) |elem| {
+                        if (!rig.isRangeIndex(inner_source)) _ = try self.checkWritable(inner_source, source, "write-iterate");
+                        return self.ctx.intern(.{ .borrow_write = elem });
+                    }
                     try self.err(pos, "cannot write-iterate a `{s}`; its elements are read-only", .{try self.tyName(source_ty)});
                     return self.t().invalid_id;
                 }
@@ -2250,6 +2261,11 @@ const Checker = struct {
             try self.errAt(e, "`!` is a write borrow; use `not` for negation", .{});
             return self.t().invalid_id;
         }
+        // `![]T` is a writable slice, which a read-only `[]T` cannot give.
+        if (kind == .write and self.ctx.types.get(inner) == .slice) {
+            try self.errAt(operand, "cannot write-borrow a `{s}`: its elements are read-only; take a writable slice of the array or Vec it views with `!xs[a..b]`", .{try self.tyName(inner)});
+            return self.t().invalid_id;
+        }
         if (kind == .write and !self.hasStorage(operand)) {
             try self.errAt(operand, "cannot write-borrow a temporary: the change would be lost; bind it to a name first", .{});
             return self.t().invalid_id;
@@ -2299,15 +2315,68 @@ const Checker = struct {
         return p == .src and self.ctx.symbolOf(p) != null;
     }
 
-    /// `?xs[a..b]`: a slice, read-only. A slice cannot be written through.
+    /// `?xs[a..b]`: a read-only slice `[]T`; `!xs[a..b]`: a writable one,
+    /// `![]T`.
     fn borrowSlice(self: *Checker, slice: Sexp, kind: BorrowKind) Error!TypeId {
-        const ty = try self.synthSlice(slice, true);
-        if (kind == .write) {
-            try self.errAt(slice, "a slice is read-only; write the elements through `!xs` or `xs[i] = value`", .{});
-            return self.t().invalid_id;
-        }
+        const ty = if (kind == .read) try self.synthSlice(slice, true) else try self.writeSlice(slice);
         try self.ctx.recordType(slice, ty);
         return ty;
+    }
+
+    /// `!xs[a..b]`: a write borrow of the elements from `a` up to `b`, of
+    /// an array or a Vec of plain data the code may write, or of a
+    /// `![]T`. A String and a `[]T` are read-only.
+    fn writeSlice(self: *Checker, slice: Sexp) Error!TypeId {
+        const object = ir.Index.object(slice);
+        const range = ir.Index.index(slice);
+        const obj_ty = try self.synthOperand(object);
+        try self.checkSliceRange(range);
+        if (self.isPoison(obj_ty)) return obj_ty;
+        const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
+        var len: ?u64 = null;
+        const elem: TypeId = switch (self.ctx.types.get(peeled)) {
+            .string => {
+                try self.errAt(object, "cannot write-borrow a slice of a String; a String is read-only", .{});
+                return self.t().invalid_id;
+            },
+            .slice => |s| blk: {
+                if (sema.writeSliceElem(self.ctx, obj_ty) == null) {
+                    try self.errAt(object, "cannot write-borrow a slice of a `{s}`; a `[]T` is read-only (a writable slice is a `![]T`)", .{try self.tyName(obj_ty)});
+                    return self.t().invalid_id;
+                }
+                break :blk s.elem;
+            },
+            .array => |a| blk: {
+                len = sema.arrayLen(self.ctx, a);
+                break :blk a.elem;
+            },
+            else => blk: {
+                const elem = vecElementType(self.ctx, peeled) orelse {
+                    try self.errAt(object, "cannot slice a value of type `{s}`; slice a String, an array, a Vec, or a `[]T`", .{try self.tyName(obj_ty)});
+                    return self.t().invalid_id;
+                };
+                if ((try self.ownsResource(elem, self.startOf(object), "slices a Vec"))) {
+                    try self.errAt(object, "cannot slice a `{s}`: a slice would copy owning handles out of the Vec; iterate with `for x in !v` instead", .{try self.tyName(peeled)});
+                    return self.t().invalid_id;
+                }
+                break :blk elem;
+            },
+        };
+        try self.checkSliceBounds(range, len);
+        // A `![]T` may be resliced wherever it comes from; an array or a
+        // Vec is sliced where it is stored.
+        if (sema.writeSliceElem(self.ctx, obj_ty) == null) {
+            if (!self.hasStorage(object)) {
+                try self.errAt(object, "cannot write-borrow a temporary: the change would be lost; bind it to a name first", .{});
+                return self.t().invalid_id;
+            }
+            if (!isStoragePath(object)) {
+                try self.errAt(object, "only a named array or Vec, or a field or element of one, can be sliced; bind this value to a name first", .{});
+                return self.t().invalid_id;
+            }
+        }
+        if (!(try self.checkWritable(slice, object, "write-borrow"))) return self.t().invalid_id;
+        return self.ctx.intern(.{ .borrow_write = try self.ctx.intern(.{ .slice = .{ .elem = elem } }) });
     }
 
     fn synthShare(self: *Checker, e: Sexp) Error!TypeId {
@@ -2364,6 +2433,12 @@ const Checker = struct {
         const operand = ir.Clone.operand(e);
         const inner = try self.synthOperand(operand);
         if (self.isPoison(inner)) return inner;
+        // A `![]T` reaches elements it does not own; a copy of the view
+        // would be a second path to them.
+        if (sema.writeSliceElem(self.ctx, inner) != null) {
+            try self.errAt(operand, "`+x` cannot clone a `{s}`: it is a write borrow of elements it does not own; move it with `<x`, or take a read slice with `?x[..]`", .{try self.tyName(inner)});
+            return self.t().invalid_id;
+        }
         // A clone reads the value a borrow reaches.
         const value = try self.readThrough(operand, inner, sema.unwrapBorrows(self.ctx, inner));
         switch (self.ctx.types.get(value)) {
@@ -3073,6 +3148,13 @@ const Checker = struct {
             .string, .slice => {
                 _ = try self.readThrough(object, obj_ty, peeled);
                 try self.checkSliceBounds(range, null);
+                // A `![]T` is borrowed like the array it views: a read
+                // slice of it keeps it from being written meanwhile.
+                if (!borrowed and sema.writeSliceElem(self.ctx, obj_ty) != null) {
+                    const sp = self.ctx.span(e);
+                    try self.errAt(e, "a slice of a `![]T` borrows it; write `?{s}` or `!{s}`", .{ self.ctx.source[sp.start..sp.end], self.ctx.source[sp.start..sp.end] });
+                    return self.t().invalid_id;
+                }
                 return peeled;
             },
             .array => |a| a.elem,
@@ -4240,7 +4322,13 @@ const Checker = struct {
             .fallible => |p| if (at == .fallible) try self.bindArg(inf, p, at.fallible, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
             .shared => |p| if (at == .shared) try self.bindArg(inf, p, at.shared, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
             .weak => |p| if (at == .weak) try self.bindArg(inf, p, at.weak, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
-            .slice => |p| if (at == .slice) try self.bindArg(inf, p.elem, at.slice.elem, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
+            // A `![]T` goes where a `[]T` does.
+            .slice => |p| if (at == .slice)
+                try self.bindArg(inf, p.elem, at.slice.elem, arg, depth + 1)
+            else if (sema.writeSliceElem(self.ctx, actual)) |elem|
+                try self.bindArg(inf, p.elem, elem, arg, depth + 1)
+            else
+                self.noteMismatch(inf, pattern, actual, arg),
             .array => |p| if (at == .array) {
                 try self.bindArg(inf, p.elem, at.array.elem, arg, depth + 1);
                 try self.bindArg(inf, p.len, at.array.len, arg, depth + 1);
@@ -5783,6 +5871,11 @@ fn compatible(ctx: *const SemContext, actual: TypeId, expected: TypeId) bool {
         // A `T!` holds a `T`, or the error it failed with.
         .fallible => |inner| return compatible(ctx, actual, inner) or sema.isErrorValue(ctx, actual),
         .borrow_read => |inner| if (a == .borrow_write) return a.borrow_write == inner,
+        // A `![]T` (or a `?[]T`) reads as the `[]T` it borrows.
+        .slice => switch (a) {
+            .borrow_read, .borrow_write => |inner| if (inner == expected) return true,
+            else => {},
+        },
         else => {},
     }
     return switch (a) {

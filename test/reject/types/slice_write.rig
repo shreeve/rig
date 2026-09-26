@@ -1,8 +1,32 @@
-# A slice is read-only; there is no writable slice.
+# `!xs[a..b]` needs elements the code may write: not a String's, not a
+# `[]T`'s, and not those of a fixed binding, a loop binding (a copy), a
+# by-value or read-borrowed parameter, or a temporary.
+
+fun make -> [2]Int
+  [1, 2]
+
+sub f(a: [2]Int, b: ?[2]Int, xs: []Int)
+  p = !a[..]
+  q = !b[..]
+  r = !xs[..]
+  print(p, q, r)
 
 sub main()
-  a = [1, 2, 3]
-  s = !a[0..2]
-  print(s)
+  s = "abc"
+  w = !s[..]
+  c =! [1, 2]
+  x = !c[..]
+  rows = [[1, 2], [3, 4]]
+  for row in rows
+    y = !row[..]
+    print(y)
+  z = !make()[..]
+  print(w, x, z)
 
-# error: 5:8: a slice is read-only
+# error: 9:8: cannot write-borrow parameter `a`
+# error: 10:8: cannot write-borrow through a read borrow (`?T`)
+# error: 11:8: cannot write-borrow a slice of a `[]Int`; a `[]T` is read-only
+# error: 16:8: cannot write-borrow a slice of a String; a String is read-only
+# error: 18:8: cannot write-borrow fixed binding `c`
+# error: 21:10: cannot write-borrow `row`; loop and pattern bindings are immutable
+# error: 23:8: cannot write-borrow a temporary

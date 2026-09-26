@@ -1,0 +1,72 @@
+# A write slice of an array anywhere a place reaches one: a row of a 2D
+# array, a field of an element of a `![]T` or a Vec, and a view's field.
+# A `![]T` also goes where a generic `[]T` does, is returned from a
+# `!Vec[T]` parameter, may be empty, and moves with `<`.
+
+struct S
+  arr: [3]Int
+
+struct View
+  s: ![]Int
+
+fun first[T](xs: []T) -> T
+  xs[0]
+
+fun head(xs: []S) -> []Int
+  ?xs[0].arr[0..2]
+
+sub setrow(s: ![]S)
+  w = !s[1].arr[..]
+  w[2] = 42
+
+fun items(v: !Vec[Int]) -> ![]Int
+  !v[..]
+
+sub main()
+  a = [1, 2, 3]
+  w = !a[..]
+  print(first(w))
+  for x in w
+    print(x)
+  bs = [S(arr: [1, 2, 3]), S(arr: [4, 5, 6])]
+  print(head(?bs[..]))
+  setrow(!bs[..])
+  print(bs[1].arr)
+  grid = [[1, 2, 3], [4, 5, 6]]
+  r = !grid[1][..]
+  r[0] = 0
+  print(grid)
+  vs: Vec[S] = Vec()
+  !vs.push(S(arr: [7, 8, 9]))
+  q = !vs[0].arr[1..]
+  q[0] = 80
+  print(vs[0].arr)
+  view = View(s: !a[1..])
+  view.s[0] = 20
+  print(a)
+  v: Vec[Int] = Vec()
+  !v.push(3)
+  it = items(!v)
+  it[0] = 30
+  print(v)
+  e: [0]Int = []
+  z = !e[..]
+  print(z.len)
+  m = !a[..]
+  n = <m
+  n[2] = 33
+  print(a)
+
+# expect:
+# 1
+# 1
+# 2
+# 3
+# [1, 2]
+# [4, 5, 42]
+# [[1, 2, 3], [0, 5, 6]]
+# [7, 80, 9]
+# [1, 20, 3]
+# [30]
+# 0
+# [1, 20, 33]

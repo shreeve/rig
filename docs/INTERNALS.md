@@ -740,7 +740,10 @@ A slice of an array (`?xs[a..b]`) points into the storage of the var
 the array is reached from, which may be a copy of the caller's (a
 borrowed parameter, a read borrow of plain data, a loop or pattern
 binding), so it also holds a *frame* loan on that var: a local loan
-even when the var is a borrowed parameter.
+even when the var is a borrowed parameter. A write slice (`!xs[a..b]`)
+takes a write loan the same way; one of a `![]T` var reborrows it, as
+any borrow of a borrow does, while an array reached through an element
+of a read-only `[]T` is viewed as that `[]T` views it, with its loans.
 
 **Liveness.** A loan held by a var is in force only while the var is
 live: while it may still be used. Before checking a function, one walk
@@ -840,7 +843,9 @@ lower is an internal error: sema must have rejected it.
   it, and a borrowed `Cell` can change while it is borrowed. In a
   generic type, where that depends on the type arguments (`?T`,
   `?Self`), the borrow is a `rig.ReadBorrow(T)`, which applies the same
-  rule to each instance.
+  rule to each instance. A `[]T` is a `[]const T` and a `![]T` a Zig
+  `[]T`, not a pointer to one: the slice already points at its
+  elements, so it is passed and bound as it is.
 - **Types.** `*T` is `*rig.RcBox(T)`, `~T` is `rig.WeakHandle(T)`, `T?`
   is `?T`, `T!` is `anyerror!T`, enums with payloads are tagged unions
   (each payload a struct of its fields), and generic types are Zig functions from types to types. A struct
@@ -917,7 +922,7 @@ reviewed.
 | `print`, `writeValue`, `flush` | the formatting of `print`, into one process-wide stdout buffer; flushed by `finish`, before a panic message, and after every `print` when stdout is a terminal. A value nested more than 64 deep prints as `...` |
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
 | `guardStack` | makes a stack overflow stop the program. Zig probes the stack as a frame grows only on x86, so elsewhere a frame larger than the guard below the stack can step over it. Linux maps nothing within 128 MiB of the top of the stack (nor within the stack limit the program started with, plus 1 MiB), so `guardStack` holds the stack to 16 MiB (`stack_size`), leaving 112 MiB free below it; macOS guards the stack with one page and maps memory right below that once the address space fills, so there `guardStack` reserves 64 MiB (`stack_reserve`) below the guard. When it cannot (the space is taken, or the limit cannot be lowered), the program prints `rig: cannot reserve the stack guard below the main stack` and exits 1 before `main` runs. A frame holds at most 16 MiB of values (`checkFrames`), so with Zig's temporaries an overflowing one lands in the reserve. `test/cli/stack_guard.sh` checks it |
-| `index`, `at`, `slice`, `div` | bounds-checked indexing and slicing, which panic in every build mode; `div` divides a type parameter's values (exact for floats, truncating for integers) |
+| `index`, `at`, `elemPtr`, `slice`, `sliceMut`, `div` | bounds-checked indexing and slicing, which panic in every build mode: `elemPtr` is the slot a `![]T` element is assigned through, `sliceMut` a `![]T` (a Zig `[]T`), and an open end is `null`; `div` divides a type parameter's values (exact for floats, truncating for integers) |
 | `isVariant`, `isVariantDiscard` | `x == .variant` on an enum with payloads, or an optional of one: tests the tag only, so it compiles whatever the payloads hold; `isVariantDiscard` drops a temporary that owns a resource |
 | `discard`, `isNone`, `take` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out |
 | `eql`, `compare` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for slices of integers, Bools, and enums, element by element for arrays and other slices (floats included, so a NaN is never equal), field by field for structs, tag then payload for tagged unions, and presence then value for optionals. `compare` is an ordering operator in a generic body: numbers by the operator, Strings by `std.mem.order`. Outside a generic body a String or `[]U8` ordering is `std.mem.order` itself |

@@ -533,11 +533,77 @@ A borrowed array parameter (`xs: ?[N]T`) is the function's own copy of
 the caller's array, so a slice of it cannot be returned; a function
 that returns part of its argument takes `xs: []T`.
 
+`!xs[a..b]` is a **writable slice**, of type `![]T`: a write borrow of
+the elements, taken of an array or a `Vec` of plain data that could be
+write-borrowed (`!xs`), or of another `![]T`. A String and a `[]T` are
+read-only, and so is what a fixed binding, a loop or pattern binding,
+or a parameter other than a `!T` one holds. A `![]T` is a write borrow
+like any other ([§8](#write-borrows)): while it is live, what it
+borrows cannot otherwise be used, so two live write slices of one
+array, or a `push` to a Vec while a slice of it is live, are rejected;
+it cannot be copied or cloned (`<s` moves it), a call reborrows it, and
+it is returned only when it borrows from a `!` parameter. Its elements
+are assigned (`s[i] = v`, `s[i] += 1`), write-borrowed (`!s[i]`), and
+written in a loop (`for x in !s`); `!s[a..b]` reslices it, and
+`?s[a..b]` takes a read slice, which keeps `s` from being written while
+it lives (a bare `s[a..b]`, which would borrow `s` unseen, is
+rejected). A `![]T` is accepted wherever a `[]T` is expected, but a
+`[]T` is never write-borrowed: `!t` of one is rejected. A slice's
+elements are plain data: `[]T` and `![]T` with a `T` that owns a
+resource are rejected.
+
+```rig
+fun total(xs: []Int) -> Int
+  n = 0
+  for x in xs
+    n += x
+  n
+
+sub scale(s: ![]Int, k: Int)
+  for x in !s
+    x *= k
+
+fun rest(s: ![]Int) -> ![]Int
+  !s[1..]
+
+sub main
+  a = [1, 2, 3, 4]
+  scale(!a[2..], 10)
+  w = !a[..]
+  w[0] = 7
+  r = rest(!w[..])
+  r[0] += 1
+  print(total(w))
+  print(a)
+```
+
+```output
+80
+[7, 3, 30, 40]
+```
+
+```rig reject
+sub main
+  s = "text"
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  w = !v[..]
+  !v.push(2)
+  w[0] = 5
+  t = !s[1..]
+```
+
+```error
+use of `v` while a write borrow is live
+cannot write-borrow a slice of a String; a String is read-only
+```
+
 ### Composite and handle types
 
 | Type | Meaning | Section |
 |---|---|---|
 | `[]T` | slice: a read-only view of elements | [§3](#slices) |
+| `![]T` | writable slice: a write borrow of elements | [§3](#slices) |
 | `T?` | optional: a `T` or `none` | [§13](#13-optionals) |
 | `T!` | fallible: a `T` or an error; only as a return type, including a function type's | [§14](#14-errors) |
 | `?T` | read borrow of a `T` (parameters, returns, locals, fields) | [§8](#8-ownership) |

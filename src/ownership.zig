@@ -388,6 +388,9 @@ pub const Checker = struct {
     /// Whether the last error was recorded (notes attach only to a
     /// recorded error; duplicates from re-walked code are dropped).
     last_err_kept: bool = false,
+    /// Errors found so far, reported or not (quiet walks count too), so a
+    /// step can tell whether an earlier one already reported a mistake.
+    errors_found: u32 = 0,
     /// How many of `plain_reqs` this module's own bodies record.
     own_plain_reqs: usize = 0,
 
@@ -530,6 +533,7 @@ pub const Checker = struct {
 
     fn errSpan(self: *Checker, at: diag.Span, comptime fmt: []const u8, args: anytype) Error!void {
         self.last_err_kept = false;
+        self.errors_found += 1;
         if (self.quiet > 0) return;
         const msg = try std.fmt.allocPrint(self.gpa, fmt, args);
         for (self.diagnostics.items) |d| {
@@ -1294,8 +1298,8 @@ pub const Checker = struct {
             else => return switch (kind) {
                 .block => self.walkBlock(sexp),
                 .move => self.walkMove(ir.Move.operand(sexp)),
-                .read => self.walkBorrow(ir.Read.operand(sexp), .read),
-                .write => self.walkBorrow(ir.Write.operand(sexp), .write),
+                // A borrow the type checker rejected lends nothing.
+                .read, .write => if (self.rejected(sexp)) self.walk(ir.get(sexp, .operand)) else self.walkBorrow(ir.get(sexp, .operand), if (sexp.isKind(.read)) .read else .write),
                 .clone, .weak => self.walkCloneWeak(sexp),
                 .share => self.walkShare(sexp),
                 .lambda => self.walkLambda(sexp, false),
@@ -1544,8 +1548,14 @@ pub const Checker = struct {
     // Borrow, move, clone, drop
     // -------------------------------------------------------------------------
 
+    /// Whether the type checker rejected `e` (its type is invalid).
+    fn rejected(self: *const Checker, e: Sexp) bool {
+        const ctx = self.sema orelse return false;
+        return ctx.typeOf(e) == ctx.types.invalid_id;
+    }
+
     fn walkBorrow(self: *Checker, inner: Sexp, kind: LoanKind) Error!Value {
-        if (rig.isRangeIndex(inner)) return self.walkSlice(inner);
+        if (rig.isRangeIndex(inner)) return self.walkSlice(inner, kind);
         const place = self.resolvePlace(inner) orelse return self.walk(inner);
         try self.walkPlaceIndices(inner);
         const id = place.root;
@@ -1568,24 +1578,50 @@ pub const Checker = struct {
         return try self.reborrow(id, loan);
     }
 
-    /// `?xs[a..b]`. A slice of a String or a `[]T` views what that value
-    /// views. A slice of a Vec borrows the Vec, whose buffer it points
-    /// into. A slice of an array held in the storage of the var it is
-    /// reached from, which may be a copy (a borrowed parameter, a read
-    /// borrow of plain data, a loop or pattern binding), also holds a
-    /// frame loan on that var, so it cannot outlive it.
-    fn walkSlice(self: *Checker, slice: Sexp) Error!Value {
+    /// `?xs[a..b]` / `!xs[a..b]`. A slice of a String or a `[]T` views
+    /// what that value views. A slice of a Vec borrows the Vec, whose
+    /// buffer it points into, and one of a `![]T` borrows the `![]T`, as
+    /// a borrow of a borrow does. A slice of an array held in the storage
+    /// of the var it is reached from, which may be a copy (a borrowed
+    /// parameter, a read borrow of plain data, a loop or pattern
+    /// binding), also holds a frame loan on that var, so it cannot
+    /// outlive it.
+    fn walkSlice(self: *Checker, slice: Sexp, kind: LoanKind) Error!Value {
         const object = ir.Index.object(slice);
+        // A slice the type checker rejected borrows nothing.
+        if (self.rejected(slice)) {
+            _ = try self.walk(object);
+            try self.walkPlaceIndices(slice);
+            return .{};
+        }
         const ty = self.exprType(object) orelse return self.walk(slice);
         const peeled = self.pointee(ty) orelse ty;
-        if (self.typeData(peeled) != .array and !self.isVec(peeled)) return self.walk(slice);
+        const of_write_slice = if (self.sema) |ctx| sema.writeSliceElem(ctx, ty) != null else false;
+        if (self.typeData(peeled) != .array and !self.isVec(peeled) and !of_write_slice) return self.walk(slice);
+        // An array inside an element of a `[]T` is viewed as the `[]T`
+        // views it.
+        if (self.throughReadSlice(object)) return self.walk(slice);
         const place = self.resolvePlace(slice) orelse return self.walk(slice);
         try self.walkPlaceIndices(slice);
         const id = place.root;
         const pos = self.startOf(slice);
-        const v = (try self.borrowVar(id, .read, pos)) orelse return .{};
+        const v = (try self.borrowVar(id, kind, pos)) orelse return .{};
         if (self.typeData(peeled) != .array or !self.inVarStorage(object)) return v;
-        return .{ .loans = try self.unionLoans(v.loans, try self.oneLoan(.{ .root = id, .kind = .read, .pos = pos, .frame = true })) };
+        return .{ .loans = try self.unionLoans(v.loans, try self.oneLoan(.{ .root = id, .kind = kind, .pos = pos, .frame = true })) };
+    }
+
+    /// Whether place `e` reaches its value through an element of a
+    /// read-only `[]T`, which views memory the var does not own.
+    fn throughReadSlice(self: *const Checker, e: Sexp) bool {
+        var p = e;
+        while (p.isKind(.member) or p.isKind(.index)) {
+            const obj = ir.get(p, .object);
+            if (p.isKind(.index)) if (self.exprType(obj)) |t| {
+                if (self.typeData(self.pointee(t) orelse t) == .slice and !(if (self.sema) |ctx| sema.writeSliceElem(ctx, t) != null else false)) return true;
+            };
+            p = obj;
+        }
+        return false;
     }
 
     /// Whether the value of place `e` is stored in the var the place
@@ -2162,9 +2198,12 @@ pub const Checker = struct {
             recv_mode = if (explicit_write) .write else self.receiverMode(obj, callee);
             const place = if (recv_mode == .value) null else self.resolvePlace(obj);
             if (place) |p| {
+                const found = self.errors_found;
                 const recv_val = try self.walk(obj);
                 const id = p.root;
-                if (self.flowLive(id) and !self.isCopy(self.vars.items[id].ty)) {
+                // A receiver already reported (used while write-borrowed)
+                // is not reported again as a conflicting write borrow.
+                if (self.flowLive(id) and !self.isCopy(self.vars.items[id].ty) and self.errors_found == found) {
                     const pos = self.startOf(obj);
                     reservation = self.temps.items.len;
                     try self.addTemp(.{ .root = id, .kind = .read, .pos = pos });

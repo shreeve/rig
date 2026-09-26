@@ -247,6 +247,7 @@ would move, `~x` would hold a handle weakly.
 | propagate | `f()?` | `try f()` | `f()!` |
 | handle | `f().unwrap_or(0)` | `f() catch 0` | `f() catch 0` |
 | borrow | `&x`, `&mut x` | `&x` | `?x`, `!x` |
+| slice | `&v[a..b]`, `&mut v[a..]` | `v[a..b]`, `v[a..]` | `?v[a..b]`, `!v[a..]` |
 | reference count | `Rc::new(x)`, `Rc::clone(&r)` | by hand | `*x`, `+r` |
 | weak | `Rc::downgrade(&r)`, `w.upgrade()` | by hand | `~r`, `w.upgrade()` |
 | interior mutability | `RefCell<T>` / `Cell<T>` | by hand | `Cell[T]` |
@@ -510,6 +511,7 @@ operands have different types `I32` and `Int`
 | `~T` | weak handle | `Weak<T>` | a weak reference |
 | `[N]T` | fixed array; `N` known at compile time | `[T; N]` | `[N]T` |
 | `[]T` | read-only slice | `&[T]` | `[]const T` |
+| `![]T` | writable slice | `&mut [T]` | `[]T` |
 | `fun(A, B) -> R`, `sub(A)` | function or stack closure | `fn(A, B) -> R`, `impl Fn` | `*const fn (A, B) R` |
 | `*fun(A) -> R`, `*sub(A)` | owned closure | `Rc<dyn Fn(A) -> R>` | a boxed closure |
 | `Cell[T]`, `Vec[T]`, `Signal[T]` | built-in generics | `RefCell<T>`, `Vec<T>` | runtime types |
@@ -2723,7 +2725,57 @@ hello 12 104
 world 7 10
 ```
 
-A slice is read-only: `mid[0] = 5` is rejected.
+A `[]T` is read-only: `mid[0] = 5` is rejected. A **writable slice**
+is a write borrow, `!xs[a..b]`, of type `![]T` (Rust's `&mut [T]`,
+Zig's `[]T`), taken of an array or a `Vec` of plain data that the code
+may write, or of another `![]T`. It follows the write-borrow rules: it
+is not copied, a call reborrows it, it is returned only from a `!`
+parameter, and while it is live nothing else uses what it borrows, so
+two write slices of one array, or a `push` to a Vec while a slice of
+it is live, are rejected. A `![]T` goes wherever a `[]T` does, and its
+elements are assigned (`s[i] = v`) and written in a loop
+(`for x in !s`).
+
+```rig
+sub quicksort(s: ![]Int)
+  if s.len < 2
+    return
+  last = s.len - 1
+  pivot = s[last]
+  i = 0
+  j = 0
+  while j < last : j += 1
+    if s[j] < pivot
+      t = s[i]
+      s[i] = s[j]
+      s[j] = t
+      i += 1
+  s[last] = s[i]
+  s[i] = pivot
+  quicksort(!s[..i])
+  quicksort(!s[i + 1..])
+
+sub main
+  a = [5, 3, 9, 1, 7]
+  quicksort(!a[..])
+  print(a)
+```
+
+```output
+[1, 3, 5, 7, 9]
+```
+
+```rig reject
+sub main
+  a = [1, 2, 3, 4]
+  x = !a[..2]
+  y = !a[2..]
+  x[0] = y[0]
+```
+
+```error
+cannot take a second write borrow on `a`
+```
 
 ## 23. Modules and constants
 
@@ -2947,9 +2999,10 @@ and `!=` is the not-equal operator.
 | `e!` | unwrap, or propagate the error |
 
 **Type prefixes:** `?T` read borrow, `!T` write borrow, `*T` shared,
-`~T` weak, `[N]T` array, `[]T` slice. `*` and `~` bind tighter than a
-suffix (`*T?` is an optional handle, `*(T?)` a handle to an optional);
-a borrow covers the suffixes (`?T?` borrows an optional).
+`~T` weak, `[N]T` array, `[]T` slice, `![]T` writable slice. `*` and
+`~` bind tighter than a suffix (`*T?` is an optional handle, `*(T?)` a
+handle to an optional); a borrow covers the suffixes (`?T?` borrows an
+optional).
 
 **Array literals:** `[a, b, c]` elements, `[n of x]` `n` copies of `x`
 (`of` is a keyword only there; elsewhere it is a name).
@@ -2996,6 +3049,7 @@ correspondences:
 | `T!`, `f()!`, `catch` | `anyerror!T`, `try f()`, `catch` |
 | `?T` parameter | the value for plain data; `*const T` for owning types |
 | `!T` | `*T` |
+| `[]T`, `![]T` | `[]const T`, `[]T` |
 | `*T`, `~T` | runtime `RcBox(T)` pointer, weak handle |
 | `Vec[T]`, `Cell[T]` | runtime generic types |
 | an owning local | a `defer` that releases it, guarded by a flag if it may move first |

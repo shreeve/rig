@@ -1,0 +1,10 @@
+# A slice of a `![]T` borrows it, like a slice of an array: it is taken
+# with `?` or `!`.
+
+sub main()
+  a = [1, 2, 3]
+  w = !a[..]
+  t = w[1..]
+  print(t)
+
+# error: 7:7: a slice of a `![]T` borrows it; write `?w[1..]` or `!w[1..]`

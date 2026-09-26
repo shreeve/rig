@@ -1,0 +1,27 @@
+# A `![]T` is a write borrow: it is not copied or cloned, and it is
+# returned only when it borrows from a `!` parameter.
+
+fun local -> ![]Int
+  a = [1, 2]
+  !a[..]
+
+sub copy()
+  a = [1, 2]
+  w = !a[..]
+  t = w
+  t[0] = 5
+  w[1] = 6
+
+sub clone()
+  a = [1, 2]
+  w = !a[..]
+  t = +w
+  w[0] = 5
+  print(t)
+
+sub main()
+  copy()
+
+# error: 6:4: returned borrow of `a` does not originate from a borrowed parameter
+# error: 11:7: bare use of write borrow `w` in binding would duplicate a unique borrow
+# error: 18:8: `+x` cannot clone a `![]Int`: it is a write borrow of elements it does not own
