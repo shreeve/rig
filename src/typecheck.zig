@@ -3576,7 +3576,7 @@ const Checker = struct {
             .params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items }),
             .args = try std.mem.concat(a, TypeId, &.{ recv.args, own_args }),
             .own = @intCast(own.items.len),
-        }, pos);
+        }, pos, null);
         return result;
     }
 
@@ -5859,7 +5859,9 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
     while (i < ctx.fn_instances.items.len) : (i += 1) {
         const f = ctx.fn_instances.items[i];
         const of: sema.InstanceRoot = .{ .func = f.inst };
-        if (try checkRequirements(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of)) try checkInstanceSizes(ctx, f.inst.params, f.inst.args, f.site, of);
+        if (try checkRequirements(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of)) {
+            try checkInstanceSizes(ctx, f.inst.params, f.inst.args, f.site, of);
+        } else if (f.via) |via| try ctx.note(f.site, "`{s}` is made by `{s}`", .{ try sema.rootName(ctx, of), try sema.rootName(ctx, via) });
     }
 }
 

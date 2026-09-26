@@ -715,7 +715,7 @@ pub const SemContext = struct {
     generic_uses: std.ArrayListUnmanaged(TypeId) = .empty,
     /// The instances of generic functions the module's calls make, each
     /// with the position of its first call, in the order found.
-    fn_instances: std.ArrayListUnmanaged(struct { inst: FnInstance, site: u32 }) = .empty,
+    fn_instances: std.ArrayListUnmanaged(struct { inst: FnInstance, site: u32, via: ?InstanceRoot = null }) = .empty,
     /// Every instance in `fn_instances` and `generic_fn_uses`.
     fn_instance_set: std.HashMapUnmanaged(FnInstance, void, FnInstance.Context, std.hash_map.default_max_load_percentage) = .empty,
     /// Instances of generic functions called with type parameters, inside
@@ -1059,8 +1059,9 @@ pub const SemContext = struct {
     /// a concrete one, checked against its body's requirements, or, from
     /// a call inside a generic body, one over type parameters, which
     /// each instance of that body makes concrete
-    /// (`expandInstantiations`). Whether it was new.
-    pub fn recordFnInstance(self: *SemContext, inst: FnInstance, site: u32) !bool {
+    /// (`expandInstantiations`, which gives the instance written at
+    /// `site` that it is made `via`). Whether it was new.
+    pub fn recordFnInstance(self: *SemContext, inst: FnInstance, site: u32, via: ?InstanceRoot) !bool {
         if (self.fn_instance_set.contains(inst)) return false;
         const owned = try self.ownFnInstance(inst);
         try self.fn_instance_set.put(self.allocator, owned, {});
@@ -1068,7 +1069,7 @@ pub const SemContext = struct {
             try self.generic_fn_uses.append(self.allocator, owned);
             return true;
         };
-        try self.fn_instances.append(self.allocator, .{ .inst = owned, .site = site });
+        try self.fn_instances.append(self.allocator, .{ .inst = owned, .site = site, .via = via });
         return true;
     }
 
@@ -1253,7 +1254,7 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
                 return;
             }
             const concrete: FnInstance = .{ .name = use.name, .params = use.params, .args = args, .own = use.own };
-            if (!try ctx.recordFnInstance(concrete, item.site)) continue;
+            if (!try ctx.recordFnInstance(concrete, item.site, item.root)) continue;
             try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root });
         }
         for (ctx.generic_uses.items) |use| {

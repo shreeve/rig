@@ -26,3 +26,4 @@ sub main()
 # error: 17:11: an array length `99999999999999999999999999999999999999999` is too large to compute
 # error: 18:9: `zeros[-1]` cannot use `n = -1`: the generic body uses `n` as an array length, which runs from 0 to 4294967295
 # error: 19:9: `zeros[-2]` cannot use `n = -2`: the generic body uses `n` as an array length
+# error: 19:9: `zeros[-2]` is made by `wrap[-2]`
