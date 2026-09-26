@@ -2394,7 +2394,7 @@ pub const Emitter = struct {
         try self.w.writeAll(if (elems.len > 0) " }" else "}");
     }
 
-    /// `[x; n]` → `@as([n]T, @splat(x))`.
+    /// `[n of x]` → `@as([n]T, @splat(x))`.
     fn emitArrayFill(self: *Emitter, sexp: Sexp) Error!void {
         const ty = self.typeOf(sexp) orelse return self.unsupported(sexp, "an untyped array literal");
         try self.w.writeAll("@as(");

@@ -131,6 +131,7 @@ parser distinct tokens:
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
 | `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
 | keywords | one token each | every keyword is reserved; `new` only at statement start |
+| `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
 | `t.type`, `(type: 1)`, a member `type: Int`, `fun type` in a member list | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`; sema rejects a keyword parameter |
 
 The grammar's own shape settles the rest:
@@ -353,7 +354,7 @@ A few kinds serve more than one surface form:
   integer, a name, a `member` (`lib.N`), a `neg` integer (arguments
   only), or `+ - * / %` over those; sema reads a name by the slot it
   fills, a type or a compile-time integer.
-- `(array_fill value size)` is `[x; n]`; `(array elems...)` is a list
+- `(array_fill size value)` is `[n of x]`; `(array elems...)` is a list
   of elements.
 - A declaration's compile-time parameters are its `tparams` group (a
   `fun` or `sub`'s `[mode: Mode]`, a generic type's `[T, n: Int]`): a
@@ -843,7 +844,7 @@ lower is an internal error: sema must have rejected it.
   value argument is emitted from its type: the folded integer or the
   parameter's name. An element of an array whose length is a
   compile-time parameter is reached through a slice (`rig.elems`),
-  since Zig rejects any index into an array of length 0, and `[x; n]`
+  since Zig rejects any index into an array of length 0, and `[n of x]`
   is `@as([n]T, @splat(x))`.
 - **Generic functions** are Zig generic functions: a type parameter is
   `comptime T: type`, and a call passes its type arguments, inferred

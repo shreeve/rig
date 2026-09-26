@@ -174,7 +174,10 @@ fun f(in: Int) -> Int
 ```
 
 `new` is a keyword only at the start of a statement (`new x = ...`), so
-a method may be named `new`. `none` is a reserved
+a method may be named `new`. `of` is a keyword only after a value
+directly inside `[ ]`, where it separates a fill literal's count from
+its element (`[n of x]`); anywhere else it is an ordinary name. `none`
+is a reserved
 name for the absent optional. Words that are keywords in Zig but not in
 Rig (`var`, `fn`, `const`) are ordinary names.
 
@@ -358,14 +361,14 @@ with `LIMIT =! 4`, `[LIMIT]Int`, `[2 + 2]Int`, and `[4]Int` are one
 type.
 
 An array literal `[a, b, c]` takes its element type from its elements
-(or from an annotation). `[x; n]` is an array of `n` copies of `x`,
+(or from an annotation). `[n of x]` is an array of `n` copies of `x`,
 where `n` is any compile-time integer, a compile-time parameter
 included; it has the array type expected where it goes, or `[n]T` for
 `x`'s type `T`. An array whose length is a compile-time parameter is
 built with it. `xs.len` is an array's length, and `xs[i]` reads or
 writes an element; an index outside the half-open range `0..xs.len`
 panics, and a constant one is rejected where the length is known.
-Arrays hold plain data only, and `[x; n]` copies `x` into every slot; a
+Arrays hold plain data only, and `[n of x]` copies `x` into every slot; a
 collection of resources is a `Vec`. An array of arrays is `[2][3]T`:
 two rows of three.
 
@@ -373,7 +376,7 @@ two rows of three.
 LIMIT =! 4
 
 fun zeros[n: Int] -> [n]Int
-  [0; n]
+  [n of 0]
 
 sub main
   xs = [10, 20, 30]
@@ -381,10 +384,10 @@ sub main
   ys: [2]U8 = [1, 2]
   grid: [2][3]Int = [[1, 2, 3], [4, 5, 6]]
   print(xs, xs.len, xs[2], ys, grid[1][2])
-  a: [LIMIT]Int = [7; LIMIT]
+  a: [LIMIT]Int = [LIMIT of 7]
   b: [4]Int = a
   c = zeros[LIMIT * 2]()
-  d = [[0; 2]; 3]
+  d = [3 of [2 of 0]]
   e: [0]Int = []
   print(b, c.len, d, e)
 ```
@@ -404,16 +407,16 @@ fun zeros[n: Int] -> [n]Int
 sub main
   k = 3
   a: [k]Int = [1, 2, 3]
-  b = [0; -1]
-  c = [Vec[Int](); 2]
+  b = [-1 of 0]
+  c = [2 of Vec[Int]()]
 ```
 
 ```error
 an array length `n + 1` does arithmetic on a compile-time parameter
-an array of compile-time length `n` is built with `[x; n]`
+an array of compile-time length `n` is built with `[n of x]`
 an array length must be known at compile time; `k` is not
 array length -1 is out of range
-`[x; n]` copies its element into every slot; `Vec[Int]` owns a resource
+`[n of x]` copies its element into every slot; `Vec[Int]` owns a resource
 ```
 
 A value takes at most 8 MiB (8388608 bytes, a `[1048576]Int`): an
@@ -447,13 +450,13 @@ struct Grid
   more: [8]Int
 
 fun sums(k: Int) -> Int
-  a = [k; 800000]
-  b = [k; 800000]
-  c = [k; 800000]
+  a = [800000 of k]
+  b = [800000 of k]
+  c = [800000 of k]
   a[0] + b[0] + c[0]
 
 sub main
-  big = [0; 2000000]
+  big = [2000000 of 0]
   print(big.len, sums(1))
 ```
 
@@ -1061,7 +1064,7 @@ fun sum[n: Int](xs: [n]Int) -> Int
   total
 
 fun zeros[n: Int] -> [n]Int
-  [0; n]
+  [n of 0]
 
 fun pick[T](a: T, b: T, first: Bool) -> T
   if first

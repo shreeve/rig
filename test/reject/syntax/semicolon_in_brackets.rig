@@ -1,0 +1,8 @@
+# A `;` in brackets that do not spell a single element and count gets
+# the general hint.
+
+sub main()
+  a = [f(1); g(2)]
+  print(a)
+
+# error: 5:12: unexpected `;`; `[x; n]` is written `[n of x]`, and `[Int; 3]` is written `[3]Int`

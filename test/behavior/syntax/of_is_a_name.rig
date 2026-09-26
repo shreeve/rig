@@ -1,0 +1,24 @@
+# `of` is a keyword only after a value directly inside [ ], where it
+# separates a fill literal's count from its element (`[n of x]`).
+# Everywhere else it is an ordinary name.
+
+struct Pair
+  of: Int
+
+fun twice(of: Int) -> Int
+  of * 2
+
+sub main()
+  of = 1
+  xs = [10, 20, 30]
+  p = Pair(of: 2)
+  print(of, xs[of], [of], [of, of], twice(of), p.of, twice(of: 3))
+  print([2 of of], [3 of p.of], [2 of xs[of]])
+  grid: [2][3]Int = [2 of [3 of 0]]
+  page: [8]U8 = [8 of 0]
+  print(grid, page.len)
+
+# expect:
+# 1 20 [1] [1, 1] 2 2 6
+# [1, 1] [2, 2, 2] [20, 20]
+# [[0, 0, 0], [0, 0, 0]] 8

@@ -30,5 +30,5 @@ struct Ring[T, n: Int]
   items: [n]T
 
 sub arrays[n: Int](a: [n]Int, b: [N * 2 + 1][n]U8, c: Ring[Int, 4], d: Ring[Int, (N + 1) * 2])
-  e = [0; n]
+  e = [n of 0]
   print e

@@ -3045,13 +3045,13 @@ const Checker = struct {
             if (elems.len != n) try self.errAt(node, "array literal has {d} element{s}; `{s}` needs {d}", .{ elems.len, plural(elems.len), try self.tyName(expected), n });
         } else if (self.ctx.types.get(et.array.len) == .ct_param) {
             const len = try self.tyName(et.array.len);
-            try self.errAt(node, "an array of compile-time length `{s}` is built with `[x; {s}]`, not a list of elements", .{ len, len });
+            try self.errAt(node, "an array of compile-time length `{s}` is built with `[{s} of x]`, not a list of elements", .{ len, len });
         }
         for (elems) |e| try self.checkExpr(e, et.array.elem);
         return expected;
     }
 
-    /// `[x; n]`: an array of `n` copies of `x`, where `n` is a
+    /// `[n of x]`: an array of `n` copies of `x`, where `n` is a
     /// compile-time integer. Its type is `[n]T` for `x`'s type `T`, or
     /// the array type `expected`, whose length it must have. The element
     /// is plain data: it is copied into every slot.
@@ -3069,19 +3069,19 @@ const Checker = struct {
             if (elem != ty) try self.checkExpr(value, elem);
             switch (self.ctx.types.get(elem)) {
                 .none_literal, .void, .noreturn => {
-                    try self.errAt(value, "the element of `[x; n]` needs a type; give it where the array goes (`xs: [n]T? = [none; n]`)", .{});
+                    try self.errAt(value, "the element of `[n of x]` needs a type; give it where the array goes (`xs: [n]T? = [n of none]`)", .{});
                     return self.t().invalid_id;
                 },
                 else => {},
             }
         }
         if (self.isPoison(elem) or self.isPoison(len)) return self.t().invalid_id;
-        if (try self.ownsResource(elem, self.startOf(value), "copies into every slot of `[x; n]` a value")) {
-            try self.errAt(value, "`[x; n]` copies its element into every slot; `{s}` owns a resource, so an array cannot hold it (use a `Vec`)", .{try self.tyName(elem)});
+        if (try self.ownsResource(elem, self.startOf(value), "copies into every slot of `[n of x]` a value")) {
+            try self.errAt(value, "`[n of x]` copies its element into every slot; `{s}` owns a resource, so an array cannot hold it (use a `Vec`)", .{try self.tyName(elem)});
             return self.t().invalid_id;
         }
         if (sema.holdsBorrow(self.ctx, elem)) {
-            try self.errAt(value, "`[x; n]` copies its element into every slot; `{s}` holds a borrow, and its element must be plain data", .{try self.tyName(elem)});
+            try self.errAt(value, "`[n of x]` copies its element into every slot; `{s}` holds a borrow, and its element must be plain data", .{try self.tyName(elem)});
             return self.t().invalid_id;
         }
         const ty = try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });

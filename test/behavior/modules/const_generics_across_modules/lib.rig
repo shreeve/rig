@@ -1,8 +1,8 @@
 pub fun zeros[n: Int] -> [n]Int
-  [0; n]
+  [n of 0]
 
 fun helper[m: Int] -> Int
-  a = [0; m]
+  a = [m of 0]
   a.len
 
 pub sub show[k: Int]
@@ -15,7 +15,7 @@ pub struct Maker
   x: Int
 
   fun zeros[n: Int] -> [n]Int
-    [0; n]
+    [n of 0]
 
 pub fun sum[n: Int](xs: [n]Int) -> Int
   t = 0

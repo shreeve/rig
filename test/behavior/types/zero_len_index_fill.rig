@@ -1,7 +1,7 @@
-# An index into a `[x; 0]` fill panics when the program runs.
+# An index into a `[0 of x]` fill panics when the program runs.
 
 fun at(i: Int) -> Int
-  [7; 0][i]
+  [0 of 7][i]
 
 sub main()
   i = 0

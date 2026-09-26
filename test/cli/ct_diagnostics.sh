@@ -21,10 +21,10 @@ fun g(b: ?Wrap[Nope]) -> Int
   1
 
 sub main()
-  r = Ring[Int, 2](items: [0; 2])
+  r = Ring[Int, 2](items: [2 of 0])
   s: Ring[Int, Int] = r
   b = Wrap[Int](v: 1)
-  a: [nope]Int = [0; 2]
+  a: [nope]Int = [2 of 0]
   print(f(?r), g(?b), s.items, a)
 EOF2
 expect_eq "$(errors_of poison.rig)" "poison.rig:7:21: error: use of unbound name \`nope\`
@@ -39,8 +39,8 @@ struct Ring[T, n: Int]
   items: [n]T
 
 sub main()
-  r = Ring[Int, -1](items: [0; 2])
-  s = Ring[Int, 5000000000](items: [0; 2])
+  r = Ring[Int, -1](items: [2 of 0])
+  s = Ring[Int, 5000000000](items: [2 of 0])
   print(r.items.len, s.items.len)
 EOF2
 expect_eq "$(errors_of range.rig)" "range.rig:5:7: error: \`Ring[Int, -1]\` cannot use \`n = -1\`: the generic body uses \`n\` as an array length, which runs from 0 to 4294967295
@@ -53,7 +53,7 @@ fun f[T](xs: [T]Int) -> Int
   1
 
 fun zeros[n: Int] -> [n]Int
-  [0; n]
+  [n of 0]
 
 sub main()
   a: [nope]Int = zeros()
@@ -65,12 +65,12 @@ infer.rig:8:7: error: use of unbound name \`nope\`" "no inference cascade"
 # A fill count that is not an integer is named for what it is, once.
 cat >kinds.rig <<'EOF2'
 sub main()
-  a = [0; 2.5]
-  b = [0; none]
+  a = [2.5 of 0]
+  b = [none of 0]
   print(a, b)
 EOF2
-expect_eq "$(errors_of kinds.rig)" "kinds.rig:2:11: error: an array length is an integer; \`2.5\` is a \`Float\`
-kinds.rig:3:11: error: an array length is an integer; \`none\` is the absent optional" "a fill count's kind"
+expect_eq "$(errors_of kinds.rig)" "kinds.rig:2:8: error: an array length is an integer; \`2.5\` is a \`Float\`
+kinds.rig:3:8: error: an array length is an integer; \`none\` is the absent optional" "a fill count's kind"
 
 # A value too large is reported once, where it is spelled or made: a
 # type holding one, and a fill where its annotation is rejected, are not

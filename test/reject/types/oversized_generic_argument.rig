@@ -12,11 +12,11 @@ fun first[T](x: T) -> Int
   1
 
 sub main()
-  print(first([Big(a: [0; 530000]), Big(a: [0; 530000])]))
-  w = Wrap(v: [Big(a: [0; 530000]), Big(a: [0; 530000]), Big(a: [0; 530000])])
+  print(first([Big(a: [530000 of 0]), Big(a: [530000 of 0])]))
+  w = Wrap(v: [Big(a: [530000 of 0]), Big(a: [530000 of 0]), Big(a: [530000 of 0])])
   print(w.v[0].a[0])
-  print(first(x: [0; 2000004]))
-  print(first([[0; 2000005]]))
+  print(first(x: [2000004 of 0]))
+  print(first([[2000005 of 0]]))
 
 # error: 15:15: `[2]Big` takes 8480000 bytes
 # error: 16:15: `[3]Big` takes 12720000 bytes

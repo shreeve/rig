@@ -1,0 +1,8 @@
+# Rust's fill literal `[x; n]` is `[n of x]` in Rig: the count comes
+# first, as in the type `[n]T`. Rig has no `;`.
+
+sub main()
+  a = [0; 4]
+  print(a)
+
+# error: 5:9: unexpected `;`; a fill literal puts its count first: `[4 of 0]`

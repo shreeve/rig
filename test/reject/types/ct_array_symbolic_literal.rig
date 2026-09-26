@@ -1,5 +1,5 @@
 # An array whose length is a compile-time parameter is built with
-# `[x; n]`: a list of elements has a length of its own.
+# `[n of x]`: a list of elements has a length of its own.
 
 fun zeros[n: Int] -> [n]Int
   a: [n]Int = [0, 0]
@@ -8,4 +8,4 @@ fun zeros[n: Int] -> [n]Int
 sub main()
   print(zeros[2]())
 
-# error: 5:15: an array of compile-time length `n` is built with `[x; n]`, not a list of elements
+# error: 5:15: an array of compile-time length `n` is built with `[n of x]`, not a list of elements

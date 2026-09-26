@@ -56,8 +56,8 @@ fun h(xs: [N]Int) -> Int
 LATER =! 2
 
 sub main()
-  r = Row(cells: [0; 5])
-  print(f(r.cells), g([0; LATER]), h([1, 2, 3, 4]))
+  r = Row(cells: [5 of 0])
+  print(f(r.cells), g([LATER of 0]), h([1, 2, 3, 4]))
 
 # expect:
 # 5 2 4

@@ -16,7 +16,9 @@
 #     blocks as anywhere else;
 #   * classifies keywords (every keyword is reserved, but reads as a name
 #     where it names a member: after `.`, before `:` inside ( ), and in a
-#     member list before `:` or after `fun` / `sub`);
+#     member list before `:` or after `fun` / `sub`); `of` is a keyword
+#     only after a value directly inside [ ] (`[n of x]`), and a name
+#     everywhere else;
 #   * classifies the characters whose meaning depends on spacing. The rule
 #     is the same for all of them: a character that touches its operand and
 #     not the preceding value is a prefix; otherwise it is an infix
@@ -127,7 +129,6 @@ tokens
     lbracket        # [  array literal or slice/array type
     rbracket        # ]
     comma           # ,
-    semicolon       # ;  only in a fill literal `[x; n]`
     colon           # :
     arrow           # ->
     fat_arrow       # =>
@@ -157,6 +158,7 @@ tokens
     drop_stmt       # -x  drop, as a whole statement
     suffix_q        # T?  optional type
     suffix_bang     # T!  fallible type, x! propagate failure
+    of              # of  after a value inside [ ]: a fill literal `[n of x]`
 
     # Misc
     comment
@@ -236,7 +238,6 @@ tokens
 '['                                         → lbracket
 ']'                                         → rbracket
 ','                                         → comma
-';'                                         → semicolon
 ':'                                         → colon
 '.'                                         → dot
 
@@ -325,7 +326,7 @@ tokens
     index                       object index
     inst                        object ...args
     array                       ...elems
-    array_fill                  value size
+    array_fill                  size value
     kwarg                       name:leaf value
 
     # Operators
@@ -358,7 +359,7 @@ tokens
     KWARG_NAME: "a keyword argument"
     MOVE_PFX: "`<`", CLONE_PFX: "`+`", READ_PFX: "`?`"
     WRITE_PFX: "`!`", SHARE_PFX: "`*`", DROP_STMT: "`-`", MINUS_PREFIX: "`-`"
-    SUFFIX_Q: "`?`", SUFFIX_BANG: "`!`"
+    SUFFIX_Q: "`?`", SUFFIX_BANG: "`!`", OF: "`of`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
@@ -368,7 +369,7 @@ tokens
     "=": "`=`", "+=": "`+=`", "-=": "`-=`", "*=": "`*=`", "/=": "`/=`", "%=": "`%=`"
     "&=": "`&=`", "|=": "`|=`", "^=": "`^=`", "<<=": "`<<=`", ">>=": "`>>=`", "=!": "`=!`"
     "<-": "`<-`", ":": "`:`", "->": "`->`", "(": "`(`", ")": "`)`", "[": "`[`"
-    "]": "`]`", ",": "`,`", ";": "`;`", ".": "`.`", "..": "`..`", "=>": "`=>`", "~": "`~`"
+    "]": "`]`", ",": "`,`", ".": "`.`", "..": "`..`", "=>": "`=>`", "~": "`~`"
     "@": "`@`", "==": "`==`", "!=": "`!=`", "<": "`<`", ">": "`>`", "<=": "`<=`"
     ">=": "`>=`", "??": "`??`", "|": "`|`", "^": "`^`", "&": "`&`", "<<": "`<<`"
     ">>": "`>>`", "+": "`+`", "-": "`-`", "*": "`*`", "/": "`/`", "%": "`%`"
@@ -786,7 +787,7 @@ atom     = name
          | "@" name:name LPAREN_CALL args:args ")"  → (builtin)
          | "[" [elems:exprs] "]"                    → (array)
          | "[" elems:exprs "," "]"                  → (array)
-         | "[" value:expr ";" size:expr "]"         → (array_fill)  # `[0; n]`
+         | "[" size:expr OF value:expr "]"          → (array_fill)  # `[n of 0]`
          | "(" expr ")"                             → 2
          | "(" cclosure ")"                         → 2
 

@@ -68,7 +68,7 @@ sub main
   if !tapes.pop() as t
     print("played", t.label)
   print("left", tapes.items.len, max[Float](1, 2))
-  recent = Ring[Int, HISTORY](items: [0; HISTORY])
+  recent = Ring[Int, HISTORY](items: [HISTORY of 0])
   for m in [45, 38, 60, 12]
     !recent.put(m)
   print(recent.items, recent.last(), total(recent.items))

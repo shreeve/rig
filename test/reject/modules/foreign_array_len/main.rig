@@ -14,7 +14,7 @@ sub main()
 # error: 8:11: `lib.zeros[-1]` cannot use `n = -1`: the generic body uses `n` as an array length, which runs from 0 to 4294967295
 # error: 1:27: `n` used as an array length here
 # error: 9:7: `lib.helper[5000000000]` cannot use `m = 5000000000`
-# error: 5:11: `m` used as an array length here
+# error: 5:8: `m` used as an array length here
 # error: 9:7: `lib.helper[5000000000]` is made by `lib.show[5000000000]`
 # error: 10:11: `lib.zeros[2000000]` makes `[2000000]Int`, which takes 16000000 bytes
 # error: 1:26: the array is made here

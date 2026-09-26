@@ -2,15 +2,15 @@
 # values on its stack: an array local, a struct, and a module constant
 # at the limit all run, and so does a function keeping 12 MiB.
 
-BIG =! [7; 1048576]
-HALF =! [1; 524288]
+BIG =! [1048576 of 7]
+HALF =! [524288 of 1]
 
 struct Frame
   a: [524288]Int
   b: [524288]Int
 
 sub array_local(i: Int)
-  a = [3; 1048576]
+  a = [1048576 of 3]
   a[i] += BIG[i]
   print(a[i], a.len)
 
@@ -20,8 +20,8 @@ sub struct_local(i: Int)
   print(f.b[i], f.a.len + f.b.len)
 
 sub two_locals(i: Int)
-  a = [1; 786432]
-  b = [2; 786432]
+  a = [786432 of 1]
+  b = [786432 of 2]
   b[i] += a[i]
   print(b[i], a.len + b.len)
 

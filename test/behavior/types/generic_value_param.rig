@@ -11,7 +11,7 @@ struct Ring[T, n: Int]
   log: Vec[Int]
 
   fun new(x: T) -> Ring[T, n]
-    Ring[T, n](items: [x; n], log: Vec[Int]())
+    Ring[T, n](items: [n of x], log: Vec[Int]())
 
   sub put(!self, x: T)
     self.items[self.head % n] = x
@@ -41,11 +41,11 @@ sub main()
   !s.put(5)
   !s.put(6)
   print(s.items, s.cap(), s.log.len, capacity(?s))
-  q = Ring[Int, LIMIT * 2](items: [1; 4], log: Vec[Int]())
+  q = Ring[Int, LIMIT * 2](items: [4 of 1], log: Vec[Int]())
   print(q.items, q.cap())
   u = Ring(items: [true, false, true], log: Vec[Int]())
   print(u.cap(), u.items)
-  p = Pool[Int, 3](ring: Ring[Int, 3].new(1), spare: [2; 3])
+  p = Pool[Int, 3](ring: Ring[Int, 3].new(1), spare: [3 of 2])
   print(p.ring.items, p.spare)
   pr = Pair(items: [1, 2])
   x: Slot[2] = .full(items: [3, 4])

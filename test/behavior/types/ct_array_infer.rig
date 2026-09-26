@@ -12,7 +12,7 @@ fun first[n: Int](xs: ?[n]Int) -> Int
   xs[0]
 
 fun zeros[n: Int] -> [n]Int
-  [0; n]
+  [n of 0]
 
 fun pair[n: Int](a: [n]Int, b: [n]Int) -> Int
   sum(a) * sum(b)

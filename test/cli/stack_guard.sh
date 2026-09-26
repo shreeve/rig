@@ -42,7 +42,7 @@ sub wait(pid: I32)
     waitpid(pid, 0, 0)
 
 fun dive(depth: Int) -> Int
-  a: [1000000]U8 = [165; 1000000]
+  a: [1000000]U8 = [1000000 of 165]
   a[depth % 7] = 165
   if depth < 0
     return 0

@@ -13,12 +13,12 @@ struct Bad[n: Int]
   x: n
 
 sub main()
-  a = Ring[Int, -4](items: [0; 0])
+  a = Ring[Int, -4](items: [0 of 0])
   b: Ring[Int, Int] = Ring(items: [1])
   c: Ring[4, Int] = Ring(items: [1])
   d: Ring[Int] = Ring(items: [1])
   e: Small[256] = Small(items: [1])
-  f = Ring(items: [Vec[Int](); 2])
+  f = Ring(items: [2 of Vec[Int]()])
   print(a, b, c, d, e, f)
 
 # error: 13:6: `n` is a compile-time value, not a type
@@ -27,4 +27,4 @@ sub main()
 # error: 18:11: `4` is a value; `T` takes a type
 # error: 19:6: generic type `Ring` expects 2 compile-time arguments, got 1
 # error: 20:12: compile-time argument 1 of `Small` is `256`, which `n`, a `U8`, cannot hold
-# error: 21:20: `[x; n]` copies its element into every slot; `Vec[Int]` owns a resource
+# error: 21:25: `[n of x]` copies its element into every slot; `Vec[Int]` owns a resource

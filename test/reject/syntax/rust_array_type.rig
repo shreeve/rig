@@ -4,4 +4,4 @@ sub main()
   a: [Int; 3] = [1, 2, 3]
   print(a)
 
-# error: 4:10: unexpected `;`; an array type puts its length first: `[3]Int`; `[x; n]` is a fill literal
+# error: 4:10: unexpected `;`; an array type puts its length first: `[3]Int`
