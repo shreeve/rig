@@ -642,7 +642,8 @@ cannot write-borrow a slice of a String; a String is read-only
 Bytes hold fixed-width numbers. `bytes.read[T, e](at)` is the integer
 or float `T` stored in the `@sizeOf(T)` bytes from offset `at`, in byte
 order `e`, and `!bytes.write[T, e](at, v)` stores `v` there. `T` is any
-integer or float type; `e` is a compile-time value of the built-in enum
+integer or float type, or a type parameter every instance gives one;
+`e` is a compile-time value of the built-in enum
 `Endian`, `.little` or `.big` (a literal, `Endian.big`, a constant, or
 a compile-time parameter; there is no native order). `read` works on a
 `[]U8`, an `![]U8`, a `[N]U8`, a `Vec[U8]`, and a String; `write` on

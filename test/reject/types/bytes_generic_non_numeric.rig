@@ -1,0 +1,10 @@
+# A type parameter read from bytes must be a number in every instance.
+
+fun get[T](b: []U8) -> T
+  b.read[T, .big](0)
+
+sub main()
+  buf: [2]U8 = [1, 2]
+  print(get[Bool](?buf[..]))
+
+# error: 8:9: `get[Bool]` cannot use `T = Bool`: the generic body applies `read` to a `T` in bytes, which takes an integer or float type

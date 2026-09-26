@@ -4810,11 +4810,12 @@ const Checker = struct {
         if (given.len != 2) return self.badCall(args, b, "`{s}` takes two compile-time arguments, the type and the byte order: `{s}`", .{ method, example });
         const num = try self.typeArg(given[0]);
         if (self.isPoison(num)) return self.skipCall(args);
-        const num_ok = switch (self.ctx.types.get(num)) {
-            .int, .float => true,
-            else => false,
-        };
-        if (!num_ok) return self.badCall(args, given[0], "`{s}` {s} an integer or float type; got `{s}`", .{ method, if (op == .read) "reads" else "writes", try self.tyName(num) });
+        switch (self.ctx.types.get(num)) {
+            .int, .float => {},
+            // A type parameter: each instance must be a number.
+            .type_var => |param| try self.require(param, .bytes, self.startOf(given[0]), method),
+            else => return self.badCall(args, given[0], "`{s}` {s} an integer or float type; got `{s}`", .{ method, if (op == .read) "reads" else "writes", try self.tyName(num) }),
+        }
         const endian = try self.ctx.intern(.{ .nominal = self.ctx.endian_sym_id });
         try self.checkCtValue(given[1], endian, 1, method);
         for (args) |a| if (a.isKind(.kwarg)) return self.badCall(args, a, "`{s}` takes no keyword arguments", .{method});
@@ -6562,6 +6563,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
             switch (req.req) {
                 .plain => try ctx.err(at, cannot ++ "{s} that holds a `{s}`, which would leak or duplicate the resource `{s}` owns", .{ inst, pname, aname, req.op, pname, aname }),
                 .array_len => try ctx.err(at, cannot ++ "uses `{s}` as an array length, which runs from 0 to {d}", .{ inst, pname, aname, pname, sema.max_array_len }),
+                .bytes => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` in bytes, which takes an integer or float type", .{ inst, pname, aname, req.op, pname }),
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
@@ -6571,6 +6573,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
             switch (req.req) {
                 .plain => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
                 .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
+                .bytes => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 .fits, .float, .shift => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
                 else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
@@ -6606,7 +6609,7 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
 
 fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
     return switch (req) {
-        .numeric => sema.isNumeric(ctx, ty),
+        .numeric, .bytes => sema.isNumeric(ctx, ty),
         .ordered => sema.isNumeric(ctx, ty) or ctx.types.get(ty) == .string,
         .integer => sema.isInteger(ctx, ty),
         .signed => switch (ctx.types.get(ty)) {

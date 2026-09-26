@@ -675,6 +675,9 @@ pub const Requirement = union(enum) {
     /// A compile-time integer from 0 to `max_array_len`: the body uses
     /// the value parameter as an array length.
     array_len,
+    /// An integer or float type: the body reads or writes one in bytes
+    /// (`b.read[T, .big](at)`).
+    bytes,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -688,6 +691,7 @@ pub const Requirement = union(enum) {
             .shift => "a constant shift",
             .plain => "a value that owns no resource",
             .array_len => "an array length",
+            .bytes => "an integer or float in bytes",
         };
     }
 };
