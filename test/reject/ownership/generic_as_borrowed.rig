@@ -1,0 +1,28 @@
+# In a generic body, `if o as v` or `while o as v` over a borrowed
+# optional of `T` moves a `T` out of a borrow, so every instance must
+# be plain data.
+
+struct Res
+  n: Int
+
+  drop self: !Res
+    print("drop", self.n)
+
+fun unwrap[T](o: ?T?, d: T) -> T
+  if o as v
+    return v
+  <d
+
+sub drain[T](o: ?T?)
+  while o as v
+    break
+
+sub main()
+  k: Int? = 4
+  print(unwrap(?k, 3))
+  r: Res? = Res(n: 1)
+  s = unwrap(?r, Res(n: 2))
+  drain(?r)
+
+# error: 24:7: `unwrap[Res]` cannot use `T = Res`: the generic body moves out of a borrow a value that holds a `T`
+# error: 25:3: `drain[Res]` cannot use `T = Res`

@@ -920,8 +920,14 @@ const Checker = struct {
             .optional => |i| inner = i,
             else => try self.errAt(expr, "`as` binds the value inside an optional; this expression has type `{s}`", .{try self.tyName(ty)}),
         };
-        if ((expr.isKind(.read) or expr.isKind(.write)) and try self.ownsResource(inner, self.startOf(expr), "moves out of a borrow a value")) {
-            try self.errAt(expr, "a borrow cannot give up the resource inside it; bind a new handle with `+x` instead", .{});
+        const borrowed = sema.unwrapBorrows(self.ctx, ty) != ty;
+        if (borrowed and try self.ownsResource(inner, self.startOf(expr), "moves out of a borrow a value")) {
+            const handle = switch (self.ctx.types.get(inner)) {
+                .shared, .weak => true,
+                else => false,
+            };
+            const hint = if (handle) "bind a new handle with `+x` instead" else "unwrap the optional where it is owned (`if <m as x`)";
+            try self.errAt(expr, "a borrow cannot give up the resource inside it; {s}", .{hint});
         }
         _ = self.enter(node);
         if (self.ctx.symbolOf(name)) |sym| {
@@ -2688,8 +2694,7 @@ const Checker = struct {
             const sym = self.ctx.symbols.items[(try self.useName(obj)).?];
             try self.ctx.recordType(obj, sym.ty);
             break :blk try self.functionCall(obj, sym, e, &.{});
-        } else
-            try self.synthMemberCall(obj, &.{}, e);
+        } else try self.synthMemberCall(obj, &.{}, e);
         if (self.ctx.instanceOf(e)) |inst| if (inst == .function) {
             var f = inst.function;
             f.call = true;

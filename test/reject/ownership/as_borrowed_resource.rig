@@ -1,0 +1,31 @@
+# `if e as x` and `while e as x` move the value inside the optional into
+# `x`. When `e` is a borrow (a `?T?` parameter, a borrow held in a
+# local), the owner keeps the value, so a resource cannot move out.
+
+struct Res
+  n: Int
+
+  drop self: !Res
+    print("drop", self.n)
+
+sub peek(o: ?Res?)
+  if o as v
+    print("peek", v.n)
+
+sub spin(o: !Res?)
+  while o as v
+    break
+
+sub main()
+  r: Res? = Res(n: 1)
+  peek(?r)
+  spin(!r)
+  h = *Vec[Int]()
+  o: (*Vec[Int])? = +h
+  b = ?o
+  if b as x
+    print(x.len)
+
+# error: 12:6: a borrow cannot give up the resource inside it; unwrap the optional where it is owned (`if <m as x`)
+# error: 16:9: a borrow cannot give up the resource inside it
+# error: 26:6: a borrow cannot give up the resource inside it; bind a new handle with `+x` instead

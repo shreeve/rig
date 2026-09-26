@@ -2769,7 +2769,9 @@ An optional of an owning value (such as `(*T)?` from `upgrade()`) owns
 what it holds. `if e as x` over a temporary gives `x` ownership, and it
 is dropped at the end of the block. An optional held in a binding is
 bound by moving or cloning it: `if <m as x`, `if +m as x`, and
-unwrapped the same way: `(<m)?`.
+unwrapped the same way: `(<m)?`. A borrow of an optional (`?m`, a
+`?T?` parameter) cannot give up a resource it holds, so `as`, `?`, and
+`??` reject it.
 
 ```rig reject
 struct User
