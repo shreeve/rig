@@ -1,0 +1,21 @@
+struct Wrap[T]
+  v: T
+
+  fun conv[U](?self, u: U) -> U
+    u + u
+
+pub struct Plain
+  x: Int
+
+  fun sq[U](?self, u: U) -> U
+    u * u
+
+pub fun conv(n: Int) -> Int
+  n
+
+pub fun max[T](a: T, b: T) -> T
+  a
+
+pub fun run[T](x: T) -> T
+  w = Wrap(v: 1)
+  w.conv(x)

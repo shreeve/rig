@@ -1,0 +1,44 @@
+struct Wrap[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
+
+pub struct Holder
+  b: Wrap[Int]
+
+struct Slot[T]
+  v: T
+
+struct Q
+  b: Slot[*Int]
+
+pub struct P
+  q: Q
+
+  fun make() -> P
+    P(q: Q(b: Slot(v: *41)))
+
+struct Secret
+  value: Int
+
+pub struct Cover[T]
+  inner: T
+
+pub fun make(n: Int) -> Wrap[Int]
+  Wrap(v: n)
+
+pub fun holder() -> Holder
+  Holder(b: Wrap(v: 4))
+
+pub fun make_secret() -> Secret
+  Secret(value: 42)
+
+pub sub take_secret(s: Secret)
+  print(s.value)
+
+pub fun cover_secret(x: Int) -> Cover[Secret]
+  Cover(inner: Secret(value: x))
+
+pub fun uncover(w: Cover[Secret]) -> Int
+  w.inner.value

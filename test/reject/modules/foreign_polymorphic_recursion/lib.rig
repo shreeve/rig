@@ -1,0 +1,14 @@
+struct Wrap[T]
+  v: T
+
+struct Walker
+  n: Int
+
+  fun walk[U](?self, x: U) -> Int
+    self.walk(Wrap(v: x))
+
+pub struct Outer
+  w: Walker
+
+pub fun make() -> Outer
+  Outer(w: Walker(n: 1))

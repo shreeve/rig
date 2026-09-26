@@ -1,0 +1,24 @@
+# An owned closure is called through a borrow of its handle: one a
+# method returns, one bound to a name, and a borrowed parameter.
+
+struct Hold
+  v: *fun(Int) -> Int
+
+  fun peek(?self) -> ?*fun(Int) -> Int
+    ?self.v
+
+fun call(f: ?*fun(Int) -> Int, n: Int) -> Int
+  f(n)
+
+sub main()
+  k = 5
+  c = Hold(v: *|+k, n| n + k)
+  print(c.peek()(1))
+  f = c.peek()
+  print(f(2))
+  print(call(?c.v, 3))
+
+# expect:
+# 6
+# 7
+# 8

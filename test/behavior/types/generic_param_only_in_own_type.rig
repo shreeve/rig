@@ -1,0 +1,31 @@
+# A generic type whose parameter appears only in its own instance at
+# its own parameters (`Tag[T]` inside `Tag[T]`, which is the type
+# itself) compiles: nothing else needs the parameter.
+
+enum Tag[T]
+  on
+  off
+
+  fun flip(?self) -> Tag[T]
+    .off if self == .on else .on
+
+  fun is_on(?self) -> Bool
+    on = Tag[T].on
+    self == .on and on == .on
+
+struct Marker[T]
+  n: Int
+
+  fun next(?self) -> Marker[T]
+    m: Marker[T] = Marker(n: self.n + 1)
+    m
+
+sub main()
+  t: Tag[Int] = .off
+  print(t.flip() == .on, t.is_on())
+  m: Marker[String] = Marker(n: 1)
+  print(m.next().n)
+
+# expect:
+# true false
+# 2

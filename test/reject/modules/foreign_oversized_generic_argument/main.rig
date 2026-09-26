@@ -1,0 +1,15 @@
+# An array too large for a value is reported where it is passed to
+# another module's generic call that infers its type arguments from it.
+
+use lib
+
+struct Big
+  a: [530000]Int
+
+sub main()
+  print(lib.first([Big(a: [0; 530000]), Big(a: [0; 530000])]))
+  w = lib.Wrap(v: [Big(a: [0; 530000]), Big(a: [0; 530000]), Big(a: [0; 530000])])
+  print(w.v[0].a[0])
+
+# error: 10:19: `[2]Big` takes 8480000 bytes
+# error: 11:19: `[3]Big` takes 12720000 bytes

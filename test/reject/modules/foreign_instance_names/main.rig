@@ -1,0 +1,17 @@
+# Another module's generics are named as this module spells them: a
+# function as `lib.max`, a type's member as `lib.Plain.sq`, and a
+# method instance by its own name, even where the module has a function
+# of that name.
+
+use lib
+
+sub main()
+  print(lib.run(true))
+  print(lib.Plain.sq)
+  f = lib.max
+  print(f)
+
+# error: 9:13: `conv[Bool]` cannot use `U = Bool`
+# error: 9:13: `conv[Bool]` is made by `lib.run[Bool]`
+# error: 10:19: `lib.Plain.sq` takes compile-time parameters
+# error: 11:11: `lib.max` takes compile-time parameters

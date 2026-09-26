@@ -1,0 +1,26 @@
+# A module's public surface may hold instances of its generic types,
+# private ones included: importers hold the values and use their fields
+# and methods, though they cannot name a private type. A type of the
+# same name here is another type.
+
+use lib
+
+struct Wrap
+  v: Int
+
+sub main()
+  b = lib.make(1)
+  h = lib.holder()
+  local = Wrap(v: 9)
+  print(b.v, b.get(), h.b.v, h.b.get(), local.v)
+  p = lib.P.make()
+  print(p.q.b.v)
+  w = lib.cover_secret(5)
+  lib.take_secret(lib.make_secret())
+  print(w.inner.value, lib.uncover(w))
+
+# expect:
+# 1 1 4 4 9
+# 41
+# 42
+# 5 5

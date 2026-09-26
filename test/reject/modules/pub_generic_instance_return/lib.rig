@@ -1,5 +1,0 @@
-struct Wrap[T]
-  v: T
-
-pub fun make(n: Int) -> Wrap[Int]
-  Wrap(v: n)

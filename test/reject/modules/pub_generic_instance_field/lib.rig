@@ -1,8 +1,0 @@
-struct Wrap[T]
-  v: T
-
-pub struct Holder
-  b: Wrap[Int]
-
-pub fun make() -> Holder
-  Holder(b: Wrap(v: 4))

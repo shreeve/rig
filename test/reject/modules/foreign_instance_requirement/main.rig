@@ -1,0 +1,14 @@
+# An instance of another module's generic function is checked where it
+# is made, against what that module's body does with its type
+# parameters; the note points into the body.
+
+use lib
+
+struct P
+  x: Int
+
+sub main()
+  print(lib.max(P(x: 1), P(x: 2)).x)
+
+# error: 11:13: `lib.max[P]` cannot use `T = P`: the generic body applies `>` to `T`, which `P` does not support
+# error: 2:8: `>` used on `T` here (ordering comparison)

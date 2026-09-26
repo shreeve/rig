@@ -1,0 +1,10 @@
+# A generic method of a public type that calls itself with its type
+# parameter nested ever deeper is reported where it is declared, even
+# when no module calls it.
+
+use lib
+
+sub main()
+  print(lib.Walker(n: 1).n)
+
+# error: 7:7: `walk[U]` leads to ever deeper instances of generic functions (through `walk[Wrap[U]]`)

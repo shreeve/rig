@@ -1,0 +1,17 @@
+# A generic method of another module's type, public or reached through
+# a public one, is called as a local one is; so is a public generic
+# function, and a private one serves its own module.
+
+use lib
+
+sub main()
+  t = lib.Tagger(label: "tag")
+  t.show(3)
+  t.show[String]("s")
+  o = lib.make_outer(2)
+  print(o.i.same(5), o.i.same(true), lib.same("x"), lib.uses_local(3))
+
+# expect:
+# tag 3
+# tag s
+# 5 true x 3

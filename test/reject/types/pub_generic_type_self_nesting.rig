@@ -1,0 +1,16 @@
+# A public generic type whose methods use ever deeper instances of
+# itself is reported where it is declared, even when no instance is made
+# here: other modules would make them.
+
+pub struct Deep[T]
+  v: T
+
+  fun deeper(?self) -> Int
+    d: Deep[Deep[T]]? = none
+    print(d == none)
+    1
+
+sub main()
+  print(1)
+
+# error: 5:12: `Deep[T]` leads to ever deeper instances of generic types (through `Deep[Deep[T]]`); a generic type's body cannot nest itself in its own type arguments

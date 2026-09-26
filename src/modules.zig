@@ -276,6 +276,8 @@ pub const ModuleGraph = struct {
         defer own.deinit();
         try own.check(m.ir);
         for (own.diagnostics.items) |d| try self.addDiagnostic(id, d);
+        // What the generic bodies copy, for the modules that import them.
+        try m.sema.plain_reqs.appendSlice(self.allocator, own.ownPlainReqs());
 
         m.state = if (m.sema.hasErrors()) .failed else .checked;
     }
@@ -289,16 +291,20 @@ pub const ModuleGraph = struct {
     fn addDiagnostic(self: *ModuleGraph, id: ModuleId, d: sema.Diagnostic) Error!void {
         const m = self.get(id);
         const owned = try m.sema.arena.allocator().dupe(u8, d.message);
-        try m.sema.diagnostics.append(self.allocator, .{ .severity = d.severity, .pos = d.pos, .end = d.end, .message = owned });
+        try m.sema.diagnostics.append(self.allocator, .{ .severity = d.severity, .pos = d.pos, .end = d.end, .message = owned, .module = d.module });
     }
 
     /// Write every diagnostic, as `path:line:col: error: message`, up to
-    /// `diag.max_errors` errors.
+    /// `diag.max_errors` errors. A note about another module's code
+    /// names that module's file.
     pub fn writeAllDiagnostics(self: *const ModuleGraph, w: *std.Io.Writer) !void {
         for (self.errors.items) |message| try w.print("error: {s}\n", .{message});
+        const files = try self.allocator.alloc(diag.File, self.modules.items.len);
+        defer self.allocator.free(files);
+        for (self.modules.items, files) |m, *f| f.* = .{ .source = m.source, .path = m.display };
         var budget: u32 = diag.max_errors;
         var hidden: u32 = 0;
-        for (self.modules.items) |m| hidden += try diag.writeSome(m.sema.diagnostics.items, m.source, m.display, w, &budget);
+        for (self.modules.items, files) |m, home| hidden += try diag.writeSome(m.sema.diagnostics.items, home, files, w, &budget);
         if (hidden > 0) try w.print("{d} more error{s} not shown\n", .{ hidden, if (hidden == 1) "" else "s" });
     }
 };
