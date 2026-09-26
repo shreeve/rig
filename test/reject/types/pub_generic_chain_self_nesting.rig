@@ -1,0 +1,19 @@
+# A public generic that nests itself is reported where it is declared,
+# not at the public generics that call it.
+
+struct Wrap[T]
+  v: T
+
+pub fun f0[T](x: T) -> Int
+  f0(Wrap(v: x))
+
+pub fun f1[T](x: T) -> Int
+  f0(x)
+
+pub fun f2[T](x: T) -> Int
+  f1(x)
+
+sub main()
+  print(1)
+
+# error: 7:9: `f0[T]` leads to ever deeper instances of generic functions (through `f0[Wrap[T]]`)

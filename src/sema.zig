@@ -1361,6 +1361,9 @@ fn expand(ctx: *SemContext, work: *std.ArrayListUnmanaged(ExpandItem), reached: 
                 try ctx.err(item.site, "`{s}` leads to ever deeper instances of generic functions (through `{s}`); {s}", .{ try rootName(ctx, item.root), try formatFnInstance(ctx, use), why });
                 return true;
             }
+            // An instance at a renaming of the callee's parameters expands
+            // as the callee at its own does, which is kept once.
+            if (reached != null and isRenaming(ctx, args)) try ownParamArgs(ctx, use.params, args);
             const concrete: FnInstance = .{ .name = use.name, .params = use.params, .args = args, .own = use.own };
             if (reached) |r| {
                 if ((try r.fns.getOrPut(ctx.allocator, concrete)).found_existing) continue;
@@ -1370,7 +1373,12 @@ fn expand(ctx: *SemContext, work: *std.ArrayListUnmanaged(ExpandItem), reached: 
         for (ctx.generic_uses.items) |use| {
             if (!usesParams(ctx, use, item.subst.params)) continue;
             if (reached != null and !usesOnlyParams(ctx, use, item.subst.params)) continue;
-            const concrete = try substituteType(ctx, use, item.subst);
+            var concrete = try substituteType(ctx, use, item.subst);
+            if (reached != null) if (typeItem(ctx, concrete)) |t| if (isRenaming(ctx, t.args)) {
+                const args = try ctx.arena.allocator().alloc(TypeId, t.args.len);
+                try ownParamArgs(ctx, t.params, args);
+                concrete = try ctx.intern(.{ .parameterized_nominal = .{ .sym = ctx.types.get(concrete).parameterized_nominal.sym, .args = args } });
+            };
             const info = ctx.typeInfo(concrete);
             if (reached == null and info.has_type_var) continue;
             // A generic whose body uses ever-deeper instances of itself
@@ -1435,6 +1443,12 @@ fn checkSelfNesting(ctx: *SemContext) std.mem.Allocator.Error!void {
             if (try selfSeed(ctx, f.name, outer, f.ty, f.decl_pos)) |item| try work.append(ctx.allocator, item);
         }
     }
+    // Each is expanded once, as itself, so a nesting is reported at the
+    // declaration that nests rather than at one that calls it.
+    for (work.items) |item| switch (item.root) {
+        .func => |f| try reached.fns.put(ctx.allocator, f, {}),
+        .type => |t| try reached.types.put(ctx.allocator, t, {}),
+    };
     _ = try expand(ctx, &work, &reached);
 }
 
@@ -1459,7 +1473,7 @@ fn selfSeed(ctx: *SemContext, name: []const u8, outer: []const SymbolId, ty: Typ
     const own = params.items.len - outer.len;
     if (own == 0) return null;
     const args = try a.alloc(TypeId, params.items.len);
-    for (params.items, args) |p, *arg| arg.* = try ctx.intern(if (ctx.symbols.items[p].kind == .param) .{ .ct_param = p } else .{ .type_var = p });
+    try ownParamArgs(ctx, params.items, args);
     const inst: FnInstance = .{ .name = name, .params = params.items, .args = args, .own = @intCast(own) };
     return .{ .subst = inst.subst(), .site = pos, .root = .{ .func = inst } };
 }
@@ -1488,6 +1502,24 @@ fn typeItem(ctx: *const SemContext, ty: TypeId) ?TypeSubst {
 fn argsUseParams(ctx: *const SemContext, args: []const TypeId, params: []const SymbolId) bool {
     for (args) |a| if (usesParams(ctx, a, params)) return true;
     return false;
+}
+
+/// Whether `args` are distinct type or integer parameters: an instance at
+/// them is its generic at its own parameters, renamed.
+fn isRenaming(ctx: *const SemContext, args: []const TypeId) bool {
+    for (args, 0..) |a, i| {
+        switch (ctx.types.get(a)) {
+            .type_var, .ct_param => {},
+            else => return false,
+        }
+        if (std.mem.indexOfScalar(TypeId, args[0..i], a) != null) return false;
+    }
+    return true;
+}
+
+/// Set `args` to `params` themselves.
+fn ownParamArgs(ctx: *SemContext, params: []const SymbolId, args: []TypeId) std.mem.Allocator.Error!void {
+    for (params, args) |p, *arg| arg.* = try ctx.intern(if (ctx.symbols.items[p].kind == .param) .{ .ct_param = p } else .{ .type_var = p });
 }
 
 /// Whether every type or integer parameter `ty` mentions is one of `params`.

@@ -644,8 +644,11 @@ parameters too (kept apart in `Reached`, never recorded). As in the
 program's expansion, a use over parameters the instance does not bind
 is left to the instances that bind them: `List[X]` does not follow
 `List[Pair[T, U]]` in its method `zip[U]`, which `zip[T, U]` follows.
-One nesting ever deeper is reported where it is declared, since the
-instances that would show it are made in other modules.
+An instance at distinct parameters (`f[A]` reached from `g[A]`) is kept
+as the generic at its own (`f[T]`), which expands to the same depths,
+so a chain of public generics is expanded once per link. One nesting
+ever deeper is reported where it is declared, since the instances that
+would show it are made in other modules.
 `checkGenericInstantiations` then checks every instance against the
 requirements (`checkRequirements`), reporting at the site with a note
 at the operation, and the ownership checker checks each against the
