@@ -1,17 +1,17 @@
 # A struct may hold a borrow while the borrowed value is alive, whether
 # built locally or returned from a function taking the borrow.
 
-struct Box
+struct Wrap
   payload: Int
 
 struct View
-  box: ?Box
+  box: ?Wrap
 
-fun view_of(b: ?Box) -> View
+fun view_of(b: ?Wrap) -> View
   View(box: b)
 
 sub main()
-  b = Box(payload: 5)
+  b = Wrap(payload: 5)
   v = View(box: ?b)
   w = view_of(?b)
   print(v.box.payload + w.box.payload)

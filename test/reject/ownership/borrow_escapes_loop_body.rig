@@ -1,15 +1,15 @@
 # A borrow of a loop-body local cannot survive into the next iteration or
 # past the loop.
 
-struct Box
+struct Wrap
   payload: Int
 
 sub main()
-  a = Box(payload: 1)
+  a = Wrap(payload: 1)
   r = ?a
   i = 0
   while i < 2
-    b = Box(payload: i)
+    b = Wrap(payload: i)
     r = ?b
     i += 1
   print(r.payload)

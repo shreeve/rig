@@ -1,4 +1,4 @@
-# `a.log_box` takes a read borrow `?Box`; passing a bare `Box` violates
+# `a.log_box` takes a read borrow `?Wrap`; passing a bare `Wrap` violates
 # the imported parameter's borrow mode.
 use a
 
@@ -6,4 +6,4 @@ sub main()
   b = a.make_box(42)
   a.log_box(b)
 
-# error: type mismatch: expected `?a.Box`, got `a.Box`
+# error: type mismatch: expected `?a.Wrap`, got `a.Wrap`

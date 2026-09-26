@@ -2,15 +2,15 @@
 # struct, box, or closure holding the borrow never drops what it borrows.
 # (Owned closures cannot capture borrows; stack closures can.)
 
-struct Box
+struct Wrap
   v: Vec[Int]
 
 struct View
-  b: ?Box
+  b: ?Wrap
 
 struct Holder
   own: Vec[Int]
-  b: ?Box
+  b: ?Wrap
 
 struct Tracked
   n: Int
@@ -19,7 +19,7 @@ struct Tracked
     print("drop tracked", self.n)
 
 sub main()
-  x = Box(v: Vec())
+  x = Wrap(v: Vec())
   !x.v.push(41)
   s = *View(b: ?x)
   print(s.b.v[0])

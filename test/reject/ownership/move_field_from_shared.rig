@@ -1,17 +1,17 @@
 # A field cannot be moved out through a shared handle: other handles may
 # still use it, and the last one drops it.
 
-struct Box
+struct Wrap
   payload: Int
 
 struct Outer
-  inner: *Box
+  inner: *Wrap
 
-sub eat(rc: *Box)
+sub eat(rc: *Wrap)
   print(rc.payload)
 
 sub main()
-  b = *Box(payload: 7)
+  b = *Wrap(payload: 7)
   o = *Outer(inner: <b)
   eat(<o.inner)
   print("back")

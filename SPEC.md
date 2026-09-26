@@ -224,8 +224,8 @@ Several characters are both operators and prefixes: `<` `+` `-` `*` `?`
 | `-x` alone on a line | drops `x` ([§8](#drop)), except where the line's value is used |
 
 The brackets of compile-time parameters and arguments touch the name
-before them (`struct Box[T]`, `show[3]()`); a declaration with a space
-there (`struct Box [T]`) is rejected.
+before them (`struct Wrap[T]`, `show[3]()`); a declaration with a space
+there (`struct Wrap [T]`) is rejected.
 
 Two values may not touch with no operator between them: `t.5` and
 `print"hi"` are rejected, since neither is a call. Nor may `=!` and
@@ -518,7 +518,7 @@ that returns part of its argument takes `xs: []T`.
 
 Suffixes bind tighter than prefixes: `*User?` is a shared handle to an
 optional `User`, and an optional shared handle is written `(*User)?`.
-Prefixes compose right to left: `?*Box` is a read borrow of a shared
+Prefixes compose right to left: `?*Wrap` is a read borrow of a shared
 handle, and `*Cell[Vec[*sub()]]` is a shared cell holding a list of
 owned closures.
 
@@ -918,7 +918,7 @@ parameter is named in the type's fields and methods, as an array length
 (`items: [n]T`) or as a value in a method's body.
 An instance names its compile-time arguments in brackets, in a type
 (`Pair[Int, String]`, `Ring[Int, LIMIT * 2]`) or in an expression:
-`Box[Int](value: 3)`, `Vec[Int]()`, `Option[Int].some(value: 7)`,
+`Wrap[Int](value: 3)`, `Vec[Int]()`, `Option[Int].some(value: 7)`,
 `Pair[Int, String].make(1, "x")`, `Ring[Int, 4].new(0)`. A value
 argument is a compile-time integer, as an array length is, that the
 parameter's type holds; the same value names the same type, so
@@ -991,12 +991,12 @@ A type parameter among a function's compile-time parameters
 ([§17](#17-compile-time-parameters)) makes it generic:
 `fun max[T](a: T, b: T) -> T`. A `sub`, a method, and an associated
 function take them too, and a method's own sit after its type's: a
-method `fun map[U](?self, u: U)` of `Box[T]` has both.
+method `fun map[U](?self, u: U)` of `Wrap[T]` has both.
 
 A call gives every compile-time argument in brackets
 (`max[Float](1, 2)`), or none, and then its type arguments are
 inferred by matching each parameter's type against its argument's type
-(`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`, `[N]T`, `Box[T]`,
+(`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`, `[N]T`, `Wrap[T]`,
 `fun(T) -> U`). A method's receiver gives its type's parameters. Every
 argument must agree, and an argument whose type does not have its
 parameter's shape is a type mismatch. A parameter no argument other
@@ -1014,9 +1014,9 @@ type parameter only literals gave a type (directly, or propagated with
 with `small: U8` is `max[U8]` twice. One whose result is an optional
 that nothing but `none` gave a type (`nothing()`, `id(none)`) binds
 like `none`, so `z: Int? = id(nothing())` is `id[Int?]`. A nested call
-with a result of another shape (`Box.make(1)`, `Opt.some(value: 1)`)
+with a result of another shape (`Wrap.make(1)`, `Opt.some(value: 1)`)
 keeps the type its own arguments give it; naming the outer call's type
-arguments (`Box[Box[U8]].make(...)`, `id[Opt[U8]](...)`) passes the
+arguments (`Wrap[Wrap[U8]].make(...)`, `id[Opt[U8]](...)`) passes the
 expected type on. Only then does a literal take its default type, and
 among literals alone a float literal gives `Float`: `max(3, 2.5)` is
 `max[Float]`. An argument that is not a literal keeps
@@ -1047,7 +1047,7 @@ struct Res
   drop(!self)
     print("drop", self.n)
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun with[U](?self, u: U) -> U
@@ -1074,7 +1074,7 @@ sub main
   small: U8 = 200
   z: U8 = max(1, 2)
   print(max(3, 7), max(small, 9), max(3, 2.5), max[Float](1, 2), z)
-  print(Box(v: 1).with("s"), Box(v: 1).with[Bool](true))
+  print(Wrap(v: 1).with("s"), Wrap(v: 1).with[Bool](true))
   r = pick(Res(n: 1), Res(n: 2), true)
   print("kept", r.n)
   a: [3]Int = zeros()
@@ -1142,7 +1142,7 @@ generic function or a generic type with methods: the parameter is
 written `?T` or `!T` instead.
 
 A body that calls itself, or builds its own type, with its type
-parameters nested deeper each time (`nest[Box[T]]` inside `nest[T]`)
+parameters nested deeper each time (`nest[Wrap[T]]` inside `nest[T]`)
 would need ever deeper instances, and is rejected rather than expanded
 forever.
 
@@ -1945,11 +1945,11 @@ because two owners would release it twice. Write `<x` to move it or
 `+x` to clone it:
 
 ```rig reject
-struct Box
+struct Wrap
   n: Int
 
 sub main
-  a = *Box(n: 1)
+  a = *Wrap(n: 1)
   b = a
 ```
 
@@ -1963,14 +1963,14 @@ the top of the next iteration, unless the loop is left or the value is
 reassigned first.
 
 ```rig reject
-struct Box
+struct Wrap
   n: Int
 
-sub eat(b: *Box)
+sub eat(b: *Wrap)
   print(b.n)
 
 sub main
-  b = *Box(n: 1)
+  b = *Wrap(n: 1)
   i = 0
   while i < 2 : i += 1
     eat(<b)
@@ -1991,7 +1991,7 @@ an owned local whose variant has no other owning field.
 
 A borrow lends a value without giving it up. `?x` is a read borrow and
 `!x` a write borrow, and borrowed parameter types say the same thing:
-`b: ?Box` reads, `b: !Box` writes. Every borrow is visible at the call
+`b: ?Wrap` reads, `b: !Wrap` writes. Every borrow is visible at the call
 site.
 
 ```rig
@@ -2047,23 +2047,23 @@ exit of a value whose type has drop glue. The binding's block ending,
 `-r`, or reassigning it also end the borrow.
 
 ```rig
-struct Box
+struct Wrap
   n: Int
 
   sub bump(!self)
     self.n += 1
 
 struct View
-  box: ?Box
+  box: ?Wrap
 
 sub main
-  x = Box(n: 1)
+  x = Wrap(n: 1)
   r = ?x
   print(r.n)
   !x.bump()
   v = View(box: ?x)
   print(v.box.n)
-  x = Box(n: 7)
+  x = Wrap(n: 7)
   print(x.n)
 ```
 
@@ -2074,14 +2074,14 @@ sub main
 ```
 
 ```rig reject
-struct Box
+struct Wrap
   n: Int
 
   sub bump(!self)
     self.n += 1
 
 sub main
-  x = Box(n: 1)
+  x = Wrap(n: 1)
   r = ?x
   i = 0
   while i < 2 : i += 1
@@ -2132,14 +2132,14 @@ write-borrowed. Nor can a temporary, such as a call's result or a
 struct literal, since the change would be lost with it.
 
 ```rig reject
-struct Box
+struct Wrap
   n: Int
 
-sub grow(b: !Box)
+sub grow(b: !Wrap)
   b.n += 1
 
 sub main
-  grow(!Box(n: 1))
+  grow(!Wrap(n: 1))
 ```
 
 ```error
@@ -2163,21 +2163,21 @@ tracks where every one came from.
   its block, not through `break`, and not out of the function.
 
 ```rig
-struct Box
+struct Wrap
   payload: Int
 
 struct View
-  box: ?Box
+  box: ?Wrap
 
-fun pick(a: ?Box, b: ?Box, first: Bool) -> ?Box
+fun pick(a: ?Wrap, b: ?Wrap, first: Bool) -> ?Wrap
   if first
     a
   else
     b
 
 sub main
-  x = Box(payload: 1)
-  y = Box(payload: 2)
+  x = Wrap(payload: 1)
+  y = Wrap(payload: 2)
   r = pick(?x, ?y, false)
   v = View(box: ?x)
   print(r.payload, v.box.payload)
@@ -2201,18 +2201,18 @@ returned borrow of `u` does not originate from a borrowed parameter
 ```
 
 ```rig reject
-struct Box
+struct Wrap
   payload: Int
 
   drop(!self)
     print("drop")
 
-fun first(a: ?Box, b: ?Box) -> ?Box
+fun first(a: ?Wrap, b: ?Wrap) -> ?Wrap
   a
 
 sub main
-  x = Box(payload: 1)
-  y = Box(payload: 2)
+  x = Wrap(payload: 1)
+  y = Wrap(payload: 2)
   r = first(?x, ?y)
   -y
   print(r.payload)
@@ -3207,11 +3207,11 @@ private generic functions serve its own code, public functions
 included.
 
 ```rig file=boxes.rig
-pub struct Box[T]
+pub struct Wrap[T]
   v: T
 
 pub fun boxed(n: Int) -> Int
-  Box(v: n).v
+  Wrap(v: n).v
 ```
 
 ```rig reject
@@ -3219,11 +3219,11 @@ use boxes
 
 sub main
   print(boxes.boxed(3))
-  b = boxes.Box[Int](v: 3)
+  b = boxes.Wrap[Int](v: 3)
 ```
 
 ```error
-`boxes.Box` is a generic type of another module; generic types cannot cross module boundaries yet
+`boxes.Wrap` is a generic type of another module; generic types cannot cross module boundaries yet
 ```
 
 Every check (types, arity, keyword
@@ -3406,10 +3406,10 @@ In an expression, a type argument is written as a type that is also an
 expression: a name, `module.Type`, `*T`, `~T`, `?T`, `!T`, `T?`, or an
 instance (`Cell[Vec[Int]]()`). A slice, array, or function type has no
 such spelling: name it with a type alias, or give the type where the
-value goes (`b: Box[[3]Int] = Box(v: [4, 5, 6])`).
+value goes (`b: Wrap[[3]Int] = Wrap(v: [4, 5, 6])`).
 
 ```rig
-struct Box[T]
+struct Wrap[T]
   v: T
 
 type Row = [3]Int
@@ -3420,7 +3420,7 @@ fun double(n: Int) -> Int
 sub main
   xs = [10, 20, 30]
   ops = [double, double]
-  a = Box[Row](v: [1, 2, 3])
+  a = Wrap[Row](v: [1, 2, 3])
   print(xs[1], ops[0](4), a.v[2])
 ```
 

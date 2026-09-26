@@ -1,7 +1,7 @@
 # A match payload views its scrutinee: moving the scrutinee out is
 # rejected while the payload is still used.
 
-struct Box
+struct Wrap
   n: Int
 
   sub bump(!self)
@@ -11,14 +11,14 @@ struct Box
     print("drop", self.n)
 
 enum Slot
-  full(b: Box)
+  full(b: Wrap)
   empty
 
 sub discard(s: Slot)
   print("discard")
 
 sub main()
-  s: Slot = .full(Box(n: 7))
+  s: Slot = .full(Wrap(n: 7))
   match s
     .full(p)
       discard(<s)

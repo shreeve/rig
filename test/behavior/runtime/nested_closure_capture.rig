@@ -26,15 +26,15 @@ sub main()
     q = *|+b| b.n * 2
     q()
   print(h())
-  x = Box(v: 1)
+  x = Wrap(v: 1)
   r = ?x
-  rd = |a: ?Box|
+  rd = |a: ?Wrap|
     k = a.v
     rd2 = |+k| k + 1
     rd2()
   print(rd(<r))
   wr = |+n|
-    y = Box(v: n)
+    y = Wrap(v: n)
     lw = !y
     wr2 = |<lw|
       lw.v += 5
@@ -49,7 +49,7 @@ sub main()
     ww()
   w()
 
-struct Box
+struct Wrap
   v: Int
 
 # expect:

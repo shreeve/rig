@@ -1,14 +1,14 @@
 # `m?` hands over the handle inside `m`: an owning binding is moved,
 # `(<m)?`, and a borrow cannot give up what it holds.
 
-struct Box
+struct Wrap
   n: Int
 
-fun f(m: (*Box)?) -> Int?
+fun f(m: (*Wrap)?) -> Int?
   b = m?
   b.n
 
-fun g(m: ?((*Box)?)) -> Int?
+fun g(m: ?((*Wrap)?)) -> Int?
   b = m?
   b.n
 

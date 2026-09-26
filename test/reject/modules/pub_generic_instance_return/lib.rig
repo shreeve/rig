@@ -1,5 +1,5 @@
-struct Box[T]
+struct Wrap[T]
   v: T
 
-pub fun make(n: Int) -> Box[Int]
-  Box(v: n)
+pub fun make(n: Int) -> Wrap[Int]
+  Wrap(v: n)

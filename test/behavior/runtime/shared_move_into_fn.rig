@@ -1,15 +1,15 @@
 # `use_rc(<rc)` moves a shared handle into a function, which owns and
 # drops it; the caller does not drop it again.
 
-struct Box
+struct Wrap
   payload: Int
 
-sub use_rc(rc: *Box)
+sub use_rc(rc: *Wrap)
   print(rc.payload)
   -rc
 
 sub main()
-  rc = *Box(payload: 42)
+  rc = *Wrap(payload: 42)
   use_rc(<rc)
   print "moved"
 

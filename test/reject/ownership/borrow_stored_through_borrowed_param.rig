@@ -1,14 +1,14 @@
 # A function cannot store a borrow of its own local into a struct the
 # caller owns: the local dies when the function returns.
 
-struct Box
+struct Wrap
   payload: Int
 
 struct View
-  box: ?Box
+  box: ?Wrap
 
 sub put(v: !View)
-  b = Box(payload: 1)
+  b = Wrap(payload: 1)
   v.box = ?b
 
 sub main()

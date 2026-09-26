@@ -33,7 +33,7 @@ error NetworkError
   timeout
   refused
 
-struct Box[T]
+struct Wrap[T]
   value: T
 
   fun get(?self) -> T

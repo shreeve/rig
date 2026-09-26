@@ -2,7 +2,7 @@
 # form, brackets after an unresolved variant, a type used as an index,
 # and a call through an indexed value.
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
 enum Option[T]
@@ -10,13 +10,13 @@ enum Option[T]
   nothing
 
 sub main()
-  b = Box(Int)(v: 1)
+  b = Wrap(Int)(v: 1)
   c = Cell(Int)(value: 1)
   a = Option.some[Int](value: 3)
   xs = [1, 2]
   print(xs[Int], xs[0](1), b, c, a)
 
-# error: 13:7: type arguments go in brackets: `Box[Int](...)`
+# error: 13:7: type arguments go in brackets: `Wrap[Int](...)`
 # error: 14:7: type arguments go in brackets: `Cell[Int](...)`
 # error: 15:14: variant of generic enum `Option` needs its type
 # error: 17:12: `Int` is a type, not a value

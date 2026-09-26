@@ -1,4 +1,4 @@
-# An imported function returning `*Box` gives the caller a named binding
+# An imported function returning `*Wrap` gives the caller a named binding
 # with an auto-drop guard, and `b.value` auto-derefs through the Rc.
 use a
 

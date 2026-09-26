@@ -1,15 +1,15 @@
 # A generic body's operations on `T` are requirements on every
-# instantiation: `self.value + 1` needs a numeric `T`, so `Box[String]` is
+# instantiation: `self.value + 1` needs a numeric `T`, so `Wrap[String]` is
 # rejected.
 
-struct Box[T]
+struct Wrap[T]
   value: T
 
   fun bump(?self) -> T
     self.value + 1
 
 sub main()
-  b: Box[String] = Box(value: "a")
+  b: Wrap[String] = Wrap(value: "a")
   print(b.bump())
 
-# error: 12:6: `Box[String]` cannot use `T = String`: the generic body applies `+` to `T`, which `String` does not support
+# error: 12:6: `Wrap[String]` cannot use `T = String`: the generic body applies `+` to `T`, which `String` does not support

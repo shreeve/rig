@@ -1,20 +1,20 @@
 # A field cannot be moved out of a borrowed parameter: the caller still
 # owns and drops it.
 
-struct Box
+struct Wrap
   payload: Int
 
 struct Pair
-  a: *Box
+  a: *Wrap
 
-sub eat(rc: *Box)
+sub eat(rc: *Wrap)
   print(rc.payload)
 
 sub steal(p: ?Pair)
   eat(<p.a)
 
 sub main()
-  p = Pair(a: *Box(payload: 1))
+  p = Pair(a: *Wrap(payload: 1))
   steal(?p)
   print("back")
 

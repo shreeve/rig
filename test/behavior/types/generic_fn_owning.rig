@@ -9,7 +9,7 @@ struct Res
   drop(!self)
     print("drop", self.n)
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
 fun pick[T](a: T, b: T, first: Bool) -> T
@@ -23,8 +23,8 @@ fun keep[T](x: T) -> T
 sub consume[T](x: T)
   print("consumed")
 
-fun wrap[T](x: T) -> Box[T]
-  Box(v: <x)
+fun wrap[T](x: T) -> Wrap[T]
+  Wrap(v: <x)
 
 fun swap_in[T](dst: !T, v: T) -> Int
   dst = <v

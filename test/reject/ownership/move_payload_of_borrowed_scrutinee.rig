@@ -1,13 +1,13 @@
 # A payload cannot be moved out of a borrowed value.
 
-struct Box
+struct Wrap
   payload: Int
 
 enum Slot
-  full(b: *Box)
+  full(b: *Wrap)
   empty
 
-sub eat(rc: *Box)
+sub eat(rc: *Wrap)
   print(rc.payload)
 
 sub look(s: ?Slot)

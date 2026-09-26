@@ -54,7 +54,7 @@ fun checked(ok: Bool) -> U8!
     return .bad
   max(7, 8)
 
-struct Box[T]
+struct Wrap[T]
   v: T
 
   fun pick[U](?self, a: U, b: U) -> U
@@ -96,7 +96,7 @@ sub main()
   s: U8 = 200
   m = max(max(1, 2), s)
   print(m, @sizeOf(@TypeOf(m)))
-  b = Box(v: 1)
+  b = Wrap(v: 1)
   p: U8 = b.pick(1, 2)
   print(p, @sizeOf(@TypeOf(p)))
   h = Holder(n: max(4, 9), f: half(3.0))

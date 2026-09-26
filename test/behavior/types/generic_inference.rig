@@ -26,7 +26,7 @@ struct Holder[T]
   item: T
   count: Int
 
-struct Box
+struct Wrap
   n: Int
 
   drop(!self)
@@ -45,7 +45,7 @@ sub main()
   c = Cell(value: 3)
   c.set(c.get() + 1)
   print(c.get())
-  h = Holder(item: *Box(n: 9), count: 1)
+  h = Holder(item: *Wrap(n: 9), count: 1)
   print(h.item.n, h.count)
   s = *Signal(value: 5)
   print(s.get())

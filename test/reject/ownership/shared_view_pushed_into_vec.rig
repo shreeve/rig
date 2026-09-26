@@ -1,18 +1,18 @@
 # Pushing a shared view into a Vec makes the Vec hold that view's
 # borrow.
 
-struct Box
+struct Wrap
   payload: Int
 
   drop(!self)
     print("drop")
 
 struct View
-  b: ?Box
+  b: ?Wrap
 
 sub main()
   vs: Vec[*View] = Vec()
-  a = Box(payload: 1)
+  a = Wrap(payload: 1)
   !vs.push(*View(b: ?a))
   -a
   for v in ?vs

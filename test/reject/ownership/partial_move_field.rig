@@ -2,21 +2,21 @@
 # struct's drop glue would still drop the field at scope exit. Move the
 # struct whole, or clone a shared field with `+p.a`.
 
-struct Box
+struct Wrap
   payload: Int
 
   drop(!self)
     print(self.payload + 100)
 
 struct Pair
-  a: *Box
-  b: *Box
+  a: *Wrap
+  b: *Wrap
 
-sub eat(rc: *Box)
+sub eat(rc: *Wrap)
   print(rc.payload)
 
 sub main()
-  p = Pair(a: *Box(payload: 1), b: *Box(payload: 2))
+  p = Pair(a: *Wrap(payload: 1), b: *Wrap(payload: 2))
   eat(<p.a)
   print("after")
 

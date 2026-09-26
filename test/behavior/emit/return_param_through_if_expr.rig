@@ -1,17 +1,17 @@
 # Returning an owned parameter through an if-expression moves it out:
 # the caller receives a live handle.
 
-struct Box
+struct Wrap
   n: Int
 
-fun keep(a: *Box, flag: Bool) -> *Box
+fun keep(a: *Wrap, flag: Bool) -> *Wrap
   if flag
     a
   else
     a
 
 sub main()
-  x = *Box(n: 1)
+  x = *Wrap(n: 1)
   z = keep(<x, true)
   print(z.n)
 

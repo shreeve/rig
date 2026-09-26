@@ -4,7 +4,7 @@
 struct Secret
   value: Int
 
-pub struct Box[T]
+pub struct Wrap[T]
   inner: T
 
 pub fun make_secret() -> Secret
@@ -13,7 +13,7 @@ pub fun make_secret() -> Secret
 pub sub take_secret(s: Secret)
   print(s.value)
 
-pub fun wrap_secret(x: Int) -> Box[Secret]
-  Box(inner: Secret(value: x))
+pub fun wrap_secret(x: Int) -> Wrap[Secret]
+  Wrap(inner: Secret(value: x))
 
-# error: public function `wrap_secret` exposes `Box[Secret]`, an instance of a generic type
+# error: public function `wrap_secret` exposes `Wrap[Secret]`, an instance of a generic type

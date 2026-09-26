@@ -1,7 +1,7 @@
 # A write borrow passed on keeps its holder borrowed while the result
 # is used.
 
-struct Box
+struct Wrap
   n: Int
 
   sub bump(!self)
@@ -10,11 +10,11 @@ struct Box
   drop(!self)
     print("drop", self.n)
 
-fun lend(b: !Box) -> !Box
+fun lend(b: !Wrap) -> !Wrap
   b
 
 sub main()
-  x = Box(n: 1)
+  x = Wrap(n: 1)
   w = !x
   w2 = lend(<w)
   print(x.n)

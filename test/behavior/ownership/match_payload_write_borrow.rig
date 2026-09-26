@@ -1,18 +1,18 @@
 # A payload holding a write borrow can be written through, and the
 # scrutinee is usable again once the payload binding is done.
 
-struct Box
+struct Wrap
   v: Vec[Int]
 
 struct Ed
-  t: !Box
+  t: !Wrap
 
 enum Hold
   none_
   has(e: Ed)
 
 sub main()
-  x = Box(v: Vec())
+  x = Wrap(v: Vec())
   h: Hold = .has(e: Ed(t: !x))
   match h
     .has(a)

@@ -1,16 +1,16 @@
 # A local closure cannot move-capture a borrowed parameter; the caller
 # still owns it.
 
-struct Box
+struct Wrap
   payload: Int
 
-sub f(rc: ?*Box)
+sub f(rc: ?*Wrap)
   g = |<rc|
     print(rc.payload)
   g()
 
 sub main()
-  rc = *Box(payload: 5)
+  rc = *Wrap(payload: 5)
   f(?rc)
   print(rc.payload)
 

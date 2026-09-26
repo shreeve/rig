@@ -1,14 +1,14 @@
 # `break` leaves the loop body's scope: a borrow of one of its locals
 # cannot be carried out.
 
-struct Box
+struct Wrap
   payload: Int
 
 sub main()
-  a = Box(payload: 1)
+  a = Wrap(payload: 1)
   r = ?a
   while true
-    b = Box(payload: 2)
+    b = Wrap(payload: 2)
     r = ?b
     break
   print(r.payload)

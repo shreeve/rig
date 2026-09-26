@@ -2,15 +2,15 @@
 # still reaches the first link: the loop analysis runs to its fixpoint
 # however many rounds that takes, so dropping `b` is rejected.
 
-struct Box
+struct Wrap
   payload: Int
 
   drop(!self)
     print("drop")
 
 sub main()
-  a = Box(payload: 1)
-  b = Box(payload: 2)
+  a = Wrap(payload: 1)
+  b = Wrap(payload: 2)
   r1 = ?a
   r2 = ?a
   r3 = ?a

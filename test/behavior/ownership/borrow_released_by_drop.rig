@@ -1,13 +1,13 @@
 # Dropping a borrow binding ends the borrow.
 
-struct Box
+struct Wrap
   payload: Int
 
   drop(!self)
     print("drop")
 
 sub main()
-  b = Box(payload: 1)
+  b = Wrap(payload: 1)
   r = ?b
   print(r.payload)
   -r

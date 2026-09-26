@@ -1,7 +1,7 @@
 # `for x in !xs` writes `xs`, however `xs` was made: a copy, an index
 # loop, a field, and a generic body's copy of a parameter.
 
-struct Box
+struct Wrap
   items: [3]Int
 
 fun inc[n: Int](xs: [n]Int) -> [n]Int
@@ -18,7 +18,7 @@ sub main()
   idx = a
   for x, i in !idx
     x += i * 10
-  b = Box(items: [1, 2, 3])
+  b = Wrap(items: [1, 2, 3])
   c = b
   for x in !c.items
     x *= 2

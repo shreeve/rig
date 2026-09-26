@@ -2,7 +2,7 @@
 # last use, not at the end of the block: after that the value can be
 # written, moved, dropped, or reassigned.
 
-struct Box
+struct Wrap
   n: Int
 
   sub bump(!self)
@@ -12,20 +12,20 @@ struct Box
     print("drop", self.n)
 
 struct View
-  box: ?Box
+  box: ?Wrap
 
-sub eat(b: Box)
+sub eat(b: Wrap)
   print("eat", b.n)
 
 sub discard(s: Slot)
   print("discard")
 
 enum Slot
-  full(b: Box)
+  full(b: Wrap)
   empty
 
 sub main()
-  x = Box(n: 1)
+  x = Wrap(n: 1)
   r = ?x
   print("read", r.n)
   !x.bump()
@@ -34,11 +34,11 @@ sub main()
   print("x", x.n)
   v = View(box: ?x)
   print("view", v.box.n)
-  x = Box(n: 10)
+  x = Wrap(n: 10)
 
   flag = x.n > 5
   if flag
-    b = Box(n: 2)
+    b = Wrap(n: 2)
     r2 = ?b
     print("inner", r2.n)
 
@@ -49,14 +49,14 @@ sub main()
     print("len", seen.len)
     !nums.push(i)
 
-  s: Slot = .full(b: Box(n: 7))
+  s: Slot = .full(b: Wrap(n: 7))
   match s
     .full(p)
       print("payload", p.n)
       discard(<s)
     .empty => print("empty")
 
-  y = Box(n: 20)
+  y = Wrap(n: 20)
   ry = ?y
   print("y", ry.n)
   eat(<y)

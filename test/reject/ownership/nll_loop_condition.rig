@@ -1,7 +1,7 @@
 # A loop condition runs again after the body: a borrow it uses is live
 # throughout the loop.
 
-struct Box
+struct Wrap
   n: Int
 
   sub bump(!self)

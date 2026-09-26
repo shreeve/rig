@@ -1,11 +1,11 @@
 # A closure may run again, so its value cannot move out a captured
 # owning value, even as the last expression of its body.
 
-struct Box
+struct Wrap
   v: Vec[Int]
 
 sub main()
-  x = Box(v: Vec())
+  x = Wrap(v: Vec())
   !x.v.push(5)
   s = |<x| x
   a = s()

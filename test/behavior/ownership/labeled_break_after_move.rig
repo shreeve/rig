@@ -1,17 +1,17 @@
 # `break :outer` leaves both loops, so a value moved just before it is
 # only unavailable after the outer loop, not after the inner one.
 
-struct Box
+struct Wrap
   payload: Int
 
   drop(!self)
     print("drop", self.payload)
 
-sub eat(b: *Box)
+sub eat(b: *Wrap)
   print("eat", b.payload)
 
 sub main()
-  rc = *Box(payload: 1)
+  rc = *Wrap(payload: 1)
   i = 0
   :outer while i < 3
     j = 0

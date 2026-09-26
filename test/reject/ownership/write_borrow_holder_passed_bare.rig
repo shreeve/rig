@@ -5,11 +5,11 @@
 struct Tok
   n: Int
 
-struct Box
+struct Wrap
   v: Vec[*Tok]
 
 struct Ed
-  t: !Box
+  t: !Wrap
 
 struct Outer
   e: Ed
@@ -18,14 +18,14 @@ fun dup(e: Ed) -> Ed
   <e
 
 sub main()
-  x = Box(v: Vec())
+  x = Wrap(v: Vec())
   !x.v.push(*Tok(n: 1))
   e = Ed(t: !x)
   r = dup(e)
   for tk in ?r.t.v
     e.t.v = Vec()
     print(tk.n)
-  y = Box(v: Vec())
+  y = Wrap(v: Vec())
   !y.v.push(*Tok(n: 2))
   f = Ed(t: !y)
   o = Outer(e: f)

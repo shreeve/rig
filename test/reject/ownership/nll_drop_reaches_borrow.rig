@@ -1,7 +1,7 @@
 # A value whose type has drop glue is used by its drop at scope exit,
 # which may reach what it borrows.
 
-struct Box
+struct Wrap
   n: Int
 
   sub bump(!self)
@@ -11,13 +11,13 @@ struct Box
     print("drop", self.n)
 
 struct Guard
-  box: ?Box
+  box: ?Wrap
 
   drop(!self)
     print("guard", self.box.n)
 
 sub main()
-  x = Box(n: 1)
+  x = Wrap(n: 1)
   g = Guard(box: ?x)
   -x
 

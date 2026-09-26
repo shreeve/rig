@@ -1009,7 +1009,7 @@ fn isString(comptime T: type) bool {
     };
 }
 
-/// The Rig name of a declared type: `main.Box(i64)` is `Box`.
+/// The Rig name of a declared type: `main.Wrap(i64)` is `Wrap`.
 fn rigTypeName(comptime T: type) []const u8 {
     const full = @typeName(T);
     const end = comptime std.mem.indexOfScalar(u8, full, '(') orelse full.len;

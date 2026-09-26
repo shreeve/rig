@@ -1,14 +1,14 @@
 # Passing a bare shared handle as a call argument is rejected: caller
 # and callee would both own it. Use `<rc` or `+rc`.
 
-struct Box
+struct Wrap
   value: Int
 
-sub use_rc(rc: *Box)
+sub use_rc(rc: *Wrap)
   -rc
 
 sub main()
-  rc = *Box(value: 1)
+  rc = *Wrap(value: 1)
   use_rc(rc)
   -rc
 

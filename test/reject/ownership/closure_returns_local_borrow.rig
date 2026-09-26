@@ -1,11 +1,11 @@
 # An owned closure can be returned, so it cannot capture a borrow (here
 # of a local that the return would outlive).
 
-struct Box
+struct Wrap
   payload: Int
 
 fun mk() -> *sub()
-  b = Box(payload: 1)
+  b = Wrap(payload: 1)
   r = ?b
   *|<r| print(r.payload)
 

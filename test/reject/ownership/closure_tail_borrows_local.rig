@@ -1,11 +1,11 @@
 # A closure's value cannot borrow the closure's own locals.
 
-struct Box
+struct Wrap
   v: Vec[Int]
 
 sub main()
   s = ||
-    y = Box(v: Vec())
+    y = Wrap(v: Vec())
     !y.v.push(1)
     ?y
   q = s()

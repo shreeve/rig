@@ -1,17 +1,17 @@
 # Moving a Copy field out of a struct copies it; the struct stays whole.
 
-struct Box
+struct Wrap
   payload: Int
 
   drop(!self)
     print("drop")
 
 struct Pair
-  a: *Box
+  a: *Wrap
   n: Int
 
 sub main()
-  p = Pair(a: *Box(payload: 1), n: 5)
+  p = Pair(a: *Wrap(payload: 1), n: 5)
   m = <p.n
   print(m + p.n)
 

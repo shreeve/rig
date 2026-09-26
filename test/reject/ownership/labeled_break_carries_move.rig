@@ -1,14 +1,14 @@
 # The state at `break :outer` flows to the end of the outer loop: a value
 # moved before it may be gone there.
 
-struct Box
+struct Wrap
   payload: Int
 
-sub eat(b: *Box)
+sub eat(b: *Wrap)
   print(b.payload)
 
 sub main()
-  rc = *Box(payload: 1)
+  rc = *Wrap(payload: 1)
   :outer while true
     while true
       eat(<rc)

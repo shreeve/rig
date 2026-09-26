@@ -2,27 +2,27 @@
 # reach the borrowed value, whether the view is built locally, returned
 # from a function, nested in another struct, passed on, or rebound.
 
-struct Box
+struct Wrap
   n: Int
 
 struct Ed
-  t: !Box
+  t: !Wrap
 
 struct Outer
   e: Ed
 
-fun mk(b: !Box) -> Ed
+fun mk(b: !Wrap) -> Ed
   Ed(t: b)
 
-sub bump(x: !Box)
+sub bump(x: !Wrap)
   x.n += 10
 
 sub set(e: Ed)
   e.t.n = 100
 
 sub main()
-  a = Box(n: 1)
-  b = Box(n: 2)
+  a = Wrap(n: 1)
+  b = Wrap(n: 2)
   if true
     e = Ed(t: !a)
     e.t.n = 5
