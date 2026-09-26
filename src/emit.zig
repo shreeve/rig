@@ -474,13 +474,35 @@ pub const Emitter = struct {
         try self.w.print("    return {s} {{\n        const Self = @This();\n\n", .{container});
     }
 
-    /// Whether a leaf under `node` names `sym`.
+    /// Whether a leaf under `node` names `sym`, outside the type being
+    /// emitted at its own parameters (`Tag[T]` in `Tag[T]`), which is
+    /// emitted as `Self`.
     fn mentions(self: *Emitter, node: Sexp, sym: SymbolId) bool {
         return switch (node) {
             .src => self.sema.symbolOf(node) == sym,
-            .list => for (node.items()) |c| {
+            .list => if (self.namesSelf(node)) false else for (node.items()) |c| {
                 if (self.mentions(c, sym)) break true;
             } else false,
+            else => false,
+        };
+    }
+
+    /// Whether `node` spells the type being emitted at its own
+    /// parameters, as a type or in an expression.
+    fn namesSelf(self: *Emitter, node: Sexp) bool {
+        if (node.isKind(.generic_inst)) {
+            const n = self.nominal orelse return false;
+            if (self.sema.symbolOf(ir.GenericInst.name(node)) != n.sym) return false;
+            const params = self.sema.symbols.items[n.sym].type_params orelse return false;
+            const args = ir.GenericInst.args(node);
+            if (args.len != params.len) return false;
+            for (params, args) |p, a| if (a != .src or self.sema.symbolOf(a) != p) return false;
+            return true;
+        }
+        const inst = self.sema.instanceOf(node) orelse return false;
+        if (inst != .type) return false;
+        return switch (self.sema.types.get(inst.type)) {
+            .parameterized_nominal => |pn| self.isSelfInstance(pn),
             else => false,
         };
     }
