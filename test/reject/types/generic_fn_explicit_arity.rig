@@ -1,6 +1,6 @@
-# Brackets give every compile-time argument, or none: there is no
-# partial list. A function with a compile-time value parameter needs its
-# brackets, since a value is never inferred.
+# Brackets give every compile-time argument, or none. A value parameter
+# its signature does not hold is never inferred, so a function with one
+# needs its brackets.
 
 fun max[T](a: T, b: T) -> T
   a if a > b else b

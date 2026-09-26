@@ -10,3 +10,9 @@ pub sub show[k: Int]
 
 pub fun plain[k: Int] -> Int
   k
+
+pub struct Maker
+  x: Int
+
+  fun zeros[n: Int] -> [n]Int
+    [0; n]

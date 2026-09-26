@@ -1015,9 +1015,9 @@ the result where no type is expected, or given only `none` or a
 
 A generic function can only be called: it is not a value, and a closure
 is never generic. It cannot cross module boundaries yet
-([§15](#15-modules)), and neither can a public function whose integer
-compile-time parameter sizes an array, in its signature, its body, or a
-function it passes the parameter to.
+([§15](#15-modules)), and neither can a public function, or a method
+of a public type, whose integer compile-time parameter sizes an array,
+in its signature, its body, or a function it passes the parameter to.
 
 ```rig
 struct Res

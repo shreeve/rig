@@ -552,9 +552,9 @@ type's value parameters are detached `param` symbols among its
 `type_params`, and its methods read them by name (`useName`). A
 function's integer value parameters are part of its instances
 (`FnInstance`) like its type parameters, and a call infers the ones its
-signature holds. A public function whose integer parameter sizes an
-array, directly or through the functions and types it passes it to, is
-rejected (`checkPublicArrayLengths`): other modules' instances are
+signature holds. A public function, or a method of a public type,
+whose integer parameter sizes an array, directly or through the
+functions and types it passes it to, is rejected (`checkPublicArrayLengths`): other modules' instances are
 never checked here. A value takes at most `sema.max_value_bytes`
 (8 MiB), from `sema.minBytes`: an array type is checked where it is
 spelled or made (`checkArrayBytes`), a struct or enum after contents

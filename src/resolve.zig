@@ -1601,6 +1601,9 @@ pub const TypeResolver = struct {
         } else if (self.dividesByZero(node)) {
             try self.ctx.errAt(node, "{s} `{s}` divides by zero", .{ what, text });
             return null;
+        } else if (node.isKind(.call)) {
+            try self.ctx.errAt(node, "{s} cannot call a function: `{s}` runs only when the program does", .{ what, text });
+            return null;
         }
         try self.ctx.errAt(node, "{s} must be known at compile time; `{s}` is not: use an integer, a constant (`N =! 4`), a compile-time parameter, or arithmetic on them", .{ what, text });
         return null;
