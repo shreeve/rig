@@ -339,7 +339,8 @@ integer value `256` does not fit in `U8`
 
 A `String` has a length `s.len` and can be indexed (`s[0]`), and a `for`
 loop over it yields its bytes as `U8`. Strings compare with `==` and
-`!=` by content; they have no ordering.
+`!=` by content, and `<`, `<=`, `>`, `>=` order them by their bytes
+([§6](#operators)).
 
 ### Arrays
 
@@ -1126,7 +1127,8 @@ support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
 reaches, and every instance the program makes, spelled or
 inferred, directly or through other generic bodies, is checked against
 it. On a `T`, `==` compares whatever `==` compares outside a generic
-body. A failure is reported at the call or type that makes the instance,
+body, and ordering compares numbers and Strings. A failure is reported
+at the call or type that makes the instance,
 with a note at the body line that needs the operation. A body cannot
 call a method on a `T`, read a field of one, or call `T` itself.
 
@@ -1167,14 +1169,14 @@ fun same[T](x: T) -> T
   x
 
 sub main
-  print(max("a", "b"))
+  print(max(true, false))
   p = twice(Res(n: 1))
   r = Res(n: 2)
   q = same(?r)
 ```
 
 ```error
-`max[String]` cannot use `T = String`: the generic body applies `>` to `T`, which `String` does not support
+`max[Bool]` cannot use `T = Bool`: the generic body applies `>` to `T`, which `Bool` does not support
 `>` used on `T` here (ordering comparison)
 `twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns
 `T` copied here; move it with `<` instead
@@ -1439,7 +1441,10 @@ struct that declares `drop`, or a view (a struct or payload that holds a
 borrow). Neither does a type that holds one of these, and the
 diagnostic names the field that does.
 
-Ordering comparisons need numbers.
+Ordering comparisons (`<`, `<=`, `>`, `>=`) take two numbers, or two
+`String`s or two `[]U8` slices, ordered by their bytes: the first byte
+that differs decides, and a prefix sorts before the longer string.
+Structs, enums, and other slices have no ordering.
 
 ```rig
 struct Point
@@ -1456,10 +1461,12 @@ sub main
   s: Shape = .dot(at: a)
   found: Point? = none
   print(a == b, s == Shape.dot(at: Point(x: 2, y: 1)), found == none, [a] == [b])
+  print("abc" < "abd", "ab" < "abc", "b" <= "a")
 ```
 
 ```output
 true false true true
+true true false
 ```
 
 ```rig reject
@@ -1472,11 +1479,12 @@ struct Link
 
 sub main
   a = Link(id: 1, to: *Node(n: 1))
-  print(a == a)
+  print(a == a, a < a)
 ```
 
 ```error
 `==` is not defined for `Link`: field `to` is a handle `*Node`, which could compare by identity or by content
+operator `<` orders numbers, Strings, and `[]U8` slices; got `Link`
 ```
 
 `and`, `or`, and `not` take `Bool`s; `not` binds looser than comparisons,

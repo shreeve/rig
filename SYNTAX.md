@@ -830,6 +830,9 @@ From lowest to highest precedence:
   Cell, Signal, structs with `drop`, and views have no `==`, and the
   error names the field that has none. Unlike Rust's `PartialEq`,
   there is nothing to derive, and no `eq` method is called.
+- `<` `<=` `>` `>=` take numbers, or `String`s and `[]U8` slices, which
+  order by their bytes (a prefix first), like Zig's `std.mem.order`.
+  Structs and enums have no ordering.
 - There is no `**`; there is no `++` or `--`.
 
 ```rig
@@ -856,9 +859,11 @@ sub main
   p = Point(x: 1, y: 2)
   q: Point? = Point(x: 1, y: 2)
   print(p == q, p != Point(x: 2, y: 1), [p, p] == [p, p])
+  print("apple" < "banana", "app" < "apple", "Zoo" < "apple")
 ```
 
 ```output
+true true true
 true true true
 ```
 
@@ -2643,7 +2648,8 @@ sub main
 
 **Strings** are immutable UTF-8 bytes, a Copy value. `s.len` is the
 byte length, `s[i]` a byte (`U8`), and `for b in s` walks the bytes.
-They compare by content with `==` and have no ordering.
+They compare by content with `==` and order by their bytes with `<`,
+`<=`, `>`, and `>=`, as do `[]U8` slices.
 
 **Slices** view part of an array, `Vec`, or string. `s[a..b]` of a
 `String` is a `String`; of an array or a `Vec` of plain data it is

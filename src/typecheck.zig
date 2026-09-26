@@ -1032,7 +1032,7 @@ const Checker = struct {
         var elem_ty = self.t().invalid_id;
         if (source.isKind(.@"..")) {
             // Both bounds are integers of one type, the element's.
-            elem_ty = try self.checkIntDefaultOperands(source, "..", .integer);
+            elem_ty = try self.checkIntDefaultOperands(source, "..", .integer, null);
             try self.ctx.recordType(source, try self.ctx.intern(.{ .range = elem_ty }));
         } else {
             const peeled_source = if (source.isKind(.read)) ir.Read.operand(source) else source;
@@ -1659,13 +1659,10 @@ const Checker = struct {
             .share => self.synthShare(e),
             .weak => self.synthWeak(e),
             .clone => self.synthClone(e),
-            .@"+", .@"-", .@"*", .@"/", .@"%" => self.checkNumericOperands(e, @tagName(head), .numeric),
-            .@"&", .@"|", .@"^" => self.checkNumericOperands(e, @tagName(head), .integer),
+            .@"+", .@"-", .@"*", .@"/", .@"%" => self.checkNumericOperands(e, @tagName(head), .numeric, null),
+            .@"&", .@"|", .@"^" => self.checkNumericOperands(e, @tagName(head), .integer, null),
             .@"<<", .@">>" => self.synthShift(e, @tagName(head)),
-            .@"<", .@">", .@"<=", .@">=" => blk: {
-                _ = try self.checkIntDefaultOperands(e, @tagName(head), .ordered);
-                break :blk self.t().bool_id;
-            },
+            .@"<", .@">", .@"<=", .@">=" => self.synthOrdering(e, @tagName(head)),
             .@"==", .@"!=" => self.synthEquality(e),
             .@"and", .@"or" => blk: {
                 try self.checkExpr(ir.get(e, .left), self.t().bool_id);
@@ -1720,9 +1717,10 @@ const Checker = struct {
 
     /// The operands of binary operator `(op left right)`: both numeric
     /// (or integer) and of one type. Literals adapt to the other operand;
-    /// generic parameters record a requirement.
-    fn checkNumericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement) Error!TypeId {
-        const ty = try self.numericOperands(e, op, req);
+    /// generic parameters record a requirement. `synthesized` holds the
+    /// operands' types when the caller has synthesized them.
+    fn checkNumericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement, synthesized: ?[2]TypeId) Error!TypeId {
+        const ty = try self.numericOperands(e, op, req, synthesized);
         if (self.isPoison(ty)) return ty;
         if (!(try self.checkDivisor(e.kind().?, ty, ir.get(e, .right)))) return self.t().invalid_id;
         // Constant operands are computed now, so the result must fit.
@@ -1734,12 +1732,40 @@ const Checker = struct {
 
     /// `checkNumericOperands` where two literal operands, which take no
     /// type from each other, are `Int`s.
-    fn checkIntDefaultOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement) Error!TypeId {
-        const ty = try self.checkNumericOperands(e, op, req);
+    fn checkIntDefaultOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement, synthesized: ?[2]TypeId) Error!TypeId {
+        const ty = try self.checkNumericOperands(e, op, req, synthesized);
         if (ty != self.t().int_literal_id) return ty;
         try self.checkLiteralFits(ir.get(e, .left), self.t().int_id);
         try self.checkLiteralFits(ir.get(e, .right), self.t().int_id);
         return self.t().int_id;
+    }
+
+    /// `a < b`, `<=`, `>`, `>=`: two numbers as for arithmetic, or two
+    /// Strings or two `[]U8` slices, ordered by their bytes.
+    fn synthOrdering(self: *Checker, e: Sexp, op: []const u8) Error!TypeId {
+        const l = ir.get(e, .left);
+        const r = ir.get(e, .right);
+        const a = try self.synthReached(l);
+        const b = try self.synthReached(r);
+        if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
+        if (!self.isBytes(a) and !self.isBytes(b)) {
+            _ = try self.checkIntDefaultOperands(e, op, .ordered, .{ a, b });
+            return self.t().bool_id;
+        }
+        if (a != b) try self.errAt(l, "operator `{s}` operands have different types `{s}` and `{s}`", .{ op, try self.tyName(a), try self.tyName(b) });
+        return self.t().bool_id;
+    }
+
+    /// A String or a `[]U8`: bytes ordered as text is.
+    fn isBytes(self: *Checker, ty: TypeId) bool {
+        return switch (self.ctx.types.get(ty)) {
+            .string => true,
+            .slice => |s| switch (self.ctx.types.get(s.elem)) {
+                .int => |info| info.bits == 8 and !info.signed,
+                else => false,
+            },
+            else => false,
+        };
     }
 
     /// Integer division by a constant zero is rejected; float division
@@ -1809,10 +1835,10 @@ const Checker = struct {
         return sema.constIntOf(self.ctx, e);
     }
 
-    fn numericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement) Error!TypeId {
+    fn numericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement, synthesized: ?[2]TypeId) Error!TypeId {
         const operands = [2]Sexp{ ir.get(e, .left), ir.get(e, .right) };
-        const a = try self.synthOperandValue(operands[0]);
-        const b = try self.synthOperandValue(operands[1]);
+        const a = if (synthesized) |ts| ts[0] else try self.synthOperandValue(operands[0]);
+        const b = if (synthesized) |ts| ts[1] else try self.synthOperandValue(operands[1]);
         const pos = self.startOf(operands[0]);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().invalid_id;
 
@@ -1835,7 +1861,9 @@ const Checker = struct {
         for ([_]TypeId{ a, b }, 0..) |ty, i| {
             const ok = if (want_int) sema.isInteger(self.ctx, ty) else sema.isNumeric(self.ctx, ty);
             if (!ok) {
-                try self.errAt(operands[i], "operator `{s}` requires {s} operands; got `{s}`", .{ op, if (want_int) "integer" else "numeric", try self.tyName(ty) });
+                if (req == .ordered) {
+                    try self.errAt(operands[i], "operator `{s}` orders numbers, Strings, and `[]U8` slices; got `{s}`", .{ op, try self.tyName(ty) });
+                } else try self.errAt(operands[i], "operator `{s}` requires {s} operands; got `{s}`", .{ op, if (want_int) "integer" else "numeric", try self.tyName(ty) });
                 return self.t().invalid_id;
             }
         }
@@ -2921,7 +2949,7 @@ const Checker = struct {
         const object = ir.Index.object(e);
         const range = ir.Index.index(e);
         const obj_ty = try self.synthOperand(object);
-        _ = try self.checkIntDefaultOperands(range, "..", .integer);
+        _ = try self.checkIntDefaultOperands(range, "..", .integer, null);
         if (self.isPoison(obj_ty)) return obj_ty;
         const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
@@ -6142,7 +6170,8 @@ fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
 
 fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
     return switch (req) {
-        .numeric, .ordered => sema.isNumeric(ctx, ty),
+        .numeric => sema.isNumeric(ctx, ty),
+        .ordered => sema.isNumeric(ctx, ty) or ctx.types.get(ty) == .string,
         .integer => sema.isInteger(ctx, ty),
         .signed => switch (ctx.types.get(ty)) {
             .int => |info| info.signed,

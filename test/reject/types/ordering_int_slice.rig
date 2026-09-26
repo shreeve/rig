@@ -1,0 +1,8 @@
+# Only byte slices are ordered; a slice of other elements is not.
+
+sub main()
+  xs = [1, 2, 3]
+  ys = [1, 2, 4]
+  print(?xs[0..3] <= ?ys[0..3])
+
+# error: 6:9: operator `<=` orders numbers, Strings, and `[]U8` slices; got `[]Int`

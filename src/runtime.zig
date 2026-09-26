@@ -157,7 +157,7 @@ pub fn create(comptime T: type) *T {
 }
 
 // -----------------------------------------------------------------------------
-// Equality
+// Equality and ordering
 // -----------------------------------------------------------------------------
 
 /// `a == b` for any equatable value, decided at compile time: numbers,
@@ -216,6 +216,14 @@ fn isScalar(comptime T: type) bool {
         .int, .float, .bool, .@"enum", .error_set => true,
         else => false,
     };
+}
+
+/// `a op b` for an ordering operator in a generic body: numbers compare
+/// as numbers, and Strings by their bytes, where the first byte that
+/// differs decides and a prefix sorts first.
+pub fn compare(a: anytype, comptime op: std.math.CompareOperator, b: anytype) bool {
+    if (comptime isString(@TypeOf(a, b))) return std.mem.order(u8, a, b).compare(op);
+    return std.math.compare(a, op, b);
 }
 
 // -----------------------------------------------------------------------------

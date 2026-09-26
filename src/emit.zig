@@ -2319,6 +2319,21 @@ pub const Emitter = struct {
             if (kind == .@"!=") try self.w.writeAll("!");
             return self.emitCall2("rig.eql(", operands, ")");
         }
+        if (!is_eq) if (self.orderOperator(kind, operands)) |order| {
+            // Strings and byte slices order by their bytes.
+            if (order.bytes) {
+                if (!bare) try self.w.writeAll("(");
+                try self.emitCall2("std.mem.order(u8, ", operands, order.test_);
+                if (!bare) try self.w.writeAll(")");
+                return;
+            }
+            // A generic `T` orders as its instance does.
+            try self.w.writeAll("rig.compare(");
+            try self.emitExpr(operands[0]);
+            try self.w.print(", .{s}, ", .{order.op});
+            try self.emitExpr(operands[1]);
+            return self.w.writeAll(")");
+        };
         if (!bare) try self.w.writeAll("(");
         try self.emitExpr(operands[0]);
         try self.w.print(" {s} ", .{op});
@@ -3678,6 +3693,38 @@ pub const Emitter = struct {
             .int, .float, .bool, .int_literal, .float_literal, .any_error => true,
             .nominal, .imported_nominal => sema.isPlainEnum(self.sema, ty) or sema.isErrorSet(self.sema, ty),
             else => false,
+        };
+    }
+
+    const OrderOperator = struct {
+        /// Strings or byte slices; otherwise a type parameter's values.
+        bytes: bool,
+        /// The `std.math.CompareOperator` name.
+        op: []const u8,
+        /// What tests the `std.math.Order` of two byte strings.
+        test_: []const u8,
+    };
+
+    /// How `a < b` (`<=`, `>`, `>=`) lowers when Zig's operator does not
+    /// order its operands; null for numbers.
+    fn orderOperator(self: *Emitter, kind: Tag, operands: [2]Sexp) ?OrderOperator {
+        var bytes = false;
+        var generic = false;
+        for (operands) |o| {
+            const ty = self.typeOf(o) orelse continue;
+            const t = self.peelBorrows(ty);
+            switch (self.sema.types.get(t)) {
+                .string, .slice => bytes = true,
+                else => generic = generic or sema.containsTypeVar(self.sema, t),
+            }
+        }
+        if (!bytes and !generic) return null;
+        return switch (kind) {
+            .@"<" => .{ .bytes = bytes, .op = "lt", .test_ = ") == .lt" },
+            .@"<=" => .{ .bytes = bytes, .op = "lte", .test_ = ") != .gt" },
+            .@">" => .{ .bytes = bytes, .op = "gt", .test_ = ") == .gt" },
+            .@">=" => .{ .bytes = bytes, .op = "gte", .test_ = ") != .lt" },
+            else => null,
         };
     }
 
