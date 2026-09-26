@@ -1,0 +1,10 @@
+# A struct from another module that holds a handle has no `==`; the
+# diagnostic names its field.
+
+use geo
+
+sub main()
+  u = geo.Tagged(id: 1, h: *geo.Point(x: 1))
+  print(u == u)
+
+# error: 8:9: `==` is not defined for `geo.Tagged`: field `h` is a handle `*Point`

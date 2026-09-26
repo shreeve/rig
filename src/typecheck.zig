@@ -1917,8 +1917,9 @@ const Checker = struct {
             try self.checkExpr(r, try self.readThrough(l, ty, sema.unwrapBorrows(self.ctx, ty)));
             return self.t().bool_id;
         }
-        const a = try self.synthOperandValue(l);
-        const b = try self.synthOperandValue(r);
+        // A borrowed operand compares as the value it reaches.
+        const a = try self.synthReached(l);
+        const b = try self.synthReached(r);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
         if (sema.isNumeric(self.ctx, a) and sema.isNumeric(self.ctx, b)) {
             _ = try self.checkNumericComparison(l, r, a, b, op);
@@ -1986,21 +1987,17 @@ const Checker = struct {
         }
     }
 
+    /// `==` compares values of `ty` (`sema.notEquatable`); inside a
+    /// generic body, in the instances where it compares the parameters
+    /// `ty` holds.
     fn checkEquatable(self: *Checker, ty: TypeId, node: Sexp, op: []const u8) Error!void {
         if (self.isPoison(ty)) return;
-        const ok = switch (self.ctx.types.get(ty)) {
-            .int, .float, .int_literal, .float_literal, .bool, .string, .any_error => true,
-            .optional => |inner| inner == self.t().string_id or satisfies(self.ctx, inner, .equatable),
-            .nominal, .imported_nominal => sema.isPlainEnum(self.ctx, ty),
-            .type_var => |tv| blk: {
-                try self.require(tv, .equatable, self.startOf(node), op);
-                break :blk true;
-            },
-            else => false,
-        };
-        if (!ok) {
-            try self.errAt(node, "`{s}` is not defined for `{s}`", .{ op, try self.tyName(ty) });
+        var params: std.ArrayListUnmanaged(SymbolId) = .empty;
+        defer params.deinit(self.ctx.allocator);
+        if (try sema.notEquatable(self.ctx, ty, &params)) |n| {
+            return self.errAt(node, "`{s}` is not defined for `{s}`: {s}", .{ op, try self.tyName(ty), try notEquatableReason(self.ctx, n) });
         }
+        for (params.items) |tv| try self.require(tv, .equatable, self.startOf(node), op);
     }
 
     fn synthBlock(self: *Checker, node: Sexp, expected: ?TypeId) Error!TypeId {
@@ -2323,6 +2320,12 @@ const Checker = struct {
     fn synthOperandValue(self: *Checker, e: Sexp) Error!TypeId {
         const ty = try self.synthExpr(e);
         return self.readThrough(e, ty, operandValue(self.ctx, ty));
+    }
+
+    /// The value a borrow `e` reaches, or `e`'s own value.
+    fn synthReached(self: *Checker, e: Sexp) Error!TypeId {
+        const ty = try self.synthExpr(e);
+        return self.readThrough(e, ty, sema.unwrapBorrows(self.ctx, ty));
     }
 
     /// The value `e` gives where a value is read: a borrowed Copy value
@@ -6088,7 +6091,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
         // A diagnostic was reported about the argument.
         if (sema.containsPoison(ctx, arg)) continue;
         for (ctx.generic_requirements.items) |req| {
-            if (req.param != param or satisfies(ctx, arg, req.req)) continue;
+            if (req.param != param or try satisfies(ctx, arg, req.req)) continue;
             const inst = try sema.rootName(ctx, of);
             const pname = ctx.symbols.items[param].name;
             const aname = try sema.formatType(ctx, arg);
@@ -6099,9 +6102,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
-                // `String` and optionals compare with `==` outside a
-                // generic body, but not as a `T`.
-                .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`; `{s}` on a `{s}` compares only numbers, `Bool`, and plain enums", .{ inst, pname, aname, req.op, pname, req.op, pname }),
+                .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {
@@ -6117,7 +6118,29 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
     return ok;
 }
 
-fn satisfies(ctx: *const SemContext, ty: TypeId, req: Requirement) bool {
+/// Why `==` is not defined for a type, as a diagnostic says it.
+fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
+    const a = ctx.arena.allocator();
+    const t = try sema.formatTypeIn(n.ctx, a, n.ty);
+    if (n.path.len > 0) return switch (n.why) {
+        .handle => std.fmt.allocPrint(a, "field `{s}` is a handle `{s}`, which could compare by identity or by content", .{ n.path, t }),
+        .closure => std.fmt.allocPrint(a, "field `{s}` is an owned closure `{s}`", .{ n.path, t }),
+        .function => std.fmt.allocPrint(a, "field `{s}` is a function value", .{n.path}),
+        .collection => std.fmt.allocPrint(a, "field `{s}` is a `{s}`, which has no `==`", .{ n.path, t }),
+        .borrow => std.fmt.allocPrint(a, "field `{s}` holds a borrow", .{n.path}),
+        .drop => std.fmt.allocPrint(a, "field `{s}` is a `{s}`: `{s}` declares `drop`", .{ n.path, t, t }),
+    };
+    return switch (n.why) {
+        .handle => std.fmt.allocPrint(a, "`{s}` is a handle, which could compare by identity or by content", .{t}),
+        .closure => std.fmt.allocPrint(a, "`{s}` is an owned closure", .{t}),
+        .function => std.fmt.allocPrint(a, "`{s}` is a function value", .{t}),
+        .collection => std.fmt.allocPrint(a, "`{s}` has no `==`", .{t}),
+        .borrow => std.fmt.allocPrint(a, "`{s}` is a borrow", .{t}),
+        .drop => std.fmt.allocPrint(a, "`{s}` declares `drop`", .{t}),
+    };
+}
+
+fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
     return switch (req) {
         .numeric, .ordered => sema.isNumeric(ctx, ty),
         .integer => sema.isInteger(ctx, ty),
@@ -6137,11 +6160,7 @@ fn satisfies(ctx: *const SemContext, ty: TypeId, req: Requirement) bool {
             .ct_value => |v| v.int >= 0 and v.int <= sema.max_array_len,
             else => false,
         },
-        .equatable => switch (ctx.types.get(ty)) {
-            .int, .float, .bool => true,
-            .nominal, .imported_nominal => sema.isPlainEnum(ctx, ty),
-            else => false,
-        },
+        .equatable => sema.isEquatable(ctx, ty),
     };
 }
 

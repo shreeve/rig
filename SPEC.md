@@ -339,7 +339,7 @@ integer value `256` does not fit in `U8`
 
 A `String` has a length `s.len` and can be indexed (`s[0]`), and a `for`
 loop over it yields its bytes as `U8`. Strings compare with `==` and
-`!=`; they have no ordering.
+`!=` by content; they have no ordering.
 
 ### Arrays
 
@@ -881,7 +881,7 @@ true
 A payload variant is constructed with keyword fields, like a struct:
 `.circle(radius: 2)`, `Shape.circle(radius: 2)`. A pattern binds the
 fields in order (`.circle(r) =>`). Enums have no constructor call
-(`Shape(...)` is an error); plain enums compare with `==`. A plain enum's variants may take
+(`Shape(...)` is an error); enums compare with `==` ([§6](#operators)). A plain enum's variants may take
 explicit values (`ok = 200`): constant integers from 0 to 4294967295,
 no two the same, where a variant without one takes the value after the
 previous variant's. Payload and generic enums take no values.
@@ -1125,8 +1125,8 @@ support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
 `T`) is recorded, a borrowed operand (`?T`, `!T`) as the `T` it
 reaches, and every instance the program makes, spelled or
 inferred, directly or through other generic bodies, is checked against
-it. On a `T`, `==` compares numbers, `Bool`, and plain enums, not
-Strings. A failure is reported at the call or type that makes the instance,
+it. On a `T`, `==` compares whatever `==` compares outside a generic
+body. A failure is reported at the call or type that makes the instance,
 with a note at the body line that needs the operation. A body cannot
 call a method on a `T`, read a field of one, or call `T` itself.
 
@@ -1422,10 +1422,62 @@ integer, from 0 up to the width of the shifted type. A left shift that
 loses bits (or the sign) overflows: a constant one is rejected, and one
 computed when the program runs panics, like `+` and `*`.
 
-`==` and `!=` compare two values of the same type: numbers, `Bool`,
-`String` (by content), and enums (with each other or with a `.variant`),
-and optionals of these, where `none` equals only `none`. Structs have
-no `==`. Ordering comparisons need numbers.
+`==` and `!=` compare two values of the same type, by content. The
+equatable types are numbers, `Bool`, `String`, errors, and enums (with
+each other or with a `.variant`), and, when everything they hold is
+equatable: optionals, where `none` equals only `none` and a value
+compares with an optional as its value; arrays and `[]T` slices,
+element by element; structs, field by field; and payload enums, by
+variant and then payload. Floats compare as IEEE numbers wherever they
+are, so a struct holding a NaN is not equal to itself. A borrowed
+operand (`?P`, `!P`) compares as the value it reaches. A method named
+`eq` is never called by `==`.
+
+A handle `*T` or `~T` has no `==`, since it could compare identity or
+content; nor does a function or closure, a Vec, Cell, or Signal, a
+struct that declares `drop`, or a view (a struct or payload that holds a
+borrow). Neither does a type that holds one of these, and the
+diagnostic names the field that does.
+
+Ordering comparisons need numbers.
+
+```rig
+struct Point
+  x: Int
+  y: Int
+
+enum Shape
+  dot(at: Point)
+  empty
+
+sub main
+  a = Point(x: 1, y: 2)
+  b = Point(x: 1, y: 2)
+  s: Shape = .dot(at: a)
+  found: Point? = none
+  print(a == b, s == Shape.dot(at: Point(x: 2, y: 1)), found == none, [a] == [b])
+```
+
+```output
+true false true true
+```
+
+```rig reject
+struct Node
+  n: Int
+
+struct Link
+  id: Int
+  to: *Node
+
+sub main
+  a = Link(id: 1, to: *Node(n: 1))
+  print(a == a)
+```
+
+```error
+`==` is not defined for `Link`: field `to` is a handle `*Node`, which could compare by identity or by content
+```
 
 `and`, `or`, and `not` take `Bool`s; `not` binds looser than comparisons,
 so `not a == b` is `not (a == b)`. The spellings `&&` and `||` are

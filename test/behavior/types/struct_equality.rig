@@ -1,0 +1,64 @@
+# `==` and `!=` compare structs field by field, payload enums by variant
+# and then payload, and arrays and slices element by element. Floats
+# compare as numbers do, so a NaN field makes two structs unequal.
+
+struct Point
+  x: Int
+  y: Int
+
+struct Segment
+  from: Point
+  to: Point
+  label: String
+
+struct Sample
+  at: Point
+  value: Float
+
+enum Shape
+  circle(center: Point, radius: Int)
+  square(side: Int)
+  origin
+
+fun find(n: Int) -> Point?
+  if n > 0
+    return Point(x: n, y: n)
+  none
+
+sub main()
+  a = Point(x: 1, y: 2)
+  b = Point(x: 1, y: 2)
+  c = Point(x: 2, y: 1)
+  print(a == b, a != b, a == c, a != c)
+  s1 = Segment(from: a, to: c, label: "ac")
+  s2 = Segment(from: b, to: c, label: "ac")
+  s3 = Segment(from: a, to: c, label: "ca")
+  print(s1 == s2, s1 == s3, s1 != s3)
+  nan = 0.0 / 0.0
+  print(Sample(at: a, value: 1.5) == Sample(at: b, value: 1.5))
+  print(Sample(at: a, value: nan) == Sample(at: a, value: nan))
+  k1: Shape = .circle(center: a, radius: 3)
+  k2: Shape = .circle(center: b, radius: 3)
+  k3: Shape = .circle(center: c, radius: 3)
+  k4: Shape = .square(side: 3)
+  k5: Shape = .origin
+  print(k1 == k2, k1 == k3, k1 == k4, k4 != k5, k5 == .origin)
+  print(find(1) == none, find(0) == none, find(1) == find(1), find(1) == find(2))
+  print(find(1) == Point(x: 1, y: 1), find(0) != a)
+  xs = [a, c]
+  ys = [b, c]
+  zs = [c, a]
+  print(xs == ys, xs == zs, ?xs[0..1] == ?zs[1..2], ?xs[0..2] == ?zs[0..1])
+  grid = [[1, 2], [3, 4]]
+  print(grid == [[1, 2], [3, 4]], grid != [[1, 2], [3, 5]])
+
+# expect:
+# true false false true
+# true false true
+# true
+# false
+# true false false true true
+# false true true false
+# true true
+# true false true false
+# true true

@@ -526,7 +526,8 @@ value holding a `T` in a way the ownership checker does not see:
 discarding it, leaving it as a temporary, cloning it, reading it out of
 a `Vec` or `Cell`, putting it in an array, or moving it out of a
 borrow. An operator's operand borrowed as `?T` or `!T` counts as a `T`
-(`operandValue`). Nothing about a `T` is assumed that is not recorded. A function's type parameters are `generic_param`
+(`operandValue`), and `==` on a value that holds a `T` (`T?`, `[4]T`,
+`Pair[T, Int]`) records `==` on that `T` (`sema.notEquatable`). Nothing about a `T` is assumed that is not recorded. A function's type parameters are `generic_param`
 symbols in its scope, and its `FunctionType.ct_params` holds the
 `type_var` itself in a type parameter's slot (a compile-time value
 parameter's type may not mention one), so a signature says which of its
@@ -845,7 +846,8 @@ reviewed.
 | `rt` | a compile-time value read as a run-time one, so arithmetic on it is checked when it runs |
 | `guardStack` | makes a stack overflow stop the program. Zig probes the stack as a frame grows only on x86, so elsewhere a frame larger than the guard below the stack can step over it. Linux maps nothing within 128 MiB of the top of the stack (nor within the stack limit the program started with, plus 1 MiB), so `guardStack` holds the stack to 16 MiB (`stack_size`), leaving 112 MiB free below it; macOS guards the stack with one page and maps memory right below that once the address space fills, so there `guardStack` reserves 64 MiB (`stack_reserve`) below the guard. When it cannot (the space is taken, or the limit cannot be lowered), the program prints `rig: cannot reserve the stack guard below the main stack` and exits 1 before `main` runs. A frame holds at most 16 MiB of values (`checkFrames`), so with Zig's temporaries an overflowing one lands in the reserve. `test/cli/stack_guard.sh` checks it |
 | `index`, `at`, `slice`, `div` | bounds-checked indexing and slicing, which panic in every build mode; `div` divides a type parameter's values (exact for floats, truncating for integers) |
-| `discard`, `isNone`, `eqlOptStr`, `eqlOpt`, `take` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; compare optional strings and optional errors; clear an alive flag as a value moves out |
+| `discard`, `isNone`, `take` | drop a value nothing keeps (`_ = e`); test a temporary optional for `none` and drop it; clear an alive flag as a value moves out |
+| `eql` | `==` on anything but a number, `Bool`, plain enum, or error, and every `==` in a generic body: dispatched on the type at compile time, `std.mem.eql` for byte and scalar slices, element by element for arrays and other slices, field by field for structs, tag then payload for tagged unions, and presence then value for optionals |
 | `panic` | the root panic handler: flush `print` output, then Zig's default panic (message and stack trace on stderr) |
 | `defaultAllocator`, `finish` | Debug builds allocate through `LeakChecker`, which records each live block's address and size in a hash map: a double or wrong-size free panics, and `finish` (deferred first in `main`) flushes output, then reports the count and size of any leaked blocks and exits 1. With `__rig_leak_trace` declared in the root module (`RIG_LEAK_TRACE=1` at build time), `LeakChecker` sits on Zig's `DebugAllocator`, which prints the stack trace of each leak. Release builds use `smp_allocator` directly. No box, Vec, or closure stores an allocator. Allocation failure panics |
 | `runTests`, `Test` | the `rig test` driver: runs each test, checks it for leaks (Debug), reports it |

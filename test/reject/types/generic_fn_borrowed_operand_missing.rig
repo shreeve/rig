@@ -5,6 +5,9 @@
 struct P
   n: Int
 
+struct H
+  p: *P
+
 fun same[T](a: ?T, b: ?T) -> Bool
   a == b
 
@@ -12,13 +15,13 @@ fun bigger[T](a: !T, b: ?T) -> Bool
   a > b
 
 sub main()
-  s = "a"
+  s = H(p: *P(n: 0))
   p = P(n: 1)
   q = P(n: 2)
   print(same(?s, ?s))
   print(bigger(!p, ?q))
 
-# error: 18:9: `same[String]` cannot use `T = String`: the generic body applies `==` to `T`; `==` on a `T` compares only numbers, `Bool`, and plain enums
-# error: 9:3: `==` used on `T` here
-# error: 19:9: `bigger[P]` cannot use `T = P`: the generic body applies `>` to `T`, which `P` does not support
-# error: 12:3: `>` used on `T` here
+# error: 21:9: `same[H]` cannot use `T = H`: the generic body applies `==` to `T`, which `H` does not support: field `p` is a handle `*P`
+# error: 12:3: `==` used on `T` here
+# error: 22:9: `bigger[P]` cannot use `T = P`: the generic body applies `>` to `T`, which `P` does not support
+# error: 15:3: `>` used on `T` here

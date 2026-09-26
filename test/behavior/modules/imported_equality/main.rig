@@ -1,0 +1,14 @@
+# `==` compares structs and payload enums declared in another module
+# field by field, as it does the module's own.
+
+use geo
+
+sub main()
+  a = geo.Point(x: 1, y: 2)
+  b = geo.Point(x: 1, y: 2)
+  s: geo.Shape = .dot(at: a)
+  t: geo.Shape = .dot(at: geo.Point(x: 2, y: 1))
+  print(a == b, s == t, s != .empty)
+
+# expect:
+# true false true

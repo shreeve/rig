@@ -823,8 +823,13 @@ From lowest to highest precedence:
   builds.
 - Integer literals in float arithmetic are floats: `h: Float = 7 / 2`
   is `3.5`.
-- `==` works on numbers, `Bool`, `String` (by content), enums, and
-  optionals of those. Structs have no `==`.
+- `==` compares by content: numbers, `Bool`, `String`, enums, and,
+  when all they hold compares, optionals, arrays, slices, structs
+  (field by field), and payload enums. Floats inside compare as IEEE
+  numbers, so NaN is never equal. Handles (`*T`, `~T`), functions, Vec,
+  Cell, Signal, structs with `drop`, and views have no `==`, and the
+  error names the field that has none. Unlike Rust's `PartialEq`,
+  there is nothing to derive, and no `eq` method is called.
 - There is no `**`; there is no `++` or `--`.
 
 ```rig
@@ -840,6 +845,21 @@ sub main
 -3 -1 3 15 6 28 3
 true true true
 3.5 true 1
+```
+
+```rig
+struct Point
+  x: Int
+  y: Int
+
+sub main
+  p = Point(x: 1, y: 2)
+  q: Point? = Point(x: 1, y: 2)
+  print(p == q, p != Point(x: 2, y: 1), [p, p] == [p, p])
+```
+
+```output
+true true true
 ```
 
 ```rig reject

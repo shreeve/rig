@@ -2315,28 +2315,10 @@ pub const Emitter = struct {
             try self.emitBare(operands[i]);
             return self.w.writeAll(")");
         };
-        if (is_eq and (self.isStringExpr(operands[0]) or self.isStringExpr(operands[1]))) {
+        if (is_eq and self.comparesStructurally(operands)) {
             if (kind == .@"!=") try self.w.writeAll("!");
-            const optional = self.isOptStringExpr(operands[0]) or self.isOptStringExpr(operands[1]);
-            try self.w.writeAll(if (optional) "rig.eqlOptStr(" else "std.mem.eql(u8, ");
-            try self.emitExpr(operands[0]);
-            try self.w.writeAll(", ");
-            try self.emitExpr(operands[1]);
-            try self.w.writeAll(")");
-            return;
+            return self.emitCall2("rig.eql(", operands, ")");
         }
-        // Zig compares an optional with a value, but not an optional error.
-        if (is_eq) for (operands) |o| {
-            const inner = self.optionalErrorOf(o) orelse continue;
-            if (kind == .@"!=") try self.w.writeAll("!");
-            try self.w.writeAll("rig.eqlOpt(");
-            try self.emitTypeTy(inner);
-            try self.w.writeAll(", ");
-            try self.emitExpr(operands[0]);
-            try self.w.writeAll(", ");
-            try self.emitExpr(operands[1]);
-            return self.w.writeAll(")");
-        };
         if (!bare) try self.w.writeAll("(");
         try self.emitExpr(operands[0]);
         try self.w.print(" {s} ", .{op});
@@ -3663,25 +3645,40 @@ pub const Emitter = struct {
         };
     }
 
-    /// The error set of an operand of type `E?`.
-    fn optionalErrorOf(self: *Emitter, e: Sexp) ?TypeId {
-        const ty = self.typeOf(e) orelse return null;
-        return switch (self.sema.types.get(self.peelBorrows(ty))) {
-            .optional => |inner| if (self.isErrorSetTy(inner)) inner else null,
-            else => null,
+    /// `pre(left, right)post`.
+    fn emitCall2(self: *Emitter, pre: []const u8, operands: [2]Sexp, post: []const u8) Error!void {
+        try self.w.writeAll(pre);
+        try self.emitExpr(operands[0]);
+        try self.w.writeAll(", ");
+        try self.emitExpr(operands[1]);
+        try self.w.writeAll(post);
+    }
+
+    /// Whether `a == b` compares with `rig.eql` rather than Zig's `==`:
+    /// an operand is not a scalar (a String, a struct, a payload enum, an
+    /// array or slice, an optional of one, an optional error, or a type
+    /// parameter's value). `none` compares with any optional by `==`.
+    fn comparesStructurally(self: *Emitter, operands: [2]Sexp) bool {
+        for (operands) |o| if (self.isNoneLeaf(o)) return false;
+        for (operands) |o| {
+            const ty = self.typeOf(o) orelse continue;
+            const t = self.peelBorrows(ty);
+            const scalar = switch (self.sema.types.get(t)) {
+                .optional => |inner| self.isScalarTy(inner) and !self.isErrorSetTy(inner),
+                else => self.isScalarTy(t),
+            };
+            if (!scalar) return true;
+        }
+        return false;
+    }
+
+    /// A number, Bool, plain enum, or error: Zig's `==` compares it.
+    fn isScalarTy(self: *Emitter, ty: TypeId) bool {
+        return switch (self.sema.types.get(ty)) {
+            .int, .float, .bool, .int_literal, .float_literal, .any_error => true,
+            .nominal, .imported_nominal => sema.isPlainEnum(self.sema, ty) or sema.isErrorSet(self.sema, ty),
+            else => false,
         };
-    }
-
-    /// A `String` or `String?` operand.
-    fn isStringExpr(self: *Emitter, expr: Sexp) bool {
-        const ty = self.typeOf(expr) orelse return false;
-        return self.sema.types.get(self.peelBorrows(ty)) == .string or self.isOptStringExpr(expr);
-    }
-
-    fn isOptStringExpr(self: *Emitter, expr: Sexp) bool {
-        const ty = self.typeOf(expr) orelse return false;
-        const t = self.sema.types.get(self.peelBorrows(ty));
-        return t == .optional and self.sema.types.get(t.optional) == .string;
     }
 
     /// The builtin `left op right` lowers to for `/` and `%`, or null for

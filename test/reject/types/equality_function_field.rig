@@ -1,0 +1,18 @@
+# A struct holding a function value has no `==`, nor does a function.
+
+struct Op
+  name: String
+  run: fun(Int) -> Int
+
+fun inc(n: Int) -> Int
+  n + 1
+
+sub main()
+  a = Op(name: "inc", run: inc)
+  b = Op(name: "inc", run: inc)
+  print(a == b)
+  f = inc
+  print(f == inc)
+
+# error: 13:9: `==` is not defined for `Op`: field `run` is a function value
+# error: 15:9: `==` is not defined for `fun(Int) -> Int`: `fun(Int) -> Int` is a function value
