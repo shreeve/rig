@@ -1,0 +1,24 @@
+# A borrowed `T` operand records the requirement a `T` operand would:
+# an instance whose type lacks the operation is reported at the call,
+# with a note at the body line.
+
+struct P
+  n: Int
+
+fun same[T](a: ?T, b: ?T) -> Bool
+  a == b
+
+fun bigger[T](a: !T, b: ?T) -> Bool
+  a > b
+
+sub main()
+  s = "a"
+  p = P(n: 1)
+  q = P(n: 2)
+  print(same(?s, ?s))
+  print(bigger(!p, ?q))
+
+# error: 18:9: `same[String]` cannot use `T = String`: the generic body applies `==` to `T`, which `String` does not support
+# error: 9:3: `==` used on `T` here
+# error: 19:9: `bigger[P]` cannot use `T = P`: the generic body applies `>` to `T`, which `P` does not support
+# error: 12:3: `>` used on `T` here

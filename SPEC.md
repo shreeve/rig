@@ -966,7 +966,8 @@ A generic type's methods and a generic function's body are checked
 once, with each type parameter standing for any type. There are no
 traits or bounds. What the body does with a `T` that only some types
 support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
-`T`) is recorded, and every instance the program makes, spelled or
+`T`) is recorded, a borrowed operand (`?T`, `!T`) as the `T` it
+reaches, and every instance the program makes, spelled or
 inferred, directly or through other generic bodies, is checked against
 it. A failure is reported at the call or type that makes the instance,
 with a note at the body line that needs the operation. A body cannot

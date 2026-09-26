@@ -517,7 +517,8 @@ beside a `T`, a constant shift, and `plain` where the body copies a
 value holding a `T` in a way the ownership checker does not see:
 discarding it, leaving it as a temporary, cloning it, reading it out of
 a `Vec` or `Cell`, putting it in an array, or moving it out of a
-borrow. Nothing about a `T` is assumed that is not recorded. A function's type parameters are `generic_param`
+borrow. An operator's operand borrowed as `?T` or `!T` counts as a `T`
+(`operandValue`). Nothing about a `T` is assumed that is not recorded. A function's type parameters are `generic_param`
 symbols in its scope, and its `FunctionType.ct_params` holds the
 `type_var` itself in a type parameter's slot (a compile-time value
 parameter's type may not mention one), so a signature says which of its

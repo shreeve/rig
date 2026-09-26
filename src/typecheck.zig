@@ -692,7 +692,7 @@ const Checker = struct {
         }
         if (tv) |param| {
             // A generic `T` target takes another `T` or a literal it holds.
-            const ty = readValue(self.ctx, try self.synthExpr(rhs));
+            const ty = operandValue(self.ctx, try self.synthExpr(rhs));
             if (self.meetsTypeVar(target_ty, ty, req)) {
                 try self.requireHoldsLiteral(param, ty, rhs, pos, spelled);
             } else if (!self.isPoison(ty)) try self.mismatch(rhs, target_ty, ty);
@@ -1714,7 +1714,7 @@ const Checker = struct {
     /// `a << n` / `a >> n`: the result has the type of the integer `a`.
     fn synthShift(self: *Checker, e: Sexp, op: []const u8) Error!TypeId {
         const left = ir.get(e, .left);
-        const ty = readValue(self.ctx, try self.synthExpr(left));
+        const ty = operandValue(self.ctx, try self.synthExpr(left));
         if (self.isPoison(ty)) {
             _ = try self.synthExpr(ir.get(e, .right));
             return ty;
@@ -1736,7 +1736,7 @@ const Checker = struct {
     /// A shift amount may be any integer; a constant one must be below
     /// the width of the shifted type (`Int` for a literal).
     fn checkShiftAmount(self: *Checker, amount: Sexp, shifted: TypeId, op: []const u8) Error!bool {
-        const ty = readValue(self.ctx, try self.synthExpr(amount));
+        const ty = operandValue(self.ctx, try self.synthExpr(amount));
         if (self.isPoison(ty)) return false;
         switch (self.ctx.types.get(ty)) {
             .type_var => |tv| try self.require(tv, .integer, self.startOf(amount), op),
@@ -1767,8 +1767,8 @@ const Checker = struct {
 
     fn numericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement) Error!TypeId {
         const operands = [2]Sexp{ ir.get(e, .left), ir.get(e, .right) };
-        const a = readValue(self.ctx, try self.synthExpr(operands[0]));
-        const b = readValue(self.ctx, try self.synthExpr(operands[1]));
+        const a = operandValue(self.ctx, try self.synthExpr(operands[0]));
+        const b = operandValue(self.ctx, try self.synthExpr(operands[1]));
         const pos = self.startOf(operands[0]);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().invalid_id;
 
@@ -1836,7 +1836,7 @@ const Checker = struct {
 
     fn synthNeg(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Neg.operand(e);
-        const ty = readValue(self.ctx, try self.synthExpr(operand));
+        const ty = operandValue(self.ctx, try self.synthExpr(operand));
         if (self.isPoison(ty)) return ty;
         switch (self.ctx.types.get(ty)) {
             .int => |info| {
@@ -1870,8 +1870,8 @@ const Checker = struct {
             try self.checkExpr(r, sema.unwrapBorrows(self.ctx, try self.synthExpr(l)));
             return self.t().bool_id;
         }
-        const a = readValue(self.ctx, try self.synthExpr(l));
-        const b = readValue(self.ctx, try self.synthExpr(r));
+        const a = operandValue(self.ctx, try self.synthExpr(l));
+        const b = operandValue(self.ctx, try self.synthExpr(r));
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
         if (sema.isNumeric(self.ctx, a) and sema.isNumeric(self.ctx, b)) {
             _ = try self.checkNumericComparison(l, r, a, b, op);
@@ -4996,6 +4996,17 @@ const Checker = struct {
 // =============================================================================
 // Compatibility and classification
 // =============================================================================
+
+/// The type an operator reads from an operand: a borrowed Copy value
+/// (`readValue`), or the `T` a borrowed type parameter reaches. Every
+/// `T` an operator's requirement admits is plain data, so reading one
+/// through its borrow copies no resource.
+fn operandValue(ctx: *const SemContext, ty: TypeId) TypeId {
+    return switch (ctx.types.get(ty)) {
+        .borrow_read, .borrow_write => |inner| if (ctx.types.get(inner) == .type_var) inner else readValue(ctx, ty),
+        else => ty,
+    };
+}
 
 /// A borrow of a Copy value (a primitive, a plain enum, or an error)
 /// reads as the value itself: `n + 1` with `n: ?Int` or `n: !Int` is an

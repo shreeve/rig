@@ -1623,9 +1623,10 @@ There are no traits or bounds. A generic body is checked once, with
 `T` unknown, and every operation it applies to a `T` (`>`, `+`, `==`, a
 literal beside a `T`, a copy of a `T`) is recorded. Each instance the
 program makes, inferred or given, is then checked against that record,
-like a C++ template or a Zig `comptime T: type` function. The error
-names the call, and a note points at the line of the body that needs
-the operation:
+like a C++ template or a Zig `comptime T: type` function. A borrowed
+operand, `a > b` with `a: ?T` or `a: !T`, reads the `T` it reaches and
+records the same operation. The error names the call, and a note
+points at the line of the body that needs the operation:
 
 ```rig reject
 struct Point
@@ -1634,14 +1635,22 @@ struct Point
 fun max[T](a: T, b: T) -> T
   a if a > b else b
 
+fun larger[T](a: ?T, b: !T) -> Bool
+  a > b
+
 sub main
+  n = 3
+  m = 4
+  print(larger(?n, !m))
   p = max(Point(x: 1), Point(x: 2))
-  print(p.x)
+  q = Point(x: 3)
+  print(p.x, larger(?p, !q))
 ```
 
 ```error
 `max[Point]` cannot use `T = Point`: the generic body applies `>` to `T`, which `Point` does not support
 `>` used on `T` here (ordering comparison)
+`larger[Point]` cannot use `T = Point`: the generic body applies `>` to `T`, which `Point` does not support
 ```
 
 A body cannot call a method on a `T`, read its fields, or call `T`
