@@ -4028,6 +4028,9 @@ const Checker = struct {
     fn inferBindings(self: *Checker, own: []const SymbolId, args: []const Sexp, from: InferFrom, result: ?ResultType) Error!Inference {
         var inf: Inference = .{ .own = own, .bound = try self.ctx.arena.allocator().alloc(Bound, own.len) };
         @memset(inf.bound, .{});
+        // Closure literals are matched last, against the parameter types
+        // the other arguments give them (`lentLambdaTypes`).
+        var lambdas: std.ArrayListUnmanaged(LambdaArg) = .empty;
         var positional: usize = 0;
         for (args, 1..) |arg, number| {
             var value = arg;
@@ -4058,6 +4061,10 @@ const Checker = struct {
             const pat = pattern orelse continue;
             if (sema.containsPoison(self.ctx, pat)) inf.poisoned = true;
             if (!sema.containsTypeVar(self.ctx, pat)) continue;
+            if (value.isKind(.lambda)) if (lambdaPattern(self.ctx, pat)) |fn_pat| {
+                try lambdas.append(self.ctx.arena.allocator(), .{ .pattern = fn_pat, .lambda = value, .arg = @intCast(number) });
+                continue;
+            };
             const actual = try self.argType(value);
             if (sema.containsPoison(self.ctx, actual)) inf.poisoned = true;
             try self.bindArg(&inf, pat, actual, @intCast(number), 0);
@@ -4081,7 +4088,57 @@ const Checker = struct {
                 b.conflict_arg = lit.arg;
             }
         };
+        for (lambdas.items) |l| {
+            const actual = (try self.lentLambdaType(&inf, l.pattern, l.lambda)) orelse continue;
+            try self.bindArg(&inf, l.pattern, actual, l.arg, 1);
+        }
         return inf;
+    }
+
+    /// A closure literal argument of a generic call, and the function
+    /// type its parameter gives it.
+    const LambdaArg = struct { pattern: TypeId, lambda: Sexp, arg: u32 };
+
+    /// The function type a closure literal passed where parameter type
+    /// `pat` goes is checked against: `pat` itself, or the callable a
+    /// `?fun(...)` borrows.
+    fn lambdaPattern(ctx: *const SemContext, pat: TypeId) ?TypeId {
+        if (sema.callableFn(ctx, pat) != null) return ctx.types.get(pat).borrow_read;
+        return if (ctx.types.get(pat) == .function) pat else null;
+    }
+
+    /// The type of closure literal `lambda` where function type `pattern`
+    /// goes, checked quietly: its parameters take the types the call's
+    /// other arguments bound in `pattern` (or their annotations), and its
+    /// result is its body's. Null when a parameter has no type yet.
+    fn lentLambdaType(self: *Checker, inf: *const Inference, pattern: TypeId, lambda: Sexp) Error!?TypeId {
+        const a = self.ctx.arena.allocator();
+        var params: std.ArrayListUnmanaged(SymbolId) = .empty;
+        var types: std.ArrayListUnmanaged(TypeId) = .empty;
+        for (inf.own, inf.bound) |p, b| {
+            if (b.ty == sema.type_invalid or b.conflict != sema.type_invalid) continue;
+            try params.append(a, p);
+            try types.append(a, b.ty);
+        }
+        const f = self.ctx.types.get(pattern).function;
+        const given = try a.alloc(TypeId, f.params.len);
+        for (f.params, given) |p, *g| {
+            const ty = try sema.substituteType(self.ctx, p, .{ .params = params.items, .args = types.items });
+            g.* = if (sema.usesParams(self.ctx, ty, inf.own)) sema.type_invalid else ty;
+        }
+        const mark = self.ctx.diagnostics.items.len;
+        self.ctx.quiet += 1;
+        self.tentative += 1;
+        defer {
+            self.ctx.quiet -= 1;
+            self.tentative -= 1;
+            self.ctx.diagnostics.shrinkRetainingCapacity(mark);
+        }
+        const ty = try self.checkLambdaGiven(lambda, null, given, false);
+        const got = self.ctx.types.get(ty).function;
+        for (got.params) |p| if (self.isPoison(p)) return null;
+        if (got.params.len != f.params.len) return null;
+        return ty;
     }
 
     /// A generic call's declared result, and the type expected of it.
@@ -6005,6 +6062,12 @@ const Checker = struct {
     /// annotated and the return type is that of the body's last
     /// expression. `owned` closures pass only plain Copy values.
     fn checkLambda(self: *Checker, node: Sexp, expected: ?TypeId, owned: bool) Error!TypeId {
+        return self.checkLambdaGiven(node, expected, &.{}, owned);
+    }
+
+    /// `checkLambda`, where without an `expected` type the parameters
+    /// may take types from `given` (`type_invalid` for none).
+    fn checkLambdaGiven(self: *Checker, node: Sexp, expected: ?TypeId, given_params: []const TypeId, owned: bool) Error!TypeId {
         const captures = sema.captureList(ir.Lambda.captures(node));
         const outer = self.scope;
         const prev = self.enter(node);
@@ -6028,7 +6091,7 @@ const Checker = struct {
         for (param_nodes, 0..) |p, i| {
             const pn = sema.paramNameNode(p) orelse continue;
             const name = self.text(pn);
-            const given: ?TypeId = if (want) |w| (if (i < w.params.len) w.params[i] else null) else null;
+            const given: ?TypeId = if (want) |w| (if (i < w.params.len) w.params[i] else null) else if (i < given_params.len and given_params[i] != sema.type_invalid) given_params[i] else null;
             var pty = self.t().invalid_id;
             if (p.isKind(.@":")) {
                 pty = try r.resolveType(ir.@":".type(p));
@@ -6037,7 +6100,7 @@ const Checker = struct {
                 };
             } else if (given) |g| {
                 pty = g;
-            } else if (want == null and !self.namesOuterLocal(outer, name, srcPos(pn, 0))) {
+            } else if (want == null and !self.under_poison and !self.namesOuterLocal(outer, name, srcPos(pn, 0))) {
                 try self.errAt(pn, "closure parameter `{s}` needs a type: annotate it (`|{s}: Int|`) or write the closure where its type is known (`f: fun(Int) -> Int = |{s}| ...`)", .{ name, name, name });
             }
             if (owned and given == null and !sema.isClosureValue(self.ctx, pty)) {

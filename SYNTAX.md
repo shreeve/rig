@@ -1628,7 +1628,11 @@ parameter, and each call passes its type: `max(3, 7)` becomes
 A call infers its type arguments by matching each parameter's type
 against its argument's: `T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`,
 `[N]T`, instances like `Vec[T]` or `Wrap[T]`, and function types like
-`fun(T) -> U`. An integer compile-time value is inferred the same way,
+`fun(T) -> U` and `?fun(T) -> U`. A closure literal is matched after the
+other arguments: its parameters take the types they give, and its body's
+result gives the rest, so `sort(!v[..], |a, b| a < b)` needs no
+annotation and `map(?xs[..], |x| x > 0)` returns a `Vec[Bool]`. An
+integer compile-time value is inferred the same way,
 from an array length or a generic type's value argument in the
 signature: `sum([1, 2, 3])` of `fun sum[n: Int](xs: [n]Int)` is
 `sum[3]`. Every argument must agree. A parameter that only

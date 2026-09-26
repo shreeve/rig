@@ -1281,9 +1281,15 @@ A call gives every compile-time argument in brackets
 (`max[Float](1, 2)`), or none, and then its type arguments are
 inferred by matching each parameter's type against its argument's type
 (`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`, `[N]T`, `Wrap[T]`,
-`fun(T) -> U`). A method's receiver gives its type's parameters. Every
-argument must agree, and an argument whose type does not have its
-parameter's shape is a type mismatch. A parameter no argument other
+`fun(T) -> U`, `?fun(T) -> U`). A method's receiver gives its type's
+parameters. Every argument must agree, and an argument whose type does
+not have its parameter's shape is a type mismatch. A closure literal
+argument is matched last: its parameters take the types the other
+arguments give its parameter's function type, and the type its body
+returns binds what only the result mentions, so
+`map(?names[..], |s| s.len)` of
+`fun map[T, U](xs: []T, f: ?fun(?T) -> U) -> Vec[U]` is
+`map[String, Int]`. A parameter no argument other
 than a literal gives a type takes one from the type expected of the
 call's result, where there is one (a typed binding, parameter, field,
 or assigned place, a `return` from a function or from a closure whose

@@ -382,6 +382,8 @@ pub const Checker = struct {
     /// Set immediately before walking a lambda literal that sits in an
     /// allowed position (binding RHS, call callee, lent argument, `*|...|`).
     lambda_ok: bool = false,
+    /// Walking the arguments of a call the type checker rejected.
+    in_rejected_call: bool = false,
     /// Scopes `(lo, hi]` are invisible to name lookup (while re-checking
     /// a deferred body at a scope exit).
     hidden: ?struct { lo: usize, hi: usize } = null,
@@ -1360,7 +1362,7 @@ pub const Checker = struct {
             // A closure literal lent to a call as a borrowed callable
             // lives for the call; anywhere else it is reported by
             // walkLambda.
-            if (sink == .argument and self.lentCallable(expr)) self.lambda_ok = true;
+            if (sink == .argument and (self.lentCallable(expr) or self.in_rejected_call)) self.lambda_ok = true;
             return self.walk(expr);
         }
         try self.checkNoImplicitCopy(expr, sink, false);
@@ -2359,7 +2361,12 @@ pub const Checker = struct {
         const consumed_recv = if (recv_mode == .value and callee.isKind(.member)) result else Value{};
         const arg_values = try self.arena().alloc(Value, args.len);
         var stored: Value = .{};
+        // A closure literal passed to a call the type checker rejected
+        // was reported there.
+        const saved_rejected = self.in_rejected_call;
+        defer self.in_rejected_call = saved_rejected;
         for (args, arg_values) |a, *v| {
+            self.in_rejected_call = self.rejected(node);
             v.* = try self.walkConsumed(a, .argument);
             if (cell != null and v.loans.len > 0) {
                 const loans = v.loans;
