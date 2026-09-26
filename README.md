@@ -123,6 +123,32 @@ config released
 another owner (a visible refcount bump), and `-a` drops one now. The
 value goes when its last owner does.
 
+### Generics
+
+```rig
+type Pair[T, U]
+  first: T
+  second: U
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+sub main
+  p = Pair(first: max(3, 7), second: max(2.5, 1.0))
+  print(p.first, p.second, max[Float](1, 2))
+```
+
+```output
+7 2.5 2.0
+```
+
+Square brackets hold what is known at compile time, and parentheses
+what is known when the program runs. Type arguments are usually
+inferred, and given in brackets when they are not: `max[Float](1, 2)`,
+`Vec[Int]()`. There are no trait bounds: each instance a program makes
+is checked against what the generic body does with `T`, and an error
+names the call, with a note at the line of the body.
+
 ### Closures and a little reactivity
 
 ```rig
@@ -210,9 +236,13 @@ and environment variable. The suite runs on Linux and macOS in
 
 **Works today**, with tests for each feature:
 
-- structs with field defaults, enums with payloads, error sets, generic
-  types and functions, type aliases, module-level constants, methods
-  with explicit receivers, exhaustive `match`
+- structs with field defaults, enums with payloads, error sets, type
+  aliases, module-level constants, methods with explicit receivers,
+  exhaustive `match`
+- generic types, functions, and methods (`type Box[T]`,
+  `fun max[T](a: T, b: T) -> T`), with inferred type arguments and
+  per-instance checking, and compile-time value parameters
+  (`fun check[mode: Mode](n: Int)`)
 - `Int` and `Float` (64-bit), sized numbers, checked conversions
   (`I32(x)`, `Float(n)`), compile-time checked constant arithmetic,
   arrays, strings, slices (`s[a..b]`, `?xs[a..b]`)

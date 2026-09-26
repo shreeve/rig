@@ -114,8 +114,19 @@ one small reactive type in the runtime
 
 Not yet. Traits bring a large design space (dispatch, coherence, trait
 objects), and any design has to keep ownership visible at call sites
-and in the IR. Until then, Rig has methods, generic types and
-functions, enums, and `match`.
+and in the IR. Until then, Rig has methods, enums, `match`, and
+generic types and functions without bounds: a generic body may do with
+`T` whatever each instance supports, and each instance a program makes
+is checked, with an error at the call and a note at the body line
+([more](docs/DESIGN.md#per-instance-checking-instead-of-traits)).
+
+## Why square brackets for generics?
+
+Square brackets hold everything known at compile time, and parentheses
+what is known when the program runs, so `Box[Int](v: 3)` names a type
+and then builds a value, and `check[.strict](5)` passes a compile-time
+value beside a run-time one. That is Zig's `comptime`, in the brackets
+Go uses for its generics ([more](docs/DESIGN.md#brackets-for-compile-time)).
 
 ## Can I call C?
 
