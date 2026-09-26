@@ -2516,7 +2516,7 @@ const Checker = struct {
         generic: NamedType,
         /// A function, named directly, through its module, or through
         /// its type: `check[.strict]`, `m.f[2]`, `Pair.make[1]`.
-        function: struct { takes_args: bool },
+        function: FnTarget,
         /// `value.name[...]`: a method's compile-time arguments, or an
         /// element of a field; the receiver's type tells which.
         value_member,
@@ -2544,7 +2544,7 @@ const Checker = struct {
             };
             const sym = self.ctx.symbols.items[id];
             switch (sym.kind) {
-                .function, .@"extern" => return .{ .function = .{ .takes_args = takesArgs(self.ctx, sym.ty) } },
+                .function, .@"extern" => return .{ .function = fnTarget(self.ctx, sym.ty) },
                 .generic_type => {
                     try self.ctx.recordName(obj, id);
                     return .{ .generic = .{ .id = id, .sym = sym } };
@@ -2562,7 +2562,7 @@ const Checker = struct {
             const fid = foreign.lookupInScopeOnly(sema.module_scope, name) orelse return null;
             const fsym = foreign.symbols.items[fid];
             return switch (fsym.kind) {
-                .function, .@"extern" => .{ .function = .{ .takes_args = takesArgs(foreign, fsym.ty) } },
+                .function, .@"extern" => .{ .function = fnTarget(foreign, fsym.ty) },
                 .nominal_type, .type_alias => .{ .not_generic = try self.sourceText(obj) },
                 .generic_type => .{ .foreign_generic = try self.sourceText(obj) },
                 else => null,
@@ -2570,17 +2570,21 @@ const Checker = struct {
         };
         if (try self.namedType(inner)) |nt| {
             for (nt.sym.fields orelse &.{}) |m| {
-                if (m.is_method and !m.is_drop_method and std.mem.eql(u8, m.name, name)) return .{ .function = .{ .takes_args = takesArgs(if (nt.foreign) |fo| fo.ctx else self.ctx, m.ty) } };
+                if (m.is_method and !m.is_drop_method and std.mem.eql(u8, m.name, name)) return .{ .function = fnTarget(if (nt.foreign) |fo| fo.ctx else self.ctx, m.ty) };
             }
             return null;
         }
         return .value_member;
     }
 
-    /// Whether function type `ty` (of `ctx`) has run-time parameters.
-    fn takesArgs(ctx: *const SemContext, ty: TypeId) bool {
+    /// Whether a function has compile-time and run-time parameters.
+    const FnTarget = struct { ct_params: bool, takes_args: bool };
+
+    /// The `FnTarget` of function type `ty` (of `ctx`).
+    fn fnTarget(ctx: *const SemContext, ty: TypeId) FnTarget {
         const f = ctx.types.get(ty);
-        return f != .function or f.function.params.len > 0;
+        if (f != .function) return .{ .ct_params = true, .takes_args = true };
+        return .{ .ct_params = f.function.ct_params.len > 0, .takes_args = f.function.params.len > 0 };
     }
 
     /// The source text of a node, for messages.
@@ -2604,9 +2608,12 @@ const Checker = struct {
             .generic => |nt| {
                 if (!self.isPoison(try self.typeInstance(e, nt))) try self.errAt(e, "`{s}` is a type, not a value", .{try self.sourceText(e)});
             },
-            .function => {
+            .function => |f| {
                 const call = try self.sourceText(e);
-                try self.errAt(e, "`{s}` is a function with compile-time arguments; call it with `{s}(...)`", .{ call, call });
+                if (!f.ct_params) {
+                    const name = try self.sourceText(ir.get(e, .object));
+                    try self.errAt(e, "`{s}` takes no compile-time arguments; call it with `{s}(...)`", .{ name, name });
+                } else try self.errAt(e, "`{s}` is a function with compile-time arguments; call it with `{s}({s})`", .{ call, call, if (f.takes_args) "..." else "" });
             },
             .not_generic, .foreign_generic => try self.notGeneric(e, target),
             .value_member => unreachable,
@@ -2700,6 +2707,7 @@ const Checker = struct {
         const obj = ir.get(e, .object);
         const target = (try self.instTarget(obj)) orelse return null;
         if (target != .function) return null;
+        if (!target.function.ct_params) return try self.misusedInstance(e, target);
         if (target.function.takes_args) {
             const call = try self.sourceText(e);
             try self.errAt(e, "`{s}` takes run-time arguments; call it with `{s}(...)`", .{ call, call });
@@ -2778,8 +2786,23 @@ const Checker = struct {
 
     fn synthIndex(self: *Checker, e: Sexp) Error!TypeId {
         const object = ir.get(e, .object);
-        if (try self.instTarget(object)) |target| if (target != .value_member) return self.misusedInstance(e, target);
         if (e.isKind(.index) and ir.Index.index(e).isKind(.@"..")) return self.synthSlice(e, false);
+        if (try self.instTarget(object)) |target| {
+            if (target != .value_member) return self.misusedInstance(e, target);
+            // `value.name[...]`: a method's compile-time arguments, which
+            // only a call takes, or an element of a field.
+            const inner = ir.Member.object(object);
+            const inner_ty = try self.synthOperand(inner);
+            if (!self.isPoison(inner_ty)) if (try self.findMethod(inner_ty, self.text(ir.Member.name(object)))) |m| {
+                const call = try self.sourceText(e);
+                const takes_args = m.fn_ty.params.len > @intFromBool(m.field.receiver != .none);
+                try self.errAt(e, "`{s}` is a method with compile-time arguments; call it with `{s}({s})`", .{ call, call, if (takes_args) "..." else "" });
+                return self.t().invalid_id;
+            };
+            const field_ty = try self.memberOf(object, inner, inner_ty);
+            try self.ctx.recordType(object, field_ty);
+            return self.indexInto(e, field_ty);
+        }
         return self.indexInto(e, try self.synthOperand(object));
     }
 
@@ -3282,30 +3305,15 @@ const Checker = struct {
         try self.checkExpr(arg, f.params[i]);
     }
 
-    /// The compile-time arguments of a call (`ct`, its bracket list, or
-    /// null for none) against the callee's compile-time parameters. Each
-    /// must be known at compile time.
-    fn checkCtArgs(self: *Checker, ct: ?Sexp, f: FunctionType, callee: []const u8, pos: u32, inst: sema.FunctionInstance) Error!void {
-        const args: []const Sexp = if (ct) |b| sema.bracketArgs(b) else &.{};
-        if (ct) |b| try self.ctx.recordInstance(b, .{ .function = inst });
-        // A parameter whose type was rejected has nothing more to report.
-        for (f.ct_params) |ty| if (self.isPoison(ty)) return;
-        if (args.len != f.ct_params.len) {
-            const n = f.ct_params.len;
-            if (n == 0) {
-                try self.errAt(ct.?, "`{s}` takes no compile-time arguments; call it with `{s}(...)`", .{ callee, callee });
-            } else if (args.len == 0) {
-                try self.err(pos, "`{s}` takes {d} compile-time argument{s} in brackets: `{s}[...](...)`", .{ callee, n, plural(n), callee });
-            } else {
-                try self.errAt(ct.?, "`{s}` expects {d} compile-time argument{s}, got {d}", .{ callee, n, plural(n), args.len });
-            }
-            return;
-        }
-        for (args, f.ct_params, 0..) |a, ty, i| try self.checkCtValue(a, ty, i, callee);
-    }
-
     /// Compile-time argument `i` of `callee`, a value of type `ty`.
     fn checkCtValue(self: *Checker, a: Sexp, ty: TypeId, i: usize, callee: []const u8) Error!void {
+        if (a == .src) {
+            const is_type = if (self.lookupQuiet(a)) |id| switch (self.ctx.symbols.items[id].kind) {
+                .nominal_type, .generic_type, .type_alias, .generic_param => true,
+                else => false,
+            } else resolve.isBuiltinTypeName(self.ctx, self.text(a));
+            if (is_type) return self.errAt(a, "compile-time argument {d} of `{s}` is a value of type `{s}`, not a type", .{ i + 1, callee, try self.tyName(ty) });
+        }
         const mark = self.ctx.diagnostics.items.len;
         try self.checkExpr(a, ty);
         if (self.ctx.diagnostics.items.len != mark or self.isComptimeKnown(a)) return;
@@ -3330,44 +3338,51 @@ const Checker = struct {
     /// The signature a call of `f` uses: `f` itself, or for a generic
     /// function the instance its bracket list `ct` gives (every
     /// compile-time argument, in order) or, without one, the instance its
-    /// arguments determine (`args`, filling `f.params[skip..]`). The call's
+    /// arguments determine (`args`, filling `f.params[skip..]`). Each
+    /// compile-time value must be known at compile time. The call's
     /// type arguments (`genericCallOf`) and the instance, whose body must
-    /// allow them, are recorded. Null after a diagnostic.
+    /// allow them, are recorded. Null after a diagnostic that makes the
+    /// arguments not worth checking.
     fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const Sexp, info: ParamInfo, skip: usize, callee: []const u8, pos: u32, inst: sema.FunctionInstance, recv: ReceiverArgs) Error!?FunctionType {
-        if (!sema.isGenericFn(self.ctx, f)) {
-            try self.checkCtArgs(ct, f, callee, pos, inst);
-            return f;
-        }
+        if (ct) |b| try self.ctx.recordInstance(b, .{ .function = inst });
+        // A compile-time parameter was rejected: the declaration's
+        // diagnostic says what is wrong with every call.
+        for (f.ct_params) |ty| if (self.isPoison(ty)) return null;
         const a = self.ctx.arena.allocator();
         const n = f.ct_params.len;
         var own: std.ArrayListUnmanaged(SymbolId) = .empty;
         for (f.ct_params) |slot| if (sema.typeParamOf(self.ctx, slot)) |tp| try own.append(a, tp);
+        const given: []const Sexp = if (ct) |b| sema.bracketArgs(b) else &.{};
+        if (ct) |b| if (given.len != n) {
+            if (n == 0) {
+                try self.errAt(b, "`{s}` takes no compile-time arguments; call it with `{s}(...)`", .{ callee, callee });
+            } else try self.errAt(b, "`{s}` expects {d} compile-time argument{s}, got {d}", .{ callee, n, plural(n), given.len });
+            return null;
+        };
+        // A value is never inferred: a function that takes one is given
+        // every compile-time argument in brackets.
+        if (ct == null and own.items.len != n) {
+            if (args.len == 1 and args[0].isKind(.array)) {
+                const arg = try self.sourceText(args[0]);
+                try self.err(pos, "compile-time arguments touch the name: `{s}{s}`", .{ callee, arg });
+            } else {
+                const call = if (f.params.len > skip) "[...](...)" else "[...]";
+                try self.err(pos, "`{s}` takes {d} compile-time argument{s} in brackets: `{s}{s}`", .{ callee, n, plural(n), callee, call });
+            }
+            return null;
+        }
         const type_args = try a.alloc(TypeId, n);
         @memset(type_args, sema.type_invalid);
-        if (ct) |b| {
-            try self.ctx.recordInstance(b, .{ .function = inst });
-            const given = sema.bracketArgs(b);
-            if (given.len != n) {
-                try self.errAt(b, "`{s}` expects {d} compile-time argument{s}, got {d}", .{ callee, n, plural(n), given.len });
-                return null;
-            }
-            var bad = false;
-            for (given, f.ct_params, 0..) |g, slot, i| {
-                if (sema.typeParamOf(self.ctx, slot) != null) {
-                    type_args[i] = try self.typeArg(g);
-                    if (self.isPoison(type_args[i])) bad = true;
-                    continue;
-                }
-                try self.checkCtValue(g, slot, i, callee);
-            }
-            if (bad) return null;
-        } else {
-            // A value is never inferred: a function that takes one is
-            // given every compile-time argument in brackets.
-            if (own.items.len != n) {
-                try self.err(pos, "`{s}` takes {d} compile-time argument{s} in brackets: `{s}[...](...)`", .{ callee, n, plural(n), callee });
-                return null;
-            }
+        var bad = false;
+        if (ct != null) for (given, f.ct_params, 0..) |g, slot, i| {
+            if (sema.typeParamOf(self.ctx, slot) != null) {
+                type_args[i] = try self.typeArg(g);
+                if (self.isPoison(type_args[i])) bad = true;
+            } else try self.checkCtValue(g, slot, i, callee);
+        };
+        if (bad) return null;
+        if (own.items.len == 0) return f;
+        if (ct == null) {
             const inferred = (try self.inferCallTypeArgs(f, own.items, args, info, skip, callee, pos)) orelse return null;
             @memcpy(type_args, inferred);
         }
@@ -4040,9 +4055,10 @@ const Checker = struct {
                 const fty = self.ctx.types.get(local);
                 if (fty != .function) return self.badCall(args, pos, "`{s}` cannot be called", .{qualified});
                 try self.noteCallee(fty.function);
-                try self.checkCtArgs(ct, fty.function, qualified, pos, .{});
-                try self.checkArgs(args, fty.function, paramsOf(found.sym, found.ctx.source), qualified, pos);
-                return fty.function.returns;
+                const info = paramsOf(found.sym, found.ctx.source);
+                const f = (try self.instantiateCall(fty.function, ct, args, info, 0, qualified, pos, .{}, .{})) orelse return self.skipCall(args);
+                try self.checkArgs(args, f, info, qualified, pos);
+                return f.returns;
             },
             .nominal_type => if (ct == null) return self.construct(found.id, args, pos, TypeSubst.empty, .{ .ctx = found.ctx, .module_id = found.module_id }) else return self.badCall(args, ct.?, "`{s}` is not a generic type; it takes no type arguments", .{qualified}),
             else => return self.badCall(args, pos, "`{s}` cannot be called", .{qualified}),

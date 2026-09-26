@@ -1,0 +1,60 @@
+# Each misuse of compile-time arguments gets one diagnostic that says
+# what to write, with no cascade from the same mistake.
+
+fun plain(n: Int) -> Int
+  n
+
+fun size[n: Int] -> Int
+  n
+
+sub show[n: Int]
+  print(n)
+
+fun scaled[n: Int](x: Int) -> Int
+  x * n
+
+fun f[Vec](x: Vec) -> Vec
+  x
+
+fun g[Self](x: Self) -> Self
+  <x
+
+struct S
+  k: Int
+
+  sub put[n: Int](?self)
+    print(self.k * n)
+
+  fun gen[T](?self, x: T) -> T
+    <x
+
+type Box[T]
+  v: T
+
+  fun m[T](?self, x: T) -> T
+    x
+
+sub main()
+  show(3)
+  show [3]
+  show[Int]
+  print(scaled(3))
+  plain[0]
+  x = size[4]
+  s = S(k: 1)
+  s.put[3]
+  n = s.gen[Int]
+  print(plain[0], f(1), g(2), Box(v: 1).m("s"))
+
+# error: 16:7: generic parameter `Vec` has the name of a built-in type
+# error: 19:7: generic parameter `Self` has the name of a built-in type
+# error: 34:9: parameter `T` has the name of the generic parameter `T`
+# error: 38:3: `show` takes 1 compile-time argument in brackets: `show[...]`
+# error: 39:3: compile-time arguments touch the name: `show[3]`
+# error: 40:8: compile-time argument 1 of `show` is a value of type `Int`, not a type
+# error: 41:9: `scaled` takes 1 compile-time argument in brackets: `scaled[...](...)`
+# error: 42:3: `plain` takes no compile-time arguments; call it with `plain(...)`
+# error: 43:7: `size[4]` is a function with compile-time arguments; call it with `size[4]()`
+# error: 45:3: `s.put[3]` is a method with compile-time arguments; call it with `s.put[3]()`
+# error: 46:7: `s.gen[Int]` is a method with compile-time arguments; call it with `s.gen[Int](...)`
+# error: 47:9: `plain` takes no compile-time arguments

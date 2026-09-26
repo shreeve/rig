@@ -672,7 +672,10 @@ pub const TypeResolver = struct {
         const id = self.ctx.symbolOf(p) orelse return self.ctx.types.invalid_id;
         const name = self.ctx.symbols.items[id].name;
         if (self.ctx.symbols.items[id].kind != .generic_param) return self.ctx.types.invalid_id;
-        if (primitiveTypeId(self.ctx, name) != null or isNumericTypeName(name) or std.mem.eql(u8, name, "Self")) {
+        // Reusing the name of the type's own parameter was reported.
+        for (self.nominal.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) return self.ctx.types.invalid_id;
+        const builtin_generic = if (self.ctx.lookupInScopeOnly(sema.module_scope, name)) |d| self.ctx.symbols.items[d].decl_pos == sema.builtin_decl_pos else false;
+        if (primitiveTypeId(self.ctx, name) != null or isNumericTypeName(name) or std.mem.eql(u8, name, "Self") or builtin_generic) {
             try self.ctx.errAt(p, "generic parameter `{s}` has the name of a built-in type; use a different name, such as `T`", .{name});
             return self.ctx.types.invalid_id;
         }
