@@ -1,5 +1,5 @@
 # `<` in a generic body is checked per instance: numbers and Strings are
-# ordered, structs and other slices are not.
+# ordered, structs are not.
 
 struct Point
   x: Int
