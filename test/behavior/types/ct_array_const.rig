@@ -1,0 +1,27 @@
+# An array's length is any compile-time integer: a literal, a constant,
+# or arithmetic on them. `[LIMIT]Int` is the same type as `[4]Int`.
+
+LIMIT =! 4
+DOUBLE =! LIMIT * 2
+A =! 1
+B =! 2
+
+fun count[n: U8](xs: [n]Int) -> Int
+  Int(n)
+
+sub main()
+  a: [LIMIT]Int = [1, 2, 3, 4]
+  b: [4]Int = a
+  c: [DOUBLE]Int = [0; 8]
+  d: [LIMIT * 2 + 1]U8 = [7; 9]
+  e: [(A + B) * 2][LIMIT - 2]Int = [[1, 2]; 6]
+  f: [0]Int = []
+  k =! 3
+  g: [k]Int = [1, 2, 3]
+  h = |xs: [LIMIT + 1]Int| xs[4]
+  print(b, c.len, d.len, e.len, e[5], f.len, g, h([1, 2, 3, 4, 5]))
+  print(count([1, 2]), count[3]([0; 3]))
+
+# expect:
+# [1, 2, 3, 4] 8 9 6 [1, 2] 0 [1, 2, 3] 5
+# 2 3

@@ -1,10 +1,13 @@
-# A generic type's parameters are types: a compile-time value parameter
-# on a type is not supported.
+# A generic type's compile-time value parameter is an integer.
 
-struct Ring[n: Int]
+enum Mode
+  fast
+  slow
+
+struct Tuned[m: Mode]
   first: Int
 
 sub main()
   print(1)
 
-# error: 4:13: a generic type's parameters are types; a compile-time value parameter (`n: T`) is not supported on a type
+# error: 7:17: a compile-time value parameter of a type is an integer; `m` has the type `Mode`

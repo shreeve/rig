@@ -127,6 +127,10 @@ pub const FunctionType = struct {
     /// (`check[.strict](5)`, `max[Int](1, 2)`), or infers the types;
     /// `params` are the run-time ones.
     ct_params: []const TypeId = &.{},
+    /// The symbol of each compile-time parameter, in the same order:
+    /// what a `type_var` or `ct_param` in the signature names.
+    /// `symbol_invalid` in a function type imported from another module.
+    ct_syms: []const SymbolId = &.{},
 };
 
 pub const SliceType = struct { elem: TypeId };
@@ -325,6 +329,7 @@ pub const TypeStore = struct {
             .function => |af| af.is_sub == b.function.is_sub and
                 af.returns == b.function.returns and
                 std.mem.eql(TypeId, af.ct_params, b.function.ct_params) and
+                std.mem.eql(SymbolId, af.ct_syms, b.function.ct_syms) and
                 std.mem.eql(TypeId, af.params, b.function.params),
             .parameterized_nominal => |x| x.sym == b.parameterized_nominal.sym and
                 std.mem.eql(TypeId, x.args, b.parameterized_nominal.args),
@@ -613,6 +618,9 @@ pub const Requirement = union(enum) {
     /// Owns no resource: the body copies, discards, or leaves a
     /// temporary of the parameter's value.
     plain,
+    /// A compile-time integer from 0 to `max_array_len`: the body uses
+    /// the value parameter as an array length.
+    array_len,
 
     pub fn describe(self: Requirement) []const u8 {
         return switch (self) {
@@ -625,6 +633,7 @@ pub const Requirement = union(enum) {
             .fits => "an integer literal",
             .shift => "a constant shift",
             .plain => "a value that owns no resource",
+            .array_len => "an array length",
         };
     }
 };
@@ -709,6 +718,14 @@ pub const SemContext = struct {
     /// value is a constant expression. The emitted Zig computes these at
     /// compile time, so sema checks their arithmetic.
     const_ints: std.AutoHashMapUnmanaged(SymbolId, i128) = .empty,
+    /// Module-level `=!` constant -> its `set` node, for the constants a
+    /// type's array length or value argument names before bodies are
+    /// checked (`resolve.TypeResolver.resolveCtInt`).
+    const_decls: std.AutoHashMapUnmanaged(SymbolId, Sexp) = .empty,
+    /// A local `k =! n` binding of a compile-time integer parameter ->
+    /// the `ct_param` it stands for, where an array length or a
+    /// compile-time argument names it.
+    ct_locals: std.AutoHashMapUnmanaged(SymbolId, TypeId) = .empty,
 
     pub fn init(allocator: std.mem.Allocator, source: []const u8) !SemContext {
         var ctx: SemContext = .{
@@ -752,6 +769,8 @@ pub const SemContext = struct {
         self.fn_instance_set.deinit(self.allocator);
         self.generic_fn_uses.deinit(self.allocator);
         self.const_ints.deinit(self.allocator);
+        self.const_decls.deinit(self.allocator);
+        self.ct_locals.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -835,6 +854,20 @@ pub const SemContext = struct {
         while (sid) |s| {
             if (s == scope_invalid or s >= self.scopes.items.len) break;
             if (self.lookupInScopeOnly(s, name)) |id| return id;
+            sid = self.scopes.items[s].parent;
+        }
+        return null;
+    }
+
+    /// Like `lookup`, but a local declared after `pos` in a body is not
+    /// visible there yet.
+    pub fn lookupBefore(self: *const SemContext, from_scope: ScopeId, name: []const u8, pos: u32) ?SymbolId {
+        var sid: ?ScopeId = from_scope;
+        while (sid) |s| {
+            if (s == scope_invalid or s >= self.scopes.items.len) break;
+            var id = self.lookupInScopeOnly(s, name) orelse symbol_invalid;
+            while (id != symbol_invalid and s != module_scope and self.symbols.items[id].kind == .local and self.symbols.items[id].decl_pos > pos) id = self.symbols.items[id].prev_in_scope;
+            if (id != symbol_invalid) return id;
             sid = self.scopes.items[s].parent;
         }
         return null;
@@ -1062,6 +1095,7 @@ pub const SemContext = struct {
             .function => |*f| {
                 f.params = try self.dupeIds(f.params);
                 f.ct_params = try self.dupeIds(f.ct_params);
+                f.ct_syms = try self.arena.allocator().dupe(SymbolId, f.ct_syms);
             },
             .parameterized_nominal => |*pn| pn.args = try self.dupeIds(pn.args),
             else => {},
@@ -1275,7 +1309,7 @@ pub fn formatFnInstanceIn(ctx: *const SemContext, a: std.mem.Allocator, inst: Fn
 const max_instance_depth = 24;
 
 /// Whether `ty` mentions any of `params`.
-fn usesParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) bool {
+pub fn usesParams(ctx: *const SemContext, ty: TypeId, params: []const SymbolId) bool {
     if (!ctx.typeInfo(ty).has_type_var) return false;
     switch (ctx.types.get(ty)) {
         .type_var, .ct_param => |sym| return std.mem.indexOfScalar(SymbolId, params, sym) != null,
@@ -1780,6 +1814,17 @@ pub fn arrayLen(ctx: *const SemContext, a: ArrayType) ?u64 {
     };
 }
 
+/// Whether integer type `ty` holds `v`.
+pub fn intFits(ctx: *const SemContext, ty: TypeId, v: i128) bool {
+    const info = switch (ctx.types.get(ty)) {
+        .int => |i| i,
+        else => return true,
+    };
+    const bits: u8 = if (info.bits == 0) 64 else info.bits;
+    const half = @as(i128, 1) << @intCast(bits - 1);
+    return if (info.signed) v >= -half and v < half else v >= 0 and v < 2 * half;
+}
+
 /// The `ct_value` of the integer `v`.
 pub fn ctInt(ctx: *SemContext, v: i128) std.mem.Allocator.Error!TypeId {
     return ctx.intern(.{ .ct_value = .{ .int = v } });
@@ -1989,7 +2034,7 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
             for (f.ct_params) |p| try ct.append(ctx.allocator, try substituteType(ctx, p, subst));
             const ret = try substituteType(ctx, f.returns, subst);
             if (ret == f.returns and std.mem.eql(TypeId, params.items, f.params) and std.mem.eql(TypeId, ct.items, f.ct_params)) return ty_id;
-            return ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items } });
+            return ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = f.ct_syms } });
         },
         .parameterized_nominal => |pn| {
             var args: std.ArrayListUnmanaged(TypeId) = .empty;
@@ -2107,7 +2152,10 @@ pub fn importType(
             defer ct.deinit(local_ctx.allocator);
             for (f.ct_params) |p| try ct.append(local_ctx.allocator, try importType(local_ctx, foreign_ctx, p, origin_module_id));
             const ret = try importType(local_ctx, foreign_ctx, f.returns, origin_module_id);
-            return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items } });
+            // The symbols are the other module's.
+            const syms = try local_ctx.arena.allocator().alloc(SymbolId, f.ct_syms.len);
+            @memset(syms, symbol_invalid);
+            return local_ctx.internCopy(.{ .function = .{ .params = params.items, .returns = ret, .is_sub = f.is_sub, .ct_params = ct.items, .ct_syms = syms } });
         },
         .nominal => |sym_id| return local_ctx.intern(.{ .imported_nominal = .{ .module_id = origin_module_id, .sym_id = sym_id } }),
         .imported_nominal => |n| return local_ctx.intern(.{ .imported_nominal = n }),
@@ -2149,7 +2197,7 @@ pub fn makeNominalContext(ctx: *SemContext, sym_id: SymbolId) std.mem.Allocator.
         .generic_type => {
             const tparams = sym.type_params orelse &.{};
             const args = try ctx.arena.allocator().alloc(TypeId, tparams.len);
-            for (tparams, 0..) |tp, i| args[i] = try ctx.intern(.{ .type_var = tp });
+            for (tparams, 0..) |tp, i| args[i] = try ctx.intern(if (ctx.symbols.items[tp].kind == .param) .{ .ct_param = tp } else .{ .type_var = tp });
             const self_type = try ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args } });
             return .{ .sym = sym_id, .self_type = self_type, .type_params = tparams };
         },
@@ -2410,17 +2458,38 @@ pub const ConstInt = union(enum) {
 /// The value of a constant integer expression: literals, constant
 /// bindings, and arithmetic on them.
 pub fn constInt(ctx: *const SemContext, e: Sexp) ConstInt {
+    return constIntBy(ctx, e, CheckedNames{ .ctx = ctx });
+}
+
+/// The names of checked code: a constant binding's value is known once
+/// its declaration is checked.
+const CheckedNames = struct {
+    ctx: *const SemContext,
+
+    pub fn name(self: CheckedNames, e: Sexp) ConstInt {
+        const id = self.ctx.symbolOf(e) orelse return .not_constant;
+        return if (self.ctx.const_ints.get(id)) |v| .{ .value = v } else .not_constant;
+    }
+
+    pub fn member(_: CheckedNames, _: Sexp) ConstInt {
+        return .not_constant;
+    }
+};
+
+/// `constInt` with the value of each name leaf and `(member ...)` node
+/// from `names` (`name(e)`, `member(e)`).
+pub fn constIntBy(ctx: *const SemContext, e: Sexp, names: anytype) ConstInt {
     switch (e) {
         .src => {
             const text_ = identAt(ctx.source, e) orelse "";
             if (isIntLiteralText(text_)) return .{ .value = std.fmt.parseInt(i128, text_, 0) catch return .overflow };
-            const id = ctx.symbolOf(e) orelse return .not_constant;
-            return if (ctx.const_ints.get(id)) |v| .{ .value = v } else .not_constant;
+            return names.name(e);
         },
         .list => {
             const h = e.kind() orelse return .not_constant;
+            if (h == .member) return names.member(e);
             if (h == .neg) {
-                const v = switch (constInt(ctx, ir.Neg.operand(e))) {
+                const v = switch (constIntBy(ctx, ir.Neg.operand(e), names)) {
                     .value => |v| v,
                     else => |r| return r,
                 };
@@ -2430,17 +2499,17 @@ pub fn constInt(ctx: *const SemContext, e: Sexp) ConstInt {
             // branch at compile time, so its value is constant.
             if (h == .@"if" and ir.If.@"else"(e) != .nil) {
                 const c = constBoolOf(ctx, ir.If.cond(e)) orelse return .not_constant;
-                return constInt(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e));
+                return constIntBy(ctx, if (c) ir.If.then(e) else ir.If.@"else"(e), names);
             }
             switch (h) {
                 .@"+", .@"-", .@"*", .@"/", .@"%", .@"<<", .@">>", .@"&", .@"|", .@"^" => {},
                 else => return .not_constant,
             }
-            const a = switch (constInt(ctx, ir.get(e, .left))) {
+            const a = switch (constIntBy(ctx, ir.get(e, .left), names)) {
                 .value => |v| v,
                 else => |r| return r,
             };
-            const b = switch (constInt(ctx, ir.get(e, .right))) {
+            const b = switch (constIntBy(ctx, ir.get(e, .right), names)) {
                 .value => |v| v,
                 else => |r| return r,
             };

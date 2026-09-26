@@ -1,0 +1,35 @@
+# An array's length can be a compile-time integer parameter: in a
+# function's result and parameter types, and in a local's annotation.
+# Each call's instance has its own length.
+
+fun zeros[n: Int] -> [n]Int
+  [0; n]
+
+sub fill[n: Int](xs: ![n]Int, v: Int)
+  for i in 0..n
+    xs[i] = v + i
+
+fun total[n: Int](xs: ?[n]Int) -> Int
+  sum = 0
+  for x in xs
+    sum += x
+  sum
+
+fun copy[n: Int](xs: ?[n]Int) -> [n]Int
+  out: [n]Int = [0; n]
+  for x, i in xs
+    out[i] = x
+  out
+
+sub main()
+  a = zeros[3]()
+  fill[3](!a, 10)
+  print(a, total[3](?a), a.len)
+  b = zeros[0]()
+  print(b, b.len)
+  print(copy[3](?a))
+
+# expect:
+# [10, 11, 12] 33 3
+# [] 0
+# [10, 11, 12]

@@ -842,6 +842,8 @@ pub const Lexer = struct {
                 },
                 .comma, .bar => if (depth == 0) return t,
                 .ident, .integer, .dot, .question, .not_sym, .star, .tilde, .arrow => {},
+                // Arithmetic in an array size: `[N + 1]Int`.
+                .plus, .minus, .slash, .percent => if (depth == 0) return null,
                 else => return null,
             }
         }

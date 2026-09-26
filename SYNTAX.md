@@ -313,7 +313,8 @@ sub main
 ```
 
 **Statements** are one per line. A statement is an expression, a
-binding, or a control-flow form. There is no `;`.
+binding, or a control-flow form. There is no `;` between statements;
+`;` appears only in the fill literal `[x; n]` ([§22](#22-arrays-strings-and-slices)).
 
 ## 5. The spacing rule
 
@@ -489,7 +490,7 @@ operands have different types `I32` and `Int`
 | `!T` | write borrow | `&mut T` | `*T` |
 | `*T` | shared handle | `Rc<T>` | `*RcBox(T)` |
 | `~T` | weak handle | `Weak<T>` | a weak reference |
-| `[N]T` | fixed array | `[T; N]` | `[N]T` |
+| `[N]T` | fixed array; `N` known at compile time | `[T; N]` | `[N]T` |
 | `[]T` | read-only slice | `&[T]` | `[]const T` |
 | `fun(A, B) -> R`, `sub(A)` | function or stack closure | `fn(A, B) -> R`, `impl Fn` | `*const fn (A, B) R` |
 | `*fun(A) -> R`, `*sub(A)` | owned closure | `Rc<dyn Fn(A) -> R>` | a boxed closure |
@@ -1408,6 +1409,8 @@ functions, and compile-time values, in declarations and in uses:
 | generic method | `fun map[U](?self, f: fun(T) -> U) -> Box[U]` | `b.map(label)` |
 | compile-time value | `fun check[mode: Mode](n: Int)` | `check[.strict](5)` |
 | both at once | `sub rep[T, n: Int](x: T)` | `rep[String, 3]("hi")` |
+| a length | `fun sum[n: Int](xs: [n]Int)` | `sum([1, 2, 3])`, `sum[3](xs)` |
+| a type with a value | `struct Ring[T, n: Int]` | `Ring[Int, 4]`, `Ring(items: [0; 4])` |
 
 In a bracket list, a bare name is a type parameter and `name: Type` is
 a compile-time value. The brackets touch the name. There is no `<T>`
@@ -1435,6 +1438,15 @@ type (`Pair[Int, String]`) and in an expression
 `Option[Int].some(value: 7)`). A constructor may leave them out: they
 come from the type expected where the value goes, or from the values
 that fill it.
+
+A generic type also takes compile-time integers, like Rust's const
+generics: `struct Ring[T, n: Int]`. Its fields size arrays by them
+(`items: [n]T`), and its methods read them as values. An instance
+gives each one a compile-time integer: a literal, a constant, or
+arithmetic on them, even in a type (`Ring[Int, LIMIT * 2]`). The value
+is what counts, so `Ring[Int, 2 + 2]` and `Ring[Int, 4]` are one type.
+A constructor infers it from an array field: `Ring(items: [0; 4])` is a
+`Ring[Int, 4]`.
 
 ```rig
 struct Pair[T, U]
@@ -1465,8 +1477,33 @@ sub main
 2.5 .some(value: 1)
 ```
 
-A generic type's parameters are types only: `struct Ring[n: Int]` is
-rejected. `type` declares only an alias, never a struct.
+```rig
+LIMIT =! 2
+
+struct Ring[T, n: Int]
+  items: [n]T
+  head: Int = 0
+
+  sub put(!self, x: T)
+    self.items[self.head % n] = x
+    self.head += 1
+
+  fun cap(?self) -> Int
+    n
+
+sub main
+  r = Ring(items: [0; 3])
+  !r.put(7)
+  s: Ring[Int, LIMIT * 2] = Ring[Int, 2 + 2](items: [1, 2, 3, 4])
+  print(r.items, r.cap(), s.cap())
+```
+
+```output
+[7, 0, 0] 3 4
+```
+
+A generic type's value parameters are integers. `type` declares only
+an alias, never a struct.
 
 ### Generic functions and methods
 
@@ -1513,7 +1550,10 @@ parameter, and each call passes its type: `max(3, 7)` becomes
 A call infers its type arguments by matching each parameter's type
 against its argument's: `T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`,
 `[N]T`, instances like `Vec[T]` or `Box[T]`, and function types like
-`fun(T) -> U`. Every argument must agree. A parameter that only
+`fun(T) -> U`. An integer compile-time value is inferred the same way,
+from an array length or a generic type's value argument in the
+signature: `sum([1, 2, 3])` of `fun sum[n: Int](xs: [n]Int)` is
+`sum[3]`. Every argument must agree. A parameter that only
 literals give a type takes it from where the result goes, as a
 constructor does: the declared result is matched the same way against
 the type of the binding, parameter, field, or `return` it fills, so
@@ -1579,7 +1619,8 @@ sub main
 
 Brackets are required where nothing else says what to use:
 
-- a compile-time value, which is never inferred: `check[.strict](5)`;
+- a compile-time value that no array length or generic type's
+  argument in the signature holds: `check[.strict](5)`, `show[3]()`;
 - a type parameter neither the arguments nor the expected type
   determine: `v = empty()` needs `empty[Int]()`;
 - a generic type with nothing to fill its parameter and no expected
@@ -1851,7 +1892,14 @@ compile-time argument 1 of `show` must be known at compile time
   generic method of a `pub` type, and an instance of another module's
   generic type are rejected. A module's private generic functions
   serve its public ones.
-- A generic type has type parameters only, and a type alias has none.
+- A generic type's value parameters are integers, and a type alias has
+  no parameters.
+- A public function whose integer parameter sizes an array (in its
+  signature, its body, or a function it passes it to) does not cross
+  modules yet.
+- An array length or a type's value argument may do arithmetic on
+  constants (`[LIMIT * 2]T`), but not on a compile-time parameter
+  (`[n + 1]T`), and not call a function.
 - In an expression, a type argument with no expression spelling
   (`[]T`, `[N]T`, `fun(...)`) needs a `type` alias.
 
@@ -1867,6 +1915,11 @@ compile-time argument 1 of `show` must be known at compile time
 | generic method | `fn map<U>(&self, f: fn(T) -> U) -> Box<U>` | `fn map(self: Self, comptime U: type, f: *const fn (T) U) Box(U)` | `fun map[U](?self, f: fun(T) -> U) -> Box[U]` |
 | compile-time value | `fn f<const N: usize>(x: i64)` | `fn f(comptime n: usize, x: i64)` | `fun f[n: Int](x: Int)` |
 | its call | `f::<3>(x)` | `f(3, x)` | `f[3](x)` |
+| an array of it | `fn sum<const N: usize>(xs: [i64; N])` | `fn sum(comptime n: usize, xs: [n]i64)` | `fun sum[n: Int](xs: [n]Int)` |
+| its length inferred | `sum([1, 2, 3])` | `sum(3, .{ 1, 2, 3 })` | `sum([1, 2, 3])` |
+| a type with a value | `struct Ring<T, const N: usize>` | `fn Ring(comptime T: type, comptime n: usize) type` | `struct Ring[T, n: Int]` |
+| its instance | `Ring<i64, 4>` | `Ring(i64, 4)` | `Ring[Int, 4]` |
+| a filled array | `[0; N]` | `@as([n]i64, @splat(0))` | `[0; n]` |
 
 ## 15. Ownership: the sigils
 
@@ -2513,9 +2566,36 @@ propagate. Closures, `defer`, and `drop` bodies may not.
 
 ## 22. Arrays, strings, and slices
 
-**Arrays** are fixed-size, `[N]T`, and hold plain data. `xs.len` is the
+**Arrays** are fixed-size, `[N]T`, and hold plain data. The length is
+known at compile time: an integer, a constant, a compile-time
+parameter, or arithmetic on constants (`[LIMIT * 2 + 1]U8`). It is a
+value, so `[LIMIT]Int` is `[4]Int` when `LIMIT =! 4`. `xs.len` is the
 length and `xs[i]` a bounds-checked element. `[2][3]Int` is two arrays
 of three, read as `grid[1][2]`.
+
+The **fill literal** `[x; n]`, as in Rust, is `n` copies of `x`, where
+`n` is any compile-time integer, a compile-time parameter included. It
+needs no annotation: `[0; n]` is a `[n]Int`. It is how an array whose
+length is a compile-time parameter is built, since a list of elements
+has a length of its own.
+
+```rig
+LIMIT =! 4
+
+fun zeros[n: Int] -> [n]Int
+  [0; n]
+
+sub main
+  a: [LIMIT]Int = [1, 2, 3, 4]
+  b: [4]Int = a
+  grid = [[0; 3]; 2]
+  z = zeros[LIMIT * 2]()
+  print(b, grid, z.len, [7; 0].len)
+```
+
+```output
+[1, 2, 3, 4] [[0, 0, 0], [0, 0, 0]] 8 0
+```
 
 **Strings** are immutable UTF-8 bytes, a Copy value. `s.len` is the
 byte length, `s[i]` a byte (`U8`), and `for b in s` walks the bytes.
@@ -2738,6 +2818,9 @@ are in the [roadmap](docs/ROADMAP.md).
 **Type prefixes:** `?T` read borrow, `!T` write borrow, `*T` shared,
 `~T` weak, `[N]T` array, `[]T` slice.
 
+**Array literals:** `[a, b, c]` elements, `[x; n]` `n` copies of `x`
+(the only use of `;`).
+
 **Binding operators:** `=` bind or assign, `=!` fixed binding, `<-`
 move-assign, `new x =` shadow, compound `+=` `-=` `*=` `/=` `%=` `&=`
 `|=` `^=` `<<=` `>>=`.
@@ -2781,6 +2864,8 @@ correspondences:
 | an owned closure | a counted, type-erased closure |
 | `defer`, `errdefer` | `defer`, `errdefer` |
 | `fun f[n: Int](x: Int)`, `f[3](x)` | `fn f(comptime n: i64, x: i64) i64`, `f(3, x)` |
+| `struct Ring[T, n: Int]`, `Ring[Int, 4]` | `fn Ring(comptime T: type, comptime n: i64) type`, `Ring(i64, 4)` |
+| `[x; n]` | `@as([n]T, @splat(x))` |
 | a method's compile-time parameters | after the receiver: `fn times(self: P, comptime n: i64) i64` |
 | `sub main` | `pub fn main() void`, which checks for leaks on exit in Debug |
 
@@ -2802,9 +2887,9 @@ fun       = "fun" name ["[" tparam, ... "]"] ["(" params ")"] ["->" type] block
 sub       = "sub" name ["[" tparam, ... "]"] ["(" params ")"] block
 tparam    = name | name ":" type      # a type, or a compile-time value
 param     = name ":" type ["=" literal] | "?self" | "!self"
-struct    = "struct" name ["[" name, ... "]"] INDENT (field | fun | sub | drop)* DEDENT
+struct    = "struct" name ["[" tparam, ... "]"] INDENT (field | fun | sub | drop)* DEDENT
 field     = name ":" type ["=" literal]
-enum      = "enum" name ["[" name, ... "]"] INDENT (variant | fun | sub)* DEDENT
+enum      = "enum" name ["[" tparam, ... "]"] INDENT (variant | fun | sub)* DEDENT
 variant   = name | name "=" integer | name "(" field, ... ")"
 errors    = "error" name INDENT name* DEDENT
 typedef   = "type" name "=" type
@@ -2814,10 +2899,14 @@ test      = "test" string block
 extern    = "extern" ("fun" | "sub") name ["(" params ")"] ["->" type]
           | "extern" name ":" type
 
-type      = ("?" | "!" | "*" | "~" | "[" [integer] "]") type
+type      = ("?" | "!" | "*" | "~" | "[" [dim] "]") type
           | type ("?" | "!")
-          | name | name "[" type, ... "]" | mod "." name | "(" type ")"
+          | name | name "[" targ, ... "]" | mod "." name | "(" type ")"
           | "fun" "(" type, ... ")" "->" type | "sub" "(" type, ... ")"
+dim       = integer | name | mod "." name | cexp      # an array length
+targ      = type | integer | "-" integer | cexp         # a compile-time argument
+cexp      = cunit (("+" | "-" | "*" | "/" | "%") cunit)+  # at least one operator
+cunit     = integer | name | mod "." name | "(" cexp ")"
 
 stmt      = simple ["if" expr] | ":" label stmt
 simple    = expr | call-without-parens
@@ -2843,7 +2932,8 @@ infix     = unary (op unary)*          # precedence table in section 10
 unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~") unary | postfix
 postfix   = postfix ("." name | "[" expr, ... "]" | "(" args ")" | "!" | "?") | atom
 args      = (expr | name ":" expr), ...
-atom      = name | literal | "." name | "@" name "(" args ")" | "[" expr, ... "]" | "(" expr ")"
+atom      = name | literal | "." name | "@" name "(" args ")" | "[" expr, ... "]"
+          | "[" expr ";" expr "]" | "(" expr ")"
 ```
 
 The grammar reads `!v.push(x)` as `!` applied to `v.push(x)`, like any
@@ -2865,7 +2955,10 @@ call onto the place, giving the tree of `(!v).push(x)`
   (`x?`); a prefix `?x` is a borrow.
 - Generics use brackets, not angle brackets, and need no turbofish:
   `Vec[Int]()` is `Vec::<i64>::new()`, and `max[Float](1, 2)` is
-  `max::<f64>(1.0, 2.0)`.
+  `max::<f64>(1.0, 2.0)`. A const generic is a compile-time value in
+  the same brackets: `struct Ring<T, const N: usize>` is
+  `struct Ring[T, n: Int]`, and `[i64; N]` is `[n]Int`; `[0; N]` keeps
+  its spelling.
 - There are no trait bounds: `fun max[T]` needs no `T: PartialOrd`.
   Each instance a call makes is checked against what the body does
   with `T`.
@@ -2905,7 +2998,10 @@ call onto the place, giving the tree of `(!v).push(x)`
 - `comptime` parameters go in brackets before the run-time ones:
   `fn f(comptime n: i64, x: i64)` is `fun f[n: Int](x: Int)`, called
   `f[3](x)`; a generic type is `struct Box[T]`, and a generic function
-  `fun max[T](a: T, b: T) -> T`.
+  `fun max[T](a: T, b: T) -> T`. A `comptime n` that sizes an array is
+  inferred from the argument: `fun sum[n: Int](xs: [n]Int)` is called
+  `sum([1, 2, 3])`.
+- `@splat(x)` into an array is `[x; n]`.
 - A value nobody uses is an error, as in Zig; `_ = e` discards on
   purpose.
 - `switch` is `match`, and its `else =>` arm is `_ =>`.

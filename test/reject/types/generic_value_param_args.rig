@@ -1,0 +1,30 @@
+# A generic type's compile-time arguments fill its parameters in order:
+# a type where it takes a type, and an integer where it takes a value,
+# which its parameter's type holds and, used as an array length, is in
+# range. Its value parameters are values, not types.
+
+struct Ring[T, n: Int]
+  items: [n]T
+
+struct Small[n: U8]
+  items: [n]Int
+
+struct Bad[n: Int]
+  x: n
+
+sub main()
+  a = Ring[Int, -4](items: [0; 0])
+  b: Ring[Int, Int] = Ring(items: [1])
+  c: Ring[4, Int] = Ring(items: [1])
+  d: Ring[Int] = Ring(items: [1])
+  e: Small[256] = Small(items: [1])
+  f = Ring(items: [Vec[Int](); 2])
+  print(a, b, c, d, e, f)
+
+# error: 13:6: `n` is a compile-time value, not a type
+# error: 16:7: `Ring[Int, -4]` cannot use `n = -4`: the generic body uses `n` as an array length
+# error: 17:16: compile-time argument 2 of `Ring` is a value of type `Int`, not a type
+# error: 18:11: `4` is a value; `T` takes a type
+# error: 19:6: generic type `Ring` expects 2 compile-time arguments, got 1
+# error: 20:12: compile-time argument 1 of `Small` is `256`, which `n`, a `U8`, cannot hold
+# error: 21:20: `[x; n]` copies its element into every slot; `Vec[Int]` owns a resource

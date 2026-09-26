@@ -647,6 +647,19 @@ pub fn index(i: anytype, count: usize) usize {
     return @intCast(idx);
 }
 
+/// The elements of the array `p` points to, as a slice. Zig rejects
+/// indexing an array of length 0, which an array sized by a compile-time
+/// parameter may be; a slice's index is checked when the program runs.
+pub fn elems(p: anytype) Elems(@TypeOf(p)) {
+    return p;
+}
+
+fn Elems(comptime P: type) type {
+    const ptr = @typeInfo(P).pointer;
+    const elem = @typeInfo(ptr.child).array.child;
+    return if (ptr.is_const) []const elem else []elem;
+}
+
 /// `s[i]` for a string or slice: the element at `i`, with `s` evaluated
 /// once; panics when out of range.
 pub fn at(items: anytype, i: anytype) std.meta.Elem(@TypeOf(items)) {

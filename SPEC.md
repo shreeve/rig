@@ -343,24 +343,75 @@ loop over it yields its bytes as `U8`. Strings compare with `==` and
 
 ### Arrays
 
-`[N]T` is a fixed-size array. An array literal `[a, b, c]` takes its
-element type from its elements (or from an annotation), `xs.len` is its
-length, and `xs[i]` reads or writes an element; an index outside the
-half-open range `0..xs.len` panics. Arrays hold plain data only; a
+`[N]T` is a fixed-size array. Its length is known at compile time: an
+integer, a constant (`[LIMIT]T`, `[lib.N]T`), a compile-time integer
+parameter (`[n]T` in `fun zeros[n: Int] -> [n]Int`,
+[§17](#17-compile-time-parameters)), or arithmetic on integers and
+constants with `+`, `-`, `*`, `/`, `%`, and parentheses
+(`[LIMIT * 2 + 1]U8`). A length runs from 0 to 4294967295, and one
+given by a compile-time parameter is checked at each instance.
+Arithmetic on a compile-time parameter (`[n + 1]T`) is rejected, as in
+a compile-time argument. The length is a value, however it is written:
+with `LIMIT =! 4`, `[LIMIT]Int`, `[2 + 2]Int`, and `[4]Int` are one
+type.
+
+An array literal `[a, b, c]` takes its element type from its elements
+(or from an annotation). `[x; n]` is an array of `n` copies of `x`,
+where `n` is any compile-time integer, a compile-time parameter
+included; it has the array type expected where it goes, or `[n]T` for
+`x`'s type `T`. An array whose length is a compile-time parameter is
+built with it. `xs.len` is an array's length, and `xs[i]` reads or
+writes an element; an index outside the half-open range `0..xs.len`
+panics, and a constant one is rejected where the length is known.
+Arrays hold plain data only, and `[x; n]` copies `x` into every slot; a
 collection of resources is a `Vec`. An array of arrays is `[2][3]T`:
 two rows of three.
 
 ```rig
+LIMIT =! 4
+
+fun zeros[n: Int] -> [n]Int
+  [0; n]
+
 sub main
   xs = [10, 20, 30]
   xs[0] = 5
   ys: [2]U8 = [1, 2]
   grid: [2][3]Int = [[1, 2, 3], [4, 5, 6]]
   print(xs, xs.len, xs[2], ys, grid[1][2])
+  a: [LIMIT]Int = [7; LIMIT]
+  b: [4]Int = a
+  c = zeros[LIMIT * 2]()
+  d = [[0; 2]; 3]
+  e: [0]Int = []
+  print(b, c.len, d, e)
 ```
 
 ```output
 [5, 20, 30] 3 30 [1, 2] 6
+[7, 7, 7, 7] 8 [[0, 0], [0, 0], [0, 0]] []
+```
+
+```rig reject
+fun grow[n: Int](xs: [n + 1]Int) -> Int
+  1
+
+fun zeros[n: Int] -> [n]Int
+  [0, 0]
+
+sub main
+  k = 3
+  a: [k]Int = [1, 2, 3]
+  b = [0; -1]
+  c = [Vec[Int](); 2]
+```
+
+```error
+an array length `n + 1` does arithmetic on a compile-time parameter
+an array of compile-time length `n` is built with `[x; n]`
+an array length must be known at compile time; `k` is not
+array length -1 is out of range
+`[x; n]` copies its element into every slot; `Vec[Int]` owns a resource
 ```
 
 ### Slices
@@ -812,21 +863,29 @@ timed out
 `struct Name[T, ...]` declares a generic struct and `enum Name[T, ...]`
 a generic enum; `error Name[T]` is rejected, and so is a struct declared
 with `type`, which only names an [alias](#type-aliases). Their
-parameters are type parameters only ([§17](#17-compile-time-parameters)).
-An instance names its type arguments in brackets, in a type
-(`Pair[Int, String]`) or in an expression: `Box[Int](value: 3)`,
-`Vec[Int]()`, `Option[Int].some(value: 7)`,
-`Pair[Int, String].make(1, "x")`. Without them, a constructor takes them
+parameters are type parameters and compile-time integers
+([§17](#17-compile-time-parameters)): `struct Ring[T, n: Int]`. A value
+parameter is named in the type's fields and methods, as an array length
+(`items: [n]T`) or as a value in a method's body.
+An instance names its compile-time arguments in brackets, in a type
+(`Pair[Int, String]`, `Ring[Int, LIMIT * 2]`) or in an expression:
+`Box[Int](value: 3)`, `Vec[Int]()`, `Option[Int].some(value: 7)`,
+`Pair[Int, String].make(1, "x")`, `Ring[Int, 4].new(0)`. A value
+argument is a compile-time integer, as an array length is, that the
+parameter's type holds; the same value names the same type, so
+`Ring[Int, 2 + 2]` is `Ring[Int, 4]`. Without them, a constructor takes them
 from the expected type when there is one, and otherwise infers them
 from the values that fill it: a constructor's fields
-(`Pair(first: 1, second: "x")` is a `Pair[Int, String]`), a payload
+(`Pair(first: 1, second: "x")` is a `Pair[Int, String]`, and
+`Ring(items: [1, 2, 3])` a `Ring[Int, 3]`), a payload
 variant's fields (`Option.some(value: 7)`), or an associated function's
 arguments (`Pair.make(1, 2)`), as a generic function's call infers its
 own ([generic functions](#generic-functions)). A parameter nothing
 fills, as in `Vec()`, needs its type named (`Vec[Int]()`) or given
 where the value goes (`v: Vec[Int] = Vec()`). A generic type may hold
 `Vec[T]`, `Cell[T]`, `Signal[T]`, or `[N]T`; their element rules apply
-to each instance. Its body follows the rules of
+to each instance, and so does the range of an array length a value
+parameter gives. Its body follows the rules of
 [generic bodies](#generic-bodies).
 
 ```rig
@@ -865,7 +924,7 @@ sub main
 ```
 
 ```rig reject
-struct Ring[n: Int]
+struct Flag[on: Bool]
   first: Int
 
 sub main
@@ -873,7 +932,7 @@ sub main
 ```
 
 ```error
-a generic type's parameters are types; a compile-time value parameter (`n: T`) is not supported on a type
+a compile-time value parameter of a type is an integer; `on` has the type `Bool`
 generic type `Vec` expects 1 type argument, got 2
 ```
 
@@ -913,7 +972,14 @@ expected type on. Only then does a literal take its default type, and
 among literals alone a float literal gives `Float`: `max(3, 2.5)` is
 `max[Float]`. An argument that is not a literal keeps
 the type it gives, even where the result is expected to have another.
-A compile-time value is never inferred, so a function that takes one is
+An integer compile-time value that a parameter's or the result's type
+holds, as an array length (`[n]T`) or a generic type's value argument
+(`Ring[T, n]`), is inferred the same way: `sum([1, 2, 3])` of
+`fun sum[n: Int](xs: [n]Int)` is `sum[3]`, and `a: [3]Int = zeros()`
+of `fun zeros[n: Int] -> [n]Int` is `zeros[3]`. It takes exactly the
+length the argument's type has; arguments that give it different ones
+conflict, and the value must fit the parameter's type. Any other
+compile-time value is never inferred, so a function that takes one is
 always called with brackets, and so is one with a type parameter
 neither its arguments nor the expected type determine (one used only in
 the result where no type is expected, or given only `none` or a
@@ -921,7 +987,9 @@ the result where no type is expected, or given only `none` or a
 
 A generic function can only be called: it is not a value, and a closure
 is never generic. It cannot cross module boundaries yet
-([§15](#15-modules)).
+([§15](#15-modules)), and neither can a public function whose integer
+compile-time parameter sizes an array, in its signature, its body, or a
+function it passes the parameter to.
 
 ```rig
 struct Res
@@ -939,6 +1007,15 @@ struct Box[T]
 fun max[T](a: T, b: T) -> T
   a if a > b else b
 
+fun sum[n: Int](xs: [n]Int) -> Int
+  total = 0
+  for x in xs
+    total += x
+  total
+
+fun zeros[n: Int] -> [n]Int
+  [0; n]
+
 fun pick[T](a: T, b: T, first: Bool) -> T
   if first
     return <a
@@ -951,6 +1028,8 @@ sub main
   print(Box(v: 1).with("s"), Box(v: 1).with[Bool](true))
   r = pick(Res(n: 1), Res(n: 2), true)
   print("kept", r.n)
+  a: [3]Int = zeros()
+  print(sum([1, 2, 3]), sum(a), a)
 ```
 
 ```output
@@ -958,6 +1037,7 @@ sub main
 s true
 drop 2
 kept 1
+6 0 [0, 0, 0]
 drop 1
 ```
 
@@ -968,11 +1048,15 @@ fun max[T](a: T, b: T) -> T
 fun make[T](n: Int) -> Int
   n
 
+fun both[n: Int](a: [n]Int, b: [n]Int) -> Int
+  n
+
 sub main
   n: I32 = 1
   print(max(n, 2.5), make(3))
   z: U8 = max(n, 2)
   f = max
+  print(both([1, 2], [1, 2, 3]))
 ```
 
 ```error
@@ -980,6 +1064,7 @@ conflicting types for `T` in the call to `max`: `I32` (argument 1) and `Float` (
 cannot infer `T` for `make` from its arguments or the type expected of its result
 type mismatch: expected `U8`, got `I32`; `max` takes `T = I32` from argument 1
 `max` takes compile-time parameters, so it can only be called, not used as a value
+conflicting values for `n` in the call to `both`: `2` (argument 1) and `3` (argument 2)
 ```
 
 ### Generic bodies
@@ -3163,23 +3248,29 @@ run-time parameters. In the list, a bare name is a **type parameter**
 and `name: Type` a **compile-time value**:
 `fun check[mode: Mode](n: Int) -> Bool`, `fun max[T](a: T, b: T) -> T`,
 `sub rep[T, n: Int](x: T)`. Functions, `sub`s, methods, and associated
-functions take both kinds; generic types take type parameters only
-([generic types](#generic-types)); `main` takes none. Each lowers to a
-Zig `comptime` parameter, a type parameter as `comptime T: type`.
+functions take both kinds; generic types take type parameters and
+integer values ([generic types](#generic-types)); `main` takes none.
+Each lowers to a Zig `comptime` parameter, a type parameter as
+`comptime T: type`.
 
 A type parameter needs a name of its own: not a built-in type (`Int`,
 `Vec`, `Self`, ...), a module-level declaration, another parameter, or,
 on a generic type, a method of the type; no local or parameter inside
-the declaration may reuse it. A compile-time value's type is a number,
-`Bool`, `String`, an enum whose variants carry nothing, or an optional
-of one of these, and it cannot mention a type parameter.
+the declaration may reuse it, and the same holds for a generic type's
+value parameters. A compile-time value's type is a number, `Bool`,
+`String`, an enum whose variants carry nothing, or an optional of one
+of these, and it cannot mention a type parameter; on a generic type it
+is an integer. An integer compile-time value sizes arrays
+([arrays](#arrays)).
 
 A call gives the compile-time arguments in brackets touching the
 callee, before its run-time arguments: `check[.strict](5)`,
 `rep[String, 3]("hi")`, `s.times[5]()`, `Scale.unit[6]()`,
-`lib.scaled[3](5)`. It gives all of them or none; a type argument may
-be left to inference ([generic functions](#generic-functions)), a value
-never. A value argument must be known at compile time: a literal
+`lib.scaled[3](5)`. It gives all of them or none; a type argument, and
+an integer value that an array length or a generic type's argument in
+the signature holds, may be left to inference
+([generic functions](#generic-functions)), any other value never. A
+value argument must be known at compile time: a literal
 (`none` included), an enum value, a module constant, a compile-time
 parameter, a `=!` binding of one of these, or a comparison or `and`,
 `or`, `not` of them. Arithmetic in a compile-time argument must fold to
@@ -3396,7 +3487,7 @@ The rest parse, and the checker rejects them as not supported yet
 |---|---|
 | a `pub` generic function, or a generic method the public surface reaches | `` generic functions cannot cross module boundaries yet `` |
 | another module's generic type, or an instance of a module's generic type in its public surface | `` generic types cannot cross module boundaries yet `` |
-| a compile-time value parameter on a type (`struct Ring[n: Int]`) | `` a compile-time value parameter (`n: T`) is not supported on a type `` |
+| a `pub` function whose compile-time parameter sizes an array | `` such functions cannot cross module boundaries yet `` |
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
 | a stack closure passed, stored, or returned | `` closures cannot escape their defining scope `` |
 | an array of owning values | `` arrays cannot hold values that own resources ``; use a `Vec` |

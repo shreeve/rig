@@ -1,0 +1,20 @@
+# A module's constant sizes an array and gives a generic type's value
+# argument in another module: `[lib.N]Int` is `[3]Int`. A public
+# function's compile-time parameter crosses modules when it sizes no
+# array.
+
+use lib
+
+struct Ring[T, n: Int]
+  items: [n]T
+
+sub main()
+  a: [lib.N]Int = [1, 2, 3]
+  b: [3]Int = a
+  c: [lib.W * 2]Int = [0; 4]
+  r: Ring[Int, lib.N] = Ring[Int, lib.N](items: b)
+  s: Ring[Int, 3] = r
+  print(b, c.len, s.items, lib.count[2]())
+
+# expect:
+# [1, 2, 3] 4 [1, 2, 3] 2

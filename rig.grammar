@@ -127,6 +127,7 @@ tokens
     lbracket        # [  array literal or slice/array type
     rbracket        # ]
     comma           # ,
+    semicolon       # ;  only in a fill literal `[x; n]`
     colon           # :
     arrow           # ->
     fat_arrow       # =>
@@ -235,6 +236,7 @@ tokens
 '['                                         → lbracket
 ']'                                         → rbracket
 ','                                         → comma
+';'                                         → semicolon
 ':'                                         → colon
 '.'                                         → dot
 
@@ -323,6 +325,7 @@ tokens
     index                       object index
     inst                        object ...args
     array                       ...elems
+    array_fill                  value size
     kwarg                       name:leaf value
 
     # Operators
@@ -339,7 +342,7 @@ tokens
     # Types
     optional, error_union, borrow_read, borrow_write, shared, slice  type
     generic_inst                name:leaf ...args
-    array_type                  size:leaf type
+    array_type                  size type
     fun_type                    params:group? returns?
 
 @display
@@ -365,7 +368,7 @@ tokens
     "=": "`=`", "+=": "`+=`", "-=": "`-=`", "*=": "`*=`", "/=": "`/=`", "%=": "`%=`"
     "&=": "`&=`", "|=": "`|=`", "^=": "`^=`", "<<=": "`<<=`", ">>=": "`>>=`", "=!": "`=!`"
     "<-": "`<-`", ":": "`:`", "->": "`->`", "(": "`(`", ")": "`)`", "[": "`[`"
-    "]": "`]`", ",": "`,`", ".": "`.`", "..": "`..`", "=>": "`=>`", "~": "`~`"
+    "]": "`]`", ",": "`,`", ";": "`;`", ".": "`.`", "..": "`..`", "=>": "`=>`", "~": "`~`"
     "@": "`@`", "==": "`==`", "!=": "`!=`", "<": "`<`", ">": "`>`", "<=": "`<=`"
     ">=": "`>=`", "??": "`??`", "|": "`|`", "^": "`^`", "&": "`&`", "<<": "`<<`"
     ">>": "`>>`", "+": "`+`", "-": "`-`", "*": "`*`", "/": "`/`", "%": "`%`"
@@ -514,7 +517,7 @@ type     = READ_PFX  type:type                      → (borrow_read)
          | SHARE_PFX type:type                      → (shared)
          | "~"       operand:type                   → (weak)
          | "[" "]" type:inner                       → (slice)
-         | "[" size:INTEGER "]" type:inner          → (array_type)
+         | "[" size:dim "]" type:inner              → (array_type)
          | FUN "(" [params:L(type)] ")" "->" returns:type → (fun_type)  # `fun(Int) -> Int`
          | SUB "(" [params:L(type)] ")"             → (fun_type)   # `sub(Int)`
          | tsuffix
@@ -523,7 +526,7 @@ type     = READ_PFX  type:type                      → (borrow_read)
 # `]` before it, so the lexer marks it as an index bracket.
 inner    = type
          | LBRACKET_INDEX "]" type:inner             → (slice)
-         | LBRACKET_INDEX size:INTEGER "]" type:inner → (array_type)
+         | LBRACKET_INDEX size:dim "]" type:inner    → (array_type)
 
 tsuffix  = type:tsuffix SUFFIX_Q                    → (optional)
          | type:tsuffix SUFFIX_BANG                 → (error_union)
@@ -534,10 +537,44 @@ tatom    = name
          | name:name LBRACKET_INDEX args:types [","] "]" → (generic_inst)
          | "(" type ")"                             → 2
 
-# Type arguments; written out rather than `L(type)`, which conflicts
-# with a trailing comma.
-types    = type                                     → (1)
-         | types "," type                           → (...1 3)
+# Compile-time arguments; written out rather than `L(targ)`, which
+# conflicts with a trailing comma.
+types    = targ                                     → (1)
+         | types "," targ                           → (...1 3)
+
+# A compile-time argument in a type: a type, or a compile-time integer.
+# A bare name is read as a type; the checker reads it as a value where
+# the parameter is one. An integer or arithmetic is always a value.
+targ     = type
+         | INTEGER
+         | MINUS_PREFIX operand:INTEGER             → (neg)
+         | cexp
+
+# An array size: an integer, a name (a constant or a compile-time
+# parameter), a module's constant, or arithmetic on them.
+dim      = INTEGER
+         | name
+         | object:name "." name:name                → (member)
+         | cexp
+
+# Arithmetic on compile-time integers, with at least one operator, so
+# that a bare name stays a type. Operands are integers, names, module
+# constants, and parenthesized arithmetic.
+cexp     = cmulop
+         | caddop
+caddop   = left:cadd "+" right:cmul                 → (+)
+         | left:cadd "-" right:cmul                 → (-)
+cadd     = caddop
+         | cmul
+cmulop   = left:cmul "*" right:cunit                → (*)
+         | left:cmul "/" right:cunit                → (/)
+         | left:cmul "%" right:cunit                → (%)
+cmul     = cmulop
+         | cunit
+cunit    = INTEGER
+         | name
+         | object:name "." name:name                → (member)
+         | "(" cexp ")"                             → 2
 
 # ==============================================================================
 # EXPRESSIONS
@@ -738,6 +775,7 @@ atom     = name
          | "@" name:name LPAREN_CALL args:args ")"  → (builtin)
          | "[" [elems:exprs] "]"                    → (array)
          | "[" elems:exprs "," "]"                  → (array)
+         | "[" value:expr ";" size:expr "]"         → (array_fill)  # `[0; n]`
          | "(" expr ")"                             → 2
          | "(" cclosure ")"                         → 2
 

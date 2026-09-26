@@ -1,0 +1,18 @@
+# An index into an array whose length is a compile-time parameter is
+# checked when the program runs, even for an array of length 0.
+
+fun at[n: Int](xs: [n]Int, i: Int) -> Int
+  xs[i]
+
+fun first[n: Int](xs: [n]Int) -> Int
+  xs[0]
+
+sub main()
+  print(at([1, 2, 3], 2))
+  e: [0]Int = []
+  print(first(e))
+
+# expect-panic: index out of bounds
+
+# expect:
+# 3
