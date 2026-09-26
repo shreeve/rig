@@ -1,0 +1,13 @@
+# A newline inside [ ] is whitespace, so an open range may end its line
+# before the `]`, even with a comment between.
+
+sub main()
+  a = [1, 2, 3]
+  print(?a[1..
+    ])
+  print(?a[..  # the whole array
+    ])
+
+# expect:
+# [2, 3]
+# [1, 2, 3]

@@ -279,7 +279,8 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //   count from its element (`[n of x]`). Elsewhere it is a name.
 //
 // `..`
-//   Directly before `]`, `..` ends an open range (`xs[a..]`, `xs[..]`):
+//   Before `]` (past any line break, which is whitespace inside
+//   brackets), `..` ends an open range (`xs[a..]`, `xs[..]`):
 //   DOTDOT_OPEN, so the expression before it ends there.
 
 pub const Lexer = struct {
@@ -686,7 +687,7 @@ pub const Lexer = struct {
             .fixed_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_fixed, tok.pos) else tok.cat,
             .move_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_move, tok.pos) else tok.cat,
             // `xs[a..]`: an open range ends at the `]`.
-            .dotdot => if (self.nextCat() == .rbracket) .dotdot_open else .dotdot,
+            .dotdot => if (self.nextJoinedCat() == .rbracket) .dotdot_open else .dotdot,
             .err => return self.lexError(tok),
             else => tok.cat,
         };
@@ -915,6 +916,21 @@ pub const Lexer = struct {
     fn nextCat(self: *const Lexer) TokenCat {
         var probe = self.base;
         return probe.matchRules().cat;
+    }
+
+    /// The category of the next token, past comments, and past line
+    /// breaks where they are whitespace (inside brackets).
+    fn nextJoinedCat(self: *const Lexer) TokenCat {
+        var probe = self.base;
+        const joins = self.nesting > 0 and !self.inIsland();
+        while (true) {
+            const t = probe.matchRules();
+            switch (t.cat) {
+                .comment => continue,
+                .newline, .skip => if (joins) continue else return t.cat,
+                else => return t.cat,
+            }
+        }
     }
 
     fn nextIsName(self: *const Lexer) bool {

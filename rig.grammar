@@ -19,8 +19,8 @@
 #     member list before `:` or after `fun` / `sub`); `of` is a keyword
 #     only after a value directly inside [ ] (`[n of x]`), and a name
 #     everywhere else;
-#   * marks a `..` directly before `]` as DOTDOT_OPEN, the end of an open
-#     range (`xs[a..]`, `xs[..]`);
+#   * marks a `..` whose next token is `]` as DOTDOT_OPEN, the end of an
+#     open range (`xs[a..]`, `xs[..]`);
 #   * classifies the characters whose meaning depends on spacing. The rule
 #     is the same for all of them: a character that touches its operand and
 #     not the preceding value is a prefix; otherwise it is an infix
@@ -780,7 +780,7 @@ postfix  = object:postfix "." name:name             → (member)
          | atom
 
 # A slice's open range: `xs[a..]`, `xs[..b]`, `xs[..]`. The rewriter
-# marks a `..` directly before `]` as DOTDOT_OPEN, so `xs[a == b..]`
+# marks a `..` whose next token is `]` as DOTDOT_OPEN, so `xs[a == b..]`
 # ends the expression before it; a `..` that starts an operand needs no
 # mark, since no expression starts with one.
 open     = left:expr DOTDOT_OPEN                    → (..)
