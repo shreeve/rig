@@ -18,7 +18,7 @@ sub main()
   print(same(?s, ?s))
   print(bigger(!p, ?q))
 
-# error: 18:9: `same[String]` cannot use `T = String`: the generic body applies `==` to `T`, which `String` does not support
+# error: 18:9: `same[String]` cannot use `T = String`: the generic body applies `==` to `T`; `==` on a `T` compares only numbers, `Bool`, and plain enums
 # error: 9:3: `==` used on `T` here
 # error: 19:9: `bigger[P]` cannot use `T = P`: the generic body applies `>` to `T`, which `P` does not support
 # error: 12:3: `>` used on `T` here

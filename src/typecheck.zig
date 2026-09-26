@@ -5697,6 +5697,9 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
+                // `String` and optionals compare with `==` outside a
+                // generic body, but not as a `T`.
+                .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`; `{s}` on a `{s}` compares only numbers, `Bool`, and plain enums", .{ inst, pname, aname, req.op, pname, req.op, pname }),
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {

@@ -990,7 +990,8 @@ support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
 `T`) is recorded, a borrowed operand (`?T`, `!T`) as the `T` it
 reaches, and every instance the program makes, spelled or
 inferred, directly or through other generic bodies, is checked against
-it. A failure is reported at the call or type that makes the instance,
+it. On a `T`, `==` compares numbers, `Bool`, and plain enums, not
+Strings. A failure is reported at the call or type that makes the instance,
 with a note at the body line that needs the operation. A body cannot
 call a method on a `T`, read a field of one, or call `T` itself.
 
