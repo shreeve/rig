@@ -145,6 +145,14 @@ pub const CtValue = union(enum) { int: i128 };
 /// The largest array length: lengths run from 0 to 2^32 - 1.
 pub const max_array_len: i128 = std.math.maxInt(u32);
 
+/// The most bytes a value takes: 8 MiB. A value may live in a stack
+/// frame, and the main thread's stack holds 16 MiB, so any one value fits
+/// there with room to spare; a frame that overflows it by up to 64 MiB
+/// stops the program (`rig.guardStack`). The cap also keeps compiles
+/// fast, since Zig builds a constant array element by element. Larger
+/// data belongs in a `Vec`.
+pub const max_value_bytes: u64 = 8 << 20;
+
 pub const Type = union(enum) {
     /// A type error was reported here.
     invalid,
@@ -721,6 +729,14 @@ pub const SemContext = struct {
     /// resolved (`resolve.foldModuleConsts`), so a type anywhere in the
     /// module can name them.
     const_ints: std.AutoHashMapUnmanaged(SymbolId, ConstVal) = .empty,
+    /// The array types spelled or built in generic declarations, which
+    /// each instance checks against `max_value_bytes`.
+    generic_arrays: std.ArrayListUnmanaged(struct { ty: TypeId, pos: u32 }) = .empty,
+    /// The types reported as too large, each once; a type holding one is
+    /// not reported again.
+    oversized: std.AutoHashMapUnmanaged(TypeId, void) = .empty,
+    /// `minBytes` of each type sized so far.
+    byte_sizes: std.AutoHashMapUnmanaged(TypeId, ?u128) = .empty,
     /// A local `k =! n` binding of a compile-time integer parameter ->
     /// the `ct_param` it stands for, where an array length or a
     /// compile-time argument names it.
@@ -769,6 +785,9 @@ pub const SemContext = struct {
         self.generic_fn_uses.deinit(self.allocator);
         self.const_ints.deinit(self.allocator);
         self.ct_locals.deinit(self.allocator);
+        self.generic_arrays.deinit(self.allocator);
+        self.oversized.deinit(self.allocator);
+        self.byte_sizes.deinit(self.allocator);
         self.arena.deinit();
     }
 
@@ -1154,6 +1173,7 @@ pub fn check(allocator: std.mem.Allocator, source: []const u8, tree: Sexp, opts:
     try computeContents(&ctx);
     try checkInfiniteTypes(&ctx);
     try resolve.checkDeclarations(&ctx);
+    try checkTypeSizes(&ctx);
     try typecheck.checkModule(&ctx, tree, module_scope);
     try checkUnreadLocals(&ctx);
     try expandInstantiations(&ctx);
@@ -1812,12 +1832,142 @@ pub fn arrayLen(ctx: *const SemContext, a: ArrayType) ?u64 {
     };
 }
 
+/// The bytes a value of `ty` takes at least (padding aside), or null
+/// when that depends on a generic parameter or follows an error, such as
+/// holding a type reported too large.
+pub fn minBytes(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?u128 {
+    return minBytesOf(ctx, ty, true);
+}
+
+fn minBytesOf(ctx: *SemContext, ty: TypeId, top: bool) std.mem.Allocator.Error!?u128 {
+    if (!top and ctx.oversized.contains(ty)) return null;
+    // Each type is sized once; one that holds itself (rejected) is null
+    // while it is being sized.
+    const slot = try ctx.byte_sizes.getOrPut(ctx.allocator, ty);
+    if (slot.found_existing) return slot.value_ptr.*;
+    slot.value_ptr.* = null;
+    const bytes: ?u128 = switch (ctx.types.get(ty)) {
+        .invalid, .unknown, .type_var, .ct_param => null,
+        .void, .noreturn, .none_literal => 0,
+        .bool => 1,
+        .int => |i| if (i.bits == 0) 8 else (i.bits + 7) / 8,
+        .float => |f| if (f.bits == 0) 8 else f.bits / 8,
+        .string, .slice => 16,
+        // A null handle or borrow is its null address; anything else
+        // needs a flag.
+        .optional => |inner| if (try minBytesOf(ctx, inner, false)) |b| b + @intFromBool(!isAddress(ctx, inner)) else null,
+        .array => |a| blk: {
+            const n = arrayLen(ctx, a) orelse break :blk null;
+            const e = (try minBytesOf(ctx, a.elem, false)) orelse break :blk null;
+            break :blk std.math.mul(u128, n, e) catch std.math.maxInt(u128);
+        },
+        .nominal => |sym| try fieldBytes(ctx, sym, .empty),
+        .imported_nominal => |in| blk: {
+            const foreign = ctx.foreign_semas.get(in.module_id) orelse break :blk null;
+            break :blk try minBytes(foreign, try foreign.intern(.{ .nominal = in.sym_id }));
+        },
+        .parameterized_nominal => |pn| if (pn.sym == ctx.vec_sym_id or pn.sym == ctx.signal_sym_id or pn.sym == ctx.cell_sym_id)
+            8
+        else
+            try fieldBytes(ctx, pn.sym, .{ .params = ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args }),
+        else => 8,
+    };
+    try ctx.byte_sizes.put(ctx.allocator, ty, bytes);
+    return bytes;
+}
+
+/// The bytes a struct's fields take at least, or an enum's tag and
+/// largest payload.
+fn fieldBytes(ctx: *SemContext, sym: SymbolId, subst: TypeSubst) std.mem.Allocator.Error!?u128 {
+    var total: u128 = 0;
+    var variants: u128 = 0;
+    for (ctx.symbols.items[sym].fields orelse &.{}) |f| {
+        if (f.is_method or f.is_drop_method) continue;
+        if (f.is_variant) {
+            variants += 1;
+            var payload: u128 = 0;
+            for (f.payload orelse &.{}) |p| payload +|= (try minBytesOf(ctx, try substituteType(ctx, p.ty, subst), false)) orelse return null;
+            total = @max(total, payload);
+        } else total +|= (try minBytesOf(ctx, try substituteType(ctx, f.ty, subst), false)) orelse return null;
+    }
+    // The tag: a byte per 8 bits it needs.
+    var tag: u128 = 0;
+    var span: u128 = 1;
+    while (span < variants) : (span <<= 8) tag += 1;
+    return total +| tag;
+}
+
+/// Whether a value of `ty` is an address, which is never 0.
+fn isAddress(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .shared, .weak, .borrow_read, .borrow_write => true,
+        else => false,
+    };
+}
+
 /// Whether integer type `ty` holds `v`.
 pub fn intFits(ctx: *const SemContext, ty: TypeId, v: i128) bool {
     return switch (ctx.types.get(ty)) {
         .int => |i| intInfoFits(i, v),
         else => true,
     };
+}
+
+/// A value of the array type `ty`, spelled or made at `pos`, must fit
+/// `max_value_bytes`: one that depends on generic parameters is checked
+/// at each instance (`typecheck.checkGenericInstantiations`). False after
+/// a diagnostic.
+pub fn checkArrayBytes(ctx: *SemContext, pos: u32, ty: TypeId) std.mem.Allocator.Error!bool {
+    if (containsPoison(ctx, ty)) return true;
+    if (containsTypeVar(ctx, ty)) {
+        try ctx.generic_arrays.append(ctx.allocator, .{ .ty = ty, .pos = pos });
+        return true;
+    }
+    if (ctx.oversized.contains(ty)) return false;
+    const bytes = (try arrayOversized(ctx, ty)) orelse return true;
+    try reportOversized(ctx, pos, ty, bytes);
+    return false;
+}
+
+/// The size of the array type `ty` when it is too large by itself: its
+/// element fits `max_value_bytes` (one that does not is reported on its
+/// own), and the array does not.
+pub fn arrayOversized(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!?u128 {
+    const bytes = (try minBytes(ctx, ty)) orelse return null;
+    if (bytes <= max_value_bytes) return null;
+    const elem = (try minBytes(ctx, ctx.types.get(ty).array.elem)) orelse return null;
+    return if (elem > max_value_bytes) null else bytes;
+}
+
+/// Report that `ty` takes `bytes`, more than `max_value_bytes`.
+pub fn reportOversized(ctx: *SemContext, pos: u32, ty: TypeId, bytes: u128) std.mem.Allocator.Error!void {
+    try ctx.oversized.put(ctx.allocator, ty, {});
+    try ctx.err(pos, "`{s}` takes {d} bytes; a value takes at most {d} (8 MiB), since it may live on the stack. Keep larger data in a `Vec`", .{ try formatType(ctx, ty), bytes, max_value_bytes });
+}
+
+/// Whether `ty` (a struct, an enum, or a generic type's instance under
+/// `subst`) is too large by itself: it takes more than `max_value_bytes`,
+/// and no type it holds directly does, which is reported on its own.
+/// Its size, when it is.
+pub fn oversizedByItself(ctx: *SemContext, ty: TypeId, sym: SymbolId, subst: TypeSubst) std.mem.Allocator.Error!?u128 {
+    const bytes = (try minBytes(ctx, ty)) orelse return null;
+    if (bytes <= max_value_bytes) return null;
+    for (ctx.symbols.items[sym].fields orelse &.{}) |*f| for (dataFields(f)) |d| {
+        const held = (try minBytes(ctx, try substituteType(ctx, d.ty, subst))) orelse return null;
+        if (held > max_value_bytes) return null;
+    };
+    return bytes;
+}
+
+/// Every declared struct and enum must fit `max_value_bytes`; a generic
+/// one is checked at each instance.
+fn checkTypeSizes(ctx: *SemContext) std.mem.Allocator.Error!void {
+    for (ctx.symbols.items, 0..) |sym, i| {
+        if (sym.kind != .nominal_type or sym.decl_pos == builtin_decl_pos) continue;
+        const ty = try ctx.intern(.{ .nominal = @intCast(i) });
+        const bytes = (try oversizedByItself(ctx, ty, @intCast(i), .empty)) orelse continue;
+        try reportOversized(ctx, sym.decl_pos, ty, bytes);
+    }
 }
 
 /// The `ct_value` of the integer `v`.

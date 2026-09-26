@@ -414,6 +414,32 @@ array length -1 is out of range
 `[x; n]` copies its element into every slot; `Vec[Int]` owns a resource
 ```
 
+A value takes at most 8 MiB (8388608 bytes, a `[1048576]Int`): an
+array, a struct or an enum, and each instance of a generic type or
+function, for the arrays it makes and, for a type, for itself. A
+value may live on the stack, which holds 16 MiB, so any one value fits
+there. A program that runs off the end of its stack stops before it
+writes beyond it, for any frame of up to 64 MiB (eight values at the
+limit). Larger data belongs in a `Vec`, which
+keeps its elements on the heap. A value too large is reported once,
+where it is spelled or made; a type that holds one is not reported
+again.
+
+```rig reject
+struct Grid
+  cells: [1024][1024]Int
+  more: [8]Int
+
+sub main
+  big = [0; 2000000]
+  print(big.len)
+```
+
+```error
+`Grid` takes 8388672 bytes; a value takes at most 8388608 (8 MiB)
+`[2000000]Int` takes 16000000 bytes
+```
+
 ### Slices
 
 `xs[a..b]` is the part of `xs` from index `a` up to, not including,

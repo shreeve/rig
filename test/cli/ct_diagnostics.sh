@@ -71,3 +71,8 @@ sub main()
 EOF2
 expect_eq "$(errors_of kinds.rig)" "kinds.rig:2:11: error: an array length is an integer; \`2.5\` is a \`Float\`
 kinds.rig:3:11: error: an array length is an integer; \`none\` is the absent optional" "a fill count's kind"
+
+# A value too large is reported once, where it is spelled or made: a
+# type holding one, and a fill where its annotation is rejected, are not
+# reported again.
+expect_eq "$(errors_of "$ROOT/test/reject/types/array_too_large.rig" | wc -l | tr -d ' ')" "12" "one diagnostic per value too large"

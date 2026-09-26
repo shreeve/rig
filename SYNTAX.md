@@ -2597,6 +2597,21 @@ sub main
 [1, 2, 3, 4] [[0, 0, 0], [0, 0, 0]] 8 0
 ```
 
+An array, like any value, takes at most 8 MiB (`[1048576]Int`),
+since it may live on the stack, which holds 16 MiB. Rust and Zig
+accept a larger local and crash when it runs out of stack; Rig rejects
+it where it is spelled. Large data belongs in a `Vec`.
+
+```rig reject
+sub main
+  big = [0; 2000000]
+  print(big.len)
+```
+
+```error
+`[2000000]Int` takes 16000000 bytes; a value takes at most 8388608 (8 MiB)
+```
+
 **Strings** are immutable UTF-8 bytes, a Copy value. `s.len` is the
 byte length, `s[i]` a byte (`U8`), and `for b in s` walks the bytes.
 They compare by content with `==` and have no ordering.

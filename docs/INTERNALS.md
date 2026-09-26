@@ -555,7 +555,14 @@ function's integer value parameters are part of its instances
 signature holds. A public function whose integer parameter sizes an
 array, directly or through the functions and types it passes it to, is
 rejected (`checkPublicArrayLengths`): other modules' instances are
-never checked here.
+never checked here. A value takes at most `sema.max_value_bytes`
+(8 MiB), from `sema.minBytes`: an array type is checked where it is
+spelled or made (`checkArrayBytes`), a struct or enum after contents
+are known (`checkTypeSizes`), and an array that mentions a generic
+parameter is kept in `generic_arrays` and checked, with the instance
+itself, at each instance (`checkInstanceSizes`). A type reported too
+large goes into `oversized`, and `minBytes` of anything holding it is
+null, so it is reported once.
 
 Instances come from the program: `instantiation_sites` holds each
 generic type instance and where it is first spelled or inferred, and

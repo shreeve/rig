@@ -1,0 +1,26 @@
+# A value may take up to 8 MiB: an array local, a struct, and a module
+# constant at the limit all run.
+
+BIG =! [7; 1048576]
+
+struct Frame
+  a: [524288]Int
+  b: [524288]Int
+
+sub array_local(i: Int)
+  a = [3; 1048576]
+  a[i] += BIG[i]
+  print(a[i], a.len)
+
+sub struct_local(i: Int)
+  f = Frame(a: [1; 524288], b: [2; 524288])
+  f.b[i] += f.a[i]
+  print(f.b[i], f.a.len + f.b.len)
+
+sub main()
+  array_local(5)
+  struct_local(1048575 - 524288)
+
+# expect:
+# 10 1048576
+# 3 1048576

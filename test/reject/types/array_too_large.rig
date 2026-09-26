@@ -1,0 +1,66 @@
+# A value takes at most 8 MiB, since it may live on the stack: larger
+# data belongs in a `Vec`. Each instance of a generic declaration is
+# checked for the arrays it makes and for its own size. A type that
+# holds a type too large is not reported again.
+
+struct Ring[T, n: Int]
+  items: [n]T
+
+struct Half
+  a: [600000]Int
+
+struct Two
+  a: [600000]Int
+  b: [600000]Int
+
+struct Outer
+  t: Two
+  more: [2]Two
+
+struct Wrap[T]
+  items: [2]T
+
+struct Pair[T]
+  a: T
+  b: T
+
+enum Color
+  red
+  green
+
+struct Paint
+  shades: [9000000]Color?
+
+BIG =! [7; 4000000000]
+
+fun zeros[n: Int] -> [n]Int
+  [0; n]
+
+sub fill[n: Int]
+  a = [1; n]
+  print(a.len)
+
+sub main()
+  a: [4294967295]U8 = []
+  b: [2]Half = [Half(a: [0; 600000]), Half(a: [0; 600000])]
+  c: [1048576]Int = [0; 1048576]
+  r = Ring[Int, 1048577](items: [0; 1048577])
+  z = zeros[1048577]()
+  fill[1048577]()
+  w: Wrap[Half]? = none
+  p: Pair[Half]? = none
+  d: [9000000]U8 = [165; 9000000]
+  print(a.len, b.len, c.len, r.items.len, z.len, w == none, p == none, d.len, [0; 1048577].len)
+
+# error: 32:11: `[9000000]Color?` takes 18000000 bytes
+# error: 12:8: `Two` takes 9600000 bytes; a value takes at most 8388608 (8 MiB)
+# error: 34:8: `[4000000000]Int` takes 32000000000 bytes
+# error: 44:6: `[4294967295]U8` takes 4294967295 bytes
+# error: 45:6: `[2]Half` takes 9600000 bytes
+# error: 47:7: `Ring[Int, 1048577]` makes `[1048577]Int`, which takes 8388616 bytes
+# error: 48:7: `zeros[1048577]` makes `[1048577]Int`
+# error: 49:3: `fill[1048577]` makes `[1048577]Int`
+# error: 50:6: `Wrap[Half]` makes `[2]Half`
+# error: 51:6: `Pair[Half]` takes 9600000 bytes
+# error: 52:6: `[9000000]U8` takes 9000000 bytes
+# error: 53:79: `[1048577]Int` takes 8388616 bytes

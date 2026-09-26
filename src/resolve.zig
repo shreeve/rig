@@ -582,8 +582,9 @@ pub fn checkDeclarations(ctx: *SemContext) Error!void {
 
 /// A rule on a spelled type that depends on what other types hold.
 pub const DeferredCheck = union(enum) {
-    /// `[N]T`, with `T` spelled at `node`.
-    array: struct { node: Sexp, elem: TypeId },
+    /// `[N]T` spelled at `at`, with `T` spelled at `node`; `ty` is the
+    /// array type, when its size is still to be checked.
+    array: struct { node: Sexp, elem: TypeId, at: Sexp, ty: ?TypeId },
     /// `Vec[T]`, `Cell[T]`, or `Signal[T]` spelled at `pos`.
     builtin: struct { pos: u32, sym: SymbolId, args: []const TypeId },
     /// `*fun(...) -> R`, with the function type spelled at `node`.
@@ -597,6 +598,7 @@ fn runCheck(ctx: *SemContext, check: DeferredCheck) Error!void {
                 try ctx.errAt(c.node, "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try sema.formatType(ctx, c.elem)});
                 return;
             }
+            if (c.ty) |ty| if (!try sema.checkArrayBytes(ctx, ctx.startOf(c.at), ty)) return;
             // `[N]T` in a generic type: every instance must supply plain
             // data for the parameters the element holds.
             var held: std.ArrayListUnmanaged(SymbolId) = .empty;
@@ -1429,8 +1431,13 @@ pub const TypeResolver = struct {
                         const elem_node = ir.ArrayType.type(sexp);
                         const elem = try self.resolveType(elem_node);
                         if (self.isPoison(len)) return t.invalid_id;
-                        try self.checkWhenResolved(.{ .array = .{ .node = elem_node, .elem = elem } });
-                        return self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
+                        const ty = try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
+                        // Once every type's contents are known, a type too
+                        // large is poison.
+                        const ready = self.ctx.contents_ready;
+                        if (ready and !try sema.checkArrayBytes(self.ctx, self.ctx.startOf(sexp), ty)) return t.invalid_id;
+                        try self.checkWhenResolved(.{ .array = .{ .node = elem_node, .elem = elem, .at = sexp, .ty = if (ready) null else ty } });
+                        return ty;
                     },
                     .fun_type => {
                         var ps: std.ArrayListUnmanaged(TypeId) = .empty;

@@ -1,5 +1,6 @@
 # Declared types are searched once each, not once per path: twenty levels
-# of three fields each (3^20 paths) check at once.
+# of three fields each (3^20 paths) check at once. The leaf takes no
+# bytes, so every level is small enough to be a value.
 
 struct L0
   f1: L1
@@ -102,11 +103,14 @@ struct L19
   f3: L20
 
 struct L20
-  n: Int
+  n: One
+
+enum One
+  only
 
 sub main()
-  leaf = L20(n: 7)
-  print(leaf.n)
+  leaf = L20(n: .only)
+  print(leaf.n == .only)
 
 # expect:
-# 7
+# true

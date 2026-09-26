@@ -98,6 +98,9 @@ const Checker = struct {
     /// The `!x` being checked where a write borrow is expected, the one
     /// place a write borrow of a `Bool` is not read as its value.
     lent_write: Sexp = .nil,
+    /// Checking an expression where a rejected type is expected: a size
+    /// it would have is not reported.
+    under_poison: bool = false,
     /// The label, and the value when it is used as one, of the loop
     /// about to be checked.
     loop_label: []const u8 = "",
@@ -2988,7 +2991,9 @@ const Checker = struct {
             try self.errAt(node, "arrays cannot hold values that own resources (`{s}`); use a `Vec`", .{try self.tyName(concrete)});
             return self.t().invalid_id;
         }
-        return self.ctx.intern(.{ .array = .{ .elem = concrete, .len = try sema.ctInt(self.ctx, elems.len) } });
+        const ty = try self.ctx.intern(.{ .array = .{ .elem = concrete, .len = try sema.ctInt(self.ctx, elems.len) } });
+        if (self.under_poison) return ty;
+        return if (try sema.checkArrayBytes(self.ctx, self.startOf(node), ty)) ty else self.t().invalid_id;
     }
 
     fn checkArray(self: *Checker, node: Sexp, expected: TypeId) Error!?TypeId {
@@ -3039,6 +3044,8 @@ const Checker = struct {
             return self.t().invalid_id;
         }
         const ty = try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
+        // An expected array type was checked where it was spelled or made.
+        if (expected == null and !self.under_poison and !try sema.checkArrayBytes(self.ctx, self.startOf(node), ty)) return self.t().invalid_id;
         if (expected) |ex| if (ex != ty) {
             try self.errAt(node, "`{s}` has length `{s}`; `{s}` needs `{s}`", .{ try self.sourceText(node), try self.tyName(len), try self.tyName(ex), try self.tyName(self.ctx.types.get(ex).array.len) });
             return self.t().invalid_id;
@@ -4721,6 +4728,11 @@ const Checker = struct {
         // A poisoned expected type still reaches a generic call's
         // inference, which then reports nothing more.
         if (self.isPoison(expected)) {
+            // `[]` has no type of its own to report on.
+            if (e.isKind(.array) and ir.Array.elems(e).len == 0) return;
+            const saved = self.under_poison;
+            defer self.under_poison = saved;
+            self.under_poison = true;
             _ = try self.synthExpr(e);
             return;
         }
@@ -5819,8 +5831,7 @@ fn plural(n: usize) []const u8 {
 /// the type parameters (`self.value + 1` requires a numeric `T`). Checked
 /// after all bodies, against every instance the module's code makes.
 pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
-    if (ctx.generic_requirements.items.len == 0) return;
-    try checkPublicArrayLengths(ctx);
+    if (ctx.generic_requirements.items.len > 0) try checkPublicArrayLengths(ctx);
     var it = ctx.instantiation_sites.iterator();
     while (it.next()) |entry| {
         const pn = switch (ctx.types.get(entry.key_ptr.*)) {
@@ -5828,14 +5839,40 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
             else => continue,
         };
         const params = ctx.symbols.items[pn.sym].type_params orelse continue;
-        try checkRequirements(ctx, params, pn.args, entry.value_ptr.*, .{ .type = entry.key_ptr.* });
+        const of: sema.InstanceRoot = .{ .type = entry.key_ptr.* };
+        if (try checkRequirements(ctx, params, pn.args, entry.value_ptr.*, of)) try checkInstanceSizes(ctx, params, pn.args, entry.value_ptr.*, of);
     }
     // A method's instance checks only its own parameters; its type's
     // are checked with the receiver's instance.
     var i: usize = 0;
     while (i < ctx.fn_instances.items.len) : (i += 1) {
         const f = ctx.fn_instances.items[i];
-        try checkRequirements(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, .{ .func = f.inst });
+        const of: sema.InstanceRoot = .{ .func = f.inst };
+        if (try checkRequirements(ctx, f.inst.ownParams(), f.inst.ownArgs(), f.site, of)) try checkInstanceSizes(ctx, f.inst.params, f.inst.args, f.site, of);
+    }
+}
+
+/// The arrays a generic declaration makes, in one instance, and a generic
+/// type's instance itself, must fit `sema.max_value_bytes`.
+fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!void {
+    for (args) |a| if (sema.containsPoison(ctx, a)) return;
+    const subst: sema.TypeSubst = .{ .params = params, .args = args };
+    var i: usize = 0;
+    while (i < ctx.generic_arrays.items.len) : (i += 1) {
+        const g = ctx.generic_arrays.items[i];
+        if (!sema.usesParams(ctx, g.ty, params)) continue;
+        const ty = try sema.substituteType(ctx, g.ty, subst);
+        if (sema.containsTypeVar(ctx, ty) or sema.containsPoison(ctx, ty)) continue;
+        const bytes = (try sema.arrayOversized(ctx, ty)) orelse continue;
+        try ctx.oversized.put(ctx.allocator, ty, {});
+        if (of == .type) try ctx.oversized.put(ctx.allocator, of.type, {});
+        try ctx.err(at, "`{s}` makes `{s}`, which takes {d} bytes; a value takes at most {d} (8 MiB), since it may live on the stack. Keep larger data in a `Vec`", .{ try sema.rootName(ctx, of), try sema.formatType(ctx, ty), bytes, sema.max_value_bytes });
+        try ctx.note(g.pos, "the array is made here", .{});
+        return;
+    }
+    if (of == .type) {
+        const sym = ctx.types.get(of.type).parameterized_nominal.sym;
+        if (try sema.oversizedByItself(ctx, of.type, sym, subst)) |bytes| try sema.reportOversized(ctx, at, of.type, bytes);
     }
 }
 
@@ -5897,7 +5934,9 @@ fn reportSizedPublic(ctx: *SemContext, sized: *const std.AutoHashMapUnmanaged(Sy
     };
 }
 
-fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!void {
+/// False after a diagnostic.
+fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!bool {
+    var ok = true;
     for (params, 0..) |param, i| {
         if (i >= args.len) break;
         const arg = args[i];
@@ -5926,9 +5965,11 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 .fits, .float, .shift => try ctx.note(req.pos, "`{s}` used here", .{req.op}),
                 else => try ctx.note(req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
+            ok = false;
             break;
         }
     }
+    return ok;
 }
 
 fn satisfies(ctx: *const SemContext, ty: TypeId, req: Requirement) bool {
