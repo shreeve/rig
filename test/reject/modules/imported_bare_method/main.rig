@@ -1,5 +1,6 @@
 # A method named through a value (`p.get`) must be called, whether its
-# type is local or imported; `Type.get` is the function value.
+# type is local or imported; `lib.P.get` is the function value. A generic
+# type's method has none, and is wrapped in a closure instead.
 
 use lib
 
@@ -15,8 +16,11 @@ sub main()
   a = p.get
   c = q.get
   print(p.nope, q.nope)
+  w = lib.Wrap(v: 3)
+  print(w.get)
 
-# error: method `get` must be called; to pass it as a function that takes the receiver first, name it through its type: `P.get`
-# error: 16:9: method `get` must be called; to pass it as a function that takes the receiver first, name it through its type: `Q.get`
+# error: method `get` must be called; to pass it as a function that takes the receiver first, name it through its type: `lib.P.get`
+# error: 17:9: method `get` must be called; to pass it as a function that takes the receiver first, name it through its type: `Q.get`
 # error: no field `nope` on type `P`
 # error: no field `nope` on type `Q`
+# error: 20:11: method `get` must be called; wrap it in a closure to pass it as a value

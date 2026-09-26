@@ -2430,7 +2430,12 @@ const Checker = struct {
         };
         const owner = decl.symbol();
         if ((try self.findMethod(obj_ty, field)) != null) {
-            try self.err(pos, "method `{s}` must be called; to pass it as a function that takes the receiver first, name it through its type: `{s}.{s}`", .{ field, owner.name, field });
+            if (owner.kind == .generic_type) {
+                try self.err(pos, "method `{s}` must be called; wrap it in a closure to pass it as a value", .{field});
+            } else {
+                const tname = if (decl.module_id != null) try std.fmt.allocPrint(self.ctx.arena.allocator(), "{s}.{s}", .{ decl.ctx.name, owner.name }) else owner.name;
+                try self.err(pos, "method `{s}` must be called; to pass it as a function that takes the receiver first, name it through its type: `{s}.{s}`", .{ field, tname, field });
+            }
         } else if (owner.fields == null) {
             try self.err(pos, "opaque type `{s}` has no accessible fields", .{owner.name});
         } else {

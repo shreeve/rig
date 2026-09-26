@@ -3,3 +3,9 @@ pub struct P
 
   fun get(?self) -> Int
     self.n
+
+pub struct Wrap[T]
+  v: T
+
+  fun get(?self) -> T
+    self.v
