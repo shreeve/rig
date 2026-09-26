@@ -12,8 +12,7 @@
 //!   4. contents     `sema.zig`       what each declared type's values hold
 //!                                    (drop glue, a Cell, plain data), and
 //!                                    types that contain themselves
-//!   5. validation   `resolve.zig`    the declaration checks that need 4,
-//!                                    and the public surface of the module
+//!   5. validation   `resolve.zig`    the declaration checks that need 4
 //!   6. expressions  `typecheck.zig`  bodies are type-checked; every
 //!                                    expression's type is recorded;
 //!                                    fallibility and `raw` are checked;

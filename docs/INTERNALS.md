@@ -448,7 +448,7 @@ later pass reads. It runs these steps in order:
    value is rejected.
 5. **validation** (`resolve.checkDeclarations`): the rules on spelled
    types that depend on contents (array and built-in element types,
-   owned-closure signatures) and on the public surface.
+   owned-closure signatures).
 6. **expressions** (`typecheck.checkModule`): bodies are type-checked
    bidirectionally. `synthExpr(e)` infers a type from `e` alone;
    `checkExpr(e, expected)` checks it against the type its context

@@ -1,5 +1,0 @@
-struct Box[T]
-  v: T
-
-pub fun make(n: Int) -> Box[Int]
-  Box(v: n)

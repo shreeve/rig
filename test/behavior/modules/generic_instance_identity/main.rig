@@ -1,0 +1,17 @@
+# An instance of a generic type is one type in every module that reaches
+# it, whichever module spells it: `a.make()` returns the `lib.Box[Int]`
+# that `b.take` and `lib.unbox` take. A module that reaches the type
+# only through another (`c`, through `a`) holds it all the same.
+
+use lib
+use a
+use b
+use c
+
+sub main()
+  x = a.make(4)
+  y: lib.Box[Int] = a.make(6)
+  print(b.take(x), lib.unbox(y), c.pair(1))
+
+# expect:
+# 5 6 [1, 2]

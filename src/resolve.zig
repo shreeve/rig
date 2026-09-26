@@ -575,11 +575,10 @@ fn declaredIntType(ctx: *const SemContext, node: Sexp) ?sema.IntInfo {
 }
 
 /// The checks on declared types that need to know what every type holds
-/// (`sema.computeContents`), then the module's public surface.
+/// (`sema.computeContents`).
 pub fn checkDeclarations(ctx: *SemContext) Error!void {
     for (ctx.deferred_checks.items) |c| try runCheck(ctx, c);
     ctx.deferred_checks.clearAndFree(ctx.allocator);
-    try checkPublicSurface(ctx);
 }
 
 /// A rule on a spelled type that depends on what other types hold.
@@ -1926,72 +1925,6 @@ fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!voi
         const pos = if (is_fun_type and ir.FunType.returns(fun_type) != .nil) ctx.startOf(ir.FunType.returns(fun_type)) else ctx.startOf(fun_type);
         try ctx.err(pos, "an owned closure returns plain Copy values (Int, Float, Bool, String, sized numbers, plain enums, or optionals of these); `{s}` is not one", .{try sema.formatType(ctx, f.returns)});
     }
-}
-
-/// An importer reaches every type in the module's public surface: the
-/// signatures of `pub` functions and aliases, the members of `pub` types,
-/// and, through those, the members of the private types they hold. None
-/// may be an instance of a generic type declared here, which the
-/// importer could not name or resolve: generic types cannot cross module
-/// boundaries yet.
-fn checkPublicSurface(ctx: *SemContext) Error!void {
-    var exposed: std.AutoHashMapUnmanaged(SymbolId, ?TypeId) = .empty;
-    defer exposed.deinit(ctx.allocator);
-    for (ctx.symbols.items) |sym| {
-        if (!sym.flags.is_public) continue;
-        switch (sym.kind) {
-            .function, .type_alias => {
-                const inst = try exposedInstance(ctx, sym.ty, &exposed) orelse continue;
-                const what = if (sym.kind == .type_alias) "type" else if (ctx.types.get(sym.ty) == .function and ctx.types.get(sym.ty).function.is_sub) "sub" else "function";
-                try reportExposed(ctx, sym.decl_pos, what, sym.name, inst);
-            },
-            .nominal_type => for (sym.fields orelse &.{}) |*f| {
-                const inst = try exposedInMember(ctx, f, &exposed) orelse continue;
-                try reportExposed(ctx, f.decl_pos, if (f.is_method) "method" else if (f.is_variant) "variant" else "field", f.name, inst);
-            },
-            else => {},
-        }
-    }
-}
-
-/// `exposedInstance` for a method's signature or the types a data field
-/// or variant holds.
-fn exposedInMember(ctx: *SemContext, f: *const Field, exposed: *std.AutoHashMapUnmanaged(SymbolId, ?TypeId)) Error!?TypeId {
-    if (f.is_method) return exposedInstance(ctx, f.ty, exposed);
-    for (sema.dataFields(f)) |d| {
-        if (try exposedInstance(ctx, d.ty, exposed)) |x| return x;
-    }
-    return null;
-}
-
-fn reportExposed(ctx: *SemContext, pos: u32, what: []const u8, name: []const u8, inst: TypeId) Error!void {
-    try ctx.err(pos, "public {s} `{s}` exposes `{s}`, an instance of a generic type; generic types cannot cross module boundaries yet", .{ what, name, try sema.formatType(ctx, inst) });
-}
-
-/// The first instance of a generic type declared here that `ty` exposes:
-/// in its structure, or in the members of a private type it names (each
-/// searched once; `exposed` holds the answers).
-fn exposedInstance(ctx: *SemContext, ty: TypeId, exposed: *std.AutoHashMapUnmanaged(SymbolId, ?TypeId)) Error!?TypeId {
-    switch (ctx.types.get(ty)) {
-        .parameterized_nominal => |pn| if (ctx.symbols.items[pn.sym].decl_pos < sema.imported_decl_pos) return ty,
-        .nominal => |s| {
-            const sym = ctx.symbols.items[s];
-            // A public type's members are checked on their own.
-            if (sym.flags.is_public) return null;
-            const gop = try exposed.getOrPut(ctx.allocator, s);
-            if (gop.found_existing) return gop.value_ptr.*;
-            gop.value_ptr.* = null;
-            const found = fields: for (sym.fields orelse &.{}) |*f| {
-                if (try exposedInMember(ctx, f, exposed)) |x| break :fields x;
-            } else null;
-            try exposed.put(ctx.allocator, s, found);
-            return found;
-        },
-        else => {},
-    }
-    var it = sema.typeChildren(ctx, ty);
-    while (it.next()) |c| if (try exposedInstance(ctx, c, exposed)) |x| return x;
-    return null;
 }
 
 /// A leaf match pattern that binds its name: not the wildcard `_`, and

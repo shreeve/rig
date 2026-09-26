@@ -1888,9 +1888,6 @@ compile-time argument 1 of `show` must be known at compile time
 - A generic function, or any function with compile-time parameters,
   can only be called. `f = max` and `g = max[Int]` are rejected, and a
   closure is never generic.
-- Another module's generic types and functions are used as local ones
-  are (`lib.Box[Int]`, `lib.max(3, 7)`), but a module's public surface
-  may not hold an instance of its own generic types yet.
 - A generic type's value parameters are integers, and a type alias has
   no parameters.
 - An array length or a type's value argument may do arithmetic on
@@ -2790,8 +2787,6 @@ Coming from Rust or Zig, you will reach for these and not find them:
 
 - **traits and bounds**: a generic body may do with `T` only what each
   instance supports ([§14](#what-a-generic-body-may-do-with-t));
-- **generic instances in a public surface**: a `pub` function cannot
-  take or return an instance of its own module's generic type yet;
 - **heap strings and string building**: `String` is an immutable view;
 - **stack closures as arguments**: pass an owned closure (`*|...|`);
 - **concurrency and async**;

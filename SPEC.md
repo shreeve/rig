@@ -3201,9 +3201,12 @@ expression, its type arguments are given or inferred, and its methods
 and variants are reached through it. Each instance a module makes is
 checked where it is made, against what the declaring module's bodies do
 with its type parameters ([§4](#generic-bodies)), and a diagnostic
-about it has a note at that body's line, in its file. No instance of a
-module's own generic type may appear in its public surface yet,
-including in the fields of the private types that surface reaches.
+about it has a note at that body's line, in its file. An instance is
+one type wherever it is reached from: `boxes.Box[Int]` spelled here is
+the type another module's function returns as `boxes.Box[Int]`, even
+through a module that does not import `boxes`. A public signature may
+hold an instance of a private generic type, which importers hold and
+use as they do a private type.
 
 ```rig file=boxes.rig
 pub struct Box[T]
@@ -3541,7 +3544,6 @@ The rest parse, and the checker rejects them as not supported yet
 
 | Form | Diagnostic |
 |---|---|
-| an instance of a module's generic type in its public surface | `` generic types cannot cross module boundaries yet `` |
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |
 | a stack closure passed, stored, or returned | `` closures cannot escape their defining scope `` |
 | an array of owning values | `` arrays cannot hold values that own resources ``; use a `Vec` |

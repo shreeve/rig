@@ -1,0 +1,4 @@
+use lib
+
+pub fun take(x: lib.Box[Int]) -> Int
+  x.v + 1
