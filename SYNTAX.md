@@ -2918,9 +2918,11 @@ type      = ("?" | "!" | "*" | "~" | "[" [dim] "]") type
           | type ("?" | "!")
           | name | name "[" targ, ... "]" | mod "." name | "(" type ")"
           | "fun" "(" type, ... ")" "->" type | "sub" "(" type, ... ")"
-dim       = integer | name | mod "." name | cexp      # an array length
-targ      = type | integer | "-" integer | cexp         # a compile-time argument
+dim       = integer | "-" integer | name | mod "." name | cexp  # an array length
+          | "(" integer ")" | "(" name ")"
+targ      = type | integer | "-" integer | "(" integer ")" | cexp  # a compile-time argument
 cexp      = cunit (("+" | "-" | "*" | "/" | "%") cunit)+  # at least one operator
+          | "(" cexp ")"
 cunit     = integer | name | mod "." name | "(" cexp ")"
 
 stmt      = simple ["if" expr] | ":" label stmt

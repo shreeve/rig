@@ -1,0 +1,22 @@
+# A size, or any operand in one, may be parenthesized.
+
+A =! 2
+B =! 3
+
+struct Ring[T, n: Int]
+  items: [n]T
+
+fun count[n: Int](xs: [(n)]Int) -> Int
+  xs.len
+
+sub main()
+  a: [(A + B)]Int = [0; (A + B)]
+  b: [(A)]Int = [1, 2]
+  c: [((A + B)) * 2]Int = [0; 10]
+  d: [(4)]Int = [0; 4]
+  r = Ring[Int, (A + B)](items: [0; 5])
+  s: Ring[Int, (4)]? = none
+  print(a.len, b.len, c.len, d.len, r.items.len, s == none, count([1, 2, 3]))
+
+# expect:
+# 5 2 10 4 5 true 3

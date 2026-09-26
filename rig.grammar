@@ -548,12 +548,18 @@ types    = targ                                     → (1)
 targ     = type
          | INTEGER
          | MINUS_PREFIX operand:INTEGER             → (neg)
+         | "(" INTEGER ")"                          → 2
          | cexp
 
 # An array size: an integer, a name (a constant or a compile-time
-# parameter), a module's constant, or arithmetic on them.
+# parameter), a module's constant, or arithmetic on them, any of them
+# in parentheses. A negative integer parses, to be reported as out of
+# range.
 dim      = INTEGER
+         | MINUS_PREFIX operand:INTEGER             → (neg)
+         | "(" INTEGER ")"                          → 2
          | name
+         | "(" name ")"                             → 2
          | object:name "." name:name                → (member)
          | cexp
 
@@ -562,6 +568,7 @@ dim      = INTEGER
 # constants, and parenthesized arithmetic.
 cexp     = cmulop
          | caddop
+         | "(" cexp ")"                             → 2
 caddop   = left:cadd "+" right:cmul                 → (+)
          | left:cadd "-" right:cmul                 → (-)
 cadd     = caddop
