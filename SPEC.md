@@ -587,8 +587,10 @@ whose receiver is written `!xs` (or is a `![]T` binding):
 `!dst.copy(src)` copies a `[]T` of the same length into them, and
 panics in every build mode when the lengths differ; `!s.fill(v)` sets
 every element to `v`; `!s.swap(i, j)` exchanges two elements, with both
-indexes checked. `copy` and `fill` copy values in, so the elements are
-plain data; `swap` also moves the handles of a `Vec` of them. `copy`'s
+indexes checked. `copy` and `fill` copy values in, so, as in
+`[n of x]`, the elements are plain data: they own no resource and hold
+no borrow, which a copy would duplicate. `swap` also moves the handles
+of a `Vec` of them. `copy`'s
 receiver and argument never overlap: the write borrow of the receiver
 excludes a read of the same value.
 

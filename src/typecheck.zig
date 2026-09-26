@@ -4759,6 +4759,11 @@ const Checker = struct {
         if (op != .swap and try self.ownsResource(elem, pos, "copies into the elements a value")) {
             return try self.badCall(args, pos, "`{s}` copies values into the elements; a `{s}` owns a resource", .{ method, try self.tyName(elem) });
         }
+        // As in `[n of x]`: a copy of a value holding a borrow would
+        // duplicate the borrow, and a write borrow has one holder.
+        if (op != .swap and sema.holdsBorrow(self.ctx, elem)) {
+            return try self.badCall(args, pos, "`{s}` copies {s}; `{s}` holds a borrow, and the elements must be plain data", .{ method, if (op == .fill) "its value into every element" else "its source into the elements", try self.tyName(elem) });
+        }
         for (args) |a| if (a.isKind(.kwarg)) return try self.badCall(args, a, "`{s}` takes no keyword arguments", .{method});
         const want: usize = if (op == .swap) 2 else 1;
         if (args.len != want) return try self.badCall(args, pos, "`{s}` takes {s}; got {d} argument{s}", .{ method, switch (op) {
