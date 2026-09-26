@@ -113,11 +113,9 @@ const FunState = struct {
     return_ty: ?TypeId = null,
     /// Parameters to bind at the top of the body.
     params: ?Sexp = null,
-    /// Compile-time parameters, discarded at the top of the body when
-    /// unused.
+    /// Compile-time parameters, bound at the top of the body as
+    /// `params` are.
     tparams: Sexp = .nil,
-    /// The declared return type, `_` for none.
-    returns: Sexp = .nil,
     leak_check: bool = false,
     /// A closure's environment parameter, when no capture is used.
     unused_env: []const u8 = "",
@@ -574,7 +572,8 @@ pub const Emitter = struct {
         const is_main = self.sema.is_root and self.nominal == null and node.isKind(.sub) and std.mem.eql(u8, name, "main");
         const return_ty: ?TypeId = if (f.returns == self.sema.types.void_id) null else f.returns;
 
-        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = sema.tparamsOf(node), .returns = rig.returnType(node), .leak_check = is_main };
+        const tparams = sema.tparamsOf(node);
+        self.fun = .{ .return_ty = return_ty, .params = params, .tparams = tparams, .leak_check = is_main };
 
         // The runtime's panic handler flushes buffered `print` output first.
         if (is_main) try self.w.writeAll("pub const panic = rig.panic;\n\n");
@@ -583,7 +582,6 @@ pub const Emitter = struct {
         defer self.popScope() catch {};
         // Compile-time parameters come first, after a method's receiver,
         // which Zig's method call syntax needs first.
-        const tparams = sema.tparamsOf(node);
         try self.bindParams(tparams);
         try self.bindParams(params);
         const rt = params.items();
@@ -666,17 +664,11 @@ pub const Emitter = struct {
             try self.line("_ = {s};", .{self.fun.unused_env});
             self.fun.unused_env = "";
         }
-        for (self.fun.tparams.items()) |p| {
-            const local = self.localOf(sema.paramNameNode(p) orelse continue) orelse continue;
-            // A type parameter is used by the signature, too.
-            if (self.usage.used.contains(local.sym) or self.mentions(self.fun.params orelse .nil, local.sym) or self.mentions(self.fun.returns, local.sym)) continue;
-            try self.line("_ = {s};", .{local.zig_name});
-        }
+        const tparams = self.fun.tparams;
         self.fun.tparams = .nil;
-        const params = self.fun.params orelse return;
+        const params = self.fun.params orelse Sexp.nil;
         self.fun.params = null;
-        if (params != .list) return;
-        for (params.items()) |p| {
+        for ([_]Sexp{ tparams, params }) |group| for (group.items()) |p| {
             const local = self.localOf(sema.paramNameNode(p) orelse continue) orelse continue;
             if (local.param_name.len > 0) {
                 try self.line("var {s} = {s};", .{ local.zig_name, local.param_name });
@@ -692,7 +684,7 @@ pub const Emitter = struct {
             } else if (!self.usage.used.contains(local.sym) and !std.mem.eql(u8, local.zig_name, "_")) {
                 try self.line("_ = {s};", .{local.zig_name});
             }
-        }
+        };
     }
 
     // =========================================================================
@@ -3755,7 +3747,12 @@ const Scan = struct {
             .list => {},
             else => return,
         }
-        const head = sexp.kind() orelse return;
+        // A group (parameters, a function type's parameters) names
+        // what it holds, too.
+        const head = sexp.kind() orelse {
+            for (sexp.items()) |c| try s.walk(c);
+            return;
+        };
         switch (head) {
             .set => if (rig.bindingKindOf(ir.Set.op(sexp)) == .move) try s.consume(ir.Set.value(sexp)),
             .move => try s.consume(ir.Move.operand(sexp)),

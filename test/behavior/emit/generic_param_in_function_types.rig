@@ -1,0 +1,20 @@
+# A type parameter used only in a closure's parameter types, or in the
+# parameters of a function type, is still used, and a compile-time
+# parameter may be named `_`.
+
+fun zero[T](x: Int) -> Int
+  f = |y: Int, z: T?| y
+  f(x, none)
+
+fun seven[T](x: Int) -> Int
+  f: fun(T?) -> Int = |y| 7
+  f(none)
+
+fun skip[_: Int, _](x: Int) -> Int
+  x
+
+sub main()
+  print(zero[Int](1), seven[String](2), skip[3, Bool](4))
+
+# expect:
+# 1 7 4
