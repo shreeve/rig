@@ -1,0 +1,44 @@
+# `|!x|` writes the binding it captures whatever its initializer: a
+# call's result, a struct holding a borrow, a shared handle. A closure
+# may store what it captured to read through a write capture: the
+# written value then borrows it.
+
+struct View
+  w: ?Vec[Int]
+  n: Int
+
+struct Wrap
+  n: Int
+
+fun seed(n: Int) -> Int
+  n + 1
+
+sub main
+  x = seed(1)
+  f = |!x|
+    x += 1
+  f()
+  print(x)
+  a: Vec[Int] = Vec()
+  v = View(w: ?a, n: 0)
+  g = |!v|
+    v.n = 3
+  g()
+  print(v.n)
+  h = *Wrap(n: 1)
+  swap = |!h|
+    h = *Wrap(n: 5)
+  swap()
+  print(h.n)
+  b: Vec[Int] = Vec()
+  !b.push(9)
+  keep = |!v, ?b|
+    v.w = b
+  keep()
+  print(v.w.len)
+
+# expect:
+# 3
+# 3
+# 5
+# 1

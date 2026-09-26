@@ -233,6 +233,8 @@ const SymbolResolver = struct {
                 try self.ctx.note(self.ctx.symbols.items[first].decl_pos, "first captured here", .{});
                 continue;
             }
+            // `|!x|` writes the binding it captures, as `!x` does.
+            if (cap.isKind(.cap_write)) try self.markWritten(name_node);
             _ = try self.declare(name_node, .capture, .{});
         }
         try self.bindParams(ir.Lambda.params(node), .run_time, .nil, captures);
