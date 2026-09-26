@@ -2860,28 +2860,16 @@ const Checker = struct {
 
     /// `*T?` / `~T?` written as a type argument: an optional handle, since
     /// a handle binds tighter than a suffix. An expression reads it as the
-    /// handle of `T?`, so the suffixes move outside the handle unless
-    /// parentheses after the sigil enclose them (`*(T?)`). Null when `e`
+    /// handle of `T?`, so the suffixes move outside the handle. A handle
+    /// to an optional, `*(T?)`, has no expression spelling. Null when `e`
     /// has no suffix to move.
     fn optionalHandleArg(self: *Checker, e: Sexp) Error!?TypeId {
         const op = ir.get(e, .operand);
         if (!op.isKind(.propagate_none)) return null;
-        const src = self.ctx.source;
-        const sigil = self.startOf(e);
-        const end = self.ctx.span(op).end;
-        // `*(T?)`: the parenthesis after the sigil closes after the suffix.
-        if (sigil + 1 < src.len and src[sigil + 1] == '(') {
-            var depth: u32 = 0;
-            const close = for (src[sigil + 1 ..], sigil + 1..) |c, i| switch (c) {
-                '(' => depth += 1,
-                ')' => {
-                    depth -= 1;
-                    if (depth == 0) break i;
-                },
-                else => {},
-            } else src.len;
-            if (close + 1 >= end) return null;
-        }
+        if (self.ctx.parser) |p| if (p.hasParenSuffix(e)) {
+            try self.errAt(e, "a handle to an optional has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead", .{});
+            return self.t().invalid_id;
+        };
         var count: u32 = 0;
         var base = op;
         while (base.isKind(.propagate_none)) : (count += 1) base = ir.PropagateNone.value(base);

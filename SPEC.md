@@ -3627,6 +3627,40 @@ sub main
 a slice or array type has no expression spelling
 ```
 
+In an expression, `*T?` as a type argument is an optional handle, as
+in a type (`Cell[*Node?](value: none)`). A handle to an optional,
+`*(T?)`, has no expression spelling; name it with a `type` alias:
+
+```rig
+struct Node
+  value: Int
+
+type Held = *(Node?)
+
+sub main
+  a = Cell[*Node?](value: none)
+  b = Cell[Held](value: *none)
+  print(a.replace(none) == none)
+  old = b.replace(*none)
+  -old
+```
+
+```output
+true
+```
+
+```rig reject
+struct Node
+  value: Int
+
+sub main
+  b = Cell[*(Node?)](value: *none)
+```
+
+```error
+a handle to an optional has no expression spelling
+```
+
 ---
 
 ## 18. Printing

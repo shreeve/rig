@@ -1,6 +1,8 @@
 # A handle binds tighter than a suffix, so a handle to an optional is
-# written with parentheses, `*(Node?)`, and is not itself optional; the
-# same holds in a type argument written in an expression.
+# written with parentheses, `*(Node?)`, and is not itself optional. As a
+# type argument in an expression it has no spelling: an expression reads
+# `*Node?` as an optional handle, so `*(Node?)` there is rejected with the
+# ways to name it.
 
 struct Node
   value: Int
@@ -8,8 +10,10 @@ struct Node
 sub main()
   c: *(Node?) = none
   d = Cell[*(Node?)](value: none)
+  f = Cell[~(Node?)?](value: none)
   e: ?*Node? = 1
 
-# error: 9:17: `none` needs an optional type; `*(Node?)` is not optional (write `*(Node?)?`)
-# error: 10:29: `none` needs an optional type; `*(Node?)` is not optional (write `*(Node?)?`)
-# error: 11:16: expected `?*Node?`
+# error: 11:17: `none` needs an optional type; `*(Node?)` is not optional (write `*(Node?)?`)
+# error: 12:12: a handle to an optional has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead
+# error: 13:12: a handle to an optional has no expression spelling
+# error: 14:16: expected `?*Node?`

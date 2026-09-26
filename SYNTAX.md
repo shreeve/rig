@@ -1706,9 +1706,10 @@ sub main
 ```
 
 A type argument in an expression is written as an expression: a name,
-`mod.Type`, `*T`, `~T`, `T?`, or an instance. A slice, array, or
-function type has no such spelling, so give it a `type` alias, or write
-the type where the value goes:
+`mod.Type`, `*T`, `~T`, `T?`, `*T?` (an optional handle, as in a type),
+or an instance. A slice, array, or function type, and a handle to an
+optional (`*(T?)`), have no such spelling, so give them a `type` alias,
+or write the type where the value goes:
 
 ```rig
 struct Wrap[T]
@@ -1926,7 +1927,7 @@ compile-time argument 1 of `show` must be known at compile time
   constants (`[LIMIT * 2]T`), but not on a compile-time parameter
   (`[n + 1]T`), and not call a function (`[f() of 0]`).
 - In an expression, a type argument with no expression spelling
-  (`[]T`, `[N]T`, `fun(...)`) needs a `type` alias.
+  (`[]T`, `[N]T`, `fun(...)`, `*(T?)`) needs a `type` alias.
 
 ### Rust, Zig, and Rig
 

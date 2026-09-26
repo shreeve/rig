@@ -351,8 +351,12 @@ A few kinds serve more than one surface form:
   (`typeArg`); `[]T`, `[N]T`, and function types have no such
   spelling, and the parser wrapper reports them with a hint. There
   `*T?` is `(share (propagate_none T))`, which `typeArg` reads as an
-  optional handle, as the type grammar does, unless parentheses after
-  the sigil enclose the suffix (`*(T?)`).
+  optional handle, as the type grammar does. A handle to an optional,
+  `*(T?)`, has no expression spelling either; the tree drops its
+  parentheses, so the parser wrapper records each `share` or `weak`
+  whose operand has a suffix inside parentheses right after the sigil
+  (`hasParenSuffix`, from the spans, as it finds receiver sigils), and
+  `typeArg` rejects it with a hint.
 - `array_type`'s `size`, and a `generic_inst`'s arguments, may be an
   integer, a name, a `member` (`lib.N`), a `neg` integer (arguments
   only), or `+ - * / %` over those; sema reads a name by the slot it

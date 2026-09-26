@@ -993,6 +993,10 @@ pub const Parser = struct {
     /// The node ids of the `(write place)` and `(move place)` receivers
     /// written in front of the call (`!v.push(x)`), not in parentheses.
     receiver_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// The node ids of the `(share x)` and `(weak x)` whose operand has a
+    /// `?` suffix inside parentheses that open right after the sigil
+    /// (`*(T?)`), which the tree does not keep.
+    paren_suffixes: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
 
     /// Every pass walks the tree recursively; deeper trees are rejected
     /// here instead of exhausting the stack later.
@@ -1324,6 +1328,7 @@ pub const Parser = struct {
         switch (out.kind() orelse return out) {
             .lambda => try self.splitBars(out, walked),
             .write, .move => return self.receiverSigil(out),
+            .share, .weak => try self.noteParenSuffix(out),
             // The body's value is returned.
             .fun => if (ir.Fun.returns(out) != .nil) valueTail(ir.Fun.body(out)),
             // The expression's value is bound or returned.
@@ -1332,6 +1337,24 @@ pub const Parser = struct {
             else => {},
         }
         return out;
+    }
+
+    /// `*(T?)` and `~(T?)`: a `?` suffix of the operand sits inside
+    /// parentheses that open right after the sigil, so the suffix belongs
+    /// to what the handle holds. `*T?` and `*(T)?` have none: every
+    /// suffix layer starts right after the sigil.
+    fn noteParenSuffix(self: *Parser, node: Sexp) std.mem.Allocator.Error!void {
+        const at = self.span(node).start + 1;
+        var e = ir.get(node, .operand);
+        while (e.isKind(.propagate_none)) : (e = ir.PropagateNone.value(e)) {
+            if (self.span(e).start != at) return self.paren_suffixes.put(self.allocator(), node.list.id, {});
+        }
+    }
+
+    /// Whether `node`, a `share` or `weak`, has a parenthesized suffix in
+    /// its operand: `*(T?)`, not `*T?` or `*(T)?`.
+    pub fn hasParenSuffix(self: *const Parser, node: Sexp) bool {
+        return node == .list and self.paren_suffixes.contains(node.list.id);
     }
 
     /// Whether `node` is a receiver sigil the wrapper moved onto the
