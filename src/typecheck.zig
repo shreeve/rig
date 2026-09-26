@@ -2326,6 +2326,13 @@ const Checker = struct {
             try self.errAt(operand, "this value is already a shared handle `{s}`; `*` would nest handles. Clone it with `+x` for another handle", .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
+        switch (self.ctx.types.get(inner)) {
+            .borrow_read, .borrow_write => {
+                try self.errAt(operand, "a handle holds a value, not a borrow; `{s}` is a borrow: share an owned value instead", .{try self.tyName(inner)});
+                return self.t().invalid_id;
+            },
+            else => {},
+        }
         return self.ctx.intern(.{ .shared = inner });
     }
 
@@ -2828,6 +2835,10 @@ const Checker = struct {
                     if (self.isPoison(inner)) return inner;
                     if (e.isKind(.share) and self.ctx.types.get(inner) == .shared) {
                         try self.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
+                        return self.t().invalid_id;
+                    }
+                    if ((e.isKind(.share) or e.isKind(.weak)) and sema.isBorrowType(self.ctx, inner)) {
+                        try self.errAt(e, "a handle holds a value, not a borrow: `{s}` has no handle", .{try self.tyName(inner)});
                         return self.t().invalid_id;
                     }
                     return self.ctx.intern(switch (e.kind().?) {

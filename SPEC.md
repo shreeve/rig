@@ -528,7 +528,9 @@ included: `?User?` and `!User?` borrow an optional `User`, and
 `?*User?` borrows an optional handle. The element of a slice or array
 takes the suffixes (`[]Int?` is a slice of optionals), so an optional
 slice, array, or function type is written in parentheses: `([]Int)?`,
-`(*sub())?`. Prefixes compose right to left: `?*Wrap` is a read borrow
+`(*sub())?`, and so is an optional of an optional, `(User?)?` (`??` is
+an operator). A handle holds a value, never a borrow: `*(?User)` is
+rejected. Prefixes compose right to left: `?*Wrap` is a read borrow
 of a shared handle, and `*Cell[Vec[*sub()]]` is a shared cell holding a
 list of owned closures.
 

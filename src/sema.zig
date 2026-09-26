@@ -2454,6 +2454,14 @@ pub fn isInteger(ctx: *const SemContext, ty: TypeId) bool {
     };
 }
 
+/// A read or write borrow type: `?T`, `!T`.
+pub fn isBorrowType(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .borrow_read, .borrow_write => true,
+        else => false,
+    };
+}
+
 /// Peel `?T` / `!T`.
 pub fn unwrapBorrows(ctx: *const SemContext, ty_id: TypeId) TypeId {
     var id = ty_id;
@@ -3044,10 +3052,13 @@ fn formatTypeList(ctx: *const SemContext, a: std.mem.Allocator, ids: []const Typ
 
 /// `T?` / `T!`. A handle binds tighter than a suffix (`*T?` is an
 /// optional handle), so only a prefix type that a suffix cannot follow
-/// takes parentheses: `(?T)?`, `([]Int)?`, `(*sub())?`.
+/// takes parentheses: `(?T)?`, `([]Int)?`, `(*sub())?`; and so does an
+/// optional of an optional, `(T?)?`.
 fn formatSuffixed(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, suffix: u8) ![]const u8 {
     const s = try formatTypeIn(ctx, a, inner);
-    return if (takesNoSuffix(ctx, inner))
+    // `N??` would lex as the `??` operator: `(N?)?`.
+    const doubled = suffix == '?' and ctx.types.get(inner) == .optional;
+    return if (doubled or takesNoSuffix(ctx, inner))
         std.fmt.allocPrint(a, "({s}){c}", .{ s, suffix })
     else
         std.fmt.allocPrint(a, "{s}{c}", .{ s, suffix });
@@ -3069,7 +3080,8 @@ fn takesNoSuffix(ctx: *const SemContext, ty: TypeId) bool {
 fn formatHandle(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, sigil: u8) ![]const u8 {
     const s = try formatTypeIn(ctx, a, inner);
     return switch (ctx.types.get(inner)) {
-        .optional, .fallible => std.fmt.allocPrint(a, "{c}({s})", .{ sigil, s }),
+        // A handle binds tighter than a suffix, and takes no borrow prefix.
+        .optional, .fallible, .borrow_read, .borrow_write => std.fmt.allocPrint(a, "{c}({s})", .{ sigil, s }),
         else => std.fmt.allocPrint(a, "{c}{s}", .{ sigil, s }),
     };
 }

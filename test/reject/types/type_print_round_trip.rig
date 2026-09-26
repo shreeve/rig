@@ -1,0 +1,78 @@
+# Every type a diagnostic prints is spelled so that it parses back to
+# the same type: each binding below is written either in a type's
+# printed spelling or another spelling of it, and the message prints the
+# former. Handles bind tighter than suffixes, `N??` would lex as `??`,
+# and a borrow, slice, array, or function type takes parentheses before
+# a suffix.
+
+struct N
+  a: Int
+
+sub main
+  x0: (N?)? = 1
+  x1: ((N)?)? = 1
+  x2: ((N?)?)? = 1
+  x3: *N? = 1
+  x4: (*N)? = 1
+  x5: *(N?) = 1
+  x6: *((N)?) = 1
+  x7: *(N?)? = 1
+  x8: ~N? = 1
+  x9: ~(N?) = 1
+  x10: *~N? = 1
+  x11: *(~N?) = 1
+  x12: *(~N)? = 1
+  x13: ?N? = 1
+  x14: (?N)? = 1
+  x15: ?*N? = 1
+  x16: !N? = 1
+  x17: []Int? = 1
+  x18: ([]Int)? = 1
+  x19: [2]N? = 1
+  x20: ([2]N)? = 1
+  x21: [2](N?)? = 1
+  x22: *[]Int? = 1
+  x23: (*[]Int)? = 1
+  x24: *sub() = 1
+  x25: (*sub())? = 1
+  x26: (sub())? = 1
+  x27: *fun(Int) -> Int? = 1
+  x28: (*fun(Int) -> Int)? = 1
+  x29: fun(N?) -> *N? = 1
+  x30: fun((N?)?) -> (N?)? = 1
+  x31: *Vec[Int]? = 1
+  x32: *Vec[(N?)?] = 1
+
+# error: 12:15: type mismatch: expected `(N?)?`, got `Int`
+# error: 13:17: type mismatch: expected `(N?)?`, got `Int`
+# error: 14:18: type mismatch: expected `((N?)?)?`, got `Int`
+# error: 15:13: type mismatch: expected `*N?`, got `Int`
+# error: 16:15: type mismatch: expected `*N?`, got `Int`
+# error: 17:15: type mismatch: expected `*(N?)`, got `Int`
+# error: 18:17: type mismatch: expected `*(N?)`, got `Int`
+# error: 19:16: type mismatch: expected `*(N?)?`, got `Int`
+# error: 20:13: type mismatch: expected `~N?`, got `Int`
+# error: 21:15: type mismatch: expected `~(N?)`, got `Int`
+# error: 22:15: type mismatch: expected `*~N?`, got `Int`
+# error: 23:17: type mismatch: expected `*(~N?)`, got `Int`
+# error: 24:17: type mismatch: expected `*~N?`, got `Int`
+# error: 25:14: type mismatch: expected `?N?`, got `Int`
+# error: 26:16: type mismatch: expected `(?N)?`, got `Int`
+# error: 27:15: type mismatch: expected `?*N?`, got `Int`
+# error: 28:14: type mismatch: expected `!N?`, got `Int`
+# error: 29:17: type mismatch: expected `[]Int?`, got `Int`
+# error: 30:19: type mismatch: expected `([]Int)?`, got `Int`
+# error: 31:16: type mismatch: expected `[2]N?`, got `Int`
+# error: 32:18: type mismatch: expected `([2]N)?`, got `Int`
+# error: 33:19: type mismatch: expected `[2](N?)?`, got `Int`
+# error: 34:18: type mismatch: expected `*[]Int?`, got `Int`
+# error: 35:20: type mismatch: expected `(*[]Int)?`, got `Int`
+# error: 36:17: type mismatch: expected `*sub()`, got `Int`
+# error: 37:20: type mismatch: expected `(*sub())?`, got `Int`
+# error: 38:19: type mismatch: expected `(sub())?`, got `Int`
+# error: 39:28: type mismatch: expected `*fun(Int) -> Int?`, got `Int`
+# error: 40:30: type mismatch: expected `(*fun(Int) -> Int)?`, got `Int`
+# error: 41:25: type mismatch: expected `fun(N?) -> *N?`, got `Int`
+# error: 42:30: type mismatch: expected `fun((N?)?) -> (N?)?`, got `Int`
+# error: 43:21: type mismatch: expected `*Vec[Int]?`, got `Int`
+# error: 44:22: type mismatch: expected `*Vec[(N?)?]`, got `Int`

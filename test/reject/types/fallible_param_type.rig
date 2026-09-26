@@ -1,9 +1,14 @@
-# A fallible type is only allowed as a function's return type.
+# A fallible type is only allowed as a function's return type, a
+# fallible handle included; the message names the whole type.
 
-fun f(a: Int!) -> Int
+struct N
+  a: Int
+
+fun f(a: Int!, b: *N!) -> Int
   1
 
 sub main()
   print(1)
 
-# error: a fallible type `Int!` is only allowed as a function's return type
+# error: 7:10: a fallible type `Int!` is only allowed as a function's return type
+# error: 7:19: a fallible type `*N!` is only allowed as a function's return type

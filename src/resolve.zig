@@ -852,6 +852,13 @@ pub const TypeResolver = struct {
         return self.resolveType(node);
     }
 
+    /// `*(?T)`, `~(!T)`: a handle keeps a value alive, and a borrow is
+    /// no value it could keep.
+    fn handleOfBorrow(self: *TypeResolver, node: Sexp, inner: TypeId) Error!TypeId {
+        try self.ctx.errAt(node, "a handle holds a value, not a borrow: `{s}` has no handle", .{try sema.formatType(self.ctx, inner)});
+        return self.ctx.types.invalid_id;
+    }
+
     pub fn resolveParamType(self: *TypeResolver, param: Sexp) Error!TypeId {
         switch (param) {
             .src => |s| {
@@ -1409,12 +1416,13 @@ pub const TypeResolver = struct {
                     .error_union => {
                         const inner = try self.resolveType(ir.ErrorUnion.type(sexp));
                         const ty = try self.ctx.intern(.{ .fallible = inner });
-                        try self.ctx.errAt(sexp, "a fallible type `{s}` is only allowed as a function's return type (a fallible handle is `*T!`)", .{try sema.formatType(self.ctx, ty)});
+                        try self.ctx.errAt(sexp, "a fallible type `{s}` is only allowed as a function's return type", .{try sema.formatType(self.ctx, ty)});
                         return t.invalid_id;
                     },
                     .optional, .borrow_read, .borrow_write, .weak, .slice => {
                         const inner = try self.resolveType(if (head == .weak) ir.Weak.operand(sexp) else ir.get(sexp, .type));
                         if (inner == t.invalid_id) return t.invalid_id;
+                        if (head == .weak and sema.isBorrowType(self.ctx, inner)) return self.handleOfBorrow(sexp, inner);
                         return self.ctx.intern(switch (head) {
                             .optional => .{ .optional = inner },
                             .borrow_read => .{ .borrow_read = inner },
@@ -1431,6 +1439,7 @@ pub const TypeResolver = struct {
                             try self.ctx.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
                             return t.invalid_id;
                         }
+                        if (sema.isBorrowType(self.ctx, inner)) return self.handleOfBorrow(sexp, inner);
                         if (self.ctx.types.get(inner) == .function) try self.checkWhenResolved(.{ .owned_closure = .{ .node = inner_node, .ty = inner } });
                         return self.ctx.intern(.{ .shared = inner });
                     },

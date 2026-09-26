@@ -548,6 +548,7 @@ thandle  = SHARE_PFX type:thandle                   → (shared)
 tatom    = tname
          | name:tname LBRACKET_INDEX args:types [","] "]" → (generic_inst)
          | "(" type ")"                             → 2
+         | LPAREN_CALL type ")"                     → 2      # `[2](N?)?`: touching `]`
 
 # A named type, of this module or another: `Point`, `geo.Point`. Its
 # instance names it the same way: `Wrap[Int]`, `lib.Wrap[Int]`.
