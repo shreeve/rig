@@ -1,0 +1,15 @@
+# A handle binds tighter than a suffix, so a handle to an optional is
+# written with parentheses, `*(Node?)`, and is not itself optional; the
+# same holds in a type argument written in an expression.
+
+struct Node
+  value: Int
+
+sub main()
+  c: *(Node?) = none
+  d = Cell[*(Node?)](value: none)
+  e: ?*Node? = 1
+
+# error: 9:17: `none` needs an optional type; `*(Node?)` is not optional (write `*(Node?)?`)
+# error: 10:29: `none` needs an optional type; `*(Node?)` is not optional (write `*(Node?)?`)
+# error: 11:16: expected `?*Node?`

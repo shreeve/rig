@@ -2768,6 +2768,7 @@ const Checker = struct {
             .list => switch (e.kind() orelse return self.t().invalid_id) {
                 .member => if (ir.Member.object(e) == .src) return r.resolveType(e),
                 .share, .weak, .read, .write, .propagate_none => {
+                    if (e.isKind(.share) or e.isKind(.weak)) if (try self.optionalHandleArg(e)) |ty| return ty;
                     const inner_node = ir.get(e, if (e.isKind(.propagate_none)) .value else .operand);
                     const inner = try self.typeArg(inner_node);
                     if (self.isPoison(inner)) return inner;
@@ -2801,6 +2802,44 @@ const Checker = struct {
         }
         try self.errAt(e, "`{s}` is not a type; a type argument in an expression is a name, `module.Type`, `*T`, `~T`, `?T`, `!T`, `T?`, or `X[T]`", .{try self.sourceText(e)});
         return self.t().invalid_id;
+    }
+
+    /// `*T?` / `~T?` written as a type argument: an optional handle, since
+    /// a handle binds tighter than a suffix. An expression reads it as the
+    /// handle of `T?`, so the suffixes move outside the handle unless
+    /// parentheses after the sigil enclose them (`*(T?)`). Null when `e`
+    /// has no suffix to move.
+    fn optionalHandleArg(self: *Checker, e: Sexp) Error!?TypeId {
+        const op = ir.get(e, .operand);
+        if (!op.isKind(.propagate_none)) return null;
+        const src = self.ctx.source;
+        const sigil = self.startOf(e);
+        const end = self.ctx.span(op).end;
+        // `*(T?)`: the parenthesis after the sigil closes after the suffix.
+        if (sigil + 1 < src.len and src[sigil + 1] == '(') {
+            var depth: u32 = 0;
+            const close = for (src[sigil + 1 ..], sigil + 1..) |c, i| switch (c) {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if (depth == 0) break i;
+                },
+                else => {},
+            } else src.len;
+            if (close + 1 >= end) return null;
+        }
+        var count: u32 = 0;
+        var base = op;
+        while (base.isKind(.propagate_none)) : (count += 1) base = ir.PropagateNone.value(base);
+        const inner = try self.typeArg(base);
+        if (self.isPoison(inner)) return inner;
+        if (e.isKind(.share) and self.ctx.types.get(inner) == .shared) {
+            try self.errAt(base, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
+            return self.t().invalid_id;
+        }
+        var ty = try self.ctx.intern(if (e.isKind(.share)) .{ .shared = inner } else .{ .weak = inner });
+        while (count > 0) : (count -= 1) ty = try self.ctx.intern(.{ .optional = ty });
+        return ty;
     }
 
     /// `Wrap[Int](v: 3)`, `Vec[Int]()`: a generic type constructed at the
@@ -4972,10 +5011,9 @@ const Checker = struct {
                 else => break,
             }
         }
-        const name = try self.tyName(expected);
-        // A prefixed type takes parentheses before the `?`: `(*B)?`, `([2]Int)?`.
-        const wrap = name.len > 0 and std.mem.indexOfScalar(u8, "*~?![", name[0]) != null;
-        try self.errAt(e, "`none` needs an optional type; `{s}` is not optional (write `{s}{s}{s}?`)", .{ name, if (wrap) "(" else "", name, if (wrap) ")" else "" });
+        // Spelled as a type is: `*B?`, `([2]Int)?`.
+        const optional = try self.ctx.intern(.{ .optional = expected });
+        try self.errAt(e, "`none` needs an optional type; `{s}` is not optional (write `{s}`)", .{ try self.tyName(expected), try self.tyName(optional) });
         return self.t().invalid_id;
     }
 

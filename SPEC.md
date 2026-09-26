@@ -519,11 +519,46 @@ that returns part of its argument takes `xs: []T`.
 | `Cell[T]`, `Vec[T]`, `Signal[T]` | built-in generic types | [§11](#11-cell-vec-and-signal) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§4](#4-declarations), [§15](#15-modules) |
 
-Suffixes bind tighter than prefixes: `*User?` is a shared handle to an
-optional `User`, and an optional shared handle is written `(*User)?`.
-Prefixes compose right to left: `?*Wrap` is a read borrow of a shared
-handle, and `*Cell[Vec[*sub()]]` is a shared cell holding a list of
-owned closures.
+The handle sigils `*` and `~` bind to the type they touch, tighter than
+the suffixes: `*User?` is an optional shared handle and `~User?` an
+optional weak handle, while a handle to an optional `User` is written
+`*(User?)`. A borrow applies to the whole type after it, suffixes
+included: `?User?` and `!User?` borrow an optional `User`, and
+`?*User?` borrows an optional handle. The element of a slice or array
+takes the suffixes (`[]Int?` is a slice of optionals), so an optional
+slice, array, or function type is written in parentheses: `([]Int)?`,
+`(*sub())?`. Prefixes compose right to left: `?*Wrap` is a read borrow
+of a shared handle, and `*Cell[Vec[*sub()]]` is a shared cell holding a
+list of owned closures.
+
+```rig
+struct User
+  name: String
+
+fun named(u: ?*User?) -> Bool
+  u != none
+
+sub main
+  a: *User? = none
+  b: *User? = *User(name: "ada")
+  print(named(?a), named(?b))
+```
+
+```output
+false true
+```
+
+```rig reject
+struct User
+  name: String
+
+sub main
+  c: *(User?) = none
+```
+
+```error
+`none` needs an optional type; `*(User?)` is not optional (write `*(User?)?`)
+```
 
 ### Copy values and owning values
 
@@ -2454,7 +2489,7 @@ cannot assign through shared handle
 
 `~h` makes a weak handle `~T` from a shared one. A weak handle does not
 keep the value alive. `w.upgrade()` returns an optional strong handle
-`(*T)?`: a new owner while the value is alive, `none` after.
+`*T?`: a new owner while the value is alive, `none` after.
 
 ```rig
 struct Node
@@ -3008,7 +3043,7 @@ sub main
 grace none none
 ```
 
-An optional of an owning value (such as `(*T)?` from `upgrade()`) owns
+An optional of an owning value (such as `*T?` from `upgrade()`) owns
 what it holds. `if e as x` over a temporary gives `x` ownership, and it
 is dropped at the end of the block. An optional held in a binding is
 bound by moving or cloning it: `if <m as x`, `if +m as x`, and

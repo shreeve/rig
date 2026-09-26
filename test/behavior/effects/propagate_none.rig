@@ -20,7 +20,7 @@ fun both(a: Int, b: Int) -> Int?
   defer print("leaving both")
   find(a)?.age + find(b)?.age
 
-fun boxed(n: Int) -> (*Wrap)?
+fun boxed(n: Int) -> *Wrap?
   return *Wrap(n: n) if n > 0
   none
 

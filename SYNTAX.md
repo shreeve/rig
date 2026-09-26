@@ -498,9 +498,11 @@ operands have different types `I32` and `Int`
 | `Name[T]` | generic instance | `Name<T>` | `Name(T)` |
 | `mod.Name` | imported type | `mod::Name` | `mod.Name` |
 
-Suffixes bind tighter than prefixes: `*User?` is a shared handle to an
-optional `User`, and an optional shared handle is `(*User)?`. Prefixes
-compose right to left: `?*Node` is a read borrow of a shared handle.
+The handle sigils `*` and `~` bind tightest: `*User?` is an optional
+shared handle (Rust's `Option<Rc<User>>`), and `*(User?)` a handle to
+an optional. A borrow applies to the whole type, suffixes included:
+`?User?` borrows an optional, as `&Option<User>` does. Prefixes compose
+right to left: `?*Node` is a read borrow of a shared handle.
 
 ### Copy and owning values
 
@@ -2217,7 +2219,7 @@ sub main
 cannot assign through shared handle
 ```
 
-`~h` is a weak handle; `w.upgrade()` returns `(*T)?`, a new strong
+`~h` is a weak handle; `w.upgrade()` returns `*T?`, a new strong
 handle while the value lives and `none` after. A cycle of strong
 handles leaks, as in Rust; break it with a weak handle.
 
@@ -2868,7 +2870,9 @@ are in the [roadmap](docs/ROADMAP.md).
 | `e!` | unwrap, or propagate the error |
 
 **Type prefixes:** `?T` read borrow, `!T` write borrow, `*T` shared,
-`~T` weak, `[N]T` array, `[]T` slice.
+`~T` weak, `[N]T` array, `[]T` slice. `*` and `~` bind tighter than a
+suffix (`*T?` is an optional handle, `*(T?)` a handle to an optional);
+a borrow covers the suffixes (`?T?` borrows an optional).
 
 **Array literals:** `[a, b, c]` elements, `[n of x]` `n` copies of `x`
 (`of` is a keyword only there; elsewhere it is a name).
@@ -2951,10 +2955,11 @@ test      = "test" string block
 extern    = "extern" ("fun" | "sub") name ["(" params ")"] ["->" type]
           | "extern" name ":" type
 
-type      = ("?" | "!" | "*" | "~" | "[" [dim] "]") type
-          | type ("?" | "!")
-          | name | name "[" targ, ... "]" | mod "." name | "(" type ")"
-          | "fun" "(" type, ... ")" "->" type | "sub" "(" type, ... ")"
+type      = ("?" | "!") type | ptype | tsuffix
+ptype     = ("*" | "~")* ("[" [dim] "]" type | "fun" "(" type, ... ")" "->" type
+          | "sub" "(" type, ... ")")
+tsuffix   = tsuffix ("?" | "!") | ("*" | "~")* tatom  # `*T?`: an optional handle
+tatom     = name | name "[" targ, ... "]" | mod "." name | "(" type ")"
 dim       = integer | "-" integer | name | mod "." name | cexp  # an array length
           | "(" integer ")" | "(" name ")"
 targ      = type | integer | "-" integer | "(" integer ")" | cexp  # a compile-time argument

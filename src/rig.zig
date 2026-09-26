@@ -1719,7 +1719,7 @@ test "parser: every form parses" {
         \\  n: fun() -> Int = f
         \\  n2: *sub(Int, ?Wrap[Int]) = h
         \\  n3: sub() = i
-        \\  o2: (*Wrap[Int])? = none
+        \\  o2: *Wrap[Int]? = none
         \\  p2 = Pair[Int, String].make(f[3](1), v[0])
         \\  o3: []~Int = o
         \\  return x

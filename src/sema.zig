@@ -2892,8 +2892,8 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
         .fallible => |inner| try formatSuffixed(ctx, a, inner, '!'),
         .borrow_read => |inner| try std.fmt.allocPrint(a, "?{s}", .{try formatTypeIn(ctx, a, inner)}),
         .borrow_write => |inner| try std.fmt.allocPrint(a, "!{s}", .{try formatTypeIn(ctx, a, inner)}),
-        .shared => |inner| try std.fmt.allocPrint(a, "*{s}", .{try formatTypeIn(ctx, a, inner)}),
-        .weak => |inner| try std.fmt.allocPrint(a, "~{s}", .{try formatTypeIn(ctx, a, inner)}),
+        .shared => |inner| try formatHandle(ctx, a, inner, '*'),
+        .weak => |inner| try formatHandle(ctx, a, inner, '~'),
         .slice => |s| try std.fmt.allocPrint(a, "[]{s}", .{try formatTypeIn(ctx, a, s.elem)}),
         .array => |arr| try std.fmt.allocPrint(a, "[{s}]{s}", .{ try formatTypeIn(ctx, a, arr.len), try formatTypeIn(ctx, a, arr.elem) }),
         .range => |e| try std.fmt.allocPrint(a, "range of {s}", .{try formatTypeIn(ctx, a, e)}),
@@ -2929,20 +2929,36 @@ fn formatTypeList(ctx: *const SemContext, a: std.mem.Allocator, ids: []const Typ
     return buf.items;
 }
 
-/// `T?` / `T!`, parenthesizing prefix forms: `(*T)?` is an optional
-/// handle, while `*T?` would be a handle to an optional.
+/// `T?` / `T!`. A handle binds tighter than a suffix (`*T?` is an
+/// optional handle), so only a prefix type that a suffix cannot follow
+/// takes parentheses: `(?T)?`, `([]Int)?`, `(*sub())?`.
 fn formatSuffixed(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, suffix: u8) ![]const u8 {
     const s = try formatTypeIn(ctx, a, inner);
-    const parens = switch (ctx.types.get(inner)) {
-        .shared, .weak, .borrow_read, .borrow_write => true,
-        // `fun(Int) -> Int?` returns an optional.
-        .function => |f| !f.is_sub,
-        else => false,
-    };
-    return if (parens)
+    return if (takesNoSuffix(ctx, inner))
         std.fmt.allocPrint(a, "({s}){c}", .{ s, suffix })
     else
         std.fmt.allocPrint(a, "{s}{c}", .{ s, suffix });
+}
+
+/// A type whose spelling a suffix cannot follow: a borrow (which covers
+/// the suffix), a slice or array (whose element takes it), a function
+/// type (`fun(Int) -> Int?` returns an optional), or a handle to one.
+fn takesNoSuffix(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .borrow_read, .borrow_write, .function, .slice, .array => true,
+        .shared, .weak => |inner| takesNoSuffix(ctx, inner),
+        else => false,
+    };
+}
+
+/// `*T` / `~T`, parenthesizing a suffixed operand: `*(T?)` is a handle
+/// to an optional, while `*T?` is an optional handle.
+fn formatHandle(ctx: *const SemContext, a: std.mem.Allocator, inner: TypeId, sigil: u8) ![]const u8 {
+    const s = try formatTypeIn(ctx, a, inner);
+    return switch (ctx.types.get(inner)) {
+        .optional, .fallible => std.fmt.allocPrint(a, "{c}({s})", .{ sigil, s }),
+        else => std.fmt.allocPrint(a, "{c}{s}", .{ sigil, s }),
+    };
 }
 
 // =============================================================================

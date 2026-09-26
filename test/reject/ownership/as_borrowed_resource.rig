@@ -21,7 +21,7 @@ sub main()
   peek(?r)
   spin(!r)
   h = *Vec[Int]()
-  o: (*Vec[Int])? = +h
+  o: *Vec[Int]? = +h
   b = ?o
   if b as x
     print(x.len)

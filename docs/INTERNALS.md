@@ -139,7 +139,7 @@ The grammar's own shape settles the rest:
 | Ambiguity | Resolution |
 |---|---|
 | a closure's body vs a call of the closure (`\|x\| f(...)`) | a closure is a lowest-precedence expression, never an operand, so nothing follows its body |
-| type prefixes vs `T?` / `T!` suffixes | types are stratified: prefixes over suffixes over atoms; suffixes bind tighter |
+| type prefixes vs `T?` / `T!` suffixes | types are stratified: borrows over suffixes over handles over atoms, so `*T?` is an optional handle and `?T?` a borrow of an optional; slice, array, and function types take no suffix (`ptype`) |
 | `\|k\| (k)`: parameter list or parenthesized body | parameters live in the bar list; `name:` is a `KWARG_NAME` |
 | `return` / `break` / `continue` inside conditions | they are statements; a guard applies to a whole simple statement |
 | dangling `else` in guards and ternaries | conditions are block-free values; the ternary has its own token; `else` only follows a block |

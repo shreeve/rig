@@ -1,4 +1,4 @@
-# The `(*T)?` from `upgrade()` is an owning handle: `+m` clones it, `-m`
+# The `*T?` from `upgrade()` is an owning handle: `+m` clones it, `-m`
 # drops it, and the clone keeps the value alive until it goes.
 
 struct Noisy

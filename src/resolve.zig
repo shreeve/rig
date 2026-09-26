@@ -1402,7 +1402,7 @@ pub const TypeResolver = struct {
                     .error_union => {
                         const inner = try self.resolveType(ir.ErrorUnion.type(sexp));
                         const ty = try self.ctx.intern(.{ .fallible = inner });
-                        try self.ctx.errAt(sexp, "a fallible type `{s}` is only allowed as a function's return type (a fallible handle is `(*T)!`)", .{try sema.formatType(self.ctx, ty)});
+                        try self.ctx.errAt(sexp, "a fallible type `{s}` is only allowed as a function's return type (a fallible handle is `*T!`)", .{try sema.formatType(self.ctx, ty)});
                         return t.invalid_id;
                     },
                     .optional, .borrow_read, .borrow_write, .weak, .slice => {

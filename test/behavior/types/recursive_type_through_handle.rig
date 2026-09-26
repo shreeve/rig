@@ -2,7 +2,7 @@
 
 struct Node
   n: Int
-  next: (*Node)?
+  next: *Node?
 
 struct Tree
   n: Int

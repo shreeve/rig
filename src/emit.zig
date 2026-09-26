@@ -52,7 +52,7 @@ const ResourceKind = enum {
     /// A value with drop glue (`Vec`, a struct owning resources, ...):
     /// `rig.drop(&x)`. Needs `var` storage.
     value,
-    /// An optional resource such as `(*T)?`: `rig.drop(&x)`. Needs `var`.
+    /// An optional resource such as `*T?`: `rig.drop(&x)`. Needs `var`.
     optional,
 };
 

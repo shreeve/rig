@@ -5,7 +5,7 @@
 struct Node
   value: Int
   seen: *Cell[Int]
-  next: (*Node)?
+  next: *Node?
 
   drop(!self)
     if self.seen.get() != self.value + 1
@@ -15,7 +15,7 @@ struct Node
 sub main()
   n = 200000
   seen: *Cell[Int] = *Cell(value: n)
-  head: (*Node)? = none
+  head: *Node? = none
   i = 0
   while i < n
     head = *Node(value: i, seen: +seen, next: <head)

@@ -14,7 +14,7 @@ fun clone_of[T](h: ?*T) -> *T
 fun weak_of[T](h: *T) -> ~T
   ~h
 
-fun upgraded[T](w: ?~T) -> (*T)?
+fun upgraded[T](w: ?~T) -> *T?
   w.upgrade()
 
 sub main()

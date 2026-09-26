@@ -16,7 +16,7 @@ struct Wrap[T]
 
 sub main()
   b: Wrap[*B] = Wrap(v: *B(n: 1))
-  o: (*B)? = *B(n: 2)
+  o: *B? = *B(n: 2)
   r = <b.first(<o, *B(n: 3))
   print(r.n)
 

@@ -115,7 +115,7 @@ whenever it type-checks. That is the first law.
 
 **Totality.** A sigil never fails at run time; failure belongs to
 methods. This is why the way back from a weak handle is a method:
-`w.upgrade()` returns an optional `(*U)?`, because the value may be
+`w.upgrade()` returns an optional `*U?`, because the value may be
 gone. A sigil for it (say `^w`) would be the only partial sigil. The
 round trip is total going down (`~x`), fallible coming up
 (`upgrade()`).
@@ -141,16 +141,20 @@ Keeping absence and failure in suffix position is what lets `!` and
 borrow, `-> User!` a fallible `User`. The price is Ruby's `valid?`
 method names, which would collide with `Bool?`; Rig writes `is_valid`.
 
-**Composition.** Prefixes compose right to left and suffixes bind
-tighter than prefixes, in types and in expressions:
+**Composition.** Prefixes compose right to left, and in an expression
+suffixes bind tighter than prefixes. In a type the handle sigils `*`
+and `~` bind tightest, because a handle is a value: `*User?` is an
+optional handle. A borrow is a mode over the whole type after it,
+suffixes included, so `?User?` borrows an optional:
 
 | Form | Reads as |
 |---|---|
 | `*<o` | move `o`, then share it |
 | `+p.a` | clone the handle held in field `a` |
 | `?*Node` | a read borrow of a shared handle |
-| `*User?` | a shared handle to an optional `User` |
-| `(*User)?` | an optional shared handle (what `upgrade()` returns) |
+| `*User?` | an optional shared handle (what `upgrade()` returns) |
+| `*(User?)` | a shared handle to an optional `User` |
+| `?User?` | a read borrow of an optional `User` |
 | `*Cell[Vec[*sub()]]` | a shared cell holding a list of owned closures |
 | `+n.first()` | clone the handle `first` returns |
 | `!v.push(x)` | write-borrow `v`, then call a writing method |
@@ -208,7 +212,7 @@ sub main
   print(id_of(?first))         # lend the handle: ?*Node
   w = ~first                   # weaken it: ~Node
   -first
-  if w.upgrade() as n          # the way back is a method: (*Node)?
+  if w.upgrade() as n          # the way back is a method: *Node?
     print("alive", n.id)
 ```
 
