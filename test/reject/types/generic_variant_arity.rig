@@ -1,0 +1,19 @@
+# A generic variant given arguments that fill no field reports what the
+# variant takes, not a failure to infer its type.
+
+enum Opt[T]
+  some(v: T)
+  no
+
+enum Two[T]
+  pair(a: T, b: T)
+
+sub main()
+  x = Opt.some(1, 2)
+  y = Opt.some()
+  z = Two.pair(1, 2)
+  print(x, y, z)
+
+# error: 12:11: variant `some` has one field: write `.some(value)` or `.some(v: value)`
+# error: 13:11: variant `some` is missing field `v`
+# error: 14:11: a variant with more than one field sets them by name: `.pair(a: ...)`

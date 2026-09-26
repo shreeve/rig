@@ -4669,6 +4669,15 @@ const Checker = struct {
                 subst = .{ .params = nt.sym.type_params orelse &.{}, .args = given };
                 ty = try self.instantiate(nt.id, given, pos);
             } else if (generic) {
+                // Arguments that fill no field bind nothing to infer from:
+                // say what the variant takes instead.
+                const positional = for (args) |a| {
+                    if (!a.isKind(.kwarg)) break true;
+                } else false;
+                if (args.len == 0 or (positional and !(args.len == 1 and soleField(payload) != null))) {
+                    try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = nt.sym.from.module_id, .pos = pos, .foreign = nt.foreign, .kind = .variant });
+                    return self.t().invalid_id;
+                }
                 const self_type = (try sema.makeNominalContext(self.ctx, nt.id)).self_type;
                 subst = (try self.inferTypeArgs(nt.id, args, .{ .payload = payload }, pos, self.expectedResult(self_type), name)) orelse return self.skipCall(args);
                 ty = try self.instantiate(nt.id, subst.args, pos);
