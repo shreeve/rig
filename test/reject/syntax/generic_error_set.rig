@@ -1,0 +1,6 @@
+# An error set takes no type parameters.
+
+error E[T]
+  bad
+
+# error: 3:8: an error set takes no type parameters

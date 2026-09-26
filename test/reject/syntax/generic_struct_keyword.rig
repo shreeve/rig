@@ -1,0 +1,6 @@
+# A generic struct is declared with `type`.
+
+struct Box[T]
+  v: T
+
+# error: 3:11: a generic struct is declared as a type: `type Box[T]`

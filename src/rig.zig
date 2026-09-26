@@ -1103,7 +1103,7 @@ pub const Parser = struct {
         const word = before[start..];
         const declared = std.mem.trimEnd(u8, before[0..start], " ");
         const decl_kw: ?[]const u8 = for ([_][]const u8{ "type", "enum", "fun", "sub" }) |kw| {
-            if (std.mem.endsWith(u8, declared, kw) and (declared.len == kw.len or !isIdentCont(declared[declared.len - kw.len - 1]))) break kw;
+            if (endsWithWord(declared, kw)) break kw;
         } else null;
         switch (tok.cat) {
             .lparen_call => {
@@ -1114,6 +1114,17 @@ pub const Parser = struct {
             },
             .lbracket => if (decl_kw) |kw| if (word.len > 0) {
                 return self.format("compile-time parameters go in brackets touching the name: `{s} {s}[...]`", .{ kw, word });
+            },
+            .lbracket_index => if (word.len > 0) {
+                if (endsWithWord(declared, "struct")) return self.format("a generic struct is declared as a type: `type {s}[T]`", .{word});
+                if (endsWithWord(declared, "error")) return "an error set takes no type parameters";
+            },
+            .rbracket => if (before.len > 0 and before[before.len - 1] == '[') {
+                return "empty brackets: give the compile-time arguments, as in `Vec[Int]()`";
+            },
+            .assign => if (before.len > 0 and before[before.len - 1] == ']') {
+                const line = std.mem.trimStart(u8, before[if (std.mem.lastIndexOfScalar(u8, before, '\n')) |i| i + 1 else 0..], " ");
+                if (std.mem.startsWith(u8, line, "type ") or std.mem.startsWith(u8, line, "pub type ")) return "a type alias takes no type parameters; generic aliases are not supported";
             },
             .fun, .sub => if (self.base.lexer.nesting > 0 and src[self.base.lexer.brackets[self.base.lexer.nesting - 1]] == '[') {
                 return "a function type has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead";
@@ -1127,6 +1138,10 @@ pub const Parser = struct {
             return "a slice or array type has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead";
         }
         return null;
+    }
+
+    fn endsWithWord(text: []const u8, word: []const u8) bool {
+        return std.mem.endsWith(u8, text, word) and (text.len == word.len or !isIdentCont(text[text.len - word.len - 1]));
     }
 
     /// Inside ( ), a name followed by an operand: a paren-free call,

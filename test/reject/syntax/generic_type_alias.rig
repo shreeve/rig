@@ -1,0 +1,5 @@
+# A type alias takes no type parameters.
+
+type A[T] = Vec[T]
+
+# error: 3:11: a type alias takes no type parameters; generic aliases are not supported

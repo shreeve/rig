@@ -1,0 +1,6 @@
+# Brackets of compile-time arguments are never empty.
+
+sub main()
+  v = Vec[]()
+
+# error: 4:11: empty brackets: give the compile-time arguments, as in `Vec[Int]()`
