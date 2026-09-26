@@ -16,8 +16,9 @@
 //! * A `Loan` is a read or write borrow of a root var. Loans travel with
 //!   values: `r = ?a` stores a read loan on `a` in `r`; `View(box: ?a)`
 //!   carries it into the struct; a call whose result type can hold a
-//!   borrow carries the loans of all of its arguments (so a returned
-//!   borrow borrows from every borrowed argument), and a call may store
+//!   borrow carries the loans of all of its arguments and of its callee
+//!   (so a returned borrow borrows from every borrowed argument, and
+//!   from what the callable called holds), and a call may store
 //!   its arguments' loans into its receiver and into what its `!x`
 //!   arguments and other write borrows lead to. A loan that is not
 //!   stored anywhere is a temporary and ends with its statement.
@@ -2333,16 +2334,14 @@ pub const Checker = struct {
                 result = try self.walk(ir.Member.object(callee));
             }
         } else if (callee == .src) {
-            _ = try self.walkName(callee, true);
-            // A stack closure's result may borrow what the closure holds.
-            if (self.find(self.text(callee))) |id| {
-                if (self.vars.items[id].closure) result = self.varValue(id);
-            }
+            // A callable's result may borrow what the callable holds: a
+            // closure its captures, a borrowed callable what it lends.
+            result = try self.walkName(callee, true);
         } else if (isLambda(callee)) {
             self.lambda_ok = true;
-            _ = try self.walk(callee);
+            result = try self.walk(callee);
         } else {
-            _ = try self.walk(callee);
+            result = try self.walk(callee);
         }
 
         // `print` only reads its arguments.

@@ -731,8 +731,14 @@ while checking a module-level function is freed when it is done.
 **Loans travel with values.** `r = ?a` stores a read loan on `a` in
 `r`; `View(box: ?a)` carries it into the struct; a call whose result
 type can hold a borrow carries the loans of all its borrowed arguments,
-and of the stack closure it calls (whose value is checked like a
-returned one);
+and of the callee's value, whatever form the callee takes (a closure
+binding, a borrowed callable held by a local or parameter, `(?l)()`, a
+call that returns one). This is sound because a callable's result can
+reach only what its body can: its captures (whose loans the closure
+binding holds, and `?l` passes on with a loan on `l`) and its
+arguments; so a result carrying both never outlives anything it may
+point into. (A closure's body is checked like a function, whose returned
+value is checked the same way);
 a call may store its arguments' loans into its receiver and into what
 its `!` arguments and other write borrows lead to, except a built-in
 element method (`!dst.copy(src)`) whose elements hold no borrow, which
