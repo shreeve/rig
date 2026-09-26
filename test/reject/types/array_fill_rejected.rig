@@ -1,29 +1,29 @@
-# `[x; n]` copies plain data into each of its `n` slots, where `n` is
+# `[n of x]` copies plain data into each of its `n` slots, where `n` is
 # known at compile time; with no expected type, `x` gives the element
 # type.
 
 fun make[T](x: T) -> [3]T
-  [x; 3]
+  [3 of x]
 
 sub main()
   k = 3
   v = Vec[Int]()
   y = 5
-  a = [0; k]
-  b = [none; 3]
-  c: Int = [0; 3]
-  d = [0; -1]
-  e: [4]Int = [0; 3]
-  f = [<v; 2]
-  g = [?y; 2]
+  a = [k of 0]
+  b = [3 of none]
+  c: Int = [3 of 0]
+  d = [-1 of 0]
+  e: [4]Int = [3 of 0]
+  f = [2 of <v]
+  g = [2 of ?y]
   h = make(Vec[Int]())
   print(a, b, c, d, e, f, g, h)
 
-# error: 12:11: an array length must be known at compile time; `k` is not
-# error: 13:8: the element of `[x; n]` needs a type
+# error: 12:8: an array length must be known at compile time; `k` is not
+# error: 13:13: the element of `[n of x]` needs a type
 # error: 14:12: type mismatch: expected `Int`, got `[3]Int`
-# error: 15:11: array length -1 is out of range
-# error: 16:15: `[0; 3]` has length `3`; `[4]Int` needs `4`
-# error: 17:8: `[x; n]` copies its element into every slot; `Vec[Int]` owns a resource
-# error: 18:8: `[x; n]` copies its element into every slot; `?Int` holds a borrow
+# error: 15:8: array length -1 is out of range
+# error: 16:15: `[3 of 0]` has length `3`; `[4]Int` needs `4`
+# error: 17:13: `[n of x]` copies its element into every slot; `Vec[Int]` owns a resource
+# error: 18:13: `[n of x]` copies its element into every slot; `?Int` holds a borrow
 # error: 19:7: `make[Vec[Int]]` cannot use `T = Vec[Int]`

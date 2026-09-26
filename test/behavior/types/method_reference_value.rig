@@ -19,13 +19,13 @@ struct P
   sub bump(!self)
     self.x += 1
 
-  fun total(self: Self, k: Int) -> Int
+  fun total(<self, k: Int) -> Int
     self.x + k
 
 struct H
   b: B
 
-  fun take(self: Self) -> Int
+  fun take(<self) -> Int
     self.b.n
 
 fun apply(f: fun(Int) -> P, x: Int) -> P

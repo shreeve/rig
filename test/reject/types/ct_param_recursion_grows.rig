@@ -3,9 +3,9 @@
 # it cannot.
 
 fun grow[n: Int](xs: [n]Int) -> Int
-  grow([0; n + 1])
+  grow([n + 1 of 0])
 
 sub main()
   print(grow([1]))
 
-# error: 6:12: an array length `n + 1` does arithmetic on a compile-time parameter
+# error: 6:9: an array length `n + 1` does arithmetic on a compile-time parameter

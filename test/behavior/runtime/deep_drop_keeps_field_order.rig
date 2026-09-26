@@ -8,9 +8,9 @@ struct N
     print("drop", self.id)
 
 struct Node
-  next: (*Node)?
-  a: (*N)?
-  b: (*N)?
+  next: *Node?
+  a: *N?
+  b: *N?
 
 fun chain(depth: Int) -> *Node
   n = *Node(next: none, a: *N(id: 1), b: *N(id: 2))

@@ -1,10 +1,18 @@
-# Struct fields are set by name.
+# Struct fields are set by name, even for a struct with one field; only
+# a variant with one field takes it by position.
 
 struct P
   x: Int
 
+struct Wrap[T]
+  v: T
+
 sub main()
   p = P(1)
-  print(p.x)
+  w = Wrap(2)
+  u = Wrap[Int](3)
+  print(p.x, w.v, u.v)
 
-# error: fields of `P` are set by name
+# error: 11:7: fields of `P` are set by name
+# error: 12:7: fields of `Wrap` are set by name: `Wrap(field: value)`
+# error: 13:7: fields of `Wrap` are set by name

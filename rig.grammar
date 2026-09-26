@@ -16,7 +16,9 @@
 #     blocks as anywhere else;
 #   * classifies keywords (every keyword is reserved, but reads as a name
 #     where it names a member: after `.`, before `:` inside ( ), and in a
-#     member list before `:` or after `fun` / `sub`);
+#     member list before `:` or after `fun` / `sub`); `of` is a keyword
+#     only after a value directly inside [ ] (`[n of x]`), and a name
+#     everywhere else;
 #   * classifies the characters whose meaning depends on spacing. The rule
 #     is the same for all of them: a character that touches its operand and
 #     not the preceding value is a prefix; otherwise it is an infix
@@ -127,7 +129,6 @@ tokens
     lbracket        # [  array literal or slice/array type
     rbracket        # ]
     comma           # ,
-    semicolon       # ;  only in a fill literal `[x; n]`
     colon           # :
     arrow           # ->
     fat_arrow       # =>
@@ -157,6 +158,7 @@ tokens
     drop_stmt       # -x  drop, as a whole statement
     suffix_q        # T?  optional type
     suffix_bang     # T!  fallible type, x! propagate failure
+    of              # of  after a value inside [ ]: a fill literal `[n of x]`
 
     # Misc
     comment
@@ -236,7 +238,6 @@ tokens
 '['                                         → lbracket
 ']'                                         → rbracket
 ','                                         → comma
-';'                                         → semicolon
 ':'                                         → colon
 '.'                                         → dot
 
@@ -325,7 +326,7 @@ tokens
     index                       object index
     inst                        object ...args
     array                       ...elems
-    array_fill                  value size
+    array_fill                  size value
     kwarg                       name:leaf value
 
     # Operators
@@ -358,7 +359,7 @@ tokens
     KWARG_NAME: "a keyword argument"
     MOVE_PFX: "`<`", CLONE_PFX: "`+`", READ_PFX: "`?`"
     WRITE_PFX: "`!`", SHARE_PFX: "`*`", DROP_STMT: "`-`", MINUS_PREFIX: "`-`"
-    SUFFIX_Q: "`?`", SUFFIX_BANG: "`!`"
+    SUFFIX_Q: "`?`", SUFFIX_BANG: "`!`", OF: "`of`"
     TRUE: "`true`", FALSE: "`false`", AND: "`and`", AS: "`as`", BREAK: "`break`", CATCH: "`catch`"
     CONTINUE: "`continue`", DEFER: "`defer`", DROP: "`drop`", ELSE: "`else`", ENUM: "`enum`", ERRDEFER: "`errdefer`"
     ERROR: "`error`", EXTERN: "`extern`", FOR: "`for`", FUN: "`fun`", IF: "`if`", IN: "`in`"
@@ -368,7 +369,7 @@ tokens
     "=": "`=`", "+=": "`+=`", "-=": "`-=`", "*=": "`*=`", "/=": "`/=`", "%=": "`%=`"
     "&=": "`&=`", "|=": "`|=`", "^=": "`^=`", "<<=": "`<<=`", ">>=": "`>>=`", "=!": "`=!`"
     "<-": "`<-`", ":": "`:`", "->": "`->`", "(": "`(`", ")": "`)`", "[": "`[`"
-    "]": "`]`", ",": "`,`", ";": "`;`", ".": "`.`", "..": "`..`", "=>": "`=>`", "~": "`~`"
+    "]": "`]`", ",": "`,`", ".": "`.`", "..": "`..`", "=>": "`=>`", "~": "`~`"
     "@": "`@`", "==": "`==`", "!=": "`!=`", "<": "`<`", ">": "`>`", "<=": "`<=`"
     ">=": "`>=`", "??": "`??`", "|": "`|`", "^": "`^`", "&": "`&`", "<<": "`<<`"
     ">>": "`>>`", "+": "`+`", "-": "`-`", "*": "`*`", "/": "`/`", "%": "`%`"
@@ -473,6 +474,7 @@ field    = fname
          | name:fname ":" type:type "=" value:expr  → (default)
          | READ_PFX  operand:fname                  → (read)       # `?self`
          | WRITE_PFX operand:fname                  → (write)      # `!self`
+         | MOVE_PFX  operand:fname                  → (move)       # `<self`
 
 # Inside ( ) the rewriter turns a name followed by `:` into KWARG_NAME.
 fname    = name | KWARG_NAME
@@ -509,18 +511,25 @@ ext_sub  = EXTERN SUB name:name [params:params]     → (extern_sub)
 # TYPES
 # ==============================================================================
 #
-# Suffixes bind tighter than prefixes: `*User?` is a shared optional User;
-# an optional shared handle is written `(*User)?`.
+# The handle sigils `*` and `~` bind to the type they touch, tighter than
+# the suffixes: `*User?` is an optional shared handle, and a handle to an
+# optional is `*(User?)`. A borrow applies to the whole type after it,
+# suffixes included: `?User?` borrows an optional User. The element of a
+# slice or array takes the suffixes too (`[]Int?`), and a function type
+# takes none, so an optional of one is written in parentheses.
 
 type     = READ_PFX  type:type                      → (borrow_read)
          | WRITE_PFX type:type                      → (borrow_write)
-         | SHARE_PFX type:type                      → (shared)
-         | "~"       operand:type                   → (weak)
-         | "[" "]" type:inner                       → (slice)
+         | ptype
+         | tsuffix
+
+# A prefix type that takes no suffix, alone or behind handles.
+ptype    = "[" "]" type:inner                       → (slice)
          | "[" size:dim "]" type:inner              → (array_type)
          | FUN "(" [params:L(type)] ")" "->" returns:type → (fun_type)  # `fun(Int) -> Int`
          | SUB "(" [params:L(type)] ")"             → (fun_type)   # `sub(Int)`
-         | tsuffix
+         | SHARE_PFX type:ptype                     → (shared)     # `*fun(Int) -> Int`
+         | "~"       operand:ptype                  → (weak)
 
 # An element type after `[]` or `[N]`. A nested prefix's `[` touches the
 # `]` before it, so the lexer marks it as an index bracket.
@@ -530,11 +539,16 @@ inner    = type
 
 tsuffix  = type:tsuffix SUFFIX_Q                    → (optional)
          | type:tsuffix SUFFIX_BANG                 → (error_union)
+         | thandle
+
+thandle  = SHARE_PFX type:thandle                   → (shared)
+         | "~"       operand:thandle                → (weak)
          | tatom
 
 tatom    = tname
          | name:tname LBRACKET_INDEX args:types [","] "]" → (generic_inst)
          | "(" type ")"                             → 2
+         | LPAREN_CALL type ")"                     → 2      # `[2](N?)?`: touching `]`
 
 # A named type, of this module or another: `Point`, `geo.Point`. Its
 # instance names it the same way: `Wrap[Int]`, `lib.Wrap[Int]`.
@@ -786,7 +800,7 @@ atom     = name
          | "@" name:name LPAREN_CALL args:args ")"  → (builtin)
          | "[" [elems:exprs] "]"                    → (array)
          | "[" elems:exprs "," "]"                  → (array)
-         | "[" value:expr ";" size:expr "]"         → (array_fill)  # `[0; n]`
+         | "[" size:expr OF value:expr "]"          → (array_fill)  # `[n of 0]`
          | "(" expr ")"                             → 2
          | "(" cclosure ")"                         → 2
 

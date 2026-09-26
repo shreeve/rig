@@ -1,0 +1,7 @@
+# Rust's `[T; n]` where a type goes, or with a sized type, is `[n]T`.
+
+sub main()
+  xs: [U8; 4] = [4 of 0]
+  print(xs)
+
+# error: 4:10: unexpected `;`; an array type puts its length first: `[4]U8`

@@ -3,7 +3,7 @@
 # Each call's instance has its own length.
 
 fun zeros[n: Int] -> [n]Int
-  [0; n]
+  [n of 0]
 
 sub fill[n: Int](xs: ![n]Int, v: Int)
   for i in 0..n
@@ -16,7 +16,7 @@ fun total[n: Int](xs: ?[n]Int) -> Int
   sum
 
 fun copy[n: Int](xs: ?[n]Int) -> [n]Int
-  out: [n]Int = [0; n]
+  out: [n]Int = [n of 0]
   for x, i in xs
     out[i] = x
   out

@@ -5,7 +5,7 @@
 struct Bag
   v: Vec[Int]
 
-  fun n(self: Self) -> Int
+  fun n(<self) -> Int
     self.v.len
 
 fun f(b: ?Bag) -> Int

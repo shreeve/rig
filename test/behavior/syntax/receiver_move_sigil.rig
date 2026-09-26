@@ -1,0 +1,44 @@
+# `<self` is the short form of `self: Self`: the method consumes its
+# receiver, as `?self` reads it and `!self` writes it. The caller writes
+# the move (`<c.close()`), or calls it on a temporary.
+
+struct Conn
+  name: String
+
+  fun close(<self) -> Int
+    self.name.len
+
+  fun renamed(<self, name: String) -> Conn
+    c = <self
+    c.name = name
+    <c
+
+struct Wrap[T]
+  v: T
+
+  fun unwrap(<self) -> T
+    self.v
+
+enum Shape
+  circle(r: Int)
+  square
+
+  fun area(<self) -> Int
+    match self
+      .circle(r) => 3 * r * r
+      .square => 1
+
+sub main
+  c = Conn(name: "db")
+  print(<c.close())
+  print(Conn(name: "cache").renamed("store").close())
+  w = Wrap[Int](v: 7)
+  print(<w.unwrap())
+  s: Shape = .square
+  print(<s.area())
+
+# expect:
+# 2
+# 5
+# 7
+# 1

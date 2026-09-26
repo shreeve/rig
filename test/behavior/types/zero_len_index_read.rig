@@ -5,7 +5,7 @@
 Z =! 0
 
 fun zeros[n: Int] -> [n]Int
-  [0; n]
+  [n of 0]
 
 fun at(xs: [0]Int, i: Int) -> Int
   xs[i]

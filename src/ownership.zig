@@ -1177,6 +1177,8 @@ pub const Checker = struct {
                     name_node = ir.Write.operand(p);
                     sugar = .write;
                 },
+                // `<self`: `self: Self`, owned.
+                .move => name_node = ir.Move.operand(p),
                 else => {},
             },
             else => return,

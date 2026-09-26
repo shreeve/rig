@@ -1,0 +1,24 @@
+# A handle keeps a value alive, and a borrow is no value it could keep:
+# a handle to a borrow is rejected as a type, as a type argument, and
+# when a borrow is shared.
+
+struct P
+  x: Int
+
+  fun boxed(?self) -> Int
+    h = *self
+    1
+
+fun f(a: *(?Int), b: ~(!P)) -> Int
+  1
+
+sub main()
+  y = 3
+  h = *(?y)
+  c = Cell[*(?Int)](value: none)
+
+# error: 9:10: a handle holds a value, not a borrow; `?P` is a borrow: share an owned value instead
+# error: 12:10: a handle holds a value, not a borrow: `?Int` has no handle
+# error: 12:22: a handle holds a value, not a borrow: `!P` has no handle
+# error: 17:9: a handle holds a value, not a borrow; `?Int` is a borrow
+# error: 18:12: a handle holds a value, not a borrow: `?Int` has no handle

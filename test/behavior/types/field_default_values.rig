@@ -19,7 +19,7 @@ struct P
   f: Float = 2.5
   neg: Int = -4
   on: Bool = true
-  h: (*Tok)? = none
+  h: *Tok? = none
   u: U8 = 7
 
 struct Wrap[T]

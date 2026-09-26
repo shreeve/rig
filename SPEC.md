@@ -174,7 +174,10 @@ fun f(in: Int) -> Int
 ```
 
 `new` is a keyword only at the start of a statement (`new x = ...`), so
-a method may be named `new`. `none` is a reserved
+a method may be named `new`. `of` is a keyword only after a value
+directly inside `[ ]`, where it separates a fill literal's count from
+its element (`[n of x]`); anywhere else it is an ordinary name. `none`
+is a reserved
 name for the absent optional. Words that are keywords in Zig but not in
 Rig (`var`, `fn`, `const`) are ordinary names.
 
@@ -188,7 +191,7 @@ Rig (`var`, `fn`, `const`) are ordinary names.
 | Bool | `true`, `false` | |
 | Absent optional | `none` | see [§13](#13-optionals) |
 | Array | `[1, 2, 3]` | see [§3](#arrays) |
-| Enum variant | `.red`, `.circle(radius: 2)` | typed by context |
+| Enum variant | `.red`, `.circle(2)`, `.rect(w: 2, h: 3)` | typed by context |
 
 There is no string interpolation; `print` takes several values instead.
 
@@ -359,14 +362,14 @@ with `LIMIT =! 4`, `[LIMIT]Int`, `[2 + 2]Int`, and `[4]Int` are one
 type.
 
 An array literal `[a, b, c]` takes its element type from its elements
-(or from an annotation). `[x; n]` is an array of `n` copies of `x`,
+(or from an annotation). `[n of x]` is an array of `n` copies of `x`,
 where `n` is any compile-time integer, a compile-time parameter
 included; it has the array type expected where it goes, or `[n]T` for
 `x`'s type `T`. An array whose length is a compile-time parameter is
 built with it. `xs.len` is an array's length, and `xs[i]` reads or
 writes an element; an index outside the half-open range `0..xs.len`
 panics, and a constant one is rejected where the length is known.
-Arrays hold plain data only, and `[x; n]` copies `x` into every slot; a
+Arrays hold plain data only, and `[n of x]` copies `x` into every slot; a
 collection of resources is a `Vec`. An array of arrays is `[2][3]T`:
 two rows of three.
 
@@ -374,7 +377,7 @@ two rows of three.
 LIMIT =! 4
 
 fun zeros[n: Int] -> [n]Int
-  [0; n]
+  [n of 0]
 
 sub main
   xs = [10, 20, 30]
@@ -382,10 +385,10 @@ sub main
   ys: [2]U8 = [1, 2]
   grid: [2][3]Int = [[1, 2, 3], [4, 5, 6]]
   print(xs, xs.len, xs[2], ys, grid[1][2])
-  a: [LIMIT]Int = [7; LIMIT]
+  a: [LIMIT]Int = [LIMIT of 7]
   b: [4]Int = a
   c = zeros[LIMIT * 2]()
-  d = [[0; 2]; 3]
+  d = [3 of [2 of 0]]
   e: [0]Int = []
   print(b, c.len, d, e)
 ```
@@ -405,16 +408,16 @@ fun zeros[n: Int] -> [n]Int
 sub main
   k = 3
   a: [k]Int = [1, 2, 3]
-  b = [0; -1]
-  c = [Vec[Int](); 2]
+  b = [-1 of 0]
+  c = [2 of Vec[Int]()]
 ```
 
 ```error
 an array length `n + 1` does arithmetic on a compile-time parameter
-an array of compile-time length `n` is built with `[x; n]`
+an array of compile-time length `n` is built with `[n of x]`
 an array length must be known at compile time; `k` is not
 array length -1 is out of range
-`[x; n]` copies its element into every slot; `Vec[Int]` owns a resource
+`[n of x]` copies its element into every slot; `Vec[Int]` owns a resource
 ```
 
 A value takes at most 8 MiB (8388608 bytes, a `[1048576]Int`): an
@@ -448,13 +451,13 @@ struct Grid
   more: [8]Int
 
 fun sums(k: Int) -> Int
-  a = [k; 800000]
-  b = [k; 800000]
-  c = [k; 800000]
+  a = [800000 of k]
+  b = [800000 of k]
+  c = [800000 of k]
   a[0] + b[0] + c[0]
 
 sub main
-  big = [0; 2000000]
+  big = [2000000 of 0]
   print(big.len, sums(1))
 ```
 
@@ -517,11 +520,48 @@ that returns part of its argument takes `xs: []T`.
 | `Cell[T]`, `Vec[T]`, `Signal[T]` | built-in generic types | [§11](#11-cell-vec-and-signal) |
 | `Name`, `Name[T]`, `mod.Name` | user types, generic instances, imported types | [§4](#4-declarations), [§15](#15-modules) |
 
-Suffixes bind tighter than prefixes: `*User?` is a shared handle to an
-optional `User`, and an optional shared handle is written `(*User)?`.
-Prefixes compose right to left: `?*Wrap` is a read borrow of a shared
-handle, and `*Cell[Vec[*sub()]]` is a shared cell holding a list of
-owned closures.
+The handle sigils `*` and `~` bind to the type they touch, tighter than
+the suffixes: `*User?` is an optional shared handle and `~User?` an
+optional weak handle, while a handle to an optional `User` is written
+`*(User?)`. A borrow applies to the whole type after it, suffixes
+included: `?User?` and `!User?` borrow an optional `User`, and
+`?*User?` borrows an optional handle. The element of a slice or array
+takes the suffixes (`[]Int?` is a slice of optionals), so an optional
+slice, array, or function type is written in parentheses: `([]Int)?`,
+`(*sub())?`, and so is an optional of an optional, `(User?)?` (`??` is
+an operator). A handle holds a value, never a borrow: `*(?User)` is
+rejected. Prefixes compose right to left: `?*Wrap` is a read borrow
+of a shared handle, and `*Cell[Vec[*sub()]]` is a shared cell holding a
+list of owned closures.
+
+```rig
+struct User
+  name: String
+
+fun named(u: ?*User?) -> Bool
+  u != none
+
+sub main
+  a: *User? = none
+  b: *User? = *User(name: "ada")
+  print(named(?a), named(?b))
+```
+
+```output
+false true
+```
+
+```rig reject
+struct User
+  name: String
+
+sub main
+  c: *(User?) = none
+```
+
+```error
+`none` needs an optional type; `*(User?)` is not optional (write `*(User?)?`)
+```
 
 ### Copy values and owning values
 
@@ -673,7 +713,7 @@ how the method uses the value, and the call site says the same thing:
 |---|---|---|
 | `?self` (= `self: ?Self`) | reads the value | `p.m()`: the read borrow is implicit |
 | `!self` (= `self: !Self`) | modifies the value | `!p.m()` |
-| `self: Self` | consumes the value | `<p.m()`, or on a temporary |
+| `<self` (= `self: Self`) | consumes the value | `<p.m()`, or on a temporary |
 
 Write borrows and moves are never implicit, so calling a `!self` method
 as `p.m()` on an owned `p` is an error. A binding that already holds a
@@ -696,7 +736,7 @@ the call's result.
 
 The short form is checked against the method: `!` before a method that
 does not take `!self` is rejected (it reads as negation, which is
-`not`), and so is `<` before one that does not take `self: Self`, or
+`not`), and so is `<` before one that does not take `<self`, or
 either before a function with no receiver (`Point.origin()`). A
 write-borrowing call whose value is a `Bool` is written in the long
 form, `(!set).insert(k)`, so it is never read as negation.
@@ -711,7 +751,7 @@ struct Tally
     !self.seen.push(k)
     true
 
-  fun total(self: Self) -> Int
+  fun total(<self) -> Int
     sum = 0
     for x in ?self.seen
       sum += x
@@ -869,19 +909,23 @@ enum Status
 sub main
   s: Shape = .rect(w: 2, h: 5)
   c: Shape = Shape.point
-  print(s.area(), c.area(), s)
+  d = Shape.circle(1)
+  print(s.area(), c.area(), d.area(), s)
   st: Status = .missing
   print(st == .missing)
 ```
 
 ```output
-10 0 .rect(w: 2, h: 5)
+10 0 3 .rect(w: 2, h: 5)
 true
 ```
 
 A payload variant is constructed with keyword fields, like a struct:
-`.circle(radius: 2)`, `Shape.circle(radius: 2)`. A pattern binds the
-fields in order (`.circle(r) =>`). Enums have no constructor call
+`.rect(w: 2, h: 5)`, `Shape.rect(w: 2, h: 5)`. A variant with exactly
+one field also takes it by position, as a pattern binds it:
+`.circle(2)` is `.circle(radius: 2)`. A variant with more fields sets
+them by name, and a struct's constructor always does. A pattern binds
+the fields in order (`.circle(r) =>`). Enums have no constructor call
 (`Shape(...)` is an error); enums compare with `==` ([§6](#operators)). A plain enum's variants may take
 explicit values (`ok = 200`): constant integers from 0 to 4294967295,
 no two the same, where a variant without one takes the value after the
@@ -919,7 +963,7 @@ parameter is named in the type's fields and methods, as an array length
 (`items: [n]T`) or as a value in a method's body.
 An instance names its compile-time arguments in brackets, in a type
 (`Pair[Int, String]`, `Ring[Int, LIMIT * 2]`) or in an expression:
-`Wrap[Int](value: 3)`, `Vec[Int]()`, `Option[Int].some(value: 7)`,
+`Wrap[Int](value: 3)`, `Vec[Int]()`, `Option[Int].some(7)`,
 `Pair[Int, String].make(1, "x")`, `Ring[Int, 4].new(0)`. A value
 argument is a compile-time integer, as an array length is, that the
 parameter's type holds; the same value names the same type, so
@@ -928,7 +972,7 @@ from the expected type when there is one, and otherwise infers them
 from the values that fill it: a constructor's fields
 (`Pair(first: 1, second: "x")` is a `Pair[Int, String]`, and
 `Ring(items: [1, 2, 3])` a `Ring[Int, 3]`), a payload
-variant's fields (`Option.some(value: 7)`), or an associated function's
+variant's fields (`Option.some(7)`), or an associated function's
 arguments (`Pair.make(1, 2)`), as a generic function's call infers its
 own ([generic functions](#generic-functions)). A parameter nothing
 fills, as in `Vec()`, needs its type named (`Vec[Int]()`) or given
@@ -955,11 +999,11 @@ enum Option[T]
 
 sub main
   p = Pair(first: 42, second: "answer")
-  o: Option[Int] = .some(value: p.left())
+  o: Option[Int] = .some(p.left())
   match o
     .some(v) => print(v, p.second)
     .nothing => print("none")
-  q = Option.some(value: 2.5)
+  q = Option.some(2.5)
   v = Vec[Int]()
   !v.push(3)
   r = Pair[Int, String].make(1, "x")
@@ -1015,7 +1059,7 @@ type parameter only literals gave a type (directly, or propagated with
 with `small: U8` is `max[U8]` twice. One whose result is an optional
 that nothing but `none` gave a type (`nothing()`, `id(none)`) binds
 like `none`, so `z: Int? = id(nothing())` is `id[Int?]`. A nested call
-with a result of another shape (`Wrap.make(1)`, `Opt.some(value: 1)`)
+with a result of another shape (`Wrap.make(1)`, `Opt.some(1)`)
 keeps the type its own arguments give it; naming the outer call's type
 arguments (`Wrap[Wrap[U8]].make(...)`, `id[Opt[U8]](...)`) passes the
 expected type on. Only then does a literal take its default type, and
@@ -1062,7 +1106,7 @@ fun sum[n: Int](xs: [n]Int) -> Int
   total
 
 fun zeros[n: Int] -> [n]Int
-  [0; n]
+  [n of 0]
 
 fun pick[T](a: T, b: T, first: Bool) -> T
   if first
@@ -2549,7 +2593,7 @@ cannot assign through shared handle
 
 `~h` makes a weak handle `~T` from a shared one. A weak handle does not
 keep the value alive. `w.upgrade()` returns an optional strong handle
-`(*T)?`: a new owner while the value is alive, `none` after.
+`*T?`: a new owner while the value is alive, `none` after.
 
 ```rig
 struct Node
@@ -3103,7 +3147,7 @@ sub main
 grace none none
 ```
 
-An optional of an owning value (such as `(*T)?` from `upgrade()`) owns
+An optional of an owning value (such as `*T?` from `upgrade()`) owns
 what it holds. `if e as x` over a temporary gives `x` ownership, and it
 is dropped at the end of the block. An optional held in a binding is
 bound by moving or cloning it: `if <m as x`, `if +m as x`, and
@@ -3585,6 +3629,41 @@ sub main
 a slice or array type has no expression spelling
 ```
 
+In an expression, `*T?` as a type argument is an optional handle, as
+in a type (`Cell[*Node?](value: none)`), and so is a chain of handles
+such as `*~T?`. A handle to an optional,
+`*(T?)`, has no expression spelling; name it with a `type` alias:
+
+```rig
+struct Node
+  value: Int
+
+type Held = *(Node?)
+
+sub main
+  a = Cell[*Node?](value: none)
+  b = Cell[Held](value: *none)
+  print(a.replace(none) == none)
+  old = b.replace(*none)
+  -old
+```
+
+```output
+true
+```
+
+```rig reject
+struct Node
+  value: Int
+
+sub main
+  b = Cell[*(Node?)](value: *none)
+```
+
+```error
+a handle to an optional has no expression spelling
+```
+
 ---
 
 ## 18. Printing
@@ -3599,7 +3678,7 @@ a value.
 | numbers, `Bool` | `42`, `-3`, `2.5`, `true`; a whole `Float` keeps its point: `1.0` |
 | `String` | its text; inside other values, quoted |
 | `none` | `none` |
-| enum | `.green`, `.circle(r: 2.5)`, `.rect(w: 2, h: 3)`: payload fields by name, as constructed |
+| enum | `.green`, `.circle(r: 2.5)`, `.rect(w: 2, h: 3)`: payload fields by name, however it was built |
 | struct | `User(name: "ada", age: 36)` |
 | array, slice, `Vec` | `[1, 2]` |
 | shared handle | the value it holds |
@@ -3633,7 +3712,7 @@ enum Shape
   rect(w: Int, h: Int)
 
 sub main
-  print(Shape.dot, Shape.circle(r: 2.5), Shape.rect(w: 2, h: 3))
+  print(Shape.dot, Shape.circle(2.5), Shape.rect(w: 2, h: 3))
 ```
 
 ```output

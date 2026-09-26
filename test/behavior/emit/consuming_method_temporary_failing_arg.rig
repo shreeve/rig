@@ -7,7 +7,7 @@ error E
 struct Bag
   v: Vec[Int]
 
-  fun consume(self: Self, n: Int) -> Int
+  fun consume(<self, n: Int) -> Int
     self.v.len + n
 
 fun mk() -> Bag

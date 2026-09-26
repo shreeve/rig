@@ -31,26 +31,26 @@ enum Color
 struct Paint
   shades: [9000000]Color?
 
-BIG =! [7; 4000000000]
+BIG =! [4000000000 of 7]
 
 fun zeros[n: Int] -> [n]Int
-  [0; n]
+  [n of 0]
 
 sub fill[n: Int]
-  a = [1; n]
+  a = [n of 1]
   print(a.len)
 
 sub main()
   a: [4294967295]U8 = []
-  b: [2]Half = [Half(a: [0; 600000]), Half(a: [0; 600000])]
-  c: [1048576]Int = [0; 1048576]
-  r = Ring[Int, 1048577](items: [0; 1048577])
+  b: [2]Half = [Half(a: [600000 of 0]), Half(a: [600000 of 0])]
+  c: [1048576]Int = [1048576 of 0]
+  r = Ring[Int, 1048577](items: [1048577 of 0])
   z = zeros[1048577]()
   fill[1048577]()
   w: Wrap[Half]? = none
   p: Pair[Half]? = none
-  d: [9000000]U8 = [165; 9000000]
-  print(a.len, b.len, c.len, r.items.len, z.len, w == none, p == none, d.len, [0; 1048577].len)
+  d: [9000000]U8 = [9000000 of 165]
+  print(a.len, b.len, c.len, r.items.len, z.len, w == none, p == none, d.len, [1048577 of 0].len)
 
 # error: 32:11: `[9000000]Color?` takes 18000000 bytes
 # error: 12:8: `Two` takes 9600000 bytes; a value takes at most 8388608 (8 MiB)

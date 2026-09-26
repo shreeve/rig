@@ -235,9 +235,9 @@ would move, `~x` would hold a handle weakly.
 | function | `fn f(a: i64) -> i64 { a }` | `fn f(a: i64) i64 { return a; }` | `fun f(a: Int) -> Int` / `  a` |
 | no return value | `fn f() {}` | `fn f() void {}` | `sub f` |
 | struct literal | `P { x: 1 }` | `P{ .x = 1 }` | `P(x: 1)` |
-| method receiver | `&self`, `&mut self`, `self` | `self: P`, `self: *P` | `?self`, `!self`, `self: Self` |
+| method receiver | `&self`, `&mut self`, `self` | `self: P`, `self: *P` | `?self`, `!self`, `<self` |
 | mutating call | `v.push(x)` | `try v.append(gpa, x)` | `!v.push(x)` |
-| enum variant | `Shape::Circle { r: 2 }` | `.{ .circle = .{ .r = 2 } }` | `.circle(r: 2)` |
+| enum variant | `Shape::Circle { r: 2 }` | `.{ .circle = .{ .r = 2 } }` | `.circle(2)`, `.circle(r: 2)` |
 | match | `match x { A => .., _ => .. }` | `switch (x) { .a => .., else => .. }` | `match x` / `.a => ..` / `_ => ..` |
 | optional | `Option<T>`, `None` | `?T`, `null` | `T?`, `none` |
 | unwrap or | `x.unwrap_or(0)` | `x orelse 0` | `x ?? 0` |
@@ -313,8 +313,8 @@ sub main
 ```
 
 **Statements** are one per line. A statement is an expression, a
-binding, or a control-flow form. There is no `;` between statements;
-`;` appears only in the fill literal `[x; n]` ([§22](#22-arrays-strings-and-slices)).
+binding, or a control-flow form. Rig has no `;`: a statement ends at
+the end of its line.
 
 ## 5. The spacing rule
 
@@ -388,8 +388,8 @@ return  struct  sub  test  true  try  type  use  while  zig
 A keyword may still name a member, wherever the position makes that
 clear: a field or method (`type: Int`, `fun error(?self)`), a member
 access (`t.type`), or a keyword argument (`Token(type: 1)`). `new` is a
-keyword only at the start of a statement. `none` is reserved for the
-absent optional.
+keyword only at the start of a statement, and `of` only in a fill
+literal (`[n of x]`). `none` is reserved for the absent optional.
 
 ```rig
 struct Token
@@ -420,7 +420,7 @@ Zig's `var`, `fn`, and `const` are ordinary names in Rig.
 | bool | `true`, `false` |
 | absent | `none` |
 | array | `[1, 2, 3]` |
-| enum variant | `.red`, `.circle(r: 2)` |
+| enum variant | `.red`, `.circle(2)`, `.rect(w: 2, h: 3)` |
 
 Radix prefixes are lowercase, a decimal has no leading zero, and a
 literal has no type suffix: its type comes from context. A string holds
@@ -498,9 +498,11 @@ operands have different types `I32` and `Int`
 | `Name[T]` | generic instance | `Name<T>` | `Name(T)` |
 | `mod.Name` | imported type | `mod::Name` | `mod.Name` |
 
-Suffixes bind tighter than prefixes: `*User?` is a shared handle to an
-optional `User`, and an optional shared handle is `(*User)?`. Prefixes
-compose right to left: `?*Node` is a read borrow of a shared handle.
+The handle sigils `*` and `~` bind tightest: `*User?` is an optional
+shared handle (Rust's `Option<Rc<User>>`), and `*(User?)` a handle to
+an optional. A borrow applies to the whole type, suffixes included:
+`?User?` borrows an optional, as `&Option<User>` does. Prefixes compose
+right to left: `?*Node` is a read borrow of a shared handle.
 
 ### Copy and owning values
 
@@ -1162,10 +1164,12 @@ Point(x: 13, y: 4) 25
 |---|---|---|---|
 | `?self` | `&self` | reads | `p.m()`: the read borrow is implicit |
 | `!self` | `&mut self` | writes | `!p.m()` |
-| `self: Self` | `self` | consumes | `<p.m()`, or on a temporary |
+| `<self` | `self` | consumes | `<p.m()`, or on a temporary |
 | (none) | associated fn | | `Point.origin()` |
 
-`Self` names the enclosing type. Inside a `!self` method, `self.f = v`
+The sigils are short forms: `?self` is `self: ?Self`, `!self` is
+`self: !Self`, and `<self` is `self: Self`; the long forms are valid
+too. `Self` names the enclosing type. Inside a `!self` method, `self.f = v`
 and `self = v` write the caller's value. A binding that already holds a
 write borrow (a `!T` parameter, or `self` in a `!self` method) calls
 writing methods directly, `self.bump()`, because the borrow it holds is
@@ -1186,7 +1190,7 @@ method's receiver; anything after the call applies to its result.
 | `(<conn).close()` | `<conn.close()` | move `conn` into `close` |
 
 Only `!` and `<` reach the receiver, because they are exactly the
-receiver modes a method declares (`!self`, `self: Self`), and on a
+receiver modes a method declares (`!self`, `<self`), and on a
 call's result they would mean nothing: a result is already a
 temporary the caller owns. The other sigils keep their meaning on the
 whole expression:
@@ -1211,7 +1215,7 @@ struct Stack
   fun pop(!self) -> Int?
     !self.items.pop()
 
-  fun total(self: Self) -> Int
+  fun total(<self) -> Int
     sum = 0
     for k in ?self.items
       sum += k
@@ -1365,7 +1369,7 @@ enum Shape
 
 sub main
   s: Shape = .rect(w: 2, h: 5)
-  c = Shape.circle(radius: 2)
+  c = Shape.circle(2)
   st: Status = .missing
   print(s.area(), c.area(), s, st == .missing)
 ```
@@ -1374,9 +1378,12 @@ sub main
 10 12 .rect(w: 2, h: 5) true
 ```
 
-A payload variant is built with its fields named, exactly like a struct:
-`.circle(radius: 2)`. A pattern binds the fields in order, under names
-of your choosing: `.circle(r) =>`. An enum with payloads is Rust's data-carrying enum and
+A payload variant is built with its fields named, like a struct:
+`.rect(w: 2, h: 5)`. A variant with exactly one field also takes it by
+position, as a pattern binds it: `.circle(2)` is `.circle(radius: 2)`,
+and `.some(7)` builds the `.some(v)` a match takes apart. A pattern
+binds the fields in order, under names of your choosing:
+`.circle(r) =>`. An enum with payloads is Rust's data-carrying enum and
 Zig's `union(enum)`.
 
 ### Error sets
@@ -1429,13 +1436,13 @@ functions, and compile-time values, in declarations and in uses:
 
 | | Declared | Used |
 |---|---|---|
-| generic type | `struct Wrap[T]`, `enum Option[T]` | `Wrap[Int]`, `Wrap[Int](v: 3)`, `Option[Int].some(value: 7)` |
+| generic type | `struct Wrap[T]`, `enum Option[T]` | `Wrap[Int]`, `Wrap[Int](v: 3)`, `Option[Int].some(7)` |
 | generic function | `fun max[T](a: T, b: T) -> T` | `max(3, 7)`, `max[Float](1, 2)` |
 | generic method | `fun map[U](?self, f: fun(T) -> U) -> Wrap[U]` | `b.map(label)` |
 | compile-time value | `fun check[mode: Mode](n: Int)` | `check[.strict](5)` |
 | both at once | `sub rep[T, n: Int](x: T)` | `rep[String, 3]("hi")` |
 | a length | `fun sum[n: Int](xs: [n]Int)` | `sum([1, 2, 3])`, `sum[3](xs)` |
-| a type with a value | `struct Ring[T, n: Int]` | `Ring[Int, 4]`, `Ring(items: [0; 4])` |
+| a type with a value | `struct Ring[T, n: Int]` | `Ring[Int, 4]`, `Ring(items: [4 of 0])` |
 
 In a bracket list, a bare name is a type parameter and `name: Type` is
 a compile-time value. The brackets touch the name. There is no `<T>`
@@ -1460,7 +1467,7 @@ Why brackets:
 a generic enum. An instance names its type arguments in brackets, in a
 type (`Pair[Int, String]`) and in an expression
 (`Pair[Int, Float](first: 1, second: 2.5)`, `Vec[Int]()`,
-`Option[Int].some(value: 7)`). A constructor may leave them out: they
+`Option[Int].some(7)`). A constructor may leave them out: they
 come from the type expected where the value goes, or from the values
 that fill it.
 
@@ -1470,7 +1477,7 @@ generics: `struct Ring[T, n: Int]`. Its fields size arrays by them
 gives each one a compile-time integer: a literal, a constant, or
 arithmetic on them, even in a type (`Ring[Int, LIMIT * 2]`). The value
 is what counts, so `Ring[Int, 2 + 2]` and `Ring[Int, 4]` are one type.
-A constructor infers it from an array field: `Ring(items: [0; 4])` is a
+A constructor infers it from an array field: `Ring(items: [4 of 0])` is a
 `Ring[Int, 4]`.
 
 ```rig
@@ -1487,13 +1494,13 @@ enum Option[T]
 
 sub main
   p = Pair(first: 42, second: "answer")
-  o: Option[Int] = .some(value: p.left())
+  o: Option[Int] = .some(p.left())
   match o
     .some(v) => print(v, p.second)
     .nothing => print("none")
   q = Pair[Int, Float](first: 1, second: 2.5)
   v = Vec[Option[Int]]()
-  !v.push(Option[Int].some(value: q.left()))
+  !v.push(Option[Int].some(q.left()))
   print(q.second, v[0])
 ```
 
@@ -1517,7 +1524,7 @@ struct Ring[T, n: Int]
     n
 
 sub main
-  r = Ring(items: [0; 3])
+  r = Ring(items: [3 of 0])
   !r.put(7)
   s: Ring[Int, LIMIT * 2] = Ring[Int, 2 + 2](items: [1, 2, 3, 4])
   print(r.items, r.cap(), s.cap())
@@ -1590,7 +1597,7 @@ function call among the arguments whose result is its type parameter
 `max(max(1, 2), small)` with `small: U8` is `max[U8]` twice, and one
 that yields an optional only `none` typed binds like `none`:
 `z: Int? = id(nothing())` is `id[Int?]`. A nested `Wrap.make(1)` or
-`Opt.some(value: 1)` keeps the type its own literal gives it, and the
+`Opt.some(1)` keeps the type its own literal gives it, and the
 error says to name the outer type (`Wrap[Wrap[U8]].make(...)`). Brackets
 give every compile-time argument, or none: there is no partial list.
 
@@ -1699,9 +1706,10 @@ sub main
 ```
 
 A type argument in an expression is written as an expression: a name,
-`mod.Type`, `*T`, `~T`, `T?`, or an instance. A slice, array, or
-function type has no such spelling, so give it a `type` alias, or write
-the type where the value goes:
+`mod.Type`, `*T`, `~T`, `T?`, `*T?` (an optional handle, as in a type),
+or an instance. A slice, array, or function type, and a handle to an
+optional (`*(T?)`), have no such spelling, so give them a `type` alias,
+or write the type where the value goes:
 
 ```rig
 struct Wrap[T]
@@ -1917,9 +1925,9 @@ compile-time argument 1 of `show` must be known at compile time
   no parameters.
 - An array length or a type's value argument may do arithmetic on
   constants (`[LIMIT * 2]T`), but not on a compile-time parameter
-  (`[n + 1]T`), and not call a function (`[0; f()]`).
+  (`[n + 1]T`), and not call a function (`[f() of 0]`).
 - In an expression, a type argument with no expression spelling
-  (`[]T`, `[N]T`, `fun(...)`) needs a `type` alias.
+  (`[]T`, `[N]T`, `fun(...)`, `*(T?)`) needs a `type` alias.
 
 ### Rust, Zig, and Rig
 
@@ -1937,7 +1945,7 @@ compile-time argument 1 of `show` must be known at compile time
 | its length inferred | `sum([1, 2, 3])` | `sum(3, .{ 1, 2, 3 })` | `sum([1, 2, 3])` |
 | a type with a value | `struct Ring<T, const N: usize>` | `fn Ring(comptime T: type, comptime n: usize) type` | `struct Ring[T, n: Int]` |
 | its instance | `Ring<i64, 4>` | `Ring(i64, 4)` | `Ring[Int, 4]` |
-| a filled array | `[0; N]` | `@as([n]i64, @splat(0))` | `[0; n]` |
+| a filled array | `[0; N]` | `@as([n]i64, @splat(0))` | `[n of 0]` |
 
 ## 15. Ownership: the sigils
 
@@ -2147,7 +2155,7 @@ The same sigils mean the same thing in every position:
 |---|---|---|---|---|---|
 | expression | `?x` | `!x` | `<x` | `+x` | `~x` |
 | type | `?T` | `!T` | | | `~T` |
-| receiver | `?self` | `!self` | `self: Self` | | |
+| receiver | `?self` | `!self` | `<self` | | |
 | method call | `p.m()` | `!p.m()` | `<p.m()` | | |
 | `for` source | `for x in ?v` | `for x in !v` | `for x in <v` | | |
 | closure capture | | | `\|<x\|` | `\|+x\|` | `\|~x\|` |
@@ -2242,7 +2250,7 @@ sub main
 cannot assign through shared handle
 ```
 
-`~h` is a weak handle; `w.upgrade()` returns `(*T)?`, a new strong
+`~h` is a weak handle; `w.upgrade()` returns `*T?`, a new strong
 handle while the value lives and `none` after. A cycle of strong
 handles leaks, as in Rust; break it with a weak handle.
 
@@ -2591,24 +2599,26 @@ value, so `[LIMIT]Int` is `[4]Int` when `LIMIT =! 4`. `xs.len` is the
 length and `xs[i]` a bounds-checked element. `[2][3]Int` is two arrays
 of three, read as `grid[1][2]`.
 
-The **fill literal** `[x; n]`, as in Rust, is `n` copies of `x`, where
-`n` is any compile-time integer, a compile-time parameter included. It
-needs no annotation: `[0; n]` is a `[n]Int`. It is how an array whose
-length is a compile-time parameter is built, since a list of elements
-has a length of its own.
+The **fill literal** `[n of x]` is `n` copies of `x`, count first as in
+the type `[n]T` (`page: [4096]U8 = [4096 of 0]`), where `n` is any
+compile-time integer, a compile-time parameter included. It needs no
+annotation: `[n of 0]` is a `[n]Int`. It is how an array whose length
+is a compile-time parameter is built, since a list of elements has a
+length of its own. `of` is a keyword only there, after a value inside
+`[ ]`; anywhere else it is an ordinary name.
 
 ```rig
 LIMIT =! 4
 
 fun zeros[n: Int] -> [n]Int
-  [0; n]
+  [n of 0]
 
 sub main
   a: [LIMIT]Int = [1, 2, 3, 4]
   b: [4]Int = a
-  grid = [[0; 3]; 2]
+  grid = [2 of [3 of 0]]
   z = zeros[LIMIT * 2]()
-  print(b, grid, z.len, [7; 0].len)
+  print(b, grid, z.len, [0 of 7].len)
 ```
 
 ```output
@@ -2624,13 +2634,13 @@ Rig rejects it where it is spelled. Large data belongs in a `Vec`.
 
 ```rig reject
 fun sums(k: Int) -> Int
-  a = [k; 800000]
-  b = [k; 800000]
-  c = [k; 800000]
+  a = [800000 of k]
+  b = [800000 of k]
+  c = [800000 of k]
   a[0] + b[0] + c[0]
 
 sub main
-  big = [0; 2000000]
+  big = [2000000 of 0]
   print(big.len, sums(1))
 ```
 
@@ -2832,7 +2842,7 @@ sub main
   u = User(name: "ada", age: 36)
   n: Int? = none
   h = *User(name: "bob", age: 1)
-  print(u, n, ["a", "b"], 2.0, Shape.circle(r: 1.5), Shape.dot)
+  print(u, n, ["a", "b"], 2.0, Shape.circle(1.5), Shape.dot)
   w = ~h
   print(h, w)
 ```
@@ -2878,7 +2888,7 @@ are in the [roadmap](docs/ROADMAP.md).
 | `*x` | share | `*T` | move into a counted box |
 | `~x` | weak | `~T` | non-owning handle |
 | `!p.m()` | write receiver | | `(!p).m()`: `p` lent to a `!self` method |
-| `<p.m()` | move receiver | | `(<p).m()`: `p` moved into a `self: Self` method |
+| `<p.m()` | move receiver | | `(<p).m()`: `p` moved into a `<self` method |
 
 Prefix `!` is a write borrow, never "not": logical negation is `not x`,
 and `!=` is the not-equal operator.
@@ -2893,10 +2903,12 @@ and `!=` is the not-equal operator.
 | `e!` | unwrap, or propagate the error |
 
 **Type prefixes:** `?T` read borrow, `!T` write borrow, `*T` shared,
-`~T` weak, `[N]T` array, `[]T` slice.
+`~T` weak, `[N]T` array, `[]T` slice. `*` and `~` bind tighter than a
+suffix (`*T?` is an optional handle, `*(T?)` a handle to an optional);
+a borrow covers the suffixes (`?T?` borrows an optional).
 
-**Array literals:** `[a, b, c]` elements, `[x; n]` `n` copies of `x`
-(the only use of `;`).
+**Array literals:** `[a, b, c]` elements, `[n of x]` `n` copies of `x`
+(`of` is a keyword only there; elsewhere it is a name).
 
 **Binding operators:** `=` bind or assign, `=!` fixed binding, `<-`
 move-assign, `new x =` shadow, compound `+=` `-=` `*=` `/=` `%=` `&=`
@@ -2942,7 +2954,7 @@ correspondences:
 | `defer`, `errdefer` | `defer`, `errdefer` |
 | `fun f[n: Int](x: Int)`, `f[3](x)` | `fn f(comptime n: i64, x: i64) i64`, `f(3, x)` |
 | `struct Ring[T, n: Int]`, `Ring[Int, 4]` | `fn Ring(comptime T: type, comptime n: i64) type`, `Ring(i64, 4)` |
-| `[x; n]` | `@as([n]T, @splat(x))` |
+| `[n of x]` | `@as([n]T, @splat(x))` |
 | a method's compile-time parameters | after the receiver: `fn times(self: P, comptime n: i64) i64` |
 | `sub main` | `pub fn main() void`, which checks for leaks on exit in Debug |
 
@@ -2963,7 +2975,7 @@ use       = "use" name
 fun       = "fun" name ["[" tparam, ... "]"] ["(" params ")"] ["->" type] block
 sub       = "sub" name ["[" tparam, ... "]"] ["(" params ")"] block
 tparam    = name | name ":" type      # a type, or a compile-time value
-param     = name ":" type ["=" literal] | "?self" | "!self"
+param     = name ":" type ["=" literal] | "?self" | "!self" | "<self"
 struct    = "struct" name ["[" tparam, ... "]"] INDENT (field | fun | sub | drop)* DEDENT
 field     = name ":" type ["=" literal]
 enum      = "enum" name ["[" tparam, ... "]"] INDENT (variant | fun | sub)* DEDENT
@@ -2976,10 +2988,11 @@ test      = "test" string block
 extern    = "extern" ("fun" | "sub") name ["(" params ")"] ["->" type]
           | "extern" name ":" type
 
-type      = ("?" | "!" | "*" | "~" | "[" [dim] "]") type
-          | type ("?" | "!")
-          | name | name "[" targ, ... "]" | mod "." name | "(" type ")"
-          | "fun" "(" type, ... ")" "->" type | "sub" "(" type, ... ")"
+type      = ("?" | "!") type | ptype | tsuffix
+ptype     = ("*" | "~")* ("[" [dim] "]" type | "fun" "(" type, ... ")" "->" type
+          | "sub" "(" type, ... ")")
+tsuffix   = tsuffix ("?" | "!") | ("*" | "~")* tatom  # `*T?`: an optional handle
+tatom     = name | name "[" targ, ... "]" | mod "." name | "(" type ")"
 dim       = integer | "-" integer | name | mod "." name | cexp  # an array length
           | "(" integer ")" | "(" name ")"
 targ      = type | integer | "-" integer | "(" integer ")" | cexp  # a compile-time argument
@@ -3012,7 +3025,7 @@ unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~") unary | postfix
 postfix   = postfix ("." name | "[" expr, ... "]" | "(" args ")" | "!" | "?") | atom
 args      = (expr | name ":" expr), ...
 atom      = name | literal | "." name | "@" name "(" args ")" | "[" expr, ... "]"
-          | "[" expr ";" expr "]" | "(" expr ")"
+          | "[" expr "of" expr "]" | "(" expr ")"
 ```
 
 The grammar reads `!v.push(x)` as `!` applied to `v.push(x)`, like any
@@ -3036,8 +3049,8 @@ call onto the place, giving the tree of `(!v).push(x)`
   `Vec[Int]()` is `Vec::<i64>::new()`, and `max[Float](1, 2)` is
   `max::<f64>(1.0, 2.0)`. A const generic is a compile-time value in
   the same brackets: `struct Ring<T, const N: usize>` is
-  `struct Ring[T, n: Int]`, and `[i64; N]` is `[n]Int`; `[0; N]` keeps
-  its spelling.
+  `struct Ring[T, n: Int]`, and `[i64; N]` is `[n]Int`; `[0; N]` is
+  `[n of 0]`.
 - There are no trait bounds: `fun max[T]` needs no `T: PartialOrd`.
   Each instance a call makes is checked against what the body does
   with `T`.
@@ -3080,9 +3093,10 @@ call onto the place, giving the tree of `(!v).push(x)`
   `fun max[T](a: T, b: T) -> T`. A `comptime n` that sizes an array is
   inferred from the argument: `fun sum[n: Int](xs: [n]Int)` is called
   `sum([1, 2, 3])`.
-- `@splat(x)` into an array is `[x; n]`.
+- `@splat(x)` into an array is `[n of x]`.
 - A value nobody uses is an error, as in Zig; `_ = e` discards on
   purpose.
 - `switch` is `match`, and its `else =>` arm is `_ =>`.
-- A payload variant is built with named fields, `.circle(r: 2)`, not
-  `.{ .circle = 2 }`.
+- A payload variant is built with named fields, `.rect(w: 2, h: 3)`, not
+  `.{ .rect = .{ .w = 2, .h = 3 } }`; one with a single field also takes
+  it by position, `.circle(2)`.

@@ -9,4 +9,4 @@ sub main()
   s = S(name: "a", x: 5)
   print(s.name)
 
-# error: sigil-prefixed member (`?x` / `!x`) is not allowed in a nominal body
+# error: sigil-prefixed member (`?x` / `!x` / `<x`) is not allowed in a nominal body

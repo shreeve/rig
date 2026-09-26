@@ -4,7 +4,7 @@
 N =! 4
 
 sub main()
-  a: [N -1]Int = [0; 3]
+  a: [N -1]Int = [3 of 0]
   print(a)
 
 # error: 7:9: unexpected `-`; `-` touching `1` is a prefix (the spacing rule); for arithmetic, write `N - 1`

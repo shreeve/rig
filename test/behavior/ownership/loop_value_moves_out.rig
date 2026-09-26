@@ -5,7 +5,7 @@
 struct Wrap
   n: Int
 
-fun pick(boxes: Vec[*Wrap], want: Int) -> (*Wrap)?
+fun pick(boxes: Vec[*Wrap], want: Int) -> *Wrap?
   for b in <boxes
     break <b if b.n == want
   else

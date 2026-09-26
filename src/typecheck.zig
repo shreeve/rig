@@ -2326,6 +2326,13 @@ const Checker = struct {
             try self.errAt(operand, "this value is already a shared handle `{s}`; `*` would nest handles. Clone it with `+x` for another handle", .{try self.tyName(inner)});
             return self.t().invalid_id;
         }
+        switch (self.ctx.types.get(inner)) {
+            .borrow_read, .borrow_write => {
+                try self.errAt(operand, "a handle holds a value, not a borrow; `{s}` is a borrow: share an owned value instead", .{try self.tyName(inner)});
+                return self.t().invalid_id;
+            },
+            else => {},
+        }
         return self.ctx.intern(.{ .shared = inner });
     }
 
@@ -2822,11 +2829,16 @@ const Checker = struct {
             .list => switch (e.kind() orelse return self.t().invalid_id) {
                 .member => if (ir.Member.object(e) == .src) return r.resolveType(e),
                 .share, .weak, .read, .write, .propagate_none => {
+                    if (e.isKind(.share) or e.isKind(.weak)) if (try self.optionalHandleArg(e)) |ty| return ty;
                     const inner_node = ir.get(e, if (e.isKind(.propagate_none)) .value else .operand);
                     const inner = try self.typeArg(inner_node);
                     if (self.isPoison(inner)) return inner;
                     if (e.isKind(.share) and self.ctx.types.get(inner) == .shared) {
                         try self.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
+                        return self.t().invalid_id;
+                    }
+                    if ((e.isKind(.share) or e.isKind(.weak)) and sema.isBorrowType(self.ctx, inner)) {
+                        try self.errAt(e, "a handle holds a value, not a borrow: `{s}` has no handle", .{try self.tyName(inner)});
                         return self.t().invalid_id;
                     }
                     return self.ctx.intern(switch (e.kind().?) {
@@ -2855,6 +2867,48 @@ const Checker = struct {
         }
         try self.errAt(e, "`{s}` is not a type; a type argument in an expression is a name, `module.Type`, `*T`, `~T`, `?T`, `!T`, `T?`, or `X[T]`", .{try self.sourceText(e)});
         return self.t().invalid_id;
+    }
+
+    /// `*T?`, `~T?`, `*~T?` written as a type argument: an optional
+    /// handle, since a handle binds tighter than a suffix. An expression
+    /// reads it as the handles of `T?`, so the suffixes move outside the
+    /// whole chain of handles. A handle to an optional, `*(T?)`, has no
+    /// expression spelling, and a fallible one is only a return type.
+    /// Null when the chain has no suffix to move.
+    fn optionalHandleArg(self: *Checker, e: Sexp) Error!?TypeId {
+        var handles: std.ArrayListUnmanaged(Sexp) = .empty;
+        var op = e;
+        while (op.isKind(.share) or op.isKind(.weak)) : (op = ir.get(op, .operand)) try handles.append(self.ctx.arena.allocator(), op);
+        if (!op.isKind(.propagate_none) and !op.isKind(.propagate)) return null;
+        if (self.ctx.parser) |p| if (p.hasParenSuffix(e)) {
+            try self.errAt(e, "a handle to an optional has no expression spelling: as a type argument in an expression, name it with a `type` alias, or annotate the binding instead", .{});
+            return self.t().invalid_id;
+        };
+        var count: u32 = 0;
+        var base = op;
+        while (base.isKind(.propagate_none) or base.isKind(.propagate)) : (count += 1) {
+            if (base.isKind(.propagate)) {
+                try self.errAt(e, "a fallible type `{s}` is only allowed as a function's return type", .{try self.sourceText(e)});
+                return self.t().invalid_id;
+            }
+            base = ir.PropagateNone.value(base);
+        }
+        var ty = try self.typeArg(base);
+        var inner_node = base;
+        var i = handles.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (self.isPoison(ty)) return ty;
+            const h = handles.items[i];
+            if (h.isKind(.share) and self.ctx.types.get(ty) == .shared) {
+                try self.errAt(inner_node, "nested shared type `**T` is not meaningful; use a single `*T`", .{});
+                return self.t().invalid_id;
+            }
+            ty = try self.ctx.intern(if (h.isKind(.share)) .{ .shared = ty } else .{ .weak = ty });
+            inner_node = h;
+        }
+        while (count > 0) : (count -= 1) ty = try self.ctx.intern(.{ .optional = ty });
+        return ty;
     }
 
     /// `Wrap[Int](v: 3)`, `Vec[Int]()`: a generic type constructed at the
@@ -3099,13 +3153,13 @@ const Checker = struct {
             if (elems.len != n) try self.errAt(node, "array literal has {d} element{s}; `{s}` needs {d}", .{ elems.len, plural(elems.len), try self.tyName(expected), n });
         } else if (self.ctx.types.get(et.array.len) == .ct_param) {
             const len = try self.tyName(et.array.len);
-            try self.errAt(node, "an array of compile-time length `{s}` is built with `[x; {s}]`, not a list of elements", .{ len, len });
+            try self.errAt(node, "an array of compile-time length `{s}` is built with `[{s} of x]`, not a list of elements", .{ len, len });
         }
         for (elems) |e| try self.checkExpr(e, et.array.elem);
         return expected;
     }
 
-    /// `[x; n]`: an array of `n` copies of `x`, where `n` is a
+    /// `[n of x]`: an array of `n` copies of `x`, where `n` is a
     /// compile-time integer. Its type is `[n]T` for `x`'s type `T`, or
     /// the array type `expected`, whose length it must have. The element
     /// is plain data: it is copied into every slot.
@@ -3123,19 +3177,19 @@ const Checker = struct {
             if (elem != ty) try self.checkExpr(value, elem);
             switch (self.ctx.types.get(elem)) {
                 .none_literal, .void, .noreturn => {
-                    try self.errAt(value, "the element of `[x; n]` needs a type; give it where the array goes (`xs: [n]T? = [none; n]`)", .{});
+                    try self.errAt(value, "the element of `[n of x]` needs a type; give it where the array goes (`xs: [n]T? = [n of none]`)", .{});
                     return self.t().invalid_id;
                 },
                 else => {},
             }
         }
         if (self.isPoison(elem) or self.isPoison(len)) return self.t().invalid_id;
-        if (try self.ownsResource(elem, self.startOf(value), "copies into every slot of `[x; n]` a value")) {
-            try self.errAt(value, "`[x; n]` copies its element into every slot; `{s}` owns a resource, so an array cannot hold it (use a `Vec`)", .{try self.tyName(elem)});
+        if (try self.ownsResource(elem, self.startOf(value), "copies into every slot of `[n of x]` a value")) {
+            try self.errAt(value, "`[n of x]` copies its element into every slot; `{s}` owns a resource, so an array cannot hold it (use a `Vec`)", .{try self.tyName(elem)});
             return self.t().invalid_id;
         }
         if (sema.holdsBorrow(self.ctx, elem)) {
-            try self.errAt(value, "`[x; n]` copies its element into every slot; `{s}` holds a borrow, and its element must be plain data", .{try self.tyName(elem)});
+            try self.errAt(value, "`[n of x]` copies its element into every slot; `{s}` holds a borrow, and its element must be plain data", .{try self.tyName(elem)});
             return self.t().invalid_id;
         }
         const ty = try self.ctx.intern(.{ .array = .{ .elem = elem, .len = len } });
@@ -3253,6 +3307,9 @@ const Checker = struct {
             try self.errAt(callee, "type arguments go in brackets: `{s}[{s}](...)`", .{ name, self.text(args[0]) });
             return self.t().invalid_id;
         }
+        // Fields are set by name; a positional argument binds nothing to
+        // infer from.
+        for (args) |a| if (!a.isKind(.kwarg)) return self.badCall(args, pos, "fields of `{s}` are set by name: `{s}(field: value)`", .{ name, name });
         const fields = self.ctx.symbols.items[sym_id].fields orelse &.{};
         const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = fields }, pos, self.expectedResult((try sema.makeNominalContext(self.ctx, sym_id)).self_type), null)) orelse return self.skipCall(args);
         _ = try self.instantiate(sym_id, subst.args, pos);
@@ -3754,7 +3811,7 @@ const Checker = struct {
                 value = ir.Kwarg.value(arg);
                 const kname = self.text(ir.Kwarg.name(arg));
                 pattern = switch (from) {
-                    .fields => |fs| if (findDataField(fs, kname)) |f| f.ty else null,
+                    .fields, .payload => |fs| if (findDataField(fs, kname)) |f| f.ty else null,
                     .params => |p| blk: {
                         const names = p.names orelse break :blk null;
                         for (names, 0..) |name, i| {
@@ -3764,10 +3821,12 @@ const Checker = struct {
                     },
                 };
             } else {
-                // Fields are set only by name.
+                // A struct's fields are set only by name; a variant's one
+                // field may be given positionally.
                 defer positional += 1;
                 pattern = switch (from) {
                     .fields => null,
+                    .payload => |fs| if (positional == 0 and args.len == 1) if (soleField(fs)) |f| f.ty else null else null,
                     .params => |p| if (positional < p.params.len) p.params[positional] else null,
                 };
             }
@@ -4294,16 +4353,24 @@ const Checker = struct {
     };
 
     /// Keyword arguments against named fields: each names a real field
-    /// once, and every field without a default is given.
+    /// once, and every field without a default is given. A variant with
+    /// one field also takes it positionally: `.some(7)`.
     fn checkFieldArgs(self: *Checker, args: []const Sexp, fields: []const Field, info: FieldArgs) Error!void {
         const noun = if (info.kind == .constructor) "constructor of" else "variant";
+        if (info.kind == .variant and args.len == 1 and !args[0].isKind(.kwarg)) {
+            if (soleField(fields)) |f| return self.checkExpr(args[0], try self.fieldType(f, info));
+        }
         for (args) |a| {
             if (a.isKind(.kwarg)) continue;
             if (info.kind == .variant) {
                 const first = for (fields) |f| {
                     if (!f.is_method and !f.is_variant) break f.name;
                 } else "field";
-                try self.err(info.pos, "variant fields are set by name: `.{s}({s}: ...)`", .{ info.owner, first });
+                if (soleField(fields) != null) {
+                    try self.err(info.pos, "variant `{s}` has one field: write `.{s}(value)` or `.{s}({s}: value)`", .{ info.owner, info.owner, info.owner, first });
+                } else {
+                    try self.err(info.pos, "a variant with more than one field sets them by name: `.{s}({s}: ...)`", .{ info.owner, first });
+                }
             } else {
                 try self.err(info.pos, "fields of `{s}` are set by name: `{s}(field: value)`", .{ info.owner, info.owner });
             }
@@ -4336,6 +4403,17 @@ const Checker = struct {
             try self.err(info.pos, "{s} `{s}` is missing field `{s}`", .{ noun, info.owner, f.name });
             if (info.foreign == null and f.decl_pos < sema.imported_decl_pos) try self.ctx.noteIn(info.module_id, f.decl_pos, "field `{s}` declared here", .{f.name});
         }
+    }
+
+    /// A variant payload's one field, when it has exactly one.
+    fn soleField(fields: []const Field) ?Field {
+        var found: ?Field = null;
+        for (fields) |f| {
+            if (f.is_method or f.is_variant) continue;
+            if (found != null) return null;
+            found = f;
+        }
+        return found;
     }
 
     fn fieldType(self: *Checker, f: Field, info: FieldArgs) Error!TypeId {
@@ -4378,7 +4456,7 @@ const Checker = struct {
         if (try self.moduleNamed(obj)) |id| return self.crossModuleCall(id, method, pos, args, ct);
         if (try self.namedType(obj)) |nt| return self.associatedCall(obj, nt, method, pos, args, ct);
 
-        // A consuming (`self: Self`) method may take a temporary; any
+        // A consuming (`<self`) method may take a temporary; any
         // other receiver must already have an owner.
         const obj_ty = try self.synthExpr(obj);
         if (self.isPoison(obj_ty)) {
@@ -4591,8 +4669,17 @@ const Checker = struct {
                 subst = .{ .params = nt.sym.type_params orelse &.{}, .args = given };
                 ty = try self.instantiate(nt.id, given, pos);
             } else if (generic) {
+                // Arguments that fill no field bind nothing to infer from:
+                // say what the variant takes instead.
+                const positional = for (args) |a| {
+                    if (!a.isKind(.kwarg)) break true;
+                } else false;
+                if (args.len == 0 or (positional and !(args.len == 1 and soleField(payload) != null))) {
+                    try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = nt.sym.from.module_id, .pos = pos, .foreign = nt.foreign, .kind = .variant });
+                    return self.t().invalid_id;
+                }
                 const self_type = (try sema.makeNominalContext(self.ctx, nt.id)).self_type;
-                subst = (try self.inferTypeArgs(nt.id, args, .{ .fields = payload }, pos, self.expectedResult(self_type), name)) orelse return self.skipCall(args);
+                subst = (try self.inferTypeArgs(nt.id, args, .{ .payload = payload }, pos, self.expectedResult(self_type), name)) orelse return self.skipCall(args);
                 ty = try self.instantiate(nt.id, subst.args, pos);
             }
             try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .module_id = nt.sym.from.module_id, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant });
@@ -4604,10 +4691,11 @@ const Checker = struct {
     }
 
     /// Where an inferred generic's arguments are matched: the fields a
-    /// constructor or variant fills, or an associated function's
-    /// parameters (with their names, for keyword arguments).
+    /// constructor or a variant's payload fills, or an associated
+    /// function's parameters (with their names, for keyword arguments).
     const InferFrom = union(enum) {
         fields: []const Field,
+        payload: []const Field,
         params: struct { params: []const TypeId, names: ?[]const []const u8 },
     };
 
@@ -5026,10 +5114,9 @@ const Checker = struct {
                 else => break,
             }
         }
-        const name = try self.tyName(expected);
-        // A prefixed type takes parentheses before the `?`: `(*B)?`, `([2]Int)?`.
-        const wrap = name.len > 0 and std.mem.indexOfScalar(u8, "*~?![", name[0]) != null;
-        try self.errAt(e, "`none` needs an optional type; `{s}` is not optional (write `{s}{s}{s}?`)", .{ name, if (wrap) "(" else "", name, if (wrap) ")" else "" });
+        // Spelled as a type is: `*B?`, `([2]Int)?`.
+        const optional = try self.ctx.intern(.{ .optional = expected });
+        try self.errAt(e, "`none` needs an optional type; `{s}` is not optional (write `{s}`)", .{ try self.tyName(expected), try self.tyName(optional) });
         return self.t().invalid_id;
     }
 

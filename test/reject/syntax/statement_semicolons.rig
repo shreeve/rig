@@ -1,0 +1,8 @@
+# Two statements on one line separated by `;` go on lines of their own;
+# dropping the `;` would not do.
+
+sub main()
+  a = 1; b = 2
+  print(a, b)
+
+# error: 5:8: unexpected `;`; Rig ends a statement at the end of its line; put each statement on its own line

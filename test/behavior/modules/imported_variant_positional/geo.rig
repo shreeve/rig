@@ -1,0 +1,7 @@
+pub enum Shape
+  circle(radius: Int)
+  rect(w: Int, h: Int)
+
+pub enum Maybe[T]
+  some(value: T)
+  nothing

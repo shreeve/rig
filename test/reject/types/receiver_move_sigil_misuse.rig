@@ -1,0 +1,31 @@
+# `<self` is only a method's first parameter, and only `self` takes it; a
+# drop body borrows its receiver, so it cannot take `<self`.
+
+struct Conn
+  name: String
+  <other
+
+  fun close(<self) -> Int
+    self.name.len
+
+  fun both(?self, <self) -> Int
+    1
+
+  drop(<self)
+    print("bye")
+
+fun f(<x) -> Int
+  1
+
+fun g(<self) -> Int
+  1
+
+sub main()
+  print(f(1), g(2))
+
+# error: 6:4: sigil-prefixed member (`?other` / `!other` / `<other`) is not allowed in a nominal body
+# error: 11:20: `self` must be the first parameter of a method
+# error: 11:20: sigil-prefixed parameter sugar (`?self` / `!self` / `<self`) is only allowed at the first parameter position
+# error: 14:9: `drop` takes its receiver write-borrowed: `drop(!self)`
+# error: 17:8: sigil-prefixed parameter is only allowed for `self`
+# error: 20:8: `<self` is only allowed in a method body

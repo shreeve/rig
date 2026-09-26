@@ -1,5 +1,5 @@
 # A bare `self` parameter needs an explicit receiver type: `?self`,
-# `!self`, or `self: Self`.
+# `!self`, or `<self`.
 
 struct User
   name: String

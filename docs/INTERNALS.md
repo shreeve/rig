@@ -122,7 +122,7 @@ parser distinct tokens:
 
 | Source | Tokens | Rule |
 |---|---|---|
-| `f(x)`, `a[i]` vs `f (x)`, `f [1]` | `LPAREN_CALL`, `LBRACKET_INDEX` vs `(`, `[` | touching the preceding value continues it; in a type, an `LBRACKET_INDEX` after `[N]` or `[]` starts the element's own prefix (`[2][3]Int`) |
+| `f(x)`, `a[i]` vs `f (x)`, `f [1]` | `LPAREN_CALL`, `LBRACKET_INDEX` vs `(`, `[` | touching the preceding value continues it; in a type, an `LBRACKET_INDEX` after `[N]` or `[]` starts the element's own prefix (`[2][3]Int`), and an `LPAREN_CALL` a parenthesized element (`[2](Int?)?`) |
 | `a.b` vs `.red`, `f .red` | `.` vs `DOT_LIT` | `.name` touching a value is member access |
 | `a - b`, `a-b` vs `-x`, `f -x` | `MINUS` vs `MINUS_PREFIX` / `DROP_STMT` | a sigil touching its operand and not the value before it is a prefix; `-name` as a whole statement is a drop |
 | `<x +x *x ?x !x` | `MOVE_PFX` ... `WRITE_PFX` | the same rule |
@@ -131,6 +131,7 @@ parser distinct tokens:
 | `if c` / `stmt if c` / `a if c else b` | `IF` / `POST_IF` / `TERNARY_IF` | after a value (or `return`, `break`, `continue`): a ternary when `else` follows on the logical line, otherwise a guard |
 | `name:` inside `( )` | `KWARG_NAME` | a keyword argument or typed parameter; inside `[ ]` (`[n: Int]`) it stays `IDENT` |
 | keywords | one token each | every keyword is reserved; `new` only at statement start |
+| `[n of x]` vs `of = 3`, `xs[of]` | `OF` vs `IDENT` | `of` is a keyword only after a value directly inside `[ ]`, where it separates a fill literal's count from its element |
 | `t.type`, `(type: 1)`, a member `type: Int`, `fun type` in a member list | `IDENT` / `KWARG_NAME` | a keyword names a member after `.`, before `:` inside `( )`, and in a member list before `:` or after `fun` / `sub`; sema rejects a keyword parameter |
 
 The grammar's own shape settles the rest:
@@ -138,7 +139,7 @@ The grammar's own shape settles the rest:
 | Ambiguity | Resolution |
 |---|---|
 | a closure's body vs a call of the closure (`\|x\| f(...)`) | a closure is a lowest-precedence expression, never an operand, so nothing follows its body |
-| type prefixes vs `T?` / `T!` suffixes | types are stratified: prefixes over suffixes over atoms; suffixes bind tighter |
+| type prefixes vs `T?` / `T!` suffixes | types are stratified: borrows over suffixes over handles over atoms, so `*T?` is an optional handle and `?T?` a borrow of an optional; slice, array, and function types take no suffix (`ptype`) |
 | `\|k\| (k)`: parameter list or parenthesized body | parameters live in the bar list; `name:` is a `KWARG_NAME` |
 | `return` / `break` / `continue` inside conditions | they are statements; a guard applies to a whole simple statement |
 | dangling `else` in guards and ternaries | conditions are block-free values; the ternary has its own token; `else` only follows a block |
@@ -213,7 +214,7 @@ that need to inspect the tree:
   node's id (`Parser.isReceiverSigil`), since the checker rejects some
   calls in this short form that it accepts in parentheses: a `!` before
   a method that does not take `!self` (the habit of `!` as negation),
-  a `<` before one that does not take `self: Self`, and a `!` call whose
+  a `<` before one that does not take `<self`, and a `!` call whose
   value is a `Bool`, written `(!set).insert(k)`. A `for` source sigil
   is the loop's mode, moved before this rewrite sees it.
 
@@ -348,13 +349,25 @@ A few kinds serve more than one surface form:
   element. An `inst` that is not compile-time arguments is rejected. A
   type argument in an expression is an expression read as a type
   (`typeArg`); `[]T`, `[N]T`, and function types have no such
-  spelling, and the parser wrapper reports them with a hint.
+  spelling, and the parser wrapper reports them with a hint. There
+  `*T?` is `(share (propagate_none T))` and `*~T?` is
+  `(share (weak (propagate_none T)))`, which `typeArg` reads as optional
+  handles, as the type grammar does: the suffixes under a chain of
+  handles move outside the whole chain. A handle to an optional,
+  `*(T?)` or `*(~T?)`, has no expression spelling; the tree drops its
+  parentheses, so the parser wrapper records each `share` or `weak`
+  whose chain has a suffix inside parentheses (`hasParenSuffix`, from
+  the spans, as it finds receiver sigils), and `typeArg` rejects it
+  with a hint.
 - `array_type`'s `size`, and a `generic_inst`'s arguments, may be an
   integer, a name, a `member` (`lib.N`), a `neg` integer (arguments
   only), or `+ - * / %` over those; sema reads a name by the slot it
   fills, a type or a compile-time integer.
-- `(array_fill value size)` is `[x; n]`; `(array elems...)` is a list
+- `(array_fill size value)` is `[n of x]`; `(array elems...)` is a list
   of elements.
+- A receiver in a parameter list, `?self`, `!self`, or `<self`, is
+  `(read self)`, `(write self)`, or `(move self)`; sema reads it as
+  `self: ?Self`, `self: !Self`, or `self: Self`.
 - A declaration's compile-time parameters are its `tparams` group (a
   `fun` or `sub`'s `[mode: Mode]`, a generic type's `[T, n: Int]`): a
   bare name is a type parameter, `(: name T)` a compile-time value. The list
@@ -844,7 +857,7 @@ lower is an internal error: sema must have rejected it.
   value argument is emitted from its type: the folded integer or the
   parameter's name. An element of an array whose length is a
   compile-time parameter is reached through a slice (`rig.elems`),
-  since Zig rejects any index into an array of length 0, and `[x; n]`
+  since Zig rejects any index into an array of length 0, and `[n of x]`
   is `@as([n]T, @splat(x))`.
 - **Generic functions** are Zig generic functions: a type parameter is
   `comptime T: type`, and a call passes its type arguments, inferred

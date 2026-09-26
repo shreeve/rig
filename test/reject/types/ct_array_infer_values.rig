@@ -13,7 +13,7 @@ fun big[n: Int](xs: [n]Int) -> Int
 
 sub main()
   print(sum([1, 2, 3], [1, 2, 3, 4]))
-  print(small([0; 300]))
+  print(small([300 of 0]))
   print(small[300]([1]))
   print(big([1]))
 

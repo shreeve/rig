@@ -273,6 +273,10 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 //   After `return`/`break`/`continue` or a value, `if` is a postfix guard
 //   (`return x if done`), or the inline ternary when an `else` follows on
 //   the same logical line (`a if c else b`). Elsewhere it opens a block.
+//
+// `of`
+//   After a value directly inside [ ], `of` separates a fill literal's
+//   count from its element (`[n of x]`). Elsewhere it is a name.
 
 pub const Lexer = struct {
     base: BaseLexer,
@@ -353,6 +357,7 @@ pub const Lexer = struct {
         ambiguous_fixed,
         ambiguous_move,
         missing_space,
+        semicolon,
 
         pub fn message(e: LexError) []const u8 {
             return switch (e) {
@@ -368,6 +373,7 @@ pub const Lexer = struct {
                 .ambiguous_fixed => "`=!` touches the operand after it: write `x =! y` for a fixed binding, or `x = !y` for a write borrow",
                 .ambiguous_move => "`<-` touches the operand after it: write `a <- b` to move-assign, or `a < -b` to compare",
                 .missing_space => "missing space or operator",
+                .semicolon => "unexpected `;`",
                 .tab_indent => "tab in indentation; indent with spaces",
                 .bad_dedent => "indentation does not match any enclosing block",
                 .first_line_indented => "unexpected indentation",
@@ -692,7 +698,15 @@ pub const Lexer = struct {
             else => return self.memberName() orelse kw,
         };
         if (self.inParens() and self.nextCat() == .colon) return .kwarg_name;
+        if (std.mem.eql(u8, word, "of") and self.isFillOf()) return .of;
         return .ident;
+    }
+
+    /// `of` after a value directly inside [ ] separates a fill literal's
+    /// count from its element (`[n of x]`); anywhere else it is a name.
+    fn isFillOf(self: *const Lexer) bool {
+        return isValue(self.last_cat) and self.nesting > 0 and !self.inIsland() and
+            self.base.source[self.brackets[self.nesting - 1]] == '[';
     }
 
     /// A keyword names a member where nothing else can stand: after
@@ -907,6 +921,7 @@ pub const Lexer = struct {
             else
                 .bad_number, tok.pos),
             '\r' => self.fail(.lone_cr, tok.pos),
+            ';' => self.fail(.semicolon, tok.pos),
             else => self.fail(.bad_char, tok.pos),
         };
     }
@@ -978,6 +993,10 @@ pub const Parser = struct {
     /// The node ids of the `(write place)` and `(move place)` receivers
     /// written in front of the call (`!v.push(x)`), not in parentheses.
     receiver_sigils: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
+    /// The node ids of the `(share x)` and `(weak x)` whose operand has a
+    /// `?` suffix inside parentheses that open right after the sigil
+    /// (`*(T?)`), which the tree does not keep.
+    paren_suffixes: std.AutoHashMapUnmanaged(parser.NodeId, void) = .empty,
 
     /// Every pass walks the tree recursively; deeper trees are rejected
     /// here instead of exhausting the stack later.
@@ -1040,10 +1059,11 @@ pub const Parser = struct {
         var end = tok.pos + tok.len;
         const lexer = &self.base.lexer;
         const message: []const u8 = switch (tok.cat) {
-            .err => return .{ .severity = .@"error", .pos = pos, .end = end, .message = if (lexer.err == .missing_space)
-                self.format("missing space or operator between `{s}` and `{s}`", .{ src[lexer.prev_pos..lexer.prev_end], src[pos..end] })
-            else
-                lexer.err.message() },
+            .err => return .{ .severity = .@"error", .pos = pos, .end = end, .message = switch (lexer.err) {
+                .missing_space => self.format("missing space or operator between `{s}` and `{s}`", .{ src[lexer.prev_pos..lexer.prev_end], src[pos..end] }),
+                .semicolon => self.semicolonMessage(tok),
+                else => lexer.err.message(),
+            } },
             .eof, .outdent => blk: {
                 pos = lexer.prev_end;
                 end = pos;
@@ -1060,7 +1080,7 @@ pub const Parser = struct {
         };
         const expected = self.expectedHint();
         const with_expected = if (expected) |hint| self.format("{s}; expected {s}", .{ message, hint }) else message;
-        const hint = self.parenFreeCallHint(tok) orelse self.bracketHint(tok) orelse self.semicolonHint(tok) orelse self.spacingHint(tok) orelse reservedHint(src, tok, expected orelse "");
+        const hint = self.parenFreeCallHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse fillHint(tok) orelse self.spacingHint(tok) orelse reservedHint(src, tok, expected orelse "");
         const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
     }
@@ -1149,25 +1169,70 @@ pub const Parser = struct {
         return null;
     }
 
-    /// A `;` Rig does not take: Rust's array type `[T; n]`, or one ending
-    /// or separating statements.
-    fn semicolonHint(self: *Parser, tok: Token) ?[]const u8 {
-        if (tok.cat != .semicolon) return null;
+    /// A `;`, which Rig does not take: one ending a statement, Rust's
+    /// fill literal `[x; n]`, or Rust's array type `[T; n]`.
+    fn semicolonMessage(self: *Parser, tok: Token) []const u8 {
         const src = self.base.source;
         const lex = &self.base.lexer;
-        if (lex.nesting == 0) return "Rig ends a statement at the end of its line; drop the `;`";
-        const open = lex.brackets[lex.nesting - 1];
-        if (src[open] != '[') return null;
-        // `[Int; 3]`: what precedes the `;` reads as a type.
-        const elem = std.mem.trim(u8, src[open + 1 .. tok.pos], " ");
-        if (elem.len == 0 or !(std.ascii.isUpper(elem[0]) or std.mem.indexOfScalar(u8, "?!*~[", elem[0]) != null)) return null;
-        if (std.mem.indexOfAny(u8, elem, ",;(") != null) return null;
-        const eol = std.mem.indexOfScalarPos(u8, src, tok.pos, '\n') orelse src.len;
-        if (std.mem.indexOfScalarPos(u8, src[0..eol], tok.pos, ']')) |close| {
-            const len = std.mem.trim(u8, src[tok.pos + 1 .. close], " ");
-            return self.format("an array type puts its length first: `[{s}]{s}`; `[x; n]` is a fill literal", .{ len, elem });
+        if (lex.nesting == 0) {
+            // `a = 1; b = 2`: another statement follows on the line.
+            const eol = std.mem.indexOfScalarPos(u8, src, tok.pos, '\n') orelse src.len;
+            const rest = std.mem.trim(u8, src[tok.pos + 1 .. eol], " \r");
+            if (rest.len > 0 and rest[0] != '#') return "unexpected `;`; Rig ends a statement at the end of its line; put each statement on its own line";
+            return "unexpected `;`; Rig ends a statement at the end of its line; drop the `;`";
         }
-        return "an array type puts its length first: `[3]Int`; `[x; n]` is a fill literal";
+        const open = lex.brackets[lex.nesting - 1];
+        if (src[open] != '[') return "unexpected `;`";
+        const either = "unexpected `;`; `[x; n]` is written `[n of x]`, and `[Int; 3]` is written `[3]Int`";
+        const eol = std.mem.indexOfScalarPos(u8, src, tok.pos, '\n') orelse src.len;
+        const close = std.mem.indexOfScalarPos(u8, src[0..eol], tok.pos, ']') orelse return either;
+        const elem = std.mem.trim(u8, src[open + 1 .. tok.pos], " ");
+        const len = std.mem.trim(u8, src[tok.pos + 1 .. close], " ");
+        if (elem.len == 0 or len.len == 0 or std.mem.indexOfAny(u8, elem, ",;") != null or std.mem.indexOfAny(u8, len, ",;([") != null) return either;
+        // `[Int; 3]`: the brackets stand where a type goes (after `:` or
+        // `->`), or the element reads as a type: `Int`, `U8`, `T`, not a
+        // constant such as `LIMIT`, nor a constructor call.
+        const before = std.mem.trimEnd(u8, src[0..open], " ");
+        const in_type = std.mem.endsWith(u8, before, ":") or std.mem.endsWith(u8, before, "->");
+        const rest = elem[1..];
+        const typelike = in_type or (std.ascii.isUpper(elem[0]) and std.mem.indexOfScalar(u8, elem, '(') == null and
+            (rest.len == 0 or std.mem.indexOfAny(u8, rest, "abcdefghijklmnopqrstuvwxyz") != null or
+                std.mem.indexOfNone(u8, rest, "0123456789") == null));
+        if (typelike) return self.format("unexpected `;`; an array type puts its length first: `[{s}]{s}`", .{ len, elem });
+        return self.format("unexpected `;`; a fill literal puts its count first: `[{s} of {s}]`", .{ len, elem });
+    }
+
+    /// `sub()?`, `*fun(Int) -> Int` then `!`: a function type takes no
+    /// suffix, so an optional one is written in parentheses.
+    fn typeSuffixHint(self: *Parser, tok: Token) ?[]const u8 {
+        if (tok.cat != .suffix_q and tok.cat != .suffix_bang) return null;
+        const src = self.base.source;
+        if (tok.pos == 0 or src[tok.pos - 1] != ')') return null;
+        // The `(` that the `)` before the suffix closes.
+        var depth: u32 = 0;
+        var p = tok.pos;
+        const open = while (p > 0) {
+            p -= 1;
+            switch (src[p]) {
+                ')' => depth += 1,
+                '(' => {
+                    depth -= 1;
+                    if (depth == 0) break p;
+                },
+                '\n' => return null,
+                else => {},
+            }
+        } else return null;
+        if (!endsWithWord(src[0..open], "sub") and !endsWithWord(src[0..open], "fun")) return null;
+        var start = open - 3;
+        while (start > 0 and (src[start - 1] == '*' or src[start - 1] == '~')) start -= 1;
+        return self.format("a function type takes no suffix; write `({s}){c}`", .{ src[start..tok.pos], src[tok.pos] });
+    }
+
+    /// `[a, 2 of 3]`: a fill literal is the whole bracket.
+    fn fillHint(tok: Token) ?[]const u8 {
+        if (tok.cat != .of) return null;
+        return "a fill literal `[n of x]` holds one count and one element; it cannot share brackets with a list";
     }
 
     /// `[N -1]T`: an operator that touches what follows and not what
@@ -1307,6 +1372,7 @@ pub const Parser = struct {
         switch (out.kind() orelse return out) {
             .lambda => try self.splitBars(out, walked),
             .write, .move => return self.receiverSigil(out),
+            .share, .weak => try self.noteParenSuffix(out),
             // The body's value is returned.
             .fun => if (ir.Fun.returns(out) != .nil) valueTail(ir.Fun.body(out)),
             // The expression's value is bound or returned.
@@ -1315,6 +1381,39 @@ pub const Parser = struct {
             else => {},
         }
         return out;
+    }
+
+    /// `*(T?)`, `~(T?)`, `*(~T?)`: a `?` suffix sits inside parentheses
+    /// within a chain of handles, so it belongs to what a handle holds.
+    /// In `*T?`, `*~T?`, and `*(T)?` every suffix follows the whole chain:
+    /// each handle and each suffix layer starts right after the sigil
+    /// before it.
+    fn noteParenSuffix(self: *Parser, node: Sexp) std.mem.Allocator.Error!void {
+        var e = node;
+        while (true) {
+            const at = self.span(e).start + 1;
+            var op = ir.get(e, .operand);
+            if (op.isKind(.share) or op.isKind(.weak)) {
+                if (self.span(op).start == at) {
+                    e = op;
+                    continue;
+                }
+                // `*(~T?)`: a parenthesized handle with a suffix of its own.
+                while (op.isKind(.share) or op.isKind(.weak)) op = ir.get(op, .operand);
+                if (op.isKind(.propagate_none)) try self.paren_suffixes.put(self.allocator(), node.list.id, {});
+                return;
+            }
+            while (op.isKind(.propagate_none)) : (op = ir.PropagateNone.value(op)) {
+                if (self.span(op).start != at) return self.paren_suffixes.put(self.allocator(), node.list.id, {});
+            }
+            return;
+        }
+    }
+
+    /// Whether `node`, a `share` or `weak`, has a parenthesized suffix in
+    /// its operand: `*(T?)`, not `*T?` or `*(T)?`.
+    pub fn hasParenSuffix(self: *const Parser, node: Sexp) bool {
+        return node == .list and self.paren_suffixes.contains(node.list.id);
     }
 
     /// Whether `node` is a receiver sigil the wrapper moved onto the
@@ -1702,7 +1801,7 @@ test "parser: every form parses" {
         \\  n: fun() -> Int = f
         \\  n2: *sub(Int, ?Wrap[Int]) = h
         \\  n3: sub() = i
-        \\  o2: (*Wrap[Int])? = none
+        \\  o2: *Wrap[Int]? = none
         \\  p2 = Pair[Int, String].make(f[3](1), v[0])
         \\  o3: []~Int = o
         \\  return x

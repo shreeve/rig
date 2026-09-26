@@ -7,8 +7,8 @@ struct Big
   a: [530000]Int
 
 sub main()
-  print(lib.first([Big(a: [0; 530000]), Big(a: [0; 530000])]))
-  w = lib.Wrap(v: [Big(a: [0; 530000]), Big(a: [0; 530000]), Big(a: [0; 530000])])
+  print(lib.first([Big(a: [530000 of 0]), Big(a: [530000 of 0])]))
+  w = lib.Wrap(v: [Big(a: [530000 of 0]), Big(a: [530000 of 0]), Big(a: [530000 of 0])])
   print(w.v[0].a[0])
 
 # error: 10:19: `[2]Big` takes 8480000 bytes

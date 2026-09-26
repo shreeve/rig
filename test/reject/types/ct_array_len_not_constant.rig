@@ -20,11 +20,11 @@ sub main()
   c: [HALF]Int = [1, 2]
   d: [4 / 0]Int = [1]
   e: [nope]Int = [1]
-  f = [0; 2.5]
-  g = [0; true]
-  h = [0; "x"]
-  i = [0; none]
-  j = [0; three()]
+  f = [2.5 of 0]
+  g = [true of 0]
+  h = ["x" of 0]
+  i = [none of 0]
+  j = [three() of 0]
   print(a, b, c, d, e, f, g, h, i, j)
 
 # error: 7:23: an array length `n + 1` does arithmetic on a compile-time parameter
@@ -34,8 +34,8 @@ sub main()
 # error: 20:7: an array length is an integer; `HALF` is a `Float`
 # error: 21:7: an array length `4 / 0` divides by zero
 # error: 22:7: use of unbound name `nope`
-# error: 23:11: an array length is an integer; `2.5` is a `Float`
-# error: 24:11: an array length is an integer; `true` is a `Bool`
-# error: 25:11: an array length is an integer; `"x"` is a `String`
-# error: 26:11: an array length is an integer; `none` is the absent optional
-# error: 27:11: an array length cannot call a function: `three()` runs only when the program does
+# error: 23:8: an array length is an integer; `2.5` is a `Float`
+# error: 24:8: an array length is an integer; `true` is a `Bool`
+# error: 25:8: an array length is an integer; `"x"` is a `String`
+# error: 26:8: an array length is an integer; `none` is the absent optional
+# error: 27:8: an array length cannot call a function: `three()` runs only when the program does

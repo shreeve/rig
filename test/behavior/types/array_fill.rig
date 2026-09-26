@@ -1,28 +1,28 @@
-# `[x; n]` is an array of `n` copies of `x`: `n` is any compile-time
+# `[n of x]` is an array of `n` copies of `x`: `n` is any compile-time
 # integer, and the element is plain data. Without an expected type its
 # type is `[n]T` for `x`'s type.
 
 N =! 3
-ZEROS =! [0; 4]
+ZEROS =! [4 of 0]
 
 struct Point
   x: Int
   y: Int
 
 fun filled[n: Int](v: Int) -> [n]Int
-  a = [v; n]
+  a = [n of v]
   a
 
 sub main()
-  a = [7; N * 2]
-  b: [2]Point = [Point(x: 1, y: 2); 2]
-  c = [[1; 2]; 3]
-  d: [3]Int? = [none; 3]
-  e = [0; 0]
-  f = [1.5; 2]
-  g: [4]U8 = [9; 4]
+  a = [N * 2 of 7]
+  b: [2]Point = [2 of Point(x: 1, y: 2)]
+  c = [3 of [2 of 1]]
+  d: [3]Int? = [3 of none]
+  e = [0 of 0]
+  f = [2 of 1.5]
+  g: [4]U8 = [4 of 9]
   print(a, b[1].y, c, d, e.len, f, g, ZEROS)
-  print(filled[3](5), [0; 3][1], [2; 2].len)
+  print(filled[3](5), [3 of 0][1], [2 of 2].len)
 
 # expect:
 # [7, 7, 7, 7, 7, 7] 2 [[1, 1], [1, 1], [1, 1]] [none, none, none] 0 [1.5, 1.5] [9, 9, 9, 9] [0, 0, 0, 0]

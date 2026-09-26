@@ -4,12 +4,12 @@
 use lib
 
 sub main()
-  a: [lib.N]Int = [0; 3]
-  b: [lib.nope]Int = [0; 3]
-  c: [nolib.X]Int = [0; 3]
-  d: [lib.S]Int = [0; 3]
-  e: [lib.F]Int = [0; 3]
-  f: [lib.P]Int = [0; 4]
+  a: [lib.N]Int = [3 of 0]
+  b: [lib.nope]Int = [3 of 0]
+  c: [nolib.X]Int = [3 of 0]
+  d: [lib.S]Int = [3 of 0]
+  e: [lib.F]Int = [3 of 0]
+  f: [lib.P]Int = [4 of 0]
   print(a, b, c, d, e, f)
 
 # error: 7:7: `lib.N` is not public; mark it `pub` in module `lib`

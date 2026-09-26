@@ -19,7 +19,7 @@ struct Log
   sub add(!self, n: Int)
     !self.lines.push(n)
 
-  fun close(self: Self) -> Int
+  fun close(<self) -> Int
     self.lines.len
 
 sub main()

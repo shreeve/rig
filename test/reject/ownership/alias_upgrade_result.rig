@@ -1,4 +1,4 @@
-# The `(*T)?` from `upgrade()` owns a strong handle; copying it would
+# The `*T?` from `upgrade()` owns a strong handle; copying it would
 # drop the handle twice.
 
 struct Wrap

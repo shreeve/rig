@@ -4,11 +4,11 @@
 struct Wrap
   n: Int
 
-fun f(m: (*Wrap)?) -> Int?
+fun f(m: *Wrap?) -> Int?
   b = m?
   b.n
 
-fun g(m: ?((*Wrap)?)) -> Int?
+fun g(m: ?*Wrap?) -> Int?
   b = m?
   b.n
 

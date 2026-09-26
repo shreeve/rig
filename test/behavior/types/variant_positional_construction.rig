@@ -1,0 +1,51 @@
+# A variant with exactly one field takes it by position, `.some(7)`, as a
+# pattern binds it; by name, `.some(value: 7)`, is valid too. The field's
+# type is expected of the argument, and a generic enum's argument is
+# inferred from it.
+
+enum Shape
+  circle(radius: Int)
+  rect(w: Int, h: Int)
+
+enum Option[T]
+  some(value: T)
+  nothing
+
+  fun or(<self, fallback: T) -> T
+    match self
+      .some(v) => v
+      .nothing => fallback
+
+fun area(s: Shape) -> Int
+  match s
+    .circle(r) => 3 * r * r
+    .rect(w, h) => w * h
+
+fun half(n: Int) -> Option[Int]
+  return .nothing if n % 2 == 1
+  .some(n / 2)
+
+fun count(o: Option[Vec[Int]]) -> Int
+  match o
+    .some(v) => v.len
+    .nothing => 0
+
+sub main()
+  a: Shape = .circle(2)
+  b = Shape.circle(1)
+  c: Shape = .circle(radius: 1)
+  print(area(a), area(b), b, c, area(.circle(3)))
+  o = Option.some(7)
+  f = Option.some(2.5)
+  s: Option[String] = .some("hi")
+  print(o, f, s, half(8), half(3), Option[U8].some(9))
+  print(<o.or(0), Option.some(5).or(0), half(3).or(-1))
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  print(count(.some(<v)), count(Option.some(Vec[Int]())), count(.nothing))
+
+# expect:
+# 12 3 .circle(radius: 1) .circle(radius: 1) 27
+# .some(value: 7) .some(value: 2.5) .some(value: "hi") .some(value: 4) .nothing .some(value: 9)
+# 7 5 -1
+# 1 0 0

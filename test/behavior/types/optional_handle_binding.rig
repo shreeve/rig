@@ -1,0 +1,64 @@
+# `*` and `~` bind to the type they touch, tighter than a suffix: `*Node?`
+# is an optional handle. A borrow covers the whole type after it:
+# `?*Node?` borrows an optional handle, `!Int?` an optional Int. A slice's
+# element takes the suffix (`[]Int?`); an optional slice is `([]Int)?`.
+# A type argument in an expression reads the same way: `Cell[*Node?]` and
+# `Cell[*(Node)?]` hold optional handles. A handle to an optional,
+# `*(Node?)`, is named there with a `type` alias.
+
+struct Node
+  value: Int
+
+type Held = *(Node?)
+
+fun present(h: ?*Node?) -> Bool
+  h != none
+
+fun take(h: *Node?) -> Int
+  if <h as n
+    return n.value
+  -1
+
+fun first(xs: []Int?) -> Int
+  xs[1] ?? 0
+
+fun size(xs: ([]Int)?) -> Int
+  if xs as s
+    return s.len
+  0
+
+sub clear(x: !Int?)
+  x = none
+
+sub main()
+  a: *Node? = none
+  b: *Node? = *Node(value: 1)
+  w: ~Node? = none
+  cell = Cell[*Node?](value: none)
+  cell.set(+b)
+  print(present(?a), present(?b), w == none)
+  print(take(<a), take(<b), take(cell.replace(none)))
+  xs: [2]Int? = [none, 3]
+  ys = [1, 2, 3]
+  n: Int? = 4
+  clear(!n)
+  print(first(?xs[0..2]), size(?ys[0..3]), size(none), n)
+  p = Cell[*(Node)?](value: none)
+  q = Cell[~Node?](value: none)
+  m: Node? = Node(value: 2)
+  held = Cell[Held](value: *m)
+  old = held.replace(*none)
+  -old
+  print(p.replace(none) == none, q.replace(none) == none)
+  nd = *Node(value: 3)
+  sw: Cell[*~Node?] = Cell[*~Node?](value: *~nd)
+  ws: Cell[~*Node?] = Cell[~*Node?](value: none)
+  sp: Cell[*(~Node)?] = Cell[*(~Node)?](value: none)
+  print(sw.replace(none) != none, ws.replace(none) == none, sp.replace(none) == none)
+
+# expect:
+# false true true
+# -1 1 1
+# 3 3 0 none
+# true true
+# true true true

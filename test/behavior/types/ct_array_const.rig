@@ -12,15 +12,15 @@ fun count[n: U8](xs: [n]Int) -> Int
 sub main()
   a: [LIMIT]Int = [1, 2, 3, 4]
   b: [4]Int = a
-  c: [DOUBLE]Int = [0; 8]
-  d: [LIMIT * 2 + 1]U8 = [7; 9]
-  e: [(A + B) * 2][LIMIT - 2]Int = [[1, 2]; 6]
+  c: [DOUBLE]Int = [8 of 0]
+  d: [LIMIT * 2 + 1]U8 = [9 of 7]
+  e: [(A + B) * 2][LIMIT - 2]Int = [6 of [1, 2]]
   f: [0]Int = []
   k =! 3
   g: [k]Int = [1, 2, 3]
   h = |xs: [LIMIT + 1]Int| xs[4]
   print(b, c.len, d.len, e.len, e[5], f.len, g, h([1, 2, 3, 4, 5]))
-  print(count([1, 2]), count[3]([0; 3]))
+  print(count([1, 2]), count[3]([3 of 0]))
 
 # expect:
 # [1, 2, 3, 4] 8 9 6 [1, 2] 0 [1, 2, 3] 5

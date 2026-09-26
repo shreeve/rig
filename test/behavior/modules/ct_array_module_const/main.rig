@@ -11,7 +11,7 @@ struct Ring[T, n: Int]
 sub main()
   a: [lib.N]Int = [1, 2, 3]
   b: [3]Int = a
-  c: [lib.W * 2]Int = [0; 4]
+  c: [lib.W * 2]Int = [4 of 0]
   r: Ring[Int, lib.N] = Ring[Int, lib.N](items: b)
   s: Ring[Int, 3] = r
   print(b, c.len, s.items, lib.count[2]())
