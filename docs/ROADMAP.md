@@ -10,11 +10,8 @@ in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms).
 
 - **Stack closures as arguments**: pass a non-escaping closure to a call without allocating it.
 - **Generics across modules**: instances of a module's generic types in its public surface, and its `pub` generic functions.
+- **Array sizes from compile-time parameters**: `fun zeros[n: Int] -> [n]Int`; an array size is an integer literal today.
 - **Compile-time values on generic types**: `type Ring[n: Int]`, rejected today; generic types take type parameters only.
-- **Generic closures**: a closure with type parameters of its own.
-- **Inference from the expected type** for generic function calls, as generic constructors have: `z: U8 = max(1, 2)` needs `max[U8]` today.
-- **Arithmetic through borrows in generic bodies**: `a + b` for `a: ?T`, as it works for `a: ?Int`.
-- **Nested array types**: `[2][3]Int` in a type does not parse yet; an array of arrays can be built and indexed.
 - **Owning values in more places**: arrays of owning values, and owned closures that take or return them.
 - **Strings**: building and formatting strings, and matching on them. A slice of a built (heap) string will be a borrow of it, as an array slice is today.
 - **Struct equality**: `==` on structs.
@@ -22,8 +19,9 @@ in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms).
 - **Printing byte slices**: `print` of a `[]U8` (rejected today, since it lowers like a `String`).
 - **Aliases of imported and generic types** used as constructors and namespaces.
 - **A labeled value loop on the right of a binding** (`x = :l for ...`), which needs a grammar change without conflicts.
-- **Traits or bounds** whose dispatch and ownership stay visible in the IR, so a generic signature says what its type parameters support.
-- **Compile-time evaluation**: computing values at compile time beyond compile-time parameters (`fun f[n: Int]`).
+- **Traits or bounds** whose dispatch and ownership stay visible in the IR, so a generic signature says what its type parameters support; `[T: Trait]` is kept free for them, told from a value parameter by what the name after `:` denotes.
+- **Conditional compilation** on the target's operating system and architecture and the build mode.
+- **Compile-time functions**: pure functions over plain data that the checker itself evaluates, for constant tables and sizes like `[n * 2]Int`, so a failure is a Rig diagnostic rather than a Zig error.
 - **Raw pointers**: pointer types and pointer access inside `raw`, designed together with what `raw` code may assume.
 - **Unique heap ownership**: a single-owner box without a reference count.
 - **Private fields**: a field visible only inside its type's module unless marked `pub`, so setter methods can guard a type's invariants; Rig's tool for encapsulation, rather than properties.

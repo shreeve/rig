@@ -1,0 +1,30 @@
+# An operator reads through a borrow that an expression yields: a call
+# returning `!Int` or `?Int`, and `!x` itself.
+
+fun wr(a: !Int) -> !Int
+  a
+
+fun rd(a: ?Int) -> ?Int
+  a
+
+sub main()
+  x = 6
+  y = 4
+  print(wr(!x) + 1)
+  print(-wr(!x))
+  print(wr(!x) / 4)
+  print(wr(!x) % 4)
+  print(wr(!x) << 1)
+  print(wr(!x) > y)
+  print(rd(?y) * 2, rd(?y) - 1)
+  print(!x == 6)
+
+# expect:
+# 7
+# -6
+# 1
+# 2
+# 12
+# true
+# 8 3
+# true

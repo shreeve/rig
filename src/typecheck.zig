@@ -17,8 +17,9 @@
 //! `T` where `T?` or `T!` is expected (the value is lifted), and an
 //! error value where `T!` is expected (the function fails); `!T` where
 //! `?T` is expected; a borrow of a Copy value where the value is
-//! expected (`readValue`); and anything where poison (`unknown` /
-//! `invalid`) is involved, so one error does not cascade.
+//! expected (`readValue`), which reads through it (`recordRead`); and
+//! anything where poison (`unknown` / `invalid`) is involved, so one
+//! error does not cascade.
 //!
 //! Effects are checked in the same walk. Fallibility: a call of type
 //! `T!` must be the operand of `!` or `catch`, and `!` needs a fallible
@@ -64,6 +65,8 @@ pub fn checkModule(ctx: *SemContext, tree: Sexp, module_scope: ScopeId) Error!vo
         .body = .{ .ret = ctx.types.void_id },
     };
     defer c.arg_types.deinit(ctx.allocator);
+    defer c.literal_results.deinit(ctx.allocator);
+    defer c.result_hints.deinit(ctx.allocator);
     for (ir.Module.decls(tree)) |decl| if (rig.isModuleConst(decl)) try c.checkDecl(decl);
     for (ir.Module.decls(tree)) |decl| if (!rig.isModuleConst(decl)) try c.checkDecl(decl);
 }
@@ -98,6 +101,29 @@ const Checker = struct {
     loop_value: ?*LoopValue = null,
     /// The types inference found for arguments (`argType`).
     arg_types: std.AutoHashMapUnmanaged(parser.NodeId, TypeId) = .empty,
+    /// The call whose value goes where a `ty` is expected (`checkExpr`),
+    /// directly or through `!`, `?`, `catch`, or `??` (`resultCall`):
+    /// inference binds the type parameters its arguments leave open from
+    /// `ty`.
+    result_expected: struct { call: Sexp = .nil, ty: TypeId = sema.type_invalid } = .{},
+    /// Inside `argType`, whose argument the call checks again with the
+    /// type it is expected to have: the generic instances found there
+    /// are not recorded.
+    tentative: u32 = 0,
+    /// Generic calls whose result gives a type parameter that only
+    /// literal arguments gave a type (`max(1, 2)`, `parse(true, 1)!`), with
+    /// that literal type, or an optional nothing gave a type
+    /// (`nothing()`, `id(none)`), as `none`: as an argument, such a call
+    /// binds like the literal or `none` (`literalResult`).
+    literal_results: std.AutoHashMapUnmanaged(parser.NodeId, LiteralResult) = .empty,
+    /// Generic calls whose arguments give a type parameter another type
+    /// than the one the result is expected to have: what to write instead.
+    result_hints: std.AutoHashMapUnmanaged(parser.NodeId, []const u8) = .empty,
+
+    /// How a call's value reaches the type parameter its result gives:
+    /// the result is `T`, a `T!` propagated with `!`, or a `T?` with `?`.
+    const ResultPath = enum { direct, propagate, propagate_none };
+    const LiteralResult = struct { ty: TypeId, path: ResultPath };
 
     const Body = struct {
         /// Type `return` values must have; `unknown` while a closure's
@@ -571,7 +597,7 @@ const Checker = struct {
             rhs_ty = try self.synthExpr(rhs);
             // Binding a borrowed Copy value copies the value; an explicit
             // `?x` / `!x` binds the borrow.
-            if (!rhs.isKind(.read) and !rhs.isKind(.write)) rhs_ty = readValue(self.ctx, rhs_ty);
+            if (!rhs.isKind(.read) and !rhs.isKind(.write)) rhs_ty = try self.readThrough(rhs, rhs_ty, readValue(self.ctx, rhs_ty));
             rhs_ty = try self.defaultBindingType(rhs, rhs_ty, name);
         }
 
@@ -692,7 +718,7 @@ const Checker = struct {
         }
         if (tv) |param| {
             // A generic `T` target takes another `T` or a literal it holds.
-            const ty = readValue(self.ctx, try self.synthExpr(rhs));
+            const ty = try self.synthOperandValue(rhs);
             if (self.meetsTypeVar(target_ty, ty, req)) {
                 try self.requireHoldsLiteral(param, ty, rhs, pos, spelled);
             } else if (!self.isPoison(ty)) try self.mismatch(rhs, target_ty, ty);
@@ -928,7 +954,7 @@ const Checker = struct {
             };
             const hint = if (handle) "bind a new handle with `+x` instead" else "unwrap the optional where it is owned (`if <m as x`)";
             try self.errAt(expr, "a borrow cannot give up the resource inside it; {s}", .{hint});
-        }
+        } else _ = try self.readThrough(expr, ty, sema.unwrapBorrows(self.ctx, ty));
         _ = self.enter(node);
         if (self.ctx.symbolOf(name)) |sym| {
             self.ctx.symbols.items[sym].ty = inner;
@@ -1714,7 +1740,7 @@ const Checker = struct {
     /// `a << n` / `a >> n`: the result has the type of the integer `a`.
     fn synthShift(self: *Checker, e: Sexp, op: []const u8) Error!TypeId {
         const left = ir.get(e, .left);
-        const ty = readValue(self.ctx, try self.synthExpr(left));
+        const ty = try self.synthOperandValue(left);
         if (self.isPoison(ty)) {
             _ = try self.synthExpr(ir.get(e, .right));
             return ty;
@@ -1736,7 +1762,7 @@ const Checker = struct {
     /// A shift amount may be any integer; a constant one must be below
     /// the width of the shifted type (`Int` for a literal).
     fn checkShiftAmount(self: *Checker, amount: Sexp, shifted: TypeId, op: []const u8) Error!bool {
-        const ty = readValue(self.ctx, try self.synthExpr(amount));
+        const ty = try self.synthOperandValue(amount);
         if (self.isPoison(ty)) return false;
         switch (self.ctx.types.get(ty)) {
             .type_var => |tv| try self.require(tv, .integer, self.startOf(amount), op),
@@ -1767,8 +1793,8 @@ const Checker = struct {
 
     fn numericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement) Error!TypeId {
         const operands = [2]Sexp{ ir.get(e, .left), ir.get(e, .right) };
-        const a = readValue(self.ctx, try self.synthExpr(operands[0]));
-        const b = readValue(self.ctx, try self.synthExpr(operands[1]));
+        const a = try self.synthOperandValue(operands[0]);
+        const b = try self.synthOperandValue(operands[1]);
         const pos = self.startOf(operands[0]);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().invalid_id;
 
@@ -1836,7 +1862,7 @@ const Checker = struct {
 
     fn synthNeg(self: *Checker, e: Sexp) Error!TypeId {
         const operand = ir.Neg.operand(e);
-        const ty = readValue(self.ctx, try self.synthExpr(operand));
+        const ty = try self.synthOperandValue(operand);
         if (self.isPoison(ty)) return ty;
         switch (self.ctx.types.get(ty)) {
             .int => |info| {
@@ -1861,17 +1887,20 @@ const Checker = struct {
         const op = @tagName(e.kind().?);
         const l = ir.get(e, .left);
         const r = ir.get(e, .right);
-        // A contextual operand (`.red`, `none`) takes the other side's type.
+        // A contextual operand (`.red`, `none`) takes the type of the
+        // value the other side gives.
         if (isContextual(self.ctx.source, l) and !isContextual(self.ctx.source, r)) {
-            try self.checkExpr(l, sema.unwrapBorrows(self.ctx, try self.synthExpr(r)));
+            const ty = try self.synthExpr(r);
+            try self.checkExpr(l, try self.readThrough(r, ty, sema.unwrapBorrows(self.ctx, ty)));
             return self.t().bool_id;
         }
         if (isContextual(self.ctx.source, r)) {
-            try self.checkExpr(r, sema.unwrapBorrows(self.ctx, try self.synthExpr(l)));
+            const ty = try self.synthExpr(l);
+            try self.checkExpr(r, try self.readThrough(l, ty, sema.unwrapBorrows(self.ctx, ty)));
             return self.t().bool_id;
         }
-        const a = readValue(self.ctx, try self.synthExpr(l));
-        const b = readValue(self.ctx, try self.synthExpr(r));
+        const a = try self.synthOperandValue(l);
+        const b = try self.synthOperandValue(r);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
         if (sema.isNumeric(self.ctx, a) and sema.isNumeric(self.ctx, b)) {
             _ = try self.checkNumericComparison(l, r, a, b, op);
@@ -1996,6 +2025,7 @@ const Checker = struct {
             try self.errAt(left, "`??` on an optional `{s}` would copy an owning handle out of it; take the handle out with `if x as h`", .{try self.tyName(opt)});
             return self.t().invalid_id;
         }
+        _ = try self.readThrough(left, opt, sema.unwrapBorrows(self.ctx, opt));
         const result = self.fallbackType(inner, expected);
         try self.checkExpr(right, result);
         return result;
@@ -2103,6 +2133,7 @@ const Checker = struct {
             try self.errAt(operand, "a borrow cannot give up the resource inside it; take a new handle with `+x` instead", .{});
             return self.t().invalid_id;
         }
+        _ = try self.readThrough(operand, ty, sema.unwrapBorrows(self.ctx, ty));
         return inner;
     }
 
@@ -2252,7 +2283,8 @@ const Checker = struct {
         const operand = ir.Clone.operand(e);
         const inner = try self.synthOperand(operand);
         if (self.isPoison(inner)) return inner;
-        const value = sema.unwrapBorrows(self.ctx, inner);
+        // A clone reads the value a borrow reaches.
+        const value = try self.readThrough(operand, inner, sema.unwrapBorrows(self.ctx, inner));
         switch (self.ctx.types.get(value)) {
             .shared, .weak => return value,
             // An optional handle clones to another optional handle.
@@ -2266,6 +2298,26 @@ const Checker = struct {
             try self.errAt(operand, "`+x` cannot clone a `{s}`; only `*T` and `~T` handles (or optionals of them) and plain values can be cloned", .{try self.tyName(value)});
             return self.t().invalid_id;
         }
+        return value;
+    }
+
+    /// The value an operator reads from `e` (`operandValue`).
+    fn synthOperandValue(self: *Checker, e: Sexp) Error!TypeId {
+        const ty = try self.synthExpr(e);
+        return self.readThrough(e, ty, operandValue(self.ctx, ty));
+    }
+
+    /// The value `e` gives where a value is read: a borrowed Copy value
+    /// reads as the value (`readValue`).
+    fn synthValue(self: *Checker, e: Sexp) Error!TypeId {
+        const ty = try self.synthExpr(e);
+        return self.readThrough(e, ty, readValue(self.ctx, ty));
+    }
+
+    /// `value`, the value `e` of type `ty` gives where it is read; when
+    /// that is what a borrow reaches, `e` reads through it (`recordRead`).
+    fn readThrough(self: *Checker, e: Sexp, ty: TypeId, value: TypeId) Error!TypeId {
+        if (value != ty) try self.ctx.recordRead(e);
         return value;
     }
 
@@ -2823,7 +2875,7 @@ const Checker = struct {
             _ = try self.synthQuiet(index);
             return obj_ty;
         }
-        const idx_ty = readValue(self.ctx, try self.synthExpr(index));
+        const idx_ty = try self.synthValue(index);
         if (self.isPoison(idx_ty)) return idx_ty;
         if (!sema.isInteger(self.ctx, idx_ty)) {
             try self.errAt(index, "an index must be an integer; got `{s}`", .{try self.tyName(idx_ty)});
@@ -2838,8 +2890,14 @@ const Checker = struct {
                 };
                 return a.elem;
             },
-            .slice => |s| return s.elem,
-            .string => return self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } }),
+            .slice => |s| {
+                _ = try self.readThrough(object, obj_ty, sema.unwrapBorrows(self.ctx, obj_ty));
+                return s.elem;
+            },
+            .string => {
+                _ = try self.readThrough(object, obj_ty, sema.unwrapBorrows(self.ctx, obj_ty));
+                return self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } });
+            },
             .parameterized_nominal => if (vecElementType(self.ctx, peeled)) |elem| {
                 if ((try self.ownsResource(elem, self.startOf(object), "copies an element out of a Vec"))) {
                     try self.errAt(object, "indexing a `{s}` would copy an owning handle out of the Vec; iterate with `for x in ?v` instead", .{try self.tyName(peeled)});
@@ -2873,6 +2931,7 @@ const Checker = struct {
         const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
             .string, .slice => {
+                _ = try self.readThrough(object, obj_ty, peeled);
                 try self.checkSliceBounds(range, null);
                 return peeled;
             },
@@ -3040,7 +3099,7 @@ const Checker = struct {
                         try self.errAt(callee, "type arguments go in brackets: `{s}[{s}](...)`", .{ name, self.text(args[0]) });
                         return self.t().invalid_id;
                     }
-                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = sym.fields orelse &.{} }, callee.src.pos)) orelse return self.skipCall(args);
+                    const subst = (try self.inferTypeArgs(sym_id, args, .{ .fields = sym.fields orelse &.{} }, callee.src.pos, self.expectedResult((try sema.makeNominalContext(self.ctx, sym_id)).self_type), null)) orelse return self.skipCall(args);
                     _ = try self.instantiate(sym_id, subst.args, callee.src.pos);
                     return self.construct(sym_id, args, callee.src.pos, subst, null);
                 },
@@ -3128,7 +3187,7 @@ const Checker = struct {
             return target;
         }
         const arg = args[0];
-        const from = readValue(self.ctx, try self.synthExpr(arg));
+        const from = try self.synthValue(arg);
         if (self.isPoison(from)) return target;
         if (!sema.isNumeric(self.ctx, from)) {
             try self.errAt(arg, "`{s}(x)` converts a number; `x` has type `{s}`", .{ name, try self.tyName(from) });
@@ -3415,7 +3474,7 @@ const Checker = struct {
         const generic = try self.ctx.internCopy(.{ .function = f });
         const result = self.ctx.types.get(try sema.substituteType(self.ctx, generic, .{ .params = own.items, .args = own_args })).function;
         try self.ctx.recordGenericCall(self.current_call orelse ct.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
-        _ = try self.ctx.recordFnInstance(.{
+        if (self.tentative == 0) _ = try self.ctx.recordFnInstance(.{
             .name = callee,
             .params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items }),
             .args = try std.mem.concat(a, TypeId, &.{ recv.args, own_args }),
@@ -3432,6 +3491,14 @@ const Checker = struct {
         arg: u32 = 0,
         conflict: TypeId = sema.type_invalid,
         conflict_arg: u32 = 0,
+        /// `ty` is the one the call's expected type gives.
+        expected: bool = false,
+        /// The type the expected type gives, where an argument gave
+        /// another.
+        wanted: TypeId = sema.type_invalid,
+        /// A `none` argument fills the parameter itself, which must then
+        /// be an optional.
+        none: bool = false,
     };
 
     /// A literal argument where a type parameter goes: it gives the
@@ -3446,15 +3513,22 @@ const Checker = struct {
         /// The first argument whose type does not have the shape of the
         /// type it fills (`?[3]Int` where `[]T` goes).
         mismatch: ?struct { arg: u32, pattern: TypeId, actual: TypeId } = null,
+        /// The type expected of the result does not have the declared
+        /// result's shape.
+        result_mismatch: bool = false,
+        /// An argument's type or the expected type holds poison: a
+        /// diagnostic about it explains a parameter left unbound.
+        poisoned: bool = false,
     };
 
     /// Match each argument's type against the field or parameter it
     /// fills (by position, or by keyword), binding the type parameters in
-    /// `own` that appear there. A literal binds its default type (`Int`,
-    /// `Float`) only where no other argument binds the parameter, and the
-    /// first argument that disagrees with a binding is kept as a
-    /// conflict.
-    fn inferBindings(self: *Checker, own: []const SymbolId, args: []const Sexp, from: InferFrom) Error!Inference {
+    /// `own` that appear there. A parameter no argument other than a
+    /// literal binds takes its type from `result`, the declared result
+    /// and the type expected of it, when that says; otherwise a literal
+    /// binds its default type (`Int`, `Float`). The first argument that
+    /// disagrees with a binding is kept as a conflict.
+    fn inferBindings(self: *Checker, own: []const SymbolId, args: []const Sexp, from: InferFrom, result: ?ResultType) Error!Inference {
         var inf: Inference = .{ .own = own, .bound = try self.ctx.arena.allocator().alloc(Bound, own.len) };
         @memset(inf.bound, .{});
         var positional: usize = 0;
@@ -3484,10 +3558,19 @@ const Checker = struct {
             }
             const pat = pattern orelse continue;
             if (!sema.containsTypeVar(self.ctx, pat)) continue;
-            try self.bindArg(&inf, pat, try self.argType(value), @intCast(number), 0);
+            const actual = try self.argType(value);
+            if (sema.containsPoison(self.ctx, actual)) inf.poisoned = true;
+            try self.bindArg(&inf, pat, actual, @intCast(number), 0);
+        }
+        if (result) |r| {
+            if (sema.containsPoison(self.ctx, r.expected)) inf.poisoned = true;
+            try self.bindExpected(&inf, r);
         }
         for (inf.bound, 0..) |*b, i| for (inf.literals.items) |lit| {
             if (lit.param != i) continue;
+            // Checking the literal against the expected type's binding
+            // reports one that does not fit.
+            if (b.expected) continue;
             // Among literals alone, a float one makes the type `Float`,
             // whatever their order.
             if (b.ty == sema.type_invalid or (b.ty == self.t().int_id and lit.ty == self.t().float_id and self.onlyLiterals(inf, i, b.arg))) {
@@ -3498,6 +3581,66 @@ const Checker = struct {
                 b.conflict_arg = lit.arg;
             }
         };
+        return inf;
+    }
+
+    /// A generic call's declared result, and the type expected of it.
+    const ResultType = struct { pattern: TypeId, expected: TypeId };
+
+    /// The call being checked's declared result `pattern`, with the type
+    /// expected of the call, when one is.
+    fn expectedResult(self: *Checker, pattern: TypeId) ?ResultType {
+        const call = self.current_call orelse return null;
+        if (!sameNode(call, self.result_expected.call)) return null;
+        return .{ .pattern = pattern, .expected = self.result_expected.ty };
+    }
+
+    /// The declared result with what the call's value becomes where it
+    /// goes: a fallible result is propagated or caught to its value, and
+    /// a value where a `T?` or `T!` is expected is lifted from a `T`.
+    fn resultMatch(self: *Checker, r: ResultType) ResultType {
+        var out = r;
+        while (true) {
+            const p = self.ctx.types.get(out.pattern);
+            const e = self.ctx.types.get(out.expected);
+            if (p == .fallible and e != .fallible) {
+                out.pattern = p.fallible;
+            } else if (p != .fallible and e == .fallible) {
+                out.expected = e.fallible;
+            } else if (p != .optional and p != .fallible and e == .optional) {
+                out.expected = e.optional;
+            } else return out;
+        }
+    }
+
+    /// Bind the parameters of `inf` that no argument other than a literal
+    /// binds by matching the declared result against the type expected
+    /// of it, as an argument is matched against its parameter. A
+    /// parameter an argument binds keeps its type, and the type the
+    /// result wants is kept for the diagnostic.
+    fn bindExpected(self: *Checker, inf: *Inference, r: ResultType) Error!void {
+        if (!sema.containsTypeVar(self.ctx, r.pattern)) return;
+        const want = try self.bindResult(inf.own, self.resultMatch(r));
+        // A parameter a `none` fills is the optional itself: `o: Int? =
+        // id(none)` is `id[Int?]`.
+        const exact = try self.bindResult(inf.own, r);
+        inf.result_mismatch = want.mismatch != null;
+        for (inf.bound, want.bound, exact.bound) |*b, lifted, same| {
+            const w = if (b.none) same else lifted;
+            if (w.ty == sema.type_invalid or w.conflict != sema.type_invalid) continue;
+            if (b.ty == sema.type_invalid) {
+                b.ty = w.ty;
+                b.expected = true;
+            } else if (b.ty != w.ty) b.wanted = w.ty;
+        }
+    }
+
+    /// The bindings of `own` that make declared result `r.pattern` match
+    /// `r.expected`.
+    fn bindResult(self: *Checker, own: []const SymbolId, r: ResultType) Error!Inference {
+        var inf: Inference = .{ .own = own, .bound = try self.ctx.arena.allocator().alloc(Bound, own.len) };
+        @memset(inf.bound, .{});
+        try self.bindArg(&inf, r.pattern, r.expected, 0, 0);
         return inf;
     }
 
@@ -3515,11 +3658,29 @@ const Checker = struct {
     /// the argument again, and a generic call nested in its arguments
     /// would otherwise be synthesized twice at every level.
     fn argType(self: *Checker, e: Sexp) Error!TypeId {
+        self.tentative += 1;
+        defer self.tentative -= 1;
         if (e != .list or e.list.id == 0) return self.synthQuiet(e);
         if (self.arg_types.get(e.list.id)) |ty| return ty;
-        const ty = try self.synthQuiet(e);
+        var ty = try self.synthQuiet(e);
+        if (self.literalResult(e)) |lit| ty = lit;
         try self.arg_types.put(self.ctx.allocator, e.list.id, ty);
         return ty;
+    }
+
+    /// The literal or `none` a generic call binds like as an argument
+    /// (`literal_results`): the call itself, or one propagated with `!`
+    /// or `?`.
+    fn literalResult(self: *Checker, e: Sexp) ?TypeId {
+        const call, const path: ResultPath = switch (e.kind() orelse return null) {
+            .call => .{ e, .direct },
+            .propagate => .{ ir.Propagate.value(e), .propagate },
+            .propagate_none => .{ ir.PropagateNone.value(e), .propagate_none },
+            else => return null,
+        };
+        if (!call.isKind(.call) or call.list.id == 0) return null;
+        const r = self.literal_results.get(call.list.id) orelse return null;
+        return if (r.path == path) r.ty else null;
     }
 
     /// The two types of a conflict, in argument order.
@@ -3538,30 +3699,43 @@ const Checker = struct {
     }
 
     /// A generic function's type arguments, one per parameter in `own`,
-    /// from the arguments of a call, which fill `f.params[skip..]`
-    /// (`inferBindings`). Null after a diagnostic.
+    /// from the arguments of a call, which fill `f.params[skip..]`, and
+    /// the type expected of its result (`inferBindings`). Null after a
+    /// diagnostic.
     fn inferCallTypeArgs(self: *Checker, f: FunctionType, own: []const SymbolId, args: []const Sexp, info: ParamInfo, skip: usize, callee: []const u8, pos: u32) Error!?[]TypeId {
-        const inf = try self.inferBindings(own, args, .{ .params = .{ .params = f.params[@min(skip, f.params.len)..], .names = info.names } });
+        const call = self.current_call orelse Sexp.nil;
+        const inf = try self.inferBindings(own, args, .{ .params = .{ .params = f.params[@min(skip, f.params.len)..], .names = info.names } }, self.expectedResult(f.returns));
         const result = try self.ctx.arena.allocator().alloc(TypeId, own.len);
         for (inf.bound, result) |b, *r| r.* = b.ty;
+        if (call == .list and call.list.id != 0) try self.noteResultBinding(call.list.id, f, own, inf, callee);
+        const parens = if (f.params.len > skip) "(...)" else "()";
         var ok = true;
         for (inf.bound, own, 0..) |b, param, i| {
             const pname = self.ctx.symbols.items[param].name;
             if (b.ty == sema.type_invalid) {
                 ok = false;
+                if (inf.poisoned) continue;
                 // An argument of another shape says why, as for any call.
                 if (inf.mismatch) |m| if (m.arg <= args.len) {
                     try self.errAt(args[m.arg - 1], "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(m.pattern), try self.tyName(m.actual) });
                     break;
                 };
-                try self.err(pos, "cannot infer `{s}` for `{s}` from its arguments; give it in brackets: `{s}[{s}](...)`", .{ pname, callee, callee, try self.bracketHint(own, result, i, null) });
+                if (inf.result_mismatch) {
+                    try self.err(pos, "type mismatch: expected `{s}`, but `{s}` returns `{s}`", .{ try self.tyName(self.result_expected.ty), callee, try self.tyName(f.returns) });
+                    break;
+                }
+                try self.err(pos, "cannot infer `{s}` for `{s}` from its arguments or the type expected of its result; {s}", .{ pname, callee, try self.inferHint(f, own, result, i, callee, parens) });
             } else if (b.conflict != sema.type_invalid) {
                 // The later argument's type is suggested, when the earlier
                 // argument can have it; otherwise a conversion.
                 const c = try self.conflictText(b);
                 const literal = self.onlyLiterals(inf, i, c.first_arg);
                 if (if (literal) self.literalFits(c.first_ty, c.later) else compatible(self.ctx, c.first_ty, c.later)) {
-                    try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); give it in brackets: `{s}[{s}](...)`", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg, callee, try self.bracketHint(own, result, i, c.later) });
+                    const fix = if (try self.bracketHint(result, i, c.later)) |brackets|
+                        try std.fmt.allocPrint(self.ctx.arena.allocator(), "give it in brackets: `{s}[{s}]{s}`", .{ callee, brackets, parens })
+                    else
+                        "give it in brackets, naming each array, slice, or function type in them with a `type` alias";
+                    try self.err(pos, "conflicting types for `{s}` in the call to `{s}`: `{s}` (argument {d}) and `{s}` (argument {d}); {s}", .{ pname, callee, c.first, c.first_arg, c.second, c.second_arg, fix });
                 } else if (sema.isNumeric(self.ctx, c.first_ty) and sema.isNumeric(self.ctx, c.later)) {
                     // Convert the argument that is not a literal.
                     const arg = if (literal) c.second_arg else c.first_arg;
@@ -3575,6 +3749,54 @@ const Checker = struct {
         return if (ok) result else null;
     }
 
+    /// What a generic call's result says to the calls around it: whether
+    /// it gives a type parameter that only literals gave a type, or is an
+    /// optional nothing gave one (`literal_results`), and, where an
+    /// argument gives the parameter another type than the expected one,
+    /// the fix for the mismatch that follows (`result_hints`): converting
+    /// the result.
+    fn noteResultBinding(self: *Checker, id: parser.NodeId, f: FunctionType, own: []const SymbolId, inf: Inference, callee: []const u8) Error!void {
+        _ = self.literal_results.remove(id);
+        _ = self.result_hints.remove(id);
+        const path: ResultPath, const value = switch (self.ctx.types.get(f.returns)) {
+            .fallible => |inner| .{ .propagate, inner },
+            .optional => |inner| .{ .propagate_none, inner },
+            else => .{ .direct, f.returns },
+        };
+        const tv = switch (self.ctx.types.get(value)) {
+            .type_var => |tv| tv,
+            else => return,
+        };
+        const i = std.mem.indexOfScalar(SymbolId, own, tv) orelse return;
+        const b = inf.bound[i];
+        if (b.ty == sema.type_invalid) {
+            // `id(none)` and `nothing()` give some optional.
+            if ((path == .direct and b.none) or path == .propagate_none) {
+                try self.literal_results.put(self.ctx.allocator, id, .{ .ty = self.t().none_id, .path = .direct });
+            }
+            return;
+        }
+        if (b.conflict != sema.type_invalid) return;
+        if (!b.expected and self.onlyLiterals(inf, i, b.arg)) {
+            const lit = if (b.ty == self.t().float_id) self.t().float_literal_id else self.t().int_literal_id;
+            try self.literal_results.put(self.ctx.allocator, id, .{ .ty = lit, .path = path });
+        }
+        if (path == .propagate_none) return;
+        if (b.wanted == sema.type_invalid) return;
+        const a = self.ctx.arena.allocator();
+        const took = try std.fmt.allocPrint(a, "`{s}` takes `{s} = {s}` from argument {d}", .{ callee, self.ctx.symbols.items[tv].name, try self.tyName(b.ty), b.arg });
+        if (sema.isNumeric(self.ctx, b.ty) and sema.isNumeric(self.ctx, b.wanted)) {
+            try self.result_hints.put(self.ctx.allocator, id, try std.fmt.allocPrint(a, "{s}; convert its result with `{s}(...)`", .{ took, try self.tyName(b.wanted) }));
+            return;
+        }
+        // Brackets pass the type on to an argument that takes it from
+        // where it goes, such as a nested generic call.
+        const types = try a.alloc(TypeId, inf.bound.len);
+        for (inf.bound, types) |bound, *ty| ty.* = bound.ty;
+        const brackets = (try self.bracketHint(types, i, b.wanted)) orelse return self.result_hints.put(self.ctx.allocator, id, took);
+        try self.result_hints.put(self.ctx.allocator, id, try std.fmt.allocPrint(a, "{s}; to pass `{s}` on to it, give it in brackets: `{s}[{s}](...)`", .{ took, try self.tyName(b.wanted), callee, brackets }));
+    }
+
     /// Whether a literal of type `lit` (an integer or float literal's
     /// default type) can be a value of `ty`. Next to a type parameter, a
     /// literal is reported where the argument is checked.
@@ -3585,17 +3807,36 @@ const Checker = struct {
     }
 
     /// The bracket list a diagnostic suggests: each type parameter's
-    /// inferred type, or its name when unknown, with `at` for the one at
-    /// `index`.
-    fn bracketHint(self: *Checker, own: []const SymbolId, types: []const TypeId, index: usize, at: ?TypeId) Error![]const u8 {
+    /// inferred type, or `...` when unknown, with `at` for the one at
+    /// `index`. Null when a type in it has no expression spelling
+    /// (`spelledInBrackets`).
+    fn bracketHint(self: *Checker, types: []const TypeId, index: usize, at: ?TypeId) Error!?[]const u8 {
         var buf: std.ArrayListUnmanaged(u8) = .empty;
         const a = self.ctx.arena.allocator();
-        for (own, types, 0..) |p, ty, i| {
+        for (types, 0..) |ty, i| {
             if (i > 0) try buf.appendSlice(a, ", ");
             const shown = if (i == index) at orelse sema.type_invalid else ty;
-            try buf.appendSlice(a, if (shown == sema.type_invalid) self.ctx.symbols.items[p].name else try self.tyName(shown));
+            if (shown != sema.type_invalid and !spelledInBrackets(self.ctx, shown)) return null;
+            try buf.appendSlice(a, if (shown == sema.type_invalid) "..." else try self.tyName(shown));
         }
         return buf.items;
+    }
+
+    /// What to write for type parameter `index` of `callee`, which nothing
+    /// determines: the bracket list, or, where a type in it has no
+    /// expression spelling, the type where the value goes when the
+    /// result holds the parameter.
+    fn inferHint(self: *Checker, f: FunctionType, own: []const SymbolId, types: []const TypeId, index: usize, callee: []const u8, parens: []const u8) Error![]const u8 {
+        const a = self.ctx.arena.allocator();
+        const pname = self.ctx.symbols.items[own[index]].name;
+        if (try self.bracketHint(types, index, null)) |brackets| return std.fmt.allocPrint(a, "give `{s}` in brackets: `{s}[{s}]{s}`", .{ pname, callee, brackets, parens });
+        // The result with each known type argument in place.
+        const args = try a.alloc(TypeId, own.len);
+        for (own, types, args) |p, ty, *arg| arg.* = if (ty == sema.type_invalid) try self.ctx.intern(.{ .type_var = p }) else ty;
+        const shown = try sema.substituteType(self.ctx, f.returns, .{ .params = own, .args = args });
+        const holds = (try sema.substituteType(self.ctx, f.returns, .{ .params = own[index .. index + 1], .args = &.{self.t().void_id} })) != f.returns;
+        if (holds) return std.fmt.allocPrint(a, "give the type where the value goes: `x: {s} = {s}{s}`, with a type in place of `{s}`", .{ try self.tyName(shown), callee, parens, pname });
+        return std.fmt.allocPrint(a, "give `{s}` in brackets, naming each array, slice, or function type in them with a `type` alias", .{pname});
     }
 
     /// Bind the type parameters of `inf` in `pattern`, a parameter's type,
@@ -3615,7 +3856,11 @@ const Checker = struct {
                 const i = std.mem.indexOfScalar(SymbolId, inf.own, tv) orelse return;
                 const value = readValue(self.ctx, actual);
                 switch (self.ctx.types.get(value)) {
-                    .none_literal, .noreturn, .void, .invalid, .unknown => return,
+                    .none_literal => {
+                        if (depth == 0) inf.bound[i].none = true;
+                        return;
+                    },
+                    .noreturn, .void, .invalid, .unknown => return,
                     .int_literal, .float_literal => return inf.literals.append(self.ctx.arena.allocator(), .{ .param = i, .ty = self.canonical(value), .arg = arg }),
                     else => {},
                 }
@@ -4036,7 +4281,7 @@ const Checker = struct {
                 if (generic) {
                     // The type's arguments are given (`Pair[Int, String].make`)
                     // or come from the call's arguments.
-                    const subst = if (nt.args) |given| TypeSubst{ .params = nt.sym.type_params orelse &.{}, .args = given } else (try self.inferTypeArgs(nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names } }, pos)) orelse return self.skipCall(args);
+                    const subst = if (nt.args) |given| TypeSubst{ .params = nt.sym.type_params orelse &.{}, .args = given } else (try self.inferTypeArgs(nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names } }, pos, self.expectedResult(f.returns), name)) orelse return self.skipCall(args);
                     if (nt.args == null) try self.ctx.recordType(obj, try self.instantiate(nt.id, subst.args, pos));
                     f = self.ctx.types.get(try sema.substituteType(self.ctx, m.ty, subst)).function;
                     recv = subst;
@@ -4058,7 +4303,8 @@ const Checker = struct {
                 subst = .{ .params = nt.sym.type_params orelse &.{}, .args = given };
                 ty = try self.instantiate(nt.id, given, pos);
             } else if (generic) {
-                subst = (try self.inferTypeArgs(nt.id, args, .{ .fields = payload }, pos)) orelse return self.skipCall(args);
+                const self_type = (try sema.makeNominalContext(self.ctx, nt.id)).self_type;
+                subst = (try self.inferTypeArgs(nt.id, args, .{ .fields = payload }, pos, self.expectedResult(self_type), name)) orelse return self.skipCall(args);
                 ty = try self.instantiate(nt.id, subst.args, pos);
             }
             try self.checkFieldArgs(args, payload, .{ .owner = name, .decl_pos = m.decl_pos, .pos = pos, .subst = subst, .foreign = nt.foreign, .kind = .variant });
@@ -4081,13 +4327,15 @@ const Checker = struct {
     /// each argument's type is matched against the field or parameter it
     /// fills (`inferBindings`). Null, after a diagnostic, when some
     /// parameter is left unbound or the arguments disagree on one.
-    fn inferTypeArgs(self: *Checker, sym_id: SymbolId, args: []const Sexp, from: InferFrom, pos: u32) Error!?TypeSubst {
+    fn inferTypeArgs(self: *Checker, sym_id: SymbolId, args: []const Sexp, from: InferFrom, pos: u32, result: ?ResultType, member: ?[]const u8) Error!?TypeSubst {
         const sym = self.ctx.symbols.items[sym_id];
         const params = sym.type_params orelse &.{};
-        const inf = try self.inferBindings(params, args, from);
+        const inf = try self.inferBindings(params, args, from, result);
+        if (member) |name| try self.noteTypeArgsHint(sym_id, name, inf);
         for (params, inf.bound) |p, b| {
             const pname = self.ctx.symbols.items[p].name;
             if (b.ty == sema.type_invalid) {
+                if (inf.poisoned) return null;
                 try self.err(pos, "cannot infer `{s}` for `{s}` from the arguments; name it (`{s}[...]`), or give the type where the value goes (`x: {s}[...] = ...`)", .{ pname, sym.name, sym.name, sym.name });
                 return null;
             }
@@ -4099,6 +4347,31 @@ const Checker = struct {
         const bound = try self.ctx.arena.allocator().alloc(TypeId, params.len);
         for (inf.bound, bound) |b, *out| out.* = b.ty;
         return .{ .params = params, .args = bound };
+    }
+
+    /// Where an argument of `Type.member(...)` gives a type parameter
+    /// another type than the one the expected type gives it, what to
+    /// write for the mismatch that follows (`result_hints`): the type
+    /// named, which passes the expected type on to the arguments.
+    fn noteTypeArgsHint(self: *Checker, sym_id: SymbolId, member: []const u8, inf: Inference) Error!void {
+        const call = self.current_call orelse return;
+        if (call.list.id == 0) return;
+        _ = self.result_hints.remove(call.list.id);
+        const a = self.ctx.arena.allocator();
+        const types = try a.alloc(TypeId, inf.bound.len);
+        var first: ?usize = null;
+        for (inf.bound, types, 0..) |b, *ty, i| {
+            ty.* = if (b.wanted != sema.type_invalid) b.wanted else b.ty;
+            if (b.wanted != sema.type_invalid and first == null) first = i;
+        }
+        const i = first orelse return;
+        for (types) |ty| if (ty == sema.type_invalid) return;
+        const sym = self.ctx.symbols.items[sym_id];
+        const b = inf.bound[i];
+        const took = try std.fmt.allocPrint(a, "`{s}.{s}` takes `{s} = {s}` from argument {d}", .{ sym.name, member, self.ctx.symbols.items[sym.type_params.?[i]].name, try self.tyName(b.ty), b.arg });
+        const named = try self.ctx.intern(.{ .parameterized_nominal = .{ .sym = sym_id, .args = try self.ctx.dupeIds(types) } });
+        const hint = if (spelledInBrackets(self.ctx, named)) try std.fmt.allocPrint(a, "{s}; to pass `{s}` on to it, name the type: `{s}.{s}(...)`", .{ took, try self.tyName(types[i]), try self.tyName(named), member }) else took;
+        try self.result_hints.put(self.ctx.allocator, call.list.id, hint);
     }
 
     /// The instance of generic `sym_id` at `args`, checked like a spelled
@@ -4298,6 +4571,9 @@ const Checker = struct {
             _ = try self.synthExpr(e);
             return;
         }
+        const saved_result = self.result_expected;
+        defer self.result_expected = saved_result;
+        if (resultCall(e)) |call| self.result_expected = .{ .call = call, .ty = expected };
         if (try self.checkContextual(e, expected)) |ty| return self.ctx.recordType(e, ty);
 
         const actual = try self.synthExpr(e);
@@ -4310,6 +4586,18 @@ const Checker = struct {
         // reported the missing `!` / `catch`.
         const at = self.ctx.types.get(actual);
         if (at == .fallible and compatible(self.ctx, at.fallible, expected)) return;
+        if (resultCall(e)) |call| if (call.list.id != 0) if (self.result_hints.get(call.list.id)) |hint| {
+            return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; {s}", .{ try self.tyName(expected), try self.tyName(actual), hint });
+        };
+        // Only a number, `Bool`, `String`, or plain enum reads as the
+        // value a borrow reaches (`readValue`).
+        switch (at) {
+            .borrow_read, .borrow_write => |inner| if (compatible(self.ctx, inner, expected)) {
+                const name = try self.tyName(inner);
+                return self.errAt(e, "type mismatch: expected `{s}`, got `{s}`; only a number, `Bool`, `String`, or plain enum is copied out of a borrow: take the borrow where it goes (`?{s}` or `!{s}`)", .{ try self.tyName(expected), try self.tyName(actual), name, name });
+            },
+            else => {},
+        }
         try self.mismatch(e, expected, actual);
     }
 
@@ -4454,8 +4742,11 @@ const Checker = struct {
         }
     }
 
-    /// Record the concrete type a literal took in context.
+    /// Record how `e`, of type `actual`, adapts to the `expected` its
+    /// context gives: a borrow of a Copy value is read through
+    /// (`recordRead`), and a literal takes a concrete type.
     fn recordAdapted(self: *Checker, e: Sexp, actual: TypeId, expected: TypeId) Error!void {
+        if (readValue(self.ctx, actual) != actual and !isBorrow(self.ctx, self.liftTarget(expected))) return self.ctx.recordRead(e);
         if (actual != self.t().int_literal_id and actual != self.t().float_literal_id) return;
         const target = self.liftTarget(expected);
         if (!sema.isNumeric(self.ctx, target)) return;
@@ -4697,7 +4988,7 @@ const Checker = struct {
                 try self.synthArgs(args);
                 break :blk self.t().invalid_id;
             }
-            const operand = readValue(self.ctx, try self.synthExpr(args[0]));
+            const operand = try self.synthValue(args[0]);
             const target = expected orelse {
                 try self.err(pos, "`@{s}` needs a known result type; bind it to an annotated name (`y: T = @{s}(x)`)", .{ name, name });
                 break :blk self.t().invalid_id;
@@ -4903,7 +5194,12 @@ const Checker = struct {
                 continue;
             };
             if (!compatible(self.ctx, ty, ret)) {
-                try self.errAt(site.node, "this closure returns `{s}`, but this `return` gives `{s}`", .{ try self.tyName(ret), try self.tyName(ty) });
+                // A generic call only literals typed would take the type.
+                const hint = if (self.literalResult(ir.Return.value(site.node)) != null and sema.isNumeric(self.ctx, ret))
+                    try std.fmt.allocPrint(self.ctx.arena.allocator(), "; give the closure its type where it goes (`f: fun(...) -> {s} = |...| ...`), and every `return` takes it", .{try self.tyName(ret)})
+                else
+                    "";
+                try self.errAt(site.node, "this closure returns `{s}`, but this `return` gives `{s}`{s}", .{ try self.tyName(ret), try self.tyName(ty), hint });
             } else try self.recordAdapted(ir.Return.value(site.node), ty, ret);
         }
         return ret;
@@ -4997,6 +5293,17 @@ const Checker = struct {
 // Compatibility and classification
 // =============================================================================
 
+/// The type an operator reads from an operand: a borrowed Copy value
+/// (`readValue`), or the `T` a borrowed type parameter reaches. Every
+/// `T` an operator's requirement admits is plain data, so reading one
+/// through its borrow copies no resource.
+fn operandValue(ctx: *const SemContext, ty: TypeId) TypeId {
+    return switch (ctx.types.get(ty)) {
+        .borrow_read, .borrow_write => |inner| if (ctx.types.get(inner) == .type_var) inner else readValue(ctx, ty),
+        else => ty,
+    };
+}
+
 /// A borrow of a Copy value (a primitive, a plain enum, or an error)
 /// reads as the value itself: `n + 1` with `n: ?Int` or `n: !Int` is an
 /// `Int`.
@@ -5004,6 +5311,26 @@ fn readValue(ctx: *const SemContext, ty: TypeId) TypeId {
     return switch (ctx.types.get(ty)) {
         .borrow_read, .borrow_write => |inner| if (sema.isCopyPrimitive(ctx, inner) or sema.isPlainEnum(ctx, inner)) inner else ty,
         else => ty,
+    };
+}
+
+/// Whether `ty` can be written in an expression's bracket list
+/// (`id[Box[Int]](...)`): array, slice, and function types cannot.
+fn spelledInBrackets(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .slice, .array, .function => false,
+        .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak => |inner| spelledInBrackets(ctx, inner),
+        .parameterized_nominal => |pn| for (pn.args) |arg| {
+            if (!spelledInBrackets(ctx, arg)) break false;
+        } else true,
+        else => true,
+    };
+}
+
+fn isBorrow(ctx: *const SemContext, ty: TypeId) bool {
+    return switch (ctx.types.get(ty)) {
+        .borrow_read, .borrow_write => true,
+        else => false,
     };
 }
 
@@ -5237,6 +5564,20 @@ fn findUse(ctx: *const SemContext, node: Sexp, sym: SymbolId) ?Sexp {
     return null;
 }
 
+/// The call whose value `e` is: `e` itself, or the call under a `!`,
+/// `?`, `catch`, or on the left of `??`.
+fn resultCall(e: Sexp) ?Sexp {
+    const head = e.kind() orelse return null;
+    return switch (head) {
+        .call => e,
+        .propagate => resultCall(ir.Propagate.value(e)),
+        .propagate_none => resultCall(ir.PropagateNone.value(e)),
+        .@"catch" => resultCall(ir.Catch.value(e)),
+        .@"??" => resultCall(ir.@"??".left(e)),
+        else => null,
+    };
+}
+
 /// `a` and `b` are the same parsed node.
 fn sameNode(a: Sexp, b: Sexp) bool {
     return a == .list and b == .list and a.list.ptr == b.list.ptr;
@@ -5361,6 +5702,9 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
+                // `String` and optionals compare with `==` outside a
+                // generic body, but not as a `T`.
+                .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`; `{s}` on a `{s}` compares only numbers, `Bool`, and plain enums", .{ inst, pname, aname, req.op, pname, req.op, pname }),
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {

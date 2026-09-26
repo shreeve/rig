@@ -351,6 +351,19 @@ compiler writes and the reader never sees. A plain function that calls
 the instance says the same thing in the open, so generic functions, and
 every function with compile-time parameters, can only be called.
 
+### Closures are not generic
+
+A closure has one concrete signature. Inside a generic function it may
+use that function's type parameters, and each instance of the function
+has its own closure. A closure with type parameters of its own is left
+out, as in Rust and Swift. C++14's generic lambdas show it can be done
+without boxing: the closure's call operator is a template, instantiated
+per use. Rig leaves it out because a closure meant for several types
+reads more plainly as a generic function, and a parameter or binding
+of closure type (`fun(Int) -> Int`) names one signature anyway.
+Reopening it would take a bracket list on the bar list, an instance
+per use, and the call-only rule generic functions follow.
+
 ### `raw` as a block
 
 `raw` marks the audit boundary: unchecked Zig builtins and calls to

@@ -1,0 +1,98 @@
+# A borrowed `T` operand (`?T` or `!T`) acts as a `T`: it records the
+# same requirement and gives the same result type, and the operator
+# reads through the borrow, whether a name holds it or a call yields it.
+
+enum Color
+  red
+  green
+
+fun add[T](a: ?T, b: ?T) -> T
+  a + b
+
+fun bigger[T](a: ?T, b: ?T) -> Bool
+  a > b
+
+fun same[T](a: ?T, b: ?T) -> Bool
+  a == b and not (a != b)
+
+fun mixed[T](a: ?T, b: T, c: !T) -> T
+  a + b - c
+
+fun bump[T](a: ?T) -> T
+  a + 1
+
+fun below[T](a: !T, b: ?T) -> Bool
+  a < b or a <= 1
+
+fun flip[T](a: ?T) -> T
+  -a
+
+fun bits[T](a: ?T, b: !T) -> T
+  (a & b) | (a ^ 1) | (a >> 1)
+
+sub scale[T](a: !T, b: ?T)
+  a *= b
+  a += 1
+
+fun wr[T](a: !T) -> !T
+  a
+
+sub accum[T](a: !T, b: !T)
+  a += wr(!b)
+  a *= wr(!b)
+  a -= -wr(!b)
+
+sub shift[T](a: !T, b: !T)
+  a <<= wr(!b)
+  a >>= wr(!b)
+  a /= wr(!b)
+  a %= wr(!b) + wr(!b)
+
+fun order[T](a: !T, b: !T) -> Bool
+  wr(!a) < wr(!b) and wr(!a) != wr(!b)
+
+type Acc[T]
+  total: T
+
+  fun plus(?self, x: ?T) -> T
+    self.total + x
+
+sub main()
+  x = 3
+  y = 4
+  f = 1.5
+  g = 2.25
+  z = 2
+  u: U8 = 200
+  w: U8 = 50
+  c = Color.red
+  print(add(?x, ?y), add(?f, ?g), add(?u, ?w))
+  print(bigger(?x, ?y), bigger(?g, ?f), bigger(?u, ?w))
+  print(same(?x, ?x), same(?f, ?g), same(?c, ?c))
+  print(mixed(?x, 10, !y), mixed(?f, 1.0, !g))
+  print(bump(?x), bump(?f), bump(?u))
+  print(below(!y, ?x), below(!f, ?g))
+  print(flip(?x), flip(?f))
+  print(bits(?x, !y), bits(?u, !w))
+  scale(!x, ?y)
+  scale(!g, ?f)
+  print(x, g)
+  a = Acc(total: 5)
+  print(a.plus(?y))
+  accum(!x, !y)
+  accum(!g, !f)
+  shift(!y, !z)
+  print(x, g, y, order(!x, !y), order(!f, !g))
+
+# expect:
+# 7 3.75 250
+# false true true
+# true false true
+# 9 0.25
+# 4 2.5 201
+# false true
+# -3 -1.5
+# 3 237
+# 13 4.375
+# 9
+# 72 10.3125 2 false true

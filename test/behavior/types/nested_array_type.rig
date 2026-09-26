@@ -1,0 +1,22 @@
+# A nested array type is an array of arrays: `[2][3]Int`. Each prefix
+# after the first starts with a `[` touching the `]` before it.
+
+fun corner(g: [2][3]Int) -> Int
+  g[1][2]
+
+type Grid = [2][3]Int
+
+fun total(rows: [][2]Int) -> Int
+  t = 0
+  for r in rows
+    t += r[0] + r[1]
+  t
+
+sub main
+  grid: Grid = [[1, 2, 3], [4, 5, 6]]
+  cube: [2][2][2]Int = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]
+  pairs: [3][2]Int = [[1, 2], [3, 4], [5, 6]]
+  print(corner(grid), grid[0], cube[1][1][0], total(?pairs[0..3]))
+
+# expect:
+# 6 [1, 2, 3] 7 21

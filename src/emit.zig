@@ -179,6 +179,9 @@ pub const Emitter = struct {
     /// The value being emitted is a write borrow: a pointer local in tail
     /// position yields the pointer, not the value behind it.
     ptr_tail: bool = false,
+    /// The next expression is emitted as the pointer it yields, even where
+    /// its context reads through it (`emitDeref`).
+    want_ptr: bool = false,
     /// Emitting an operand of arithmetic or an index: compile-time names
     /// (compile-time parameters, `=!` constants) are read through `rig.rt` so Zig
     /// evaluates the operation at run time, as Rig checked it.
@@ -1832,12 +1835,16 @@ pub const Emitter = struct {
     /// its scope (return, break value): resource bindings in tail
     /// position are moved out.
     fn emitValue(self: *Emitter, sexp: Sexp, tail: bool) Error!void {
+        const want_ptr = self.want_ptr;
+        self.want_ptr = false;
         const bare = self.bare;
         self.bare = false;
+        // A temporary holds the value its context reads (`hoist`).
         if (self.hoistedOf(sexp)) |h| {
             if (h.flag.len > 0) return self.w.print("rig.take(&{s}, {s})", .{ h.flag, h.name });
             return self.w.writeAll(h.name);
         }
+        if (!want_ptr and self.readsThrough(sexp)) return self.emitDeref(sexp);
         const literal_ty = self.literal_ty;
         self.literal_ty = null;
         defer self.literal_ty = literal_ty;
@@ -1909,7 +1916,7 @@ pub const Emitter = struct {
     /// A value stored into a field, payload, or element: a write borrow is
     /// stored as its pointer.
     fn emitStored(self: *Emitter, e: Sexp) Error!void {
-        if (self.isPtrBorrowExpr(e)) return self.emitBorrowValue(e);
+        if (self.isPtrBorrowExpr(e) and !self.sema.readsThrough(e)) return self.emitBorrowValue(e);
         try self.emitBare(e);
     }
 
@@ -1965,6 +1972,15 @@ pub const Emitter = struct {
         const decl = sema.nominalDecl(self.sema, ty) orelse return false;
         for (decl.symbol().fields orelse return false) |f| if (f.is_variant) return true;
         return false;
+    }
+
+    /// An expression yielding a pointer borrow where its context reads the
+    /// value behind it (`SemContext.readsThrough`): `!x`, or a call
+    /// returning `!Int`. A name, field, or element holding a borrow reads
+    /// through it already.
+    fn readsThrough(self: *Emitter, e: Sexp) bool {
+        if (e == .src or e.isKind(.member) or e.isKind(.index)) return false;
+        return self.sema.readsThrough(e) and self.isPtrBorrowExpr(e);
     }
 
     /// An expression whose value is a pointer borrow (see `isPtrBorrowTy`).
@@ -2036,15 +2052,10 @@ pub const Emitter = struct {
         try self.w.writeAll(", ");
     }
 
-    /// `e` yielded where a value of `ty` goes: a write borrow of a Copy
-    /// value (`!m`, or a call returning `!Int`) yields the value it reaches.
-    /// A borrow yielded where a borrow or an optional borrow goes stays a
-    /// borrow.
+    /// `e` yielded where a value of `ty` goes: a borrow yielded where a
+    /// borrow or an optional borrow goes stays a borrow.
     fn emitValueAs(self: *Emitter, e: Sexp, ty: ?TypeId) Error!void {
-        if (ty) |t| if (self.isPtrBorrowExpr(e)) {
-            if (self.isPtrBorrowTy(self.unwrapOptional(t))) return self.emitBorrowValue(e);
-            return self.emitDeref(e);
-        };
+        if (ty) |t| if (self.isPtrBorrowExpr(e) and self.isPtrBorrowTy(self.unwrapOptional(t))) return self.emitBorrowValue(e);
         try self.emitValue(e, true);
     }
 
@@ -2056,7 +2067,7 @@ pub const Emitter = struct {
         };
     }
 
-    /// `(e).*`: the value a write borrow reaches.
+    /// `(e).*`: the value a pointer borrow reaches.
     fn emitDeref(self: *Emitter, e: Sexp) Error!void {
         if (self.genericReadBorrowOf(e)) |inner| {
             try self.writeBorrowedOpen(inner);
@@ -2074,6 +2085,7 @@ pub const Emitter = struct {
         defer self.ptr_tail = saved;
         self.ptr_tail = true;
         self.bare = true;
+        self.want_ptr = true;
         try self.emitValue(e, true);
     }
 
@@ -2157,9 +2169,7 @@ pub const Emitter = struct {
                 // A generic `T` is cloned only where each instance is plain
                 // data, so it is copied.
                 if (kind == .value and !sema.maybeDropGlue(self.sema, self.peelBorrows(self.typeOf(operand).?))) return self.unsupported(sexp, "a clone of a value with drop glue");
-                // A name or field holding the borrow reads through it; a
-                // call returning one yields the pointer.
-                if (!isPlace(operand) and self.isPtrBorrowExpr(operand)) try self.emitDeref(operand) else try self.emitExpr(operand);
+                try self.emitExpr(operand);
                 if (kind == .shared) try self.w.writeAll(".cloneStrong()");
                 if (kind == .weak) try self.w.writeAll(".cloneWeak()");
             },
@@ -2187,7 +2197,7 @@ pub const Emitter = struct {
             .propagate_none => {
                 const operand = ir.PropagateNone.value(sexp);
                 try self.w.writeAll("(");
-                if (self.isPtrBorrowExpr(operand)) try self.emitDeref(operand) else try self.emitExpr(operand);
+                try self.emitExpr(operand);
                 try self.w.writeAll(" orelse return null)");
             },
             .neg => {
@@ -2361,10 +2371,9 @@ pub const Emitter = struct {
         try self.w.writeAll("[_]");
         try self.emitTypeTy(arr.array.elem);
         try self.w.writeAll("{");
-        const borrows = self.isPtrBorrowTy(arr.array.elem);
         for (elems, 0..) |e, i| {
             try self.w.writeAll(if (i == 0) " " else ", ");
-            if (!borrows and self.isPtrBorrowExpr(e)) try self.emitDeref(e) else try self.emitStored(e);
+            try self.emitStored(e);
         }
         try self.w.writeAll(if (elems.len > 0) " }" else "}");
     }
@@ -3059,10 +3068,11 @@ pub const Emitter = struct {
         const kind: ?ResourceKind = if (ptr) null else if (ty) |t| self.kindOf(t) else null;
         try self.writeIndent(self.indent);
         try self.w.print("{s} {s}", .{ if (kind == .value or kind == .optional) "var" else "const", h.name });
-        // The value alone may have no Zig type (`.empty`, `null`, a literal).
+        // The value alone may have no Zig type (`.empty`, `null`, a
+        // literal). A borrow read through is read here, in argument order.
         if (ty) |t| if (!ptr) {
             try self.w.writeAll(": ");
-            try self.emitTypeTy(t);
+            try self.emitTypeTy(if (self.readsThrough(h.node)) self.peelBorrows(t) else t);
         };
         try self.w.writeAll(" = ");
         if (fields) try self.emitStored(h.node) else try self.emitArg(h.node, params, slot);
@@ -3135,11 +3145,12 @@ pub const Emitter = struct {
         try self.w.writeAll(if (args.len > 0) " }" else "}");
     }
 
-    /// `Vec()` / `Vec(capacity: n)`: a decl literal typed by its result
-    /// location, or by the type given (`Vec[Int]()`).
+    /// `Vec()` / `Vec(capacity: n)`: a decl literal of the type sema gave
+    /// it, which a `catch` or `??` handler cannot take from its result
+    /// location.
     fn emitVecConstruction(self: *Emitter, call: Sexp) Error!void {
         const args = ir.Call.args(call);
-        try self.emitGivenType(call);
+        try self.emitTypeTy(self.typeOf(call) orelse return self.unsupported(call, "an untyped Vec construction"));
         if (args.len == 1) {
             try self.w.writeAll(".initCapacity(");
             try self.emitBare(ir.Kwarg.value(args[0]));

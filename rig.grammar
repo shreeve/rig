@@ -516,11 +516,17 @@ type     = READ_PFX  type:type                      → (borrow_read)
          | WRITE_PFX type:type                      → (borrow_write)
          | SHARE_PFX type:type                      → (shared)
          | "~"       operand:type                   → (weak)
-         | "[" "]" type:type                        → (slice)
-         | "[" size:INTEGER "]" type:type           → (array_type)
+         | "[" "]" type:inner                       → (slice)
+         | "[" size:INTEGER "]" type:inner          → (array_type)
          | FUN "(" [params:L(type)] ")" "->" returns:type → (fun_type)  # `fun(Int) -> Int`
          | SUB "(" [params:L(type)] ")"             → (fun_type)   # `sub(Int)`
          | tsuffix
+
+# An element type after `[]` or `[N]`. A nested prefix's `[` touches the
+# `]` before it, so the lexer marks it as an index bracket.
+inner    = type
+         | LBRACKET_INDEX "]" type:inner             → (slice)
+         | LBRACKET_INDEX size:INTEGER "]" type:inner → (array_type)
 
 tsuffix  = type:tsuffix SUFFIX_Q                    → (optional)
          | type:tsuffix SUFFIX_BANG                 → (error_union)

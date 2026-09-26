@@ -1513,56 +1513,95 @@ parameter, and each call passes its type: `max(3, 7)` becomes
 A call infers its type arguments by matching each parameter's type
 against its argument's: `T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`,
 `[N]T`, instances like `Vec[T]` or `Box[T]`, and function types like
-`fun(T) -> U`. Every argument must agree. A literal takes its default type (`Int`, `Float`) only where no
-other argument gives the parameter a type, so `max(small, 9)` with
-`small: U8` is `max[U8]`; among literals alone a float literal wins, so
-`max(1, 2.5)` is `max[Float]`. Brackets give every compile-time
-argument, or none: there is no partial list.
+`fun(T) -> U`. Every argument must agree. A parameter that only
+literals give a type takes it from where the result goes, as a
+constructor does: the declared result is matched the same way against
+the type of the binding, parameter, field, or `return` it fills, so
+`z: U8 = max(1, 2)` is `max[U8]`. Only where neither says anything does
+a literal take its default type (`Int`, `Float`), and among literals
+alone a float literal wins: `max(1, 2.5)` is `max[Float]`. A generic
+function call among the arguments whose result is its type parameter
+(directly, or through `!` or `?`) passes the expected type on, so
+`max(max(1, 2), small)` with `small: U8` is `max[U8]` twice, and one
+that yields an optional only `none` typed binds like `none`:
+`z: Int? = id(nothing())` is `id[Int?]`. A nested `Box.make(1)` or
+`Opt.some(value: 1)` keeps the type its own literal gives it, and the
+error says to name the outer type (`Box[Box[U8]].make(...)`). Brackets
+give every compile-time argument, or none: there is no partial list.
 
 ```rig
 fun max[T](a: T, b: T) -> T
   a if a > b else b
 
+fun empty[T] -> Vec[T]
+  Vec()
+
+fun id[T](a: T) -> T
+  a
+
+fun nothing[T] -> T?
+  none
+
 sub main
   small: U8 = 200
-  print(max(small, 9), max(1, 2.5), max[Float](1, 2))
-  v = Vec[Int]()
+  z: U8 = max(1, 2)
+  print(max(small, 9), z, max(1, 2.5), max[Float](1, 2))
+  v: Vec[Int] = empty()
   w: Vec[Int] = Vec()
   !v.push(3)
-  print(v.len, w.len)
+  o: Int? = id(nothing())
+  print(v.len, w.len, max(max(1, 2), small), o)
 ```
 
 ```output
-200 2.5 2.0
-1 0
+200 2 2.5 2.0
+1 0 200 none
+```
+
+A literal argument takes the type the call is given, so the body's
+arithmetic runs in that type, as `h: Float = 7 / 2` is `3.5`:
+
+```rig
+fun half[T](x: T) -> T
+  x / 2
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+sub main
+  f: Float = half(7)
+  print(half(7), f, max(half(7), 2.5))
+```
+
+```output
+3 3.5 3.5
 ```
 
 Brackets are required where nothing else says what to use:
 
 - a compile-time value, which is never inferred: `check[.strict](5)`;
-- a type parameter no argument determines: one that appears only in
-  the result, or only in arguments that are `none` or `.variant`;
+- a type parameter neither the arguments nor the expected type
+  determine: `v = empty()` needs `empty[Int]()`;
 - a generic type with nothing to fill its parameter and no expected
   type: `Vec[Int]()`, or `v: Vec[Int] = Vec()`.
 
-A generic function takes its type arguments from its arguments only,
-never from the type its result is expected to have, so a result bound
-to a `U8` needs the brackets:
+An argument that is not a literal keeps the type it gives, so a result
+that goes elsewhere is a mismatch, and the error suggests the
+conversion:
 
 ```rig reject
 fun max[T](a: T, b: T) -> T
   a if a > b else b
 
 sub main
-  z: U8 = max(1, 2)
+  n = 5
+  z: U8 = max(n, 2)
   print(z)
 ```
 
 ```error
-type mismatch: expected `U8`, got `Int`
+type mismatch: expected `U8`, got `Int`; `max` takes `T = Int` from argument 1; convert its result with `U8(...)`
 ```
-
-`max[U8](1, 2)` is the fix.
 
 ### Index or compile-time arguments
 
@@ -1623,9 +1662,10 @@ There are no traits or bounds. A generic body is checked once, with
 `T` unknown, and every operation it applies to a `T` (`>`, `+`, `==`, a
 literal beside a `T`, a copy of a `T`) is recorded. Each instance the
 program makes, inferred or given, is then checked against that record,
-like a C++ template or a Zig `comptime T: type` function. The error
-names the call, and a note points at the line of the body that needs
-the operation:
+like a C++ template or a Zig `comptime T: type` function. A borrowed
+operand, `a > b` with `a: ?T` or `a: !T`, reads the `T` it reaches and
+records the same operation. The error names the call, and a note
+points at the line of the body that needs the operation:
 
 ```rig reject
 struct Point
@@ -1634,14 +1674,22 @@ struct Point
 fun max[T](a: T, b: T) -> T
   a if a > b else b
 
+fun larger[T](a: ?T, b: !T) -> Bool
+  a > b
+
 sub main
+  n = 3
+  m = 4
+  print(larger(?n, !m))
   p = max(Point(x: 1), Point(x: 2))
-  print(p.x)
+  q = Point(x: 3)
+  print(p.x, larger(?p, !q))
 ```
 
 ```error
 `max[Point]` cannot use `T = Point`: the generic body applies `>` to `T`, which `Point` does not support
 `>` used on `T` here (ordering comparison)
+`larger[Point]` cannot use `T = Point`: the generic body applies `>` to `T`, which `Point` does not support
 ```
 
 A body cannot call a method on a `T`, read its fields, or call `T`
@@ -2462,7 +2510,8 @@ propagate. Closures, `defer`, and `drop` bodies may not.
 ## 22. Arrays, strings, and slices
 
 **Arrays** are fixed-size, `[N]T`, and hold plain data. `xs.len` is the
-length and `xs[i]` a bounds-checked element.
+length and `xs[i]` a bounds-checked element. `[2][3]Int` is two arrays
+of three, read as `grid[1][2]`.
 
 **Strings** are immutable UTF-8 bytes, a Copy value. `s.len` is the
 byte length, `s[i]` a byte (`U8`), and `for b in s` walks the bytes.

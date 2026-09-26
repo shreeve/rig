@@ -1258,6 +1258,18 @@ pub const Checker = struct {
             else => return .{},
         }
         const kind = sexp.kind() orelse return .{};
+        // A borrow its context reads through gives the value it reaches;
+        // when that holds no borrow, the loans taken to reach it end here.
+        if (self.sema) |ctx| if (ctx.readsThrough(sexp)) if (ctx.typeOf(sexp)) |ty| if (!self.mayCarryBorrow(sema.unwrapBorrows(ctx, ty))) {
+            const temps_start = self.temps.items.len;
+            _ = try self.walkList(sexp, kind);
+            self.temps.shrinkRetainingCapacity(@min(temps_start, self.temps.items.len));
+            return .{};
+        };
+        return self.walkList(sexp, kind);
+    }
+
+    fn walkList(self: *Checker, sexp: Sexp, kind: Tag) Error!Value {
         switch (kind) {
             .fun, .sub, .drop_decl, .@"struct", .@"enum", .errors => try self.walkDecl(sexp),
             .set => try self.walkSet(sexp),

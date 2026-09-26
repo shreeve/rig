@@ -1,0 +1,12 @@
+# A closure inside a generic function may use the function's type
+# parameter; each instance has its own closure.
+
+fun twice[T](x: T) -> T
+  f = |a: T| a + a
+  f(x)
+
+sub main
+  print(twice(3), twice(1.5))
+
+# expect:
+# 6 3.0

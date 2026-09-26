@@ -1,0 +1,64 @@
+# A `catch` or `??` handler that takes its type from context (`Vec()`,
+# a variant) takes the type of the value it stands in for, even where
+# the binding is not annotated.
+
+error E
+  e
+
+enum Shape
+  dot
+  box(w: Int)
+
+fun h(ok: Bool) -> Vec[U8]!
+  return E.e if not ok
+  v: Vec[U8] = Vec()
+  !v.push(1)
+  <v
+
+fun g[T](ok: Bool, x: T) -> Vec[T]!
+  return E.e if not ok
+  v = Vec[T]()
+  !v.push(x)
+  <v
+
+fun fresh[T](x: T) -> Vec[T]
+  v = g(false, x) catch Vec(capacity: 1)
+  !v.push(x)
+  <v
+
+fun s(ok: Bool) -> Shape!
+  return E.e if not ok
+  Shape.dot
+
+fun o(ok: Bool) -> Shape?
+  return none if not ok
+  Shape.dot
+
+fun empty[T]() -> Vec[T]
+  Vec()
+
+sub main()
+  v = h(false) catch Vec()
+  w = g(false, 3) catch Vec()
+  t = h(false) catch Vec(capacity: 2)
+  r = h(false) catch empty()
+  k = h(true) catch Vec()
+  f = fresh(2.5)
+  print(v.len, w.len, t.len, r.len, k.len, f.len, f[0])
+  x = s(false) catch .box(w: 2)
+  y = o(false) ?? .dot
+  match x
+    .box(n)
+      print(n)
+    _
+      print(0)
+  match y
+    .dot
+      print("dot")
+    _
+      print("box")
+
+# expect:
+# 0 0 0 0 1 1 2.5
+# 2
+# dot

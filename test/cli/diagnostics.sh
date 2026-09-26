@@ -57,3 +57,21 @@ expect_eq "$(cat out.txt)" "utf8.rig:2:15: error: use of unbound name \`missing\
 printf 'extern f: Nope\n\nsub main()\n  raw\n    f(1)\n' >poison.rig
 "$RIG" check poison.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a call to a poisoned name"
 expect_eq "$(grep ': error: ' out.txt)" "poison.rig:1:11: error: use of unbound type \`Nope\`" "one error"
+
+# A type parameter left unbound because an argument or the expected
+# type already has an error is not reported again: only the cause is.
+cat >poison.rig <<'EOF2'
+fun empty[T] -> Vec[T]
+  Vec()
+
+fun id[T](a: T) -> T
+  a
+
+sub main
+  z: Vec[Foo] = empty()
+  x = id(id(id(empty())))
+  print(z.len, x.len)
+EOF2
+"$RIG" check poison.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a poisoned inference"
+expect_eq "$(grep 'error:' out.txt)" "poison.rig:8:10: error: use of unbound type \`Foo\`
+poison.rig:9:16: error: cannot infer \`T\` for \`empty\` from its arguments or the type expected of its result; give \`T\` in brackets: \`empty[...]()\`" "only the cause of a poisoned inference"

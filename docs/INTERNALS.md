@@ -122,7 +122,7 @@ parser distinct tokens:
 
 | Source | Tokens | Rule |
 |---|---|---|
-| `f(x)`, `a[i]` vs `f (x)`, `f [1]` | `LPAREN_CALL`, `LBRACKET_INDEX` vs `(`, `[` | touching the preceding value continues it |
+| `f(x)`, `a[i]` vs `f (x)`, `f [1]` | `LPAREN_CALL`, `LBRACKET_INDEX` vs `(`, `[` | touching the preceding value continues it; in a type, an `LBRACKET_INDEX` after `[N]` or `[]` starts the element's own prefix (`[2][3]Int`) |
 | `a.b` vs `.red`, `f .red` | `.` vs `DOT_LIT` | `.name` touching a value is member access |
 | `a - b`, `a-b` vs `-x`, `f -x` | `MINUS` vs `MINUS_PREFIX` / `DROP_STMT` | a sigil touching its operand and not the value before it is a prefix; `-name` as a whole statement is a drop |
 | `<x +x *x ?x !x` | `MOVE_PFX` ... `WRITE_PFX` | the same rule |
@@ -489,6 +489,7 @@ instead of re-deriving it by name:
 | `symbolOf(leaf)` | the symbol an identifier names, at its declaration or any use |
 | `typeOf(node)` | the type of an expression (literals get their contextual type) |
 | `bindingTypeOf(leaf)` | the declared or inferred type of the symbol a leaf names |
+| `readsThrough(node)` | whether the node yields a borrow (`!x`, a call returning `!Int`, a `!Int` name) whose value its context reads: a number, `Bool`, `String`, or plain enum where one is expected, an operator's operand, the optional of `??`, `?`, or `as`, an indexed or sliced String or slice, or a clone. Typecheck records it wherever it admits the borrow as its value (`recordAdapted`, `readThrough`); emit dereferences such a node in one place (`emitValue`), and the ownership checker ends the loans taken to reach a value that holds no borrow |
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
 | `isExhaustive(match)` | whether the arms cover every value without a default |
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
@@ -517,7 +518,8 @@ beside a `T`, a constant shift, and `plain` where the body copies a
 value holding a `T` in a way the ownership checker does not see:
 discarding it, leaving it as a temporary, cloning it, reading it out of
 a `Vec` or `Cell`, putting it in an array, or moving it out of a
-borrow. Nothing about a `T` is assumed that is not recorded. A function's type parameters are `generic_param`
+borrow. An operator's operand borrowed as `?T` or `!T` counts as a `T`
+(`operandValue`). Nothing about a `T` is assumed that is not recorded. A function's type parameters are `generic_param`
 symbols in its scope, and its `FunctionType.ct_params` holds the
 `type_var` itself in a type parameter's slot (a compile-time value
 parameter's type may not mention one), so a signature says which of its
@@ -532,10 +534,25 @@ bound to the receiver's) and the call that makes it, kept unique by
 (`instantiateCall`): the bracket list gives every compile-time
 argument, or else `inferCallTypeArgs` matches each parameter's type
 against its argument's. `inferBindings` does the matching, for generic
-calls and generic constructors alike: a literal binds its default type
-only where nothing else binds the parameter, an argument of another
-shape is reported as a type mismatch, and disagreements are reported
-with a suggested bracket list or conversion. An instance over type
+calls and generic constructors alike. A parameter no argument other
+than a literal binds is bound by matching the declared result against
+the type expected of the call (`bindExpected`): `checkExpr` names the
+call whose value goes where a type is expected (`result_expected`),
+through `!`, `?`, `catch`, and the left of `??`, and a result lifted into an expected
+`T?` or `T!` is matched against the `T`. Only then does a literal bind
+its default type. An argument of another shape is reported as a type
+mismatch, and disagreements are reported with a suggested bracket list
+or conversion. Argument types for inference are synthesized once
+(`argType`), without the expected type the call later checks them
+with, so the generic instances found there are not recorded
+(`tentative`), and a generic call whose result is a type parameter
+only literals typed, directly or through `!` or `?`, binds like a
+literal, and one whose result is an optional only `none` typed binds
+like `none` (`literal_results`): `max(max(1, 2), small)` checks the
+inner call again with the outer's `T`. A nested call whose result has
+another shape keeps the type its arguments give it; the mismatch that
+follows carries a hint (`result_hints`) naming the brackets or the type
+that pass the expected type on. An instance over type
 parameters (a generic body using `Opt[T]` or calling `max(x, y)` with
 `x: T`) goes in `generic_uses` or `generic_fn_uses` instead, and
 `expandInstantiations` makes it concrete for each instance of the body

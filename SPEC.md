@@ -347,18 +347,20 @@ loop over it yields its bytes as `U8`. Strings compare with `==` and
 element type from its elements (or from an annotation), `xs.len` is its
 length, and `xs[i]` reads or writes an element; an index outside the
 half-open range `0..xs.len` panics. Arrays hold plain data only; a
-collection of resources is a `Vec`.
+collection of resources is a `Vec`. An array of arrays is `[2][3]T`:
+two rows of three.
 
 ```rig
 sub main
   xs = [10, 20, 30]
   xs[0] = 5
   ys: [2]U8 = [1, 2]
-  print(xs, xs.len, xs[2], ys)
+  grid: [2][3]Int = [[1, 2, 3], [4, 5, 6]]
+  print(xs, xs.len, xs[2], ys, grid[1][2])
 ```
 
 ```output
-[5, 20, 30] 3 30 [1, 2]
+[5, 20, 30] 3 30 [1, 2] 6
 ```
 
 ### Slices
@@ -888,13 +890,33 @@ inferred by matching each parameter's type against its argument's type
 (`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`, `[N]T`, `Box[T]`,
 `fun(T) -> U`). A method's receiver gives its type's parameters. Every
 argument must agree, and an argument whose type does not have its
-parameter's shape is a type mismatch. A literal takes its default type only when no other
-argument gives the parameter one, and among literals alone a float
-literal gives `Float`: `max(3, 2.5)` is `max[Float]`. The type expected
-of the call's result is not used. A compile-time value is never
-inferred, so a function that takes one is always called with brackets,
-and so is one with a type parameter no argument determines (one only in
-the result, or given only `none` or a `.variant`).
+parameter's shape is a type mismatch. A parameter no argument other
+than a literal gives a type takes one from the type expected of the
+call's result, where there is one (a typed binding, parameter, field,
+or assigned place, a `return` from a function or from a closure whose
+result type is given, and the last expression of either), by matching
+the declared result against it the same way; a result lifted into an
+expected `T?` or `T!` is matched against the `T`, a propagated or
+caught `T!` against its value, and the left of `??` against an optional
+of the expected type. So `z: U8 = max(1, 2)` is `max[U8]`. A generic
+function call that is an argument of another, and whose result is a
+type parameter only literals gave a type (directly, or propagated with
+`!` or `?`), takes the type that call gives it: `max(max(1, 2), small)`
+with `small: U8` is `max[U8]` twice. One whose result is an optional
+that nothing but `none` gave a type (`nothing()`, `id(none)`) binds
+like `none`, so `z: Int? = id(nothing())` is `id[Int?]`. A nested call
+with a result of another shape (`Box.make(1)`, `Opt.some(value: 1)`)
+keeps the type its own arguments give it; naming the outer call's type
+arguments (`Box[Box[U8]].make(...)`, `id[Opt[U8]](...)`) passes the
+expected type on. Only then does a literal take its default type, and
+among literals alone a float literal gives `Float`: `max(3, 2.5)` is
+`max[Float]`. An argument that is not a literal keeps
+the type it gives, even where the result is expected to have another.
+A compile-time value is never inferred, so a function that takes one is
+always called with brackets, and so is one with a type parameter
+neither its arguments nor the expected type determine (one used only in
+the result where no type is expected, or given only `none` or a
+`.variant`).
 
 A generic function can only be called: it is not a value, and a closure
 is never generic. It cannot cross module boundaries yet
@@ -923,14 +945,15 @@ fun pick[T](a: T, b: T, first: Bool) -> T
 
 sub main
   small: U8 = 200
-  print(max(3, 7), max(small, 9), max(3, 2.5), max[Float](1, 2))
+  z: U8 = max(1, 2)
+  print(max(3, 7), max(small, 9), max(3, 2.5), max[Float](1, 2), z)
   print(Box(v: 1).with("s"), Box(v: 1).with[Bool](true))
   r = pick(Res(n: 1), Res(n: 2), true)
   print("kept", r.n)
 ```
 
 ```output
-7 200 3.0 2.0
+7 200 3.0 2.0 2
 s true
 drop 2
 kept 1
@@ -947,14 +970,14 @@ fun make[T](n: Int) -> Int
 sub main
   n: I32 = 1
   print(max(n, 2.5), make(3))
-  z: U8 = max(1, 2)
+  z: U8 = max(n, 2)
   f = max
 ```
 
 ```error
 conflicting types for `T` in the call to `max`: `I32` (argument 1) and `Float` (argument 2)
-cannot infer `T` for `make` from its arguments
-type mismatch: expected `U8`, got `Int`
+cannot infer `T` for `make` from its arguments or the type expected of its result
+type mismatch: expected `U8`, got `I32`; `max` takes `T = I32` from argument 1
 `max` takes compile-time parameters, so it can only be called, not used as a value
 ```
 
@@ -964,9 +987,11 @@ A generic type's methods and a generic function's body are checked
 once, with each type parameter standing for any type. There are no
 traits or bounds. What the body does with a `T` that only some types
 support (arithmetic, ordering, `==`, a literal beside a `T`, a copy of a
-`T`) is recorded, and every instance the program makes, spelled or
+`T`) is recorded, a borrowed operand (`?T`, `!T`) as the `T` it
+reaches, and every instance the program makes, spelled or
 inferred, directly or through other generic bodies, is checked against
-it. A failure is reported at the call or type that makes the instance,
+it. On a `T`, `==` compares numbers, `Bool`, and plain enums, not
+Strings. A failure is reported at the call or type that makes the instance,
 with a note at the body line that needs the operation. A body cannot
 call a method on a `T`, read a field of one, or call `T` itself.
 
@@ -2062,9 +2087,27 @@ cannot drop `y` while borrows are live
 ```
 
 A borrowed parameter can be forwarded (`g(?b)` with `b: ?B`), and a
-borrow of a Copy value reads as the value. The caller still owns a
+borrow of a number, `Bool`, `String`, or plain enum reads as the value
+wherever the value is expected, whether a name holds the borrow or an
+expression yields it (`f(!x) + 1`, `take(f(!x))`, `if flag(!b)`); the
+borrow taken to reach it ends there. Other values, which may own
+resources, are not copied out of a borrow. The caller still owns a
 borrowed value: a borrowed parameter cannot be dropped or move-captured,
 and a field cannot be moved out of it.
+
+```rig
+fun slot(a: !Int) -> !Int
+  a
+
+sub main
+  n = 4
+  m: Int = slot(!n)
+  print(slot(!n) + slot(!n), Float(slot(!n)), m)
+```
+
+```output
+8 4.0 4
+```
 
 ### Clone
 
@@ -2611,8 +2654,10 @@ parameters its type passes, and may ignore one by naming it `_`.
 
 With a type from context, the body is checked against its return type.
 Otherwise the closure returns the type of its last expression, or of
-its `return`s when it ends in one; a body ending in any other statement,
-or in an `if` without `else`, returns nothing. `return` inside a closure
+its `return`s when it ends in one, and these give each other no type: a
+`return max(3, 4)` beside a `return x` of a `U8` is still an `Int`. A
+body ending in any other statement, or in an `if` without `else`,
+returns nothing. `return` inside a closure
 leaves the closure.
 
 ```rig
