@@ -3423,6 +3423,9 @@ const Checker = struct {
         own: []const SymbolId,
         bound: []Bound,
         literals: std.ArrayListUnmanaged(LiteralBound) = .empty,
+        /// The first argument whose type does not have the shape of the
+        /// type it fills (`?[3]Int` where `[]T` goes).
+        mismatch: ?struct { arg: u32, pattern: TypeId, actual: TypeId } = null,
     };
 
     /// Match each argument's type against the field or parameter it
@@ -3525,8 +3528,13 @@ const Checker = struct {
         for (inf.bound, own, 0..) |b, param, i| {
             const pname = self.ctx.symbols.items[param].name;
             if (b.ty == sema.type_invalid) {
-                try self.err(pos, "cannot infer `{s}` for `{s}` from its arguments; give it in brackets: `{s}[{s}](...)`", .{ pname, callee, callee, try self.bracketHint(own, result, i, null) });
                 ok = false;
+                // An argument of another shape says why, as for any call.
+                if (inf.mismatch) |m| if (m.arg <= args.len) {
+                    try self.errAt(args[m.arg - 1], "type mismatch: expected `{s}`, got `{s}`", .{ try self.tyName(m.pattern), try self.tyName(m.actual) });
+                    break;
+                };
+                try self.err(pos, "cannot infer `{s}` for `{s}` from its arguments; give it in brackets: `{s}[{s}](...)`", .{ pname, callee, callee, try self.bracketHint(own, result, i, null) });
             } else if (b.conflict != sema.type_invalid) {
                 // The later argument's type is suggested, when the earlier
                 // argument can have it; otherwise a conversion.
@@ -3574,6 +3582,11 @@ const Checker = struct {
     /// so that it matches `actual`, argument number `arg`'s type. Where the
     /// shapes differ nothing is bound, and checking the argument reports
     /// the mismatch.
+    fn noteMismatch(self: *Checker, inf: *Inference, pattern: TypeId, actual: TypeId, arg: u32) void {
+        if (inf.mismatch != null or self.ctx.types.get(actual) == .none_literal) return;
+        inf.mismatch = .{ .arg = arg, .pattern = pattern, .actual = actual };
+    }
+
     fn bindArg(self: *Checker, inf: *Inference, pattern: TypeId, actual: TypeId, arg: u32, depth: u8) Error!void {
         if (depth > 32 or self.isPoison(actual)) return;
         const at = self.ctx.types.get(actual);
@@ -3602,18 +3615,18 @@ const Checker = struct {
                 .borrow_read, .borrow_write => |inner| inner,
                 else => actual,
             }, arg, depth + 1),
-            .fallible => |p| if (at == .fallible) try self.bindArg(inf, p, at.fallible, arg, depth + 1),
-            .shared => |p| if (at == .shared) try self.bindArg(inf, p, at.shared, arg, depth + 1),
-            .weak => |p| if (at == .weak) try self.bindArg(inf, p, at.weak, arg, depth + 1),
-            .slice => |p| if (at == .slice) try self.bindArg(inf, p.elem, at.slice.elem, arg, depth + 1),
-            .array => |p| if (at == .array) try self.bindArg(inf, p.elem, at.array.elem, arg, depth + 1),
+            .fallible => |p| if (at == .fallible) try self.bindArg(inf, p, at.fallible, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
+            .shared => |p| if (at == .shared) try self.bindArg(inf, p, at.shared, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
+            .weak => |p| if (at == .weak) try self.bindArg(inf, p, at.weak, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
+            .slice => |p| if (at == .slice) try self.bindArg(inf, p.elem, at.slice.elem, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
+            .array => |p| if (at == .array) try self.bindArg(inf, p.elem, at.array.elem, arg, depth + 1) else self.noteMismatch(inf, pattern, actual, arg),
             .parameterized_nominal => |pn| if (at == .parameterized_nominal and at.parameterized_nominal.sym == pn.sym) {
                 for (pn.args, at.parameterized_nominal.args) |pa, aa| try self.bindArg(inf, pa, aa, arg, depth + 1);
-            },
+            } else self.noteMismatch(inf, pattern, actual, arg),
             .function => |pf| if (at == .function and at.function.params.len == pf.params.len) {
                 for (pf.params, at.function.params) |pp, ap| try self.bindArg(inf, pp, ap, arg, depth + 1);
                 try self.bindArg(inf, pf.returns, at.function.returns, arg, depth + 1);
-            },
+            } else self.noteMismatch(inf, pattern, actual, arg),
             else => {},
         }
     }

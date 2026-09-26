@@ -1,0 +1,20 @@
+# An argument whose type does not have the shape of its parameter's type
+# is reported as a mismatch, not as a type parameter that cannot be
+# inferred.
+
+fun first_of[T](xs: []T) -> T
+  xs[0]
+
+fun keep[T](h: *T) -> Int
+  1
+
+struct N
+  n: Int
+
+sub main()
+  xs = [1, 2, 3]
+  print(first_of(?xs))
+  print(keep(N(n: 1)))
+
+# error: 16:18: type mismatch: expected `[]T`, got `?[3]Int`
+# error: 17:14: type mismatch: expected `*T`, got `N`
