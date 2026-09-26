@@ -2207,12 +2207,8 @@ pub const Checker = struct {
         const v = self.vars.items[id];
         if (v.kind == .capture and v.ref == .write) {
             // Assigning a captured write borrow writes into the value it
-            // borrows, which outlives the closure's own values.
-            for (value.loans) |l| if (self.isLocalLoan(l)) {
-                try self.err(pos, "cannot store a borrow of `{s}` through captured `{s}`: the value it borrows outlives it", .{ self.vars.items[l.root].name, v.name });
-                return;
-            };
-            return;
+            // borrows.
+            return self.storeThroughCapture(v, pos, value);
         }
         if (v.closure or v.fixed or v.loop_borrow or v.capture_resource) return;
         if (self.isGlobal(id) and !self.isCopy(v.ty)) return;
@@ -2267,6 +2263,7 @@ pub const Checker = struct {
             return;
         }
         if (value.loans.len == 0 or !self.mayCarryBorrow(self.exprType(target))) return;
+        if (v.kind == .capture and !place.through_shared) return self.storeThroughCapture(v, pos, value);
         if (v.ref != .none or place.through_borrow or place.through_shared or self.isGlobal(id)) {
             // Stored into something the caller owns: only borrows the
             // caller handed in may go there.
@@ -2286,6 +2283,20 @@ pub const Checker = struct {
         var f = self.flows.items[id];
         f.loans = try self.unionLoans(f.loans, value.loans);
         try self.setFlow(id, f);
+    }
+
+    /// Store `value` into `target`, reached through capture `v` of the
+    /// closure being checked. The captured value outlives every call of
+    /// the closure, while its parameters and its own values (its locals,
+    /// and what it moved or copied into its environment) live for one
+    /// call at most: a loan on any of them is rejected. A loan the
+    /// closure captured is on a value outside it, and the closure's
+    /// creation already let the captured value hold it (`walkLambda`).
+    fn storeThroughCapture(self: *Checker, v: Var, pos: u32, value: Value) Error!void {
+        for (value.loans) |l| if (l.root >= self.func.closure_base) {
+            try self.err(pos, "cannot store a borrow of `{s}` through captured `{s}`: `{s}` outlives every call of the closure, and the closure's parameters and own values last one call at most", .{ self.vars.items[l.root].name, v.name, v.name });
+            return;
+        };
     }
 
     // -------------------------------------------------------------------------
@@ -2577,6 +2588,12 @@ pub const Checker = struct {
             }
             value = try self.valueUnion(value, cv);
         }
+        // The body may store what one capture borrows into what a
+        // captured write borrow leads to, as a call may with its
+        // arguments: that value now holds those loans.
+        if (!owned and caps.len > 1) for (caps, cap_values.items) |cap, cv| {
+            try self.absorbThroughWrites(cv, value, sema.captureNameNode(cap).?.src.pos);
+        };
 
         // The body is checked as its own function; it cannot affect the
         // enclosing state.

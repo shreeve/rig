@@ -751,6 +751,16 @@ until the call or statement that consumes it ends, so a later argument
 of the same call cannot borrow or move their roots. A borrowed parameter holds an
 *external* loan on itself: a borrow from the caller, which may be
 returned or stored into other borrowed parameters and never conflicts.
+A closure's parameters are not: a borrow a closure receives lives only
+for that call, as do the closure's locals and its own environment's
+values, while a captured write borrow (`|!v|`, `|<w|`) reaches a value
+that outlives every call. So a store through a capture may carry no
+loan whose root is declared in the closure (`storeThroughCapture`),
+and creating a closure lets each value its write captures lead to hold
+the loans of all its captures, as a call's `!` arguments do with its
+arguments. This is sound because the only loans left to such a store
+are on values outside the closure that it captured, and the captured
+value's var now holds each of them for as long as it lives.
 A slice of an array (`?xs[a..b]`) points into the storage of the var
 the array is reached from, which may be a copy of the caller's (a
 borrowed parameter, a read borrow of plain data, a loop or pattern
