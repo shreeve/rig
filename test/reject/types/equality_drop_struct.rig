@@ -1,0 +1,15 @@
+# A struct with a `drop` body owns a resource and has no `==`, even when
+# its fields compare.
+
+struct File
+  fd: Int
+
+  drop(!self)
+    print("close", self.fd)
+
+sub main()
+  a = File(fd: 3)
+  b = File(fd: 3)
+  print(a != b)
+
+# error: 13:9: `!=` is not defined for `File`: `File` declares `drop`

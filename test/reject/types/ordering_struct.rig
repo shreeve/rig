@@ -1,0 +1,12 @@
+# Structs have no ordering, whatever their fields.
+
+struct Point
+  x: Int
+  y: Int
+
+sub main()
+  a = Point(x: 1, y: 2)
+  b = Point(x: 2, y: 1)
+  print(a < b)
+
+# error: 10:9: operator `<` orders numbers, Strings, and `[]U8` slices; got `Point`

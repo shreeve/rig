@@ -1,0 +1,20 @@
+# In a generic body a `T?` compares with a `T`, or with a literal every
+# `T` holds, as an optional compares with a value outside one.
+
+fun holds[T](a: T?, b: T) -> Bool
+  a == b
+
+fun is3[T](x: T?) -> Bool
+  x == 3 and not (3 != x)
+
+sub main()
+  x: Int? = 3
+  n: Int? = none
+  s: String? = "a"
+  b: U8? = 3
+  print(holds(x, 3), holds(n, 3), holds(s, "a"), holds(s, "b"))
+  print(is3(x), is3(n), is3(b))
+
+# expect:
+# true false true false
+# true false true

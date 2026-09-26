@@ -1,0 +1,12 @@
+pub struct Point
+  x: Int
+
+pub struct Tagged
+  id: Int
+  h: *Point
+
+pub struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)

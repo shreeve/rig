@@ -1,0 +1,33 @@
+# `==` in a generic body is checked per instance: a `T` that owns a
+# resource or holds a handle has no `==`, and the reason is named.
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+struct Tagged
+  id: Int
+  h: *Res
+
+fun same[T](a: ?T, b: ?T) -> Bool
+  a == b
+
+fun pos[T](xs: []T, want: ?T) -> Int
+  for x, i in xs
+    if x == want
+      return i
+  -1
+
+sub main()
+  r = Res(n: 1)
+  print(same(?r, ?r))
+  t = Tagged(id: 1, h: *Res(n: 2))
+  print(same(?t, ?t))
+  a = [1, 2]
+  print(pos(?a[0..2], ?a[0]))
+
+# error: 25:9: `same[Res]` cannot use `T = Res`: the generic body applies `==` to `T`, which `Res` does not support: `Res` declares `drop`
+# error: 15:3: `==` used on `T` here
+# error: 27:9: `same[Tagged]` cannot use `T = Tagged`: the generic body applies `==` to `T`, which `Tagged` does not support: field `h` is a handle `*Res`

@@ -1,6 +1,0 @@
-# Ordering comparisons need numeric operands.
-
-sub main()
-  print("a" < "b")
-
-# error: requires numeric operands; got `String`

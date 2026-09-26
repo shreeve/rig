@@ -1035,7 +1035,7 @@ const Checker = struct {
         var elem_ty = self.t().invalid_id;
         if (source.isKind(.@"..")) {
             // Both bounds are integers of one type, the element's.
-            elem_ty = try self.checkIntDefaultOperands(source, "..", .integer);
+            elem_ty = try self.checkIntDefaultOperands(source, "..", .integer, null);
             try self.ctx.recordType(source, try self.ctx.intern(.{ .range = elem_ty }));
         } else {
             const peeled_source = if (source.isKind(.read)) ir.Read.operand(source) else source;
@@ -1667,13 +1667,10 @@ const Checker = struct {
             .share => self.synthShare(e),
             .weak => self.synthWeak(e),
             .clone => self.synthClone(e),
-            .@"+", .@"-", .@"*", .@"/", .@"%" => self.checkNumericOperands(e, @tagName(head), .numeric),
-            .@"&", .@"|", .@"^" => self.checkNumericOperands(e, @tagName(head), .integer),
+            .@"+", .@"-", .@"*", .@"/", .@"%" => self.checkNumericOperands(e, @tagName(head), .numeric, null),
+            .@"&", .@"|", .@"^" => self.checkNumericOperands(e, @tagName(head), .integer, null),
             .@"<<", .@">>" => self.synthShift(e, @tagName(head)),
-            .@"<", .@">", .@"<=", .@">=" => blk: {
-                _ = try self.checkIntDefaultOperands(e, @tagName(head), .ordered);
-                break :blk self.t().bool_id;
-            },
+            .@"<", .@">", .@"<=", .@">=" => self.synthOrdering(e, @tagName(head)),
             .@"==", .@"!=" => self.synthEquality(e),
             .@"and", .@"or" => blk: {
                 try self.checkExpr(ir.get(e, .left), self.t().bool_id);
@@ -1728,9 +1725,10 @@ const Checker = struct {
 
     /// The operands of binary operator `(op left right)`: both numeric
     /// (or integer) and of one type. Literals adapt to the other operand;
-    /// generic parameters record a requirement.
-    fn checkNumericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement) Error!TypeId {
-        const ty = try self.numericOperands(e, op, req);
+    /// generic parameters record a requirement. `synthesized` holds the
+    /// operands' types when the caller has synthesized them.
+    fn checkNumericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement, synthesized: ?[2]TypeId) Error!TypeId {
+        const ty = try self.numericOperands(e, op, req, synthesized);
         if (self.isPoison(ty)) return ty;
         if (!(try self.checkDivisor(e.kind().?, ty, ir.get(e, .right)))) return self.t().invalid_id;
         // Constant operands are computed now, so the result must fit.
@@ -1742,12 +1740,40 @@ const Checker = struct {
 
     /// `checkNumericOperands` where two literal operands, which take no
     /// type from each other, are `Int`s.
-    fn checkIntDefaultOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement) Error!TypeId {
-        const ty = try self.checkNumericOperands(e, op, req);
+    fn checkIntDefaultOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement, synthesized: ?[2]TypeId) Error!TypeId {
+        const ty = try self.checkNumericOperands(e, op, req, synthesized);
         if (ty != self.t().int_literal_id) return ty;
         try self.checkLiteralFits(ir.get(e, .left), self.t().int_id);
         try self.checkLiteralFits(ir.get(e, .right), self.t().int_id);
         return self.t().int_id;
+    }
+
+    /// `a < b`, `<=`, `>`, `>=`: two numbers as for arithmetic, or two
+    /// Strings or two `[]U8` slices, ordered by their bytes.
+    fn synthOrdering(self: *Checker, e: Sexp, op: []const u8) Error!TypeId {
+        const l = ir.get(e, .left);
+        const r = ir.get(e, .right);
+        const a = try self.synthReached(l);
+        const b = try self.synthReached(r);
+        if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
+        if (!self.isBytes(a) and !self.isBytes(b)) {
+            _ = try self.checkIntDefaultOperands(e, op, .ordered, .{ a, b });
+            return self.t().bool_id;
+        }
+        if (a != b) try self.errAt(l, "operator `{s}` operands have different types `{s}` and `{s}`", .{ op, try self.tyName(a), try self.tyName(b) });
+        return self.t().bool_id;
+    }
+
+    /// A String or a `[]U8`: bytes ordered as text is.
+    fn isBytes(self: *Checker, ty: TypeId) bool {
+        return switch (self.ctx.types.get(ty)) {
+            .string => true,
+            .slice => |s| switch (self.ctx.types.get(s.elem)) {
+                .int => |info| info.bits == 8 and !info.signed,
+                else => false,
+            },
+            else => false,
+        };
     }
 
     /// Integer division by a constant zero is rejected; float division
@@ -1817,10 +1843,10 @@ const Checker = struct {
         return sema.constIntOf(self.ctx, e);
     }
 
-    fn numericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement) Error!TypeId {
+    fn numericOperands(self: *Checker, e: Sexp, op: []const u8, req: Requirement, synthesized: ?[2]TypeId) Error!TypeId {
         const operands = [2]Sexp{ ir.get(e, .left), ir.get(e, .right) };
-        const a = try self.synthOperandValue(operands[0]);
-        const b = try self.synthOperandValue(operands[1]);
+        const a = if (synthesized) |ts| ts[0] else try self.synthOperandValue(operands[0]);
+        const b = if (synthesized) |ts| ts[1] else try self.synthOperandValue(operands[1]);
         const pos = self.startOf(operands[0]);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().invalid_id;
 
@@ -1843,7 +1869,9 @@ const Checker = struct {
         for ([_]TypeId{ a, b }, 0..) |ty, i| {
             const ok = if (want_int) sema.isInteger(self.ctx, ty) else sema.isNumeric(self.ctx, ty);
             if (!ok) {
-                try self.errAt(operands[i], "operator `{s}` requires {s} operands; got `{s}`", .{ op, if (want_int) "integer" else "numeric", try self.tyName(ty) });
+                if (req == .ordered) {
+                    try self.errAt(operands[i], "operator `{s}` orders numbers, Strings, and `[]U8` slices; got `{s}`", .{ op, try self.tyName(ty) });
+                } else try self.errAt(operands[i], "operator `{s}` requires {s} operands; got `{s}`", .{ op, if (want_int) "integer" else "numeric", try self.tyName(ty) });
                 return self.t().invalid_id;
             }
         }
@@ -1913,23 +1941,49 @@ const Checker = struct {
         const op = @tagName(e.kind().?);
         const l = ir.get(e, .left);
         const r = ir.get(e, .right);
-        // A contextual operand (`.red`, `none`) takes the type of the
-        // value the other side gives.
-        if (isContextual(self.ctx.source, l) and !isContextual(self.ctx.source, r)) {
-            const ty = try self.synthExpr(r);
-            try self.checkExpr(l, try self.readThrough(r, ty, sema.unwrapBorrows(self.ctx, ty)));
+        // A contextual operand (`.red`, `.dot(at: p)`, `none`) takes the
+        // type of the value the other side gives. `none` and a bare
+        // `.variant` test which variant it holds, and compare no payload;
+        // a payload literal compares its payload, so it needs `==`.
+        if (isContextual(self.ctx.source, l) or isContextual(self.ctx.source, r)) {
+            const lit, const other = if (isContextual(self.ctx.source, r)) .{ r, l } else .{ l, r };
+            const ty = try self.synthExpr(other);
+            const reached = try self.readThrough(other, ty, sema.unwrapBorrows(self.ctx, ty));
+            try self.checkExpr(lit, reached);
+            if (lit.isKind(.call)) try self.checkEquatable(reached, l, op);
             return self.t().bool_id;
         }
-        if (isContextual(self.ctx.source, r)) {
-            const ty = try self.synthExpr(l);
-            try self.checkExpr(r, try self.readThrough(l, ty, sema.unwrapBorrows(self.ctx, ty)));
-            return self.t().bool_id;
+        // A borrowed operand compares as the value it reaches, and an
+        // array literal beside an array takes its type.
+        const l_array = l.isKind(.array) or l.isKind(.array_fill);
+        const r_array = r.isKind(.array) or r.isKind(.array_fill);
+        var a: TypeId = undefined;
+        var b: TypeId = undefined;
+        if (l_array != r_array) {
+            const lit, const other = if (l_array) .{ l, r } else .{ r, l };
+            const other_ty = try self.synthReached(other);
+            if (self.ctx.types.get(other_ty) == .array) {
+                try self.checkExpr(lit, other_ty);
+                try self.checkEquatable(other_ty, l, op);
+                return self.t().bool_id;
+            }
+            const lit_ty = try self.synthReached(lit);
+            a, b = if (l_array) .{ lit_ty, other_ty } else .{ other_ty, lit_ty };
+        } else {
+            a = try self.synthReached(l);
+            b = try self.synthReached(r);
         }
-        const a = try self.synthOperandValue(l);
-        const b = try self.synthOperandValue(r);
         if (self.isPoison(a) or self.isPoison(b)) return self.t().bool_id;
         if (sema.isNumeric(self.ctx, a) and sema.isNumeric(self.ctx, b)) {
             _ = try self.checkNumericComparison(l, r, a, b, op);
+            return self.t().bool_id;
+        }
+        if (try self.comparesWithOptional(a, b, r, l, op)) {
+            try self.checkEquatable(a, l, op);
+            return self.t().bool_id;
+        }
+        if (try self.comparesWithOptional(b, a, l, l, op)) {
+            try self.checkEquatable(b, r, op);
             return self.t().bool_id;
         }
         const ta = self.ctx.types.get(a);
@@ -1949,14 +2003,6 @@ const Checker = struct {
         // Any error compares with a member of any error set.
         const any_err = self.t().any_error_id;
         if ((a == any_err and sema.isErrorValue(self.ctx, b)) or (b == any_err and sema.isErrorValue(self.ctx, a))) return self.t().bool_id;
-        if (try self.comparesWithOptional(a, b, r)) {
-            try self.checkEquatable(a, l, op);
-            return self.t().bool_id;
-        }
-        if (try self.comparesWithOptional(b, a, l)) {
-            try self.checkEquatable(b, r, op);
-            return self.t().bool_id;
-        }
         if (a != b) {
             try self.errAt(l, "cannot compare `{s}` with `{s}`", .{ try self.tyName(a), try self.tyName(b) });
             return self.t().bool_id;
@@ -1966,14 +2012,20 @@ const Checker = struct {
     }
 
     /// Whether `opt` is a `T?` and `value` a `T` (or a literal that is
-    /// one): the two compare equal when the optional holds the value.
-    fn comparesWithOptional(self: *Checker, opt: TypeId, value: TypeId, value_node: Sexp) Error!bool {
+    /// one): the two compare equal when the optional holds the value. A
+    /// literal beside a generic `T?` must fit every `T` (`op` at `at`).
+    fn comparesWithOptional(self: *Checker, opt: TypeId, value: TypeId, value_node: Sexp, at: Sexp, op: []const u8) Error!bool {
         const inner = switch (self.ctx.types.get(opt)) {
             .optional => |i| i,
             else => return false,
         };
         const literal = value == self.t().int_literal_id or value == self.t().float_literal_id;
-        if (value != inner and !(literal and compatible(self.ctx, value, inner))) return false;
+        const param: ?SymbolId = switch (self.ctx.types.get(inner)) {
+            .type_var => |tv| tv,
+            else => null,
+        };
+        if (value != inner and !(literal and (param != null or compatible(self.ctx, value, inner)))) return false;
+        if (param) |tv| try self.requireHoldsLiteral(tv, value, value_node, self.startOf(at), op);
         try self.recordAdapted(value_node, value, inner);
         return true;
     }
@@ -1994,21 +2046,17 @@ const Checker = struct {
         }
     }
 
+    /// `==` compares values of `ty` (`sema.notEquatable`); inside a
+    /// generic body, in the instances where it compares the parameters
+    /// `ty` holds.
     fn checkEquatable(self: *Checker, ty: TypeId, node: Sexp, op: []const u8) Error!void {
         if (self.isPoison(ty)) return;
-        const ok = switch (self.ctx.types.get(ty)) {
-            .int, .float, .int_literal, .float_literal, .bool, .string, .any_error => true,
-            .optional => |inner| inner == self.t().string_id or satisfies(self.ctx, inner, .equatable),
-            .nominal, .imported_nominal => sema.isPlainEnum(self.ctx, ty),
-            .type_var => |tv| blk: {
-                try self.require(tv, .equatable, self.startOf(node), op);
-                break :blk true;
-            },
-            else => false,
-        };
-        if (!ok) {
-            try self.errAt(node, "`{s}` is not defined for `{s}`", .{ op, try self.tyName(ty) });
+        var params: std.ArrayListUnmanaged(SymbolId) = .empty;
+        defer params.deinit(self.ctx.allocator);
+        if (try sema.notEquatable(self.ctx, ty, &params)) |n| {
+            return self.errAt(node, "`{s}` is not defined for `{s}`: {s}", .{ op, try self.tyName(ty), try notEquatableReason(self.ctx, n) });
         }
+        for (params.items) |tv| try self.require(tv, .equatable, self.startOf(node), op);
     }
 
     fn synthBlock(self: *Checker, node: Sexp, expected: ?TypeId) Error!TypeId {
@@ -2331,6 +2379,12 @@ const Checker = struct {
     fn synthOperandValue(self: *Checker, e: Sexp) Error!TypeId {
         const ty = try self.synthExpr(e);
         return self.readThrough(e, ty, operandValue(self.ctx, ty));
+    }
+
+    /// The value a borrow `e` reaches, or `e`'s own value.
+    fn synthReached(self: *Checker, e: Sexp) Error!TypeId {
+        const ty = try self.synthExpr(e);
+        return self.readThrough(e, ty, sema.unwrapBorrows(self.ctx, ty));
     }
 
     /// The value `e` gives where a value is read: a borrowed Copy value
@@ -2958,7 +3012,7 @@ const Checker = struct {
         const object = ir.Index.object(e);
         const range = ir.Index.index(e);
         const obj_ty = try self.synthOperand(object);
-        _ = try self.checkIntDefaultOperands(range, "..", .integer);
+        _ = try self.checkIntDefaultOperands(range, "..", .integer, null);
         if (self.isPoison(obj_ty)) return obj_ty;
         const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
@@ -5849,8 +5903,10 @@ fn isFieldPath(e: Sexp) bool {
     return isFieldPath(ir.Member.object(e));
 }
 
-/// Forms whose type comes from the other operand: `.variant`, `none`.
+/// Forms whose type comes from the other operand: `.variant`,
+/// `.variant(field: value)`, `none`.
 fn isContextual(source: []const u8, e: Sexp) bool {
+    if (e.isKind(.call) and ir.Call.callee(e).isKind(.enum_lit)) return true;
     return e.isKind(.enum_lit) or std.mem.eql(u8, identAt(source, e) orelse "", "none");
 }
 
@@ -6106,7 +6162,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
         // A diagnostic was reported about the argument.
         if (sema.containsPoison(ctx, arg)) continue;
         for (ctx.generic_requirements.items) |req| {
-            if (req.param != param or satisfies(ctx, arg, req.req)) continue;
+            if (req.param != param or try satisfies(ctx, arg, req.req)) continue;
             const inst = try sema.rootName(ctx, of);
             const pname = ctx.symbols.items[param].name;
             const aname = try sema.formatType(ctx, arg);
@@ -6117,9 +6173,7 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 .fits => |v| try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and the literal `{d}`, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, v, aname }),
                 .float => try ctx.err(at, cannot ++ "applies `{s}` to a `{s}` and a float literal, which `{s}` cannot hold", .{ inst, pname, aname, req.op, pname, aname }),
                 .shift => |v| try ctx.err(at, cannot ++ "shifts a `{s}` by {d} bits, which `{s}` is too narrow for", .{ inst, pname, aname, pname, v, aname }),
-                // `String` and optionals compare with `==` outside a
-                // generic body, but not as a `T`.
-                .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`; `{s}` on a `{s}` compares only numbers, `Bool`, and plain enums", .{ inst, pname, aname, req.op, pname, req.op, pname }),
+                .equatable => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support: {s}", .{ inst, pname, aname, req.op, pname, aname, try notEquatableReason(ctx, (try sema.notEquatable(ctx, arg, null)).?) }),
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {
@@ -6135,9 +6189,33 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
     return ok;
 }
 
-fn satisfies(ctx: *const SemContext, ty: TypeId, req: Requirement) bool {
+/// Why `==` is not defined for a type, as a diagnostic says it.
+fn notEquatableReason(ctx: *SemContext, n: sema.NotEquatable) Error![]const u8 {
+    const a = ctx.arena.allocator();
+    // Another module's type is named as this module spells it.
+    const t = if (n.origin) |m| try sema.formatType(ctx, try sema.importType(ctx, @constCast(n.ctx), n.ty, m)) else try sema.formatType(ctx, n.ty);
+    if (n.path.len > 0) return switch (n.why) {
+        .handle => std.fmt.allocPrint(a, "field `{s}` is a handle `{s}`, which could compare by identity or by content", .{ n.path, t }),
+        .closure => std.fmt.allocPrint(a, "field `{s}` is an owned closure `{s}`", .{ n.path, t }),
+        .function => std.fmt.allocPrint(a, "field `{s}` is a function value", .{n.path}),
+        .no_eq => std.fmt.allocPrint(a, "field `{s}` is a `{s}`, which has no `==`", .{ n.path, t }),
+        .borrow => std.fmt.allocPrint(a, "field `{s}` holds a borrow", .{n.path}),
+        .drop => std.fmt.allocPrint(a, "field `{s}` is a `{s}`: `{s}` declares `drop`", .{ n.path, t, t }),
+    };
+    return switch (n.why) {
+        .handle => std.fmt.allocPrint(a, "`{s}` is a handle, which could compare by identity or by content", .{t}),
+        .closure => std.fmt.allocPrint(a, "`{s}` is an owned closure", .{t}),
+        .function => std.fmt.allocPrint(a, "`{s}` is a function value", .{t}),
+        .no_eq => std.fmt.allocPrint(a, "`{s}` has no `==`", .{t}),
+        .borrow => std.fmt.allocPrint(a, "`{s}` is a borrow", .{t}),
+        .drop => std.fmt.allocPrint(a, "`{s}` declares `drop`", .{t}),
+    };
+}
+
+fn satisfies(ctx: *SemContext, ty: TypeId, req: Requirement) Error!bool {
     return switch (req) {
-        .numeric, .ordered => sema.isNumeric(ctx, ty),
+        .numeric => sema.isNumeric(ctx, ty),
+        .ordered => sema.isNumeric(ctx, ty) or ctx.types.get(ty) == .string,
         .integer => sema.isInteger(ctx, ty),
         .signed => switch (ctx.types.get(ty)) {
             .int => |info| info.signed,
@@ -6155,11 +6233,7 @@ fn satisfies(ctx: *const SemContext, ty: TypeId, req: Requirement) bool {
             .ct_value => |v| v.int >= 0 and v.int <= sema.max_array_len,
             else => false,
         },
-        .equatable => switch (ctx.types.get(ty)) {
-            .int, .float, .bool => true,
-            .nominal, .imported_nominal => sema.isPlainEnum(ctx, ty),
-            else => false,
-        },
+        .equatable => sema.isEquatable(ctx, ty),
     };
 }
 

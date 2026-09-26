@@ -1,0 +1,12 @@
+# A literal beside a `T?` becomes a `T`, so every `T` must hold it.
+
+fun is3[T](x: T?) -> Bool
+  x == 300
+
+sub main()
+  s: String? = "a"
+  b: U8? = 44
+  print(is3(s), is3(b))
+
+# error: 9:9: `is3[String]` cannot use `T = String`: the generic body applies `==` to a `T` and the literal `300`, which `String` cannot hold
+# error: 9:17: `is3[U8]` cannot use `T = U8`: the generic body applies `==` to a `T` and the literal `300`, which `U8` cannot hold

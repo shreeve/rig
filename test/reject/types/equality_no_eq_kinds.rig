@@ -1,0 +1,20 @@
+# A weak handle, a Cell, a Signal, and an owned closure have no `==`.
+
+struct N
+  n: Int
+
+sub main()
+  s = *N(n: 1)
+  w = ~s
+  print(w == w)
+  c = Cell(value: 1)
+  print(c == c)
+  g = *Signal(value: 1)
+  print(g == g)
+  f = *|x: Int| x + 1
+  print(f == f)
+
+# error: 9:9: `==` is not defined for `~N`: `~N` is a handle, which could compare by identity or by content
+# error: 11:9: `==` is not defined for `Cell[Int]`: `Cell[Int]` has no `==`
+# error: 13:9: `==` is not defined for `*Signal[Int]`: `*Signal[Int]` is a handle
+# error: 15:9: `==` is not defined for `*fun(Int) -> Int`: `*fun(Int) -> Int` is an owned closure

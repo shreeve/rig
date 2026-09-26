@@ -1,0 +1,36 @@
+# `<`, `<=`, `>`, and `>=` order Strings and `[]U8` slices by their bytes:
+# the first byte that differs decides, and a prefix sorts first. A
+# generic body orders a `T` that is a String the same way.
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun min_of[T](xs: []T) -> T
+  best = xs[0]
+  for x in xs
+    if x < best
+      best = x
+  best
+
+sub main()
+  print("abc" < "abd", "abd" < "abc", "abc" <= "abc", "abc" >= "abd")
+  print("ab" < "abc", "abc" > "ab", "" < "a", "" <= "", "" > "")
+  print("Z" < "a", "é" > "z", "a" < "é")
+  s = "hello"
+  t = "help"
+  print(s < t, s > t)
+  print(max("a", "b"), max("pear", "apple"), max(3, 2))
+  words = ["pear", "fig", "apple", "fiddle"]
+  print(min_of(?words[0..4]), min_of(?words[0..2]))
+  bytes: [3]U8 = [1, 2, 3]
+  more: [4]U8 = [1, 2, 3, 0]
+  print(?bytes[0..3] < ?more[0..4], ?more[0..2] > ?bytes[0..3])
+
+# expect:
+# true false true false
+# true true true true false
+# true true true
+# true false
+# b pear 3
+# apple fig
+# true false

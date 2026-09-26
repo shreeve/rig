@@ -85,12 +85,15 @@ EOF2
 cat >main.rig <<'EOF2'
 use lib
 
+struct P
+  x: Int
+
 sub main()
-  print(lib.max("a", "b"))
+  print(lib.max(P(x: 1), P(x: 2)).x)
 EOF2
 "$RIG" check main.rig >out.txt 2>&1; expect_rc $? 1 "rig check of a foreign instance that fails a requirement"
-expect_eq "$(cat out.txt)" "main.rig:4:13: error: \`lib.max[String]\` cannot use \`T = String\`: the generic body applies \`>\` to \`T\`, which \`String\` does not support
-  print(lib.max(\"a\", \"b\"))
+expect_eq "$(cat out.txt)" "main.rig:7:13: error: \`lib.max[P]\` cannot use \`T = P\`: the generic body applies \`>\` to \`T\`, which \`P\` does not support
+  print(lib.max(P(x: 1), P(x: 2)).x)
             ^
 lib.rig:2:8:   note: \`>\` used on \`T\` here (ordering comparison)
   a if a > b else b

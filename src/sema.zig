@@ -2319,6 +2319,119 @@ pub fn isPlainEnum(ctx: *const SemContext, ty: TypeId) bool {
     return any;
 }
 
+/// Why values of a type have no `==`: the type that lacks it, found
+/// inside the compared type, and the path of fields to it.
+pub const NotEquatable = struct {
+    /// The context whose type store holds `ty`.
+    ctx: *const SemContext,
+    ty: TypeId,
+    /// The module `ctx` checks, when it is another module's.
+    origin: ?u32 = null,
+    /// Field names from the compared type to `ty`, joined by `.`, a
+    /// variant's payload field as `variant.field`; empty for the
+    /// compared type itself or what it holds outside a field (an
+    /// element, an optional's value).
+    path: []const u8,
+    why: Why,
+
+    pub const Why = enum {
+        /// `*T` or `~T`: `==` could compare identity or content.
+        handle,
+        /// An owned closure `*fun(...)`.
+        closure,
+        function,
+        /// Vec, Cell, Signal, or `Void`.
+        no_eq,
+        /// A borrow held in a field or payload: the value is a view.
+        borrow,
+        /// A struct that declares `drop`.
+        drop,
+    };
+};
+
+/// Why `==` does not compare values of `ty`, or null when it does:
+/// numbers, Bool, String, error values, plain enums, and, when all they
+/// hold is equatable, optionals, arrays, slices, structs without `drop`,
+/// and payload enums. Handles, functions, `Void`, Vec, Cell, Signal, and
+/// borrows held in a field are not equatable. Each generic parameter
+/// `ty` holds is appended to `params`, when given: `==` on `ty` holds in
+/// the instances where it holds for them.
+pub fn notEquatable(ctx: *SemContext, ty: TypeId, params: ?*std.ArrayListUnmanaged(SymbolId)) std.mem.Allocator.Error!?NotEquatable {
+    var walk: EquatableWalk = .{ .local = ctx, .params = params };
+    defer walk.visited.deinit(ctx.allocator);
+    return walk.check(ctx, null, ty, false);
+}
+
+pub fn isEquatable(ctx: *SemContext, ty: TypeId) std.mem.Allocator.Error!bool {
+    return (try notEquatable(ctx, ty, null)) == null;
+}
+
+const EquatableWalk = struct {
+    local: *SemContext,
+    params: ?*std.ArrayListUnmanaged(SymbolId),
+    /// Declared types checked or being checked: one reached again,
+    /// through itself or another path, adds nothing new.
+    visited: std.AutoHashMapUnmanaged(struct { ctx: *const SemContext, ty: TypeId }, void) = .empty,
+
+    /// `ty` in the type store of `at`, the context of module `origin`
+    /// (null for the module being checked); `in_decl` when a field or
+    /// payload holds it, where a slice is a borrow.
+    fn check(self: *EquatableWalk, at: *const SemContext, origin: ?u32, ty: TypeId, in_decl: bool) std.mem.Allocator.Error!?NotEquatable {
+        const fail: NotEquatable = .{ .ctx = at, .origin = origin, .ty = ty, .path = "", .why = .handle };
+        switch (at.types.get(ty)) {
+            .optional => |inner| return self.check(at, origin, inner, in_decl),
+            .array => |a| return self.check(at, origin, a.elem, in_decl),
+            .slice => |s| return if (in_decl) with(fail, .borrow) else self.check(at, origin, s.elem, in_decl),
+            .borrow_read, .borrow_write => return with(fail, .borrow),
+            .shared => |inner| return with(fail, if (at.types.get(inner) == .function) .closure else .handle),
+            .weak => return fail,
+            .function => return with(fail, .function),
+            .type_var => |sym| {
+                if (self.params) |out| if (std.mem.indexOfScalar(SymbolId, out.items, sym) == null) try out.append(self.local.allocator, sym);
+                return null;
+            },
+            .nominal, .imported_nominal, .parameterized_nominal => return self.checkDecl(at, origin, ty),
+            .void, .fallible, .range => return with(fail, .no_eq),
+            else => return null,
+        }
+    }
+
+    fn checkDecl(self: *EquatableWalk, at: *const SemContext, origin: ?u32, ty: TypeId) std.mem.Allocator.Error!?NotEquatable {
+        const fail: NotEquatable = .{ .ctx = at, .origin = origin, .ty = ty, .path = "", .why = .no_eq };
+        const decl = nominalDecl(at, ty) orelse return null;
+        if (decl.sym == decl.ctx.vec_sym_id or decl.sym == decl.ctx.cell_sym_id or decl.sym == decl.ctx.signal_sym_id) return fail;
+        const sym = decl.symbol();
+        if (sym.flags.error_set) return null;
+        const gop = try self.visited.getOrPut(self.local.allocator, .{ .ctx = at, .ty = ty });
+        if (gop.found_existing) return null;
+        const fields = sym.fields orelse return null;
+        for (fields) |f| if (f.is_drop_method) return with(fail, .drop);
+        // An instance's field types name the generic type's parameters.
+        // Only the module's own generic types have instances here.
+        const subst: TypeSubst = switch (at.types.get(ty)) {
+            .parameterized_nominal => |pn| .{ .params = sym.type_params orelse &.{}, .args = pn.args },
+            else => .empty,
+        };
+        for (fields) |*f| {
+            for (dataFields(f)) |d| {
+                const fty = if (subst.isEmpty() or decl.ctx != self.local) d.ty else try substituteType(self.local, d.ty, subst);
+                var inner = (try self.check(decl.ctx, decl.module_id orelse origin, fty, true)) orelse continue;
+                const a = self.local.arena.allocator();
+                const name = if (f.is_variant) try std.fmt.allocPrint(a, "{s}.{s}", .{ f.name, d.name }) else d.name;
+                inner.path = if (inner.path.len == 0) name else try std.fmt.allocPrint(a, "{s}.{s}", .{ name, inner.path });
+                return inner;
+            }
+        }
+        return null;
+    }
+
+    fn with(n: NotEquatable, why: NotEquatable.Why) NotEquatable {
+        var r = n;
+        r.why = why;
+        return r;
+    }
+};
+
 /// Primitive values that are copied freely.
 pub fn isCopyPrimitive(ctx: *const SemContext, ty_id: TypeId) bool {
     return switch (ctx.types.get(ty_id)) {

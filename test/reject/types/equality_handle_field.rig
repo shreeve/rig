@@ -1,0 +1,16 @@
+# A struct holding a handle has no `==`: it could compare the handles or
+# the values behind them. The diagnostic names the field.
+
+struct Node
+  n: Int
+
+struct Link
+  id: Int
+  to: *Node
+
+sub main()
+  a = Link(id: 1, to: *Node(n: 1))
+  b = Link(id: 1, to: *Node(n: 1))
+  print(a == b)
+
+# error: 14:9: `==` is not defined for `Link`: field `to` is a handle `*Node`

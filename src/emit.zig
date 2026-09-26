@@ -2337,25 +2337,35 @@ pub const Emitter = struct {
             try self.emitBare(operands[i]);
             return self.w.writeAll(")");
         };
-        if (is_eq and (self.isStringExpr(operands[0]) or self.isStringExpr(operands[1]))) {
+        // A bare `.variant` beside a payload enum tests the variant only.
+        if (is_eq) for ([2]usize{ 0, 1 }) |i| {
+            const value = operands[1 - i];
+            if (!operands[i].isKind(.enum_lit) or !self.isPayloadEnumOperand(value)) continue;
+            // A temporary that owns a resource is dropped once tested.
+            const temp = !isPlace(value) and self.kindOf(self.typeOf(value).?) != null;
             if (kind == .@"!=") try self.w.writeAll("!");
-            const optional = self.isOptStringExpr(operands[0]) or self.isOptStringExpr(operands[1]);
-            try self.w.writeAll(if (optional) "rig.eqlOptStr(" else "std.mem.eql(u8, ");
-            try self.emitExpr(operands[0]);
+            try self.w.writeAll(if (temp) "rig.isVariantDiscard(" else "rig.isVariant(");
+            try self.emitExpr(value);
             try self.w.writeAll(", ");
-            try self.emitExpr(operands[1]);
-            try self.w.writeAll(")");
-            return;
+            try self.emitExpr(operands[i]);
+            return self.w.writeAll(")");
+        };
+        if (is_eq and self.comparesStructurally(operands)) {
+            if (kind == .@"!=") try self.w.writeAll("!");
+            return self.emitCall2("rig.eql(", operands, ")");
         }
-        // Zig compares an optional with a value, but not an optional error.
-        if (is_eq) for (operands) |o| {
-            const inner = self.optionalErrorOf(o) orelse continue;
-            if (kind == .@"!=") try self.w.writeAll("!");
-            try self.w.writeAll("rig.eqlOpt(");
-            try self.emitTypeTy(inner);
-            try self.w.writeAll(", ");
+        if (!is_eq) if (self.orderOperator(kind, operands)) |order| {
+            // Strings and byte slices order by their bytes.
+            if (order.bytes) {
+                if (!bare) try self.w.writeAll("(");
+                try self.emitCall2("std.mem.order(u8, ", operands, order.test_);
+                if (!bare) try self.w.writeAll(")");
+                return;
+            }
+            // A generic `T` orders as its instance does.
+            try self.w.writeAll("rig.compare(");
             try self.emitExpr(operands[0]);
-            try self.w.writeAll(", ");
+            try self.w.print(", .{s}, ", .{order.op});
             try self.emitExpr(operands[1]);
             return self.w.writeAll(")");
         };
@@ -3715,25 +3725,89 @@ pub const Emitter = struct {
         };
     }
 
-    /// The error set of an operand of type `E?`.
-    fn optionalErrorOf(self: *Emitter, e: Sexp) ?TypeId {
-        const ty = self.typeOf(e) orelse return null;
-        return switch (self.sema.types.get(self.peelBorrows(ty))) {
-            .optional => |inner| if (self.isErrorSetTy(inner)) inner else null,
-            else => null,
+    /// `pre(left, right)post`. A payload variant literal (`.circle(r: 1)`)
+    /// is spelled with its enum type, which the other operand gave it.
+    fn emitCall2(self: *Emitter, pre: []const u8, operands: [2]Sexp, post: []const u8) Error!void {
+        try self.w.writeAll(pre);
+        for (operands, 0..) |o, i| {
+            if (i > 0) try self.w.writeAll(", ");
+            const variant = o.isKind(.call) and ir.Call.callee(o).isKind(.enum_lit);
+            const ty = if (variant) self.typeOf(o) else null;
+            if (ty) |t| try self.writeAsOpen(t);
+            try self.emitExpr(o);
+            if (ty != null) try self.w.writeAll(")");
+        }
+        try self.w.writeAll(post);
+    }
+
+    /// Whether `a == b` compares with `rig.eql` rather than Zig's `==`:
+    /// an operand is not a scalar (a String, a struct, a payload enum, an
+    /// array or slice, an optional of one, an optional error, or a type
+    /// parameter's value). `none` compares with any optional by `==`.
+    fn comparesStructurally(self: *Emitter, operands: [2]Sexp) bool {
+        for (operands) |o| if (self.isNoneLeaf(o)) return false;
+        for (operands) |o| {
+            const ty = self.typeOf(o) orelse continue;
+            const t = self.peelBorrows(ty);
+            const scalar = switch (self.sema.types.get(t)) {
+                .optional => |inner| self.isScalarTy(inner) and !self.isErrorSetTy(inner),
+                else => self.isScalarTy(t),
+            };
+            if (!scalar) return true;
+        }
+        return false;
+    }
+
+    /// An operand whose value is an enum with payloads, or an optional
+    /// of one.
+    fn isPayloadEnumOperand(self: *Emitter, e: Sexp) bool {
+        const ty = self.typeOf(e) orelse return false;
+        const t = switch (self.sema.types.get(self.peelBorrows(ty))) {
+            .optional => |inner| inner,
+            else => self.peelBorrows(ty),
+        };
+        return self.hasPayloadVariants(t);
+    }
+
+    /// A number, Bool, plain enum, or error: Zig's `==` compares it.
+    fn isScalarTy(self: *Emitter, ty: TypeId) bool {
+        return switch (self.sema.types.get(ty)) {
+            .int, .float, .bool, .int_literal, .float_literal, .any_error => true,
+            .nominal, .imported_nominal => sema.isPlainEnum(self.sema, ty) or sema.isErrorSet(self.sema, ty),
+            else => false,
         };
     }
 
-    /// A `String` or `String?` operand.
-    fn isStringExpr(self: *Emitter, expr: Sexp) bool {
-        const ty = self.typeOf(expr) orelse return false;
-        return self.sema.types.get(self.peelBorrows(ty)) == .string or self.isOptStringExpr(expr);
-    }
+    const OrderOperator = struct {
+        /// Strings or byte slices; otherwise a type parameter's values.
+        bytes: bool,
+        /// The `std.math.CompareOperator` name.
+        op: []const u8,
+        /// What tests the `std.math.Order` of two byte strings.
+        test_: []const u8,
+    };
 
-    fn isOptStringExpr(self: *Emitter, expr: Sexp) bool {
-        const ty = self.typeOf(expr) orelse return false;
-        const t = self.sema.types.get(self.peelBorrows(ty));
-        return t == .optional and self.sema.types.get(t.optional) == .string;
+    /// How `a < b` (`<=`, `>`, `>=`) lowers when Zig's operator does not
+    /// order its operands; null for numbers.
+    fn orderOperator(self: *Emitter, kind: Tag, operands: [2]Sexp) ?OrderOperator {
+        var bytes = false;
+        var generic = false;
+        for (operands) |o| {
+            const ty = self.typeOf(o) orelse continue;
+            const t = self.peelBorrows(ty);
+            switch (self.sema.types.get(t)) {
+                .string, .slice => bytes = true,
+                else => generic = generic or sema.containsTypeVar(self.sema, t),
+            }
+        }
+        if (!bytes and !generic) return null;
+        return switch (kind) {
+            .@"<" => .{ .bytes = bytes, .op = "lt", .test_ = ") == .lt" },
+            .@"<=" => .{ .bytes = bytes, .op = "lte", .test_ = ") != .gt" },
+            .@">" => .{ .bytes = bytes, .op = "gt", .test_ = ") == .gt" },
+            .@">=" => .{ .bytes = bytes, .op = "gte", .test_ = ") != .lt" },
+            else => null,
+        };
     }
 
     /// The builtin `left op right` lowers to for `/` and `%`, or null for

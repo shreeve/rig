@@ -1,0 +1,15 @@
+# `<` in a generic body is checked per instance: numbers and Strings are
+# ordered, structs are not.
+
+struct Point
+  x: Int
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+sub main()
+  print(max("a", "b"))
+  print(max(Point(x: 1), Point(x: 2)))
+
+# error: 12:9: `max[Point]` cannot use `T = Point`: the generic body applies `>` to `T`, which `Point` does not support
+# error: 8:8: `>` used on `T` here (ordering comparison)
