@@ -1174,7 +1174,13 @@ pub const Parser = struct {
     fn semicolonMessage(self: *Parser, tok: Token) []const u8 {
         const src = self.base.source;
         const lex = &self.base.lexer;
-        if (lex.nesting == 0) return "unexpected `;`; Rig ends a statement at the end of its line; drop the `;`";
+        if (lex.nesting == 0) {
+            // `a = 1; b = 2`: another statement follows on the line.
+            const eol = std.mem.indexOfScalarPos(u8, src, tok.pos, '\n') orelse src.len;
+            const rest = std.mem.trim(u8, src[tok.pos + 1 .. eol], " \r");
+            if (rest.len > 0 and rest[0] != '#') return "unexpected `;`; Rig ends a statement at the end of its line; put each statement on its own line";
+            return "unexpected `;`; Rig ends a statement at the end of its line; drop the `;`";
+        }
         const open = lex.brackets[lex.nesting - 1];
         if (src[open] != '[') return "unexpected `;`";
         const either = "unexpected `;`; `[x; n]` is written `[n of x]`, and `[Int; 3]` is written `[3]Int`";
@@ -1183,10 +1189,15 @@ pub const Parser = struct {
         const elem = std.mem.trim(u8, src[open + 1 .. tok.pos], " ");
         const len = std.mem.trim(u8, src[tok.pos + 1 .. close], " ");
         if (elem.len == 0 or len.len == 0 or std.mem.indexOfAny(u8, elem, ",;") != null or std.mem.indexOfAny(u8, len, ",;([") != null) return either;
-        // `[Int; 3]`: the element reads as a type (not a constant such as
-        // `LIMIT`, nor a constructor call).
-        const typelike = std.mem.indexOfScalar(u8, "?!*~[", elem[0]) != null or (std.ascii.isUpper(elem[0]) and
-            std.mem.indexOfScalar(u8, elem, '(') == null and (elem.len == 1 or std.mem.indexOfAny(u8, elem, "abcdefghijklmnopqrstuvwxyz") != null));
+        // `[Int; 3]`: the brackets stand where a type goes (after `:` or
+        // `->`), or the element reads as a type: `Int`, `U8`, `T`, not a
+        // constant such as `LIMIT`, nor a constructor call.
+        const before = std.mem.trimEnd(u8, src[0..open], " ");
+        const in_type = std.mem.endsWith(u8, before, ":") or std.mem.endsWith(u8, before, "->");
+        const rest = elem[1..];
+        const typelike = in_type or (std.ascii.isUpper(elem[0]) and std.mem.indexOfScalar(u8, elem, '(') == null and
+            (rest.len == 0 or std.mem.indexOfAny(u8, rest, "abcdefghijklmnopqrstuvwxyz") != null or
+                std.mem.indexOfNone(u8, rest, "0123456789") == null));
         if (typelike) return self.format("unexpected `;`; an array type puts its length first: `[{s}]{s}`", .{ len, elem });
         return self.format("unexpected `;`; a fill literal puts its count first: `[{s} of {s}]`", .{ len, elem });
     }

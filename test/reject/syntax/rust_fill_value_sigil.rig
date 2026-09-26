@@ -1,0 +1,8 @@
+# Outside a type, `[?x; 2]` is a fill literal, written count first.
+
+sub main()
+  x = 1
+  a = [?x; 2]
+  print(a)
+
+# error: 5:10: unexpected `;`; a fill literal puts its count first: `[2 of ?x]`
