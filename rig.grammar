@@ -739,11 +739,12 @@ closure  = lambda
 lambda   = params:bars body:block                   → (lambda)
          | params:bars expr                         → (lambda body:(block 2))
 
-# A closure whose inline body is a paren-free call.
+# A closure whose inline body is a paren-free call or an assignment.
 cclosure = clambda
          | SHARE_PFX operand:clambda                → (share)
 
 clambda  = params:bars cmd                          → (lambda body:(block 2))
+         | params:bars assign                       → (lambda body:(block 2))
 
 bars     = BAR_CAPTURE barents [","] BAR_CAPTURE    → (...2)
          | BAR_EMPTY                                → ()

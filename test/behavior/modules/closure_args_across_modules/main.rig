@@ -16,8 +16,7 @@ sub main
   !bag.items.push(2)
   !bag.items.push(5)
   total = 0
-  bag.each(|!total, n|
-    total += n)
+  bag.each(|!total, n| total += n)
   print(total)
 
 # expect:

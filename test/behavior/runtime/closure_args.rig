@@ -46,12 +46,10 @@ sub main
   !v.push(2)
   !v.push(3)
   total = 0
-  each(?v, |!total, n|
-    total += n)
+  each(?v, |!total, n| total += n)
   print(total)
   seen = 0
-  twice_each(?v, |!seen, n|
-    seen += 1)
+  twice_each(?v, |!seen, n| seen += 1)
   print(seen)
   countdown 3, |n|
     print("tick", n)

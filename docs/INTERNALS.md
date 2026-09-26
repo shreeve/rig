@@ -144,7 +144,7 @@ The grammar's own shape settles the rest:
 | `\|k\| (k)`: parameter list or parenthesized body | parameters live in the bar list; `name:` is a `KWARG_NAME` |
 | `return` / `break` / `continue` inside conditions | they are statements; a guard applies to a whole simple statement |
 | dangling `else` in guards and ternaries | conditions are block-free values; the ternary has its own token; `else` only follows a block |
-| paren-free calls inside argument lists and value positions | a paren-free call (`cmd`) is a command: a statement, a match arm, or the last argument of another `cmd`; elsewhere, including inside ( ), only as a closure body (`cclosure`) |
+| paren-free calls inside argument lists and value positions | a paren-free call (`cmd`) is a command: a statement, a match arm, or the last argument of another `cmd`; elsewhere, including inside ( ), only as a closure body (`cclosure`), which may also be an assignment (`\|!t, n\| t += n`) |
 | a name in an array size or a type's compile-time argument: a type or a value | a bare name, integer, or `module.NAME` is one rule (`dim`, `targ`); arithmetic there is `cexp`, which has at least one operator, so it never overlaps a type. The checker reads a bare name by the slot it fills |
 
 Grammar shapes worth knowing: `tail` is an expression, a paren-free

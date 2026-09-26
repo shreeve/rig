@@ -44,8 +44,7 @@ sub main
   put(!g, double)
   print(g(1))
   x = 1
-  f = |!x|
-    x += 1
+  f = |!x| x += 1
   twice = |?f|
     f()
     run(f)

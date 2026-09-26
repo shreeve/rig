@@ -10,23 +10,20 @@ struct Wrap
     print("drop", self.n)
 
 sub grow(w: !Wrap, by: Int)
-  inc = |!w, +by|
-    w.n += by
+  inc = |!w, +by| w.n += by
   inc()
   inc()
 
 fun count_of[T](xs: ?Vec[T]) -> Int
   count = 0
-  f = |!count, ?xs|
-    count += xs.len
+  f = |!count, ?xs| count += xs.len
   f()
   f()
   count
 
 sub main
   total = 0
-  add = |!total, k: Int|
-    total += k
+  add = |!total, k: Int| total += k
   add(3)
   add(4)
   print(total)
@@ -41,8 +38,7 @@ sub main
   push(1)
   push(2)
   print(v.len, count_of(?v))
-  swap = |!w|
-    w = Wrap(n: 99)
+  swap = |!w| w = Wrap(n: 99)
   swap()
   print(w.n)
   name = "rig"

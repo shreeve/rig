@@ -2426,7 +2426,9 @@ optional types:
 | `\|\|` | no captures, no parameters |
 
 A closure reaches outer locals only through captures, unlike Rust's
-implicit capture: the capture mode is written, not inferred.
+implicit capture: the capture mode is written, not inferred. The body
+is an expression, a paren-free call, or an assignment on the same line
+(`|!total, n| total += n`), or an indented block.
 
 ```rig
 sub main
@@ -2536,8 +2538,7 @@ sub main
   !v.push(3)
   !v.push(4)
   total = 0
-  each(?v, |!total, n|
-    total += n)
+  each(?v, |!total, n| total += n)
   k = 5
   add_k = |+k, a: Int| a + k
   print(total, apply(double, 1), apply(?add_k, 1))

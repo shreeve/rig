@@ -3116,7 +3116,10 @@ the closure's **captures** and its **parameters**, captures first:
 - a bare name is a parameter, optionally annotated (`a`, `a: Int`);
 - `||` is an empty list.
 
-The body is an expression on the same line or an indented block.
+The body is an expression, a paren-free call, or an assignment on the
+same line (`|!total, n| total += n`), or an indented block. A closure
+whose body is a paren-free call or an assignment ends a call's
+arguments: it is the last one.
 
 ```rig
 sub main
@@ -3186,8 +3189,7 @@ closure lives, `x` follows the aliasing rule
 sub main
   total = 0
   names = ["ada", "bob"]
-  add = |!total, ?names, k: Int|
-    total += k * names.len
+  add = |!total, ?names, k: Int| total += k * names.len
   add(1)
   add(10)
   print(total)
@@ -3349,8 +3351,7 @@ sub main
   !v.push(1)
   !v.push(2)
   total = 0
-  each(?v, |!total, n|
-    total += n)
+  each(?v, |!total, n| total += n)
   k = 10
   add_k = |+k, a: Int| a + k
   cb: *fun(Int) -> Int = *|a| a - 1
