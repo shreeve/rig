@@ -1363,7 +1363,7 @@ pub const Checker = struct {
             // A closure literal lent to a call as a borrowed callable
             // lives for the call; anywhere else it is reported by
             // walkLambda.
-            if (sink == .argument and (self.lentCallable(expr) or self.in_rejected_call)) self.lambda_ok = true;
+            if (sink == .argument and (self.lentCallable(expr) or self.in_rejected_call or self.rejected(expr))) self.lambda_ok = true;
             return self.walk(expr);
         }
         try self.checkNoImplicitCopy(expr, sink, false);
@@ -1753,7 +1753,10 @@ pub const Checker = struct {
         }
         if (try self.rejectBorrowedView(id, pos, vt)) return .{};
         if (verb == .capture and v.kind == .param and v.ref != .none) {
-            try self.err(pos, "cannot move-capture borrowed parameter `{s}`; the caller still owns it. Capture a clone with `|+{s}|`", .{ v.name, v.name });
+            const handle = if (self.pointee(v.ty)) |t| self.typeData(t) == .shared or self.typeData(t) == .weak else false;
+            if (handle) {
+                try self.err(pos, "cannot move-capture borrowed parameter `{s}`; the caller still owns it. Capture a clone with `|+{s}|`", .{ v.name, v.name });
+            } else try self.err(pos, "cannot move-capture borrowed parameter `{s}`; the caller still owns it. Capture the borrow with `|{s}{s}|`", .{ v.name, if (v.ref == .write) "!" else "?", v.name });
             return .{};
         }
         if (!(if (verb == .capture) try self.checkCapturable(id, pos) else try self.checkLive(id, pos))) return .{};
@@ -1866,6 +1869,10 @@ pub const Checker = struct {
             return true;
         }
         if (v.capture_resource) {
+            if (v.ref != .none) {
+                try self.err(pos, "cannot {s} captured borrow `{s}`; the closure holds it for every call. Use it through the borrow, or pass it to a call", .{ op, v.name });
+                return true;
+            }
             try self.err(pos, "cannot {s} captured resource `{s}`; closure captures are owned by the closure environment, which may be invoked again. Use `+{s}` to clone a fresh handle, `~{s}` for a weak reference, or call its methods", .{ op, v.name, v.name, v.name });
             return true;
         }
@@ -1967,6 +1974,8 @@ pub const Checker = struct {
     /// Reject an implicit copy of an owning value in a consuming position.
     /// `top_return`: a bare name directly in return position is a move.
     fn checkNoImplicitCopy(self: *Checker, expr: Sexp, sink: Sink, top_return: bool) Error!void {
+        // Reported by the type checker.
+        if (self.rejected(expr)) return;
         switch (expr) {
             .src => {
                 const v = self.vars.items[self.find(self.text(expr)) orelse return];
@@ -2378,7 +2387,7 @@ pub const Checker = struct {
         for (args, arg_values) |a, *v| {
             self.in_rejected_call = self.rejected(node);
             v.* = try self.walkConsumed(a, .argument);
-            if (cell != null and v.loans.len > 0) {
+            if (cell != null and v.loans.len > 0 and !self.rejected(if (a.isKind(.kwarg)) ir.Kwarg.value(a) else a)) {
                 const loans = v.loans;
                 v.* = .{};
                 if (self.readsPlainValue(a)) continue;
@@ -2617,7 +2626,8 @@ pub const Checker = struct {
         for (caps, cap_values.items) |cap, cv| {
             const name = sema.captureNameNode(cap).?;
             const ty = self.symType(name.src.pos);
-            const resource = switch (sema.captureModeOf(cap).?) {
+            // A capture the type checker rejected holds nothing.
+            const resource = !self.isPoisonType(ty) and switch (sema.captureModeOf(cap).?) {
                 .cap_clone => !self.isCopy(ty),
                 .cap_weak, .cap_move, .cap_read, .cap_write => true,
             };
@@ -2649,6 +2659,8 @@ pub const Checker = struct {
         const v = self.vars.items[id];
         if (v.closure) {
             if (mode == .cap_read) return self.lendClosure(id, pos);
+            // Reported by the type checker.
+            if (self.isPoisonType(self.symType(pos))) return .{};
             try self.err(pos, "cannot capture closure `{s}`; closures cannot be copied. Borrow it with `|?{s}|`", .{ name, name });
             return .{};
         }

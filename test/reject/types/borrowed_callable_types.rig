@@ -43,7 +43,7 @@ sub main
 # error: 26:10: a borrowed callable `?fun(Int) -> Int` is only a parameter's
 # error: 27:9: a borrowed callable `[2]?fun(Int) -> Int` is only a parameter's
 # error: 28:7: a borrowed callable `?fun(Int) -> Int` is only a parameter's
-# error: 29:7: a borrowed callable `Wrap[?fun(Int) -> Int]` is only a parameter's
+# error: 29:7: `Wrap` cannot take a borrowed callable for `T`
 # error: 33:15: `?fun(Int) -> Int` borrows a closure for the call; write the closure without `*` (drop the `*`)
 # error: 34:25: a closure literal is lent as `?fun(Int) -> Int` only as a call's argument; bind the closure
 # error: 35:12: this call's result may hold the callable it is lent

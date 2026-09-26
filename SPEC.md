@@ -3170,9 +3170,12 @@ closure's value either. A captured borrow may be passed to a call,
 which borrows it for the call. A captured read borrow may be the
 closure's value, and a call's result then borrows what the closure
 captured. Through a captured write borrow the body can write fields,
-call `!self` methods, and assign the whole value (`w = v`, `w += 1`),
-which writes through to what it borrows, but not write-borrow it again
-with `!w`. A name may be captured once per list.
+call `!self` methods (`!w.push(x)` or `w.push(x)`), lend it on for a
+call (`!w`), and assign the whole value (`w = v`, `w += 1`), which
+writes through to what it borrows. Nothing the closure owns or receives
+as a parameter may be stored through it: those last one call at most,
+and the captured value outlives them. A name may be captured once per
+list.
 
 `|?x|` and `|!x|` borrow `x` for as long as the closure lives, which is
 until its last use: `|!x|` is `w = !x` followed by `|<w|`. While the
