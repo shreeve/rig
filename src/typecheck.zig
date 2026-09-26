@@ -3070,7 +3070,7 @@ const Checker = struct {
             try self.errAt(callee, "call to extern function `{s}` requires `raw` block; extern functions are the FFI boundary and bypass Rig's ownership and effect checks", .{name});
         }
         const info = paramsOf(sym, self.ctx.source);
-        const f = (try self.instantiateCall(fty.function, ct, args, info, 0, name, callee.src.pos, .{}, .{})) orelse return self.skipCall(args);
+        const f = (try self.instantiateCall(fty.function, ct, args, info, 0, name, callee.src.pos, false, .empty)) orelse return self.skipCall(args);
         // A generic function's callee has the instance's signature.
         if (sema.isGenericFn(self.ctx, fty.function)) try self.ctx.recordType(callee, try self.ctx.internCopy(.{ .function = f }));
         try self.checkArgs(args, f, info, name, callee.src.pos);
@@ -3340,12 +3340,10 @@ const Checker = struct {
     /// A method's type parameters and the receiver's arguments for them:
     /// the first part of an instance of a method with type parameters of
     /// its own. Empty for a type that is not generic.
-    const ReceiverArgs = struct { params: []const SymbolId = &.{}, args: []const TypeId = &.{} };
-
-    fn receiverArgs(self: *Checker, recv_ty: TypeId) ReceiverArgs {
+    fn receiverArgs(self: *Checker, recv_ty: TypeId) TypeSubst {
         const pn = switch (self.ctx.types.get(sema.unwrapReadAccess(self.ctx, recv_ty))) {
             .parameterized_nominal => |pn| pn,
-            else => return .{},
+            else => return .empty,
         };
         return .{ .params = self.ctx.symbols.items[pn.sym].type_params orelse &.{}, .args = pn.args };
     }
@@ -3358,8 +3356,8 @@ const Checker = struct {
     /// type arguments (`genericCallOf`) and the instance, whose body must
     /// allow them, are recorded. Null after a diagnostic that makes the
     /// arguments not worth checking.
-    fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const Sexp, info: ParamInfo, skip: usize, callee: []const u8, pos: u32, inst: sema.FunctionInstance, recv: ReceiverArgs) Error!?FunctionType {
-        if (ct) |b| try self.ctx.recordInstance(b, .{ .function = inst });
+    fn instantiateCall(self: *Checker, f: FunctionType, ct: ?Sexp, args: []const Sexp, info: ParamInfo, skip: usize, callee: []const u8, pos: u32, receiver_arg: bool, recv: TypeSubst) Error!?FunctionType {
+        if (ct) |b| try self.ctx.recordInstance(b, .{ .function = .{} });
         // A compile-time parameter was rejected: the declaration's
         // diagnostic says what is wrong with every call.
         for (f.ct_params) |ty| if (self.isPoison(ty)) return null;
@@ -3396,7 +3394,11 @@ const Checker = struct {
             } else try self.checkCtValue(g, slot, i, callee);
         };
         if (bad) return null;
-        if (own.items.len == 0) return f;
+        if (own.items.len == 0) {
+            // A statement `f[...]` is keyed by its bracket list, the call.
+            if (ct) |b| try self.ctx.recordGenericCall(self.current_call orelse b, .{ .type_args = type_args, .receiver_arg = receiver_arg });
+            return f;
+        }
         if (ct == null) {
             const inferred = (try self.inferCallTypeArgs(f, own.items, args, info, skip, callee, pos)) orelse return null;
             @memcpy(type_args, inferred);
@@ -3409,8 +3411,8 @@ const Checker = struct {
         };
         const generic = try self.ctx.internCopy(.{ .function = f });
         const result = self.ctx.types.get(try sema.substituteType(self.ctx, generic, .{ .params = own.items, .args = own_args })).function;
-        try self.ctx.recordGenericCall(self.current_call orelse ct.?, .{ .type_args = type_args, .receiver_arg = inst.receiver_arg });
-        try self.ctx.recordFnInstance(.{
+        try self.ctx.recordGenericCall(self.current_call orelse ct.?, .{ .type_args = type_args, .receiver_arg = receiver_arg });
+        _ = try self.ctx.recordFnInstance(.{
             .name = callee,
             .params = try std.mem.concat(a, SymbolId, &.{ recv.params, own.items }),
             .args = try std.mem.concat(a, TypeId, &.{ recv.args, own_args }),
@@ -3960,7 +3962,7 @@ const Checker = struct {
         }
         if (!misplaced_sigil) try self.checkReceiverMode(obj, receiver, classifyReceiverType(self.ctx, obj_ty, resolved.nominal_sym), method, pos);
         const info = methodParams(resolved.field, true, resolved.source);
-        const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, .{}, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
+        const f = (try self.instantiateCall(resolved.fn_ty, ct, args, info, 1, method, pos, false, self.receiverArgs(obj_ty))) orelse return self.skipCall(args);
         if (sema.isGenericFn(self.ctx, resolved.fn_ty)) try self.noteCallee(f);
         const rest: FunctionType = .{
             .params = f.params[1..],
@@ -4027,18 +4029,18 @@ const Checker = struct {
                 const fty = self.ctx.types.get(try self.memberType(nt.foreign, m.ty));
                 if (fty != .function) break;
                 var f = fty.function;
-                var recv: ReceiverArgs = .{};
+                var recv: TypeSubst = .empty;
                 if (generic) {
                     // The type's arguments are given (`Pair[Int, String].make`)
                     // or come from the call's arguments.
                     const subst = if (nt.args) |given| TypeSubst{ .params = nt.sym.type_params orelse &.{}, .args = given } else (try self.inferTypeArgs(nt.id, args, .{ .params = .{ .params = f.params, .names = m.param_names } }, pos)) orelse return self.skipCall(args);
                     if (nt.args == null) try self.ctx.recordType(obj, try self.instantiate(nt.id, subst.args, pos));
                     f = self.ctx.types.get(try sema.substituteType(self.ctx, m.ty, subst)).function;
-                    recv = .{ .params = subst.params, .args = subst.args };
+                    recv = subst;
                 }
                 const source = if (nt.foreign) |fo| fo.ctx.source else self.ctx.source;
                 const info = methodParams(m, false, source);
-                f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, .{ .receiver_arg = m.receiver != .none }, recv)) orelse return self.skipCall(args);
+                f = (try self.instantiateCall(f, ct, args, info, 0, name, pos, m.receiver != .none, recv)) orelse return self.skipCall(args);
                 try self.noteCallee(f);
                 try self.checkArgs(args, f, info, name, pos);
                 return f.returns;
@@ -4125,7 +4127,7 @@ const Checker = struct {
                 if (fty != .function) return self.badCall(args, pos, "`{s}` cannot be called", .{qualified});
                 try self.noteCallee(fty.function);
                 const info = paramsOf(found.sym, found.ctx.source);
-                const f = (try self.instantiateCall(fty.function, ct, args, info, 0, qualified, pos, .{}, .{})) orelse return self.skipCall(args);
+                const f = (try self.instantiateCall(fty.function, ct, args, info, 0, qualified, pos, false, .empty)) orelse return self.skipCall(args);
                 try self.checkArgs(args, f, info, qualified, pos);
                 return f.returns;
             },
@@ -5341,18 +5343,13 @@ pub fn checkGenericInstantiations(ctx: *SemContext) Error!void {
     }
 }
 
-const Instantiated = union(enum) { type: TypeId, func: sema.FnInstance };
-
-fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: Instantiated) Error!void {
+fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const TypeId, at: u32, of: sema.InstanceRoot) Error!void {
     for (params, 0..) |param, i| {
         if (i >= args.len) break;
         const arg = args[i];
         for (ctx.generic_requirements.items) |req| {
             if (req.param != param or satisfies(ctx, arg, req.req)) continue;
-            const inst = switch (of) {
-                .type => |ty| try sema.formatType(ctx, ty),
-                .func => |f| try sema.formatFnInstance(ctx, f),
-            };
+            const inst = try sema.rootName(ctx, of);
             const pname = ctx.symbols.items[param].name;
             const aname = try sema.formatType(ctx, arg);
             const cannot = "`{s}` cannot use `{s} = {s}`: the generic body ";

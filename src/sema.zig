@@ -46,8 +46,8 @@
 //!                                      rather than an index: the generic
 //!                                      type's instance, or a function's
 //!                                      compile-time arguments
-//!   ctx.genericCallOf(call) -> ?GenericCall  for a call of a generic
-//!                                      function: its type arguments,
+//!   ctx.genericCallOf(call) -> ?GenericCall  for a call with compile-time
+//!                                      arguments: its type arguments,
 //!                                      inferred or given in brackets
 //!
 //! A call's callee gets a type too: a function name its signature, and a
@@ -501,20 +501,17 @@ pub const FunctionInstance = struct {
     /// The bracket list is itself the call: a statement `show[3]`, which
     /// passes no run-time arguments.
     call: bool = false,
+};
+
+/// The compile-time arguments a call passes, one per compile-time
+/// parameter in order: a type parameter's type, inferred or given, and
+/// `type_invalid` at a value parameter, whose value is in the call's
+/// bracket list.
+pub const GenericCall = struct {
+    type_args: []const TypeId,
     /// The call passes a method's receiver as its first argument
     /// (`Point.scale[2](p)`); Zig takes the receiver first, then the
     /// compile-time arguments.
-    receiver_arg: bool = false,
-};
-
-/// The compile-time arguments a call of a generic function passes, one
-/// per compile-time parameter in order: a type parameter's type,
-/// inferred or given, and `type_invalid` at a value parameter, whose
-/// value is in the call's bracket list.
-pub const GenericCall = struct {
-    type_args: []const TypeId,
-    /// As `FunctionInstance.receiver_arg`: the compile-time arguments
-    /// follow a receiver passed as the first argument.
     receiver_arg: bool = false,
 };
 
@@ -681,6 +678,7 @@ pub const SemContext = struct {
     /// The instances of generic functions the module's calls make, each
     /// with the position of its first call, in the order found.
     fn_instances: std.ArrayListUnmanaged(struct { inst: FnInstance, site: u32 }) = .empty,
+    /// Every instance in `fn_instances` and `generic_fn_uses`.
     fn_instance_set: std.HashMapUnmanaged(FnInstance, void, FnInstance.Context, std.hash_map.default_max_load_percentage) = .empty,
     /// Instances of generic functions called with type parameters, inside
     /// generic bodies (`max[T]` in `fun top[T]`); expanded like
@@ -915,7 +913,7 @@ pub const SemContext = struct {
         return ir.get(callee, .object);
     }
 
-    /// The type arguments of a call of a generic function (or of a
+    /// The compile-time arguments of a call that has them (or of a
     /// statement `f[Int]`, which is the call); null for any other.
     pub fn genericCallOf(self: *const SemContext, node: Sexp) ?GenericCall {
         return self.facts.generic_calls.get(nodeKey(node) orelse return null);
@@ -968,23 +966,15 @@ pub const SemContext = struct {
     /// a concrete one, checked against its body's requirements, or, from
     /// a call inside a generic body, one over type parameters, which
     /// each instance of that body makes concrete
-    /// (`expandInstantiations`).
-    pub fn recordFnInstance(self: *SemContext, inst: FnInstance, site: u32) !void {
-        const generic = for (inst.args) |a| {
-            if (self.typeInfo(a).has_type_var) break true;
-        } else false;
-        if (generic) {
-            for (self.generic_fn_uses.items) |u| if (FnInstance.Context.eql(.{}, u, inst)) return;
-            return self.generic_fn_uses.append(self.allocator, try self.ownFnInstance(inst));
-        }
-        _ = try self.addFnInstance(inst, site);
-    }
-
-    /// Add a concrete instance unless it is known; whether it was new.
-    fn addFnInstance(self: *SemContext, inst: FnInstance, site: u32) !bool {
+    /// (`expandInstantiations`). Whether it was new.
+    pub fn recordFnInstance(self: *SemContext, inst: FnInstance, site: u32) !bool {
         if (self.fn_instance_set.contains(inst)) return false;
         const owned = try self.ownFnInstance(inst);
         try self.fn_instance_set.put(self.allocator, owned, {});
+        for (inst.args) |a| if (self.typeInfo(a).has_type_var) {
+            try self.generic_fn_uses.append(self.allocator, owned);
+            return true;
+        };
         try self.fn_instances.append(self.allocator, .{ .inst = owned, .site = site });
         return true;
     }
@@ -1147,7 +1137,7 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
         const item = typeItem(ctx, e.key_ptr.*) orelse continue;
         try work.append(ctx.allocator, .{ .subst = item, .site = e.value_ptr.*, .root = .{ .type = e.key_ptr.* } });
     }
-    for (ctx.fn_instances.items, 0..) |f, i| try work.append(ctx.allocator, .{ .subst = f.inst.subst(), .site = f.site, .root = .{ .func = @intCast(i) } });
+    for (ctx.fn_instances.items) |f| try work.append(ctx.allocator, .{ .subst = f.inst.subst(), .site = f.site, .root = .{ .func = f.inst } });
     while (work.pop()) |item| {
         for (ctx.generic_fn_uses.items) |use| {
             if (!argsUseParams(ctx, use.args, item.subst.params)) continue;
@@ -1168,7 +1158,7 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
                 return;
             }
             const concrete: FnInstance = .{ .name = use.name, .params = use.params, .args = args, .own = use.own };
-            if (!try ctx.addFnInstance(concrete, item.site)) continue;
+            if (!try ctx.recordFnInstance(concrete, item.site)) continue;
             try work.append(ctx.allocator, .{ .subst = concrete.subst(), .site = item.site, .root = item.root });
         }
         for (ctx.generic_uses.items) |use| {
@@ -1197,15 +1187,15 @@ fn expandInstantiations(ctx: *SemContext) std.mem.Allocator.Error!void {
     }
 }
 
-/// The instance a program spells, from which `expandInstantiations`
-/// reached another: a generic type's, or a generic function's (an index
-/// into `fn_instances`).
-const InstanceRoot = union(enum) { type: TypeId, func: u32 };
+/// An instance of a generic type or function, as the diagnostics about
+/// it name it; also the one a program spells, from which
+/// `expandInstantiations` reached another.
+pub const InstanceRoot = union(enum) { type: TypeId, func: FnInstance };
 
-fn rootName(ctx: *SemContext, root: InstanceRoot) std.mem.Allocator.Error![]const u8 {
+pub fn rootName(ctx: *SemContext, root: InstanceRoot) std.mem.Allocator.Error![]const u8 {
     return switch (root) {
         .type => |t| formatType(ctx, t),
-        .func => |i| formatFnInstance(ctx, ctx.fn_instances.items[i].inst),
+        .func => |f| formatFnInstance(ctx, f),
     };
 }
 

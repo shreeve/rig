@@ -487,9 +487,9 @@ instead of re-deriving it by name:
 | `scopeOf(node)` | the scope a function, lambda, block, loop, arm, or catch opens |
 | `isExhaustive(match)` | whether the arms cover every value without a default |
 | `callSlotsOf(call)` | for keyword or omitted arguments, which argument or default fills each parameter |
-| `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`Vec[Int]`), or a function's arguments, noting a statement `show[3]` that is itself the call and a receiver passed as an argument (`P.scale[2](p)`) |
+| `instanceOf(node)` | for a bracket list of compile-time arguments: the generic type's instance (`Vec[Int]`), or a function's arguments, noting a statement `show[3]` that is itself the call |
 | `calleeOf(call)`, `ctArgsOf(call)` | a call's callee without its bracket list (`f` for `f[3](x)`, `Box` for `Box[Int](v: 3)`), and its compile-time arguments |
-| `genericCallOf(call)` | for a call of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (`type_invalid` at a value parameter, whose value is in the bracket list) |
+| `genericCallOf(call)` | for a call with compile-time arguments, or of a generic function (or a statement `f[Int]`, which is the call): its type arguments, inferred or given, one per compile-time parameter (`type_invalid` at a value parameter, whose value is in the bracket list), and whether a receiver passed as an argument comes first (`P.scale[2](p)`) |
 
 Leaves are keyed by source position and list nodes by their node id:
 the parser numbers every node it builds (`List.id`), and the Parser

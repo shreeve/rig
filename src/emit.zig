@@ -2782,7 +2782,7 @@ pub const Emitter = struct {
         const args = ir.Call.args(call);
         const params = self.callParams(call);
         const generic = self.sema.genericCallOf(call);
-        const ct_at: usize = if (generic) |g| @intFromBool(g.receiver_arg) else if (self.sema.instanceOf(ir.Call.callee(call))) |inst| (if (inst == .function and inst.function.receiver_arg) 1 else 0) else 0;
+        const ct_at: usize = if (generic) |g| @intFromBool(g.receiver_arg) else 0;
         const slots = self.sema.callSlotsOf(call);
         const n = if (slots) |sl| sl.len else args.len;
         var written: usize = 0;
