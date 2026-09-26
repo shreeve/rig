@@ -2018,6 +2018,9 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
             const e = try substituteType(ctx, a.elem, subst);
             const n = try substituteType(ctx, a.len, subst);
             if (e == a.elem and n == a.len) return ty_id;
+            // A length out of range is reported where the instance is
+            // made (`Requirement.array_len`); the array is poison.
+            if (ctx.types.get(n) == .ct_value and arrayLen(ctx, .{ .elem = e, .len = n }) == null) return ctx.types.invalid_id;
             return ctx.intern(.{ .array = .{ .elem = e, .len = n } });
         },
         .function => |f| {

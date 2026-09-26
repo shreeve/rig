@@ -1699,12 +1699,15 @@ pub const TypeResolver = struct {
                 try self.ctx.errAt(a, "`{s}` is a value; `{s}` takes a type", .{ try self.sourceText(a), self.ctx.symbols.items[tp].name });
                 break :blk t.invalid_id;
             } else try self.resolveType(a);
-            if (arg == t.invalid_id or arg == t.unknown_id) any_bad = true;
+            if (sema.containsPoison(self.ctx, arg)) any_bad = true;
             try args.append(self.ctx.allocator, arg);
         }
+        // An instance with a rejected argument is poison: what follows
+        // from it was already reported.
+        if (any_bad) return t.invalid_id;
         const ty = try self.ctx.internCopy(.{ .parameterized_nominal = .{ .sym = sym_id, .args = args.items } });
         const inst = self.ctx.types.get(ty).parameterized_nominal;
-        if (!any_bad and sym.decl_pos == sema.builtin_decl_pos) {
+        if (sym.decl_pos == sema.builtin_decl_pos) {
             try self.checkWhenResolved(.{ .builtin = .{ .pos = pos, .sym = sym_id, .args = inst.args } });
         }
         if (!sema.containsTypeVar(self.ctx, ty)) {

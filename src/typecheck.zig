@@ -589,7 +589,7 @@ const Checker = struct {
         defer self.pending = saved_pending;
         if (kind == .shadow) self.pending = sym_id;
         var rhs_ty: TypeId = undefined;
-        if (!self.isPoison(declared)) {
+        if (!self.isPoison(declared) or type_node != .nil) {
             try self.checkExpr(rhs, declared);
             rhs_ty = declared;
         } else {
@@ -3651,6 +3651,7 @@ const Checker = struct {
                 };
             }
             const pat = pattern orelse continue;
+            if (sema.containsPoison(self.ctx, pat)) inf.poisoned = true;
             if (!sema.containsTypeVar(self.ctx, pat)) continue;
             const actual = try self.argType(value);
             if (sema.containsPoison(self.ctx, actual)) inf.poisoned = true;
@@ -4712,13 +4713,15 @@ const Checker = struct {
         const prev_lent = self.lent_write;
         defer self.lent_write = prev_lent;
         if (e.isKind(.write) and self.ctx.types.get(expected) == .borrow_write) self.lent_write = e;
+        const saved_result = self.result_expected;
+        defer self.result_expected = saved_result;
+        if (resultCall(e)) |call| self.result_expected = .{ .call = call, .ty = expected };
+        // A poisoned expected type still reaches a generic call's
+        // inference, which then reports nothing more.
         if (self.isPoison(expected)) {
             _ = try self.synthExpr(e);
             return;
         }
-        const saved_result = self.result_expected;
-        defer self.result_expected = saved_result;
-        if (resultCall(e)) |call| self.result_expected = .{ .call = call, .ty = expected };
         if (try self.checkContextual(e, expected)) |ty| return self.ctx.recordType(e, ty);
 
         const actual = try self.synthExpr(e);
