@@ -1,0 +1,7 @@
+# Only a slice leaves out a range's start.
+
+sub main()
+  for i in ..3
+    print(i)
+
+# error: 4:12: a range needs a start; only a slice leaves a side open

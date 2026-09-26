@@ -838,7 +838,7 @@ From lowest to highest precedence:
 | `not` | |
 | `==` `!=` `<` `>` `<=` `>=` | not chainable |
 | `??` | optional fallback, right-associative |
-| `..` | half-open range, for `for` and patterns |
+| `..` | half-open range, for `for`, patterns, and slices (`xs[a..]`) |
 | `\|` | bitwise or |
 | `^` | bitwise xor |
 | `&` | bitwise and |
@@ -2698,7 +2698,8 @@ They compare by content with `==` and order by their bytes with `<`,
 **Slices** view part of an array, `Vec`, or string. `s[a..b]` of a
 `String` is a `String`; of an array or a `Vec` of plain data it is
 written `?xs[a..b]` and is a `[]T`, a read-only view that borrows `xs`
-like any `?` borrow. Bounds are checked.
+like any `?` borrow. Bounds are checked. A side may be left open, as
+in Rust: `xs[a..]`, `xs[..b]`, `xs[..]`.
 
 ```rig
 fun total(xs: []Int) -> Int
@@ -2713,11 +2714,13 @@ sub main
   a = [1, 2, 3, 4]
   mid = ?a[1..3]
   print(mid, mid.len, total(mid), total(?a[0..4]))
+  print(s[7..], total(?a[2..]), total(?a[..]))
 ```
 
 ```output
 hello 12 104
 [2, 3] 2 5 10
+world 7 10
 ```
 
 A slice is read-only: `mid[0] = 5` is rejected.
@@ -2960,7 +2963,8 @@ statement, a match arm or closure body, or the last argument of another
 paren-free call. Where a value is expected, a call keeps its
 parentheses.
 
-**Other punctuation:** `->` return type, `=>` match arm, `..` range,
+**Other punctuation:** `->` return type, `=>` match arm, `..` range
+(a slice may leave a side open: `xs[a..]`, `xs[..b]`, `xs[..]`),
 `??` optional fallback, `:name` label, `|...|` closure bar list,
 `.name` enum variant, `name[...]` compile-time parameters or arguments
 (or an index), `@name(...)` builtin, `#` comment, `\` line join.
@@ -3070,7 +3074,8 @@ value     = logic "if" logic "else" value | logic "catch" ["|" name "|"] value |
 logic     = logic "or" logic | logic "and" logic | "not" logic | infix
 infix     = unary (op unary)*          # precedence table in section 10
 unary     = ("-" | "<" | "+" | "?" | "!" | "*" | "~") unary | postfix
-postfix   = postfix ("." name | "[" expr, ... "]" | "(" args ")" | "!" | "?") | atom
+postfix   = postfix ("." name | "[" expr, ... "]" | "[" [expr] ".." [expr] "]"
+          | "(" args ")" | "!" | "?") | atom
 args      = (expr | name ":" expr), ...
 atom      = name | literal | "." name | "@" name "(" args ")" | "[" expr, ... "]"
           | "[" expr "of" expr "]" | "(" expr ")"

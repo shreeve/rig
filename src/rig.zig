@@ -277,6 +277,10 @@ pub fn writeZigIdent(w: *std.Io.Writer, name: []const u8) std.Io.Writer.Error!vo
 // `of`
 //   After a value directly inside [ ], `of` separates a fill literal's
 //   count from its element (`[n of x]`). Elsewhere it is a name.
+//
+// `..`
+//   Directly before `]`, `..` ends an open range (`xs[a..]`, `xs[..]`):
+//   DOTDOT_OPEN, so the expression before it ends there.
 
 pub const Lexer = struct {
     base: BaseLexer,
@@ -681,6 +685,8 @@ pub const Lexer = struct {
             // `x =!y`: a fixed binding of `y`, or a write borrow?
             .fixed_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_fixed, tok.pos) else tok.cat,
             .move_assign => if (self.touchesNext(tok)) return self.fail(.ambiguous_move, tok.pos) else tok.cat,
+            // `xs[a..]`: an open range ends at the `]`.
+            .dotdot => if (self.nextCat() == .rbracket) .dotdot_open else .dotdot,
             .err => return self.lexError(tok),
             else => tok.cat,
         };
@@ -1067,6 +1073,7 @@ pub const Parser = struct {
         var pos = tok.pos;
         var end = tok.pos + tok.len;
         const lexer = &self.base.lexer;
+        if (self.openRange(tok)) |d| return d;
         const message: []const u8 = switch (tok.cat) {
             .err => return .{ .severity = .@"error", .pos = pos, .end = end, .message = switch (lexer.err) {
                 .missing_space => self.format("missing space or operator between `{s}` and `{s}`", .{ src[lexer.prev_pos..lexer.prev_end], src[pos..end] }),
@@ -1092,6 +1099,24 @@ pub const Parser = struct {
         const hint = self.parenFreeCallHint(tok) orelse self.bracketHint(tok) orelse self.typeSuffixHint(tok) orelse fillHint(tok) orelse self.spacingHint(tok) orelse self.valueCallHint(tok) orelse reservedHint(src, tok, expected orelse "");
         const full = if (hint) |h| self.format("{s}; {s}", .{ with_expected, h }) else with_expected;
         return .{ .severity = .@"error", .pos = pos, .end = end, .message = full };
+    }
+
+    /// A range with a side left out where only a slice may leave one
+    /// out: `for i in 0..`, `1.. =>`, `[..3]`. Reported at the `..`.
+    fn openRange(self: *Parser, tok: Token) ?diag.Diagnostic {
+        const lexer = &self.base.lexer;
+        const at: Token, const side: []const u8 = switch (tok.cat) {
+            .dotdot => .{ tok, "a start" },
+            .dotdot_open => .{ tok, if (lexer.before_cat == .lbracket or lexer.before_cat == .lbracket_index) "both ends" else "an end" },
+            else => blk: {
+                // The real token before this one; a layout token is not
+                // one, so the last real token is.
+                const cat, const pos = if (tok.len > 0) .{ lexer.before_cat, lexer.before_pos } else .{ lexer.prev_cat, lexer.prev_pos };
+                if (cat != .dotdot or tok.cat == .err) return null;
+                break :blk .{ .{ .cat = .dotdot, .pre = 0, .pos = pos, .len = 2 }, "an end" };
+            },
+        };
+        return .{ .severity = .@"error", .pos = at.pos, .end = at.pos + at.len, .message = self.format("a range needs {s}; only a slice leaves a side open: `xs[a..]`, `xs[..b]`, `xs[..]`", .{side}) };
     }
 
     /// A note for a parse error inside a bracket opened on an earlier

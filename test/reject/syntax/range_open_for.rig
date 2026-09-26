@@ -1,0 +1,8 @@
+# Only a slice leaves a side of its range open: a `for` range needs both
+# ends.
+
+sub main()
+  for i in 0..
+    print(i)
+
+# error: 5:13: a range needs an end; only a slice leaves a side open

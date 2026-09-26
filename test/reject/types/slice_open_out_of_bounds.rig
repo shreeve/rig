@@ -1,0 +1,14 @@
+# An open slice's constant start is checked against an array's length,
+# and its bound must be an integer.
+
+sub main()
+  a = [1, 2, 3]
+  print(?a[4..])
+  print(?a[3..], ?a[..3])
+  print(?a[..-1])
+  k = 1
+  print(?a[k == 1..])
+
+# error: 6:12: slice start `4` is past the end of an array of length 3
+# error: 8:14: a slice bound cannot be negative; got `-1`
+# error: 10:12: a slice bound must be an integer; got `Bool`

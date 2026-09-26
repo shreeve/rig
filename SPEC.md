@@ -493,7 +493,9 @@ cannot outlive it. A `[]T` has `.len`, is indexed and iterated like an
 array, and is sliced again with `s[a..b]`, which views the same
 elements. The bounds must satisfy `0 <= a <= b <= len`; constant bounds
 are checked at compile time, others when the slice is taken, which
-panics when they do not.
+panics when they do not. A side may be left open: `xs[a..]` runs to the
+end, `xs[..b]` starts at 0, and `xs[..]` is the whole. Only a slice
+leaves a side open; a `for` range or a range pattern needs both ends.
 
 ```rig
 fun total(xs: []Int) -> Int
@@ -508,11 +510,23 @@ sub main
   a = [1, 2, 3, 4]
   mid = ?a[1..3]
   print(mid, mid.len, mid[0], total(mid), total(?a[0..4]))
+  print(s[7..], s[..5], ?a[2..], total(?a[..]))
 ```
 
 ```output
 hello world
 [2, 3] 2 2 5 10
+world hello [3, 4] 10
+```
+
+```rig reject
+sub main
+  for i in 0..
+    print(i)
+```
+
+```error
+a range needs an end; only a slice leaves a side open
 ```
 
 A borrowed array parameter (`xs: ?[N]T`) is the function's own copy of
@@ -1456,7 +1470,7 @@ From lowest to highest precedence:
 | `not` | Bool |
 | `==` `!=` `<` `>` `<=` `>=` | not chainable |
 | `??` | optional fallback; right-associative |
-| `..` | half-open range: a `for` source or a match pattern |
+| `..` | half-open range: a `for` source, a match pattern, or a slice's index, where a side may be open ([§3](#slices)) |
 | `\|` | bitwise or |
 | `^` | bitwise xor |
 | `&` | bitwise and |

@@ -3066,7 +3066,7 @@ const Checker = struct {
         const object = ir.Index.object(e);
         const range = ir.Index.index(e);
         const obj_ty = try self.synthOperand(object);
-        _ = try self.checkIntDefaultOperands(range, "..", .integer, null);
+        try self.checkSliceRange(range);
         if (self.isPoison(obj_ty)) return obj_ty;
         const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
         const elem: TypeId = switch (self.ctx.types.get(peeled)) {
@@ -3102,17 +3102,40 @@ const Checker = struct {
         return self.ctx.intern(.{ .slice = .{ .elem = elem } });
     }
 
+    /// A slice's bounds are integers: of one type when both are given,
+    /// and `Int` when that is all a literal says. An open side
+    /// (`xs[a..]`, `xs[..b]`) is the start or the end.
+    fn checkSliceRange(self: *Checker, range: Sexp) Error!void {
+        const lo = ir.@"..".left(range);
+        const hi = ir.@"..".right(range);
+        if (lo != .nil and hi != .nil) {
+            _ = try self.checkIntDefaultOperands(range, "..", .integer, null);
+            return;
+        }
+        const bound = if (lo != .nil) lo else hi;
+        if (bound == .nil) return;
+        const ty = try self.synthOperandValue(bound);
+        if (self.isPoison(ty)) return;
+        if (!sema.isInteger(self.ctx, ty)) return self.errAt(bound, "a slice bound must be an integer; got `{s}`", .{try self.tyName(ty)});
+        if (ty == self.t().int_literal_id) try self.checkLiteralFits(bound, self.t().int_id);
+    }
+
     /// Constant bounds are checked now: `0 <= a <= b`, and `b <= len` for
     /// an array, whose length is part of its type. Others are checked
-    /// when the slice is taken.
+    /// when the slice is taken. An open end is the length.
     fn checkSliceBounds(self: *Checker, range: Sexp, len: ?u64) Error!void {
-        const lo = self.constInt(ir.@"..".left(range));
-        const hi = self.constInt(ir.@"..".right(range));
-        if (lo) |a| if (a < 0) return self.errAt(ir.@"..".left(range), "a slice bound cannot be negative; got `{d}`", .{a});
-        if (hi) |b| {
-            if (b < 0) return self.errAt(ir.@"..".right(range), "a slice bound cannot be negative; got `{d}`", .{b});
-            if (len) |n| if (b > n) return self.errAt(ir.@"..".right(range), "slice end `{d}` is past the end of an array of length {d}", .{ b, n });
-            if (lo) |a| if (a > b) return self.errAt(range, "slice `{d}..{d}` starts after it ends", .{ a, b });
+        const lo_node = ir.@"..".left(range);
+        const hi_node = ir.@"..".right(range);
+        const lo: ?i128 = if (lo_node == .nil) 0 else self.constInt(lo_node);
+        if (lo) |a| if (a < 0) return self.errAt(lo_node, "a slice bound cannot be negative; got `{d}`", .{a});
+        if (hi_node == .nil) {
+            if (lo) |a| if (len) |n| if (a > n) return self.errAt(lo_node, "slice start `{d}` is past the end of an array of length {d}", .{ a, n });
+            return;
+        }
+        if (self.constInt(hi_node)) |b| {
+            if (b < 0) return self.errAt(hi_node, "a slice bound cannot be negative; got `{d}`", .{b});
+            if (len) |n| if (b > n) return self.errAt(hi_node, "slice end `{d}` is past the end of an array of length {d}", .{ b, n });
+            if (lo_node != .nil) if (lo) |a| if (a > b) return self.errAt(range, "slice `{d}..{d}` starts after it ends", .{ a, b });
         }
     }
 

@@ -12,7 +12,7 @@ in [SPEC §19](../SPEC.md#19-reserved-and-unsupported-forms).
 - **More compile-time values on generic types**: `Bool` and enum value parameters (`struct Ring[T, n: Int]` takes integers only).
 - **Owning values in more places**: arrays of owning values, and owned closures that take or return them.
 - **Strings**: building and formatting strings, and matching on them. A slice of a built (heap) string will be a borrow of it, as an array slice is today.
-- **Writable and open slices**: `!xs[a..b]` write slices and `xs[a..]` / `xs[..b]` open ranges.
+- **Writable slices**: `!xs[a..b]` write slices.
 - **Printing byte slices**: `print` of a `[]U8` (rejected today, since it lowers like a `String`).
 - **Aliases of imported and generic types** used as constructors and namespaces.
 - **A labeled value loop on the right of a binding** (`x = :l for ...`), which needs a grammar change without conflicts.

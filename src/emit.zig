@@ -2497,9 +2497,9 @@ pub const Emitter = struct {
         try self.w.writeAll("]");
     }
 
-    /// `xs[a..b]` → `rig.slice(items, a, b)`, which checks the bounds. An
-    /// array is sliced in place, through its address; a Vec through its
-    /// items.
+    /// `xs[a..b]` → `rig.slice(items, a, b)`, which checks the bounds;
+    /// `xs[a..]` → `rig.slice(items, a, null)`. An array is sliced in
+    /// place, through its address; a Vec through its items.
     fn emitSlice(self: *Emitter, base: Sexp, base_ty: ?TypeId, range: Sexp) Error!void {
         self.place_chain = false;
         try self.w.writeAll("rig.slice(");
@@ -2519,10 +2519,11 @@ pub const Emitter = struct {
             self.read_place = saved_read;
         } else try self.emitBare(base);
         self.rt_names = saved_rt;
-        try self.w.writeAll(", ");
-        try self.emitBare(ir.@"..".left(range));
-        try self.w.writeAll(", ");
-        try self.emitBare(ir.@"..".right(range));
+        // An open start is 0; an open end, `null`, is the length.
+        for ([2]Sexp{ ir.@"..".left(range), ir.@"..".right(range) }, [2][]const u8{ "0", "null" }) |bound, open| {
+            try self.w.writeAll(", ");
+            if (bound == .nil) try self.w.writeAll(open) else try self.emitBare(bound);
+        }
         try self.w.writeAll(")");
     }
 
