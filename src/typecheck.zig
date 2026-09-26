@@ -1562,6 +1562,11 @@ const Checker = struct {
             if (scope.kind == .lambda) crossed_lambda = true;
             sid = scope.parent;
         }
+        // The parameters of a generic type are in scope only as types.
+        for (self.nominal.type_params) |tp| if (std.mem.eql(u8, self.ctx.symbols.items[tp].name, name)) {
+            try self.errAt(leaf, "`{s}` is a type, not a value", .{name});
+            return null;
+        };
         try self.errAt(leaf, "use of unbound name `{s}`", .{name});
         return null;
     }
@@ -2990,6 +2995,7 @@ const Checker = struct {
                     return self.construct(sym_id, args, callee.src.pos, subst, null);
                 },
                 .module => return self.badCall(args, callee, "module `{s}` cannot be called", .{name}),
+                .generic_param => return self.badCall(args, callee, "`{s}` is a type parameter; it cannot be called or constructed", .{name}),
                 else => return self.callValue(callee, sym.ty, args, name),
             }
         }
