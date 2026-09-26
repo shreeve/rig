@@ -918,7 +918,10 @@ lower is an internal error: sema must have rejected it.
   with an `invoke` method. An owned closure allocates an environment
   struct per literal and erases it behind `rig.Closure(params, R)`, so
   every literal of one function type shares one runtime type; a call is
-  `cb.value.invoke(.{ args })`. A borrowed callable `?fun(...)` is a
+  `cb.value.invoke(.{ args })`. A borrowed callable `?fun(...)`, the
+  type `borrow_read(callable(F))`, which only `?fun(...)` written as
+  such and `?f` of a closure produce (so a `?T` substituted with a
+  function type stays a read borrow of a function value), is a
   `rig.FnRef(params, R)` passed by value, built by `.of(Env, &env)` for
   a stack closure, `.ofFn(f)` for a function, and `.ofClosure(cb)` for
   an owned closure; a call is `f.call(.{ args })`. A closure literal lent

@@ -2430,7 +2430,7 @@ pub const Checker = struct {
         const fn_ty = ctx.callableOf(value) orelse blk: {
             const ty = self.exprType(value) orelse return true;
             if (sema.callableFn(ctx, ty) == null) return true;
-            break :blk ctx.types.get(ty).borrow_read;
+            break :blk sema.callableFnTy(ctx, ty).?;
         };
         if (sema.holdsCallable(ctx, self.exprType(call) orelse return true)) return true;
         return self.mayCarryBorrow(ctx.types.get(fn_ty).function.returns);

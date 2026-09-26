@@ -2179,7 +2179,7 @@ pub const Emitter = struct {
                 try self.emitAddressOf(ir.get(sexp, .operand));
             } else if (head == .read) {
                 // `?f` of a closure or function lends it.
-                if (self.typeOf(sexp)) |t| if (sema.callableFn(self.sema, t) != null) return self.emitLend(ir.Read.operand(sexp), self.sema.types.get(t).borrow_read);
+                if (self.typeOf(sexp)) |t| if (sema.callableFn(self.sema, t) != null) return self.emitLend(ir.Read.operand(sexp), sema.callableFnTy(self.sema, t).?);
                 // `?x` of a value held by pointer (a Cell) is its address.
                 if (self.isPtrBorrowExpr(sexp)) return self.emitBorrowOf(sexp);
                 // A borrow never moves its operand, even in tail position.
@@ -3550,6 +3550,11 @@ pub const Emitter = struct {
     /// type `ty`, as `?x` / `!x` gives it: a pointer, or for a read
     /// borrow of plain data, the value.
     fn writeCapturedBorrow(self: *Emitter, outer: *const Local, ty: TypeId) Error!void {
+        // `|?f|` of a stack closure lends its environment.
+        if (outer.stack_closure) if (sema.callableFn(self.sema, ty)) |f| {
+            try self.emitFnRefTy(f);
+            return self.w.print(".of(@TypeOf({s}), &{s})", .{ outer.zig_name, outer.zig_name });
+        };
         const outer_borrows = if (outer.ty) |t| switch (self.sema.types.get(t)) {
             .borrow_read, .borrow_write => true,
             else => false,

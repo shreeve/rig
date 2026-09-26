@@ -392,7 +392,7 @@ const SymbolResolver = struct {
                     return;
                 }
                 try self.checkNewLocal(target);
-                _ = try self.declare(target, .local, .{});
+                _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda) });
             },
             .fixed => {
                 if (self.scope != self.module_scope) {
@@ -405,9 +405,9 @@ const SymbolResolver = struct {
                     }
                 }
                 try self.checkNewLocal(target);
-                _ = try self.declare(target, .local, .{ .fixed = true });
+                _ = try self.declare(target, .local, .{ .fixed = true, .closure = ir.Set.value(node).isKind(.lambda) });
             },
-            .shadow => _ = try self.declare(target, .local, .{}),
+            .shadow => _ = try self.declare(target, .local, .{ .closure = ir.Set.value(node).isKind(.lambda) }),
             .@"+=", .@"-=", .@"*=", .@"/=", .@"%=", .@"&=", .@"|=", .@"^=", .@"<<=", .@">>=" => {
                 if (self.assignable(identAt(self.ctx.source, target).?)) |existing| {
                     self.ctx.symbols.items[existing].flags.reassigned = true;
@@ -1460,11 +1460,11 @@ pub const TypeResolver = struct {
                         const inner_node = if (head == .weak) ir.Weak.operand(sexp) else ir.get(sexp, .type);
                         const inner = try self.resolveType(inner_node);
                         if (inner == t.invalid_id) return t.invalid_id;
-                        if (head == .borrow_write and self.ctx.types.get(inner) == .function) {
-                            try self.ctx.errAt(sexp, "a call never changes a closure's environment, so a callable is only read-borrowed: write `?{s}`", .{try self.sourceText(inner_node)});
-                            return t.invalid_id;
-                        }
                         if (try self.heldCallable(inner_node, inner)) return t.invalid_id;
+                        // `?fun(...)` written as such is a borrowed
+                        // callable; a `?T` of a function type is a read
+                        // borrow of a function value.
+                        if (head == .borrow_read and inner_node.isKind(.fun_type)) return sema.callableOfFn(self.ctx, inner);
                         if (head == .slice) try self.checkWhenResolved(.{ .slice = .{ .node = inner_node, .elem = inner } });
                         if (head == .weak and sema.isBorrowType(self.ctx, inner)) return self.handleOfBorrow(sexp, inner);
                         return self.ctx.intern(switch (head) {

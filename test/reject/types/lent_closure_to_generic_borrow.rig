@@ -1,0 +1,21 @@
+# A closure is lent only where a `?fun(...)` / `?sub(...)` is declared:
+# a `?T` of a generic function, field, or payload takes a read borrow of
+# a value, and a stack closure is not one. `!f` does not lend it.
+
+struct View[T]
+  w: ?T
+
+fun use_it[T](x: ?T) -> Int
+  1
+
+sub main
+  k = 5
+  f = |+k, a: Int| a + k
+  print(use_it(?f))
+  v = View(w: ?f)
+  print(v.w(1))
+  w = !f
+
+# error: 14:9: `use_it` cannot take a lent closure for `T`
+# error: 15:7: `View` cannot take a lent closure for `T`
+# error: 17:7: a call never changes a closure's environment, so a closure is lent to read: write `?f`

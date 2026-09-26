@@ -3368,8 +3368,15 @@ or a result's type, never a field's, an element's, a module-level
 binding's, or a type argument. A function may return one only where it
 returns a borrow its caller lent it, and a closure literal is not lent
 to a call whose result could hold it. A call never changes a closure's
-environment, so there is no `!fun`. `*|...|` makes an owned closure,
-which is not what a `?fun` parameter takes:
+environment, so a closure is lent only to read: `!f` is rejected.
+
+Only `?fun(...)` and `?sub(...)` written as such are borrowed callables.
+A `?T` whose `T` is a function type, in a generic function, a field, or
+a payload, is a read borrow of a function value, and `!fun(...)` a
+write borrow of one, which can be reassigned through; a closure is not
+lent there (`?f` of a closure where a `?T` goes is rejected).
+`*|...|` makes an owned closure, which is not what a `?fun` parameter
+takes:
 
 ```rig reject
 fun apply(f: ?fun(Int) -> Int, x: Int) -> Int

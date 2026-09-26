@@ -1,0 +1,61 @@
+# Only a `?fun(...)` / `?sub(...)` written as such is a borrowed
+# callable. A `?T` whose `T` is a function type is a read borrow of a
+# function value, in a generic function, field, or payload, and a
+# function value may be write-borrowed and reassigned through `!T`. A
+# closure captured with `|?f|` is lent, and can be passed on.
+
+struct View[T]
+  w: ?T
+
+enum Opt[T]
+  some(v: ?T)
+  nothing
+
+fun double(n: Int) -> Int
+  n * 2
+
+fun inc(n: Int) -> Int
+  n + 1
+
+fun use_it[T](x: ?T) -> Int
+  1
+
+sub set(dst: !fun(Int) -> Int, v: fun(Int) -> Int)
+  dst = v
+
+sub put[T](dst: !T, v: T)
+  dst = v
+
+sub run(f: ?sub())
+  f()
+
+sub main
+  g: fun(Int) -> Int = double
+  print(use_it(?double), use_it(?g))
+  v = View(w: ?g)
+  h = v.w
+  print(h(3))
+  o = Opt.some(v: ?g)
+  match o
+    .some(p) => print(p(2))
+    .nothing => print(0)
+  set(!g, inc)
+  print(g(1))
+  put(!g, double)
+  print(g(1))
+  x = 1
+  f = |!x|
+    x += 1
+  twice = |?f|
+    f()
+    run(f)
+  twice()
+  print(x)
+
+# expect:
+# 1 1
+# 6
+# 4
+# 2
+# 2
+# 3

@@ -204,6 +204,11 @@ pub const Type = union(enum) {
     range: TypeId,
 
     function: FunctionType,
+    /// What a borrowed callable `?fun(...) -> R` borrows, written as
+    /// such: a closure, a function, or an owned closure of function type
+    /// `callable`, called through a `rig.FnRef`. (A `?T` whose `T` is a
+    /// function type is a read borrow of a function value.)
+    callable: TypeId,
     /// A struct, enum, error set, or opaque declared in this module.
     nominal: SymbolId,
     /// A nominal declared in another module. Identity is the origin
@@ -409,7 +414,9 @@ pub const SymbolFlags = packed struct(u16) {
     written: bool = false,
     /// An `error` declaration: its variants are error values.
     error_set: bool = false,
-    _: u8 = 0,
+    /// A local bound to a closure literal: a stack closure.
+    closure: bool = false,
+    _: u7 = 0,
 };
 
 /// How a method takes its receiver, from the declared first parameter.
@@ -2164,7 +2171,7 @@ pub const TypeChildren = struct {
         const i = self.i;
         self.i += 1;
         return switch (self.ty) {
-            .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner| if (i == 0) inner else null,
+            .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range, .callable => |inner| if (i == 0) inner else null,
             .slice => |s| if (i == 0) s.elem else null,
             .array => |a| if (i == 0) a.elem else if (i == 1) a.len else null,
             .function => |f| if (i < f.params.len) f.params[i] else if (i == f.params.len) f.returns else null,
@@ -2365,13 +2372,23 @@ pub fn ownedClosureFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
 /// The function type of a borrowed callable `?fun(...) -> R`: a
 /// closure, function, or owned closure lent to a call.
 pub fn callableFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
+    return ctx.types.get(callableFnTy(ctx, ty) orelse return null).function;
+}
+
+/// The function type of borrowed callable `ty`, or null.
+pub fn callableFnTy(ctx: *const SemContext, ty: TypeId) ?TypeId {
     return switch (ctx.types.get(ty)) {
         .borrow_read => |inner| switch (ctx.types.get(inner)) {
-            .function => |f| f,
+            .callable => |f| f,
             else => null,
         },
         else => null,
     };
+}
+
+/// The borrowed callable of function type `fn_ty`: `?fun(...)`.
+pub fn callableOfFn(ctx: *SemContext, fn_ty: TypeId) !TypeId {
+    return ctx.intern(.{ .borrow_read = try ctx.intern(.{ .callable = fn_ty }) });
 }
 
 /// Whether a value of `ty` holds a borrowed callable inside it (in an
@@ -2379,8 +2396,8 @@ pub fn callableFn(ctx: *const SemContext, ty: TypeId) ?FunctionType {
 /// borrowed callable is only ever a parameter, a local, or a result.
 pub fn holdsCallable(ctx: *const SemContext, ty: TypeId) bool {
     switch (ctx.types.get(ty)) {
-        .borrow_read => |inner| return callableFn(ctx, ty) != null or holdsCallable(ctx, inner),
-        .borrow_write, .optional, .fallible, .shared, .weak => |inner| return holdsCallable(ctx, inner),
+        .callable => return true,
+        .borrow_read, .borrow_write, .optional, .fallible, .shared, .weak => |inner| return holdsCallable(ctx, inner),
         .slice => |sl| return holdsCallable(ctx, sl.elem),
         .array => |a| return holdsCallable(ctx, a.elem),
         .parameterized_nominal => |pn| for (pn.args) |a| {
@@ -2685,7 +2702,7 @@ pub fn substituteType(ctx: *SemContext, ty_id: TypeId, subst: TypeSubst) std.mem
     const ty = ctx.types.get(ty_id);
     switch (ty) {
         .type_var, .ct_param => |sym| return subst.lookup(sym) orelse ty_id,
-        inline .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range => |inner, tag| {
+        inline .borrow_read, .borrow_write, .shared, .weak, .optional, .fallible, .range, .callable => |inner, tag| {
             const new_inner = try substituteType(ctx, inner, subst);
             if (new_inner == inner) return ty_id;
             return ctx.intern(@unionInit(Type, @tagName(tag), new_inner));
@@ -2820,7 +2837,7 @@ pub fn importType(
     const ty = foreign_ctx.types.get(foreign_ty_id);
     switch (ty) {
         .invalid, .unknown, .void, .bool, .string, .int, .float, .int_literal, .float_literal, .none_literal, .noreturn, .any_error, .ct_value => return local_ctx.intern(ty),
-        inline .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range => |inner, tag| {
+        inline .optional, .fallible, .borrow_read, .borrow_write, .shared, .weak, .range, .callable => |inner, tag| {
             const local_inner = try importType(local_ctx, foreign_ctx, inner, origin_module_id);
             return local_ctx.intern(@unionInit(Type, @tagName(tag), local_inner));
         },
@@ -3167,6 +3184,7 @@ pub fn formatTypeIn(ctx: *const SemContext, a: std.mem.Allocator, ty_id: TypeId)
         .optional => |inner| try formatSuffixed(ctx, a, inner, '?'),
         .fallible => |inner| try formatSuffixed(ctx, a, inner, '!'),
         .borrow_read => |inner| try std.fmt.allocPrint(a, "?{s}", .{try formatTypeIn(ctx, a, inner)}),
+        .callable => |f| try formatTypeIn(ctx, a, f),
         .borrow_write => |inner| try std.fmt.allocPrint(a, "!{s}", .{try formatTypeIn(ctx, a, inner)}),
         .shared => |inner| try formatHandle(ctx, a, inner, '*'),
         .weak => |inner| try formatHandle(ctx, a, inner, '~'),
