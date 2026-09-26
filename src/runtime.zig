@@ -834,22 +834,42 @@ extern "c" fn pthread_get_stacksize_np(std.c.pthread_t) usize;
 /// - Linux places its mappings at least 128 MiB below the top of the
 ///   stack, and at least the stack limit the program started with plus
 ///   1 MiB: holding the stack to `stack_size` keeps 112 MiB free below it.
+///
+/// A program that cannot make that space safe stops before it runs.
 pub fn guardStack() void {
-    if (builtin.cpu.arch.isX86()) return;
-    switch (builtin.os.tag) {
-        .macos => {
-            const self = std.c.pthread_self();
-            const bottom = @intFromPtr(pthread_get_stackaddr_np(self)) - pthread_get_stacksize_np(self);
-            const base = bottom - std.heap.pageSize() - stack_reserve;
-            const got = std.c.mmap(@ptrFromInt(base), stack_reserve, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0);
-            if (got != std.c.MAP_FAILED and @intFromPtr(got) != base) _ = std.c.munmap(@alignCast(got), stack_reserve);
-        },
+    if (guarded()) return;
+    std.debug.print("rig: cannot reserve the stack guard below the main stack\n", .{});
+    std.process.exit(1);
+}
+
+/// Whether an overflow of the main stack now stops the program.
+fn guarded() bool {
+    if (builtin.cpu.arch.isX86()) return true;
+    return switch (builtin.os.tag) {
+        .macos => reserveBelowStack() != null,
         .linux => {
-            const limit = std.posix.getrlimit(.STACK) catch return;
-            if (limit.cur > stack_size) std.posix.setrlimit(.STACK, .{ .cur = stack_size, .max = limit.max }) catch return;
+            const limit = std.posix.getrlimit(.STACK) catch return false;
+            if (limit.cur <= stack_size) return true;
+            std.posix.setrlimit(.STACK, .{ .cur = stack_size, .max = limit.max }) catch return false;
+            return true;
         },
-        else => {},
+        else => true,
+    };
+}
+
+/// On macOS, reserve `stack_reserve` bytes right below the main stack's
+/// guard page; null when something is mapped there already.
+fn reserveBelowStack() ?[*]align(std.heap.page_size_min) u8 {
+    const self = std.c.pthread_self();
+    const bottom = @intFromPtr(pthread_get_stackaddr_np(self)) - pthread_get_stacksize_np(self);
+    const base = bottom - std.heap.pageSize() - stack_reserve;
+    const got = std.c.mmap(@ptrFromInt(base), stack_reserve, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0);
+    if (got == std.c.MAP_FAILED) return null;
+    if (@intFromPtr(got) != base) {
+        _ = std.c.munmap(@alignCast(got), stack_reserve);
+        return null;
     }
+    return @ptrCast(@alignCast(got));
 }
 
 /// Deferred first in the emitted `main`, so it runs after all of `main`'s
@@ -1109,12 +1129,27 @@ const Order = struct {
     }
 };
 
+test "the reserve below the stack is made only where nothing is mapped" {
+    if (builtin.os.tag != .macos or builtin.cpu.arch.isX86()) return error.SkipZigTest;
+    const self = std.c.pthread_self();
+    const bottom = @intFromPtr(pthread_get_stackaddr_np(self)) - pthread_get_stacksize_np(self);
+    const page = std.heap.pageSize();
+    // Something mapped in the middle of the space: no reserve.
+    const in = std.c.mmap(@ptrFromInt(bottom - page - stack_reserve / 2), page, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0);
+    try std.testing.expect(in != std.c.MAP_FAILED);
+    try std.testing.expect(reserveBelowStack() == null);
+    _ = std.c.munmap(@alignCast(in), page);
+    // Free again: the reserve is made.
+    const r = reserveBelowStack() orelse return error.TestUnexpectedResult;
+    _ = std.c.munmap(r, stack_reserve);
+}
+
 test "guardStack holds the stack to 16 MiB on Linux" {
     if (builtin.os.tag != .linux or builtin.cpu.arch.isX86()) return error.SkipZigTest;
     const before = try std.posix.getrlimit(.STACK);
     if (before.max < 2 * stack_size) return error.SkipZigTest;
     try std.posix.setrlimit(.STACK, .{ .cur = 2 * stack_size, .max = before.max });
-    guardStack();
+    try std.testing.expect(guarded());
     try std.testing.expectEqual(stack_size, (try std.posix.getrlimit(.STACK)).cur);
 }
 

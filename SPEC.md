@@ -437,7 +437,9 @@ most 16 MiB of counted values, plus Zig's own temporaries. At least
 64 MiB below the stack stays unmapped, four times the counted limit,
 so every overflowing frame lands there: on macOS the program reserves
 it when it starts; Linux maps nothing within 128 MiB of the top of the
-stack, and the program holds its stack to 16 MiB.
+stack, and the program holds its stack to 16 MiB. A program that
+cannot do so stops before it runs, with `rig: cannot reserve the stack
+guard below the main stack` and exit status 1.
 
 ```rig reject
 struct Grid

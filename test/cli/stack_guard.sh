@@ -71,4 +71,25 @@ sub main()
 EOF2
 
 out=$("$RIG" run clash.rig 2>/dev/null); expect_eq "$out" "true 0" "mappings the overflowing child wrote into"
+
+# A program that cannot reserve the space below its stack (here a
+# preloaded library maps a page there first) stops before it runs.
+cat >occupy.zig <<'EOF2'
+const std = @import("std");
+extern "c" fn pthread_get_stackaddr_np(std.c.pthread_t) *anyopaque;
+extern "c" fn pthread_get_stacksize_np(std.c.pthread_t) usize;
+fn occupy() callconv(.c) void {
+    const self = std.c.pthread_self();
+    const bottom = @intFromPtr(pthread_get_stackaddr_np(self)) - pthread_get_stacksize_np(self);
+    _ = std.c.mmap(@ptrFromInt(bottom - (16 << 10) - (32 << 20)), 16 << 10, .{}, .{ .TYPE = .PRIVATE, .ANONYMOUS = true }, -1, 0);
+}
+export const init linksection("__DATA,__mod_init_func") = [_]*const fn () callconv(.c) void{&occupy};
+EOF2
+"${ZIG:-zig}" build-lib occupy.zig -dynamic -lc -femit-bin=occupy.dylib || fail "build occupy.dylib"
+printf 'sub main()\n  print(42)\n' >hi.rig
+"$RIG" build -o hi hi.rig || fail "build hi"
+expect_eq "$(./hi)" "42" "a program with the space free"
+DYLD_INSERT_LIBRARIES=$PWD/occupy.dylib ./hi >out.txt 2>err.txt; expect_rc $? 1 "a program with the space taken"
+expect_eq "$(cat out.txt)" "" "stdout of a program that cannot guard its stack"
+expect_eq "$(cat err.txt)" "rig: cannot reserve the stack guard below the main stack" "its message"
 exit 0
