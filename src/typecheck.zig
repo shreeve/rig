@@ -4585,9 +4585,10 @@ const Checker = struct {
                 const local = try sema.importType(self.ctx, found.ctx, found.sym.ty, found.module_id);
                 const fty = self.ctx.types.get(local);
                 if (fty != .function) return self.badCall(args, pos, "`{s}` cannot be called", .{qualified});
-                try self.noteCallee(fty.function);
                 const info = paramsOf(found.sym, found.ctx.source);
                 const f = (try self.instantiateCall(fty.function, ct, args, info, 0, qualified, pos, false, .empty)) orelse return self.skipCall(args);
+                // A generic function's callee has the instance's signature.
+                try self.noteCallee(f);
                 try self.checkArgs(args, f, info, qualified, pos);
                 return f.returns;
             },
@@ -6003,7 +6004,7 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
         try ctx.oversized.put(ctx.allocator, ty, {});
         if (of == .type) try ctx.oversized.put(ctx.allocator, of.type, {});
         try ctx.err(at, "`{s}` makes `{s}`, which takes {d} bytes; a value takes at most {d} (8 MiB), since it may live on the stack. Keep larger data in a `Vec`", .{ try sema.rootName(ctx, of), try sema.formatType(ctx, ty), bytes, sema.max_value_bytes });
-        try ctx.note(g.pos, "the array is made here", .{});
+        try ctx.noteIn(g.module_id, g.pos, "the array is made here", .{});
         return;
     }
     if (of == .type) {
@@ -6035,7 +6036,7 @@ fn checkInstanceSizes(ctx: *SemContext, params: []const SymbolId, args: []const 
         const bytes = (try frameBytes(ctx, buf.items)) orelse continue;
         if (bytes <= sema.max_frame_bytes) continue;
         try reportFrame(ctx, at, fr.label, bytes, of);
-        try ctx.note(fr.pos, "{s} is declared here", .{fr.label});
+        try ctx.noteIn(fr.module_id, fr.pos, "{s} is declared here", .{fr.label});
         return;
     }
 }
@@ -6124,10 +6125,10 @@ fn checkRequirements(ctx: *SemContext, params: []const SymbolId, args: []const T
                 else => try ctx.err(at, cannot ++ "applies `{s}` to `{s}`, which `{s}` does not support", .{ inst, pname, aname, req.op, pname, aname }),
             }
             switch (req.req) {
-                .plain => try ctx.note(req.pos, "here", .{}),
-                .array_len => try ctx.note(req.pos, "`{s}` used as an array length here", .{pname}),
-                .fits, .float, .shift => try ctx.note(req.pos, "`{s}` used here", .{req.op}),
-                else => try ctx.note(req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
+                .plain => try ctx.noteIn(req.module_id, req.pos, "here", .{}),
+                .array_len => try ctx.noteIn(req.module_id, req.pos, "`{s}` used as an array length here", .{pname}),
+                .fits, .float, .shift => try ctx.noteIn(req.module_id, req.pos, "`{s}` used here", .{req.op}),
+                else => try ctx.noteIn(req.module_id, req.pos, "`{s}` used on `{s}` here ({s})", .{ req.op, pname, req.req.describe() }),
             }
             ok = false;
             break;

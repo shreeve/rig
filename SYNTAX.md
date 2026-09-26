@@ -1888,10 +1888,10 @@ compile-time argument 1 of `show` must be known at compile time
 - A generic function, or any function with compile-time parameters,
   can only be called. `f = max` and `g = max[Int]` are rejected, and a
   closure is never generic.
-- Generics do not cross modules yet: a `pub` generic function, a
-  generic method of a `pub` type, and an instance of another module's
-  generic type are rejected. A module's private generic functions
-  serve its public ones.
+- Generic types do not cross modules yet: an instance of another
+  module's generic type is rejected, and so is an instance of a
+  module's own generic type in its public surface. Generic functions
+  do cross: `lib.max(3, 7)`.
 - A generic type's value parameters are integers, and a type alias has
   no parameters.
 - A public function, or a method of a public type, whose integer
@@ -2794,8 +2794,8 @@ Coming from Rust or Zig, you will reach for these and not find them:
 
 - **traits and bounds**: a generic body may do with `T` only what each
   instance supports ([§14](#what-a-generic-body-may-do-with-t));
-- **generics across modules**: a generic type or function serves only
-  its own module;
+- **generic types across modules**: a generic type serves only its own
+  module;
 - **heap strings and string building**: `String` is an immutable view;
 - **stack closures as arguments**: pass an owned closure (`*|...|`);
 - **concurrency and async**;

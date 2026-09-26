@@ -1,0 +1,7 @@
+pub fun twice[T](x: T) -> T
+  a = x
+  -a
+  x
+
+pub fun same[T](x: T) -> T
+  x

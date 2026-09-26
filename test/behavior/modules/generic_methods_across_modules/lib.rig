@@ -21,3 +21,6 @@ pub struct Outer
 
 pub fun uses_local(n: Int) -> Int
   local(n)
+
+pub fun make_outer(n: Int) -> Outer
+  Outer(i: Inner(n: n))

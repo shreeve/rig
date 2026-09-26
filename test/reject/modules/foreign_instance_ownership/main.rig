@@ -1,0 +1,22 @@
+# The ownership checker checks each instance of another module's
+# generic against that module's body: an owning argument where the body
+# copies a `T` (the note points into the body), and a borrow where a
+# generic function takes a `T`.
+
+use lib
+
+struct Res
+  n: Int
+
+  drop(!self)
+    print("drop", self.n)
+
+sub main()
+  r = Res(n: 1)
+  a = lib.twice(Res(n: 2))
+  b = lib.same(?r)
+  print(a.n, b.n, lib.twice(3))
+
+# error: 16:11: `lib.twice[Res]` cannot use `T = Res`: the generic body copies a `T`, which would duplicate the resource `Res` owns
+# error: 2:7: `T` copied here; move it with `<` instead
+# error: 17:11: `lib.same[?Res]` cannot use `T = ?Res`: a generic function is checked for a `T` that holds no borrow

@@ -1,0 +1,4 @@
+pub fun keep[T](x: T) -> Int
+  v = Vec[T]()
+  !v.push(<x)
+  v.len

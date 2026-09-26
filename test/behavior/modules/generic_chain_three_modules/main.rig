@@ -1,0 +1,12 @@
+# A generic function whose body calls another module's generic: each
+# instance made here makes the other module's instance too, checked
+# against its body, though this module does not import it.
+
+use lib
+
+sub main()
+  a: I8 = lib.quad(3)
+  print(lib.quad(3), lib.quad(1.5), a)
+
+# expect:
+# 12 6.0 12

@@ -1892,8 +1892,7 @@ fn checkOwnedClosureType(ctx: *SemContext, fun_type: Sexp, ty: TypeId) Error!voi
 /// and, through those, the members of the private types they hold. None
 /// may be an instance of a generic type declared here, which the
 /// importer could not name or resolve: generic types cannot cross module
-/// boundaries yet. Nor can generic functions: a `pub` one, or a generic
-/// method of a `pub` type, is rejected.
+/// boundaries yet.
 fn checkPublicSurface(ctx: *SemContext) Error!void {
     var exposed: std.AutoHashMapUnmanaged(SymbolId, ?TypeId) = .empty;
     defer exposed.deinit(ctx.allocator);
@@ -1901,13 +1900,11 @@ fn checkPublicSurface(ctx: *SemContext) Error!void {
         if (!sym.flags.is_public) continue;
         switch (sym.kind) {
             .function, .type_alias => {
-                if (sym.kind == .function and try reportGenericFn(ctx, sym.decl_pos, "function", sym.name, sym.ty)) continue;
                 const inst = try exposedInstance(ctx, sym.ty, &exposed) orelse continue;
                 const what = if (sym.kind == .type_alias) "type" else if (ctx.types.get(sym.ty) == .function and ctx.types.get(sym.ty).function.is_sub) "sub" else "function";
                 try reportExposed(ctx, sym.decl_pos, what, sym.name, inst);
             },
             .nominal_type => for (sym.fields orelse &.{}) |*f| {
-                if (f.is_method and try reportGenericFn(ctx, f.decl_pos, "method", f.name, f.ty)) continue;
                 const inst = try exposedInMember(ctx, f, &exposed) orelse continue;
                 try reportExposed(ctx, f.decl_pos, if (f.is_method) "method" else if (f.is_variant) "variant" else "field", f.name, inst);
             },
@@ -1926,23 +1923,7 @@ fn exposedInMember(ctx: *SemContext, f: *const Field, exposed: *std.AutoHashMapU
     return null;
 }
 
-/// Report a public generic function or method; whether `ty` is one.
-fn reportGenericFn(ctx: *SemContext, pos: u32, what: []const u8, name: []const u8, ty: TypeId) Error!bool {
-    const f = switch (ctx.types.get(ty)) {
-        .function => |f| f,
-        else => return false,
-    };
-    if (!sema.isGenericFn(ctx, f)) return false;
-    try ctx.err(pos, "public {s} `{s}` is generic; generic functions cannot cross module boundaries yet", .{ what, name });
-    return true;
-}
-
 fn reportExposed(ctx: *SemContext, pos: u32, what: []const u8, name: []const u8, inst: TypeId) Error!void {
-    // A type parameter is reached only through a generic method of a
-    // private type.
-    if (ctx.types.get(inst) == .type_var) {
-        return ctx.err(pos, "public {s} `{s}` reaches a generic method (with the type parameter `{s}`) of a private type; generic functions cannot cross module boundaries yet", .{ what, name, try sema.formatType(ctx, inst) });
-    }
     try ctx.err(pos, "public {s} `{s}` exposes `{s}`, an instance of a generic type; generic types cannot cross module boundaries yet", .{ what, name, try sema.formatType(ctx, inst) });
 }
 
@@ -1952,7 +1933,6 @@ fn reportExposed(ctx: *SemContext, pos: u32, what: []const u8, name: []const u8,
 fn exposedInstance(ctx: *SemContext, ty: TypeId, exposed: *std.AutoHashMapUnmanaged(SymbolId, ?TypeId)) Error!?TypeId {
     switch (ctx.types.get(ty)) {
         .parameterized_nominal => |pn| if (ctx.symbols.items[pn.sym].decl_pos != sema.builtin_decl_pos) return ty,
-        .type_var => return ty,
         .nominal => |s| {
             const sym = ctx.symbols.items[s];
             // A public type's members are checked on their own.

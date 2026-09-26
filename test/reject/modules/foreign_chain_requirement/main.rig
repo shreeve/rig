@@ -1,0 +1,12 @@
+# An instance reached through another module's generic body is checked
+# against the body of the module that declares it, which this module
+# need not import.
+
+use lib
+
+sub main()
+  print(lib.quad(2), lib.quad("a"))
+
+# error: 8:26: `util.twice[String]` cannot use `T = String`: the generic body applies `+` to `T`, which `String` does not support
+# error: 2:3: `+` used on `T` here (arithmetic)
+# error: 8:26: `util.twice[String]` is made by `lib.quad[String]`

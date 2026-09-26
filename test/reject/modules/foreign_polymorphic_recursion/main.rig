@@ -1,0 +1,9 @@
+# A generic function of another module that calls itself with its type
+# parameter nested ever deeper has no finite set of instances.
+
+use lib
+
+sub main()
+  print(lib.nest(1))
+
+# error: 7:13: `lib.nest[Int]` leads to ever deeper instances of generic functions

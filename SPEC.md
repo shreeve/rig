@@ -1035,10 +1035,11 @@ the result where no type is expected, or given only `none` or a
 `.variant`).
 
 A generic function can only be called: it is not a value, and a closure
-is never generic. It cannot cross module boundaries yet
-([§15](#15-modules)), and neither can a public function, or a method
-of a public type, whose integer compile-time parameter sizes an array,
-in its signature, its body, or a function it passes the parameter to.
+is never generic. Another module's generic function is called as a
+local one is ([§15](#15-modules)). A public function, or a method of a
+public type, whose integer compile-time parameter sizes an array, in
+its signature, its body, or a function it passes the parameter to,
+cannot cross module boundaries yet.
 
 ```rig
 struct Res
@@ -3197,14 +3198,15 @@ take or return a private type: importers can hold the value and use its
 fields and methods, though they cannot name the type. A struct's fields
 and methods are visible wherever the struct is.
 
-Generics cannot cross module boundaries yet. Another module's generic
-type cannot be instantiated, and no instance of a module's own generic
-type may appear in its public surface, including in the fields of the
-private types that surface reaches. A `pub` generic function, a generic
-method of a `pub` type, and a generic method the public surface reaches
-through a private type are rejected where they are declared. A module's
-private generic functions serve its own code, public functions
-included.
+Another module's `pub` generic function, and a generic method of a type
+another module's public surface reaches, are called as local ones are.
+Each instance a call makes is checked where it is made, against what
+the declaring module's body does with its type parameters, and a
+diagnostic about it has a note at that body's line, in its file.
+Generic types cannot cross module boundaries yet. Another module's
+generic type cannot be instantiated, and no instance of a module's own
+generic type may appear in its public surface, including in the fields
+of the private types that surface reaches.
 
 ```rig file=boxes.rig
 pub struct Box[T]
@@ -3535,7 +3537,6 @@ The rest parse, and the checker rejects them as not supported yet
 
 | Form | Diagnostic |
 |---|---|
-| a `pub` generic function, or a generic method the public surface reaches | `` generic functions cannot cross module boundaries yet `` |
 | another module's generic type, or an instance of a module's generic type in its public surface | `` generic types cannot cross module boundaries yet `` |
 | a `pub` function whose compile-time parameter sizes an array | `` such functions cannot cross module boundaries yet `` |
 | `drop` on an enum or a generic struct | `` `drop` bodies are only for non-generic structs `` |

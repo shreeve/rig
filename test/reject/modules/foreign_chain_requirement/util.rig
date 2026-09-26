@@ -1,0 +1,2 @@
+pub fun twice[T](x: T) -> T
+  x + x
