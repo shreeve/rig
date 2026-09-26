@@ -1512,8 +1512,8 @@ parameter, and each call passes its type: `max(3, 7)` becomes
 
 A call infers its type arguments by matching each parameter's type
 against its argument's: `T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`,
-`[N]T`, and instances like `Vec[T]` or `Box[T]`. Every argument must
-agree. A literal takes its default type (`Int`, `Float`) only where no
+`[N]T`, instances like `Vec[T]` or `Box[T]`, and function types like
+`fun(T) -> U`. Every argument must agree. A literal takes its default type (`Int`, `Float`) only where no
 other argument gives the parameter a type, so `max(small, 9)` with
 `small: U8` is `max[U8]`; among literals alone a float literal wins, so
 `max(1, 2.5)` is `max[Float]`. Brackets give every compile-time

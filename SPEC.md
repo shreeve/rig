@@ -887,10 +887,10 @@ method `fun map[U](?self, u: U)` of `Box[T]` has both.
 A call gives every compile-time argument in brackets
 (`max[Float](1, 2)`), or none, and then its type arguments are
 inferred by matching each parameter's type against its argument's type
-(`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`, `[N]T`, `Box[T]`). A
-method's receiver gives its type's parameters. Every argument must
-agree, and an argument whose type does not have its parameter's shape
-is a type mismatch. A literal takes its default type only when no other
+(`T`, `?T`, `!T`, `*T`, `~T`, `T?`, `[]T`, `[N]T`, `Box[T]`,
+`fun(T) -> U`). A method's receiver gives its type's parameters. Every
+argument must agree, and an argument whose type does not have its
+parameter's shape is a type mismatch. A literal takes its default type only when no other
 argument gives the parameter one, and among literals alone a float
 literal gives `Float`: `max(3, 2.5)` is `max[Float]`. The type expected
 of the call's result is not used. A compile-time value is never
@@ -983,10 +983,10 @@ holds the value. A type argument cannot be a borrow or hold one, for a
 generic function or a generic type with methods: the parameter is
 written `?T` or `!T` instead.
 
-Instances reached through generic bodies nest at most 24 levels deep: a
-body that calls itself, or builds its own type, with its type
-parameters nested deeper each time (`nest[Box[T]]` inside `nest[T]`) is
-rejected rather than expanded forever.
+A body that calls itself, or builds its own type, with its type
+parameters nested deeper each time (`nest[Box[T]]` inside `nest[T]`)
+would need ever deeper instances, and is rejected rather than expanded
+forever.
 
 ```rig reject
 struct Res
