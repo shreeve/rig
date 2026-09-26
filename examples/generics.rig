@@ -1,0 +1,59 @@
+# Generics: square brackets hold what is known at compile time. A generic
+# type, a generic method with a type parameter of its own, and generic
+# functions whose type arguments are inferred. An owning `T` moves and
+# drops like any owning value.
+
+struct Tape
+  label: String
+  minutes: Int
+
+  drop self: !Tape
+    print("eject", self.label)
+
+type Stack[T]
+  items: Vec[T]
+
+  sub push(!self, x: T)
+    !self.items.push(<x)
+
+  fun pop(!self) -> T?
+    !self.items.pop()
+
+  fun map[U](?self, f: fun(?T) -> U) -> Stack[U]
+    out = Stack[U](items: Vec())
+    for x in ?self.items
+      !out.push(f(?x))
+    out
+
+fun minutes(t: ?*Tape) -> Int
+  t.minutes
+
+fun max[T](a: T, b: T) -> T
+  a if a > b else b
+
+fun pick[T](a: T, b: T, first: Bool) -> T
+  if first
+    return <a
+  <b
+
+sub main
+  tapes = Stack[*Tape](items: Vec())
+  !tapes.push(*Tape(label: "jazz", minutes: 45))
+  !tapes.push(*Tape(label: "rock", minutes: 38))
+  lengths = tapes.map(minutes)
+  print(lengths.items, max(lengths.items[0], lengths.items[1]))
+  spare = pick(Tape(label: "demo", minutes: 3), Tape(label: "blank", minutes: 0), false)
+  print("spare", spare.label)
+  if !tapes.pop() as t
+    print("played", t.label)
+  print("left", tapes.items.len, max[Float](1, 2))
+
+# expect:
+# [45, 38] 45
+# eject demo
+# spare blank
+# played rock
+# eject rock
+# left 1 2.0
+# eject blank
+# eject jazz
