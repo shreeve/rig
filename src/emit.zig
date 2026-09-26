@@ -2202,7 +2202,12 @@ pub const Emitter = struct {
                 try self.emitExpr(ir.Weak.operand(sexp));
                 try self.w.writeAll(".weakRef()");
             },
-            .call => if (self.hoistsArgs(sexp)) try self.emitHoistedCall(sexp) else try self.emitCallDirect(sexp),
+            .call => if (self.sema.elemCallOf(self.sema.calleeOf(sexp))) |ec|
+                try self.emitElemCall(sexp, ec)
+            else if (self.hoistsArgs(sexp))
+                try self.emitHoistedCall(sexp)
+            else
+                try self.emitCallDirect(sexp),
             // Compile-time arguments are emitted by the call or type that
             // takes them; sema rejects a bracket list as a value.
             .inst => return self.unsupported(sexp, "a bracket list of compile-time arguments as a value"),
@@ -2721,6 +2726,41 @@ pub const Emitter = struct {
     fn isPrintCall(self: *Emitter, call: Sexp) bool {
         const callee = self.sema.calleeOf(call);
         return callee == .src and self.sema.symbolOf(callee) == null and std.mem.eql(u8, self.srcText(callee), "print");
+    }
+
+    /// A built-in element method: `!dst.copy(src)` is `rig.copy(dst,
+    /// src)`, and `fill` and `swap` likewise, on the receiver's elements
+    /// (`emitElems`). Its arguments are plain data, so none is hoisted.
+    fn emitElemCall(self: *Emitter, call: Sexp, ec: sema.ElemCall) Error!void {
+        const callee = self.sema.calleeOf(call);
+        try self.w.print("rig.{s}(", .{@tagName(ec.op)});
+        try self.emitElems(ir.Member.object(callee));
+        for (ir.Call.args(call)) |a| {
+            try self.w.writeAll(", ");
+            try self.emitBare(a);
+        }
+        try self.w.writeAll(")");
+    }
+
+    /// The elements of a method's receiver (a slice, an array, a Vec, or
+    /// a String, borrowed or not) as a Zig slice or array pointer: a
+    /// slice or String as it is, an array through its address (writable
+    /// when the receiver is written `!xs`), a Vec through its items.
+    fn emitElems(self: *Emitter, recv: Sexp) Error!void {
+        const writes = recv.isKind(.write);
+        const place = if (recv.isKind(.write) or recv.isKind(.read)) ir.get(recv, .operand) else recv;
+        const ty = self.peelBorrows(self.typeOf(place) orelse return self.unsupported(recv, "an untyped receiver"));
+        if (self.isVecTy(ty)) {
+            try self.emitExpr(place);
+            return self.w.writeAll(".items()");
+        }
+        if (self.sema.types.get(ty) == .array) {
+            const saved_read = self.read_place;
+            defer self.read_place = saved_read;
+            self.read_place = !writes;
+            return self.emitAddressOf(place);
+        }
+        try self.emitBare(place);
     }
 
     fn emitCallDirect(self: *Emitter, sexp: Sexp) Error!void {

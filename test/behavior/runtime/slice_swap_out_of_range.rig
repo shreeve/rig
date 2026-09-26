@@ -1,0 +1,11 @@
+# `swap` checks both indexes when the program runs.
+
+fun rt(n: Int) -> Int
+  n
+
+sub main()
+  a = [1, 2, 3]
+  w = !a[1..]
+  w.swap(0, rt(2))
+
+# expect-panic: index out of bounds

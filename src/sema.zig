@@ -532,8 +532,11 @@ pub const Facts = struct {
     /// list nodes by id.
     leaf_reads: std.AutoHashMapUnmanaged(u32, void) = .empty,
     node_reads: std.AutoHashMapUnmanaged(NodeKey, void) = .empty,
+    /// Callee (`member`) node -> the built-in element method it calls.
+    elem_calls: std.AutoHashMapUnmanaged(NodeKey, ElemCall) = .empty,
 
     fn deinit(self: *Facts, allocator: std.mem.Allocator) void {
+        self.elem_calls.deinit(allocator);
         self.writes.deinit(allocator);
         self.leaf_reads.deinit(allocator);
         self.node_reads.deinit(allocator);
@@ -547,6 +550,14 @@ pub const Facts = struct {
         self.generic_calls.deinit(allocator);
     }
 };
+
+/// A built-in method on the elements of a slice, an array, a Vec, or a
+/// String: `!dst.copy(src)`, `!s.fill(v)`, `!s.swap(i, j)`.
+pub const ElemCall = struct {
+    op: ElemOp,
+};
+
+pub const ElemOp = enum { copy, fill, swap };
 
 /// What a bracket list `x[...]` that is not an index instantiates. The
 /// parser builds `(index x a)` for one argument and `(inst x a b ...)`
@@ -1124,6 +1135,15 @@ pub const SemContext = struct {
 
     pub fn recordCallSlots(self: *SemContext, call: Sexp, slots: []const ArgSlot) !void {
         try self.facts.call_slots.put(self.allocator, recordKey(call), slots);
+    }
+
+    pub fn recordElemCall(self: *SemContext, callee: Sexp, call: ElemCall) !void {
+        try self.facts.elem_calls.put(self.allocator, recordKey(callee), call);
+    }
+
+    /// The built-in element method a call's callee (`member`) names.
+    pub fn elemCallOf(self: *const SemContext, callee: Sexp) ?ElemCall {
+        return self.facts.elem_calls.get(nodeKey(callee) orelse return null);
     }
 
     pub fn recordInstance(self: *SemContext, node: Sexp, inst: Instance) !void {

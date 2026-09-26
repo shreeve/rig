@@ -1,0 +1,35 @@
+# `copy`, `fill`, and `swap` write the elements: the receiver is written
+# `!xs` (or is a `![]T`), never moved, and a String or a `[]T` is
+# read-only. `fill` and `copy` copy values in, so the elements are plain
+# data.
+
+struct P
+  x: Int
+
+sub ro(s: []Int)
+  s.fill(0)
+
+sub main()
+  a = [1, 2]
+  a.fill(0)
+  t = "abc"
+  !t.swap(0, 1)
+  hs: Vec[*P] = Vec()
+  !hs.fill(*P(x: 1))
+  b: [2]U8 = [1, 2]
+  !a.copy(?b[..])
+  !a.swap(0, 2)
+  !a.swap(1)
+  !a.fill[Int](0)
+  w = !a[..]
+  <w.fill(0)
+
+# error: 10:3: cannot `fill` a `[]Int`; its elements are read-only
+# error: 14:3: `fill` writes the elements; write the receiver with `!`: `!a.fill(...)`
+# error: 16:3: cannot `swap` a String; a String is read-only
+# error: 18:7: `fill` copies values into the elements; a `*P` owns a resource
+# error: 20:11: type mismatch: expected `[]Int`, got `[]U8`
+# error: 21:14: index `2` is out of bounds for an array of length 2
+# error: `swap` takes two arguments, the indexes of the elements to swap; got 1 argument
+# error: `fill` takes no compile-time arguments
+# error: 25:3: `fill` does not consume its receiver; drop the `<`

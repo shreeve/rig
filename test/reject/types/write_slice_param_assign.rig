@@ -10,4 +10,4 @@ sub main()
   b = [3, 4]
   f(!a[..], !b[..])
 
-# error: 5:3: cannot assign to `s`, a `![]Int` parameter; write its elements with `s[i] = v`
+# error: 5:3: cannot assign to `s`, a `![]Int` parameter; write its elements with `s[i] = v` or `!s.copy(src)`

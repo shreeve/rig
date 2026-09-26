@@ -582,6 +582,40 @@ sub main
 [7, 3, 30, 40]
 ```
 
+Three methods write the elements of a `![]T`, an array, or a Vec,
+whose receiver is written `!xs` (or is a `![]T` binding):
+`!dst.copy(src)` copies a `[]T` of the same length into them, and
+panics in every build mode when the lengths differ; `!s.fill(v)` sets
+every element to `v`; `!s.swap(i, j)` exchanges two elements, with both
+indexes checked. `copy` and `fill` copy values in, so the elements are
+plain data; `swap` also moves the handles of a `Vec` of them. `copy`'s
+receiver and argument never overlap: the write borrow of the receiver
+excludes a read of the same value.
+
+```rig
+sub main
+  a = [1, 2, 3, 4, 5, 6]
+  b = [9, 8, 7]
+  !a[..3].copy(?b[..])
+  !a[3..].fill(0)
+  !a.swap(0, 5)
+  print(a)
+```
+
+```output
+[0, 8, 7, 0, 0, 9]
+```
+
+```rig reject
+sub main
+  a = [1, 2, 3, 4]
+  !a[..2].copy(?a[2..])
+```
+
+```error
+cannot write-borrow `a` while a read borrow is live
+```
+
 ```rig reject
 sub main
   s = "text"

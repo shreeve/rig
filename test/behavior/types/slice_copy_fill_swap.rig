@@ -1,0 +1,50 @@
+# `!dst.copy(src)` copies a `[]T` of the same length into the elements,
+# `!s.fill(v)` sets every element, and `!s.swap(i, j)` exchanges two, on a
+# `![]T`, an array, or a Vec. `swap` also moves handles in a Vec of them.
+
+struct P
+  x: Int
+
+sub main()
+  a = [1, 2, 3, 4, 5, 6]
+  b = [9, 8, 7]
+  !a[..3].copy(?b[..])
+  print(a)
+  !a[3..].fill(0)
+  print(a)
+  !a.swap(0, 5)
+  print(a)
+  w = !a[1..]
+  w.swap(0, 1)
+  !w.fill(4)
+  print(a)
+  v: Vec[Int] = Vec()
+  !v.push(1)
+  !v.push(2)
+  !v.swap(0, 1)
+  !v.fill(3)
+  !v.copy(?b[1..])
+  print(v)
+  ps = [P(x: 1), P(x: 2)]
+  !ps.fill(P(x: 5))
+  print(ps[0].x, ps[1].x)
+  f: [3]F32 = [1.0, 2.0, 3.0]
+  !f.fill(1.5)
+  print(f)
+  hs: Vec[*P] = Vec()
+  !hs.push(*P(x: 1))
+  !hs.push(*P(x: 2))
+  !hs.swap(0, 1)
+  for h in ?hs
+    print(h.x)
+
+# expect:
+# [9, 8, 7, 4, 5, 6]
+# [9, 8, 7, 0, 0, 0]
+# [0, 8, 7, 0, 0, 9]
+# [0, 4, 4, 4, 4, 4]
+# [8, 7]
+# 5 5
+# [1.5, 1.5, 1.5]
+# 2
+# 1

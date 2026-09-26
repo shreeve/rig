@@ -2734,7 +2734,9 @@ parameter, and while it is live nothing else uses what it borrows, so
 two write slices of one array, or a `push` to a Vec while a slice of
 it is live, are rejected. A `![]T` goes wherever a `[]T` does, and its
 elements are assigned (`s[i] = v`) and written in a loop
-(`for x in !s`).
+(`for x in !s`). `!dst.copy(src)` (lengths must match, as in Rust's
+`copy_from_slice`), `!s.fill(v)`, and `!s.swap(i, j)` write the
+elements of a `![]T`, an array, or a Vec.
 
 ```rig
 sub quicksort(s: ![]Int)
@@ -2746,12 +2748,9 @@ sub quicksort(s: ![]Int)
   j = 0
   while j < last : j += 1
     if s[j] < pivot
-      t = s[i]
-      s[i] = s[j]
-      s[j] = t
+      !s.swap(i, j)
       i += 1
-  s[last] = s[i]
-  s[i] = pivot
+  !s.swap(i, last)
   quicksort(!s[..i])
   quicksort(!s[i + 1..])
 

@@ -10,12 +10,9 @@ sub quicksort(s: ![]Int)
   j = 0
   while j < last : j += 1
     if s[j] < pivot
-      t = s[i]
-      s[i] = s[j]
-      s[j] = t
+      !s.swap(i, j)
       i += 1
-  s[last] = s[i]
-  s[i] = pivot
+  !s.swap(i, last)
   quicksort(!s[..i])
   quicksort(!s[i + 1..])
 

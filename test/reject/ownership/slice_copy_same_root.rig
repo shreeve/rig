@@ -1,0 +1,17 @@
+# `copy` writes its receiver while it reads its argument: the two cannot
+# borrow the same array, so they never overlap.
+
+sub halves()
+  a = [1, 2, 3, 4]
+  !a[..2].copy(?a[2..])
+
+sub reslices()
+  a = [1, 2, 3, 4]
+  w = !a[..]
+  !w[..2].copy(?w[2..])
+
+sub main()
+  halves()
+
+# error: 6:3: cannot write-borrow `a` while a read borrow is live
+# error: 11:3: cannot write-borrow `w` while a read borrow is live

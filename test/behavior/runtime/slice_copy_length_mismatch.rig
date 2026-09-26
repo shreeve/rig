@@ -1,0 +1,8 @@
+# `copy` between slices of different lengths panics.
+
+sub main()
+  a = [1, 2, 3]
+  b = [4, 5]
+  !a.copy(?b[..])
+
+# expect-panic: copy between slices of different lengths

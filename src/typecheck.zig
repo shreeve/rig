@@ -559,7 +559,7 @@ const Checker = struct {
         // A `![]T` parameter or pattern binding views the caller's
         // elements; there is no whole value to write through to.
         if (!is_decl and writes_through and sema.writeSliceElem(self.ctx, sym.ty) != null) {
-            try self.errAt(target, "cannot assign to `{s}`, a `{s}` {s}; write its elements with `{s}[i] = v`", .{ name, try self.tyName(sym.ty), if (sym.kind == .param) "parameter" else "binding", name });
+            try self.errAt(target, "cannot assign to `{s}`, a `{s}` {s}; write its elements with `{s}[i] = v` or `!{s}.copy(src)`", .{ name, try self.tyName(sym.ty), if (sym.kind == .param) "parameter" else "binding", name, name });
             _ = try self.synthExpr(rhs);
             return;
         }
@@ -4593,6 +4593,7 @@ const Checker = struct {
             return obj_ty;
         }
 
+        if (try self.elemsCall(callee, obj, obj_ty, method, pos, args, ct)) |ty| return ty;
         const resolved_method = try self.findMethod(obj_ty, method);
         // `x.f[i](args)` where `f` is a field: its element is called.
         if (ct != null and resolved_method == null) {
@@ -4713,6 +4714,89 @@ const Checker = struct {
         };
         try self.checkArgs(args, rest, info, method, pos);
         return f.returns;
+    }
+
+    /// `copy`, `fill`, and `swap`: built-in methods on the elements of a
+    /// slice, an array, or a Vec, which write them in place. Null when
+    /// `method` is none of them or the receiver has no elements.
+    fn elemsCall(self: *Checker, callee: Sexp, obj: Sexp, obj_ty: TypeId, method: []const u8, pos: u32, args: []const Sexp, ct: ?Sexp) Error!?TypeId {
+        const op = std.meta.stringToEnum(sema.ElemOp, method) orelse return null;
+        const peeled = sema.unwrapBorrows(self.ctx, obj_ty);
+        var len: ?u64 = null;
+        const elem: TypeId = switch (self.ctx.types.get(peeled)) {
+            .slice => |sl| sl.elem,
+            .array => |a| blk: {
+                len = sema.arrayLen(self.ctx, a);
+                break :blk a.elem;
+            },
+            .string => try self.ctx.intern(.{ .int = .{ .bits = 8, .signed = false } }),
+            else => vecElementType(self.ctx, peeled) orelse return null,
+        };
+        if (obj.isKind(.move) and self.isReceiverSigil(obj)) {
+            try self.misplacedSigil(obj, method, "does not consume its receiver");
+            return try self.skipCall(args);
+        }
+        if (ct) |b| return try self.badCall(args, b, "`{s}` takes no compile-time arguments", .{method});
+        if (!try self.writesElements(obj, obj_ty, peeled, method)) return try self.skipCall(args);
+        if (op != .swap and try self.ownsResource(elem, pos, "copies into the elements a value")) {
+            return try self.badCall(args, pos, "`{s}` copies values into the elements; a `{s}` owns a resource", .{ method, try self.tyName(elem) });
+        }
+        for (args) |a| if (a.isKind(.kwarg)) return try self.badCall(args, a, "`{s}` takes no keyword arguments", .{method});
+        const want: usize = if (op == .swap) 2 else 1;
+        if (args.len != want) return try self.badCall(args, pos, "`{s}` takes {s}; got {d} argument{s}", .{ method, switch (op) {
+            .copy => "one argument, the `[]T` to copy from",
+            .fill => "one argument, the value for every element",
+            .swap => "two arguments, the indexes of the elements to swap",
+        }, args.len, if (args.len == 1) "" else "s" });
+        const recv = try self.ctx.intern(.{ .borrow_write = peeled });
+        const params: []const TypeId = switch (op) {
+            .copy => &.{ recv, try self.ctx.intern(.{ .slice = .{ .elem = elem } }) },
+            .fill => &.{ recv, elem },
+            .swap => &.{ recv, self.t().int_id, self.t().int_id },
+        };
+        try self.noteCallee(.{ .params = try self.ctx.dupeIds(params), .returns = self.t().void_id, .is_sub = true });
+        try self.ctx.recordElemCall(callee, .{ .op = op });
+        switch (op) {
+            .copy, .fill => try self.checkExpr(args[0], params[1]),
+            .swap => for (args) |a| try self.checkIndexArg(a, len),
+        }
+        return self.t().void_id;
+    }
+
+    /// An index argument: an integer (`Int` when that is all a literal
+    /// says), checked now against a known length when it is constant.
+    fn checkIndexArg(self: *Checker, a: Sexp, len: ?u64) Error!void {
+        const ty = try self.synthValue(a);
+        if (self.isPoison(ty)) return;
+        if (!sema.isInteger(self.ctx, ty)) return self.errAt(a, "an index must be an integer; got `{s}`", .{try self.tyName(ty)});
+        if (ty == self.t().int_literal_id) try self.checkLiteralFits(a, self.t().int_id);
+        if (len) |n| if (self.constInt(a)) |i| if (i < 0 or i >= n) {
+            try self.errAt(a, "index `{d}` is out of bounds for an array of length {d}", .{ i, n });
+        };
+    }
+
+    /// The receiver of a method that writes the elements of `peeled` (a
+    /// slice, an array, or a Vec): a `![]T`, or a place written `!xs`.
+    /// False after a diagnostic.
+    fn writesElements(self: *Checker, obj: Sexp, obj_ty: TypeId, peeled: TypeId, method: []const u8) Error!bool {
+        switch (self.ctx.types.get(peeled)) {
+            .string => {
+                try self.errAt(obj, "cannot `{s}` a String; a String is read-only", .{method});
+                return false;
+            },
+            .slice => if (sema.writeSliceElem(self.ctx, obj_ty) == null) {
+                try self.errAt(obj, "cannot `{s}` a `{s}`; its elements are read-only (a writable slice is a `![]T`)", .{ method, try self.tyName(obj_ty) });
+                return false;
+            },
+            else => {},
+        }
+        // `!xs.fill(v)`: the write borrow took the checks.
+        if (obj.isKind(.write)) return true;
+        // A binding that holds a write borrow lends it as it is.
+        if (self.ctx.types.get(obj_ty) == .borrow_write and !obj.isKind(.read)) return self.checkLendsWriteBorrow(obj);
+        const sp = self.ctx.span(if (obj.isKind(.read) or obj.isKind(.move)) ir.get(obj, .operand) else obj);
+        try self.errAt(obj, "`{s}` writes the elements; write the receiver with `!`: `!{s}.{s}(...)`", .{ method, self.ctx.source[sp.start..sp.end], method });
+        return false;
     }
 
     /// A `Cell[Vec[E]]` answers its Vec's `push`, `pop`, `clear`, and,

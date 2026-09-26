@@ -760,6 +760,25 @@ pub fn sliceMut(items: anytype, lo: anytype, hi: anytype) []std.meta.Elem(@TypeO
     return items[b[0]..b[1]];
 }
 
+/// `!dst.copy(src)`: panics unless the lengths are equal. Safe code
+/// cannot pass overlapping slices (the write borrow excludes the read).
+pub fn copy(dst: anytype, src: []const std.meta.Elem(@TypeOf(dst))) void {
+    if (dst.len != src.len) @panic("copy between slices of different lengths");
+    @memcpy(dst, src);
+}
+
+/// `!s.fill(v)`: every element becomes `v`.
+pub fn fill(dst: anytype, value: std.meta.Elem(@TypeOf(dst))) void {
+    @memset(dst, value);
+}
+
+/// `!s.swap(i, j)`: panics unless both indexes are in range.
+pub fn swap(items: anytype, i: anytype, j: anytype) void {
+    const a = index(i, items.len);
+    const b = index(j, items.len);
+    std.mem.swap(std.meta.Elem(@TypeOf(items)), &items[a], &items[b]);
+}
+
 fn bounds(count: usize, lo: anytype, hi: anytype) [2]usize {
     const l = std.math.cast(usize, lo) orelse slicePanic();
     const h = if (@TypeOf(hi) == @TypeOf(null)) count else std.math.cast(usize, hi) orelse slicePanic();
